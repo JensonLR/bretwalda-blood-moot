@@ -28,3 +28,6 @@ yarn-error.log*
 # generated capture output
 art/shots/
 !art/shots/baseline/
+
+# TS incremental build info
+tsconfig.tsbuildinfo
