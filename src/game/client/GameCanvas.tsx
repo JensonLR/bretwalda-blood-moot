@@ -101,6 +101,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     isMobile.current = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     // Perf auto-detect: small screens & touch = use lighter shadow/pixel budgets
     isLowEnd.current = isMobile.current || window.innerWidth < 900;
+    // Photo mode (/shot) pins the camera yaw so captures are reproducible.
+    const cam = (window as unknown as Record<string, unknown>).__photoCam;
+    if (typeof cam === "number") inputState.current.cameraAngle = cam;
   }, []);
 
   function mat(color: number, rough = 0.8, metal = 0): THREE.MeshStandardMaterial {
