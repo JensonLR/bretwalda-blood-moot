@@ -135,159 +135,181 @@ export function freeCosmeticIds(): string[] {
   return ids;
 }
 
-// ---------------- Material helpers ----------------
-function mat(color: number, rough = 0.7, metal = 0.0): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
+// ---------------- Materials ----------------
+// A warrior asks for substances, not colours: mail, wool, leather, skin, steel,
+// oak. Where those come from is the caller's business — the arena hands over its
+// shared, textured library, so a lobby of eight warriors is a handful of
+// programs rather than the 73 fresh MeshStandardMaterials per body this file
+// used to allocate.
+export interface CharacterMaterials {
+  armour(color: number): THREE.MeshStandardMaterial;
+  tunic(color: number): THREE.MeshStandardMaterial;
+  hide(color: number): THREE.MeshStandardMaterial;
+  flesh(color: number): THREE.MeshStandardMaterial;
+  blade(color: number, roughness?: number): THREE.MeshStandardMaterial;
+  timber(color: number): THREE.MeshStandardMaterial;
+  standard(color: number, roughness?: number, metalness?: number): THREE.MeshStandardMaterial;
+  get(name: "runeGlow"): THREE.Material;
 }
-function metal(color: number, rough = 0.35): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.85 });
-}
-function cloth(color: number): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
-}
+
+/**
+ * Untextured stand-in for callers with no texture library — the armoury preview
+ * renders into its own canvas and cannot afford to generate half a megabyte of
+ * PBR maps to show one hauberk. Every call allocates, and the caller is expected
+ * to dispose what it built.
+ */
+const RAW: CharacterMaterials = {
+  armour: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0.55 }),
+  tunic: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, metalness: 0 }),
+  hide: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0 }),
+  flesh: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0 }),
+  blade: (c, rough = 0.35) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0.85 }),
+  timber: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, metalness: 0 }),
+  standard: (c, rough = 0.8, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal }),
+  get: () => new THREE.MeshStandardMaterial({ color: 0x66c8ff, emissive: 0x2288dd, emissiveIntensity: 3.5, roughness: 0.4 }),
+};
 
 const SKIN = 0xd9a97e;
 const SKIN_DARK = 0xc28f63;
 const LEATHER = 0x4a3020;
-const IRON_DARK = 0x555d66;
 
 const CLOAK_COLORS: Record<string, number> = {
   brown: 0x5a4030, red: 0x7a2020, blue: 0x24386a, gold: 0xa8842a, none: 0x5a4030,
 };
 
 // ---------------- Weapon builders ----------------
-export function buildSword(): THREE.Group {
+export function buildSword(materials?: CharacterMaterials): THREE.Group {
+  const M = materials ?? RAW;
   const g = new THREE.Group();
   // Grip (origin = hand)
-  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.03, 0.24, 8), cloth(0x2a1c10));
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.03, 0.24, 8), M.hide(0x2a1c10));
   grip.position.y = 0.02;
   g.add(grip);
   // Grip wrap rings
-  const wrap = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.006, 6, 10), mat(0x8a6a3a, 0.5, 0.6));
+  const wrap = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.006, 6, 10), M.blade(0x8a6a3a, 0.5));
   wrap.rotation.x = Math.PI / 2; wrap.position.y = 0.08;
   g.add(wrap);
   // Pommel
-  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), metal(0xb8a14e, 0.3));
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), M.blade(0xb8a14e, 0.3));
   pommel.position.y = -0.11;
   g.add(pommel);
   // Crossguard
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.035, 0.05), metal(0x8a97a5, 0.3));
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.035, 0.05), M.blade(0x8a97a5, 0.3));
   guard.position.y = 0.16;
   g.add(guard);
   // Blade (pattern-welded: bright edges, darker fuller, tapered)
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.92, 0.02), metal(0xdcdee8, 0.16));
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.92, 0.02), M.blade(0xdcdee8, 0.16));
   blade.position.y = 0.66;
   blade.scale.x = 1;
   g.add(blade);
   // Edge bevels
   [-1, 1].forEach((s) => {
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.9, 0.024), metal(0xf0f4fa, 0.12));
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.9, 0.024), M.blade(0xf0f4fa, 0.12));
     edge.position.set(s * 0.04, 0.66, 0);
     g.add(edge);
   });
   // Fuller (dark groove)
-  const fuller = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.86, 0.022), mat(0x50565e, 0.5, 0.6));
+  const fuller = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.86, 0.022), M.blade(0x50565e, 0.5));
   fuller.position.y = 0.68;
   g.add(fuller);
   // Tip
-  const tipMesh = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.16, 4), metal(0xf0f4fa, 0.12));
+  const tipMesh = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.16, 4), M.blade(0xf0f4fa, 0.12));
   tipMesh.position.y = 1.2;
   tipMesh.scale.z = 0.35;
   g.add(tipMesh);
   return g;
 }
 
-export function buildDagger(): THREE.Group {
+export function buildDagger(materials?: CharacterMaterials): THREE.Group {
+  const M = materials ?? RAW;
   const g = new THREE.Group();
-  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, 0.16, 8), cloth(0x1f2a3a));
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, 0.16, 8), M.hide(0x1f2a3a));
   g.add(grip);
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.04), metal(0x6a8ab8, 0.35));
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.04), M.blade(0x6a8ab8, 0.35));
   guard.position.y = 0.09;
   g.add(guard);
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.014), metal(0xc8e0f8, 0.18));
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.014), M.blade(0xc8e0f8, 0.18));
   blade.position.y = 0.35;
   g.add(blade);
-  const tipMesh = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.08, 4), metal(0xc8e0f8, 0.18));
+  const tipMesh = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.08, 4), M.blade(0xc8e0f8, 0.18));
   tipMesh.position.y = 0.62; tipMesh.scale.z = 0.28;
   g.add(tipMesh);
   // Rune etching glow
-  const rune = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.3, 0.016),
-    new THREE.MeshStandardMaterial({ color: 0x44c8ff, emissive: 0x2288ee, emissiveIntensity: 1.6, roughness: 0.4 }));
+  const rune = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.3, 0.016), M.get("runeGlow"));
   rune.position.y = 0.4;
   g.add(rune);
   return g;
 }
 
-export function buildAxe(): THREE.Group {
+export function buildAxe(materials?: CharacterMaterials): THREE.Group {
+  const M = materials ?? RAW;
   const g = new THREE.Group();
   // Long haft
-  const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 1.5, 8), cloth(0x5a3c22));
+  const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 1.5, 8), M.timber(0x5a3c22));
   haft.position.y = 0.45;
   g.add(haft);
   // Langets (metal strips on haft)
   [-1, 1].forEach((s) => {
-    const langet = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.42, 0.05), metal(0x757b83, 0.45));
+    const langet = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.42, 0.05), M.blade(0x757b83, 0.45));
     langet.position.set(s * 0.045, 1.04, 0);
     g.add(langet);
   });
   // Axe head — bearded Danish axe blade
   const headGroup = new THREE.Group();
-  const headCore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.05), metal(0x8a9098, 0.28));
+  const headCore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.05), M.blade(0x8a9098, 0.28));
   headGroup.add(headCore);
   // Sweeping crescent blade edge
   const edge = new THREE.Mesh(
     new THREE.CylinderGeometry(0.34, 0.34, 0.048, 28, 1, false, -Math.PI * 0.24, Math.PI * 0.5),
-    metal(0xdfe6ee, 0.12)
+    M.blade(0xdfe6ee, 0.12)
   );
   edge.rotation.z = Math.PI / 2;
-  edge.rotation.x = -Math.PI / 2 * 0.0;
   edge.scale.set(1, 1, 0.72);
   edge.position.set(0.12, -0.04, 0);
   headGroup.add(edge);
   // Mail collar (top wedge)
-  const collar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.055), metal(0x757b83, 0.4));
+  const collar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.055), M.blade(0x757b83, 0.4));
   collar.position.y = 0.18;
   headGroup.add(collar);
   // Poll
-  const poll = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), metal(0x757b83, 0.4));
+  const poll = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), M.blade(0x757b83, 0.4));
   poll.position.x = -0.07;
   headGroup.add(poll);
   headGroup.position.set(0, 1.16, 0);
   g.add(headGroup);
   // Leather grip wrap near top
-  const wrap2 = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.14, 8), cloth(0x3a2a18));
+  const wrap2 = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.14, 8), M.hide(0x3a2a18));
   wrap2.position.y = 0.28;
   g.add(wrap2);
   return g;
 }
 
-export function buildShield(color = 0x6b4226): THREE.Group {
+export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): THREE.Group {
+  const M = materials ?? RAW;
   const g = new THREE.Group();
   // Planking: two-tone wedges (alternate circles slightly offset in shade)
-  const board = new THREE.Mesh(new THREE.CircleGeometry(0.52, 24), cloth(color));
+  const board = new THREE.Mesh(new THREE.CircleGeometry(0.52, 24), M.timber(color));
   g.add(board);
-  const boardDark = new THREE.Mesh(new THREE.CircleGeometry(0.52, 24), cloth(0x3a2a18));
+  const boardDark = new THREE.Mesh(new THREE.CircleGeometry(0.52, 24), M.timber(0x3a2a18));
   boardDark.position.z = -0.006;
   g.add(boardDark);
   // Painted cross pattern
-  const paint1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5), cloth(0xc9b48a));
+  const paint1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5), M.timber(0xc9b48a));
   paint1.rotation.x = Math.PI / 2;
   paint1.position.z = 0.004;
   g.add(paint1);
-  const paint2 = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.012, 24), new THREE.MeshStandardMaterial({ color: 0xc9b48a, roughness: 0.9, transparent: true, opacity: 0.0 }));
-  g.add(paint2);
   // Iron rim
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.02, 6, 32), metal(0x7a828c, 0.4));
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.02, 6, 32), M.blade(0x7a828c, 0.4));
   g.add(rim);
   // Boss
-  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), metal(0xc9b48a, 0.25));
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), M.blade(0xc9b48a, 0.25));
   boss.rotation.x = Math.PI / 2;
   boss.position.z = 0.05;
   g.add(boss);
   // Rivets
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), metal(0xb8b088, 0.3));
+    const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), M.blade(0xb8b088, 0.3));
     rivet.position.set(Math.cos(a) * 0.4, Math.sin(a) * 0.4, 0.012);
     g.add(rivet);
   }
@@ -306,12 +328,18 @@ export interface BuiltCharacter {
   torso: THREE.Mesh;
 }
 
-export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: number): BuiltCharacter {
+export function buildCharacter(
+  cls: WarriorClass,
+  ap: Appearance,
+  accents: number,
+  materials?: CharacterMaterials,
+): BuiltCharacter {
+  const M = materials ?? RAW;
   const root = new THREE.Group();
 
-  const armorMat = mat(ap.armorColor, 0.45, 0.55);
-  const clothDark = cloth(0x3a2c1c);
-  const accentMat = cloth(accents);
+  const armorMat = M.armour(ap.armorColor);
+  const clothDark = M.tunic(0x3a2c1c);
+  const accentMat = M.tunic(accents);
 
   // ===== LEGS (pivot at hip, swinging forward/back) =====
   function buildLeg(side: number): THREE.Group {
@@ -321,15 +349,15 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
     trouser.position.y = -0.21;
     pivot.add(trouser);
     // Wool leg wraps
-    const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.078, 0.22, 10), cloth(0x8a7a5a));
+    const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.078, 0.22, 10), M.tunic(0x8a7a5a));
     wrap.position.y = -0.5;
     pivot.add(wrap);
     // Boot (toe + heel)
-    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.11, 0.3), cloth(0x2a1c10));
+    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.11, 0.3), M.hide(0x2a1c10));
     boot.position.set(0, -0.73, 0.05);
     boot.scale.x = 0.95;
     pivot.add(boot);
-    const toe = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), cloth(0x2a1c10));
+    const toe = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), M.hide(0x2a1c10));
     toe.scale.set(1, 0.7, 1.4);
     toe.position.set(0, -0.76, 0.19);
     pivot.add(toe);
@@ -353,16 +381,16 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
   chest.position.set(0, 1.5, 0.04);
   root.add(chest);
   // Chest plate rim
-  const rimBelt = new THREE.Mesh(new THREE.TorusGeometry(0.375, 0.03, 6, 14), mat(0xb8a14e, 0.4, 0.7));
+  const rimBelt = new THREE.Mesh(new THREE.TorusGeometry(0.375, 0.03, 6, 14), M.blade(0xb8a14e, 0.4));
   rimBelt.rotation.x = Math.PI / 2;
   rimBelt.position.y = 1.58;
   root.add(rimBelt);
   // Belt
-  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.045, 6, 14), cloth(0x2a1c10));
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.045, 6, 14), M.hide(0x2a1c10));
   belt.rotation.x = Math.PI / 2;
   belt.position.y = 0.92;
   root.add(belt);
-  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.07, 0.03), metal(0xb8a14e, 0.3));
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.07, 0.03), M.blade(0xb8a14e, 0.3));
   buckle.position.set(0, 0.92, 0.39);
   root.add(buckle);
   // Skirt (mail/tunic lower)
@@ -374,24 +402,23 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
   // Class flair
   if (cls === "berserker") {
     // Fur pelt (squashed down & back so it never clips the neck/head)
-    const pelt = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 9), cloth(0x6a4a2c));
+    const pelt = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 9), M.tunic(0x6a4a2c));
     pelt.scale.set(1.05, 0.42, 0.8);
     pelt.position.set(0, 1.56, -0.06);
     root.add(pelt);
     // Cross strap
-    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.62, 0.03), cloth(0x3a2a18));
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.62, 0.03), M.hide(0x3a2a18));
     strap.rotation.z = 0.6;
     strap.position.set(-0.06, 1.36, 0.37);
     root.add(strap);
   }
   if (cls === "runekeeper") {
     // Rune amulet (clear of the mail rim)
-    const am = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8),
-      new THREE.MeshStandardMaterial({ color: 0x44c8ff, emissive: 0x2266eb, emissiveIntensity: 1.8 }));
+    const am = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), M.get("runeGlow"));
     am.position.set(0, 1.44, 0.42);
     root.add(am);
     // cord
-    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.28, 4), cloth(0x3a2a18));
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.28, 4), M.hide(0x3a2a18));
     cord.rotation.x = 0.5;
     cord.position.set(0, 1.55, 0.3);
     root.add(cord);
@@ -414,24 +441,23 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
     upper.position.y = -0.16;
     pivot.add(upper);
     // Elbow
-    const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), cloth(0x5a463a));
+    const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), M.hide(0x5a463a));
     elbow.position.y = -0.32;
     pivot.add(elbow);
     // Forearm (skin + leather bracer)
-    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.058, 0.24, 10), mat(SKIN, 0.85));
+    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.058, 0.24, 10), M.flesh(SKIN));
     fore.position.y = -0.44;
     pivot.add(fore);
-    const bracer = new THREE.Mesh(new THREE.CylinderGeometry(0.076, 0.066, 0.14, 10), cloth(0x4a3020));
+    const bracer = new THREE.Mesh(new THREE.CylinderGeometry(0.076, 0.066, 0.14, 10), M.hide(LEATHER));
     bracer.position.y = -0.5;
     pivot.add(bracer);
     if (cls === "runekeeper") {
-      const etch = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.1, 0.02),
-        new THREE.MeshStandardMaterial({ color: 0x44c8ff, emissive: 0x2266eb, emissiveIntensity: 1.4 }));
+      const etch = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.1, 0.02), M.get("runeGlow"));
       etch.position.set(side * 0.07, -0.5, 0.02);
       pivot.add(etch);
     }
     // Hand
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), mat(SKIN_DARK, 0.85));
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), M.flesh(SKIN_DARK));
     hand.position.y = -0.62;
     pivot.add(hand);
     return pivot;
@@ -457,54 +483,54 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
   const headPivot = new THREE.Group();
   headPivot.position.set(0, 1.78, 0);
   // Neck
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.115, 0.12, 10), mat(SKIN_DARK, 0.85));
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.115, 0.12, 10), M.flesh(SKIN_DARK));
   neck.position.y = 0;
   headPivot.add(neck);
   // Skull + jaw (smooth)
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.205, 20, 16), mat(SKIN, 0.78));
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.205, 20, 16), M.flesh(SKIN));
   skull.position.y = 0.16;
   skull.scale.set(1, 1.05, 1.02);
   headPivot.add(skull);
-  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.165, 14, 12), mat(SKIN_DARK, 0.85));
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.165, 14, 12), M.flesh(SKIN_DARK));
   jaw.position.set(0, 0.055, 0.045);
   jaw.scale.set(0.92, 0.75, 0.95);
   headPivot.add(jaw);
   // Cheeks — flush against the jaw, not poking through
   [-1, 1].forEach((s) => {
-    const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.068, 10, 8), mat(SKIN, 0.82));
+    const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.068, 10, 8), M.flesh(SKIN));
     cheek.position.set(s * 0.105, 0.065, 0.15);
     cheek.scale.set(1, 0.8, 0.85);
     headPivot.add(cheek);
   });
   // Nose (shorter — no javelin)
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.06, 8), mat(SKIN_DARK, 0.85));
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.06, 8), M.flesh(SKIN_DARK));
   nose.rotation.x = Math.PI / 2.35;
   nose.position.set(0, 0.135, 0.205);
   headPivot.add(nose);
   // Ears
   [-1, 1].forEach((s) => {
-    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.036, 8, 8), mat(SKIN, 0.85));
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.036, 8, 8), M.flesh(SKIN));
     ear.position.set(s * 0.195, 0.13, 0.01);
     ear.scale.set(0.55, 0.95, 0.7);
     headPivot.add(ear);
   });
   // Brows ON the skull surface (z≈0.205), not buried inside
   [-1, 1].forEach((s) => {
-    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.018, 0.018), mat(ap.hairColor, 0.9));
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.018, 0.018), M.tunic(ap.hairColor));
     brow.position.set(s * 0.075, 0.195, 0.185);
     brow.rotation.x = -0.1;
     headPivot.add(brow);
   });
   // Eyes ON the skull surface
   [-1, 1].forEach((s) => {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), mat(0x1a1208, 0.3));
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), M.standard(0x1a1208, 0.3));
     eye.position.set(s * 0.075, 0.155, 0.185);
     eye.scale.set(1, 1, 0.55);
     headPivot.add(eye);
   });
 
   // ----- HAIR -----
-  const hairMat = cloth(ap.hairColor);
+  const hairMat = M.tunic(ap.hairColor);
   if (ap.hairStyle !== "shaved") {
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.215, 16, 12, 0, Math.PI * 2, 0, Math.PI * (ap.hairStyle === "short" ? 0.38 : 0.5)), hairMat);
     cap.position.y = 0.235;
@@ -527,7 +553,7 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
   }
 
   // ----- BEARD (no chest migration — measured to stop at the jaw) -----
-  const beardMat = cloth(ap.beardColor);
+  const beardMat = M.tunic(ap.beardColor);
   if (ap.beardStyle !== "none") {
     if (ap.beardStyle === "short") {
       const b = new THREE.Mesh(new THREE.SphereGeometry(0.145, 10, 8), beardMat);
@@ -557,7 +583,7 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
         seg.position.set(0, -0.01 - i * 0.075, 0.115);
         headPivot.add(seg);
       }
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.012, 6, 10), metal(0xb8a14e, 0.3));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.012, 6, 10), M.blade(0xb8a14e, 0.3));
       ring.position.set(0, -0.14, 0.115);
       headPivot.add(ring);
     }
@@ -565,7 +591,7 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
 
   // ----- WAR PAINT -----
   if (ap.warPaint !== "none") {
-    const paintMat = new THREE.MeshStandardMaterial({ color: ap.warPaint === "cross" ? 0x223a66 : 0x7a2015, roughness: 0.9 });
+    const paintMat = M.standard(ap.warPaint === "cross" ? 0x223a66 : 0x7a2015, 0.9);
     if (ap.warPaint === "stripes") {
       for (let i = -1; i <= 1; i++) {
         const st = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.16, 0.01), paintMat);
@@ -588,7 +614,7 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
   }
 
   // ----- HELMS -----
-  const ironMat = metal(0x8a9099, 0.3);
+  const ironMat = M.blade(0x8a9099, 0.3);
   if (ap.helm === "iron" || ap.helm === "nasal" || ap.helm === "spectacle" || ap.helm === "crowned") {
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.245, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.46), ironMat);
     cap.position.y = 0.245;
@@ -611,35 +637,35 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
       plate.rotation.x = -0.05;
       headPivot.add(plate);
       [-1, 1].forEach((s) => {
-        const slit = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.028, 0.025), mat(0x0a0a0a, 0.85));
+        const slit = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.028, 0.025), M.standard(0x0a0a0a, 0.85));
         slit.position.set(s * 0.08, 0.19, 0.25);
         headPivot.add(slit);
       });
       // Rivets on the brim band
       [-0.15, 0.15].forEach((x) => {
-        const riv = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), metal(0xb8a14e, 0.3));
+        const riv = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), M.blade(0xb8a14e, 0.3));
         riv.position.set(x, 0.105, 0.22);
         headPivot.add(riv);
       });
     }
     if (ap.helm === "crowned") {
-      const crown = new THREE.Mesh(new THREE.TorusGeometry(0.225, 0.028, 6, 14), metal(0xd8b84a, 0.25));
+      const crown = new THREE.Mesh(new THREE.TorusGeometry(0.225, 0.028, 6, 14), M.blade(0xd8b84a, 0.25));
       crown.rotation.x = Math.PI / 2;
       crown.position.y = 0.24;
       headPivot.add(crown);
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2;
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.07, 4), metal(0xd8b84a, 0.25));
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.07, 4), M.blade(0xd8b84a, 0.25));
         spike.position.set(Math.cos(a) * 0.225, 0.3, Math.sin(a) * 0.225);
         headPivot.add(spike);
       }
     }
   } else if (ap.helm === "hood") {
-    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), cloth(0x24304a));
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), M.tunic(0x24304a));
     hood.position.y = 0.18;
     hood.scale.z = 1.15;
     headPivot.add(hood);
-    const drape = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.3, 8), cloth(0x24304a));
+    const drape = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.3, 8), M.tunic(0x24304a));
     drape.position.set(0, -0.02, -0.08);
     headPivot.add(drape);
   }
@@ -651,16 +677,16 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
   if (ap.cloak !== "none") {
     const pivot = new THREE.Group();
     pivot.position.set(0, 1.6, -0.34);
-    const clothMesh = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.1, 0.035), cloth(CLOAK_COLORS[ap.cloak] ?? 0x5a4030));
+    const clothMesh = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.1, 0.035), M.tunic(CLOAK_COLORS[ap.cloak] ?? 0x5a4030));
     clothMesh.position.y = -0.58;
     pivot.add(clothMesh);
     // Fold rib down the back for drape
-    const rib = new THREE.Mesh(new THREE.BoxGeometry(0.02, 1.05, 0.045), cloth(0x2a2018));
+    const rib = new THREE.Mesh(new THREE.BoxGeometry(0.02, 1.05, 0.045), M.tunic(0x2a2018));
     rib.position.y = -0.56;
     rib.position.z = 0.012;
     pivot.add(rib);
     // Shoulder clasp on the LEFT chest (clear of weapons/shield on the right)
-    const clasp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), metal(0xb8a14e, 0.3));
+    const clasp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), M.blade(0xb8a14e, 0.3));
     clasp.position.set(-0.18, 1.6, 0.28);
     root.add(clasp);
     root.add(pivot);
@@ -670,8 +696,8 @@ export function buildCharacter(cls: WarriorClass, ap: Appearance, accents: numbe
   return { group: root, rightArm, leftArm, rightLeg, leftLeg, head: headPivot, cloak, torso };
 }
 
-export function buildWeaponForClass(cls: WarriorClass): THREE.Group {
-  if (cls === "runekeeper") return buildDagger();
-  if (cls === "berserker") return buildAxe();
-  return buildSword();
+export function buildWeaponForClass(cls: WarriorClass, materials?: CharacterMaterials): THREE.Group {
+  if (cls === "runekeeper") return buildDagger(materials);
+  if (cls === "berserker") return buildAxe(materials);
+  return buildSword(materials);
 }

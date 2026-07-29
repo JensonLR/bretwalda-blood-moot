@@ -70,7 +70,10 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     shadowMapSize: 2048,
     softShadows: true,
     shadowDistance: 24,
-    textureSize: 1024,
+    // 512, not 1024: the texture library clamps to it anyway (twenty PBR sets
+    // at 1024² is ~290 MB against a 40 MB budget), and a preset that claims a
+    // number nothing can honour is worse than no preset at all.
+    textureSize: 512,
     spriteSize: 128,
     anisotropy: 8,
     envMapSize: 256,

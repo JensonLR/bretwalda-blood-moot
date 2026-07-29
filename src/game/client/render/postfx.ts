@@ -148,7 +148,7 @@ const DUSK: GradeLook = {
   exposure: 1.12,
   contrast: 0.22,
   saturation: 1.06,
-  shadowTint: [0.84, 0.92, 1.14],
+  shadowTint: [0.88, 0.94, 1.11],
   highlightTint: [1.10, 1.00, 0.87],
   splitTone: 0.5,
   // A dusk sky is genuinely bright, and a threshold set below its horizon
@@ -159,7 +159,7 @@ const DUSK: GradeLook = {
   bloomThreshold: 1.35,
   bloomTint: [1.0, 0.95, 0.86],
   vignette: 0.34,
-  aberration: 0.006,
+  aberration: 0.004,
   grain: 0.022,
   aoIntensity: 1.0,
 };
@@ -179,7 +179,7 @@ const LAST_STAND: GradeLook = {
   bloomThreshold: 1.05,
   bloomTint: [1.0, 0.8, 0.58],
   vignette: 0.52,
-  aberration: 0.013,
+  aberration: 0.010,
   grain: 0.05,
   aoIntensity: 1.25,
 };
@@ -495,7 +495,7 @@ void main() {
   vec2 c = vUv - 0.5;
   float r2 = dot( c, c );
 
-  // Restrained: roughly a pixel and a half of separation in the extreme corner,
+  // Restrained: a pixel or two of separation in the extreme corner, and
   // nothing at all across the middle third where the fight actually happens.
   vec2 ca = c * uAberration * r2;
   vec3 hdr = vec3(
@@ -521,12 +521,14 @@ void main() {
 
   // Health pressure closes the frame in from the edges; the damage flash washes
   // the whole thing, harder at the periphery than at the point of attention.
+  // The centre keeps most of its colour whatever happens: a player who cannot
+  // read the fight through their own damage feedback stops being able to play.
   float edge = smoothstep( 0.02, 0.22, r2 );
   col *= 1.0 - uPressure * edge * 0.55;
   col = mix(
     col,
     uHurtColor * ( 0.18 + luma * 1.3 ),
-    clamp( uHurt * ( 0.45 + 0.55 * edge ), 0.0, 0.9 )
+    clamp( uHurt * ( 0.24 + 0.62 * edge ), 0.0, 0.7 )
   );
 
   // Measured in UV, not in pixels, so the falloff follows the shape of the
@@ -596,13 +598,14 @@ const AO_SCALE = 0.5;
  * is readable at runtime rather than living in a commit message.
  */
 const PASS_COST: Record<string, number> = {
-  render: 0,
-  gtao: 4.2,
-  bokeh: 6.5,
-  bloom: 0.8,
-  grade: 1.2,
-  smaa: 1.6,
-  fxaa: 0.9,
+  /** Not a post pass; listed so the chain can be read against what it sits on. */
+  render: 2.5,
+  gtao: 2.1,
+  bokeh: 4.9,
+  bloom: 1.25,
+  grade: 1.0,
+  smaa: 2.0,
+  fxaa: 1.0,
 };
 
 export function createPostFx(
@@ -784,6 +787,9 @@ export function createPostFx(
         renderer.render(scene, ctx.camera);
         return;
       }
+      // RenderPass, GTAO and Bokeh all hold the camera they were built with. The
+      // rig hands out one camera for the life of the stage, so that is fine —
+      // but a rig that ever swapped cameras would need a setter here.
 
       // Feedback decays on raw time: hit-stop slowing the world must not slow
       // the player's own flinch, or the flash outlives the blow that caused it.

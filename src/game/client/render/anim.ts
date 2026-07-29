@@ -17,6 +17,7 @@ import {
   buildCharacter, buildWeaponForClass, buildShield,
   defaultAppearance, type Appearance,
 } from "../characters";
+import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
 
 /** Tunic accent per class — the fastest read of who you are fighting. */
@@ -77,25 +78,24 @@ export function createMotion(p: GamePlayer): WarriorMotion {
 export function createWarriorRig(
   parent: THREE.Object3D,
   player: GamePlayer,
+  materials: MaterialLibrary,
   settings: QualitySettings,
 ): WarriorRig {
-  void settings; // the tier picks the mesh LOD once there is more than one
-
   const cls = player.warriorClass as WarriorClass;
   const ap: Appearance = (player as GamePlayer & { appearance?: Appearance }).appearance ?? defaultAppearance(cls);
-  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c);
+  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials);
   const group = built.group;
 
   // The hand mounts are the last child each arm builder adds.
   const rightHand = built.rightArm.children[built.rightArm.children.length - 1] as THREE.Group;
   const leftHand = built.leftArm.children[built.leftArm.children.length - 1] as THREE.Group;
 
-  const weapon = buildWeaponForClass(cls);
+  const weapon = buildWeaponForClass(cls, materials);
   weapon.name = "weapon";
   rightHand.add(weapon);
 
   if (cls === "runekeeper") {
-    const offhand = buildWeaponForClass("runekeeper");
+    const offhand = buildWeaponForClass("runekeeper", materials);
     offhand.scale.setScalar(0.9);
     leftHand.add(offhand);
   }
@@ -103,11 +103,21 @@ export function createWarriorRig(
   let shield: THREE.Group | undefined;
   if (cls === "huscarl") {
     // Carried in front of the chest, disc plate facing the enemy (+Z).
-    shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226);
+    shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226, materials);
     shield.position.set(-0.14, -0.4, 0.26);
     shield.rotation.set(0.22, 0.16, 0.14);
     built.leftArm.add(shield);
   }
+
+  // Weapon and shield are mounted by now, so one walk covers the whole warrior.
+  // Every mesh casts and every mesh receives: a pauldron has to darken the
+  // sleeve under it, or layered kit reads as one painted shape.
+  group.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.castShadow = settings.shadows;
+      o.receiveShadow = settings.shadows;
+    }
+  });
 
   const blobGeo = new THREE.CircleGeometry(0.6, 20);
   const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false });
@@ -140,15 +150,11 @@ export function createWarriorRig(
     dispose() {
       parent.remove(group);
       parent.remove(blob);
-      // characters.ts allocates a fresh material for every part of every
-      // warrior, so this walk is the only thing standing between a long
-      // session and a leak of several hundred programs.
+      // Geometry only. Every material on this body came from the shared library
+      // and is still on eight other warriors; disposing here would take the
+      // whole lobby's mail down with one death.
       group.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) return;
-        o.geometry.dispose();
-        const m = o.material;
-        if (Array.isArray(m)) m.forEach((x) => x.dispose());
-        else m.dispose();
+        if (o instanceof THREE.Mesh) o.geometry.dispose();
       });
       blobGeo.dispose();
       blobMat.dispose();

@@ -13,11 +13,23 @@ import { buildShield } from "../characters";
 
 export interface WorldOptions {
   /**
-   * Prop scatter source. Defaults to Math.random, which means the arena is laid
-   * out differently on every load — including between two capture runs. Pass a
-   * seeded generator to make photo mode reproducible.
+   * Prop scatter source. Defaults to a fixed seed, so the arena lays out the
+   * same way on every load and two capture runs are comparable — an A/B against
+   * art/shots/baseline is worthless if the rocks moved. Pass Math.random for a
+   * different moot each match.
    */
   rng?: () => number;
+}
+
+/** Fixed-seed PRNG. The seed is arbitrary; that it never changes is the point. */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export interface WorldHandle {
@@ -41,7 +53,7 @@ export function createWorld(
   settings: QualitySettings,
   opts: WorldOptions = {},
 ): WorldHandle {
-  const rng = opts.rng ?? Math.random;
+  const rng = opts.rng ?? seeded(0x5b7ea41d);
   const root = new THREE.Group();
   root.name = "world";
 
@@ -143,12 +155,10 @@ export function createWorld(
     const hut = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.6, 3.4), hutWall);
     base.position.y = 1.3;
-    base.castShadow = true;
     hut.add(base);
     const roof = new THREE.Mesh(new THREE.ConeGeometry(3.9, 2.3, 4), hutRoof);
     roof.position.y = 3.75;
     roof.rotation.y = Math.PI / 4;
-    roof.castShadow = true;
     hut.add(roof);
     const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.6, 0.1), hutDoor);
     door.position.set(0, 0.8, 1.71);
@@ -202,9 +212,9 @@ export function createWorld(
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
       const log = new THREE.Mesh(logGeo, logMat);
-      log.rotation.z = Math.PI / 2 - 0.5;
-      log.rotation.y = a;
       log.position.set(Math.cos(a) * 0.6, 0.55, Math.sin(a) * 0.6);
+      // lookAt is the whole orientation; an earlier pass also set rotation.z/y
+      // here and then threw both away on this line.
       log.lookAt(0, 2, 0);
       bonfire.add(log);
     }
@@ -298,7 +308,7 @@ export function createWorld(
   }
 
   // A shield left leaning where its owner fell.
-  const leaningShield = buildShield(0x24386a);
+  const leaningShield = buildShield(0x24386a, materials);
   leaningShield.position.set(-12.5, 0.42, 10.5);
   leaningShield.rotation.set(-0.9, 0.6, 0);
   root.add(leaningShield);
@@ -313,6 +323,13 @@ export function createWorld(
     tuft.rotation.z = (rng() - 0.5) * 0.3;
     root.add(tuft);
   }
+
+  // Only the ground received before this: huts, stakes, rocks and barrels cast
+  // shadows onto a world that could not show one landing on them. Cheap, and it
+  // is most of what makes the settlement stop reading as cardboard.
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh && o !== ground) o.receiveShadow = settings.shadows;
+  });
 
   scene.add(root);
 
@@ -345,15 +362,6 @@ export function createWorld(
       root.traverse((o) => {
         if (o instanceof THREE.Mesh) o.geometry.dispose();
         if (o instanceof THREE.PointLight) o.dispose();
-      });
-      // The leaning shield builds its own materials rather than taking them
-      // from the library, so it has to clean up after itself.
-      leaningShield.traverse((o) => {
-        if (o instanceof THREE.Mesh) {
-          const m = o.material;
-          if (Array.isArray(m)) m.forEach((x) => x.dispose());
-          else m.dispose();
-        }
       });
     },
   };

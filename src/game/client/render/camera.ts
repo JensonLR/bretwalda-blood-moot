@@ -43,7 +43,10 @@ export interface CameraOptions {
 export function createCameraRig(settings: QualitySettings, opts: CameraOptions = {}): CameraRig {
   void settings; // the tier decides whether collision sweeps and DoF focus run
 
-  const camera = new THREE.PerspectiveCamera(FOV_BASE, opts.aspect ?? 1, 0.05, 200);
+  // near is 0.2, not 0.05: the rig never gets closer than 4.4 m to its subject,
+  // and a 4000:1 depth ratio spends so much precision on empty space that GTAO
+  // reconstructs the settlement out at 30 m from noise and darkens it uniformly.
+  const camera = new THREE.PerspectiveCamera(FOV_BASE, opts.aspect ?? 1, 0.2, 200);
   camera.position.set(0, 8, 14);
 
   const orbitTarget = new THREE.Vector3();

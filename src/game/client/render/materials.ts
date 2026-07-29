@@ -50,11 +50,7 @@ export type MaterialName =
   | "runestone"
   | "runeGlow"
   // gore
-  | "bloodDecal"
-  // sky
-  | "skyDome"
-  | "moonDisc"
-  | "moonGlow";
+  | "bloodDecal";
 
 export interface MaterialLibrary {
   get(name: MaterialName): THREE.Material;
@@ -96,23 +92,23 @@ export interface TintOptions {
   repeat?: number;
 }
 
-type Spec =
-  | {
-      kind: "standard";
-      color: number;
-      roughness: number;
-      metalness: number;
-      surface?: SurfaceName;
-      /** UV repeats on this mesh. Cylinders and boxes want very different numbers. */
-      repeat?: [number, number];
-      emissive?: number;
-      emissiveIntensity?: number;
-      opacity?: number;
-      vertexColors?: boolean;
-      /** Cut-out decal: alpha comes from the albedo, and it must not write depth. */
-      decal?: boolean;
-    }
-  | { kind: "basic"; color: number; opacity?: number; side?: THREE.Side; fog?: boolean; vertexColors?: boolean };
+// Every catalog entry is a standard material. The unlit sky/moon entries that
+// used to live here went with sky.ts's own ShaderMaterial; if something unlit
+// is ever needed again it is a new branch, not a resurrection of those.
+interface Spec {
+  color: number;
+  roughness: number;
+  metalness: number;
+  surface?: SurfaceName;
+  /** UV repeats on this mesh. Cylinders and boxes want very different numbers. */
+  repeat?: [number, number];
+  emissive?: number;
+  emissiveIntensity?: number;
+  opacity?: number;
+  vertexColors?: boolean;
+  /** Cut-out decal: alpha comes from the albedo, and it must not write depth. */
+  decal?: boolean;
+}
 
 // The colour/roughness numbers here are the arena's art direction. They came
 // out of the original inline build code unchanged; treat a change to one as a
@@ -120,41 +116,40 @@ type Spec =
 // thing is made of, `repeat` says how big that substance is on this mesh —
 // texel density has to stay consistent between objects or §2 of the bar fails.
 const CATALOG: Record<MaterialName, Spec> = {
-  ground:          { kind: "standard", color: 0xffffff, roughness: 0.96, metalness: 0, vertexColors: true, surface: "groundDetail", repeat: [22, 22] },
-  grassTuft:       { kind: "standard", color: 0x4a5c2e, roughness: 0.95, metalness: 0, surface: "grass", repeat: [1, 1] },
-  rock:            { kind: "standard", color: 0x6a7078, roughness: 0.98, metalness: 0, surface: "granite", repeat: [2, 2] },
+  ground:          { color: 0xffffff, roughness: 0.96, metalness: 0, vertexColors: true, surface: "groundDetail", repeat: [22, 22] },
+  grassTuft:       { color: 0x4a5c2e, roughness: 0.95, metalness: 0, surface: "grass", repeat: [1, 1] },
+  rock:            { color: 0x6a7078, roughness: 0.98, metalness: 0, surface: "granite", repeat: [2, 2] },
 
-  palisade:        { kind: "standard", color: 0x5a4127, roughness: 0.95, metalness: 0, surface: "oak", repeat: [2, 5] },
-  palisadeBinding: { kind: "standard", color: 0x2a2018, roughness: 0.98, metalness: 0, surface: "rope", repeat: [8, 1] },
-  poleWood:        { kind: "standard", color: 0x4a3018, roughness: 0.9, metalness: 0, surface: "oak", repeat: [2, 6] },
+  palisade:        { color: 0x5a4127, roughness: 0.95, metalness: 0, surface: "oak", repeat: [2, 5] },
+  palisadeBinding: { color: 0x2a2018, roughness: 0.98, metalness: 0, surface: "rope", repeat: [8, 1] },
+  poleWood:        { color: 0x4a3018, roughness: 0.9, metalness: 0, surface: "oak", repeat: [2, 6] },
 
-  torchCup:        { kind: "standard", color: 0x2a2a2e, roughness: 0.5, metalness: 0.7, surface: "iron", repeat: [2, 1] },
-  torchFlame:      { kind: "standard", color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff7711, emissiveIntensity: 5 },
-  bonfireLog:      { kind: "standard", color: 0x3a2515, roughness: 0.98, metalness: 0, surface: "oak", repeat: [1, 4] },
-  bonfireFlame:    { kind: "standard", color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff5500, emissiveIntensity: 3.5, opacity: 0.9 },
+  torchCup:        { color: 0x2a2a2e, roughness: 0.5, metalness: 0.7, surface: "iron", repeat: [2, 1] },
+  torchFlame:      { color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff7711, emissiveIntensity: 5 },
+  bonfireLog:      { color: 0x3a2515, roughness: 0.98, metalness: 0, surface: "oak", repeat: [1, 4] },
+  bonfireFlame:    { color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff5500, emissiveIntensity: 3.5, opacity: 0.9 },
 
-  hutWall:         { kind: "standard", color: 0x6a553c, roughness: 0.95, metalness: 0, surface: "plank", repeat: [3, 2] },
-  hutRoof:         { kind: "standard", color: 0x41301c, roughness: 0.98, metalness: 0, surface: "thatch", repeat: [7, 3] },
-  hutDoor:         { kind: "standard", color: 0x2a1c0e, roughness: 0.95, metalness: 0, surface: "plank", repeat: [1, 2] },
-  barrel:          { kind: "standard", color: 0x6a4a28, roughness: 0.9, metalness: 0, surface: "plank", repeat: [4, 1] },
-  barrelBand:      { kind: "standard", color: 0x3a3a3e, roughness: 0.5, metalness: 0.7, surface: "iron", repeat: [6, 1] },
+  hutWall:         { color: 0x6a553c, roughness: 0.95, metalness: 0, surface: "plank", repeat: [3, 2] },
+  hutRoof:         { color: 0x41301c, roughness: 0.98, metalness: 0, surface: "thatch", repeat: [7, 3] },
+  hutDoor:         { color: 0x2a1c0e, roughness: 0.95, metalness: 0, surface: "plank", repeat: [1, 2] },
+  barrel:          { color: 0x6a4a28, roughness: 0.9, metalness: 0, surface: "plank", repeat: [4, 1] },
+  barrelBand:      { color: 0x3a3a3e, roughness: 0.5, metalness: 0.7, surface: "iron", repeat: [6, 1] },
 
-  bannerRed:       { kind: "standard", color: 0x8a2530, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
-  bannerBlue:      { kind: "standard", color: 0x2c4a8a, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
+  bannerRed:       { color: 0x8a2530, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
+  bannerBlue:      { color: 0x2c4a8a, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
 
-  spearShaft:      { kind: "standard", color: 0x5a3c22, roughness: 0.85, metalness: 0, surface: "oak", repeat: [1, 8] },
-  spearTip:        { kind: "standard", color: 0xb8bfc8, roughness: 0.2, metalness: 0.9, surface: "steel", repeat: [1, 1] },
-  debrisBlade:     { kind: "standard", color: 0xaab2bc, roughness: 0.3, metalness: 0.8, surface: "steel", repeat: [1, 3] },
-  debrisHilt:      { kind: "standard", color: 0x3a2a18, roughness: 0.9, metalness: 0, surface: "leather", repeat: [1, 1] },
+  spearShaft:      { color: 0x5a3c22, roughness: 0.85, metalness: 0, surface: "oak", repeat: [1, 8] },
+  spearTip:        { color: 0xb8bfc8, roughness: 0.2, metalness: 0.9, surface: "steel", repeat: [1, 1] },
+  debrisBlade:     { color: 0xaab2bc, roughness: 0.3, metalness: 0.8, surface: "steel", repeat: [1, 3] },
+  debrisHilt:      { color: 0x3a2a18, roughness: 0.9, metalness: 0, surface: "leather", repeat: [1, 1] },
 
-  runestone:       { kind: "standard", color: 0x7a7d84, roughness: 0.92, metalness: 0, surface: "granite", repeat: [1, 3] },
-  runeGlow:        { kind: "standard", color: 0x66c8ff, roughness: 0.4, metalness: 0, emissive: 0x2288dd, emissiveIntensity: 2.4 },
+  runestone:       { color: 0x7a7d84, roughness: 0.92, metalness: 0, surface: "granite", repeat: [1, 3] },
+  // 3.5, not 2.4: bloom thresholds on the max channel at 1.35 linear, and at
+  // 2.4 the runes sat just under it — plainly glowing to the eye and invisible
+  // to the pass whose whole job is glow.
+  runeGlow:        { color: 0x66c8ff, roughness: 0.4, metalness: 0, emissive: 0x2288dd, emissiveIntensity: 3.5 },
 
-  bloodDecal:      { kind: "standard", color: 0x4a0a08, roughness: 0.35, metalness: 0, surface: "blood", repeat: [1, 1], decal: true },
-
-  skyDome:         { kind: "basic", color: 0xffffff, vertexColors: true, side: THREE.BackSide, fog: false },
-  moonDisc:        { kind: "basic", color: 0xf0e8d8, fog: false },
-  moonGlow:        { kind: "basic", color: 0xd4dde8, opacity: 0.25, fog: false },
+  bloodDecal:      { color: 0x4a0a08, roughness: 0.35, metalness: 0, surface: "blood", repeat: [1, 1], decal: true },
 };
 
 /**
@@ -257,16 +252,6 @@ export function createMaterialLibrary(
   }
 
   function build(name: MaterialName, spec: Spec): THREE.Material {
-    if (spec.kind === "basic") {
-      return new THREE.MeshBasicMaterial({
-        color: spec.color,
-        vertexColors: spec.vertexColors ?? false,
-        side: spec.side ?? THREE.FrontSide,
-        fog: spec.fog ?? true,
-        transparent: spec.opacity !== undefined,
-        opacity: spec.opacity ?? 1,
-      });
-    }
     const m = new THREE.MeshStandardMaterial({
       color: spec.color,
       roughness: spec.roughness,

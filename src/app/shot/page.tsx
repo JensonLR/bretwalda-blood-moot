@@ -152,13 +152,16 @@ export default function ShotPage() {
   const clean = params?.get("clean") === "1";
   const preset = PRESETS[presetName] ?? PRESETS.duel;
 
-  // Publish the camera yaw before the renderer's first frame.
-  useEffect(() => {
-    if (!params) return;
+  // Published during render, not in an effect. The renderer reads __photoCam in
+  // its own mount effect, and React runs a child's effects before its parent's —
+  // so an effect here writes the yaw one frame after GameCanvas has already read
+  // it. `?cam=` was silently ignored, and only worked at all because every
+  // preset happens to use the rig's default yaw of PI.
+  if (typeof window !== "undefined" && params) {
     const camOverride = params.get("cam");
     (window as unknown as Record<string, unknown>).__photoCam =
       camOverride !== null ? parseFloat(camOverride) : preset.cam;
-  }, [params, preset.cam]);
+  }
 
   const roomState = useMemo(() => {
     const players: Record<string, GamePlayer> = {};

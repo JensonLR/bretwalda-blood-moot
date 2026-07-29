@@ -67,12 +67,13 @@ interface WarriorSlot {
   motion: WarriorMotion;
   prevHp: number;
   prevState: string;
+  /** Seconds since this warrior's last dust puff. Per-body, not per-frame. */
+  dustTick: number;
 }
 
 export default function GameCanvas({ playerId, roomState, onSendInput }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const vignetteRef = useRef<HTMLDivElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
 
   const stageRef = useRef<Stage | null>(null);
@@ -86,13 +87,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
 
-  const hurtFlashRef = useRef(0);
   const hitStopRef = useRef(0);
   const animRef = useRef(0);
   const lastTimeRef = useRef(0);
   const isMobile = useRef(false);
   const lastDirRef = useRef<AttackDirection>("right");
-  const dustTickRef = useRef(0);
 
   const inputState = useRef({
     keys: new Set<string>(),
@@ -121,7 +120,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
 
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.antialias, powerPreference: "high-performance" });
+      // Context MSAA only earns its keep when the beauty pass reaches the
+      // canvas. With the composer up, the only thing the default framebuffer
+      // ever sees is a fullscreen quad, and a 4x resolve of that is pure cost —
+      // SMAA/FXAA in the chain is what resolves the geometry edges.
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: quality.antialias && !quality.postProcessing,
+        powerPreference: "high-performance",
+      });
     } catch {
       setGlError("Your device's browser could not start 3D graphics (WebGL). Try Chrome, Safari, or updating your OS.");
       return;
@@ -139,13 +146,21 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     const textures = createTextureLibrary(renderer, quality);
     const materials = createMaterialLibrary(textures, quality);
     const rig = createCameraRig(quality, { aspect: window.innerWidth / window.innerHeight });
+    // postfx first: it owns renderer.toneMappingExposure, and sky.ts encodes
+    // its fog and clear colours against that value from its own constructor.
+    const postfx = createPostFx(renderer, scene, rig.camera, quality);
+    // sky pushes its PMREM into the material library itself, on every rebake —
+    // a one-shot setEnvironment here would go stale the first time the mood
+    // changes and every metal in the arena would reflect a dead texture.
     const sky = createSky(scene, renderer, materials, quality);
-    const lighting = createLighting(scene, quality);
+    // The key light is the moon, so it comes from where the moon actually is.
+    const lighting = createLighting(scene, quality, {
+      key: sky.moonDirection, keyColor: sky.moonColor,
+      warm: sky.sunDirection, warmColor: sky.sunColor,
+    });
     const world = createWorld(scene, materials, quality);
     const vfx = createVfx(scene, textures, quality);
     const hud = createHud3d(scene, quality);
-    const postfx = createPostFx(renderer, scene, rig.camera, quality);
-    materials.setEnvironment(sky.environment);
 
     // Photo mode (/shot) pins the camera yaw so captures are reproducible.
     const photoCam = (window as unknown as Record<string, unknown>).__photoCam;
@@ -314,9 +329,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
 
         let slot = warriorsRef.current.get(id);
         if (!slot) {
-          const rig = createWarriorRig(stage.scene, p, stage.quality);
+          const rig = createWarriorRig(stage.scene, p, stage.materials, stage.quality);
           stage.hud.attach(id, p.name, rig.group, id === playerId);
-          slot = { rig, motion: createMotion(p), prevHp: p.health, prevState: p.state };
+          slot = { rig, motion: createMotion(p), prevHp: p.health, prevState: p.state, dustTick: 0 };
           warriorsRef.current.set(id, slot);
         }
 
@@ -334,7 +349,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
 
           if (id === playerId) {
             stage.rig.shake(1.1 + dmg * 0.03);
-            hurtFlashRef.current = Math.min(1, 0.45 + dmg * 0.02);
+            stage.postfx.hurt(Math.min(1, 0.45 + dmg * 0.02));
             hitStopRef.current = Math.max(hitStopRef.current, 0.07);
             rumble(dmg >= 25 ? [45, 30, 45] : [35]);
           } else if (p.lastHitBy === playerId) {
@@ -360,12 +375,12 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         }
         slot.prevState = p.state;
 
-        // Sprint dust puffs. The throttle is shared across every warrior, so a
-        // crowd of sprinters emits no more dust than one does.
+        // Sprint dust puffs, throttled per warrior — the shared counter this
+        // replaces meant eight sprinters kicked up as much dust as one.
         if (p.state === "sprinting") {
-          dustTickRef.current += dt;
-          if (dustTickRef.current > 0.28) {
-            dustTickRef.current = 0;
+          slot.dustTick += dt;
+          if (slot.dustTick > 0.28) {
+            slot.dustTick = 0;
             stage.vfx.burst({ position: { x: at.x, y: 0.15, z: at.z }, color: 0x8a7c5c, count: 3, spread: 2.2, up: 1.4, gravity: 4 });
           }
         }
@@ -414,14 +429,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       }
       stage.rig.update(dt, ctx);
 
-      // HUD overlays (direct DOM for perf)
-      if (vignetteRef.current && localPlayer) {
-        const pct = localPlayer.health / localPlayer.maxHealth;
-        const low = pct < 0.35 ? (0.35 - pct) / 0.35 : 0;
-        const pulse = low * (0.55 + Math.sin(ctx.time * 4.5) * 0.2);
-        vignetteRef.current.style.opacity = String(Math.min(0.85, pulse + hurtFlashRef.current * 0.4));
-      }
-      hurtFlashRef.current = Math.max(0, hurtFlashRef.current - dt * 1.6);
+      // Damage flash and the low-health edge are grade inputs now, not a red
+      // div over the top of the frame. Both decay inside postfx.
+      if (localPlayer) stage.postfx.setPressure(localPlayer.health / localPlayer.maxHealth);
 
       stage.vfx.update(dt, ctx);
       stage.hud.update(dt, ctx);
@@ -452,7 +462,6 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         playerId={playerId}
         roomState={roomState}
         glError={glError}
-        vignetteRef={vignetteRef}
         isMobile={isMobile}
         pointerLocked={pointerLockedRef}
         mobileFlags={mobileFlags}

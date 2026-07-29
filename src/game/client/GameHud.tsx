@@ -24,8 +24,6 @@ interface GameHudProps {
   playerId: string;
   roomState: HudRoomState | null;
   glError: string | null;
-  /** Written directly by the render loop — DOM writes are cheaper than state. */
-  vignetteRef: React.RefObject<HTMLDivElement | null>;
   isMobile: React.RefObject<boolean>;
   pointerLocked: React.RefObject<boolean>;
   /** Read for button labels; never written — writes go through setFlag. */
@@ -36,7 +34,7 @@ interface GameHudProps {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, vignetteRef, isMobile, pointerLocked, mobileFlags, setFlag, joyOrigin, joystickPos,
+  playerId, roomState, glError, isMobile, pointerLocked, mobileFlags, setFlag, joyOrigin, joystickPos,
 }: GameHudProps) {
   const localPlayer = roomState?.players[playerId];
   const isAlive = localPlayer && localPlayer.state !== "dead";
@@ -58,12 +56,10 @@ export default function GameHud({
         </div>
       )}
 
-      {/* Damage / low-HP vignette */}
-      <div ref={vignetteRef} className="absolute inset-0 pointer-events-none z-[5] transition-opacity duration-150"
-        style={{
-          opacity: 0,
-          background: "radial-gradient(ellipse at center, transparent 42%, rgba(160, 20, 10, 0.55) 100%)",
-        }} />
+      {/* The damage flash and the low-health closing-in used to be a red div
+          here. They are grade inputs now (postfx.hurt / setPressure) so they
+          land before the filmic curve and read as the frame going wrong rather
+          than as an interface element pasted over it. */}
 
       {isFighting && localPlayer && (
         <>

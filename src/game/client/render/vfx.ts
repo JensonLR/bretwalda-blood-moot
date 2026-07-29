@@ -111,6 +111,11 @@ export function createVfx(
       blending: opts.blending ?? THREE.NormalBlending,
     });
     const points = new THREE.Points(geo, material);
+    // Every point is coincident at spawn, so the computed bounding sphere has
+    // radius zero and the burst is culled the moment its origin leaves frame —
+    // exactly when a blow lands at the edge of the screen. The particles carry
+    // their own extent, so let them.
+    points.frustumCulled = false;
     root.add(points);
     systems.push({ points, material, velocities, life: maxLife, maxLife, gravity: opts.gravity ?? 11 });
     live += count;
@@ -163,15 +168,16 @@ export function createVfx(
         sys.material.opacity = sys.life / sys.maxLife;
       }
 
-      // Motes wander on two out-of-phase sine channels. The offsets are not
-      // scaled by dt, so they drift faster on a fast machine — harmless at the
-      // amplitudes involved, wrong the moment the amplitude goes up.
+      // Motes wander on two out-of-phase sine channels. The drift is a velocity,
+      // so it is integrated against dt — as a per-frame offset the air moved
+      // three times faster on a 165 Hz monitor than on the capture box.
       const t = ctx.time;
       const attr = moteGeo.attributes.position as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
+      const step = dt * 60 * 0.005;
       for (let i = 0; i < attr.count; i++) {
-        arr[i * 3] += Math.sin(t * 0.35 + i) * 0.005;
-        arr[i * 3 + 2] += Math.cos(t * 0.3 + i) * 0.005;
+        arr[i * 3] += Math.sin(t * 0.35 + i) * step;
+        arr[i * 3 + 2] += Math.cos(t * 0.3 + i) * step;
       }
       attr.needsUpdate = true;
     },

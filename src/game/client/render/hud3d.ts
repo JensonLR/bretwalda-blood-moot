@@ -41,6 +41,17 @@ const HEALTHY = 0x53d769;
 const WOUNDED = 0xf0c33c;
 const CRITICAL = 0xe03a2f;
 
+/**
+ * A 2D canvas is display-referred. Without this the renderer treats these
+ * texels as linear, skips the decode, and every nameplate comes out washed out
+ * by roughly a gamma — the one colour-management mistake §3 of the bar calls out
+ * by name.
+ */
+function srgb(tex: THREE.CanvasTexture): THREE.CanvasTexture {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function nameplateTexture(name: string, isLocal: boolean): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 256;
@@ -52,7 +63,7 @@ function nameplateTexture(name: string, isLocal: boolean): THREE.CanvasTexture {
   ctx.shadowBlur = 8;
   ctx.fillStyle = isLocal ? "#ffd478" : "#f0eadc";
   ctx.fillText(name.substring(0, 15), 128, 40);
-  return new THREE.CanvasTexture(c);
+  return srgb(new THREE.CanvasTexture(c));
 }
 
 function damageTexture(amount: number, big: boolean): THREE.CanvasTexture {
@@ -67,7 +78,7 @@ function damageTexture(amount: number, big: boolean): THREE.CanvasTexture {
   ctx.strokeText(String(amount), 56, 46);
   ctx.fillStyle = big ? "#ffb020" : "#f0e8d8";
   ctx.fillText(String(amount), 56, 46);
-  return new THREE.CanvasTexture(c);
+  return srgb(new THREE.CanvasTexture(c));
 }
 
 export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3D {

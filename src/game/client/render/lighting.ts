@@ -22,7 +22,38 @@ export interface LightingHandle {
 /** Ambient level per mood — last stand drops the fill so the fires take over. */
 const AMBIENT_INTENSITY: Record<Mood, number> = { dusk: 0.85, lastStand: 0.55 };
 
-export function createLighting(scene: THREE.Scene, settings: QualitySettings): LightingHandle {
+export interface LightingOptions {
+  /**
+   * Where the sky put the moon and the sun, as unit vectors. The rig reads them
+   * live and re-aims every frame, so `setTimeOfDay` moving the bodies moves the
+   * shadows with them. Without this the key comes from a corner of the sky with
+   * nothing in it and the moon is visibly somewhere else.
+   */
+  key?: THREE.Vector3;
+  keyColor?: THREE.Color;
+  warm?: THREE.Vector3;
+  warmColor?: THREE.Color;
+}
+
+/** How far up the light is hung along its direction. Only the angle matters. */
+const KEY_DISTANCE = 30;
+const WARM_DISTANCE = 14;
+
+/**
+ * The dusk moon sits 11° above the horizon. Aiming the key straight down that
+ * vector is honest and unusable: shadows run five body-lengths across the arena,
+ * every one of them grazing enough to fight the depth bias. The azimuth is the
+ * part a viewer can actually check against the sky, so that is kept exactly and
+ * the elevation is lifted to where a key light belongs.
+ */
+const KEY_MIN_ELEVATION = Math.sin(0.66);
+const FILL_MIN_ELEVATION = Math.sin(0.35);
+
+export function createLighting(
+  scene: THREE.Scene,
+  settings: QualitySettings,
+  opts: LightingOptions = {},
+): LightingHandle {
   const root = new THREE.Group();
   root.name = "lighting";
 
@@ -36,6 +67,8 @@ export function createLighting(scene: THREE.Scene, settings: QualitySettings): L
 
   const key = new THREE.DirectionalLight(0xcfdcf0, 1.35);
   key.position.set(12, 26, 9);
+  key.target.position.set(0, 0, 0);
+  root.add(key.target);
   key.castShadow = settings.shadows;
   key.shadow.mapSize.set(settings.shadowMapSize, settings.shadowMapSize);
   key.shadow.camera.near = 1;
@@ -52,6 +85,8 @@ export function createLighting(scene: THREE.Scene, settings: QualitySettings): L
   // of the dome behind them.
   const warmFill = new THREE.DirectionalLight(0xffa85c, 0.4);
   warmFill.position.set(-9, 7, -8);
+  warmFill.target.position.set(0, 0, 0);
+  root.add(warmFill.target);
   root.add(warmFill);
 
   const rim = new THREE.DirectionalLight(0x88b8ff, 0.35);
@@ -59,6 +94,44 @@ export function createLighting(scene: THREE.Scene, settings: QualitySettings): L
   root.add(rim);
 
   scene.add(root);
+
+  /**
+   * Aims a directional light down a sky direction and takes its colour from the
+   * body's radiance, normalised: the sky hands out absolute radiance and the rig
+   * owns how bright the arena is, so only the hue crosses over.
+   */
+  const scratch = new THREE.Vector3();
+
+  function aim(
+    light: THREE.DirectionalLight,
+    dir: THREE.Vector3 | undefined,
+    color: THREE.Color | undefined,
+    distance: number,
+    minElevation: number,
+  ): void {
+    if (dir) {
+      scratch.copy(dir);
+      if (scratch.y < minElevation) {
+        const az = Math.hypot(scratch.x, scratch.z) || 1;
+        const want = Math.sqrt(Math.max(0, 1 - minElevation * minElevation));
+        scratch.set((scratch.x / az) * want, minElevation, (scratch.z / az) * want);
+      }
+      light.position.copy(scratch).multiplyScalar(distance);
+    }
+    if (color) {
+      // The sky hands out absolute radiance; the rig owns how bright the arena
+      // is. Only the hue crosses over.
+      const peak = Math.max(color.r, color.g, color.b);
+      if (peak > 1e-4) light.color.copy(color).multiplyScalar(1 / peak);
+    }
+  }
+
+  function reaim(): void {
+    aim(key, opts.key, opts.keyColor, KEY_DISTANCE, KEY_MIN_ELEVATION);
+    aim(warmFill, opts.warm, opts.warmColor, WARM_DISTANCE, FILL_MIN_ELEVATION);
+  }
+
+  reaim();
 
   return {
     root,
@@ -70,9 +143,10 @@ export function createLighting(scene: THREE.Scene, settings: QualitySettings): L
     },
 
     update() {
-      // The rig is static. A cascade that tracks ctx.focus, torch flicker
-      // coupling and a moving key all belong here — ctx already carries the
-      // focus point and clock they need.
+      // The sky's vectors are live objects, so re-reading them is what keeps a
+      // moving moon and its shadows pointing the same way. A cascade that tracks
+      // ctx.focus and torch flicker coupling still belong here.
+      reaim();
     },
 
     dispose() {
