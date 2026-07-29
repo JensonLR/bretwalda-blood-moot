@@ -759,7 +759,11 @@ export function createPostFx(
     (u.uShadowTint.value as THREE.Vector3).set(shadow[0], shadow[1], shadow[2]);
     (u.uHighlightTint.value as THREE.Vector3).set(highlight[0], highlight[1], highlight[2]);
     u.uSplit.value = pick("splitTone");
-    u.uVignette.value = pick("vignette");
+    // The tier can drop the corner falloff even though the grade itself is not
+    // optional — the grade is where tone mapping happens, so there is no frame
+    // without it. Every preset currently keeps it; the switch exists so the
+    // setting is not a lie.
+    u.uVignette.value = settings.vignette ? pick("vignette") : 0;
     u.uAberration.value = pick("aberration");
     u.uGrain.value = pick("grain");
     u.uHurt.value = hurtLevel;

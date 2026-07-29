@@ -290,8 +290,12 @@ export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): T
   // Planking: two-tone wedges (alternate circles slightly offset in shade)
   const board = new THREE.Mesh(new THREE.CircleGeometry(0.52, 24), M.timber(color));
   g.add(board);
+  // Turned to face away, so this is the back of the shield rather than a second
+  // copy of the front hidden behind the first. Both discs are single-sided, so
+  // without it a shield seen from behind is an iron rim around nothing.
   const boardDark = new THREE.Mesh(new THREE.CircleGeometry(0.52, 24), M.timber(0x3a2a18));
   boardDark.position.z = -0.006;
+  boardDark.rotation.y = Math.PI;
   g.add(boardDark);
   // Painted cross pattern
   const paint1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5), M.timber(0xc9b48a));

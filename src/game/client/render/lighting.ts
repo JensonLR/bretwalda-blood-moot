@@ -19,8 +19,18 @@ export interface LightingHandle {
   dispose(): void;
 }
 
-/** Ambient level per mood — last stand drops the fill so the fires take over. */
-const AMBIENT_INTENSITY: Record<Mood, number> = { dusk: 0.85, lastStand: 0.55 };
+/**
+ * Ambient level per mood — last stand drops the fill so the fires take over.
+ *
+ * These were 0.85/0.55 when nothing in the scene had an environment map, and at
+ * that point a flat ambient plus a hemisphere was the only sky light there was.
+ * sky.ts now bakes a PMREM of the real dome and every PBR material samples it,
+ * so the sky is lighting the arena twice — the ground went to blown cream and
+ * the settlement to white cardboard. The environment is the physical term and
+ * these two are the fudge, so these are what come down.
+ */
+const AMBIENT_INTENSITY: Record<Mood, number> = { dusk: 0.3, lastStand: 0.2 };
+const HEMI_INTENSITY = 0.2;
 
 export interface LightingOptions {
   /**
@@ -40,14 +50,15 @@ const KEY_DISTANCE = 30;
 const WARM_DISTANCE = 14;
 
 /**
- * The dusk moon sits 11° above the horizon. Aiming the key straight down that
- * vector is honest and unusable: shadows run five body-lengths across the arena,
- * every one of them grazing enough to fight the depth bias. The azimuth is the
- * part a viewer can actually check against the sky, so that is kept exactly and
- * the elevation is lifted to where a key light belongs.
+ * The dusk moon sits 11° above the horizon and the sun 2°. Aiming the key
+ * straight down those vectors is honest and unusable: shadows run five body
+ * lengths across the arena, grazing enough to fight the depth bias the whole
+ * way. Azimuth is the part a viewer can actually check against the sky, so the
+ * azimuth and the hue come from the sky and the elevation stays where the
+ * hand-placed rig had it — 60° for the key, 30° for the warm fill.
  */
-const KEY_MIN_ELEVATION = Math.sin(0.66);
-const FILL_MIN_ELEVATION = Math.sin(0.35);
+const KEY_MIN_ELEVATION = 0.866;
+const FILL_MIN_ELEVATION = 0.5;
 
 export function createLighting(
   scene: THREE.Scene,
@@ -57,12 +68,12 @@ export function createLighting(
   const root = new THREE.Group();
   root.name = "lighting";
 
-  // Dusk is dark; readability wins over realism until a proper AO pass can
-  // put the shadow back in the crevices where it belongs.
+  // What is left of the old flat fill: enough to keep a shadowed cheek from
+  // going to pure black, no more. The environment map does the rest.
   const ambient = new THREE.AmbientLight(0x5a6c88, AMBIENT_INTENSITY.dusk);
   root.add(ambient);
 
-  const hemi = new THREE.HemisphereLight(0x8fa8c8, 0x4a4030, 0.55);
+  const hemi = new THREE.HemisphereLight(0x8fa8c8, 0x4a4030, HEMI_INTENSITY);
   root.add(hemi);
 
   const key = new THREE.DirectionalLight(0xcfdcf0, 1.35);
@@ -95,13 +106,9 @@ export function createLighting(
 
   scene.add(root);
 
-  /**
-   * Aims a directional light down a sky direction and takes its colour from the
-   * body's radiance, normalised: the sky hands out absolute radiance and the rig
-   * owns how bright the arena is, so only the hue crosses over.
-   */
   const scratch = new THREE.Vector3();
 
+  /** Aims a light down a sky direction and takes the body's hue with it. */
   function aim(
     light: THREE.DirectionalLight,
     dir: THREE.Vector3 | undefined,

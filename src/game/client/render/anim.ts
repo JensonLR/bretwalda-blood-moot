@@ -126,6 +126,12 @@ export function createWarriorRig(
   blob.position.y = 0.025;
   blob.renderOrder = 1;
   blob.name = "blobShadow";
+  // The key light casts a real shadow now, and a painted ellipse under the boots
+  // on top of it is two shadows from one body — the exact thing §10 of the bar
+  // calls a frame that reads as a bug. It stays built and hidden rather than
+  // deleted, because a tier that turns shadow maps off still needs the warrior
+  // to look like it is standing on the ground.
+  blob.visible = !settings.shadows;
 
   // Blob first, then body: the blob is transparent and wants to lose ties.
   parent.add(blob);

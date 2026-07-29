@@ -4,7 +4,7 @@ import {
   Swords, Target, Scroll, ArrowLeft, Copy, Share2, Crown,
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
-  Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus
+  Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus
 } from "lucide-react";
 import type { GamePlayer, WarriorClass, GameMode, Team } from "../game/types";
 import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel } from "../game/types";
@@ -17,7 +17,9 @@ import dynamic from "next/dynamic";
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
 const CharacterPreview = dynamic(() => import("../game/client/CharacterPreview"), { ssr: false });
 
-type Screen = "landing" | "create" | "join" | "lobby" | "game" | "results" | "training" | "profile" | "armoury";
+type Screen = "landing" | "create" | "join" | "lobby" | "game" | "results" | "training" | "muster" | "profile" | "armoury";
+
+type Difficulty = "recruit" | "warrior" | "jarl";
 
 interface RoomState {
   code: string; mode: string; state: string; arena: string;
@@ -49,6 +51,27 @@ const WARRIOR_INFO: Array<{ id: WarriorClass; name: string; desc: string; Icon: 
   { id: "berserker", name: "BERSERKER", desc: "Danish axe. Pure rage.", Icon: Hammer },
 ];
 
+const AI_DIFFICULTIES: Array<{ id: Difficulty; name: string; desc: string; bots: number; tint: string }> = [
+  { id: "recruit", name: "RECRUIT", desc: "Slow and forgiving. Learn the moves.", bots: 1, tint: "border-l-emerald-500" },
+  { id: "warrior", name: "WARRIOR", desc: "Competent. Punishes a lazy guard.", bots: 2, tint: "border-l-amber-500" },
+  { id: "jarl", name: "JARL", desc: "Ruthless veterans. Parry or die.", bots: 3, tint: "border-l-red-500" },
+];
+
+// One warrior is a sparring partner; eight in the ring is a full blood moot.
+const MIN_AI = 1;
+const MAX_AI = 7;
+
+// Actions that fire on the press rather than while held. The server reads them
+// as plain booleans, so the single sample where one flips false -> true is the
+// only evidence that the press ever happened.
+const EDGE_ACTIONS = ["attack", "heavyAttack", "dodge", "ability", "block"] as const;
+
+// What a message costs is what decides how often continuous state goes out. A
+// frame on an already-open socket is a few hundred bytes, so the render loop's
+// samples go straight down it; the HTTP fallback pays a whole fetch per
+// message, so there the stream is thinned to roughly the server's tick.
+const CONTINUOUS_GAP_MS = { ws: 12, http: 48 };
+
 const DEFAULT_PROFILE: ProfileData = {
   name: "", level: 1, xp: 0, gold: 0, honour: 0, kills: 0, deaths: 0, wins: 0, matches: 0,
   unlocked: freeCosmeticIds(),
@@ -65,7 +88,9 @@ export default function Page() {
   const [selectedMode, setSelectedMode] = useState<GameMode>("blood_moot");
   const [selectedTeam, setSelectedTeam] = useState<Team>("none");
   const [soloClass, setSoloClass] = useState<WarriorClass>("warden");
-  const [botDifficulty, setBotDifficulty] = useState<"recruit" | "warrior" | "jarl">("warrior");
+  const [soloDifficulty, setSoloDifficulty] = useState<Difficulty>("warrior");
+  const [soloBots, setSoloBots] = useState(2);
+  const [botDifficulty, setBotDifficulty] = useState<Difficulty>("warrior");
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [matchResults, setMatchResults] = useState<MatchResults | null>(null);
   const [error, setError] = useState("");
@@ -82,7 +107,8 @@ export default function Page() {
   const playerIdRef = useRef(playerId); playerIdRef.current = playerId;
   const profileRef = useRef(profile); profileRef.current = profile;
   const busyRef = useRef(busy); busyRef.current = busy;
-  const pendingInputRef = useRef<Record<string, unknown> | null>(null);
+  const lastInputSentRef = useRef(0);
+  const heldActionsRef = useRef<Record<string, boolean>>({});
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [inviteCode, setInviteCode] = useState("");
@@ -134,6 +160,10 @@ export default function Page() {
         playerIdRef.current = d.playerId;
         setRoomCode(d.code);
         setRoomState(d);
+        // A training room has no war code and nobody to wait for. Hold the
+        // muster — still showing that the trial is being raised — rather than
+        // flashing the invite lobby on the way to the countdown.
+        if (d.mode === "solo") break;
         setBusy(false);
         setScreen("lobby");
         // Put the invite code in the URL bar so the current tab IS the
@@ -154,6 +184,7 @@ export default function Page() {
         const d = msg.data as unknown as RoomState;
         if (d.players) setRoomState(d);
         else setRoomState((prev) => prev ? { ...prev, state: "countdown", countdown: (msg.data?.countdown as number) || 0 } : prev);
+        setBusy(false);
         setScreen("game");
         break;
       }
@@ -188,7 +219,7 @@ export default function Page() {
       case "error": {
         setBusy(false);
         const code = msg.data?.code as string | undefined;
-        const inMenu = screenRef.current === "landing" || screenRef.current === "create" || screenRef.current === "join" || screenRef.current === "training" || screenRef.current === "profile" || screenRef.current === "armoury";
+        const inMenu = screenRef.current === "landing" || screenRef.current === "create" || screenRef.current === "join" || screenRef.current === "training" || screenRef.current === "muster" || screenRef.current === "profile" || screenRef.current === "armoury";
         // During gameplay or lobby, silently swallow transient link errors —
         // the transports keep the session alive; don't scare the player.
         if (inMenu || busyRef.current) {
@@ -218,24 +249,42 @@ export default function Page() {
     }
   }, [handleMessage, showError]);
 
-  useEffect(() => {
-    const iv = setInterval(() => {
-      const pending = pendingInputRef.current;
-      if (pending && transportRef.current) {
-        pendingInputRef.current = null;
-        sendMsg("input", pending);
-      }
-    }, 48);
-    return () => clearInterval(iv);
+  const sendInputNow = useCallback((sample: Record<string, unknown>) => {
+    lastInputSentRef.current = performance.now();
+    sendMsg("input", sample);
   }, [sendMsg]);
 
+  // Input used to be parked in a single slot that a timer drained, so a press
+  // that landed and lifted between two drains was simply thrown away — the
+  // slot only ever remembered the newest sample. Nothing is parked now.
+  //
+  // Movement, look and sprint are level-triggered: only the newest sample is
+  // worth anything, so those may be thinned to what the link can afford. An
+  // action is edge-triggered — the one sample where it reads true IS the
+  // event — so it leaves on the frame the render loop reports it. A press seen
+  // once is therefore sent once, and two presses are two edges and two
+  // messages, however close together they fall. Block sits with the actions
+  // because its onset is what the parry window is measured against.
   const handleSendInput = useCallback((input: Record<string, unknown>) => {
-    pendingInputRef.current = input;
-  }, []);
+    const held = heldActionsRef.current;
+    let edge = false;
+    for (const action of EDGE_ACTIONS) {
+      const down = input[action] === true;
+      if (down && !held[action]) edge = true;
+      held[action] = down;
+    }
+    if (edge) { sendInputNow(input); return; }
+
+    const gap = transportRef.current?.mode === "http" ? CONTINUOUS_GAP_MS.http : CONTINUOUS_GAP_MS.ws;
+    if (performance.now() - lastInputSentRef.current >= gap) sendInputNow(input);
+  }, [sendInputNow]);
 
   const leaveRoom = useCallback(() => {
     transportRef.current?.close();
     transportRef.current = null;
+    // A button still down when the link closes must not swallow the first
+    // press of the next fight by looking like a key that never rose.
+    heldActionsRef.current = {};
     setLinkMode(null);
     setRoomState(null);
     setRoomCode("");
@@ -265,14 +314,30 @@ export default function Page() {
     sendMsg("join", { name: playerName, code: joinCode.toUpperCase(), appearance: profileRef.current.appearance });
   }, [playerName, joinCode, ensureTransport, sendMsg, showError]);
 
-  const handleSolo = useCallback(async (difficulty: "recruit" | "warrior" | "jarl") => {
+  // The whole trial is configured on the client and travels in one message, so
+  // nothing can strand a player half-armed in a room they never asked for.
+  const handleSolo = useCallback(async (difficulty: Difficulty = soloDifficulty, bots: number = soloBots) => {
     setBusy(true);
     const name = playerName.trim() || "Trainee";
     localStorage.setItem("bretwalda_name", name);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("solo", { name, difficulty, warriorClass: soloClass, appearance: profileRef.current.appearance });
-  }, [playerName, soloClass, ensureTransport, sendMsg, showError]);
+    sendMsg("solo", {
+      name, difficulty,
+      botCount: Math.max(MIN_AI, Math.min(MAX_AI, bots)),
+      warriorClass: soloClass,
+      appearance: profileRef.current.appearance,
+      autoStart: true,
+    });
+  }, [playerName, soloClass, soloDifficulty, soloBots, ensureTransport, sendMsg]);
+
+  // The quick spar on the training screen doubles as a preset: whatever odds
+  // you took last are the odds the muster opens on.
+  const quickSpar = useCallback((preset: typeof AI_DIFFICULTIES[number]) => {
+    setSoloDifficulty(preset.id);
+    setSoloBots(preset.bots);
+    handleSolo(preset.id, preset.bots);
+  }, [handleSolo]);
 
   const handleCopyCode = useCallback(() => {
     navigator.clipboard?.writeText(roomCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => { /* ok */ });
@@ -390,11 +455,12 @@ export default function Page() {
   const openArmoury = useCallback((from: Screen) => {
     setStaged({});
     setPrevScreen(from);
-    // Match mannequin class to what the player currently uses in lobby
-    const cls = roomState?.players[playerIdRef.current]?.warriorClass;
+    // Dress the mannequin as whichever warrior the player is actually about to
+    // fight as, so the try-on is the real thing rather than a default.
+    const cls = from === "muster" ? soloClass : roomState?.players[playerIdRef.current]?.warriorClass;
     if (cls) setPreviewClass(cls);
     setScreen("armoury");
-  }, [roomState]);
+  }, [roomState, soloClass]);
 
   // ==================== GAME ====================
   if (screen === "game") {
@@ -403,7 +469,7 @@ export default function Page() {
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} />
         {roomState?.mode === "solo" && (
           <button
-            onClick={() => { leaveRoom(); setScreen("training"); }}
+            onClick={() => { leaveRoom(); setScreen("muster"); }}
             className="absolute top-3 left-1/2 -translate-x-1/2 mt-16 z-30 px-5 py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-sm font-bold tracking-wider text-stone-200 transition flex items-center gap-2 backdrop-blur"
           >
             <DoorOpen size={15} /> END SESSION
@@ -948,30 +1014,28 @@ export default function Page() {
                 Sharpen your skills alone against AI warriors. Enemies respawn — fight until you return stronger.
               </p>
 
-              <div className="mb-5">
-                <div className="section-title mb-2.5">YOUR WARRIOR</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {WARRIOR_INFO.map((w) => (
-                    <button key={w.id} onClick={() => setSoloClass(w.id)}
-                      className={`card card-interactive p-2.5 flex flex-col items-center gap-1 ${soloClass === w.id ? "card-selected" : ""}`}>
-                      <w.Icon size={16} className={soloClass === w.id ? "text-amber-300" : "text-stone-400"} />
-                      <span className="text-[9px] font-bold tracking-wider text-stone-200">{w.name.slice(0, 5)}</span>
-                    </button>
-                  ))}
-                </div>
+              <button onClick={() => setScreen("muster")} disabled={busy}
+                className="btn-primary w-full !py-3.5 flex items-center justify-center gap-2.5">
+                <Users size={17} /> MUSTER THE TESTGROUNDS
+              </button>
+              <p className="text-[11px] text-stone-400 mt-2.5 leading-relaxed text-center">
+                Choose how many AI you face and how good they are, pick your warrior,
+                dress him in the armoury — then draw steel when you are ready.
+              </p>
+
+              <div className="flex items-center gap-3 my-5">
+                <span className="flex-1 h-px bg-stone-700/70" />
+                <span className="text-[10px] tracking-[0.3em] text-stone-500 font-bold">OR SPAR AT ONCE</span>
+                <span className="flex-1 h-px bg-stone-700/70" />
               </div>
 
               <div className="space-y-3.5">
-                {([
-                  { id: "recruit" as const, name: "RECRUIT", desc: "1 slow AI sparring partner. Learn the moves.", tint: "border-l-emerald-500" },
-                  { id: "warrior" as const, name: "WARRIOR", desc: "2 competent AI warriors. A real fight.", tint: "border-l-amber-500" },
-                  { id: "jarl" as const, name: "JARL", desc: "3 ruthless AI veterans. Prove yourself.", tint: "border-l-red-500" },
-                ]).map((d) => (
-                  <button key={d.id} onClick={() => handleSolo(d.id)} disabled={busy}
+                {AI_DIFFICULTIES.map((d) => (
+                  <button key={d.id} onClick={() => quickSpar(d)} disabled={busy}
                     className={`card card-interactive w-full p-4 flex items-center gap-4 text-left border-l-4 ${d.tint}`}>
                     <div className="flex-1">
                       <div className="font-display tracking-wider text-stone-100">{d.name}</div>
-                      <div className="text-[11px] text-stone-400 mt-0.5">{d.desc}</div>
+                      <div className="text-[11px] text-stone-400 mt-0.5">{d.bots} AI · {d.desc}</div>
                     </div>
                     <Swords size={16} className="text-stone-400" />
                   </button>
@@ -1024,6 +1088,126 @@ export default function Page() {
                   );
                 })}
               </Section>
+            </div>
+          </div>
+        </ContentWrap>
+      )}
+
+      {screen === "muster" && (
+        <ContentWrap wide>
+          <div className="py-6">
+            <BackButton onClick={() => setScreen("training")} />
+            <div className="my-6">
+              <div className="label-overline mb-1.5">TESTGROUNDS · THE MUSTER</div>
+              <h1 className="font-display text-3xl text-amber-100">BEFORE STEEL IS DRAWN</h1>
+              <p className="text-stone-400 text-sm mt-2 leading-relaxed">
+                Set the odds, choose your blade, dress for the fight. Nothing begins until you say so.
+              </p>
+            </div>
+
+            {/* YOUR WARRIOR — the same live mannequin the lobby shows */}
+            <section className="mb-8">
+              <div className="card card-glow p-4 flex flex-col sm:flex-row items-center gap-4">
+                <div className="w-full sm:w-[46%]">
+                  <CharacterPreview warriorClass={soloClass} appearance={profile.appearance} height={200} />
+                </div>
+                <div className="flex-1 text-center sm:text-left">
+                  <div className="label-overline mb-1.5">YOUR WARRIOR</div>
+                  <div className="font-display text-2xl text-amber-100">{playerName.trim() || "Trainee"}</div>
+                  <div className="text-sm text-stone-300 capitalize mt-0.5">{soloClass}</div>
+                  <div className="text-[10px] text-purple-300 mt-1 tracking-[0.15em] font-bold">
+                    ABILITY — {WARRIOR_STATS[soloClass].ability}
+                  </div>
+                  <p className="text-xs text-stone-400 mt-2 leading-relaxed">
+                    Armour, helm, cloak and paint carry into the testgrounds exactly as you see them here.
+                  </p>
+                  <button onClick={() => openArmoury("muster")} className="btn-primary !py-2.5 !px-5 text-sm mt-3.5 inline-flex items-center gap-2">
+                    <Shirt size={15} /> CUSTOMISE
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="section-title mb-3"><Swords size={12} /> CHOOSE WARRIOR</h2>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {WARRIOR_INFO.map((w) => {
+                  const stats = WARRIOR_STATS[w.id];
+                  const isSel = soloClass === w.id;
+                  const WIcon = w.Icon;
+                  return (
+                    <button key={w.id} onClick={() => setSoloClass(w.id)}
+                      className={`card card-interactive p-4 text-left ${isSel ? "card-selected" : ""}`}>
+                      <div className={`medallion mb-2.5 ${isSel ? "!border-amber-500 !text-amber-300" : ""}`}><WIcon size={17} /></div>
+                      <div className="font-display text-sm text-amber-100 tracking-wider">{w.name}</div>
+                      <div className="text-[10px] text-stone-400 mt-1 leading-snug">{w.desc}</div>
+                      <div className="mt-3 space-y-1.5">
+                        <StatBar label="HP" value={stats.maxHealth} max={150} cls="bg-emerald-500" />
+                        <StatBar label="SPD" value={stats.moveSpeed * 20} max={100} cls="bg-sky-400" />
+                        <StatBar label="ATK" value={stats.attackDamage * 3} max={84} cls="bg-red-500" />
+                        <StatBar label="DEF" value={stats.blockReduction * 100} max={80} cls="bg-amber-400" />
+                      </div>
+                      <div className="mt-2.5 text-[9px] text-purple-300 tracking-[0.15em] font-bold">{stats.ability}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="section-title mb-3"><Bot size={12} /> THE OPPOSITION</h2>
+              <div className="card p-5">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="font-bold text-stone-100 text-sm">HOW MANY</div>
+                    <div className="text-[11px] text-stone-400 mt-0.5">
+                      They respawn where they fell — the trial ends when you leave it.
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button onClick={() => setSoloBots((n) => Math.max(MIN_AI, n - 1))} disabled={soloBots <= MIN_AI}
+                      aria-label="Fewer AI warriors" className="btn-ghost !py-2.5 !px-3.5">
+                      <Minus size={16} />
+                    </button>
+                    <div className="w-10 text-center font-display text-3xl text-amber-200">{soloBots}</div>
+                    <button onClick={() => setSoloBots((n) => Math.min(MAX_AI, n + 1))} disabled={soloBots >= MAX_AI}
+                      aria-label="More AI warriors" className="btn-ghost !py-2.5 !px-3.5">
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="h-px bg-stone-700/60 my-4" />
+
+                <div className="font-bold text-stone-100 text-sm mb-0.5">HOW GOOD</div>
+                <div className="text-[11px] text-stone-400 mb-3">Every AI in the ring fights at this skill.</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {AI_DIFFICULTIES.map((d) => (
+                    <button key={d.id} onClick={() => setSoloDifficulty(d.id)}
+                      className={`card card-interactive p-3.5 text-left border-l-4 ${d.tint} ${soloDifficulty === d.id ? "card-selected" : ""}`}>
+                      <div className="font-display tracking-wider text-stone-100 text-sm">{d.name}</div>
+                      <div className="text-[10px] text-stone-400 mt-1 leading-snug">{d.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* the fight is always one press away, pinned for thumbs */}
+            <div className="sticky bottom-3 mt-8 pt-3 bg-gradient-to-t from-black/80 via-black/60 to-transparent -mx-1 px-1 pb-1">
+              <div className="flex gap-2.5">
+                <button onClick={() => handleSolo()} disabled={busy}
+                  className="btn-primary flex-1 !py-4 !text-lg flex items-center justify-center gap-2">
+                  <Swords size={18} /> {busy ? "SUMMONING..." : "DRAW STEEL"}
+                </button>
+                <button onClick={() => setScreen("training")} className="btn-ghost !px-4">
+                  <ArrowLeft size={18} />
+                </button>
+              </div>
+              <p className="text-stone-400 text-xs text-center mt-2.5">
+                {soloBots} {soloBots === 1 ? "AI warrior" : "AI warriors"} at {soloDifficulty} skill,
+                against your <span className="text-amber-300 font-bold capitalize">{soloClass}</span>.
+              </p>
             </div>
           </div>
         </ContentWrap>

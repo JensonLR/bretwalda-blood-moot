@@ -118,10 +118,13 @@ async function main() {
     console.log(`[shoot] ${preset} -> ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
 
-    // Wait for the renderer to signal it has settled.
+    // Wait for the renderer to signal it has settled. The budget is generous
+    // because this box has no GPU: the full post chain through SwiftShader is
+    // ~1 s a frame, and the settle is 60 of them plus procedural texture
+    // generation on top.
     let ready = true;
     try {
-      await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 120000 });
+      await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
     } catch {
       ready = false;
       errors.push("renderer never signalled __shotReady (scene may have failed to build)");

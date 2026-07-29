@@ -34,10 +34,12 @@ pins the tier. Runs: never — it is data.
 Owns procedural texture generation and the cache that keeps it to one build per
 map. Returns `TextureSet`s ("albedo, normal, roughness, AO for wood") by name,
 and particle sprites by name. Must never touch a material, a mesh or the scene —
-it hands back textures and nothing else. Surface generators are not written yet
-and `surface()` returns an empty set, which materials read as "flat colour";
-sprites are real, because a `PointsMaterial` without a map draws grey squares.
-Runs: at build time only.
+it hands back textures and nothing else. Twenty surfaces, each one height field
+first: normals are Sobel-derived from it, AO is its cavity term, and roughness
+and metalness are packed into one ORM texture so a substance costs one fetch
+rather than three. Generation is lazy and cached, because the full set is over
+the 250 ms budget and the arena only ever asks for part of it. Runs: at build
+time only, on first request per surface.
 
 ### `materials.ts`
 Owns the shared `THREE.Material` instances the arena is built from, keyed by
@@ -45,22 +47,39 @@ semantic name (`palisade`, `hutRoof`, `runeGlow`), built on `textures.ts`. The
 colour and roughness numbers in its catalog *are* the arena's art direction.
 Must never build geometry or reach into the scene. Materials that are mutated
 per instance — the health bar tint, damage-number canvases, per-warrior kit —
-deliberately do not live here. `setEnvironment()` is how the sky's PMREM reaches
-every metal in one call. Runs: at build time only.
+deliberately do not live here, but the *substance* accessors do — `armour`,
+`tunic`, `hide`, `flesh`, `blade`, `timber` are what `characters.ts` builds a
+warrior out of, so eight warriors share one program per substance instead of
+allocating 73 materials each. Every textured material's colour is divided by its
+map's mean so `map × color` still averages to the number in the catalog; that is
+what lets the arena be textured without silently re-grading it.
+`setEnvironment()` is how the sky's PMREM reaches every metal in one call, and
+**sky.ts calls it**, on every rebake — the orchestrator must not, or the arena
+ends up reflecting a disposed texture the first time the mood changes.
+Runs: at build time only.
 
 ### `sky.ts`
 Owns the air and everything behind it: the sky dome, moon, `scene.fog`,
 `scene.background`, and the PMREM environment map derived from the dome. It is
 the only module allowed to write `scene.fog` — mood has to move fog, dome and
-grade together or the frame comes apart. Must never touch a light. Runs: first
-in the frame, before anything reads the atmosphere.
+grade together or the frame comes apart. Must never touch a light *directly* — it publishes
+`sunDirection` / `moonDirection` / `sunColor` / `moonColor` and `lighting.ts`
+reads them, so the key comes from where the moon actually is. It also patches
+three's four fog `ShaderChunk`s to make fog directional (aerial perspective);
+that patch is refcounted and restored on dispose. Runs: first in the frame,
+before anything reads the atmosphere.
 
 ### `lighting.ts`
 Owns the global light rig: ambient, hemisphere, the moon key with its shadow
 cascade, and the two directional fills. Must never create geometry, and must
 never own a light that belongs to a prop — the torch and bonfire point lights
 are built in `world.ts` beside the flames they come from, and exposed as
-`world.pointLights` for anyone who needs to grade them. Runs: early, alongside
+`world.pointLights` for anyone who needs to grade them. Takes the sky's body
+vectors and colours through `LightingOptions`; it keeps their azimuth and hue
+and overrides their elevation, because a key at the moon's real 11° lays
+shadows five body-lengths long across the arena. The ambient and hemisphere are
+deliberately small — the sky's PMREM is the physical sky-light term and these
+two only exist to keep a shadowed cheek off pure black. Runs: early, alongside
 sky; the shadow cascade will want `ctx.focus`.
 
 ### `world.ts`
@@ -69,9 +88,10 @@ banners, bonfire, runestone, debris — hung off one root group so the arena is
 one add and one remove. Per-frame it animates only the cached flames and
 banners; it must never traverse the scene, because that walk used to cross every
 warrior's sixty meshes looking for two names. Must never touch the camera, the
-warriors or the HUD. Its `rng` option exists because the scatter is currently
-`Math.random`, so two capture runs lay out different arenas. Runs: first, so
-props are posed before anything is composed against them.
+warriors or the HUD. Prop scatter runs off a fixed seed so two capture runs lay
+out the same arena and an A/B against `art/shots/baseline` means something; pass
+`rng: Math.random` for a different moot each match. Runs: first, so props are
+posed before anything is composed against them.
 
 ### `vfx.ts`
 Owns every particle in the game: impact bursts, blood, dust, blade trails, the
@@ -84,9 +104,14 @@ this frame's positions.
 
 ### `postfx.ts`
 Owns the final image: output colour space, tone mapping, exposure, and the
-`EffectComposer` chain (AA → AO → bloom → grade → vignette) when it lands. It is
-the **only** module allowed to call `renderer.render` — everyone else renders by
-doing nothing. Must never modify the scene. Runs: last, once per frame.
+`EffectComposer` chain — `RenderPass → GTAO → Bokeh → Bloom → Grade → SMAA/FXAA`.
+It is the **only** module allowed to call `renderer.render` — everyone else
+renders by doing nothing. The beauty pass lands in a linear half-float buffer,
+where three skips its own tone-mapping chunk, so the filmic curve is applied by
+hand exactly once, in the grade. The damage flash and the low-health edge are
+grade inputs (`hurt`, `setPressure`) rather than DOM overlays, so they land
+before the curve and read as the frame going wrong rather than as interface.
+Must never modify the scene. Runs: last, once per frame.
 
 ### `camera.ts`
 Owns the camera and its yaw. The yaw lives here rather than in the input handler
@@ -119,7 +144,13 @@ posed, so plates billboard against the current camera.
 
 ## Frame order
 
-`GameCanvas.tsx` drives this sequence, and the order matters:
+`GameCanvas.tsx` builds the stage in this order, and the order matters:
+`textures → materials → camera → postfx → sky → lighting → world → vfx → hud3d`.
+postfx comes before sky because it owns `renderer.toneMappingExposure` and sky
+encodes against that from its own constructor; lighting comes after sky because
+it aims at the sky's bodies.
+
+Then it drives this frame sequence:
 
 1. `world.update` / `sky.update` / `lighting.update` — the static frame, before
    any early-out, so torches keep burning in the lobby.
@@ -129,7 +160,7 @@ posed, so plates billboard against the current camera.
    `vfx` / `hud3d` / `camera.shake` → `hud3d.setHealth` → `poseWarrior`.
 4. Retire warriors the server no longer sends.
 5. `camera.update` — needs this frame's smoothed focus position.
-6. DOM vignette, then `vfx.update`, then `hud3d.update`.
+6. `postfx.setPressure`, then `vfx.update`, then `hud3d.update`.
 7. `setMood` on every module, so a mood change lands as one coherent step.
 8. `postfx.render` — the only render call in the codebase.
 

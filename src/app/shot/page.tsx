@@ -37,12 +37,14 @@ type Pose = {
 /** Camera yaw is chosen per preset so framing is reproducible. */
 const PRESETS: Record<string, { cam: number; poses: Pose[]; matchTimer: number; lastStand?: boolean }> = {
   // Over-shoulder gameplay view, mid-swing against a blocking foe.
+  // Offset from the origin because the bonfire stands there — framing a duel
+  // at (0,0) puts the camera inside the woodpile.
   duel: {
     cam: Math.PI,
     matchTimer: 74,
     poses: [
-      { id: "me", name: "Aethelred", cls: "warden", x: 0, z: 0, rot: Math.PI, state: "attacking", dir: "overhead", swing: 0.55 },
-      { id: "foe", name: "Uhtred", cls: "huscarl", x: 0.4, z: -2.6, rot: 0, state: "blocking", hp: 0.62 },
+      { id: "me", name: "Aethelred", cls: "warden", x: 6.5, z: 5.5, rot: Math.PI, state: "attacking", dir: "overhead", swing: 0.55 },
+      { id: "foe", name: "Uhtred", cls: "huscarl", x: 6.9, z: 2.9, rot: 0, state: "blocking", hp: 0.62 },
     ],
   },
   // Wide arena establishing shot — judges world build, sky, lighting.
@@ -61,8 +63,8 @@ const PRESETS: Record<string, { cam: number; poses: Pose[]; matchTimer: number; 
     cam: Math.PI,
     matchTimer: 30,
     poses: [
-      { id: "me", name: "Aethelred", cls: "huscarl", x: 0, z: 0, rot: Math.PI, state: "idle" },
-      { id: "foe", name: "Osric", cls: "berserker", x: 0, z: -1.9, rot: 0, state: "idle" },
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 6.0, rot: Math.PI, state: "idle" },
+      { id: "foe", name: "Osric", cls: "berserker", x: -6.2, z: 4.1, rot: 0.4, state: "idle" },
     ],
   },
   // Eight-warrior melee — judges crowd readability and silhouettes.
@@ -92,8 +94,8 @@ const PRESETS: Record<string, { cam: number; poses: Pose[]; matchTimer: number; 
     matchTimer: 210,
     lastStand: true,
     poses: [
-      { id: "me", name: "Aethelred", cls: "berserker", x: 0, z: 0, rot: Math.PI, state: "idle", hp: 0.22 },
-      { id: "foe", name: "Grim the Grim", cls: "huscarl", x: -0.8, z: -3.4, rot: 0.2, state: "attacking", dir: "left", swing: 0.4 },
+      { id: "me", name: "Aethelred", cls: "berserker", x: 4.0, z: -7.5, rot: Math.PI, state: "idle", hp: 0.22 },
+      { id: "foe", name: "Grim the Grim", cls: "huscarl", x: 3.2, z: -10.9, rot: 0.2, state: "attacking", dir: "left", swing: 0.4 },
     ],
   },
 };
@@ -144,24 +146,24 @@ function makePlayer(p: Pose, isLocal: boolean): GamePlayer {
 export default function ShotPage() {
   const [params, setParams] = useState<URLSearchParams | null>(null);
 
+  // The yaw is published here, in the same effect that unblocks the render,
+  // rather than in an effect of its own. GameCanvas reads __photoCam from its
+  // mount effect and React runs a child's effects before its parent's, so a
+  // separate effect would always write the yaw one frame too late — `?cam=` was
+  // silently ignored, and only appeared to work because every preset happens to
+  // ask for the rig's default yaw of PI.
   useEffect(() => {
-    setParams(new URLSearchParams(window.location.search));
+    const search = new URLSearchParams(window.location.search);
+    const chosen = PRESETS[search.get("preset") ?? "duel"] ?? PRESETS.duel;
+    const camOverride = search.get("cam");
+    (window as unknown as Record<string, unknown>).__photoCam =
+      camOverride !== null ? parseFloat(camOverride) : chosen.cam;
+    setParams(search);
   }, []);
 
   const presetName = params?.get("preset") ?? "duel";
   const clean = params?.get("clean") === "1";
   const preset = PRESETS[presetName] ?? PRESETS.duel;
-
-  // Published during render, not in an effect. The renderer reads __photoCam in
-  // its own mount effect, and React runs a child's effects before its parent's —
-  // so an effect here writes the yaw one frame after GameCanvas has already read
-  // it. `?cam=` was silently ignored, and only worked at all because every
-  // preset happens to use the rig's default yaw of PI.
-  if (typeof window !== "undefined" && params) {
-    const camOverride = params.get("cam");
-    (window as unknown as Record<string, unknown>).__photoCam =
-      camOverride !== null ? parseFloat(camOverride) : preset.cam;
-  }
 
   const roomState = useMemo(() => {
     const players: Record<string, GamePlayer> = {};
@@ -184,14 +186,19 @@ export default function ShotPage() {
   }, [preset]);
 
   // Signal readiness only after the renderer has presented enough frames
-  // for lerped camera/pose state to settle.
+  // for lerped camera/pose state to settle. Every lerp in the rig and the poses
+  // runs at min(1, dt * k) with dt capped at 0.05, so the slowest of them is
+  // within a thousandth of its target inside 40 frames. 140 was free when a
+  // frame was 300 ms; with the post chain on a software rasteriser it is two
+  // and a half minutes, and the capture times out before the scene is ever
+  // photographed.
   useEffect(() => {
     if (!params) return;
     let frames = 0;
     let raf = 0;
     const tick = () => {
       frames++;
-      if (frames > 140) {
+      if (frames > 60) {
         (window as unknown as Record<string, unknown>).__shotReady = true;
         return;
       }
