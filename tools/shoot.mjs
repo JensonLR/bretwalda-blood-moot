@@ -31,7 +31,8 @@ const has = (name) => argv.includes(`--${name}`);
 const OUT = resolve(ROOT, flag("out", "art/shots"));
 const WIDTH = parseInt(flag("w", "1600"), 10);
 const HEIGHT = parseInt(flag("h", "900"), 10);
-const PORT = parseInt(flag("port", "3111"), 10);
+// Derive a per-process port so concurrent captures don't fight over one.
+const PORT = parseInt(flag("port", String(3100 + (process.pid % 700))), 10);
 const CLEAN = has("hud") ? "0" : "1";
 const presets = argv.filter((a) => ALL_PRESETS.includes(a));
 const TARGETS = presets.length ? presets : ALL_PRESETS;
