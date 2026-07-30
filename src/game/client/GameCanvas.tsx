@@ -19,7 +19,7 @@ import { createLighting, type LightingHandle } from "./render/lighting";
 import { createWorld, type WorldHandle } from "./render/world";
 import { createVfx, type VfxHandle } from "./render/vfx";
 import { createPostFx, type PostFxHandle } from "./render/postfx";
-import { createCameraRig, type CameraRig } from "./render/camera";
+import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/camera";
 import { createHud3d, type Hud3D } from "./render/hud3d";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior,
@@ -79,6 +79,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
   const stageRef = useRef<Stage | null>(null);
   const warriorsRef = useRef<Map<string, WarriorSlot>>(new Map());
   const focusRef = useRef(new THREE.Vector3());
+  // Set once at init when a capture has aimed the camera; keeps the per-frame
+  // mode selection from stamping "follow" back over it every frame.
+  const photoFramedRef = useRef(false);
 
   // The loop is started once; the network state it reads lives in refs so a
   // packet does not tear down and rebuild the animation frame callback.
@@ -184,8 +187,16 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     }
 
     // Photo mode (/shot) pins the camera yaw so captures are reproducible.
-    const photoCam = (window as unknown as Record<string, unknown>).__photoCam;
+    const photoGlobals = window as unknown as Record<string, unknown>;
+    const photoCam = photoGlobals.__photoCam;
     if (typeof photoCam === "number") rig.yaw = photoCam;
+    // A capture may also aim the camera outright, which is the only way to see
+    // a warrior's front — every play mode is over his shoulder.
+    const framing = photoGlobals.__photoFraming as PhotoFraming | undefined;
+    if (framing?.position && framing?.target) {
+      rig.setPhotoFraming(framing);
+      photoFramedRef.current = true;
+    }
 
     const stage: Stage = { renderer, scene, quality, textures, materials, sky, lighting, world, vfx, postfx, rig, hud };
     stageRef.current = stage;
@@ -453,10 +464,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
           0,
           slot?.motion.rz ?? localPlayer.position.z,
         );
-        stage.rig.setMode("follow");
+        stage.rig.setMode(photoFramedRef.current ? "photo" : "follow");
       } else {
         focusRef.current.set(0, 0, 0);
-        stage.rig.setMode("spectate");
+        stage.rig.setMode(photoFramedRef.current ? "photo" : "spectate");
       }
       stage.rig.update(dt, ctx);
 

@@ -19,7 +19,8 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ALL_PRESETS = ["duel", "arena", "closeup", "brawl", "laststand"];
+// portrait/stance/lineup use an aimed camera; the rest follow the warrior.
+const ALL_PRESETS = ["duel", "arena", "closeup", "brawl", "laststand", "portrait", "stance", "lineup"];
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {

@@ -14,13 +14,30 @@ export type CameraMode =
   /** Slow orbit of the arena while dead — spectating. */
   | "spectate"
   /** Slower, higher orbit before the fight starts. */
-  | "lobby";
+  | "lobby"
+  /**
+   * Fixed framing for the capture harness. Every play mode looks over the
+   * local warrior's shoulder, which means his own back occludes whatever he
+   * is fighting — so no in-game view can show a warrior's front, and the
+   * character work could not be reviewed at all. This mode exists so a
+   * capture can be aimed anywhere. Never selected during play.
+   */
+  | "photo";
+
+/** Where "photo" mode puts the camera and what it points at. */
+export interface PhotoFraming {
+  position: [number, number, number];
+  target: [number, number, number];
+  fov?: number;
+}
 
 export interface CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   /** Camera yaw in radians. Also the rotationY sent to the server. */
   yaw: number;
   setMode(mode: CameraMode): void;
+  /** Aims "photo" mode. Selecting the mode without this leaves the rig put. */
+  setPhotoFraming(framing: PhotoFraming): void;
   /** Adds an impulse; the rig decays it. Larger hits should ask for more. */
   shake(intensity: number): void;
   setViewport(width: number, height: number): void;
@@ -55,6 +72,7 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
   camera.layers.enable(LAYER_UNOCCLUDED);
 
   const orbitTarget = new THREE.Vector3();
+  let photoFraming: PhotoFraming | null = null;
   let mode: CameraMode = "follow";
   let yaw = Math.PI;
   let fov = FOV_BASE;
@@ -111,6 +129,10 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
       mode = next;
     },
 
+    setPhotoFraming(framing) {
+      photoFraming = framing;
+    },
+
     shake(intensity) {
       shakeAmount = Math.max(shakeAmount, intensity);
     },
@@ -121,6 +143,22 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     },
 
     update(dt, ctx) {
+      // Snapped, not lerped, and no shake: a capture has to be byte-comparable
+      // between runs or an A/B against the previous iteration measures camera
+      // drift instead of art.
+      if (mode === "photo") {
+        if (photoFraming) {
+          camera.position.set(...photoFraming.position);
+          camera.lookAt(...photoFraming.target);
+          const want = photoFraming.fov ?? FOV_BASE;
+          if (camera.fov !== want) {
+            camera.fov = want;
+            camera.updateProjectionMatrix();
+          }
+        }
+        return;
+      }
+
       if (mode === "lobby") {
         // Pre-fight the camera drifts and nothing may jog it, so shake is not
         // decayed here either — whatever was left carries into the first frame

@@ -34,8 +34,19 @@ type Pose = {
   swing?: number;
 };
 
-/** Camera yaw is chosen per preset so framing is reproducible. */
-const PRESETS: Record<string, { cam: number; poses: Pose[]; matchTimer: number; lastStand?: boolean }> = {
+/**
+ * Camera yaw is chosen per preset so framing is reproducible. A preset may
+ * instead supply `framing`, which aims the camera outright — necessary for any
+ * shot of a warrior's front, since every play mode sits behind his shoulder and
+ * his own back hides whatever he faces.
+ */
+const PRESETS: Record<string, {
+  cam: number;
+  poses: Pose[];
+  matchTimer: number;
+  lastStand?: boolean;
+  framing?: { position: [number, number, number]; target: [number, number, number]; fov?: number };
+}> = {
   // Over-shoulder gameplay view, mid-swing against a blocking foe.
   // Offset from the origin because the bonfire stands there — framing a duel
   // at (0,0) puts the camera inside the woodpile.
@@ -87,6 +98,41 @@ const PRESETS: Record<string, { cam: number; poses: Pose[]; matchTimer: number; 
         hp: 1 - i * 0.09,
       };
     }),
+  },
+  // Face-on portrait at conversational distance. The single most important
+  // shot in the set: proportion, face, hands, and how the armour layers read.
+  portrait: {
+    cam: Math.PI,
+    matchTimer: 40,
+    framing: { position: [-7.0, 1.62, 2.1], target: [-7.0, 1.35, 4.6], fov: 40 },
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "idle" },
+    ],
+  },
+  // Three-quarter full body, so silhouette and stance can be judged together.
+  stance: {
+    cam: Math.PI,
+    matchTimer: 40,
+    framing: { position: [-4.4, 1.9, 1.6], target: [-7.0, 1.0, 4.6], fov: 46 },
+    poses: [
+      { id: "me", name: "Aethelred", cls: "berserker", x: -7.0, z: 4.6, rot: 2.42, state: "attacking", dir: "overhead", swing: 0.45 },
+      { id: "foe", name: "Osric", cls: "warden", x: -8.6, z: 6.6, rot: -0.72, state: "blocking", hp: 0.5 },
+    ],
+  },
+  // All four classes side by side, front on, for silhouette differentiation.
+  lineup: {
+    cam: Math.PI,
+    matchTimer: 40,
+    framing: { position: [0, 2.0, 10.5], target: [0, 1.1, 6.0], fov: 44 },
+    poses: (["huscarl", "warden", "runekeeper", "berserker"] as WarriorClass[]).map((cls, i) => ({
+      id: i === 0 ? "me" : `p${i}`,
+      name: ["Huscarl", "Warden", "Runekeeper", "Berserker"][i],
+      cls,
+      x: -2.55 + i * 1.7,
+      z: 6.0,
+      rot: 0,
+      state: "idle" as PlayerState,
+    })),
   },
   // Last-stand mood — judges the dramatic colour grade.
   laststand: {
@@ -156,8 +202,13 @@ export default function ShotPage() {
     const search = new URLSearchParams(window.location.search);
     const chosen = PRESETS[search.get("preset") ?? "duel"] ?? PRESETS.duel;
     const camOverride = search.get("cam");
-    (window as unknown as Record<string, unknown>).__photoCam =
-      camOverride !== null ? parseFloat(camOverride) : chosen.cam;
+    const globals = window as unknown as Record<string, unknown>;
+    globals.__photoCam = camOverride !== null ? parseFloat(camOverride) : chosen.cam;
+    // Deleted rather than left stale: these globals outlive a client-side
+    // navigation, and a framing carried over from the previous preset would
+    // silently pin the camera in a shot that meant to follow the warrior.
+    if (chosen.framing) globals.__photoFraming = chosen.framing;
+    else delete globals.__photoFraming;
     setParams(search);
   }, []);
 
