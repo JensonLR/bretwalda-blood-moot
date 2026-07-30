@@ -89,6 +89,22 @@ const TERRAIN_RADIUS = 176;
 /** 1.6 m per repeat of the ground detail map, given the catalog's 22× tiling. */
 const GROUND_UV = 1 / 35.2;
 
+/**
+ * Nothing at boot height goes inside this radius but the fire, which is the
+ * arena's centrepiece and carries its own ring of hearth stones to say so.
+ *
+ * There is no prop collision anywhere in the stack — the server sim is 2-D and
+ * knows about warriors and the arena bound, nothing else — so a prop standing
+ * inside the fighting circle is not a *risk* of clipping, it is a guarantee of
+ * it. The brawl preset stands eight warriors on a 4.2 m circle and a spear adds
+ * most of two metres to that; `brawl` is the shot that has to prove crowd
+ * readability, and it was proving it with a warrior's shins inside a woodpile.
+ *
+ * This is the cheap half of the fix. The other half is a real obstacle radius in
+ * the sim, which is not this module's to add.
+ */
+const CLEAR_RADIUS = 6.2;
+
 /** Where the tracks in and out of the moot cross the earthwork. */
 const GATE_ANGLES = [0.42, 2.55, 4.55];
 /** The gate proper — a break in the palisade with posts and a lintel. */
@@ -1183,7 +1199,6 @@ export function createWorld(
     // hold a reflection, shallow enough that the churn at the edge still reads.
     const DEPTH = 0.046;
     const SEG = 44;
-    const RINGS = 6;
 
     const water = new THREE.MeshPhysicalMaterial({
       // Wet silt, not void. Whatever survives the opacity is what the eye reads
@@ -1248,14 +1263,21 @@ export function createWorld(
     const C_SHALLOW = new THREE.Color().setRGB(1.85, 1.6, 1.32);
     const C_DEEP = new THREE.Color().setRGB(0.68, 0.68, 0.74);
 
+    // Rings are placed by *depth*, not by a fraction of some radius. The alpha
+    // ramp is a function of depth, so putting the vertices anywhere else spends
+    // them where nothing is changing and starves the band where everything is.
+    // The last one is negative on purpose: that ring finishes 5 mm under the mud
+    // and is what guarantees the polygon's straight chords never reach a frame.
+    const RING_DEPTH = [0.78, 0.56, 0.34, 0.14, -0.12];
+
     for (const p of PUDDLES) {
       const wl = groundHeight(p.x, p.z) + DEPTH;
-      // Where the terrain crosses the waterline along one ray, plus 12 mm so
-      // the outermost ring finishes under the mud. Bisection: groundHeight is
-      // monotone enough across a basin, and fourteen evaluations a ray is free
-      // at build time.
-      const shoreAt = (ax: number, az: number): number => {
-        const target = wl + 0.012;
+      // How far out along one ray the basin floor rises to a given depth.
+      // Bisection: groundHeight climbs monotonically out of a basin over the
+      // range that matters, and fourteen evaluations a ray is free at build
+      // time — six puddles is under four thousand, all of it arithmetic.
+      const radiusAt = (ax: number, az: number, t: number): number => {
+        const target = wl - t * DEPTH;
         let lo = 0;
         let hi = p.r * 1.9;
         if (groundHeight(p.x + ax * hi, p.z + az * hi) < target) return hi;
@@ -1275,31 +1297,29 @@ export function createWorld(
       const push = (x: number, z: number, ringFade: number) => {
         // Alpha and colour both come off the real water depth under the vertex,
         // which is why the rim dissolves instead of ending on a chord: at the
-        // shoreline the depth is zero by construction. `ringFade` is only a
-        // backstop for a basin that never rises to the waterline inside the
-        // search radius.
+        // shoreline the depth is zero by construction, and how wide the margin
+        // comes out is the basin's own slope rather than a number picked here.
+        // `ringFade` is a backstop for a hollow that never rises to the
+        // waterline inside the search radius.
         const t = clamp01((wl - groundHeight(x, z)) / DEPTH);
         c.copy(C_SHALLOW).lerp(C_DEEP, smoothstep(0.2, 0.95, t));
         pos.push(x, wl, z);
         nrm.push(0, 1, 0);
-        col.push(c.r, c.g, c.b, Math.min(smoothstep(0.02, 0.5, t), ringFade));
+        col.push(c.r, c.g, c.b, Math.min(smoothstep(0, 0.62, t), ringFade));
       };
 
       push(p.x, p.z, 1);
-      for (let i = 1; i < RINGS; i++) {
-        // Biased outward: the alpha ramp lives in the last quarter of the
-        // radius and that is where the vertices need to be.
-        const f = Math.pow(i / (RINGS - 1), 0.75);
+      for (let i = 0; i < RING_DEPTH.length; i++) {
         for (let j = 0; j < SEG; j++) {
           const a = (j / SEG) * TAU;
           const ax = Math.cos(a);
           const az = Math.sin(a);
-          const r = shoreAt(ax, az) * f;
-          push(p.x + ax * r, p.z + az * r, i === RINGS - 1 ? 0 : 1);
+          const r = radiusAt(ax, az, RING_DEPTH[i]);
+          push(p.x + ax * r, p.z + az * r, i === RING_DEPTH.length - 1 ? 0 : 1);
         }
       }
       for (let j = 0; j < SEG; j++) idx.push(0, 1 + ((j + 1) % SEG), 1 + j);
-      for (let i = 1; i < RINGS - 1; i++) {
+      for (let i = 1; i < RING_DEPTH.length; i++) {
         const a0 = 1 + (i - 1) * SEG;
         const b0 = 1 + i * SEG;
         for (let j = 0; j < SEG; j++) {
@@ -2464,7 +2484,12 @@ export function createWorld(
     const logs: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * TAU + 0.2;
-      const lean = 1.28 - (i % 2) * 0.16;
+      // 42° off vertical, not 73°. At the old lean the "tripod" lay almost flat
+      // and threw log tips out to 2.5 m — past its own hearth stones at 1.75 m,
+      // which reads as scattered poles rather than a laid fire, and puts solid
+      // geometry exactly where the crowd stands. Standing them up keeps every
+      // tip inside the ring and gives the flame something to climb.
+      const lean = 0.74 - (i % 2) * 0.09;
       const g = new THREE.CylinderGeometry(0.075, 0.095, 1.9, 6);
       g.translate(0, 0.95, 0);
       g.rotateX(lean);
@@ -2523,8 +2548,11 @@ export function createWorld(
       field(rockGeos[1], rockMat, ring);
 
       const pile: THREE.Matrix4[] = [];
-      const px = -3.4;
-      const pz = 2.6;
+      // Out past CLEAR_RADIUS, on the bearing it already read best from. At
+      // (-3.4, 2.6) it sat 0.6 m from a brawl spawn and the warrior standing
+      // there had both shins through it.
+      const px = -5.5;
+      const pz = 4.3;
       const py = groundHeight(px, pz);
       for (let row = 0; row < 3; row++) {
         for (let i = 0; i < 4 - row; i++) {
@@ -2546,6 +2574,9 @@ export function createWorld(
     // An irregular slab, not a box: the outline is a noisy polygon extruded and
     // then pinched toward the top, which is what a raised stone actually is.
     const shape = new THREE.Shape();
+    // Kept, because the carved band laid on the face has to know how wide the
+    // stone is at each height — see halfWidthAt below.
+    const outline: THREE.Vector2[] = [];
     const pts = 14;
     for (let i = 0; i <= pts; i++) {
       const t = i / pts;
@@ -2554,6 +2585,7 @@ export function createWorld(
       const ry = 1.85 * (1 + noise2(Math.cos(a) * 2 - 7, Math.sin(a) * 2 + 4) * 0.22);
       const x = Math.cos(a) * rx;
       const y = Math.sin(a) * ry * (Math.sin(a) > 0 ? 0.95 : 0.7);
+      outline.push(new THREE.Vector2(x, y));
       if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
     }
     const slab = new THREE.ExtrudeGeometry(shape, { depth: 0.42, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 1, curveSegments: 1 });
@@ -2601,6 +2633,25 @@ export function createWorld(
     const lay = (w: number, h: number, x: number, y: number, rz: number) =>
       bx(w, h, CUT, x, y, faceZ(y) - CUT / 2 + 0.005, rz);
 
+    /**
+     * Half-width of the face at a height in the slab's own space, taper and
+     * surface wobble already taken off. A raised stone is not a rectangle, and
+     * a band of constant-width bars laid on one hangs its ends in the air at
+     * the top and bottom — which is what the 0.9 m interlace was doing.
+     */
+    const halfWidthAt = (y: number): number => {
+      let w = 0;
+      for (let i = 1; i < outline.length; i++) {
+        const a = outline[i - 1];
+        const b = outline[i];
+        if ((a.y > y) === (b.y > y)) continue;
+        const x = Math.abs(a.x + (b.x - a.x) * ((y - a.y) / (b.y - a.y)));
+        w = w === 0 ? x : Math.min(w, x);
+      }
+      const pinch = 1 - clamp01((y + 1.9) / 3.8) * 0.22;
+      return Math.max(0, w * pinch - 0.04);
+    };
+
     const runeMat = materials.get("runeGlow");
     const strokes: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 7; i++) {
@@ -2613,12 +2664,15 @@ export function createWorld(
     }
     body.add(new THREE.Mesh(own(mergeInto(strokes, 1)), runeMat));
 
-    // Interlace border, in stone rather than in light. Narrower than it was, so
-    // a bar tilted 9° still has both ends on the rock at the pinched top.
+    // Interlace border, in stone rather than in light. Each bar is cut to the
+    // stone at its own height, measured at both ends of its tilt, so the band
+    // narrows with the slab instead of overhanging it.
     const border: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 9; i++) {
-      const y = -1.15 + i * 0.33;
-      border.push(lay(0.78, 0.05, 0, y, i % 2 === 0 ? 0.16 : -0.16));
+      const y = -1.05 + i * 0.28;
+      const w = Math.min(halfWidthAt(y - 0.1), halfWidthAt(y + 0.1)) * 2 - 0.06;
+      if (w < 0.2) continue;
+      border.push(lay(w, 0.05, 0, y, i % 2 === 0 ? 0.16 : -0.16));
     }
     body.add(new THREE.Mesh(own(mergeInto(border, 1)), materials.get("runestone")));
 
@@ -2675,7 +2729,12 @@ export function createWorld(
     return mergeInto(parts, 1 / 2);
   })());
   const shieldBoard = materials.timber(0x6b4a2a);
-  const shieldIron = materials.tinted("iron", 0x555b63, { roughness: 0.5 });
+  // 0.30, not 0.50. These are the arena's only free-standing metal — four boss
+  // domes on each rack and a helm lying in the mud — and at half roughness under
+  // an env intensity tuned for matte surfaces they came back as grey clay with
+  // no highlight anywhere on them. A boss is a hammered iron dome; it is
+  // supposed to carry a rolled highlight and a hit off the fire.
+  const shieldIron = materials.tinted("iron", 0x555b63, { roughness: 0.3 });
 
   {
     // Two racks of shields, an A-frame each. This is where a war band's gear
@@ -2813,10 +2872,14 @@ export function createWorld(
       bx(0.005, 0.2, 0.09, 0, 0.68, 0),
       bx(0.09, 0.2, 0.005, 0, 0.68, 0),
     ]));
+    // Every scatter below starts at CLEAR_RADIUS. An arrow standing in the mud
+    // at 3 m is a shin through a shaft the first time anyone fights over the
+    // fire, and the debris is the one dressing that gains nothing from being
+    // close in — it reads as a fought-over field from anywhere in the ring.
     const arrows: THREE.Matrix4[] = [];
     for (let i = 0; i < scatter(16); i++) {
       const a = rng() * TAU;
-      const d = 3 + rng() * 15;
+      const d = CLEAR_RADIUS + rng() * 12;
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       arrows.push(place(x, groundHeight(x, z) - 0.06, z, rng() * TAU, 0.8 + rng() * 0.4, 0.25 + rng() * 0.5, (rng() - 0.5) * 0.5));
@@ -2831,7 +2894,7 @@ export function createWorld(
     const swords: THREE.Matrix4[] = [];
     for (let i = 0; i < scatter(6); i++) {
       const a = rng() * TAU;
-      const d = 5 + rng() * 11;
+      const d = CLEAR_RADIUS + rng() * 10;
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       swords.push(place(x, groundHeight(x, z) - 0.14, z, rng() * TAU, 1, 0.35 + rng() * 0.3, (rng() - 0.5) * 0.4));
@@ -2859,7 +2922,7 @@ export function createWorld(
     const helms: THREE.Matrix4[] = [];
     for (let i = 0; i < scatter(3); i++) {
       const a = rng() * TAU;
-      const d = 6 + rng() * 9;
+      const d = CLEAR_RADIUS + rng() * 8;
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       helms.push(place(x, groundHeight(x, z) + 0.05, z, rng() * TAU, 1, 1.9 + rng() * 0.5, rng() * 2));
@@ -2874,7 +2937,7 @@ export function createWorld(
     const bones: THREE.Matrix4[] = [];
     for (let i = 0; i < scatter(14); i++) {
       const a = rng() * TAU;
-      const d = 4 + rng() * 20;
+      const d = CLEAR_RADIUS + rng() * 18;
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       bones.push(place(x, groundHeight(x, z) + 0.02, z, rng() * TAU, 0.7 + rng() * 0.6, (rng() - 0.5) * 0.3, (rng() - 0.5) * 0.4));

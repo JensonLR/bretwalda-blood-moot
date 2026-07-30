@@ -85,3 +85,68 @@ than what it looked like:
   `swingLive` when it saw `attackTimer` decrease across two frames, and a
   capture holds it constant — so animation was reviewed for weeks against poses
   that were never the ones requested.
+
+---
+
+## Second panel (independent, on v4/v5) — refined traces
+
+A second three-critic panel scored FAIL on all lenses, with frame cleanliness
+and animation weight at 2/10. Where it disagreed with or sharpened the first
+panel's diagnosis, its trace is recorded here.
+
+**The orange square is the bonfire flame, not a damage number.** Traced to
+`materials.ts:137` `bonfireFlame` — no surface, no alpha — applied to a bare
+`PlaneGeometry` at `world.ts:1928`. The first panel attributed it to an
+untextured HUD damage number; that was wrong, and a fix aimed at `hud3d.ts`
+would have left it in the frame.
+
+**Only the player casts a shadow.** `lighting.ts:341` sizes a single ortho box
+at `half <= shadowDistance` (24 m, `quality.ts:72`), and `trackShadow()`
+re-centres it on the duellists every frame — so the palisade, both halls, the
+hero tree and the hay bales all fall outside the cascade every frame. Not a
+tuning problem: static geometry is never inside the box.
+
+**portrait/stance fail the tonal floor on highlight structure, not black
+level.** The panel mirrored the harness metric exactly (160x90 downsample,
+unweighted `(r+g+b)/3`, bucket counts only above `n*0.002` = 28.8 px) and
+reproduced the shipped numbers to within 0.1 luma. Buckets 2-3 hold 79% of
+portrait and 77% of stance; buckets 7-10 are populated but under threshold.
+Nothing above code ~112 occupies even 0.2% of the frame. So the fix is
+highlight structure on the subject, not lifting the shadows.
+
+**Chromatic aberration is a defect, not a flourish.** ~2 px red/cyan fringing on
+every foliage silhouette (`postfx.ts:554`), rising to ~6 px in laststand
+(`postfx.ts:676`).
+
+**Sub-pixel rim strips stipple.** 1 px red speckle along the cloak hem, spear
+edge and sword edge, from rim geometry thinner than a pixel at
+`characters.ts:557-559`.
+
+**Cloaks have no cloth behaviour at all** — rigid flat triangles projecting
+sideways with zero drape, zero lag behind motion, zero gravity, no secondary
+motion. Named as the clearest single tell that the animation is not simulating
+anything.
+
+**The nose is not modelled.** The helm's nasal substitutes for it. The beard is
+a flat waffle-textured panel with a hard rectangular silhouette. Eyes are dark
+almond patches with no socket, lid or brow. The head is a rounded box with hard
+vertical corner edges at the temples.
+
+**Apparent proportion reads 8.5-9 heads**, not the 7.4 the skeleton computes,
+with no pelvis mass — consistent with the face-placement entry above.
+
+**Two nameplate visual languages** ship simultaneously: white/white and
+gold/yellow, at a 1.8x scale difference.
+
+---
+
+## Process defect — overlapping captures corrupt the A/B reference
+
+Two workflows ran concurrently and both wrote to `art/shots/`. One re-captured
+into `v4` *with newer code*, destroying the reference the other was scoring
+against. Any A/B taken across that window compares two different builds while
+claiming to compare one change.
+
+Captures are a shared, mutable resource. Only one capture may run at a time, and
+a directory that has been scored must be treated as immutable — write a new
+version rather than refreshing an old one.
