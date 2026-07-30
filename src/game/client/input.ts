@@ -21,6 +21,14 @@ export interface MobileFlags {
 export interface InputSources {
   isMobile: boolean;
   keys: Set<string>;
+  /**
+   * Keys seen going down since the last sample, whether or not they are still
+   * held. Sampling is polled at 60 Hz, so a tap shorter than one poll would
+   * otherwise never be observed — and a dodge or an ability is exactly the
+   * input a player taps as fast as they can. Held state comes from `keys`;
+   * one-shot deeds consult this too. The caller clears it after each sample.
+   */
+  tapped: Set<string>;
   mouseDown: boolean;
   rightMouseDown: boolean;
   joystick: { x: number; y: number };
@@ -76,6 +84,9 @@ export function sampleInput(
   lastDir: AttackDirection,
 ): InputSample {
   const { isMobile, keys, joystick, mobile } = sources;
+  const tapped = sources.tapped;
+  /** Held now, or tapped since the last sample. */
+  const hit = (k: string) => keys.has(k) || tapped.has(k);
   const local = players[localId];
   const alive = local && local.state !== "dead";
   const pressedAttack = isMobile ? mobile.attack : sources.mouseDown;
@@ -128,11 +139,11 @@ export function sampleInput(
       moveX, moveZ, rotationY: rig.yaw,
       sprint: isMobile ? mobile.sprint : keys.has("shift"),
       attack: pressedAttack,
-      heavyAttack: isMobile ? mobile.heavy : keys.has("e") || keys.has("v"),
+      heavyAttack: isMobile ? mobile.heavy : hit("e") || hit("v"),
       block: isMobile ? mobile.block : sources.rightMouseDown,
-      dodge: isMobile ? mobile.dodge : keys.has(" "),
+      dodge: isMobile ? mobile.dodge : hit(" "),
       crouch: keys.has("control"),
-      ability: isMobile ? mobile.ability : keys.has("q"),
+      ability: isMobile ? mobile.ability : hit("q"),
       attackDir,
     },
   };

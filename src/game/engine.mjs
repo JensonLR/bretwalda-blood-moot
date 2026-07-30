@@ -26,11 +26,24 @@ const MOVE_CARRY_TAU = 0.32;    // momentum you keep while committed to a swing 
 const IMPULSE_TAU = 0.34;       // lunges and rolls bleed off at the old friction's pace
 const LUNGE_LIGHT = 0.9;        // ground a light swing carries you, in units
 const LUNGE_HEAVY = 1.25;       // ...and a heavy one
-const BLOCK_MOVE_MULT = 0.55;   // a raised shield is a slow shield
+const BLOCK_MOVE_MULT = 0.55;   // a raised shield is a slow shield — a felt tax, not a root
 const SPRINT_STAMINA = 8;       // per second, sprinting
 const BLOCK_STAMINA = 2;        // per second, guard up
-const INPUT_LAPSE_MS = 400;     // a client this quiet has stopped asking for anything;
-                                // long enough that an HTTP-fallback hiccup is not a stutter
+const INPUT_LAPSE_MS = 600;     // a client this quiet has stopped asking for anything.
+                                // Long enough that a hitching renderer is not a stutter in
+                                // the legs — a phone that thermal-throttles or a software-GL
+                                // capture box can spend 400 ms on a frame, and a warrior must
+                                // not lose a fifth of his stride to the frame rate — short
+                                // enough that a dead tab's warrior stops inside three strides.
+
+// ---- the clock ----
+// The simulation advances in fixed steps; the wall clock decides how many are
+// owed. See gameTick — this is where the movement-speed bug actually lived.
+const TICK_SLACK_MS = 3;        // treat a wake this close to a step boundary as on time,
+                                // so a punctual timer is never a wasted wake
+const MAX_CATCHUP_MS = 400;     // arrears we will work off in one wake; past this the box
+                                // was asleep and fast-forwarding the fight is worse than
+                                // losing the time
 
 const DIFFICULTIES = ["recruit", "warrior", "jarl"];
 const BOT_SKILL = { recruit: 0.45, warrior: 0.7, jarl: 0.92 };
@@ -59,6 +72,10 @@ function makeEngine() {
   const rooms = new Map();          // code -> room
   const sessions = new Map();       // sid -> { sender, roomCode, playerId|null }
   const TICK_MS = 1000 / TICK_RATE;
+  const TICK_DT = 1 / TICK_RATE;
+  // Wall time the simulation has been advanced to. Monotonic, so an NTP step
+  // cannot hand the arena a second of catch-up or a second of stall.
+  let simClock = performance.now();
 
   function generateCode() {
     const name = ROOM_NAMES[(Math.random() * ROOM_NAMES.length) | 0];
@@ -721,23 +738,49 @@ function makeEngine() {
   // ---------------- movement ----------------
   // The tick is the only clock the simulation trusts. An input message says
   // what a warrior WANTS; how far he actually travels is settled here, once
-  // per tick, so a player on a ragged line moves exactly as fast as one on a
-  // clean line — and exactly as fast as his class sheet promises.
+  // per fixed step, so a player on a ragged line moves exactly as fast as one
+  // on a clean line — and exactly as fast as his class sheet promises.
   //
-  //   steering:  v += (want - v) * (1 - e^(-dt/TAU))
+  //   steering:  v += (want - v) * k,   k = 1 - e^(-dt/TAU)
   //
-  // The correction vanishes only at v == want, so want IS the sustained speed —
-  // 4.5 u/s on a Warden's sheet is 4.5 u/s in the arena. Over n ticks the gap
-  // closes as e^(-n*dt/TAU), a function of elapsed time alone: halve the tick
-  // rate or triple the message rate and the curve is unchanged.
+  // What sustained speed does that produce? The correction is proportional to
+  // (want - v) and to nothing else, so the fixed point is v = want exactly: no
+  // offset, no residue, no dependence on dt, TAU or the message rate. The step
+  // integrates with the post-update v, so a step at the fixed point covers
+  // want*dt, and a hold of T seconds from a standstill covers
   //
-  // (The old code lerped toward `want` once per input MESSAGE and multiplied by
-  //  0.87 once per TICK. With m messages a tick that settles at
-  //  0.87(1-a^m)/(1-0.87·a^m)·want, a = 0.07^dt — 45% of the stated speed at 20
-  //  msg/s, 69% at 60, 87% at infinity. Top speed was a network measurement.)
+  //   want * (T - TAU*(1 - e^(-T/TAU)))
   //
-  // Drag is never applied while there is intent, because a drag term and an
-  // exact steady state cannot both exist. Letting go is what decelerates you.
+  // — the full distance less one time constant's worth of ramp. For a Warden's
+  // 4.5 u/s and the playtest's 1.2 s hold that is 4.5*(1.2 - 0.17) = 4.63 units
+  // against an assertion of 3.0, and 4.67 measured in-process. So the algebra
+  // here was already right; what was wrong was `dt` — see gameTick.
+  //
+  // Two things would move that fixed point off the sheet, and both are
+  // deliberately absent:
+  //   - Drag on a step that HAS intent. Any drag term at all, applied
+  //     alongside the correction, settles at want*k/(k + drag) < want, which
+  //     makes top speed a property of the tuning constants instead of the class
+  //     sheet. So deceleration lives only in the `else` branch: letting go is
+  //     what stops you, not moving.
+  //   - An unclamped intent vector. `want` is the intent DIRECTION times
+  //     min(1, |intent|) * speed, so a keyboard diagonal (|intent| = √2) walks
+  //     at moveSpeed rather than 1.41 * moveSpeed, and a thumb half pushed
+  //     walks at half of it. Nothing a client sends can ask for more than one.
+  //
+  // (Two passes ago this lerped toward `want` once per input MESSAGE and
+  //  multiplied by 0.87 once per TICK, settling at 0.87(1-a^m)/(1-0.87·a^m)·want
+  //  for m messages a tick, a = 0.07^dt — 45% of the stated speed at 20 msg/s,
+  //  69% at 60, 87% at infinity. Top speed was a network measurement. The pass
+  //  after that fixed the algebra and left the clock, which was the other half
+  //  of the same bug.)
+  //
+  // Sprint and guard are the only multipliers on `want`, and both are sheet
+  // numbers rather than accidents: sprintSpeed is its own column and is reached
+  // to the same tolerance as the walk, and a raised shield is exactly
+  // BLOCK_MOVE_MULT of the walk — 0.55, enough to be felt, not enough to root
+  // you, and never compounded with a sprint because you cannot sprint behind a
+  // shield.
   function integrateMovement(player, dt) {
     const stats = WARRIOR_STATS[player.warriorClass];
     // Committed: the body is spent on a swing, a roll or a stagger, and steers
@@ -819,84 +862,156 @@ function makeEngine() {
   }
 
   // ---------------- tick ----------------
+  // THE CLOCK, and the movement bug's real home. Every quantity in the
+  // simulation is a rate times this function's dt, so if dt is a fiction then
+  // the whole game — speed, stamina, cooldowns, the match timer — runs at the
+  // wrong rate together.
+  //
+  // It used to be `setInterval(gameTick, 50)` with a hardcoded `dt = 1/20`.
+  // setInterval is not a real-time clock; it is "no sooner than". A Node loop
+  // sharing a box with anything (a Next request, a GC pause, a headless browser
+  // eating four cores in the next process) delivers 8-12 Hz while the code keeps
+  // charging 50 ms a wake, so:
+  //
+  //   observed speed = stats.moveSpeed * TICK_MS / real_ms_between_wakes
+  //
+  // A Warden's 4.5 u/s measured 1.92 u/s in the playtest, which is 4.5 * 50/117:
+  // a tick really firing at 8.5 Hz. Blocking this loop on purpose reproduces it
+  // to the digit — 20.0 Hz -> 7.9 Hz takes a held W from 4.52 units in 1.2 s to
+  // 1.53 — and no correction to integrateMovement can touch it, because the
+  // integrator was never the thing that was wrong.
+  //
+  // So the step stays fixed at 1/TICK_RATE — every tuning constant then means
+  // what it says, a step is too short to tunnel a body through another, and two
+  // runs of the same inputs agree — and the wall clock decides how many steps
+  // are owed. Arrears carry rather than being dropped, so a run of 63 ms wakes
+  // averages out exactly instead of quietly losing 13 ms each time. One
+  // broadcast per wake regardless: the packet rate may sag on a starved box, the
+  // simulation rate may not.
   function gameTick() {
-    const dt = 1 / TICK_RATE;
+    const now = performance.now();
+    if (now - simClock > MAX_CATCHUP_MS) simClock = now - MAX_CATCHUP_MS;
+    const steps = Math.floor((now - simClock + TICK_SLACK_MS) / TICK_MS);
+    if (steps <= 0) return;   // owed nothing yet: no simulation, no duplicate snapshot
+    simClock += steps * TICK_MS;
+
     rooms.forEach((room) => {
       if (room.state !== "fighting" && room.state !== "last_stand" && room.state !== "heartbeat") return;
-      room.matchTimer += dt;
-
-      room.players.forEach((player) => {
-        // Solo respawns for endless training
-        if (room.mode === "solo" && player.state === "dead") {
-          if (room.matchTimer - player.deadAt > 5) {
-            const stats = WARRIOR_STATS[player.warriorClass];
-            const sp = spawnPositions(8)[(Math.random() * 8) | 0];
-            player.position = { ...sp };
-            player.health = stats.maxHealth;
-            player.stamina = stats.staminaMax;
-            player.state = "idle";
-            player.invincible = true; player.invincibleTimer = 1.5;
-            player.deadAt = -999;
-            clearMotion(player);   // you come back standing, not still running
-          }
-          return;
-        }
-        if (player.state === "dead") return;
-
-        if (player.bot) botThink(room, player, dt);
-
-        if (player.attackTimer > 0) { player.attackTimer -= dt; if (player.attackTimer <= 0 && player.state === "attacking") player.state = "idle"; }
-        if (player.blockTimer > 0) player.blockTimer += dt;
-        if (player.dodgeTimer > 0) {
-          player.dodgeTimer -= dt;
-          // Dodge roll ends cleanly — the warrior returns to fighting stance
-          if (player.dodgeTimer <= DODGE_COOLDOWN - DODGE_DURATION && player.state === "dodging") player.state = "idle";
-          if (player.dodgeTimer <= 0 && player.state === "dodging") player.state = "idle";
-        }
-        if (player.staggerTimer > 0) { player.staggerTimer -= dt; if (player.staggerTimer <= 0 && player.state === "staggered") player.state = "idle"; }
-        if (player.invincibleTimer > 0) { player.invincibleTimer -= dt; if (player.invincibleTimer <= 0) player.invincible = false; }
-        if (player.comboTimer > 0) { player.comboTimer -= dt; if (player.comboTimer <= 0) player.comboCount = 0; }
-        if (player.abilityCooldown > 0) player.abilityCooldown -= dt;
-        if (player.abilityActive) {
-          player.abilityTimer -= dt;
-          if (player.abilityTimer <= 0) { player.abilityActive = false; if (player.state === "ability") player.state = "idle"; }
-          if (player.warriorClass === "berserker") { player.health -= 3 * dt; if (player.health < 1) player.health = 1; }
-        }
-        integrateMovement(player, dt);
-
-        const stats = WARRIOR_STATS[player.warriorClass];
-        if (player.state !== "sprinting" && player.state !== "attacking") {
-          player.stamina = Math.min(player.maxStamina, player.stamina + stats.staminaRegen * dt);
-        }
-        if (player.stamina < 0) player.stamina = 0;
-
-        const dist = Math.sqrt(player.position.x ** 2 + player.position.z ** 2);
-        if (dist > ARENA_RADIUS) { const s = ARENA_RADIUS / dist; player.position.x *= s; player.position.z *= s; }
-      });
-
-      // Soft body collision — warriors cannot stack on each other
-      const arr = [];
-      room.players.forEach((p) => { if (p.state !== "dead") arr.push(p); });
-      for (let i = 0; i < arr.length; i++) {
-        for (let j = i + 1; j < arr.length; j++) {
-          const a = arr[i], b = arr[j];
-          const dx = b.position.x - a.position.x;
-          const dz = b.position.z - a.position.z;
-          const d = Math.hypot(dx, dz);
-          const MIN = 1.05;
-          if (d < MIN && d > 0.0001) {
-            const push = (MIN - d) * 0.5;
-            const nx = dx / d, nz = dz / d;
-            if (a.state !== "dodging") { a.position.x -= nx * push; a.position.z -= nz * push; }
-            if (b.state !== "dodging") { b.position.x += nx * push; b.position.z += nz * push; }
-          }
-        }
-      }
-
+      for (let s = 0; s < steps; s++) stepRoom(room, TICK_DT);
       broadcast(room, { type: "game_state", data: serializeRoom(room) });
     });
   }
 
+  // One fixed step of one room. Never called with anything but TICK_DT — the
+  // constant is a parameter so the substep loop above reads as what it is.
+  function stepRoom(room, dt) {
+    room.matchTimer += dt;
+
+    room.players.forEach((player) => {
+      // Solo respawns for endless training
+      if (room.mode === "solo" && player.state === "dead") {
+        if (room.matchTimer - player.deadAt > 5) {
+          const stats = WARRIOR_STATS[player.warriorClass];
+          const sp = spawnPositions(8)[(Math.random() * 8) | 0];
+          player.position = { ...sp };
+          player.health = stats.maxHealth;
+          player.stamina = stats.staminaMax;
+          player.state = "idle";
+          player.invincible = true; player.invincibleTimer = 1.5;
+          player.deadAt = -999;
+          clearMotion(player);   // you come back standing, not still running
+        }
+        return;
+      }
+      if (player.state === "dead") return;
+
+      if (player.bot) botThink(room, player, dt);
+
+      if (player.attackTimer > 0) { player.attackTimer -= dt; if (player.attackTimer <= 0 && player.state === "attacking") player.state = "idle"; }
+      if (player.blockTimer > 0) player.blockTimer += dt;
+      if (player.dodgeTimer > 0) {
+        player.dodgeTimer -= dt;
+        // Dodge roll ends cleanly — the warrior returns to fighting stance
+        if (player.dodgeTimer <= DODGE_COOLDOWN - DODGE_DURATION && player.state === "dodging") player.state = "idle";
+        if (player.dodgeTimer <= 0 && player.state === "dodging") player.state = "idle";
+      }
+      if (player.staggerTimer > 0) { player.staggerTimer -= dt; if (player.staggerTimer <= 0 && player.state === "staggered") player.state = "idle"; }
+      if (player.invincibleTimer > 0) { player.invincibleTimer -= dt; if (player.invincibleTimer <= 0) player.invincible = false; }
+      if (player.comboTimer > 0) { player.comboTimer -= dt; if (player.comboTimer <= 0) player.comboCount = 0; }
+      if (player.abilityCooldown > 0) player.abilityCooldown -= dt;
+      if (player.abilityActive) {
+        player.abilityTimer -= dt;
+        if (player.abilityTimer <= 0) { player.abilityActive = false; if (player.state === "ability") player.state = "idle"; }
+        if (player.warriorClass === "berserker") { player.health -= 3 * dt; if (player.health < 1) player.health = 1; }
+      }
+      integrateMovement(player, dt);
+
+      const stats = WARRIOR_STATS[player.warriorClass];
+      if (player.state !== "sprinting" && player.state !== "attacking") {
+        player.stamina = Math.min(player.maxStamina, player.stamina + stats.staminaRegen * dt);
+      }
+      if (player.stamina < 0) player.stamina = 0;
+
+      // The palisade. The projection is radial, so it only ever costs the
+      // outward part of a step — a warrior meeting the wall at an angle keeps
+      // every bit of his tangential travel and slides along it, which is why
+      // this is not a displacement leak on the way to it. What it must also do
+      // is take the outward velocity with it: leaving 4.5 u/s pointed into the
+      // timber makes the client extrapolate through the wall and snap back on
+      // every packet, and hands the stride straight back the instant the body
+      // turns away.
+      const r = Math.hypot(player.position.x, player.position.z);
+      if (r > ARENA_RADIUS) {
+        const nx = player.position.x / r, nz = player.position.z / r;
+        player.position.x = nx * ARENA_RADIUS;
+        player.position.z = nz * ARENA_RADIUS;
+        killComponent(player, nx, nz);
+      }
+    });
+
+    // Soft body collision — warriors cannot stack on each other. The push is
+    // positional and symmetric, and it eats displacement only while two bodies
+    // are actually overlapping, which is the point of it.
+    const arr = [];
+    room.players.forEach((p) => { if (p.state !== "dead") arr.push(p); });
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i], b = arr[j];
+        const dx = b.position.x - a.position.x;
+        const dz = b.position.z - a.position.z;
+        const d = Math.hypot(dx, dz);
+        const MIN = 1.05;
+        if (d < MIN && d > 0.0001) {
+          const push = (MIN - d) * 0.5;
+          const nx = dx / d, nz = dz / d;
+          // A roll goes through the scrum rather than being sorted by it.
+          if (a.state !== "dodging") { a.position.x -= nx * push; a.position.z -= nz * push; killComponent(a, nx, nz); }
+          if (b.state !== "dodging") { b.position.x += nx * push; b.position.z += nz * push; killComponent(b, -nx, -nz); }
+        }
+      }
+    }
+  }
+
+  // `blockedX/blockedZ` is a unit direction that has just turned solid — the
+  // outward radial at the palisade, the line to the man you walked into. Take
+  // the part of the stride pointed that way and only that part, so the warrior
+  // goes on sliding along the wall or around him. Without this the server spends
+  // displacement it then undoes, reports a velocity the client extrapolates into
+  // the obstacle, and hands back a full stride the instant contact breaks. The
+  // impulse is deliberately left alone: a lunge that lands on a shield should
+  // still read as a lunge, and it decays on its own.
+  function killComponent(player, blockedX, blockedZ) {
+    const into = player.moveVel.x * blockedX + player.moveVel.z * blockedZ;
+    if (into <= 0) return;
+    player.moveVel.x -= into * blockedX; player.moveVel.z -= into * blockedZ;
+    player.velocity.x = player.moveVel.x + player.impulse.x;
+    player.velocity.z = player.moveVel.z + player.impulse.z;
+  }
+
+  // The timer only decides how often we come and LOOK at the clock; how much
+  // simulation happens is gameTick's business. A late wake is worked off, not
+  // lost, so this being a plain setInterval is now a scheduling detail rather
+  // than the thing that sets the game's speed.
   const tickInterval = setInterval(gameTick, TICK_MS);
 
   return {

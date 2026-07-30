@@ -99,20 +99,46 @@ async function main() {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[page-error] ${e}`));
 
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  // Pinned low: this box has no GPU, and the control path is what is under
+  // test here, not the renderer. tools/perf.mjs measures the frame cost.
+  await page.goto(`http://127.0.0.1:${PORT}/?quality=low`, { waitUntil: "domcontentloaded" });
 
   // ---- reach the fight ----
+  // An empty ring, deliberately: with an opponent in it the AI can kill the
+  // test warrior mid-run, and a corpse neither moves nor spends stamina, so
+  // half the assertions fail for a reason that has nothing to do with input.
   await page.getByText("Training", { exact: false }).first().click();
-  await page.getByText("RECRUIT", { exact: false }).first().click();
+  await page.getByText("MUSTER THE TESTGROUNDS", { exact: false }).first().click();
+  const fewer = page.getByLabel("Fewer AI warriors");
+  for (let i = 0; i < 8 && await fewer.isEnabled().catch(() => false); i++) {
+    await fewer.click();
+  }
+  await page.getByText("DRAW STEEL", { exact: false }).first().click();
   await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 });
   console.log("[playtest] in a fight\n");
 
-  const me = async () => page.evaluate(() => {
+  // Reads the warrior out of a snapshot STRICTLY NEWER than `afterSeq`.
+  // Without that guard this box lies: the full post chain on a software
+  // rasteriser blocks the main thread for most of a second, so two reads taken
+  // 1.3 s apart can land on the same packet and every displacement measures
+  // exactly 0.00 — which reads as "movement is broken" when it is only "the
+  // page has not had a moment to process a socket message".
+  const me = async (afterSeq = -1) => page.evaluate(async (seq) => {
+    const deadline = performance.now() + 15000;
+    while (window.__probe.states <= seq && performance.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
     const s = window.__probe.lastState;
+    if (!s) return null;
     // The local warrior is the only non-bot in a solo room.
     const mine = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
-    return mine && { x: mine.position.x, z: mine.position.z, hp: mine.health, stam: mine.stamina, state: mine.state, rot: mine.rotation };
-  });
+    return mine && {
+      x: mine.position.x, z: mine.position.z, hp: mine.health,
+      stam: mine.stamina, state: mine.state, rot: mine.rotation,
+      seq: window.__probe.states, fresh: window.__probe.states > seq,
+    };
+  }, afterSeq);
+  const seq = () => page.evaluate(() => window.__probe.states);
 
   const canvas = page.locator("canvas");
   await canvas.click({ position: { x: 640, y: 400 } }); // focus + pointer lock
@@ -127,11 +153,11 @@ async function main() {
 
   // ---- 2. WASD actually moves the warrior ----
   const before = await me();
+  const s0 = await seq();
   await page.keyboard.down("w");
   await page.waitForTimeout(1200);
+  const after = await me(s0);
   await page.keyboard.up("w");
-  await page.waitForTimeout(150);
-  const after = await me();
   const dist = Math.hypot(after.x - before.x, after.z - before.z);
   // A warden walks 4.5 u/s, so ~1.2s of held W should cover well over 3 units.
   check("W moves the warrior", dist > 0.4, `travelled ${dist.toFixed(2)} units in 1.2s held`);
@@ -140,11 +166,11 @@ async function main() {
 
   // ---- 3. strafe ----
   const b2 = await me();
+  const s1 = await seq();
   await page.keyboard.down("d");
   await page.waitForTimeout(900);
+  const a2 = await me(s1);
   await page.keyboard.up("d");
-  await page.waitForTimeout(150);
-  const a2 = await me();
   check("D strafes", Math.hypot(a2.x - b2.x, a2.z - b2.z) > 0.4,
     `travelled ${Math.hypot(a2.x - b2.x, a2.z - b2.z).toFixed(2)} units`);
 
@@ -162,9 +188,9 @@ async function main() {
   // ---- 5. dodge ----
   await page.waitForTimeout(900);
   const b4 = await me();
+  const s2 = await seq();
   await page.keyboard.press("Space");
-  await page.waitForTimeout(300);
-  const a4 = await me();
+  const a4 = await me(s2);
   check("space dodges", a4.stam < b4.stam - 5 || a4.state === "dodging",
     `stamina ${b4.stam.toFixed(1)} -> ${a4.stam.toFixed(1)}, state=${a4.state}`);
 

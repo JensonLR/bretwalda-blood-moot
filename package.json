@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "node custom-server.mjs",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "perf": "node tools/perf.mjs",
+    "playtest": "node tools/playtest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

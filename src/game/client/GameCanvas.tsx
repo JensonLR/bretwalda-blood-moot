@@ -98,6 +98,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
 
   const inputState = useRef({
     keys: new Set<string>(),
+    // Presses seen since the last sample. A tap shorter than one 60 Hz poll
+    // would otherwise be invisible, and a dodge is exactly what a player
+    // stabs at fastest. Cleared by the sampler, not by keyup.
+    tapped: new Set<string>(),
     mouseDown: false,
     rightMouseDown: false,
   });
@@ -183,6 +187,12 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       if (hero) {
         hero.getWorldPosition(at);
         sky.setHazeLight({ position: at, color: hero.color.clone(), gain: 1 });
+        // The same fire, told to the light rig. lighting.ts carries the hearth's
+        // wide pool because it is built before world.ts and cannot be handed a
+        // light that does not exist yet; without this it pools at a documented
+        // default at the arena origin, which is right only for as long as nobody
+        // moves the bonfire.
+        lighting.setHearth(at);
       }
     }
 
@@ -205,7 +215,14 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     // input listeners
     const inp = inputState.current;
     const mouseDelta = { x: 0, y: 0 };
-    const onKeyDown = (e: KeyboardEvent) => { if ((e.target as HTMLElement)?.tagName !== "INPUT") inp.keys.add(e.key.toLowerCase()); };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      const k = e.key.toLowerCase();
+      inp.keys.add(k);
+      // Auto-repeat is a held key, not a fresh press; latching it would fire a
+      // dodge every time the OS repeated the keystroke.
+      if (!e.repeat) inp.tapped.add(k);
+    };
     const onKeyUp = (e: KeyboardEvent) => inp.keys.delete(e.key.toLowerCase());
     const onMouseDown = (e: MouseEvent) => {
       if (e.button === 0) inp.mouseDown = true;
@@ -333,33 +350,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       }
 
       const players = roomState.players;
-      const inp = inputState.current;
-      const mouseDelta = (window as unknown as Record<string, { x: number; y: number }>).__bretwalda_mouse || { x: 0, y: 0 };
-      if (!isMobile.current) {
-        stage.rig.yaw += mouseDelta.x * 0.0048;
-        mouseDelta.x = 0; mouseDelta.y = 0;
-      }
 
-      const sample = sampleInput(
-        {
-          isMobile: isMobile.current,
-          keys: inp.keys,
-          mouseDown: inp.mouseDown,
-          rightMouseDown: inp.rightMouseDown,
-          joystick: touch.joystick.current,
-          mobile: mobileFlags.current,
-        },
-        stage.rig, players, playerId, dt, lastDirRef.current,
-      );
-      if (sample.pressedAttack) lastDirRef.current = sample.attackDir;
-
-      if (roomState.state === "fighting" || roomState.state === "last_stand") {
-        sendInputRef.current(sample.message);
-        // One-shot actions are consumed on send; SLASH is a held flag, and the
-        // server's attackTimer gates the repeat.
-        const mf = mobileFlags.current;
-        mf.heavy = false; mf.dodge = false; mf.ability = false;
-      }
+      // Input sampling and mouse look live on the 60 Hz timer at the bottom of
+      // this effect, not here — see the note there.
 
       // ===== warriors =====
       const activeIds = new Set<string>();
@@ -487,8 +480,58 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       stage.postfx.render(dt, ctx);
     };
 
+    // Input is sampled on its own clock, not inside the frame loop. Sampling in
+    // the loop ties input rate to frame rate, so a warrior on a phone holding a
+    // steady 15 fps was sending a quarter of the input a desktop sends and
+    // fighting at a real disadvantage — a swing pressed and released between
+    // two frames was never sampled at all. 60 Hz here regardless of what the
+    // GPU manages; the server ticks at 20 and coalesces the rest.
+    let lastSample = performance.now();
+    const sampleTimer = setInterval(() => {
+      const stage = stageRef.current;
+      const roomState = roomStateRef.current;
+      if (!stage || !roomState) return;
+      if (roomState.state !== "fighting" && roomState.state !== "last_stand") return;
+
+      const now = performance.now();
+      const dt = Math.min((now - lastSample) / 1000, 0.1);
+      lastSample = now;
+
+      const inp = inputState.current;
+      // Mouse look is consumed here too, so aim keeps up with the hand instead
+      // of with the framerate.
+      const mouseDelta = (window as unknown as Record<string, { x: number; y: number }>).__bretwalda_mouse;
+      if (!isMobile.current && mouseDelta) {
+        stage.rig.yaw += mouseDelta.x * 0.0048;
+        mouseDelta.x = 0; mouseDelta.y = 0;
+      }
+
+      const sample = sampleInput(
+        {
+          isMobile: isMobile.current,
+          keys: inp.keys,
+          tapped: inp.tapped,
+          mouseDown: inp.mouseDown,
+          rightMouseDown: inp.rightMouseDown,
+          joystick: touch.joystick.current,
+          mobile: mobileFlags.current,
+        },
+        stage.rig, roomState.players, playerId, dt, lastDirRef.current,
+      );
+      if (sample.pressedAttack) lastDirRef.current = sample.attackDir;
+      sendInputRef.current(sample.message);
+      // Consumed: the latch exists to survive one poll gap, not to stick.
+      inp.tapped.clear();
+      const mf = mobileFlags.current;
+      mf.heavy = false; mf.dodge = false; mf.ability = false;
+    }, 16);
+
     animRef.current = requestAnimationFrame(loop);
-    return () => { running = false; cancelAnimationFrame(animRef.current); };
+    return () => {
+      running = false;
+      clearInterval(sampleTimer);
+      cancelAnimationFrame(animRef.current);
+    };
   }, [playerId, rumble, touch.joystick]);
 
   return (

@@ -9,7 +9,7 @@ import {
 import type { GamePlayer, WarriorClass, GameMode, Team } from "../game/types";
 import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel } from "../game/types";
 import {
-  ARMOURY, freeCosmeticIds, defaultAppearance, type Appearance,
+  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, type Appearance,
 } from "../game/client/characters";
 import { Transport } from "../game/client/transport";
 import dynamic from "next/dynamic";
@@ -58,7 +58,9 @@ const AI_DIFFICULTIES: Array<{ id: Difficulty; name: string; desc: string; bots:
 ];
 
 // One warrior is a sparring partner; eight in the ring is a full blood moot.
-const MIN_AI = 1;
+// Zero is allowed: an empty ring is where you learn what the buttons do
+// without a Jarl opening your head while you find out.
+const MIN_AI = 0;
 const MAX_AI = 7;
 
 // Actions that fire on the press rather than while held. The server reads them
@@ -120,7 +122,12 @@ export default function Page() {
     if (savedProfile) {
       try {
         const parsed = JSON.parse(savedProfile);
-        setProfile({ ...DEFAULT_PROFILE, ...parsed, unlocked: parsed.unlocked ?? freeCosmeticIds() });
+        // Migrated on the way in, not on the way out: the armoury decides what is
+        // equipped by matching the stored value against the catalog's, so a
+        // finish that was re-graded between releases would show as owning nothing
+        // and charge the player a second time for kit he already has.
+        const merged = { ...DEFAULT_PROFILE, ...parsed, unlocked: parsed.unlocked ?? freeCosmeticIds() };
+        setProfile({ ...merged, appearance: migrateAppearance(merged.appearance) });
       } catch { /* ok */ }
     }
     // Deep link: ?code=WESSEX82 puts you one tap from battle
@@ -325,6 +332,7 @@ export default function Page() {
     sendMsg("solo", {
       name, difficulty,
       botCount: Math.max(MIN_AI, Math.min(MAX_AI, bots)),
+      // An empty ring still has to start; there is no one to wait for.
       warriorClass: soloClass,
       appearance: profileRef.current.appearance,
       autoStart: true,
@@ -1161,7 +1169,9 @@ export default function Page() {
                   <div className="min-w-0">
                     <div className="font-bold text-stone-100 text-sm">HOW MANY</div>
                     <div className="text-[11px] text-stone-400 mt-0.5">
-                      They respawn where they fell — the trial ends when you leave it.
+                      {soloBots === 0
+                        ? "An empty ring — walk, swing and roll with nobody swinging back."
+                        : "They respawn where they fell — the trial ends when you leave it."}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">

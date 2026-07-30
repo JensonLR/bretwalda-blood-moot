@@ -18,10 +18,18 @@
 // at the earthwork and runs out to the downs.
 //
 // Two: repeated geometry is instanced and merged per material. A hut is not
-// twenty meshes; it is four merged geometries (timber, daub, thatch, the dark
-// behind the doorway) instanced across the whole village. Forty palisade stakes
-// are one draw. That is where the triangle and draw-call budget went instead of
-// into unique meshes nobody can tell apart at 30 m.
+// eighty meshes; it is four merged geometries (timber, daub, thatch, the dark
+// behind the doorway) instanced across the whole village, and a tree is two (bark
+// and leaf) however many times it forks. Three hundred palisade stakes are one
+// draw. That is where the triangle and draw-call budget went instead of into
+// unique meshes nobody can tell apart at 30 m.
+//
+// Four: nothing beyond the earthwork is inside the key light's shadow cascade,
+// which is 24 m wide and follows the fight. The settlement and the wood
+// therefore carry their own shading in their vertex colours — the band under an
+// eave, the gable that lives in permanent shade, the step behind a course of
+// straw. See `shade()`. Materials that read those colours are patched here and
+// restored on dispose, and every geometry wearing one has to have them.
 //
 // Three: UVs are box-projected from world space on anything built out of boxes,
 // so a 4 m wall plate and a 0.2 m peg carry the same texel density. BoxGeometry's
@@ -418,6 +426,119 @@ function gridIndices(rows: number, cols: number, out: number[], flip = false): v
 }
 
 /**
+ * Baked shading, written as a vertex colour.
+ *
+ * Nothing in the settlement or the wood is inside the key light's shadow
+ * cascade — that is 24 m wide and centred on the fight, and the huts start at
+ * 27 m — so an eave that ought to lay a shadow across the wall beneath it
+ * cannot, and a building whose own geometry never darkens anything reads as a
+ * painted slab however many members are in its frame. The shadow therefore has
+ * to travel in the vertices.
+ *
+ * A shadow here is also not merely darker. The only fill a shaded wall gets at
+ * dusk is the sky; what lights the rest of it is a low sun and a bonfire. So
+ * the term shifts cool as it darkens and warm as it brightens, and that split is
+ * most of what stops the settlement rendering as one flat tan.
+ *
+ * Callers must keep the mean near 1: materials.ts divides a requested colour by
+ * its map's mean so `map × color` lands on the catalog value, and a vertex
+ * colour multiplies on top of that without being compensated for.
+ */
+function bakedTone(s: number, out: number[]): void {
+  const k = 1 - s;
+  out.push(s * (1 - k * 0.07), s * (1 + k * 0.04), s * (1 + k * 0.26));
+}
+
+function shade(
+  g: THREE.BufferGeometry,
+  fn: (x: number, y: number, z: number) => number,
+): THREE.BufferGeometry {
+  const p = g.attributes.position as THREE.BufferAttribute;
+  const col: number[] = [];
+  for (let i = 0; i < p.count; i++) {
+    bakedTone(Math.max(0, Math.min(1.5, fn(p.getX(i), p.getY(i), p.getZ(i)))), col);
+  }
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  return g;
+}
+
+/** A point on a swept path. Plain objects, because a tree is built once. */
+interface Pt { x: number; y: number; z: number }
+
+/**
+ * Sweeps a ring of `sides` vertices along `path`, one radius per station, with a
+ * frame that is parallel-transported so the bark does not spin where a limb
+ * bends. This is what a branch is, and it is why the treeline needed it: a
+ * cylinder cannot taper into a fork and a cylinder cannot curve, and those two
+ * things are the whole difference between a tree and a stick.
+ *
+ * `vScale` is texture repeats per unit of swept length; u runs once round the
+ * circumference. Both ends are left open — a limb's base is inside its parent
+ * and its tip is inside a leaf clump, and neither hole is ever in frame.
+ */
+function tube(path: Pt[], radii: number[], sides: number, vScale: number): THREE.BufferGeometry {
+  const rings = path.length;
+  const pos = new Float32Array(rings * (sides + 1) * 3);
+  const uv = new Float32Array(rings * (sides + 1) * 2);
+  // Reference vector for the transport frame, re-orthogonalised at every ring.
+  let rx = 0.7071;
+  let ry = 0;
+  let rz = 0.7071;
+  let v = 0;
+  let k = 0;
+  for (let i = 0; i < rings; i++) {
+    const a = path[Math.max(0, i - 1)];
+    const b = path[Math.min(rings - 1, i + 1)];
+    let tx = b.x - a.x;
+    let ty = b.y - a.y;
+    let tz = b.z - a.z;
+    const tl = Math.hypot(tx, ty, tz) || 1;
+    tx /= tl; ty /= tl; tz /= tl;
+    let dot = rx * tx + ry * ty + rz * tz;
+    rx -= tx * dot; ry -= ty * dot; rz -= tz * dot;
+    let rl = Math.hypot(rx, ry, rz);
+    if (rl < 1e-3) {
+      // The frame has collapsed onto the tangent. Any other axis will do.
+      rx = ty; ry = tz; rz = tx;
+      dot = rx * tx + ry * ty + rz * tz;
+      rx -= tx * dot; ry -= ty * dot; rz -= tz * dot;
+      rl = Math.hypot(rx, ry, rz) || 1;
+    }
+    rx /= rl; ry /= rl; rz /= rl;
+    // t × r, unit because both are unit and perpendicular.
+    const sx = ty * rz - tz * ry;
+    const sy = tz * rx - tx * rz;
+    const sz = tx * ry - ty * rx;
+    if (i > 0) {
+      const q = path[i - 1];
+      v += Math.hypot(path[i].x - q.x, path[i].y - q.y, path[i].z - q.z) * vScale;
+    }
+    for (let j = 0; j <= sides; j++) {
+      const th = (j / sides) * TAU;
+      const c = Math.cos(th);
+      const s = Math.sin(th);
+      const r = radii[i];
+      pos[k * 3] = path[i].x + (rx * c + sx * s) * r;
+      pos[k * 3 + 1] = path[i].y + (ry * c + sy * s) * r;
+      pos[k * 3 + 2] = path[i].z + (rz * c + sz * s) * r;
+      uv[k * 2] = j / sides;
+      uv[k * 2 + 1] = v;
+      k++;
+    }
+  }
+  // Rows sweep along the path and columns run round it counter-clockwise about
+  // the tangent, which puts the default winding inside the tube.
+  const idx: number[] = [];
+  gridIndices(rings, sides + 1, idx, true);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
  * Marks a point in the arena as something burning, for vfx.ts to hang a flame
  * on. This module owns *where* the fires are — it built the woodpile and the
  * torch cups — and vfx.ts owns what a flame looks like, which is the only way
@@ -438,6 +559,301 @@ function fireMarker(
   marker.userData.vfxFire = { radius, height, kind };
   return marker;
 }
+
+// ---------------------------------------------------------------------------
+// Trees
+//
+// A tree out here is seen against a sky several stops brighter than it is, so
+// what it *is*, visually, is an outline. Everything below spends on that
+// outline and almost nothing on interior detail: a bole that tapers, flares at
+// the root and wanders off plumb; limbs that fork out of it and carry the eye
+// outward; and a crown assembled from two dozen spiked clumps hung on the
+// branch tips, so the edge is serrated and there is sky visible through the
+// middle of it. A convex blob on a pole has none of those properties and no
+// amount of texture on it ever will.
+//
+// Species are built once each, at unit height, and instanced with a *uniform*
+// scale — uniform because a non-uniform one shears the normals — which is why
+// a taller tree here is also a thicker one, the way it is in a wood.
+// ---------------------------------------------------------------------------
+
+interface TreeSpec {
+  /** Clear bole before the crown starts, as a fraction of height. */
+  bole: number;
+  /** Bole radius at the ground, as a fraction of height. */
+  girth: number;
+  /** How far the bole's head wanders off its root, as a fraction of height. */
+  sweep: number;
+  /** Limbs at the first fork. */
+  limbs: number;
+  /** Times a limb divides after that. 1 for the treeline, 2 for a near tree. */
+  depth: number;
+  /** Divergence of a child limb from its parent, in radians. */
+  diverge: number;
+  /** First-limb length, as a fraction of height. */
+  reach: number;
+  /** Per-segment upward (+) or drooping (−) bias along a limb. */
+  lift: number;
+  /** Leaf clump radius, as a fraction of height. */
+  clump: number;
+  /** Clump squash: under 1 spreads the crown, over 1 draws it up. */
+  aspect: number;
+  /** Whorled tiers up a single leader instead of a forked crown. */
+  conifer?: boolean;
+  /** Where the lowest whorl sits, as a fraction of height. Conifers only. */
+  crownBase?: number;
+  /** Dead: snapped limbs, no leaf at all. */
+  dead?: boolean;
+}
+
+/**
+ * One mass of foliage. Spiked rather than smoothed, on purpose: the only thing
+ * a clump contributes at range is the serration it puts in the crown's edge,
+ * and a subdivided sphere contributes none of that for four times the triangles.
+ * Three different solids, so no two neighbouring clumps share an outline.
+ */
+function leafClump(r: number, flat: number, rand: () => number): THREE.BufferGeometry {
+  const pick = rand();
+  const g = pick < 0.44
+    ? new THREE.OctahedronGeometry(1, 0)
+    : pick < 0.88
+      ? new THREE.IcosahedronGeometry(1, 0)
+      : new THREE.TetrahedronGeometry(1, 0);
+  const p = g.attributes.position as THREE.BufferAttribute;
+  const ox = rand() * 37;
+  const oz = rand() * 53;
+  for (let i = 0; i < p.count; i++) {
+    // Keyed off position alone, so the duplicated vertices of a non-indexed
+    // solid all move together and the clump stays closed.
+    const n = 0.62 + noise2(p.getX(i) * 2.7 + ox, p.getZ(i) * 2.7 + oz) * 0.9;
+    p.setXYZ(i, p.getX(i) * n * r, p.getY(i) * n * r * flat, p.getZ(i) * n * r);
+  }
+  p.needsUpdate = true;
+  g.rotateY(rand() * TAU);
+  g.rotateX((rand() - 0.5) * 0.8);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Wood and leaf as two merged geometries, so eight species cost sixteen draws
+ * and not sixteen hundred. Unit height; the caller scales.
+ */
+function buildTree(spec: TreeSpec, seed: number): { wood: THREE.BufferGeometry; leaf: THREE.BufferGeometry | null } {
+  const rand = seeded(seed);
+  const wood: THREE.BufferGeometry[] = [];
+  const clumps: Array<{ x: number; y: number; z: number; r: number }> = [];
+
+  const norm = (x: number, y: number, z: number): Pt => {
+    const l = Math.hypot(x, y, z) || 1;
+    return { x: x / l, y: y / l, z: z / l };
+  };
+
+  /** Swings a unit direction `angle` off itself, rolled `roll` about it. */
+  const swing = (d: Pt, angle: number, roll: number): Pt => {
+    let ux = -d.z;
+    let uz = d.x;
+    let ul = Math.hypot(ux, uz);
+    if (ul < 1e-4) { ux = 1; uz = 0; ul = 1; }
+    ux /= ul; uz /= ul;
+    // v = d × u. Unit, and with no y term of its own beyond this one.
+    const vx = d.y * uz;
+    const vy = d.z * ux - d.x * uz;
+    const vz = -d.y * ux;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const cr = Math.cos(roll);
+    const sr = Math.sin(roll);
+    return norm(
+      d.x * c + (ux * cr + vx * sr) * s,
+      d.y * c + vy * sr * s,
+      d.z * c + (uz * cr + vz * sr) * s,
+    );
+  };
+
+  // One bearing for the whole tree, so the bole's lean and the crown's weight
+  // agree about which way the wind has been coming from.
+  const bear = rand() * TAU;
+  const bcos = Math.cos(bear);
+  const bsin = Math.sin(bear);
+  const boleTop = spec.bole;
+
+  const bp: Pt[] = [];
+  const br: number[] = [];
+  const stations = 6;
+  for (let i = 0; i <= stations; i++) {
+    const t = i / stations;
+    // Quadratic lean plus a small sinuous term: a bole is neither a plumb line
+    // nor a clean arc, and either one reads as a pole.
+    const off = spec.sweep * (t * t * 0.85 + Math.sin(t * 4.3 + seed * 0.017) * 0.16);
+    bp.push({ x: bcos * off, y: t * boleTop, z: bsin * off });
+    // Root flare, and the taper that makes the tree sit *in* the ground.
+    const flare = 1 + 0.9 * Math.exp(-t * 13);
+    const broken = spec.dead && t > 0.88 ? 0.45 : 1;
+    br.push(spec.girth * flare * (1 - t * (spec.conifer ? 0.78 : 0.6)) * broken);
+  }
+  wood.push(tube(bp, br, 5, 8));
+
+  /** The bole's own centre line at a height, for hanging a whorl off. */
+  const axisAt = (y: number): Pt => {
+    const t = clamp01(y / Math.max(boleTop, 1e-3)) * stations;
+    const i = Math.min(stations - 1, Math.floor(t));
+    const f = t - i;
+    const a = bp[i];
+    const b = bp[i + 1];
+    return { x: a.x + (b.x - a.x) * f, y, z: a.z + (b.z - a.z) * f };
+  };
+
+  const grow = (from: Pt, dir: Pt, len: number, rad: number, depth: number): void => {
+    const segs = depth > 0 ? 4 : 3;
+    const path: Pt[] = [from];
+    const radii: number[] = [rad];
+    let d = dir;
+    let cur = from;
+    for (let i = 1; i <= segs; i++) {
+      // The limb bends as it goes — up for an ash, hardly at all for an oak —
+      // and wanders a little either way. A straight limb is a dowel.
+      d = swing(norm(d.x, d.y + spec.lift * 0.2, d.z), 0.04 + rand() * 0.16, rand() * TAU);
+      cur = { x: cur.x + d.x * (len / segs), y: cur.y + d.y * (len / segs), z: cur.z + d.z * (len / segs) };
+      path.push(cur);
+      radii.push(rad * (1 - (i / segs) * (spec.dead ? 0.42 : 0.72)));
+    }
+    wood.push(tube(path, radii, depth > 0 ? 4 : 3, 8));
+    if (depth > 0) {
+      const kids = rand() < 0.35 ? 3 : 2;
+      const roll = rand() * TAU;
+      for (let k = 0; k < kids; k++) {
+        grow(
+          cur,
+          swing(d, spec.diverge * (0.6 + rand() * 0.8), roll + (k / kids) * TAU + (rand() - 0.5) * 0.5),
+          len * (0.58 + rand() * 0.2),
+          rad * 0.58,
+          depth - 1,
+        );
+      }
+      return;
+    }
+    if (spec.dead) return;
+    // Two or three masses per tip rather than one big one: the serration in the
+    // crown's edge is a function of how many clumps meet the sky, not of how
+    // much foliage there is, and one clump per branch reads as a plate.
+    clumps.push({
+      x: cur.x + d.x * spec.clump * 0.45,
+      y: cur.y + d.y * spec.clump * 0.45,
+      z: cur.z + d.z * spec.clump * 0.45,
+      r: spec.clump * (0.62 + rand() * 0.42),
+    });
+    const m = path[segs - 1];
+    clumps.push({ x: m.x, y: m.y, z: m.z, r: spec.clump * (0.48 + rand() * 0.34) });
+    // The third only where it will be seen: the treeline is a hundred metres
+    // out and two clumps a branch already give it more edge than it can resolve.
+    if (spec.depth > 1 && rand() < 0.6) {
+      const q = path[Math.max(1, segs - 2)];
+      clumps.push({
+        x: (q.x + m.x) / 2, y: (q.y + m.y) / 2, z: (q.z + m.z) / 2,
+        r: spec.clump * (0.4 + rand() * 0.3),
+      });
+    }
+  };
+
+  if (spec.conifer) {
+    // Whorls: a ring of short limbs at each node, shorter as they climb and all
+    // of them sloping down and out. The gaps *between* whorls are what makes
+    // this read as a pine rather than as a cone.
+    const base = spec.crownBase ?? 0.35;
+    const nodes = 7;
+    for (let i = 0; i < nodes; i++) {
+      const t = i / (nodes - 1);
+      const y = base + t * (boleTop - base) * 0.97;
+      const at = axisAt(y);
+      const spread = spec.reach * (1 - t * 0.82) + 0.02;
+      const per = t > 0.85 ? 2 : 3 + (i % 2);
+      for (let k = 0; k < per; k++) {
+        const a = i * 1.27 + (k / per) * TAU + rand() * 0.35;
+        const dir = norm(Math.cos(a), -0.2 - t * 0.2 + rand() * 0.12, Math.sin(a));
+        const tip = { x: at.x + dir.x * spread, y: y + dir.y * spread, z: at.z + dir.z * spread };
+        wood.push(tube([at, tip], [spec.girth * 0.32 * (1 - t * 0.6), spec.girth * 0.08], 3, 8));
+        // Needles along the limb rather than balled at the end of it, which is
+        // where a conifer's tiered, fringed edge comes from.
+        clumps.push({
+          x: at.x + dir.x * spread * 0.72,
+          y: y + dir.y * spread * 0.72,
+          z: at.z + dir.z * spread * 0.72,
+          r: spec.clump * (1 - t * 0.45) * (0.85 + rand() * 0.4),
+        });
+        if (i < 3) {
+          clumps.push({
+            x: at.x + dir.x * spread * 0.34,
+            y: y + dir.y * spread * 0.34,
+            z: at.z + dir.z * spread * 0.34,
+            r: spec.clump * (0.6 + rand() * 0.3),
+          });
+        }
+      }
+    }
+    clumps.push({ x: bp[stations].x, y: boleTop * 0.99, z: bp[stations].z, r: spec.clump * 0.5 });
+  } else {
+    const head = bp[stations];
+    const prev = bp[stations - 1];
+    const trunkDir = norm(head.x - prev.x, head.y - prev.y, head.z - prev.z);
+    const roll0 = rand() * TAU;
+    for (let i = 0; i < spec.limbs; i++) {
+      // Limbs leave over the top fifth of the bole rather than all from its
+      // head: one point of origin is a bouquet in a vase, not a fork.
+      const at = axisAt(boleTop * (0.8 + (i / Math.max(1, spec.limbs)) * 0.19));
+      grow(
+        at,
+        swing(trunkDir, 0.34 + rand() * 0.36, roll0 + (i / spec.limbs) * TAU + (rand() - 0.5) * 0.45),
+        spec.reach * (0.78 + rand() * 0.45),
+        spec.girth * (0.62 - i * 0.03),
+        spec.depth,
+      );
+    }
+    // The leader carries on past the fork. Without it the middle of the crown
+    // is a hole and the tree reads as two trees.
+    grow(head, swing(trunkDir, 0.14, rand() * TAU), spec.reach * 0.7, spec.girth * 0.42, spec.depth);
+  }
+
+  const leaves = clumps.map((c) => leafClump(c.r, spec.aspect, rand).translate(c.x, c.y, c.z));
+  return {
+    wood: mergeInto(wood),
+    leaf: leaves.length > 0 ? mergeInto(leaves) : null,
+  };
+}
+
+/**
+ * Scrub for the wood's margin: the same clumps with no trunk under them. It is
+ * here so the treeline does not meet the ground as a row of bare poles, and so
+ * the middle distance has one more layer in it. Five clumps, one draw, ~60
+ * triangles — the cheapest depth cue in the frame.
+ */
+function buildBush(seed: number): THREE.BufferGeometry {
+  const rand = seeded(seed);
+  const parts: THREE.BufferGeometry[] = [];
+  const n = 4 + Math.floor(rand() * 3);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU + rand();
+    const d = rand() * 0.42;
+    parts.push(leafClump(0.3 + rand() * 0.22, 0.66 + rand() * 0.3, rand)
+      .translate(Math.cos(a) * d, 0.24 + rand() * 0.28, Math.sin(a) * d));
+  }
+  return mergeInto(parts);
+}
+
+/** The sag in an old roof: deepest between the gables, none at them.
+ *
+ * Every term vanishes at u = 0 and u = 1 and is symmetric about u = 0.5, and
+ * both properties are load-bearing — the gable infill is built to a straight
+ * apex, and the far slope is the near one turned about Y, so an antisymmetric
+ * term would part the two of them along the ridge.
+ */
+function roofSag(u: number, amp: number): number {
+  return -amp * (Math.sin(u * Math.PI) + 0.26 * Math.sin(u * Math.PI * 3));
+}
+
+/** Where the hall stands. The treeline keeps out of it, so both need the number. */
+const HALL_A = -1.62;
+const HALL_D = 37;
 
 // ---------------------------------------------------------------------------
 
@@ -945,13 +1361,40 @@ export function createWorld(
 
   // =========================================================================
   // The settlement — timber frame, wattle and daub, thatch
+  //
+  // These stand at 27–52 m, outside the key light's 24 m shadow cascade, so
+  // nothing out here casts or receives a real shadow. A building whose eaves
+  // cannot darken the wall under them reads as a painted slab however much
+  // frame is in it, which is exactly what the last capture showed. So the
+  // shading that sells these is baked into the vertices — the band under every
+  // eave, the gable that lives in permanent shade beneath the verge, the step
+  // behind every course of thatch, the contact line round every recessed daub
+  // panel — and every member is sized to be *visible* at thirty metres rather
+  // than to be right at three.
   // =========================================================================
 
-  const timberMat = materials.tinted("oak", 0x3c2c1b, { repeat: 3 });
-  const daubMat = materials.tinted("dirt", 0xa89a80, { repeat: 2, roughness: 0.96 });
-  const thatchMat = materials.get("hutRoof");
+  // Weathered oak rather than chocolate, so the frame reads as lines against
+  // the daub instead of merging into the shadow it sits in.
+  const timberMat = materials.tinted("oak", 0x3f3427, { repeat: 3 });
+  const daubMat = materials.tinted("dirt", 0xa9a18e, { repeat: 2, roughness: 0.96 });
+  // Not materials.get("hutRoof"): this one carries baked shading and its own
+  // grade, and neither belongs in a catalog entry other modules may adopt.
+  const thatchMat = materials.tinted("thatch", 0x51402a, { repeat: 10, roughness: 0.98 });
   const darkMat = materials.standard(0x0d0a06, 1, 0);
   const doorMat = materials.get("hutDoor");
+
+  // three only reads a colour attribute if the material says so. These two are
+  // this module's own tints — nothing else asks the library for dirt at this
+  // colour or thatch at all — but the library caches by argument, so the flag
+  // goes back the way it was found. Everything wearing them must carry the
+  // attribute: a mesh with the flag set and no colours renders black.
+  for (const m of [daubMat, thatchMat]) {
+    if (!m.vertexColors) {
+      m.vertexColors = true;
+      m.needsUpdate = true;
+      restore.push(() => { m.vertexColors = false; m.needsUpdate = true; });
+    }
+  }
 
   interface HutParts {
     timber: THREE.BufferGeometry[];
@@ -961,34 +1404,53 @@ export function createWorld(
   }
 
   /**
-   * One slope of a thatched roof, built as courses rather than as a plane.
-   * Each course is emitted as two rows — its butt end proud, its head thin —
-   * and the step between one course's head and the next course's butt becomes
-   * the ledge that makes thatch read as bundled straw instead of as a shingled
-   * triangle. The eave is scalloped and the whole surface carries a bundling
-   * ripple, so the silhouette against the sky is never a straight line.
+   * One slope of a thatched roof — built as courses, and as a solid rather than
+   * as a sheet.
+   *
+   * Rows run from under the eave up to the ridge. The first three wrap the eave:
+   * an underside tucked back, then the cut butt ends standing proud of it, then
+   * the surface proper. That is what gives the roof a *thick* bottom edge and
+   * the dark band beneath it that reads as an overhang — the one thing a plane
+   * with a straight lower edge can never do. After that each course is two rows,
+   * its butt proud and its head thin, and the step between one course's head and
+   * the next one's butt is the ledge that makes thatch read as bundled straw
+   * instead of as a shingled triangle.
+   *
+   * The tone written per row is the other half of it. Roofs at this distance are
+   * lit flat-on and shadow nothing, so the courses have to carry their own step
+   * shadow or the whole slope collapses into one value — which is precisely how
+   * it read before.
    */
   function thatchSlope(
     halfW: number, eaveZ: number, eaveY: number, ridgeY: number,
-    courses: number, seed: number,
+    courses: number, rafters: number, sagAmp: number, seed: number,
   ): THREE.BufferGeometry {
-    const cols = 22;
-    const bundles = Math.max(4, Math.round(halfW * 2.6));
-    const th = 0.13;
-    const rows: Array<{ t: number; off: number; drop: number }> = [];
+    const cols = 20;
+    const bundles = Math.max(5, Math.round(halfW * 2.8));
+    // Thatch is a third of a metre thick at the butt and combed thin at the head.
+    const butt = 0.3;
+    const head = 0.12;
+    const rows: Array<{ t: number; off: number; tone: number; lip: number }> = [
+      { t: -0.019, off: -butt * 0.62, tone: 0.28, lip: 1 },
+      { t: -0.008, off: butt * 0.26, tone: 0.6, lip: 1 },
+      { t: 0, off: butt, tone: 1.08, lip: 1 },
+    ];
     for (let k = 0; k < courses; k++) {
-      rows.push({ t: k / courses, off: th * 1.85, drop: k === 0 ? 1 : 0 });
-      rows.push({ t: (k + 1) / courses, off: th * 0.85, drop: 0 });
+      if (k > 0) rows.push({ t: k / courses, off: butt * 0.9, tone: 1.05, lip: 0 });
+      rows.push({ t: (k + 1) / courses, off: head, tone: 0.6, lip: 0 });
     }
-    const pos: number[] = [];
-    const uvs: number[] = [];
-    const idx: number[] = [];
+
     // Slope normal, in the ZY plane, pointing up and away from the ridge.
     const dz = -eaveZ;
     const dy = ridgeY - eaveY;
     const len = Math.hypot(dz, dy);
     const nz = dy / len;
     const ny = -dz / len;
+
+    const pos: number[] = [];
+    const uvs: number[] = [];
+    const col: number[] = [];
+    const idx: number[] = [];
     for (const row of rows) {
       for (let j = 0; j <= cols; j++) {
         const u = j / cols;
@@ -996,15 +1458,34 @@ export function createWorld(
         // The verge is combed flat where it meets the gable. Without this the
         // course steps carry all the way to the edge and the roof's silhouette
         // reads as a staircase rather than as straw.
-        const verge = smoothstep(0, 0.11, Math.min(u, 1 - u));
-        const ripple = Math.abs(Math.sin(u * bundles * Math.PI)) * 0.05;
-        const rough = (noise2(u * bundles * 1.7 + seed, row.t * 5 + seed * 3) - 0.5) * 0.055;
-        const o = th + (row.off - th + ripple + rough) * verge;
-        const sag = row.drop * (0.04 + ripple * 0.9) * verge;
-        const z = eaveZ * (1 - row.t) + nz * o;
-        const y = eaveY + dy * row.t + ny * o - sag;
+        const verge = smoothstep(0, 0.1, Math.min(u, 1 - u));
+        const ripple = Math.abs(Math.sin(u * bundles * Math.PI)) * 0.045;
+        const rough = (noise2(u * bundles * 1.7 + seed, row.t * 5 + seed * 3) - 0.5) * 0.06;
+        const o = head * 0.5 + (row.off - head * 0.5 + ripple + rough) * verge;
+        // A scalloped eave. The butts of the bottom course are never cut to a
+        // line, and a ruler-straight bottom edge is the most artificial thing a
+        // roof can have.
+        const scallop = row.lip * (0.055 + ripple * 1.3) * verge;
+        // Sag: the ridge dips between the gables, and the surface dips between
+        // rafters. Neither reaches the eave, which is held straight by the plate.
+        const dip = roofSag(u, sagAmp) - 0.02 * (1 - Math.cos(u * rafters * TAU)) * 0.5 * verge;
+        // The course lines wander instead of running dead parallel. Straw is
+        // laid by hand in bundles a foot wide; perfectly parallel courses read
+        // as corrugated sheet. Damped toward the ridge, and off at the verge,
+        // so neither of those joints has to absorb it.
+        const wander = row.lip > 0 ? 0
+          : (0.016 * Math.sin(u * 5.3 + seed * 6.1) + 0.009 * Math.sin(u * 11.7 - seed * 3.3))
+            * verge * (1 - row.t * 0.55);
+        const t = row.t + wander;
+        const z = eaveZ * (1 - t) + nz * o;
+        const y = eaveY + dy * t + ny * o - scallop + dip * clamp01(t);
         pos.push(x, y, z);
-        uvs.push(x / 7, (row.t * len + o) / 7);
+        uvs.push(x / 7, (t * len + o) / 7);
+        // Brighter toward the ridge where the sky sees it, darker at the verge
+        // under the barge board, and unevenly laid everywhere.
+        const tone = row.tone * (0.9 + 0.16 * row.t) * (1 - 0.32 * (1 - verge))
+          * (0.9 + 0.2 * noise2(u * bundles * 0.9 + seed * 2, row.t * 7));
+        bakedTone(tone, col);
       }
     }
     // Rows sweep toward -z and columns toward +x, so the default winding faces
@@ -1014,14 +1495,20 @@ export function createWorld(
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(idx);
     g.computeVertexNormals();
     return g;
   }
 
   /**
-   * The triangular infill under a gable. The ridge runs along X, so the gables
-   * close the short walls at x = ±w and the triangle is built in the ZY plane.
+   * The infill under a gable. The ridge runs along X, so the gables close the
+   * short walls at x = ±w and the outline is built in the ZY plane.
+   *
+   * It is cut to the roof's own profile rather than to the wall's, because the
+   * verge overhangs the wall: a triangle sized to the wall leaves a sliver of
+   * open sky under each verge, and a sliver of sky at thirty metres reads as a
+   * hole in the building.
    */
   function gable(halfSpan: number, base: number, apex: number, depth: number, x: number): THREE.BufferGeometry {
     const shape = new THREE.Shape();
@@ -1036,117 +1523,280 @@ export function createWorld(
     return g;
   }
 
+  interface HutSpec {
+    /** Half-length along the ridge, half-depth across it, wall height. */
+    w: number;
+    d: number;
+    wallH: number;
+    /** Ridge rise per unit of half-depth. Steeper is older and more Saxon. */
+    pitch: number;
+    seed: number;
+    /** Smoke holes in the gables. A floor hearth has to vent somewhere. */
+    vent?: boolean;
+    /** A porch hood on posts. The hall is the one door anyone sheltered. */
+    porch?: boolean;
+  }
+
   /**
-   * A hut. Sill, posts, braces, wall plate and tie beam stand proud of the daub
-   * they frame; the roof overhangs far enough to lay a shadow across the wall;
-   * the doorway is a recess with jambs, a lintel, a threshold and a leaf that
-   * does not quite shut. It is built, not extruded.
+   * A hut. Sill, studs, mid rail, braces, wall plate, tie beam and rafters stand
+   * proud of the daub they frame; the rafter feet project into the shadow under
+   * the eave as a row of teeth; the roof overhangs far enough to shade the wall
+   * and thick enough to have a bottom edge; the doorway is a recess with jambs,
+   * a lintel, a threshold and a leaf that does not quite shut. It is built, not
+   * extruded.
    */
-  function buildHut(w: number, d: number, wallH: number, pitch: number, seed: number): HutParts {
+  function buildHut(spec: HutSpec): HutParts {
+    const { w, d, wallH, pitch, seed } = spec;
     const rand = seeded(seed);
     const P: HutParts = { timber: [], daub: [], thatch: [], dark: [] };
-    const post = 0.15;
+    // Sized for thirty metres. A 0.15 m post there is two pixels of what is
+    // supposed to be the building's entire visual structure.
+    const post = 0.2;
     const ridgeY = wallH + d * pitch;
-    const eaveDrop = 0.14;
-    // The overhang scales with the building. A fixed half metre is a deep eave
-    // on the hall and an umbrella on a 4 m hut.
-    const over = 0.26 + w * 0.065;
+    const eaveY = wallH - 0.08;
+    // The overhang scales with the building — a fixed half metre is a deep eave
+    // on the hall and an umbrella on a 4 m hut — and it is deliberately deep,
+    // because an eave that does not clear its own wall plate shades nothing.
+    const over = 0.4 + w * 0.13;
+    // The verge overhangs far less than the eave, which is both how thatch is
+    // laid and what keeps the barge boards close enough to the wall to be
+    // plausibly carried by it.
+    const verge = over * 0.45;
+    const bays = 1 + 2 * Math.max(1, Math.round(w / 1.55));
+    const zbays = Math.max(1, Math.round(d / 1.35));
+    const rafters = bays + 1;
+    const inset = 0.13;
+    const sagAmp = 0.045 + w * 0.022;
+    const eaveZ = d + over;
+    const rise = ridgeY - eaveY;
+    // Courses are spaced off the slope's real length, so a course on the hall is
+    // the same depth of straw as a course on the smallest hut. Two rows each,
+    // so this is also the roof's whole triangle budget — 0.62 m is the coarsest
+    // spacing at which the steps still read at thirty metres.
+    const slopeLen = Math.hypot(eaveZ, rise);
+    const courses = Math.max(5, Math.round(slopeLen / 0.62));
 
-    // Sill beams and wall plates.
+    // ---- frame ----
     for (const zz of [-d, d]) {
-      P.timber.push(bx(w * 2 + post * 2, 0.17, 0.22, 0, 0.085, zz));
-      P.timber.push(bx(w * 2 + post * 2, 0.19, 0.24, 0, wallH, zz));
+      P.timber.push(bx(w * 2 + post * 2, 0.19, 0.26, 0, 0.095, zz));
+      P.timber.push(bx(w * 2 + post * 2, 0.21, 0.28, 0, wallH, zz));
+      P.timber.push(bx(w * 2, 0.13, 0.22, 0, wallH * 0.54, zz));
     }
     for (const xx of [-w, w]) {
-      P.timber.push(bx(0.22, 0.17, d * 2, xx, 0.085, 0));
-      P.timber.push(bx(0.24, 0.19, d * 2, xx, wallH, 0));
+      P.timber.push(bx(0.26, 0.19, d * 2, xx, 0.095, 0));
+      P.timber.push(bx(0.28, 0.21, d * 2, xx, wallH, 0));
+      P.timber.push(bx(0.22, 0.13, d * 2, xx, wallH * 0.54, 0));
     }
     // Bays are odd on purpose: the door goes in the middle one, and an even
-    // count puts a post exactly where the doorway has to be.
-    const bays = 1 + 2 * Math.max(1, Math.round(w / 1.6));
+    // count puts a stud exactly where the doorway has to be.
     for (let i = 0; i <= bays; i++) {
       const x = -w + (i / bays) * w * 2;
-      for (const zz of [-d, d]) P.timber.push(bx(post, wallH, post, x, wallH / 2, zz));
+      for (const zz of [-d, d]) P.timber.push(bx(post, wallH, post * 1.15, x, wallH / 2, zz));
     }
-    const zbays = Math.max(1, Math.round(d / 1.5));
     for (let i = 0; i <= zbays; i++) {
       const z = -d + (i / zbays) * d * 2;
-      for (const xx of [-w, w]) P.timber.push(bx(post, wallH, post, xx, wallH / 2, z));
+      for (const xx of [-w, w]) P.timber.push(bx(post * 1.15, wallH, post, xx, wallH / 2, z));
     }
-    // Braces. Cheap, and the single strongest cue that a wall is framed.
+    // Braces on all four walls. Cheap, and the single strongest cue that a wall
+    // is framed rather than painted.
     for (const zz of [-d, d]) {
       for (const s of [-1, 1]) {
-        P.timber.push(bx(0.12, wallH * 0.85, 0.12, s * (w - 0.55), wallH * 0.44, zz, -s * 0.62));
+        P.timber.push(bx(0.14, wallH * 0.9, 0.14, s * (w - 0.5), wallH * 0.45, zz, -s * 0.6));
+      }
+    }
+    for (const xx of [-w, w]) {
+      for (const s of [-1, 1]) {
+        P.timber.push(bx(0.14, wallH * 0.82, 0.14, xx, wallH * 0.45, s * (d - 0.45), -s * 0.58, Math.PI / 2));
       }
     }
     // Tie beam and king post close the gable ends, which are the short walls.
     for (const xx of [-w, w]) {
-      P.timber.push(bx(0.15, 0.16, d * 2, xx, wallH + 0.12, 0));
-      P.timber.push(bx(0.14, ridgeY - wallH, 0.14, xx, (ridgeY + wallH) / 2, 0));
+      P.timber.push(bx(0.17, 0.18, d * 2 + 0.12, xx, wallH + 0.14, 0));
+      P.timber.push(bx(0.15, rise, 0.15, xx, (ridgeY + wallH) / 2, 0));
+    }
+    // Rafters, sunk under the thatch and projecting past the wall. Their feet
+    // are a row of teeth in the dark under the eave, and that row is most of
+    // what says "roof" rather than "lid" at this range.
+    {
+      const nl = Math.hypot(eaveZ, rise);
+      const ny = eaveZ / nl;
+      const nz = rise / nl;
+      const sink = 0.17;
+      const footZ = d + over * 0.6;
+      const len = Math.hypot(footZ, rise) + 0.12;
+      for (let i = 0; i <= rafters; i++) {
+        const x = -w + (i / rafters) * w * 2;
+        for (const s of [-1, 1]) {
+          // bx rotates Z then Y, so a member tilted in XY and turned a quarter
+          // turn about Y ends up tilted in ZY — which is the plane a rafter
+          // lives in, the ridge running along X.
+          P.timber.push(bx(
+            0.1, len, 0.12,
+            x, (eaveY + ridgeY) / 2 - sink * ny, s * (footZ / 2 - sink * nz),
+            Math.atan2(-s * footZ, rise), Math.PI / 2,
+          ));
+        }
+      }
+    }
+    // Barge boards down each verge, just proud of the straw.
+    {
+      const vz = d + over * 0.85;
+      const len = Math.hypot(vz, rise) + 0.1;
+      for (const s of [-1, 1]) {
+        for (const g of [-1, 1]) {
+          P.timber.push(bx(
+            0.1, len, 0.19,
+            g * (w + verge + 0.05), (eaveY + ridgeY) / 2 - 0.04, (s * vz) / 2,
+            Math.atan2(-s * vz, rise), Math.PI / 2,
+          ));
+        }
+      }
     }
 
-    // Daub panels, inset so the frame stands proud of them.
-    const inset = 0.06;
-    const panelH = wallH - 0.28;
-    const front = d;
-    const bayW = (w * 2) / bays;
-    const doorHalf = Math.min(0.55, bayW / 2 - 0.06);
+    // ---- daub ----
+    const panelH = wallH - 0.32;
     for (let i = 0; i < bays; i++) {
       const x0 = -w + (i / bays) * w * 2 + post / 2;
       const x1 = -w + ((i + 1) / bays) * w * 2 - post / 2;
       const cx = (x0 + x1) / 2;
       const pw = x1 - x0;
-      // Back wall: solid.
-      P.daub.push(bx(pw, panelH, 0.16, cx, panelH / 2 + 0.14, -front + inset));
-      // Front wall: the middle bay is the doorway, closed by jamb and lintel.
-      if (i !== (bays - 1) / 2) {
-        P.daub.push(bx(pw, panelH, 0.16, cx, panelH / 2 + 0.14, front - inset));
-      }
+      // Back wall solid; on the front the middle bay is the doorway.
+      P.daub.push(bx(pw, panelH, 0.15, cx, panelH / 2 + 0.16, -d + inset));
+      if (i !== (bays - 1) / 2) P.daub.push(bx(pw, panelH, 0.15, cx, panelH / 2 + 0.16, d - inset));
     }
     for (let i = 0; i < zbays; i++) {
       const z0 = -d + (i / zbays) * d * 2 + post / 2;
       const z1 = -d + ((i + 1) / zbays) * d * 2 - post / 2;
       for (const xx of [-w + inset, w - inset]) {
-        P.daub.push(bx(0.16, panelH, z1 - z0, xx, panelH / 2 + 0.14, (z0 + z1) / 2));
+        P.daub.push(bx(0.15, panelH, z1 - z0, xx, panelH / 2 + 0.16, (z0 + z1) / 2));
       }
     }
-    // Gable infill, under the verge.
     for (const xx of [-w + inset, w - inset]) {
-      P.daub.push(gable(d * 0.97, wallH + 0.18, ridgeY - 0.1, 0.14, xx));
+      P.daub.push(gable(d + verge, eaveY - 0.03, ridgeY - 0.02, 0.14, xx));
     }
 
-    // Doorway: jambs, lintel, threshold, and the dark inside.
-    const lintelY = Math.min(1.92, wallH - 0.25);
-    P.timber.push(bx(0.16, lintelY - 0.02, 0.42, -doorHalf - 0.08, (lintelY - 0.02) / 2, front - 0.1));
-    P.timber.push(bx(0.16, lintelY - 0.02, 0.42, doorHalf + 0.08, (lintelY - 0.02) / 2, front - 0.1));
-    P.timber.push(bx(doorHalf * 2 + 0.5, 0.2, 0.44, 0, lintelY, front - 0.1));
-    P.timber.push(bx(doorHalf * 2 + 0.4, 0.12, 0.5, 0, 0.06, front + 0.02));
-    P.dark.push(bx(doorHalf * 2 - 0.03, lintelY - 0.05, 0.7, 0, (lintelY - 0.05) / 2, front - 0.52));
+    // ---- doorway ----
+    const bayW = (w * 2) / bays;
+    const doorHalf = Math.min(0.58, bayW / 2 - 0.08);
+    const lintelY = Math.min(2.0, wallH - 0.3);
+    P.timber.push(bx(0.18, lintelY, 0.5, -doorHalf - 0.09, lintelY / 2, d - 0.06));
+    P.timber.push(bx(0.18, lintelY, 0.5, doorHalf + 0.09, lintelY / 2, d - 0.06));
+    P.timber.push(bx(doorHalf * 2 + 0.54, 0.22, 0.52, 0, lintelY + 0.11, d - 0.06));
+    P.timber.push(bx(doorHalf * 2 + 0.44, 0.13, 0.56, 0, 0.065, d + 0.04));
+    // The inside, most of a metre back from the jambs. A shallow black rectangle
+    // reads as paint; this one has a floor's worth of depth behind it.
+    P.dark.push(bx(doorHalf * 2 - 0.02, lintelY - 0.02, 0.9, 0, (lintelY - 0.02) / 2, d - 0.62));
 
-    // Roof: two slopes, a ridge roll and its saddle spars.
-    P.thatch.push(thatchSlope(w + over, d + over, wallH - eaveDrop, ridgeY, 6, seed * 0.13));
-    P.thatch.push(thatchSlope(w + over, d + over, wallH - eaveDrop, ridgeY, 6, seed * 0.29).rotateY(Math.PI));
+    if (spec.porch) {
+      // Far enough out to clear the main eave. Tucked inside it the porch is a
+      // striped square stuck on the wall; half a metre proud of it, it is a
+      // porch, and it puts a second roofline in the building's silhouette.
+      const pz = d + over + 0.5;
+      for (const s of [-1, 1]) P.timber.push(bx(0.16, 2.1, 0.16, s * (doorHalf + 0.46), 1.05, pz));
+      P.timber.push(bx(doorHalf * 2 + 1.16, 0.17, 0.18, 0, 2.14, pz));
+      // A lean-to over the door: the slope's own ridge edge lands on the wall.
+      P.thatch.push(
+        thatchSlope(doorHalf + 0.7, pz - d + 0.05, 2.16, lintelY + 0.95, 3, 2, 0.015, seed * 0.7)
+          .translate(0, 0, d - 0.05),
+      );
+    }
+
+    if (spec.vent) {
+      // Smoke holes under the ridge. The gable infill is 0.14 thick, so the slot
+      // is cut wider than that and stands proud of both faces — at this range a
+      // black plaque and a black hole are the same pixels, and the surround is
+      // what makes it read as an opening rather than as a stain.
+      for (const s of [-1, 1]) {
+        const vy = ridgeY - 0.66;
+        P.dark.push(bx(0.2, 0.44, 0.62, s * (w - inset), vy, 0));
+        for (const k of [-1, 1]) {
+          P.timber.push(bx(0.13, 0.09, 0.74, s * (w - inset + 0.05), vy + k * 0.27, 0));
+        }
+      }
+    }
+
+    // ---- roof ----
+    P.thatch.push(thatchSlope(w + verge, eaveZ, eaveY, ridgeY, courses, rafters, sagAmp, seed * 0.13));
+    P.thatch.push(thatchSlope(w + verge, eaveZ, eaveY, ridgeY, courses, rafters, sagAmp, seed * 0.29).rotateY(Math.PI));
     {
-      const ridge = new THREE.CylinderGeometry(0.19, 0.19, (w + over) * 2, 8, 6);
-      const p = ridge.attributes.position as THREE.BufferAttribute;
+      // The ridge roll, sagging with the slopes it caps rather than lying over
+      // them in a straight line.
+      const halfR = w + verge;
+      const roll = new THREE.CylinderGeometry(0.2, 0.2, halfR * 2, 8, 7);
+      const p = roll.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < p.count; i++) {
-        const bump = 1 + Math.sin(p.getY(i) * 3.1) * 0.09 + (rand() - 0.5) * 0.05;
+        const bump = 1 + Math.sin(p.getY(i) * 3.1) * 0.1 + (rand() - 0.5) * 0.06;
         p.setX(i, p.getX(i) * bump);
         p.setZ(i, p.getZ(i) * bump);
       }
       p.needsUpdate = true;
-      ridge.computeVertexNormals();
-      ridge.rotateZ(Math.PI / 2);
-      ridge.translate(0, ridgeY + 0.06, 0);
-      P.thatch.push(ridge);
-    }
-    // Saddle spars pegged over the ridge, which is what actually holds a ridge
-    // roll down. Rotated onto the ZY plane, because the ridge runs along X.
-    for (let i = -1; i <= 1; i += 2) {
-      for (let k = 0; k < 3; k++) {
-        P.timber.push(bx(0.09, 0.95, 0.09, (k - 1) * (w * 0.6), ridgeY + 0.08, i * 0.2, i * 0.45, Math.PI / 2));
+      roll.rotateZ(Math.PI / 2);
+      for (let i = 0; i < p.count; i++) {
+        p.setY(i, p.getY(i) + roofSag(clamp01(p.getX(i) / (halfR * 2) + 0.5), sagAmp));
+      }
+      p.needsUpdate = true;
+      roll.computeVertexNormals();
+      // Shaded before the translate, while the roll's own centre is still y = 0.
+      P.thatch.push(shade(roll, (_x, y) => 0.6 + 0.55 * clamp01((y + 0.2) / 0.4)).translate(0, ridgeY + 0.05, 0));
+
+      // Liggers laid along the ridge and spars pegged across them, which is what
+      // actually holds a ridge roll down. The old build stood the spars upright,
+      // and at thirty metres a row of upright spars reads as pins in a cushion.
+      for (const s of [-1, 1]) {
+        for (const k of [0.15, 0.3]) {
+          const path: Pt[] = [];
+          const radii: number[] = [];
+          for (let i = 0; i <= 6; i++) {
+            const u = 0.04 + (i / 6) * 0.92;
+            path.push({
+              x: (u - 0.5) * halfR * 2,
+              y: ridgeY + 0.06 + roofSag(u, sagAmp) - k * 0.62,
+              z: s * k,
+            });
+            radii.push(0.033);
+          }
+          P.timber.push(tube(path, radii, 4, 6));
+        }
+      }
+      // The spars lie *across* the ridge, nearly flat. Stood upright — which is
+      // what the old build did — a row of them reads as pins in a cushion.
+      for (let i = 0; i < 4; i++) {
+        const u = 0.14 + i * 0.24;
+        const x = (u - 0.5) * halfR * 2;
+        const y = ridgeY + 0.02 + roofSag(u, sagAmp);
+        for (const s of [-1, 1]) {
+          P.timber.push(bx(0.045, 0.62, 0.045, x, y, 0, s * 1.24, Math.PI / 2));
+        }
       }
     }
+
+    // ---- baked shading on the daub ----
+    // Everything here is a shadow the frame's own geometry would have cast if
+    // the cascade reached this far: the eave's band, the gable's permanent
+    // shade, the splash at the foot, and the contact line round each recessed
+    // panel. The last one is what makes a framed wall read as framed.
+    const daubShade = (x: number, y: number, z: number): number => {
+      let s = 1 - 0.52 * smoothstep(wallH - 1.3, wallH - 0.02, y);
+      if (y > wallH) {
+        // The gable sits a whole overhang back from the verge and never sees
+        // the sky. It used to be the brightest triangle in the frame.
+        s = Math.min(s, 0.34 + 0.14 * clamp01((ridgeY - y) / Math.max(0.2, rise)));
+      } else {
+        const side = Math.abs(z) < d * 0.75;
+        const along = side ? z : x;
+        const span = side ? d : w;
+        const pitchN = side ? (d * 2) / zbays : (w * 2) / bays;
+        const q = (along + span) / pitchN;
+        const edge = Math.abs(q - Math.round(q)) * pitchN;
+        s *= 1 - 0.32 * (1 - smoothstep(post * 0.5, post * 0.5 + 0.42, edge));
+        const vEdge = Math.min(Math.abs(y - 0.21), Math.abs(y - wallH), Math.abs(y - wallH * 0.54));
+        s *= 1 - 0.28 * (1 - smoothstep(0.05, 0.4, vEdge));
+      }
+      s *= 1 - 0.36 * (1 - smoothstep(0, 0.62, y));
+      // Daub is thrown on by hand over wattle and it is not a plane.
+      return s * (0.9 + 0.2 * noise2(x * 2.7 + 11, y * 3.3 - 5));
+    };
+    for (const g of P.daub) shade(g, daubShade);
     return P;
   }
 
@@ -1157,32 +1807,80 @@ export function createWorld(
       bx(0.12, 1.8, 0.1, 0.3, 0, 0.02),
     ], 1 / 2));
 
-    interface Variant { parts: HutParts; xf: THREE.Matrix4[]; depth: number }
+    interface Variant {
+      parts: HutParts;
+      xf: THREE.Matrix4[];
+      daub: THREE.Color[];
+      thatch: THREE.Color[];
+      /** Half-depth, for putting the door leaf on the front wall. */
+      depth: number;
+      /** Footprint radius, for finding ground that all four corners sit on. */
+      foot: number;
+    }
+    // Three footprints rather than two, and none of them the same proportion:
+    // a cot, a family hut and a long building. Walls are tall enough that the
+    // eave line clears the palisade — at 2.2 m every hut in the village was
+    // nothing but a roof from a standing camera.
+    // Pitches are steep — 44° and up. Thatch has to be, to shed water, and a
+    // shallow thatched roof is the silhouette of a modern shed.
     const variants: Variant[] = [
-      { parts: buildHut(2.0, 1.7, 2.15, 1.15, 0x1234), xf: [], depth: 1.7 },
-      { parts: buildHut(2.9, 2.1, 2.4, 1.1, 0x5678), xf: [], depth: 2.1 },
+      { parts: buildHut({ w: 1.9, d: 1.5, wallH: 2.6, pitch: 1.5, seed: 0x1234 }), xf: [], daub: [], thatch: [], depth: 1.5, foot: 2.4 },
+      { parts: buildHut({ w: 2.85, d: 2.05, wallH: 2.95, pitch: 1.45, seed: 0x5678, vent: true }), xf: [], daub: [], thatch: [], depth: 2.05, foot: 3.5 },
+      { parts: buildHut({ w: 4.1, d: 1.95, wallH: 2.75, pitch: 1.52, seed: 0x9abc, vent: true }), xf: [], daub: [], thatch: [], depth: 1.95, foot: 4.5 },
     ];
 
-    // A village, not a ring. Huts cluster with their doors turned roughly toward
-    // the moot, at spread distances so the frame gets a midground.
-    const sites: Array<[number, number, number]> = [
-      [0.95, 28.5, 0], [1.35, 33.0, 1], [2.15, 30.0, 1], [2.9, 27.5, 0],
-      [3.7, 36.0, 1], [4.6, 29.5, 0], [5.35, 33.5, 1], [5.95, 44.0, 0],
-      [2.45, 47.0, 0], [4.05, 51.0, 1],
+    /**
+     * Ground a building can stand on: the lowest point under its footprint, so
+     * the downhill sill lands and the uphill one digs in. Two of the sites sit
+     * across the ditch outside the earthwork, where the ground moves the better
+     * part of a metre in three, and a single sample at the centre leaves half a
+     * sill in mid-air there.
+     */
+    const footing = (x: number, z: number, foot: number): number => {
+      let y = groundHeight(x, z);
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * TAU;
+        y = Math.min(y, groundHeight(x + Math.cos(a) * foot, z + Math.sin(a) * foot));
+      }
+      return y;
+    };
+
+    // A village, not a ring: clustered, at spread distances so the frame gets a
+    // midground, most doors turned toward the moot — and a third of them stood
+    // gable-on, because a settlement where every roof runs the same way reads as
+    // a fence made of roofs.
+    // The first entry sits on the gate's bearing. Every wall in the village is
+    // otherwise behind the palisade from a standing camera — the ring covers
+    // everything below about 3 m at this range — and the gateway is the one
+    // aperture the frame has onto a whole building rather than onto its roof.
+    const sites: Array<[number, number, number, number]> = [
+      [GATE_MAIN, 32.0, 1, 0], [0.95, 27.0, 0, 0], [1.35, 32.5, 1, 1], [2.15, 29.5, 1, 0],
+      [2.9, 27.2, 0, 1], [3.7, 35.5, 2, 0], [4.6, 29.0, 0, 0], [5.35, 33.0, 1, 1],
+      [5.95, 43.0, 2, 0], [2.45, 46.5, 1, 0], [4.05, 50.0, 0, 1], [3.25, 41.0, 0, 1],
     ];
-    for (const [a0, d0, v] of sites) {
+    const tc = new THREE.Color();
+    for (const [a0, d0, v, turn] of sites) {
       const a = a0 + (rng() - 0.5) * 0.16;
       const dist = d0 + (rng() - 0.5) * 3;
       const x = Math.cos(a) * dist;
       const z = Math.sin(a) * dist;
-      const face = facing(x, z) + (rng() - 0.5) * 0.5;
-      const s = 0.92 + rng() * 0.24;
-      variants[v].xf.push(place(x, groundHeight(x, z) - 0.06, z, face, s));
+      const face = facing(x, z) + turn * (Math.PI / 2) + (rng() - 0.5) * 0.45;
+      const s = 0.92 + rng() * 0.26;
+      const V2 = variants[v];
+      const gy = footing(x, z, V2.foot * s * 0.8);
+      V2.xf.push(place(x, gy - 0.06, z, face, s));
+      // Limewash or bare daub, weathered or freshly thatched. Per instance,
+      // because a village whose every wall is the same colour is a texture.
+      const wash = rng();
+      V2.daub.push(tc.setRGB(0.9 + wash * 0.26, 0.93 + wash * 0.16, 1.02 - wash * 0.18).clone());
+      const straw = rng();
+      V2.thatch.push(tc.setRGB(0.84 + straw * 0.36, 0.88 + straw * 0.24, 1.0 - straw * 0.22).clone());
       // A door leaf, left ajar. Not instanced with the hut because the angle is
       // the point: every closed door in a village is the same door.
       const dm = new THREE.Mesh(doorGeo, doorMat);
-      const dz = variants[v].depth * s;
-      dm.position.set(x + Math.sin(face) * dz, groundHeight(x, z) + 0.85 * s, z + Math.cos(face) * dz);
+      // On the wall's outer face, clear of the dark box in the recess behind it.
+      const dz = (V2.depth - 0.04) * s;
+      dm.position.set(x + Math.sin(face) * dz, gy + 0.85 * s, z + Math.cos(face) * dz);
       dm.rotation.y = face + (rng() - 0.5) * 0.9;
       dm.scale.setScalar(s);
       dm.castShadow = true;
@@ -1191,24 +1889,22 @@ export function createWorld(
 
     for (const v of variants) {
       field(own(mergeInto(v.parts.timber, 1 / 3)), timberMat, v.xf);
-      field(own(mergeInto(v.parts.daub, 1 / 2)), daubMat, v.xf);
-      field(own(mergeInto(v.parts.thatch)), thatchMat, v.xf);
+      field(own(mergeInto(v.parts.daub, 1 / 2)), daubMat, v.xf, v.daub);
+      field(own(mergeInto(v.parts.thatch)), thatchMat, v.xf, v.thatch);
       field(own(mergeInto(v.parts.dark, 1)), darkMat, v.xf, null, false);
     }
 
     // The hall. One of these, so it is meshes rather than instances, and it gets
-    // the one thing the huts do not: a hearth burning somewhere inside, seen
-    // through the door. At dusk that is the warmest thing in the background.
+    // what the huts do not: a porch, carved finials, and a hearth burning
+    // somewhere inside where the doorway can show it.
     {
       const HW = 4.6;
       const HD = 3.0;
-      const HWALL = 3.1;
-      const HRIDGE = HWALL + HD * 1.1;
-      const hall = buildHut(HW, HD, HWALL, 1.1, 0xbeef);
-      const ha = -1.62;
-      const hd = 37;
-      const hx = Math.cos(ha) * hd;
-      const hz = Math.sin(ha) * hd;
+      const HWALL = 3.4;
+      const HRIDGE = HWALL + HD * 1.35;
+      const hall = buildHut({ w: HW, d: HD, wallH: HWALL, pitch: 1.35, seed: 0xbeef, vent: true, porch: true });
+      const hx = Math.cos(HALL_A) * HALL_D;
+      const hz = Math.sin(HALL_A) * HALL_D;
       const g = new THREE.Group();
       const add = (geo: THREE.BufferGeometry, mat: THREE.Material, cast = true) => {
         const m = new THREE.Mesh(own(geo), mat);
@@ -1226,125 +1922,224 @@ export function createWorld(
         bx(0.16, 0.16, 0.62, s * (HW + 0.28), HRIDGE + 1.15, 0, 0, 0),
       ]), 1 / 3), timberMat);
       // A hearth burning somewhere inside, seen through the door. At dusk it is
-      // the warmest thing in the background, and it costs one quad.
+      // the warmest thing in the background and it costs one quad — but only if
+      // it sits *in front of* the dark box behind the doorway rather than
+      // inside it, which is 0.9 m deep now and would swallow it whole.
       const hearth = new THREE.Mesh(own(new THREE.PlaneGeometry(0.66, 0.4)), materials.get("bonfireFlame"));
       hearth.position.set(0, 0.4, HD - 0.14);
       g.add(hearth);
-      g.position.set(hx, groundHeight(hx, hz) - 0.06, hz);
+      g.position.set(hx, footing(hx, hz, 4.4) - 0.06, hz);
       g.rotation.y = facing(hx, hz) + 0.18;
       root.add(g);
+    }
+
+    // Corn ricks. Three of these and the settlement is somewhere people work
+    // rather than a row of roofs, and they cost one instanced draw.
+    {
+      const rickGeo = (() => {
+        const cone = new THREE.ConeGeometry(1.2, 2.3, 13, 6);
+        const p = cone.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < p.count; i++) {
+          const t = clamp01((p.getY(i) + 1.15) / 2.3);
+          // A bell rather than a cone, stepped where the courses are, so the
+          // silhouette has shoulders and ledges in it.
+          const swell = (1 + 0.22 * Math.sin(t * Math.PI)) * (1 + 0.05 * Math.sin(t * 15))
+            * (0.95 + noise2(p.getX(i) * 3, p.getZ(i) * 3) * 0.11);
+          p.setX(i, p.getX(i) * swell);
+          p.setZ(i, p.getZ(i) * swell);
+        }
+        p.needsUpdate = true;
+        cone.computeVertexNormals();
+        cone.translate(0, 1.15, 0);
+        return shade(cone, (_x, y) => 0.52 + 0.55 * clamp01(y / 2.3) + 0.12 * Math.sin(y * 15));
+      })();
+      const ricks: THREE.Matrix4[] = [];
+      for (const [a, dr] of [[1.72, 31.0], [4.95, 30.0], [3.42, 44.0]] as const) {
+        const x = Math.cos(a) * dr;
+        const z = Math.sin(a) * dr;
+        ricks.push(place(x, footing(x, z, 1.2) - 0.12, z, rng() * TAU, 0.85 + rng() * 0.35));
+      }
+      field(rickGeo, thatchMat, ricks);
     }
   }
 
   // =========================================================================
-  // Depth beyond the settlement — treeline and scrub
+  // Depth beyond the settlement — the wood
   // =========================================================================
   {
-    const trunkMat = materials.tinted("oak", 0x35281a, { repeat: 2 });
-    const canopyMat = materials.tinted("grass", 0x33401f, { repeat: 1 });
+    // Bark and leaf, per species. Six cached materials for the whole wood; the
+    // species that share a colour share their state, and the draw is decided by
+    // the geometry anyway.
+    const barkOak = materials.tinted("oak", 0x3a2c1c, { repeat: 2 });
+    const barkPale = materials.tinted("oak", 0x8b8474, { repeat: 2 });
+    const barkRed = materials.tinted("oak", 0x4e3320, { repeat: 2 });
+    const barkDead = materials.tinted("plank", 0x6b6459, { repeat: 2 });
+    // Greener and cooler than the wood they stand in front of, and darker with
+    // it: foliage that grades to the same tan as the soil is the whole reason
+    // the last capture read as one colour.
+    const leafOak = materials.tinted("grass", 0x35471c, { repeat: 1 });
+    const leafLight = materials.tinted("grass", 0x475820, { repeat: 1 });
+    const leafDark = materials.tinted("grass", 0x24382a, { repeat: 1 });
 
-    const trunkGeo = (() => {
-      const g = new THREE.CylinderGeometry(0.13, 0.32, 1, 6, 3);
-      const p = g.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < p.count; i++) {
-        const t = clamp01(p.getY(i) + 0.5);
-        p.setX(i, p.getX(i) + Math.sin(t * 2.2) * 0.09);
-        p.setZ(i, p.getZ(i) + Math.cos(t * 1.7) * 0.06);
-      }
-      p.needsUpdate = true;
-      g.computeVertexNormals();
-      g.translate(0, 0.5, 0);
-      return g;
-    })();
-
-    // A crown, not a lollipop: five masses stacked with the big ones low and
-    // the small ones high, each pushed off-axis. At a hundred metres a tree is
-    // a silhouette and nothing else, so the silhouette is all this spends on.
-    const canopyGeo = (variant: number): THREE.BufferGeometry => {
-      const rand = seeded(0x2f13 + variant * 991);
-      const blobs: THREE.BufferGeometry[] = [];
-      for (let i = 0; i < 5; i++) {
-        const t = i / 4;
-        const s = (0.62 - t * 0.28) * (0.8 + rand() * 0.45);
-        const b = new THREE.IcosahedronGeometry(s, 0);
-        const p = b.attributes.position as THREE.BufferAttribute;
-        for (let v = 0; v < p.count; v++) {
-          const n = 0.72 + noise2(p.getX(v) * 5 + i * 9, p.getZ(v) * 5 - i * 4) * 0.55;
-          p.setXYZ(v, p.getX(v) * n, p.getY(v) * n * 0.82, p.getZ(v) * n);
-        }
-        p.needsUpdate = true;
-        b.computeVertexNormals();
-        const spread = (1 - t) * 0.95 + 0.15;
-        b.translate((rand() - 0.5) * spread, 0.45 + t * 0.58 + rand() * 0.12, (rand() - 0.5) * spread);
-        blobs.push(b);
-      }
-      return mergeInto(blobs);
+    interface Kind {
+      wood: THREE.BufferGeometry;
+      leaf: THREE.BufferGeometry | null;
+      bark: THREE.Material;
+      foliage: THREE.Material;
+      /**
+       * Mid-height in metres, which the age multiplier scales. The instance
+       * scale is uniform, so this is the species' girth and crown spread too.
+       */
+      mid: number;
+      xf: THREE.Matrix4[];
+      barkTint: THREE.Color[];
+      leafTint: THREE.Color[];
+    }
+    const kinds: Kind[] = [];
+    const kind = (
+      spec: TreeSpec, seed: number, bark: THREE.Material, foliage: THREE.Material,
+      lo: number, hi: number,
+    ): Kind => {
+      const built = buildTree(spec, seed);
+      const k: Kind = { ...built, bark, foliage, mid: (lo + hi) / 2, xf: [], barkTint: [], leafTint: [] };
+      kinds.push(k);
+      return k;
     };
 
-    const canopies = [canopyGeo(0), canopyGeo(1), canopyGeo(2)];
-    const trunks: THREE.Matrix4[] = [];
-    const crowns: THREE.Matrix4[][] = [[], [], []];
-    const crownTints: THREE.Color[][] = [[], [], []];
-    const tc = new THREE.Color();
-    const hutKeepout = 9;
+    /**
+     * Height, as an age rather than as a uniform draw. A stand is one species,
+     * so if the only variation inside it is ±2 m the whole treeline reads as one
+     * element repeated; a real wood has saplings under mature trees, and the
+     * skew puts most of them in the middle with a few standing well clear.
+     */
+    const age = (k: Kind) => k.mid * (0.7 + Math.pow(rng(), 0.75) * 0.66);
 
-    for (let i = 0; i < scatter(190); i++) {
+    // Five species for the treeline at one division per limb, and three of them
+    // built again at two for the near band, where a tree is three hundred pixels
+    // tall and one fork is visibly one fork.
+    // `lift` is doing most of the work here, and it is a narrow window: too
+    // little and a limb that left the bole at 30° never comes back, so the crown
+    // is twice as wide as it is tall and the treeline reads as an olive grove;
+    // too much and the limbs bend back parallel to the trunk and the tree reads
+    // as a palm with a tuft on it.
+    const OAK: TreeSpec = { bole: 0.34, girth: 0.055, sweep: 0.055, limbs: 4, depth: 1, diverge: 0.58, reach: 0.33, lift: 0.44, clump: 0.145, aspect: 0.88 };
+    const ASH: TreeSpec = { bole: 0.5, girth: 0.04, sweep: 0.045, limbs: 3, depth: 1, diverge: 0.46, reach: 0.34, lift: 0.6, clump: 0.135, aspect: 1.0 };
+    const BIRCH: TreeSpec = { bole: 0.56, girth: 0.027, sweep: 0.095, limbs: 3, depth: 1, diverge: 0.4, reach: 0.26, lift: 0.45, clump: 0.1, aspect: 1.08 };
+    const PINE: TreeSpec = { bole: 0.95, girth: 0.038, sweep: 0.045, limbs: 0, depth: 0, diverge: 0, reach: 0.2, lift: 0, clump: 0.1, aspect: 0.5, conifer: true, crownBase: 0.42 };
+    const SNAG: TreeSpec = { bole: 0.66, girth: 0.045, sweep: 0.08, limbs: 3, depth: 1, diverge: 0.75, reach: 0.22, lift: 0.35, clump: 0, aspect: 1, dead: true };
+
+    const live = [
+      kind(OAK, 0x0a11, barkOak, leafOak, 5, 9),
+      kind(ASH, 0x0a13, barkOak, leafLight, 7, 11),
+      kind(BIRCH, 0x0a17, barkPale, leafLight, 6.5, 10),
+      kind(PINE, 0x0a1d, barkRed, leafDark, 9, 15),
+    ];
+    const snag = kind(SNAG, 0x0a23, barkDead, leafOak, 4.5, 8);
+    // The near band divides twice and carries smaller clumps for it. Same crown
+    // volume, three times the pieces in its edge — which is what a tree three
+    // hundred pixels tall needs and what one twenty pixels tall would waste.
+    const near = [
+      kind({ ...OAK, depth: 2, clump: OAK.clump * 0.78 }, 0x1b31, barkOak, leafOak, 6.5, 9.5),
+      kind({ ...ASH, depth: 2, clump: ASH.clump * 0.8 }, 0x1b37, barkOak, leafOak, 8, 11),
+      kind({ ...BIRCH, depth: 2, clump: BIRCH.clump * 0.82 }, 0x1b3d, barkPale, leafLight, 7, 10),
+    ];
+
+    const hallX = Math.cos(HALL_A) * HALL_D;
+    const hallZ = Math.sin(HALL_A) * HALL_D;
+    const tc = new THREE.Color();
+    const push = (k: Kind, x: number, z: number, h: number): void => {
+      const lean = 0.03 + rng() * 0.05;
+      const bearing = rng() * TAU;
+      k.xf.push(new THREE.Matrix4().compose(
+        V.set(x, groundHeight(x, z) - h * 0.035, z),
+        Q.setFromEuler(E.set(Math.cos(bearing) * lean, rng() * TAU, Math.sin(bearing) * lean, "YXZ")),
+        new THREE.Vector3(h, h, h),
+      ));
+      const bt = 0.82 + rng() * 0.34;
+      k.barkTint.push(tc.setRGB(bt, bt * (0.97 + rng() * 0.06), bt * 0.94).clone());
+      // Autumn is coming in unevenly, as it does. The spread here is wide on
+      // purpose: a treeline at one value is a wall.
+      const dry = clamp01(fbm(x * 0.06 + 21, z * 0.06 - 9, 2) * 1.5 - 0.25);
+      const sh = 0.66 + rng() * 0.38;
+      k.leafTint.push(tc.setRGB(sh * (1 + dry * 0.3), sh * (1 + dry * 0.08), sh * (1 - dry * 0.26)).clone());
+    };
+
+    for (let i = 0; i < scatter(210); i++) {
       const a = rng() * TAU;
       // Weighted outward, and thinned where the village is.
       const dist = 40 + Math.pow(rng(), 0.62) * 96;
       const x = Math.cos(a) * dist;
       const z = Math.sin(a) * dist;
       if (dist < 55 && rng() < 0.45) continue;
-      if (dist < 52 && Math.hypot(x - Math.cos(-1.62) * 37, z - Math.sin(-1.62) * 37) < hutKeepout) continue;
+      if (dist < 52 && Math.hypot(x - hallX, z - hallZ) < 9) continue;
       // Trees mass in stands; a uniform scatter reads as an orchard.
       if (fbm(x * 0.017 + 5, z * 0.017 - 3, 2) < 0.42) continue;
-      const h = 4.2 + rng() * 6.4;
-      const y = groundHeight(x, z) - 0.3;
-      const spin = rng() * TAU;
-      trunks.push(new THREE.Matrix4().compose(
-        V.set(x, y, z), Q.setFromEuler(E.set(0, spin, 0, "YXZ")),
-        new THREE.Vector3(0.8 + rng() * 0.5, h, 0.8 + rng() * 0.5),
-      ));
-      const v = i % 3;
-      crowns[v].push(new THREE.Matrix4().compose(
-        V.set(x, y + h * 0.72, z), Q.setFromEuler(E.set((rng() - 0.5) * 0.15, spin, 0, "YXZ")),
-        new THREE.Vector3(h * 0.42, h * 0.4, h * 0.42),
-      ));
-      const shade = 0.72 + rng() * 0.6;
-      crownTints[v].push(tc.setRGB(shade, shade * (0.92 + rng() * 0.2), shade * 0.85).clone());
+      // And a stand is mostly one species. A second, much longer field decides
+      // which, with a sixth of the trees drawn from anywhere so no edge between
+      // two stands is a straight line.
+      //
+      // Death is drawn separately and rarely. Taking the species and the dead
+      // flag off the same field gives whole stands of snags, and a copse of ten
+      // bare trees does not read as one dead tree — it reads as missing foliage.
+      let k = snag;
+      if (rng() >= 0.055) {
+        const stand = fbm(x * 0.0115 + 71.3, z * 0.0115 - 19.6, 2);
+        let s = Math.floor(clamp01(stand * 1.5 - 0.16) * live.length);
+        if (rng() < 0.32) s = Math.floor(rng() * live.length);
+        k = live[Math.min(live.length - 1, s)];
+      }
+      push(k, x, z, age(k));
     }
-    // Nothing out here is inside the shadow cascade; asking for shadow maps of
-    // two hundred trees buys a frame cost and no pixels.
-    field(trunkGeo, trunkMat, trunks, null, false);
-    for (let v = 0; v < 3; v++) field(canopies[v], canopyMat, crowns[v], crownTints[v], false);
 
-    // A handful of close trees, which do cast, so the midground has structure
-    // rather than being a gap between the palisade and the treeline.
-    const nearTrunks: THREE.Matrix4[] = [];
-    const nearCrowns: THREE.Matrix4[] = [];
-    const hallX = Math.cos(-1.62) * 37;
-    const hallZ = Math.sin(-1.62) * 37;
-    for (let i = 0; i < scatter(9); i++) {
+    // Close trees, which do cast, so the midground has structure rather than
+    // being a gap between the palisade and the treeline. Enough of them that
+    // most bearings out of the moot have one, since a camera that can point
+    // anywhere finds a bare middle distance from three quarters of the ring.
+    for (let i = 0; i < scatter(15); i++) {
       const a = rng() * TAU;
-      const dist = 33 + rng() * 13;
+      const dist = 32 + rng() * 14;
       const x = Math.cos(a) * dist;
       const z = Math.sin(a) * dist;
       // Nothing grows through the hall's roof, and a big tree at 35 m parked in
       // front of a hut deletes the only midground the frame has.
       if (Math.hypot(x - hallX, z - hallZ) < 12) continue;
-      const h = 6.5 + rng() * 3.5;
-      const y = groundHeight(x, z) - 0.3;
-      nearTrunks.push(new THREE.Matrix4().compose(
-        V.set(x, y, z), Q.setFromEuler(E.set(0, rng() * TAU, 0, "YXZ")),
-        new THREE.Vector3(1.1, h, 1.1),
-      ));
-      nearCrowns.push(new THREE.Matrix4().compose(
-        V.set(x, y + h * 0.7, z), Q.setFromEuler(E.set(0, rng() * TAU, 0, "YXZ")),
-        new THREE.Vector3(h * 0.46, h * 0.44, h * 0.46),
-      ));
+      const k = near[i % near.length];
+      push(k, x, z, age(k) * 1.08);
     }
-    field(trunkGeo, trunkMat, nearTrunks);
-    field(canopies[1], canopyMat, nearCrowns);
+
+    for (const k of kinds) {
+      // Nothing out here is inside the shadow cascade; asking for shadow maps of
+      // two hundred trees buys a frame cost and no pixels. The near band is
+      // inside it at the edge, and gets one for the same price as being wrong.
+      const cast = near.includes(k);
+      field(k.wood, k.bark, k.xf, k.barkTint, cast);
+      if (k.leaf) field(k.leaf, k.foliage, k.xf, k.leafTint, cast);
+    }
+
+    // Scrub, thickest at the wood's margin — which is where it grows, and also
+    // where the treeline needs its feet hidden.
+    {
+      const bushes = [buildBush(0x51a3), buildBush(0x9c2f), buildBush(0x2ed1)];
+      const buckets: THREE.Matrix4[][] = [[], [], []];
+      const tints: THREE.Color[][] = [[], [], []];
+      for (let i = 0; i < scatter(170); i++) {
+        const a = rng() * TAU;
+        const dist = 26 + Math.pow(rng(), 0.7) * 104;
+        const x = Math.cos(a) * dist;
+        const z = Math.sin(a) * dist;
+        if (Math.hypot(x - hallX, z - hallZ) < 9) continue;
+        const stand = fbm(x * 0.017 + 5, z * 0.017 - 3, 2);
+        // Densest in the margin band, sparse in the open, sparse deep in the wood.
+        const margin = 1 - Math.min(1, Math.abs(stand - 0.42) / 0.16);
+        if (rng() > 0.2 + margin * 0.8) continue;
+        const v = i % 3;
+        const s = 0.75 + rng() * 1.05;
+        buckets[v].push(place(x, groundHeight(x, z) - 0.14 * s, z, rng() * TAU, s, (rng() - 0.5) * 0.2));
+        const sh = 0.7 + rng() * 0.55;
+        tints[v].push(new THREE.Color(sh * 1.05, sh, sh * 0.82));
+      }
+      for (let v = 0; v < 3; v++) field(bushes[v], leafOak, buckets[v], tints[v], false);
+    }
   }
 
   // =========================================================================

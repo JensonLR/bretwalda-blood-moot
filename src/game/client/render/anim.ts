@@ -168,7 +168,14 @@ export function createWarriorRig(
   // The tier reaches the builder here and nowhere else: characters.ts decides
   // its own tessellation and layer count from it, which is where a phone gets
   // its draw-call cut without losing a silhouette.
-  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials, settings.tier);
+  //
+  // The face seed is passed rather than left to the builder's build-order
+  // fallback because a face has to survive a rebuild: a rig is disposed and
+  // rebuilt whenever a player's appearance changes mid-match, and the fallback
+  // handed him a different skull and a different complexion every time — the man
+  // you were fighting became a different man for putting a helmet on.
+  // See `faceIdentity` for why this is an interned integer and not a hash.
+  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials, settings.tier, faceIdentity(player.id));
   const body = built.group;
 
   // Crown height, measured now — before a weapon is in the fist, because the
@@ -345,6 +352,40 @@ const easeInCubic = (x: number) => x * x * x;
 const easeOutBack = (x: number) => 1 + 2.2 * Math.pow(x - 1, 3) + 1.2 * Math.pow(x - 1, 2);
 const smooth = (x: number) => x * x * (3 - 2 * x);
 const approach = (cur: number, to: number, dt: number, rate: number) => cur + (to - cur) * Math.min(1, dt * rate);
+
+/**
+ * Stable per-warrior face identity, as a small *consecutive* integer.
+ *
+ * `characters.ts` asked for `hash01(player.id)` here, and it accepts a fraction —
+ * but taking that literally would have thrown away the thing the seed exists for.
+ * Its complexion and iris picks run through a Latin square over the seed, so that
+ * every run of four consecutive seeds covers all four complexions; that is what
+ * stops eight warriors on one field reading as one man cloned, which was the
+ * defect. A hashed float is a fair coin, and a fair coin hands four of eight the
+ * same face. So the id is *interned* to 0, 1, 2, … in first-seen order instead:
+ * dense enough for the Latin square, and — unlike the builder's own build-order
+ * fallback — stable when a rig is disposed and rebuilt, which is what happens
+ * every time a player's appearance changes mid-match.
+ *
+ * Bounded rather than unbounded, because the README's rule is that matches must
+ * not leak into each other. Past `FACE_IDS_MAX` distinct warriors in one tab the
+ * oldest entries are evicted in insertion order; a player who returns after that
+ * gets a new face, and by then he left several matches ago.
+ */
+const FACE_IDS = new Map<string, number>();
+const FACE_IDS_MAX = 256;
+function faceIdentity(id: string): number {
+  const known = FACE_IDS.get(id);
+  if (known !== undefined) return known;
+  if (FACE_IDS.size >= FACE_IDS_MAX) {
+    // Map iterates in insertion order, so the first key is the oldest.
+    for (const stale of FACE_IDS.keys()) { FACE_IDS.delete(stale); break; }
+  }
+  const next = FACE_SEEN++;
+  FACE_IDS.set(id, next);
+  return next;
+}
+let FACE_SEEN = 0;
 
 /** Stable per-warrior 0..1 so captures of the same match lay out the same. */
 function hash01(id: string): number {
