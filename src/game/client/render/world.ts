@@ -111,17 +111,116 @@ const GATE_ANGLES = [0.42, 2.55, 4.55];
 const GATE_MAIN = GATE_ANGLES[0];
 
 /**
- * Standing water. The same list carves the basins into the height field and
- * places the meshes, which is what keeps a puddle in a hollow instead of
- * floating as a disc on flat ground.
+ * Standing water. One list carves the basins into the height field, drives the
+ * damp margin the terrain shades, and places the meshes — so a puddle can only
+ * ever be in a hollow it made itself.
+ *
+ * *Where* the entries are is the whole of the art direction here. Rain does not
+ * stand on open turf; it stands where something has already broken the ground.
+ * So every puddle below is in a cart rut on one of the three tracks, against the
+ * foot of the palisade where run-off collects, or in ground the moot has churned
+ * — and nothing sits on unbroken grass. The version this replaces was six discs
+ * on radii chosen to look evenly spread, which put a 2.5 m pool exactly where
+ * every framed character shot stands its subject: `stance` came back with the
+ * near half of the frame under water and the moot reading as flooded rather than
+ * muddy. Nominal wetted area is down from ~88 m² to ~26, and the largest single
+ * pool from 5 m across to 2.4.
+ *
+ * They are ellipses because a rut is not a disc, and a pool lying along the base
+ * of a stake line is not either. Depth varies with what made the hollow: a wheel
+ * rut holds 20 mm, a trampled hollow 30.
  */
-const PUDDLES: ReadonlyArray<{ x: number; z: number; r: number }> = [
-  { x: -6.1, z: 3.9, r: 2.5 },
-  { x: 4.8, z: -7.2, r: 1.9 },
-  { x: 9.4, z: 5.6, r: 2.2 },
-  { x: -2.2, z: -11.4, r: 1.6 },
-  { x: -12.6, z: -4.1, r: 2.8 },
-  { x: 13.1, z: -2.4, r: 1.7 },
+interface Puddle {
+  x: number;
+  z: number;
+  /** Semi-axis along `rot`, in metres. */
+  a: number;
+  /** Semi-axis across it. */
+  b: number;
+  rot: number;
+  /** Standing depth at the centre. The basin beneath is deeper — see WATER_FILL. */
+  depth: number;
+  /** Derived once: `heightAt` is on the per-frame path and this is its inner loop. */
+  cos: number;
+  sin: number;
+  /** Squared world distance past which this puddle contributes nothing measurable. */
+  reach2: number;
+}
+
+/**
+ * Standing depth as a fraction of the basin holding it. Every puddle therefore
+ * leaves dry basin wall above its own waterline for the churn to read on, and —
+ * because the fraction is shared — the ring radii the water mesh is built from
+ * can be solved once for the whole list however much the depths vary.
+ */
+const WATER_FILL = 0.625;
+
+/**
+ * How far past the water's edge the mud stays visibly damp. A distance, not a
+ * ratio: a 0.25 m rut with a margin scaled to its own size would have no margin
+ * at all, and the damp ring is what stops small water reading as a sticker.
+ */
+const WET_MARGIN = 0.5;
+
+function puddle(x: number, z: number, a: number, b: number, rot: number, depth: number): Puddle {
+  // 2.2 rim-radii out the Gaussian below is at 4e-4 — under a tenth of a
+  // millimetre of carve, and nothing the eye can find in the damp mask.
+  const reach = (Math.max(a, b) + WET_MARGIN) * 2.2;
+  return { x, z, a, b, rot, depth, cos: Math.cos(rot), sin: Math.sin(rot), reach2: reach * reach };
+}
+
+/** Where a gate track crosses radius `r`, wander included — see `pathMask`. */
+function trackAt(gate: number, r: number): { x: number; z: number; th: number } {
+  const th = gate + Math.sin(r * 0.26 + gate * 3.1) * 0.1;
+  return { x: Math.cos(th) * r, z: Math.sin(th) * r, th };
+}
+
+/**
+ * The pair of ruts a cart's wheels cut into a track. Derived from the track
+ * rather than written out as coordinates, so ruts stay in the wheel-line if the
+ * gates ever move; a rut beside its own path is worse than no rut.
+ */
+function ruts(gate: number, r: number, half: number, a: number, b: number, depth: number): Puddle[] {
+  const t = trackAt(gate, r);
+  const px = -Math.sin(t.th) * half;
+  const pz = Math.cos(t.th) * half;
+  // The far wheel a little shallower: a matched pair reads as a decal.
+  return [
+    puddle(t.x + px, t.z + pz, a, b, t.th, depth),
+    puddle(t.x - px, t.z - pz, a * 0.92, b, t.th, depth * 0.84),
+  ];
+}
+
+/** A pool against the foot of the palisade, lying along the ring rather than across it. */
+function dripLine(bearing: number, r: number, a: number, b: number, depth: number): Puddle {
+  return puddle(Math.cos(bearing) * r, Math.sin(bearing) * r, a, b, bearing + Math.PI / 2, depth);
+}
+
+const PUDDLES: readonly Puddle[] = [
+  // Cart ruts on the three tracks. Radii chosen so each pair lands in a frame
+  // that wants water — the main gate's beside the duel, the north-west track's
+  // behind the character shots' subject rather than under him, the south's
+  // where the last stand is fought — and so none of them lands under a boot.
+  ...ruts(GATE_ANGLES[0], 9.0, 0.66, 1.7, 0.25, 0.021),
+  ...ruts(GATE_ANGLES[1], 10.0, 0.65, 1.6, 0.24, 0.019),
+  ...ruts(GATE_ANGLES[2], 11.4, 0.68, 1.75, 0.27, 0.023),
+
+  // The drip line inside the stakes. Shallowest water in the arena and the
+  // thinnest, because nothing treads there to deepen it — it is the timber's
+  // own run-off, and it reads mostly as a dark line under the palisade.
+  dripLine(1.28, 19.25, 2.3, 0.4, 0.016),
+  dripLine(3.62, 19.3, 2.0, 0.36, 0.015),
+  dripLine(5.55, 19.2, 1.7, 0.33, 0.014),
+
+  // Churned ground. The deep one is in the standing ring where the crowd has
+  // been treading all evening; the small ones are inside the fighting circle,
+  // placed off every framed subject's feet but close enough to the brawl to be
+  // fought around.
+  puddle(9.35, -5.35, 1.2, 0.95, 0.85, 0.030),
+  puddle(-4.1, -2.2, 0.85, 0.6, 2.15, 0.024),
+  puddle(4.05, -1.6, 0.72, 0.55, -0.55, 0.021),
+  puddle(-2.6, 4.4, 0.85, 0.62, -0.9, 0.023),
+  puddle(-9.6, -9.4, 1.15, 0.9, 0.3, 0.027),
 ];
 
 // ---------------------------------------------------------------------------
@@ -235,6 +334,20 @@ function churnMask(x: number, z: number, r: number): number {
 }
 
 /**
+ * Distance from a puddle's centre in rim-radii: 1 on the rim, whatever the
+ * puddle's shape or orientation. `grow` widens both axes by a distance in
+ * metres, which is how the damp margin can be a constant width around water
+ * that runs from a 0.25 m rut to a 1.2 m hollow.
+ */
+function puddleDist(p: Puddle, x: number, z: number, grow: number): number {
+  const dx = x - p.x;
+  const dz = z - p.z;
+  const u = (dx * p.cos + dz * p.sin) / (p.a + grow);
+  const v = (dz * p.cos - dx * p.sin) / (p.b + grow);
+  return Math.sqrt(u * u + v * v);
+}
+
+/**
  * 0..1 proximity to standing water. The same falloff the basins are carved
  * with, so the dark wet ring, the surface of the puddle and the wet sheen in
  * the terrain shader are all reading one function and cannot drift apart.
@@ -242,8 +355,12 @@ function churnMask(x: number, z: number, r: number): number {
 function basinWet(x: number, z: number): number {
   let w = 0;
   for (const p of PUDDLES) {
-    const d = Math.hypot(x - p.x, z - p.z) / p.r;
-    w = Math.max(w, Math.exp(-d * d * 1.1));
+    const dx = x - p.x;
+    const dz = z - p.z;
+    if (dx * dx + dz * dz > p.reach2) continue;
+    const d = puddleDist(p, x, z, WET_MARGIN);
+    const n = Math.exp(-d * d * 1.1);
+    if (n > w) w = n;
   }
   return w;
 }
@@ -261,18 +378,23 @@ function groundHeight(x: number, z: number): number {
   // Interior: shallow swales, the tracks worn a little lower, puddle basins.
   let h = (fbm(x * 0.085 + 17.3, z * 0.085 - 5.1, 3) - 0.5) * 0.062;
   h -= pathMask(x, z, r) * 0.024;
-  // 48 mm, not 75. The invariant this whole field is built around is that the
-  // interior stays within ~5 cm of zero, because the server sim is 2-D and a
-  // warrior's boots are planted at y = 0 — and the basins were the single term
-  // most responsible for breaking it: worst |y| inside the palisade was 107 mm,
-  // and this takes it to 80 mm. The rest is the swale below, which is a
-  // separate call and a bigger one, since it is what carries the interior's
-  // relief. It matters here because `portrait` and `stance` stand their subject
-  // 1.1 m from the centre of the largest basin in the arena, so whatever the
-  // gap between the boot plane and the waterline is, that shot is showing it.
+  // The invariant this whole field is built around is that the interior stays
+  // within ~5 cm of zero, because the server sim is 2-D and a warrior's boots
+  // are planted at y = 0 — and the basins were the single term most responsible
+  // for breaking it: worst |y| inside the palisade was 107 mm before they were
+  // cut back. The deepest basin here is 30 mm of water over WATER_FILL = 48 mm,
+  // unchanged, and most of them are two thirds of that. The rest of the budget
+  // is the swale above, which is what carries the interior's relief.
+  //
+  // No puddle now sits under a framed subject's feet, so the old worry — the
+  // gap between the boot plane and a waterline 1.1 m from the shot's subject —
+  // is placement's problem rather than depth's, and it is solved in PUDDLES.
   for (const p of PUDDLES) {
-    const d = Math.hypot(x - p.x, z - p.z) / p.r;
-    h -= 0.048 * Math.exp(-d * d * 1.6);
+    const dx = x - p.x;
+    const dz = z - p.z;
+    if (dx * dx + dz * dz > p.reach2) continue;
+    const d = puddleDist(p, x, z, 0);
+    h -= (p.depth / WATER_FILL) * Math.exp(-d * d * 1.6);
   }
 
   // Relief is masked off inside the ring and ramps in fast just outside it, so
@@ -1019,7 +1141,13 @@ export function createWorld(
       // has been standing on all evening is damp without being flooded, and a
       // damp surface holds a broad sheen rather than a reflection. Weighted
       // well under the basins so the two never read as the same substance.
-      wet[i] = clamp01(Math.max(basinWet(x, z), churnMask(x, z, Math.hypot(x, z)) * 0.5));
+      //
+      // 0.4 on the churn, not 0.5. With the puddles cut back to the hollows
+      // they belong in, this term is now what decides whether the *open* arena
+      // reads as wet, and at 0.5 the whole trampled floor came back as a sheet
+      // of wet cobbles in every wide shot — which is the same "the moot is
+      // flooded" read the puddles were giving, arriving by the other route.
+      wet[i] = clamp01(Math.max(basinWet(x, z), churnMask(x, z, Math.hypot(x, z)) * 0.4));
     };
 
     write(0, 0, 0, groundHeight(0, 0));
@@ -1209,14 +1337,21 @@ export function createWorld(
   //     depth — so the shore is where the basin rises out of the water, the
   //     outermost ring finishes under the mud, and the 21-gon of straight
   //     chords that used to end the disc at full opacity is gone.
+  //
+  // What changed since that fix is only *how much* of it there is. The material
+  // below is the one that made a puddle read as water and is left alone; the
+  // list it is built over has been cut to a third of its wetted area and moved
+  // into ruts, hollows and the palisade's drip line. Reading as water was never
+  // the same problem as covering half the arena with it.
   {
-    // 30 mm of water in a basin groundHeight carves 48 mm deep, which leaves
-    // 18 mm of basin wall dry above the waterline for the churn to read on.
-    // The waterline itself lands 21–51 mm under the boot plane depending on the
+    // Each puddle carries its own depth, and its basin is that depth over
+    // WATER_FILL — so every sheet leaves the same *fraction* of basin wall dry
+    // above its waterline, and the ring radii below solve once for all of them.
+    // The waterline still lands 15–50 mm under the boot plane depending on the
     // swale beneath the basin; that gap is the sim's y = 0 against this file's
-    // relief and it is not something the water can close from here.
-    const DEPTH = 0.030;
-    const SEG = 44;
+    // relief and it is not something the water can close from here. It stopped
+    // mattering when the puddles moved out from under the framed subjects.
+    const DEEPEST = 0.030;
 
     const water = new THREE.MeshPhysicalMaterial({
       // Wet silt, not void. Whatever survives the opacity is what the eye reads
@@ -1289,33 +1424,33 @@ export function createWorld(
     const C_SHALLOW = new THREE.Color().setRGB(1.7, 1.5, 1.26);
     const C_DEEP = new THREE.Color().setRGB(0.86, 0.84, 0.88);
 
-    // Rings are placed by *depth*, as a fraction of DEPTH, not by a fraction of
-    // some radius. The alpha ramp is a function of depth, so vertices spent
-    // anywhere else sit where nothing is changing and starve the band where
-    // everything is. The last one is negative on purpose: that ring finishes
-    // under the mud, and it is what guarantees the polygon's straight chords
-    // never reach a frame.
+    // Rings are placed by *depth*, as a fraction of the puddle's own depth, not
+    // by a fraction of some radius. The alpha ramp is a function of depth, so
+    // vertices spent anywhere else sit where nothing is changing and starve the
+    // band where everything is. The last one is negative on purpose: that ring
+    // finishes under the mud, and it is what guarantees the polygon's straight
+    // chords never reach a frame.
     const RING_DEPTH = [0.78, 0.56, 0.34, 0.14, -0.2];
 
-    // The radius each of those lands at, solved off the basin's own Gaussian:
-    // depth(d) = DEPTH − BASIN·( 1 − exp( −1.6·d² ) ), d in puddle radii.
+    // The rim-radius each of those lands at, solved off the basin's own
+    // Gaussian: depth(d) = D − D/WATER_FILL·( 1 − exp( −1.6·d² ) ). The depth
+    // cancels, which is the point of holding WATER_FILL constant across the
+    // list — one solve serves a 14 mm drip line and a 30 mm hollow alike.
     //
     // Off the *basin*, deliberately, and not off the height field. Walking the
     // real terrain out to where it crosses the waterline looks like the more
     // honest version and is not: the interior swale runs ±3 cm at a 12 m
     // wavelength, so wherever it happens to dip beside a puddle the shoreline
     // walks away — measured at 5.3 m on a basin 2.8 m across, which is not a
-    // puddle but a lake, and 88 m² of transparent fill to shade at near-zero
-    // alpha where 27 was wanted. The basin is what makes the puddle; the swale
-    // is the ground the puddle sits in. BASIN has to track groundHeight.
-    const BASIN = 0.048;
+    // puddle but a lake. The basin is what makes the puddle; the swale is the
+    // ground the puddle sits in. WATER_FILL has to track groundHeight.
     const RING_R = RING_DEPTH.map(
-      (t) => Math.sqrt(-Math.log(Math.max(1e-4, 1 - ((1 - t) * DEPTH) / BASIN)) / 1.6),
+      (t) => Math.sqrt(-Math.log(Math.max(1e-4, 1 - (1 - t) * WATER_FILL)) / 1.6),
     );
 
-    // All six sheets are authored directly in world space and share one
+    // Every sheet is authored directly in world space and they share one
     // material, so they are one geometry and one draw — and, being transparent,
-    // one entry for the renderer to sort rather than six.
+    // one entry for the renderer to sort rather than fourteen.
     const pos: number[] = [];
     const nrm: number[] = [];
     const col: number[] = [];
@@ -1324,52 +1459,92 @@ export function createWorld(
 
     for (const p of PUDDLES) {
       const base = pos.length / 3;
-      const wl = groundHeight(p.x, p.z) + DEPTH;
+      const wl = groundHeight(p.x, p.z) + p.depth;
+      // Shallow water is lighter and thinner than deep water over the same
+      // silt, so the drip line does not come back as black as the hollows.
+      const body = p.depth / DEEPEST;
+
+      // Vertices go round by arc length, and how many of them there are comes
+      // off the perimeter rather than a constant. Both matter once the sheets
+      // are ellipses. A constant 44 spent three times the vertices per metre of
+      // shoreline on a 0.25 m rut that the rut could ever show; and stepping
+      // the parametric angle on a 7:1 ellipse puts a 0.25 m chord at each tip
+      // and a 0.5 m one along the flanks, which are the only part of a rut
+      // anyone sees. (Stepping the *ray* angle, which looks like the fix, is
+      // worse — it drops a single one-metre chord across the tip.)
+      const FINE = 256;
+      const cum = new Float64Array(FINE + 1);
+      for (let k = 1; k <= FINE; k++) {
+        const f0 = ((k - 1) / FINE) * TAU;
+        const f1 = (k / FINE) * TAU;
+        cum[k] = cum[k - 1] + Math.hypot(
+          p.a * (Math.cos(f1) - Math.cos(f0)),
+          p.b * (Math.sin(f1) - Math.sin(f0)),
+        );
+      }
+      const perim = cum[FINE];
+      const seg = Math.max(16, Math.min(44, Math.round(perim / 0.34)));
+      const phis: number[] = [];
+      for (let j = 0, k = 0; j < seg; j++) {
+        const want = (j / seg) * perim;
+        while (k < FINE - 1 && cum[k + 1] < want) k++;
+        const span = cum[k + 1] - cum[k];
+        phis.push(((k + (span > 1e-9 ? (want - cum[k]) / span : 0)) / FINE) * TAU);
+      }
 
       // Alpha and colour come off the ring's own design depth, and the terrain
       // is allowed only to *cut*. Reading depth off the height field instead
-      // sounds more principled and measures worse: the swale is ±30 mm and DEPTH
-      // is 30 mm, so on the low side of a puddle the field says "deep" right out
-      // to the last ring and the fade collapses into a single annulus — 0.95 to
-      // 0 across 60 cm, which reads as a vignette, not a shore. The ring ramp is
-      // the shape of the water; the cut is where the ground comes back through
-      // it, which is an island and is the only thing the terrain knows here that
-      // the basin does not. `ringFade` zeroes the buried ring outright.
+      // sounds more principled and measures worse: the swale is ±30 mm and the
+      // deepest water here is 30 mm, so on the low side of a puddle the field
+      // says "deep" right out to the last ring and the fade collapses into a
+      // single annulus — 0.95 to 0 across 60 cm, which reads as a vignette, not
+      // a shore. The ring ramp is the shape of the water; the cut is where the
+      // ground comes back through it, which the basin cannot know. On a long
+      // rut the cut now does real work as well as guard duty: the swale tilts a
+      // 3.4 m wheel line by most of a centimetre, so it holds water at the low
+      // end and dries out at the high one. `ringFade` zeroes the buried ring.
       const push = (x: number, z: number, t: number, ringFade: number) => {
-        const over = (wl - groundHeight(x, z)) / DEPTH;
+        const over = (wl - groundHeight(x, z)) / p.depth;
         // Full strength wherever there is any water at all, off only once the
         // ground has actually come back through the surface. Centring this band
         // on zero instead would dim the deep middle of a puddle that happens to
         // sit on a slope, which is not what "the ground is above the water"
-        // means — and the largest basin in the arena does sit on one.
+        // means — and half of these lie on the interior swale.
         const cut = smoothstep(-0.25, 0.08, over);
-        c.copy(C_SHALLOW).lerp(C_DEEP, smoothstep(0.2, 0.95, clamp01(t)));
+        c.copy(C_SHALLOW).lerp(C_DEEP, smoothstep(0.2, 0.95, clamp01(t)) * body);
         pos.push(x, wl, z);
         nrm.push(0, 1, 0);
-        col.push(c.r, c.g, c.b, Math.min(smoothstep(0, 0.62, clamp01(t)) * cut, ringFade));
+        col.push(c.r, c.g, c.b, Math.min(smoothstep(0, 0.62, clamp01(t)) * cut * (0.74 + 0.26 * body), ringFade));
       };
 
       push(p.x, p.z, 1, 1);
       for (let i = 0; i < RING_DEPTH.length; i++) {
-        for (let j = 0; j < SEG; j++) {
-          const a = (j / SEG) * TAU;
-          const ax = Math.cos(a);
-          const az = Math.sin(a);
+        for (let j = 0; j < seg; j++) {
+          const f = phis[j];
+          const ax = Math.cos(f);
+          const az = Math.sin(f);
           // One wobble per ray, shared by every ring on it. That is what keeps
-          // the outline off a circle without letting a ring cross the one
+          // the outline off an ellipse without letting a ring cross the one
           // outside it — the whole fan is scaled by the same factor, so the
           // ordering the ring radii were solved for survives.
           const wob = 0.86 + noise2(ax * 2.4 + p.x, az * 2.4 + p.z) * 0.28;
-          const r = RING_R[i] * p.r * wob;
-          push(p.x + ax * r, p.z + az * r, RING_DEPTH[i], i === RING_DEPTH.length - 1 ? 0 : 1);
+          const s = RING_R[i] * wob;
+          const lx = p.a * ax * s;
+          const lz = p.b * az * s;
+          push(
+            p.x + lx * p.cos - lz * p.sin,
+            p.z + lx * p.sin + lz * p.cos,
+            RING_DEPTH[i],
+            i === RING_DEPTH.length - 1 ? 0 : 1,
+          );
         }
       }
-      for (let j = 0; j < SEG; j++) idx.push(base, base + 1 + ((j + 1) % SEG), base + 1 + j);
+      for (let j = 0; j < seg; j++) idx.push(base, base + 1 + ((j + 1) % seg), base + 1 + j);
       for (let i = 1; i < RING_DEPTH.length; i++) {
-        const a0 = base + 1 + (i - 1) * SEG;
-        const b0 = base + 1 + i * SEG;
-        for (let j = 0; j < SEG; j++) {
-          const jn = (j + 1) % SEG;
+        const a0 = base + 1 + (i - 1) * seg;
+        const b0 = base + 1 + i * seg;
+        for (let j = 0; j < seg; j++) {
+          const jn = (j + 1) % seg;
           idx.push(a0 + j, a0 + jn, b0 + j, a0 + jn, b0 + jn, b0 + j);
         }
       }
@@ -2552,7 +2727,54 @@ export function createWorld(
       const g = new THREE.CylinderGeometry(0.085, 0.085, 1.5 + rng() * 0.5, 6);
       g.rotateZ(Math.PI / 2 + (rng() - 0.5) * 0.3);
       g.rotateY(a);
-      g.translate(Math.cos(a) * 0.28, 0.1 + (i % 2) * 0.16, Math.sin(a) * 0.28);
+      // Bedded, not balanced on the turf: the bottom course used to leave 15 mm
+      // of daylight under it all the way round, which is the tell that separates
+      // a prop from a thing standing on ground.
+      g.translate(Math.cos(a) * 0.28, 0.055 + (i % 2) * 0.16, Math.sin(a) * 0.28);
+      logs.push(g);
+    }
+
+    // The core, and it is the fix for the panel's "warriors' legs pass straight
+    // through the fire". Nobody's legs are actually inside it — the brawl ring
+    // is 4.2 m out and the widest thing here reaches 2.0 — but the fire was
+    // *hollow*, and that is the same defect through the camera. Seven poles on a
+    // 0.72 m ring all lean outward, so between about 0.35 m and 1.1 m the middle
+    // of the fire was empty and the far side of the arena showed through it. In
+    // `brawl` the follow camera puts a warrior at (0, −4.2) on its own axis
+    // through the fire, and his shins arrive at that gap: from 8.9 m at 2.05 m
+    // eye height his feet cross the fire's plane at 0.66 m and his knees at
+    // 1.00 m, dead centre of the hole.
+    //
+    // A laid fire is not hollow at the bottom, it is packed, so the fix and the
+    // art direction are the same change. An inner bundle stood nearly upright
+    // fills the axis, six brands leaned against the tripod close the ring, and
+    // two cross-pieces lie over the criss-cross at knee height.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU + 0.45;
+      const len = 1.12 + (i % 2) * 0.14;
+      const g = new THREE.CylinderGeometry(0.055, 0.07, len, 5);
+      g.translate(0, len / 2, 0);
+      g.rotateX(0.13 + (i % 2) * 0.05);
+      g.rotateY(a);
+      g.translate(Math.cos(a) * 0.16, -0.02, Math.sin(a) * 0.16);
+      logs.push(g);
+    }
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + 1.05;
+      const len = 1.0 + (i % 3) * 0.11;
+      const g = new THREE.CylinderGeometry(0.06, 0.078, len, 5);
+      g.translate(0, len / 2, 0);
+      g.rotateX(0.3 + (i % 3) * 0.06);
+      g.rotateY(a);
+      g.translate(Math.cos(a) * 0.34, -0.02, Math.sin(a) * 0.34);
+      logs.push(g);
+    }
+    for (let i = 0; i < 2; i++) {
+      const a = 0.55 + i * 1.85;
+      const g = new THREE.CylinderGeometry(0.07, 0.07, 1.2, 5);
+      g.rotateZ(Math.PI / 2 + (i ? 0.11 : -0.09));
+      g.rotateY(a);
+      g.translate(Math.cos(a) * 0.09, 0.44 + i * 0.19, Math.sin(a) * 0.09);
       logs.push(g);
     }
     const logMesh = new THREE.Mesh(own(mergeInto(logs)), logMat);
@@ -2597,7 +2819,6 @@ export function createWorld(
       }
       field(rockGeos[1], rockMat, ring);
 
-      const pile: THREE.Matrix4[] = [];
       // Out past CLEAR_RADIUS, and mirrored across the fire onto the far side.
       // At (-3.4, 2.6) it sat 0.6 m from a brawl spawn and the warrior standing
       // there had both shins through it; the obvious fix — the same bearing,
@@ -2607,13 +2828,65 @@ export function createWorld(
       const px = -5.4;
       const pz = -4.1;
       const py = groundHeight(px, pz);
+      // The billets lie along AX; the courses stack *across* it. That is the
+      // second half of what made this read as loose logs dropped on the turf in
+      // `arena`: the rows were stepped along world x, which on this bearing is
+      // 92% of the billets' own length, so each course slid down its neighbour
+      // instead of sitting beside it and the stack had no coursing to read.
+      const AX = 0.4;
+      const ux = Math.cos(AX);
+      const uz = -Math.sin(AX);
+      const wx = -uz;
+      const wz = ux;
+      const pile: THREE.Matrix4[] = [];
       for (let row = 0; row < 3; row++) {
-        for (let i = 0; i < 4 - row; i++) {
-          pile.push(place(px + (i - (3 - row) / 2) * 0.24, py + 0.11 + row * 0.2, pz, 0.4, 1, 0, Math.PI / 2));
+        const n = 4 - row;
+        for (let i = 0; i < n; i++) {
+          const off = (i - (n - 1) / 2) * 0.225;
+          // Sunk 45 mm into the mud rather than floating 10 mm above it, and
+          // shuffled a little along its own length — a rick that has been drawn
+          // from all evening does not stay flush at the ends.
+          const slide = (rng() - 0.5) * 0.16;
+          pile.push(place(
+            px + wx * off + ux * slide, py + 0.055 + row * 0.195, pz + wz * off + uz * slide,
+            AX + (rng() - 0.5) * 0.05, 1, 0, Math.PI / 2,
+          ));
         }
       }
       const billet = new THREE.CylinderGeometry(0.1, 0.11, 1.5, 6);
       field(own(billet), logMat, pile);
+
+      // Crib stakes driven at both ends, which is what holds a rick up and what
+      // makes it read as something someone built rather than geometry parked on
+      // the grass. They also give the stack a contact shadow that is not just
+      // its own underside.
+      const stakes: THREE.Matrix4[] = [];
+      for (let e = 0; e < 2; e++) {
+        const sx = px + ux * (e ? 0.84 : -0.84);
+        const sz = pz + uz * (e ? 0.84 : -0.84);
+        for (let s = 0; s < 2; s++) {
+          const o = s ? 0.42 : -0.42;
+          // Leaned outward across the courses, because that is the direction the
+          // stack pushes them. Yaw is fixed rather than random for the same
+          // reason: a crib stake that leans in a random direction is not doing
+          // the job the crib stake is there to explain.
+          stakes.push(place(
+            sx + wx * o, groundHeight(sx + wx * o, sz + wz * o) - 0.22, sz + wz * o,
+            AX + Math.PI / 2, 1, 0, (0.1 + rng() * 0.07) * (s ? 1 : -1),
+          ));
+        }
+      }
+      field(own(new THREE.CylinderGeometry(0.045, 0.055, 0.98, 5).translate(0, 0.49, 0)), logMat, stakes);
+
+      // Two billets rolled off the end and lying where they fell. The stack is
+      // tidy; the ground around a woodpile never is.
+      const spill: THREE.Matrix4[] = [];
+      for (let i = 0; i < 2; i++) {
+        const dx = px + ux * (1.15 + i * 0.36) + wx * (i ? 0.34 : -0.28);
+        const dz = pz + uz * (1.15 + i * 0.36) + wz * (i ? 0.34 : -0.28);
+        spill.push(place(dx, groundHeight(dx, dz) + 0.085, dz, AX + (i ? 0.9 : -1.3), 1, 0, Math.PI / 2));
+      }
+      field(own(new THREE.CylinderGeometry(0.088, 0.095, 1.05, 6)), logMat, spill);
     }
 
     root.add(bonfire);

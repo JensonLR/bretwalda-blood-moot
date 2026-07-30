@@ -13,6 +13,16 @@
 // colour is therefore divided by its map's mean, so the two multiply back out
 // to the number written here. Change a catalog colour and you change what that
 // surface reads as; change nothing and the arena grades the same as it did.
+//
+// The same argument applies to the two scalars a map modulates, and it was not
+// being made. `roughness` and `metalness` are reconciled against what the map
+// *actually* carries — measured off the packed channel — rather than against
+// the number the recipe declares it was authored at. Those two parted company
+// when textures.ts started baking specular anti-aliasing into the roughness
+// channel: steel's recipe still says 0.18 and its map now means 0.316. See
+// `channelMean`; the divergence is why the metals went matte.
+//
+// And density is in metres, not in UV. See `WORLD_TILE`.
 
 import * as THREE from "three";
 import type { QualitySettings } from "./quality";
@@ -88,7 +98,11 @@ export interface MaterialLibrary {
 export interface TintOptions {
   roughness?: number;
   metalness?: number;
-  /** UV repeats. Defaults to whatever the substance was drawn for. */
+  /**
+   * UV repeats. Defaults to whatever the substance was drawn for, and is
+   * *ignored* for the substances in `WORLD_TILE` — those size themselves in
+   * metres and a UV repeat has nothing left to say about them.
+   */
   repeat?: number;
 }
 
@@ -100,7 +114,11 @@ interface Spec {
   roughness: number;
   metalness: number;
   surface?: SurfaceName;
-  /** UV repeats on this mesh. Cylinders and boxes want very different numbers. */
+  /**
+   * UV repeats on this mesh. Cylinders and boxes want very different numbers —
+   * which is the tell that this is the wrong unit, and why the substances in
+   * `WORLD_TILE` ignore it and size themselves in metres instead.
+   */
   repeat?: [number, number];
   emissive?: number;
   emissiveIntensity?: number;
@@ -162,6 +180,141 @@ const CATALOG: Record<MaterialName, Spec> = {
   bloodDecal:      { color: 0x4a0a08, roughness: 0.35, metalness: 0, surface: "blood", repeat: [1, 1], decal: true },
 };
 
+// ---------------------------------------------------------------------------
+// Texel density in metres
+// ---------------------------------------------------------------------------
+
+/**
+ * How much of the world one tile of a substance covers, in metres.
+ *
+ * A UV repeat is not a density. Every geometry this file dresses parameterises
+ * u and v over 0..1 whatever it is the size of — characters.ts's shells run u
+ * once round the girth, three's BoxGeometry gives each face its own 0..1 — so a
+ * fixed repeat means texel size scales with *1/size* and no two surfaces on a
+ * warrior agree. Measured off `art/shots/v6/stance.png`: the berserker's hide
+ * jerkin (`hide`, repeat 4, girth ~1.1 m) put leather's crease net at 70-140 mm
+ * a cell, which is not leather, it is wickerwork; the same material on his
+ * bracer landed at 20 mm and read as crocodile; mail rings came out at 45 mm
+ * against a life size of 10 and read as knitting. That is the ~4x scatter, and
+ * an absolute error of 4-10x underneath it.
+ *
+ * So the numbers below are physical. Each is (cells the recipe draws per tile) x
+ * (what one cell is in life), and the recipe's cell counts are in textures.ts:
+ *
+ *   mail     10 x 14 rings          -> 11 mm ring, 7.9 mm row pitch
+ *   steel    13 chevrons, 260 lanes -> 23 mm pattern-weld figure, 1.2 mm hone
+ *   iron     42 planish, 176 pits   -> 13 mm hammer facet, 3.1 mm pit
+ *   bronze   44 pits, 5 cast blooms -> 3.6 mm pit, 32 mm bloom
+ *   leather  44 follicles, 4x6 net  -> 1.6 mm grain, 17/12 mm crease
+ *   skin     176 pores, 8/16 net    -> 0.4 mm pore, 8.8/4.4 mm wrinkle net
+ *   bone     176 pores, 3 cracks    -> 0.5 mm porosity, 30 mm crack
+ *
+ * Cloth is deliberately absent. characters.ts already sizes wool from the
+ * garment's girth (`clothRepeat`), which is the same correction arrived at from
+ * the other end; taking wool world-space here would apply it twice. Same for the
+ * arena's timber, thatch, granite and turf, whose repeats world.ts authored
+ * per-mesh against geometry it can see and this file cannot.
+ *
+ * Legibility, not literalism, decides where a number sits inside its bracket.
+ * The portrait framing runs about 354 px/m, so 11 mm of mail is 3.9 px — a ring
+ * that reads as a ring. The arena framing runs 76 px/m, which puts the same ring
+ * at 0.84 px: under Nyquist, where it belongs to the mip chain rather than to
+ * the frame, and mips are exactly what textures.ts's band-limiting and baked
+ * specular AA made safe to land on.
+ */
+const WORLD_TILE: Partial<Record<SurfaceName, number>> = {
+  mail: 0.11,
+  steel: 0.3,
+  iron: 0.55,
+  bronze: 0.16,
+  leather: 0.07,
+  skin: 0.06,
+  bone: 0.09,
+};
+
+/**
+ * Projects a substance from object space instead of from the mesh's UVs.
+ *
+ * three offers one lever on density, `Texture.repeat`, and it is per texture and
+ * therefore shared by every mesh wearing the material — which is the whole point
+ * of this file and also why the density cannot be fixed on the CPU. The lever
+ * that does exist is the fragment shader: derive the UV from the vertex's own
+ * object-space position, in metres, and texel size stops depending on how the
+ * mesh was parameterised at all.
+ *
+ * Object space, not world space. A world-space projection on a warrior who walks
+ * is a warrior whose mail swims over him. Every part here is rigid under
+ * animation — anim.ts moves nodes, nothing is skinned — so the geometry's own
+ * frame is body-fixed and the substance stays put.
+ *
+ * One tap, dominant axis, no triplanar blend. Three taps a map is not what the
+ * phone tier has spare, and the seam a hard select leaves is smaller than it
+ * sounds: the two projections either side of a switch differ only in the sign of
+ * u, so half the meridians are continuous outright and the other half shift the
+ * pattern by rather less than one tile with no change of scale or direction.
+ * Where it would show most — a chest, a shield face, a helm crown, any plane
+ * facing the camera — one projection owns the whole surface and there is no
+ * switch in frame at all.
+ *
+ * Implemented by shadowing three's UV varyings with locals at the top of
+ * `main()` rather than by rewriting `map_fragment` and its four siblings. Same
+ * result, five lines instead of a hundred and fifty, and nothing here breaks the
+ * next time three edits a chunk body. It also gets normal mapping right for
+ * free: `normal_fragment_begin` builds its tangent frame from screen-space
+ * derivatives of `vNormalMapUv`, so a shadowed UV re-derives a matching frame.
+ */
+function projectFromObjectSpace(m: THREE.MeshStandardMaterial, tileMetres: number): void {
+  const perMetre = 1 / tileMetres;
+  const body = `
+	vec3 bwN = abs( vSubstanceNrm );
+	vec2 bwUv = bwN.x > max( bwN.y, bwN.z ) ? vSubstancePos.zy
+	          : bwN.y > bwN.z               ? vSubstancePos.xz
+	                                        : vSubstancePos.xy;
+	bwUv *= ${perMetre.toFixed(4)};
+	#ifdef USE_MAP
+		vec2 vMapUv = bwUv;
+	#endif
+	#ifdef USE_NORMALMAP
+		vec2 vNormalMapUv = bwUv;
+	#endif
+	#ifdef USE_ROUGHNESSMAP
+		vec2 vRoughnessMapUv = bwUv;
+	#endif
+	#ifdef USE_METALNESSMAP
+		vec2 vMetalnessMapUv = bwUv;
+	#endif
+	#ifdef USE_AOMAP
+		vec2 vAoMapUv = bwUv;
+	#endif
+`;
+
+  m.onBeforeCompile = (shader) => {
+    // `transformed` and `objectNormal` rather than the raw attributes, so a
+    // morph or a skin — neither of which this game uses yet — would not silently
+    // detach the substance from the surface it is on.
+    const vert = `varying vec3 vSubstancePos;\nvarying vec3 vSubstanceNrm;\n${shader.vertexShader}`
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\n\tvSubstancePos = transformed;\n\tvSubstanceNrm = objectNormal;",
+      );
+    const frag = `varying vec3 vSubstancePos;\nvarying vec3 vSubstanceNrm;\n${shader.fragmentShader}`
+      .replace("void main() {", `void main() {\n${body}`);
+    // Both or neither. A fragment shader projecting off a varying the vertex
+    // shader never wrote is not a degraded surface, it is a black one, and the
+    // failure mode of leaving the UV path alone is a surface at the wrong
+    // density — which is where this started and is survivable.
+    if (vert === shader.vertexShader || frag === shader.fragmentShader) return;
+    shader.vertexShader = vert;
+    shader.fragmentShader = frag;
+  };
+  // three keys the program cache on `onBeforeCompile.toString()`, which is the
+  // same string for every density because the density lives in the closure. Two
+  // substances at different scales would share one compiled program and one of
+  // them would silently wear the other's.
+  const key = `substance-object-uv:${perMetre.toFixed(4)}`;
+  m.customProgramCacheKey = () => key;
+}
+
 /**
  * The armoury sells finishes, and a finish is a different metal, not a coat of
  * paint. Anything not listed is a tinted mail hauberk.
@@ -177,6 +330,61 @@ const FINISH_SUBSTRATE: Record<number, SurfaceName> = {
  * the colour that was asked for. Without this, texturing a material silently
  * darkens it by the albedo's own brightness and the whole palette drifts.
  */
+/**
+ * The mean of one channel of a packed map, measured rather than declared.
+ *
+ * `SurfaceInfo.roughness` and `.metalness` are the recipe's *authored* scalars,
+ * and this file used to divide by them on the assumption that they described the
+ * map. They did once. textures.ts now bakes specular anti-aliasing into the
+ * roughness channel on the way out, and that pass is asymmetric by design — it
+ * barely touches a rough substance and it swamps a smooth one — so exactly the
+ * surfaces whose read depends on roughness are the ones whose declared number
+ * stopped being true. Measured across the library: thatch 0.98 -> 0.974, oak
+ * 0.88 -> 0.856, mail 0.45 -> 0.408, and steel 0.18 -> 0.316, which is 76% out.
+ *
+ * A tenth of the texels, on a stride that is coprime with the row length so the
+ * walk does not sample one column of a lattice pattern forever. Under 0.1 ms on
+ * a 512² map, once per substance, against a texture generation budget of 250.
+ */
+const channelStats = new Map<string, { rough: number; metal: number }>();
+
+/**
+ * How far a scalar may be pushed to land the product on the number asked for.
+ * The ceiling exists so a substance whose channel is nearly black cannot turn a
+ * modest request into a runaway multiplier; four covers every reconciliation the
+ * library actually needs, the widest being steel at 1.33.
+ */
+const clampScalar = (v: number): number => Math.min(4, Math.max(0, v));
+
+/**
+ * Effective metalness per material — see `adopt`. A WeakMap because a disposed
+ * material should not be kept alive by its own bookkeeping.
+ */
+const metalFraction = new WeakMap<THREE.Material, number>();
+
+function packedMeans(key: string, tex: THREE.Texture | undefined): { rough: number; metal: number } | null {
+  if (!tex) return null;
+  const cached = channelStats.get(key);
+  if (cached) return cached;
+  const image = (tex as { image?: { data?: unknown } }).image;
+  const data = image?.data;
+  if (!(data instanceof Uint8Array) && !(data instanceof Uint8ClampedArray)) return null;
+  const texels = data.length >> 2;
+  if (texels === 0) return null;
+  const stride = Math.max(1, Math.floor(texels / 26_000) * 2 + 1);
+  let rough = 0;
+  let metal = 0;
+  let n = 0;
+  for (let i = 0; i < texels; i += stride) {
+    rough += data[i * 4 + 1];
+    metal += data[i * 4 + 2];
+    n++;
+  }
+  const stats = { rough: rough / (n * 255), metal: metal / (n * 255) };
+  channelStats.set(key, stats);
+  return stats;
+}
+
 function compensate(hex: number, mean: readonly [number, number, number]): THREE.Color {
   // The floor has to sit below the darkest channel any map actually has —
   // blackened iron and blood are down at 0.003 linear, and a floor above that
@@ -220,7 +428,13 @@ export function createMaterialLibrary(
     metalness: number,
   ): void {
     const info: SurfaceInfo = textures.info(surface);
-    const maps: TextureSet = textures.tiled(surface, repeat[0], repeat[1]);
+    const tile = WORLD_TILE[surface];
+    // A world-sized substance takes the untiled instance: its UVs come out of
+    // the shader, so a repeat clone would be a second texture object carrying a
+    // transform nothing downstream ever reads.
+    const maps: TextureSet = tile === undefined
+      ? textures.tiled(surface, repeat[0], repeat[1])
+      : textures.surface(surface);
 
     // Assigned rather than passed to the constructor, because three warns
     // loudly about parameters that are present but undefined.
@@ -241,18 +455,30 @@ export function createMaterialLibrary(
     m.color.copy(compensate(color, info.mean));
 
     // three multiplies the scalar by the map channel, so with an ORM attached
-    // the scalar becomes a bias against what the substance was authored at —
-    // that is how `palisade` stays a touch rougher than `poleWood`.
-    if (maps.roughnessMap) {
-      m.roughness = Math.min(2, roughness / Math.max(0.05, info.roughness));
+    // the scalar has to be whatever lands the *average* on the number asked for
+    // — that is how `palisade` stays a touch rougher than `poleWood`. Against
+    // the map's measured mean, not the recipe's declared one: dividing by a
+    // stale 0.18 asked steel for a scalar of 2.33, the old clamp cut that to 2,
+    // and 2 x a channel that really means 0.316 rendered a 0.42 blade at 0.63.
+    // Every `blade()` request above 0.36 collapsed onto that same clamp, so the
+    // shield boss, the helm crown and the sword all came out one matte grey.
+    const packed = packedMeans(maps.roughnessMap?.name || surface, maps.roughnessMap);
+    if (packed) {
+      m.roughness = clampScalar(roughness / Math.max(0.02, packed.rough));
     } else {
       m.roughness = roughness;
     }
-    if (m.metalnessMap) {
-      m.metalness = Math.min(2, metalness / info.metalness);
+    if (m.metalnessMap && packed) {
+      m.metalness = clampScalar(metalness / Math.max(0.02, packed.metal));
     } else {
       m.metalness = metalness;
     }
+    // What the surface will actually shade as, which is what decides how much
+    // environment it is owed. Kept because `metalness` is now a bias and no
+    // longer readable as a fraction.
+    metalFraction.set(m, Math.min(1, m.metalness * (m.metalnessMap && packed ? packed.metal : 1)));
+
+    if (tile !== undefined) projectFromObjectSpace(m, tile);
 
     if (info.cutout) {
       m.transparent = true;
@@ -283,10 +509,33 @@ export function createMaterialLibrary(
     return m;
   }
 
+  /**
+   * Hands a material the sky's PMREM, and decides how much of it that material
+   * is owed.
+   *
+   * sky.ts grades the environment to 0.42, and its reasoning is about *diffuse*
+   * image-based light: a PMREM is a convolution of the whole sphere, half of
+   * which is turf a standing surface cannot see, so at full strength it is the
+   * largest indirect term in the frame and it is one colour. That argument does
+   * not reach a metal. A metal has no diffuse term at all — the environment is
+   * the entire ambient contribution it gets — and lighting.ts's ambient and
+   * hemisphere, which carry the sky-light the 0.42 hands back to everything
+   * else, are diffuse-only and pay a metal nothing. So a dielectric keeps the
+   * sky's number and a metal is brought back to 1, which is neutral rather than
+   * a boost: the helm crown and the shield boss return the ember horizon at its
+   * real radiance, and that horizon sits at four linear units against a bloom
+   * threshold of five, so they read as steel without smearing.
+   */
   function adopt(m: THREE.Material): THREE.Material {
-    if (env && m instanceof THREE.MeshStandardMaterial) {
+    if (m instanceof THREE.MeshStandardMaterial) {
+      // Assigned even when null: sky.ts nulls the environment on dispose, and a
+      // material still pointing at a released render target is a use-after-free
+      // waiting for the next mood change to rebake.
       m.envMap = env;
-      m.envMapIntensity = envIntensity;
+      const metal = metalFraction.get(m) ?? Math.min(1, m.metalness);
+      // Only ever a lift toward neutral, never a cut: if the sky ever asks for
+      // more than 1 that is a deliberate over-drive and metals keep it too.
+      m.envMapIntensity = envIntensity < 1 ? envIntensity + (1 - envIntensity) * metal : envIntensity;
       m.needsUpdate = true;
     }
     return m;
@@ -294,7 +543,13 @@ export function createMaterialLibrary(
 
   function tint(surface: SurfaceName, color: number, opts: TintOptions = {}): THREE.MeshStandardMaterial {
     const info = textures.info(surface);
-    const repeat = opts.repeat ?? info.repeat;
+    // A world-sized substance has one density, so a caller's repeat is dropped
+    // out of the key as well as out of the dressing — otherwise `flesh()` and
+    // characters.ts's own `tinted("skin", …, { repeat: 2 })` mint two identical
+    // materials, and eight warriors stop sharing a program over a number
+    // neither of them can act on any more.
+    const worldSized = WORLD_TILE[surface] !== undefined;
+    const repeat = worldSized ? 1 : opts.repeat ?? info.repeat;
     const roughness = opts.roughness ?? info.roughness;
     const metalness = opts.metalness ?? info.metalness;
     const key = `${surface}|${color}|${roughness}|${metalness}|${repeat}`;
@@ -324,8 +579,10 @@ export function createMaterialLibrary(
     armour(color) {
       const substrate = FINISH_SUBSTRATE[color] ?? "mail";
       // Mail is drawn over a gambeson, so its own roughness already covers both;
-      // the plate finishes keep the polish their price paid for.
-      return tint(substrate, color, { repeat: substrate === "mail" ? 3 : 2 });
+      // the plate finishes keep the polish their price paid for. No repeat: all
+      // four substrates size themselves in metres, so a hauberk, a coif and a
+      // pair of vambraces finally carry the same ring.
+      return tint(substrate, color);
     },
 
     tunic(color) {
@@ -333,15 +590,15 @@ export function createMaterialLibrary(
     },
 
     hide(color) {
-      return tint("leather", color, { repeat: 4 });
+      return tint("leather", color);
     },
 
     flesh(color) {
-      return tint("skin", color, { repeat: 2 });
+      return tint("skin", color);
     },
 
     blade(color, roughness) {
-      return tint("steel", color, { roughness, repeat: 2 });
+      return tint("steel", color, { roughness });
     },
 
     timber(color) {
@@ -353,6 +610,8 @@ export function createMaterialLibrary(
       let m = adhoc.get(key);
       if (!m) {
         m = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+        // Untextured, so the scalar is the fraction and no reconciliation ran.
+        metalFraction.set(m, Math.min(1, metalness));
         adopt(m);
         adhoc.set(key, m);
       }
