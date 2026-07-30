@@ -26,6 +26,25 @@
 // composer in play the curve has to be applied by hand exactly once — here, at
 // the end. renderer.toneMappingExposure stays the authoritative exposure value
 // because sky.ts reads it to encode the fog colour every frame.
+//
+// The curve is not ACES. It used to be, and the reason it is not is worth
+// keeping written down, because "raise the exposure until it looks right" will
+// walk straight back into it. sky.ts hands this file a genuine 900:1 frame: the
+// horizon under the sun arrives at ~4.4 units of linear radiance and a warrior's
+// shadowed mail at ~0.03. ACES puts its shoulder just past 1.0, so 4.4 clipped —
+// the whole sun-side of the frame welded to white — while its output matrix,
+// which subtracts to make highlights roll toward white, drove the blue channel
+// of every dark red-lit pixel *negative*. That is why the warriors read as black
+// silhouettes with G=0 and B=0 in the captures: not under-exposure, a curve with
+// no highlight latitude and a matrix that ate their chroma.
+//
+// What replaced it is a per-channel filmic curve with an explicit white point —
+// `white` is the linear radiance that maps to display white, so highlight
+// latitude is a number a human can set rather than a property of a fixed matrix
+// — plus a separate, tunable crosstalk term that walks bright saturated colour
+// toward white on purpose. Splitting those two apart is the whole point: the sky
+// gets latitude, fire still goes white-hot, and nothing in the shadows has its
+// chroma subtracted away.
 
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -36,7 +55,7 @@ import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { FXAAPass } from "three/examples/jsm/postprocessing/FXAAPass.js";
-import type { FrameContext, Mood, QualitySettings, QualityTier } from "./quality";
+import { LAYER_UNOCCLUDED, type FrameContext, type Mood, type QualitySettings, type QualityTier } from "./quality";
 
 export type Rgb = readonly [number, number, number];
 
@@ -48,8 +67,24 @@ export type Rgb = readonly [number, number, number];
 export interface GradeLook {
   /** Scene exposure. Mirrored onto renderer.toneMappingExposure for sky.ts. */
   exposure: number;
-  /** 0 = the ACES curve alone, 1 = a full S-curve laid on top of it. */
+  /**
+   * Linear radiance that maps to display white. This is the highlight latitude
+   * of the whole look and the single most important number in this file: the
+   * dusk horizon arrives at ~4.4, so anything under about 5 welds the sun-side
+   * of the frame to a flat white and takes the aerial perspective with it.
+   */
+  white: number;
+  /**
+   * How far bright saturated colour is walked toward its own strongest channel
+   * before the curve, 0..1. This is what makes a flame go white-hot at the core
+   * instead of holding one screaming primary — the job ACES's output matrix used
+   * to do, except here it is a dial and it does not reach into the shadows.
+   */
+  crosstalk: number;
+  /** Scene contrast as a power about `pivot`. 0 = the curve alone. */
   contrast: number;
+  /** Linear radiance the contrast power turns about. Roughly a lit mid-tone. */
+  pivot: number;
   saturation: number;
   /** Multiplied into the dark end of the frame. */
   shadowTint: Rgb;
@@ -57,6 +92,14 @@ export interface GradeLook {
   highlightTint: Rgb;
   /** How much of that split is dialled in, 0..1. */
   splitTone: number;
+  /**
+   * Display-referred floor, per channel, faded out by the square of the pixel's
+   * own value. A print has a black that is not zero and a dusk frame has no true
+   * black in it either — the darkest thing on the field is still lit by the sky.
+   * It is also where a mood keeps its shadows once the curve has taken their
+   * chroma: cool for dusk, ash for the last stand.
+   */
+  shadowLift: Rgb;
   bloomStrength: number;
   /** Linear radiance a pixel has to beat before it blooms at all. */
   bloomThreshold: number;
@@ -144,44 +187,89 @@ export interface DofOptions {
 
 // Dusk: cold shadows against a warm sky, which is the whole point of the
 // split-tone — the sun tints what it reaches and the sky tints what it doesn't.
+// A white point out at nearly eight linear units is what lets both ends of that
+// survive — five and a half stops over a lit mid-tone. The sky right beside the
+// sun still goes to near-white, because it is the sky right beside the sun, but
+// fifteen degrees off it the horizon has fallen to 1.9 and lands in the low
+// two-hundreds with its gradient intact; the anti-solar sky stays the blue it
+// physically is; and a hut sixty metres out reads as a hut in haze rather than
+// as a hole punched in the sky.
 const DUSK: GradeLook = {
-  exposure: 1.12,
+  exposure: 1.0,
+  white: 7.8,
+  // Crosstalk down from 0.35: it walks anything past its knee toward that
+  // pixel's own peak channel, and in an arena lit entirely from the warm side
+  // the peak channel is red almost everywhere. At 0.35 it was quietly bleaching
+  // the hue out of the whole midtone range on its way to making fire white.
+  // 0.24 still takes a flame core to white and leaves the turf its green.
+  crosstalk: 0.24,
   contrast: 0.22,
-  saturation: 1.06,
-  shadowTint: [0.88, 0.94, 1.11],
-  highlightTint: [1.10, 1.00, 0.87],
-  splitTone: 0.5,
-  // A dusk sky is genuinely bright, and a threshold set below its horizon
-  // radiance blooms the entire top half of the frame. 1.35 linear sits above a
-  // well-exposed sky and below every flame in the arena, which is the line the
-  // bar is actually asking for.
-  bloomStrength: 0.45,
-  bloomThreshold: 1.35,
-  bloomTint: [1.0, 0.95, 0.86],
-  vignette: 0.34,
-  aberration: 0.004,
-  grain: 0.022,
+  pivot: 0.2,
+  saturation: 1.24,
+  shadowTint: [0.8, 0.93, 1.22],
+  highlightTint: [1.1, 1.0, 0.84],
+  splitTone: 0.6,
+  shadowLift: [0.005, 0.008, 0.015],
+  // A dusk sky is genuinely bright — 4.4 linear at the horizon, brighter than
+  // any flame the arena used to carry — so a threshold below it blooms the sky
+  // itself, and the pyramid then smears that across every pixel in frame. 1.35
+  // is what washed v1 to one orange. 2.15 was the second attempt and it was
+  // still under the sky: the v2 captures came back with turf, thatch, mail and
+  // a warrior's cloak all landing within a few code values of each other,
+  // because a constant of pure ember had been added to all of them.
+  //
+  // 5.0 sits *above* the horizon and below the fire, which is only possible
+  // because the flames were raised to meet it — vfx.ts's fire layer and the
+  // emissives in materials.ts both carry more radiance than the sky now, which
+  // is what a fire at dusk actually does. What blooms is the sun's own disc and
+  // the few degrees of sky beside it, every flame, every torch and every rune;
+  // what does not is the other three-quarters of the sky.
+  bloomStrength: 0.85,
+  bloomThreshold: 5.0,
+  bloomTint: [1.0, 0.93, 0.8],
+  vignette: 0.3,
+  aberration: 0.0035,
+  grain: 0.018,
   aoIntensity: 1.0,
 };
 
-// The last stand has to feel different, not merely redder: exposure up so the
-// fire clips, contrast up so the midtones collapse, and saturation *down*
-// before the hot tint goes on, so the result reads scorched rather than
-// cartoon-red. Bloom threshold drops too — more things are burning.
+// The last stand is a different response, not a red filter. Half the highlight
+// latitude, so everything the fire touches blows out where dusk would have held
+// it; contrast up about a lower pivot, so the midtones collapse and only the
+// fire-lit reads; crosstalk *down*, so a flame stays a screaming primary instead
+// of rolling gracefully to white; saturation down before the hot split goes on,
+// so the result is scorched rather than cartoon; and a black point that is warm
+// ash rather than cool sky, because by now nothing in the frame is lit by the
+// sky. Two frames of the same geometry under these two looks do not read as one
+// image with a filter on it.
 const LAST_STAND: GradeLook = {
-  exposure: 1.2,
-  contrast: 0.34,
-  saturation: 0.93,
-  shadowTint: [1.02, 0.78, 0.70],
-  highlightTint: [1.18, 0.86, 0.60],
-  splitTone: 0.78,
-  bloomStrength: 0.75,
-  bloomThreshold: 1.05,
-  bloomTint: [1.0, 0.8, 0.58],
-  vignette: 0.52,
-  aberration: 0.010,
-  grain: 0.05,
-  aoIntensity: 1.25,
+  // Exposure and white point both moved after the captures: at 1.14 over a
+  // white of 4.0 the smoke itself — a linear unit of it — landed in the low
+  // two-hundreds, which put the air above every surface it was veiling and
+  // flattened the frame to one apricot. Half the latitude of dusk is still the
+  // intent, and 6.2 is half of dusk's 7.8 measured against a sky that is not
+  // the same brightness. The last stand should be a dark frame lit by fire.
+  exposure: 0.96,
+  white: 6.2,
+  crosstalk: 0.16,
+  contrast: 0.36,
+  pivot: 0.16,
+  saturation: 0.95,
+  shadowTint: [1.06, 0.72, 0.6],
+  highlightTint: [1.2, 0.84, 0.55],
+  splitTone: 0.8,
+  shadowLift: [0.016, 0.007, 0.004],
+  // Higher than dusk's, not lower: the last stand's air carries three times the
+  // aerosol and its sun is hotter, so the sky it has to clear is brighter. At
+  // 1.6 the entire pall was over threshold and the frame came back as one flat
+  // apricot with no separation between a warrior and the palisade behind him.
+  bloomStrength: 1.35,
+  bloomThreshold: 6.0,
+  bloomTint: [1.0, 0.72, 0.45],
+  vignette: 0.55,
+  aberration: 0.011,
+  grain: 0.052,
+  aoIntensity: 1.3,
 };
 
 /** Matches sky.ts's mood blend, so the air and the grade move together. */
@@ -193,11 +281,15 @@ function lerpLook(a: GradeLook, b: GradeLook, t: number, out: GradeLook): GradeL
   const m = (x: number, y: number) => x + (y - x) * t;
   const mc = (x: Rgb, y: Rgb): Rgb => [m(x[0], y[0]), m(x[1], y[1]), m(x[2], y[2])];
   out.exposure = m(a.exposure, b.exposure);
+  out.white = m(a.white, b.white);
+  out.crosstalk = m(a.crosstalk, b.crosstalk);
   out.contrast = m(a.contrast, b.contrast);
+  out.pivot = m(a.pivot, b.pivot);
   out.saturation = m(a.saturation, b.saturation);
   out.shadowTint = mc(a.shadowTint, b.shadowTint);
   out.highlightTint = mc(a.highlightTint, b.highlightTint);
   out.splitTone = m(a.splitTone, b.splitTone);
+  out.shadowLift = mc(a.shadowLift, b.shadowLift);
   out.bloomStrength = m(a.bloomStrength, b.bloomStrength);
   out.bloomThreshold = m(a.bloomThreshold, b.bloomThreshold);
   out.bloomTint = mc(a.bloomTint, b.bloomTint);
@@ -224,6 +316,11 @@ void main() {
 // weights blue at 0.0722 — thresholding on luma blooms the fire and leaves every
 // cold emissive in the game dark. The quadratic knee is what stops the edge of a
 // flame popping in and out as it flickers across the threshold.
+//
+// The threshold lives in scene radiance, upstream of exposure, which is what
+// makes it possible to reason about at all: it is compared against numbers
+// sky.ts and materials.ts choose, not against whatever the grade is doing this
+// frame. Moving the exposure never silently changes what blooms.
 const BLOOM_BRIGHT = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform vec2 uTexel;
@@ -278,10 +375,16 @@ void main() {
 // 9-tap tent, blended additively into the level above. Progressive upsampling is
 // what gives bloom a smooth wide skirt out of very few taps; one large gaussian
 // at a single scale reads as a halo with an edge to it.
+//
+// uWeight is applied on every rung, so the levels fall off geometrically on the
+// way back up and the widest mip — a fifty-pixel blur at 1080p — contributes a
+// quarter of what the tightest one does. Without it every level lands with equal
+// weight and a bright horizon does not glow, it fogs the entire frame.
 const BLOOM_UP = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform vec2 uTexel;
 uniform float uRadius;
+uniform float uWeight;
 varying vec2 vUv;
 void main() {
   vec2 t = uTexel * uRadius;
@@ -294,8 +397,11 @@ void main() {
   o += texture2D( tDiffuse, vUv + vec2( -t.x, -t.y ) ).rgb;
   o += texture2D( tDiffuse, vUv + vec2( 0.0, -t.y ) ).rgb * 2.0;
   o += texture2D( tDiffuse, vUv + vec2(  t.x, -t.y ) ).rgb;
-  gl_FragColor = vec4( o * 0.0625, 1.0 );
+  gl_FragColor = vec4( o * ( 0.0625 * uWeight ), 1.0 );
 }`;
+
+/** Per-rung upsample weight. Compounds, so level n lands at 0.72^n. */
+const BLOOM_SKIRT = 0.72;
 
 function bloomTarget(width: number, height: number): THREE.WebGLRenderTarget {
   const rt = new THREE.WebGLRenderTarget(Math.max(2, width), Math.max(2, height), {
@@ -343,17 +449,24 @@ class BloomChain extends Pass {
       tDiffuse: { value: null },
       uTexel: { value: new THREE.Vector2() },
       uThreshold: { value: DUSK.bloomThreshold },
-      uKnee: { value: DUSK.bloomThreshold * 0.45 },
+      uKnee: { value: DUSK.bloomThreshold * 0.35 },
       // The sun disc carries a hundred times the radiance of anything else in
       // frame. Capping the bright pass is what keeps one celestial body from
-      // owning the whole glow budget.
-      uClamp: { value: 8 },
+      // owning the whole glow budget. The ceiling has to stay well clear of the
+      // threshold, though: it is applied *before* the excess is taken, so a
+      // clamp of 6 against a threshold of 5 leaves every fire in the arena one
+      // single unit of glow between them, and the frame loses the bloom it was
+      // being thresholded for in the first place. Twenty leaves the bonfire's
+      // core room to be the brightest thing in the moot and still holds the sun
+      // to five times it rather than five hundred.
+      uClamp: { value: 20 },
     });
     this.down = mat(BLOOM_DOWN, { tDiffuse: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.up = mat(BLOOM_UP, {
       tDiffuse: { value: null },
       uTexel: { value: new THREE.Vector2() },
       uRadius: { value: 1.0 },
+      uWeight: { value: BLOOM_SKIRT },
     });
     this.up.blending = THREE.AdditiveBlending;
     this.up.transparent = true;
@@ -369,7 +482,7 @@ class BloomChain extends Pass {
 
   setThreshold(threshold: number): void {
     this.bright.uniforms.uThreshold.value = threshold;
-    this.bright.uniforms.uKnee.value = Math.max(0.02, threshold * 0.45);
+    this.bright.uniforms.uKnee.value = Math.max(0.02, threshold * 0.35);
   }
 
   setSize(width: number, height: number): void {
@@ -445,11 +558,16 @@ uniform sampler2D tBloom;
 uniform float uExposure;
 uniform float uBloom;
 uniform vec3 uBloomTint;
+uniform float uWhiteScale;
+uniform float uCrosstalk;
+uniform float uCrossKnee;
 uniform float uContrast;
+uniform float uPivot;
 uniform float uSaturation;
 uniform vec3 uShadowTint;
 uniform vec3 uHighlightTint;
 uniform float uSplit;
+uniform vec3 uShadowLift;
 uniform float uVignette;
 uniform float uAberration;
 uniform float uGrain;
@@ -459,22 +577,13 @@ uniform float uPressure;
 uniform float uTime;
 varying vec2 vUv;
 
-const mat3 ACES_IN = mat3(
-  0.59719, 0.07600, 0.02840,
-  0.35458, 0.90834, 0.13383,
-  0.04823, 0.01566, 0.83777
-);
-const mat3 ACES_OUT = mat3(
-   1.60475, -0.10208, -0.00327,
-  -0.53108,  1.10813, -0.07276,
-  -0.07367, -0.00605,  1.07602
-);
-
-vec3 acesFilmic( vec3 color ) {
-  color = ACES_IN * color;
-  vec3 a = color * ( color + 0.0245786 ) - 0.000090537;
-  vec3 b = color * ( 0.983729 * color + 0.4329510 ) + 0.238081;
-  return clamp( ACES_OUT * ( a / b ), 0.0, 1.0 );
+// Hable's rational curve: a toe, a near-linear midsection and a shoulder that
+// approaches its asymptote slowly enough to hold several stops above white.
+// Unnormalised — uWhiteScale is 1/filmicCurve(white), computed once on the CPU,
+// and it is the whole highlight-latitude control.
+vec3 filmicCurve( vec3 x ) {
+  const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
+  return ( ( x * ( A * x + C * B ) + D * E ) / ( x * ( A * x + B ) + D * F ) ) - E / F;
 }
 
 vec3 toSRGB( vec3 c ) {
@@ -506,18 +615,36 @@ void main() {
 
   hdr += texture2D( tBloom, vUv ).rgb * uBloomTint * uBloom;
 
-  vec3 col = acesFilmic( hdr * uExposure );
+  // A half-float buffer can carry an infinity out of one bad emissive, and the
+  // curve turns that into a NaN that the AA pass then smears across the frame.
+  // Sixty-four units is four stops past anything the sun does.
+  hdr = min( max( hdr, vec3( 0.0 ) ), vec3( 64.0 ) ) * uExposure;
 
-  // A smoothstep blended against the identity is a contrast curve that cannot
-  // clip, which matters when the grade sits after a tone map that has already
-  // spent the highlight latitude.
-  col = mix( col, col * col * ( 3.0 - 2.0 * col ), uContrast );
+  // Contrast in scene-linear about a lit mid-tone, before the display transform,
+  // where a power is a clean exposure-slope change. Doing it after the curve
+  // instead — an S-curve on display values — pivots at 0.5, and almost nothing
+  // in a dusk frame is anywhere near 0.5, so it only ever crushed the shadows.
+  hdr = uPivot * pow( max( hdr, vec3( 1e-5 ) ) / uPivot, vec3( uContrast ) );
+
+  // Highlight crosstalk: past the knee, colour is walked toward its own
+  // strongest channel, so a flame core goes white-hot and the sky's ember band
+  // opens up, while everything below the knee keeps every bit of its chroma.
+  float peak = max( hdr.r, max( hdr.g, hdr.b ) );
+  hdr = mix( hdr, vec3( peak ), ( peak / ( peak + uCrossKnee ) ) * uCrosstalk );
+
+  vec3 col = clamp( filmicCurve( hdr ) * uWhiteScale, 0.0, 1.0 );
 
   float luma = dot( col, vec3( 0.2126, 0.7152, 0.0722 ) );
   col = mix( vec3( luma ), col, uSaturation );
 
   vec3 tint = mix( uShadowTint, uHighlightTint, smoothstep( 0.0, 0.85, luma ) );
   col *= mix( vec3( 1.0 ), tint, uSplit );
+
+  // The black point, faded by the square of the pixel's own value so it lands on
+  // the bottom stop and nowhere else. Dusk lifts blue, the last stand lifts red,
+  // and that is most of why the two moods do not read as the same frame twice.
+  vec3 toe = vec3( 1.0 ) - col;
+  col += uShadowLift * toe * toe;
 
   // Health pressure closes the frame in from the edges; the damage flash washes
   // the whole thing, harder at the periphery than at the point of attention.
@@ -552,6 +679,21 @@ void main() {
   gl_FragColor = vec4( srgb, 1.0 );
 }`;
 
+/**
+ * Where the crosstalk knee sits relative to the white point, so a look sets one
+ * number instead of two that have to be kept in step. Below about half of white
+ * a colour keeps its chroma; above it, it starts walking toward its own peak.
+ */
+const CROSS_KNEE = 0.45;
+
+/** CPU mirror of `filmicCurve`, for normalising the curve to its white point. */
+function whiteScale(white: number): number {
+  const A = 0.15, B = 0.5, C = 0.1, D = 0.2, E = 0.02, F = 0.3;
+  const x = Math.max(0.05, white);
+  const v = (x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F) - E / F;
+  return 1 / Math.max(v, 1e-4);
+}
+
 const GRADE_SHADER = {
   name: "ArenaGradeShader",
   uniforms: {
@@ -560,11 +702,16 @@ const GRADE_SHADER = {
     uExposure: { value: DUSK.exposure },
     uBloom: { value: 0 },
     uBloomTint: { value: new THREE.Vector3(1, 1, 1) },
-    uContrast: { value: DUSK.contrast },
+    uWhiteScale: { value: whiteScale(DUSK.white) },
+    uCrosstalk: { value: DUSK.crosstalk },
+    uCrossKnee: { value: DUSK.white * CROSS_KNEE },
+    uContrast: { value: 1 + DUSK.contrast },
+    uPivot: { value: DUSK.pivot },
     uSaturation: { value: DUSK.saturation },
     uShadowTint: { value: new THREE.Vector3(1, 1, 1) },
     uHighlightTint: { value: new THREE.Vector3(1, 1, 1) },
     uSplit: { value: DUSK.splitTone },
+    uShadowLift: { value: new THREE.Vector3(0, 0, 0) },
     uVignette: { value: DUSK.vignette },
     uAberration: { value: DUSK.aberration },
     uGrain: { value: DUSK.grain },
@@ -619,7 +766,9 @@ export function createPostFx(
   // lighting happens in linear, the filmic curve maps it back. Getting this
   // wrong makes every other material decision look wrong. The composer applies
   // the curve itself, but these stay set — sky.ts reads the exposure, and they
-  // are what presents the frame if the composer never builds.
+  // are what presents the frame if the composer never builds. That fallback
+  // frame is three's ACES rather than the look above and will clip its sky;
+  // a device that cannot allocate a half-float target has bigger problems.
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = DUSK.exposure;
@@ -693,6 +842,22 @@ export function createPostFx(
         // weighting is high so occlusion does not bleed across a silhouette.
         gtao.updatePdMaterial({ lumaPhi: 8, depthPhi: 2.5, normalPhi: 5, radius: 3, rings: 2, samples: 8 });
         gtao.blendIntensity = current.aoIntensity;
+        // GTAO derives its depth and normals by re-rendering the scene through
+        // `scene.overrideMaterial`, which replaces the depth-write-off,
+        // transparent materials the HUD plates and the particle billboards were
+        // built with. Left alone, a nameplate against the sky punches a hole in
+        // that depth buffer and comes back wearing a dark halo, and a smoke puff
+        // shades the man behind it. Dropping their layer for the duration of the
+        // pass is the whole fix; it is done by wrapping `render` rather than by
+        // reaching into the pass, because the depth render happens two calls
+        // deep inside it and there is no hook there.
+        const gtaoPass = gtao;
+        const innerRender = gtaoPass.render.bind(gtaoPass);
+        gtaoPass.render = (r, write, read, delta, mask) => {
+          camera.layers.disable(LAYER_UNOCCLUDED);
+          innerRender(r, write, read, delta, mask);
+          camera.layers.enable(LAYER_UNOCCLUDED);
+        };
         composer.addPass(gtao);
         // addPass sized it to the full buffer; put it back to half.
         gtao.setSize(Math.round(bufW * AO_SCALE), Math.round(bufH * AO_SCALE));
@@ -751,14 +916,23 @@ export function createPostFx(
     const exposure = pick("exposure");
     renderer.toneMappingExposure = exposure;
 
+    const white = pick("white");
     u.uExposure.value = exposure;
-    u.uContrast.value = pick("contrast");
+    u.uWhiteScale.value = whiteScale(white);
+    u.uCrosstalk.value = pick("crosstalk");
+    u.uCrossKnee.value = Math.max(0.05, white * CROSS_KNEE);
+    // The look states contrast as an excess over neutral so that zero is "the
+    // curve alone"; the shader wants the exponent.
+    u.uContrast.value = 1 + pick("contrast");
+    u.uPivot.value = Math.max(0.02, pick("pivot"));
     u.uSaturation.value = pick("saturation");
     const shadow = pick("shadowTint");
     const highlight = pick("highlightTint");
+    const lift = pick("shadowLift");
     (u.uShadowTint.value as THREE.Vector3).set(shadow[0], shadow[1], shadow[2]);
     (u.uHighlightTint.value as THREE.Vector3).set(highlight[0], highlight[1], highlight[2]);
     u.uSplit.value = pick("splitTone");
+    (u.uShadowLift.value as THREE.Vector3).set(lift[0], lift[1], lift[2]);
     // The tier can drop the corner falloff even though the grade itself is not
     // optional — the grade is where tone mapping happens, so there is no frame
     // without it. Every preset currently keeps it; the switch exists so the

@@ -232,6 +232,29 @@ export function configureRenderer(renderer: THREE.WebGLRenderer, settings: Quali
 // behaviour — changing a field is a contract change for the whole directory.
 // ---------------------------------------------------------------------------
 
+/**
+ * Render layer for everything that is in the frame but is not *surface* — the
+ * in-world HUD plates, damage numbers, and every particle billboard.
+ *
+ * It exists for one reason: `GTAOPass` derives occlusion by re-rendering the
+ * scene through `scene.overrideMaterial` into a depth+normal buffer, and that
+ * override replaces the transparent, depth-write-off materials these objects
+ * were built with. A nameplate against the sky therefore punches a hole in the
+ * depth buffer and the occlusion pass draws a dark halo round it; a smoke puff
+ * shades the warrior behind it. Both read as bugs and neither is one.
+ *
+ * The camera carries this layer enabled (camera.ts), so these objects render
+ * normally; postfx.ts turns it off for the duration of the AO prepass alone.
+ * Anything put here must not want to cast a shadow or occlude anything.
+ */
+export const LAYER_UNOCCLUDED = 1;
+
+/** Puts an object and everything under it on a layer. Layers do not inherit. */
+export function setLayerDeep(root: THREE.Object3D, layer: number): void {
+  root.layers.set(layer);
+  root.traverse((o) => o.layers.set(layer));
+}
+
 /** Arena mood. Drives fog, grade and light colour together, never separately. */
 export type Mood = "dusk" | "lastStand";
 

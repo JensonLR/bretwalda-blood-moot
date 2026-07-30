@@ -125,9 +125,16 @@ const CATALOG: Record<MaterialName, Spec> = {
   poleWood:        { color: 0x4a3018, roughness: 0.9, metalness: 0, surface: "oak", repeat: [2, 6] },
 
   torchCup:        { color: 0x2a2a2e, roughness: 0.5, metalness: 0.7, surface: "iron", repeat: [2, 1] },
-  torchFlame:      { color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff7711, emissiveIntensity: 5 },
+  // The two fire entries no longer draw a flame — vfx.ts owns those — but they
+  // are still what a coal bed and a hearth seen through a doorway are made of,
+  // and those have to clear the bloom threshold or the one genuinely hot thing
+  // in the arena is the only thing in it that does not glow. Nine and seven,
+  // not five and three and a half: the threshold now sits above the dusk sky at
+  // 5.0, which is the whole reason the frame stopped being one colour, and an
+  // ember that reads as hot to the eye has to read as hot to the bright pass.
+  torchFlame:      { color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff7711, emissiveIntensity: 9 },
   bonfireLog:      { color: 0x3a2515, roughness: 0.98, metalness: 0, surface: "oak", repeat: [1, 4] },
-  bonfireFlame:    { color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff5500, emissiveIntensity: 3.5, opacity: 0.9 },
+  bonfireFlame:    { color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff5500, emissiveIntensity: 7, opacity: 0.9 },
 
   hutWall:         { color: 0x6a553c, roughness: 0.95, metalness: 0, surface: "plank", repeat: [3, 2] },
   hutRoof:         { color: 0x41301c, roughness: 0.98, metalness: 0, surface: "thatch", repeat: [7, 3] },
@@ -144,10 +151,13 @@ const CATALOG: Record<MaterialName, Spec> = {
   debrisHilt:      { color: 0x3a2a18, roughness: 0.9, metalness: 0, surface: "leather", repeat: [1, 1] },
 
   runestone:       { color: 0x7a7d84, roughness: 0.92, metalness: 0, surface: "granite", repeat: [1, 3] },
-  // 3.5, not 2.4: bloom thresholds on the max channel at 1.35 linear, and at
-  // 2.4 the runes sat just under it — plainly glowing to the eye and invisible
-  // to the pass whose whole job is glow.
-  runeGlow:        { color: 0x66c8ff, roughness: 0.4, metalness: 0, emissive: 0x2288dd, emissiveIntensity: 3.5 },
+  // Sized against the bloom threshold, which is the only thing that decides
+  // whether a rune glows or merely is blue. The bright pass measures the max
+  // channel, so what matters here is the blue: 0x2288dd carries 0.68 linear in
+  // it, and 8.0 puts that at 5.4 — clear of the 5.0 threshold that keeps the
+  // dusk sky out of the pyramid, with enough margin that the carved bottoms of
+  // the strokes still glow and not only their edges.
+  runeGlow:        { color: 0x66c8ff, roughness: 0.4, metalness: 0, emissive: 0x2288dd, emissiveIntensity: 8 },
 
   bloodDecal:      { color: 0x4a0a08, roughness: 0.35, metalness: 0, surface: "blood", repeat: [1, 1], decal: true },
 };

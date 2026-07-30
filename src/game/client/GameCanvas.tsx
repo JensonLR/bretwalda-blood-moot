@@ -159,8 +159,29 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       warm: sky.sunDirection, warmColor: sky.sunColor,
     });
     const world = createWorld(scene, materials, quality);
-    const vfx = createVfx(scene, textures, quality);
+    // vfx after world, and not only for draw order: it finds the arena's fires
+    // by reading the props world.ts has already built, and it lands its blood
+    // and its bounces on world.ts's terrain rather than on y = 0, which stopped
+    // being the ground the moment the arena got a bank and a ditch.
+    const vfx = createVfx(scene, textures, quality, { groundAt: world.heightAt });
     const hud = createHud3d(scene, quality);
+
+    // The haze picks up the arena's real hero fire rather than sky.ts's
+    // documented guess at where it is, so moving the bonfire moves the glow it
+    // throws into the air with it. Chosen by reach rather than by index — the
+    // torches are built first and the ordering of that list is world.ts's
+    // business, not ours.
+    {
+      const at = new THREE.Vector3();
+      let hero: THREE.PointLight | null = null;
+      for (const light of world.pointLights) {
+        if (!hero || light.distance > hero.distance) hero = light;
+      }
+      if (hero) {
+        hero.getWorldPosition(at);
+        sky.setHazeLight({ position: at, color: hero.color.clone(), gain: 1 });
+      }
+    }
 
     // Photo mode (/shot) pins the camera yaw so captures are reproducible.
     const photoCam = (window as unknown as Record<string, unknown>).__photoCam;
@@ -278,6 +299,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       // Before the first packet the camera holds its opening position; there is
       // nothing to look at yet.
       if (!roomState) {
+        stage.vfx.update(dt, ctx);
         stage.postfx.render(dt, ctx);
         return;
       }
@@ -288,6 +310,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       if (!isFight) {
         stage.rig.setMode("lobby");
         stage.rig.update(dt, ctx);
+        // vfx owns the bonfire and the torches now, so it runs on both early-out
+        // paths as well: without this the moot's fires freeze mid-lick in the
+        // lobby and between rounds, which is precisely when the establishing
+        // orbit is looking straight at them. It runs after the camera rather
+        // than up beside world/sky because every quad it draws is billboarded
+        // against this frame's view.
+        stage.vfx.update(dt, ctx);
         stage.postfx.render(dt, ctx);
         return;
       }
@@ -330,7 +359,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         let slot = warriorsRef.current.get(id);
         if (!slot) {
           const rig = createWarriorRig(stage.scene, p, stage.materials, stage.quality);
-          stage.hud.attach(id, p.name, rig.group, id === playerId);
+          stage.hud.attach(id, p.name, rig.group, id === playerId, rig.headTop);
           slot = { rig, motion: createMotion(p), prevHp: p.health, prevState: p.state, dustTick: 0 };
           warriorsRef.current.set(id, slot);
         }
@@ -342,8 +371,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         // ---- HIT FEEDBACK (damage numbers + rumble + hit-stop) ----
         if (p.health < slot.prevHp - 0.5) {
           const dmg = Math.round(slot.prevHp - p.health);
-          stage.vfx.burst({ position: { x: at.x, y: 1.4, z: at.z }, color: 0xd42a1a, count: 16, spread: 5, up: 4.5 });
-          stage.vfx.burst({ position: { x: at.x, y: 1.5, z: at.z }, color: 0xffe28a, count: 7, spread: 7, up: 5, gravity: 8 });
+          stage.vfx.burst({ position: { x: at.x, y: 1.4, z: at.z }, color: 0xd42a1a, count: 16, spread: 5, up: 4.5, kind: "blood" });
+          // A blocked blow throws steel off steel, not blood: the kind is the only
+          // thing that tells the two apart, and the server already said which it was.
+          stage.vfx.burst({ position: { x: at.x, y: 1.5, z: at.z }, color: 0xffe28a, count: 7, spread: 7, up: 5, gravity: 8, kind: "spark" });
           slot.motion.recoil = Math.min(1.6, 0.6 + dmg * 0.03);
           stage.hud.spawnDamageNumber(dmg, { x: at.x, z: at.z }, dmg >= 22);
 
@@ -364,8 +395,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         slot.prevHp = p.health;
 
         if (slot.prevState !== "dead" && p.state === "dead") {
-          stage.vfx.burst({ position: { x: at.x, y: 1.3, z: at.z }, color: 0x881410, count: 34, spread: 7, up: 5.5 });
-          stage.vfx.burst({ position: { x: at.x, y: 0.5, z: at.z }, color: 0x3a2a20, count: 20, spread: 5, up: 3 });
+          stage.vfx.burst({ position: { x: at.x, y: 1.3, z: at.z }, color: 0x881410, count: 34, spread: 7, up: 5.5, kind: "blood" });
+          stage.vfx.burst({ position: { x: at.x, y: 0.5, z: at.z }, color: 0x3a2a20, count: 20, spread: 5, up: 3, kind: "dust" });
           if (p.lastHitBy === playerId) {
             rumble([60, 40, 80]);
             hitStopRef.current = Math.max(hitStopRef.current, 0.11);
@@ -381,7 +412,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
           slot.dustTick += dt;
           if (slot.dustTick > 0.28) {
             slot.dustTick = 0;
-            stage.vfx.burst({ position: { x: at.x, y: 0.15, z: at.z }, color: 0x8a7c5c, count: 3, spread: 2.2, up: 1.4, gravity: 4 });
+            stage.vfx.burst({ position: { x: at.x, y: 0.15, z: at.z }, color: 0x8a7c5c, count: 3, spread: 2.2, up: 1.4, gravity: 4, kind: "dust" });
           }
         }
 
@@ -401,7 +432,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         if (p.abilityActive) {
           const colAura = p.warriorClass === "berserker" ? 0xff3311 : p.warriorClass === "huscarl" ? 0x4488ff : p.warriorClass === "runekeeper" ? 0x9a55ff : 0xffaa33;
           if (Math.floor(ctx.time * 9) % 2 === 0) {
-            stage.vfx.burst({ position: { x: at.x, y: 1.3, z: at.z }, color: colAura, count: 2, spread: 1.5, up: 2.6, gravity: 4 });
+            stage.vfx.burst({ position: { x: at.x, y: 1.3, z: at.z }, color: colAura, count: 2, spread: 1.5, up: 2.6, gravity: 4, kind: "aura" });
           }
         }
       }

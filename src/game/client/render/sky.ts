@@ -14,6 +14,20 @@
 // Where single scattering is honestly wrong — the sunset zenith, which is blue
 // because of second- and third-order scatter this model does not carry — a
 // named diffuse illuminant puts it back rather than a fudge buried in a lerp.
+//
+// The air between the camera and the arena is a *separate* model from the dome,
+// and the reason is the whole of what v1 got wrong. The dome's horizon is the
+// radiance of an entire atmospheric column — thirty-eight air masses of it, and
+// at dusk it arrives at four and a half linear units. v1's fog mixed distant
+// geometry toward that number, so a hut at twenty-eight metres came back three
+// times brighter than the hut itself and the settlement dissolved. But the air
+// on a twenty-eight-metre path is not an atmospheric column: it is ground-level
+// haze lit by a beam that has already crossed nineteen air masses and by the
+// slice of dome it can see, and its source function is a *fraction* of the
+// horizon's radiance. So near air and far sky are two terms here — a mist with
+// its own dim, directional glow that owns everything inside the treeline, and a
+// sky-convergence term that only takes over past it. That split is what makes
+// palisade, huts, hall and treeline read as four planes instead of one wash.
 
 import * as THREE from "three";
 import type { FrameContext, Mood, QualitySettings } from "./quality";
@@ -36,6 +50,12 @@ export interface SkyOptions {
   aerialPerspective?: boolean;
   /** 0 = midnight, 0.25 = sunrise, 0.5 = noon. Defaults to the arena's dusk. */
   timeOfDay?: number;
+  /**
+   * The point source the near air scatters. Defaults to the bonfire's place at
+   * the arena's origin; pass `world.pointLights[0]`'s pose to have it follow a
+   * fire that moves, or null for air with nothing burning in it.
+   */
+  hazeLight?: HazeLight | null;
 }
 
 export interface SkyHandle {
@@ -58,6 +78,12 @@ export interface SkyHandle {
   setMood(mood: Mood): void;
   /** Turns the whole celestial sphere about the pole. 0 = midnight, 0.5 = noon. */
   setTimeOfDay(t: number): void;
+  /**
+   * Moves the fire the near air is scattering, or clears it. The mood owns how
+   * bright it is — this is only where it is and what colour, so a caller does
+   * not have to know what a radiant intensity in linear units looks like.
+   */
+  setHazeLight(light: HazeLight | null): void;
   update(dt: number, ctx: FrameContext): void;
   dispose(): void;
 }
@@ -112,9 +138,40 @@ interface SkyParams {
   cloudGain: number;
   cloudLitGain: number;
   cloudShadeGain: number;
+  /** Radiance of the crepuscular fan above the sun, as a fraction of the beam. */
+  shaftGain: number;
+
+  // ---- the near air, in metres and per-metre ----
+  // Tuned against the arena's four depth planes, which are fixed by world.ts:
+  // palisade at 19.6 m, huts at 28, the hall at 37, the treeline at 60, and the
+  // downland running out to 176. Every number below was chosen by asking what
+  // fraction of its own radiance each of those keeps.
+  /** Extinction per metre of the deep haze at y = 0. This is what separates planes. */
+  hazeDensity: number;
+  /** e-folding height of that haze. Tall enough that a roof is barely clearer than a door. */
+  hazeHeight: number;
+  /** Extinction per metre of the shallow ground mist at y = 0. */
+  mistDensity: number;
+  /** e-folding height of the ground mist. Knee-high, so it pools in the hollows. */
+  mistHeight: number;
+  /** Single-scatter albedo × the fraction of the dome the near air can actually see. */
+  mistAlbedo: number;
+  /** How much of the sky *in this direction* the mist borrows on top of that. */
+  mistSkyShare: number;
+  /** How much of the extinguished beam the near air throws forward. Owns the sun-side glow. */
+  mistBeam: number;
+  /** Henyey-Greenstein g of the near air. Higher = a tighter halo round the sun. */
+  mistG: number;
+  /** Extinction per metre of the far term that welds the downland into the horizon. */
+  skyDensity: number;
+  /** Radiant intensity the near air scatters out of the bonfire. */
+  fireHaze: number;
+  /** How deep the cloud deck cuts the key light, 0..1. */
+  cloudShadow: number;
+  /** How much of the sun's share of the mist the deck can take away, 0..1. */
+  shaftDepth: number;
+  /** Density of the stock exponential fog, which only runs if the injection missed. */
   fogDensity: number;
-  /** e-folding height of the fog in metres⁻¹. Hut roofs sit in clearer air than doorways. */
-  fogHeightFalloff: number;
   /** How much distance drains saturation before it drains contrast. */
   fogDesaturate: number;
 }
@@ -142,8 +199,36 @@ const DUSK: SkyParams = {
   cloudGain: 0.92,
   cloudLitGain: 0.34,
   cloudShadeGain: 1.5,
+  shaftGain: 0.13,
+  // 0.006/m over a 24 m scale height puts 10% of haze on the palisade, 14% on
+  // the huts, 28% on the treeline and 62% on the downland: a monotone ramp with
+  // every plane a clear step behind the one in front. Measured off a 0.3-radiance
+  // daub wall forty degrees from the sun, the two terms together hold the huts
+  // at 4:1 against the sky behind them and the treeline at 2:1. v1's numbers
+  // gave 2.6:1 and 1.2:1, and were finished — wall indistinguishable from sky —
+  // by a hundred metres, which is why the settlement had two planes, not five.
+  hazeDensity: 0.0048,
+  hazeHeight: 24,
+  mistDensity: 0.0092,
+  mistHeight: 2.6,
+  // The near air is dim on purpose, and the v2 captures said it was not dim
+  // enough: at 0.30 the mist's own glow put 0.06 linear of pure ember on a
+  // surface only eight metres away, which is a third of what a turf albedo
+  // returns and is why the whole arena came back one colour. The source
+  // function is built from the dome, and a mist layer lying on a dark field
+  // sees far less of that dome than a hemisphere weighting implies — there is
+  // ground under half of it and the horizon it does see is already extincted.
+  // Extinction is untouched, so every distance ratio measured for the layer
+  // separation still holds; only what the veil is *made of* got quieter.
+  mistAlbedo: 0.13,
+  mistSkyShare: 0.05,
+  mistBeam: 0.095,
+  mistG: 0.62,
+  skyDensity: 0.0106,
+  fireHaze: 40,
+  cloudShadow: 0.42,
+  shaftDepth: 0.55,
   fogDensity: 0.021,
-  fogHeightFalloff: 0.055,
   fogDesaturate: 0.5,
 };
 
@@ -156,7 +241,7 @@ const LAST_STAND: SkyParams = {
   rayleigh: 0.5,
   mie: 3.2,
   mieG: 0.66,
-  sunIntensity: 30,
+  sunIntensity: 23,
   sunTint: new THREE.Color(1, 0.72, 0.5),
   diffuseGain: 0.1,
   diffuseDepth: 0.26,
@@ -175,10 +260,50 @@ const LAST_STAND: SkyParams = {
   cloudGain: 1,
   cloudLitGain: 0.5,
   cloudShadeGain: 1.1,
+  shaftGain: 0.21,
+  // Smoke is heavier than air and it is coming off the arena itself, so the
+  // ground layer thickens far more than the column does and it lifts higher —
+  // but only by half again on dusk, not by double. At the old numbers a sixth
+  // of a surface eight metres away was already smoke and four-fifths of one at
+  // twenty-five was, which is why the last-stand captures came back with the
+  // turf, the palisade, a hut and a warrior's cloak all landing within five
+  // code values of each other. A pall you cannot see a man through is fog, and
+  // fog is not the drama this look is after.
+  hazeDensity: 0.0072,
+  hazeHeight: 30,
+  mistDensity: 0.0118,
+  mistHeight: 3.6,
+  mistAlbedo: 0.13,
+  mistSkyShare: 0.08,
+  mistBeam: 0.17,
+  mistG: 0.56,
+  skyDensity: 0.0124,
+  // The fires are what is lighting the moot by now, so the air around them
+  // carries more than twice the glow — this is where the shafts come from once
+  // the sun has stopped mattering.
+  fireHaze: 58,
+  // A smoke pall is not a cumulus deck: it covers more and shadows less, so the
+  // arena goes evenly dim rather than being crossed by hard moving bands.
+  cloudShadow: 0.24,
+  shaftDepth: 0.34,
   fogDensity: 0.03,
-  fogHeightFalloff: 0.038,
-  fogDesaturate: 0.28,
+  fogDesaturate: 0.3,
 };
+
+/**
+ * How much of the dome's own radiance reaches a surface as image-based light.
+ *
+ * Not 1, and the reason is geometric rather than a taste call. The PMREM is a
+ * convolution of the whole sphere, but this arena is a ground plane: half of
+ * what that convolution integrated is turf a surface cannot see, and the half it
+ * can see is dominated by a horizon band carrying four linear units of ember.
+ * At full strength the environment map is the largest indirect term in the
+ * frame and it is one colour, which is how the v2 captures came back with turf,
+ * timber, thatch and mail all reading as the same salmon. lighting.ts's ambient
+ * and hemisphere carry the sky-light term with a hue that has a cool half; this
+ * supplies the specular the metals need and its share of the warm.
+ */
+const ENV_INTENSITY = 0.42;
 
 const MOOD_PARAMS: Record<Mood, SkyParams> = { dusk: DUSK, lastStand: LAST_STAND };
 /** Seconds for the air to change over. Long enough to read as weather, short enough to land. */
@@ -334,18 +459,43 @@ function evalSky(
 // ---------------------------------------------------------------------------
 //
 // Fog that mixes toward one flat colour is why distant huts read as cardboard
-// cut-outs pasted on a gradient. Real distance takes saturation first, thins
-// with altitude, and tints toward whatever the sky is doing *in that direction*
-// — the left of frame lifts ember while the right lifts blue, in the same
-// frame.
+// cut-outs pasted on a gradient. But fog that mixes toward the *sky* is worse,
+// and that is what v1 shipped: it took the dome's horizon radiance — an entire
+// atmospheric column, 4.4 linear units of it under the sun — and dialled it in
+// at a third of full strength on geometry twenty-eight metres away. Nothing
+// survives that. The huts did not fade into the distance, they were overwritten
+// by it.
 //
-// Doing that per pixel means every fogged material in the scene has to run the
-// maths, and this module owns none of them. So it patches three's fog shader
-// chunks in place and smuggles five uniforms into ShaderLib. That is a global
-// mutation from inside a module, which is not free: it is refcounted and fully
-// restored on dispose, it must land before the first program compiles (it does
-// — createSky runs during stage init), and every added uniform defaults to zero
-// so any material the injection misses collapses back to three's stock fog
+// So the ray is integrated as two separate things, because it physically is:
+//
+//   the near air   a mist with a real scale height and a real source function.
+//                  Ground-level air is lit by a beam that has already crossed
+//                  nineteen air masses and by whatever slice of dome it can see,
+//                  which comes to a fraction of the horizon's radiance, not all
+//                  of it. Directional, because the Henyey-Greenstein lobe of the
+//                  aerosols puts a bright halo round a low sun and almost
+//                  nothing sixty degrees off it. Two scale heights, because the
+//                  haze that separates the treeline from the downland behind it
+//                  and the mist that pools in the hollows are not the same air.
+//
+//   the far sky    a second, much longer-range term that converges on the
+//                  dome's own radiance in this direction, so the downland's
+//                  outer edge welds into the horizon with no seam. It is at 4%
+//                  on the palisade and 97% at the terrain's rim, which is the
+//                  difference between depth and a wash.
+//
+// On top of that the same cloud field does three jobs: it shadows the key light
+// (through `getShadow`, below), it cuts the sun's share of the mist along the
+// ray so the haze is crossed by shafts, and it modulates where the ground mist
+// pools. One noise field, three reads, all of them coherent with each other.
+//
+// Doing any of this per pixel means every fogged material in the scene has to
+// run the maths, and this module owns none of them. So it patches three's fog
+// shader chunks in place and smuggles its uniforms into ShaderLib. That is a
+// global mutation from inside a module, which is not free: it is refcounted and
+// fully restored on dispose, it must land before the first program compiles (it
+// does — createSky runs during stage init), and every added uniform defaults to
+// zero so any material the injection misses collapses back to three's stock fog
 // rather than turning black.
 //
 // The clean version of this is materials.ts calling a hook we hand it inside
@@ -358,19 +508,53 @@ const AERIAL_UNIFORM_NAMES = [
   "fogSkySun",
   "fogSunDirection",
   "fogAerial",
+  "fogMist",
+  "fogMistLight",
+  "fogMistPhase",
+  "fogCloud",
+  "fogCloudMove",
+  "fogFire",
+  "fogFirePos",
 ] as const;
 
 // Float32Array values survive UniformsUtils.clone by reference — three only
 // deep-copies Colors, Vectors, Matrices and Textures — so one array here is one
 // array in every material, and writing it updates the whole scene.
 const aerialValues = {
+  /** Dome radiance at the horizon, ninety degrees off the sun. Linear. */
   fogSkyHorizon: new Float32Array(3),
   fogSkyZenith: new Float32Array(3),
+  /** How much hotter the horizon is under the sun than beside it. Linear. */
   fogSkySun: new Float32Array(3),
   fogSunDirection: new Float32Array([0, 1, 0]),
-  /** x: strength, y: height falloff, z: desaturation. All zero = stock fog. */
-  fogAerial: new Float32Array(3),
+  /** x: master gate, y: far-sky σ, z: desaturation, w: shaft depth. x=0 = stock fog. */
+  fogAerial: new Float32Array(4),
+  /** x: haze σ₀, y: haze 1/H, z: ground-mist σ₀, w: ground-mist 1/H. */
+  fogMist: new Float32Array(4),
+  /** xyz: the mist's ambient source function, w: how much sky it borrows on top. */
+  fogMistLight: new Float32Array(4),
+  /** xyz: the mist's beam source function, w: its Henyey-Greenstein g. */
+  fogMistPhase: new Float32Array(4),
+  /** x: shadow depth, y: 1/cell size, z: cover, w: edge softness. */
+  fogCloud: new Float32Array(4),
+  /** xy: drift in metres, zw: sun azimuth × the projection's height slope. */
+  fogCloudMove: new Float32Array(4),
+  /** xyz: radiant intensity of the fire, w: the closest approach it is clamped to. */
+  fogFire: new Float32Array(4),
+  fogFirePos: new Float32Array(3),
 };
+
+/** How much of the atmosphere each tier can afford in *every* material's shader. */
+interface FogDetail {
+  /** Samples of the deck taken along the ray. 0 drops shafts entirely. */
+  shaftTaps: number;
+  /** Octaves in one deck sample. The second is detail a 26 m band barely shows. */
+  deckOctaves: 1 | 2;
+  /** Whether `getShadow` is patched to carry the deck's shadow. */
+  cloudShadow: boolean;
+  /** Whether the ground mist gets its pooling noise. */
+  mistNoise: boolean;
+}
 
 const FOG_PARS_VERTEX = /* glsl */ `
 #ifdef USE_FOG
@@ -393,7 +577,61 @@ const FOG_VERTEX = /* glsl */ `
 #endif
 `;
 
-const FOG_PARS_FRAGMENT = /* glsl */ `
+/**
+ * The deck sampler, shared by the ground shadow, the shafts and the mist pools.
+ *
+ * This lands in *every* material in the scene and a medium-tier device is a
+ * phone, so the count matters: a shafted fragment reads the deck once per tap
+ * and once more inside `getShadow`, and each read is one or two octaves. Two
+ * octaves is a nicer cloud edge and one is most of it, which is why the second
+ * is the first thing the tier table takes away.
+ */
+function fogNoise(detail: FogDetail): string {
+  const field =
+    detail.deckOctaves === 2
+      ? "skyFogNoise( uv ) * 0.62 + skyFogNoise( uv * 2.17 + 11.3 ) * 0.38"
+      : "skyFogNoise( uv )";
+  return /* glsl */ `
+	float skyFogHash( vec2 p ) {
+		vec3 q = fract( vec3( p.x, p.y, p.x ) * 0.1031 );
+		q += dot( q, q.yzx + 33.33 );
+		return fract( ( q.x + q.y ) * q.z );
+	}
+
+	float skyFogNoise( vec2 p ) {
+		vec2 i = floor( p );
+		vec2 f = p - i;
+		vec2 u = f * f * ( 3.0 - 2.0 * f );
+		return mix(
+			mix( skyFogHash( i ), skyFogHash( i + vec2( 1.0, 0.0 ) ), u.x ),
+			mix( skyFogHash( i + vec2( 0.0, 1.0 ) ), skyFogHash( i + vec2( 1.0, 1.0 ) ), u.x ),
+			u.y );
+	}
+
+	// Lit fraction under the cloud deck at a world point; 1 is full sun.
+	//
+	// A literal projection would trace the sun's ray up to the cloud base — but
+	// the sun sits two degrees up, where that ray is a kilometre long and slides
+	// fifty metres sideways for every metre of height, which would put a
+	// warrior's helm and his boots in different weather. So the projection keeps
+	// the sun's azimuth and takes a fixed steeper slope: the shadow still moves
+	// the way a cloud shadow moves, and it stays coherent over a body.
+	float skyFogDeck( vec3 world ) {
+		vec2 uv = ( world.xz + fogCloudMove.xy - fogCloudMove.zw * world.y ) * fogCloud.y;
+		float d = ${field};
+		return 1.0 - smoothstep( fogCloud.z, fogCloud.z + fogCloud.w, d );
+	}
+
+	/** What the deck does to the key light here. 1 when cloud shadows are off. */
+	float skyFogCloudShadow( vec3 world ) {
+		return fogCloud.x > 0.0 ? mix( 1.0, skyFogDeck( world ), fogCloud.x ) : 1.0;
+	}
+`;
+}
+
+function fogParsFragment(detail: FogDetail): string {
+  const noise = detail.cloudShadow || detail.shaftTaps > 0 || detail.mistNoise ? fogNoise(detail) : "";
+  return /* glsl */ `
 #ifdef USE_FOG
 
 	uniform vec3 fogColor;
@@ -407,67 +645,184 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 		uniform float fogFar;
 	#endif
 
-	// Written by sky.ts, in linear radiance. Zero collapses back to stock fog.
+	// Written by sky.ts, in linear radiance and metres. fogAerial.x = 0 is the
+	// whole model switched off, which is what a material the injection missed
+	// gets — and three's stock fog is a perfectly good thing to fall back to.
 	uniform vec3 fogSkyHorizon;
 	uniform vec3 fogSkyZenith;
 	uniform vec3 fogSkySun;
 	uniform vec3 fogSunDirection;
-	uniform vec3 fogAerial;
+	uniform vec4 fogAerial;
+	uniform vec4 fogMist;
+	uniform vec4 fogMistLight;
+	uniform vec4 fogMistPhase;
+	uniform vec4 fogCloud;
+	uniform vec4 fogCloudMove;
+	uniform vec4 fogFire;
+	uniform vec3 fogFirePos;
 
+	// Column density of an exponential atmosphere along a ray, in units of the
+	// density at y = 0. Exact, including the ray that climbs out of a hollow and
+	// the one that dives into it; the small-slope branch is the flat-air limit,
+	// which the closed form cannot take on its own.
+	float skyFogColumn( float y0, float dy, float invH ) {
+		float k = invH * dy;
+		float att = abs( k ) < 1e-3 ? 1.0 - 0.5 * k : ( 1.0 - exp( - k ) ) / k;
+		return exp( - invH * max( y0, 0.0 ) ) * att;
+	}
+${noise}
 #endif
 `;
+}
 
-const FOG_FRAGMENT = /* glsl */ `
+function fogFragment(detail: FogDetail): string {
+  const pools = detail.mistNoise
+    ? /* glsl */ `
+		// Ground mist pools. One low-frequency read at the ray's midpoint is
+		// enough to make a hollow hold more of it than the bank does, and it
+		// drifts with the deck, so the arena is never twice the same.
+		fogTauM *= 0.55 + 0.9 * skyFogNoise( ( cameraPosition.xz + vFogRay.xz * 0.5 ) * 0.045 + fogCloudMove.xy * 0.11 );
+`
+    : "";
+
+  const shafts =
+    detail.shaftTaps > 0
+      ? /* glsl */ `
+		// Crepuscular shafts. The sun's share of the near air is cut wherever
+		// the deck's shadow crosses this ray, and because the cut is sampled
+		// *along* the ray rather than at its end, what lands is a gradient — a
+		// shaft with a near edge and a far edge, not a stencil.
+		if ( fogAerial.w > 0.0 ) {
+			float fogLit = 0.0;
+			for ( int i = 0; i < ${detail.shaftTaps}; i ++ ) {
+				fogLit += skyFogDeck( cameraPosition + vFogRay * ( ( float( i ) + 0.5 ) / ${detail.shaftTaps}.0 ) );
+			}
+			fogShaft = mix( 1.0, fogLit / ${detail.shaftTaps}.0, fogAerial.w );
+		}
+`
+      : "";
+
+  return /* glsl */ `
 #ifdef USE_FOG
 
-	#ifdef FOG_EXP2
-		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
-	#else
-		float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
-	#endif
+	if ( fogAerial.x <= 0.0 ) {
 
-	vec3 fogTint = fogColor;
+		#ifdef FOG_EXP2
+			float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+		#else
+			float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+		#endif
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
 
-	if ( fogAerial.x > 0.0 ) {
+	} else {
 
-		vec3 fogDir = normalize( vFogRay );
+		// True path length, not view depth: planar fog under-hazes the corners
+		// of a 55-degree frame by a tenth, and that shows up as the settlement
+		// reading crisper at the edge of the shot than in the middle of it.
+		float fogDist = max( length( vFogRay ), 1e-4 );
+		vec3 fogDir = vFogRay / fogDist;
+		float fogMu = dot( fogDir, fogSunDirection );
 
-		// Air thins with altitude, so a thatch ridge sits in clearer air than
-		// the doorway under it. Without this the haze is a flat wash pinned to
-		// the camera and the settlement flattens into one plane.
-		float fogH = max( 0.0, cameraPosition.y + 0.5 * vFogRay.y );
-		fogFactor *= exp( - fogH * fogAerial.y );
+		// ---- how much air is actually on this ray ----
+		float fogTauH = fogMist.x * fogDist * skyFogColumn( cameraPosition.y, vFogRay.y, fogMist.y );
+		float fogTauM = fogMist.z * fogDist * skyFogColumn( cameraPosition.y, vFogRay.y, fogMist.w );
+${pools}
+		float fogTau = fogTauH + fogTauM;
+		float fogVeil = 1.0 - exp( - fogTau );
 
-		// In-scatter is the sky along this ray, not one colour for the frame.
+		// ---- the sky along this ray, which is where the far half goes ----
 		float fogUp = clamp( fogDir.y * 1.55 + 0.12, 0.0, 1.0 );
 		vec3 fogAir = mix( fogSkyHorizon, fogSkyZenith, fogUp * fogUp );
-		float fogHalo = max( 0.0, dot( fogDir, fogSunDirection ) );
-		fogAir += fogSkySun * ( fogHalo * fogHalo * fogHalo );
+		// The ember band is a horizon phenomenon and it is narrower than it
+		// looks: the sixth power holds it across the sun's quarter of the sky and
+		// has it gone by sixty degrees, where v1's cube was still at half
+		// strength there and was painting most of the frame the same orange.
+		float fogMu2 = max( fogMu, 0.0 );
+		fogMu2 *= fogMu2;
+		fogAir += fogSkySun * ( fogMu2 * fogMu2 * fogMu2 * ( 1.0 - fogUp ) );
+
+		// ---- what the near air is glowing with ----
+		float fogG = fogMistPhase.w;
+		float fogGG = fogG * fogG;
+		float fogDen = max( 1.0 + fogGG - 2.0 * fogG * fogMu, 1e-4 );
+		float fogPhase = ( 1.0 - fogGG ) / ( fogDen * sqrt( fogDen ) );
+
+		float fogShaft = 1.0;
+${shafts}
+		vec3 fogGlow = fogMistLight.rgb + fogAir * fogMistLight.w + fogMistPhase.rgb * ( fogPhase * fogShaft );
+		vec3 fogAdd = fogGlow * fogVeil;
+
+		// ---- firelight in that air ----
+		// The exact single-scatter integral of a point source along the segment
+		// the camera can actually see, which is why the glow tightens around the
+		// bonfire instead of sitting on it as a sprite, and why a warrior
+		// standing in front of it cuts the shaft off at his back.
+		if ( fogFire.w > 0.0 ) {
+			vec3 fogToFire = fogFirePos - cameraPosition;
+			float fogT = dot( fogToFire, fogDir );
+			float fogH = sqrt( max( dot( fogToFire, fogToFire ) - fogT * fogT, fogFire.w ) );
+			float fogArc = atan( ( fogDist - fogT ) / fogH ) + atan( fogT / fogH );
+			fogAdd += fogFire.rgb * ( fogArc * fogTau / ( fogH * fogDist ) );
+		}
 
 		// Match whatever space gl_FragColor is in right now: tone mapped and
 		// encoded when we are presenting, raw linear when a post pass owns the
-		// buffer. Both branches are the renderer's own, so this cannot drift.
+		// buffer. Both branches are the renderer's own, so this cannot drift —
+		// and in the composer path, which is every tier, both are the identity.
 		#ifdef TONE_MAPPING
+			fogAdd = toneMapping( fogAdd );
 			fogAir = toneMapping( fogAir );
 		#endif
+		fogAdd = linearToOutputTexel( vec4( fogAdd, 1.0 ) ).rgb;
 		fogAir = linearToOutputTexel( vec4( fogAir, 1.0 ) ).rgb;
 
-		fogTint = mix( fogColor, fogAir, fogAerial.x );
+		float fogSky = 1.0 - exp( - fogAerial.y * fogAerial.y * fogDist * fogDist );
+
+		vec3 fogOut = gl_FragColor.rgb * ( 1.0 - fogVeil ) + fogAdd;
+		// Distance eats saturation before it eats contrast. It is driven off
+		// whichever of the two terms has more of this ray, not off their sum —
+		// the mist already desaturates by adding its own light, and charging for
+		// that twice is how a hut ends up grey at thirty metres.
+		float fogLum = dot( fogOut, vec3( 0.2126, 0.7152, 0.0722 ) );
+		fogOut = mix( fogOut, vec3( fogLum ), max( fogSky, fogVeil * 0.6 ) * fogAerial.z );
+		gl_FragColor.rgb = mix( fogOut, fogAir, fogSky );
 
 	}
 
-	// Distance eats saturation before it eats contrast.
-	float fogLum = dot( gl_FragColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
-	gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( fogLum ), fogFactor * fogAerial.z );
-	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogTint, fogFactor );
-
 #endif
 `;
+}
+
+/**
+ * Cloud shadow, threaded through three's own shadow lookup.
+ *
+ * A cloud shadow is a loss of *key* light, so the honest place for it is where
+ * the key's shadow term is resolved. Multiplied into `getShadow` it lands on the
+ * turf, the huts and the warriors as one thing, it reaches past the cascade's
+ * 24 m the way a real cloud does, and it costs a texture-free function call in a
+ * shader that was already running. `getPointShadow` is deliberately left alone:
+ * a torch does not care what the sky is doing.
+ *
+ * The patch is textual and timid. If this version of three does not present
+ * exactly the three `getShadow` bodies it is written against, it declines, and
+ * the frame loses its cloud shadows rather than its shadows.
+ */
+function patchShadowChunk(src: string): string | null {
+  const split = src.indexOf("float getPointShadow(");
+  if (split < 0) return null;
+  const marker = "return mix( 1.0, shadow, shadowIntensity );";
+  const parts = src.slice(0, split).split(marker);
+  if (parts.length !== 4) return null;
+  const patched = parts.join(
+    "#ifdef USE_FOG\n\t\t\t\tshadow *= skyFogCloudShadow( cameraPosition + vFogRay );\n\t\t\t#endif\n\t\t\t" + marker,
+  );
+  return patched + src.slice(split);
+}
 
 let aerialRefs = 0;
 let aerialOriginal: Record<string, string> | null = null;
 
-function installAerialPerspective(): void {
+function installAerialPerspective(detail: FogDetail): void {
   aerialRefs++;
   if (aerialRefs > 1) return;
 
@@ -480,8 +835,20 @@ function installAerialPerspective(): void {
   };
   chunks.fog_pars_vertex = FOG_PARS_VERTEX;
   chunks.fog_vertex = FOG_VERTEX;
-  chunks.fog_pars_fragment = FOG_PARS_FRAGMENT;
-  chunks.fog_fragment = FOG_FRAGMENT;
+  chunks.fog_pars_fragment = fogParsFragment(detail);
+  chunks.fog_fragment = fogFragment(detail);
+
+  // The call site can only reach `skyFogCloudShadow` because three includes
+  // fog_pars_fragment before shadowmap_pars_fragment in every lit ShaderLib
+  // entry, and only under USE_FOG because that is where the world-space ray it
+  // needs is declared. A material with shadows and no fog keeps stock shadows.
+  if (detail.cloudShadow) {
+    const patched = patchShadowChunk(chunks.shadowmap_pars_fragment);
+    if (patched) {
+      aerialOriginal.shadowmap_pars_fragment = chunks.shadowmap_pars_fragment;
+      chunks.shadowmap_pars_fragment = patched;
+    }
+  }
 
   // ShaderLib entries were cloned out of UniformsLib when three was imported,
   // so the injection has to happen on each entry rather than on UniformsLib.
@@ -504,7 +871,11 @@ function uninstallAerialPerspective(): void {
   for (const shader of Object.values(THREE.ShaderLib)) {
     for (const name of AERIAL_UNIFORM_NAMES) delete shader.uniforms[name];
   }
+  // Anything still holding these by reference — a vfx ShaderMaterial outliving
+  // the sky by a frame — has to see the model switched off, not half of it.
   aerialValues.fogAerial.fill(0);
+  aerialValues.fogCloud.fill(0);
+  aerialValues.fogFire.fill(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -555,6 +926,7 @@ uniform vec2 uCloudDrift;
 uniform vec2 uCloudSunStep;
 uniform vec3 uCloudLit;
 uniform vec3 uCloudShade;
+uniform float uShaftGain;
 uniform float uTime;
 uniform float uBake;
 
@@ -778,6 +1150,27 @@ void main() {
 		}
 	}
 
+	// ---- crepuscular fan ----
+	// Rays are the deck's gaps seen end-on, so they are radial about the sun and
+	// the field has to be sampled that way: project the view direction into the
+	// sun's own tangent plane, normalise, and read the noise on that ring. A
+	// bearing angle would have been the obvious coordinate and it is the wrong
+	// one — the noise lattice does not wrap, so the seam at +/- pi would show as
+	// one hard-edged ray. A ring has no seam, and it costs less than the atan.
+	// Radius grows a little with separation, which is what breaks a shaft up
+	// along its length instead of running it out to the horizon at full strength.
+	if ( uShaftGain > 0.0 && cosSun > 0.0 && uBake < 0.5 ) {
+		vec3 sx = normalize( cross( uSunDir, vec3( 0.0, 1.0, 0.0 ) ) );
+		vec2 axis = vec2( dot( dir, sx ), dot( dir, cross( sx, uSunDir ) ) );
+		vec2 ring = axis * inversesqrt( max( dot( axis, axis ), 1e-6 ) ) * ( 4.4 + angSun * 0.9 );
+		float fan = skyNoise2( ring + vec2( uTime * 0.017, 0.0 ) ) * 0.62
+			+ skyNoise2( ring * 2.5 + vec2( 0.0, - uTime * 0.031 ) ) * 0.38;
+		// The near gate keeps the fan off the disc, where it would only fight
+		// the corona; the far one is how much air the shaft has left to light.
+		float reach = exp( - angSun * 2.1 ) * smoothstep( 0.010, 0.075, angSun );
+		col += uSunBeam * ( smoothstep( 0.46, 0.84, fan ) * reach * uShaftGain );
+	}
+
 	// ---- the land beyond the arena ----
 	// Below eye level the dome is not sky, it is haze over ground the arena
 	// never builds. Folding it down gives the terrain disc somewhere to end.
@@ -796,11 +1189,19 @@ void main() {
 }
 `;
 
-/** How much of the sky each tier can afford. Low still gets cloud and stars. */
-const TIER_DETAIL: Record<QualitySettings["tier"], { octaves: number; stars: boolean }> = {
-  high: { octaves: 4, stars: true },
-  medium: { octaves: 3, stars: true },
-  low: { octaves: 2, stars: true },
+/**
+ * How much of the sky each tier can afford. Low still gets cloud, stars and the
+ * crepuscular fan, because those live in one draw of the dome and cost nothing
+ * that matters. What low drops is everything that has to be compiled into every
+ * *other* material in the scene — shafts, cloud shadow, mist pooling — because
+ * that cost is paid by every pixel of the frame, not by the sky. The aerial
+ * perspective itself stays on all three tiers: it is the art direction, and the
+ * settlement has to read in layers on a phone as much as on a desktop.
+ */
+const TIER_DETAIL: Record<QualitySettings["tier"], { octaves: number; stars: boolean } & FogDetail> = {
+  high: { octaves: 4, stars: true, shaftTaps: 3, deckOctaves: 2, cloudShadow: true, mistNoise: true },
+  medium: { octaves: 3, stars: true, shaftTaps: 2, deckOctaves: 1, cloudShadow: true, mistNoise: false },
+  low: { octaves: 2, stars: true, shaftTaps: 0, deckOctaves: 1, cloudShadow: false, mistNoise: false },
 };
 
 // ---------------------------------------------------------------------------
@@ -809,6 +1210,51 @@ const SUN_DISC_RADIUS = 0.0079; // 0.9° across. The true 0.53° is nine pixels 
 const MOON_DISC_RADIUS = 0.0175; // 2° across, ~4x life size, which every shipped game does.
 const CLOUD_HEIGHT = 1400;
 const CLOUD_SCALE = 0.0011;
+
+/**
+ * Ground footprint of one cell of the shadow field. The moot is 43 m across, so
+ * at 26 m a band takes most of a minute to cross it and there is rarely more
+ * than one edge in frame — which is what a cloud shadow looks like, and what a
+ * smaller number would turn into dappling.
+ */
+const CLOUD_SHADOW_CELL = 26;
+/** Metres per second the deck's shadow crawls. Slow enough to notice, not to watch. */
+const CLOUD_SHADOW_DRIFT = new THREE.Vector2(0.95, 0.58);
+/** Edge width of the shadow, as a fraction of the field. Cloud edges are not hard. */
+const CLOUD_SHADOW_SOFT = 0.26;
+/**
+ * Height slope of the shadow projection: one over the tangent of the elevation
+ * it pretends the sun is at. See `skyFogDeck` for why it is not the real one.
+ */
+const CLOUD_SHADOW_SLOPE = 1.28;
+
+/** A point source the near air scatters, which in this arena means the bonfire. */
+export interface HazeLight {
+  position: THREE.Vector3;
+  color: THREE.Color;
+  /** Multiplier on the mood's `fireHaze`. 0 removes the source. */
+  gain: number;
+}
+
+/**
+ * world.ts builds the bonfire at the arena's origin and hangs its point light
+ * a metre up in the logs, so this is where the fire is unless someone says
+ * otherwise. It is a default rather than a lookup because sky.ts is not allowed
+ * to go hunting through the scene for a light it does not own.
+ */
+const DEFAULT_HAZE_LIGHT: HazeLight = {
+  position: new THREE.Vector3(0, 1.05, 0),
+  color: new THREE.Color(0xff8a33),
+  gain: 1,
+};
+
+/**
+ * Squared closest approach the fire's in-scatter integral is clamped to. A point
+ * source has a singularity on its own axis; a metre-wide bonfire does not, and
+ * this is that metre. Without it a ray grazing the embers divides by nothing and
+ * the arena gets a hard white core the bloom then smears over the whole frame.
+ */
+const FIRE_HAZE_CORE = 1.2;
 
 function lerpParams(a: SkyParams, b: SkyParams, t: number, out: SkyParams): SkyParams {
   const n = (x: number, y: number) => x + (y - x) * t;
@@ -834,8 +1280,20 @@ function lerpParams(a: SkyParams, b: SkyParams, t: number, out: SkyParams): SkyP
   out.cloudGain = n(a.cloudGain, b.cloudGain);
   out.cloudLitGain = n(a.cloudLitGain, b.cloudLitGain);
   out.cloudShadeGain = n(a.cloudShadeGain, b.cloudShadeGain);
+  out.shaftGain = n(a.shaftGain, b.shaftGain);
+  out.hazeDensity = n(a.hazeDensity, b.hazeDensity);
+  out.hazeHeight = n(a.hazeHeight, b.hazeHeight);
+  out.mistDensity = n(a.mistDensity, b.mistDensity);
+  out.mistHeight = n(a.mistHeight, b.mistHeight);
+  out.mistAlbedo = n(a.mistAlbedo, b.mistAlbedo);
+  out.mistSkyShare = n(a.mistSkyShare, b.mistSkyShare);
+  out.mistBeam = n(a.mistBeam, b.mistBeam);
+  out.mistG = n(a.mistG, b.mistG);
+  out.skyDensity = n(a.skyDensity, b.skyDensity);
+  out.fireHaze = n(a.fireHaze, b.fireHaze);
+  out.cloudShadow = n(a.cloudShadow, b.cloudShadow);
+  out.shaftDepth = n(a.shaftDepth, b.shaftDepth);
   out.fogDensity = n(a.fogDensity, b.fogDensity);
-  out.fogHeightFalloff = n(a.fogHeightFalloff, b.fogHeightFalloff);
   out.fogDesaturate = n(a.fogDesaturate, b.fogDesaturate);
   return out;
 }
@@ -891,7 +1349,7 @@ export function createSky(
   const detail = TIER_DETAIL[settings.tier];
   const seg = opts.segments ?? { width: 64, height: 48 };
   const useAerial = opts.aerialPerspective !== false;
-  if (useAerial) installAerialPerspective();
+  if (useAerial) installAerialPerspective(detail);
 
   const root = new THREE.Group();
   root.name = "sky";
@@ -931,6 +1389,7 @@ export function createSky(
     uCloudSunStep: { value: new THREE.Vector2() },
     uCloudLit: { value: new THREE.Vector3() },
     uCloudShade: { value: new THREE.Vector3() },
+    uShaftGain: { value: DUSK.shaftGain },
     uTime: { value: 0 },
     uBake: { value: 0 },
   };
@@ -974,6 +1433,8 @@ export function createSky(
   let blend = 1;
   let air = resolveAir(current, sunDirection, moonDirection);
   let elapsed = 0;
+  let hazeLight: HazeLight | null =
+    opts.hazeLight === undefined ? DEFAULT_HAZE_LIGHT : opts.hazeLight;
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   let envTarget: THREE.WebGLRenderTarget | null = null;
@@ -1023,6 +1484,7 @@ export function createSky(
     uniforms.uStarFade.value = current.starFade;
     uniforms.uCloudCover.value = current.cloudCover;
     uniforms.uCloudGain.value = current.cloudGain;
+    uniforms.uShaftGain.value = current.shaftGain;
 
     // Three probes of the model are enough to rebuild it for the fog: a neutral
     // horizon, the zenith, and how much hotter the horizon gets under the sun.
@@ -1052,7 +1514,49 @@ export function createSky(
       aerialValues.fogSkyZenith.set([zenithSky.x, zenithSky.y, zenithSky.z]);
       aerialValues.fogSkySun.set([sunSky.x, sunSky.y, sunSky.z]);
       aerialValues.fogSunDirection.set([sunDirection.x, sunDirection.y, sunDirection.z]);
-      aerialValues.fogAerial.set([1, current.fogHeightFalloff, current.fogDesaturate]);
+      aerialValues.fogAerial.set([
+        1,
+        current.skyDensity,
+        current.fogDesaturate,
+        detail.shaftTaps > 0 ? current.shaftDepth : 0,
+      ]);
+      aerialValues.fogMist.set([
+        current.hazeDensity,
+        1 / current.hazeHeight,
+        current.mistDensity,
+        1 / current.mistHeight,
+      ]);
+
+      // The ambient source function of ground-level air: the dome weighted by
+      // how much of each part of it a mist layer can actually see. Mostly
+      // horizon, because that is most of what is above a flat arena; some
+      // zenith, which is the only cold thing in the term; a little of the ember
+      // band, because it is bright enough to matter even at a small solid angle.
+      scratch.copy(horizonSky).multiplyScalar(0.5)
+        .addScaledVector(zenithSky, 0.32)
+        .addScaledVector(sunSky, 0.18)
+        .multiplyScalar(current.mistAlbedo);
+      aerialValues.fogMistLight.set([scratch.x, scratch.y, scratch.z, current.mistSkyShare]);
+
+      // The beam source function, with the phase function's 1/4π folded in so
+      // the shader can evaluate the raw Henyey-Greenstein lobe and multiply.
+      scratch.copy(air.sunBeam).multiplyScalar(current.mistBeam * 0.0795775);
+      aerialValues.fogMistPhase.set([scratch.x, scratch.y, scratch.z, current.mistG]);
+
+      aerialValues.fogCloud.set([
+        detail.cloudShadow || detail.shaftTaps > 0 ? current.cloudShadow : 0,
+        1 / CLOUD_SHADOW_CELL,
+        // A heavier deck shadows more ground. The bias is the gap between the
+        // dome's cover threshold, which is read against a four-octave field on
+        // a shell, and this one, which is two octaves on the floor.
+        Math.max(0.05, current.cloudCover - 0.16),
+        CLOUD_SHADOW_SOFT,
+      ]);
+      // Only zw here: xy is the drift, and update() owns it.
+      aerialValues.fogCloudMove[2] = sx * CLOUD_SHADOW_SLOPE;
+      aerialValues.fogCloudMove[3] = sz * CLOUD_SHADOW_SLOPE;
+
+      refreshHazeLight();
     }
 
     fog.density = current.fogDensity;
@@ -1064,10 +1568,37 @@ export function createSky(
   }
 
   /**
+   * The fire the near air is scattering. `w` doubles as the switch and as the
+   * squared core radius, so a shader that never received these uniforms reads
+   * zero and skips the whole term rather than dividing by nothing.
+   */
+  function refreshHazeLight(): void {
+    if (!useAerial) return;
+    if (!hazeLight || hazeLight.gain <= 0 || current.fireHaze <= 0) {
+      aerialValues.fogFire.fill(0);
+      return;
+    }
+    const k = current.fireHaze * hazeLight.gain;
+    aerialValues.fogFire.set([
+      hazeLight.color.r * k,
+      hazeLight.color.g * k,
+      hazeLight.color.b * k,
+      FIRE_HAZE_CORE,
+    ]);
+    aerialValues.fogFirePos.set([
+      hazeLight.position.x,
+      hazeLight.position.y,
+      hazeLight.position.z,
+    ]);
+  }
+
+  /**
    * `fog.color` and the clear colour are the only two values this module hands
    * out display-referred, so they are the only two that take the tone curve on
    * the CPU. They run every frame because postfx owns the exposure and can move
-   * it out from under us.
+   * it out from under us. The curve here is ACES rather than postfx's own, which
+   * is right for exactly the case these two exist for — a frame presented
+   * straight to the canvas because the composer never built.
    */
   function refreshFallbackColor(): void {
     scratch.copy(horizonSky).addScaledVector(sunSky, 0.45);
@@ -1096,7 +1627,7 @@ export function createSky(
     envTarget = next;
     // sky.ts pushes the environment itself rather than waiting to be asked,
     // because a rebake mints a new texture and every metal has to follow it.
-    materials.setEnvironment(next.texture);
+    materials.setEnvironment(next.texture, ENV_INTENSITY);
     envDirty = false;
     envCooldown = 0.75;
   }
@@ -1134,9 +1665,22 @@ export function createSky(
       refresh();
     },
 
+    setHazeLight(light) {
+      hazeLight = light;
+      refreshHazeLight();
+    },
+
     update(dt, ctx) {
       elapsed = (elapsed + ctx.rawDt) % 10000;
       uniforms.uTime.value = elapsed;
+
+      // The deck's shadow is driven off the clock rather than integrated, so a
+      // dropped frame slides it rather than stalling it, and so two capture runs
+      // of the same second lay the same bands across the same turf.
+      if (useAerial) {
+        aerialValues.fogCloudMove[0] = CLOUD_SHADOW_DRIFT.x * elapsed;
+        aerialValues.fogCloudMove[1] = CLOUD_SHADOW_DRIFT.y * elapsed;
+      }
 
       // The dome rides the camera, so it is always at infinity and no amount of
       // walking can reach its edge. One frame of lag against the rig is

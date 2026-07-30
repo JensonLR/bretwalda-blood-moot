@@ -6,7 +6,7 @@
 // mouse look, the mobile auto-follow and attack magnetism from fighting over it.
 
 import * as THREE from "three";
-import type { FrameContext, QualitySettings } from "./quality";
+import { LAYER_UNOCCLUDED, type FrameContext, type QualitySettings } from "./quality";
 
 export type CameraMode =
   /** Over-shoulder on the local warrior. */
@@ -48,6 +48,11 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
   // reconstructs the settlement out at 30 m from noise and darkens it uniformly.
   const camera = new THREE.PerspectiveCamera(FOV_BASE, opts.aspect ?? 1, 0.2, 200);
   camera.position.set(0, 8, 14);
+  // The HUD plates and every particle billboard live on their own layer so the
+  // occlusion prepass can drop them; the camera has to see it, or they vanish
+  // from the beauty pass instead. Enabled here because the camera is this
+  // module's, and a mask set anywhere else would be a second owner of it.
+  camera.layers.enable(LAYER_UNOCCLUDED);
 
   const orbitTarget = new THREE.Vector3();
   let mode: CameraMode = "follow";
