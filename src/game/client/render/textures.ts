@@ -281,7 +281,22 @@ function valueOctave(out: Float32Array, size: number, cells: number, amp: number
   }
 }
 
-/** fBm of tileable value noise, normalised to 0..1. */
+/**
+ * fBm of tileable value noise, normalised to 0..1.
+ *
+ * `cells` is a lattice node count, and a recipe reading it as a feature count is
+ * the single most expensive misreading available in this file. An N-node lattice
+ * can only carry frequencies up to N/2, and the fBm's first octave takes the
+ * whole amplitude, so what a field's *dominant* term costs is one cycle per
+ * lattice-period at the coarsest octave — not `cells` of them. `soft` is built at
+ * three nodes: its peak is at ONE cycle across the field, so a `u * 4` tap peaks
+ * at four cycles across the tile and not at twelve. That factor of `cells` is why
+ * a dye field the comments described as landing well inside the detiling rule was
+ * in fact sitting three octaves below it, drawing a four-cell grid on every
+ * garment in the frame. Multiply a tap scale out to cycles-per-tile before
+ * trusting it, and remember `grain` peaks at six, `warp` at four, `fine` at
+ * sixteen and `ridge` at two.
+ */
 function valueNoise(size: number, cells: number, octaves: number, gain: number, rng: Rng): Field {
   const data = new Float32Array(size * size);
   let amp = 1;
@@ -1186,6 +1201,34 @@ function verdigris(c: Float32Array, i: number, light: RGB, dark: RGB, amount: nu
 // fur (6), which borrow wool at a much finer tile to fake strands — one tile
 // size cannot serve both, but one *primitive* can. A nap field is fibre at a
 // 50 mm tile and hair at a 30 mm one, which the weave never was.
+//
+// Killing the weave was necessary and was not sufficient, and the reason is the
+// note on `valueNoise`. The dye field survived the rewrite at a tap the comment
+// beside it read as twelve cells across the tile; it is four, because `soft` is a
+// three-node lattice and a three-node lattice peaks at one cycle. Laid down at
+// the tile sizes characters.ts asks for — ~20 mm on a beard, 34 to 56 mm on a
+// garment or a cloak, ~165 mm on the berserker's ruff — four cycles is a
+// four-cell grid stamped once per tile and then repeated twelve to twenty-four
+// times round a limb, which is precisely the basketwork three panels scored and
+// precisely what `CLOTH_BLOTCH * 4` in characters.ts was named after. Measured
+// off the built tile: a third of the albedo's variance sat below eight cycles
+// and it peaked at four.
+//
+// Twelve cycles is the fix, and the reason it can serve every one of those tile
+// sizes at once is that it leaves nothing with a characteristic length above the
+// fibre. The nap is anisotropic and an anisotropic field cannot draw a lattice
+// however coarse it gets — long streaks at a 165 mm tile are a pelt and at a
+// 20 mm tile they are strands, which is the trap dissolved rather than worked
+// around. What twelve costs is the low-frequency tonal swing the old blotch
+// carried, and that swing is load-bearing: `stance` ships ten luma buckets
+// against a floor of eight and its marginal ones come off the berserker's cream
+// legging. So the swing is bought back where it cannot draw a grid — a wider
+// albedo range across the nap itself, a fifth more relief for the shading to
+// work on, and a stronger dye gain per blotch now that a blotch is smaller. Laid
+// down at the dozen-odd pixels a legging tile occupies in `stance`, that returns
+// roughly two thirds to four fifths of the luma spread the four-cycle grid was
+// providing, and it puts the tile's own spread up by a sixth at close range. The
+// shortfall at distance is genuinely gone, because it *was* the grid.
 function buildWool(g: Gen): void {
   const { size, h, r, m, c, bank } = g;
   const base = col(0x9d968b);
@@ -1219,25 +1262,44 @@ function buildWool(g: Gen): void {
       ? (1 - smoothstep(0.08, 0.4, pillD)) * 0.9
       : 0;
 
-    // Vat-dye unevenness, kept at its old strength and moved off the tile's own
-    // fundamental. It carries the half of wool's tonal variation that survives
-    // being mipped down to a cloak at twenty metres — cutting it costs luma
-    // buckets — but at two cycles a tile it was also the single most legible
-    // landmark in the library, and `CLOTH_BLOTCH * 4` in characters.ts is named
-    // after the cell it made. Four cycles and a gentler expansion keeps the
-    // range and takes the landmark away.
-    const dye = contrast(sampleField(bank.soft, u * 4, v * 4), 1.7);
+    // Vat-dye unevenness. Twelve cycles across the tile, which is the number the
+    // note above is about: it puts a blotch under 2 mm on a beard and 14 mm on
+    // the ruff, so the coarsest thing in the field is always an order below the
+    // tile and the tile can never be counted. Harder per blotch than it was,
+    // because a smaller blotch averages away faster and the range is what the
+    // grade is spending.
+    //
+    // Warped three times as hard as the nap, and this is the second half of the
+    // fix rather than a flourish. Raising a tap scale on a bank field does not
+    // only make its features smaller, it makes them *periodic*: `soft` carries
+    // nine distinct blobs at its coarsest octave, so at twelve it is those nine
+    // stamped in a strict 12 x 12 grid, and on the berserker's ruff — a 165 mm
+    // tile, eighty-odd pixels of it at the portrait framing — that grid is
+    // legible as tweed even though every cell in it is small. The warp is the one
+    // that takes a lattice out of a lattice-built field, which is what `warpUV`
+    // exists for; a whole cell of it here turns the grid into swirled fleece and
+    // leaves the garment scales, where the blotch is under two pixels anyway,
+    // exactly as they were. Reusing the nap's own displacement rather than taking
+    // a second warp tap keeps this free, and the +1 keeps `tap`'s argument
+    // positive at u near zero without moving the sample — twelve is an integer
+    // number of field periods.
+    const dw = (wu - u) * 3;
+    const dye = contrast(sampleField(bank.soft, (u + dw + 1) * 12, (v - dw * 0.74 + 1) * 12), 1.7);
 
     const fibre = clamp01(nap * 0.74 + hairy * 0.26);
-    h[i] = clamp01(0.4 + (fibre - 0.5) * 0.52 + (tooth - 0.5) * 0.18 + pill * 0.28);
+    h[i] = clamp01(0.4 + (fibre - 0.5) * 0.6 + (tooth - 0.5) * 0.18 + pill * 0.28);
 
-    mix(c, i, shade, base, clamp01(fibre * 1.45));
+    // Wider across the nap than the weave ever ran across its crossings, and it
+    // is the trade the dye field paid for: this is variation that lives on a
+    // streak rather than on a lattice, so it can be as strong as the substance
+    // wants without ever giving the eye something to count.
+    mix(c, i, shade, base, clamp01(fibre * 1.85));
     // A pill is a knot of the same wool, not a bead of something else: it reads
     // in the relief and only barely in the colour. Lit as brightly as the nap
     // crowns it came back as lint.
-    toward(c, i, lift, clamp01((fibre - 0.62) * 2.4) * 0.5 + pill * 0.22);
-    toward(c, i, dusty, smoothstep(0.56, 0.06, dye) * 0.32);
-    gain(c, i, 0.8 + dye * 0.42 + (tooth - 0.5) * 0.12);
+    toward(c, i, lift, clamp01((fibre - 0.62) * 2.4) * 0.66 + pill * 0.22);
+    toward(c, i, dusty, smoothstep(0.56, 0.06, dye) * 0.4);
+    gain(c, i, 0.8 + dye * 0.5 + (tooth - 0.5) * 0.12);
     // Felt is the most light-absorbing thing in the frame and has no crowns to
     // shine off: the spread is a tenth wide and all of it sits at the top.
     r[i] = clamp01(0.99 - fibre * 0.09 - pill * 0.05 + (tooth - 0.5) * 0.05);
@@ -1257,12 +1319,25 @@ function buildWool(g: Gen): void {
 // The slub carries the read. Flax fibre is uneven along its length, so the yarn
 // thickens and thins at random and the grid is never square; without it this is
 // graph paper at any contrast.
+//
+// Sixty-four threads, not thirty, and this is the one cloth where the count is
+// the whole argument rather than a detail of it. Linen is not world-sized, so it
+// wears whatever tile its caller asks for, and its callers ask big: an undershirt
+// takes repeat 6 round a chest a metre in the round, and the banners take 3
+// across their width, which lands the tile near 160 mm on both. Thirty threads
+// over 160 mm is a 5 mm yarn — sacking, and the coarsest cloth in the frame drawn
+// on the substance that is meant to be the finest. Doubling the count lands it
+// near two and a half millimetres and four texels, which is the shimmer floor the
+// thatch straws established and the point at which a shirt at gameplay range is
+// one pale tone with a tooth in it, which is what a bleached undershirt is. The
+// count that actually wants fixing is the caller's repeat, and it is not in this
+// file; sixty-four is what this end can do about it.
 function buildLinen(g: Gen): void {
   const { size, h, r, m, c, bank } = g;
   // Below about three texels a thread shimmers, same rule as the thatch straws.
   // The count stays EVEN: the over/under parity is per thread, so an odd count
   // flips it across the tile wrap and lays a seam down every edge of the cloth.
-  const n = size >= 256 ? 30 : 12;
+  const n = size >= 256 ? 64 : 24;
   const base = col(0xb7ab93);
   const shade = col(0x7a7161);
   const lift = col(0xd6cdb7);
@@ -1301,9 +1376,13 @@ function buildLinen(g: Gen): void {
     const top = Math.max(hw, hf);
 
     const fibre = sampleField(bank.fine, u * 3, v * 3);
-    // Same move as wool's: off the tile's own fundamental, so what a mipped
-    // shirt keeps is a tone rather than a check.
-    const dye = contrast(sampleField(bank.soft, u * 4, v * 4), 1.5);
+    // Same move as wool's, warp and all, and it had the same arithmetic error
+    // under it: four cycles across a 160 mm shirt tile is a 40 mm blotch laid six
+    // times round a chest. Twelve is where a dye blotch stops competing with the
+    // weave it is supposed to be sitting on, and the displacement is what stops
+    // twelve being a 12 x 12 grid of the nine blobs `soft` actually holds.
+    const dw = (WARP[0] - u) * 3;
+    const dye = contrast(sampleField(bank.soft, (u + dw + 1) * 12, (v - dw * 0.74 + 1) * 12), 1.5);
     h[i] = clamp01(top * 0.9 + (fibre - 0.5) * 0.12 + 0.06);
 
     // A sixth of wool's albedo swing across the crossings. The weave is relief,
@@ -1473,12 +1552,23 @@ function wood(g: Gen, o: WoodOpts): void {
     }
 
     const x = u - 0.5 + bow;
-    // One `soft` tap, read twice: where the pith wandered, and — sampled long in
-    // V, so it drifts up the timber rather than across it — how the tone of this
-    // stretch of board differs from the next. That second read is what keeps a
-    // palisade built from one shared material from being a row of identical
+    // One `soft` tap, read twice: where the pith wandered, and how the tone of
+    // this stretch of board differs from the next. That second read is what keeps
+    // a palisade built from one shared material from being a row of identical
     // stakes, and it costs nothing.
-    const soft1 = sampleField(bank.soft, u, v * 1);
+    //
+    // `v * 4`, and the comment that used to sit here already said why — "sampled
+    // long in V, so it drifts up the timber rather than across it" — while the
+    // code sampled one cycle each way and drifted equally in both. An isotropic
+    // term at one cycle per tile is a blob the size of the tile, which is the
+    // definition of a landmark, and it is most of why a palisade stake at
+    // repeat [2,5] shows the same dark patch ten times over in `arena.png`.
+    // Anisotropy is also just what timber is: a board's figure and its tone change
+    // as you walk along it and barely at all as you cross it. Not taken to a pure
+    // function of v, tempting as that is — the ring coordinate is symmetric about
+    // the middle of the tile, so a wander with no u term would mirror every
+    // board's figure down its own centre line.
+    const soft1 = sampleField(bank.soft, u, v * 4);
     const pith = 0.26 + pithOff + (soft1 - 0.5) * o.wander;
     let rr = Math.sqrt(x * x + pith * pith) * o.rings * ringK;
     rr += (sampleField(bank.grain, u * 2, v * 1) - 0.5) * 0.8;
@@ -1505,7 +1595,7 @@ function wood(g: Gen, o: WoodOpts): void {
     const fleck = smoothstep(0.62, 0.9, sampleField(bank.fine, u * 1, v * 3)) * o.ray;
     const drift = contrast(soft1, 1.9);
 
-    const height = clamp01(0.55 + late * o.erosion * 0.55 + fleck * 0.05 - pore - seam * 0.9 - split * 0.5 - knot * 0.18);
+    const height = clamp01(0.55 + late * o.erosion * 0.55 + fleck * 0.05 - pore - seam * 0.9 - split * 0.5 - knot * 0.1);
     h[i] = height;
     // `late * 1.2` drove the ring band to full saturation across most of its
     // width, so every board was hard stripes of two colours. Boards do not get
@@ -1516,8 +1606,19 @@ function wood(g: Gen, o: WoodOpts): void {
     // rays and the pores above are what stop that costing the figure.
     mix(c, i, o.early, o.late, clamp01(late * 0.82));
     toward(c, i, rayCol, fleck * 0.55);
-    toward(c, i, o.knotCol, knot * 0.9);
-    toward(c, i, weathered, clamp01(o.grey * bGrey[bi]) * sampleField(bank.soft, u * 2, v * 2));
+    // Half the darkness a knot used to be painted with, and it is the price of
+    // the directional wander above. That wander was also camouflage: an isotropic
+    // blob the size of the tile sat on top of every knot and broke it up, and
+    // taking it away left two hard dark spots per tile in a column — a knot is a
+    // landmark by definition, and this map tiles two to eight times on a stake.
+    // What survives is the part of a knot that cannot be counted: the bow it puts
+    // in the figure around it, which is at full strength and which is the cue a
+    // timber-yard eye actually reads.
+    toward(c, i, o.knotCol, knot * 0.45);
+    // Weathering runs with the grain for the same reason the drift does: rain
+    // and sun leave streaks down a stake, and a two-cycle isotropic mask leaves
+    // two grey clouds per tile that the eye finds again on the next stake along.
+    toward(c, i, weathered, clamp01(o.grey * bGrey[bi]) * sampleField(bank.soft, u * 2, v * 7));
     gain(c, i, bTint[bi] * (0.8 + drift * 0.36) * (0.9 + sampleField(bank.grain, u * 4, v * 2) * 0.24 - seam * 0.45 - split * 0.3));
     r[i] = clamp01(o.roughHigh - late * (o.roughHigh - o.roughLow) - fleck * 0.1 + pore * 0.4 + split * 0.2);
     m[i] = 0;

@@ -37,13 +37,38 @@
 //   bones — see the note above it for why the mesh cannot simply be cut — and
 //   the layers below drive them.
 //
+// Two more things were not true until this pass, and both were measured on the
+// built rig rather than argued about:
+//
+//   Every attack ended with its weapon pointing at the sky. A blade's pitch is
+//   the sum of the shoulder, the elbow, the builder's grip and the wrist, and
+//   nothing owned that sum — so the overhead's shoulder swept 3.44 rad down
+//   while its elbow gave 1.72 back and the wrist another 0.70, and the huscarl's
+//   sword point stood 2.69 m in the air at the instant of impact, having started
+//   the strike at 1.36 m. It rose through every swing in the table. `Pose.wa`
+//   states where the blade is aimed and `applyPose` solves the wrist out of it,
+//   which is the only version of this that cannot drift again, because the thing
+//   being authored is the thing a viewer looks at.
+//
+//   Nobody's feet were on the ground. `settleOnFeet` drops the body onto the leg
+//   that reaches furthest, and it measured that reach against the wrong angle —
+//   the hip's, where the hip-to-sole line actually runs about half the knee's
+//   own bend away from it. At the old knee angles the two agreed to a centimetre;
+//   at the angles a loaded lunge needs they do not, and the trailing foot hung
+//   110 to 380 mm in the air through every attack in the set. It solves both
+//   soles now, one by dropping the body and the other out of that leg's own
+//   spare bend.
+//
 // One thing here is not a pose layer at all, and cannot be. A cloak is the only
 // thing on a warrior that does not follow a bone, and turning the whole shell on
 // one authored angle — which is what this did — is a flat plate on a hinge. It
-// hangs on a chain of its own now and is *solved* rather than posed, off the
-// body's own velocity, acceleration and turn rate; see the Cloth section. The
-// pose layers still have their say, but as a term in that solve rather than as
-// the whole of it, because a run's billow should add to the drag the run is
+// hangs on a rig of its own now and is *solved* rather than posed, off the body's
+// own velocity, acceleration and turn rate; see the Cloth section. That rig is a
+// grid and not a chain, and it had to become one: a single column down the body
+// axis can rotate a hem but cannot narrow one, and drives both wings off one
+// bone, so the shell kept its cut radius and moved as a cone whatever it did.
+// The pose layers still have their say, but as a term in the solve rather than
+// as the whole of it, because a run's billow should add to the drag the run is
 // already generating and not overwrite it.
 
 import * as THREE from "three";
@@ -94,16 +119,29 @@ export interface RigPivots {
   kneeL: THREE.Bone;
   cloak?: THREE.Group;
   /**
-   * The cloak, cut into a hanging chain of three rings by `hangCloak` — yoke,
-   * middle, hem. Undefined when the warrior wears no cloak.
+   * The cloak, cut by `hangCloak` into a yoke and three lateral columns of two
+   * rings each. Undefined when the warrior wears no cloak.
    *
    * The pivot above stays at identity from here on. Rotating it was the whole of
    * the old cloak "animation", and rotating a 200°-of-arc shell about the
    * shoulder line is what put a flat plate out sideways in every capture: the
    * hem and the yoke travelled the same angle, so nothing in the shape could
    * ever say which end was attached to a man.
+   *
+   * A single chain down the body axis fixed half of that and could not fix the
+   * rest, and the reason is geometric rather than a matter of tuning: linear
+   * blend skinning on one Y-chain can only *rotate* the hem, so the cloak keeps
+   * its cut radius whatever it does, and both wings are driven by one bone so
+   * they can only move together. A cone that pitches is still a cone. The chain
+   * is therefore split across the cloth as well as down it — see `DRAPE_COLS`.
    */
   drape?: THREE.Bone[];
+  /**
+   * Where each column of cloth hangs, in the yoke's own frame. The turn terms in
+   * the solve are `ω × r`, so a column that does not know its own `r` cannot
+   * tell a swirl from a sideways lurch.
+   */
+  drapeAt?: Array<{ x: number; z: number }>;
 }
 
 export interface WarriorRig {
@@ -129,6 +167,13 @@ export interface WarriorRig {
    * hung off this rather than off a tuned constant — see `SHIELD_GRIP_Z`.
    */
   readonly offGrip: THREE.Vector3;
+  /**
+   * The pitch the character builder bakes into the fist, measured off the mount
+   * rather than shared as a constant. `applyPose` needs it to turn an absolute
+   * blade aim into a wrist angle, and a stale copy of it here would silently
+   * mis-aim every strike in the game the day the grip moves.
+   */
+  readonly gripPitch: number;
   /**
    * Height of the crown above the rig origin, weapon excluded. The HUD hangs
    * its plate off this rather than off a constant, so a change to character
@@ -218,9 +263,10 @@ export interface WarriorMotion {
   yawRate: number;
   pxPrev: number; pzPrev: number; yawPrev: number;
   /**
-   * The cloak's own state: swing angle and angular velocity per ring, fore/aft
+   * The cloak's own state: swing angle and angular velocity per bone, fore/aft
    * (`X`, positive throws the hem back) and lateral (`Z`, positive throws it to
-   * the weapon side). Three rings, in `RINGS` order.
+   * the weapon side). Bone 0 is the yoke; the rest are column-major in
+   * `DRAPE_COLS` order, two rings apiece.
    */
   drapeX: number[]; drapeXv: number[];
   drapeZ: number[]; drapeZv: number[];
@@ -244,8 +290,10 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     wMove: 0, wBlock: 0, wAction: 0,
     vx: 0, vz: 0, ax: 0, az: 0, yawRate: 0,
     pxPrev: p.position.x, pzPrev: p.position.z, yawPrev: p.rotation,
-    drapeX: [0, 0, 0], drapeXv: [0, 0, 0],
-    drapeZ: [0, 0, 0], drapeZv: [0, 0, 0],
+    drapeX: new Array<number>(DRAPE_BONES).fill(0),
+    drapeXv: new Array<number>(DRAPE_BONES).fill(0),
+    drapeZ: new Array<number>(DRAPE_BONES).fill(0),
+    drapeZv: new Array<number>(DRAPE_BONES).fill(0),
     draped: false,
   };
 }
@@ -287,6 +335,11 @@ export function createWarriorRig(
   // bone now and are no longer the arm pivot's final child.
   const rightHand = handOf(built.rightArm);
   const leftHand = handOf(built.leftArm);
+
+  // Read, not tabled. The mount carries the builder's grip pitch and the blade
+  // solve in `applyPose` subtracts it; the fallback is only for a builder that
+  // stopped naming the mount, in which case `handOf` has returned a sleeve.
+  const gripPitch = rightHand.rotation.x || GRIP_PITCH_FALLBACK;
 
   const weapon = buildWeaponForClass(cls, materials);
   weapon.name = "weapon";
@@ -384,12 +437,14 @@ export function createWarriorRig(
       kneeL: joints.kneeL,
       cloak: built.cloak,
       drape: joints.drape,
+      drapeAt: joints.drapeAt,
     },
     weapon,
     offhand,
     shield,
     reach,
     offGrip,
+    gripPitch,
     headTop: crown > 0.5 ? crown : 2.0,
     blob,
     skeleton: joints.skeleton,
@@ -449,6 +504,13 @@ const ELBOW_ALONG = 0.4864;
 const KNEE_ALONG = 0.48;
 
 /**
+ * The builder's grip pitch, used only when the mount cannot be found. Kept as a
+ * number rather than a guess at runtime because a blade solved against zero
+ * points straight out of the fist like a lance.
+ */
+const GRIP_PITCH_FALLBACK = 1.28;
+
+/**
  * How far the grip bar stands proud of the shield's own origin, along its face
  * normal. `buildShield` puts the boards at z ≈ 0.05–0.09 and lays the grip bar
  * across the hand-hole at z = 0.04, so this is where a fist closes — measured
@@ -465,6 +527,26 @@ const SHIELD_GRIP_Z = 0.04;
  * what crosses between them, so the shield comes round the moment he is moving,
  * swinging or covering.
  */
+/**
+ * What a wrist can do to a weapon, as an angle on the weapon's own pitch.
+ *
+ * Zero is the blade running back along the forearm toward the shoulder and π is
+ * the blade in line with it, pointing away — so the useful band sits around π,
+ * a little more cocked back than forward, which is the asymmetry a hand has.
+ * These bound the solve in `applyPose` and nothing else: the authored carry
+ * angles legitimately live outside them, because a spear stood upright against
+ * the shoulder is the arm's doing and not the wrist's.
+ */
+const WRIST_BACK = 1.55;
+const WRIST_FWD = 0.75;
+/**
+ * How low the fist gets through a strike. Measured off the built rig rather
+ * than guessed — it runs 0.62 m at the moment of impact on every class, because
+ * the body settles onto the blow — and it is deliberately the *low* figure: the
+ * clamp it feeds only has to stop a blade going through the turf.
+ */
+const STRIKE_LOW = 0.52;
+
 const SHIELD_REST_YAW = -0.26;
 const SHIELD_GUARD_YAW = 0.14;
 /** A shade of top-edge-forward on the carry; the rest of the pitch is solved. */
@@ -491,12 +573,35 @@ const RINGS = [
   { share: 1.00, freq: 14, damp: 0.38 },
 ] as const;
 
+/**
+ * Where the cloth is cut into columns, as a fraction of the shell's own half
+ * width: the off wing, the back, the weapon wing.
+ *
+ * This is the part of the cloak that could not be tuned into existence. One
+ * chain on the body axis drives both wings off one bone, so the shell can pitch
+ * and roll and never do the two things cloth on a moving man actually does —
+ * come *in* under its own weight, and go round a corner one edge at a time. A
+ * turn is `ω × r`, and `r` differs in sign across the cloth: the back panel is
+ * swept sideways while the two leading edges go fore and aft in opposite
+ * directions. That is a swirl, it is most of what tells an eye that a cloak is
+ * cloth rather than a plate, and one bone at `r = 0` cannot express any of it.
+ *
+ * Three and not two, because the gather wants somewhere to gather *to*: the
+ * wings draw in toward a back panel that stays where the spine puts it. Three
+ * columns of two rings under a shared yoke is seven bones, which with the eight
+ * the limbs already use still fits the one 8×8 bone target a warrior gets.
+ */
+const DRAPE_COLS = [-0.62, 0, 0.62] as const;
+const DRAPE_RINGS = 2;
+const DRAPE_BONES = 1 + DRAPE_COLS.length * DRAPE_RINGS;
+
 interface Articulation {
   elbowR: THREE.Bone;
   elbowL: THREE.Bone;
   kneeR: THREE.Bone;
   kneeL: THREE.Bone;
   drape?: THREE.Bone[];
+  drapeAt?: Array<{ x: number; z: number }>;
   skeleton: THREE.Skeleton;
 }
 
@@ -537,36 +642,66 @@ function weightLimb(geo: THREE.BufferGeometry, joint: number, band: number, uppe
 }
 
 /**
- * Three-ring weights down a cloak, by height off the yoke.
+ * Grid weights across a cloak — down it by height, across it by which column of
+ * cloth the vertex belongs to.
  *
- * Same contract as `weightLimb` — written onto shared geometry, once, and safe
- * to skip a second time because the builder's signature already carries the
- * class and the cloak, which is everything the cut depends on. The bone indices
- * can be named outright for the same reason `weightLimb` names its own: the
- * limb loop above always emits exactly eight bones before this runs, so a cloak
- * is always rings 8–10 whichever warrior is wearing it.
+ * Same contract as `weightLimb`: written onto shared geometry, once, and safe to
+ * skip a second time because the builder's signature already carries the class
+ * and the cloak, which is everything the cut depends on. The bone indices can be
+ * named outright for the same reason `weightLimb` names its own — the limb loop
+ * always emits exactly eight bones before this runs, so the yoke is always bone
+ * 8 whichever warrior is wearing it.
  *
- * The partition is smooth and three-wide rather than two: a hard handover at a
- * ring would crease a shell that has no seam there, and the cloak is the one
- * garment in the game whose whole job is to have no creases except the ones it
- * makes itself.
+ * Four influences is the whole budget a `skinIndex` has, and the partition is
+ * built to land inside it exactly: at most two adjacent rings by height and at
+ * most two adjacent columns across, never more. Both handovers are smooth
+ * rather than cut, because a hard boundary would crease a shell that has no
+ * seam there and the cloak is the one garment in the game whose job is to have
+ * no creases except the ones it makes itself.
  */
-function weightDrape(geo: THREE.BufferGeometry, ring: number, base: number): void {
+function weightDrape(geo: THREE.BufferGeometry, ring: number, half: number, base: number): void {
   if (geo.hasAttribute("skinIndex")) return;
   const pos = geo.getAttribute("position");
   const n = pos.count;
   const index = new Uint16Array(n * 4);
   const weight = new Float32Array(n * 4);
+  const cols = DRAPE_COLS.length;
+  // Bone for column `c` at level `r`, the yoke being level −1 and shared.
+  const at = (c: number, r: number) => base + 1 + c * DRAPE_RINGS + r;
   for (let i = 0; i < n; i++) {
+    // Across: 0 at the off edge, `cols - 1` at the weapon edge. The cut runs
+    // sin(a) in x, so x carries the arc's sign everywhere it matters and is
+    // cheaper and steadier near the leading edges than an atan2 would be.
+    const q = clamp((pos.getX(i) / half + 1) * (cols - 1) * 0.5, 0, cols - 1);
+    const col = Math.min(cols - 2, Math.floor(q));
+    const g = smooth(q - col);
+    // Down: band 0 hands the yoke over to the upper ring, band 1 the upper ring
+    // to the hem. Identical in effect to the old three-wide ramp, restated so
+    // that only two of the three levels are ever live at once.
     const u = -pos.getY(i) / ring;
-    const t1 = smooth(clamp01(u - 0.5));
-    const t2 = smooth(clamp01(u - 1.5));
-    index[i * 4] = base;
-    index[i * 4 + 1] = base + 1;
-    index[i * 4 + 2] = base + 2;
-    weight[i * 4] = 1 - t1;
-    weight[i * 4 + 1] = t1 * (1 - t2);
-    weight[i * 4 + 2] = t1 * t2;
+    const band = clamp(Math.floor(u - 0.5), 0, DRAPE_RINGS - 1);
+    const f = smooth(clamp01(u - 0.5 - band));
+    const hi = at(col, band);
+    if (band === 0) {
+      // The top band spends one slot on the shared yoke and splits the other
+      // two between the columns it straddles.
+      index[i * 4] = base;
+      index[i * 4 + 1] = hi;
+      index[i * 4 + 2] = at(col + 1, 0);
+      weight[i * 4] = 1 - f;
+      weight[i * 4 + 1] = f * (1 - g);
+      weight[i * 4 + 2] = f * g;
+    } else {
+      const lo = at(col, band - 1);
+      index[i * 4] = lo;
+      index[i * 4 + 1] = at(col + 1, band - 1);
+      index[i * 4 + 2] = hi;
+      index[i * 4 + 3] = at(col + 1, band);
+      weight[i * 4] = (1 - f) * (1 - g);
+      weight[i * 4 + 1] = (1 - f) * g;
+      weight[i * 4 + 2] = f * (1 - g);
+      weight[i * 4 + 3] = f * g;
+    }
   }
   geo.setAttribute("skinIndex", new THREE.BufferAttribute(index, 4));
   geo.setAttribute("skinWeight", new THREE.BufferAttribute(weight, 4));
@@ -583,43 +718,69 @@ function weightDrape(geo: THREE.BufferGeometry, ring: number, base: number): voi
 function hangCloak(
   pivot: THREE.Group,
   base: number,
-  bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Bone }>,
-): THREE.Bone[] | undefined {
+  bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Object3D }>,
+): { bones: THREE.Bone[]; at: Array<{ x: number; z: number }> } | undefined {
   let lowest = 0;
+  let half = 0;
+  let deep = 0;
   for (const child of pivot.children) {
     if (!(child instanceof THREE.Mesh)) continue;
     if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
-    lowest = Math.min(lowest, child.geometry.boundingBox?.min.y ?? 0);
+    const bb = child.geometry.boundingBox;
+    if (!bb) continue;
+    lowest = Math.min(lowest, bb.min.y);
+    half = Math.max(half, bb.max.x, -bb.min.x);
+    deep = Math.max(deep, -bb.min.z);
   }
   const drop = -lowest;
   // Nothing worth simulating, and nothing safe to divide by.
-  if (drop < 0.3) return undefined;
+  if (drop < 0.3 || half < 0.05) return undefined;
 
-  const ring = drop / RINGS.length;
+  const ring = drop / (DRAPE_RINGS + 1);
   const bones: THREE.Bone[] = [];
-  let parent: THREE.Object3D = pivot;
-  for (let i = 0; i < RINGS.length; i++) {
-    const bone = new THREE.Bone();
-    bone.position.y = i === 0 ? 0 : -ring;
-    parent.add(bone);
-    parent = bone;
-    bones.push(bone);
+  const at: Array<{ x: number; z: number }> = [];
+  const yoke = new THREE.Bone();
+  pivot.add(yoke);
+  bones.push(yoke);
+
+  for (const col of DRAPE_COLS) {
+    // The column hangs where its own cloth does, and the offset is what makes a
+    // Z rotation on it a *gather*: turned about a point out at the wing, the
+    // panel below swings in toward the spine instead of pivoting on it.
+    const ox = col * half;
+    // The wings come round to the sides of the body, so they sit at almost no
+    // depth while the back panel sits at the cloak's full reach behind. That
+    // difference is the whole of the swirl term.
+    const oz = -deep * (1 - Math.abs(col)) * 0.8;
+    at.push({ x: ox, z: oz });
+    let parent: THREE.Object3D = yoke;
+    for (let r = 0; r < DRAPE_RINGS; r++) {
+      const bone = new THREE.Bone();
+      bone.position.set(r === 0 ? ox : 0, -ring, 0);
+      parent.add(bone);
+      parent = bone;
+      bones.push(bone);
+    }
   }
 
   for (const child of pivot.children.slice()) {
     if (!(child instanceof THREE.Mesh)) continue;
-    weightDrape(child.geometry, ring, base);
+    weightDrape(child.geometry, ring, half, base);
     const skinned = new THREE.SkinnedMesh(child.geometry, child.material as THREE.Material);
     skinned.name = child.name;
     // Generous enough to cover the hem at full swing. Left to three, the bind
     // pose is walked once and then cached, and a cloak that has since swung
     // 60° off it pops out at the frame edge.
-    skinned.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, -drop * 0.5, 0), drop);
+    skinned.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, -drop * 0.5, 0), drop + half);
     pivot.remove(child);
     pivot.add(skinned);
-    bound.push({ mesh: skinned, at: bones[0] });
+    // Bound against the pivot rather than against a bone. They were the same
+    // matrix while the chain was one column standing at the pivot's origin;
+    // with the columns offset they are not, and binding against a bone that is
+    // 200 mm out would shear the whole shell sideways on the first frame.
+    bound.push({ mesh: skinned, at: pivot });
   }
-  return bones;
+  return { bones, at };
 }
 
 /** Cuts an elbow into each arm and a knee into each leg, and binds the skin. */
@@ -640,7 +801,7 @@ function articulate(built: BuiltCharacter): Articulation {
   ];
 
   const bones: THREE.Bone[] = [];
-  const bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Bone }> = [];
+  const bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Object3D }> = [];
 
   limbs.forEach((limb, i) => {
     const upper = new THREE.Bone();
@@ -680,10 +841,10 @@ function articulate(built: BuiltCharacter): Articulation {
   });
 
   // The cloak joins the same skeleton rather than getting one of its own: a
-  // second `THREE.Skeleton` is a second bone texture per warrior, and eleven
-  // bones fit the same 8×8 target eight did.
-  const drape = built.cloak ? hangCloak(built.cloak, bones.length, bound) : undefined;
-  if (drape) bones.push(...drape);
+  // second `THREE.Skeleton` is a second bone texture per warrior, and fifteen
+  // bones fit the same 8×8 target eight did — 60 of its 64 texels.
+  const hung = built.cloak ? hangCloak(built.cloak, bones.length, bound) : undefined;
+  if (hung) bones.push(...hung.bones);
 
   // The bind pose. Bone inverses and every mesh's bind matrix are taken at this
   // one instant, which is what lets the skin ignore where the mesh sits in the
@@ -697,7 +858,10 @@ function articulate(built: BuiltCharacter): Articulation {
   const skeleton = new THREE.Skeleton(bones);
   for (const b of bound) b.mesh.bind(skeleton, b.at.matrixWorld.clone());
 
-  return { elbowR: bones[1], elbowL: bones[3], kneeR: bones[5], kneeL: bones[7], drape, skeleton };
+  return {
+    elbowR: bones[1], elbowL: bones[3], kneeR: bones[5], kneeL: bones[7],
+    drape: hung?.bones, drapeAt: hung?.at, skeleton,
+  };
 }
 
 /**
@@ -756,6 +920,9 @@ function shortestAngle(from: number, to: number): number {
   return d;
 }
 
+const TAU = Math.PI * 2;
+/** Onto (−π, π], where 0 is straight up — the branch a weapon swings through. */
+const wrapPi = (a: number) => a - TAU * Math.round(a / TAU);
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi : x);
@@ -842,6 +1009,28 @@ interface Pose {
   lrb: number; llb: number;
   /** Weapon in the fist: pitch, roll, and slide along its own shaft. */
   wx: number; wz: number; wy: number;
+  /**
+   * Where the blade is *pointing*, and how much say that has over `wx`.
+   *
+   * A carry angle is a wrist angle and an attack is not: what a strike has to
+   * put somewhere is the blade, and the blade's pitch is the sum of the
+   * shoulder, the elbow, the builder's grip pitch and the wrist. Authored as
+   * four separate numbers that sum, it went wrong in the one way a sum can —
+   * silently. The overhead's shoulder swept −3.44 rad while its elbow gave
+   * +1.72 back and the wrist another +0.70, so a blade that should travel most
+   * of a half circle travelled 1.0 rad the wrong way, and every one of the four
+   * attacks ended with its point higher than it started: measured against the
+   * built rig, a huscarl's sword tip stood 2.69 m in the air at the instant of
+   * impact. Stating the aim and solving the wrist out of it is the only version
+   * of this that cannot drift, because the thing being authored is the thing a
+   * viewer is looking at.
+   *
+   * 0 is straight up, +π/2 level and forward, so an overhead runs negative
+   * (cocked back over the shoulder) to positive (buried in front). `waw` is the
+   * authority: at 0 the wrist is carried as authored, at 1 it is whatever the
+   * aim needs, and the layer weight crossfades between them.
+   */
+  wa: number; waw: number;
   /** Shield brace, as a delta on how it is carried. */
   sx: number; sy: number; sz: number; sfy: number; sfz: number;
   /**
@@ -861,6 +1050,7 @@ const ZERO: Readonly<Pose> = Object.freeze({
   lrx: 0, lrz: 0, llx: 0, llz: 0,
   lrb: 0, llb: 0,
   wx: 0, wz: 0, wy: 0,
+  wa: 0, waw: 0,
   sx: 0, sy: 0, sz: 0, sfy: 0, sfz: 0,
   cloak: 0,
 });
@@ -1067,8 +1257,22 @@ interface Swing {
    * drops the whole man onto the blow instead of leaving him level over it.
    */
   frontB: Key; backB: Key;
+  /**
+   * Which foot the man is standing on: −1 the back foot, +1 the front.
+   *
+   * Everything else in this table lives in the sagittal plane, and a camera in
+   * front of a warrior — which is `stance`, `portrait` and half of `brawl` —
+   * projects the whole of that plane onto nothing. A swing with no frontal
+   * content is a mannequin from the front however loaded it is from the side.
+   * This is the term that reads there: the pelvis rides over the loaded foot,
+   * the free hip drops off it and the shoulders stack back the other way, so
+   * the hip line and the shoulder line disagree by something an eye can see.
+   */
+  shift: Key;
+  /** Absolute blade pitch through the strike; see `Pose.wa`. */
+  aim: Key;
   /** Blade lag about the arc — trails on the load, whips past on release. */
-  wx: Key; wz: Key;
+  wz: Key;
   /** Slide along the shaft, for a thrust. */
   wy: Key;
 }
@@ -1078,16 +1282,23 @@ interface Swing {
 // foot back, spine y positive turns the weapon shoulder away from the target.
 const SWINGS: Record<string, Swing> = {
   overhead: {
-    arx: [2.36, -1.08, -0.16], arz: [0.30, -0.06, 0.14],
-    // Folded hard behind the head at the top of the load — that fold is what
-    // makes an overhead read as an overhead rather than as a raised arm.
-    arb: [-2.00, -0.28, -0.60],
-    crx: [-0.28, 0.34, 0.07], cry: [0.26, -0.10, 0.02],
-    prx: [-0.11, 0.17, 0.01], pry: [0.15, -0.13, 0.03],
+    // The elbow was folded to its anatomical stop at the top of this, on the
+    // reasoning that a hard fold is what makes an overhead read as an overhead.
+    // It is not, and the geometry says why: the shoulder already has the upper
+    // arm pointing up and *back*, so folding from there swings the forearm back
+    // down and buries the fist at the hip. Measured on the built rig the old
+    // load put the sword point at shoulder height aimed at the enemy and the
+    // "impact" put it 2.69 m in the air. The fold here is the 60° a raised arm
+    // actually keeps, and the arm extends through the blow instead of gathering.
+    arx: [2.78, -0.35, 0.06], arz: [0.30, -0.06, 0.14],
+    arb: [-0.39, 0.54, -0.20],
+    crx: [-0.28, 0.34, 0.07], cry: [0.50, -0.46, 0.02],
+    prx: [-0.11, 0.17, 0.01], pry: [0.26, -0.30, 0.03],
     py: [0.025, -0.03, -0.01], pz: [-0.06, 0.15, 0.02],
-    front: [-0.06, -0.52, -0.13], back: [0.23, 0.46, 0.11],
-    frontB: [0.20, 0.34, 0.18], backB: [0.30, 0.22, 0.16],
-    wx: [-0.38, 0.32, 0], wz: [0, 0, 0], wy: [0, 0, 0],
+    front: [-0.06, -0.44, -0.13], back: [0.14, 0.22, 0.08],
+    frontB: [0.22, 0.64, 0.28], backB: [0.52, 0.14, 0.22],
+    shift: [-0.85, 1.00, 0.30],
+    aim: [-1.00, 1.98, 1.85], wz: [0, 0, 0], wy: [0, 0, 0],
   },
   // Forehand: cocked out on the weapon side, then dragged across the body. The
   // arm reaches forward as it crosses rather than sweeping flat through the
@@ -1096,39 +1307,42 @@ const SWINGS: Record<string, Swing> = {
   // elbow the fold does that job properly — the hand can come inside the ribs
   // while the shoulder stays out where a shoulder lives.
   right: {
-    arx: [1.06, -0.75, 0.06], arz: [1.28, -0.88, 0.15],
-    arb: [-1.52, -0.40, -0.62],
-    crx: [-0.06, 0.17, 0.04], cry: [0.40, -0.42, 0.02],
-    prx: [0, 0.07, 0], pry: [0.21, -0.21, 0.03],
+    arx: [1.06, -0.26, 0.06], arz: [0.86, -0.50, 0.15],
+    arb: [-0.39, 0.44, -0.30],
+    crx: [-0.06, 0.17, 0.04], cry: [0.48, -0.50, 0.02],
+    prx: [0, 0.07, 0], pry: [0.24, -0.28, 0.03],
     py: [0.012, -0.035, -0.01], pz: [-0.04, 0.11, 0.02],
-    front: [-0.10, -0.30, -0.12], back: [0.28, 0.31, 0.10],
-    frontB: [0.18, 0.30, 0.17], backB: [0.26, 0.20, 0.16],
-    wx: [-0.85, 0.12, 0], wz: [0.42, -0.36, 0], wy: [0, 0, 0],
+    front: [-0.09, -0.30, -0.11], back: [0.15, 0.22, 0.08],
+    frontB: [0.18, 0.54, 0.26], backB: [0.46, 0.14, 0.22],
+    shift: [-0.70, 0.95, 0.28],
+    aim: [2.20, 1.80, 2.00], wz: [0.42, -0.36, 0], wy: [0, 0, 0],
   },
   // Backhand: wound behind the hip, then whipped out and away. Wound *behind*
   // and not across, for the same reason — the shoulder clears its own ribcage
   // going back, and does not going over.
   left: {
-    arx: [0.95, -0.30, 0.06], arz: [-0.55, 1.38, 0.15],
-    arb: [-1.34, -0.36, -0.62],
-    crx: [0, 0.13, 0.04], cry: [-0.42, 0.36, 0.02],
-    prx: [0, 0.05, 0], pry: [-0.17, 0.23, 0.03],
+    arx: [1.02, -0.22, 0.06], arz: [-0.34, 0.72, 0.15],
+    arb: [-0.29, 0.40, -0.30],
+    crx: [0, 0.13, 0.04], cry: [-0.48, 0.44, 0.02],
+    prx: [0, 0.05, 0], pry: [-0.20, 0.28, 0.03],
     py: [0.012, -0.03, -0.01], pz: [-0.03, 0.09, 0.02],
-    front: [-0.12, -0.26, -0.12], back: [0.21, 0.27, 0.10],
-    frontB: [0.16, 0.28, 0.17], backB: [0.25, 0.18, 0.16],
-    wx: [-0.85, 0.12, 0], wz: [-0.36, 0.40, 0], wy: [0, 0, 0],
+    front: [-0.10, -0.28, -0.11], back: [0.14, 0.20, 0.08],
+    frontB: [0.18, 0.50, 0.26], backB: [0.44, 0.13, 0.22],
+    shift: [-0.60, 0.90, 0.28],
+    aim: [2.15, 1.75, 1.95], wz: [-0.36, 0.40, 0], wy: [0, 0, 0],
   },
   // Thrust: coil, then the whole body behind the point. The deepest fold of the
   // four and the straightest arm at contact, which is what a thrust *is*.
   stab: {
-    arx: [0.96, -0.98, 0.04], arz: [0.24, -0.03, 0.13],
-    arb: [-2.08, -0.12, -0.68],
-    crx: [-0.12, 0.16, 0.03], cry: [0.42, -0.36, 0.02],
-    prx: [-0.04, 0.09, 0], pry: [0.27, -0.27, 0.03],
+    arx: [0.71, -1.02, 0.06], arz: [0.24, -0.03, 0.13],
+    arb: [-0.94, 0.56, -0.30],
+    crx: [-0.12, 0.16, 0.03], cry: [0.46, -0.42, 0.02],
+    prx: [-0.04, 0.09, 0], pry: [0.28, -0.32, 0.03],
     py: [0.012, -0.03, -0.01], pz: [-0.10, 0.28, 0.04],
-    front: [-0.10, -0.44, -0.14], back: [0.25, 0.44, 0.12],
-    frontB: [0.22, 0.38, 0.20], backB: [0.34, 0.18, 0.16],
-    wx: [0.20, -0.06, 0], wz: [0, 0, 0], wy: [-0.04, 0.13, 0],
+    front: [-0.08, -0.42, -0.13], back: [0.14, 0.22, 0.08],
+    frontB: [0.22, 0.66, 0.30], backB: [0.54, 0.12, 0.22],
+    shift: [-0.75, 1.05, 0.36],
+    aim: [1.30, 1.68, 1.86], wz: [0, 0, 0], wy: [-0.04, 0.13, 0],
   },
 };
 
@@ -1207,8 +1421,21 @@ function readSwing(motion: WarriorMotion, player: GamePlayer, dt: number): numbe
 // Layers
 // ---------------------------------------------------------------------------
 
-/** The base a warrior returns to: bladed, weight low, weapon carried heavy. */
-function stanceLayer(st: Stance, ready: number, w: number): void {
+/**
+ * The base a warrior returns to: bladed, weight low, weapon carried heavy.
+ *
+ * `act` is how far into a strike he is, and it exists to get the *carry* out of
+ * the way of the strike. A bladed guard is a carry: hips and shoulders both
+ * turned off the target, and both turned the same way. The attack layer's whole
+ * hip-against-shoulder separation is smaller than that constant bias, so with
+ * the bias standing the two turned together and the swing had no torque in it —
+ * measured on the overhead, 7.8° of separation at the load and 2° at impact,
+ * where the pose is asking for four times that. A man committing to a blow
+ * squares his hips at what he is hitting; the bias is what he does when he is
+ * not hitting anything.
+ */
+function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
+  const carry = 1 - act * 0.8;
   P.lrx += (0.13 + ready * 0.14) * w;
   P.llx += (-0.08 - ready * 0.12) * w;
   P.lrz += (0.05 + ready * 0.04) * w;
@@ -1225,14 +1452,18 @@ function stanceLayer(st: Stance, ready: number, w: number): void {
   // this did: the stance and the action have to share the crouch, not stack it.
   P.lrb += (0.12 + (0.08 + st.sink) * ready) * w;
   P.llb += (0.15 + (0.12 + st.sink) * ready) * w;
-  P.pry += (0.10 + ready * 0.06) * w;
+  P.pry += (0.10 + ready * 0.06) * carry * w;
   P.prx += -0.03 * w;
-  P.cry += (0.14 + ready * 0.09) * w;
+  P.cry += (0.14 + ready * 0.09) * carry * w;
   P.crx += (0.05 + ready * 0.06) * w;
   P.arx += (0.16 - ready * 0.32) * w;
   P.arz += (st.spread + 0.10) * w;
   P.olx += (st.guard * (0.55 + ready * 0.45)) * w;
-  P.olz += -(st.spread + 0.14) * w;
+  // The off arm hangs *near* the body, not clear of it. At rest this carried
+  // the shoulder 14° out, and on the huscarl that is the whole shield swung
+  // outboard of the hip it should be resting against — three quarters of a
+  // metre of painted disc pushed into the edge of every frame he stands in.
+  P.olz += -(st.spread * 0.6 + 0.05 + ready * 0.09) * w;
   P.hry += -0.09 * w;
   // Elbows. The off arm is always the more folded of the two — it is not
   // carrying anything long — and the weapon arm closes as the guard comes up.
@@ -1379,8 +1610,8 @@ function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, 
   const s = SWINGS[dir] ?? SWINGS.right;
   const gain = 1 + heavy * 0.24;
 
-  P.pry += link(ph, 0.10, s.pry, false) * gain * w;
-  P.prx += link(ph, 0.10, s.prx, false) * gain * w;
+  P.pry += link(ph, 0.16, s.pry, false) * gain * w;
+  P.prx += link(ph, 0.14, s.prx, false) * gain * w;
   P.py += link(ph, 0.08, s.py, false) * gain * w;
   P.pz += link(ph, 0.08, s.pz, false) * gain * w;
   P.llx += link(ph, 0.09, s.front, false) * gain * w;
@@ -1392,8 +1623,23 @@ function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, 
   P.llb += link(ph, 0.06, s.frontB, false) * gain * w;
   P.lrb += link(ph, 0.06, s.backB, false) * gain * w;
 
-  P.cry += link(ph, 0.04, s.cry, false) * gain * w;
-  P.crx += link(ph, 0.04, s.crx, false) * gain * w;
+  P.cry += link(ph, 0.01, s.cry, false) * gain * w;
+  P.crx += link(ph, 0.02, s.crx, false) * gain * w;
+
+  // Which foot he is on. Read a shade behind the hips, because weight arrives
+  // after the drive that sends it: the hip turns and the body follows onto the
+  // foot. Everything it drives is lateral, which is the point — see `Swing.shift`.
+  const wt = link(ph, 0.07, s.shift, false) * gain;
+  const front = Math.max(0, wt);
+  const back = Math.max(0, -wt);
+  P.px += -wt * 0.075 * w;
+  P.prz += wt * 0.17 * w;
+  P.crz += -wt * 0.09 * w;
+  P.hrz += -wt * 0.06 * w;
+  // The loaded leg drives out from under him rather than staying plumb, which
+  // is what a stance does when it is actually carrying something.
+  P.llz += -front * 0.14 * w;
+  P.lrz += back * 0.14 * w;
 
   const arx = link(ph, -0.02, s.arx, true) * gain;
   const arz = link(ph, -0.02, s.arz, true) * gain;
@@ -1426,7 +1672,21 @@ function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, 
     P.olb += (-0.44 + arb * 0.22) * w;
   }
 
-  P.wx += link(ph, -0.09, s.wx, true) * w;
+  // The blade, last link in the chain and the only one stated as a destination
+  // rather than as a joint angle. `applyPose` turns it back into a wrist.
+  // A shorter lag than the other links get. The blade is still last in the
+  // chain, but this one is a destination and not an angle to add: lag it as far
+  // behind the shoulder as the old wrist term was lagged and it asks for a hand
+  // bent square to its own forearm halfway through every windup, which the
+  // envelope below then refuses and the blade snaps to the limit instead.
+  P.wa += link(ph, -0.04, s.aim, true) * w;
+  // Authority rises on the windup's own curve, and the aim it divides out is
+  // therefore the load key from the first frame rather than a ramp up from
+  // zero — zero is not "no opinion" for an absolute angle, it is "straight up",
+  // and every swing would open by snapping the blade vertical. What actually
+  // ramps is how much say the aim has against the class carry, and `applyPose`
+  // takes that handover the short way round the blade.
+  P.waw += easeOutCubic(clamp01(clamp01(ph - 0.04) / LOAD_END)) * w;
   P.wz += link(ph, -0.09, s.wz, true) * w;
   P.wy += link(ph, -0.06, s.wy, false) * w;
 
@@ -1472,8 +1732,8 @@ function blockLayer(hasShield: boolean, settle: number, w: number): void {
   P.crx += (0.14 + over * 0.08) * w;
   P.cry += -0.32 * w;
   P.crz += 0.05 * w;
-  P.llx += -0.28 * w;
-  P.lrx += 0.36 * w;
+  P.llx += -0.20 * w;
+  P.lrx += 0.22 * w;
   P.llz += -0.11 * w;
   P.lrz += 0.12 * w;
   P.llb += (0.24 + over * 0.08) * w;
@@ -1664,19 +1924,64 @@ function abilityLayer(d: number, w: number): void {
  * drop is taken in full, and the leg that actually reaches furthest is the one
  * the body stands on.
  */
-function settleOnFeet(legLen: number): void {
+function settleOnFeet(legLen: number, plant: number): void {
   const hip = Math.hypot(P.prx, P.prz);
   // Past about a right angle at the hips the man is going over, not standing,
   // and his height is the height of a body on the ground. Faded rather than
   // cut, so a collapse hands off to it instead of snapping.
   const standing = 1 - smooth(clamp01((hip - 0.5) / 0.6));
   if (standing <= 0) return;
-  const legL = Math.hypot(P.llx + P.prx, P.llz + P.prz);
-  const legR = Math.hypot(P.lrx + P.prx, P.lrz + P.prz);
-  const reachL = Math.cos(clamp(P.llb, 0, 2.4) * 0.5) * Math.cos(Math.min(1.4, legL));
-  const reachR = Math.cos(clamp(P.lrb, 0, 2.4) * 0.5) * Math.cos(Math.min(1.4, legR));
-  const need = legLen * (Math.max(reachL, reachR) - Math.cos(Math.min(1.4, hip)));
-  P.py += need * standing;
+  const ax = clamp(P.llx + P.prx, -1.5, 1.5);
+  const bx = clamp(P.lrx + P.prx, -1.5, 1.5);
+  const latL = Math.cos(Math.min(1.4, Math.abs(P.llz + P.prz)));
+  const latR = Math.cos(Math.min(1.4, Math.abs(P.lrz + P.prz)));
+  const reachL = legDrop(ax, P.llb) * latL;
+  const reachR = legDrop(bx, P.lrb) * latR;
+  const lead = Math.max(reachL, reachR);
+  P.py += legLen * (lead - Math.cos(Math.min(1.4, hip))) * standing;
+
+  // And the other foot. One solve can only put one sole on the ground — it
+  // takes the leg that reaches furthest and drops the body onto it — so the
+  // other one is wherever the layers left it, which through every attack in the
+  // set was between 110 and 380 mm in the air. That is the floatiest thing in
+  // the frame and it is also the cheapest to fix, because a leg has a spare
+  // degree of freedom for exactly this: the trailing knee gives up as much of
+  // its bend as it takes to stand on the same ground as the leading one, and no
+  // more. It comes out looking like what it is — the front knee loaded, the
+  // back leg driving out straight behind — which is a lunge.
+  //
+  // Off during locomotion, and it has to be: a foot in mid-stride is supposed
+  // to be off the ground, and a solve that plants it would straighten the swing
+  // leg into a goose step.
+  const k = plant * standing;
+  if (k <= 0.001) return;
+  if (reachL < reachR) P.llb = mix(P.llb, kneeFor(ax, P.llb, lead / (latL || 1)), k);
+  else P.lrb = mix(P.lrb, kneeFor(bx, P.lrb, lead / (latR || 1)), k);
+}
+
+/**
+ * How far below the hip a sole hangs, as a fraction of the leg, for a hip at
+ * `t` and a knee at `f`.
+ *
+ * Two segments, and it matters which is which. The version this replaces took
+ * the reach as `cos(f / 2) · cos(t)`, which is the chord's *length* — correct —
+ * multiplied by the cosine of the wrong angle: the chord does not run along the
+ * thigh, it runs about half the knee's own bend away from it. On the old poses
+ * the two agreed to within a centimetre and the error was invisible. On a knee
+ * loaded to 60°, which is what a lunge that reads as a lunge actually needs, it
+ * puts the front sole 200 mm under the turf.
+ */
+function legDrop(t: number, f: number): number {
+  return KNEE_ALONG * Math.cos(t) + (1 - KNEE_ALONG) * Math.cos(clamp(t + f, -2.6, 2.6));
+}
+
+/** The knee that would put that sole on the ground, never straighter than straight. */
+function kneeFor(t: number, f: number, want: number): number {
+  const c = (want - KNEE_ALONG * Math.cos(t)) / (1 - KNEE_ALONG);
+  // Short even at full extension: give it everything and let the foot hang.
+  if (c >= 1) return 0;
+  if (c <= -1) return f;
+  return clamp(Math.acos(c) - t, 0, f);
 }
 
 // ---------------------------------------------------------------------------
@@ -1706,8 +2011,6 @@ function settleOnFeet(legLen: number): void {
 /** Gravity, and how hard the air pulls on a square metre of wool per metre per second. */
 const GRAVITY = 9.81;
 const DRAG = 2.2;
-/** Where the hem sits from the spine, for the tangential speed of a turn. */
-const HEM_R = 0.33;
 /** How much of the layers' authored billow survives as a direct hem lift. */
 const BILLOW = 0.5;
 /**
@@ -1725,8 +2028,32 @@ const BILLOW = 0.5;
 const SWING_BACK = 1.15;
 const SWING_FWD = 0.24;
 const SWING_SIDE = 0.62;
+/**
+ * How much further forward a wing may come than the back panel.
+ *
+ * `SWING_FWD` stands in for the wearer's own body, and the body is only in the
+ * way of the cloth directly behind it. What hangs beside a man can and does come
+ * round in front of his hip — that is what a cloak does when he stops — so the
+ * limit is per column rather than one number for the whole shell.
+ */
+const WING_FWD = 0.62;
+/**
+ * How far in the wings fall under their own weight, per ring.
+ *
+ * This is the term the old rig could not express at all, and the reason the
+ * cloak has read as a traffic cone in every capture: linear blend skinning on a
+ * chain down the body axis can rotate a hem but cannot narrow one, so the shell
+ * kept its cut radius whatever it did. Cloth does not. Hanging off a yoke it
+ * falls inward and finds the body, and only speed and a turn throw it back out
+ * — which is why this is scaled by how *still* the wearer is and not added flat.
+ */
+const GATHER = 0.17;
+/** Where the leading edges turn out to, so the two wings are not one plane. */
+const WING_SPLAY = 0.07;
 /** Sub-step ceiling. `dt` is capped at 50 ms upstream and the stiff ring is 26 rad/s. */
 const CLOTH_STEP = 1 / 90;
+/** Which side of the spine each column of cloth hangs on: −1 off, +1 weapon. */
+const DRAPE_SIDE = DRAPE_COLS.map((c) => Math.sign(c));
 
 /**
  * Hangs the cloak for this frame.
@@ -1736,10 +2063,11 @@ const CLOTH_STEP = 1 / 90;
  * state, and crossfading state between two poses is how a swing that starts
  * mid-stride teleports its own cloak.
  */
-function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, billow: number): void {
+function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, t: number, billow: number): void {
   const rings = rig.pivots.drape;
+  const anchors = rig.pivots.drapeAt;
   const pivot = rig.pivots.cloak;
-  if (!rings || !pivot) return;
+  if (!rings || !anchors || !pivot) return;
 
   // The yoke's world basis, so the field can be expressed in the frame the
   // bones actually turn in. Read off the matrix rather than rebuilt from the
@@ -1753,7 +2081,7 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, billow: 
   const fx = -motion.ax - DRAG * motion.vx;
   const fy = -GRAVITY;
   const fz = -motion.az - DRAG * motion.vz;
-  const lx = fx * e[0] + fy * e[1] + fz * e[2] + motion.yawRate * HEM_R * DRAG;
+  const lx = fx * e[0] + fy * e[1] + fz * e[2];
   const ly = fx * e[4] + fy * e[5] + fz * e[6];
   const lz = fx * e[8] + fy * e[9] + fz * e[10];
 
@@ -1765,55 +2093,103 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, billow: 
   // Floored rather than signed: past horizontal the atan2 wraps, and a wrapped
   // target whips the whole cloak through the body on its way to the far side.
   const down = Math.max(2, -ly);
-  const tx = clamp((Math.atan2(-lz, down) + billow * BILLOW) * upright, -SWING_FWD, SWING_BACK);
-  const tz = clamp(Math.atan2(lx, down) * upright, -SWING_SIDE, SWING_SIDE);
+  const w = motion.yawRate;
+  // How still he is. The gather is what the cloth does when nothing is throwing
+  // it anywhere, so it has to be the thing that goes first — a man at a dead run
+  // has a cloak streaming at its cut radius, and a man standing has one that has
+  // fallen in against him.
+  const still = 1 - clamp01(Math.hypot(motion.vx, motion.vz) * 0.32 + Math.abs(w) * 0.24);
+  const cols = DRAPE_COLS.length;
 
-  if (!motion.draped) {
-    // A warrior arrives with his cloak already hanging, not with it swinging up
-    // into place from a T-pose — and a still that is only allowed 26 frames to
-    // settle cannot afford to photograph the transient either.
-    motion.draped = true;
-    for (let i = 0; i < RINGS.length; i++) {
-      motion.drapeX[i] = tx * RINGS[i].share;
-      motion.drapeZ[i] = tz * RINGS[i].share;
+  for (let c = 0; c < cols; c++) {
+    const a = anchors[c];
+    // What a turn does, taken at each column's own place in the cloth. `ω × r`
+    // points along −x at the back panel and along ±z at the wings, so one turn
+    // sweeps the back sideways and throws the two leading edges fore and aft in
+    // opposite directions. That is the swirl, and it is the one thing about a
+    // cloak on a turning man that a single chain on the body axis could not say.
+    const rx = -DRAG * w * a.z + w * w * a.x;
+    const rz = DRAG * w * a.x + w * w * a.z;
+    // The leg on this side of him goes through the cloth; the one on the far
+    // side does not. Read off the committed pose rather than off velocity, so a
+    // lunge photographed at a standstill still carries the cloak with it.
+    const kick = mix(P.llx, P.lrx, (DRAPE_SIDE[c] + 1) * 0.5) * 0.30;
+    const sway = Math.sin(t * 0.6 + motion.seed + c * 2.1) * 0.035
+      + Math.sin(motion.seed * 3.7 + c) * 0.045;
+    const wing = Math.abs(DRAPE_SIDE[c]);
+    const fwd = mix(SWING_FWD, WING_FWD, wing);
+    const tx = clamp((Math.atan2(-(lz + rz), down) + billow * BILLOW + kick) * upright, -fwd, SWING_BACK);
+    const tz = clamp(
+      (Math.atan2(lx + rx, down) + sway) * upright
+      - DRAPE_SIDE[c] * (GATHER * still * upright - WING_SPLAY * (1 - still)),
+      -SWING_SIDE, SWING_SIDE,
+    );
+    springRings(motion, 1 + c * DRAPE_RINGS, tx, tz, dt);
+    if (c === Math.floor(cols / 2)) springRings(motion, 0, tx, tz, dt);
+  }
+  motion.draped = true;
+
+  // Absolute angles down each chain, so every bone gets the difference against
+  // the one above it. The hem also takes a twist: on a turn the cloth's azimuth
+  // lags the body's, so a wing sweeps round rather than rolling flat, and the
+  // two wings turn opposite ways because they are on opposite sides of the axis.
+  const yx = clamp(motion.drapeX[0], -SWING_FWD, SWING_BACK);
+  const yz = clamp(motion.drapeZ[0], -SWING_SIDE, SWING_SIDE);
+  rings[0].rotation.set(yx, 0, yz);
+  for (let c = 0; c < cols; c++) {
+    let prevX = yx;
+    let prevZ = yz;
+    for (let r = 0; r < DRAPE_RINGS; r++) {
+      const i = 1 + c * DRAPE_RINGS + r;
+      // Clamped on the way out as well as on the way in: the springs overshoot
+      // on purpose, and an overshoot is exactly where a limit earns its keep.
+      const x = clamp(motion.drapeX[i], -WING_FWD, SWING_BACK);
+      const z = clamp(motion.drapeZ[i], -SWING_SIDE, SWING_SIDE);
+      const twist = r === DRAPE_RINGS - 1
+        ? (-w * 0.07 - DRAPE_SIDE[c] * 0.05) * upright
+        : 0;
+      rings[i].rotation.set(x - prevX, twist, z - prevZ);
+      prevX = x;
+      prevZ = z;
+    }
+  }
+}
+
+/**
+ * One column's springs, from the yoke's share down to the hem's.
+ *
+ * Sub-stepped because the stiff ring at 26 rad/s is past what semi-implicit
+ * Euler holds at a 50 ms frame, and a cloak that explodes on one slow frame is
+ * worse than no cloak. A warrior who has never been draped is placed on the
+ * answer outright: he arrives with his cloak already hanging, not swinging up
+ * into place from a T-pose, and a still allowed 26 frames to settle cannot
+ * afford to photograph the transient either.
+ */
+function springRings(motion: WarriorMotion, base: number, tx: number, tz: number, dt: number): void {
+  const first = base === 0 ? 0 : 1;
+  const span = base === 0 ? 1 : DRAPE_RINGS;
+  for (let r = 0; r < span; r++) {
+    const i = base + r;
+    const ring = RINGS[Math.min(RINGS.length - 1, first + r)];
+    const gx = tx * ring.share;
+    const gz = tz * ring.share;
+    if (!motion.draped) {
+      motion.drapeX[i] = gx;
+      motion.drapeZ[i] = gz;
       motion.drapeXv[i] = 0;
       motion.drapeZv[i] = 0;
+      continue;
     }
-  } else {
-    // Sub-stepped because the stiff ring at 26 rad/s is past what semi-implicit
-    // Euler holds at a 50 ms frame, and a cloak that explodes on one slow frame
-    // is worse than no cloak.
+    const k = ring.freq * ring.freq;
+    const c = 2 * ring.damp * ring.freq;
     const steps = Math.min(4, Math.max(1, Math.ceil(dt / CLOTH_STEP)));
     const h = dt / steps;
     for (let s = 0; s < steps; s++) {
-      for (let i = 0; i < RINGS.length; i++) {
-        const r = RINGS[i];
-        const k = r.freq * r.freq;
-        const c = 2 * r.damp * r.freq;
-        motion.drapeXv[i] += ((tx * r.share - motion.drapeX[i]) * k - motion.drapeXv[i] * c) * h;
-        motion.drapeX[i] += motion.drapeXv[i] * h;
-        motion.drapeZv[i] += ((tz * r.share - motion.drapeZ[i]) * k - motion.drapeZv[i] * c) * h;
-        motion.drapeZ[i] += motion.drapeZv[i] * h;
-      }
+      motion.drapeXv[i] += ((gx - motion.drapeX[i]) * k - motion.drapeXv[i] * c) * h;
+      motion.drapeX[i] += motion.drapeXv[i] * h;
+      motion.drapeZv[i] += ((gz - motion.drapeZ[i]) * k - motion.drapeZv[i] * c) * h;
+      motion.drapeZ[i] += motion.drapeZv[i] * h;
     }
-  }
-
-  // Absolute angles down the chain, so each bone gets the difference. The hem
-  // also takes a twist, and it is the cheapest thing in here for what it buys:
-  // on a turn the cloth's azimuth lags the body's, so one wing sweeps forward
-  // while the far edge comes round behind — a disc of cloth swirling rather
-  // than a plate rolling, which no amount of pitch and roll will fake.
-  let prevX = 0;
-  let prevZ = 0;
-  for (let i = 0; i < rings.length; i++) {
-    // Clamped on the way out as well as on the way in: the springs overshoot on
-    // purpose, and an overshoot is exactly where a limit earns its keep.
-    const x = clamp(motion.drapeX[i], -SWING_FWD, SWING_BACK);
-    const z = clamp(motion.drapeZ[i], -SWING_SIDE, SWING_SIDE);
-    const twist = i === rings.length - 1 ? -motion.yawRate * 0.07 * upright : 0;
-    rings[i].rotation.set(x - prevX, twist, z - prevZ);
-    prevX = x;
-    prevZ = z;
   }
 }
 
@@ -1927,10 +2303,10 @@ export function poseWarrior(
   if (dead) {
     deathLayer(motion.actT, motion.fall);
     stops();
-    settleOnFeet(legLen);
+    settleOnFeet(legLen, 0);
     motion.leanX *= 0.9;
     commit(rig, piv, st, motion.blend, 0);
-    drapeCloak(rig, motion, dt, P.cloak);
+    drapeCloak(rig, motion, dt, t, P.cloak);
     rig.body.visible = player.invincible ? Math.floor(t * 12) % 2 === 0 : true;
     fadeBlob(rig, 1);
     return;
@@ -1952,7 +2328,11 @@ export function poseWarrior(
   // crisp while still not snapping into it from a standing start.
   motion.wMove = approach(motion.wMove, moving && spd > 0.15 ? 1 : 0, dt, 9);
   motion.wBlock = approach(motion.wBlock, blocking ? 1 : 0, dt, 14);
-  motion.wAction = approach(motion.wAction, attacking ? 1 : 0, dt, 20);
+  // Snaps in, releases slowly. It has to snap in or the windup is half over
+  // before the layer has any weight; it has to release slowly because the wrist
+  // solve hands the blade back to the class carry angle as this falls, and a
+  // spear recovering to upright over three frames is a whip crack.
+  motion.wAction = approach(motion.wAction, attacking ? 1 : 0, dt, attacking ? 20 : 7);
 
   const swing = readSwing(motion, player, dt);
   const hp = player.maxHealth > 0 ? player.health / player.maxHealth : 1;
@@ -1961,7 +2341,7 @@ export function poseWarrior(
   // How braced the man is. Idling in the open he stands off his guard; the
   // moment he is moving, swinging or covering he is on it.
   const ready = clamp01(motion.wMove * 0.55 + motion.wAction + motion.wBlock + (staggered ? 0.4 : 0));
-  stanceLayer(st, ready, 1);
+  stanceLayer(st, ready, motion.wAction, 1);
 
   const calm = clamp01(1 - motion.wAction - motion.wBlock * 0.7 - motion.wMove * 0.85);
   if (calm > 0.001) idleLayer(t, motion.seed, wounded, calm);
@@ -1999,9 +2379,11 @@ export function poseWarrior(
   }
 
   stops();
-  settleOnFeet(legLen);
+  // The plant is off while he is walking and back on the moment he is not, so a
+  // stride keeps its foot clearance and a guard keeps both boots on the ground.
+  settleOnFeet(legLen, 1 - motion.wMove);
   commit(rig, piv, st, motion.blend, ready);
-  drapeCloak(rig, motion, dt, P.cloak);
+  drapeCloak(rig, motion, dt, t, P.cloak);
   fadeBlob(rig, 0);
   rig.body.visible = player.invincible ? Math.floor(t * 12) % 2 === 0 : true;
 
@@ -2042,6 +2424,7 @@ function stops(): void {
   P.olb = clamp(P.olb, -2.45, 0.02);
   P.lrb = clamp(P.lrb, 0, 2.35);
   P.llb = clamp(P.llb, 0, 2.35);
+  P.waw = clamp01(P.waw);
 }
 
 /** Blend out of the pose that was on the body last frame, then write this one. */
@@ -2071,18 +2454,60 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   piv.kneeR.rotation.x = P.lrb;
   piv.kneeL.rotation.x = P.llb;
 
-  rig.weapon.rotation.set(P.wx, 0, P.wz);
+  // The wrist, solved out of where the blade is meant to be pointing rather
+  // than authored beside the joints that also move it. `wa` is an absolute
+  // pitch, so subtracting the shoulder, the elbow and the builder's grip leaves
+  // exactly the wrist that lands it; `WRIST_*` is the envelope a hand actually
+  // has, so an aim the arm cannot reach comes out as a hand at its limit and
+  // not as a hand on backwards. Aim and carry crossfade on `waw`, which is the
+  // action layer's own weight — the carry angles are still what he holds a
+  // weapon at when he is not swinging it.
+  // How far down the aim may go before the weapon is in the turf, off the reach
+  // this warrior's weapon actually measured. One aim serves four classes — an
+  // overhead is an overhead — but a 1.9 m spear swung to the same angle as a
+  // 0.9 m axe buries 1.3 m of itself, and a blade through the ground is the
+  // sort of thing §10 of the bar throws a whole frame out for.
+  const floor = Math.acos(clamp(-STRIKE_LOW / Math.max(0.4, rig.reach), -1, 1));
+  // The spine and the pelvis are in this sum too, and they have to be: an aim is
+  // only absolute if everything between it and the ground is accounted for. A
+  // torso pitched 26° into a blow — which is what the overhead's own spine key
+  // asks for — was adding that 26° straight onto the blade and putting the point
+  // through the turf while the aim still read as level.
+  // Everything under the wrist, as one angle: the blade's pitch is this plus
+  // whatever the weapon is turned to in the fist.
+  const base = P.prx + P.crx + P.arx + P.arb + rig.gripPitch;
+  // In line with the forearm, pointing away from the shoulder. The envelope is
+  // measured off this rather than off zero so it survives a change of grip
+  // pitch in the builder, and the solve is unwrapped onto the branch nearest it
+  // before it is clamped. That unwrap is not tidiness: `wa` sweeps one way
+  // through a strike and the arm carrying it sweeps the other, so the angle
+  // between them wraps past ±π mid-swing — and read on the far branch it is a
+  // hand at 130°, which the clamp then resolves by driving the blade into the
+  // ground instead of over the shoulder.
+  const inLine = Math.PI - rig.gripPitch;
+  // Crossfaded where a viewer sees it — on the blade — and taken deliberately
+  // *through vertical* rather than by the shorter arc. A spear carried upright
+  // and an overhead's cocked load are 190° apart, so the short way between them
+  // is the way round through straight-down: the point ploughs the turf on the
+  // opening frames of every swing, which is what the first cut of this did. Both
+  // ends wrapped onto (−π, π] and lerped plainly is the way over the shoulder.
+  const carry = wrapPi(base + P.wx);
+  const want = mix(carry, Math.min(P.wa / (P.waw || 1), floor), clamp01(P.waw)) - base;
+  const solved = clamp(want + TAU * Math.round((inLine - want) / TAU), inLine - WRIST_BACK, inLine + WRIST_FWD);
+  const wrist = P.waw > 1e-4 ? solved : P.wx;
+  rig.weapon.rotation.set(wrist, 0, P.wz);
   // A spear runs through the fist on a thrust, which is most of what makes a
   // thrust read; a sword only creeps, because a hand sliding down a blade is a
   // different and much worse-looking idea.
   rig.weapon.position.y = P.wy * st.slide;
   if (rig.offhand) {
     // The second seax mirrors the main hand, a beat behind and never as far.
-    // `P.wx + P.arb` is where the weapon hand is pointing once its elbow is
+    // `wrist + P.arb` is where the weapon hand is pointing once its elbow is
     // counted; subtracting the off elbow gives the same aim from the other arm
     // rather than the same wrist angle, which after the elbows went in are two
     // very different things.
-    rig.offhand.rotation.set(mix(st.rest, P.wx + P.arb, 0.55) - P.olb, 0, -P.wz * 0.6);
+    const lead = wrist + P.arb;
+    rig.offhand.rotation.set(mix(st.rest, lead, 0.55) - P.olb, 0, -P.wz * 0.6);
   }
   if (rig.shield) {
     // The pitch is solved, not authored: the disc gives back whatever the

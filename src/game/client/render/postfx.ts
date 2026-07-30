@@ -20,10 +20,15 @@
 //                 leaves the composer buffers untouched
 //   Grade         bloom composite + white balance + filmic curve + the metered
 //                 response + contrast / chroma / split-tone + hurt + vignette +
-//                 aberration + print black + grain + dither + sRGB, all in one
-//                 pass, because none of those alone is worth a round trip
-//                 through a render target
+//                 print black + grain + dither + sRGB, all in one pass, because
+//                 none of those alone is worth a round trip through a render
+//                 target
 //   SMAA / FXAA   last, because edge detection wants gamma-encoded luma
+//
+// The scene buffer is multisampled — see MSAA_SAMPLES. That is not a pass, it is
+// a property of the two buffers the composer ping-pongs, and it is the only
+// stage in the chain that gets sub-pixel *coverage* rather than guessing at it
+// from the finished picture.
 //
 // Tone mapping is deliberately not left to the renderer. Scene materials skip
 // three's tone-mapping chunk whenever they draw into a render target, so with a
@@ -402,8 +407,6 @@ export interface GradeLook {
   bloomTint: Rgb;
   /** Corner falloff, 0..1. */
   vignette: number;
-  /** Radial channel separation, in UV at the frame corner. */
-  aberration: number;
   /**
    * Shadow-weighted noise, in display code values — 0.02 is five levels out of
    * 255. Applied after the sRGB encode, because the same amplitude in linear is
@@ -611,14 +614,6 @@ const DUSK: GradeLook = {
   // grade, but 0.8 blue was painting the arena, not the lens.
   bloomTint: [1.0, 0.97, 0.93],
   vignette: 0.3,
-  // A whisper, and it has to be: the offset is applied to R and B in opposite
-  // directions, so the *fringe* is twice what this number buys. At the old 0.0035
-  // that put 1.4 px of red/cyan on every silhouette at the frame edge — where the
-  // treeline is — and 3.2 px in the corner, which is a nameable artefact rather
-  // than a lens. Held here so the R-to-B separation stays under a third of a pixel
-  // at the edge and under two thirds in the corner: sub-pixel everywhere, so it
-  // reads as a very slight softening of the extreme corner and never as colour.
-  aberration: 0.0007,
   grain: 0.018,
   aoIntensity: 1.0,
   // 0.32 is what `duel` and `lineup` measure, and those are the two framings this
@@ -646,7 +641,7 @@ const DUSK: GradeLook = {
 // it; contrast up about a lower pivot, so the midtones collapse and only the
 // fire-lit reads; crosstalk *down*, so a flame stays a screaming primary instead
 // of rolling gracefully to white; and every subjective term pushed harder —
-// vignette, grain, aberration, occlusion.
+// vignette, grain, occlusion.
 //
 // The one thing it must not be is dusk with more orange in it, and in v2 it was
 // exactly that: warm shadow tint, warm highlight tint, warm black point, all
@@ -781,12 +776,6 @@ const LAST_STAND: GradeLook = {
   // that covers the ash.
   bloomTint: [1.0, 0.9, 0.78],
   vignette: 0.55,
-  // Was 0.011, which is 3 px of red/cyan on a silhouette at the frame edge and
-  // ten in the corner — the single most nameable artefact in the preset, and one
-  // the second panel called a defect rather than a flourish. Kept a shade above
-  // dusk's, because this look is allowed a slightly more stressed lens, but still
-  // under a pixel of R-to-B separation anywhere in frame.
-  aberration: 0.001,
   grain: 0.052,
   aoIntensity: 1.3,
   // Wider than dusk's and corrected in full, which is this look asking for more
@@ -837,7 +826,6 @@ function lerpLook(a: GradeLook, b: GradeLook, t: number, out: GradeLook): GradeL
   out.bloomKnee = m(a.bloomKnee, b.bloomKnee);
   out.bloomTint = mc(a.bloomTint, b.bloomTint);
   out.vignette = m(a.vignette, b.vignette);
-  out.aberration = m(a.aberration, b.aberration);
   out.grain = m(a.grain, b.grain);
   out.aoIntensity = m(a.aoIntensity, b.aoIntensity);
   out.adaptBand = m(a.adaptBand, b.adaptBand);
@@ -1469,9 +1457,9 @@ class MeterPass extends Pass {
 // Grade
 // ---------------------------------------------------------------------------
 
-// Everything display-side in one pass. The order inside it matters: aberration
-// is a lens artefact so it acts on scene radiance, bloom adds in HDR, the curve
-// runs exactly once, and only after that does anything subjective happen.
+// Everything display-side in one pass. The order inside it matters: bloom adds
+// in HDR, the curve runs exactly once, and only after that does anything
+// subjective happen.
 const GRADE_FRAG = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tBloom;
@@ -1501,7 +1489,6 @@ uniform vec2 uSplitRange;
 uniform vec2 uTintRange;
 uniform vec3 uShadowLift;
 uniform float uVignette;
-uniform float uAberration;
 uniform float uGrain;
 uniform float uHurt;
 uniform vec3 uHurtColor;
@@ -1537,19 +1524,30 @@ void main() {
   vec2 c = vUv - 0.5;
   float r2 = dot( c, c );
 
-  // Sub-pixel, and it has to be read as a fringe *width* rather than an offset:
-  // R goes one way and B the other, so what a viewer sees is 2 * |ca|, and the
-  // r2 factor means it is 2 px at the edge for every 4 in the corner. The looks
-  // are set so that product stays under one pixel anywhere in frame — past that
-  // it stops reading as a lens and starts reading as red/cyan paint on every
-  // silhouette, which is exactly what the treeline came back wearing. Zero at
-  // the centre by construction, where the fight is.
-  vec2 ca = c * uAberration * r2;
-  vec3 hdr = vec3(
-    texture2D( tDiffuse, vUv + ca ).r,
-    texture2D( tDiffuse, vUv ).g,
-    texture2D( tDiffuse, vUv - ca ).b
-  );
+  // One tap. There were three, with R and B fetched a little way out from and in
+  // toward the centre — a radial chromatic aberration, cut twice for being called a
+  // defect and now gone rather than cut a third time.
+  //
+  // "Sub-pixel" was always the wrong test for it. Separation is not the artefact;
+  // what a viewer sees is the colour difference the offset writes into the one pixel
+  // an edge lands on, and a bilinear tap 0.28 px off a step lifts that channel by
+  // 0.28 of the whole step — some 35 code values across a hard silhouette in the
+  // corner, single digits over most of the frame. This arena is built almost
+  // entirely out of that kind of edge: alpha-tested leaf cards, twigs, thatch
+  // battens, hut ridges, palisade tips, carved runes.
+  //
+  // Being straight about how much of the beading was actually this: not most of it.
+  // The last stand shipped ten times this value in v6 and its silhouettes carry
+  // *less* edge colour than v7's, because v7's edges are sharper. The bead chains
+  // are chroma that the render puts on a silhouette pixel being displayed at full
+  // strength because that pixel has no anti-aliased neighbour to average against —
+  // which is MSAA_SAMPLES' problem, not this line's. What remains true is that this
+  // line's entire product was chroma on exactly those pixels, for two extra
+  // full-resolution taps in the widest pass in the chain, and nothing in the frame
+  // is better for it. A lens artefact worth having would have to be built on a
+  // signal that knows where the edges are, which is what an AA pass already
+  // computes.
+  vec3 hdr = texture2D( tDiffuse, vUv ).rgb;
 
   hdr += texture2D( tBloom, vUv ).rgb * uBloomTint * uBloom;
 
@@ -1745,12 +1743,29 @@ void main() {
   // code values means what it says. In linear the same number is thirteen times
   // larger coming back out of a near-black shadow, which is how post grain
   // usually ends up looking like sensor noise instead of film.
-  float n = hash12( gl_FragCoord.xy + fract( uTime ) * 1731.0 );
-  float dither = hash12( gl_FragCoord.yx * 1.37 - fract( uTime ) * 911.0 );
-  srgb += ( n - 0.5 ) * uGrain * ( 1.0 - dot( srgb, vec3( 0.2126, 0.7152, 0.0722 ) ) * 0.7 );
-  // Sub-LSB, and the reason a sixty-degree sky gradient does not band. Failure
-  // #8 on the bar is fixed by this line.
-  srgb += ( dither - 0.5 ) / 255.0;
+  float t = fract( uTime );
+  float n = hash12( gl_FragCoord.xy + t * 1731.0 );
+  srgb += ( n - 0.5 ) * uGrain * ( 1.0 - dot( srgb, ${LUMA_VEC} ) * 0.7 );
+
+  // The dither that keeps a sixty-degree sky gradient off its own contours —
+  // failure #8 on the bar — now triangular rather than uniform. Two independent
+  // draws summed: a uniform +/-0.5 LSB decorrelates the quantiser's mean error from
+  // the signal but leaves its variance riding on it, so a slow ramp still shows the
+  // noise floor breathing along the contour the dither exists to hide. The pair
+  // fixes both moments for 1/sqrt(6) LSB of noise against 1/sqrt(12) — a fifth of a
+  // code value more, which is nothing beside the grain on the line above. Distinct
+  // offsets on all three draws, because they share one hash and a swizzle is not
+  // independence.
+  //
+  // What this line cannot do, measured on v7 before it changed: the output was
+  // already fully dithered — 1-2% of sky pixels equal their left neighbour exactly
+  // and the longest run of an identical triple is 3 px, where an undithered shallow
+  // gradient runs to tens. So the stepped contours in the last stand's sky are not
+  // quantisation and nothing here reaches them. They arrive with the sky, at about
+  // 15 code values RMS over a 5-30 px pitch, and they belong to sky.ts.
+  float d1 = hash12( gl_FragCoord.yx * 1.37 - t * 911.0 );
+  float d2 = hash12( gl_FragCoord.yx * 0.79 + t * 2437.0 );
+  srgb += ( d1 + d2 - 1.0 ) / 255.0;
 
   gl_FragColor = vec4( srgb, 1.0 );
 }`;
@@ -1860,7 +1875,6 @@ const GRADE_SHADER = {
     uTintRange: { value: new THREE.Vector2(DUSK.tintLow, DUSK.tintHigh) },
     uShadowLift: { value: new THREE.Vector3(0, 0, 0) },
     uVignette: { value: DUSK.vignette },
-    uAberration: { value: DUSK.aberration },
     uGrain: { value: DUSK.grain },
     uHurt: { value: 0 },
     uHurtColor: { value: new THREE.Vector3(HURT_COLOR[0], HURT_COLOR[1], HURT_COLOR[2]) },
@@ -1875,6 +1889,117 @@ const GRADE_SHADER = {
 
 /** Bloom pyramid depth per tier. Fewer levels, tighter skirt, less bandwidth. */
 const BLOOM_LEVELS: Record<QualityTier, number> = { high: 5, medium: 4, low: 3 };
+
+/**
+ * Coverage samples on the composer's colour buffers, per tier.
+ *
+ * Until this landed the game shipped with **no geometric anti-aliasing at all**,
+ * and it took three panels calling "aliasing crawl" to find why, because every
+ * individual decision along the way was locally correct:
+ *
+ *   - GameCanvas asks for `antialias: quality.antialias && !quality.postProcessing`,
+ *     which is right — context MSAA only ever applies to the default framebuffer,
+ *     and with a composer in play the scene never lands there, so paying for it
+ *     would have bought nothing;
+ *   - EffectComposer allocates its own pair of half-float targets and three
+ *     defaults `samples` to 0, which is right for a composer whose first pass is
+ *     usually a copy;
+ *   - SMAA sits at the end of the chain, which is right, because it wants
+ *     gamma-encoded luma.
+ *
+ * The gap is that SMAA is a *morphological* filter. It reads the finished picture
+ * and infers where an edge probably ran; it never has more information than the one
+ * sample per pixel the rasteriser took. Measured on v7: the rune stone's silhouette
+ * against the sky in `laststand`, the stake tips in `duel` and the far terrain
+ * against the sky are hard one-pixel staircases with no intermediate value on them
+ * at all — a 128-code step resolved in a single pixel. Nothing downstream can
+ * recover a coverage fraction that was never sampled.
+ *
+ * MSAA is the stage that can, and it is the only one: the rasteriser evaluates
+ * coverage per sample and shades once per pixel, so a helm rim, a mail edge, a
+ * palisade stake and the horizon all cost coverage bandwidth rather than shading.
+ *
+ * The cost is not free and it is not only the scene pass. The composer ping-pongs
+ * two buffers, so both carry samples, and three resolves a multisampled target
+ * every time a pass unbinds it — three times a frame at the high tier (the render
+ * pass, GTAO's composite, the grade). Two of those three resolves are pure waste,
+ * because a full-screen quad writes identical samples; they are the price of the
+ * composer owning its own allocation, which is a trade worth taking over hand-rolling
+ * a resolve into the chain. See PASS_COST.msaa.
+ *
+ * Alpha-tested geometry — the leaf cards, thatch battens and twigs the aberration
+ * was beading — is *not* covered by this, because an alpha test kills the whole
+ * fragment rather than part of its coverage mask. Those want `alphaToCoverage` on
+ * their materials, which is a one-line change per material and only becomes
+ * meaningful now that there are samples for it to write into.
+ */
+const MSAA_SAMPLES: Record<QualityTier, number> = { high: 4, medium: 2, low: 0 };
+
+/**
+ * How far SMAA traces a detected edge looking for its crossing, in pixels.
+ *
+ * three ships the reference "medium" preset at 8. The edges that read worst in
+ * these framings are long and shallow — a palisade line, a hut ridge, the far
+ * terrain against the sky — and an edge whose crossing lies further away than the
+ * search reaches gets a blend weight of zero, so it comes out exactly as jagged as
+ * it went in. 16 is the reference "high" preset and it doubles the reach for a
+ * handful of taps in the weights pass only.
+ *
+ * The *threshold* is deliberately left where three has it. Lowering it is the
+ * obvious other half and it is the wrong move here: this look carries grain at up
+ * to 0.052 in code values, which puts as much as 0.026 of difference between two
+ * neighbouring pixels of flat sky, and a threshold under about 0.07 would start
+ * detecting that as an edge and blending flat regions. Grain sits ahead of the AA
+ * pass because it and the curve share one pass; that ordering is what caps how far
+ * this dial can go.
+ */
+const SMAA_SEARCH_STEPS = 16;
+
+/**
+ * The largest sample count this context will multisample an RGBA16F renderbuffer
+ * at, which is the format every buffer in this chain uses. Zero if it will not.
+ *
+ * `getInternalformatParameter` answers exactly this question and is the only thing
+ * that does; `capabilities.maxSamples` is a global ceiling that a driver can report
+ * happily while refusing the float format underneath it. Returns its counts in
+ * descending order. Anything unexpected — a WebGL1 context, a throw, an empty list
+ * — is read as "no", because the alternative failure is an incomplete framebuffer
+ * at the first draw, which surfaces as a black frame rather than as an exception
+ * the fallback path below can catch.
+ */
+/**
+ * Retunes SMAA's pattern search, which three exposes only as a shader define on a
+ * material it holds privately.
+ *
+ * The runtime field is `_materialWeights` and the shipped `@types/three` still
+ * declares the pre-underscore `materialWeights`, so neither name alone both
+ * compiles and works. Both are read, and a build where neither exists leaves the
+ * pass at three's default rather than throwing: this is a quality tweak on top of a
+ * pass that already works, and it must never be the reason a frame fails to
+ * present.
+ */
+function setSmaaSearchSteps(pass: Pass, steps: number): void {
+  const held = pass as unknown as {
+    _materialWeights?: THREE.ShaderMaterial;
+    materialWeights?: THREE.ShaderMaterial;
+  };
+  const weights = held._materialWeights ?? held.materialWeights;
+  if (!weights?.defines) return;
+  weights.defines.SMAA_MAX_SEARCH_STEPS = String(steps);
+  weights.needsUpdate = true;
+}
+
+function maxColorSamples(renderer: THREE.WebGLRenderer): number {
+  const gl = renderer.getContext();
+  if (!(typeof WebGL2RenderingContext !== "undefined" && gl instanceof WebGL2RenderingContext)) return 0;
+  try {
+    const counts: Int32Array | null = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA16F, gl.SAMPLES);
+    if (!counts || counts.length === 0) return 0;
+    return Math.max(0, ...counts);
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Occlusion runs at half resolution and is bilinearly upsampled by GTAO's own
@@ -1896,8 +2021,21 @@ const AO_SCALE = 0.5;
  * should be re-measured; the estimate puts the whole chain about 7% up on v4.
  */
 const PASS_COST: Record<string, number> = {
-  /** Not a post pass; listed so the chain can be read against what it sits on. */
+  /**
+   * Not a post pass; listed so the chain can be read against what it sits on.
+   * Measured before the colour buffers were multisampled — coverage and depth are
+   * now written per sample, so this wants re-measuring alongside `msaa`.
+   */
   render: 2.5,
+  /**
+   * Not a pass either: the resolves three performs whenever a pass unbinds a
+   * multisampled target. Estimated, not measured. Three resolves a frame at the
+   * high tier, each moving 4 x 1600 x 900 x 8 bytes in and a quarter of that out —
+   * about 2.5 full-screen passes of bandwidth between them, with no shading, so it
+   * prices out well under a shaded pass per byte. Zero on the low tier, which takes
+   * no samples.
+   */
+  msaa: 0.9,
   gtao: 2.1,
   bokeh: 4.9,
   /**
@@ -1980,8 +2118,26 @@ export function createPostFx(
       // one in makes setPixelRatio scale an already-scaled number.
       composer = new EffectComposer(renderer);
 
+      // Ask the driver what it will actually multisample rather than trusting
+      // MAX_SAMPLES, which is a global limit and says nothing about this format.
+      // The buffers are RGBA16F, which is only colour-renderable at all through
+      // EXT_color_buffer_float; a device that has the extension for single-sampled
+      // targets need not have it for multisampled ones, and the failure mode there
+      // is an incomplete framebuffer at first draw rather than anything catchable.
+      const samples = Math.min(MSAA_SAMPLES[settings.tier], maxColorSamples(renderer));
+      if (samples > 1) {
+        // Both, because the composer swaps them and the scene lands in whichever
+        // is the read buffer that frame. setSize preserves this; dispose is the
+        // composer's own business.
+        composer.renderTarget1.samples = samples;
+        composer.renderTarget2.samples = samples;
+      }
+
       composer.addPass(new RenderPass(scene, camera));
       track("render");
+      // Listed after the pass whose output it resolves, so the chain reads in the
+      // order the frame is actually built.
+      if (samples > 1) track("msaa");
 
       if (settings.ambientOcclusion) {
         gtao = new GTAOPass(scene, camera, Math.round(bufW * AO_SCALE), Math.round(bufH * AO_SCALE));
@@ -2069,6 +2225,7 @@ export function createPostFx(
       // looks intentional where a stair-stepped one never does.
       const aaName = settings.tier === "low" ? "fxaa" : "smaa";
       aa = aaName === "fxaa" ? new FXAAPass() : new SMAAPass();
+      if (aaName === "smaa") setSmaaSearchSteps(aa, SMAA_SEARCH_STEPS);
       composer.addPass(aa);
       track(aaName);
     } catch (err) {
@@ -2135,7 +2292,6 @@ export function createPostFx(
     // without it. Every preset currently keeps it; the switch exists so the
     // setting is not a lie.
     u.uVignette.value = settings.vignette ? pick("vignette") : 0;
-    u.uAberration.value = pick("aberration");
     u.uGrain.value = pick("grain");
     u.uHurt.value = hurtLevel;
     u.uPressure.value = pressure;

@@ -212,13 +212,35 @@ function dripLine(bearing: number, r: number, a: number, b: number, depth: numbe
   return puddle(Math.cos(bearing) * r, Math.sin(bearing) * r, a, b, bearing + Math.PI / 2, depth);
 }
 
+/**
+ * "Nothing lands under a boot" is the invariant this list is built on, and it
+ * had never been checked against the poses the captures actually use. Measured
+ * against all 25 warriors in the eight presets, in rim-radii of the nearest
+ * puddle: two of `brawl`'s ring of eight stood *inside* the water at 0.26 and
+ * 0.96, and eight of the 25 stood in a damp margin — including the framed
+ * subject of `portrait`, `stance` and `closeup`, which is the shot the whole
+ * list was last rearranged to protect.
+ *
+ * Three radii move below and nothing else does. Afterwards the closest any
+ * warrior stands is 1.41 rim-radii, none is in water, and the interior height
+ * field is unchanged at −63 mm … +18 mm — the basins moved, they did not grow.
+ */
 const PUDDLES: readonly Puddle[] = [
   // Cart ruts on the three tracks. Radii chosen so each pair lands in a frame
   // that wants water — the main gate's beside the duel, the north-west track's
   // behind the character shots' subject rather than under him, the south's
   // where the last stand is fought — and so none of them lands under a boot.
+  //
+  // The north-west pair at 10.0 was not behind the subject, it was *through*
+  // him: a rut is 1.6 m of semi-axis lying along the radius, so a pair centred
+  // at r = 10.0 runs from r = 8.4 to r = 11.6, and `portrait`/`stance` stand
+  // their subject at r = 8.38 and `closeup` at r = 9.22 — both inside the run.
+  // At 12.5 the inner tip sits at r = 10.9 and clears the furthest of them by
+  // 1.7 m. `stance`'s blocking foe at r = 10.88 is the one pose still level
+  // with a rut; he is 0.9 m off its centreline and keeps a 0.08 damp margin,
+  // which is what a man standing beside a cart track should have.
   ...ruts(GATE_ANGLES[0], 9.0, 0.66, 1.7, 0.25, 0.021),
-  ...ruts(GATE_ANGLES[1], 10.0, 0.65, 1.6, 0.24, 0.019),
+  ...ruts(GATE_ANGLES[1], 12.5, 0.65, 1.6, 0.24, 0.019),
   ...ruts(GATE_ANGLES[2], 11.4, 0.68, 1.75, 0.27, 0.023),
 
   // The drip line inside the stakes. Shallowest water in the arena and the
@@ -232,9 +254,17 @@ const PUDDLES: readonly Puddle[] = [
   // been treading all evening; the small ones are inside the fighting circle,
   // placed off every framed subject's feet but close enough to the brawl to be
   // fought around.
+  //
+  // The two small ones sat on `brawl`'s spawn circle. That ring is r = 4.2 on
+  // eight bearings half a step off the cardinals, and these were at r = 4.35
+  // and r = 4.65 on two of those bearings — 0.17 m and 0.63 m from a warrior's
+  // feet, so two of the eight stood in the water. They keep their bearings and
+  // go out to r = 5.74 and 6.20, between the ring and the standing crowd, which
+  // is still ground the brawl is fought over and is 2.19 m clear of the
+  // nearest boot.
   puddle(9.35, -5.35, 1.2, 0.95, 0.85, 0.030),
-  puddle(-4.1, -2.2, 0.85, 0.6, 2.15, 0.024),
-  puddle(4.05, -1.6, 0.72, 0.55, -0.55, 0.021),
+  puddle(-4.15, -4.6, 0.85, 0.6, 2.15, 0.024),
+  puddle(4.35, -3.75, 0.72, 0.55, -0.55, 0.021),
   puddle(-2.6, 4.4, 0.85, 0.62, -0.9, 0.023),
   puddle(-9.6, -9.4, 1.15, 0.9, 0.3, 0.027),
 ];
@@ -364,9 +394,9 @@ function puddleDist(p: Puddle, x: number, z: number, grow: number): number {
 }
 
 /**
- * 0..1 proximity to standing water. The same falloff the basins are carved
- * with, so the dark wet ring, the surface of the puddle and the wet sheen in
- * the terrain shader are all reading one function and cannot drift apart.
+ * 0..1 proximity to standing water. The dark wet ring, the surface of the
+ * puddle and the wet sheen in the terrain shader all read this one function and
+ * cannot drift apart.
  */
 function basinWet(x: number, z: number): number {
   let w = 0;
@@ -375,13 +405,40 @@ function basinWet(x: number, z: number): number {
     const dz = z - p.z;
     if (dx * dx + dz * dz > p.reach2) continue;
     const d = puddleDist(p, x, z, WET_MARGIN);
+    // Compact support, and that is a correction rather than a taste. The
+    // gaussian this replaces still returned a third of full wetness *on* the
+    // grown rim, so a 0.24 m cart rut laid a damp stain more than a metre wide
+    // on either side of itself and `portrait`, `stance` and `closeup` all stood
+    // their subject inside one. Measured across the north-west rut's short
+    // axis: v7 read 0.42 at 0.6 m off the centreline and 0.12 at a full metre,
+    // this reads 0.12 and zero, and both still read 0.88 on the water itself.
+    // A margin named WET_MARGIN has to be WET_MARGIN wide.
+    //
     // Graded by depth: a 14 mm drip line has not saturated the ground around it
     // the way a 30 mm hollow has, and giving every puddle the same near-black
     // margin is how a list of small water turns into a field of dark stains.
-    const n = Math.exp(-d * d * 1.1) * (0.66 + 0.34 * (p.depth / DEEPEST_WATER));
+    const n = (1 - smoothstep(0.3, 1, d)) * (0.66 + 0.34 * (p.depth / DEEPEST_WATER));
     if (n > w) w = n;
   }
   return w;
+}
+
+/**
+ * 0..1 how badly trodden ground drains, at the scale a hollow in it actually
+ * is — a couple of metres, which is what an evening of boots leaves behind.
+ *
+ * One field, read three times: the mud's sodden patches, the drying ridges
+ * between them, and the only places a film of water is allowed to stand. So
+ * colour, roughness and water cannot disagree about where the low ground is,
+ * which is the same invariant `basinWet` gives the puddles.
+ *
+ * Two octaves and no more. The terrain carries this on 0.8 m vertices and a
+ * third octave lands at 0.9 m, under the sampling — and a wet mask modulating
+ * below its own sampling rate is exactly how the ground came back salted with
+ * specular glitter two passes ago.
+ */
+function drainage(x: number, z: number): number {
+  return fbm(x * 0.28 - 63.7, z * 0.28 + 18.9, 2);
 }
 
 /**
@@ -464,6 +521,11 @@ const C_TURF_DRY = new THREE.Color(0x7d7635);
 const C_EARTH = new THREE.Color(0x5e4e35);
 const C_MUD = new THREE.Color(0x3d3122);
 const C_MUD_WET = new THREE.Color(0x201a12);
+// The crust on a ridge of churn that has had an hour to dry. Borrowed from the
+// `mud` recipe's own `drying` swatch in textures.ts so the two agree about what
+// half-dry earth is; it is the light end of the mud mottle and the only reason
+// the churn is more than one value once its sheen has gone.
+const C_MUD_DRY = new THREE.Color(0x7a6546);
 // Chalk is the brightest thing on the ground and it was the brightest thing in
 // the arena — a pale scuff ring reading as bare sand across the middle of every
 // frame. It is a scuff, so it is turf-coloured dirt with the chalk showing
@@ -486,8 +548,25 @@ function groundColor(x: number, z: number, y: number, out: THREE.Color): void {
   const churn = churnMask(x, z, r);
   out.lerp(C_MUD, clamp01(churn * (0.55 + mid * 0.8)));
 
-  // Wet where the ground is low. The same falloff the basins are carved with,
-  // so the dark ring lands exactly on the rim of the water.
+  // Mud is not one tone, and this is the term that carries what the wet sheen
+  // used to. Ground the moot has trodden all evening drains in patches metres
+  // across: sodden and near-black where it holds, drying back to crust on the
+  // ridges a boot pushed up between them. Broad and low-frequency on purpose —
+  // this is the same drainage field the sheen and the roughness read, so the
+  // dark patches, the rough ground and the water all agree, and unlike a
+  // specular highlight a value difference in the albedo is something the key
+  // light and the shadow map can both act on. Measured over the fighting
+  // floor it widens the ground's own p95/p05 luma spread from 2.95 to 3.25
+  // while holding the mean within 1%, which is the trade this pass needs:
+  // tonal range bought without moving the operating point the grade is cut to.
+  const drain = drainage(x, z);
+  out.lerp(C_MUD_WET, smoothstep(0.44, 0.86, drain) * churn * 0.8);
+  out.lerp(C_MUD_DRY, smoothstep(0.46, 0.08, drain) * churn * 0.55);
+
+  // Wet where water actually is. Applied last so it wins over the mottle above:
+  // a hollow that holds standing water is wetter than one that merely drains
+  // into it, and the dark ring has to land on the rim of the water rather than
+  // on whatever the drainage field happened to say there.
   out.lerp(C_MUD_WET, clamp01(basinWet(x, z) * 0.9));
 
   // Chalk showing through where a boot has taken the turf off the track. It is
@@ -1141,13 +1220,21 @@ export function createWorld(
     const pos = new Float32Array(count * 3);
     const uv = new Float32Array(count * 2);
     const col = new Float32Array(count * 3);
-    // Wetness rides its own attribute rather than being inferred in the shader
+    // Two attributes, because the floor is two substances and they want
+    // opposite answers out of the shader. `wet` is where water stands and is
+    // the only thing allowed to be glossy; `chn` is how badly the moot has
+    // opened this ground, and it drives roughness the other way. v7 had one
+    // channel doing both jobs and that is the whole of the defect this pass
+    // exists for — see the write() below.
+    //
+    // Both ride their own attributes rather than being inferred in the shader
     // from how dark the vertex colour is. That inference is what put a mirror
     // on the grass: turf in shade is as dark as mud, so shaded turf came back
     // at a quarter of its roughness and returned a per-pixel blue reflection of
-    // the night sky. Darkness is not a wetness channel. This is, and it is the
-    // same field groundColor darkens with.
+    // the night sky. Darkness is not a wetness channel. These are, and they are
+    // the same fields groundColor grades with.
     const wet = new Float32Array(count);
+    const chn = new Float32Array(count);
     const c = new THREE.Color();
 
     const write = (i: number, x: number, z: number, y: number) => {
@@ -1156,17 +1243,37 @@ export function createWorld(
       uv[i * 2 + 1] = z * GROUND_UV + 0.5;
       groundColor(x, z, y, c);
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-      // The sheen reaches a little further than the darkening: ground the moot
-      // has been standing on all evening is damp without being flooded, and a
-      // damp surface holds a broad sheen rather than a reflection. Weighted
-      // well under the basins so the two never read as the same substance.
+
+      // v7 wrote one channel here — max(basinWet, churn * 0.4) — on the
+      // argument that trodden ground is damp and damp ground holds a broad
+      // sheen. The argument is right about mud and wrong about rendering, and
+      // it is why a warrior casts no shadow while the palisade beside him
+      // throws six-metre stripes.
       //
-      // 0.4 on the churn, not 0.5. With the puddles cut back to the hollows
-      // they belong in, this term is now what decides whether the *open* arena
-      // reads as wet, and at 0.5 the whole trampled floor came back as a sheet
-      // of wet cobbles in every wide shot — which is the same "the moot is
-      // flooded" read the puddles were giving, arriving by the other route.
-      wet[i] = clamp01(Math.max(basinWet(x, z), churnMask(x, z, Math.hypot(x, z)) * 0.4));
+      // A broad sheen is a *lower roughness*, a lower roughness returns more of
+      // the environment map, and no shadow map can darken an environment
+      // reflection. Run through three's own split-sum approximation at the 16°
+      // these presets look down at the floor, against the ground's real linear
+      // albedo of about 0.05: at the roughness that term left, 49% of a pixel
+      // at a warrior's feet was unshadowable environment specular on average
+      // and 89% at the worst of the 25, against 26% on the dry grass outside
+      // the mask. 23 of the 25 stand inside the churn mask and the palisade's
+      // working stripe lands outside it. Same fence, same moon, two receivers —
+      // the light was never the problem.
+      //
+      // So the sheen stops following the churn and follows water. `chn` says
+      // how opened the ground is and drives roughness up; `wet` is standing
+      // water — a basin, or the top tenth of the drainage field where trodden
+      // ground actually holds a film — and it is the only glossy thing left.
+      // Over the fighting floor that takes the mean sheen from 0.164 to 0.036
+      // and the area carrying a real one from 27% to 5%, and what is left is
+      // brighter for being scarce: a scatter of bright wells against matte mud
+      // holds far more highlight structure than an even damp haze, which only
+      // ever averaged.
+      const rr = Math.hypot(x, z);
+      const churn = churnMask(x, z, rr);
+      chn[i] = churn;
+      wet[i] = clamp01(Math.max(basinWet(x, z), smoothstep(0.7, 0.93, drainage(x, z)) * churn * 0.8));
     };
 
     write(0, 0, 0, groundHeight(0, 0));
@@ -1211,6 +1318,7 @@ export function createWorld(
     geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
     geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
     geo.setAttribute("wetness", new THREE.BufferAttribute(wet, 1));
+    geo.setAttribute("churn", new THREE.BufferAttribute(chn, 1));
     geo.setIndex(idx);
     geo.computeVertexNormals();
 
@@ -1225,9 +1333,17 @@ export function createWorld(
   // The ground detail map is one 512² tile over a 350 m field, and no amount of
   // vertex colour hides a tile that repeats every 1.6 m. So the albedo is mixed
   // from two samples of the same map at very different scales, blended by a
-  // wavelength longer than anything in the frame; and roughness is driven off
-  // the vertex colour, which is how churned mud and the puddle rims come out
-  // wet without a second material or a decal pass.
+  // wavelength longer than anything in the frame; and the surface response is
+  // driven off two per-vertex fields the map cannot know about — how churned
+  // the ground is and where water stands on it — which is how mud, trodden
+  // ground and puddle rims come out as different substances without a second
+  // material or a decal pass.
+  //
+  // Those two fields are also this module's whole contribution to whether a
+  // shadow reads on the floor. Half of every frame is this surface; a warrior
+  // is the thing meant to be casting on it; and a shadow map modulates the
+  // direct terms only. So everything below that moves environment response is
+  // a lighting change wearing a material's clothes, and is commented as one.
   //
   // It also mixes in a second *substance*. The detail map is a field of grit and
   // pebbles, and on its own it made every square metre of the arena read as
@@ -1246,11 +1362,11 @@ export function createWorld(
     const prior = groundMat.onBeforeCompile;
     groundMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTurf = { value: turfMap };
-      shader.vertexShader = `varying vec3 vTerrainPos;\nattribute float wetness;\nvarying float vWet;\n${shader.vertexShader}`.replace(
+      shader.vertexShader = `varying vec3 vTerrainPos;\nattribute float wetness;\nattribute float churn;\nvarying float vWet;\nvarying float vChurn;\n${shader.vertexShader}`.replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\n\tvTerrainPos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;\n\tvWet = wetness;",
+        "#include <begin_vertex>\n\tvTerrainPos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;\n\tvWet = wetness;\n\tvChurn = churn;",
       );
-      shader.fragmentShader = `varying vec3 vTerrainPos;\nvarying float vWet;\nuniform sampler2D uTurf;\n${shader.fragmentShader}`
+      shader.fragmentShader = `varying vec3 vTerrainPos;\nvarying float vWet;\nvarying float vChurn;\nuniform sampler2D uTurf;\n${shader.fragmentShader}`
         .replace(
           "#include <map_fragment>",
           `#ifdef USE_MAP
@@ -1287,12 +1403,93 @@ export function createWorld(
         .replace(
           "#include <roughnessmap_fragment>",
           `#include <roughnessmap_fragment>
-          // Only genuinely wet ground goes glossy, and only down to a sheen —
-          // 0.34 is a damp surface, not a mirror. Water itself is a separate
-          // material a few centimetres below this one; the terrain's job here
-          // is the wet margin around it, which is what makes the puddle read as
-          // sitting in the mud rather than laid on top of it.
-          roughnessFactor = mix( roughnessFactor, min( roughnessFactor, 0.34 ), vWet );`,
+          // Churned earth is the roughest thing in the arena, and this is the
+          // half of the receiver fix that matters. A boot does not polish
+          // ground, it opens it, so the trampled interior goes *up* toward
+          // matte — and roughness is the only lever this file has on how much
+          // of the pixel is environment reflection, which is the only part of
+          // it a shadow map cannot touch.
+          //
+          // Added as a variance on alpha rather than mixed toward 1, because
+          // lobe widths add as variances — the same identity the specular-AA
+          // block below is built on. It matters here because the ground detail
+          // map deliberately carries two populations, a matte floor that ships
+          // at 1.05 after materials.ts's scalar and held water at 0.55, and
+          // this keeps the gap where a mix toward 1 would close it: at full
+          // churn the floor saturates at 1.0 while the wells land at 0.85, so
+          // the map's own scatter of bright wells survives the change that
+          // takes the sheet out from under it.
+          roughnessFactor = sqrt( min( roughnessFactor * roughnessFactor + vChurn * 0.42, 1.0 ) );
+          // Then the only thing still allowed to be glossy is standing water.
+          // 0.28 is a wet film, not a mirror; the water itself is a separate
+          // material a few centimetres below this one, and the terrain's job
+          // here is the film around and above it, which is what makes a puddle
+          // read as sitting in the mud rather than laid on top of it.
+          roughnessFactor = mix( roughnessFactor, min( roughnessFactor, 0.28 ), vWet );`,
+        )
+        .replace(
+          "#include <normal_fragment_maps>",
+          `#include <normal_fragment_maps>
+          // The other half of what the sheen was doing, put back where a shadow
+          // can reach it. Churned ground has landform at the half-metre scale —
+          // ruts, the lip a boot throws up, the hollow it leaves — and landform
+          // is what carries light and shade. Tilting the shading normal buys
+          // that structure through the *diffuse* term, which the key light, the
+          // fire and the shadow map all act on, instead of through a reflection
+          // that none of them can.
+          //
+          // Two phase-warped waves and their exact gradient, rather than a
+          // noise fetch: no texture bandwidth, band-limited by construction so
+          // the specular-AA block below has nothing to correct, and the shorter
+          // wavelength is 1.1 m — metres, not texels, so it averages away under
+          // minification instead of crawling. The warp is what earns the cost.
+          // A sum of plain plane waves is periodic however many are added (a
+          // product of two sines is just two more of them), and 2 m of regular
+          // corrugation across the arena floor would be a worse §10 defect than
+          // the sheen it replaces; a wave whose phase is driven by a second
+          // wave has no period the eye can find.
+          //
+          // Peak slope 0.24 at full churn, about 14 degrees, and deliberately
+          // short of what trodden ground really does: this cannot be checked
+          // against a capture in this pass, so it is sized to be clearly worth
+          // having rather than as much as the surface could carry.
+          //
+          // A height field's normal is ( -dH/dx, 1, -dH/dz ), so the gradient is
+          // subtracted. It is computed in world space and \`normal\` is in view
+          // space, hence carrying it through viewMatrix with w = 0. It goes
+          // *after* the normal map so nonPerturbedNormal — which three uses for
+          // shadow-map bias — still sees flat ground and the bias stays honest.
+          {
+            vec2 p = vTerrainPos.xz;
+            const vec2 K1 = vec2( 2.4, 0.9 );
+            const vec2 W1 = vec2( -1.1, 2.7 );
+            const vec2 K2 = vec2( 4.6, -3.4 );
+            const vec2 W2 = vec2( 2.1, 3.3 );
+            float a1 = dot( W1, p );
+            float a2 = dot( W2, p );
+            vec2 g = 0.040 * cos( dot( K1, p ) + 0.50 * sin( a1 ) ) * ( K1 + 0.50 * W1 * cos( a1 ) )
+                   + 0.011 * cos( dot( K2, p ) + 0.40 * sin( a2 ) ) * ( K2 + 0.40 * W2 * cos( a2 ) );
+            vec3 rut = ( viewMatrix * vec4( g.x, 0.0, g.y, 0.0 ) ).xyz;
+            normal = normalize( normal - rut * vChurn );
+          }`,
+        )
+        .replace(
+          "#include <aomap_fragment>",
+          `#include <aomap_fragment>
+          // Macro cavity occlusion, and it is the term the aoMap cannot supply.
+          // An environment map is a distant-field assumption: it says this point
+          // sees the whole sphere. At the 16 degrees a gameplay camera looks
+          // down at this floor, the specular lobe samples the *horizon* band —
+          // and a point at the bottom of a 15 cm rut does not see the horizon,
+          // it sees the ridge in front of it. The aoMap knows the texture's own
+          // 11 cm relief; only this file knows where the moot has churned the
+          // ground into metre-scale ruts, so only this file can subtract it.
+          //
+          // Gated off the film, because water fills a rut and presents a flat
+          // surface that genuinely does see the sky — the one place in the
+          // churn where the distant-field assumption holds is exactly the one
+          // place the frame wants a highlight.
+          reflectedLight.indirectSpecular *= mix( 1.0, 0.55, vChurn * ( 1.0 - vWet ) );`,
         )
         .replace(
           "#include <lights_physical_fragment>",
