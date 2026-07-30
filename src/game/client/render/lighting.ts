@@ -150,6 +150,86 @@
 //     the coal bed's own elevation as it takes over.
 //  3. **The near cascade tightens again and the fire beam widens**, so more of
 //     a ring of eight is inside the only fire shadow the frame can afford.
+//
+// ---------------------------------------------------------------------------
+// Why v7 had no warrior shadows at all, measured
+// ---------------------------------------------------------------------------
+//
+// Three independent panels scored this 2/10 and named it the worst failure in
+// the build: in `laststand` the palisade throws hard stripes six metres across
+// the grass while two warriors on lit ground two metres away throw nothing; in
+// `brawl` eight figures ring a blaze and not one casts a fire shadow; in the
+// `lineup` boot crop four soles and a planted sword meet the ground with no
+// contact darkening whatever.
+//
+// The receive path was never broken and neither were the cascades — the same
+// moon that stripes the palisade covers every warrior in the arena. Four
+// separate things were subtracting from the same shadow until nothing was left
+// of it, and only the first is the one the panel's arithmetic found:
+//
+// **Most of the rig could not be blocked.** Summed as irradiance against an
+// up-facing ground normal — which is N·L and not intensity, so the low fills
+// count for far less than their headline numbers — dusk put 2.28 of
+// *unblockable* light on the turf (ambient 0.66, hemisphere 0.44, warm 0.35,
+// rim 0.51, kick 0.32) against 3.64 that a shadow could take away. A shadow
+// that leaves 38% of the light standing is a smudge before anything else goes
+// wrong with it.
+//
+// **The two lights spending the most on the ground were the two that needed to
+// spend the least.** The rim and the kick exist for the *silhouette edge*, and
+// an edge is lit by the flat component of a light while the ground is lit by
+// its elevation. Hanging them at 7.5° and 11° bought 0.83 of ground fill for
+// nothing: at 3° and 4° the same lights land within 1% of the same value on an
+// edge. That was the cheapest 0.83 in the module and it had been sitting there
+// since v2.
+//
+// **The rim was also drawing the searchlights.** A directional light is a delta
+// source, and a puddle is a mirror, so a puddle returns the whole of it wherever
+// the light's elevation matches the lens's view angle down onto the ground. At
+// the rim's 7.5° and a camera at 1.6 m that is twelve metres ahead — the middle
+// of the arena — which is the hard white ellipse in `brawl`, in the rim's own
+// colour, screen-locked because the rim is camera-relative. The same light at
+// 3.9 candela is most of the cool blue glint field over the churned floor in the
+// same frame, because world.ts clamps that floor to roughness 0.34 across the
+// whole churn mask and a broad lobe on a damp surface is still a lit lobe. None
+// of it can be shadowed, all of it is where the eye looks for a contact edge,
+// and dropping the elevation moves it out past the palisade for free.
+//
+// **And the fire beam could not project a man at all.** It hung at the coal bed
+// with the pool, 1.25 m up. Everything on a warrior above 1.25 m therefore
+// projected *above the horizon* and never reached the ground; only his shins
+// cast, at a grazing 8°, into a shadow tens of metres long. That is not a weak
+// fire shadow, it is a geometric impossibility, and no amount of candela or
+// beam share was ever going to fix it.
+//
+// What this pass changes:
+//
+//  1. **The flat fill is moved into the sky-occlusion light.** ambient and
+//     hemisphere come down to 0.40/0.26 and `ao` goes to 2.20, so 76% of the
+//     ground's fill is now a term a boot can block instead of 50%. Unblockable
+//     ground light falls from 2.28 to 1.11 and total ground exposure moves by
+//     half a per cent — this is a redistribution, not a brightening, and the
+//     frame's operating point against postfx's white point is deliberately
+//     unchanged. Lit against fully shadowed turf goes from 2.60:1 to 3.10:1 in
+//     dusk and 2.07:1 to 2.66:1 in the last stand.
+//  2. **The separation pair goes flat.** Rim to 3°, kick to 4°, with the rim's
+//     swing widened to 0.80 so its edge value is held to within 1% of v7's at a
+//     lower level. Same silhouette, a fifth of the ground spill, and the
+//     specular lobes leave the frame.
+//  3. **`ao.shadow.intensity` at 0.62, and the bounce up to 2.35.** A shadow map
+//     is a binary visibility test and sky occlusion is not binary — a face under
+//     a helm rim still sees a good part of the dome. Letting an occluded point
+//     keep 38% of a much larger AO term costs the contact darkening nothing (the
+//     term it takes 62% of has doubled, so what lands under a boot goes up, not
+//     down) and it is half of what stops (1) turning every helmed face into the
+//     black oval `lineup` has been scoring on. The other half is the bounce,
+//     which is the only light in the rig that reaches *under* a brow and the
+//     only one that provably cannot brighten the turf. Together a helm-shaded
+//     face goes from 2.29 to 2.69 against a ground that has not moved.
+//  4. **The beam climbs above head height.** The pool stays at the coal bed
+//     doing the rim, which is its job; the beam goes to the top of the flame
+//     column at 3.35 m, which is the only place a fire shadow of a standing man
+//     exists. See `BEAM_RISE`.
 
 import * as THREE from "three";
 import type { FrameContext, Mood, QualitySettings } from "./quality";
@@ -243,14 +323,27 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
   // HemisphereLight in three feeds indirect *diffuse* only, and diffuse is the
   // one channel mail does not have.
   //
-  // ambient and hemi are down from v6's 0.85/0.62, and `ao` is where the
-  // difference went — not a cut. Summed against a ground normal the three come
-  // to 0.66 + 0.44 + 1.15·cos(AO_TILT) ≈ 2.21 where v6 summed 1.47, and against
-  // a *vertical* normal to 0.66 + 0.22 + 1.15·sin(AO_TILT) ≈ 1.16, which is what
-  // v6 summed to the second decimal. So a warrior's fill is unchanged, open turf
-  // gains about a sixth, and anywhere the sky is blocked loses 0.37 outright.
-  // That difference is the whole contact term: it is the only number in the rig
-  // that knows a boot is standing on something.
+  // ambient and hemi are down again — 0.66/0.44 in v7, 0.85/0.62 in v6 — and
+  // `ao` is where the difference has gone on both passes. It is a redistribution
+  // and not a cut, and the number that matters is not the sum but what fraction
+  // of it can be *blocked*. Against an up-facing normal the three come to
+  // 0.40 + 0.26 + 2.20·cos(AO_TILT) ≈ 2.79 where v7 summed 2.21 and v6 summed
+  // 1.47, and 76% of that is now directional where v7 was 50% and v6 was 0%.
+  //
+  // The contact darkening itself barely moves — 1.32 against v7's 1.11, because
+  // `AO_SHADOW_INTENSITY` hands 38% of the bigger term back. What moves is
+  // everything standing *next* to it: unblockable ground light falls from 2.28
+  // to 1.11 across this and the three elevation changes below, so the same
+  // shadow now removes 68% of the turf's irradiance instead of 62% and leaves
+  // 1.92 behind instead of 2.28. A shadow is a ratio, and until this pass the
+  // rig had been trying to win it by adding to the numerator.
+  //
+  // The cool half of the frame survives the ambient cut for the same reason it
+  // survived v7's: `aoColor` is a colder blue-grey than either of the two terms
+  // being drained, so the arena keeps more cold light than before, not less —
+  // it just arrives with a direction attached. What genuinely does get thinner
+  // is light reaching a *crevice*, which no directional term can serve, and
+  // that is what `AO_SHADOW_INTENSITY` and the raised bounce are for.
   //
   // It is also the pass's answer to crowd readability, which is worth stating
   // because it is not obvious from the number. The background this arena puts
@@ -260,23 +353,30 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
   // fill that can be blocked therefore sinks the background and keeps the
   // figure, which no unshadowed term in this rig can do at any intensity.
   dusk: {
-    ambient: 0.66,
+    ambient: 0.4,
     ambientColor: 0x6a86a0,
-    hemi: 0.44,
+    hemi: 0.26,
     hemiSky: 0x8fb4d2,
     hemiGround: 0x7a5a3c,
-    key: 4.2,
-    warm: 1.15,
-    // 3.6, not v4's 3.2. The measured defect this answers is crowd
-    // readability: in `brawl` a warrior at twelve metres came back at a
-    // red-minus-blue of 108 against a palisade at 112 — the same hue, so the
-    // only thing holding the figure off the wall was 40 luma of value, and at
-    // that distance the haze eats most of that. The rim is the one term in the
-    // rig that lands on a silhouette edge and provably cannot land on the
-    // background behind it, so it is the term that buys separation back.
-    rim: 3.9,
+    key: 4.5,
+    warm: 1.05,
+    // The measured defect this answers is crowd readability: in `brawl` a
+    // warrior at twelve metres came back at a red-minus-blue of 108 against a
+    // palisade at 112 — the same hue, so the only thing holding the figure off
+    // the wall was 40 luma of value, and at that distance the haze eats most of
+    // that. The rim is the one term in the rig that lands on a silhouette edge
+    // and provably cannot land on the background behind it, so it is the term
+    // that buys separation back.
+    //
+    // 3.3, down from v7's 3.9, and the edge is *not* down with it. What a rim
+    // puts on a silhouette is `intensity · cos(elevation) · sin(swing)`; taking
+    // the elevation to 3° and widening the swing to 0.80 holds that product to
+    // within 1% of v7's while the two things the level was actually costing —
+    // 0.51 of unblockable ground fill and a specular lobe hard enough to read
+    // as a searchlight — come down with the number. See RIM_ELEVATION.
+    rim: 3.3,
     rimColor: 0x9ec8ff,
-    kick: 1.7,
+    kick: 1.65,
     kickColor: 0xffbe8c,
     // Olive rather than gold on purpose. This is light off wet turf, it is the
     // largest single term on a warrior's front, and making it warm would be a
@@ -284,13 +384,29 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
     // fill against an orange sky is also the cheapest separation there is — and
     // it is pushed a shade further from the sunset here than in v4, for the same
     // crowd-readability reason as the rim above.
-    bounce: 1.7,
+    //
+    // 2.35, up from 1.7, and it is up for the faces. A light hung *below* the
+    // horizon is the only term in this rig that reaches under a helm brow, and
+    // it is also the only one that can be raised without lifting the turf by a
+    // single unit — an up-facing normal against a downward light clamps to
+    // zero. So it is free contrast and a face fill at the same time, which is
+    // the only combination worth spending on while the ground shadow is the
+    // blocker.
+    bounce: 2.35,
     bounceColor: 0x93a084,
     // Cool, and a shade bluer than the hemisphere's sky half. It is standing in
     // for the whole upper dome, which at dusk is the one large *cold* source in
     // the arena, and giving it its own hue is what stops a rig with three warm
     // terms in it turning every up-facing plane sepia.
-    ao: 1.15,
+    //
+    // It is also, at 2.20, now the second largest number in the rig, and that is
+    // the point: it is the only large term a boot can block. It is nearly
+    // doubled rather than merely raised because `AO_SHADOW_INTENSITY` hands 38%
+    // of it back inside the shadow — 0.62 · 2.20 · cos(AO_TILT) ≈ 1.32 is what
+    // actually lands under a boot, which is where v7's 1.15 at full strength
+    // already sat. The light grows so that the *shadow* can stay where it was
+    // while a face under a helm rim stops going to black.
+    ao: 2.2,
     aoColor: 0x9db8d4,
     // 31 candela at decay 1.35 — see HEARTH_DECAY. Only a fifth up on v6's 26,
     // and deliberately so: the measured defect was never that the fire was dim,
@@ -310,26 +426,31 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
   // dims — it is the last thing keeping a warrior off the background, and a last
   // stand that cannot be read is not dramatic, it is broken. The kick and the
   // hearth are the two that go up, because in this mood the fire *is* the key.
+  //
+  // Rebalanced on exactly the shape dusk is: the flat pair drained into `ao`,
+  // the pair's elevations flattened, the key up enough to hold the exposure the
+  // grade is tuned against. Its ground total lands within 1% of v7's and its
+  // unblockable half comes down from 2.12 to 1.03, which is the whole change.
   lastStand: {
-    ambient: 0.44,
+    ambient: 0.28,
     ambientColor: 0x8a6046,
-    hemi: 0.3,
+    hemi: 0.19,
     hemiSky: 0xa87a54,
     hemiGround: 0x7d4526,
-    key: 2.4,
-    warm: 2.0,
-    rim: 2.5,
+    key: 2.9,
+    warm: 1.85,
+    rim: 2.15,
     rimColor: 0x8fb0e0,
-    kick: 2.4,
+    kick: 2.3,
     kickColor: 0xff8a3c,
-    bounce: 1.5,
+    bounce: 2.15,
     bounceColor: 0x8a6a48,
     // Ember rather than sky: in this mood the dome above the moot is lit by what
     // is burning under it, so the occlusion term stops being the cold half of
     // the frame. It also stays large, because this mood's ambient is the one
     // most at risk of reading as a flat orange wash — and an occluded fill is
     // the cheapest structure a wash can be given.
-    ao: 0.85,
+    ao: 1.68,
     aoColor: 0xc08a5e,
     hearth: 60,
     hearthColor: 0xff5a1a,
@@ -390,12 +511,26 @@ const BOUNCE_DISTANCE = 10;
  * and the specular lobe on a vertical surface lands within a few degrees of the
  * horizon, which is where the camera is.
  *
- * 17° for the warm fill, because it casts no shadow and therefore has no bias to
- * fight, and a low warm rake across the west side of everything vertical in the
- * frame is exactly what the last of a sunset does.
+ * 9.2° for the warm fill, down from v7's 17°, and it is down for two reasons
+ * that happen to agree. The sun this stands in for is at 2.4° (`DUSK_SUN`), so
+ * 17° was never the honest number for it — and a shadowless light hung at 17°
+ * mirrors off a puddle straight into an eye-height lens from about five metres
+ * out, which is a blob no shadow map can touch (see RIM_ELEVATION for the
+ * geometry). At 9.2° that moves to ten metres at a quarter of the rim's old
+ * candela. Nothing else about it changes: it casts nothing, so it has no bias to
+ * fight, and a low warm rake across the west side of everything vertical is what
+ * the last of a sunset actually does.
+ *
+ * It does not go lower, and the floor is a hue one rather than a geometric one.
+ * `aim` re-extincts the sky's colour for whatever elevation the rig moves a body
+ * to, so dropping this term also reddens it: at 9.2° the warm fill's product
+ * with `WARM_BASE` lands near 1 : 0.43 : 0.13, and by 6° it is at 1 : 0.38 :
+ * 0.10 and closing on the 1 : 0.23 : 0.03 red floodlight that WARM_BASE exists
+ * to have avoided. The model is behaving correctly; there is simply a point past
+ * which an honest elevation costs more in colour than it returns in specular.
  */
 const KEY_MIN_ELEVATION = 0.6;
-const FILL_MIN_ELEVATION = 0.3;
+const FILL_MIN_ELEVATION = 0.16;
 
 /**
  * The separation pair, as elevation and as bearing measured from straight behind
@@ -406,16 +541,38 @@ const FILL_MIN_ELEVATION = 0.3;
  * the elevation) and its contribution to a silhouette edge is the flat component
  * times the sine of its bearing. At v2's 0.42 the rim gave the ground 42% of
  * itself while giving an edge 52% — barely a contrast win, and the reason the
- * rim never read. At 0.13 the ground gets 13% and the edge 60%. Nothing about
- * the light changed except where it hangs.
+ * rim never read. At v7's 0.13 the ground got 13% and the edge 60%.
  *
- * The bearings differ in magnitude as well as sign so the two do not read as one
- * symmetrical pair of headlights: the cool rim sits closer to straight behind,
- * the warm kick swings wide enough to catch a jaw and a forearm.
+ * Both come down again here, and this is the flattest they can usefully go. The
+ * flat component is `cos(elevation)`, so between 0.13 and 0.05 an edge loses
+ * 0.7% of its light and the ground loses 62% of its fill; between 0.19 and 0.07
+ * an edge loses 1.6% and the ground loses 63%. There is no trade being made —
+ * v7 was simply paying for ground fill it did not want, twice, and paying for it
+ * again in specular.
+ *
+ * The specular half is worth stating exactly, because it is a geometry problem
+ * with a closed form rather than a tuning one. A puddle is a near-mirror, so it
+ * returns a light at full strength wherever the light's elevation equals the
+ * camera's view angle down onto it — for a lens at 1.6 m that is a ground
+ * distance of `1.6 / tan(elevation)`. At the rim's 7.5° that is 12 m: the middle
+ * of the arena, dead in frame, and screen-locked because the rim is
+ * camera-relative. That is the "searchlight" both panels named, and it is why it
+ * is the rim's colour. At 3° the match moves to 31 m, past the palisade and into
+ * the haze; the kick's moves from 8 m to 23 m and the warm fill's from 5 m to
+ * 10 m. The key still matches at about 2 m, which is under the lens in every
+ * over-shoulder preset and is not a number worth spending the 37° on.
+ *
+ * `RIM_SWING` widens to 0.80 to hold the edge exactly. What lands on a
+ * silhouette is `intensity · cos(elevation) · sin(swing)`, so widening the
+ * bearing is the lever that lets the *level* come down — 3.3 at 0.80 puts 2.36
+ * on an edge where v7's 3.9 at 0.66 put 2.37, and the 0.6 of intensity that
+ * comes off is 0.6 the wet ground no longer mirrors. It stops well short of the
+ * kick's 0.92: the two swings still differ in magnitude as well as sign, which
+ * is what keeps the pair from reading as symmetrical headlights.
  */
-const RIM_ELEVATION = 0.13;
-const RIM_SWING = 0.66;
-const KICK_ELEVATION = 0.19;
+const RIM_ELEVATION = 0.05;
+const RIM_SWING = 0.8;
+const KICK_ELEVATION = 0.07;
 const KICK_SWING = -0.92;
 
 /**
@@ -488,6 +645,29 @@ const HEARTH_DECAY = 1.35;
  */
 const BEAM_ANGLE = 1.02;
 /**
+ * How far *above* the named radiant centre the casting beam hangs — and the
+ * reason `brawl` had eight warriors round a blaze and not one fire shadow.
+ *
+ * v6 and v7 rode the beam on the pool, at the coal bed 1.25 m up. A shadow is a
+ * projection from the source through the caster onto the receiver, so a source
+ * at 1.25 m projects everything on a 1.8 m warrior *above* 1.25 m up into the
+ * air and never onto the ground at all. Only his shins cast, from a source
+ * raking at 8°, into a shadow tens of metres long and correspondingly faint.
+ * That is not a weak fire shadow, it is the absence of one, and it could not
+ * have been fixed with candela or with beam share — both passes that tried.
+ *
+ * So the two halves of the fire split their jobs properly. The pool stays at
+ * `HEARTH_DROP` because what rims a man is the bed of coals level with his
+ * chest, and that argument is unchanged. The beam climbs to the top of the
+ * flame column — 3.35 m over the coals, which is where a laid bonfire's tallest
+ * tongues actually are — because that is the only place in the fire from which a
+ * standing man has a shadow. From there a warrior on `brawl`'s 4.2 m ring throws
+ * about 4.9 m of shadow radially outward, which for the ones between the lens
+ * and the fire runs straight at the viewer. Long, because the source is low;
+ * long radial shadows off a blaze is what a blaze looks like.
+ */
+const BEAM_RISE = 1.55;
+/**
  * Penumbra 0.88 rather than v6's 1.
  *
  * At penumbra 1 three sets the inner cone to zero width, so the falloff runs
@@ -501,9 +681,28 @@ const BEAM_ANGLE = 1.02;
 const BEAM_PENUMBRA = 0.88;
 const BEAM_SHARE = 0.72;
 const POOL_SHARE_WITH_BEAM = 0.72;
-/** How far in front of the fire the beam looks, and how far it drops over that run. */
-const BEAM_THROW = 10;
-const BEAM_DIP = 1.4;
+/**
+ * How far in front of the fire the beam looks, and how far it drops over that
+ * run — together, the rake of its axis, which `BEAM_RISE` has just made a real
+ * number rather than a nudge. 3.0 over 8 is 20.6° down, so the axis meets the
+ * ground at 8.9 m and the ring at 4.2 m sits 18° off it, inside the cone's
+ * plateau. v7's 1.4 over 10 was 8°, which from the coal bed pointed the beam
+ * along the ground rather than onto it.
+ */
+const BEAM_THROW = 8;
+const BEAM_DIP = 3.0;
+/**
+ * The beam's depth bias, in metres at the range the fight is actually at.
+ *
+ * Stated in metres for the same reason the cascades' are, and more urgently: a
+ * perspective shadow camera's normalised depth is 1/z, so a constant bias means
+ * wildly different distances at different ranges. v7's flat -0.0022 against a
+ * 0.4/22 frustum was 3 cm of push at two metres and 34 cm at eight — the far
+ * half of any fire shadow detached from its caster entirely. Converted at the
+ * ring radius it is one number that behaves across the whole ring.
+ */
+const BEAM_BIAS_METRES = 0.03;
+const BEAM_REF_DISTANCE = 5.4;
 
 /**
  * Fire-steered kick: how far out the fire is allowed to take over the warm half
@@ -531,7 +730,7 @@ const BEAM_DIP = 1.4;
  */
 const HEARTH_RIM_REACH = 9.5;
 const HEARTH_RIM_GAIN = 3.4;
-const FIRE_ELEVATION = 0.06;
+const FIRE_ELEVATION = 0.03;
 
 // ---------------------------------------------------------------------------
 // The cascades
@@ -656,16 +855,65 @@ const AO_HALF_MAX = 25.6;
 const AO_TARGET_TEXEL = 0.025;
 const AO_MIN_HALF = 9;
 const AO_BIAS_METRES = 0.022;
-const AO_NORMAL_BIAS_CAP = 0.05;
+const AO_NORMAL_BIAS_CAP = 0.03;
+/**
+ * A normal offset is sized against the depth slope the light sees across one
+ * texel, and that slope is a function of the light's own elevation — so the
+ * 1.6 the two cascades share, which is sized for a 37° key raking the ground, is
+ * simply the wrong coefficient for a light at 76°. At 1.0 this cascade takes
+ * 2.5 cm of offset instead of 4.0 and turns it into 0.6 cm of slip instead of
+ * 1.0. Under a boot sole that is the difference between a contact edge and a
+ * contact edge with a hairline of daylight under it, and acne is not the
+ * countervailing risk it would be on the key: a near-vertical light on
+ * near-horizontal ground has almost no slope to fight.
+ */
+const AO_NORMAL_BIAS_SLOPE = 1.0;
+/**
+ * How much of the sky-occlusion light a blocked point still receives — or
+ * rather, how much of it is taken away, since three states this as the shadow's
+ * own strength.
+ *
+ * Every other shadow in this rig is a visibility test against a source small
+ * enough that the test is honest: the moon is a disc, the beam is a cone, and a
+ * point either sees them or does not. The sky is not that. It is a hemisphere,
+ * and a face under a helm rim, a boot beside a stake, a wall under an eave all
+ * still see a large fraction of it — a binary test against a dome is the one
+ * place in this module where the shadow map is modelling the wrong thing.
+ *
+ * v7 ran it binary and `lineup` scored the result: four faces as black ovals
+ * under their helm brows, which OPEN-DEFECTS traced correctly to this light and
+ * then had nowhere to go, because backing the light out would have taken the
+ * contact term with it. 0.62 is the way out of that trade. It costs the contact
+ * darkening nothing — the term it takes 62% of has nearly doubled, so what
+ * actually lands under a boot goes from 1.11 to 1.32 — while a helmed face gets
+ * 0.21 of this light back where v7 gave it none, and the raised bounce brings
+ * the rest. The whole face recovery is +0.40 against an unmoved ground.
+ *
+ * It is also the more physical of the two settings. 0.62 says a fully sky-blocked
+ * point still collects about a third of the dome by bounce and by the parts of
+ * the sky the single sampled direction is standing in for, which is roughly what
+ * a real ambient occlusion term integrates to under a brow.
+ */
+const AO_SHADOW_INTENSITY = 0.62;
 /**
  * Where the occlusion term's energy goes on a tier that cannot afford its
- * cascade: back into the two flat fills it was taken out of, split so that the
- * ground and a warrior both come back to roughly the level they hold on high.
- * A low-tier frame loses the contact darkening — which is a dropped *effect* —
- * and keeps its exposure, which is art direction.
+ * cascade: back into the two flat fills it was taken out of. A low-tier frame
+ * loses the contact darkening — which is a dropped *effect* — and keeps its
+ * exposure, which is art direction.
+ *
+ * Almost all of it goes to the hemisphere now rather than 60/40 to ambient,
+ * because the two are not interchangeable and this light is strongly
+ * ground-biased: at 76° it puts 0.97 of itself on an up-facing normal and 0.25
+ * on a vertical, a ratio of 3.9, while ambient's is 1.0 and the hemisphere's is
+ * 2.0. Nothing in three can hit 3.9, so the fold is aimed at the closest thing
+ * available and the ground — which is where the term's energy actually lives and
+ * where the exposure is judged — comes back exact. Verticals on a tier with no
+ * occlusion cascade are lit about twice as flat as on high, which is the shape
+ * of the effect being dropped rather than a second error: with no shadow to cast,
+ * a directional fill and a flat one are the same light.
  */
-const AO_FOLD_AMBIENT = 0.6;
-const AO_FOLD_HEMI = 0.4;
+const AO_FOLD_AMBIENT = 0.12;
+const AO_FOLD_HEMI = 0.85;
 
 /**
  * How the key's energy divides between the two cascades.
@@ -722,7 +970,19 @@ const SETTLEMENT_BIAS_METRES = 0.05;
  */
 const SHADOW_NORMAL_BIAS_SLOPE = 1.6;
 const SHADOW_NORMAL_BIAS_CAP = 0.045;
-const SETTLEMENT_NORMAL_BIAS_CAP = 0.09;
+/**
+ * 0.07, down from 0.09, and the reason is the *warrior* rather than the hut.
+ *
+ * A warrior stands inside both cascades — the settlement box is 51 m at the
+ * arena origin and the sim keeps everyone inside 21.5 m — so the far map holds a
+ * coarse second copy of his silhouette, and how much of the key he actually
+ * removes depends on whether that copy lands on the near map's or beside it. At
+ * 0.09 it detached by 12 cm, which on a 25 cm leg is a fringe rather than a
+ * reinforcement; at 0.07 it is 9 cm and the two overlap. The hut this cap was
+ * written for does not notice the difference at twenty-five metres, and the
+ * depth bias below is carrying most of the acne margin anyway.
+ */
+const SETTLEMENT_NORMAL_BIAS_CAP = 0.07;
 
 /** Relative air mass along a ray leaving the ground. Mirrors sky.ts. */
 function airMass(cosZenith: number): number {
@@ -794,6 +1054,7 @@ export function createLighting(
     hang: number,
     biasMetres: number,
     normalBiasCap: number,
+    normalBiasSlope: number = SHADOW_NORMAL_BIAS_SLOPE,
   ): number {
     light.castShadow = true;
     light.shadow.mapSize.set(settings.shadowMapSize, settings.shadowMapSize);
@@ -807,7 +1068,7 @@ export function createLighting(
     cam.updateProjectionMatrix();
     const texel = (2 * half) / Math.max(1, settings.shadowMapSize);
     light.shadow.bias = -(biasMetres / (cam.far - cam.near));
-    light.shadow.normalBias = Math.min(texel * SHADOW_NORMAL_BIAS_SLOPE, normalBiasCap);
+    light.shadow.normalBias = Math.min(texel * normalBiasSlope, normalBiasCap);
     return texel;
   }
 
@@ -872,7 +1133,12 @@ export function createLighting(
   const ao = new THREE.DirectionalLight(rig.aoColor, hasAo ? rig.ao : 0);
   ao.target.position.set(0, 0, 0);
   root.add(ao.target);
-  if (hasAo) frame(ao, aoHalf, AO_DISTANCE, AO_BIAS_METRES, AO_NORMAL_BIAS_CAP);
+  if (hasAo) {
+    frame(ao, aoHalf, AO_DISTANCE, AO_BIAS_METRES, AO_NORMAL_BIAS_CAP, AO_NORMAL_BIAS_SLOPE);
+    // The one shadow in the rig that is standing in for a source too large for a
+    // visibility test to be honest about. See AO_SHADOW_INTENSITY.
+    ao.shadow.intensity = AO_SHADOW_INTENSITY;
+  }
   ao.castShadow = hasAo;
   root.add(ao);
 
@@ -970,19 +1236,36 @@ export function createLighting(
     )
     : null;
   if (beam) {
-    beam.position.copy(hearth.position);
+    // Above the pool, not on it — the whole of BEAM_RISE.
+    beam.position.set(hearthAt.x, hearthAt.y + BEAM_RISE, hearthAt.z);
     beam.castShadow = true;
     // Half the near cascade's resolution and a far better texel than it, because
-    // a 109° perspective frustum whose far plane is the pool's own reach is
-    // covering 8 m of ground at three metres out — under a centimetre per texel
-    // where the warriors stand.
+    // a 117° perspective frustum whose far plane is the pool's own reach is
+    // covering 17 m of ground at the ring radius — under two centimetres per
+    // texel where the warriors stand.
     const beamMap = Math.max(512, Math.min(1024, settings.shadowMapSize));
     beam.shadow.mapSize.set(beamMap, beamMap);
     beam.shadow.camera.near = 0.4;
-    beam.shadow.bias = -0.0022;
-    beam.shadow.normalBias = 0.03;
+    // Written by applyRig, because the far plane it is normalised against is
+    // `light.distance`, and that is a mood value.
+    beam.shadow.normalBias = 0.02;
     root.add(beam.target);
     root.add(beam);
+  }
+
+  /**
+   * The beam's depth bias in normalised units, from its metre value.
+   *
+   * A perspective depth buffer stores `far·(1 - near/z) / (far - near)`, so a
+   * metre at the range that matters is `far·near / ((far - near)·z²)` of it.
+   * three overwrites the shadow camera's far plane with `light.distance` on
+   * every update, which the mood blends, so this is re-derived rather than
+   * baked.
+   */
+  function beamBias(range: number): number {
+    const near = 0.4;
+    const far = Math.max(range, near + 1);
+    return -(BEAM_BIAS_METRES * far * near) / ((far - near) * BEAM_REF_DISTANCE * BEAM_REF_DISTANCE);
   }
 
   scene.add(root);
@@ -1208,7 +1491,10 @@ export function createLighting(
     warmFill.intensity = rig.warm;
     bounce.intensity = rig.bounce;
     hearth.distance = rig.hearthRange;
-    if (beam) beam.distance = rig.hearthRange;
+    if (beam) {
+      beam.distance = rig.hearthRange;
+      beam.shadow.bias = beamBias(rig.hearthRange);
+    }
     // The separation pair and the fire's own levels are written by `update`,
     // because both are functions of where the camera and the fire are as well as
     // of the mood. `rig` holds the mood half and nothing else.
@@ -1271,7 +1557,11 @@ export function createLighting(
       if (at) hearthAt.copy(at);
       else hearthAt.set(0, HEARTH_DROP, 0);
       hearth.position.set(hearthAt.x, hearthAt.y - HEARTH_DROP, hearthAt.z);
-      beam?.position.copy(hearth.position);
+      // The two halves of the fire hang at different heights on purpose: the
+      // pool at the coal bed because that is what rims a man, the beam above the
+      // flame tips because that is the only height a standing man has a ground
+      // shadow from. See BEAM_RISE.
+      beam?.position.set(hearthAt.x, hearthAt.y + BEAM_RISE, hearthAt.z);
     },
 
     setMood(next) {
@@ -1374,8 +1664,10 @@ export function createLighting(
 
       if (beam) {
         // Down the camera's own bearing, dipped so it rakes the ground rather
-        // than the palisade behind it. The beam shares the pool's breath so the
-        // shadow it casts does not pulse against the light that fills it.
+        // than the palisade behind it — 3 m over 8 from a source now 3.35 m up,
+        // which puts the axis on the turf at nine metres and the ring at 4.2 m
+        // well inside the cone's plateau. The beam shares the pool's breath so
+        // the shadow it casts does not pulse against the light that fills it.
         beamAim.subVectors(ctx.camera.position, beam.position);
         beamAim.y = 0;
         if (beamAim.lengthSq() < 1e-6) beamAim.set(0, 0, 1);

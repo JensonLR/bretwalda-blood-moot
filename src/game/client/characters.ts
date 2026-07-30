@@ -707,6 +707,125 @@ const rod = (rTop: number, rBot: number, h: number, s = 8) => new THREE.Cylinder
 const ring = (r: number, tube: number, s = 6, t = 16) => new THREE.TorusGeometry(r, tube, s, t);
 
 // ============================================================
+// Emissive discipline
+// ============================================================
+//
+// A bare emissive is the only primitive in this file that can fail the bar on its
+// own, and it has now done it three times in three different colours: the hall
+// doorway's orange quad, the warden's brass lace diamond, and — in
+// `art/shots/v7/lineup.png` — the runekeeper's amulet, a 30 mm `runeGlow` bead
+// drawing a five-pixel white square on his chest.
+//
+// The mechanism is the same every time and it is not the colour. `runeGlow` runs
+// its blue channel at ~5.4 linear against a bloom threshold of 5.0, which is
+// exactly where materials.ts wants it for a metre of carved runestone twenty
+// metres off. On a bead whose entire footprint is five pixels, every one of those
+// pixels is over the clip — so what reaches the frame is the primitive's
+// *silhouette* at flat white, and the silhouette of an eight-segment sphere at
+// five pixels is a square. Lowering the intensity would break the surface the
+// number was tuned on; raising the segment count only makes a rounder white blob.
+//
+// What actually fixes it is that the edge of an emissive must not be as hot as
+// its middle. Give the substance a field that falls to a dark matrix at the
+// border of every face it dresses and no primitive wearing it can present a flat
+// lit edge — at any size, on any geometry, in any preset.
+//
+// So it is enforced rather than remembered. `Part.add` is the one door every
+// primitive in this file passes through — body, kit, weapons, the armoury
+// preview's mannequin — and it substitutes a shaped clone for anything that
+// arrives emitting with nothing to shape it. A future call site cannot bring the
+// fault back by writing the same line that caused it three times.
+
+/**
+ * The field an emissive substance is cut into: a dark matrix with one hot stroke
+ * through the middle of every face, reaching the matrix exactly at the border.
+ *
+ * Flat-topped rather than peaked, and that is the number that took two tries to
+ * get right. A falloff that starts at the centre puts its own peak wherever the
+ * geometry's u = 0.5 happens to land — which on `SphereGeometry` is the meridian
+ * *opposite* the one three's UVs face at u = 0.25, so the amulet came out dark on
+ * the side the camera sees and hot on the side buried in the robe. Held at full
+ * across the middle 38% and spent entirely in the outer band, the field is 0.9 or
+ * better anywhere a bead's lit cap can land and reaches the matrix only where a
+ * face actually ends.
+ *
+ * That is also why a map can only ever be half of this. A sphere's silhouette is
+ * a different great circle for every view, so no static field can darken it from
+ * all angles; the sphere on the runekeeper's chest is handled by *setting* it, in
+ * a bezel that claws over its rim. What the field is for is every flat-faced
+ * primitive in the file — belt runes, wrist runes, a dagger's channel — where the
+ * face's own border is a fixed place in UV and can be taken to nothing there.
+ *
+ * One tile serves as both albedo and emissive. That is not thrift: the stroke
+ * that lights is the stroke that is cut, so the part reads as a dark stone with a
+ * rune glowing out of it rather than as an untextured lozenge that happens to be
+ * bright. §2 of the bar has no exemption for small surfaces.
+ */
+const GLOW_MATRIX = 0.13;
+const GLOW_SHOULDER = 0.62;
+let glowField: THREE.DataTexture | null = null;
+function glowCarving(): THREE.DataTexture {
+  if (glowField) return glowField;
+  const N = 64;
+  const data = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const u = ((x + 0.5) / N) * 2 - 1;
+      const v = ((y + 0.5) / N) * 2 - 1;
+      const t = clamp01((1 - Math.hypot(u, v)) / GLOW_SHOULDER);
+      const a = t * t * (3 - 2 * t);
+      const b = Math.round(255 * mix(GLOW_MATRIX, 1, a));
+      const i = (y * N + x) * 4;
+      data[i] = b;
+      data[i + 1] = b;
+      data[i + 2] = b;
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  // Authored in the space it is looked at in, and tagged so, because it is read
+  // as a colour map on both channels it feeds.
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  glowField = tex;
+  return tex;
+}
+
+const UNLIT = new THREE.Color(0, 0, 0);
+
+/**
+ * Keyed on the material that came in, so one library still yields one program and
+ * one merged slot however many warriors ask for it — `Part` groups by material
+ * identity, and a fresh clone per call would fork every rune on the field into
+ * its own draw call. Weak, so the clone dies with the library that fathered it;
+ * the caller that disposes the source is not expected to know this exists.
+ */
+const SHAPED_GLOW = new WeakMap<THREE.Material, THREE.Material>();
+
+/** Nothing emits inside a warrior without a field to shape it. See above. */
+function shapedGlow(mat: THREE.Material): THREE.Material {
+  if (!(mat instanceof THREE.MeshStandardMaterial)) return mat;
+  if (mat.emissiveMap || mat.alphaMap) return mat;
+  if (mat.emissiveIntensity <= 0 || mat.emissive.equals(UNLIT)) return mat;
+  let safe = SHAPED_GLOW.get(mat);
+  if (!safe) {
+    const clone = mat.clone();
+    clone.emissiveMap = glowCarving();
+    if (!clone.map) clone.map = glowCarving();
+    clone.name = `${mat.name || "glow"}+carved`;
+    clone.needsUpdate = true;
+    safe = clone;
+    SHAPED_GLOW.set(mat, safe);
+  }
+  return safe;
+}
+
+// ============================================================
 // Assembly — one merged mesh per substance per moving part
 // ============================================================
 
@@ -720,9 +839,12 @@ class Part {
 
   add(geo: THREE.BufferGeometry, mat: THREE.Material, transform?: THREE.Matrix4): this {
     if (transform) geo.applyMatrix4(transform);
-    const list = this.slots.get(mat);
+    // The emissive invariant is enforced here, and not at the call sites, because
+    // the call sites are where it keeps being lost.
+    const wear = shapedGlow(mat);
+    const list = this.slots.get(wear);
     if (list) list.push(geo);
-    else this.slots.set(mat, [geo]);
+    else this.slots.set(wear, [geo]);
     return this;
   }
 
@@ -991,6 +1113,31 @@ function skeleton(b: BuildTrait): Skeleton {
     legR: [0.098 * l, 0.068 * l, 0.079 * l, 0.043 * l],
   };
 }
+
+/**
+ * How far the sole reaches in front of and behind the leg's own axis.
+ *
+ * Exported because it is the one thing about a warrior's geometry that a *poser*
+ * has to know and currently does not. `anim.ts`'s `settleOnFeet` treats each foot
+ * as a point hanging `legLen` straight down from the hip, and that is exactly
+ * true only while the leg is vertical. Measured off the built rig in the `stance`
+ * framing — berserker, overhead, swing 0.45 — the lead leg carries 48° of total
+ * pitch, which swings a sole reaching `FOOT_FWD` forward a further
+ * `FOOT_FWD·sin48° = 128 mm` down: the front boot finishes 197 mm under the turf
+ * and the trailing one hangs 236 mm over it. Neither foot in that frame is on the
+ * ground, and a critic panel read the result as a hero with one leg.
+ *
+ * The solve wants the sole's lowest *corner*, not a point, and the trailing foot
+ * wants an ankle to roll onto. Both belong in `anim.ts`; what belongs here is the
+ * number, so that when the last is next reshaped the poser moves with it instead
+ * of carrying a stale copy — the fate `ELBOW_ALONG` and `KNEE_ALONG` are already
+ * logged for in `docs/OPEN-DEFECTS.md`.
+ *
+ * Not scaled by build: the whole roster wears one last, which is a simplification
+ * the file has always made and the wrong pass to unmake.
+ */
+export const FOOT_FWD = 0.172;
+export const FOOT_BACK = 0.073;
 
 // ============================================================
 // Level of detail
@@ -2772,13 +2919,98 @@ export function buildCharacter(
         ], lod.limb, { wall: 0.009 }), iron);
       }
 
-      // Turnshoe: heel, sole, instep and a toe that comes to a point rather than
-      // a brick, plus a thong round the ankle.
-      p.add(ball(rAnkle * 1.25, 8), hide, xf(0, ankle - 0.01, -0.012, 0, 0, 0, 1, 0.9, 1.2));
-      p.add(box(0.098, 0.062, 0.2), hide, xf(0, sole + 0.038, 0.045, 0.04, 0, 0));
-      p.add(ball(0.05, 8), hide, xf(0, sole + 0.032, 0.135, 0, 0, 0, 0.92, 0.62, 1.5));
-      p.add(box(0.104, 0.016, 0.245), buff, xf(0, sole + 0.008, 0.05));
-      if (lod.trim) p.add(ring(rAnkle * 1.3, 0.005, 4, 10), buff, xf(0, ankle + 0.005, -0.006, Math.PI / 2, 0, 0));
+      // ---- the turnshoe ----
+      //
+      // What was here was a wedge box with a ball stuck on the front of it, and
+      // `art/shots/v7/lineup.png` shows exactly that: a brown slipper with no sole
+      // line, no topline, no heel and no toe — the outline of a foot-shaped bag.
+      // A boot is the last thing on a standing figure the eye reaches and the
+      // first place it checks that the figure is standing *on* something, and this
+      // one gave it a single silhouette with one highlight and no edges anywhere.
+      //
+      // It is now built the way a turnshoe is: a last, a sole cut wider than the
+      // last so it stands proud all round as a welt, and a rand between them. The
+      // welt is the piece that earns its triangles. It is a value break and a
+      // specular line running the whole way round the join, in a second substance,
+      // sitting exactly where a viewer's eye goes to decide whether a foot is on
+      // the ground — and it reads from behind and from above, which the old ball
+      // did not read from at all.
+      //
+      // Everything below is swept along the foot rather than up the leg: `lastAt`
+      // takes a distance forward of the ankle, a half-width, and the heights of
+      // the section's top and bottom above the ground, and the whole sweep is
+      // turned a quarter-turn onto its side. `lift` is what gives the toe its
+      // spring — a last curls clear of the ground over the last 60 mm, which is
+      // the difference between a shoe and a plank.
+      //
+      // The footprint is deliberately the one that was here — 245 mm long, 73 mm
+      // of it behind the ankle, 104 mm across — because it is load-bearing outside
+      // this file and the pass that changes it should be the pass that says so.
+      // `anim.ts` solves the body's height against the hip pivot on the assumption
+      // that the sole sits exactly `legLen` below it, and it still does; what that
+      // solve does *not* know is `FOOT_FWD`, which is why a leg pitched 48° puts
+      // its toe 128 mm through the turf. See the constants.
+      const lastAt = (fwd: number, hw: number, top: number, lift = 0): Station =>
+        ({ y: -fwd, hw, hd: (top - lift) * 0.5, z: (top + lift) * 0.5 });
+      const onFoot = xf(0, sole, 0, -Math.PI / 2, 0, 0);
+
+      // The shaft, and the topline is the whole point of it: leather meeting a
+      // legging along a colour change and nothing else is most of why the boot
+      // read as a painted-on sock. `wall` makes that opening an edge with a lit
+      // inside face, which is what says the leg goes *into* the boot.
+      p.add(shell([
+        { y: ankle + 0.030, hw: rAnkle * 1.30, hd: rAnkle * 1.34, z: -0.004 },
+        { y: ankle - 0.012, hw: rAnkle * 1.36, hd: rAnkle * 1.46, z: 0.004 },
+        { y: sole + 0.052, hw: rAnkle * 1.32, hd: rAnkle * 1.62, z: 0.016 },
+      ], lod.limb, { power: 2.2, wall: 0.007 }), hide);
+
+      // The last. The heel quarter is swept as part of it rather than banded on
+      // afterwards, and that is not a saving — a stiffener added as its own shell
+      // has two ends, and an end on a curved surface is a rim strip facing the key
+      // squarely while the leather either side of it does not. That is the same
+      // mechanism the cloak hem and the face tones lost two passes to. Built into
+      // the sweep, the counter is a change of slope with no boundary at all.
+      p.add(shell([
+        lastAt(-0.068, 0.029, 0.058, 0.008),
+        lastAt(-0.056, 0.035, 0.084, 0.011),
+        lastAt(-0.038, 0.039, 0.094, 0.013),
+        lastAt(-0.008, 0.041, 0.100, 0.014),
+        lastAt(0.036, 0.044, 0.078, 0.014),
+        lastAt(0.086, 0.047, 0.058, 0.013),
+        lastAt(0.132, 0.041, 0.042, 0.014),
+        lastAt(0.164, 0.019, 0.026, 0.019),
+      ], lod.limb, { power: 2.3, capTop: true, capBottom: true }), hide, onFoot);
+
+      // The sole, 5 mm proud of the last all round. Waisted between heel and ball
+      // because that is the outline a foot actually leaves, and because a straight
+      // taper is what made the old sole read as a plank.
+      p.add(shell([
+        lastAt(-FOOT_BACK, 0.026, 0.016),
+        lastAt(-0.050, 0.036, 0.017),
+        lastAt(-0.010, 0.042, 0.016),
+        lastAt(0.034, 0.044, 0.015),
+        lastAt(0.086, 0.052, 0.016),
+        lastAt(0.138, 0.045, 0.017, 0.003),
+        lastAt(FOOT_FWD, 0.018, 0.020, 0.009),
+      ], lod.limb, { power: 2.6, capTop: true, capBottom: true }), buff, onFoot);
+
+      if (lod.trim) {
+        // The rand: a second course between sole and upper, 2 mm proud of the last
+        // and 2 mm inside the sole. It costs one sweep and it buys the join two
+        // edges instead of one, all the way round with no ends anywhere — which is
+        // what makes a foot read as standing on something from directly behind,
+        // the angle `art/shots/v7/stance.png` puts the rear boot at.
+        p.add(shell([
+          lastAt(-0.0705, 0.0300, 0.030, 0.012),
+          lastAt(-0.0490, 0.0378, 0.030, 0.013),
+          lastAt(-0.0100, 0.0432, 0.029, 0.013),
+          lastAt(0.0340, 0.0455, 0.028, 0.013),
+          lastAt(0.0860, 0.0500, 0.029, 0.013),
+          lastAt(0.1370, 0.0440, 0.030, 0.015),
+          lastAt(0.1700, 0.0185, 0.031, 0.019),
+        ], lod.limb, { power: 2.5, capTop: true, capBottom: true }), buff, onFoot);
+        p.add(ring(rAnkle * 1.32, 0.005, 4, 10), buff, xf(0, ankle + 0.005, -0.004, Math.PI / 2, 0, 0));
+      }
       return p;
     });
   }
@@ -3090,17 +3322,40 @@ export function buildCharacter(
       // Rune-carver's belt: pouches, a slate tablet and a lit amulet.
       p.add(box(0.1, 0.13, 0.06), buff, xf(0.13, S.beltY - 0.09, S.waistHD + 0.03, 0.1, -0.3, 0));
       p.add(box(0.08, 0.11, 0.05), buff, xf(-0.14, S.beltY - 0.08, S.waistHD + 0.02, 0.1, 0.3, 0));
-      p.add(box(0.07, 0.12, 0.014), M.timber(0x4a3a2a), xf(0.02, S.beltY - 0.12, -S.waistHD - 0.05, 0, 0, 0.2));
+      const slate = xf(0.02, S.beltY - 0.12, -S.waistHD - 0.05, 0, 0, 0.2);
+      p.add(box(0.07, 0.12, 0.014), M.timber(0x4a3a2a), slate.clone());
       p.add(rod(0.0035, 0.0035, 0.2, 4), hide, xf(0, S.chestY + 0.09, S.chestHD + 0.02, 0.4, 0, 0));
-      // Amulet. A 46 mm emissive ball at 3.5 intensity is not a lit stone, it is a
-      // hole in the exposure — in `art/shots/v3/lineup.png` it is the brightest
-      // object on the runekeeper and it has no shape at all. Smaller, set back, and
-      // clasped in a brass bezel that catches the bloom instead of being erased by
-      // it, so there is something for the glow to be coming *out of*.
-      p.add(ring(0.019, 0.006, 5, 12), brass, xf(0, S.chestY - 0.01, S.chestHD + 0.044, 0.15, 0, 0));
-      p.add(ball(0.015, 8), rune, xf(0, S.chestY - 0.01, S.chestHD + 0.046, 0, 0, 0, 1, 1, 0.7));
-      for (let i = 0; i < 5; i++) {
-        p.add(box(0.006, 0.03, 0.006), rune, xf(-0.09 + i * 0.045, S.beltY, S.waistHD + beltR + 0.014));
+      // Amulet. Third pass on this object and the first one that names the fault
+      // correctly: it was never how bright the stone is, it was that the stone had
+      // no rim. `art/shots/v3/lineup.png` had it as a 46 mm ball with no shape;
+      // shrinking it and putting a bezel behind it left a 30 mm ball with no
+      // shape, which `art/shots/v7/lineup.png` renders as a hard white square four
+      // pixels across — the bar's untextured square, in blue, on the one warrior
+      // whose whole silhouette is meant to be quiet.
+      //
+      // Two things change. The substance is now carved rather than uniform (see
+      // `shapedGlow`), so the stone's own edge falls to a dark matrix. And the
+      // stone is *set* — sunk until the brass claws over its rim, so the outline
+      // the eye traces belongs to the bezel, which is a lit dielectric with a
+      // highlight and a shadow side, and not to the emissive at all. A bezel is
+      // also simply how a stone is held; the old pairing had a ball floating
+      // 6.5 mm proud of a ring that was not touching it.
+      p.add(ring(0.0202, 0.0062, 6, 16), brass, xf(0, S.chestY - 0.01, S.chestHD + 0.046, 0.15, 0, 0));
+      p.add(ball(0.0146, 14), rune, xf(0, S.chestY - 0.01, S.chestHD + 0.0435, 0, 0, 0, 1, 1, 0.55));
+      // The rune row was the amulet's fault at a smaller size and with a second
+      // error under it. Five bare emissive bars are five white ticks in
+      // `art/shots/v7/lineup.png` — but they were also placed on a flat z across a
+      // belt that is an ellipse, so the outermost pair stood 41 mm clear of the
+      // leather, in front of the hip, attached to nothing. Two of them straddled
+      // the buckle.
+      //
+      // They belong on the slate. A rune-carver's tablet is a real object with its
+      // own dark silhouette, the strokes are cut into it rather than hovering over
+      // it, and moving them there leaves the amulet as the only lit thing on the
+      // warrior's front — which is the composition that object was built for.
+      for (let i = 0; i < 3; i++) {
+        p.add(box(0.006, 0.062, 0.005), rune,
+          slate.clone().multiply(xf(-0.019 + i * 0.019, 0.012, -0.0055, 0, 0, 0.08 - i * 0.08)));
       }
     }
     if (heavy && lod.trim) {

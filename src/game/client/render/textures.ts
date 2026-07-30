@@ -1159,46 +1159,119 @@ function verdigris(c: Float32Array, i: number, light: RGB, dark: RGB, amount: nu
   c[j + 2] += (g2 - c[j + 2]) * amount;
 }
 
-// ---- plain weave --------------------------------------------------------
-// Warp threads run along V, weft along U. Each thread's over/under alternates
-// smoothly along its own length, so the crossings interlock instead of forming
-// a checkerboard — the checkerboard version has a visible seam at every cell.
-interface WeaveOpts {
-  /** Must be EVEN. The over/under parity is per thread, so an odd count flips
-   *  it across the tile wrap and lays a seam down every edge of the cloth. */
-  threads: number;
-  /** Yarn cross-section: soft fat wool, or crisp thin linen. */
-  yarn: "soft" | "even" | "crisp";
-  fuzz: number;
-  base: RGB;
-  shade: RGB;
-  lift: RGB;
-  roughLow: number;
-  roughHigh: number;
-  /** Irregular thread thickness — hemp and linen slub, worsted wool does not. */
-  slub: number;
-  /** Lattice displacement. Handloom cloth is not graph paper; 0 is graph paper. */
-  wander: number;
-  /** Raised fibre after fulling — wool pills, linen barely does. */
-  pill: number;
+// ---- fulled wool --------------------------------------------------------
+// Not a weave, and that is the whole change. Anglo-Saxon cloth was woven and
+// then *fulled* — soaked and pounded until the scales on the fibres locked into
+// one another — and what comes off that is a matted, hairy sheet with the
+// lattice buried under a raised nap. Any real fulled twill in a museum reads as
+// fuzz from a metre away; you have to hold it to find the threads.
+//
+// Drawing the threads is what put basketwork across half of every frame. A
+// garment tile here lands between 30 and 60 mm and a legible thread count puts
+// the crossings at a pixel or two, so the lattice beats against the pixel grid,
+// and the beat is coarser than either — which is why the leg wraps came back as
+// corduroy and the cloak as a knitted blanket. Nothing about the thread count
+// fixes that: an over-under grid is periodic in two axes by construction and a
+// periodic pattern near Nyquist always aliases into a coarser periodic pattern.
+//
+// So the structure is fibre and it has no axis. Two crossed nap fields choose
+// between each other on a third — chosen, not summed, because a sum of crossed
+// streaks is a plaid — which gives the mat patches that lie different ways, the
+// way carded fibre actually does. Both are warped, so nothing in here holds a
+// straight line for more than a few millimetres. Everything varies at twelve
+// cells per tile or finer, which is the detiling rule at the head of this file,
+// and it is what lets a cloak mip down to one dyed tone.
+//
+// The same recipe has to serve hair (repeat 20), beard (26) and the berserker's
+// fur (6), which borrow wool at a much finer tile to fake strands — one tile
+// size cannot serve both, but one *primitive* can. A nap field is fibre at a
+// 50 mm tile and hair at a 30 mm one, which the weave never was.
+function buildWool(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const base = col(0x9d968b);
+  const shade = col(0x584f44);
+  const lift = col(0xc8c1b4);
+  const dusty = col(0x8b8272);
+
+  forEachTexel(size, (i, u, v) => {
+    // A whole cell of warp. The nap fields below are built on lattices like
+    // everything else in this file, and at this tile size the lattice is the one
+    // thing that must not survive.
+    warpUV(bank, u, v, 0.07);
+    const wu = WARP[0];
+    const wv = WARP[1];
+
+    // Fibre, long one way and narrow the other. Sampled off `grain` rather than
+    // `fine` so the coarse octave lands at three or four texels: fibre that
+    // resolves is fibre, fibre at half a texel is the dither the mips eat.
+    const napV = sampleField(bank.grain, wu * 3, wv * 1);
+    const napH = sampleField(bank.grain, wu * 1, wv * 3);
+    const lay = smoothstep(0.4, 0.6, sampleField(bank.warp, u * 3, v * 3));
+    const nap = napV + (napH - napV) * lay;
+    // Loose hair standing off the surface, and the tooth under all of it.
+    const hairy = sampleField(bank.fine, wu * 2, wv * 1);
+    const tooth = sampleField(bank.fine, u * 2, v * 2);
+
+    // Pills — the knots fulled wool raises wherever it has been rubbed. Sparse,
+    // because a surface of them is a towel.
+    const pillD = sampleCell(bank.micro, u * 1, v * 1);
+    const pill = sampleCellId(bank.micro, u * 1, v * 1) > 0.85
+      ? (1 - smoothstep(0.08, 0.4, pillD)) * 0.9
+      : 0;
+
+    // Vat-dye unevenness, kept at its old strength and moved off the tile's own
+    // fundamental. It carries the half of wool's tonal variation that survives
+    // being mipped down to a cloak at twenty metres — cutting it costs luma
+    // buckets — but at two cycles a tile it was also the single most legible
+    // landmark in the library, and `CLOTH_BLOTCH * 4` in characters.ts is named
+    // after the cell it made. Four cycles and a gentler expansion keeps the
+    // range and takes the landmark away.
+    const dye = contrast(sampleField(bank.soft, u * 4, v * 4), 1.7);
+
+    const fibre = clamp01(nap * 0.74 + hairy * 0.26);
+    h[i] = clamp01(0.4 + (fibre - 0.5) * 0.52 + (tooth - 0.5) * 0.18 + pill * 0.28);
+
+    mix(c, i, shade, base, clamp01(fibre * 1.45));
+    // A pill is a knot of the same wool, not a bead of something else: it reads
+    // in the relief and only barely in the colour. Lit as brightly as the nap
+    // crowns it came back as lint.
+    toward(c, i, lift, clamp01((fibre - 0.62) * 2.4) * 0.5 + pill * 0.22);
+    toward(c, i, dusty, smoothstep(0.56, 0.06, dye) * 0.32);
+    gain(c, i, 0.8 + dye * 0.42 + (tooth - 0.5) * 0.12);
+    // Felt is the most light-absorbing thing in the frame and has no crowns to
+    // shine off: the spread is a tenth wide and all of it sits at the top.
+    r[i] = clamp01(0.99 - fibre * 0.09 - pill * 0.05 + (tooth - 0.5) * 0.05);
+    m[i] = 0;
+  });
 }
 
-function weave(g: Gen, o: WeaveOpts): void {
+// ---- fine plain-weave linen ---------------------------------------------
+// The one cloth in the set that keeps a lattice, because linen is the one cloth
+// that shows one: flax is hard-spun, smooth and does not full, so the crossings
+// stay visible however long the shirt is worn. What linen has *not* got is
+// contrast — a bleached undershirt is one tone with a texture in it — so the
+// over-under lives almost entirely in the height field and is barely whispered
+// into the albedo. That is the difference between linen and hessian, and drawing
+// it at wool's contrast is what made both of them sacking.
+//
+// The slub carries the read. Flax fibre is uneven along its length, so the yarn
+// thickens and thins at random and the grid is never square; without it this is
+// graph paper at any contrast.
+function buildLinen(g: Gen): void {
   const { size, h, r, m, c, bank } = g;
-  // Same reasoning as the thatch straws: below three texels a thread shimmers.
-  // The reduced count stays even, for the parity reason in WeaveOpts.
-  const n = size >= 256 ? o.threads : Math.max(8, ((o.threads * 3) >> 3) << 1);
-  const shape = o.yarn === "soft"
-    ? (s: number) => Math.sqrt(s)
-    : o.yarn === "crisp"
-      ? (s: number) => s * Math.sqrt(s)
-      : (s: number) => s;
+  // Below about three texels a thread shimmers, same rule as the thatch straws.
+  // The count stays EVEN: the over/under parity is per thread, so an odd count
+  // flips it across the tile wrap and lays a seam down every edge of the cloth.
+  const n = size >= 256 ? 30 : 12;
+  const base = col(0xb7ab93);
+  const shade = col(0x7a7161);
+  const lift = col(0xd6cdb7);
 
   forEachTexel(size, (i, u, v) => {
     // The whole lattice is warped, not each thread separately, so the cloth
     // drifts and puckers as one piece the way a woven bolt does. n is even, so
     // the wrap still lands on a parity boundary however far the warp pushes.
-    warpUV(bank, u, v, o.wander);
+    warpUV(bank, u, v, 0.035);
     const su = WARP[0] * n;
     const sv = WARP[1] * n;
     const ku = Math.floor(su);
@@ -1210,8 +1283,11 @@ function weave(g: Gen, o: WeaveOpts): void {
     const pu = wrapi(ku, n);
     const pv = wrapi(kv, n);
 
-    const slubU = 1 - o.slub * sampleField(bank.grain, 0, v * 6 + pu * 0.37);
-    const slubV = 1 - o.slub * sampleField(bank.grain, u * 6 + pv * 0.29, 0);
+    // Thick and thin along each yarn's own length, and hard: half the diameter
+    // between one slub and the next is what flax does.
+    const slubU = 1 - 0.42 * sampleField(bank.grain, 0, v * 6 + pu * 0.37);
+    const slubV = 1 - 0.42 * sampleField(bank.grain, u * 6 + pv * 0.29, 0);
+    const shape = (s: number) => s * Math.sqrt(s); // crisp, thin, round-shouldered
     const warp = shape(Math.sin(Math.PI * clamp01((fu - 0.5) / slubU + 0.5)));
     const weft = shape(Math.sin(Math.PI * clamp01((fv - 0.5) / slubV + 0.5)));
 
@@ -1224,89 +1300,68 @@ function weave(g: Gen, o: WeaveOpts): void {
     const hf = weft * (0.5 + 0.5 * (weftLift * 0.5 + 0.5));
     const top = Math.max(hw, hf);
 
-    const fibre = sampleField(bank.fine, u * 14, v * 14);
-    const dye = contrast(sampleField(bank.soft, u * 2, v * 2), 2.3);
-    // Raised fibre off the same tap the fuzz comes from, rather than its own —
-    // pilling is fibre that stood up, so the two wanting to correlate is right
-    // as well as free.
-    const pill = smoothstep(0.76, 1, fibre) * o.pill;
-    h[i] = clamp01(top * 0.86 + (fibre - 0.5) * o.fuzz + pill * 0.14 + 0.06);
+    const fibre = sampleField(bank.fine, u * 3, v * 3);
+    // Same move as wool's: off the tile's own fundamental, so what a mipped
+    // shirt keeps is a tone rather than a check.
+    const dye = contrast(sampleField(bank.soft, u * 4, v * 4), 1.5);
+    h[i] = clamp01(top * 0.9 + (fibre - 0.5) * 0.12 + 0.06);
 
-    mix(c, i, o.shade, o.base, clamp01(top * 1.25));
-    toward(c, i, o.lift, clamp01((top - 0.72) * 2.2) * 0.5 + pill * 0.45);
-    // Vat-dyed cloth is uneven, and `soft` is five octaves deep, so weighting it
-    // this hard puts unevenness in at every scale it carries — and the dark end
-    // goes toward the shade colour rather than merely darker, because a weak
-    // patch of dye is a different hue and not a lower exposure. This is the half
-    // of the variation that survives being mipped down to a cloak at twenty
-    // metres, where the weave itself has long since averaged out to one tone.
-    toward(c, i, o.shade, smoothstep(0.58, 0.06, dye) * 0.3);
-    gain(c, i, 0.8 + dye * 0.42 + (fibre - 0.5) * 0.1);
-    r[i] = clamp01(o.roughHigh - top * (o.roughHigh - o.roughLow) + pill * 0.1 + (fibre - 0.5) * 0.08);
+    // A sixth of wool's albedo swing across the crossings. The weave is relief,
+    // not pattern; letting it into the colour is what turned a linen shirt into
+    // hessian at every distance the mips could not reach.
+    mix(c, i, shade, base, clamp01(0.55 + top * 0.7));
+    toward(c, i, lift, clamp01((top - 0.78) * 3) * 0.3);
+    toward(c, i, shade, smoothstep(0.55, 0.08, dye) * 0.22);
+    gain(c, i, 0.86 + dye * 0.3 + (fibre - 0.5) * 0.08);
+    r[i] = clamp01(0.94 - top * 0.22 + (fibre - 0.5) * 0.06);
     m[i] = 0;
   });
 }
 
-// Twenty-two threads rather than thirteen, because at thirteen a cloak that
-// fills a third of the portrait frame reads as window screen: the crossings are
-// large enough to count. Fewer, fatter yarns is the coarser cloth, but coarse
-// cloth is still cloth and a mesh is not.
-const buildWool = (g: Gen) => weave(g, {
-  threads: 22,
-  yarn: "soft",
-  fuzz: 0.22,
-  base: col(0x9d968b),
-  shade: col(0x574f45),
-  lift: col(0xc4bcae),
-  roughLow: 0.86,
-  roughHigh: 1,
-  slub: 0.16,
-  wander: 0.03,
-  pill: 0.6,
-});
-
-const buildLinen = (g: Gen) => weave(g, {
-  threads: 30,
-  yarn: "crisp",
-  fuzz: 0.1,
-  base: col(0xb7ab93),
-  shade: col(0x6a6152),
-  lift: col(0xdcd3bc),
-  roughLow: 0.7,
-  roughHigh: 0.94,
-  slub: 0.3,
-  wander: 0.02,
-  pill: 0.18,
-});
-
 // ---- tanned leather -----------------------------------------------------
+// Grain, and nothing coarser than grain. materials.ts sizes leather at a 35 mm
+// world tile, so a feature drawn at the tile's own fundamental is the same
+// feature repeated three times across a bracer and thirty times across a jerkin
+// — and that is what the honeycomb of ridged creases this used to carry actually
+// was. It measured 9 mm a cell on the berserker's jerkin and it is the
+// wickerwork three panels scored; nothing about it was leather, because real
+// hide has no feature at that scale at all.
+//
+// What hide has is three things, all of them small: the follicle pebbling the
+// tanner's grain layer leaves, a fine wrinkle net a couple of millimetres
+// across, and long soft stretch lines that all run the same way because a hide
+// is pulled one way on the frame. The last is what keeps this from being
+// noise-on-brown: a directional cue is what an eye reads as *worked* material.
 function buildLeather(g: Gen): void {
   const { size, h, r, m, c, bank } = g;
   const base = col(0x6b4626);
-  const crease = col(0x2c1a0d);
+  const crease = col(0x35200f);
   const rubbed = col(0x94693f);
 
   forEachTexel(size, (i, u, v) => {
-    // Pebbled grain: the hide's follicle structure, one dome per cell. Coarse
-    // on purpose — pebbling finer than a few texels turns into noise the mips
-    // eat, and leather that reads as noise reads as nothing.
+    // Pebbled grain: the hide's follicle structure, one dome per cell. 44 cells
+    // over a 35 mm tile is 0.8 mm, which is the size a follicle actually is.
     const pebD = sampleCell(bank.micro, u * 1, v * 1);
     const peb = 1 - smoothstep(0, 0.68, pebD);
-    // Two scales of stretch crease: broad folds and the fine cracking in them.
-    const fold = smoothstep(0.4, 0.86, sampleField(bank.ridge, u * 1, v * 2));
-    const fine = smoothstep(0.62, 1, sampleField(bank.ridge, u * 4, v * 6));
-    const deep = clamp01(fold * 0.8 + fine * 0.45);
-    const scuff = sampleField(bank.fine, u * 8, v * 8);
-    const patina = sampleField(bank.soft, u * 2, v * 2);
+    // The wrinkle net, at four times the frequency the fold network used to run
+    // at — 2 mm a cell rather than 9, which is below the tile's fundamental by
+    // enough that a mipped bracer keeps grain instead of keeping a lattice.
+    const net = smoothstep(0.5, 0.95, sampleField(bank.ridge, u * 4, v * 4));
+    // Stretch lines. Long in V, narrow in U, so they read as the pull of the
+    // frame rather than as a second net crossing the first.
+    const pull = smoothstep(0.58, 0.98, sampleField(bank.ridge, u * 6, v * 2));
+    const deep = clamp01(net * 0.6 + pull * 0.5);
+    const scuff = sampleField(bank.fine, u * 4, v * 4);
+    const patina = sampleField(bank.soft, u * 4, v * 4);
 
-    const height = clamp01(0.56 + peb * 0.32 - deep * 0.44 + (scuff - 0.5) * 0.09);
+    const height = clamp01(0.56 + peb * 0.34 - deep * 0.36 + (scuff - 0.5) * 0.1);
     h[i] = height;
     set(c, i, base);
     // The grain has to show in the albedo too, or the normal map is arguing
     // with a flat brown and the flat brown wins at any distance.
-    toward(c, i, crease, clamp01(deep * 0.9 + (1 - peb) * 0.35));
+    toward(c, i, crease, clamp01(deep * 0.75 + (1 - peb) * 0.3));
     toward(c, i, rubbed, clamp01((peb - 0.35) * 1.8) * 0.6 * (0.4 + 0.6 * scuff));
-    gain(c, i, 0.82 + patina * 0.36);
+    gain(c, i, 0.84 + patina * 0.32);
     // Rubbed crowns take a shine; the creases stay matte and hold polish.
     r[i] = clamp01(0.68 - clamp01((height - 0.55) * 2.4) * 0.3 + deep * 0.18);
     m[i] = 0;
@@ -1430,20 +1485,37 @@ function wood(g: Gen, o: WoodOpts): void {
 
     const ring = frac(rr);
     const late = smoothstep(0.5, 0.72, ring) * (1 - smoothstep(0.86, 1, ring));
-    const pore = sampleField(bank.fine, u * 40, v * 2) > 0.68 ? o.pore : 0;
+    // Ring-porous timber's vessels line up *along* the grain, in rows at the
+    // earlywood boundary — they are not a per-texel sprinkle. At u * 40 this tap
+    // returned 1280 cells across a 256 map, which is four coin flips a texel: a
+    // dither that band-limiting strips out of the height and `slopeVariance`
+    // then folds into roughness as a grey mush. Four cells wide by one long puts
+    // a pore at two texels and lays it in the direction pores actually run.
+    const pore = sampleField(bank.fine, u * 4, v * 1) > 0.68 ? o.pore : 0;
     // Board edges sit where the triangle wave bottoms out, so the seam and the
     // tile wrap land on the same line and the repeat has somewhere to hide.
     const seam = o.seams > 0 ? smoothstep(0.06, 0, tri(u * o.seams)) : 0;
     const split = smoothstep(0.82, 0.99, sampleField(bank.ridge, u * 2, v * 1)) * o.erosion;
-    // Medullary rays: on quarter-sawn oak they are the pale flecks that make the
-    // timber unmistakable, and stretched across the grain rather than along it.
-    const fleck = smoothstep(0.7, 0.97, sampleField(bank.fine, u * 2, v * 24)) * o.ray;
+    // Medullary rays: the pale flecks that make oak unmistakable, lying across
+    // the grain rather than along it. This was `v * 24` — 768 cells down a 256
+    // map, a third of a texel each — so what it drew was white noise at three
+    // per cent coverage: invisible as rays, and one more contributor to the
+    // sparkle §2 scores at distance. At v * 3 a fleck is two or three texels
+    // tall and four times as wide as it is tall, which is the shape of one.
+    const fleck = smoothstep(0.62, 0.9, sampleField(bank.fine, u * 1, v * 3)) * o.ray;
     const drift = contrast(soft1, 1.9);
 
     const height = clamp01(0.55 + late * o.erosion * 0.55 + fleck * 0.05 - pore - seam * 0.9 - split * 0.5 - knot * 0.18);
     h[i] = height;
-    mix(c, i, o.early, o.late, clamp01(late * 1.2));
-    toward(c, i, rayCol, fleck * 0.5);
+    // `late * 1.2` drove the ring band to full saturation across most of its
+    // width, so every board was hard stripes of two colours. Boards do not get
+    // dressed at one repeat here — the shield's planks take oak at 3 across a
+    // 108 mm face and 3 down a 700 mm one, a 6:1 stretch — and a hard stripe
+    // stretched 6:1 is hair, which is why the huscarl's red quarters read as
+    // smeared fur. Softening the band is what turns them back into timber; the
+    // rays and the pores above are what stop that costing the figure.
+    mix(c, i, o.early, o.late, clamp01(late * 0.82));
+    toward(c, i, rayCol, fleck * 0.55);
     toward(c, i, o.knotCol, knot * 0.9);
     toward(c, i, weathered, clamp01(o.grey * bGrey[bi]) * sampleField(bank.soft, u * 2, v * 2));
     gain(c, i, bTint[bi] * (0.8 + drift * 0.36) * (0.9 + sampleField(bank.grain, u * 4, v * 2) * 0.24 - seam * 0.45 - split * 0.3));
@@ -1675,8 +1747,21 @@ function buildDirt(g: Gen): void {
 // showing through in blotches, which is the AstroTurf read in the v2 capture.
 //
 // And what varies is hue rather than value: warmer where the ground is dry,
-// greener where it is damp, neutral-dark only in the divots. That way the vertex
-// colour underneath gains variation instead of losing saturation.
+// darker and earthier where it is damp, warm-brown wherever the sward has been
+// walked off. That way the vertex colour underneath gains variation instead of
+// losing saturation.
+//
+// The damp used to be *green*, and between them the green here, the green in
+// groundColor()'s vertex output and world.ts's turf hue nudge put three green
+// pushes on the same pixels. With a broad sheen over the top of it the arena
+// floor read as the surface of a stagnant pond in four of the eight presets —
+// which is what a green, glossy, near-featureless plane is. The sheen is not the
+// part to cut; a floor with no highlight structure is how `arena` went sixteen
+// tonal buckets to twelve. What had to change is what the sheen is sitting *on*.
+// So the damp is earth-coloured now, the trodden-bare fraction is roughly double,
+// and the wetness is a fifth of the area at twice the depth: a scatter of held
+// water in prints and hollows, with matte churned ground between them, rather
+// than one damp sheet from the palisade to the fire.
 //
 // The structure is trodden turf rather than gravel, and it is deliberately
 // pitched at the scale a boot works in — clumps at eleven centimetres, prints at
@@ -1686,17 +1771,17 @@ function buildDirt(g: Gen): void {
 function buildGroundDetail(g: Gen): void {
   const { size, h, r, m, c, bank } = g;
   // A multiplier's palette is a set of ratios, not a set of colours: materials.ts
-  // divides the requested tint by this map's mean, so what these six decide is
-  // how far the floor swings around whatever the terrain's vertex colour says —
+  // divides the requested tint by this map's mean, so what these decide is how
+  // far the floor swings around whatever the terrain's vertex colour says —
   // roughly half a stop either way — and in which direction the swing is hued.
   // Too narrow and the map adds nothing, which is where the first pass at this
   // landed; too wide and it bleaches, which is where the v2 capture was.
   const base = col(0xe4dfd3);
   const crown = col(0xfdf8ec);  // warm and light: dry, sun-caught clump tops
-  const hollow = col(0xb0bba2); // green-shifted: the damp shade between them
-  const shadeT = col(0x8b8477); // neutral and dark: the bottom of a print
-  const soilT = col(0xd2b489);  // warm: soil where the sward has gone
-  const stoneT = col(0xfdfaf4); // grit crowns
+  const hollow = col(0xa9a493);  // earth-dark, barely cool: the shade between them
+  const shadeT = col(0x7d6c53);  // warm and dark: wet earth at the bottom of a print
+  const soilT = col(0xd2b489);   // warm: soil where the sward has gone
+  const stoneT = col(0xefe9dc);  // grit crowns, a hair above the base and no more
 
   forEachTexel(size, (i, u, v) => {
     // Two thirds of a cell of warp, which is a lot. At six millimetres a texel
@@ -1717,7 +1802,17 @@ function buildGroundDetail(g: Gen): void {
     // pretending otherwise is what made the v2 floor a field of aliased dots.
     const napA = sampleField(bank.fine, wu * 2, wv * 5);
     const napB = sampleField(bank.fine, wu * 5, wv * 2);
-    const grit = sampleField(bank.fine, u * 9, v * 9);
+    // Ten millimetres, not five and a half. At u * 9 this landed 288 cells on a
+    // 256 map — 0.9 of a texel, below what the base level can carry — and the
+    // header's promise that "in the albedo that is dither and it mips away" only
+    // holds for isotropic minification. The arena floor is a plane seen at a
+    // grazing angle, where the sampler's footprint is far longer than the
+    // anisotropy cap can follow, so it fetches a sharper level than the footprint
+    // deserves and takes too few taps across it. That is the crawling sparkle
+    // field in `arena`'s midground: sub-texel content in a map that is never
+    // minified isotropically. Ten millimetres is still grit and it survives its
+    // own mip chain.
+    const grit = sampleField(bank.fine, u * 5, v * 5);
     const pebD = sampleCell(bank.micro, u * 2, v * 2);
     const pebId = sampleCellId(bank.micro, u * 2, v * 2);
     // Which way this clump's tufts lie. Per clump, off the field that defines
@@ -1726,40 +1821,55 @@ function buildGroundDetail(g: Gen): void {
     const nap = napA + (napB - napA) * smoothstep(0.3, 0.7, tuss);
 
     const dome = 1 - smoothstep(0.05, 0.72, tuss);
-    // The damp shade between the clumps. Read once and used twice — for the hue
-    // and for the wetness — because those are the same fact about the ground, and
-    // a floor whose sheen sits where its green does is a floor and not a texture
-    // of two unrelated masks.
+    // The shade between the clumps: half the tile, and therefore the term that
+    // decides what the floor's mid-tone *is*. It carries hue only now. It used to
+    // carry the wetness as well, on the argument that a floor whose sheen sits
+    // where its colour does is one substance — true, but half a tile is not a
+    // hollow, and half a tile of sheen is a wet sheet.
     const damp = smoothstep(0.3, 0.8, tuss);
+    // Where water actually stands: the last third of the way into the trough
+    // between clumps, which is a connected but narrow web rather than a plane.
+    const well = smoothstep(0.66, 0.96, tuss);
     // A boot fills the ground it lands on, so a print takes most of its cell
-    // rather than sitting as a dot in the middle of it — and there are few of
-    // them. A hard little disc in a fifth of the cells is how the first attempt
-    // at this turned the arena floor into polka dots.
-    const print = tussId > 0.86 ? smoothstep(0.78, 0.16, tuss) : 0;
-    const bare = tussId < 0.14 ? smoothstep(0.7, 0.2, tuss) : 0;
+    // rather than sitting as a dot in the middle of it. A hard little disc in a
+    // fifth of the cells is how the first attempt at this turned the arena floor
+    // into polka dots — the shape is what stops that, not the rarity, so this can
+    // afford to be twice as common as it was. A moot floor is trodden.
+    const print = tussId > 0.72 ? smoothstep(0.78, 0.16, tuss) : 0;
+    const bare = tussId < 0.3 ? smoothstep(0.72, 0.18, tuss) : 0;
     const peb = pebId > 0.9 ? 1 - smoothstep(0.14, 0.5, pebD) : 0;
 
+    // Relief up by a quarter on both the clumps and the prints, and it is doing
+    // the same job as the colour changes above. A broad sheen on a flat plane is
+    // water; the same sheen broken across eleven-centimetre domes and boot holes
+    // is wet ground. The one lever this recipe has on that read is how much
+    // eleven-centimetre landform the normal map carries.
     const height = clamp01(0.5
-      + dome * 0.2
+      + dome * 0.25
       + (nap - 0.5) * 0.26
-      + (grit - 0.5) * 0.1
-      + peb * 0.18
-      - print * 0.34
-      - bare * 0.08);
+      + (grit - 0.5) * 0.08
+      + peb * 0.16
+      - print * 0.42
+      - bare * 0.1);
     h[i] = height;
 
     set(c, i, base);
-    // The clumps carry the read: crowns warm and light, the damp between them
-    // cool and green. That eleven-centimetre light-and-shade is what gives the
-    // floor form at the distance a fight is watched from — anything at a
-    // centimetre has mipped down to one flat tone long before then, which is the
-    // whole reason a map made of grit read as AstroTurf.
+    // The clumps carry the read: crowns warm and light, the shade between them
+    // earth-dark. That eleven-centimetre light-and-shade is what gives the floor
+    // form at the distance a fight is watched from — anything at a centimetre has
+    // mipped down to one flat tone long before then, which is the whole reason a
+    // map made of grit read as AstroTurf.
+    //
+    // Order matters below: soil and print bottoms go on *after* the hollow, so
+    // trodden ground overrides damp rather than averaging with it. Warm brown
+    // over a third of the floor is what the frame was missing — a moot has been
+    // walked on all evening, and the one thing it cannot be is uniform.
     toward(c, i, crown, clamp01(dome * 1.3) * 0.65);
     toward(c, i, hollow, damp * 0.6);
-    toward(c, i, soilT, bare * 0.75);
-    toward(c, i, shadeT, print * 0.55);
-    toward(c, i, stoneT, peb * 0.5);
-    gain(c, i, 0.88 + (nap - 0.5) * 0.3 + (grit - 0.5) * 0.14);
+    toward(c, i, soilT, bare * 0.8);
+    toward(c, i, shadeT, print * 0.62);
+    toward(c, i, stoneT, peb * 0.4);
+    gain(c, i, 0.88 + (nap - 0.5) * 0.3 + (grit - 0.5) * 0.12);
 
     // Wet ground is a roughness story, not a colour story, and this is where the
     // arena's puddle rims and hoof-holes come from without a second material.
@@ -1779,14 +1889,23 @@ function buildGroundDetail(g: Gen): void {
     // eleven-centimetre field the clumps and the colour already use, so what is
     // wet now is a hollow rather than a texel.
     //
-    // And the dip is 0.34 rather than 0.62 because of that same 0.42 downstream:
-    // at 0.62 the wettest ground landed at 0.14 in the shader with a twentieth of
-    // the floor under 0.24, which is a mirror and a lot of it. This lands the
-    // wettest churn at 0.32 and its median at 0.41, against 0.75 on dry turf —
-    // broad enough, and low enough, to hold a soft reflection of the sky, which is
-    // what wet ground actually looks like. A field of bright dots is not.
-    const held = clamp01(print * 0.75 + damp * 0.55);
-    r[i] = clamp01(0.95 - held * 0.34 - bare * 0.05 + (grit - 0.5) * 0.05);
+    // What changed since is *how much* of the floor is wet, and it is the other
+    // half of the pond read. `damp` is the trough web between clumps and covers
+    // close to half the tile, so at 0.55 the whole open arena carried a sheen and
+    // world.ts's own churn term put another 0.4 of a clamp to 0.34 on top of it.
+    // Two broad wet terms multiplied is a sheet of water, and a sheet of water
+    // over a green plane is a pond however the vertex colours are graded.
+    //
+    // So the water moves into the places water is: the bottoms of prints, and the
+    // deepest third of the trough web. That is about a fifth of the area instead
+    // of a half. The depth goes the other way — 0.46 rather than 0.34 — so the
+    // held water is genuinely reflective where it exists, and the dry floor rises
+    // to 0.97 and is matte. That trade is deliberately *toward* contrast, not away
+    // from it: the highlight structure `portrait` and `stance` were marked down on
+    // is a scatter of bright wells against matte churn, and it survives being
+    // multiplied by world.ts's clamp where an even sheen only ever averaged.
+    const held = clamp01(print * 0.95 + well * 0.5);
+    r[i] = clamp01(0.97 - held * 0.46 - bare * 0.06 + (grit - 0.5) * 0.04);
     m[i] = 0;
   });
 }
@@ -1939,8 +2058,18 @@ function buildGrass(g: Gen): void {
   const moss = col(0x33512f);
   const soilWet = col(0x3a2f21);
   const soilDry = col(0x877450);
-  const shade = col(0x1b2612);   // between the blades, where no light gets
-  const tipCol = col(0xb6bd7c);  // sun-caught blade edges
+  // Both of these are lighter and darker than they were, and the reason is not
+  // this map. world.ts blends turf into the terrain as a *luminance ratio* — a
+  // 1.4 m sample over a 23 m one, clamped to 0.35..2.2 — so whatever internal
+  // contrast this tile has is what gets multiplied onto the arena floor. At
+  // 0x1b2612 against 0xb6bd7c that ratio spent most of its time on one clamp or
+  // the other, which paints the moot in alternating acid green and near-black at
+  // the blade scale: pond weed, which is exactly what `stance` and `arena` came
+  // back as. Pulling the two ends toward each other lands the ratio inside its
+  // clamps, where it modulates instead of posterising. Trodden pasture is a low
+  // contrast substance; it was drawn as a high contrast one.
+  const shade = col(0x2c3720);   // between the blades, where little light gets
+  const tipCol = col(0x9aa46a);  // sun-caught blade edges
   const bruised = col(0x596139); // grass that has been stood on
   const BLADE: readonly RGB[] = [lush, midGreen, dryBlade, deadStraw];
 
@@ -2006,7 +2135,12 @@ function buildGrass(g: Gen): void {
     // blades disagree about where the thin ground is.
     const vigour = contrast(sampleField(bank.soft, u * 2, v * 2), 2.0);
     const mottle = sampleField(bank.grain, u * 3, v * 3);
-    const grit = sampleField(bank.fine, u * 12, v * 12);
+    // Six, not twelve: at twelve this put 384 cells on a 256 map, two thirds of
+    // a texel, and world.ts fetches this tile at a grazing angle on the terrain
+    // where the anisotropy cap cannot follow the footprint. Sub-texel content
+    // there is not dither, it is crawl. See the same correction in the ground
+    // detail's `grit`.
+    const grit = sampleField(bank.fine, u * 6, v * 6);
     const tussD = sampleCell(bank.cell, u * 1, v * 1);
     const tussId = sampleCellId(bank.cell, u * 1, v * 1);
 
@@ -2077,11 +2211,14 @@ function buildGrass(g: Gen): void {
     ramp(BLADE, tone + (mottle - 0.5) * 0.3);
     toward(c, i, RAMP, blade * 0.95);
     // The gaps between blades are in shadow, and that self-occlusion is most of
-    // what makes a sward read as having depth when it is looked down on.
-    toward(c, i, shade, (1 - blade) * 0.32);
-    toward(c, i, tipCol, clamp01((cover - 0.5) * 2.2) * (0.2 + along * 0.5) * 0.34);
+    // what makes a sward read as having depth when it is looked down on. Kept,
+    // at three quarters of its weight: it is a real cue at a boot's height and a
+    // liability at twenty metres, where it is what the luminance ratio in
+    // world.ts turns into black speckle between the bright blades.
+    toward(c, i, shade, (1 - blade) * 0.24);
+    toward(c, i, tipCol, clamp01((cover - 0.5) * 2.2) * (0.2 + along * 0.5) * 0.26);
     toward(c, i, bruised, trampled * 0.5);
-    gain(c, i, 0.88 + mottle * 0.22 + (grit - 0.5) * 0.12);
+    gain(c, i, 0.9 + mottle * 0.18 + (grit - 0.5) * 0.1);
 
     h[i] = clamp01(cover * 0.72
       + (1 - tussD) * 0.16 * (1 - trampled)
