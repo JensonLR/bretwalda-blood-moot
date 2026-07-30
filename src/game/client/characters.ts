@@ -2420,7 +2420,14 @@ export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): T
   // through to the sky. Deliberately the same leather as the grip and not a shade of
   // its own: it is never seen as a surface, only as what is *behind* six 3 mm gaps,
   // and a second material for that would be a whole extra draw call.
-  part.add(new THREE.CircleGeometry(R * 0.99, 24), leather, xf(0, 0, zf - 0.007));
+  //
+  // A disc with thickness, not a `CircleGeometry`. The flat circle faced +z only,
+  // so seen from behind it was culled — and the outer planks are chords, only
+  // 100 mm tall at the rim, so the shield had two see-through crescents inside its
+  // own binding. Invisible while the shield was mounted face-out; the moment
+  // anim.ts started carrying it bladed at rest, `probe/closeup.png` showed the
+  // turf through it. 6 mm of rawhide backing costs ~70 triangles and no draw call.
+  part.add(new THREE.CylinderGeometry(R * 0.99, R * 0.99, 0.006, 24), leather, xf(0, 0, zf - 0.007, Math.PI / 2));
 
   for (let i = 0; i < planks; i++) {
     const cx = ((i + 0.5) / planks - 0.5) * 2 * R;
@@ -4157,13 +4164,19 @@ export function buildCharacter(
       const p = new Part();
       const surf = (u: number, v: number, inset: number, out: THREE.Vector3) => {
         const a = mix(-spread, spread, u);
-        // 52 mm at the hem, not 30. The folds were sized when the cloak was a
-        // rigid plate on a hinge, where a deep fold only made the plate read as
-        // corrugated; now that the hem actually swings behind the body they are
-        // the thing that says "cloth", and 30 mm was below what the shading can
-        // resolve at lineup distance. The second octave came up with it so the
-        // ridges keep their own smaller ripple rather than becoming a fluting.
-        const fold = Math.cos(a * 5.5) * 0.052 * v * v + Math.cos(a * 11) * 0.016 * v;
+        // Folds push *out* and never in. A cosine about zero spends half its
+        // amplitude cutting inside the base ellipse, and the base ellipse is
+        // only ~60 mm clear of the tunic's flared hem — so a trough put the
+        // cloak inside the garment under it and the tunic came through as an
+        // olive wedge in `probe/duel.png`. Cloth draped over a body is
+        // displaced away from it by definition; there is nothing for a fold to
+        // displace into. 52 mm peak at the hem rather than the old 30, because
+        // the folds were sized when this was a rigid plate on a hinge where
+        // depth only read as corrugation — now that the hem actually swings,
+        // they are the thing that says "cloth", and 30 mm was below what the
+        // shading resolves at lineup distance.
+        const fold = (0.5 - 0.5 * Math.cos(a * 5.5)) * 0.052 * v * v
+          + (0.5 - 0.5 * Math.cos(a * 11)) * 0.016 * v;
         const grow = v * v * 0.6 + v * 0.4;
         const rx = mix(topX, hemX, grow) + fold - inset;
         const rz = mix(topZ, hemZ, grow) + fold - inset;

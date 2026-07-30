@@ -6,55 +6,147 @@ change is made.
 
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
+Current reference: **`art/shots/v7/`**. A/B against `v6/`.
+
 ---
 
-## Face feature placement — the real cause of the "long neck"
+## Cloth texel density — the "wicker" that is actually wool
 
-Measured off the built mesh, not estimated:
+This is the largest single material defect left in the frame, and the reason it
+survived v7 is that it was diagnosed as something else.
 
-| Landmark | This model | Human canon |
+The v6 note said the berserker's basket-weave torso was leather, not wool, and
+that "wool was a red herring". Half right. The jerkin *is* leather
+(`characters.ts` `buff` → `M.hide`), and world-sizing leather did fix it —
+compare the chest in `v6/stance.png` with `v7/stance.png`, the coarse cells are
+gone. But the surfaces *around* it were never touched, and they are what the eye
+reads as basketwork:
+
+| Surface | Call | Visible cell, measured off `v7/stance.png` |
 |---|---|---|
-| Eye line, above chin | **60%** of head height | 50% |
-| Mouth | **39%** | ~22% |
-| Nose tip | 56% | ~33% |
+| leg wraps, trousers | `cloth()` → `tinted("wool", …, { repeat: clothRepeat(girth) })` | ~32 mm |
+| berserker arm-fur caps, torso ruff | `tinted("wool", 0x8a7050, { repeat: 6 })` | ~45 mm |
+| warden's skirt, every tunic | `cloth()` | ~35 mm |
+| **shield's painted planks** | `M.tunic()` = `tint("wool", …, { repeat: 5 })` | ~60 mm — the basket in `v7/portrait.png` |
+| cloak | `cloth(…, bodyGirth * 1.4)` | ~50 mm — the knitted jumper in `v7/closeup.png` |
 
-The lower face is roughly 35 mm too long and the cranium too short. Under a helm
-that covers the forehead, this makes every warrior read chin-up with maximum
-throat exposed — which is what the owner has twice reported as heads looking
-"floating" and "a little small". The neck geometry itself has been fixed
-(submandibular mass added, exposed throat brought from 0.43 to 0.30 of head
-height against a life value of 0.38); this is what remains.
+The visible cell is the *tile*, not the thread: `buildWool`'s 22 threads land
+well under a pixel at every one of these sizes, so what survives the mips is the
+dye-blotch lattice, and `CLOTH_BLOTCH * 4 = 36 mm` is exactly the cell being
+seen. So this is not fixed by lowering `clothRepeat`'s quantisation — the blotch
+field itself has to come down with the tile, or the tile has to go well below
+36 mm and let the blotches mip out.
 
-Fixing it means moving ~15 coupled `v` constants together in
-`src/game/client/characters.ts`: the brows, the socket/brow/nose/mouth gaussians
-in `faceSurface`, the beard's cheek line, the helm brow band, the spectacle
-plate, the cheek guards, and the war paint. Deliberate work that needs captures
-between steps — it was correctly judged too risky to bundle into a neck pass
-that must not regress the faces.
+**It is not the two-line change the materials pass reported.** Adding `wool` to
+`WORLD_TILE` would also world-size **hair (`repeat: 20`), beards (`repeat: 26`)
+and the berserker's fur (`repeat: 6`)**, which borrow wool's fibre at a
+deliberately much finer setting to fake strands; one tile size cannot serve both.
+The shape of the fix is a per-call world tile — a `tile?: number` on
+`TintOptions` that overrides both `repeat` and `WORLD_TILE` — applied to
+`cloth()` and `M.tunic()` and *not* to hair/beard/fur.
 
-## Shield is mounted at the wrong point on the arm
+Do it with a capture on each step. `stance` ships **10** tonal buckets against a
+floor of 8 — the tightest in the set with `laststand` — and its marginal buckets
+come off the berserker's cream legging, which is one of the surfaces this would
+change. An intermediate capture in this pass had it at 9.
 
-`src/game/client/render/anim.ts:207` mounts the shield on `leftArm` at
-`(-0.14, -0.4, 0.26)`. That puts the fist **260 mm above the boss** — gripping a
-centre-grip shield near its bottom edge — and hangs the disc outboard, which is
-what throws it against the frame edge in `lineup.png`. The shield geometry
-itself was rebuilt (radius 0.44 → 0.38, paint cut per plank rather than a flat
-disc through domed boards, hide facing behind the seams); the mount was not,
-because it lives in a file the geometry owner did not hold.
+## The arena floor reads as wet cobbles at every distance
 
-## Skeleton landmarks disagree with life
+Unchanged v6 → v7, and it is roughly half of every frame. `v7/portrait.png` and
+`v7/stance.png` show it worst: a blue-green pebbled sheet with cool sub-pixel
+glints that reads as the *surface of water*, not as churned earth with water in
+it. The standing-water rework did land — the flood in `v6/stance.png` is gone,
+the clipped white specular blobs in `v6/arena.png` are gone — but the read
+survives it, because it never came from the puddle meshes.
 
-`shoulderY` is 0.769 of stature against a real acromion at 0.818, and
-`upperArm`/`foreArm` are each about 12% short. The errors cancel at the wrist so
-the hands land correctly, but the trapezius ramp is steeper than life, and every
-shield and weapon offset in `anim.ts` is tuned against the low shoulder — so
-this cannot be corrected without re-tuning those together.
+Two mechanisms, both in `world.ts`:
+
+- `wet[i] = max(basinWet, churnMask * 0.4)` (~line 1169) drives
+  `roughnessFactor → min(roughness, 0.34)` in the ground shader. `churnMask` is
+  broad, so most of the trampled interior carries a glossy sheen even where
+  there is no water at all. The number came down from 0.5 in v6 and that was not
+  enough.
+- The glints themselves are the ground normal map beating against that sheen at
+  grazing incidence. The specular-AA block below it band-limits the lobe, but a
+  wide lobe on a damp surface is still a lit lobe.
+
+Do not simply take the sheen out. The independent panel's finding that
+`portrait`/`stance` fail on *highlight structure* rather than black level still
+holds, and the ground is where most of that structure currently lives — cutting
+it is how `arena` went 16 → 12 buckets this pass. The wet term wants replacing
+with something that reads as *mud*, not deleting.
+
+## The bonfire core still clips flat
+
+`v7/lineup.png` and `v7/arena.png`: the flame is a real flame now — tongues, a
+visible log crib, coals, and it pools light on the ground — but its core is
+still a ~120 px region welded to white. The bloom skirt cut (0.72 → 0.62) took
+most of the smear off the surrounding frame and the shape is right; what is left
+is the emissive itself in `vfx.ts` saturating the tone curve. Axis 9 does not
+pass on a flame with no colour in its hottest part.
+
+## Faces go dark at lineup distance
+
+`v7/lineup.png`: all four faces read as dark ovals under the helm brow, where
+`v6/lineup.png` had them warm-lit. This is the new sky-occlusion light in
+`lighting.ts` doing exactly what it was built to do — a face under a helm rim is
+sky-occluded and loses 0.37 — plus the fire being behind them. Physically
+correct and a net gain everywhere else; but a class-select lineup where you
+cannot see a face is a composition failure, and the fix belongs in the preset's
+lighting or in a face-height fill, not in backing the AO light out.
 
 ## Smaller, confirmed
 
-- The berserker's fur ruff is a superellipse slab with pointed corners at the
-  shoulder line.
-- The baldric's five segments show faceting between them at close range.
+- **Pauldron lames read as square blocks** on the huscarl and warden at lineup
+  distance, and the berserker's arm-fur caps are bulky slabs with flat tops.
+- **The moustache halves** are soft leaves rather than hair at portrait distance.
+  They want strands, which is a different primitive.
+- **The runekeeper's hood opening** renders as a hard-edged polygon frame — the
+  `dark` shadow gore's rim.
+- **The baldric's five segments** show faceting between them at close range.
+- **One cloak vertex still pokes through.** Making the folds outward-only shrank
+  the tunic-through-cloak hole from ~60 × 40 px to a 3 px green speck in
+  `v7/duel.png`, at the same place. It is one vertex, and ~8 mm on
+  the cloak's base ellipse (`topX`/`topZ` in `characters.ts`) would clear it —
+  left as-is only because the fix landed after the capture had started and an
+  unverified number is worse than a logged one.
+- **`torchFlame` in the materials catalog is dead** — nothing calls `get()` on
+  it. Either wire it or delete the entry.
+- **`DEEPEST_WATER` is a normaliser with nothing clamping to it.** A puddle
+  deeper than 30 mm takes its colour and opacity out of range. Documented at the
+  constant, not enforced.
+- **The palisade-foot drip lines are ~20 m from every camera** and cost ~220
+  verts to draw a dark line. If nothing in a capture shows there, cut them.
+- **Object-space projection ignores the instance matrix.** If `world.ts` ever
+  scales an InstancedMesh instance carrying `iron`/`steel`/`bone`/`bronze`/
+  `leather`/`skin`, that instance gets proportionally scaled texels.
+- **A sub-tile phase discontinuity** survives on two of the four meridians of any
+  cylindrical part — the 1-tap object-space projection's hard axis select, biased
+  out to 0.83 r. Faintly visible on a mail sleeve at portrait distance; killing
+  it needs biplanar and chunk rewrites.
+
+## Not defects, but load-bearing and unowned
+
+- **There is no prop collision and no cloth collision.** Nothing world.ts places
+  intersects a warrior *in these eight presets*, which is a checked fact and not
+  a guarantee — in play warriors move anywhere. `SWING_FWD = 0.24` in `anim.ts`
+  is a stand-in for the wearer's own body, and a deep lunge under-drapes because
+  the gravity solve gets clamped against it.
+- **The cloak cannot gather.** Linear blend skinning on a Y-chain rotates the hem
+  but cannot narrow it, so it keeps its cut radius under its own weight. Left and
+  right halves also move as one, because the chain is on the body axis.
+- **The de-overlap solver in `hud3d.ts` has never been photographed doing work.**
+  No preset puts two plates close enough to trigger `compact`.
+- **The tally notches never render in `brawl`.** Bars are ~10 px there, so
+  `lodDetail` is 0 and the metaphor the bar is built on only appears in
+  `duel`/`closeup`.
+- **Dusk's tonal split is shallow.** `v7/duel.png` B/R by luma band barely ramps
+  and is non-monotone at the bottom. `laststand` got the `tintLow`/`tintHigh`
+  treatment and it worked; dusk is 7 of the 8 presets and was deliberately left
+  alone. The hook is there for whoever takes it.
+- **`ELBOW_ALONG`/`KNEE_ALONG` are duplicated** in `anim.ts` rather than exported
+  from `characters.ts`, as is the cloak's `drop`. All three are correct today and
+  all three are silent breakages if the builder's proportions move again.
 
 ---
 
@@ -63,80 +155,70 @@ this cannot be corrected without re-tuning those together.
 Recorded because each took real effort to find and each was something other
 than what it looked like:
 
-- **The berserker's "detached helm with a white blob" was the axe.**
-  `STANCE.berserker.rest = -1.78` against `GRIP_PITCH = 1.28` laid the haft
-  0.5 rad off vertical, putting a 256 mm steel crescent at y = 1.89 — the middle
-  of the skull — where it read as a second bowl, blown to 250 luma against the
-  sky.
-- **The ground "glitter" was specular, not albedo.** The wet/puddle mask was
-  gated on the full height field, which carries fine noise at ×5 and ×9, so
-  wetness bled onto dry ground at texel frequency and clipped through the post
-  chain. The give-away: specks took the *sky's* colour on cool ground and the
-  *fire's* on warm ground, sat on the crowns of the relief, and carried chroma
-  fringing.
-- **The neck's `capTop` disc was a lit horizontal plate** 126 mm across standing
-  proud of the jaw on every side — visible as a pale ellipse under the huscarl's
-  coif.
+- **The floating orange square was an opaque emissive quad, not a HUD element.**
+  `bonfireFlame` — no surface, no alpha, `emissiveIntensity: 7` — on a bare
+  `PlaneGeometry` standing in the hall doorway. At ~12 px it drew a hard uniform
+  orange rectangle, and two independent panels read it as a UI bug; one traced it
+  to `hud3d.ts`, where a fix would have done nothing. It took a radial alpha
+  falloff and additive blending (`Spec.glow`), not a colour change. **Any bare
+  emissive quad small enough that its edge is most of it will do this again.**
+- **A shield's hide facing was a single-sided `CircleGeometry`.** Invisible for
+  as long as the shield was mounted face-out; the moment `anim.ts` started
+  carrying it bladed at rest, the outer planks — which are chords, only 100 mm
+  tall at the rim — left two see-through crescents inside the binding. A
+  regression in one file surfaced by a correct change in another.
+- **A cloak fold cannot be a cosine about zero.** Half its amplitude cuts *inside*
+  the base ellipse, and the base ellipse is only ~60 mm clear of the tunic's
+  flared hem — so raising the fold depth from 30 mm to 52 mm put the cloak inside
+  the garment under it and the tunic came through as an olive wedge — caught on an intermediate capture
+  taken mid-pass, between the drape landing and v7. Cloth draped
+  over a body is displaced away from it; there is nothing for a fold to displace
+  into.
+- **The metals went matte from roughness drift, not from a missing PMREM.**
+  `specularAA` bakes the sub-texel slope it band-limits into the roughness
+  channel, asymmetrically — it barely moves a rough substance and swamps a smooth
+  one, so steel's recipe still *declared* 0.18 while its shipped map *meant*
+  0.316. Reconciling against the declared number, then clamping, collapsed every
+  `blade()` request above 0.36 onto one grey. Reconcile against the measured
+  channel means, not against the recipe.
+- **A texel density is not a UV repeat.** Every geometry here parameterises u and
+  v over 0..1 whatever size it is, so a fixed repeat makes texel size scale with
+  1/size and no two surfaces on one warrior agree. Leather at `repeat: 4` covered
+  280 mm on a torso and 20 mm on a bracer — wickerwork and crocodile from one
+  material.
+- **A backlight cannot rim a silhouette.** A silhouette edge is where the normal
+  is perpendicular to the view ray, so a light on the view axis meets it at
+  N·L ≈ 0. Every unit the bonfire spent on a warrior between it and the lens
+  landed on the half the camera cannot see; raising candela could never fix it.
+  The steer had to move the *frame* the kick hangs in, not the light.
+- **A tint crossover placed on the picture destroys the contrast it exists to
+  create.** `mix(shadowTint, highlightTint, s)` passes through the average of the
+  two tints at s = 0.5, and the average of a cool tint and a warm one is a
+  desaturated near-neutral — which is what `laststand`'s modal 42% of pixels were
+  getting. The tonal anchor must sit *on* the picture and the tint crossover
+  *above* it; they are two jobs and they wanted opposite placements.
 - **Standing water read as a hole in the world** because a near-black dielectric
   at `metalness 0.02` returns F0 ≈ 0.04, so from the near-vertical angle a
-  gameplay camera actually uses, ~96% of the pixel is the black diffuse term.
-  The PMREM only pays out at grazing incidence.
-- **Every "mid-swing" capture was a rest pose.** `readSwing` only set
-  `swingLive` when it saw `attackTimer` decrease across two frames, and a
-  capture holds it constant — so animation was reviewed for weeks against poses
-  that were never the ones requested.
-
----
-
-## Second panel (independent, on v4/v5) — refined traces
-
-A second three-critic panel scored FAIL on all lenses, with frame cleanliness
-and animation weight at 2/10. Where it disagreed with or sharpened the first
-panel's diagnosis, its trace is recorded here.
-
-**The orange square is the bonfire flame, not a damage number.** Traced to
-`materials.ts:137` `bonfireFlame` — no surface, no alpha — applied to a bare
-`PlaneGeometry` at `world.ts:1928`. The first panel attributed it to an
-untextured HUD damage number; that was wrong, and a fix aimed at `hud3d.ts`
-would have left it in the frame.
-
-**Only the player casts a shadow.** `lighting.ts:341` sizes a single ortho box
-at `half <= shadowDistance` (24 m, `quality.ts:72`), and `trackShadow()`
-re-centres it on the duellists every frame — so the palisade, both halls, the
-hero tree and the hay bales all fall outside the cascade every frame. Not a
-tuning problem: static geometry is never inside the box.
-
-**portrait/stance fail the tonal floor on highlight structure, not black
-level.** The panel mirrored the harness metric exactly (160x90 downsample,
-unweighted `(r+g+b)/3`, bucket counts only above `n*0.002` = 28.8 px) and
-reproduced the shipped numbers to within 0.1 luma. Buckets 2-3 hold 79% of
-portrait and 77% of stance; buckets 7-10 are populated but under threshold.
-Nothing above code ~112 occupies even 0.2% of the frame. So the fix is
-highlight structure on the subject, not lifting the shadows.
-
-**Chromatic aberration is a defect, not a flourish.** ~2 px red/cyan fringing on
-every foliage silhouette (`postfx.ts:554`), rising to ~6 px in laststand
-(`postfx.ts:676`).
-
-**Sub-pixel rim strips stipple.** 1 px red speckle along the cloak hem, spear
-edge and sword edge, from rim geometry thinner than a pixel at
-`characters.ts:557-559`.
-
-**Cloaks have no cloth behaviour at all** — rigid flat triangles projecting
-sideways with zero drape, zero lag behind motion, zero gravity, no secondary
-motion. Named as the clearest single tell that the animation is not simulating
-anything.
-
-**The nose is not modelled.** The helm's nasal substitutes for it. The beard is
-a flat waffle-textured panel with a hard rectangular silhouette. Eyes are dark
-almond patches with no socket, lid or brow. The head is a rounded box with hard
-vertical corner edges at the temples.
-
-**Apparent proportion reads 8.5-9 heads**, not the 7.4 the skeleton computes,
-with no pelvis mass — consistent with the face-placement entry above.
-
-**Two nameplate visual languages** ship simultaneously: white/white and
-gold/yellow, at a 1.8x scale difference.
+  gameplay camera actually uses, ~96% of the pixel is the black diffuse term. The
+  PMREM only pays out at grazing incidence. The follow-up defect was the same
+  material read as *flooding*, and that was placement, not material: one 2.5 m
+  disc sat 1.14 m from where three presets stand their subject.
+- **Every "mid-swing" capture was a rest pose.** `readSwing` only set `swingLive`
+  when it saw `attackTimer` decrease across two frames, and a capture holds it
+  constant — so animation was reviewed for weeks against poses that were never
+  the ones requested.
+- **The "long neck" was never the face.** The face-placement table that used to
+  head this file (eye line 60%, mouth 39%, nose 56%) described a layout two
+  rewrites stale; the built mesh measures 50.0 / 28.0 / 44.8, canon on the first
+  and within a per cent on the others. The real error was 183 mm of neck against
+  a life value of 0.39 head-heights, which the eye reads as a small head on a
+  long body. The skeleton computed 7.5 heads because the skeleton never measured
+  the neck.
+- **The ground "glitter" was specular, not albedo.** The wet/puddle mask was
+  gated on the full height field, which carries fine noise at ×5 and ×9, so
+  wetness bled onto dry ground at texel frequency. The give-away: specks took the
+  *sky's* colour on cool ground and the *fire's* on warm ground, sat on the
+  crowns of the relief, and carried chroma fringing.
 
 ---
 
