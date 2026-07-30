@@ -219,6 +219,20 @@ function churnMask(x: number, z: number, r: number): number {
 }
 
 /**
+ * 0..1 proximity to standing water. The same falloff the basins are carved
+ * with, so the dark wet ring, the surface of the puddle and the wet sheen in
+ * the terrain shader are all reading one function and cannot drift apart.
+ */
+function basinWet(x: number, z: number): number {
+  let w = 0;
+  for (const p of PUDDLES) {
+    const d = Math.hypot(x - p.x, z - p.z) / p.r;
+    w = Math.max(w, Math.exp(-d * d * 1.1));
+  }
+  return w;
+}
+
+/**
  * The one height field. Inside the palisade it stays within about 5 cm of zero,
  * because the server places boots at y = 0 and a 20 cm hollow there is a warrior
  * standing in mid-air. Outside, the moot sits inside a bank-and-ditch earthwork
@@ -308,12 +322,7 @@ function groundColor(x: number, z: number, y: number, out: THREE.Color): void {
 
   // Wet where the ground is low. The same falloff the basins are carved with,
   // so the dark ring lands exactly on the rim of the water.
-  let wet = 0;
-  for (const p of PUDDLES) {
-    const d = Math.hypot(x - p.x, z - p.z) / p.r;
-    wet = Math.max(wet, Math.exp(-d * d * 1.1));
-  }
-  out.lerp(C_MUD_WET, clamp01(wet * 0.9));
+  out.lerp(C_MUD_WET, clamp01(basinWet(x, z) * 0.9));
 
   // Chalk showing through where a boot has taken the turf off the track. It is
   // the brightest thing on the ground and it is doing real work: without it the
@@ -870,6 +879,13 @@ export function createWorld(
   const pointLights: THREE.PointLight[] = [];
   /** Every geometry this module made, so dispose releases each exactly once. */
   const owned = new Set<THREE.BufferGeometry>();
+  /**
+   * Materials this module built itself rather than taking from the library.
+   * There is exactly one — the water, which needs a shading model the catalog
+   * does not offer — and it is ours to release, because materials.dispose()
+   * only knows about its own.
+   */
+  const ownedMats: THREE.Material[] = [];
   const restore: Array<() => void> = [];
   const own = <T extends THREE.BufferGeometry>(g: T): T => { owned.add(g); return g; };
 
@@ -953,6 +969,13 @@ export function createWorld(
     const pos = new Float32Array(count * 3);
     const uv = new Float32Array(count * 2);
     const col = new Float32Array(count * 3);
+    // Wetness rides its own attribute rather than being inferred in the shader
+    // from how dark the vertex colour is. That inference is what put a mirror
+    // on the grass: turf in shade is as dark as mud, so shaded turf came back
+    // at a quarter of its roughness and returned a per-pixel blue reflection of
+    // the night sky. Darkness is not a wetness channel. This is, and it is the
+    // same field groundColor darkens with.
+    const wet = new Float32Array(count);
     const c = new THREE.Color();
 
     const write = (i: number, x: number, z: number, y: number) => {
@@ -961,6 +984,11 @@ export function createWorld(
       uv[i * 2 + 1] = z * GROUND_UV + 0.5;
       groundColor(x, z, y, c);
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+      // The sheen reaches a little further than the darkening: ground the moot
+      // has been standing on all evening is damp without being flooded, and a
+      // damp surface holds a broad sheen rather than a reflection. Weighted
+      // well under the basins so the two never read as the same substance.
+      wet[i] = clamp01(Math.max(basinWet(x, z), churnMask(x, z, Math.hypot(x, z)) * 0.5));
     };
 
     write(0, 0, 0, groundHeight(0, 0));
@@ -1004,6 +1032,7 @@ export function createWorld(
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
     geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    geo.setAttribute("wetness", new THREE.BufferAttribute(wet, 1));
     geo.setIndex(idx);
     geo.computeVertexNormals();
 
@@ -1039,11 +1068,11 @@ export function createWorld(
     const prior = groundMat.onBeforeCompile;
     groundMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTurf = { value: turfMap };
-      shader.vertexShader = `varying vec3 vTerrainPos;\n${shader.vertexShader}`.replace(
+      shader.vertexShader = `varying vec3 vTerrainPos;\nattribute float wetness;\nvarying float vWet;\n${shader.vertexShader}`.replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\n\tvTerrainPos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;",
+        "#include <begin_vertex>\n\tvTerrainPos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;\n\tvWet = wetness;",
       );
-      shader.fragmentShader = `varying vec3 vTerrainPos;\nuniform sampler2D uTurf;\n${shader.fragmentShader}`
+      shader.fragmentShader = `varying vec3 vTerrainPos;\nvarying float vWet;\nuniform sampler2D uTurf;\n${shader.fragmentShader}`
         .replace(
           "#include <map_fragment>",
           `#ifdef USE_MAP
@@ -1080,13 +1109,35 @@ export function createWorld(
         .replace(
           "#include <roughnessmap_fragment>",
           `#include <roughnessmap_fragment>
-          #ifdef USE_COLOR
-            // .rgb, not vColor: three declares the varying as a vec4 whether or
-            // not the geometry carries alpha, and a dot() against a vec3 there
-            // fails to link — which takes the whole ground material down to a
-            // fallback and is invisible until a capture goes looking for it.
-            roughnessFactor *= mix( 0.42, 1.0, smoothstep( 0.012, 0.075, dot( vColor.rgb, vec3( 0.299, 0.587, 0.114 ) ) ) );
-          #endif`,
+          // Only genuinely wet ground goes glossy, and only down to a sheen —
+          // 0.34 is a damp surface, not a mirror. Water itself is a separate
+          // material a few centimetres below this one; the terrain's job here
+          // is the wet margin around it, which is what makes the puddle read as
+          // sitting in the mud rather than laid on top of it.
+          roughnessFactor = mix( roughnessFactor, min( roughnessFactor, 0.34 ), vWet );`,
+        )
+        .replace(
+          "#include <lights_physical_fragment>",
+          `// Screen-space specular anti-aliasing, and the last third of the crawl
+          // §10 keeps scoring. textures.ts band-limits roughness in *texture*
+          // space, which it can do because it knows the texel grid; what it
+          // cannot know is how many texels land in a pixel, and past the
+          // standing ring that is hundreds. three has its own guard here, but
+          // it reads dFd of nonPerturbedNormal — the interpolated vertex
+          // normal — so the ground's normal map, the thing actually producing
+          // the sparkle, is invisible to it.
+          //
+          // Kaplanyan/Tokuyoshi: a normal that wobbles inside a pixel is a
+          // wider lobe, and lobe widths add as variances on alpha rather than
+          // on roughness. The 0.28 ceiling stops a silhouette pixel, where the
+          // derivative is meaningless, from flattening the shading to matte.
+          {
+            vec3 dNdx = dFdx( normal );
+            vec3 dNdy = dFdy( normal );
+            float kernel = min( 0.5 * ( dot( dNdx, dNdx ) + dot( dNdy, dNdy ) ), 0.28 );
+            roughnessFactor = sqrt( min( roughnessFactor * roughnessFactor + kernel, 1.0 ) );
+          }
+          #include <lights_physical_fragment>`,
         );
     };
     groundMat.needsUpdate = true;
@@ -1094,32 +1145,196 @@ export function createWorld(
   }
 
   // ---- standing water ----------------------------------------------------
-  // Roughness near zero and no map: at dusk a puddle's whole job is to be a
-  // second sky in the bottom of the frame, and the PMREM does that for free.
+  //
+  // A puddle has nothing of its own to show. Everything in it is either sky
+  // bounced off the surface or mud seen through it, and the version this
+  // replaces had neither. A near-black dielectric returns about 4% of the
+  // environment at normal incidence and its own albedo for the other 96%, and
+  // the gameplay camera looks at the ground from above — the one angle where
+  // Fresnel pays nothing. So the PMREM only ever showed up at the grazing
+  // incidence no over-shoulder shot uses, and the disc read as a hole punched
+  // in the world: it owned the bottom third of `stance`.
+  //
+  // Four things fix it and all four are load-bearing.
+  //
+  //   * It is transparent. The mud renders through it, so the puddle has a
+  //     *bottom* — which is the whole difference between shallow water and a
+  //     hole — and it is wet silt rather than near-black.
+  //   * Clearcoat. A second, smoother layer carries its own Fresnel term and
+  //     its own IBL sample, so the sheet still returns something off the
+  //     PMREM's ember horizon at a near-vertical view. `specularIntensity`
+  //     lifts the base layer's F0 with it.
+  //   * Ripples. A dead-flat mirror at this roughness samples straight up into
+  //     the darkest part of the dome. Two degrees of slope walks that sample
+  //     onto the horizon band, which is where all the light in this sky is.
+  //   * It sits *in* the ground rather than on it. The sheet is level at a
+  //     fixed waterline and each rim vertex is found by walking out to where
+  //     the terrain crosses that line — so the shore is where the basin
+  //     actually rises out of the water, the last ring is buried, and its
+  //     straight chords never reach the frame.
   {
-    const water = materials.standard(0x101a1e, 0.045, 0.02);
+    // 46 mm of water in a basin groundHeight carves 75 mm deep. Deep enough to
+    // hold a reflection, shallow enough that the churn at the edge still reads.
+    const DEPTH = 0.046;
+    const SEG = 44;
+    const RINGS = 6;
+
+    const water = new THREE.MeshPhysicalMaterial({
+      // Wet silt, not void. Whatever survives the opacity is what the eye reads
+      // as the bottom of the puddle, so it has to be a colour mud could be.
+      color: 0x241d16,
+      roughness: 0.09,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.62,
+      // No depth write: the mud behind it has to survive, and six flat sheets
+      // lying on the ground have no ordering problem with each other.
+      depthWrite: false,
+      vertexColors: true,
+      ior: 1.33,
+      specularIntensity: 1.4,
+      clearcoat: 1,
+      clearcoatRoughness: 0.02,
+    });
+    water.name = "standingWater";
+    ownedMats.push(water);
+
+    const waterTime = { value: 0 };
+    water.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = waterTime;
+      shader.vertexShader = `varying vec3 vWaterPos;\n${shader.vertexShader}`.replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\n\tvWaterPos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;",
+      );
+      // Three crossed swells, cheapest first, dropped to two on low. The
+      // amplitudes below are *slopes*, not heights: the geometry stays a level
+      // sheet and only the shading normal moves, which is both correct for
+      // water this shallow and the only version that costs nothing per vertex.
+      // Both `normal` and `nonPerturbedNormal` are written, because three seeds
+      // the clearcoat's normal from the latter — perturbing only the first
+      // leaves the mirror layer flat, which is the layer doing the work here.
+      const swells = tier === "low"
+        ? "\n\t\tslope += vec2( 2.7, 1.9 ) * ( 0.020 * cos( dot( wp, vec2( 2.7, 1.9 ) ) - uTime * 0.55 ) );"
+          + "\n\t\tslope += vec2( -1.6, 3.3 ) * ( 0.016 * cos( dot( wp, vec2( -1.6, 3.3 ) ) - uTime * 0.41 ) );"
+        : "\n\t\tslope += vec2( 2.7, 1.9 ) * ( 0.020 * cos( dot( wp, vec2( 2.7, 1.9 ) ) - uTime * 0.55 ) );"
+          + "\n\t\tslope += vec2( -1.6, 3.3 ) * ( 0.016 * cos( dot( wp, vec2( -1.6, 3.3 ) ) - uTime * 0.41 ) );"
+          + "\n\t\tslope += vec2( 6.9, -4.8 ) * ( 0.0045 * cos( dot( wp, vec2( 6.9, -4.8 ) ) - uTime * 0.95 ) );";
+      shader.fragmentShader = `varying vec3 vWaterPos;\nuniform float uTime;\n${shader.fragmentShader}`
+        .replace(
+          "#include <normal_fragment_begin>",
+          `#include <normal_fragment_begin>
+          {
+            vec2 wp = vWaterPos.xz;
+            vec2 slope = vec2( 0.0 );${swells}
+            // The sheet's world normal is exactly +Y, so the perturbed normal
+            // can be built in world space and rotated into view space in one
+            // step — no tangent frame, and no UVs on the geometry at all.
+            vec3 rippled = normalize( vec3( -slope.x, 1.0, -slope.y ) );
+            normal = normalize( ( viewMatrix * vec4( rippled, 0.0 ) ).xyz );
+            nonPerturbedNormal = normal;
+          }`,
+        );
+    };
+
+    // Silt lit through a centimetre of water against silt lit through five.
+    // The gradient is what gives the puddle a floor to sit above; without it
+    // the sheet is one flat value and reads as a decal however well it reflects.
+    const C_SHALLOW = new THREE.Color().setRGB(1.85, 1.6, 1.32);
+    const C_DEEP = new THREE.Color().setRGB(0.68, 0.68, 0.74);
+
     for (const p of PUDDLES) {
-      const seg = 20;
-      const pts: number[] = [0, 0, 0];
-      const uvs: number[] = [0.5, 0.5];
+      const wl = groundHeight(p.x, p.z) + DEPTH;
+      // Where the terrain crosses the waterline along one ray, plus 12 mm so
+      // the outermost ring finishes under the mud. Bisection: groundHeight is
+      // monotone enough across a basin, and fourteen evaluations a ray is free
+      // at build time.
+      const shoreAt = (ax: number, az: number): number => {
+        const target = wl + 0.012;
+        let lo = 0;
+        let hi = p.r * 1.9;
+        if (groundHeight(p.x + ax * hi, p.z + az * hi) < target) return hi;
+        for (let k = 0; k < 14; k++) {
+          const mid = (lo + hi) * 0.5;
+          if (groundHeight(p.x + ax * mid, p.z + az * mid) < target) lo = mid; else hi = mid;
+        }
+        return hi;
+      };
+
+      const pos: number[] = [];
+      const nrm: number[] = [];
+      const col: number[] = [];
       const idx: number[] = [];
-      const rr = p.r * 0.68;
-      for (let j = 0; j <= seg; j++) {
-        const a = (j / seg) * TAU;
-        const wob = 0.78 + noise2(Math.cos(a) * 2.4 + p.x, Math.sin(a) * 2.4 + p.z) * 0.44;
-        pts.push(Math.cos(a) * rr * wob, 0, Math.sin(a) * rr * wob);
-        uvs.push(0.5 + Math.cos(a) * 0.5, 0.5 + Math.sin(a) * 0.5);
-        if (j > 0) idx.push(0, j + 1, j);
+      const c = new THREE.Color();
+
+      const push = (x: number, z: number, ringFade: number) => {
+        // Alpha and colour both come off the real water depth under the vertex,
+        // which is why the rim dissolves instead of ending on a chord: at the
+        // shoreline the depth is zero by construction. `ringFade` is only a
+        // backstop for a basin that never rises to the waterline inside the
+        // search radius.
+        const t = clamp01((wl - groundHeight(x, z)) / DEPTH);
+        c.copy(C_SHALLOW).lerp(C_DEEP, smoothstep(0.2, 0.95, t));
+        pos.push(x, wl, z);
+        nrm.push(0, 1, 0);
+        col.push(c.r, c.g, c.b, Math.min(smoothstep(0.02, 0.5, t), ringFade));
+      };
+
+      push(p.x, p.z, 1);
+      for (let i = 1; i < RINGS; i++) {
+        // Biased outward: the alpha ramp lives in the last quarter of the
+        // radius and that is where the vertices need to be.
+        const f = Math.pow(i / (RINGS - 1), 0.75);
+        for (let j = 0; j < SEG; j++) {
+          const a = (j / SEG) * TAU;
+          const ax = Math.cos(a);
+          const az = Math.sin(a);
+          const r = shoreAt(ax, az) * f;
+          push(p.x + ax * r, p.z + az * r, i === RINGS - 1 ? 0 : 1);
+        }
       }
+      for (let j = 0; j < SEG; j++) idx.push(0, 1 + ((j + 1) % SEG), 1 + j);
+      for (let i = 1; i < RINGS - 1; i++) {
+        const a0 = 1 + (i - 1) * SEG;
+        const b0 = 1 + i * SEG;
+        for (let j = 0; j < SEG; j++) {
+          const jn = (j + 1) % SEG;
+          idx.push(a0 + j, a0 + jn, b0 + j, a0 + jn, b0 + jn, b0 + j);
+        }
+      }
+
       const g = own(new THREE.BufferGeometry());
-      g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-      g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+      // Four components, not three: three declares vColor as a vec4 either way
+      // but only reaches for the alpha when the attribute actually carries one,
+      // and that alpha is the whole feathered rim.
+      g.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
       g.setIndex(idx);
-      g.computeVertexNormals();
-      const mesh = new THREE.Mesh(g, water);
-      mesh.position.set(p.x, groundHeight(p.x, p.z) + 0.052, p.z);
-      root.add(mesh);
+      root.add(new THREE.Mesh(g, water));
     }
+
+    // The library hands its environment to the materials it owns, and this one
+    // is ours, so it has to follow along by hand. Not a snapshot: sky.ts rebakes
+    // the PMREM on every mood change and mints a new texture each time, and a
+    // puddle reflecting a disposed one goes black again. The ground material is
+    // the probe because it is already in scope and the library does adopt it.
+    //
+    // The intensity is deliberately not the arena's. ENV_INTENSITY is set for
+    // dry matte surfaces, where the PMREM is doing duty as bounce fill and a
+    // full-strength sky would wash them out. Water is the one surface here whose
+    // entire job is to return the sky, and it wants it closer to real radiance.
+    const envProbe = groundMat instanceof THREE.MeshStandardMaterial ? groundMat : null;
+    const syncWaterEnv = () => {
+      if (!envProbe || water.envMap === envProbe.envMap) return;
+      water.envMap = envProbe.envMap;
+      water.envMapIntensity = envProbe.envMapIntensity * 2.4;
+      water.needsUpdate = true;
+    };
+    syncWaterEnv();
+    frameHooks.push((dt) => {
+      waterTime.value += dt;
+      syncWaterEnv();
+    });
   }
 
   // ---- turf clumps -------------------------------------------------------
