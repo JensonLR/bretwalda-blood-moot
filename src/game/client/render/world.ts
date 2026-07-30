@@ -102,6 +102,14 @@ const GROUND_UV = 1 / 35.2;
  *
  * This is the cheap half of the fix. The other half is a real obstacle radius in
  * the sim, which is not this module's to add.
+ *
+ * Measured since: nothing this module places is inside a warrior in `brawl` —
+ * the fire's widest geometry reaches 2.0 m and the nearest spawn is 4.2. What
+ * the panel read as legs through the fire is the *camera*: the brawl ring puts
+ * a warrior at (0, −4.2), and the follow rig sits at (−1, 2.05, 8.9), so he
+ * stands on the arena's own axis 31 px from the flame column and his shins
+ * arrive in its white core. The half of that this file can answer is that the
+ * fire had a hole in it at exactly that height — see the bonfire's core.
  */
 const CLEAR_RADIUS = 6.2;
 
@@ -123,8 +131,9 @@ const GATE_MAIN = GATE_ANGLES[0];
  * on radii chosen to look evenly spread, which put a 2.5 m pool exactly where
  * every framed character shot stands its subject: `stance` came back with the
  * near half of the frame under water and the moot reading as flooded rather than
- * muddy. Nominal wetted area is down from ~88 m² to ~26, and the largest single
- * pool from 5 m across to 2.4.
+ * muddy. Nominal wetted area is down from ~88 m² to ~26, the largest open pool
+ * from 5.0 m across to 2.4, and the deepest hollow inside the palisade from
+ * 81 mm below the boot plane to 63.
  *
  * They are ellipses because a rut is not a disc, and a pool lying along the base
  * of a stake line is not either. Depth varies with what made the hollow: a wheel
@@ -161,6 +170,13 @@ const WATER_FILL = 0.625;
  * at all, and the damp ring is what stops small water reading as a sticker.
  */
 const WET_MARGIN = 0.5;
+
+/**
+ * The deepest water in the list; shallower puddles grade their colour, their
+ * opacity and their damp margin against it. Has to track the largest `depth`
+ * below — it is a normaliser, not a limit, and nothing clamps to it.
+ */
+const DEEPEST_WATER = 0.030;
 
 function puddle(x: number, z: number, a: number, b: number, rot: number, depth: number): Puddle {
   // 2.2 rim-radii out the Gaussian below is at 4e-4 — under a tenth of a
@@ -359,7 +375,10 @@ function basinWet(x: number, z: number): number {
     const dz = z - p.z;
     if (dx * dx + dz * dz > p.reach2) continue;
     const d = puddleDist(p, x, z, WET_MARGIN);
-    const n = Math.exp(-d * d * 1.1);
+    // Graded by depth: a 14 mm drip line has not saturated the ground around it
+    // the way a 30 mm hollow has, and giving every puddle the same near-black
+    // margin is how a list of small water turns into a field of dark stains.
+    const n = Math.exp(-d * d * 1.1) * (0.66 + 0.34 * (p.depth / DEEPEST_WATER));
     if (n > w) w = n;
   }
   return w;
@@ -1351,8 +1370,6 @@ export function createWorld(
     // swale beneath the basin; that gap is the sim's y = 0 against this file's
     // relief and it is not something the water can close from here. It stopped
     // mattering when the puddles moved out from under the framed subjects.
-    const DEEPEST = 0.030;
-
     const water = new THREE.MeshPhysicalMaterial({
       // Wet silt, not void. Whatever survives the opacity is what the eye reads
       // as the bottom of the puddle, so it has to be a colour mud could be.
@@ -1462,7 +1479,7 @@ export function createWorld(
       const wl = groundHeight(p.x, p.z) + p.depth;
       // Shallow water is lighter and thinner than deep water over the same
       // silt, so the drip line does not come back as black as the hollows.
-      const body = p.depth / DEEPEST;
+      const body = p.depth / DEEPEST_WATER;
 
       // Vertices go round by arc length, and how many of them there are comes
       // off the perimeter rather than a constant. Both matter once the sheets
@@ -2749,10 +2766,22 @@ export function createWorld(
     // art direction are the same change. An inner bundle stood nearly upright
     // fills the axis, six brands leaned against the tripod close the ring, and
     // two cross-pieces lie over the criss-cross at knee height.
+    //
+    // CylinderGeometry lays v over each log's own length, so a 1.0 m brand
+    // would wear a whole tile of bark against the 1.9 m poles beside it and
+    // come back at twice their grain frequency. The poles set the fire's texel
+    // density because they are what the silhouette is made of; the short wood
+    // is rescaled to them.
+    const grain = (g: THREE.BufferGeometry, len: number, ref: number): THREE.BufferGeometry => {
+      const uv = g.attributes.uv as THREE.BufferAttribute;
+      for (let v = 0; v < uv.count; v++) uv.setY(v, uv.getY(v) * (len / ref));
+      uv.needsUpdate = true;
+      return g;
+    };
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * TAU + 0.45;
       const len = 1.12 + (i % 2) * 0.14;
-      const g = new THREE.CylinderGeometry(0.055, 0.07, len, 5);
+      const g = grain(new THREE.CylinderGeometry(0.055, 0.07, len, 5), len, 1.9);
       g.translate(0, len / 2, 0);
       g.rotateX(0.13 + (i % 2) * 0.05);
       g.rotateY(a);
@@ -2762,7 +2791,7 @@ export function createWorld(
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * TAU + 1.05;
       const len = 1.0 + (i % 3) * 0.11;
-      const g = new THREE.CylinderGeometry(0.06, 0.078, len, 5);
+      const g = grain(new THREE.CylinderGeometry(0.06, 0.078, len, 5), len, 1.9);
       g.translate(0, len / 2, 0);
       g.rotateX(0.3 + (i % 3) * 0.06);
       g.rotateY(a);
@@ -2771,7 +2800,7 @@ export function createWorld(
     }
     for (let i = 0; i < 2; i++) {
       const a = 0.55 + i * 1.85;
-      const g = new THREE.CylinderGeometry(0.07, 0.07, 1.2, 5);
+      const g = grain(new THREE.CylinderGeometry(0.07, 0.07, 1.2, 5), 1.2, 1.9);
       g.rotateZ(Math.PI / 2 + (i ? 0.11 : -0.09));
       g.rotateY(a);
       g.translate(Math.cos(a) * 0.09, 0.44 + i * 0.19, Math.sin(a) * 0.09);
@@ -2834,6 +2863,11 @@ export function createWorld(
       // 92% of the billets' own length, so each course slid down its neighbour
       // instead of sitting beside it and the stack had no coursing to read.
       const AX = 0.4;
+      // Its own stream, not the arena's. Every scatter after this block draws
+      // from `rng` in order, so spending twenty-two extra numbers here would
+      // move every arrow, bone and barrel in the moot — and an A/B against a
+      // previous capture would then be measuring the debris, not the woodpile.
+      const jig = seeded(0x1f0a3c7d);
       const ux = Math.cos(AX);
       const uz = -Math.sin(AX);
       const wx = -uz;
@@ -2846,10 +2880,10 @@ export function createWorld(
           // Sunk 45 mm into the mud rather than floating 10 mm above it, and
           // shuffled a little along its own length — a rick that has been drawn
           // from all evening does not stay flush at the ends.
-          const slide = (rng() - 0.5) * 0.16;
+          const slide = (jig() - 0.5) * 0.16;
           pile.push(place(
             px + wx * off + ux * slide, py + 0.055 + row * 0.195, pz + wz * off + uz * slide,
-            AX + (rng() - 0.5) * 0.05, 1, 0, Math.PI / 2,
+            AX + (jig() - 0.5) * 0.05, 1, 0, Math.PI / 2,
           ));
         }
       }
@@ -2872,11 +2906,11 @@ export function createWorld(
           // the job the crib stake is there to explain.
           stakes.push(place(
             sx + wx * o, groundHeight(sx + wx * o, sz + wz * o) - 0.22, sz + wz * o,
-            AX + Math.PI / 2, 1, 0, (0.1 + rng() * 0.07) * (s ? 1 : -1),
+            AX + Math.PI / 2, 1, 0, (0.1 + jig() * 0.07) * (s ? 1 : -1),
           ));
         }
       }
-      field(own(new THREE.CylinderGeometry(0.045, 0.055, 0.98, 5).translate(0, 0.49, 0)), logMat, stakes);
+      field(own(grain(new THREE.CylinderGeometry(0.045, 0.055, 0.98, 5), 0.98, 1.5).translate(0, 0.49, 0)), logMat, stakes);
 
       // Two billets rolled off the end and lying where they fell. The stack is
       // tidy; the ground around a woodpile never is.
@@ -2886,7 +2920,7 @@ export function createWorld(
         const dz = pz + uz * (1.15 + i * 0.36) + wz * (i ? 0.34 : -0.28);
         spill.push(place(dx, groundHeight(dx, dz) + 0.085, dz, AX + (i ? 0.9 : -1.3), 1, 0, Math.PI / 2));
       }
-      field(own(new THREE.CylinderGeometry(0.088, 0.095, 1.05, 6)), logMat, spill);
+      field(own(grain(new THREE.CylinderGeometry(0.088, 0.095, 1.05, 6), 1.05, 1.5)), logMat, spill);
     }
 
     root.add(bonfire);

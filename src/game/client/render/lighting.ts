@@ -102,6 +102,54 @@
 //     hue, and gains. That is the backlit-warrior-against-flame shot, and it is
 //     one light already in the rig doing a second job rather than a sixth
 //     directional.
+//
+// ---------------------------------------------------------------------------
+// Why v6 still had no fire rim and no contact anywhere, measured
+// ---------------------------------------------------------------------------
+//
+// **The fire's energy was never the problem — its bearing was.** Sampled in
+// `brawl` (fire at the origin, the local warrior at 4.5 m with the lens behind
+// him), the pool and beam together already put about 13 linear units on his
+// *back*. His silhouette edge came back at rgb(88, 68, 50) — red minus blue of
+// 38, a neutral warm grey, with the fire behind him at 250. Both facts are the
+// same fact: a silhouette edge is where the surface normal is perpendicular to
+// the view ray, so a light sitting on the view axis — which is exactly where a
+// backlighting fire sits — meets that normal at N·L ≈ 0. Every unit the fire
+// spends lands on the half of him the camera cannot see.
+//
+// That is also what v4's fire steer did wrong, and it got *worse* as it got
+// stronger: it lerped the kick's hang point onto the fire's own bearing, which
+// is the one bearing that cannot rim anything. The steer was cancelling the
+// −53° swing that made the kick a rim in the first place. And it was tiny
+// anyway — at 4.5 m the 6.5 m reach and its smoothstep returned 0.23, so the
+// most valuable shot the arena can produce was running at a fifth of an effect
+// that was pointed the wrong way.
+//
+// **Nothing occluded anything at contact.** Sampled at the boot in `closeup`,
+// the plank under the sole and the plank two boot-lengths away are within a
+// luma step of each other; the palisade in `laststand` casts a stripe across
+// the turf but its own footing is not a shade darker than open ground. Both
+// cascades detach — that is what `normalBias` does, it is not a bug — and both
+// detach in the same direction, because they are the same moon. A rig with one
+// light direction has no term that can darken a junction, so there was none.
+//
+// What this pass changes:
+//
+//  1. **A sky-occlusion light.** Half the rig's flat fill — ambient plus
+//     hemisphere — is moved into a single near-vertical directional that casts.
+//     Its shadow map *is* the ambient occlusion term: boot to ground, stake to
+//     ground, wall under eave, shoulder onto chest. It is the one light in the
+//     rig that can land a shadow with no gap under its caster, and the reason
+//     is geometric rather than tuned — see `AO_TILT`. It is also the only term
+//     the rig has that darkens a cluttered background more than a lone figure
+//     standing in front of it, which is the crowd-readability lever.
+//  2. **The fire steer steers the frame, not the light.** The pair's bearing is
+//     measured from a "behind" direction that blends from the camera's to the
+//     fire's; the swing is then applied on top, so a steered kick keeps the
+//     rake that makes it a rim. Longer reach, more gain, and it drops towards
+//     the coal bed's own elevation as it takes over.
+//  3. **The near cascade tightens again and the fire beam widens**, so more of
+//     a ring of eight is inside the only fire shadow the frame can afford.
 
 import * as THREE from "three";
 import type { FrameContext, Mood, QualitySettings } from "./quality";
@@ -172,6 +220,14 @@ interface MoodRig {
   /** Turf bounce, from below the subject. The only fill on the camera-facing planes. */
   bounce: number;
   bounceColor: number;
+  /**
+   * Sky occlusion. Not a sixth shaping light — it is the part of the flat fill
+   * that has been given a direction so that it can be *blocked*, and its
+   * intensity is sized against `ambient` and `hemi` rather than on its own.
+   * A tier that cannot afford its cascade folds it back into those two.
+   */
+  ao: number;
+  aoColor: number;
   /** The bonfire as an area source: candela, and how far its window reaches. */
   hearth: number;
   hearthColor: number;
@@ -186,10 +242,27 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
   // being fixed here. The `bounce` directional below is its specular half:
   // HemisphereLight in three feeds indirect *diffuse* only, and diffuse is the
   // one channel mail does not have.
+  //
+  // ambient and hemi are down from v6's 0.85/0.62, and `ao` is where the
+  // difference went — not a cut. Summed against a ground normal the three come
+  // to 0.66 + 0.44 + 1.15·cos(AO_TILT) ≈ 2.21 where v6 summed 1.47, and against
+  // a *vertical* normal to 0.66 + 0.22 + 1.15·sin(AO_TILT) ≈ 1.16, which is what
+  // v6 summed to the second decimal. So a warrior's fill is unchanged, open turf
+  // gains about a sixth, and anywhere the sky is blocked loses 0.37 outright.
+  // That difference is the whole contact term: it is the only number in the rig
+  // that knows a boot is standing on something.
+  //
+  // It is also the pass's answer to crowd readability, which is worth stating
+  // because it is not obvious from the number. The background this arena puts
+  // behind a mid-distance warrior is *cluttered* — a stake ring where every
+  // stake shades its neighbour, hut walls set back under deep eaves, stacked
+  // woodpiles — while the warrior is a lone vertical standing in the open. A
+  // fill that can be blocked therefore sinks the background and keeps the
+  // figure, which no unshadowed term in this rig can do at any intensity.
   dusk: {
-    ambient: 0.85,
+    ambient: 0.66,
     ambientColor: 0x6a86a0,
-    hemi: 0.62,
+    hemi: 0.44,
     hemiSky: 0x8fb4d2,
     hemiGround: 0x7a5a3c,
     key: 4.2,
@@ -201,7 +274,7 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
     // that distance the haze eats most of that. The rim is the one term in the
     // rig that lands on a silhouette edge and provably cannot land on the
     // background behind it, so it is the term that buys separation back.
-    rim: 3.6,
+    rim: 3.9,
     rimColor: 0x9ec8ff,
     kick: 1.7,
     kickColor: 0xffbe8c,
@@ -213,11 +286,22 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
     // crowd-readability reason as the rim above.
     bounce: 1.7,
     bounceColor: 0x93a084,
-    // 26 candela at decay 1.35, not 30 at decay 2 — see HEARTH_DECAY. The
-    // headline number moves down and the light a warrior actually receives goes
-    // up everywhere past a metre and a half: 10.2 at two metres against v4's
-    // 7.5, 4.0 at four metres against 1.9, 1.6 at eight against 0.5.
-    hearth: 26,
+    // Cool, and a shade bluer than the hemisphere's sky half. It is standing in
+    // for the whole upper dome, which at dusk is the one large *cold* source in
+    // the arena, and giving it its own hue is what stops a rig with three warm
+    // terms in it turning every up-facing plane sepia.
+    ao: 1.15,
+    aoColor: 0x9db8d4,
+    // 31 candela at decay 1.35 — see HEARTH_DECAY. Only a fifth up on v6's 26,
+    // and deliberately so: the measured defect was never that the fire was dim,
+    // it was that everything the fire spent landed on the side of a warrior the
+    // lens cannot see. Pushing the candela to fix *that* only blows the hearth
+    // stones, which at 1.75 m are already the hottest ground in the frame. What
+    // the fifth is for is the rest of the ring — at 4.2 m, with the wider beam
+    // under it, a warrior standing round the fire now takes about 4.4 linear
+    // units off it against a whole-rig total near 10, which is the difference
+    // between eight figures near a light source and eight figures near a decal.
+    hearth: 31,
     hearthColor: 0xff7a2e,
     hearthRange: 22,
   },
@@ -227,9 +311,9 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
   // stand that cannot be read is not dramatic, it is broken. The kick and the
   // hearth are the two that go up, because in this mood the fire *is* the key.
   lastStand: {
-    ambient: 0.55,
+    ambient: 0.44,
     ambientColor: 0x8a6046,
-    hemi: 0.4,
+    hemi: 0.3,
     hemiSky: 0xa87a54,
     hemiGround: 0x7d4526,
     key: 2.4,
@@ -240,7 +324,14 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
     kickColor: 0xff8a3c,
     bounce: 1.5,
     bounceColor: 0x8a6a48,
-    hearth: 52,
+    // Ember rather than sky: in this mood the dome above the moot is lit by what
+    // is burning under it, so the occlusion term stops being the cold half of
+    // the frame. It also stays large, because this mood's ambient is the one
+    // most at risk of reading as a flat orange wash — and an occluded fill is
+    // the cheapest structure a wash can be given.
+    ao: 0.85,
+    aoColor: 0xc08a5e,
+    hearth: 60,
     hearthColor: 0xff5a1a,
     hearthRange: 28,
   },
@@ -388,33 +479,59 @@ const HEARTH_DECAY = 1.35;
  *
  * The shares are the honest part. The beam does not replace the pool, it adds
  * to it, so a warrior standing in it removes `BEAM_SHARE / (POOL_SHARE +
- * BEAM_SHARE)` of the fire's light rather than all of it — 44%, a real shadow
- * and not a black one. Buying the other 56% costs the cube map. `POOL_SHARE`
- * stays above 0.75 so the far side of the fire is still better lit than it was
- * in v4, rather than being robbed to pay the near side.
+ * BEAM_SHARE)` of the fire's light rather than all of it — an even half now,
+ * up from v6's 44%. That is the most a rig without a cube map can take away, and
+ * it is enough: a warrior in front of a fire that halves behind him lays a
+ * shadow the eye reads as cast rather than as a smudge. The pool keeps the other
+ * half rather than being robbed to pay for it, so the far side of the fire — the
+ * side the beam never reaches — is no darker than it was.
  */
-const BEAM_ANGLE = 0.95;
-const BEAM_SHARE = 0.62;
-const POOL_SHARE_WITH_BEAM = 0.78;
+const BEAM_ANGLE = 1.02;
+/**
+ * Penumbra 0.88 rather than v6's 1.
+ *
+ * At penumbra 1 three sets the inner cone to zero width, so the falloff runs
+ * from the axis all the way to the rim: a warrior 45° off the camera's bearing
+ * kept 22% of the beam. In `brawl` the ring stands at 45° intervals round the
+ * fire, so six of the eight were effectively outside the only fire shadow the
+ * frame has. At 0.88 the same warrior keeps 34% and the ones at 30° keep 82%,
+ * and the cone edge is still eight degrees of smoothstep — nowhere near hard
+ * enough to draw the ellipse on the ground that penumbra 1 was avoiding.
+ */
+const BEAM_PENUMBRA = 0.88;
+const BEAM_SHARE = 0.72;
+const POOL_SHARE_WITH_BEAM = 0.72;
 /** How far in front of the fire the beam looks, and how far it drops over that run. */
 const BEAM_THROW = 10;
 const BEAM_DIP = 1.4;
 
 /**
- * Fire-steered kick: how close the subject must be for the fire to take over the
- * warm half of the separation pair, and what it is worth when it does.
+ * Fire-steered kick: how far out the fire is allowed to take over the warm half
+ * of the separation pair, what it is worth when it does, and where it hangs.
  *
- * 6.5 m is the radius inside which the bonfire is the dominant source on a
- * warrior rather than a lamp in the background — at that range it delivers about
- * 2.5 against a 4.2 key, and by three metres it has doubled the key. The gain is
- * deliberately short of the pool's own ratio: the kick's job is the *edge*, and
- * an edge that outruns the surface behind it stops reading as a rim and starts
- * reading as a white line.
+ * 9.5 m, not v6's 6.5. The reach is a statement about where the fire is the
+ * thing the shot is *about*, and in `brawl` — the preset this blocker was
+ * written against — that is a ring at 4.2 m round the coals with the local
+ * warrior at 4.5. Under 6.5 m with a raw smoothstep on top, that ring returned
+ * 0.23; at 9.5 m with the curve in `fireSteer` it returns 0.73, and a warrior
+ * two metres off the coals returns 0.94. `duel` and `closeup` sit 8.5–9.2 m out
+ * and still return under 0.1, which is right: at that range the fire is a lamp
+ * in the background and a warm rim off it would be a lie.
+ *
+ * The gain is up to match, and it is still deliberately short of the pool's own
+ * ratio: the kick's job is the *edge*, and an edge that outruns the surface
+ * behind it stops reading as a rim and starts reading as a white line.
+ *
+ * `FIRE_ELEVATION` is where the steered kick settles. The authored kick sits at
+ * 0.19 because that is a plausible height for the last of a western sky; a bed
+ * of coals is at knee height, so as the fire takes the light over it also brings
+ * it down, and the rake on a warrior's flank tips from very slightly downward to
+ * very slightly upward. That tip is most of what makes a fire rim look like fire
+ * rather than like a warm lamp.
  */
-const HEARTH_RIM_REACH = 6.5;
-const HEARTH_RIM_GAIN = 2.4;
-/** Where on a warrior the steered kick aims — chest height, not the ground. */
-const CHEST_HEIGHT = 1.15;
+const HEARTH_RIM_REACH = 9.5;
+const HEARTH_RIM_GAIN = 3.4;
+const FIRE_ELEVATION = 0.06;
 
 // ---------------------------------------------------------------------------
 // The cascades
@@ -425,23 +542,32 @@ const CHEST_HEIGHT = 1.15;
  * the extent, because what decides the extent is whichever number keeps a shadow
  * texel small enough to resolve a warrior.
  *
- * 1.8 cm now, not v4's 2.0. The near cascade got *smaller* in this pass, which
- * looks backwards next to a blocker about things not casting shadows and is the
- * direct consequence of it: with a second cascade carrying the reach, the near
- * one is free to stop compromising and be sized for the one thing only it can
- * do. That one thing is contact. `normalBias` — the offset that actually keeps
- * a surface from shadowing itself — scales with texel size, and a normal offset
- * at a 37° key detaches a cast shadow from its caster by 1.33 times itself. v4's
- * 20.5 m box wanted 5 cm of offset and put a 6.6 cm gap between a boot and its
- * own shadow, which is two thirds of a boot and is exactly the "figures sitting
- * on the turf rather than in it" the panel measured. 18.4 m wants 2.9 cm and
- * leaves 3.8 cm.
+ * 1.5 cm now, down again from v5's 1.8 and v4's 2.0. The near cascade has got
+ * *smaller* on each of the last three passes, which looks backwards next to a
+ * blocker about things not casting shadows and is the direct consequence of it:
+ * with a settlement cascade carrying the reach, the near one is free to stop
+ * compromising and be sized for the one thing only it can do. That one thing is
+ * contact. `normalBias` — the offset that actually keeps a surface from
+ * shadowing itself — scales with texel size, and a normal offset at a 37° key
+ * detaches a cast shadow from its caster by 1.33 times itself. v4's 20.5 m box
+ * wanted 5 cm of offset and put a 6.6 cm gap between a boot and its own shadow,
+ * which is two thirds of a boot and is exactly the "figures sitting on the turf
+ * rather than in it" the panel measured. 18.4 m wanted 2.9 cm and left 3.8 cm.
+ * 15.4 m wants 2.4 cm and leaves 3.2 cm.
+ *
+ * Diminishing, and it is the *wrong lever* — which is worth saying plainly here
+ * because it is where three passes of tuning have gone. The detachment is
+ * `normalBias / tan(elevation)`, and the elevation belongs to the key, so no
+ * amount of shrinking this box will ever close the gap: it can only halve it
+ * again. The term that actually closes it is `AO_TILT` below, whose elevation is
+ * chosen so that the division is by four rather than by three quarters.
  *
  * The floor is what a brawl needs — eight warriors and the ground they are
- * standing on, either side of the focus.
+ * standing on, either side of the focus. The ring is 4.2 m and the focus stands
+ * 4.5 m off centre, so 11 m of half-extent covers it with a metre to spare.
  */
-const SHADOW_TARGET_TEXEL = 0.018;
-const SHADOW_MIN_HALF = 12;
+const SHADOW_TARGET_TEXEL = 0.015;
+const SHADOW_MIN_HALF = 11;
 
 /**
  * The settlement cascade: half-extent, and the texel budget that decides which
@@ -473,6 +599,73 @@ const SETTLEMENT_HALF = 52;
 const SETTLEMENT_TARGET_TEXEL = 0.05;
 /** Below this multiple of the near box, a second cascade is not paying for itself. */
 const SETTLEMENT_MIN_RATIO = 1.4;
+
+// ---------------------------------------------------------------------------
+// Sky occlusion — the contact term
+// ---------------------------------------------------------------------------
+
+/**
+ * How far the sky-occlusion light leans off vertical, in radians, and the reason
+ * this whole light exists.
+ *
+ * A cast shadow separates from its caster by `normalBias / tan(elevation)`,
+ * because the normal offset moves the receiver up out of the shadow and the
+ * light's slant converts that rise into a sideways slip. Every shaping light in
+ * this rig sits low on purpose — the key at 37°, the pair under 12° — which is
+ * exactly the elevation band where that division is by a number smaller than
+ * one, so every one of them *magnifies* its bias into a visible gap. There is no
+ * bias small enough to fix that; the failure is in the tangent.
+ *
+ * A light at 76° divides by 4.0. At the half-extent below that is 1.0 cm of slip
+ * on a 2.5 cm texel — under a boot sole, under the eye's ability to call it a
+ * gap. So the rig's flat fill is given a direction it can be blocked from, and
+ * the direction chosen is the one where blocking lands *where the blocker is*.
+ * That is what turns a shadow map into an ambient occlusion term, and it is why
+ * this light is near-vertical rather than merely high.
+ *
+ * Not *actually* vertical, for a duller reason: three aims a shadow camera with
+ * `Object3D.lookAt`, whose basis degenerates when the view axis is parallel to
+ * the world up. 14° is far enough off to keep that cross product healthy, short
+ * enough to keep the tangent at 4, and — leaning along the key's own azimuth —
+ * reads as the same evening rather than as a second source.
+ */
+const AO_TILT = 0.25;
+const AO_DISTANCE = 46;
+
+/**
+ * The occlusion box, and the tier ladder that follows from its texel budget.
+ *
+ * 2.5 cm is sized on a palisade stake's footing and a boot sole, the two
+ * junctions the panel named. It is coarser than the near cascade's 1.5 cm and
+ * that is affordable here precisely because this light does not have to be
+ * *accurate* — a contact darkening carries about a fifth of the local
+ * irradiance, so a texel of error costs a fifth of what the same error costs the
+ * key. What it has to be is *attached*, and the tilt is what buys that.
+ *
+ *   high   2048²  →  25.6 m — the arena floor and the whole palisade ring
+ *   medium 1024²  →  12.8 m — the fight and the ground under it
+ *   low     512²  →   6.4 m, under the floor, so: none
+ *
+ * Pinned to the arena origin like the settlement cascade and for the same two
+ * reasons: the sim keeps every warrior inside a 21.5 m bound, and a map that
+ * never re-centres is a map that provably cannot crawl. Crawl matters more here
+ * than anywhere else in the rig, because this is the one shadow that sits
+ * directly under a moving warrior's feet where the eye is already looking.
+ */
+const AO_HALF_MAX = 25.6;
+const AO_TARGET_TEXEL = 0.025;
+const AO_MIN_HALF = 9;
+const AO_BIAS_METRES = 0.022;
+const AO_NORMAL_BIAS_CAP = 0.05;
+/**
+ * Where the occlusion term's energy goes on a tier that cannot afford its
+ * cascade: back into the two flat fills it was taken out of, split so that the
+ * ground and a warrior both come back to roughly the level they hold on high.
+ * A low-tier frame loses the contact darkening — which is a dropped *effect* —
+ * and keeps its exposure, which is art direction.
+ */
+const AO_FOLD_AMBIENT = 0.6;
+const AO_FOLD_HEMI = 0.4;
 
 /**
  * How the key's energy divides between the two cascades.
@@ -513,14 +706,19 @@ const SETTLEMENT_BIAS_METRES = 0.05;
  * normal, in world units, so it scales with texel size rather than with the
  * tier's name.
  *
- * The two caps say what the two cascades are for. The near one is holding the
- * contact edge, so it is capped where a gap stops being readable as a gap; the
- * low tier's 512² map over a 12 m box wants 7.5 cm to stay clear of acne and
- * gets 4.5, and eats some acne on the one tier whose shadows are hard and coarse
- * anyway. The settlement cascade is holding a hut, so it is capped at nearly
- * twice that: 9 cm of offset detaches a wall's shadow by 12 cm, which nobody
- * reads at twenty-five metres, and the near cascade is holding the contact
- * anywhere close enough for 12 cm to matter.
+ * The caps say what each cascade is for. The near one is holding the contact
+ * edge, so it is capped where a gap stops being readable as a gap; the low
+ * tier's 512² map over an 11 m box wants 6.9 cm to stay clear of acne and gets
+ * 4.5, and eats some acne on the one tier whose shadows are hard and coarse
+ * anyway. The settlement cascade is holding a hut, so it is capped at twice
+ * that: 9 cm of offset detaches a wall's shadow by 12 cm, which nobody reads at
+ * twenty-five metres, and the near cascade is holding the contact anywhere close
+ * enough for 12 cm to matter.
+ *
+ * The occlusion cascade's cap is loose by comparison — 5 cm on a 2.5 cm texel —
+ * and it can be, because its detachment is divided by four rather than
+ * multiplied by 1.33. Its 4 cm of offset buys 1 cm of slip, which is the whole
+ * argument for the light.
  */
 const SHADOW_NORMAL_BIAS_SLOPE = 1.6;
 const SHADOW_NORMAL_BIAS_CAP = 0.045;
@@ -575,6 +773,9 @@ export function createLighting(
   const hasFar = settings.shadows && farHalf > 0;
   /** The near cascade's share of the moon. All of it when it is the only one. */
   const nearShare = hasFar ? NEAR_SHARE : 1;
+
+  const aoHalf = Math.min(AO_HALF_MAX, settings.shadowMapSize * AO_TARGET_TEXEL * 0.5);
+  const hasAo = settings.shadows && aoHalf >= AO_MIN_HALF;
 
   /**
    * Sets up one cascade's orthographic frustum, its depth range and its two
@@ -639,6 +840,41 @@ export function createLighting(
     frame(keyFar, farHalf, FAR_KEY_DISTANCE, SETTLEMENT_BIAS_METRES, SETTLEMENT_NORMAL_BIAS_CAP);
     root.add(keyFar);
   }
+
+  // ---- sky occlusion: the contact term ----
+  //
+  // The rig's ambient occlusion, and it is a light rather than a post pass
+  // because it is one: the sky is a source, it is the largest one in the frame
+  // by solid angle, and the only reason it has been an unshadowed constant until
+  // now is that a constant is cheaper than a dome. Giving it a single
+  // near-vertical direction is the crudest possible convolution of that dome —
+  // but crude in the one dimension nobody can check (its bearing) and exact in
+  // the one everybody can (whether a boot is standing on something).
+  //
+  // It reaches every junction the panel named, and it reaches them for the same
+  // reason rather than four different ones. Boot to ground and stake to ground
+  // are the caster sitting on its own shadow. Wall to roof is the eave taking
+  // the sky off the timber under it, which is the only reason an eave reads as
+  // an overhang at all. A shoulder onto a chest, a shield boss onto a forearm, a
+  // cloak onto the back of a leg — all the same shadow map, all of it small
+  // scale, because at 14° off vertical nothing throws far.
+  //
+  // It is also, incidentally, the highlight structure `portrait` and `stance`
+  // have been failing the tonal floor on: a near-vertical source is the only one
+  // in the rig that puts a crown on a helm and a top on a shoulder.
+  //
+  // It is a third depth pass, which on the phone tier is the thing to be careful
+  // about, and it is the cheapest of the three because its box is the smallest:
+  // 25.6 m on high culls the outer huts and the far treeline that the settlement
+  // cascade has to rasterise, and 12.8 m on medium culls the palisade too and
+  // leaves it drawing the fight and the ground under it. A pass whose frustum is
+  // a quarter of another pass's is not a third of the shadow budget.
+  const ao = new THREE.DirectionalLight(rig.aoColor, hasAo ? rig.ao : 0);
+  ao.target.position.set(0, 0, 0);
+  root.add(ao.target);
+  if (hasAo) frame(ao, aoHalf, AO_DISTANCE, AO_BIAS_METRES, AO_NORMAL_BIAS_CAP);
+  ao.castShadow = hasAo;
+  root.add(ao);
 
   // ---- the low warm rake, standing in for the sunset and the fire's bounce ----
   const warmFill = new THREE.DirectionalLight(WARM_BASE.getHex(), rig.warm);
@@ -724,13 +960,13 @@ export function createLighting(
   root.add(hearth);
 
   // The half of the fire the lens can see backlit, and the only fire shadow in
-  // the arena. Penumbra 1 so the cone has no edge to find — with a hard-edged
-  // cone the ground in front of the fire would grow a visible ellipse, and the
-  // whole point of riding it on the camera bearing is that nobody should be able
-  // to tell it is there except by the shadows it lays.
+  // the arena. Wide and soft-edged so nobody can tell it is there except by the
+  // shadows it lays — with a hard-edged cone the ground in front of the fire
+  // would grow a visible ellipse.
   const beam = beamShare > 0
     ? new THREE.SpotLight(
-      rig.hearthColor, rig.hearth * beamShare, rig.hearthRange, BEAM_ANGLE, 1, HEARTH_DECAY,
+      rig.hearthColor, rig.hearth * beamShare, rig.hearthRange,
+      BEAM_ANGLE, BEAM_PENUMBRA, HEARTH_DECAY,
     )
     : null;
   if (beam) {
@@ -756,6 +992,7 @@ export function createLighting(
   /** The key's aimed direction, kept apart from key.position because the shadow
    *  tracking moves the light off the origin and the axis must survive that. */
   const keyAxis = new THREE.Vector3(12, 26, 9).normalize();
+  const aoAxis = new THREE.Vector3(0, 1, 0);
   const lightRight = new THREE.Vector3();
   const lightUp = new THREE.Vector3();
   const snapped = new THREE.Vector3();
@@ -763,10 +1000,11 @@ export function createLighting(
   const moodHue = new THREE.Color();
   const WORLD_UP = new THREE.Vector3(0, 1, 0);
   // The fire-steer's scratch: subject→fire on the ground, the camera's bearing,
-  // and where a steered kick would hang if the steer were total.
+  // and the horizontal frame the separation pair hangs its swings off.
   const fireVec = new THREE.Vector3();
   const viewVec = new THREE.Vector3();
-  const fireHang = new THREE.Vector3();
+  const camBehind = new THREE.Vector3();
+  const behind = new THREE.Vector3();
   const beamAim = new THREE.Vector3();
   /**
    * The mood's own colours for the two steerable lights, kept apart from the
@@ -871,25 +1109,43 @@ export function createLighting(
   }
 
   /**
-   * Hangs a light at a bearing measured from straight behind the subject and an
-   * elevation, in the horizontal frame the camera defines. `swing` of 0 is
-   * directly behind the focus from the camera's point of view, ±π/2 is beside
-   * it, ±π is between the camera and the subject — which is where the bounce
-   * lives. Elevation may be negative; nothing here casts a shadow, so a light
-   * below the ground plane is a legitimate place for a bounce term to come from.
+   * The horizontal direction the separation pair measures its swings from: from
+   * the subject, straight away from the camera. Written into `camBehind`.
    */
-  function placeRelative(
+  function readBehind(camera: THREE.PerspectiveCamera, focus: THREE.Vector3): void {
+    camBehind.subVectors(camera.position, focus);
+    camBehind.y = 0;
+    if (camBehind.lengthSq() < 1e-6) camBehind.set(0, 0, 1);
+    camBehind.normalize().negate();
+  }
+
+  /**
+   * Hangs a light at a bearing measured from a given "behind" direction and an
+   * elevation. `swing` of 0 is straight down that direction, ±π/2 is beside the
+   * subject, ±π is between it and the camera — which is where the bounce lives.
+   * Elevation may be negative; nothing placed this way casts a shadow, so a
+   * light below the ground plane is a legitimate place for a bounce to come
+   * from.
+   *
+   * Taking the frame as an argument rather than deriving it from the camera is
+   * the whole of the fire-rim fix. v6 steered the kick by lerping its *hang
+   * point* onto the fire's bearing, which quietly cancelled the swing — and the
+   * swing is the entire mechanism. A silhouette edge is where the normal is
+   * perpendicular to the view, so a light on the view axis meets it at N·L ≈ 0
+   * and lights nothing the lens can see, however bright it is. Steering the
+   * frame and re-applying the swing on top puts the fire's light where the fire
+   * would put it if it were a metre wider than the man in front of it, which it
+   * is.
+   */
+  function place(
     light: THREE.DirectionalLight,
-    camera: THREE.PerspectiveCamera,
     focus: THREE.Vector3,
+    frameDir: THREE.Vector3,
     swing: number,
     elevation: number,
     distance: number,
   ): void {
-    relDir.subVectors(camera.position, focus);
-    relDir.y = 0;
-    if (relDir.lengthSq() < 1e-6) relDir.set(0, 0, 1);
-    relDir.normalize().negate().applyAxisAngle(WORLD_UP, swing);
+    relDir.copy(frameDir).applyAxisAngle(WORLD_UP, swing);
     const flat = Math.sqrt(Math.max(0, 1 - elevation * elevation));
     relDir.multiplyScalar(flat).setY(elevation);
     // relDir points from the subject towards where the light should hang, so
@@ -903,21 +1159,34 @@ export function createLighting(
    * How much the bonfire should be allowed to take over the warm back light,
    * for the subject the camera is looking at. Two factors, both necessary.
    *
-   * Proximity, because a fire eight metres away is scenery and steering the
-   * kick onto it would put a warm rim on a man who is nowhere near it. And
+   * Proximity, because a fire across the arena is scenery and steering the kick
+   * onto it would put a warm rim on a man who is nowhere near it. And
    * backlit-ness, because the whole value of the fire as a rim is that it is
    * *behind* the subject: with the fire between the lens and the warrior the
    * same steer would swing the kick round to the front and flatten him, which is
    * the opposite of what it is for. The 0.4 floor keeps a little of the steer
    * even side-on, where a fire this close is still the warmest thing touching
    * him.
+   *
+   * Leaves `fireVec` holding the flat unit vector from the subject to the fire
+   * on every path that returns a non-zero steer — `update` hangs the pair's
+   * frame off it.
    */
   function fireSteer(camera: THREE.PerspectiveCamera, focus: THREE.Vector3): number {
     fireVec.subVectors(hearth.position, focus);
     fireVec.y = 0;
     const dist = fireVec.length();
     if (dist < 1e-3 || dist > HEARTH_RIM_REACH) return 0;
-    const proximity = THREE.MathUtils.smoothstep(1 - dist / HEARTH_RIM_REACH, 0, 1);
+    // Square-rooted, which is the shape and not a fudge factor. A raw smoothstep
+    // put 0.23 on the `brawl` ring at 4.5 m — the fire is plainly the brightest
+    // thing in that frame and the steer was behaving as though it were scenery,
+    // because a smoothstep spends most of its range near its ends. The root
+    // fills the middle back in (0.73 at 4.5 m) while keeping a finite slope at
+    // the cutoff, so a warrior walking past the reach still fades in rather than
+    // switching on.
+    const proximity = Math.sqrt(
+      THREE.MathUtils.smoothstep(1 - dist / HEARTH_RIM_REACH, 0, 1),
+    );
     fireVec.multiplyScalar(1 / dist);
     viewVec.subVectors(focus, camera.position);
     viewVec.y = 0;
@@ -928,8 +1197,12 @@ export function createLighting(
   }
 
   function applyRig(): void {
-    ambient.intensity = rig.ambient;
-    hemi.intensity = rig.hemi;
+    // Without the occlusion cascade the term it would have carried goes back
+    // into the two fills it came out of, so a tier drop costs the contact
+    // darkening and never the exposure.
+    ambient.intensity = rig.ambient + (hasAo ? 0 : rig.ao * AO_FOLD_AMBIENT);
+    hemi.intensity = rig.hemi + (hasAo ? 0 : rig.ao * AO_FOLD_HEMI);
+    ao.intensity = hasAo ? rig.ao : 0;
     key.intensity = rig.key * nearShare;
     if (keyFar) keyFar.intensity = rig.key * (1 - nearShare);
     warmFill.intensity = rig.warm;
@@ -951,9 +1224,11 @@ export function createLighting(
     rig.rim = m(blendFrom.rim, to.rim);
     rig.kick = m(blendFrom.kick, to.kick);
     rig.bounce = m(blendFrom.bounce, to.bounce);
+    rig.ao = m(blendFrom.ao, to.ao);
     rig.hearth = m(blendFrom.hearth, to.hearth);
     rig.hearthRange = m(blendFrom.hearthRange, to.hearthRange);
     ambient.color.setHex(blendFrom.ambientColor).lerp(moodHue.setHex(to.ambientColor), t);
+    ao.color.setHex(blendFrom.aoColor).lerp(moodHue.setHex(to.aoColor), t);
     hemi.color.setHex(blendFrom.hemiSky).lerp(moodHue.setHex(to.hemiSky), t);
     hemi.groundColor.setHex(blendFrom.hemiGround).lerp(moodHue.setHex(to.hemiGround), t);
     rimMood.setHex(blendFrom.rimColor).lerp(moodHue.setHex(to.rimColor), t);
@@ -970,6 +1245,17 @@ export function createLighting(
     // One moon, two maps: the far cascade never re-derives the hue, it copies
     // it, so the two halves of the split can never drift into two moons.
     keyFar?.color.copy(key.color);
+
+    // The occlusion light leans along the key's azimuth. It has to lean
+    // somewhere — `AO_TILT` explains why not straight down — and leaning it with
+    // the moon means the millimetres of slip it does have run the same way as
+    // the metres of shadow beside them, so the two never disagree about which
+    // side of a stake is dark.
+    const az = Math.hypot(keyAxis.x, keyAxis.z);
+    const lean = Math.sin(AO_TILT);
+    if (az > 1e-4) aoAxis.set((keyAxis.x / az) * lean, Math.cos(AO_TILT), (keyAxis.z / az) * lean);
+    else aoAxis.set(lean, Math.cos(AO_TILT), 0);
+    ao.position.copy(aoAxis).multiplyScalar(AO_DISTANCE);
   }
 
   applyRig();
@@ -1002,6 +1288,7 @@ export function createLighting(
         ambientColor: ambient.color.getHex(),
         hemiSky: hemi.color.getHex(),
         hemiGround: hemi.groundColor.getHex(),
+        aoColor: ao.color.getHex(),
         rimColor: rimMood.getHex(),
         kickColor: kickMood.getHex(),
         bounceColor: bounce.color.getHex(),
@@ -1021,40 +1308,56 @@ export function createLighting(
       trackShadow(ctx.focus);
 
       // ---- the separation pair, and the fire's claim on it ----
+      //
+      // The steer moves the *frame* the swings are measured in, from "away from
+      // the camera" towards "towards the fire", and the swing is then applied on
+      // top by `place`. In the shot this exists for the two frames coincide —
+      // the lens, the warrior and the fire on one line — and the steer's whole
+      // job there is hue and level. Off that line it is the steer that keeps the
+      // warm edge on the side the fire is actually on, which a camera-relative
+      // kick gets wrong by up to the angle between them.
       const steer = fireSteer(ctx.camera, ctx.focus);
-      // Where the warm back light would hang if the fire owned it outright: on
-      // the line from the subject's chest to the pool, at the kick's usual
-      // stand-off. Blending *positions* rather than angles is deliberate — the
-      // target is the focus in both cases, so a lerp between two hang points is
-      // a lerp between two bearings, and it degrades to the authored placement
-      // with no special case at steer = 0.
+      readBehind(ctx.camera, ctx.focus);
+      behind.copy(camBehind);
       if (steer > 1e-3) {
-        fireHang.copy(hearth.position);
-        fireHang.y -= CHEST_HEIGHT;
-        fireHang.sub(ctx.focus);
-        const len = fireHang.length();
-        fireHang.multiplyScalar(len > 1e-4 ? KICK_DISTANCE / len : 0).add(ctx.focus);
+        // Two unit vectors can be opposed — the fire directly between lens and
+        // subject — and a lerp through that is a zero-length frame. The fire is
+        // not behind him in that case, so the camera's frame is the right one.
+        behind.lerp(fireVec, steer);
+        if (behind.lengthSq() < 1e-4) behind.copy(camBehind);
+        else behind.normalize();
       }
 
-      placeRelative(rim, ctx.camera, ctx.focus, rimSwing, RIM_ELEVATION, RIM_DISTANCE);
       if (kick) {
-        placeRelative(kick, ctx.camera, ctx.focus, KICK_SWING, KICK_ELEVATION, KICK_DISTANCE);
-        if (steer > 1e-3) kick.position.lerp(fireHang, steer);
-        kick.color.copy(kickMood).lerp(hearth.color, steer);
-        kick.intensity = rig.kick * (1 + (HEARTH_RIM_GAIN - 1) * steer);
+        // The cool half stays on the camera's own frame whatever the fire does.
+        // Against a wall of flame the thing separating a warrior from the
+        // background is the *cold* edge, and swinging it round with the kick
+        // would collapse the pair into one wide light and give the money shot
+        // the same hue on both edges.
+        place(rim, ctx.focus, camBehind, rimSwing, RIM_ELEVATION, RIM_DISTANCE);
         rim.color.copy(rimMood);
         rim.intensity = rig.rim;
+        // Elevation drops with the steer: the authored kick is the last of a
+        // western sky, the steered one is a bed of coals at knee height.
+        const elev = KICK_ELEVATION + (FIRE_ELEVATION - KICK_ELEVATION) * steer;
+        place(kick, ctx.focus, behind, KICK_SWING, elev, KICK_DISTANCE);
+        kick.color.copy(kickMood).lerp(hearth.color, steer);
+        kick.intensity = rig.kick * (1 + (HEARTH_RIM_GAIN - 1) * steer);
       } else {
         // No kick to steer, so the rim — which is already carrying the kick's
         // fold on this tier — takes the fire on with it, at the fold's weight.
         // A cool rim is the last thing holding a silhouette off the background,
         // so it is never allowed to go all the way over to the fire's hue.
         const folded = steer * KICK_FOLD;
-        rim.position.lerp(fireHang, steer > 1e-3 ? folded : 0);
+        const elev = RIM_ELEVATION + (FIRE_ELEVATION - RIM_ELEVATION) * folded;
+        behind.copy(camBehind).lerp(fireVec, steer > 1e-3 ? folded : 0);
+        if (behind.lengthSq() < 1e-4) behind.copy(camBehind);
+        else behind.normalize();
+        place(rim, ctx.focus, behind, rimSwing, elev, RIM_DISTANCE);
         rim.color.copy(rimMood).lerp(hearth.color, folded * 0.8);
         rim.intensity = (rig.rim + rig.kick * KICK_FOLD) * (1 + (HEARTH_RIM_GAIN - 1) * folded);
       }
-      placeRelative(bounce, ctx.camera, ctx.focus, BOUNCE_SWING, BOUNCE_ELEVATION, BOUNCE_DISTANCE);
+      place(bounce, ctx.focus, camBehind, BOUNCE_SWING, BOUNCE_ELEVATION, BOUNCE_DISTANCE);
 
       // ---- the fire ----
       //
@@ -1087,11 +1390,13 @@ export function createLighting(
       scene.remove(root);
       key.shadow.dispose();
       keyFar?.shadow.dispose();
+      ao.shadow.dispose();
       beam?.shadow.dispose();
       ambient.dispose();
       hemi.dispose();
       key.dispose();
       keyFar?.dispose();
+      ao.dispose();
       warmFill.dispose();
       rim.dispose();
       kick?.dispose();

@@ -20,7 +20,7 @@
 // translucent backings on top of each other and sealed off what little sky came
 // through. Every bar in `brawl` rendered as a solid black slab. So colours here
 // are authored as *radiance* — see `radiance()` — and the design leans on bright
-// ink and thin dark grooves rather than on dark fills the curve will eat.
+// ink and a one-pixel dark keyline rather than on the dark fills the curve eats.
 //
 // That correction then over-shot in the other direction, and the measurement is
 // worth keeping because it is the whole argument for the palette below. The
@@ -48,12 +48,27 @@
 // reach the scene graph as a quad without a sampled texture behind it. An
 // unmapped `MeshBasicMaterial` is not blank — three's shader falls back to the
 // material colour, so it draws a hard-edged, fully opaque rectangle in whatever
-// ink the HUD happens to be tinted that frame. That is failure #2 on the list in
-// docs/VISUAL-BAR.md, it has twice been misattributed to this module from a
-// capture, and it is cheap to make structurally impossible: see
-// `requireGlyphTexture`. Glyph materials are constructed *around* a texture that
-// already exists, the construction path refuses to run without one, and in
-// development the refusal throws rather than degrading.
+// ink the HUD happens to be tinted that frame. In `lastStand` that ink is
+// (1.34, 1.08, 0.91) before the grade, which is to say: a flat orange square.
+// That is failure #2 on the list in docs/VISUAL-BAR.md, it has twice been
+// misattributed to this module from a capture, and the answer is not vigilance
+// but structure. Three rules, and between them there is no state in which an
+// unmapped or dead-mapped quad is reachable:
+//
+//   - `glyphMaterial()` is the only constructor of a mapped material here, and
+//     it proves the texture before the material exists. A failure returns null
+//     and the caller drops the element rather than shipping a coloured quad.
+//   - A pooled damage material is never left holding a texture that release may
+//     dispose; it is re-pointed at `blank`, a 1x1 transparent texture, so `map`
+//     is non-null and alive at every instant of the pool round-trip.
+//   - `auditGlyphMaterials()` re-proves the invariant on live meshes twice a
+//     second in development and throws on the frame it breaks, because the one
+//     thing this failure is good at is surviving into a capture looking like a
+//     particle bug or a broken prop.
+//
+// In development every one of those refusals throws. In a player's browser they
+// degrade: a missing name or damage number is a far smaller failure than an
+// orange square in the middle of a fight, and neither is worth a crash.
 //
 // Materials are per-instance on purpose: the bar tints and drains per warrior
 // and the numbers carry their own canvas, so nothing here can be shared with
@@ -111,37 +126,71 @@ function radiance(hex: number, gain: number): THREE.Color {
 // complement of the frame toward its centre as the warrior dies, which is a read
 // you get pre-attentively without decoding a colour code — and it descends the
 // curve as it goes, so a bar dims as it empties.
-const FILL_HEALTHY = radiance(0xa8bf8e, 0.86);
+const FILL_HEALTHY = radiance(0xa8bf8e, 0.88);
 // Brass rather than the old 0xffc21a amber: that hex is 0.95 gain on a hue with
 // nothing in the blue channel, which the opponent term then drags further out.
-const FILL_WOUNDED = radiance(0xd7a850, 0.82);
-const FILL_CRITICAL = radiance(0xc03a1e, 0.55);
+// 0xd7a850 was still most of the way there — it normalises to linear
+// (1, 0.576, 0.118) and came back off `v6/brawl.png` as (197, 145, 68), which
+// is not brass, it is the yellow the review called out. Tarnish it: the blue
+// channel roughly triples, which is what a warm hue needs before the grade's
+// saturation stops reading it as a primary.
+const FILL_WOUNDED = radiance(0xdcae72, 0.86);
+// Oxblood, and the same argument. 0xc03a1e is linear (1, 0.076, 0.024) — under
+// a 1.24 saturation that is red, full stop. Dried blood has brown in it.
+const FILL_CRITICAL = radiance(0xb04430, 0.70);
 /**
  * The streak a hit leaves behind: the brightest thing on the plate for a beat.
  * Near-white rather than a hue, because a coloured streak beside a coloured fill
  * is one more thing to decode, and at critical health a bright orange streak
- * beside a dark red fill reads as the health rather than as the loss. Held at
- * 1.15 rather than the old 1.45, which clipped — a streak that clips is a
- * streak with no shape, and the shape is the whole information in it.
+ * beside a dark red fill reads as the health rather than as the loss. Walked
+ * down from 1.45, which clipped outright, and then from 1.15 once the groove
+ * beside it came up out of black — a streak that clips is a streak with no
+ * shape, and the shape is the whole information in it.
  */
-const FILL_LAG = radiance(0xffeeda, 1.15);
+const FILL_LAG = radiance(0xffeeda, 1.06);
 
 // Limewashed bone. This is the *peak* of a bevel now, not the value of a ring:
-// the shader falls it to 0.30 of this along the bottom arris, so the rim reads
+// the shader falls it to 0.24 of this along the bottom arris, so the rim reads
 // as a lit edge on carved bone rather than as the hard outline it was at 1.02 —
 // which measured brighter than every surface it was drawn over.
-const RIM_REMOTE = radiance(0xcfc9b6, 0.72);
-// The local warrior gets a warmer bone, not a different colour language. The
-// old 0xf3c469 at 1.2 shipped a gold-on-yellow plate beside white-on-white ones
-// and a panel read the two as two separate interfaces in one frame.
-const RIM_LOCAL = radiance(0xe6d3ae, 0.8);
+const RIM_REMOTE = radiance(0xcfc9b6, 0.74);
+// The local warrior gets a warmer bone, not a different colour language, and
+// the two hexes are now within a hair of each other. The old 0xf3c469 at 1.2
+// shipped a gold-on-yellow plate beside white-on-white ones and a panel read
+// the two as two separate interfaces in one frame.
+const RIM_LOCAL = radiance(0xdccdb0, 0.80);
 /**
- * Deep umber, with enough warmth left in it to belong to a fire-lit arena. The
- * grade will crush this to the bottom two code values, which is the point — the
- * trough is the shadow in the cut, and its job is to be the thing the fill is
- * measured against.
+ * The floor of the cut slot — and the load-bearing correction in this pass.
+ *
+ * This was 0x241a15 at 0.055 gain, authored so "the grade will crush it to the
+ * bottom two code values". It did: measured off `v6/brawl.png` the empty end of
+ * a bar came back under code 12 and flat, and what that draws over an amber
+ * horizon is not a groove, it is a black rectangle punched through the frame —
+ * failure #9 on the list in docs/VISUAL-BAR.md, the one the review named as the
+ * most student-project element in the build. A tally stick's empty end is still
+ * *stick*: bone in its own shadow, with the same grain as the filled end.
+ *
+ * Solved against the transfer measured off the shipped frame rather than guessed
+ * at: fitting a power law through two points in `v6/brawl.png` — the groove at
+ * linear 0.0248 arriving as code 26, the healthy fill at 0.961 arriving as 201 —
+ * gives code ~= 205 * L^0.56 for this look. At 0.12 the groove runs about code
+ * 35 in the shadow under the top lip to 67 where light bounces off its floor,
+ * against a healthy fill near 170 and a keyline at 29 — three separated steps
+ * instead of two, and a 30-code gradient inside the cut instead of 12.
+ *
+ * The hue is the rim's, three stops down, because that is what the floor of a
+ * cut in a limewashed stick actually is. It also buys the separation that the
+ * luma ratio gives up: a warm grey groove is nothing like the brass of a wounded
+ * fill, whereas the umber this was first tried at sat right on top of it.
+ *
+ * The job of being the hard dark edge is a real one against a blown sky, and it
+ * moves to `KEYLINE`, where one or two pixels can do it without costing the
+ * whole object. That also keeps the plate's contribution to the frame's darkest
+ * tonal bucket roughly where it was.
  */
-const TROUGH = radiance(0x241a15, 0.055);
+const TROUGH = radiance(0xb0a894, 0.12);
+/** The chisel line around the stick. Near-black, and never more than a pixel or two. */
+const KEYLINE = radiance(0x140d09, 0.030);
 
 /**
  * Mood is a tint on the ink, not a second set of glyph textures. Last stand
@@ -158,8 +207,19 @@ const TINT_LAST_STAND = new THREE.Color(1.12, 0.9, 0.76);
  */
 const FILL_TINT_STRENGTH = 0.45;
 
-/** Canvas glyphs are display-referred; this is what lifts them onto the curve. */
-const GLYPH_GAIN = 1.2;
+/**
+ * Canvas glyphs are display-referred; this is what lifts them onto the curve.
+ * Backed off from 1.2, but only a step, and the step is bounded by a number
+ * rather than by taste: the sky in `brawl` measures 177 immediately around the
+ * plates, and the ink measured 198 there. Working back through the same transfer
+ * the bar is solved against, this lands the letterform's crown near 189 — still
+ * clear of a blown horizon, and no longer the brightest object in `laststand`,
+ * where it was arriving at 240 over a frame whose subject is a man on fire-lit
+ * mud. Below about 1.1 the type starts losing the sky, and at that point the
+ * halo is carrying the whole read on its own, which is not a treatment, it is a
+ * dark rectangle with letters knocked out of it.
+ */
+const GLYPH_GAIN = 1.16;
 
 // ---------------------------------------------------------------------------
 // Layout
@@ -198,11 +258,14 @@ const NAME_GAP = 0.055;
 const REF_DIST = 9;
 // Both powers moved toward 1 — 0.45/0.72 was a 1.83x on-screen size ratio
 // between the nearest and furthest plate in `brawl`, which a panel read not as
-// depth but as two different nameplate designs shipping at once. Compressed to
-// about 1.5 the front of the fight is still plainly the front of the fight and
-// the back of it is one interface with the front, not a second one.
-const NEAR_POWER = 0.62;
-const FAR_POWER = 0.8;
+// depth but as two different nameplate designs shipping at once. 0.62/0.8 took
+// that to about 1.68 and it was still the loudest thing about the HUD: measured
+// off `v6/arena.png` the local name's cap height is 12.5 px against 9.2 px on
+// the plate beside it, and a third again is a different type size, not depth.
+// At 0.72/0.88 the ratio is about 1.25 — the front of the fight still reads as
+// the front of the fight, and nothing in frame reads as a second design.
+const NEAR_POWER = 0.72;
+const FAR_POWER = 0.88;
 
 // Distance is carried by size, not by opacity. Fading a plate out at the range a
 // shield wall actually forms at just means you cannot read the fight; the ramp
@@ -249,6 +312,7 @@ uniform vec3 uFillColor;
 uniform vec3 uLagColor;
 uniform vec3 uRimColor;
 uniform vec3 uTroughColor;
+uniform vec3 uKeyColor;
 uniform float uPct;
 uniform float uLag;
 uniform float uOpacity;
@@ -300,15 +364,18 @@ void main() {
 	// cannot win against a sky the grade has already taken to 240, so the plate
 	// carries its own dark edge and stops trying.
 	//
-	// Small, the bevel hands its whole width to the keyline and the fill, and
-	// this is the direction that matters: the antialiasing on each boundary is
-	// about a pixel wide, so two bands 0.05 apart cross-fade into each other and
-	// the keyline comes out at a sixth strength — a soft ramp where the bar's own
-	// edge should be. One dark pixel around a thicker colour is the most legible
-	// thing seven pixels can be, and it is also the form in which no bright rim
-	// exists to read as an outline drawn on top of the frame.
-	float keyW = mix( 0.17, 0.085, lodBand );
-	float rimW = mix( 0.0, 0.135, lodBand );
+	// Small, the bands narrow but none of them is allowed to close. Retiring the
+	// bevel outright was the previous answer and it was the wrong one: measured off
+	// art/shots/v6/arena.png, every plate past about fifteen metres lost its rim
+	// completely and collapsed to a coloured rectangle butted against a dark one —
+	// no object, no material — and four of the eight plates in the brawl preset
+	// were in that state. A
+	// bevel one pixel wide is still a lit edge, and a lit edge is the whole
+	// difference between a carved thing and a sticker. What the small case gives up
+	// instead is the keyline's *width*: at 0.17 it swelled into a black band of its
+	// own, which is the other half of how the bar came to read as two rectangles.
+	float keyW = mix( 0.135, 0.085, lodBand );
+	float rimW = mix( 0.055, 0.135, lodBand );
 
 	float dOut = chiselBox( p, b, 0.22 );
 	float aa = max( fwidth( dOut ), 1e-5 );
@@ -348,27 +415,50 @@ void main() {
 	// and falls into its own shadow along the bottom one, which is the entire
 	// difference between a carved object and a sticker — an even bright edge all
 	// the way round was the "hard yellow outline" in the review. Where the band
-	// is barely a pixel it also sits back, so a rim that cannot show its bevel
-	// does not spend its brightness pretending to.
-	float bevel = mix( 0.3, 1.0, smoothstep( -0.42, 0.4, p.y ) ) * mix( 0.62, 1.0, lodDetail );
+	// is barely a pixel it cannot show a gradient, so it keeps more of the top
+	// arris' value and less of the bottom's: one lit pixel still says "edge",
+	// whereas the average of a lit and a shadowed one says nothing at all.
+	float bevel = mix( 0.24, 1.05, smoothstep( -0.46, 0.4, p.y ) ) * mix( 0.78, 1.0, lodDetail );
 
-	// Ambient occlusion under the lip of the cut. Costs nothing and is most of
-	// what stops the empty end of the bar reading as a printed black rectangle.
-	vec3 col = uTroughColor * mix( 1.0, 0.45, smoothstep( 0.04, 0.26, p.y ) );
+	// The empty end of the slot is the stick, not a hole in the frame. Three
+	// things make it read as bone in shadow rather than as the printed black
+	// rectangle it measured as in v6: it is authored well over twice as high (see
+	// TROUGH), it carries the same grain as the fill so the two ends are one
+	// object, and light
+	// bounces up off the groove floor the way it does in any real cut. The
+	// occlusion under the top lip is what keeps it from flattening out again.
+	vec3 col = uTroughColor * mix( 1.0, 0.36, smoothstep( 0.04, 0.28, p.y ) );
+	col *= 0.86 + 0.28 * wear;
+	col += uRimColor * 0.022 * ( 1.0 - smoothstep( -0.34, -0.02, p.y ) );
 	col = mix( col, uLagColor, lag );
 
 	// A bead of enamel sitting in the groove rather than a flat swatch: lit
 	// across the top, shadowed where it meets the bottom of the cut.
 	vec3 fillCol = uFillColor * ( 0.9 + 0.16 * wear );
 	fillCol *= mix( 0.8, 1.14, smoothstep( -0.26, 0.24, p.y ) );
-	fillCol *= 1.0 + uPulse * 0.6;
+	fillCol *= 1.0 + uPulse * 0.45;
+	// The head of the bead is a cut face, not a guillotined edge. Without this the
+	// fill ends on a vertical seam of maximum chroma against maximum darkness,
+	// which is the single hardest edge on the plate and the one the eye reads as
+	// "two flat rectangles" before it reads anything else.
+	fillCol *= 1.0 - 0.42 * smoothstep( uPct - fw * 3.0, uPct - fw * 0.5, vUv.x );
 	col = mix( col, fillCol, fill );
+
+	// The bead sits proud in the groove and throws a short shadow off its head.
+	// This is what carries the boundary now. Lifting the groove out of black cost
+	// the bar much of its luma ratio across that edge — 3.4 to 1, down to under
+	// 2.6 — and the way to get the read back is not to re-blacken the groove but to
+	// give the edge the one cue a printed rectangle never has: depth. Three pixels
+	// of occlusion, and the eye lands on the boundary before it has parsed either
+	// colour.
+	float headShadow = ( 1.0 - smoothstep( uPct, uPct + fw * 3.5, vUv.x ) ) * ( 1.0 - fill ) * ( 1.0 - lag ) * inner;
+	col *= 1.0 - 0.45 * headShadow;
 
 	// A tally mark is cut into the stone, so it catches light in an empty groove
 	// and shadows against a filled one. Same mark, opposite sign.
 	col = mix( col, mix( uRimColor * 0.22, col * 0.42, max( fill, lag ) ), notch * 0.55 );
 	col = mix( col, uRimColor * bevel * ( 0.88 + 0.18 * wear ), rim );
-	col = mix( col, uTroughColor * 0.5, keyline );
+	col = mix( col, uKeyColor, keyline );
 	// Warm, because the only thing in this arena bright enough to justify a flash
 	// is on fire. A neutral one read as a UI blink over a fire-lit frame.
 	col += uFlash * vec3( 1.0, 0.84, 0.62 ) * ( 0.35 + 0.6 * fill );
@@ -401,7 +491,12 @@ function seedFrom(text: string): () => number {
 }
 
 interface Glyphs {
-  texture: THREE.CanvasTexture;
+  /**
+   * Null when the canvas could not be built at all. Kept nullable rather than
+   * asserted so that failure arrives at `requireGlyphTexture`, which knows what
+   * to do with it, instead of as a TypeError thrown from inside a draw call.
+   */
+  texture: THREE.CanvasTexture | null;
   /** Width / height of the drawn area, so the quad never stretches the type. */
   aspect: number;
   /**
@@ -418,6 +513,30 @@ interface Glyphs {
 
 const DEV = process.env.NODE_ENV !== "production";
 let mapFailureReported = false;
+
+/**
+ * A 2D canvas, or null.
+ *
+ * `getContext("2d")` genuinely returns null — a browser that has hit its live
+ * context ceiling hands one back, and this module mints a canvas per distinct
+ * warrior name and per distinct damage amount, so it is a plausible thing to run
+ * into on a phone in a long session rather than a theoretical one. The old
+ * non-null assertion turned that into a TypeError thrown from the middle of a
+ * draw call, which is a crash in the render path in exchange for avoiding a
+ * failure this module already knows how to absorb.
+ */
+function glyphCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  return ctx ? { canvas, ctx } : null;
+}
+
+/** Shared shape for a glyph set that could not be drawn. Fails the gate below. */
+function unusableGlyphs(key: string, aspect: number): Glyphs {
+  return { texture: null, aspect, ink: 1, key, refs: 0 };
+}
 
 /**
  * Whether a texture will actually be sampled. A `CanvasTexture` whose canvas
@@ -448,14 +567,35 @@ function glyphTextureUsable(tex: THREE.Texture | null | undefined): tex is THREE
  */
 function requireGlyphTexture(glyphs: Glyphs, what: string): THREE.Texture | null {
   if (glyphTextureUsable(glyphs.texture)) return glyphs.texture;
-  const msg = `hud3d: ${what} has no usable glyph texture (key "${glyphs.key}"). `
-    + `Refusing to draw an untextured quad — see docs/VISUAL-BAR.md failure #2.`;
+  reportMapFailure(`${what} has no usable glyph texture (key "${glyphs.key}")`);
+  return null;
+}
+
+function reportMapFailure(detail: string): void {
+  const msg = `hud3d: ${detail}. Refusing to draw an untextured quad — `
+    + `see docs/VISUAL-BAR.md failure #2.`;
   if (DEV) throw new Error(msg);
   if (!mapFailureReported) {
     mapFailureReported = true;
     console.error(msg);
   }
-  return null;
+}
+
+/**
+ * The only place in this file that builds a material carrying a texture.
+ *
+ * The map is proved before the material exists rather than assigned to one that
+ * already does, so there is no window — not one statement wide — in which an
+ * unmapped `MeshBasicMaterial` is constructible, let alone reachable from the
+ * scene graph. Callers get null and drop the element.
+ */
+function glyphMaterial(glyphs: Glyphs, what: string): THREE.MeshBasicMaterial | null {
+  const map = requireGlyphTexture(glyphs, what);
+  if (!map) return null;
+  // fog: false everywhere in here. Aerial perspective on a nameplate is how a
+  // HUD ends up dissolving exactly when the fight spreads out and you most need
+  // to know who is where.
+  return new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide });
 }
 
 /** Manual tracking: canvas letterSpacing is not universally typed or supported. */
@@ -491,10 +631,9 @@ const NAME_CANVAS: Record<QualityTier, { w: number; h: number; size: number }> =
  */
 function buildNameGlyphs(key: string, name: string, isLocal: boolean, tier: QualityTier): Glyphs {
   const spec = NAME_CANVAS[tier];
-  const c = document.createElement("canvas");
-  c.width = spec.w;
-  c.height = spec.h;
-  const ctx = c.getContext("2d")!;
+  const surface = glyphCanvas(spec.w, spec.h);
+  if (!surface) return unusableGlyphs(key, spec.w / spec.h);
+  const { canvas: c, ctx } = surface;
   const text = (name || "warrior").substring(0, 16);
   const rand = seedFrom(text);
 
@@ -516,17 +655,21 @@ function buildNameGlyphs(key: string, name: string, isLocal: boolean, tier: Qual
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
 
-  // Soft halo first: this is what survives being drawn over the blown horizon.
-  ctx.shadowColor = "rgba(6,4,3,0.95)";
-  ctx.shadowBlur = size * 0.34;
-  ctx.strokeStyle = "rgba(6,4,3,0.95)";
-  ctx.lineWidth = size * 0.19;
+  // Soft halo first: this is what survives being drawn over the blown horizon,
+  // and it is where the legibility budget goes now that the ink's top end has
+  // come down — a warm near-black rather than a neutral one, because a neutral
+  // shadow over fire-lit amber is the one part of the plate that never belonged
+  // to this arena.
+  ctx.shadowColor = "rgba(20,11,7,0.94)";
+  ctx.shadowBlur = size * 0.36;
+  ctx.strokeStyle = "rgba(20,11,7,0.94)";
+  ctx.lineWidth = size * 0.2;
   drawTracked(ctx, text, x, y, size * 0.07, true);
   drawTracked(ctx, text, x, y, size * 0.07, true);
   ctx.shadowBlur = 0;
 
   // Hard stroke: the letterform's own edge, against dark ground.
-  ctx.strokeStyle = "rgba(14,9,7,0.98)";
+  ctx.strokeStyle = "rgba(26,15,10,0.98)";
   ctx.lineWidth = size * 0.13;
   drawTracked(ctx, text, x, y, size * 0.07, true);
 
@@ -537,22 +680,31 @@ function buildNameGlyphs(key: string, name: string, isLocal: boolean, tier: Qual
   // in a scrum, not enough to read as a second interface. The old gold ran from
   // #ffd67e to #e0a341 against a bone #efe4cd, and a panel scoring `brawl`
   // counted "two nameplate visual languages shipping simultaneously".
+  // The old ramp topped out at #fffaf0 and then had a pure-white bevel laid over
+  // it, which put the letterform's crown at the display ceiling — so the whole
+  // carved read, the entire fall down the glyph, was being spent between code 255
+  // and code 250 while the ceiling itself did the shouting. Both ramps now stop
+  // just short of white and reach further *down*: the range comes out of the top,
+  // where nothing could see it, and goes into the bottom, where the shadow under
+  // a chiselled letter lives.
   const grad = ctx.createLinearGradient(0, y - size * 0.78, 0, y + size * 0.16);
   if (isLocal) {
-    grad.addColorStop(0, "#fff6e2");
-    grad.addColorStop(0.55, "#f0dfbe");
-    grad.addColorStop(1, "#c6ab82");
+    grad.addColorStop(0, "#fdf5e4");
+    grad.addColorStop(0.55, "#ecdab6");
+    grad.addColorStop(1, "#bda078");
   } else {
-    grad.addColorStop(0, "#fffaf0");
-    grad.addColorStop(0.55, "#efe4cd");
-    grad.addColorStop(1, "#bfae91");
+    grad.addColorStop(0, "#fbf6ea");
+    grad.addColorStop(0.55, "#e8dcc4");
+    grad.addColorStop(1, "#b3a288");
   }
   ctx.fillStyle = grad;
   drawTracked(ctx, text, x, y, size * 0.07, false);
 
-  // Bevel highlight along the top edge only.
-  ctx.globalAlpha = 0.5;
-  ctx.fillStyle = isLocal ? "#fffaea" : "#ffffff";
+  // Bevel highlight along the top edge only. Bone, not white: a specular white
+  // on a limewashed letter is a sticker's highlight, and it is also the thing
+  // that made the plate the brightest object in `laststand`.
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = isLocal ? "#fff8ea" : "#fdfaf2";
   drawTracked(ctx, text, x, y - size * 0.035, size * 0.07, false);
   ctx.globalAlpha = 1;
 
@@ -594,10 +746,9 @@ const DMG_CANVAS: Record<QualityTier, { w: number; h: number; size: number }> = 
  */
 function buildDamageGlyphs(key: string, amount: number, weight: 0 | 1 | 2, tier: QualityTier): Glyphs {
   const spec = DMG_CANVAS[tier];
-  const c = document.createElement("canvas");
-  c.width = spec.w;
-  c.height = spec.h;
-  const ctx = c.getContext("2d")!;
+  const surface = glyphCanvas(spec.w, spec.h);
+  if (!surface) return unusableGlyphs(key, spec.w / spec.h);
+  const { canvas: c, ctx } = surface;
   const text = String(amount);
   const size = spec.size * (weight === 2 ? 1 : weight === 1 ? 0.82 : 0.68);
   const cx = spec.w * 0.5;
@@ -634,18 +785,22 @@ function buildDamageGlyphs(key: string, amount: number, weight: 0 | 1 | 2, tier:
   ctx.lineWidth = size * 0.1;
   ctx.strokeText(text, cx, cy);
 
+  // Same restraint as the nameplates, and for the same reason — these are lifted
+  // onto the grade's curve by GLYPH_GAIN on top of whatever the canvas says, so
+  // a numeral authored at paper white arrives clipped and shapeless. A heavy hit
+  // still burns; it burns from ember to bone rather than from orange to white.
   const grad = ctx.createLinearGradient(0, cy - size, 0, cy + size * 0.2);
   if (weight === 2) {
-    grad.addColorStop(0, "#fff4d0");
-    grad.addColorStop(0.4, "#ffb63a");
-    grad.addColorStop(1, "#e0521c");
+    grad.addColorStop(0, "#ffeec4");
+    grad.addColorStop(0.4, "#f5aa40");
+    grad.addColorStop(1, "#c8501f");
   } else if (weight === 1) {
-    grad.addColorStop(0, "#fffdf4");
-    grad.addColorStop(0.6, "#ffe9b8");
-    grad.addColorStop(1, "#d8a862");
+    grad.addColorStop(0, "#fbf6ea");
+    grad.addColorStop(0.6, "#f0deb2");
+    grad.addColorStop(1, "#c49c68");
   } else {
-    grad.addColorStop(0, "#ffffff");
-    grad.addColorStop(1, "#cfc4ae");
+    grad.addColorStop(0, "#f6f0e4");
+    grad.addColorStop(1, "#beb4a0");
   }
   ctx.fillStyle = grad;
   ctx.fillText(text, cx, cy);
@@ -669,20 +824,21 @@ interface Plate {
   bar: THREE.Mesh;
   /** Drawn behind everything with depth off: what an occluded warrior leaves. */
   ghost: THREE.Mesh | null;
-  name: THREE.Mesh;
   /**
-   * False only if the name's glyph texture failed to resolve, which cannot
-   * happen in development because `requireGlyphTexture` throws first. In
-   * production it keeps the bar and drops the name rather than drawing a
-   * nameplate-shaped block of ink.
+   * Null when the name's glyph texture failed to resolve — which cannot happen
+   * in development, because the gate throws first. In production the plate keeps
+   * its bar and the name mesh is never built at all. It is deliberately not "a
+   * mesh that is hidden": a hidden unmapped quad is one stray `visible = true`
+   * away from being the coloured square this module keeps getting blamed for,
+   * and the whole point of the rule is that the state cannot be constructed.
    */
-  nameDrawable: boolean;
+  name: THREE.Mesh | null;
   glyphs: Glyphs;
   /** The unmixed health colour. The mood tint is applied over it each frame. */
   fill: THREE.Color;
   barUniforms: Record<string, THREE.IUniform>;
   ghostOpacity: THREE.IUniform | null;
-  nameMat: THREE.MeshBasicMaterial;
+  nameMat: THREE.MeshBasicMaterial | null;
   /** Plate-local half extents, before the distance scale. */
   halfW: number;
   halfH: number;
@@ -754,6 +910,22 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
   // One unit quad behind every plate, bar, ghost and number in the game.
   const quad = new THREE.PlaneGeometry(1, 1);
 
+  /**
+   * A 1x1 fully transparent texture, and the reason a pooled damage material is
+   * never caught holding a dead map.
+   *
+   * The pool round-trip is the one place in this file where a material outlives
+   * the texture it was built around: `retire()` releases the glyphs, the cache
+   * sweep may dispose them, and the material sits in the pool still pointing at
+   * a disposed texture until the next spawn rebinds it. A disposed map is not a
+   * blank map — the sampler binds incomplete and the quad draws solid — so the
+   * material is re-pointed here on the way out. `map` is therefore non-null and
+   * alive at every instant of the pool's life, and a pooled quad that somehow
+   * became visible would draw nothing at all rather than a coloured square.
+   */
+  const blank = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat);
+  blank.needsUpdate = true;
+
   const nameCache = new Map<string, Glyphs>();
   const dmgCache = new Map<string, Glyphs>();
   const DMG_CACHE_MAX = 40;
@@ -791,7 +963,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
   function releaseName(g: Glyphs): void {
     if (--g.refs > 0) return;
     nameCache.delete(g.key);
-    g.texture.dispose();
+    g.texture?.dispose();
   }
 
   /**
@@ -817,7 +989,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       if (dmgCache.size <= DMG_CACHE_MAX) break;
       if (entry.refs > 0) continue;
       dmgCache.delete(entry.key);
-      entry.texture.dispose();
+      entry.texture?.dispose();
     }
   }
 
@@ -827,7 +999,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
     scene.remove(plate.group);
     (plate.bar.material as THREE.Material).dispose();
     if (plate.ghost) (plate.ghost.material as THREE.Material).dispose();
-    plate.nameMat.dispose();
+    plate.nameMat?.dispose();
     releaseName(plate.glyphs);
     plates.delete(id);
     const at = order.indexOf(plate);
@@ -836,8 +1008,39 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
 
   function retire(n: FloatingNumber): void {
     scene.remove(n.mesh);
+    // Order matters: hand the material a live map before releasing the one it
+    // is holding, so there is no instant at which a pooled material points at a
+    // texture the cache sweep is entitled to dispose.
+    n.mat.map = blank;
     releaseDamage(n.glyphs);
     pool.push(n);
+  }
+
+  /**
+   * Re-proves, in development, the one invariant this module cannot check at
+   * construction: that a material which *was* built around a live texture still
+   * has one. Construction-time gates cannot see a texture disposed out from
+   * under a quad three seconds later by a cache sweep or a botched refcount, and
+   * that failure is silent, arrives as a solid coloured rectangle in the middle
+   * of the frame, and looks exactly like a bug in somebody else's file.
+   *
+   * Twice a second, not per frame: it walks every plate and every live number,
+   * and the point is to fail on roughly the frame it breaks rather than to be a
+   * cost anybody has to think about. Production skips it entirely.
+   */
+  let auditDue = 0;
+  function auditGlyphMaterials(): void {
+    for (const plate of order) {
+      if (!plate.nameMat) continue;
+      if (plate.nameMat.map !== plate.glyphs.texture || !glyphTextureUsable(plate.nameMat.map)) {
+        reportMapFailure(`nameplate "${plate.glyphs.key}" lost its glyph texture after construction`);
+      }
+    }
+    for (const n of live) {
+      if (n.mat.map !== n.glyphs.texture || !glyphTextureUsable(n.mat.map)) {
+        reportMapFailure(`damage number "${n.glyphs.key}" lost its glyph texture after construction`);
+      }
+    }
   }
 
   /**
@@ -863,6 +1066,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         uLagColor: { value: FILL_LAG.clone() },
         uRimColor: { value: (isLocal ? RIM_LOCAL : RIM_REMOTE).clone() },
         uTroughColor: { value: TROUGH.clone() },
+        uKeyColor: { value: KEYLINE.clone() },
         uPct: { value: 1 },
         uLag: { value: 1 },
         uOpacity: { value: 1 },
@@ -907,41 +1111,33 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         group.add(ghost);
       }
 
-      // The map is proved before the material exists rather than assigned to one
-      // that already does, so there is no window in which an unmapped quad is
-      // reachable from the scene graph.
-      const nameTex = requireGlyphTexture(glyphs, `nameplate "${name}"`);
-      // fog: false everywhere in here. Aerial perspective on a nameplate is how
-      // a HUD ends up dissolving exactly when the fight spreads out and you
-      // most need to know who is where.
-      const nameMat = new THREE.MeshBasicMaterial({
-        map: nameTex,
-        transparent: true,
-        depthWrite: false,
-        fog: false,
-        side: THREE.DoubleSide,
-      });
-      nameMat.color.copy(tint).multiplyScalar(GLYPH_GAIN);
+      // The material is built *from* the texture, and if there is no texture
+      // there is no material and no mesh — not a hidden one, none. An unmapped
+      // quad is not reachable from the scene graph because it is not
+      // constructible on this path.
+      const nameMat = glyphMaterial(glyphs, `nameplate "${name}"`);
       const nameW = NAME_H * glyphs.aspect;
-      const nameMesh = new THREE.Mesh(quad, nameMat);
-      nameMesh.scale.set(nameW, NAME_H, 1);
-      nameMesh.position.y = BAR_H * 0.5 + NAME_GAP + NAME_H * 0.5;
-      nameMesh.renderOrder = 994;
-      nameMesh.visible = nameTex !== null;
-      group.add(nameMesh);
+      let nameMesh: THREE.Mesh | null = null;
+      if (nameMat) {
+        nameMat.color.copy(tint).multiplyScalar(GLYPH_GAIN);
+        nameMesh = new THREE.Mesh(quad, nameMat);
+        nameMesh.scale.set(nameW, NAME_H, 1);
+        nameMesh.position.y = BAR_H * 0.5 + NAME_GAP + NAME_H * 0.5;
+        nameMesh.renderOrder = 994;
+        group.add(nameMesh);
+      }
 
       // A dropped name is not allowed to keep reserving the screen space it
       // would have used, or the de-overlap solver pushes plates apart around a
       // rectangle nobody can see.
-      const top = nameTex ? nameMesh.position.y + NAME_H * 0.5 : BAR_H * 0.5;
+      const top = nameMesh ? nameMesh.position.y + NAME_H * 0.5 : BAR_H * 0.5;
       const bottom = -BAR_H * 0.5;
       const plate: Plate = {
         parent, isLocal, group, bar, ghost, name: nameMesh, glyphs,
-        nameDrawable: nameTex !== null,
         fill: FILL_HEALTHY,
         anchorY: headTop !== undefined ? headTop + HEAD_CLEARANCE : ANCHOR_FALLBACK,
         barUniforms, ghostOpacity, nameMat,
-        halfW: Math.max(BAR_W, nameTex ? nameW * glyphs.ink : 0) * 0.5,
+        halfW: Math.max(BAR_W, nameMesh ? nameW * glyphs.ink : 0) * 0.5,
         halfH: (top - bottom) * 0.5,
         centreY: (top + bottom) * 0.5,
         pct: 1, lag: 1, lagHold: 0, flash: 0, dying: -1, push: 0,
@@ -1005,14 +1201,26 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       if (!n) {
         if (live.length >= settings.damageNumberBudget) {
           // Recycling the oldest beats dropping the newest: a hit that produced
-          // no feedback reads as a hit that did not land. Safe against the cache
-          // sweep because `glyphs` is already held — releasing the number being
-          // recycled cannot evict the texture this one is about to bind.
+          // no feedback reads as a hit that did not land.
           n = live.shift()!;
           scene.remove(n.mesh);
+          // Bind before release, exactly as `retire` does. `glyphs` is already
+          // held so the sweep cannot evict what we are about to draw, but the
+          // rule that a material never *holds* a releasable texture is worth
+          // more as an invariant than as a case-by-case argument.
+          //
+          // Swapping one texture for another rebinds a sampler; it does not
+          // change the program, because a pooled material was built with a map
+          // and has never been without one. That is the whole reason the old
+          // `needsUpdate` dance is gone rather than merely unnecessary.
+          n.mat.map = tex;
           releaseDamage(n.glyphs);
         } else {
-          const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide });
+          const mat = glyphMaterial(glyphs, `damage number ${amount}`);
+          if (!mat) {
+            releaseDamage(glyphs);
+            return;
+          }
           const mesh = new THREE.Mesh(quad, mat);
           mesh.renderOrder = 996;
           n = { mesh, mat, glyphs, age: 0, life: 1, weight, vel: new THREE.Vector3(), spin: 0, base: 0 };
@@ -1020,10 +1228,6 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       }
 
       n.glyphs = glyphs;
-      // Swapping one texture for another rebinds a sampler; it does not change
-      // the program, because a pooled material was built with a map and has
-      // never been without one. That is the whole reason the old `needsUpdate`
-      // dance is gone rather than merely unnecessary.
       n.mat.map = tex;
       n.mat.color.copy(glyphInk);
       n.age = 0;
@@ -1112,7 +1316,12 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         }
         ndc.copy(anchor).project(camera);
 
-        const scale = distanceScale(dist) * (plate.isLocal ? 1.04 : 1);
+        // No size bump for the local warrior. It was 1.04 — small on its own, but
+        // it stacked onto the depth ramp in exactly the frames where the local
+        // plate is also the nearest, and scale is the last axis on which the two
+        // plate treatments still differed. The half-step warmer ink and the
+        // slightly warmer bone rim are the whole of the distinction now.
+        const scale = distanceScale(dist);
         const worldPerNdc = Math.max(dist * tanHalf, 1e-3);
 
         plate.dist = dist;
@@ -1179,7 +1388,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
           p.sy = p.ndcY + p.push;
         }
 
-        p.name.visible = p.nameDrawable && !p.compact;
+        if (p.name) p.name.visible = !p.compact;
         if (Math.abs(p.push) > 1e-4) p.group.position.addScaledVector(camUp, p.push * p.worldPerNdc);
       }
 
@@ -1213,8 +1422,20 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         const rim = plate.isLocal ? RIM_LOCAL : RIM_REMOTE;
         (plate.barUniforms.uRimColor.value as THREE.Color).copy(rim).multiply(tint);
         (plate.barUniforms.uFillColor.value as THREE.Color).copy(plate.fill).multiply(fillTint);
-        plate.nameMat.color.copy(glyphInk);
-        plate.nameMat.opacity = alpha;
+        if (plate.nameMat) {
+          plate.nameMat.color.copy(glyphInk);
+          plate.nameMat.opacity = alpha;
+        }
+      }
+
+      // Development only, twice a second: re-prove that nothing on screen has
+      // lost the texture it was built around. See `auditGlyphMaterials`.
+      if (DEV) {
+        auditDue -= dt;
+        if (auditDue <= 0) {
+          auditDue = 0.5;
+          auditGlyphMaterials();
+        }
       }
 
       // ---- floating numbers ----
@@ -1269,11 +1490,12 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       live.length = 0;
       pool.length = 0;
       order.length = 0;
-      for (const g of nameCache.values()) g.texture.dispose();
-      for (const g of dmgCache.values()) g.texture.dispose();
+      for (const g of nameCache.values()) g.texture?.dispose();
+      for (const g of dmgCache.values()) g.texture?.dispose();
       nameCache.clear();
       dmgCache.clear();
       quad.dispose();
+      blank.dispose();
     },
   };
 }

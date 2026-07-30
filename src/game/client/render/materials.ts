@@ -20,7 +20,7 @@
 // the number the recipe declares it was authored at. Those two parted company
 // when textures.ts started baking specular anti-aliasing into the roughness
 // channel: steel's recipe still says 0.18 and its map now means 0.316. See
-// `channelMean`; the divergence is why the metals went matte.
+// `packedMeans`; the divergence is why the metals went matte.
 //
 // And density is in metres, not in UV. See `WORLD_TILE`.
 
@@ -131,8 +131,10 @@ interface Spec {
 // The colour/roughness numbers here are the arena's art direction. They came
 // out of the original inline build code unchanged; treat a change to one as a
 // change to how that substance reads, not as a tweak. `surface` says what the
-// thing is made of, `repeat` says how big that substance is on this mesh —
-// texel density has to stay consistent between objects or §2 of the bar fails.
+// thing is made of; `repeat` says how big that substance is on this mesh, and
+// only still means anything for the substances outside `WORLD_TILE` — the rest
+// are sized in metres, because texel density has to stay consistent between
+// objects or §2 of the bar fails.
 const CATALOG: Record<MaterialName, Spec> = {
   ground:          { color: 0xffffff, roughness: 0.96, metalness: 0, vertexColors: true, surface: "groundDetail", repeat: [22, 22] },
   grassTuft:       { color: 0x4a5c2e, roughness: 0.95, metalness: 0, surface: "grass", repeat: [1, 1] },
@@ -198,16 +200,25 @@ const CATALOG: Record<MaterialName, Spec> = {
  * against a life size of 10 and read as knitting. That is the ~4x scatter, and
  * an absolute error of 4-10x underneath it.
  *
- * So the numbers below are physical. Each is (cells the recipe draws per tile) x
- * (what one cell is in life), and the recipe's cell counts are in textures.ts:
+ * So the numbers below are physical. Where a recipe draws a countable lattice,
+ * the number is arithmetic — (cells per tile) x (what one cell is in life), the
+ * counts being in textures.ts:
  *
  *   mail     10 x 14 rings          -> 11 mm ring, 7.9 mm row pitch
  *   steel    13 chevrons, 260 lanes -> 23 mm pattern-weld figure, 1.2 mm hone
  *   iron     42 planish, 176 pits   -> 13 mm hammer facet, 3.1 mm pit
  *   bronze   44 pits, 5 cast blooms -> 3.6 mm pit, 32 mm bloom
- *   leather  44 follicles, 4x6 net  -> 1.6 mm grain, 17/12 mm crease
- *   skin     176 pores, 8/16 net    -> 0.4 mm pore, 8.8/4.4 mm wrinkle net
  *   bone     176 pores, 3 cracks    -> 0.5 mm porosity, 30 mm crack
+ *
+ * Leather and skin are the two whose recipes are noise fields rather than
+ * lattices, and for those the tap count is a bad predictor: what the eye picks
+ * out is the base octave of the ridged field the creases and the wrinkle net are
+ * built from, which measures about four times coarser than the tap scale
+ * suggests. Both were set off a render instead — spectra taken down the lit
+ * centre of a torso-sized and a bracer-sized cylinder at the portrait framing.
+ * Arithmetic put leather at 0.07 and skin at 0.06; the frame said the dominant
+ * crease was still 38 mm and the wrinkle net still 31 mm, which is elephant hide
+ * and woodgrain. Halved, both land near 15 mm, which is worn leather and skin.
  *
  * Cloth is deliberately absent. characters.ts already sizes wool from the
  * garment's girth (`clothRepeat`), which is the same correction arrived at from
@@ -220,15 +231,29 @@ const CATALOG: Record<MaterialName, Spec> = {
  * that reads as a ring. The arena framing runs 76 px/m, which puts the same ring
  * at 0.84 px: under Nyquist, where it belongs to the mip chain rather than to
  * the frame, and mips are exactly what textures.ts's band-limiting and baked
- * specular AA made safe to land on.
+ * specular AA made safe to land on. Rendered at both framings before landing;
+ * the arena pass is the one that matters, and the finer mail mips to a clean
+ * metallic sheen where the old ring was still large enough to beat against the
+ * pixel grid.
+ *
+ * Dominant wavelength before and after, down the lit centre of a torso-sized and
+ * a bracer-sized cylinder at the portrait framing:
+ *
+ *              torso (girth 1.19 m)      bracer (girth 0.31 m)
+ *   leather    80.7 mm -> 18.2 mm        32.3 mm -> 17.4 mm
+ *   mail row   15.7 mm ->  7.9 mm        rings were 40 x 15, now 11 x 7.9
+ *   skin        113 mm -> 17.8 mm        forearm; the face used to disagree
+ *
+ * The second column is the whole point: one substance on two parts at one grain,
+ * where before the same leather was 2.5x apart on the same warrior.
  */
 const WORLD_TILE: Partial<Record<SurfaceName, number>> = {
   mail: 0.11,
   steel: 0.3,
   iron: 0.55,
   bronze: 0.16,
-  leather: 0.07,
-  skin: 0.06,
+  leather: 0.035,
+  skin: 0.035,
   bone: 0.09,
 };
 
@@ -266,7 +291,14 @@ const WORLD_TILE: Partial<Record<SurfaceName, number>> = {
 function projectFromObjectSpace(m: THREE.MeshStandardMaterial, tileMetres: number): void {
   const perMetre = 1 / tileMetres;
   const body = `
-	vec3 bwN = abs( vSubstanceNrm );
+	// The 1.5 on z is where the seam goes, not what it looks like. Untilted, the
+	// switch between the two side projections sits at 45 degrees off front,
+	// which on a limb is two thirds of the way out and square to the camera;
+	// weighted, it moves to 56 degrees and 0.83 of the radius, where the surface
+	// is steeply foreshortened, dark and about to become silhouette. Object
+	// space, and characters.ts builds every part facing +z, so this holds
+	// whichever way the warrior is turned.
+	vec3 bwN = abs( vSubstanceNrm ) * vec3( 1.0, 1.0, 1.5 );
 	vec2 bwUv = bwN.x > max( bwN.y, bwN.z ) ? vSubstancePos.zy
 	          : bwN.y > bwN.z               ? vSubstancePos.xz
 	                                        : vSubstancePos.xy;
