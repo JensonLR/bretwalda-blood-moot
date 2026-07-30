@@ -13,7 +13,10 @@
 // cost nothing until something asks. Measured on the capture box, which runs
 // roughly 1.8x a mid laptop, the arena's twelve are ~490 ms — call it 270 ms on
 // the laptop the budget is written against, of which the shared noise bank is a
-// third and three `hero` surfaces are another third.
+// third and three `hero` surfaces are another third. The filter chain that
+// band-limits the height and anti-aliases the roughness adds 45 ms of that on the
+// capture box, ~25 ms on the laptop, and it is not optional — see the note on
+// Nyquist below.
 //
 // If that has to come down the levers, in order, are: drop `hero` to the prop
 // resolution (a straight 4x on the three biggest), then halve the prop size,
@@ -21,6 +24,8 @@
 // ground recipes — a tap is about 4 ms per prop-sized surface here, and the
 // difference between six of them and nine is the difference between a floor that
 // reads as turf and the field of pale grit the v2 capture scored as AstroTurf.
+// Nor is the filter chain, for the same kind of reason: what it buys is the
+// difference between wet ground and a field of glitter.
 //
 // The rule that makes a surface read as a *substance* rather than as three
 // unrelated images: albedo, normal, roughness and AO all come off the SAME
@@ -50,6 +55,22 @@
 // world.ts's long-wavelength blend are both wider than any tile and so cannot
 // repeat. The arena floor repeats every 1.6 m and the turf structure every
 // 1.4 m; neither is legible, and that is the test.
+//
+// The other end of the spectrum has a rule of its own, and the v3 capture is why.
+// Recipes tap the bank wherever the substance wants detail, and several of those
+// taps land past the output's Nyquist — `fine` at nine on a 256² map puts 2.25 of
+// its finest cells inside one texel, so two thirds of what it returns is
+// uncorrelated from one texel to the next. In the albedo that is dither and it
+// mips away. In the *height* field it is a disaster: `deriveNormal` turns
+// uncorrelated neighbours into a per-texel random tilt, the arena floor came back
+// with per-texel slopes up to 70°, and a randomly tilted dielectric at a grazing
+// angle returns most of the sky. That is the salt the v3 capture scattered across
+// the moot — single-texel sky reflections, clipped, each one smeared to four or
+// five pixels by the bloom pass. So: **nothing above Nyquist reaches a normal
+// map**. `bandLimit` deletes that band before the Sobel sees it and
+// `slopeVariance` folds what it removed into roughness, which is where relief
+// finer than a texel physically belongs. A recipe is free to tap as fine as it
+// likes; the pipeline is what keeps that honest.
 
 import * as THREE from "three";
 import type { QualitySettings } from "./quality";
@@ -541,6 +562,148 @@ function deriveAo(h: Float32Array, size: number, strength: number): Float32Array
     ao[i] = clamp01(1 - strength * deep);
   }
   return ao;
+}
+
+/**
+ * Scratch for the filter passes below. Module level for the same reason `RAMP`
+ * is: generation is synchronous and single threaded, and a 512² Float32Array per
+ * pass per surface is real cost — six megabytes of short-lived garbage on every
+ * hero surface, which the frame after the build is the one that pays for it.
+ */
+const FILTER_SCRATCH: Float32Array[] = [];
+function scratch(slot: number, n: number): Float32Array {
+  let a = FILTER_SCRATCH[slot];
+  if (!a || a.length < n) { a = new Float32Array(n); FILTER_SCRATCH[slot] = a; }
+  return a;
+}
+
+/**
+ * Deletes the band a texel cannot carry, and nothing wider.
+ *
+ * A [1,2,1]² binomial is the right filter here rather than a compromise: its
+ * response is exactly zero at Nyquist and -6 dB at half of it, so it removes
+ * precisely the part of a field that has no representation at this resolution and
+ * leaves anything four texels across essentially alone. Mail rivets, thatch
+ * straws, blade scratches and mud crumbs all keep their shape; what goes is the
+ * checkerboard hash the over-Nyquist taps put underneath them.
+ *
+ * Separable, wrapping, two multiplies a texel a pass, and safe in place — pass
+ * `src` as `out` and it filters where it stands, because the vertical pass reads
+ * the horizontal pass's scratch and not the source. Cheap enough to run on every
+ * surface unconditionally, which matters: the alternative is auditing nineteen
+ * recipes' tap scales against two output resolutions and getting it wrong again
+ * the next time one of them changes.
+ */
+function bandLimit(src: Float32Array, size: number, out: Float32Array = new Float32Array(src.length)): Float32Array {
+  const n = size * size;
+  const tmp = scratch(0, n);
+  const mask = size - 1; // every generated map is power-of-two sized
+  for (let y = 0; y < size; y++) {
+    const row = y * size;
+    for (let x = 0; x < size; x++) {
+      tmp[row + x] = (src[row + ((x - 1) & mask)] + 2 * src[row + x] + src[row + ((x + 1) & mask)]) * 0.25;
+    }
+  }
+  // Row-major, three row bases, rather than the column-major form the older
+  // blur in this file uses. At 512² the column walk misses cache on every step
+  // and costs about double.
+  for (let y = 0; y < size; y++) {
+    const rm = ((y - 1) & mask) * size;
+    const r0 = y * size;
+    const rp = ((y + 1) & mask) * size;
+    for (let x = 0; x < size; x++) {
+      out[r0 + x] = (tmp[rm + x] + 2 * tmp[r0 + x] + tmp[rp + x]) * 0.25;
+    }
+  }
+  return out;
+}
+
+/**
+ * The slope `bandLimit` took away, as a variance per texel.
+ *
+ * Sobel is linear, so the slope that went missing is the Sobel of the height that
+ * went missing — one extra gradient pass rather than two, on the same `strength`
+ * and the same unnormalised convention as `deriveNormal`, so what comes out is
+ * directly comparable to the tangent slope that map encodes.
+ *
+ * Smoothed on the way out, and that is not cosmetic. The residual is by
+ * construction the highest-frequency thing in the build; handing it straight to
+ * the roughness channel would trade a sparkling normal map for a sparkling
+ * roughness map and call it a fix. What the shader wants is the local *scale* of
+ * the relief it cannot see, which is a neighbourhood statistic.
+ */
+function slopeVariance(h: Float32Array, hLo: Float32Array, size: number, strength: number): Float32Array {
+  const n = size * size;
+  const d = scratch(1, n);
+  for (let i = 0; i < n; i++) d[i] = h[i] - hLo[i];
+  const out = new Float32Array(n);
+  const mask = size - 1;
+  const k = (strength * size) / 256;
+  const k2 = k * k;
+  for (let y = 0; y < size; y++) {
+    const ym = ((y - 1) & mask) * size;
+    const y0 = y * size;
+    const yp = ((y + 1) & mask) * size;
+    for (let x = 0; x < size; x++) {
+      const xm = (x - 1) & mask;
+      const xp = (x + 1) & mask;
+      const gx = (d[ym + xp] + 2 * d[y0 + xp] + d[yp + xp]) - (d[ym + xm] + 2 * d[y0 + xm] + d[yp + xm]);
+      const gy = (d[yp + xm] + 2 * d[yp + x] + d[yp + xp]) - (d[ym + xm] + 2 * d[ym + x] + d[ym + xp]);
+      out[y0 + x] = (gx * gx + gy * gy) * k2;
+    }
+  }
+  return bandLimit(out, size, out);
+}
+
+/**
+ * How much of the discarded slope variance becomes lobe width.
+ *
+ * The physical answer is bracketed, not single-valued, and the bracket is wide.
+ * At the bottom: `deriveNormal`'s Sobel is unnormalised, so a true per-texel
+ * slope arrives here multiplied by eight, and the textbook α'² = α² + 2σ² wants
+ * 2/64 ≈ 0.03 to undo that. At the top: what shades the surface is the *encoded*
+ * normal, which `bump` deliberately exaggerates by about that same factor and
+ * which therefore really does alias by the full amount, wanting 2.
+ *
+ * 0.12 sits about four times the geometric floor, and it is chosen so this acts
+ * as a guard rail on the low-roughness tail rather than as a re-grade. Measured
+ * across the library it moves no substance's mean roughness by more than 0.055 and
+ * most by under 0.01 — skin 0.643 → 0.671, mail 0.384 → 0.388, the arena floor
+ * 0.873 → 0.876 — while pulling the tails that actually sparkle up hard: blood's
+ * floor 0.062 → 0.150, mud's fifth percentile 0.159 → 0.276, steel's scratches
+ * out of mirror territory. At the textbook 2 the same pass takes skin to 0.91 and
+ * a polished blade to 0.36, which is not anti-aliasing, it is sanding the arena
+ * down. Every substance in this file already writes its own roughness off the same
+ * height field, so some of this relief is spoken for twice; that is the honest
+ * reason the top of the bracket is wrong.
+ */
+const SPEC_AA = 0.12;
+
+/**
+ * Specular anti-aliasing, baked.
+ *
+ * GGX's slope distribution has variance α²/2 where α = roughness², and variances
+ * of independent slopes add, so relief the map could not keep comes back as
+ * α' = sqrt(α² + 2σ²). The asymmetry in that expression is the whole reason this
+ * works: at α = 0.8 a σ² of 0.02 vanishes, and at α = 0.02 it swamps the lobe. A
+ * broad low-roughness region — a puddle, the flat of a blade, the wet bottom of a
+ * boot print — has neighbours that agree with it, σ² near zero, and keeps every
+ * bit of its polish. A lone texel whose normal disagrees with all four of its
+ * neighbours cannot be a mirror any more. Broad sheen survives, isolated glitter
+ * does not, and that is exactly the distinction the v3 capture failed to make.
+ *
+ * three's own `getGeometryRoughness()` is the screen-space version of this, but it
+ * only ever sees the interpolated *geometric* normal — it has never looked at a
+ * normal map, so nothing downstream of here was going to catch this either.
+ */
+function specularAA(roughness: number, variance: number): number {
+  const a = roughness * roughness;
+  const add = SPEC_AA * variance;
+  // Below two percent of the existing lobe the correction cannot move the encoded
+  // byte, and the two roots are the most expensive arithmetic in the build's
+  // inner loop. Most texels on a rough substance take this branch.
+  if (add < a * a * 0.02) return roughness;
+  return clamp01(Math.sqrt(Math.sqrt(a * a + add)));
 }
 
 /**
@@ -1379,6 +1542,11 @@ function buildGroundDetail(g: Gen): void {
     const nap = napA + (napB - napA) * smoothstep(0.3, 0.7, tuss);
 
     const dome = 1 - smoothstep(0.05, 0.72, tuss);
+    // The damp shade between the clumps. Read once and used twice — for the hue
+    // and for the wetness — because those are the same fact about the ground, and
+    // a floor whose sheen sits where its green does is a floor and not a texture
+    // of two unrelated masks.
+    const damp = smoothstep(0.3, 0.8, tuss);
     // A boot fills the ground it lands on, so a print takes most of its cell
     // rather than sitting as a dot in the middle of it — and there are few of
     // them. A hard little disc in a fifth of the cells is how the first attempt
@@ -1403,7 +1571,7 @@ function buildGroundDetail(g: Gen): void {
     // centimetre has mipped down to one flat tone long before then, which is the
     // whole reason a map made of grit read as AstroTurf.
     toward(c, i, crown, clamp01(dome * 1.3) * 0.65);
-    toward(c, i, hollow, smoothstep(0.3, 0.8, tuss) * 0.6);
+    toward(c, i, hollow, damp * 0.6);
     toward(c, i, soilT, bare * 0.75);
     toward(c, i, shadeT, print * 0.55);
     toward(c, i, stoneT, peb * 0.5);
@@ -1415,8 +1583,26 @@ function buildGroundDetail(g: Gen): void {
     // between clumps — because half the moot at 0.35 is a lake. materials.ts
     // divides this channel by the substance's own mean, so what matters here is
     // the spread and not the level.
-    const held = clamp01(print * 0.8 + smoothstep(0.36, 0.14, height) * 0.6);
-    r[i] = clamp01(0.95 - held * 0.62 - bare * 0.05 + (grit - 0.5) * 0.05);
+    //
+    // Both terms are landform, and that is the correction the v3 capture forced.
+    // This used to read `smoothstep(0.36, 0.14, height)`, and `height` carries the
+    // nap and the grit — two taps that run at or past one texel. So the threshold
+    // fired on hash: individual texels came out at a third of the roughness of the
+    // ground touching them, world.ts multiplied the channel by 0.42 again wherever
+    // the vertex colour says churn, and at the bottom of that chain a dielectric
+    // at a grazing angle handed back the dusk sky. The bloom pass spread each hit
+    // over four or five pixels and the moot came back salted. `damp` is the same
+    // eleven-centimetre field the clumps and the colour already use, so what is
+    // wet now is a hollow rather than a texel.
+    //
+    // And the dip is 0.34 rather than 0.62 because of that same 0.42 downstream:
+    // at 0.62 the wettest ground landed at 0.14 in the shader with a twentieth of
+    // the floor under 0.24, which is a mirror and a lot of it. This lands the
+    // wettest churn at 0.32 and its median at 0.41, against 0.75 on dry turf —
+    // broad enough, and low enough, to hold a soft reflection of the sky, which is
+    // what wet ground actually looks like. A field of bright dots is not.
+    const held = clamp01(print * 0.75 + damp * 0.55);
+    r[i] = clamp01(0.95 - held * 0.34 - bare * 0.05 + (grit - 0.5) * 0.05);
     m[i] = 0;
   });
 }
@@ -1483,16 +1669,23 @@ function buildMud(g: Gen): void {
     // and the roughness split below never fires, which leaves mud that is only
     // brown — and the sheen is the one cue that reads as wet at all.
     const basin = clamp01(0.5 + (swell - 0.5) * 0.8 + (smear - 0.5) * 0.4);
-    const height = clamp01(basin
+    // Split so the water can be gated on the relief without the grit inside it.
+    // `grit` is a fourteen-times tap and therefore about a texel wide: fine as
+    // surface tooth in the height field, fatal in a wetness threshold, where it
+    // turns a puddle into a scatter of individual mirror-bright texels. That is
+    // the mistake the ground detail's `held` term was making in the v3 capture,
+    // and mud is the surface where it would cost the most, because mud is the one
+    // whose roughness genuinely goes low enough to reflect.
+    const relief = clamp01(basin
       + ridge * 0.1
       + crumb * 0.1
       + lip * 0.14
-      + (grit - 0.5) * 0.06
       - press * 0.3
       - crack * 0.08);
+    const height = clamp01(relief + (grit - 0.5) * 0.06);
     h[i] = height;
 
-    const flood = clamp01(smoothstep(0.4, 0.13, basin) * (0.65 + 0.45 * smoothstep(0.52, 0.2, height)));
+    const flood = clamp01(smoothstep(0.4, 0.13, basin) * (0.65 + 0.45 * smoothstep(0.52, 0.2, relief)));
     // The film is the band above the waterline that is saturated but not
     // submerged. It is what stops a puddle having a drawn edge.
     const filmT = smoothstep(0.58, 0.36, basin) * (1 - flood);
@@ -1511,7 +1704,14 @@ function buildMud(g: Gen): void {
     toward(c, i, straw, smoothstep(0.72, 0.96, smear) * (1 - flood) * 0.42);
     gain(c, i, 0.9 + grit * 0.2 - crack * 0.12);
 
-    r[i] = clamp01(0.92 - flood * 0.84 - filmT * 0.28 + (grit - 0.5) * 0.05);
+    // 0.84 put the standing water at 0.08, which is a mirror — correct for a
+    // still pool and wrong for the two centimetres of gritty water in the bottom
+    // of a boot print, which scatters. 0.74 keeps the eleven-fold spread this
+    // recipe is built around and lands the flooded ground near 0.16: the sky comes
+    // back soft-edged and readable rather than as a point of clipped white the
+    // bloom pass then turns into a star. world.ts's puddle meshes are the place
+    // for a true mirror, and they already are one at 0.045.
+    r[i] = clamp01(0.9 - flood * 0.74 - filmT * 0.26 + (grit - 0.5) * 0.05);
     m[i] = 0;
   });
 }
@@ -1838,8 +2038,10 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   // pebbles is not turf. Their `roughness` is each recipe's own mean rather than
   // a round number, because materials.ts divides the requested scalar by it and
   // a wet response only survives that division if the bias comes out near one.
-  groundDetail: { detail: "prop", tint: 0xffffff, roughness: 0.9, metalness: 0, normalScale: 1.05, aoIntensity: 0.95, bump: 1.9, cavity: 0.95, repeat: 8, build: buildGroundDetail },
-  mud:     { detail: "prop", tint: 0x4c3e2d, roughness: 0.56, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.3, cavity: 1.1, repeat: 6, build: buildMud },
+  // Measured after the specular-AA pass, which is the number the shader sees:
+  // 0.876 and 0.614. Re-measure these if either recipe's roughness line changes.
+  groundDetail: { detail: "prop", tint: 0xffffff, roughness: 0.88, metalness: 0, normalScale: 1.05, aoIntensity: 0.95, bump: 1.9, cavity: 0.95, repeat: 8, build: buildGroundDetail },
+  mud:     { detail: "prop", tint: 0x4c3e2d, roughness: 0.61, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.3, cavity: 1.1, repeat: 6, build: buildMud },
   grass:   { detail: "prop", tint: 0x51672f, roughness: 0.81, metalness: 0, normalScale: 1.15, aoIntensity: 1.15, bump: 2.3, cavity: 1.15, repeat: 4, build: buildGrass },
 
   skin:    { detail: "hero", tint: 0xd9a97e, roughness: 0.6,  metalness: 0, normalScale: 0.7,  aoIntensity: 0.8,  bump: 1.2, cavity: 0.8, repeat: 1, build: buildSkin },
@@ -2012,14 +2214,45 @@ export function createTextureLibrary(
     };
     recipe.build(gen);
 
+    // From here on the height field is the band-limited one, and every map that
+    // comes off it reads the same array — normal, cavity AO and the specular-AA
+    // term alike. That keeps the coherence rule at the top of the file intact: a
+    // normal map built from a filtered field and an AO map built from an
+    // unfiltered one would disagree about where the relief is, which is the
+    // "three unrelated images" failure by a subtler route.
+    const hLo = bandLimit(gen.h, size);
+
     // The low tier carries albedo and normal only. That is not an arbitrary
     // cut: the normal map is what makes a surface read as a substance at all,
     // while roughness and AO degrade gracefully to the substance's scalars for
     // two fewer samplers per draw — and skipping the pack saves the cavity
     // blur as well. Low drops effects, never art direction.
     const packOrm = settings.tier !== "low";
-    const ao = packOrm ? deriveAo(gen.h, size, recipe.cavity) : null;
-    const normal = deriveNormal(gen.h, size, recipe.bump);
+    const ao = packOrm ? deriveAo(hLo, size, recipe.cavity) : null;
+    const normal = deriveNormal(hLo, size, recipe.bump);
+
+    // Roughness the frame can actually hold, in two steps and in this order.
+    //
+    // The lift first: sub-texel relief becomes lobe width, per `specularAA`.
+    //
+    // Then the same Nyquist notch the height got, because a roughness that
+    // alternates between 0.1 and 0.9 texel to texel makes a highlight twinkle
+    // whether or not the normals under it agree — steel's hairline scratches and
+    // mud's drag field both write that pattern. Filtering roughness linearly
+    // under-estimates it, which is the standard objection to touching this
+    // channel; the answer is that the lift above has already banked the variance
+    // as lobe width, so what the notch removes is the part that was double-counted
+    // anyway. A value no texel can display is worse than one slightly too smooth.
+    //
+    // Only on the tiers that carry the map. The low tier falls back to the
+    // recipe's scalar, which is a constant and cannot alias.
+    let rough: Float32Array | null = null;
+    if (packOrm) {
+      const sigma = slopeVariance(gen.h, hLo, size, recipe.bump);
+      rough = new Float32Array(texels);
+      for (let i = 0; i < texels; i++) rough[i] = specularAA(clamp01(gen.r[i]), sigma[i]);
+      bandLimit(rough, size, rough);
+    }
 
     const albedo = new Uint8Array(texels * 4);
     const orm = packOrm ? new Uint8Array(texels * 4) : null;
@@ -2046,9 +2279,9 @@ export function createTextureLibrary(
       mr += SRGB_TO_LINEAR[cr] * w;
       mg += SRGB_TO_LINEAR[cg] * w;
       mb += SRGB_TO_LINEAR[cb] * w;
-      if (orm && ao) {
+      if (orm && ao && rough) {
         orm[o] = (ao[i] * 255) | 0;
-        orm[o + 1] = (clamp01(gen.r[i]) * 255) | 0;
+        orm[o + 1] = (clamp01(rough[i]) * 255) | 0;
         orm[o + 2] = (clamp01(gen.m[i]) * 255) | 0;
         orm[o + 3] = 255;
       }
@@ -2175,6 +2408,10 @@ export function createTextureLibrary(
       surfaces.clear();
       sprites.clear();
       bank = null;
+      // Two megabytes of build-time scratch at the high tier. Not GPU memory and
+      // not counted in `bytes`, but there is no reason to hold it across a match
+      // boundary when the bank next to it is being dropped for the same reason.
+      FILTER_SCRATCH.length = 0;
       bytes = 0;
     },
   };
