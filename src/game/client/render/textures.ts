@@ -16,7 +16,11 @@
 // third and three `hero` surfaces are another third. The filter chain that
 // band-limits the height and anti-aliases the roughness adds 45 ms of that on the
 // capture box, ~25 ms on the laptop, and it is not optional — see the note on
-// Nyquist below.
+// Nyquist below. The hand-built ORM mip chain (`ormMips`) adds ~30 ms more on the
+// capture box, ~17 ms on the laptop, and only for the substances under
+// `MIP_AA_CEILING` — of the arena's twelve that is steel, iron and bronze, three
+// surfaces rather than twelve, which is why it fits at all. Mail and skin pay it
+// too, but on the first warrior rather than on the arena.
 //
 // If that has to come down the levers, in order, are: drop `hero` to the prop
 // resolution (a straight 4x on the three biggest), then halve the prop size,
@@ -71,6 +75,16 @@
 // `slopeVariance` folds what it removed into roughness, which is where relief
 // finer than a texel physically belongs. A recipe is free to tap as fine as it
 // likes; the pipeline is what keeps that honest.
+//
+// That rule holds for mip 0. Every coarser level has its own Nyquist and the same
+// disaster waiting behind it, and a GPU box filter honours neither: it averages
+// the normals — which is right — and leaves the roughness beside them alone,
+// which is not. Thirty mail rings inside one pixel are a rough metal, not a
+// polished one that happens to be small, and `art/shots/v4/portrait.png` is what
+// the difference looks like: the huscarl's coif came back as blue glitter beside
+// his face while the hauberk two hundred texels lower, at mip 0, read perfectly.
+// So `ormMips` builds the packed map's chain here rather than on the GPU, and each
+// level's roughness answers for the normals that level threw away. See `MIP_AA`.
 
 import * as THREE from "three";
 import type { QualitySettings } from "./quality";
@@ -707,6 +721,163 @@ function specularAA(roughness: number, variance: number): number {
 }
 
 /**
+ * How much of a mip level's lost normal detail becomes lobe width.
+ *
+ * `SPEC_AA` handles the band mip 0 cannot carry; this handles the band *every
+ * coarser level* cannot carry, which is far more of the frame. The measurement is
+ * free and exact: box-average the unit normals of a level's four children and the
+ * average comes out short, and how short is precisely how much they disagreed.
+ * Toksvig's identity turns that shortening back into a lobe.
+ *
+ * 1.0 is the textbook value and it is defensible — thirty mail rings in a pixel
+ * really do scatter like a rough metal. It is not what is used here, for the same
+ * reason `SPEC_AA` is not 2: `bump` exaggerates. Mail encodes its rings at 2.6,
+ * thatch its straws at 3.4, so the averaged normal is shorter than the substance's
+ * true normals would make it and the correction overshoots by roughly that factor.
+ * 0.7 is the hedge, and it is deliberately a hedge rather than a derivation: the
+ * exaggeration is per recipe and the right answer would be to fold `bump` in here,
+ * which cannot be calibrated without a capture per substance.
+ *
+ * What it buys, measured on the built chain: mail at mip 5 goes 0.39 → 0.72 and
+ * stops being thirty mirrors in a pixel; the arena floor, already at 0.88, moves
+ * 0.006 and keeps every bit of its wet sheen. The asymmetry is the whole point and
+ * it is the same asymmetry `specularAA` relies on — a lobe that is already broad
+ * cannot be broadened, and a mirror can only be a mirror if its neighbours agree.
+ */
+const MIP_AA = 0.7;
+
+/**
+ * Above this declared roughness a surface does not get a hand-built chain.
+ *
+ * Not a performance dodge dressed up as physics — though it is also that, and the
+ * numbers are in the header. The strongest correction this pass can make is at
+ * t = 0.6, which is the normal disagreement mail reaches five levels down, and at
+ * roughness 0.88 that correction is +0.033: eight byte levels on a substance that
+ * already scatters in every direction. That is inside the 0.055 bar `SPEC_AA`'s
+ * note sets for "a guard rail, not a re-grade", so paying 4/3 of a surface's texels
+ * to apply it would be paying for nothing. Everything above the line is the
+ * wool/thatch/oak/plank/granite/turf family, whose sparkle was mip 0's problem and
+ * is fixed there; everything below is the metals, the wet, the polished and the
+ * skin, which is exactly the set that turns to glitter when it is minified.
+ */
+const MIP_AA_CEILING = 0.75;
+
+/**
+ * Roughness for a level whose averaged normal has length `t`.
+ *
+ * Toksvig's formula is stated for a Blinn lobe, so the conversion in and out is
+ * α = sqrt(2/(s+2)) with α = roughness² — three's own convention. Straight-line
+ * algebra apart from one thing worth naming: `s` goes as 1/α⁴, so a polished
+ * surface has an enormous exponent and even a one-percent shortening collapses it.
+ * That sensitivity is not a bug in the formula, it is what a mirror is.
+ */
+function mipRoughness(roughness: number, t: number): number {
+  const shrink = 1 - MIP_AA * (1 - t);
+  // A level whose normals all agree returns its own roughness untouched, which is
+  // what makes this safe to run from level 0 down without a special case.
+  if (shrink > 0.9995) return roughness;
+  const a = Math.max(1e-4, roughness * roughness);
+  const s = 2 / (a * a) - 2;
+  const s2 = (shrink * s) / (shrink + s * (1 - shrink));
+  return clamp01(Math.sqrt(Math.sqrt(2 / (s2 + 2))));
+}
+
+/** One mip level of a `DataTexture`, in the shape three uploads. */
+interface MipLevel { data: Uint8Array; width: number; height: number }
+
+/**
+ * The packed occlusion/roughness/metalness chain, built on the CPU so the
+ * roughness of each level can answer for the normals that level averaged away.
+ *
+ * Occlusion and metalness are box-filtered, which is exactly what the GPU would
+ * have done to them — this pass is not trying to be a better filter, only an
+ * honest one in the one channel where linear filtering is wrong. The normals are
+ * averaged with the same box, so the chain agrees level for level with the
+ * automatic chain on the normal map beside it; that agreement is the reason this
+ * can be done for one texture and not the other.
+ *
+ * Runs in place over `ao`, `rough` and `metal` — a 2×2 box always writes to an
+ * index at or below the lowest index it reads, so the level below can be built
+ * over the level above without a second buffer. Only the three normal components
+ * need scratch, and they take the module's, so a hero surface adds 12 MB of
+ * reused arena rather than 12 MB of garbage.
+ */
+function ormMips(
+  size: number,
+  ao: Float32Array,
+  rough: Float32Array,
+  metal: Float32Array,
+  normal: Uint8Array,
+  /** False for a substance over `MIP_AA_CEILING`: pack the base level and stop. */
+  chain: boolean,
+): MipLevel[] {
+  const texels = size * size;
+  if (!chain) {
+    const data = new Uint8Array(texels * 4);
+    for (let i = 0; i < texels; i++) {
+      const o = i * 4;
+      data[o] = (clamp01(ao[i]) * 255) | 0;
+      data[o + 1] = (clamp01(rough[i]) * 255) | 0;
+      data[o + 2] = (clamp01(metal[i]) * 255) | 0;
+      data[o + 3] = 255;
+    }
+    return [{ data, width: size, height: size }];
+  }
+  const nx = scratch(2, texels);
+  const ny = scratch(3, texels);
+  const nz = scratch(4, texels);
+  for (let i = 0; i < texels; i++) {
+    const o = i * 4;
+    nx[i] = normal[o] / 127.5 - 1;
+    ny[i] = normal[o + 1] / 127.5 - 1;
+    nz[i] = normal[o + 2] / 127.5 - 1;
+  }
+
+  const levels: MipLevel[] = [];
+  let n = size;
+  for (;;) {
+    const count = n * n;
+    const data = new Uint8Array(count * 4);
+    for (let i = 0; i < count; i++) {
+      const o = i * 4;
+      const x = nx[i];
+      const y = ny[i];
+      const z = nz[i];
+      const t = Math.min(1, Math.sqrt(x * x + y * y + z * z));
+      data[o] = (clamp01(ao[i]) * 255) | 0;
+      data[o + 1] = (mipRoughness(clamp01(rough[i]), t) * 255) | 0;
+      data[o + 2] = (clamp01(metal[i]) * 255) | 0;
+      data[o + 3] = 255;
+    }
+    levels.push({ data, width: n, height: n });
+    if (n === 1) break;
+
+    const half = n >> 1;
+    for (let y = 0; y < half; y++) {
+      const r0 = (y * 2) * n;
+      const r1 = (y * 2 + 1) * n;
+      const dst = y * half;
+      for (let x = 0; x < half; x++) {
+        const a = r0 + x * 2;
+        const b = a + 1;
+        const c = r1 + x * 2;
+        const d = c + 1;
+        const j = dst + x;
+        ao[j] = (ao[a] + ao[b] + ao[c] + ao[d]) * 0.25;
+        rough[j] = (rough[a] + rough[b] + rough[c] + rough[d]) * 0.25;
+        metal[j] = (metal[a] + metal[b] + metal[c] + metal[d]) * 0.25;
+        // Not renormalised. The shortening *is* the measurement.
+        nx[j] = (nx[a] + nx[b] + nx[c] + nx[d]) * 0.25;
+        ny[j] = (ny[a] + ny[b] + ny[c] + ny[d]) * 0.25;
+        nz[j] = (nz[a] + nz[b] + nz[c] + nz[d]) * 0.25;
+      }
+    }
+    n = half;
+  }
+  return levels;
+}
+
+/**
  * Sobel normals. The gradient is scaled by `size` so a 256² and a 512² build of
  * the same recipe bump by the same amount — the height field is authored in UV,
  * so its per-texel slope halves every time the resolution doubles.
@@ -923,7 +1094,20 @@ function buildSteel(g: Gen): void {
     const nick = sampleCellId(bank.micro, u * 2, v * 2) > 0.88 ? smoothstep(0.18, 0, nickD) : 0;
     const tooth = sampleField(bank.grain, u * 8, v * 8);
 
-    h[i] = clamp01(0.78 - scratch * 0.14 - nick * 0.36 + (tooth - 0.5) * 0.03);
+    // A scratch is not geometry at this texel density and must not pretend to be.
+    // 260 lanes on a 512² map is 1.97 texels a lane, and the `fine` tap inside it
+    // runs at forty — so the scratch field was writing a per-texel coin flip into
+    // the *height*, `deriveNormal` was turning it into per-texel random tilt, and
+    // `bandLimit` could only attenuate content that is aliased across the whole
+    // spectrum rather than remove it. The visible bill came due one level down:
+    // steel's normals disagreed with their own neighbours everywhere, `ormMips`
+    // read that disagreement as relief and sanded the polish off every blade and
+    // helm in the frame — the pale, matte bowl in the middle panel of the head A/B.
+    // At 0.02 the lanes still catch the light as *shading*, and where a scratch
+    // physically belongs is where it still is: in the albedo, as a bright streak,
+    // and in the roughness, as scatter. Nicks stay — a nick is a cell field at ×2,
+    // 128 texels across, and it is real geometry that deserves a real normal.
+    h[i] = clamp01(0.78 - scratch * 0.02 - nick * 0.36 + (tooth - 0.5) * 0.03);
     mix(c, i, body, weld, weldT * 0.16);
     toward(c, i, bright, scratch * 0.4 + (tooth - 0.5) * 0.2);
     toward(c, i, nickCol, nick * 0.8);
@@ -2144,6 +2328,12 @@ function makeTexture(
   size: number,
   srgb: boolean,
   aniso: number,
+  /**
+   * A chain built by `ormMips`, level 0 first. three treats `mipmaps[0]` as the
+   * base level for a `DataTexture`, so the array is the whole pyramid or nothing;
+   * hand it a partial one and the sampler falls off the end into grey.
+   */
+  mips?: MipLevel[],
 ): THREE.DataTexture {
   const tex = new THREE.DataTexture(data, size, size);
   tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
@@ -2151,7 +2341,12 @@ function makeTexture(
   tex.wrapT = THREE.RepeatWrapping;
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.generateMipmaps = true;
+  if (mips) {
+    tex.mipmaps = mips;
+    tex.generateMipmaps = false;
+  } else {
+    tex.generateMipmaps = true;
+  }
   tex.anisotropy = aniso;
   tex.needsUpdate = true;
   return tex;
@@ -2254,8 +2449,16 @@ export function createTextureLibrary(
       bandLimit(rough, size, rough);
     }
 
+    // The packed map and, for the substances that need it, its whole pyramid —
+    // levels 1 and down decide their roughness from the normals they averaged, and
+    // this is the only place that has them. Consumes `ao`, `rough` and `gen.m`,
+    // which nothing below reads again.
+    const wantChain = recipe.roughness < MIP_AA_CEILING;
+    const ormChain = packOrm && ao && rough
+      ? ormMips(size, ao, rough, gen.m, normal, wantChain)
+      : null;
+
     const albedo = new Uint8Array(texels * 4);
-    const orm = packOrm ? new Uint8Array(texels * 4) : null;
     let mr = 0;
     let mg = 0;
     let mb = 0;
@@ -2279,18 +2482,14 @@ export function createTextureLibrary(
       mr += SRGB_TO_LINEAR[cr] * w;
       mg += SRGB_TO_LINEAR[cg] * w;
       mb += SRGB_TO_LINEAR[cb] * w;
-      if (orm && ao && rough) {
-        orm[o] = (ao[i] * 255) | 0;
-        orm[o + 1] = (clamp01(rough[i]) * 255) | 0;
-        orm[o + 2] = (clamp01(gen.m[i]) * 255) | 0;
-        orm[o + 3] = 255;
-      }
     }
     const norm = 1 / Math.max(1, weight);
 
     const mapTex = makeTexture(albedo, size, true, maxAniso);
     const normalTex = makeTexture(normal, size, false, maxAniso);
-    const ormTex = orm ? makeTexture(orm, size, false, maxAniso) : undefined;
+    const ormTex = ormChain
+      ? makeTexture(ormChain[0].data, size, false, maxAniso, ormChain.length > 1 ? ormChain : undefined)
+      : undefined;
     mapTex.name = `${name}:albedo`;
     normalTex.name = `${name}:normal`;
     if (ormTex) ormTex.name = `${name}:orm`;

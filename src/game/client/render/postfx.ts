@@ -13,12 +13,16 @@
 //                 reads brightness, so a darkened crevice does not bloom
 //   Bokeh         optional DoF, before bloom, so a defocused torch throws a
 //                 wide soft glow rather than a sharp disc that is then blurred
+//   Meter         reduces the scene to the mean and variance of log luminance,
+//                 ahead of bloom so what is measured is the scene and not the
+//                 glow; also leaves a low-frequency copy for local contrast
 //   Bloom         a generator, not a filter: it writes its own pyramid and
 //                 leaves the composer buffers untouched
-//   Grade         bloom composite + white balance + filmic curve + contrast /
-//                 chroma / split-tone + hurt + vignette + aberration + grain +
-//                 dither + sRGB, all in one pass, because none of those alone is
-//                 worth a round trip through a render target
+//   Grade         bloom composite + white balance + filmic curve + the metered
+//                 response + contrast / chroma / split-tone + hurt + vignette +
+//                 aberration + print black + grain + dither + sRGB, all in one
+//                 pass, because none of those alone is worth a round trip
+//                 through a render target
 //   SMAA / FXAA   last, because edge detection wants gamma-encoded luma
 //
 // Tone mapping is deliberately not left to the renderer. Scene materials skip
@@ -68,6 +72,104 @@
 // threshold, because raising the threshold then lowers the knee's floor with it.
 // `bloomKnee` is an absolute width for exactly that reason. Keep
 // `bloomThreshold - bloomKnee` above whatever sky.ts's horizon is carrying.
+//
+// ---------------------------------------------------------------------------
+// Units, and the bug that came of getting them wrong
+// ---------------------------------------------------------------------------
+//
+// `splitLow` / `splitHigh` and everything anchored to them — the split-tone
+// crossover, the midtone chroma bump, the chroma tilt's pivot — were measured off
+// the captures as code values and then applied to *display-linear* luma. Those are
+// not the same space, and the factor between them at the bottom of the range is
+// about three. 0.14 display-linear is code value 105; the dusk framings run a
+// median of 50 and a 90th percentile of 100. So the entire crossover sat above the
+// top decile of every frame in the game: nothing ever reached the highlight tint,
+// the whole picture got a flat multiply by `shadowTint`, and the stage the comments
+// below describe as "the one that legitimately stretches the histogram" was
+// stretching nothing. The last stand had it worse — with `chromaTilt` at +0.45 and
+// `clamp(q,-1,1)` pinned at -1 across the frame, its authored saturation of 1.02
+// was being rendered at 0.63, which is most of why it came back as a washed
+// apricot instead of the hot-and-desperate look its numbers describe.
+//
+// So the tonal anchor is now read in the frame's own display code space (the sRGB
+// OETF, `encode1` below), which is where the numbers were measured and what a
+// human means by "shadows" and "midtones". The authored values did not change; the
+// space they are compared in did. Same for `shadowLift`, which used to be a
+// display-linear floor: 0.018 of blue is code value 36, and in a night framing the
+// darkest quarter of the frame arrives at 0.0025, so the lift was seven times the
+// signal it sat on and two shadows a genuine four stops apart came out three code
+// values apart. It is now stated and applied in code values, after the encode,
+// for the same reason the grain already is.
+//
+// ---------------------------------------------------------------------------
+// The metered response
+// ---------------------------------------------------------------------------
+//
+// One fixed transform cannot serve every framing this game ships. `white` is
+// highlight latitude bought for the wides — the dusk horizon really does arrive at
+// 4.4 linear units and really does need seven and a half of white above it — but
+// the close front-on framings look *away* from the sun and carry no fire, so the
+// brightest thing in frame is a helm at half a unit. Measured over the v4
+// captures: the sun-side wides use a +/-1 sigma band 84 code values wide and score
+// 15 of 16 luma buckets, while `portrait` and `stance` use 43-48 and score 7. Same
+// curve, same scene, a factor of two in how much of the range the frame occupies.
+// Lowering `white` for everyone would fix those two and clip the other six.
+//
+// So the grade meters the frame and responds to it. `MeterPass` reduces the scene
+// buffer to the mean and variance of log luminance — the classic pair, and the
+// only two numbers needed: the mean gives the frame's own pivot, the variance
+// gives how many stops it spans. Both are pushed through this look's own curve to
+// see where the frame's +/-1 sigma band *lands* in code values, and the shortfall
+// against `adaptBand` is made up by turning contrast about that pivot.
+//
+// Two things make this a curve rather than a lift, which matters because a lift is
+// how a night scene turns into grey haze:
+//
+//   - the stretch is two power laws meeting at the pivot, so display black and
+//     display white are both fixed points. The frame gains range at both ends
+//     instead of sliding up. `adaptLift` is the one dial that deliberately moves
+//     the pivot, and it is small.
+//   - `clarity` adds local contrast at dodge-and-burn scale (a 32-pixel radius,
+//     off the same reduction chain's fourth mip, so it costs one texture tap).
+//     That raises the frame's *effective* spread without touching its mean, which
+//     is the only way to give a subject highlight structure the render did not put
+//     there: a brow, a cheekbone, a fold of wool and a mail edge are all
+//     mid-frequency, and the frame is short of exactly that.
+//
+// Measured over the recovered scene HDR of the v4 captures: portrait 7 -> 10
+// buckets, stance 7 -> 10, laststand 8 -> 9, arena 11 -> 13, closeup 11 -> 12,
+// brawl 14 -> 14, duel 15 -> 15, lineup 13 -> 16, with mean luma moving by under
+// three code values on any of them. The wides come out untouched because their
+// band already meets `adaptBand` and the stretch resolves to 1.0 — the response
+// is the identity for a frame that does not need it, which is the property that
+// lets it be tuned for the night framings without costing the daylight ones.
+//
+// ---------------------------------------------------------------------------
+// What is left of the sepia, and where it lives now
+// ---------------------------------------------------------------------------
+//
+// Three warm multiplies were suspected of stacking. Traced, only one of them is a
+// grade problem and it is fixed above. In detail:
+//
+//   - sky.ts's `sunTint` is [1, 0.98, 0.95], near enough neutral to ignore; the
+//     horizon's ember is single-scattering physics, not a tint.
+//   - the near air (`mistBeam`, `mistAlbedo`) and the far-sky term paint the
+//     *sun-facing* half of a wide frame with the horizon's own radiance. This is
+//     why `arena` and `lineup` still resolve their left third — palisade, huts,
+//     treeline, soil — to one orange while their right and foreground now read as
+//     green turf and brown timber. That is directional, it is in sky.ts, and no
+//     grade can undo it: those surfaces genuinely have the beam as nearly all of
+//     their illuminant, so their albedo ratios have almost no signal left.
+//   - `balance` divides the illuminant out and is doing its job.
+//
+// What the grade can still add is the part `saturation` cannot: chroma expansion
+// is isotropic, so it pushes just as hard *along* the illuminant axis as across
+// it, and along that axis is where the sepia is. `chromaOpponent` expands only the
+// component orthogonal to the illuminant, which is exactly where wood, turf,
+// stone, iron and dyed wool differ from one another. Measured on the dusk
+// illuminant: weathered oak's chroma lies dead on the warm axis and gains nothing,
+// wet turf has 85% of its chroma across it and gains nearly all of the expansion.
+// Turf separates from timber without either becoming more orange.
 
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -128,12 +230,26 @@ export interface GradeLook {
   pivot: number;
   saturation: number;
   /**
-   * Extra chroma in the midtones specifically, peaking at half display white and
-   * falling to nothing at both ends. The midtones are where material identity
-   * lives; the toe is where grain lives and the shoulder is where the crosstalk
-   * is deliberately bleaching fire, and neither wants more saturation.
+   * Extra chroma in the midtones specifically, peaking at the centre of the split
+   * crossover and falling to nothing at both ends. The midtones are where material
+   * identity lives; the toe is where grain lives and the shoulder is where the
+   * crosstalk is deliberately bleaching fire, and neither wants more saturation.
    */
   chromaMid: number;
+  /**
+   * Chroma expansion applied *only* to the component orthogonal to the illuminant
+   * axis, on top of `saturation`. This is the separation dial that `saturation`
+   * cannot be: an isotropic expansion pushes as hard along the key's own hue as
+   * across it, and along it is where every surface in an arena lit by one warm
+   * source already lies. Weathered oak under this dusk sits dead on that axis and
+   * gains nothing here; wet turf has 85% of its chroma across it and gains nearly
+   * all of the expansion. So timber, turf, stone, iron and dyed wool move apart
+   * from each other without any of them moving further toward the key's hue.
+   *
+   * Applied before the gamut guard, so an expansion that would drive a channel
+   * negative eases back to the edge of the gamut with everything else.
+   */
+  chromaOpponent: number;
   /**
    * Tilts chroma across the crossover: positive puts colour in the highlights and
    * takes it out of the shadows, negative does the reverse. Dusk sits near zero
@@ -150,23 +266,74 @@ export interface GradeLook {
   /** How much of that split is dialled in, 0..1. */
   splitTone: number;
   /**
-   * Display luma where the split-tone finishes being `shadowTint`, and where it
-   * finishes becoming `highlightTint`. The gap between them is the crossover, and
-   * it has to be *narrower* than the frame's tonal range or the split cancels out
-   * exactly where the picture lives: a ramp running the full 0..0.85 leaves every
-   * midtone sitting halfway between the two tints, which averages to neutral and
-   * throws away the complementary contrast the split exists to create.
+   * The look's tonal anchor, in **display code values** (0..1 of the sRGB-encoded
+   * frame, so 0.14 is code 36) — the space these were measured in and the space a
+   * colourist means by "shadows" and "highlights". Below `splitLow` the split-tone
+   * is all `shadowTint`; above `splitHigh` it is all `highlightTint`; and the pair
+   * also centres the midtone chroma bump and pivots the chroma tilt, so "where
+   * this picture lives" is stated once.
+   *
+   * The gap has to be *narrower* than the frame's tonal range or the split cancels
+   * out exactly where the picture is: a ramp running the full 0..0.85 leaves every
+   * midtone halfway between the two tints, which averages to neutral and throws
+   * away the complementary contrast the split exists to create. It also has to be
+   * in the right units — see the header. Applied to display-*linear* luma, as it
+   * was through v4, this pair sits above the 90th percentile of every framing in
+   * the game and the split degenerates into a flat `shadowTint` multiply.
    */
   splitLow: number;
   splitHigh: number;
   /**
-   * Display-referred floor, per channel, faded out by the square of the pixel's
-   * own value. A print has a black that is not zero and a dusk frame has no true
-   * black in it either — the darkest thing on the field is still lit by the sky.
-   * It is also where a mood keeps its shadows once the curve has taken their
-   * chroma: cool for dusk, ash for the last stand.
+   * Print black, per channel, in **display code values**, faded by the square of
+   * the pixel's encoded luma and added after the sRGB encode. A print has a black
+   * that is not zero and a dusk frame has no true black in it either — the darkest
+   * thing on the field is still lit by the sky. It is also where a mood keeps its
+   * shadows once the curve has taken their chroma: cool for dusk, cold soot for the
+   * last stand.
+   *
+   * Post-encode, and that is the whole difference between a print black and a
+   * crushed frame. In display-linear the same floor is enormous relative to the
+   * signal beneath it — 0.018 of blue is code value 36, while the darkest quarter
+   * of a night framing arrives at 0.0025 — so it buried four stops of shadow
+   * separation under a constant and cost the frame its bottom two luma buckets.
+   * In code values a 6-code floor raises the black by 6 codes and leaves every
+   * difference above it intact.
    */
   shadowLift: Rgb;
+  /**
+   * Target width of the frame's own +/-1 sigma band, in display code values, that
+   * the metered response stretches toward. Measured off the framings this look was
+   * authored on: the sun-side wides land at 0.33 and score 15 of 16 luma buckets,
+   * so a look that wants to match them asks for about that. Raising it asks every
+   * framing for more contrast, which is why the last stand asks for more.
+   */
+  adaptBand: number;
+  /**
+   * How much of the shortfall against `adaptBand` is actually corrected, 0..1.
+   * Deliberately partial for the same reason `balanceStrength` is: a fully
+   * normalised frame has had its own character taken away, and how much range a
+   * framing has is part of that character.
+   */
+  adapt: number;
+  /** Ceiling on the stretch. A frame with almost no range must not be forced. */
+  adaptCeiling: number;
+  /**
+   * Share of the stretch spent raising the pivot rather than only turning about
+   * it, 0..1. At 0 the response is pure contrast and the frame's mean does not
+   * move, which is what keeps a night framing dark; every point above that is a
+   * deliberate brightening, and it is the dial to reach for last.
+   */
+  adaptLift: number;
+  /**
+   * Local contrast at dodge-and-burn scale — a 32-pixel radius, so it acts on the
+   * band a brow, a cheekbone, a fold of wool or a mail edge occupy and not on
+   * texture grain. This is the only tool the grade has for putting highlight
+   * structure on a subject the render lit flatly, and it raises the frame's
+   * effective spread without moving its mean.
+   */
+  clarity: number;
+  /** How much the metered stretch scales `clarity`. A frame that needs range needs detail. */
+  clarityAdapt: number;
   bloomStrength: number;
   /** Linear radiance a pixel has to beat before it blooms at all. */
   bloomThreshold: number;
@@ -312,6 +479,13 @@ const DUSK: GradeLook = {
   saturation: 1.24,
   chromaMid: 0.22,
   chromaTilt: -0.06,
+  // The separation dial. Against the dusk illuminant [1, 0.82, 0.62] the
+  // orthogonal direction is roughly green-vs-magenta, which is where turf, iron and
+  // dyed wool differ from timber and thatch; timber's own chroma lies on the warm
+  // axis and is untouched. A fifth again of that component is enough for the turf
+  // in `lineup` to read as turf; much past a quarter and the red on a shield starts
+  // to walk toward crimson.
+  chromaOpponent: 0.22,
   // Pushed apart from v2's [0.8, 0.93, 1.22] / [1.1, 1.0, 0.84]. With the
   // illuminant divided out these no longer have to fight a frame that is already
   // orange everywhere, so the split can be what gives dusk its depth: the sky's
@@ -322,15 +496,22 @@ const DUSK: GradeLook = {
   shadowTint: [0.74, 0.9, 1.28],
   highlightTint: [1.17, 1.02, 0.8],
   splitTone: 0.62,
-  // Straddling the frame's own interquartile range, which measures at 0.21 to
-  // 0.33 of display luma across the dusk captures, median 0.26. v2 ramped
-  // 0.0 -> 0.85, so every one of those midtones landed at the midpoint of the two
-  // tints — and the midpoint of a cool tint and a warm one is grey. Narrowed to
-  // this, the same two tints put a quarter of the frame decisively cool and a
-  // quarter decisively warm.
+  // Straddling the frame's own interquartile range, which measures at 0.16 to 0.35
+  // of display *code value* across the eight dusk captures, median 0.20 to 0.26.
+  // v2 ramped 0.0 -> 0.85, so every one of those midtones landed at the midpoint of
+  // the two tints — and the midpoint of a cool tint and a warm one is grey.
+  // Narrowed to this, the same two tints put a quarter of the frame decisively cool
+  // and a quarter decisively warm. Unchanged from v4 in value; the fix was that the
+  // shader now compares them against the encoded luma they were measured from
+  // rather than against display-linear luma, which is three times smaller down
+  // here and put the whole crossover off the top of every frame.
   splitLow: 0.14,
   splitHigh: 0.42,
-  shadowLift: [0.004, 0.008, 0.018],
+  // Code values now, not display-linear: a floor of 3 / 6 / 13 out of 255, cool,
+  // which is about what a good black-and-white print holds. The same *intent* as
+  // v4's [0.004, 0.008, 0.018] and roughly the same visible black, except it no
+  // longer sits on top of the shadow detail — see the field docs.
+  shadowLift: [0.012, 0.022, 0.05],
   // A dusk sky is genuinely bright — 4.4 linear at the horizon, brighter than
   // any flame the arena used to carry — so a threshold below it blooms the sky
   // itself, and the pyramid then smears that across every pixel in frame. 1.35
@@ -373,6 +554,24 @@ const DUSK: GradeLook = {
   aberration: 0.0035,
   grain: 0.018,
   aoIntensity: 1.0,
+  // 0.32 is what `duel` and `lineup` measure, and those are the two framings this
+  // whole look was tuned against — so asking for their band is asking every other
+  // framing to be graded the way the good ones already are, and it makes the
+  // response an exact no-op on them rather than something that has to be held back.
+  adaptBand: 0.32,
+  // 0.85 of the shortfall. The last sixth is left on the table on purpose: the
+  // close night framings genuinely do have less range than a shot with a burning
+  // horizon in it, and a fully normalised set of captures would all read the same.
+  adapt: 0.85,
+  // Portrait needs 1.7 and stance 1.76. The ceiling is there for a framing with its
+  // face in a wall, where the honest answer is a dark frame and not a forced one.
+  adaptCeiling: 1.9,
+  // Low, and it is the number to be suspicious of. At 0.22 the night framings come
+  // up by two code values of mean luma and gain three luma buckets; at 0.6 they
+  // gain nothing further and start to read as an overcast afternoon.
+  adaptLift: 0.22,
+  clarity: 0.14,
+  clarityAdapt: 0.9,
 };
 
 // The last stand is a different response, not a red filter. Half the highlight
@@ -426,7 +625,17 @@ const LAST_STAND: GradeLook = {
   // then tilted toward the highlights, the same number separates materials.
   saturation: 1.02,
   chromaMid: 0.2,
+  // With the tilt's pivot finally landing inside the frame instead of a stop above
+  // it, this is the number that does the work: fire-lit surfaces go hotter and more
+  // saturated than anything in dusk while everything the fire misses falls to grey
+  // soot. Through v4 the pivot was off the top of the frame, `clamp(q,-1,1)` was
+  // pinned at -1 everywhere, and this line was silently rendering the whole look at
+  // 0.63 saturation — the flat apricot in the captures was this, not the tint.
   chromaTilt: 0.45,
+  // Lower than dusk's, because this look reinstates its warmth hard and on purpose
+  // through `highlightTint`; expanding across the illuminant as well would start
+  // arguing with it. Enough to keep the turf and the mail off the timber.
+  chromaOpponent: 0.18,
   // Cold, and almost neutral — soot and smoke, not blue night. This is the single
   // biggest change in this look: v2's [1.06, 0.72, 0.6] made the shadows warmer
   // than the highlights were saturated, which is what welded the frame into one
@@ -442,13 +651,13 @@ const LAST_STAND: GradeLook = {
   // same two numbers decide where colour stops and grey starts.
   splitLow: 0.1,
   splitHigh: 0.34,
-  // A cold soot floor rather than a warm one, and only a little above dusk's. The
-  // "no true black" argument still holds and holds harder here, because the air
-  // carries three times the aerosol; what it does not justify is that floor being
-  // the same colour as the key. Kept modest because the floor compresses the
-  // bottom of the histogram, and this is the preset with the least tonal room to
-  // spare.
-  shadowLift: [0.01, 0.011, 0.016],
+  // A cold soot floor rather than a warm one, and higher than dusk's — 8 / 8 / 11
+  // code values. The "no true black" argument still holds and holds harder here,
+  // because the air carries three times the aerosol; what it does not justify is
+  // that floor being the same colour as the key. It can be this large now only
+  // because it lands after the encode: the same amount in display-linear was what
+  // left this preset with the least tonal room in the set.
+  shadowLift: [0.03, 0.032, 0.045],
   // Higher than dusk's, not lower: the last stand's air carries three times the
   // aerosol and its sun is hotter, so the sky it has to clear is brighter. At
   // 1.6 the entire pall was over threshold and the frame came back as one flat
@@ -467,6 +676,20 @@ const LAST_STAND: GradeLook = {
   aberration: 0.011,
   grain: 0.052,
   aoIntensity: 1.3,
+  // Wider than dusk's and corrected in full, which is this look asking for more
+  // contrast than dusk rather than less — on brief, since the whole idea is that
+  // the midtones collapse and only what the fire reaches reads. It is also the
+  // preset with the least range in the scene to start with: its own band measures
+  // 64 code values against the wides' 84, so without this it sits on the bar's
+  // eight-bucket floor with nothing to spare.
+  adaptBand: 0.36,
+  adapt: 1.0,
+  adaptCeiling: 2.0,
+  // Half dusk's. The last stand should be a dark frame lit by fire, so the response
+  // is allowed to give it contrast and almost no brightness.
+  adaptLift: 0.15,
+  clarity: 0.14,
+  clarityAdapt: 0.9,
 };
 
 /** Matches sky.ts's mood blend, so the air and the grade move together. */
@@ -487,6 +710,7 @@ function lerpLook(a: GradeLook, b: GradeLook, t: number, out: GradeLook): GradeL
   out.saturation = m(a.saturation, b.saturation);
   out.chromaMid = m(a.chromaMid, b.chromaMid);
   out.chromaTilt = m(a.chromaTilt, b.chromaTilt);
+  out.chromaOpponent = m(a.chromaOpponent, b.chromaOpponent);
   out.shadowTint = mc(a.shadowTint, b.shadowTint);
   out.highlightTint = mc(a.highlightTint, b.highlightTint);
   out.splitTone = m(a.splitTone, b.splitTone);
@@ -501,6 +725,12 @@ function lerpLook(a: GradeLook, b: GradeLook, t: number, out: GradeLook): GradeL
   out.aberration = m(a.aberration, b.aberration);
   out.grain = m(a.grain, b.grain);
   out.aoIntensity = m(a.aoIntensity, b.aoIntensity);
+  out.adaptBand = m(a.adaptBand, b.adaptBand);
+  out.adapt = m(a.adapt, b.adapt);
+  out.adaptCeiling = m(a.adaptCeiling, b.adaptCeiling);
+  out.adaptLift = m(a.adaptLift, b.adaptLift);
+  out.clarity = m(a.clarity, b.clarity);
+  out.clarityAdapt = m(a.clarityAdapt, b.clarityAdapt);
   return out;
 }
 
@@ -514,6 +744,50 @@ void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
 }`;
+
+const LUMA_VEC = "vec3( 0.2126, 0.7152, 0.0722 )";
+
+/**
+ * A number spelled as a GLSL float literal.
+ *
+ * Interpolating a JS number into shader source is a quiet trap: `${16}` is `16`,
+ * which GLSL ES reads as an *int*, and there is no implicit conversion in argument
+ * position — `clamp( x, 0.001, 16 )` fails to compile with "no matching overloaded
+ * function", at runtime, on whichever device happens to run it first.
+ */
+function glslFloat(v: number): string {
+  return Number.isInteger(v) ? v.toFixed(1) : String(v);
+}
+
+// The tone transfer, shared verbatim between the grade and the 1x1 pass that
+// derives the metered response, because the two have to agree exactly: the meter's
+// job is to work out where the frame's own tonal band *lands* under this look's
+// curve, and it can only do that by evaluating the same curve.
+//
+// `encode1` / `decode1` are the sRGB transfer function and its inverse, not a 2.2
+// gamma. The difference is the linear segment under 0.0031, and it is not cosmetic:
+// a stretch written against a pure power over-darkens the bottom stop by a factor
+// of two, which turns a legible night frame into a black mass with a histogram
+// spike at the print black. Measured, that mistake cost portrait 12 code values off
+// its mean and put 16% of the frame in the bottom bucket.
+const GLSL_TONE = /* glsl */ `
+float filmic1( float x ) {
+  const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
+  return ( ( x * ( A * x + C * B ) + D * E ) / ( x * ( A * x + B ) + D * F ) ) - E / F;
+}
+float encode1( float v ) {
+  return v <= 0.0031308 ? v * 12.92 : 1.055 * pow( max( v, 0.0 ), 0.41666 ) - 0.055;
+}
+float decode1( float c ) {
+  return c <= 0.04045 ? c / 12.92 : pow( max( ( c + 0.055 ) / 1.055, 0.0 ), 2.4 );
+}
+// Scene radiance -> this look's display code value. Exposure, the contrast power
+// and the normalised filmic curve, in that order, exactly as the grade runs them.
+float sceneToCode( float L ) {
+  float x = uPivot * pow( max( L * uExposure, 1e-5 ) / uPivot, uContrast );
+  return encode1( clamp( filmic1( x ) * uWhiteScale, 0.0, 1.0 ) );
+}
+`;
 
 // The bright pass measures brightness on the strongest channel rather than on
 // Rec.709 luma. A rune at linear (0.04, 0.59, 1.68) is plainly glowing, and luma
@@ -758,6 +1032,309 @@ function setTexel(v: THREE.Vector2, width: number, height: number): void {
 }
 
 // ---------------------------------------------------------------------------
+// Metering
+// ---------------------------------------------------------------------------
+
+/**
+ * Stops added to log2 luminance before it is squared, so the second moment stays
+ * in a range a half-float can resolve.
+ *
+ * The reduction targets are half-float like everything else in the chain, and a
+ * variance is a difference of two nearly equal numbers. Raw log2 radiance runs to
+ * -10, so the squared term reaches 100, where half-float steps by 0.06 — against a
+ * variance of about 1.1 that is a 5% error in the sigma the whole response hangs
+ * off. Centred on this reference stop the squared term sits near 1.2 and resolves
+ * to a thousandth. 3.0 is chosen to be roughly the arena's own key (2^-3 = 0.125
+ * linear), so it is the natural place to measure from as well as the safe one.
+ */
+const METER_LOG_MID = 3.0;
+
+/** Clamp on luminance before the log, so an unlit pixel and an infinity both behave. */
+const METER_FLOOR = 1e-3, METER_CEIL = 16.0;
+
+/**
+ * Which mip of the reduction carries the low-frequency copy the grade uses for
+ * local contrast. The chain seeds at quarter resolution, so mip 3 is 1/32 of the
+ * frame — a 32-pixel radius at 1080p.
+ *
+ * That radius is the whole point and it is not a free parameter. Finer than about
+ * 16 pixels and the term acts on texture rather than on form, and the capture
+ * harness's own metric averages 10x10 blocks so none of it would survive to be
+ * scored either. Coarser than about 64 and it stops being local contrast and starts
+ * being a second vignette. A brow, a cheekbone, a fold of wool and the edge of a
+ * mail sleeve at portrait framing are all in between.
+ */
+const METER_BLUR_MIP = 3;
+
+/** Time constant of the temporal adaptation, in seconds. */
+const METER_TAU = 0.55;
+
+// R = log2 luminance about the reference stop, G = its square, B = the luminance
+// itself for the low-frequency copy. Seeded at quarter resolution with four
+// bilinear taps, so each tap is already a 2x2 average and the four together cover
+// the destination texel's whole 4x4 footprint.
+//
+// The log is therefore taken of a 4x4 average rather than per pixel, which by
+// Jensen biases the key up and the variance down a little at that one scale. That
+// is measured and accounted for in the tuning rather than corrected: it costs a
+// quarter of the bandwidth a full-resolution seed would, and a metering statistic
+// does not need to be exact, it needs to be stable.
+const METER_SEED = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform vec2 uTexel;
+varying vec2 vUv;
+void main() {
+  vec2 o = uTexel * 0.25;
+  vec3 c = texture2D( tDiffuse, vUv + vec2( -o.x, -o.y ) ).rgb;
+  c += texture2D( tDiffuse, vUv + vec2(  o.x, -o.y ) ).rgb;
+  c += texture2D( tDiffuse, vUv + vec2( -o.x,  o.y ) ).rgb;
+  c += texture2D( tDiffuse, vUv + vec2(  o.x,  o.y ) ).rgb;
+  float L = clamp( dot( c * 0.25, ${LUMA_VEC} ), ${glslFloat(METER_FLOOR)}, ${glslFloat(METER_CEIL)} );
+  float d = log2( L ) + ${glslFloat(METER_LOG_MID)};
+  gl_FragColor = vec4( d, d * d, L, 1.0 );
+}`;
+
+// Plain box average of all channels. Four bilinear taps rather than one, because a
+// single tap is only the exact 2x2 mean when the source is exactly twice the
+// destination, and half these levels are odd-sized — a 225-row buffer halved drops
+// whole rows out of the average otherwise, and the global mean is what the response
+// is anchored on.
+const METER_DOWN = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform vec2 uTexel;
+varying vec2 vUv;
+void main() {
+  vec2 o = uTexel * 0.25;
+  vec4 s = texture2D( tDiffuse, vUv + vec2( -o.x, -o.y ) );
+  s += texture2D( tDiffuse, vUv + vec2(  o.x, -o.y ) );
+  s += texture2D( tDiffuse, vUv + vec2( -o.x,  o.y ) );
+  s += texture2D( tDiffuse, vUv + vec2(  o.x,  o.y ) );
+  gl_FragColor = s * 0.25;
+}`;
+
+// One pixel, and it does all the arithmetic the grade would otherwise repeat two
+// million times. Output is (smoothed mean, smoothed second moment, stretch, pivot):
+// the first two so the smoothing has somewhere to live, the last two ready for the
+// grade to use with nothing but a multiply-add.
+//
+// Smoothing happens on the moments rather than on the derived stretch, because the
+// moments are physical and the derivation is not linear in them. It exists because
+// the bonfire flickers: without it the frame's contrast breathes at fire frequency,
+// which reads as the whole picture pumping.
+const METER_DERIVE = /* glsl */ `
+uniform sampler2D tCur;
+uniform sampler2D tPrev;
+uniform float uRate;
+uniform float uExposure;
+uniform float uWhiteScale;
+uniform float uContrast;
+uniform float uPivot;
+uniform float uBand;
+uniform float uAdapt;
+uniform float uCeiling;
+varying vec2 vUv;
+${GLSL_TONE}
+void main() {
+  vec2 cur = texture2D( tCur, vec2( 0.5 ) ).rg;
+  // Branch rather than mix at full rate, and the branch is on a uniform so it costs
+  // nothing: on the first frame after construction or a resize there is no history,
+  // and mix(x, y, 1.0) is x*0.0 + y*1.0 — which is a NaN if x ever is one, and the
+  // NaN would then be latched into the history for the life of the frame buffer.
+  vec2 sm = uRate >= 1.0 ? cur : mix( texture2D( tPrev, vec2( 0.5 ) ).rg, cur, uRate );
+
+  float sigma = sqrt( max( sm.y - sm.x * sm.x, 0.0 ) );
+  float key = exp2( sm.x - ${glslFloat(METER_LOG_MID)} );
+  float spread = exp2( sigma );
+
+  // Where the frame's own +/-1 sigma band lands once this look's curve has had it.
+  // The pivot is clamped well inside the range because the response divides by it
+  // and by its complement: a frame that is genuinely almost black would otherwise
+  // ask for a pivot of nothing and get an infinite slope out of it.
+  float pivot = clamp( sceneToCode( key ), 0.02, 0.6 );
+  float band = max( sceneToCode( key * spread ) - sceneToCode( key / spread ), 1e-3 );
+
+  float stretch = 1.0 + ( clamp( uBand / band, 1.0, uCeiling ) - 1.0 ) * uAdapt;
+  gl_FragColor = vec4( sm, stretch, pivot );
+}`;
+
+function meterTarget(width: number, height: number): THREE.WebGLRenderTarget {
+  const rt = new THREE.WebGLRenderTarget(Math.max(1, width), Math.max(1, height), {
+    type: THREE.HalfFloatType,
+    format: THREE.RGBAFormat,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    depthBuffer: false,
+    stencilBuffer: false,
+  });
+  rt.texture.generateMipmaps = false;
+  return rt;
+}
+
+/**
+ * Reduces the scene buffer to the two numbers the response needs — the mean and
+ * variance of log luminance — and keeps a low-frequency copy on the way down.
+ *
+ * A generator like BloomChain: it reads the composer's colour buffer, writes only
+ * private targets and hands nothing back, so it costs no buffer swap. It has to sit
+ * ahead of bloom, because what should be metered is the scene and not the glow the
+ * grade is about to add to it.
+ *
+ * Cost is dominated by the seed, which reads a quarter of the frame with four taps
+ * — measured at a third of one full-screen pass on the capture box. Everything
+ * below 200x113 is rounding error, and the derive is a single pixel.
+ */
+class MeterPass extends Pass {
+  /**
+   * The uniform the grade samples. Shared by reference rather than copied, because
+   * the 1x1 result ping-pongs and the grade has to follow it without a hook between
+   * the two passes.
+   */
+  readonly result: THREE.IUniform = { value: null };
+  /** The low-frequency copy, for local contrast. Stable identity across resizes. */
+  readonly lowFreq: THREE.IUniform = { value: null };
+
+  private readonly mips: THREE.WebGLRenderTarget[] = [];
+  private readonly adapt: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget];
+  private levels = 1;
+  private write = 0;
+  /** Forces full adoption while the meter has no history — first frame, resize. */
+  private warm = true;
+  private readonly seed: THREE.ShaderMaterial;
+  private readonly down: THREE.ShaderMaterial;
+  private readonly derive: THREE.ShaderMaterial;
+  private readonly quad: FullScreenQuad;
+
+  constructor(width: number, height: number) {
+    super();
+    this.needsSwap = false;
+
+    const mat = (fragmentShader: string, uniforms: Record<string, THREE.IUniform>) =>
+      new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: FS_VERT,
+        fragmentShader,
+        depthTest: false,
+        depthWrite: false,
+      });
+
+    this.seed = mat(METER_SEED, { tDiffuse: { value: null }, uTexel: { value: new THREE.Vector2() } });
+    this.down = mat(METER_DOWN, { tDiffuse: { value: null }, uTexel: { value: new THREE.Vector2() } });
+    this.derive = mat(METER_DERIVE, {
+      tCur: { value: null },
+      tPrev: { value: null },
+      uRate: { value: 1 },
+      uExposure: { value: DUSK.exposure },
+      uWhiteScale: { value: whiteScale(DUSK.white) },
+      uContrast: { value: 1 + DUSK.contrast },
+      uPivot: { value: DUSK.pivot },
+      uBand: { value: DUSK.adaptBand },
+      uAdapt: { value: DUSK.adapt },
+      uCeiling: { value: DUSK.adaptCeiling },
+    });
+
+    this.adapt = [meterTarget(1, 1), meterTarget(1, 1)];
+    this.quad = new FullScreenQuad(this.seed);
+    this.setSize(width, height);
+  }
+
+  /**
+   * The look's half of the derivation, pushed every frame like the grade's. The
+   * first four have to match the grade's own uniforms exactly — the meter is asking
+   * "where does this frame land under that curve", and it cannot answer with a
+   * different curve.
+   */
+  setResponse(r: {
+    exposure: number; white: number; contrast: number; pivot: number;
+    band: number; adapt: number; ceiling: number;
+  }): void {
+    const u = this.derive.uniforms;
+    u.uExposure.value = r.exposure;
+    u.uWhiteScale.value = whiteScale(r.white);
+    u.uContrast.value = 1 + r.contrast;
+    u.uPivot.value = Math.max(0.02, r.pivot);
+    u.uBand.value = Math.max(0.02, r.band);
+    u.uAdapt.value = THREE.MathUtils.clamp(r.adapt, 0, 1);
+    u.uCeiling.value = Math.max(1, r.ceiling);
+  }
+
+  /** Seconds of real time since the last frame. Drives the adaptation rate only. */
+  setDelta(dt: number): void {
+    // Exponential approach to the measured value, so the rate is frame-rate
+    // independent. Full adoption while warming: a capture renders sixty frames and
+    // then screenshots, and a mood cut has no history worth blending from.
+    this.derive.uniforms.uRate.value = this.warm ? 1 : 1 - Math.exp(-Math.max(dt, 0) / METER_TAU);
+  }
+
+  /** Drops the adaptation history, so the next frame adopts what it measures. */
+  reset(): void {
+    this.warm = true;
+  }
+
+  setSize(width: number, height: number): void {
+    let w = Math.max(1, Math.round(width / 4));
+    let h = Math.max(1, Math.round(height / 4));
+    const dims: [number, number][] = [[w, h]];
+    // Always run the chain all the way to a single texel: the derive reads the last
+    // level at the centre of the texture, which is only the frame's mean if that
+    // level is one pixel.
+    while (w > 1 || h > 1) {
+      w = Math.max(1, Math.round(w / 2));
+      h = Math.max(1, Math.round(h / 2));
+      dims.push([w, h]);
+    }
+    this.levels = dims.length;
+    for (let i = 0; i < this.levels; i++) {
+      if (this.mips[i]) this.mips[i].setSize(dims[i][0], dims[i][1]);
+      else this.mips[i] = meterTarget(dims[i][0], dims[i][1]);
+    }
+    this.lowFreq.value = this.mips[Math.min(METER_BLUR_MIP, this.levels - 1)].texture;
+    this.warm = true;
+  }
+
+  private blit(target: THREE.WebGLRenderTarget, material: THREE.ShaderMaterial, renderer: THREE.WebGLRenderer): void {
+    this.quad.material = material;
+    renderer.setRenderTarget(target);
+    this.quad.render(renderer);
+  }
+
+  render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {
+    void writeBuffer; // private targets; nothing is handed back
+    const autoClear = renderer.autoClear;
+    renderer.autoClear = false;
+
+    this.seed.uniforms.tDiffuse.value = readBuffer.texture;
+    setTexel(this.seed.uniforms.uTexel.value as THREE.Vector2, this.mips[0].width, this.mips[0].height);
+    this.blit(this.mips[0], this.seed, renderer);
+
+    for (let i = 1; i < this.levels; i++) {
+      this.down.uniforms.tDiffuse.value = this.mips[i - 1].texture;
+      setTexel(this.down.uniforms.uTexel.value as THREE.Vector2, this.mips[i].width, this.mips[i].height);
+      this.blit(this.mips[i], this.down, renderer);
+    }
+
+    this.write ^= 1;
+    this.derive.uniforms.tCur.value = this.mips[this.levels - 1].texture;
+    this.derive.uniforms.tPrev.value = this.adapt[this.write ^ 1].texture;
+    this.blit(this.adapt[this.write], this.derive, renderer);
+    this.result.value = this.adapt[this.write].texture;
+    this.warm = false;
+
+    renderer.autoClear = autoClear;
+  }
+
+  dispose(): void {
+    for (const rt of this.mips) rt.dispose();
+    this.mips.length = 0;
+    this.adapt[0].dispose();
+    this.adapt[1].dispose();
+    this.seed.dispose();
+    this.down.dispose();
+    this.derive.dispose();
+    this.quad.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Grade
 // ---------------------------------------------------------------------------
 
@@ -767,6 +1344,8 @@ function setTexel(v: THREE.Vector2, width: number, height: number): void {
 const GRADE_FRAG = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tBloom;
+uniform sampler2D tMeter;
+uniform sampler2D tLowFreq;
 uniform float uExposure;
 uniform float uBloom;
 uniform vec3 uBloomTint;
@@ -776,9 +1355,14 @@ uniform float uCrosstalk;
 uniform float uCrossKnee;
 uniform float uContrast;
 uniform float uPivot;
+uniform float uAdaptLift;
+uniform float uClarity;
+uniform float uClarityAdapt;
 uniform float uSaturation;
 uniform float uChromaMid;
 uniform float uChromaTilt;
+uniform vec3 uOpponent;
+uniform float uChromaOpponent;
 uniform vec3 uShadowTint;
 uniform vec3 uHighlightTint;
 uniform float uSplit;
@@ -793,13 +1377,14 @@ uniform float uPressure;
 uniform float uTime;
 varying vec2 vUv;
 
+${GLSL_TONE}
+
 // Hable's rational curve: a toe, a near-linear midsection and a shoulder that
 // approaches its asymptote slowly enough to hold several stops above white.
 // Unnormalised — uWhiteScale is 1/filmicCurve(white), computed once on the CPU,
 // and it is the whole highlight-latitude control.
 vec3 filmicCurve( vec3 x ) {
-  const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
-  return ( ( x * ( A * x + C * B ) + D * E ) / ( x * ( A * x + B ) + D * F ) ) - E / F;
+  return vec3( filmic1( x.r ), filmic1( x.g ), filmic1( x.b ) );
 }
 
 vec3 toSRGB( vec3 c ) {
@@ -876,26 +1461,86 @@ void main() {
 
   vec3 col = clamp( filmicCurve( hdr ) * uWhiteScale, 0.0, 1.0 );
 
-  float luma = dot( col, vec3( 0.2126, 0.7152, 0.0722 ) );
+  // ---- the metered response ------------------------------------------------
+  //
+  // Everything from here down works on the frame's own display code values, which
+  // is the space the look's tonal numbers were measured in and the space the
+  // capture harness scores. One 1x1 tap carries the two derived scalars: how hard
+  // to turn contrast, and the code value to turn it about.
+  vec4 meter = texture2D( tMeter, vec2( 0.5 ) );
+  // Clamped here as well as in the derive, so this stage is well defined for any
+  // contents of that texture. It divides by the pivot and by its complement, and a
+  // grade that produces an infinity if some future reordering runs it before the
+  // meter has written anything is a grade that fails as a white frame.
+  float stretch = max( meter.z, 1.0 );
+  float pivot = clamp( meter.w, 0.02, 0.6 );
+  float pivotTo = clamp( pivot * ( 1.0 + ( stretch - 1.0 ) * uAdaptLift ), 0.02, 0.75 );
+  float clarity = uClarity * ( 1.0 + ( stretch - 1.0 ) * uClarityAdapt );
+
+  float lum0 = dot( col, ${LUMA_VEC} );
+  float e = encode1( lum0 );
+
+  // Local contrast against a 32-pixel average of the same curve. Unsharp masking
+  // belongs in a perceptual space or its amplitude means different things in the
+  // shadows and the highlights, which is why both sides of the difference are
+  // encoded. The clamp is the halo guard: across a silhouette edge the difference
+  // saturates instead of growing, so a warrior against a bright sky gains form
+  // rather than an outline.
+  float detail = e - sceneToCode( texture2D( tLowFreq, vUv ).b );
+  e += clarity * clamp( detail, -0.22, 0.22 );
+
+  // Two power laws meeting at the pivot. Both endpoints are fixed points by
+  // construction — 0 stays 0 and 1 stays 1 — so the frame gains range at both ends
+  // instead of sliding up the way a gain would, display white survives a hard
+  // stretch, and the whole stage collapses to the identity at stretch 1 with
+  // pivotTo == pivot. That identity is what lets the night framings be corrected
+  // without the daylight ones moving at all.
+  float below = pivotTo * pow( max( e, 0.0 ) / pivot, stretch );
+  float above = 1.0 - ( 1.0 - pivotTo ) * pow( max( 1.0 - e, 0.0 ) / ( 1.0 - pivot ), stretch );
+  e = mix( below, above, step( pivot, e ) );
+
+  // Applied as a scalar gain on luma rather than per channel: a per-channel
+  // contrast curve desaturates everything it steepens, and chroma is the next
+  // stage's business.
+  col = min( col * ( decode1( e ) / max( lum0, 1e-4 ) ), vec3( 1.0 ) );
+
+  float luma = dot( col, ${LUMA_VEC} );
+  float lumaE = encode1( luma );
 
   // Chroma, shaped along the luma axis rather than applied flat, and anchored to
   // the split crossover rather than to the middle of the range. That anchoring is
-  // the point: these frames sit at a median display luma of about 0.26, so a bump
+  // the point: these frames sit at a median code value of about 0.22, so a bump
   // written to peak at 0.5 peaks a stop above every midtone it was meant to find,
   // and a tilt pivoted at 0.5 is one-sided across the whole picture — it quietly
   // desaturated the entire last stand instead of trading colour between its lit
   // and unlit halves. One tonal anchor drives the tint crossover, the bump's
   // centre and the tilt's pivot, so "where the picture lives" is stated once.
   //
+  // Against lumaE, not luma. The anchor is in code values, and comparing it to
+  // a display-linear luma is a factor of three out down here — which is exactly the
+  // bug that pushed the whole crossover off the top of every frame in the game.
+  //
   // The bump is a Lorentzian rather than a gaussian because it costs a divide
   // instead of an exp and its wider tails are the more forgiving shape here.
   float mid = 0.5 * ( uSplitRange.x + uSplitRange.y );
   float halfSpan = max( 0.5 * ( uSplitRange.y - uSplitRange.x ), 1e-3 );
-  float q = ( luma - mid ) / halfSpan;
+  float q = ( lumaE - mid ) / halfSpan;
   float chroma = uSaturation
     + uChromaMid / ( 1.0 + q * q )
     + uChromaTilt * clamp( q, -1.0, 1.0 );
   chroma = max( chroma, 0.0 );
+
+  vec3 offset = col - vec3( luma );
+
+  // Anisotropic expansion, across the illuminant axis only. uOpponent is the
+  // luma-free direction of the key this look is correcting for, so the component
+  // along it is "how far toward the key's own hue this surface is" — which under one
+  // warm source is nearly all of every surface's chroma and carries no material
+  // information. The component across it is the part that separates turf from
+  // timber and iron from thatch, and this is the only stage that can push on one
+  // without the other. Before the gamut guard, so an expansion that would clip
+  // eases back with everything else.
+  offset += ( offset - dot( offset, uOpponent ) * uOpponent ) * uChromaOpponent;
 
   // Gamut guard. Scaling chroma about luma is exactly luma-preserving, which is
   // why all of this is safe for the capture harness's tonal spread — but past a
@@ -906,7 +1551,6 @@ void main() {
   // answer: where no channel would have gone negative the bound is enormous and
   // the min is a no-op, and where one would, chroma eases back to the edge of the
   // gamut and the pixel desaturates gracefully instead of clipping.
-  vec3 offset = col - vec3( luma );
   float lowest = min( offset.r, min( offset.g, offset.b ) );
   chroma = min( chroma, -luma / min( lowest, -1e-5 ) );
   col = vec3( luma ) + offset * chroma;
@@ -918,14 +1562,8 @@ void main() {
   // complementary contrast in its numbers still renders as a monochrome frame.
   // Narrow it and the same two tints put blue in the shadows and amber in the
   // key, which is the whole of what makes dusk read as depth.
-  vec3 tint = mix( uShadowTint, uHighlightTint, smoothstep( uSplitRange.x, uSplitRange.y, luma ) );
+  vec3 tint = mix( uShadowTint, uHighlightTint, smoothstep( uSplitRange.x, uSplitRange.y, lumaE ) );
   col *= mix( vec3( 1.0 ), tint, uSplit );
-
-  // The black point, faded by the square of the pixel's own value so it lands on
-  // the bottom stop and nowhere else. Dusk lifts blue, the last stand lifts red,
-  // and that is most of why the two moods do not read as the same frame twice.
-  vec3 toe = vec3( 1.0 ) - col;
-  col += uShadowLift * toe * toe;
 
   // Health pressure closes the frame in from the edges; the damage flash washes
   // the whole thing, harder at the periphery than at the point of attention.
@@ -945,6 +1583,20 @@ void main() {
   col *= mix( 1.0, smoothstep( 1.05, 0.30, d ), uVignette );
 
   vec3 srgb = toSRGB( max( col, vec3( 0.0 ) ) );
+
+  // The print black, here rather than before the encode, and for the same reason
+  // the grain is: a floor stated in code values costs the shadows nothing but the
+  // floor. Before the encode, 0.018 of blue is code value 36 sitting on top of a
+  // signal that arrives at 0.0025 in a night framing — two shadows four stops apart
+  // came out three code values apart, and the bottom two luma buckets of the
+  // histogram were empty because nothing in the frame could reach them.
+  //
+  // Faded by the square of encoded luma so it lands on the bottom stop and nowhere
+  // else, and off luma rather than per channel so the floor is a clean tint instead
+  // of a per-channel curve. Dusk's floor is cool sky, the last stand's is cold soot;
+  // that difference is part of why the two moods do not read as the same frame.
+  float black = 1.0 - clamp( dot( srgb, ${LUMA_VEC} ), 0.0, 1.0 );
+  srgb += uShadowLift * black * black;
 
   // Grain and dither both live here, after the encode, where an amplitude in
   // code values means what it says. In linear the same number is thirteen times
@@ -1009,11 +1661,38 @@ function balanceGain(illuminant: Rgb, strength: number): [number, number, number
   return [gain(illuminant[0]), gain(illuminant[1]), gain(illuminant[2])];
 }
 
+/**
+ * The illuminant's direction with its luma taken out, normalised — the axis
+ * `chromaOpponent` expands *across*.
+ *
+ * Subtracting the luma is what makes this an axis in the plane the chroma stage
+ * works in: that stage decomposes a colour into luma plus an offset that sums to
+ * zero under the luma weights, so a basis vector for it has to lie in the same
+ * plane. Normalising means the projection is a plain dot product.
+ *
+ * For dusk's [1, 0.82, 0.62] this comes out at [0.57, -0.09, -0.82] — very close to
+ * the blue-yellow opponent axis, which is where a warm key lives and where nothing
+ * about a material is legible. The last stand's fire sits further round.
+ */
+function opponentAxis(illuminant: Rgb): [number, number, number] {
+  const luma = LUMA_R * illuminant[0] + LUMA_G * illuminant[1] + LUMA_B * illuminant[2];
+  const v: [number, number, number] = [illuminant[0] - luma, illuminant[1] - luma, illuminant[2] - luma];
+  const len = Math.hypot(v[0], v[1], v[2]);
+  // A perfectly neutral illuminant has no axis; any unit vector in the plane will
+  // do, and blue-yellow is the one a grade would have picked anyway.
+  if (len < 1e-4) return [0.57, -0.09, -0.82];
+  return [v[0] / len, v[1] / len, v[2] / len];
+}
+
 const GRADE_SHADER = {
   name: "ArenaGradeShader",
   uniforms: {
     tDiffuse: { value: null },
     tBloom: { value: null },
+    // Both rebound to the meter's own uniform objects at construction, so the 1x1
+    // ping-pong is followed without a hook between the two passes.
+    tMeter: { value: null },
+    tLowFreq: { value: null },
     uExposure: { value: DUSK.exposure },
     uBloom: { value: 0 },
     uBloomTint: { value: new THREE.Vector3(1, 1, 1) },
@@ -1023,9 +1702,14 @@ const GRADE_SHADER = {
     uCrossKnee: { value: DUSK.white * CROSS_KNEE },
     uContrast: { value: 1 + DUSK.contrast },
     uPivot: { value: DUSK.pivot },
+    uAdaptLift: { value: DUSK.adaptLift },
+    uClarity: { value: DUSK.clarity },
+    uClarityAdapt: { value: DUSK.clarityAdapt },
     uSaturation: { value: DUSK.saturation },
     uChromaMid: { value: DUSK.chromaMid },
     uChromaTilt: { value: DUSK.chromaTilt },
+    uOpponent: { value: new THREE.Vector3(0.57, -0.09, -0.82) },
+    uChromaOpponent: { value: DUSK.chromaOpponent },
     uShadowTint: { value: new THREE.Vector3(1, 1, 1) },
     uHighlightTint: { value: new THREE.Vector3(1, 1, 1) },
     uSplit: { value: DUSK.splitTone },
@@ -1062,14 +1746,28 @@ const AO_SCALE = 0.5;
  * Measured on the capture box (SwiftShader, 1600x900) as the share of one
  * full-screen pass each stage costs. Published on the handle so a frame budget
  * is readable at runtime rather than living in a commit message.
+ *
+ * `meter` and the revised `grade` are estimated from tap and instruction counts
+ * rather than measured, because the capture box was in use when they landed. They
+ * should be re-measured; the estimate puts the whole chain about 7% up on v4.
  */
 const PASS_COST: Record<string, number> = {
   /** Not a post pass; listed so the chain can be read against what it sits on. */
   render: 2.5,
   gtao: 2.1,
   bokeh: 4.9,
+  /**
+   * Almost all of it is the seed, which reads a quarter of the frame with four
+   * taps. Everything below 200x113 is rounding error and the derive is one pixel.
+   */
+  meter: 0.35,
   bloom: 1.25,
-  grade: 1.0,
+  /**
+   * Up from 1.0: the metered response costs one more texture tap and five scalar
+   * `pow` calls — two for the response's power laws, three for moving in and out of
+   * the encoded space the tonal anchor lives in.
+   */
+  grade: 1.3,
   smaa: 2.0,
   fxaa: 1.0,
 };
@@ -1119,6 +1817,7 @@ export function createPostFx(
   let gtao: GTAOPass | null = null;
   let bokeh: BokehPass | null = null;
   let bokehInfo: PostFxPassInfo | null = null;
+  let meter: MeterPass | null = null;
   let bloom: BloomChain | null = null;
   let grade: ShaderPass | null = null;
   let aa: Pass | null = null;
@@ -1190,6 +1889,13 @@ export function createPostFx(
         bokehInfo = track("bokeh", false);
       }
 
+      // Ahead of bloom, so what gets metered is the scene rather than the glow the
+      // grade is about to add to it. Not tier-gated: the response is part of the
+      // tone curve now, not an effect, and there is no frame without it.
+      meter = new MeterPass(bufW, bufH);
+      composer.addPass(meter);
+      track("meter");
+
       if (settings.bloom) {
         bloom = new BloomChain(bufW, bufH, BLOOM_LEVELS[settings.tier]);
         composer.addPass(bloom);
@@ -1205,6 +1911,12 @@ export function createPostFx(
       grade.material.depthTest = false;
       grade.material.depthWrite = false;
       grade.uniforms.tBloom.value = bloom ? bloom.texture : blackBloom;
+      // Shared by reference, not copied: the meter's 1x1 result ping-pongs every
+      // frame and the composer offers no hook between two passes, so the grade holds
+      // the same uniform object the meter writes into. Done before the first render,
+      // while three has not yet cached anything about this material.
+      grade.uniforms.tMeter = meter.result;
+      grade.uniforms.tLowFreq = meter.lowFreq;
       composer.addPass(grade);
       track("grade");
 
@@ -1249,9 +1961,17 @@ export function createPostFx(
     // curve alone"; the shader wants the exponent.
     u.uContrast.value = 1 + pick("contrast");
     u.uPivot.value = Math.max(0.02, pick("pivot"));
+    u.uAdaptLift.value = THREE.MathUtils.clamp(pick("adaptLift"), 0, 1);
+    u.uClarity.value = Math.max(0, pick("clarity"));
+    u.uClarityAdapt.value = Math.max(0, pick("clarityAdapt"));
     u.uSaturation.value = pick("saturation");
     u.uChromaMid.value = pick("chromaMid");
     u.uChromaTilt.value = pick("chromaTilt");
+    // Derived from the same illuminant `balance` corrects for, so a look states the
+    // key once and both the white balance and the separation axis follow from it.
+    const axis = opponentAxis(pick("balance"));
+    (u.uOpponent.value as THREE.Vector3).set(axis[0], axis[1], axis[2]);
+    u.uChromaOpponent.value = Math.max(0, pick("chromaOpponent"));
     const shadow = pick("shadowTint");
     const highlight = pick("highlightTint");
     const lift = pick("shadowLift");
@@ -1273,6 +1993,16 @@ export function createPostFx(
     u.uGrain.value = pick("grain");
     u.uHurt.value = hurtLevel;
     u.uPressure.value = pressure;
+
+    meter?.setResponse({
+      exposure,
+      white,
+      contrast: pick("contrast"),
+      pivot: pick("pivot"),
+      band: pick("adaptBand"),
+      adapt: pick("adapt"),
+      ceiling: pick("adaptCeiling"),
+    });
 
     if (bloom) {
       const tintRgb = pick("bloomTint");
@@ -1323,6 +2053,9 @@ export function createPostFx(
       }
 
       grade.uniforms.uTime.value = ctx.time;
+      // Raw time, like the hurt decay: the adaptation is the eye's, and hit-stop
+      // slowing the world must not slow it down with the world.
+      meter?.setDelta(ctx.rawDt);
       applyLook();
       composer.render(dt);
     },
@@ -1336,6 +2069,9 @@ export function createPostFx(
       composer.setSize(width, height);
       // The composer sizes every pass to the full buffer; occlusion stays half.
       gtao?.setSize(Math.round(width * ratio * AO_SCALE), Math.round(height * ratio * AO_SCALE));
+      // MeterPass.setSize already rebuilt its own chain off the full buffer and
+      // dropped the adaptation history, which is what a resize should do — the
+      // reduction it was averaging no longer exists.
     },
 
     setMood(next) {
@@ -1343,6 +2079,10 @@ export function createPostFx(
       mood = next;
       blendFrom = { ...current };
       blend = 0;
+      // The mood crossfades over MOOD_BLEND, so the metering has a real signal the
+      // whole way through and must *not* be reset here — a reset would snap the
+      // response at the moment the look starts moving, which is the one moment a
+      // viewer is already looking at the frame changing.
     },
 
     hurt(intensity) {
@@ -1379,6 +2119,7 @@ export function createPostFx(
       composer?.dispose();
       gtao?.dispose();
       bokeh?.dispose();
+      meter?.dispose();
       bloom?.dispose();
       grade?.dispose();
       aa?.dispose();
