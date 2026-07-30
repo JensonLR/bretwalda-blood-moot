@@ -18,6 +18,24 @@
 // already sends are what those curves are read against. Only two things are
 // smoothed, and both are between poses rather than inside one — the weight of
 // each layer, and a short crossfade whenever the server changes state.
+//
+// Two things about that were not true until this pass, and both were costing
+// more than the layer architecture was buying:
+//
+//   The swing clock was not read off the timer, it was *inferred* from it — the
+//   phase was only trusted once the timer had been watched ticking down across
+//   two frames, and smoothed toward the answer on top of that. A still holds the
+//   timer, so no still ever showed the pose it asked for, and every animation
+//   note written off a capture was written off the wrong frame. `readSwing` now
+//   evaluates the phase from the timer outright, and carries it across the gap
+//   between packets only as far as a packet can plausibly be late.
+//
+//   The rig had no elbow and no knee. `characters.ts` models both as volume and
+//   emits each limb as one merged shell, so a limb could only swing as a stick:
+//   no swing could coil, nothing could load onto a bent front leg, and a death
+//   was a rotation rather than a collapse. `articulate` binds each limb to two
+//   bones — see the note above it for why the mesh cannot simply be cut — and
+//   the layers below drive them.
 
 import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
@@ -50,6 +68,21 @@ export interface RigPivots {
    * body whose shoulders cannot lead its hips has no torque in it.
    */
   chest: THREE.Group;
+  /**
+   * The joints the silhouette promises and the skeleton did not have, inserted
+   * by `articulate`. `characters.ts` models a knee bulge and an elbow flare as
+   * volume, but emits each limb as one merged shell from hip to sole and
+   * shoulder to fist — so a limb could only ever swing as one stick. Nothing
+   * could load onto a bent front leg and no swing could coil, which is most of
+   * why brawl and stance came back pose-for-pose identical between iterations.
+   *
+   * Both are hinges and both are driven on X alone. A knee that can also twist
+   * is how a leg ends up inside out.
+   */
+  elbowR: THREE.Bone;
+  elbowL: THREE.Bone;
+  kneeR: THREE.Bone;
+  kneeL: THREE.Bone;
   cloak?: THREE.Group;
 }
 
@@ -82,6 +115,12 @@ export interface WarriorRig {
    * this is the thing to delete.
    */
   readonly blob: THREE.Mesh;
+  /**
+   * One skeleton for the whole warrior — eight bones, an upper and a lower for
+   * each limb. Per-limb skeletons would work and would cost eight bone textures
+   * a man instead of one.
+   */
+  readonly skeleton: THREE.Skeleton;
   /** The pose applied last frame. Where a state change is blended out of. */
   readonly last: Pose;
   dispose(): void;
@@ -109,13 +148,14 @@ export interface WarriorMotion {
   seed: number;
 
   // ---- swing ----
-  /** Smoothed 0..1 progress through the current swing. */
+  /** 0..1 progress through the current swing, read off the server's timer. */
   swing: number;
   /** Length of the swing in flight, learned from the timer the server sends. */
   swingDur: number;
-  /** Last attackTimer seen, to spot a new swing and a live (ticking) clock. */
+  /** Last attackTimer seen, to spot a new swing. */
   swingPrev: number;
-  swingLive: boolean;
+  /** Seconds since that timer last moved — how stale the packet under us is. */
+  swingHold: number;
   /** 0..1 blend toward the heavy-attack read: bigger arc, worse recovery. */
   heavy: number;
 
@@ -151,7 +191,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     leanX: 0, recoil: 0, trailTick: 0,
     stride: hash01(p.id) * Math.PI * 2, land: 0, seed: hash01(p.id + "s") * 6.28,
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
-    swingPrev: 0, swingLive: false, heavy: 0,
+    swingPrev: 0, swingHold: 0, heavy: 0,
     flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", fall: -1,
     wMove: 0, wBlock: 0, wAction: 0,
   };
@@ -185,7 +225,13 @@ export function createWarriorRig(
   // next time a proportion changes.
   const crown = new THREE.Box3().setFromObject(body).max.y;
 
-  // The hand mounts are the last child each arm builder adds.
+  // Elbows and knees, before anything is hung off a hand: `articulate` moves the
+  // hand mounts onto the forearm, and a weapon mounted first would end up on the
+  // shoulder while the fist holding it moved.
+  const joints = articulate(built);
+
+  // The hand mounts. Named lookup, not last-child — they hang off the forearm
+  // bone now and are no longer the arm pivot's final child.
   const rightHand = handOf(built.rightArm);
   const leftHand = handOf(built.leftArm);
 
@@ -203,10 +249,18 @@ export function createWarriorRig(
   let shield: THREE.Group | undefined;
   if (cls === "huscarl") {
     // Carried in front of the chest, disc plate facing the enemy (+Z).
+    //
+    // Strapped to the forearm rather than to the shoulder, which is where a
+    // shield is actually strapped and, more to the point, is what makes the
+    // brace in `blockLayer` read: the elbow is what puts a shield in front of a
+    // face. Bolted to the arm pivot it stayed put while the forearm folded out
+    // from behind it. `SHIELD_CARRY` is still the offset it was tuned at — in
+    // arm space — so the same numbers are re-expressed against the elbow here
+    // rather than guessed again by eye.
     shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226, materials);
-    shield.position.set(-0.14, -0.4, 0.26);
+    shield.position.set(SHIELD_CARRY.x, SHIELD_CARRY.y - joints.elbowL.position.y, SHIELD_CARRY.z);
     shield.rotation.set(0.22, 0.16, 0.14);
-    built.leftArm.add(shield);
+    joints.elbowL.add(shield);
   }
 
   // Weapon and shield are mounted by now, so one walk covers the whole warrior.
@@ -267,6 +321,10 @@ export function createWarriorRig(
       leftLeg: built.leftLeg,
       head: built.head,
       chest,
+      elbowR: joints.elbowR,
+      elbowL: joints.elbowL,
+      kneeR: joints.kneeR,
+      kneeL: joints.kneeL,
       cloak: built.cloak,
     },
     weapon,
@@ -275,6 +333,7 @@ export function createWarriorRig(
     reach,
     headTop: crown > 0.5 ? crown : 2.0,
     blob,
+    skeleton: joints.skeleton,
     last: { ...ZERO },
 
     dispose() {
@@ -288,10 +347,163 @@ export function createWarriorRig(
       body.traverse((o) => {
         if (o instanceof THREE.Mesh) o.geometry.dispose();
       });
+      // The bone texture is this rig's alone — one 8×8 float target per warrior,
+      // and the only GPU resource `articulate` allocates.
+      joints.skeleton.dispose();
       blobGeo.dispose();
       blobMat.dispose();
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Joints
+//
+// The character builder emits each limb as one merged shell — hip to sole,
+// shoulder to fist — and models the joint as *volume*: a knee bulge, a calf
+// belly, the flare above the wrist. What it does not emit is a node in the
+// middle to turn. So the silhouette has promised a knee and an elbow since v1
+// and the skeleton has never been able to bend one.
+//
+// Splitting the mesh at the joint is not open to us and would be wrong anyway:
+// that geometry is merged, shared between every warrior wearing the same kit and
+// refcounted inside `characters.ts`, and a hard cut through a bulge tears open
+// the moment it bends. So each limb is bound to two bones instead and the joint
+// is a weight ramp across the vertices — linear blend skinning, two bones and no
+// hierarchy, which is about the cheapest thing a vertex shader can be asked to
+// do and holds a bent knee together at closeup range.
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the joint sits along the limb, as a fraction of the limb the rig can
+ * actually measure.
+ *
+ * These are proportions rather than lengths on purpose — stature is quantised
+ * per warrior in `characters.ts` and every segment scales with it, so a fraction
+ * of the measured shoulder-to-fist or hip-to-sole distance survives a stature
+ * change that a constant would not. They are the builder's own numbers:
+ * `upperArm / (upperArm + foreArm + gripDrop)` and `(hipY - kneeY) / hipY`.
+ * They are duplicated here because `BuiltCharacter` does not carry the joint
+ * heights; see the note in the report about exporting them instead.
+ */
+const ELBOW_ALONG = 0.487;
+const KNEE_ALONG = 0.48;
+
+/** Where the huscarl's shield sits, in the off arm's frame, as tuned. */
+const SHIELD_CARRY = new THREE.Vector3(-0.14, -0.4, 0.26);
+
+interface Articulation {
+  elbowR: THREE.Bone;
+  elbowL: THREE.Bone;
+  kneeR: THREE.Bone;
+  kneeL: THREE.Bone;
+  skeleton: THREE.Skeleton;
+}
+
+/**
+ * Two-bone weights down a limb, computed once per merged geometry.
+ *
+ * Written onto the geometry and not kept beside it, because that geometry is
+ * shared: `characters.ts` merges one arm per loadout and hands it to every
+ * warrior wearing that kit. The ramp is a function of the mesh and not of the
+ * man, and so are the bone indices — the cache key already encodes which limb
+ * this is, so the geometry called `arm1` is the weapon arm on every warrior in
+ * the match and can name its bones outright.
+ *
+ * The early return leans on the same key. It is only safe to skip a geometry we
+ * have already weighted because the builder's signature carries the stature step
+ * as well as the loadout, so two warriors sharing an arm share its length and
+ * therefore its elbow. If that key ever stops covering proportion, this has to
+ * key on the joint height instead — a shared arm weighted at somebody else's
+ * elbow bends in the middle of the forearm.
+ */
+function weightLimb(geo: THREE.BufferGeometry, joint: number, band: number, upper: number, lower: number): void {
+  if (geo.hasAttribute("skinIndex")) return;
+  const pos = geo.getAttribute("position");
+  const n = pos.count;
+  const index = new Uint16Array(n * 4);
+  const weight = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    // A ramp, not a cut. The builder puts its widest station right on the joint,
+    // and a hard split there opens a hole in the knee the first time it bends.
+    const t = smooth(clamp01((joint + band - pos.getY(i)) / (band * 2)));
+    index[i * 4] = upper;
+    index[i * 4 + 1] = lower;
+    weight[i * 4] = 1 - t;
+    weight[i * 4 + 1] = t;
+  }
+  geo.setAttribute("skinIndex", new THREE.BufferAttribute(index, 4));
+  geo.setAttribute("skinWeight", new THREE.BufferAttribute(weight, 4));
+}
+
+/** Cuts an elbow into each arm and a knee into each leg, and binds the skin. */
+function articulate(built: BuiltCharacter): Articulation {
+  // Measured off the rig rather than tabled: the fist mount is where the arm
+  // ends, and the hip pivot's own height is the length of the leg.
+  const gripR = handOf(built.rightArm).position.y;
+  const gripL = handOf(built.leftArm).position.y;
+  const legLen = built.leftLeg.position.y || 1.02;
+
+  // Order fixes the bone indices, and the indices are baked into shared
+  // geometry — weapon arm, off arm, weapon leg, off leg, upper before lower.
+  const limbs = [
+    { pivot: built.rightArm, joint: gripR * ELBOW_ALONG, band: 0.055, span: Math.abs(gripR) + 0.24 },
+    { pivot: built.leftArm, joint: gripL * ELBOW_ALONG, band: 0.055, span: Math.abs(gripL) + 0.24 },
+    { pivot: built.rightLeg, joint: -legLen * KNEE_ALONG, band: 0.075, span: legLen + 0.18 },
+    { pivot: built.leftLeg, joint: -legLen * KNEE_ALONG, band: 0.075, span: legLen + 0.18 },
+  ];
+
+  const bones: THREE.Bone[] = [];
+  const bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Bone }> = [];
+
+  limbs.forEach((limb, i) => {
+    const upper = new THREE.Bone();
+    const lower = new THREE.Bone();
+    lower.position.y = limb.joint;
+    upper.add(lower);
+    // The upper bone sits at the pivot with an identity transform, so the
+    // geometry's own space *is* its space and the bind matrix below is just the
+    // pivot's world matrix. Cheaper to reason about than an offset chain.
+    limb.pivot.add(upper);
+    bones.push(upper, lower);
+
+    for (const child of limb.pivot.children.slice()) {
+      if (!(child instanceof THREE.Mesh)) continue;
+      weightLimb(child.geometry, limb.joint, limb.band, i * 2, i * 2 + 1);
+      const skinned = new THREE.SkinnedMesh(child.geometry, child.material as THREE.Material);
+      skinned.name = child.name;
+      // Culled off the bind pose, written by hand. Left alone, three walks every
+      // vertex of the limb through the skeleton the first frame the frustum asks
+      // — and then caches the answer, which is wrong the moment the joint moves.
+      // One generous sphere per limb costs nothing and never pops.
+      skinned.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, limb.joint, 0), limb.span);
+      limb.pivot.remove(child);
+      limb.pivot.add(skinned);
+      bound.push({ mesh: skinned, at: upper });
+    }
+
+    // The fist, and whatever is in it, rides the forearm and not the shoulder.
+    // Offset by the joint so its position in arm space is exactly unchanged: at
+    // rest this reparenting is an identity, and every carry angle tuned against
+    // the old rig still lands where it did.
+    const mount = limb.pivot.getObjectByName("handMount");
+    if (mount) {
+      mount.position.y -= limb.joint;
+      lower.add(mount);
+    }
+  });
+
+  // The bind pose. Bone inverses and every mesh's bind matrix are taken at this
+  // one instant, which is what lets the skin ignore where the mesh sits in the
+  // graph: in `AttachedBindMode` three recomputes `bindMatrixInverse` from the
+  // mesh's own world matrix every frame, so the pivot can go on carrying the
+  // mesh and only the bones drive the vertices. The body is not in the scene
+  // yet and does not need to be — the world transform cancels out of both sides.
+  built.group.updateMatrixWorld(true);
+  const skeleton = new THREE.Skeleton(bones);
+  for (const b of bound) b.mesh.bind(skeleton, b.at.matrixWorld.clone());
+
+  return { elbowR: bones[1], elbowL: bones[3], kneeR: bones[5], kneeL: bones[7], skeleton };
 }
 
 /**
@@ -328,7 +540,13 @@ function contains(node: THREE.Object3D, target: THREE.Object3D): boolean {
   return false;
 }
 
-/** The grip the builder promises is the arm's final child. */
+/**
+ * The grip the builder promises is the arm's final child.
+ *
+ * The name is now the real lookup and the last-child fallback is only a guard
+ * for a builder that stopped naming it: after `articulate` the mount hangs off
+ * the forearm bone, and the arm's final child is a skinned sleeve.
+ */
 function handOf(arm: THREE.Group): THREE.Object3D {
   return arm.getObjectByName("handMount") ?? arm.children[arm.children.length - 1];
 }
@@ -415,9 +633,19 @@ interface Pose {
   /** Weapon arm (+X) and off arm (-X), at the shoulder. */
   arx: number; ary: number; arz: number;
   olx: number; oly: number; olz: number;
+  /**
+   * Elbows. Hinges, so one number each, and negative folds — the same sign as
+   * the shoulder, where negative reaches forward. Nothing here compensates the
+   * weapon for them except `stanceLayer`, which gives back exactly what it took
+   * so the tuned carry angles survive; every action layer lets the elbow move
+   * the blade, which is the whole reason to have one.
+   */
+  arb: number; olb: number;
   /** Hips. Positive x swings the foot back. */
   lrx: number; lrz: number;
   llx: number; llz: number;
+  /** Knees. Positive folds the heel back, which is the only way a knee bends. */
+  lrb: number; llb: number;
   /** Weapon in the fist: pitch, roll, and slide along its own shaft. */
   wx: number; wz: number; wy: number;
   /** Shield brace, as a delta on how it is carried. */
@@ -429,7 +657,9 @@ const ZERO: Readonly<Pose> = Object.freeze({
   px: 0, py: 0, pz: 0, prx: 0, pry: 0, prz: 0,
   crx: 0, cry: 0, crz: 0, hrx: 0, hry: 0, hrz: 0,
   arx: 0, ary: 0, arz: 0, olx: 0, oly: 0, olz: 0,
+  arb: 0, olb: 0,
   lrx: 0, lrz: 0, llx: 0, llz: 0,
+  lrb: 0, llb: 0,
   wx: 0, wz: 0, wy: 0,
   sx: 0, sy: 0, sz: 0, sfy: 0, sfz: 0,
   cloak: 0,
@@ -457,7 +687,21 @@ interface Stance {
   spread: number;
   /** How the off arm is carried. */
   guard: number;
-  /** Extra knee bend, beyond what the stance width already costs. */
+  /**
+   * Extra knee bend at guard, in radians, beyond what the stance width costs.
+   *
+   * This used to be a few millimetres pushed straight into the pelvis, because
+   * a rig with no knee had nowhere else to put a crouch — and a pelvis shoved
+   * down past two straight legs is how the boots ended up in the turf. It is a
+   * knee angle now and `settleOnFeet` turns it back into height, which is the
+   * right way round.
+   *
+   * The angles are smaller than a straight conversion of the old millimetres
+   * would give, and deliberately: cos is flat near zero, so 15 mm of sink is a
+   * third of a radian of knee taken on its own — but the action layers bend the
+   * same knee again on top of the guard, and a guard that has already spent the
+   * whole crouch leaves a lunge nowhere to go but a squat.
+   */
   sink: number;
   /** How much of a thrust's shaft slides through the fist. */
   slide: number;
@@ -471,10 +715,10 @@ interface Stance {
 // arm length — the fist sits at 0.87 m and a sword is 1.06 m from grip to
 // point, so anything past ~50° off vertical drives the tip through the turf.
 const STANCE: Record<WarriorClass, Stance> = {
-  huscarl: { rest: 0.94, live: 0.10, spread: 0.10, guard: -0.66, sink: 0.012, slide: 0.3 },
-  warden: { rest: -1.24, live: 0.02, spread: 0.05, guard: -0.34, sink: 0.007, slide: 1 },
-  runekeeper: { rest: 1.66, live: 0.14, spread: 0.02, guard: -0.24, sink: 0.005, slide: 0.35 },
-  berserker: { rest: -1.78, live: 0.08, spread: 0.15, guard: -0.18, sink: 0.015, slide: 0.3 },
+  huscarl: { rest: 0.94, live: 0.10, spread: 0.10, guard: -0.66, sink: 0.13, slide: 0.3 },
+  warden: { rest: -1.24, live: 0.02, spread: 0.05, guard: -0.34, sink: 0.08, slide: 1 },
+  runekeeper: { rest: 1.66, live: 0.14, spread: 0.02, guard: -0.24, sink: 0.06, slide: 0.35 },
+  berserker: { rest: -1.78, live: 0.08, spread: 0.15, guard: -0.18, sink: 0.16, slide: 0.3 },
 };
 
 // ---------------------------------------------------------------------------
@@ -579,11 +823,24 @@ type Key = readonly [number, number, number];
 
 interface Swing {
   arx: Key; arz: Key;
+  /**
+   * The elbow, and the link the swing was missing. Folded at the load, near
+   * straight at the moment of contact, gathered back in on the follow through:
+   * a blade that arrives on a straight arm arrives with the whole body behind
+   * it, and one that never folded never gathered anything to arrive with.
+   */
+  arb: Key;
   crx: Key; cry: Key;
   prx: Key; pry: Key;
   py: Key; pz: Key;
   /** Front foot (off side) and back foot (weapon side). */
   front: Key; back: Key;
+  /**
+   * The knees under them. The back one coils and drives; the front one takes
+   * the weight at impact and bends under it — which through `settleOnFeet`
+   * drops the whole man onto the blow instead of leaving him level over it.
+   */
+  frontB: Key; backB: Key;
   /** Blade lag about the arc — trails on the load, whips past on release. */
   wx: Key; wz: Key;
   /** Slide along the shaft, for a thrust. */
@@ -596,22 +853,30 @@ interface Swing {
 const SWINGS: Record<string, Swing> = {
   overhead: {
     arx: [2.36, -1.08, -0.16], arz: [0.30, -0.06, 0.14],
+    // Folded hard behind the head at the top of the load — that fold is what
+    // makes an overhead read as an overhead rather than as a raised arm.
+    arb: [-2.00, -0.28, -0.60],
     crx: [-0.28, 0.34, 0.07], cry: [0.26, -0.10, 0.02],
     prx: [-0.11, 0.17, 0.01], pry: [0.15, -0.13, 0.03],
     py: [0.025, -0.03, -0.01], pz: [-0.06, 0.15, 0.02],
     front: [-0.06, -0.52, -0.13], back: [0.23, 0.46, 0.11],
+    frontB: [0.20, 0.34, 0.18], backB: [0.30, 0.22, 0.16],
     wx: [-0.38, 0.32, 0], wz: [0, 0, 0], wy: [0, 0, 0],
   },
   // Forehand: cocked out on the weapon side, then dragged across the body. The
   // arm reaches forward as it crosses rather than sweeping flat through the
-  // chest — there is no elbow in this rig, so a hand that crosses the
-  // centreline at rib height takes the whole humerus through the mail with it.
+  // chest, because a hand that crosses the centreline at rib height on a
+  // straight arm takes the whole humerus through the mail with it. With an
+  // elbow the fold does that job properly — the hand can come inside the ribs
+  // while the shoulder stays out where a shoulder lives.
   right: {
     arx: [1.06, -0.75, 0.06], arz: [1.28, -0.88, 0.15],
+    arb: [-1.52, -0.40, -0.62],
     crx: [-0.06, 0.17, 0.04], cry: [0.40, -0.42, 0.02],
     prx: [0, 0.07, 0], pry: [0.21, -0.21, 0.03],
     py: [0.012, -0.035, -0.01], pz: [-0.04, 0.11, 0.02],
     front: [-0.10, -0.30, -0.12], back: [0.28, 0.31, 0.10],
+    frontB: [0.18, 0.30, 0.17], backB: [0.26, 0.20, 0.16],
     wx: [-0.85, 0.12, 0], wz: [0.42, -0.36, 0], wy: [0, 0, 0],
   },
   // Backhand: wound behind the hip, then whipped out and away. Wound *behind*
@@ -619,38 +884,66 @@ const SWINGS: Record<string, Swing> = {
   // going back, and does not going over.
   left: {
     arx: [0.95, -0.30, 0.06], arz: [-0.55, 1.38, 0.15],
+    arb: [-1.34, -0.36, -0.62],
     crx: [0, 0.13, 0.04], cry: [-0.42, 0.36, 0.02],
     prx: [0, 0.05, 0], pry: [-0.17, 0.23, 0.03],
     py: [0.012, -0.03, -0.01], pz: [-0.03, 0.09, 0.02],
     front: [-0.12, -0.26, -0.12], back: [0.21, 0.27, 0.10],
+    frontB: [0.16, 0.28, 0.17], backB: [0.25, 0.18, 0.16],
     wx: [-0.85, 0.12, 0], wz: [-0.36, 0.40, 0], wy: [0, 0, 0],
   },
-  // Thrust: coil, then the whole body behind the point.
+  // Thrust: coil, then the whole body behind the point. The deepest fold of the
+  // four and the straightest arm at contact, which is what a thrust *is*.
   stab: {
     arx: [0.96, -0.98, 0.04], arz: [0.24, -0.03, 0.13],
+    arb: [-2.08, -0.12, -0.68],
     crx: [-0.12, 0.16, 0.03], cry: [0.42, -0.36, 0.02],
     prx: [-0.04, 0.09, 0], pry: [0.27, -0.27, 0.03],
     py: [0.012, -0.03, -0.01], pz: [-0.10, 0.28, 0.04],
     front: [-0.10, -0.44, -0.14], back: [0.25, 0.44, 0.12],
+    frontB: [0.22, 0.38, 0.20], backB: [0.34, 0.18, 0.16],
     wx: [0.20, -0.06, 0], wz: [0, 0, 0], wy: [-0.04, 0.13, 0],
   },
 };
 
 /**
+ * How long a packet is allowed to be merely late before it is treated as held.
+ * A shade under two server ticks.
+ */
+const TICK = 0.09;
+
+/**
  * Reads the swing clock off the server's attackTimer.
  *
- * The timer counts down from the length of the swing, and the wire says nothing
- * about whether it was light or heavy — so the length is learned by watching
- * the largest value this swing reported, and a swing that runs long is a heavy
- * one. The nominal class figure is only a fallback for a timer that has never
- * been seen to tick, which is the photo harness holding one frozen frame.
+ * The timer counts down from the length of the swing and it is the whole clock:
+ * phase is `(dur - attackTimer) / dur`, evaluated fresh every frame from the
+ * value on the wire. The server still owns the timing; nothing here leads it,
+ * learns it, or lags behind it.
+ *
+ * That is a change, and it is the change that unblocks visual review. What was
+ * here before only trusted the timer once it had *watched* it tick down across
+ * two frames, and smoothed the phase toward the answer over about a tenth of a
+ * second on top. Neither survives a still: the photo harness holds one frozen
+ * frame, so the timer never ticks, and the phase spent the opening frames of
+ * every capture crawling out of the windup with the layer weight still ramping
+ * underneath it. Every mid-swing this project has reviewed was photographed
+ * somewhere short of the pose it asked for, and the animation notes written off
+ * those captures were written off the wrong frame.
+ *
+ * The 20 Hz wire against a 60 Hz frame is still real, and it is handled by
+ * carrying the clock on the client's own dt between packets — but only as far
+ * as a packet can plausibly be late. Past `TICK` the timer is not late, it is
+ * *held*, and the lead eases back to nothing so the pose settles exactly where
+ * the timer put it. A held frame therefore converges to the pose the timer
+ * denotes inside two tenths of a second, and a live match cannot tell the
+ * difference because in a live match the lead never gets there.
  */
 function readSwing(motion: WarriorMotion, player: GamePlayer, dt: number): number {
   const nominal = WARRIOR_STATS[player.warriorClass]?.attackSpeed || 0.6;
   if (player.state !== "attacking") {
     motion.swingDur = nominal;
     motion.swingPrev = 0;
-    motion.swingLive = false;
+    motion.swingHold = 0;
     motion.heavy = approach(motion.heavy, 0, dt, 6);
     // Runs on to the end rather than back to the start. The server drops the
     // attacking state the tick the timer expires, and a swing that rewound to
@@ -659,25 +952,29 @@ function readSwing(motion: WarriorMotion, player: GamePlayer, dt: number): numbe
     return motion.swing;
   }
 
-  const fresh = player.attackTimer > motion.swingPrev + 1e-3;
-  if (fresh) {
-    motion.swingDur = player.attackTimer;
-    motion.swingLive = false;
-    motion.swing = 0;
-  } else if (player.attackTimer > motion.swingDur) {
-    motion.swingDur = player.attackTimer;
-  } else if (player.attackTimer < motion.swingPrev - 1e-4) {
-    motion.swingLive = true;
-  }
+  // A timer that jumped up is a new swing. Its opening value is the length of
+  // the swing — the one moment the wire states the duration outright — and the
+  // wire says nothing anywhere else about light against heavy, so the largest
+  // value seen this swing is the best reading of it there is. The class figure
+  // is the floor and never the ceiling: a heavy attack runs long, and a still
+  // that never shows the opening tick falls back to the class figure, which is
+  // exactly the duration a still is posed against.
+  if (player.attackTimer > motion.swingPrev + 1e-3) motion.swingDur = nominal;
+  if (player.attackTimer > motion.swingDur) motion.swingDur = player.attackTimer;
+  motion.swingHold = Math.abs(player.attackTimer - motion.swingPrev) > 1e-5 ? 0 : motion.swingHold + dt;
   motion.swingPrev = player.attackTimer;
 
-  const dur = Math.max(motion.swingLive ? 0.05 : nominal, motion.swingDur);
+  const dur = Math.max(0.05, motion.swingDur);
   motion.heavy = approach(motion.heavy, dur > nominal * 1.1 ? 1 : 0, dt, 9);
 
-  // The server ticks at 20 Hz and this runs at 60+, so the raw progress arrives
-  // in steps. It is smoothed toward, never extrapolated past: leading the last
-  // packet would put the blade through a man before the server agrees it did.
-  return (motion.swing = approach(motion.swing, clamp01(1 - player.attackTimer / dur), dt, 16));
+  // Bounded twice: by how late a packet can be, and by an eighth of the swing.
+  // The second bound is what keeps the berserker honest — his swing is 0.4 s, so
+  // a tick of carry is a fifth of his whole arc where it is a fifteenth of the
+  // huscarl's, and one hitched packet should not throw his axe a fifth of the
+  // way through the blow.
+  const carry = Math.min(motion.swingHold, dur * 0.12);
+  const lead = carry * (1 - smooth(clamp01((motion.swingHold - TICK) / TICK)));
+  return (motion.swing = clamp01((dur - player.attackTimer + lead) / dur));
 }
 
 // ---------------------------------------------------------------------------
@@ -690,9 +987,20 @@ function stanceLayer(st: Stance, ready: number, w: number): void {
   P.llx += (-0.08 - ready * 0.12) * w;
   P.lrz += (0.05 + ready * 0.04) * w;
   P.llz += (-0.05 - ready * 0.04) * w;
+  // Both knees bent and the front one more. This one line is most of the
+  // difference between a fighter and a man standing in a field, and it is
+  // spent here rather than on the pelvis: a bent knee lowers the body through
+  // `settleOnFeet` on its own and takes the hip sockets down with it.
+  //
+  // Deliberately an athletic guard and not a horse stance, because the action
+  // layers bend the same knees again on top of this. A guard already crouched
+  // to 40° plus a lunge that asks for another 40° is a man sitting on his own
+  // heels at the moment he lands a blow, which is what the first calibration of
+  // this did: the stance and the action have to share the crouch, not stack it.
+  P.lrb += (0.12 + (0.08 + st.sink) * ready) * w;
+  P.llb += (0.15 + (0.12 + st.sink) * ready) * w;
   P.pry += (0.10 + ready * 0.06) * w;
   P.prx += -0.03 * w;
-  P.py += -(st.sink + ready * 0.010) * w;
   P.cry += (0.14 + ready * 0.09) * w;
   P.crx += (0.05 + ready * 0.06) * w;
   P.arx += (0.16 - ready * 0.32) * w;
@@ -700,7 +1008,18 @@ function stanceLayer(st: Stance, ready: number, w: number): void {
   P.olx += (st.guard * (0.55 + ready * 0.45)) * w;
   P.olz += -(st.spread + 0.14) * w;
   P.hry += -0.09 * w;
-  P.wx += mix(st.rest, st.live, ready) * w;
+  // Elbows. The off arm is always the more folded of the two — it is not
+  // carrying anything long — and the weapon arm closes as the guard comes up.
+  const fold = 0.26 + ready * 0.40;
+  P.arb += -fold * w;
+  P.olb += -(0.46 + ready * 0.46) * w;
+  // The wrist gives back exactly what the elbow took. `rest` and `live` say
+  // where the weapon *points*, and they were measured against an arm that was
+  // one rigid stick from shoulder to fist; folding an elbow under them without
+  // this would swing every carry angle in the game by the fold and put the
+  // huscarl's point through the turf. The action layers deliberately do not
+  // compensate — an elbow that moves the blade is the reason to have one.
+  P.wx += (mix(st.rest, st.live, ready) + fold) * w;
 }
 
 /**
@@ -722,21 +1041,38 @@ function idleLayer(t: number, seed: number, wounded: number, w: number): void {
   P.crz += dwell * 0.075 * w;
   P.cry += dwell * 0.05 * w;
   P.crx += (br * 0.022 - 0.01) * w;
-  // The free leg unlocks and turns out; the loaded one carries straight.
-  P.lrx += Math.max(0, -dwell) * 0.10 * w;
-  P.llx += Math.max(0, dwell) * 0.10 * w;
+  // The free leg unlocks and turns out; the loaded one carries straight. The
+  // knee is where "unlocked" actually lives — a hip that turns out over a
+  // locked knee is a mannequin turned out at the hip.
+  const free = Math.max(0, -dwell);
+  const load = Math.max(0, dwell);
+  P.lrx += free * 0.10 * w;
+  P.llx += load * 0.10 * w;
+  P.lrb += (free * 0.24 - load * 0.10) * w;
+  P.llb += (load * 0.24 - free * 0.10) * w;
   P.hry += (Math.sin(t * 0.31 + seed * 2.1) * 0.16 - dwell * 0.06) * w;
   P.hrx += (br * 0.02 + Math.sin(t * 0.23 + seed) * 0.03) * w;
   P.arx += br * 0.024 * w;
   P.olx += -br * 0.02 * w;
+  P.arb += -br * 0.022 * w;
+  P.olb += br * 0.028 * w;
   P.wx += br * 0.03 * w;
 
-  // Blood loss shows in the stance before it shows anywhere else.
+  // Blood loss shows in the stance before it shows anywhere else. It shows in
+  // the knees first of all: a man who has lost blood is not standing at his own
+  // height, and he is not standing at it because his legs have given, not
+  // because his hips have sunk into his thighs.
   P.crx += wounded * (0.22 + br * 0.05) * w;
-  P.py += -wounded * 0.045 * w;
+  // Sized to land where the pelvis drop this replaces landed — about 45 mm at
+  // the point a man stops being able to stand up straight. Cos being flat near
+  // zero, that is most of a radian of knee between the two of them.
+  P.lrb += wounded * (0.58 + br * 0.05) * w;
+  P.llb += wounded * (0.50 + br * 0.05) * w;
   P.hrx += wounded * 0.20 * w;
   P.prx += wounded * 0.07 * w;
   P.arx += wounded * 0.14 * w;
+  P.arb += -wounded * 0.24 * w;
+  P.olb += -wounded * 0.30 * w;
 }
 
 /**
@@ -756,7 +1092,14 @@ function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: num
   motion.stride += (speed / strideLen) * Math.PI * dt;
   // A footfall every half cycle. The jolt of catching your own weight is short
   // and it is what tells the eye the body has mass.
-  if (Math.floor(motion.stride / Math.PI) !== Math.floor(before / Math.PI)) motion.land = 1;
+  //
+  // Offset by a quarter cycle, which is where a foot actually lands: the leg
+  // angle is amp·sin(ph), so it is furthest forward at ph = π/2 (mod π) and
+  // straight under the body at ph = 0. Firing on the zero fired the impulse at
+  // mid-stance — a shudder halfway through a step rather than at the end of one
+  // — and with no knee to fold under it there was nothing to make that obvious.
+  const beat = Math.PI / 2;
+  if (Math.floor((motion.stride - beat) / Math.PI) !== Math.floor((before - beat) / Math.PI)) motion.land = 1;
 
   const ph = motion.stride;
   const sw = Math.sin(ph);
@@ -768,13 +1111,31 @@ function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: num
   P.llz += -0.04 * w;
   P.lrz += 0.04 * w;
 
+  // The knee is what separates a walk from a pair of scissors. It folds through
+  // the swing so the foot clears the ground, peaking as the leg passes under
+  // the body — which is where `-cos` peaks, and why the phase is read off the
+  // derivative of the stride rather than off the stride itself. The planted leg
+  // takes a second, smaller bend as it catches the weight at footfall.
+  //
+  // Nothing here authors a height: the fold shortens the leg and `settleOnFeet`
+  // reads that as the drop, so the body rides low through double support and up
+  // over mid-stance the way a body does.
+  const swingL = Math.max(0, -Math.cos(ph));
+  const swingR = Math.max(0, Math.cos(ph));
+  const clear = 0.34 + amp * 1.45;
+  P.llb += (clear * swingL * swingL + 0.28 * motion.land * (1 - swingL)) * w;
+  P.lrb += (clear * swingR * swingR + 0.28 * motion.land * (1 - swingR)) * w;
+
   P.py += -motion.land * motion.land * 0.022 * w;
 
   // Arms counter the legs, one beat behind them: a shoulder is not bolted to
-  // the opposite hip, it is dragged by it.
+  // the opposite hip, it is dragged by it. The elbows swing with them and stay
+  // bent throughout — nobody walks into a fight with their arms hanging.
   const lag = Math.sin(ph - 0.42);
   P.arx += -(-amp * lag) * 0.42 * w;
   P.olx += -(amp * lag) * 0.55 * w;
+  P.arb += (-0.16 - Math.max(0, -amp * lag) * 0.55) * w;
+  P.olb += (-0.22 - Math.max(0, amp * lag) * 0.70) * w;
   P.arz += 0.06 * w;
   P.olz += -0.06 * w;
 
@@ -798,17 +1159,31 @@ function attackLayer(dir: string, ph: number, heavy: number, w: number): void {
   P.pz += link(ph, 0.08, s.pz, false) * gain * w;
   P.llx += link(ph, 0.09, s.front, false) * gain * w;
   P.lrx += link(ph, 0.09, s.back, false) * gain * w;
+  // The knees run with the feet and just behind them. The back one is coiled at
+  // the load and drives out through the release; the front one is straightish
+  // going in and folds under the blow, which is the shape of a man putting his
+  // weight into something rather than reaching for it.
+  P.llb += link(ph, 0.06, s.frontB, false) * gain * w;
+  P.lrb += link(ph, 0.06, s.backB, false) * gain * w;
 
   P.cry += link(ph, 0.04, s.cry, false) * gain * w;
   P.crx += link(ph, 0.04, s.crx, false) * gain * w;
 
   const arx = link(ph, -0.02, s.arx, true) * gain;
   const arz = link(ph, -0.02, s.arz, true) * gain;
+  // Between the shoulder and the blade, because that is where an elbow is in
+  // the chain: hips at +0.10, spine +0.04, shoulder -0.02, elbow -0.05, blade
+  // -0.09. Every link arriving on the same clock is an arm waving a stick.
+  const arb = link(ph, -0.05, s.arb, true) * gain;
   P.arx += arx * w;
   P.arz += arz * w;
-  // The off arm is a counterweight, not a passenger.
+  P.arb += arb * w;
+  // The off arm is a counterweight, not a passenger — and a counterweight on a
+  // straight arm is a sandbag on a rope. It folds hardest where the weapon arm
+  // is folded and opens with it.
   P.olx += -arx * 0.26 * w;
   P.olz += -arz * 0.30 * w;
+  P.olb += (-0.44 + arb * 0.22) * w;
 
   P.wx += link(ph, -0.09, s.wx, true) * w;
   P.wz += link(ph, -0.09, s.wz, true) * w;
@@ -828,6 +1203,11 @@ function attackLayer(dir: string, ph: number, heavy: number, w: number): void {
   P.pz += 0.10 * cost;
   P.lrx += -0.34 * cost;
   P.llx += 0.10 * cost;
+  // The back leg comes under him bent, because that is what catching yourself
+  // looks like, and the arm is dragged out straight behind the weapon.
+  P.lrb += 0.46 * cost;
+  P.llb += -0.14 * cost;
+  P.arb += 0.34 * cost;
   P.arz += 0.30 * cost;
   P.olz += -0.36 * cost;
   P.hrx += 0.18 * cost;
@@ -839,7 +1219,12 @@ function blockLayer(hasShield: boolean, settle: number, w: number): void {
   // arrives by lerp arrives without weight.
   const over = Math.sin(settle * Math.PI) * (1 - settle) * 0.5;
 
-  P.py += (-0.03 - over * 0.03) * w;
+  // The drop that used to be dialled into the pelvis here comes out of the
+  // knees now. Braced is not the same shape as short: a man behind a shield has
+  // his weight down between two bent legs with the front one loaded, and that
+  // is a thing you can see from the side. A lowered pelvis over straight legs
+  // is not, and it was the reason `blocking` and `idle` were one silhouette.
+  P.py += (-0.005 - over * 0.02) * w;
   P.pz += -0.05 * w;
   P.prx += 0.07 * w;
   P.pry += -0.20 * w;
@@ -850,27 +1235,41 @@ function blockLayer(hasShield: boolean, settle: number, w: number): void {
   P.lrx += 0.36 * w;
   P.llz += -0.11 * w;
   P.lrz += 0.12 * w;
+  P.llb += (0.24 + over * 0.08) * w;
+  P.lrb += (0.16 + over * 0.05) * w;
   P.hrx += (0.12 + over * 0.06) * w;
   P.hry += 0.16 * w;
 
   if (hasShield) {
-    P.olx += (-1.30 - over * 0.16) * w;
-    P.olz += 0.44 * w;
+    // The shield is strapped to the forearm, so the elbow is what actually puts
+    // it in front of a face; the shoulder only carries it up. Doing the whole
+    // lift at the shoulder — which is all a rig without an elbow could do — is
+    // a man holding a door out in front of himself at arm's length, and it is
+    // exactly what the huscarl was doing in every block in the capture set.
+    P.olx += (-0.76 - over * 0.12) * w;
+    P.olb += (-1.02 - over * 0.14) * w;
+    P.olz += 0.40 * w;
     P.oly += -0.16 * w;
     P.sx += 0.30 * w;
     P.sy += -0.34 * w;
-    P.sfy += 0.16 * w;
-    P.sfz += 0.10 * w;
-    P.arx += 0.58 * w;
+    P.sfy += 0.10 * w;
+    P.sfz += 0.14 * w;
+    // The sword hand comes back behind the rim, cocked to answer.
+    P.arx += 0.42 * w;
+    P.arb += -0.74 * w;
     P.arz += -0.26 * w;
-    P.wx += -0.5 * w;
+    P.wx += 0.18 * w;
   } else {
-    // No shield: the blade goes up in a hanging guard and the off hand braces it.
-    P.arx += (-1.12 - over * 0.12) * w;
+    // No shield: the blade goes up in a hanging guard and the off hand braces
+    // it. The lift is split between shoulder and elbow the same way, which is
+    // what brings the fist in to the shoulder instead of out in front of it.
+    P.arx += (-0.60 - over * 0.10) * w;
+    P.arb += (-0.96 - over * 0.10) * w;
     P.arz += 0.60 * w;
-    P.olx += -1.02 * w;
+    P.olx += -0.52 * w;
+    P.olb += -1.08 * w;
     P.olz += 0.30 * w;
-    P.wx += 0.55 * w;
+    P.wx += 1.18 * w;
     P.wz += -0.35 * w;
   }
 }
@@ -894,11 +1293,18 @@ function flinchLayer(motion: WarriorMotion, w: number): void {
   P.hrz += side * 0.4 * push;
   P.arz += side * 0.4 * push;
   P.olz += side * 0.3 * push;
-  // The leg he is being driven onto steps out to catch him, which through the
-  // foot solve also drops him — a man taking a blow gets shorter.
+  // The arms fold in on the blow rather than staying out at the angle they were
+  // caught at. A struck man protects his centre before he does anything else.
+  P.arb += -0.32 * push;
+  P.olb += -0.40 * push;
+  // The leg he is being driven onto steps out to catch him and buckles under
+  // him, which through the foot solve also drops him — a man taking a blow gets
+  // shorter, and now he gets shorter at the knee where it happens.
   P.lrz += Math.max(0, side) * 0.38 * push;
   P.llz += -Math.max(0, -side) * 0.38 * push;
   P.lrx += -fwd * 0.18 * push;
+  P.lrb += Math.max(0, side) * 0.44 * push;
+  P.llb += Math.max(0, -side) * 0.44 * push;
 }
 
 /** Staggered: knocked off the beat, recovering in a decaying wobble. */
@@ -917,6 +1323,12 @@ function staggerLayer(t: number, phase: number, motion: WarriorMotion, w: number
   P.olz += -0.5 * w;
   P.lrx += (-0.34 + wob * 0.1) * w;
   P.llx += (0.30 - wob * 0.1) * w;
+  // Knocked off the beat means off the legs: both knees are under him and soft,
+  // and they stiffen as the wobble decays instead of the pose simply fading.
+  P.lrb += (0.26 + (0.34 + wob * 0.14) * decay) * w;
+  P.llb += (0.26 + (0.22 - wob * 0.14) * decay) * w;
+  P.arb += (-0.78 + wob * 0.22) * w;
+  P.olb += (-0.92 - wob * 0.22) * w;
   P.wx += 0.5 * w;
 }
 
@@ -936,10 +1348,17 @@ function dodgeLayer(phase: number, side: number, w: number): void {
   P.hrx += 0.2 * dip * w;
   P.llx += (-0.75 * dip + 0.2 * land) * w;
   P.lrx += (0.85 * dip - 0.15 * land) * w;
+  // "Drop under it" is a knee, not a hip. Both fold deep through the dip and
+  // the leading one takes the landing; the pelvis drop above is now only the
+  // part of it the knees cannot account for.
+  P.llb += (1.20 * dip + 0.40 * land) * w;
+  P.lrb += (0.88 * dip + 0.26 * land) * w;
   P.arx += (0.5 * dip) * w;
   P.arz += 0.4 * dip * w;
   P.olx += (-0.7 * dip) * w;
   P.olz += -0.4 * dip * w;
+  P.arb += -0.92 * dip * w;
+  P.olb += -1.14 * dip * w;
   P.cloak += 0.6 * dip * w;
 }
 
@@ -962,6 +1381,12 @@ function abilityLayer(d: number, w: number): void {
   P.arz += 0.5 * k;
   P.olx += 0.9 * k;
   P.olz += -0.7 * k;
+  // Thrown, so the arms open out at the top of it — the elbows straighten
+  // against the stance's fold rather than adding to it.
+  P.arb += (0.20 - hold * 0.06) * k;
+  P.olb += (0.16 - hold * 0.06) * k;
+  P.lrb += 0.22 * k;
+  P.llb += 0.18 * k;
   P.hrx += -0.3 * k;
   P.wx += -1.2 * k;
   P.cloak += 0.35 * k;
@@ -970,16 +1395,22 @@ function abilityLayer(d: number, w: number): void {
 /**
  * Puts the body down on whichever foot is under it.
  *
- * The leg is one rigid piece from hip to sole, so a leg tilted θ off vertical
- * leaves its sole L(1−cos θ) above the ground unless the pelvis comes down to
- * meet it — and the pelvis tilting carries the hip sockets with it, so both
- * terms have to be in the same solve or a swing that pitches the hips forward
- * drives both boots through the turf. Doing it once here, from whatever angles
- * the layers happened to stack up to, is why a wide guard settles and a stride
- * rises and falls without a single layer authoring a height curve.
+ * A leg tilted θ off vertical leaves its sole L(1−cos θ) above the ground unless
+ * the pelvis comes down to meet it — and the pelvis tilting carries the hip
+ * sockets with it, so both terms have to be in the same solve or a swing that
+ * pitches the hips forward drives both boots through the turf. Doing it once
+ * here, from whatever angles the layers happened to stack up to, is why a wide
+ * guard settles and a stride rises and falls without a single layer authoring a
+ * height curve.
  *
- * Lift is taken in full — a foot under the ground is a bug. Drop keeps four
- * fifths, and the knee this rig does not have is charged for the rest.
+ * The leg is no longer one rigid piece, and that is the other half of it. A bent
+ * knee makes an isoceles triangle of the two halves, so hip to sole is
+ * L·cos(φ/2) whatever the hip is doing — one cosine, and the whole of the
+ * crouch, the landing, the lunge and the collapse falls out of it. The previous
+ * version had to fake this: it kept four fifths of every drop and charged the
+ * missing fifth to "the knee this rig does not have". There is a knee now, the
+ * drop is taken in full, and the leg that actually reaches furthest is the one
+ * the body stands on.
  */
 function settleOnFeet(legLen: number): void {
   const hip = Math.hypot(P.prx, P.prz);
@@ -990,8 +1421,10 @@ function settleOnFeet(legLen: number): void {
   if (standing <= 0) return;
   const legL = Math.hypot(P.llx + P.prx, P.llz + P.prz);
   const legR = Math.hypot(P.lrx + P.prx, P.lrz + P.prz);
-  const need = legLen * (Math.cos(Math.min(1.4, Math.min(legL, legR))) - Math.cos(Math.min(1.4, hip)));
-  P.py += (need < 0 ? need * 0.8 : need) * standing;
+  const reachL = Math.cos(clamp(P.llb, 0, 2.4) * 0.5) * Math.cos(Math.min(1.4, legL));
+  const reachR = Math.cos(clamp(P.lrb, 0, 2.4) * 0.5) * Math.cos(Math.min(1.4, legR));
+  const need = legLen * (Math.max(reachL, reachR) - Math.cos(Math.min(1.4, hip)));
+  P.py += need * standing;
 }
 
 /**
@@ -1017,7 +1450,9 @@ function deathLayer(d: number, fall: number): void {
 
   // Rise as the body goes flat, or half of it ends up under the turf. The drop
   // of the collapse itself is not authored here: both knees fold below and
-  // `settleOnFeet` takes the body down onto them.
+  // `settleOnFeet` takes the body down onto them — which is the difference
+  // between a man whose legs went and a felled tree, and it is a difference
+  // this rig could not express at all before there were knees to fold.
   P.py = 0.12 * Math.abs(Math.sin(P.prx)) + bounce * 0.03;
   P.pz = fall * 0.06 * buckle;
 
@@ -1036,8 +1471,17 @@ function deathLayer(d: number, fall: number): void {
   P.arz = mix(0.1, 0.92, limp);
   P.olx = mix(0.1, -0.06, limp) + bounce * 0.16;
   P.olz = mix(-0.1, -0.98, limp);
+  P.arb = mix(-0.52, -0.20, limp) + bounce * 0.16;
+  P.olb = mix(-0.60, -0.16, limp) + bounce * 0.14;
   P.llx = mix(fall * 0.62 * buckle, -0.04, over) + bounce * 0.08;
   P.lrx = mix(fall * 0.48 * buckle, 0.05, over) + bounce * 0.1;
+  // The knees are the first beat of the collapse and they go before anything
+  // else moves — he drops onto them, and only then does the body carry over.
+  // They straighten out again as he goes flat, which is both what a body on the
+  // ground looks like and what keeps `settleOnFeet` from handing the corpse a
+  // step up as its `standing` term fades out from under it.
+  P.lrb = mix(1.58 * buckle, 0.12, over);
+  P.llb = mix(1.34 * buckle, 0.09, over);
   P.llz = -0.3 * over;
   P.lrz = 0.36 * over;
   P.wx = mix(0.4, -1.0, limp);
@@ -1081,13 +1525,18 @@ export function poseWarrior(
   // going into a swing, where the windup is doing the work anyway.
   const group = POSE_GROUP[player.state] ?? player.state;
   if (group !== motion.lastState) {
-    motion.blend = 1;
+    // Not on the very first frame: `rig.last` is all zeroes then, so a warrior
+    // who arrives mid-swing would spend his opening frame blended into a T-pose
+    // and only reach the pose the server asked for once the crossfade expired.
+    // Live that is one frame of mush; in a still it is the whole photograph.
+    motion.blend = motion.lastState === "" ? 0 : 1;
     motion.lastState = group;
   }
   motion.blend = Math.max(0, motion.blend - dt * (player.state === "attacking" ? 22 : 10));
 
   if (dead) {
     deathLayer(motion.actT, motion.fall);
+    stops();
     settleOnFeet(legLen);
     motion.leanX *= 0.9;
     commit(rig, piv, st, motion.blend, 0);
@@ -1158,13 +1607,7 @@ export function poseWarrior(
     P.olz += -0.08;
   }
 
-  // Anatomical stops. Layers add, and two of them stacking is how a spine ends
-  // up turned further than a spine turns — which on a torso split at the belt
-  // shows as the mail sliding off the hips.
-  P.cry = clamp(P.cry, -0.55, 0.55);
-  P.crx = clamp(P.crx, -0.5, 0.62);
-  P.crz = clamp(P.crz, -0.36, 0.36);
-
+  stops();
   settleOnFeet(legLen);
   commit(rig, piv, st, motion.blend, ready);
   fadeBlob(rig, 0);
@@ -1188,6 +1631,27 @@ export function poseWarrior(
   }
 }
 
+/**
+ * Anatomical stops, applied to the assembled pose and before the foot solve
+ * reads it.
+ *
+ * Layers add, and two of them stacking is how a spine ends up turned further
+ * than a spine turns — which on a torso split at the belt shows as the mail
+ * sliding off the hips. The hinges matter more than the spine did: an elbow or a
+ * knee a tenth of a radian the wrong side of straight does not read as a stiff
+ * pose, it reads as a broken limb, and with four layers able to touch each one
+ * that is a matter of when rather than whether.
+ */
+function stops(): void {
+  P.cry = clamp(P.cry, -0.55, 0.55);
+  P.crx = clamp(P.crx, -0.5, 0.62);
+  P.crz = clamp(P.crz, -0.36, 0.36);
+  P.arb = clamp(P.arb, -2.45, 0.02);
+  P.olb = clamp(P.olb, -2.45, 0.02);
+  P.lrb = clamp(P.lrb, 0, 2.35);
+  P.llb = clamp(P.llb, 0, 2.35);
+}
+
 /** Blend out of the pose that was on the body last frame, then write this one. */
 function commit(rig: WarriorRig, piv: RigPivots, st: Stance, blend: number, ready: number): void {
   if (blend > 0) {
@@ -1208,6 +1672,12 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   piv.leftArm.rotation.set(P.olx, P.oly, P.olz);
   piv.rightLeg.rotation.set(P.lrx, 0, P.lrz);
   piv.leftLeg.rotation.set(P.llx, 0, P.llz);
+  // Hinges: X only. Everything above them already turns, and a knee given a
+  // second axis is a knee that can be put on backwards.
+  piv.elbowR.rotation.x = P.arb;
+  piv.elbowL.rotation.x = P.olb;
+  piv.kneeR.rotation.x = P.lrb;
+  piv.kneeL.rotation.x = P.llb;
   if (piv.cloak) piv.cloak.rotation.x = P.cloak;
 
   rig.weapon.rotation.set(P.wx, 0, P.wz);
@@ -1217,11 +1687,21 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   rig.weapon.position.y = P.wy * st.slide;
   if (rig.offhand) {
     // The second seax mirrors the main hand, a beat behind and never as far.
-    rig.offhand.rotation.set(mix(st.rest, P.wx, 0.55), 0, -P.wz * 0.6);
+    // `P.wx + P.arb` is where the weapon hand is pointing once its elbow is
+    // counted; subtracting the off elbow gives the same aim from the other arm
+    // rather than the same wrist angle, which after the elbows went in are two
+    // very different things.
+    rig.offhand.rotation.set(mix(st.rest, P.wx + P.arb, 0.55) - P.olb, 0, -P.wz * 0.6);
   }
   if (rig.shield) {
     rig.shield.rotation.set(0.22 + P.sx, 0.16 + P.sy, 0.14 + P.sz);
-    rig.shield.position.set(-0.14, -0.4 + P.sfy, 0.26 + P.sfz);
+    // Carried off the forearm bone, so the mount height is the tuned offset
+    // minus where that bone sits — see `SHIELD_CARRY`.
+    rig.shield.position.set(
+      SHIELD_CARRY.x,
+      SHIELD_CARRY.y - piv.elbowL.position.y + P.sfy,
+      SHIELD_CARRY.z + P.sfz,
+    );
   }
   // A guard raised is a guard the cloak has to move around.
   if (piv.cloak) piv.cloak.rotation.z = -P.crz * 0.5 + ready * 0.02;

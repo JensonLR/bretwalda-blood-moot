@@ -261,9 +261,18 @@ function groundHeight(x: number, z: number): number {
   // Interior: shallow swales, the tracks worn a little lower, puddle basins.
   let h = (fbm(x * 0.085 + 17.3, z * 0.085 - 5.1, 3) - 0.5) * 0.062;
   h -= pathMask(x, z, r) * 0.024;
+  // 48 mm, not 75. The invariant this whole field is built around is that the
+  // interior stays within ~5 cm of zero, because the server sim is 2-D and a
+  // warrior's boots are planted at y = 0 — and the basins were the single term
+  // most responsible for breaking it: worst |y| inside the palisade was 107 mm,
+  // and this takes it to 80 mm. The rest is the swale below, which is a
+  // separate call and a bigger one, since it is what carries the interior's
+  // relief. It matters here because `portrait` and `stance` stand their subject
+  // 1.1 m from the centre of the largest basin in the arena, so whatever the
+  // gap between the boot plane and the waterline is, that shot is showing it.
   for (const p of PUDDLES) {
     const d = Math.hypot(x - p.x, z - p.z) / p.r;
-    h -= 0.075 * Math.exp(-d * d * 1.6);
+    h -= 0.048 * Math.exp(-d * d * 1.6);
   }
 
   // Relief is masked off inside the ring and ramps in fast just outside it, so
@@ -1151,12 +1160,14 @@ export function createWorld(
           //
           // Kaplanyan/Tokuyoshi: a normal that wobbles inside a pixel is a
           // wider lobe, and lobe widths add as variances on alpha rather than
-          // on roughness. The 0.28 ceiling stops a silhouette pixel, where the
-          // derivative is meaningless, from flattening the shading to matte.
+          // on roughness. Constants are Filament's published defaults — 0.15
+          // variance doubled, capped at 0.25 — and the cap is the one that
+          // matters: it is what stops a silhouette pixel, where the derivative
+          // means nothing, from flattening a whole edge to matte.
           {
             vec3 dNdx = dFdx( normal );
             vec3 dNdy = dFdy( normal );
-            float kernel = min( 0.5 * ( dot( dNdx, dNdx ) + dot( dNdy, dNdy ) ), 0.28 );
+            float kernel = min( 0.3 * ( dot( dNdx, dNdx ) + dot( dNdy, dNdy ) ), 0.25 );
             roughnessFactor = sqrt( min( roughnessFactor * roughnessFactor + kernel, 1.0 ) );
           }
           #include <lights_physical_fragment>`,
@@ -1183,37 +1194,47 @@ export function createWorld(
   //     *bottom* — which is the whole difference between shallow water and a
   //     hole — and it is wet silt rather than near-black.
   //   * Clearcoat. A second, smoother layer carries its own Fresnel term and
-  //     its own IBL sample, so the sheet still returns something off the
-  //     PMREM's ember horizon at a near-vertical view. `specularIntensity`
-  //     lifts the base layer's F0 with it.
+  //     its own IBL sample at a mirror roughness the base layer does not have,
+  //     so the sheet still returns something off the PMREM's ember horizon at a
+  //     near-vertical view. It is also the only layer here with a dielectric's
+  //     F0: three derives the base layer's from `ior`, and water's 1.33 gives
+  //     0.020 — half what the old 0x101a1e material had. Reflectivity was never
+  //     going to come from the base layer.
   //   * Ripples. A dead-flat mirror at this roughness samples straight up into
   //     the darkest part of the dome. Two degrees of slope walks that sample
   //     onto the horizon band, which is where all the light in this sky is.
   //   * It sits *in* the ground rather than on it. The sheet is level at a
-  //     fixed waterline and each rim vertex is found by walking out to where
-  //     the terrain crosses that line — so the shore is where the basin
-  //     actually rises out of the water, the last ring is buried, and its
-  //     straight chords never reach the frame.
+  //     waterline set from the basin it fills, its rings are solved against
+  //     that basin's own profile, and its per-vertex alpha follows the water
+  //     depth — so the shore is where the basin rises out of the water, the
+  //     outermost ring finishes under the mud, and the 21-gon of straight
+  //     chords that used to end the disc at full opacity is gone.
   {
-    // 46 mm of water in a basin groundHeight carves 75 mm deep. Deep enough to
-    // hold a reflection, shallow enough that the churn at the edge still reads.
-    const DEPTH = 0.046;
+    // 30 mm of water in a basin groundHeight carves 48 mm deep, which leaves
+    // 18 mm of basin wall dry above the waterline for the churn to read on.
+    // The waterline itself lands 21–51 mm under the boot plane depending on the
+    // swale beneath the basin; that gap is the sim's y = 0 against this file's
+    // relief and it is not something the water can close from here.
+    const DEPTH = 0.030;
     const SEG = 44;
 
     const water = new THREE.MeshPhysicalMaterial({
       // Wet silt, not void. Whatever survives the opacity is what the eye reads
       // as the bottom of the puddle, so it has to be a colour mud could be.
-      color: 0x241d16,
+      color: 0x281f17,
       roughness: 0.09,
       metalness: 0,
       transparent: true,
       opacity: 0.62,
-      // No depth write: the mud behind it has to survive, and six flat sheets
-      // lying on the ground have no ordering problem with each other.
+      // No depth write: the mud behind it has to survive, and flat sheets lying
+      // on the ground have no ordering problem with each other.
       depthWrite: false,
       vertexColors: true,
       ior: 1.33,
-      specularIntensity: 1.4,
+      // Not a claim about the substance — the ior above is the claim, and it is
+      // right. This is compensation for an environment deliberately graded down
+      // for matte surfaces, applied at the one surface whose read depends on it.
+      specularIntensity: 1.6,
       clearcoat: 1,
       clearcoatRoughness: 0.02,
     });
@@ -1227,19 +1248,20 @@ export function createWorld(
         "#include <begin_vertex>",
         "#include <begin_vertex>\n\tvWaterPos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;",
       );
-      // Three crossed swells, cheapest first, dropped to two on low. The
-      // amplitudes below are *slopes*, not heights: the geometry stays a level
-      // sheet and only the shading normal moves, which is both correct for
-      // water this shallow and the only version that costs nothing per vertex.
-      // Both `normal` and `nonPerturbedNormal` are written, because three seeds
-      // the clearcoat's normal from the latter — perturbing only the first
-      // leaves the mirror layer flat, which is the layer doing the work here.
-      const swells = tier === "low"
-        ? "\n\t\tslope += vec2( 2.7, 1.9 ) * ( 0.020 * cos( dot( wp, vec2( 2.7, 1.9 ) ) - uTime * 0.55 ) );"
-          + "\n\t\tslope += vec2( -1.6, 3.3 ) * ( 0.016 * cos( dot( wp, vec2( -1.6, 3.3 ) ) - uTime * 0.41 ) );"
-        : "\n\t\tslope += vec2( 2.7, 1.9 ) * ( 0.020 * cos( dot( wp, vec2( 2.7, 1.9 ) ) - uTime * 0.55 ) );"
-          + "\n\t\tslope += vec2( -1.6, 3.3 ) * ( 0.016 * cos( dot( wp, vec2( -1.6, 3.3 ) ) - uTime * 0.41 ) );"
-          + "\n\t\tslope += vec2( 6.9, -4.8 ) * ( 0.0045 * cos( dot( wp, vec2( 6.9, -4.8 ) ) - uTime * 0.95 ) );";
+      // Three crossed swells: two at about 1.8 m, which is a whole puddle, so
+      // each one catches the light differently from its neighbour; and one
+      // half-metre chop for surface. Only the chop is dropped on low.
+      //
+      // The geometry stays a level sheet and only the shading normal moves,
+      // which is both right for water this shallow and free per vertex. Both
+      // `normal` and `nonPerturbedNormal` are written, because three seeds the
+      // clearcoat's normal from the latter — perturb only the first and the
+      // mirror layer stays flat, and the mirror layer is the one doing the work.
+      const swell = (kx: number, kz: number, amp: number, speed: number) =>
+        `\n\t\t\tslope += vec2( ${kx}, ${kz} ) * ( ${amp} * cos( dot( wp, vec2( ${kx}, ${kz} ) ) - uTime * ${speed} ) );`;
+      const swells = swell(2.7, 1.9, 0.018, 0.55)
+        + swell(-1.6, 3.3, 0.015, 0.41)
+        + (tier === "low" ? "" : swell(11.3, -7.9, 0.0026, 0.95));
       shader.fragmentShader = `varying vec3 vWaterPos;\nuniform float uTime;\n${shader.fragmentShader}`
         .replace(
           "#include <normal_fragment_begin>",
@@ -1257,77 +1279,103 @@ export function createWorld(
         );
     };
 
-    // Silt lit through a centimetre of water against silt lit through five.
-    // The gradient is what gives the puddle a floor to sit above; without it
-    // the sheet is one flat value and reads as a decal however well it reflects.
-    const C_SHALLOW = new THREE.Color().setRGB(1.85, 1.6, 1.32);
-    const C_DEEP = new THREE.Color().setRGB(0.68, 0.68, 0.74);
+    // Silt lit through a centimetre of water against silt lit through five, as
+    // multipliers on the colour above. The gradient is what gives the puddle a
+    // floor to sit above; without it the sheet is one flat value and reads as a
+    // decal however well it reflects. The deep end is held near 0.85 rather than
+    // allowed to fall away: the centre is where the reflection is meant to carry
+    // the read, and if the reflection ever under-delivers that is exactly where
+    // the void comes back.
+    const C_SHALLOW = new THREE.Color().setRGB(1.7, 1.5, 1.26);
+    const C_DEEP = new THREE.Color().setRGB(0.86, 0.84, 0.88);
 
-    // Rings are placed by *depth*, not by a fraction of some radius. The alpha
-    // ramp is a function of depth, so putting the vertices anywhere else spends
-    // them where nothing is changing and starves the band where everything is.
-    // The last one is negative on purpose: that ring finishes 5 mm under the mud
-    // and is what guarantees the polygon's straight chords never reach a frame.
-    const RING_DEPTH = [0.78, 0.56, 0.34, 0.14, -0.12];
+    // Rings are placed by *depth*, as a fraction of DEPTH, not by a fraction of
+    // some radius. The alpha ramp is a function of depth, so vertices spent
+    // anywhere else sit where nothing is changing and starve the band where
+    // everything is. The last one is negative on purpose: that ring finishes
+    // under the mud, and it is what guarantees the polygon's straight chords
+    // never reach a frame.
+    const RING_DEPTH = [0.78, 0.56, 0.34, 0.14, -0.2];
+
+    // The radius each of those lands at, solved off the basin's own Gaussian:
+    // depth(d) = DEPTH − BASIN·( 1 − exp( −1.6·d² ) ), d in puddle radii.
+    //
+    // Off the *basin*, deliberately, and not off the height field. Walking the
+    // real terrain out to where it crosses the waterline looks like the more
+    // honest version and is not: the interior swale runs ±3 cm at a 12 m
+    // wavelength, so wherever it happens to dip beside a puddle the shoreline
+    // walks away — measured at 5.3 m on a basin 2.8 m across, which is not a
+    // puddle but a lake, and 88 m² of transparent fill to shade at near-zero
+    // alpha where 27 was wanted. The basin is what makes the puddle; the swale
+    // is the ground the puddle sits in. BASIN has to track groundHeight.
+    const BASIN = 0.048;
+    const RING_R = RING_DEPTH.map(
+      (t) => Math.sqrt(-Math.log(Math.max(1e-4, 1 - ((1 - t) * DEPTH) / BASIN)) / 1.6),
+    );
+
+    // All six sheets are authored directly in world space and share one
+    // material, so they are one geometry and one draw — and, being transparent,
+    // one entry for the renderer to sort rather than six.
+    const pos: number[] = [];
+    const nrm: number[] = [];
+    const col: number[] = [];
+    const idx: number[] = [];
+    const c = new THREE.Color();
 
     for (const p of PUDDLES) {
+      const base = pos.length / 3;
       const wl = groundHeight(p.x, p.z) + DEPTH;
-      // How far out along one ray the basin floor rises to a given depth.
-      // Bisection: groundHeight climbs monotonically out of a basin over the
-      // range that matters, and fourteen evaluations a ray is free at build
-      // time — six puddles is under four thousand, all of it arithmetic.
-      const radiusAt = (ax: number, az: number, t: number): number => {
-        const target = wl - t * DEPTH;
-        let lo = 0;
-        let hi = p.r * 1.9;
-        if (groundHeight(p.x + ax * hi, p.z + az * hi) < target) return hi;
-        for (let k = 0; k < 14; k++) {
-          const mid = (lo + hi) * 0.5;
-          if (groundHeight(p.x + ax * mid, p.z + az * mid) < target) lo = mid; else hi = mid;
-        }
-        return hi;
-      };
 
-      const pos: number[] = [];
-      const nrm: number[] = [];
-      const col: number[] = [];
-      const idx: number[] = [];
-      const c = new THREE.Color();
-
-      const push = (x: number, z: number, ringFade: number) => {
-        // Alpha and colour both come off the real water depth under the vertex,
-        // which is why the rim dissolves instead of ending on a chord: at the
-        // shoreline the depth is zero by construction, and how wide the margin
-        // comes out is the basin's own slope rather than a number picked here.
-        // `ringFade` is a backstop for a hollow that never rises to the
-        // waterline inside the search radius.
-        const t = clamp01((wl - groundHeight(x, z)) / DEPTH);
-        c.copy(C_SHALLOW).lerp(C_DEEP, smoothstep(0.2, 0.95, t));
+      // Alpha and colour come off the ring's own design depth, and the terrain
+      // is allowed only to *cut*. Reading depth off the height field instead
+      // sounds more principled and measures worse: the swale is ±30 mm and DEPTH
+      // is 30 mm, so on the low side of a puddle the field says "deep" right out
+      // to the last ring and the fade collapses into a single annulus — 0.95 to
+      // 0 across 60 cm, which reads as a vignette, not a shore. The ring ramp is
+      // the shape of the water; the cut is where the ground comes back through
+      // it, which is an island and is the only thing the terrain knows here that
+      // the basin does not. `ringFade` zeroes the buried ring outright.
+      const push = (x: number, z: number, t: number, ringFade: number) => {
+        const over = (wl - groundHeight(x, z)) / DEPTH;
+        // Full strength wherever there is any water at all, off only once the
+        // ground has actually come back through the surface. Centring this band
+        // on zero instead would dim the deep middle of a puddle that happens to
+        // sit on a slope, which is not what "the ground is above the water"
+        // means — and the largest basin in the arena does sit on one.
+        const cut = smoothstep(-0.25, 0.08, over);
+        c.copy(C_SHALLOW).lerp(C_DEEP, smoothstep(0.2, 0.95, clamp01(t)));
         pos.push(x, wl, z);
         nrm.push(0, 1, 0);
-        col.push(c.r, c.g, c.b, Math.min(smoothstep(0, 0.62, t), ringFade));
+        col.push(c.r, c.g, c.b, Math.min(smoothstep(0, 0.62, clamp01(t)) * cut, ringFade));
       };
 
-      push(p.x, p.z, 1);
+      push(p.x, p.z, 1, 1);
       for (let i = 0; i < RING_DEPTH.length; i++) {
         for (let j = 0; j < SEG; j++) {
           const a = (j / SEG) * TAU;
           const ax = Math.cos(a);
           const az = Math.sin(a);
-          const r = radiusAt(ax, az, RING_DEPTH[i]);
-          push(p.x + ax * r, p.z + az * r, i === RING_DEPTH.length - 1 ? 0 : 1);
+          // One wobble per ray, shared by every ring on it. That is what keeps
+          // the outline off a circle without letting a ring cross the one
+          // outside it — the whole fan is scaled by the same factor, so the
+          // ordering the ring radii were solved for survives.
+          const wob = 0.86 + noise2(ax * 2.4 + p.x, az * 2.4 + p.z) * 0.28;
+          const r = RING_R[i] * p.r * wob;
+          push(p.x + ax * r, p.z + az * r, RING_DEPTH[i], i === RING_DEPTH.length - 1 ? 0 : 1);
         }
       }
-      for (let j = 0; j < SEG; j++) idx.push(0, 1 + ((j + 1) % SEG), 1 + j);
+      for (let j = 0; j < SEG; j++) idx.push(base, base + 1 + ((j + 1) % SEG), base + 1 + j);
       for (let i = 1; i < RING_DEPTH.length; i++) {
-        const a0 = 1 + (i - 1) * SEG;
-        const b0 = 1 + i * SEG;
+        const a0 = base + 1 + (i - 1) * SEG;
+        const b0 = base + 1 + i * SEG;
         for (let j = 0; j < SEG; j++) {
           const jn = (j + 1) % SEG;
           idx.push(a0 + j, a0 + jn, b0 + j, a0 + jn, b0 + jn, b0 + j);
         }
       }
+    }
 
+    {
       const g = own(new THREE.BufferGeometry());
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
@@ -1343,17 +1391,19 @@ export function createWorld(
     // is ours, so it has to follow along by hand. Not a snapshot: sky.ts rebakes
     // the PMREM on every mood change and mints a new texture each time, and a
     // puddle reflecting a disposed one goes black again. The ground material is
-    // the probe because it is already in scope and the library does adopt it.
+    // the probe because it is already in scope and the library does adopt it —
+    // a pointer compare a frame, and a recompile only when the sky rebakes,
+    // which every other material in the arena is paying for on the same frame.
     //
-    // The intensity is deliberately not the arena's. ENV_INTENSITY is set for
-    // dry matte surfaces, where the PMREM is doing duty as bounce fill and a
-    // full-strength sky would wash them out. Water is the one surface here whose
-    // entire job is to return the sky, and it wants it closer to real radiance.
+    // Intensity is 1, not the arena's. sky.ts grades the environment down to
+    // 0.42 because on matte surfaces the PMREM is doing duty as bounce fill and
+    // full strength washes them out. Water is the one surface here whose entire
+    // read is the sky it returns, and it wants that sky at its real radiance.
     const envProbe = groundMat instanceof THREE.MeshStandardMaterial ? groundMat : null;
     const syncWaterEnv = () => {
       if (!envProbe || water.envMap === envProbe.envMap) return;
       water.envMap = envProbe.envMap;
-      water.envMapIntensity = envProbe.envMapIntensity * 2.4;
+      water.envMapIntensity = 1;
       water.needsUpdate = true;
     };
     syncWaterEnv();
@@ -2548,11 +2598,14 @@ export function createWorld(
       field(rockGeos[1], rockMat, ring);
 
       const pile: THREE.Matrix4[] = [];
-      // Out past CLEAR_RADIUS, on the bearing it already read best from. At
-      // (-3.4, 2.6) it sat 0.6 m from a brawl spawn and the warrior standing
-      // there had both shins through it.
-      const px = -5.5;
-      const pz = 4.3;
+      // Out past CLEAR_RADIUS, and mirrored across the fire onto the far side.
+      // At (-3.4, 2.6) it sat 0.6 m from a brawl spawn and the warrior standing
+      // there had both shins through it; the obvious fix — the same bearing,
+      // further out — lands in the -x/+z quadrant, which is where every framed
+      // character shot puts its subject. Beyond the hearth instead: still
+      // firewood waiting by the fire, clear of the ring and of the portrait.
+      const px = -5.4;
+      const pz = -4.1;
       const py = groundHeight(px, pz);
       for (let row = 0; row < 3; row++) {
         for (let i = 0; i < 4 - row; i++) {
@@ -2612,10 +2665,11 @@ export function createWorld(
     //
     // They used to be 0.5 m deep boxes in a 0.42 m slab, sunk on the slab's
     // centre line, so every stroke stood proud of both faces at once — and with
-    // emissiveIntensity 8 behind them they read in four presets as glowing
-    // dashes floating free in the air beside the stone. Two of them missed the
-    // slab entirely, because they were authored in the group's space while the
-    // slab lives 1.95 m up inside it, and none of them inherited the lean.
+    // emissiveIntensity 8 behind them they read in arena, duel, brawl and
+    // lineup as glowing dashes floating free in the air beside the stone. The
+    // lowest stroke and the lowest bar of the border hung off the slab's foot
+    // outright, because both were authored in the group's space while the slab
+    // lives 1.95 m up inside it; and none of it inherited the slab's lean.
     //
     // So: parented to the slab, authored in its space, and laid on the surface
     // the extrusion actually has. There is no CSG here to cut a channel with, so
