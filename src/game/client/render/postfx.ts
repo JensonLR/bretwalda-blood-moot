@@ -170,6 +170,44 @@
 // illuminant: weathered oak's chroma lies dead on the warm axis and gains nothing,
 // wet turf has 85% of its chroma across it and gains nearly all of the expansion.
 // Turf separates from timber without either becoming more orange.
+//
+// ---------------------------------------------------------------------------
+// Why the split-tone crossover is no longer the tonal anchor
+// ---------------------------------------------------------------------------
+//
+// One pair of numbers was doing two jobs that want opposite answers, and the last
+// stand is where they came apart.
+//
+// The chroma stages need their pivot *on* the picture. `chromaTilt` clamps its
+// argument to +/-1, so a pivot above the frame pins every pixel at -1 and turns a
+// deliberate trade of colour between the lit and unlit halves into a flat
+// desaturation of everything — that was the v4 bug, and it is why `splitLow` /
+// `splitHigh` were brought down onto the frame's own interquartile range.
+//
+// The split-tone crossover needs its midpoint *above* the picture, and for a
+// reason that is arithmetic rather than taste: the midpoint of a cool tint and a
+// warm one is a desaturated near-neutral. Put the crossover on the histogram mode
+// and the modal pixel — the largest population in the frame — is multiplied by the
+// average of the two tints, so the stage that exists to create complementary
+// contrast instead lays one flat cast over the bulk of the image and only the two
+// tails see either tint.
+//
+// Measured over v6/laststand.png, whose crossover ran 0.10 -> 0.34 against a p10
+// of 0.112 and a p90 of 0.375: B/R by luma band came out 0.586 / 0.276 / 0.232 /
+// 0.222 / 0.279 — not a ramp at all, one hue held to within a few per cent across
+// 78% of the frame, with the crossover's own warm-neutral midpoint sitting on the
+// 42% of pixels between 0.15 and 0.25. v3, whose split had not yet been narrowed
+// onto the mode, ran 0.895 / 0.787 / 0.712 / 0.364 / 0.347 over the same bands: a
+// monotone cool-to-hot ramp, a factor of 2.6 end to end, and the reason it reads as
+// a hotter frame despite a *lower* luma spread than v6 (sd 0.082 against 0.106).
+// Heat is read as the contrast between a hot sliver and a cool field, not as the
+// average hue of the frame.
+//
+// So `splitLow` / `splitHigh` stay the tonal anchor and keep the chroma stages
+// pivoted on the picture, and `tintLow` / `tintHigh` state separately where the
+// key's light stops. Dusk sets them equal to its anchor, which is what it always
+// did; the last stand puts them above its own third quartile, so the ash field is
+// decisively cool and only what the fire genuinely reaches goes hot.
 
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -268,21 +306,34 @@ export interface GradeLook {
   /**
    * The look's tonal anchor, in **display code values** (0..1 of the sRGB-encoded
    * frame, so 0.14 is code 36) — the space these were measured in and the space a
-   * colourist means by "shadows" and "highlights". Below `splitLow` the split-tone
-   * is all `shadowTint`; above `splitHigh` it is all `highlightTint`; and the pair
-   * also centres the midtone chroma bump and pivots the chroma tilt, so "where
-   * this picture lives" is stated once.
+   * colourist means by "shadows" and "highlights". It centres the midtone chroma
+   * bump and pivots the chroma tilt, so "where this picture lives" is stated once.
    *
-   * The gap has to be *narrower* than the frame's tonal range or the split cancels
-   * out exactly where the picture is: a ramp running the full 0..0.85 leaves every
-   * midtone halfway between the two tints, which averages to neutral and throws
-   * away the complementary contrast the split exists to create. It also has to be
-   * in the right units — see the header. Applied to display-*linear* luma, as it
-   * was through v4, this pair sits above the 90th percentile of every framing in
-   * the game and the split degenerates into a flat `shadowTint` multiply.
+   * It has to straddle the frame's own interquartile range, and that is a hard
+   * constraint rather than a preference: `chromaTilt` clamps its argument to
+   * +/-1, so an anchor above the picture pins every pixel at one end and silently
+   * renders the whole look at a saturation nobody authored. It also has to be in
+   * the right units — see the header. Applied to display-*linear* luma, as it was
+   * through v4, this pair sits above the 90th percentile of every framing in the
+   * game.
    */
   splitLow: number;
   splitHigh: number;
+  /**
+   * Where the split-tone hands `shadowTint` over to `highlightTint`, in the same
+   * display code values. Separate from the tonal anchor because the two want
+   * opposite placements — see the header — and equal to it for a look that wants
+   * the old single-pair behaviour.
+   *
+   * The midpoint of this crossover is the one luma at which the frame is
+   * multiplied by the *average* of the two tints, and the average of a cool tint
+   * and a warm one is a desaturated near-neutral. So the midpoint is a hue the
+   * look does not want any large population of pixels to land on, which makes
+   * this pair a statement about the frame's histogram: put the crossover where
+   * the key's light stops, not where the picture's mass is.
+   */
+  tintLow: number;
+  tintHigh: number;
   /**
    * Print black, per channel, in **display code values**, faded by the square of
    * the pixel's encoded luma and added after the sRGB encode. A print has a black
@@ -507,6 +558,15 @@ const DUSK: GradeLook = {
   // here and put the whole crossover off the top of every frame.
   splitLow: 0.14,
   splitHigh: 0.42,
+  // Dusk's crossover is its anchor, which is what this look always did and what
+  // its captures were scored on. It gets away with it where the last stand does
+  // not because dusk's key reaches most of the frame: the crossover's neutral
+  // midpoint at 0.28 sits above a median of 0.27 rather than on top of a mode
+  // holding 42% of the pixels, so the ramp is traversed by the picture instead of
+  // parked on it. Measured on v6/duel.png the B/R bands still come out 0.69 /
+  // 0.74 / 0.56 / 0.54 / 0.57 — shallow, and the thing to fix next here.
+  tintLow: 0.14,
+  tintHigh: 0.42,
   // Code values now, not display-linear: a floor of 3 / 6 / 13 out of 255, cool,
   // which is about what a good black-and-white print holds. The same *intent* as
   // v4's [0.004, 0.008, 0.018] and roughly the same visible black, except it no
@@ -551,7 +611,14 @@ const DUSK: GradeLook = {
   // grade, but 0.8 blue was painting the arena, not the lens.
   bloomTint: [1.0, 0.97, 0.93],
   vignette: 0.3,
-  aberration: 0.0035,
+  // A whisper, and it has to be: the offset is applied to R and B in opposite
+  // directions, so the *fringe* is twice what this number buys. At the old 0.0035
+  // that put 1.4 px of red/cyan on every silhouette at the frame edge — where the
+  // treeline is — and 3.2 px in the corner, which is a nameable artefact rather
+  // than a lens. Held here so the R-to-B separation stays under a third of a pixel
+  // at the edge and under two thirds in the corner: sub-pixel everywhere, so it
+  // reads as a very slight softening of the extreme corner and never as colour.
+  aberration: 0.0007,
   grain: 0.018,
   aoIntensity: 1.0,
   // 0.32 is what `duel` and `lineup` measure, and those are the two framings this
@@ -592,12 +659,19 @@ const DUSK: GradeLook = {
 // violently saturated light and leaves everything outside them lit by nothing but
 // smoke. `chromaTilt` hard positive is that — colour collapses out of the shadows
 // into grey soot while the fire-lit surfaces go hotter and more saturated than
-// anything in dusk. The shadow end goes cold and nearly neutral to meet it,
-// because the complementary contrast against a hot key is what makes a frame feel
-// desperate rather than nostalgic, and because warm-shadow-plus-warm-key is the
-// sepia we are getting out of. Hotter where the fire reaches, colder and greyer
-// everywhere it does not, and a much narrower band between the two: darker than
-// dusk overall, and not the same picture with a filter on it.
+// anything in dusk. The shadow end goes cold to meet it, because the complementary
+// contrast against a hot key is what makes a frame feel desperate rather than
+// nostalgic, and because warm-shadow-plus-warm-key is the sepia we are getting out
+// of. Hotter where the fire reaches, colder and greyer everywhere it does not.
+//
+// v6 still came back as one hue, and the reason was structural rather than a tint
+// value: the split-tone's crossover ran 0.10 -> 0.34 against a frame whose p10 and
+// p90 are 0.112 and 0.375, so it bracketed the entire picture and its own neutral
+// midpoint landed on the mode. Every stage below was authored correctly and the
+// stage that was supposed to separate them averaged them instead. The crossover is
+// now stated separately from the tonal anchor and lifted above the third quartile
+// — see the header — so the ash is ash and the fire is the only thing in frame
+// wearing the key's colour.
 const LAST_STAND: GradeLook = {
   // Exposure and white point both moved after the captures: at 1.14 over a
   // white of 4.0 the smoke itself — a linear unit of it — landed in the low
@@ -636,21 +710,52 @@ const LAST_STAND: GradeLook = {
   // through `highlightTint`; expanding across the illuminant as well would start
   // arguing with it. Enough to keep the turf and the mail off the timber.
   chromaOpponent: 0.18,
-  // Cold, and almost neutral — soot and smoke, not blue night. This is the single
-  // biggest change in this look: v2's [1.06, 0.72, 0.6] made the shadows warmer
-  // than the highlights were saturated, which is what welded the frame into one
-  // hue. Against a highlight tint this hot, a shadow a few per cent cold is worth
-  // more separation than a large tint in the same direction as the key.
-  shadowTint: [0.78, 0.82, 0.96],
-  highlightTint: [1.3, 0.8, 0.4],
+  // Cold soot, and now genuinely cold rather than "a few per cent" — because with
+  // the crossover moved off the mode this tint is what four fifths of the frame is
+  // actually multiplied by, instead of being a tail the picture never reached.
+  //
+  // Green sits *on* the line from red to blue, which is what makes it ash rather
+  // than night: dusk's shadow is [0.74, 0.9, 1.28], the same coldness with green
+  // 0.11 under that line, and the magenta bias in it is exactly what reads as a
+  // blue-lit sky shadow. Take the bias out and the same coldness reads as smoke.
+  //
+  // The pair is set against itself on both metrics that matter, which is the part
+  // v6 had backwards. On Rec.709 luma they run 0.931 -> 1.087, so the split
+  // stretches the histogram by a sixth — the one stage that legitimately does, and
+  // where a dark frame gets its top end from. On the capture harness's unweighted
+  // (r+g+b)/3 they run 0.983 -> 1.003, flat enough that no tonal bucket can be lost
+  // to a tint change. v6's pair failed both: 0.853 -> 0.833 unweighted, so the split
+  // ran *backwards* on the metric the frame is scored by and darkened both ends by
+  // about 15% on the way. The frame's own mode came out multiplied by
+  // [1.006, 0.839, 0.758] — one warm-neutral cast, 13% down, over the largest
+  // population of pixels in the picture, with no stretch in it at all. The flatness
+  // and the single hue are the same arithmetic.
+  //
+  // B/R runs 1.63 in the ash against 0.34 in the ember: a factor of nearly five
+  // between what the fire reaches and what it does not, where v6 held 0.22 to 0.28
+  // across the whole frame.
+  shadowTint: [0.76, 0.95, 1.24],
+  highlightTint: [1.48, 1.03, 0.5],
   splitTone: 0.85,
-  // Lower and narrower than dusk's, because this frame is darker: its
-  // interquartile range measures 0.16 to 0.27 of display luma against dusk's 0.21
-  // to 0.33. Only what the fire genuinely reaches gets the hot tint; the rest
-  // falls to cold ash. This pair is also what centres the chroma tilt, so the
-  // same two numbers decide where colour stops and grey starts.
+  // The anchor, and it stays on the picture: measured on v6/laststand.png the
+  // quartiles are 0.157 / 0.212 / 0.289, so this pair brackets them and the chroma
+  // tilt's argument sweeps its full range across the frame instead of pinning.
   splitLow: 0.1,
   splitHigh: 0.34,
+  // The crossover, and it sits *above* the picture on purpose. p75 is 0.289 and p90
+  // is 0.375, so four fifths of the frame is below `tintLow` and takes the cold ash
+  // tint outright, the transition runs through the last decile, and only the 4% of
+  // pixels past 0.45 — the ember horizon, the torch, the fire-lit ground and the
+  // sky beside it — reach the hot end.
+  //
+  // That is the whole difference in kind from dusk. Dusk grades a ramp across its
+  // whole range; this grades a hot sliver against an ash field, which is what a
+  // point source in smoke actually does and what reads as desperate rather than
+  // nostalgic. It is also where the apparent contrast comes from: a frame is read
+  // as hot by the distance between its hottest and coolest regions, not by its mean
+  // hue, which is why v3 read hotter than v6 on a lower luma spread.
+  tintLow: 0.3,
+  tintHigh: 0.54,
   // A cold soot floor rather than a warm one, and higher than dusk's — 8 / 8 / 11
   // code values. The "no true black" argument still holds and holds harder here,
   // because the air carries three times the aerosol; what it does not justify is
@@ -662,18 +767,26 @@ const LAST_STAND: GradeLook = {
   // aerosol and its sun is hotter, so the sky it has to clear is brighter. At
   // 1.6 the entire pall was over threshold and the frame came back as one flat
   // apricot with no separation between a warrior and the palisade behind him.
-  bloomStrength: 1.35,
+  bloomStrength: 1.2,
   bloomThreshold: 6.0,
   // The last stand's air carries three times the aerosol, so the sky it has to
   // clear is brighter than dusk's and the threshold is already higher to match.
   // The band runs 5.50 -> 6.00.
   bloomKnee: 0.5,
-  // Warmer than dusk's, because a fire's glow genuinely is — but nothing like
-  // v2's 0.45 blue, which was a heavy second warm multiply on the widest signal
-  // in the chain at the exact moment the frame least needed one.
-  bloomTint: [1.0, 0.84, 0.66],
+  // Still warmer than dusk's, because a fire's glow genuinely is, but pulled back
+  // toward neutral: the bloom skirt is the widest signal in the chain and this look
+  // now spends its warmth deliberately, in the split-tone, on the 4% of the frame
+  // the fire reaches. A warm tint on a glow that lands everywhere argues with that
+  // — it is the same warm multiply applied twice, and the second one is the one
+  // that covers the ash.
+  bloomTint: [1.0, 0.9, 0.78],
   vignette: 0.55,
-  aberration: 0.011,
+  // Was 0.011, which is 3 px of red/cyan on a silhouette at the frame edge and
+  // ten in the corner — the single most nameable artefact in the preset, and one
+  // the second panel called a defect rather than a flourish. Kept a shade above
+  // dusk's, because this look is allowed a slightly more stressed lens, but still
+  // under a pixel of R-to-B separation anywhere in frame.
+  aberration: 0.001,
   grain: 0.052,
   aoIntensity: 1.3,
   // Wider than dusk's and corrected in full, which is this look asking for more
@@ -716,6 +829,8 @@ function lerpLook(a: GradeLook, b: GradeLook, t: number, out: GradeLook): GradeL
   out.splitTone = m(a.splitTone, b.splitTone);
   out.splitLow = m(a.splitLow, b.splitLow);
   out.splitHigh = m(a.splitHigh, b.splitHigh);
+  out.tintLow = m(a.tintLow, b.tintLow);
+  out.tintHigh = m(a.tintHigh, b.tintHigh);
   out.shadowLift = mc(a.shadowLift, b.shadowLift);
   out.bloomStrength = m(a.bloomStrength, b.bloomStrength);
   out.bloomThreshold = m(a.bloomThreshold, b.bloomThreshold);
@@ -878,8 +993,24 @@ void main() {
   gl_FragColor = vec4( o * ( 0.0625 * uWeight ), 1.0 );
 }`;
 
-/** Per-rung upsample weight. Compounds, so level n lands at 0.72^n. */
-const BLOOM_SKIRT = 0.72;
+/**
+ * Per-rung upsample weight. Compounds, so level n lands at 0.62^n.
+ *
+ * Down from 0.72, and the asymmetry is the point. The rungs are added at the same
+ * place, so the tightest levels — the halo that makes a flame read as a flame —
+ * lose 6% between them, while the widest mip, which is a fifty-pixel blur at 1080p
+ * and therefore the only rung that can reach a man standing beside the fire, loses
+ * 45%. The core sum falls from 2.88x the bright-pass value to 2.39x.
+ *
+ * That is the lever for the bonfire glow landing on a warrior's sword arm in
+ * `brawl`, and it is the right one: the gate is not the problem (see BLOOM_BRIGHT
+ * — the arena's brightest emissive is the torch flame at 9 linear units against a
+ * threshold of 5, so only genuinely emissive things are in the pyramid at all),
+ * the problem is how far what is legitimately in it is allowed to spread. A wide
+ * additive skirt is also a near-constant added across the frame, which compresses
+ * every contrast under it — the same mechanism the header describes for the sky.
+ */
+const BLOOM_SKIRT = 0.62;
 
 function bloomTarget(width: number, height: number): THREE.WebGLRenderTarget {
   const rt = new THREE.WebGLRenderTarget(Math.max(2, width), Math.max(2, height), {
@@ -1367,6 +1498,7 @@ uniform vec3 uShadowTint;
 uniform vec3 uHighlightTint;
 uniform float uSplit;
 uniform vec2 uSplitRange;
+uniform vec2 uTintRange;
 uniform vec3 uShadowLift;
 uniform float uVignette;
 uniform float uAberration;
@@ -1405,8 +1537,13 @@ void main() {
   vec2 c = vUv - 0.5;
   float r2 = dot( c, c );
 
-  // Restrained: a pixel or two of separation in the extreme corner, and
-  // nothing at all across the middle third where the fight actually happens.
+  // Sub-pixel, and it has to be read as a fringe *width* rather than an offset:
+  // R goes one way and B the other, so what a viewer sees is 2 * |ca|, and the
+  // r2 factor means it is 2 px at the edge for every 4 in the corner. The looks
+  // are set so that product stays under one pixel anywhere in frame — past that
+  // it stops reading as a lens and starts reading as red/cyan paint on every
+  // silhouette, which is exactly what the treeline came back wearing. Zero at
+  // the centre by construction, where the fight is.
   vec2 ca = c * uAberration * r2;
   vec3 hdr = vec3(
     texture2D( tDiffuse, vUv + ca ).r,
@@ -1555,14 +1692,20 @@ void main() {
   chroma = min( chroma, -luma / min( lowest, -1e-5 ) );
   col = vec3( luma ) + offset * chroma;
 
-  // The split-tone, across the middle third of the range rather than across all
-  // of it. A crossover as wide as the frame's own tonal range leaves every
-  // midtone at the average of the shadow and highlight tints, and the average of
-  // a cool tint and a warm one is neutral — which is how a look with genuine
-  // complementary contrast in its numbers still renders as a monochrome frame.
-  // Narrow it and the same two tints put blue in the shadows and amber in the
-  // key, which is the whole of what makes dusk read as depth.
-  vec3 tint = mix( uShadowTint, uHighlightTint, smoothstep( uSplitRange.x, uSplitRange.y, lumaE ) );
+  // The split-tone, over uTintRange and not over the tonal anchor above. The two
+  // are separate because they want opposite placements, and getting that wrong is
+  // how a look with genuine complementary contrast in its numbers renders as one
+  // hue: this mix passes through the *average* of the two tints at the midpoint of
+  // its crossover, and the average of a cool tint and a warm one is a desaturated
+  // near-neutral. Whatever population of pixels sits on that midpoint gets a flat
+  // cast instead of a tint, and if that population is the frame's mode then the
+  // stage has separated nothing and cast everything.
+  //
+  // So the crossover is a statement about the histogram, not about the range: put
+  // it where the key's light stops. Dusk's key reaches most of its frame and its
+  // crossover traverses it; the last stand's is a point source, so its crossover
+  // sits above the third quartile and the ash below it is left decisively cold.
+  vec3 tint = mix( uShadowTint, uHighlightTint, smoothstep( uTintRange.x, uTintRange.y, lumaE ) );
   col *= mix( vec3( 1.0 ), tint, uSplit );
 
   // Health pressure closes the frame in from the edges; the damage flash washes
@@ -1714,6 +1857,7 @@ const GRADE_SHADER = {
     uHighlightTint: { value: new THREE.Vector3(1, 1, 1) },
     uSplit: { value: DUSK.splitTone },
     uSplitRange: { value: new THREE.Vector2(DUSK.splitLow, DUSK.splitHigh) },
+    uTintRange: { value: new THREE.Vector2(DUSK.tintLow, DUSK.tintHigh) },
     uShadowLift: { value: new THREE.Vector3(0, 0, 0) },
     uVignette: { value: DUSK.vignette },
     uAberration: { value: DUSK.aberration },
@@ -1983,6 +2127,8 @@ export function createPostFx(
     // whatever midtone it lands on.
     const splitLow = pick("splitLow");
     (u.uSplitRange.value as THREE.Vector2).set(splitLow, Math.max(pick("splitHigh"), splitLow + 0.02));
+    const tintLow = pick("tintLow");
+    (u.uTintRange.value as THREE.Vector2).set(tintLow, Math.max(pick("tintHigh"), tintLow + 0.02));
     (u.uShadowLift.value as THREE.Vector3).set(lift[0], lift[1], lift[2]);
     // The tier can drop the corner falloff even though the grade itself is not
     // optional — the grade is where tone mapping happens, so there is no frame

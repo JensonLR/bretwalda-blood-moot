@@ -36,6 +36,15 @@
 //   was a rotation rather than a collapse. `articulate` binds each limb to two
 //   bones — see the note above it for why the mesh cannot simply be cut — and
 //   the layers below drive them.
+//
+// One thing here is not a pose layer at all, and cannot be. A cloak is the only
+// thing on a warrior that does not follow a bone, and turning the whole shell on
+// one authored angle — which is what this did — is a flat plate on a hinge. It
+// hangs on a chain of its own now and is *solved* rather than posed, off the
+// body's own velocity, acceleration and turn rate; see the Cloth section. The
+// pose layers still have their say, but as a term in that solve rather than as
+// the whole of it, because a run's billow should add to the drag the run is
+// already generating and not overwrite it.
 
 import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
@@ -84,6 +93,17 @@ export interface RigPivots {
   kneeR: THREE.Bone;
   kneeL: THREE.Bone;
   cloak?: THREE.Group;
+  /**
+   * The cloak, cut into a hanging chain of three rings by `hangCloak` — yoke,
+   * middle, hem. Undefined when the warrior wears no cloak.
+   *
+   * The pivot above stays at identity from here on. Rotating it was the whole of
+   * the old cloak "animation", and rotating a 200°-of-arc shell about the
+   * shoulder line is what put a flat plate out sideways in every capture: the
+   * hem and the yoke travelled the same angle, so nothing in the shape could
+   * ever say which end was attached to a man.
+   */
+  drape?: THREE.Bone[];
 }
 
 export interface WarriorRig {
@@ -104,6 +124,11 @@ export interface WarriorRig {
   readonly shield?: THREE.Group;
   /** Distance from fist to weapon tip, measured once. Where trails are emitted. */
   readonly reach: number;
+  /**
+   * Where the off fist sits in the forearm bone's frame. The huscarl's shield is
+   * hung off this rather than off a tuned constant — see `SHIELD_GRIP_Z`.
+   */
+  readonly offGrip: THREE.Vector3;
   /**
    * Height of the crown above the rig origin, weapon excluded. The HUD hangs
    * its plate off this rather than off a constant, so a change to character
@@ -178,6 +203,29 @@ export interface WarriorMotion {
   wMove: number;
   wBlock: number;
   wAction: number;
+
+  // ---- cloth ----
+  /**
+   * What the cloak is actually being dragged through: the body's own world
+   * velocity and acceleration, and how fast it is turning. Differentiated off
+   * the *smoothed* render position rather than off `player.velocity`, so a
+   * knockback and the network's own extrapolation move the cloth too — and then
+   * low-passed, because a 20 Hz wire under a 60 Hz frame differentiates into a
+   * step train, and cloth driven off that flutters at the packet rate.
+   */
+  vx: number; vz: number;
+  ax: number; az: number;
+  yawRate: number;
+  pxPrev: number; pzPrev: number; yawPrev: number;
+  /**
+   * The cloak's own state: swing angle and angular velocity per ring, fore/aft
+   * (`X`, positive throws the hem back) and lateral (`Z`, positive throws it to
+   * the weapon side). Three rings, in `RINGS` order.
+   */
+  drapeX: number[]; drapeXv: number[];
+  drapeZ: number[]; drapeZv: number[];
+  /** False until the cloak has been placed once, so a spawn hangs already settled. */
+  draped: boolean;
 }
 
 export interface AnimHooks {
@@ -194,6 +242,11 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     swingPrev: 0, swingHold: 0, heavy: 0,
     flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", fall: -1,
     wMove: 0, wBlock: 0, wAction: 0,
+    vx: 0, vz: 0, ax: 0, az: 0, yawRate: 0,
+    pxPrev: p.position.x, pzPrev: p.position.z, yawPrev: p.rotation,
+    drapeX: [0, 0, 0], drapeXv: [0, 0, 0],
+    drapeZ: [0, 0, 0], drapeZv: [0, 0, 0],
+    draped: false,
   };
 }
 
@@ -246,20 +299,24 @@ export function createWarriorRig(
     leftHand.add(offhand);
   }
 
+  // Where the off fist actually is, in the forearm bone's frame. `articulate` has
+  // already moved the mount onto that bone, so this is read and not derived.
+  const offGrip = leftHand.position.clone();
+
   let shield: THREE.Group | undefined;
   if (cls === "huscarl") {
-    // Carried in front of the chest, disc plate facing the enemy (+Z).
+    // Hung on the forearm bone but positioned at the *grip*, which is the whole
+    // of the fix: this is a centre-grip shield — one bar behind the boss, no
+    // forearm straps — so the fist belongs at the boss and the disc belongs
+    // around the fist. The old mount put the boss 300 mm above the fist and
+    // 230 mm outboard of it, which is a man holding a shield by its bottom rim
+    // at arm's length, and is what threw the disc into the frame edge.
     //
-    // Strapped to the forearm rather than to the shoulder, which is where a
-    // shield is actually strapped and, more to the point, is what makes the
-    // brace in `blockLayer` read: the elbow is what puts a shield in front of a
-    // face. Bolted to the arm pivot it stayed put while the forearm folded out
-    // from behind it. `SHIELD_CARRY` is still the offset it was tuned at — in
-    // arm space — so the same numbers are re-expressed against the elbow here
-    // rather than guessed again by eye.
+    // Still the forearm bone and not the hand mount, for two reasons: the hand
+    // mount carries the grip pitch every weapon is tuned against, and the brace
+    // in `blockLayer` is an elbow — the elbow is what puts a shield in front of
+    // a face. `applyPose` writes the position every frame; see `SHIELD_GRIP_Z`.
     shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226, materials);
-    shield.position.set(SHIELD_CARRY.x, SHIELD_CARRY.y - joints.elbowL.position.y, SHIELD_CARRY.z);
-    shield.rotation.set(0.22, 0.16, 0.14);
     joints.elbowL.add(shield);
   }
 
@@ -326,11 +383,13 @@ export function createWarriorRig(
       kneeR: joints.kneeR,
       kneeL: joints.kneeL,
       cloak: built.cloak,
+      drape: joints.drape,
     },
     weapon,
     offhand,
     shield,
     reach,
+    offGrip,
     headTop: crown > 0.5 ? crown : 2.0,
     blob,
     skeleton: joints.skeleton,
@@ -386,17 +445,58 @@ export function createWarriorRig(
  * They are duplicated here because `BuiltCharacter` does not carry the joint
  * heights; see the note in the report about exporting them instead.
  */
-const ELBOW_ALONG = 0.487;
+const ELBOW_ALONG = 0.4864;
 const KNEE_ALONG = 0.48;
 
-/** Where the huscarl's shield sits, in the off arm's frame, as tuned. */
-const SHIELD_CARRY = new THREE.Vector3(-0.14, -0.4, 0.26);
+/**
+ * How far the grip bar stands proud of the shield's own origin, along its face
+ * normal. `buildShield` puts the boards at z ≈ 0.05–0.09 and lays the grip bar
+ * across the hand-hole at z = 0.04, so this is where a fist closes — measured
+ * off that geometry, not chosen.
+ */
+const SHIELD_GRIP_Z = 0.04;
+
+/**
+ * How the disc is aimed, at ease and on guard.
+ *
+ * A shield is only square to the enemy when there is an enemy. Carried it is
+ * bladed, which is both what a man does with eight kilos on one hand and what
+ * keeps three quarters of a metre of disc out of the frame's edge. `ready` is
+ * what crosses between them, so the shield comes round the moment he is moving,
+ * swinging or covering.
+ */
+const SHIELD_REST_YAW = -0.26;
+const SHIELD_GUARD_YAW = 0.14;
+/** A shade of top-edge-forward on the carry; the rest of the pitch is solved. */
+const SHIELD_LEAN = 0.06;
+const SHIELD_ROLL = 0.14;
+
+/**
+ * Where the cloak's rings sit and how each behaves.
+ *
+ * `share` is how much of the hanging angle a ring takes, so the chain reads as a
+ * curve rather than a plate; the yoke keeps its cloth against the shoulders
+ * while the hem does most of the travelling. `freq` and `damp` are a spring per
+ * ring, softening and slowing downward, which is what puts the hem *behind* the
+ * shoulders in time as well as in angle — the lag is the tell, not the angle.
+ *
+ * The hem is deliberately the only underdamped one (ζ = 0.38). It overshoots and
+ * comes back, which is the difference between cloth and a hinge; the two above
+ * it are near enough critical that a state change cannot set the whole cloak
+ * wobbling like a spring toy.
+ */
+const RINGS = [
+  { share: 0.30, freq: 26, damp: 0.72 },
+  { share: 0.72, freq: 19, damp: 0.52 },
+  { share: 1.00, freq: 14, damp: 0.38 },
+] as const;
 
 interface Articulation {
   elbowR: THREE.Bone;
   elbowL: THREE.Bone;
   kneeR: THREE.Bone;
   kneeL: THREE.Bone;
+  drape?: THREE.Bone[];
   skeleton: THREE.Skeleton;
 }
 
@@ -434,6 +534,92 @@ function weightLimb(geo: THREE.BufferGeometry, joint: number, band: number, uppe
   }
   geo.setAttribute("skinIndex", new THREE.BufferAttribute(index, 4));
   geo.setAttribute("skinWeight", new THREE.BufferAttribute(weight, 4));
+}
+
+/**
+ * Three-ring weights down a cloak, by height off the yoke.
+ *
+ * Same contract as `weightLimb` — written onto shared geometry, once, and safe
+ * to skip a second time because the builder's signature already carries the
+ * class and the cloak, which is everything the cut depends on. The bone indices
+ * can be named outright for the same reason `weightLimb` names its own: the
+ * limb loop above always emits exactly eight bones before this runs, so a cloak
+ * is always rings 8–10 whichever warrior is wearing it.
+ *
+ * The partition is smooth and three-wide rather than two: a hard handover at a
+ * ring would crease a shell that has no seam there, and the cloak is the one
+ * garment in the game whose whole job is to have no creases except the ones it
+ * makes itself.
+ */
+function weightDrape(geo: THREE.BufferGeometry, ring: number, base: number): void {
+  if (geo.hasAttribute("skinIndex")) return;
+  const pos = geo.getAttribute("position");
+  const n = pos.count;
+  const index = new Uint16Array(n * 4);
+  const weight = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const u = -pos.getY(i) / ring;
+    const t1 = smooth(clamp01(u - 0.5));
+    const t2 = smooth(clamp01(u - 1.5));
+    index[i * 4] = base;
+    index[i * 4 + 1] = base + 1;
+    index[i * 4 + 2] = base + 2;
+    weight[i * 4] = 1 - t1;
+    weight[i * 4 + 1] = t1 * (1 - t2);
+    weight[i * 4 + 2] = t1 * t2;
+  }
+  geo.setAttribute("skinIndex", new THREE.BufferAttribute(index, 4));
+  geo.setAttribute("skinWeight", new THREE.BufferAttribute(weight, 4));
+}
+
+/**
+ * Hangs the cloak off a chain instead of off one rigid node.
+ *
+ * The drop is measured off the geometry rather than read from the builder,
+ * because the builder does not export it and because measuring is the thing
+ * that survives the builder changing it — which it does per class, and did once
+ * already this iteration.
+ */
+function hangCloak(
+  pivot: THREE.Group,
+  base: number,
+  bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Bone }>,
+): THREE.Bone[] | undefined {
+  let lowest = 0;
+  for (const child of pivot.children) {
+    if (!(child instanceof THREE.Mesh)) continue;
+    if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+    lowest = Math.min(lowest, child.geometry.boundingBox?.min.y ?? 0);
+  }
+  const drop = -lowest;
+  // Nothing worth simulating, and nothing safe to divide by.
+  if (drop < 0.3) return undefined;
+
+  const ring = drop / RINGS.length;
+  const bones: THREE.Bone[] = [];
+  let parent: THREE.Object3D = pivot;
+  for (let i = 0; i < RINGS.length; i++) {
+    const bone = new THREE.Bone();
+    bone.position.y = i === 0 ? 0 : -ring;
+    parent.add(bone);
+    parent = bone;
+    bones.push(bone);
+  }
+
+  for (const child of pivot.children.slice()) {
+    if (!(child instanceof THREE.Mesh)) continue;
+    weightDrape(child.geometry, ring, base);
+    const skinned = new THREE.SkinnedMesh(child.geometry, child.material as THREE.Material);
+    skinned.name = child.name;
+    // Generous enough to cover the hem at full swing. Left to three, the bind
+    // pose is walked once and then cached, and a cloak that has since swung
+    // 60° off it pops out at the frame edge.
+    skinned.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, -drop * 0.5, 0), drop);
+    pivot.remove(child);
+    pivot.add(skinned);
+    bound.push({ mesh: skinned, at: bones[0] });
+  }
+  return bones;
 }
 
 /** Cuts an elbow into each arm and a knee into each leg, and binds the skin. */
@@ -493,17 +679,25 @@ function articulate(built: BuiltCharacter): Articulation {
     }
   });
 
+  // The cloak joins the same skeleton rather than getting one of its own: a
+  // second `THREE.Skeleton` is a second bone texture per warrior, and eleven
+  // bones fit the same 8×8 target eight did.
+  const drape = built.cloak ? hangCloak(built.cloak, bones.length, bound) : undefined;
+  if (drape) bones.push(...drape);
+
   // The bind pose. Bone inverses and every mesh's bind matrix are taken at this
   // one instant, which is what lets the skin ignore where the mesh sits in the
   // graph: in `AttachedBindMode` three recomputes `bindMatrixInverse` from the
   // mesh's own world matrix every frame, so the pivot can go on carrying the
   // mesh and only the bones drive the vertices. The body is not in the scene
-  // yet and does not need to be — the world transform cancels out of both sides.
+  // yet and does not need to be — the world transform cancels out of both sides,
+  // which is also why `insertSpine` can reparent all of this afterwards without
+  // moving a vertex.
   built.group.updateMatrixWorld(true);
   const skeleton = new THREE.Skeleton(bones);
   for (const b of bound) b.mesh.bind(skeleton, b.at.matrixWorld.clone());
 
-  return { elbowR: bones[1], elbowL: bones[3], kneeR: bones[5], kneeL: bones[7], skeleton };
+  return { elbowR: bones[1], elbowL: bones[3], kneeR: bones[5], kneeL: bones[7], drape, skeleton };
 }
 
 /**
@@ -650,6 +844,12 @@ interface Pose {
   wx: number; wz: number; wy: number;
   /** Shield brace, as a delta on how it is carried. */
   sx: number; sy: number; sz: number; sfy: number; sfz: number;
+  /**
+   * How much the layers want the cloak thrown back, over and above what physics
+   * is already doing to it. Not an angle any more: `drapeCloak` folds it into
+   * the hanging solve as one more term in the field, so a run's billow adds to
+   * the drag that run is already generating instead of overriding it.
+   */
   cloak: number;
 }
 
@@ -676,6 +876,7 @@ const POSE_GROUP: Record<string, string> = {
 const P: Pose = { ...ZERO };
 const CHANNELS = Object.keys(ZERO) as (keyof Pose)[];
 const TIP = new THREE.Vector3();
+const GRIP = new THREE.Vector3();
 
 /** How each class carries itself and its weapon when nothing is happening. */
 interface Stance {
@@ -784,6 +985,31 @@ export function stepWarriorTransform(
 
   rig.blob.position.x = rig.group.position.x;
   rig.blob.position.z = rig.group.position.z;
+
+  // What the cloth is being dragged through. Differentiated here rather than in
+  // the pose because this is the only place that knows where the body finally
+  // ended up — the push, the extrapolation and the smoothing are all in it, and
+  // a cloak that ignores a knockback is a cloak nailed to a mannequin.
+  if (dt > 1e-4) {
+    const rawX = (rig.group.position.x - motion.pxPrev) / dt;
+    const rawZ = (rig.group.position.z - motion.pzPrev) / dt;
+    const prevX = motion.vx;
+    const prevZ = motion.vz;
+    const kv = Math.min(1, dt * 12);
+    motion.vx += (rawX - motion.vx) * kv;
+    motion.vz += (rawZ - motion.vz) * kv;
+    // Acceleration off the smoothed velocity, then smoothed again and clamped.
+    // Two differentiations of a lerped position is a noisy quantity by
+    // construction; the clamp is what stops one late packet throwing the cloak
+    // over the warrior's head.
+    const ka = Math.min(1, dt * 8);
+    motion.ax += (clamp((motion.vx - prevX) / dt, -28, 28) - motion.ax) * ka;
+    motion.az += (clamp((motion.vz - prevZ) / dt, -28, 28) - motion.az) * ka;
+    motion.yawRate += (clamp(shortestAngle(motion.yawPrev, motion.yaw) / dt, -9, 9) - motion.yawRate) * Math.min(1, dt * 10);
+  }
+  motion.pxPrev = rig.group.position.x;
+  motion.pzPrev = rig.group.position.z;
+  motion.yawPrev = motion.yaw;
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,7 +1375,7 @@ function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: num
 }
 
 /** Load, release, follow through — and, if it was heavy, pay for it. */
-function attackLayer(dir: string, ph: number, heavy: number, w: number): void {
+function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, w: number): void {
   const s = SWINGS[dir] ?? SWINGS.right;
   const gain = 1 + heavy * 0.24;
 
@@ -1178,12 +1404,27 @@ function attackLayer(dir: string, ph: number, heavy: number, w: number): void {
   P.arx += arx * w;
   P.arz += arz * w;
   P.arb += arb * w;
-  // The off arm is a counterweight, not a passenger — and a counterweight on a
-  // straight arm is a sandbag on a rope. It folds hardest where the weapon arm
-  // is folded and opens with it.
-  P.olx += -arx * 0.26 * w;
-  P.olz += -arz * 0.30 * w;
-  P.olb += (-0.44 + arb * 0.22) * w;
+  if (shielded) {
+    // A shield is not a counterweight. It stays between the man and whatever he
+    // is swinging at — you do not open your guard to hit someone — so the off
+    // arm holds most of the brace through the swing and only breathes with it.
+    // Cheap to say before: the shield used to hang low enough off the fist to
+    // stay in front of the chest whatever the arm did, so opening the arm cost
+    // nothing. Now the disc goes where the fist goes.
+    //
+    // Held a shade wider than the block, so it stays on his shield side rather
+    // than parking on his sternum, which is where his own blade has to cross.
+    P.olx += (0.34 - arx * 0.07) * w;
+    P.olz += (0.14 - arz * 0.09) * w;
+    P.olb += (-0.78 - arb * 0.05) * w;
+  } else {
+    // The off arm is a counterweight, not a passenger — and a counterweight on a
+    // straight arm is a sandbag on a rope. It folds hardest where the weapon arm
+    // is folded and opens with it.
+    P.olx += -arx * 0.26 * w;
+    P.olz += -arz * 0.30 * w;
+    P.olb += (-0.44 + arb * 0.22) * w;
+  }
 
   P.wx += link(ph, -0.09, s.wx, true) * w;
   P.wz += link(ph, -0.09, s.wz, true) * w;
@@ -1241,19 +1482,30 @@ function blockLayer(hasShield: boolean, settle: number, w: number): void {
   P.hry += 0.16 * w;
 
   if (hasShield) {
-    // The shield is strapped to the forearm, so the elbow is what actually puts
-    // it in front of a face; the shoulder only carries it up. Doing the whole
-    // lift at the shoulder — which is all a rig without an elbow could do — is
-    // a man holding a door out in front of himself at arm's length, and it is
-    // exactly what the huscarl was doing in every block in the capture set.
-    P.olx += (-0.76 - over * 0.12) * w;
-    P.olb += (-1.02 - over * 0.14) * w;
+    // The elbow is what puts a shield in front of a face; the shoulder only
+    // carries the weight of it. Doing the lift at the shoulder — which is all a
+    // rig without an elbow could do — is a man holding a door out in front of
+    // himself at arm's length.
+    //
+    // The shoulder now goes *back* where it used to go forward, and that is the
+    // shield moving to the boss rather than a change of mind about the pose:
+    // the disc used to hang 300 mm below the fist, so the fist had to be raised
+    // past the chin to put the shield in front of the chest. Held at the boss,
+    // the same coverage comes from a dropped elbow tucked under it — which is
+    // also the only way to take a blow on a shield without it being knocked out
+    // of the way. Solved off the arm's own segment lengths: the fist wants to
+    // land about 110 mm under the shoulder and 400 mm in front of it, which puts
+    // the rim from sternum to just over the eyes — covered, still looking.
+    P.olx += (0.32 - over * 0.10) * w;
+    P.olb += (-0.86 - over * 0.16) * w;
     P.olz += 0.40 * w;
     P.oly += -0.16 * w;
-    P.sx += 0.30 * w;
-    P.sy += -0.34 * w;
-    P.sfy += 0.10 * w;
-    P.sfz += 0.14 * w;
+    // The carry is already solving the pitch, so these are what a braced wrist
+    // adds on top: the top rim tips into the blow and the disc turns a few
+    // degrees across, which is what makes a strike glance rather than land flat.
+    P.sx += (0.12 + over * 0.10) * w;
+    P.sy += -0.16 * w;
+    P.sfy += -0.03 * over * w;
     // The sword hand comes back behind the rim, cocked to answer.
     P.arx += 0.42 * w;
     P.arb += -0.74 * w;
@@ -1427,6 +1679,144 @@ function settleOnFeet(legLen: number): void {
   P.py += need * standing;
 }
 
+// ---------------------------------------------------------------------------
+// Cloth
+//
+// A cloak is the one thing on a warrior that is not attached to a bone, and it
+// was the clearest single tell that nothing here was being simulated: the whole
+// shell turned about the yoke on one authored angle, so the hem and the collar
+// travelled together and the thing read as a flat plate bolted to the
+// shoulders. Nothing hung, nothing lagged, nothing settled.
+//
+// What follows is not a cloth solver and does not want to be — eight men on a
+// phone cannot afford a particle grid. It is the part of one that a viewer can
+// actually see: three rings on a chain hanging along whatever direction the
+// pseudo-force in the yoke's own frame is pointing, each softer and later than
+// the one above it.
+//
+// Everything falls out of that one field. Standing still it is gravity, so the
+// cloak hangs plumb and stays plumb while its owner leans over a swing. Running,
+// drag adds to it and the cloak trails. Stopping, the inertial term reverses and
+// the hem swings through and comes back. Turning, the drag at the hem is
+// tangential and the cloth is left behind on the outside of the turn. None of
+// those are four separate animations; they are one solve read four ways, which
+// is why they compose instead of fighting.
+// ---------------------------------------------------------------------------
+
+/** Gravity, and how hard the air pulls on a square metre of wool per metre per second. */
+const GRAVITY = 9.81;
+const DRAG = 2.2;
+/** Where the hem sits from the spine, for the tangential speed of a turn. */
+const HEM_R = 0.33;
+/** How much of the layers' authored billow survives as a direct hem lift. */
+const BILLOW = 0.5;
+/**
+ * The two things the pseudo-force does not know about, as limits.
+ *
+ * A cloak can stream a long way behind a man and barely any distance in front of
+ * one, because he is in the way — so `SWING_FWD` is small and deliberately not
+ * symmetric. Without it the gravity solve is *correct* and looks wrong: bent
+ * over a swing, a plumb cloak hangs through its owner's own thighs, and no
+ * amount of solving fixes that without collision we cannot afford. Held against
+ * his back instead, which is what the back is doing to it.
+ *
+ * Sideways is tighter again, because that is where the arms are.
+ */
+const SWING_BACK = 1.15;
+const SWING_FWD = 0.24;
+const SWING_SIDE = 0.62;
+/** Sub-step ceiling. `dt` is capped at 50 ms upstream and the stiff ring is 26 rad/s. */
+const CLOTH_STEP = 1 / 90;
+
+/**
+ * Hangs the cloak for this frame.
+ *
+ * Called after `commit`, so it reads the blended pose rather than the raw one,
+ * and writes straight to the bones rather than through `Pose`: a spring is
+ * state, and crossfading state between two poses is how a swing that starts
+ * mid-stride teleports its own cloak.
+ */
+function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, billow: number): void {
+  const rings = rig.pivots.drape;
+  const pivot = rig.pivots.cloak;
+  if (!rings || !pivot) return;
+
+  // The yoke's world basis, so the field can be expressed in the frame the
+  // bones actually turn in. Read off the matrix rather than rebuilt from the
+  // pose angles: the chain from the rig group through the body and the spine is
+  // four rotations deep and composing it by hand here is how the two drift
+  // apart. Nothing in this graph scales, so the columns are orthonormal and a
+  // dot product is the whole transform.
+  pivot.updateWorldMatrix(true, false);
+  const e = pivot.matrixWorld.elements;
+
+  const fx = -motion.ax - DRAG * motion.vx;
+  const fy = -GRAVITY;
+  const fz = -motion.az - DRAG * motion.vz;
+  const lx = fx * e[0] + fy * e[1] + fz * e[2] + motion.yawRate * HEM_R * DRAG;
+  const ly = fx * e[4] + fy * e[5] + fz * e[6];
+  const lz = fx * e[8] + fy * e[9] + fz * e[10];
+
+  // Faded out as the wearer goes down. Once the yoke is horizontal the solve is
+  // still right and is no longer useful: it hangs the cloak straight into the
+  // turf, because the turf is the one collider this has no way to know about.
+  // A corpse's cloak lying flat along his own back is both cheaper and truer.
+  const upright = smooth(clamp01((e[5] - 0.25) / 0.45));
+  // Floored rather than signed: past horizontal the atan2 wraps, and a wrapped
+  // target whips the whole cloak through the body on its way to the far side.
+  const down = Math.max(2, -ly);
+  const tx = clamp((Math.atan2(-lz, down) + billow * BILLOW) * upright, -SWING_FWD, SWING_BACK);
+  const tz = clamp(Math.atan2(lx, down) * upright, -SWING_SIDE, SWING_SIDE);
+
+  if (!motion.draped) {
+    // A warrior arrives with his cloak already hanging, not with it swinging up
+    // into place from a T-pose — and a still that is only allowed 26 frames to
+    // settle cannot afford to photograph the transient either.
+    motion.draped = true;
+    for (let i = 0; i < RINGS.length; i++) {
+      motion.drapeX[i] = tx * RINGS[i].share;
+      motion.drapeZ[i] = tz * RINGS[i].share;
+      motion.drapeXv[i] = 0;
+      motion.drapeZv[i] = 0;
+    }
+  } else {
+    // Sub-stepped because the stiff ring at 26 rad/s is past what semi-implicit
+    // Euler holds at a 50 ms frame, and a cloak that explodes on one slow frame
+    // is worse than no cloak.
+    const steps = Math.min(4, Math.max(1, Math.ceil(dt / CLOTH_STEP)));
+    const h = dt / steps;
+    for (let s = 0; s < steps; s++) {
+      for (let i = 0; i < RINGS.length; i++) {
+        const r = RINGS[i];
+        const k = r.freq * r.freq;
+        const c = 2 * r.damp * r.freq;
+        motion.drapeXv[i] += ((tx * r.share - motion.drapeX[i]) * k - motion.drapeXv[i] * c) * h;
+        motion.drapeX[i] += motion.drapeXv[i] * h;
+        motion.drapeZv[i] += ((tz * r.share - motion.drapeZ[i]) * k - motion.drapeZv[i] * c) * h;
+        motion.drapeZ[i] += motion.drapeZv[i] * h;
+      }
+    }
+  }
+
+  // Absolute angles down the chain, so each bone gets the difference. The hem
+  // also takes a twist, and it is the cheapest thing in here for what it buys:
+  // on a turn the cloth's azimuth lags the body's, so one wing sweeps forward
+  // while the far edge comes round behind — a disc of cloth swirling rather
+  // than a plate rolling, which no amount of pitch and roll will fake.
+  let prevX = 0;
+  let prevZ = 0;
+  for (let i = 0; i < rings.length; i++) {
+    // Clamped on the way out as well as on the way in: the springs overshoot on
+    // purpose, and an overshoot is exactly where a limit earns its keep.
+    const x = clamp(motion.drapeX[i], -SWING_FWD, SWING_BACK);
+    const z = clamp(motion.drapeZ[i], -SWING_SIDE, SWING_SIDE);
+    const twist = i === rings.length - 1 ? -motion.yawRate * 0.07 * upright : 0;
+    rings[i].rotation.set(x - prevX, twist, z - prevZ);
+    prevX = x;
+    prevZ = z;
+  }
+}
+
 /**
  * Death, as a collapse.
  *
@@ -1540,6 +1930,7 @@ export function poseWarrior(
     settleOnFeet(legLen);
     motion.leanX *= 0.9;
     commit(rig, piv, st, motion.blend, 0);
+    drapeCloak(rig, motion, dt, P.cloak);
     rig.body.visible = player.invincible ? Math.floor(t * 12) % 2 === 0 : true;
     fadeBlob(rig, 1);
     return;
@@ -1577,7 +1968,7 @@ export function poseWarrior(
   if (motion.wMove > 0.001) gaitLayer(motion, Math.max(spd, 1.4), legLen, dt, motion.wMove);
   motion.land = Math.max(0, motion.land - dt * 7);
 
-  if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, motion.wAction);
+  if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, !!rig.shield, motion.wAction);
   if (motion.wBlock > 0.001) blockLayer(!!rig.shield, clamp01(player.blockTimer / 0.22), motion.wBlock);
 
   if (staggered) {
@@ -1610,6 +2001,7 @@ export function poseWarrior(
   stops();
   settleOnFeet(legLen);
   commit(rig, piv, st, motion.blend, ready);
+  drapeCloak(rig, motion, dt, P.cloak);
   fadeBlob(rig, 0);
   rig.body.visible = player.invincible ? Math.floor(t * 12) % 2 === 0 : true;
 
@@ -1678,7 +2070,6 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   piv.elbowL.rotation.x = P.olb;
   piv.kneeR.rotation.x = P.lrb;
   piv.kneeL.rotation.x = P.llb;
-  if (piv.cloak) piv.cloak.rotation.x = P.cloak;
 
   rig.weapon.rotation.set(P.wx, 0, P.wz);
   // A spear runs through the fist on a thrust, which is most of what makes a
@@ -1694,17 +2085,28 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
     rig.offhand.rotation.set(mix(st.rest, P.wx + P.arb, 0.55) - P.olb, 0, -P.wz * 0.6);
   }
   if (rig.shield) {
-    rig.shield.rotation.set(0.22 + P.sx, 0.16 + P.sy, 0.14 + P.sz);
-    // Carried off the forearm bone, so the mount height is the tuned offset
-    // minus where that bone sits — see `SHIELD_CARRY`.
+    // The pitch is solved, not authored: the disc gives back whatever the
+    // shoulder and elbow just did to it, so it stays upright in the world while
+    // the arm swings under it. That is what a wrist is for, and a shield that
+    // pitches with the forearm reads as a tray being carried. Not quite all of
+    // it — 0.94 leaves the carry a little live, so the guard is not perfectly
+    // gyro-stabilised.
+    rig.shield.rotation.set(
+      -(P.olx + P.olb) * 0.94 + SHIELD_LEAN + P.sx,
+      mix(SHIELD_REST_YAW, SHIELD_GUARD_YAW, ready) + P.sy,
+      SHIELD_ROLL + P.sz,
+    );
+    // And the disc is placed by its *grip*, which is the point the fist closes
+    // on, rather than by its origin. Solved each frame because the offset has to
+    // be taken in the shield's own turned frame — placing it by the origin is
+    // what left the boss 300 mm clear of the hand holding it.
+    GRIP.set(0, 0, SHIELD_GRIP_Z).applyEuler(rig.shield.rotation);
     rig.shield.position.set(
-      SHIELD_CARRY.x,
-      SHIELD_CARRY.y - piv.elbowL.position.y + P.sfy,
-      SHIELD_CARRY.z + P.sfz,
+      rig.offGrip.x - GRIP.x,
+      rig.offGrip.y - GRIP.y + P.sfy,
+      rig.offGrip.z - GRIP.z + P.sfz,
     );
   }
-  // A guard raised is a guard the cloak has to move around.
-  if (piv.cloak) piv.cloak.rotation.z = -P.crz * 0.5 + ready * 0.02;
 }
 
 /**

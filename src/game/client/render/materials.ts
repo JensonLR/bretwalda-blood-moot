@@ -59,6 +59,7 @@ export type MaterialName =
   // runestone
   | "runestone"
   | "runeGlow"
+  | "hearthGlow"
   // gore
   | "bloodDecal";
 
@@ -126,6 +127,13 @@ interface Spec {
   vertexColors?: boolean;
   /** Cut-out decal: alpha comes from the albedo, and it must not write depth. */
   decal?: boolean;
+  /**
+   * Light spill rather than a lit surface. The quad gets a radial alpha falloff
+   * and blends additively, so what reaches the frame is a soft warm blob with
+   * no edge of its own. An emissive quad with neither of those is the single
+   * loudest untextured-primitive tell a frame can carry — see the hearth.
+   */
+  glow?: boolean;
 }
 
 // The colour/roughness numbers here are the arena's art direction. They came
@@ -145,16 +153,25 @@ const CATALOG: Record<MaterialName, Spec> = {
   poleWood:        { color: 0x4a3018, roughness: 0.9, metalness: 0, surface: "oak", repeat: [2, 6] },
 
   torchCup:        { color: 0x2a2a2e, roughness: 0.5, metalness: 0.7, surface: "iron", repeat: [2, 1] },
-  // The two fire entries no longer draw a flame — vfx.ts owns those — but they
-  // are still what a coal bed and a hearth seen through a doorway are made of,
-  // and those have to clear the bloom threshold or the one genuinely hot thing
-  // in the arena is the only thing in it that does not glow. Nine and seven,
-  // not five and three and a half: the threshold now sits above the dusk sky at
-  // 5.0, which is the whole reason the frame stopped being one colour, and an
-  // ember that reads as hot to the eye has to read as hot to the bright pass.
-  torchFlame:      { color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff7711, emissiveIntensity: 9 },
+  // The fire entries no longer draw a flame — vfx.ts owns those — but they are
+  // still what a coal bed and a hearth seen through a doorway are made of, and
+  // those have to clear the bloom threshold or the one genuinely hot thing in
+  // the arena is the only thing in it that does not glow. The threshold sits
+  // above the dusk sky at 5.0, which is the whole reason the frame stopped
+  // being one colour, so an ember that reads as hot to the eye has to read as
+  // hot to the bright pass — but only *just* over, because a bare emissive far
+  // above it clips its whole footprint flat and stops being an ember at all.
+  torchFlame:      { color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff7711, emissiveIntensity: 6.4 },
   bonfireLog:      { color: 0x3a2515, roughness: 0.98, metalness: 0, surface: "oak", repeat: [1, 4] },
-  bonfireFlame:    { color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff5500, emissiveIntensity: 7, opacity: 0.9 },
+  // Coals: opaque lumps, not flame. The old `opacity: 0.9` bought nothing on a
+  // solid icosahedron and cost the whole instanced bed a sorted transparent
+  // pass.
+  bonfireFlame:    { color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff5500, emissiveIntensity: 5.6 },
+  // Firelight through the hall door. Its footprint is ~12 px in `laststand`, so
+  // every pixel of it is either the blob or its edge; as a flat opaque quad at
+  // intensity 7 it drew a hard uniform orange square that two critic panels read
+  // as a UI glitch, and one of them traced to the HUD.
+  hearthGlow:      { color: 0xffb055, roughness: 1, metalness: 0, emissive: 0xff6a1e, emissiveIntensity: 4.2, glow: true },
 
   hutWall:         { color: 0x6a553c, roughness: 0.95, metalness: 0, surface: "plank", repeat: [3, 2] },
   hutRoof:         { color: 0x41301c, roughness: 0.98, metalness: 0, surface: "thatch", repeat: [7, 3] },
@@ -519,6 +536,48 @@ export function createMaterialLibrary(
     }
   }
 
+  /**
+   * A radial alpha falloff for `glow` specs, generated once and shared.
+   *
+   * The profile is deliberately not a gaussian. A gaussian's tail is still
+   * measurably above zero at the quad's rim, which on a 12 px footprint puts
+   * the whole falloff inside two pixels and leaves the edge as hard as it
+   * started. This one reaches exactly zero at r = 1 and spends its slope in the
+   * middle, so the blob is soft over its whole radius at every size it is seen
+   * at. Taller than wide is deliberate: a hearth throws light up the far wall.
+   */
+  let falloff: THREE.DataTexture | null = null;
+  function glowFalloff(): THREE.DataTexture {
+    if (falloff) return falloff;
+    const N = 64;
+    const data = new Uint8Array(N * N * 4);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const u = ((x + 0.5) / N) * 2 - 1;
+        const v = ((y + 0.5) / N) * 2 - 1;
+        const r = Math.min(1, Math.hypot(u, v * 0.82));
+        const t = 1 - r;
+        // A hot core with a long shoulder: t^0.55 near the middle would flatten
+        // it into the same slab, so the core is a separate narrow term added on
+        // top of a broad quadratic skirt.
+        const a = 0.72 * t * t + 0.28 * Math.pow(t, 6);
+        const b = Math.round(255 * a);
+        const i = (y * N + x) * 4;
+        data[i] = b;
+        data[i + 1] = b;
+        data[i + 2] = b;
+        data[i + 3] = 255;
+      }
+    }
+    falloff = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+    falloff.wrapS = THREE.ClampToEdgeWrapping;
+    falloff.wrapT = THREE.ClampToEdgeWrapping;
+    falloff.minFilter = THREE.LinearFilter;
+    falloff.magFilter = THREE.LinearFilter;
+    falloff.needsUpdate = true;
+    return falloff;
+  }
+
   function build(name: MaterialName, spec: Spec): THREE.Material {
     const m = new THREE.MeshStandardMaterial({
       color: spec.color,
@@ -537,6 +596,17 @@ export function createMaterialLibrary(
     if (spec.decal) {
       m.polygonOffset = true;
       m.polygonOffsetFactor = -2;
+    }
+    if (spec.glow) {
+      m.alphaMap = glowFalloff();
+      m.transparent = true;
+      m.depthWrite = false;
+      // Additive, so the blob cannot present a silhouette against what is
+      // behind it: the darker the doorway, the more of the glow survives, which
+      // is how light spill actually behaves.
+      m.blending = THREE.AdditiveBlending;
+      m.side = THREE.DoubleSide;
+      m.toneMapped = true;
     }
     return m;
   }
@@ -659,8 +729,10 @@ export function createMaterialLibrary(
     },
 
     dispose() {
-      // Textures belong to the library that made them; only the programs and
-      // uniform blocks are ours to release.
+      // Textures belong to the library that made them — except the glow
+      // falloff, which is ours because no surface recipe describes it.
+      falloff?.dispose();
+      falloff = null;
       for (const m of named.values()) m.dispose();
       for (const m of adhoc.values()) m.dispose();
       for (const m of tints.values()) m.dispose();

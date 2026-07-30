@@ -83,7 +83,12 @@ const PRESETS: Record<string, {
     cam: Math.PI,
     matchTimer: 120,
     poses: Array.from({ length: 8 }, (_, i) => {
-      const a = (i / 8) * Math.PI * 2;
+      // Half a step off the cardinals. On the whole steps, i=4 lands at
+      // (0, -4.2) — dead on the follow rig's axis through the bonfire — so the
+      // far warrior was permanently inside the flame column and read as legs
+      // growing out of the fire. That is a framing coincidence, not a fire bug,
+      // and it would recur on any future flame silhouette.
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
       const cls: WarriorClass = (["huscarl", "warden", "runekeeper", "berserker"] as WarriorClass[])[i % 4];
       return {
         id: i === 0 ? "me" : `p${i}`,

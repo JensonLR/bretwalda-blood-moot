@@ -2408,8 +2408,13 @@ export function createWorld(
       // the warmest thing in the background and it costs one quad — but only if
       // it sits *in front of* the dark box behind the doorway rather than
       // inside it, which is 0.9 m deep now and would swallow it whole.
-      const hearth = new THREE.Mesh(own(new THREE.PlaneGeometry(0.66, 0.4)), materials.get("bonfireFlame"));
-      hearth.position.set(0, 0.4, HD - 0.14);
+      //
+      // `hearthGlow`, not `bonfireFlame`: this quad is ~12 px on screen, so a
+      // flat opaque emissive drew a hard orange square that read as a UI bug
+      // rather than as firelight. It is bigger than the old one because a
+      // radial falloff spends most of its area on the skirt.
+      const hearth = new THREE.Mesh(own(new THREE.PlaneGeometry(0.94, 0.66)), materials.get("hearthGlow"));
+      hearth.position.set(0, 0.42, HD - 0.14);
       g.add(hearth);
       g.position.set(hx, footing(hx, hz, 4.4) - 0.06, hz);
       g.rotation.y = facing(hx, hz) + 0.18;
@@ -2810,8 +2815,10 @@ export function createWorld(
     logMesh.castShadow = true;
     bonfire.add(logMesh);
 
-    // The coal bed. Reusing the flame material means the embers glow into the
-    // bloom pass without a second emissive entry in the catalog.
+    // The coal bed. Solid lumps, so it keeps the opaque entry rather than the
+    // hearth's glow — an ember has a surface and a silhouette; light spill has
+    // neither, and giving one the other's material is how the hearth became a
+    // square in the first place.
     {
       const coals: THREE.Matrix4[] = [];
       for (let i = 0; i < 26; i++) {
