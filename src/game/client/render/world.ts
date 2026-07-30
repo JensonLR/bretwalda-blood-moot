@@ -2576,26 +2576,51 @@ export function createWorld(
     body.castShadow = true;
     stone.add(body);
 
-    // Carved band and runes. The strokes are cut into the face rather than
-    // floating on it, so the glow has an edge to catch.
+    // Carved band and runes, cut into the *front* face.
+    //
+    // They used to be 0.5 m deep boxes in a 0.42 m slab, sunk on the slab's
+    // centre line, so every stroke stood proud of both faces at once — and with
+    // emissiveIntensity 8 behind them they read in four presets as glowing
+    // dashes floating free in the air beside the stone. Two of them missed the
+    // slab entirely, because they were authored in the group's space while the
+    // slab lives 1.95 m up inside it, and none of them inherited the lean.
+    //
+    // So: parented to the slab, authored in its space, and laid on the surface
+    // the extrusion actually has. There is no CSG here to cut a channel with, so
+    // a stroke is a shallow box whose bulk is inside the stone and whose face
+    // finishes a few millimetres proud — which is what an inlaid rune looks like
+    // in any case, and gives the glow the edge the old comment claimed it had.
+    const CUT = 0.07;
+    /**
+     * Front surface of the slab at a height in the slab's own space. The
+     * extrusion's front cap sits at depth/2 + bevelThickness once it has been
+     * centred, and the pinch that tapers the stone toward the top takes z with
+     * it — miss that and the top three runes sink into the rock.
+     */
+    const faceZ = (y: number) => (0.21 + 0.05) * (1 - clamp01((y + 1.9) / 3.8) * 0.22);
+    const lay = (w: number, h: number, x: number, y: number, rz: number) =>
+      bx(w, h, CUT, x, y, faceZ(y) - CUT / 2 + 0.005, rz);
+
     const runeMat = materials.get("runeGlow");
     const strokes: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 7; i++) {
-      const y = 3.05 - i * 0.42;
+      // Inside the face by inspection: the slab's outline is never narrower
+      // than ±0.43 in x, and its usable height runs about -1.5 to +2.0.
+      const y = 1.3 - i * 0.36;
       const x = (i % 2 === 0 ? -0.15 : 0.16) + (rng() - 0.5) * 0.1;
-      strokes.push(bx(0.055, 0.3 - (i % 3) * 0.05, 0.5, x, y, 0, (rng() - 0.5) * 0.55));
-      if (i % 2 === 0) strokes.push(bx(0.2, 0.05, 0.5, x + 0.09, y + 0.07, 0, 0.5));
+      strokes.push(lay(0.055, 0.3 - (i % 3) * 0.05, x, y, (rng() - 0.5) * 0.55));
+      if (i % 2 === 0) strokes.push(lay(0.2, 0.05, x + 0.09, y + 0.07, 0.5));
     }
-    const runes = new THREE.Mesh(own(mergeInto(strokes, 1)), runeMat);
-    stone.add(runes);
-    // Interlace border, in stone rather than in light.
+    body.add(new THREE.Mesh(own(mergeInto(strokes, 1)), runeMat));
+
+    // Interlace border, in stone rather than in light. Narrower than it was, so
+    // a bar tilted 9° still has both ends on the rock at the pinched top.
     const border: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 9; i++) {
-      const y = 0.55 + i * 0.36;
-      border.push(bx(0.9, 0.05, 0.47, 0, y, 0, i % 2 === 0 ? 0.16 : -0.16));
+      const y = -1.15 + i * 0.33;
+      border.push(lay(0.78, 0.05, 0, y, i % 2 === 0 ? 0.16 : -0.16));
     }
-    const bmesh = new THREE.Mesh(own(mergeInto(border, 1)), materials.get("runestone"));
-    stone.add(bmesh);
+    body.add(new THREE.Mesh(own(mergeInto(border, 1)), materials.get("runestone")));
 
     // Off the centre line on purpose: dead behind the bonfire the stone is a
     // silhouette inside a flame, and beside it the two read as two things.
