@@ -887,6 +887,12 @@ export function createWorld(
    */
   const ownedMats: THREE.Material[] = [];
   const restore: Array<() => void> = [];
+  /**
+   * Per-frame work a build block registers for itself, so a prop that needs a
+   * clock does not have to be hoisted out of the section that explains it and
+   * into `update`. Called with the frame's dt, in registration order.
+   */
+  const frameHooks: Array<(dt: number, ctx: FrameContext) => void> = [];
   const own = <T extends THREE.BufferGeometry>(g: T): T => { owned.add(g); return g; };
 
   const density = settings.propDensity;
@@ -2889,6 +2895,8 @@ export function createWorld(
       const t = ctx.time;
       moodHeat += (moodTarget - moodHeat) * Math.min(1, dt * 1.6);
 
+      for (const hook of frameHooks) hook(dt, ctx);
+
       // Firelight flicker. Small, and on a different beat per light, or ten
       // torches strobe the whole arena together.
       for (let i = 0; i < pointLights.length; i++) {
@@ -2925,6 +2933,8 @@ export function createWorld(
       });
       for (const g of owned) g.dispose();
       owned.clear();
+      for (const m of ownedMats) m.dispose();
+      ownedMats.length = 0;
     },
   };
 }
