@@ -236,20 +236,21 @@ export default function ShotPage() {
     };
   }, [preset]);
 
-  // Signal readiness only after the renderer has presented enough frames
-  // for lerped camera/pose state to settle. Every lerp in the rig and the poses
-  // runs at min(1, dt * k) with dt capped at 0.05, so the slowest of them is
-  // within a thousandth of its target inside 40 frames. 140 was free when a
-  // frame was 300 ms; with the post chain on a software rasteriser it is two
-  // and a half minutes, and the capture times out before the scene is ever
-  // photographed.
+  // Signal readiness once the renderer has presented enough frames for the
+  // lerped camera and poses to settle. Every lerp in the rig runs at
+  // min(1, dt * k) with dt capped at 0.05, so the slowest is within a
+  // thousandth of its target inside ~25 frames. The count matters: a GPU-less
+  // CI box renders this scene at about 1 fps, so each extra settle frame is
+  // another second per preset and 60 of them made a full 8-preset capture take
+  // most of an hour — long enough that review kept getting cut short.
+
   useEffect(() => {
     if (!params) return;
     let frames = 0;
     let raf = 0;
     const tick = () => {
       frames++;
-      if (frames > 60) {
+      if (frames > 26) {
         (window as unknown as Record<string, unknown>).__shotReady = true;
         return;
       }
