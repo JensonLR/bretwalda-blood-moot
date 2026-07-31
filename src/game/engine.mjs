@@ -14,6 +14,68 @@ const STAGGER_DURATION = 0.6;
 const MATCH_COUNTDOWN = 3;
 const SPAWN_INVINCIBLE = 2.0;
 const ARENA_RADIUS = 18;
+// Centre-to-centre gap two warriors are held apart at. It is the only statement
+// the sim makes about how wide a man is, which is why the fire borrows it below.
+const BODY_MIN_SEP = 1.05;
+
+// ---- the fire ----
+// The bonfire at the origin is the only terrain in the game, and this block is
+// the whole of the simulation's knowledge of it. Standing in it kills; passing
+// through it hurts. That is one radius and two rates, not two rules — nothing
+// below asks how fast anybody was moving.
+//
+// FIRE_GEOMETRY_RADIUS is a measurement, not a choice. `world.ts` lays seven
+// tripod poles at 0.74 rad off vertical on a 0.72 m ring, so a 1.9 m pole throws
+// its tip 1.9·sin(0.74) = 1.28 m out plus that ring offset, and the module
+// records the result in its own words: the fire's widest geometry reaches 2.0 m.
+// That is the outer edge of the thing a player can see, and the hearth stones
+// sit just past it at 1.75–1.95.
+//
+// The hazard sits inside that by exactly one body's half-width. Trigger on a
+// man's centre at 1.475 and he is alight only once his near shoulder is a metre
+// deep in the flame and his far shoulder is level with the outermost log — he
+// is more in the fire than out of it before it bites. A player who clips the
+// edge and gets away with it never notices; one who can see he is clear and
+// burns anyway calls the game broken, so that is the direction to be wrong in.
+const FIRE_GEOMETRY_RADIUS = 2.0;
+const HAZARD_RADIUS = FIRE_GEOMETRY_RADIUS - BODY_MIN_SEP / 2;   // 1.475
+
+// Tuned against the LOW end of the roster — the runekeeper's 90, because the
+// class fast enough to treat the fire as a shortcut is the one who finds the
+// edge of this. What the numbers buy, with the hazard 2.95 m across:
+//
+//   standing in it   90/22 = 4.1 s kills a runekeeper, 6.8 s a huscarl. Long
+//                    enough to feel the mistake and walk out of it, far too
+//                    short to fight in.
+//   walking through  the slowest walk in the game (huscarl, 4.0 u/s) is inside
+//                    for 0.74 s = 16, plus 12 of afterburn = 28. Under a third
+//                    of the frailest class, a fifth of the toughest, and
+//                    survivable from any health a man is still standing on.
+//   sprinting through a runekeeper at 8.2 u/s is inside 0.36 s = 8, so 20 all
+//                    told. The fast class pays less for the same ground, which
+//                    is what being fast is for.
+//
+// The afterburn is a flat few seconds however briefly you touched it. That is
+// deliberate and it is the feature: the image this exists to produce is a man
+// running out of the fire still alight, and a burn that scaled with dwell time
+// would give a grazing crossing no tail at all.
+const BURN_DPS_INSIDE = 22;
+const BURN_DPS_AFTER = 4;
+const BURN_LINGER = 3.0;
+// A man who burns down this soon after taking a blow was driven into the fire,
+// and the kill belongs to whoever drove him. Past it the fire took him and
+// nobody is paid. Longer than BURN_LINGER on purpose: the hit that panics a man
+// lands before he runs into the flames, not after.
+const BURN_CREDIT_WINDOW = 5.0;
+
+// What a bot treats as the fire, and it is wider than the hazard on purpose: a
+// bot that aims to miss by nothing misses by nothing. A whole body's clearance
+// past the burn line, so the arc it walks keeps its shoulder out too.
+const BOT_FIRE_KEEPOUT = HAZARD_RADIUS + BODY_MIN_SEP;   // 2.525
+// How far down its own intended line a bot bothers to look. Well short of the
+// arena, so bots still walk straight at each other across the moot and only
+// start bending when the fire is genuinely in the way.
+const BOT_FIRE_LOOKAHEAD = 5.0;
 
 // ---- rounds ----
 // A match is best of N. The host picks N in the lobby; the sim only ever asks
@@ -502,18 +564,32 @@ function makeEngine() {
       state: "idle", attackDir: "right", blockDir: "right",
       attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
       abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
-      kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+      kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "", lastHitAt: -999,
       comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
       deadAt: 0,
+      // Alight. `burning` is the whole of what a renderer needs to decide whether
+      // to put flames on this man; `burnTimer` is how much of the afterburn is
+      // left, so they can thin out rather than snap off; `burnInside` says he is
+      // stood in the flames right now, which is a hotter thing to draw than a man
+      // fleeing them with his cloak up.
+      burning: false, burnTimer: 0, burnInside: false,
       // How this warrior last died, for whoever has to draw the corpse. Null on a
       // living body, and cleared on every road back to standing — a warrior who
       // respawns with a zone still on him is a warrior the client rebuilds with
       // an arm missing.
-      deathZone: null, deathDir: null, deathHeavy: false,
+      deathZone: null, deathDir: null, deathHeavy: false, deathCause: null,
     };
   }
 
-  const clearDeathMark = (p) => { p.deathZone = null; p.deathDir = null; p.deathHeavy = false; };
+  // Everything the last fight left on a body and the next one must not inherit.
+  // Every road back to standing comes through here — the round start, the lobby
+  // reset at the end of a match, the solo respawn — so a fourth cannot quietly
+  // miss half of it. A warrior must not come back one-armed, and he must not
+  // come back on fire.
+  const clearBodyMarks = (p) => {
+    p.deathZone = null; p.deathDir = null; p.deathHeavy = false; p.deathCause = null;
+    p.burning = false; p.burnTimer = 0; p.burnInside = false;
+  };
 
   const isTeamMode = (room) => room.mode === "war_band";
 
@@ -588,7 +664,7 @@ function makeEngine() {
 
   // Simulation scratch: needed every tick, meaningless off the server, and
   // twenty times a second of wire it does not deserve.
-  const PRIVATE_FIELDS = ["moveVel", "impulse", "latestInput", "inputAt",
+  const PRIVATE_FIELDS = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt",
     "aiSkill", "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName"];
 
   function serializeRoom(room) {
@@ -935,7 +1011,7 @@ function makeEngine() {
       p.abilityActive = false; p.abilityTimer = 0; p.abilityCooldown = 0;
       p.comboCount = 0; p.comboTimer = 0; p.lastHitBy = ""; p.deadAt = 0;
       clearMotion(p);
-      clearDeathMark(p);
+      clearBodyMarks(p);
     });
     broadcast(room, { type: "countdown", data: { ...serializeRoom(room), countdown: room.countdown } });
 
@@ -1073,6 +1149,9 @@ function makeEngine() {
   function applyDamage(room, attacker, target, damage, hitType, hitZone = "torso") {
     const heavy = hitType === "heavy" || hitType === "blocked_heavy";
     target.health -= damage; target.lastHitBy = attacker.id; attacker.damage += damage;
+    // When, not only by whom. A burn death seconds later has to know whether this
+    // blow is close enough behind it to have caused it — see burnDeath.
+    target.lastHitAt = room.matchTimer;
     broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir, hitZone } });
     if (target.health <= 0) {
       target.health = 0; target.state = "dead"; target.deaths++;
@@ -1082,12 +1161,110 @@ function makeEngine() {
       // `serializeRoom` reaches everyone else, so a spectator who arrives a minute
       // later rebuilds the same one-armed corpse the room watched drop.
       target.deathZone = hitZone; target.deathDir = attacker.attackDir; target.deathHeavy = heavy;
+      target.deathCause = "blow";
       clearMotion(target);   // the dead stop running
       attacker.kills++; attacker.score += 100;
       room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: Date.now(), hitZone });
-      broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy } });
+      broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy, cause: "blow" } });
       if (room.mode !== "solo") checkRoundEnd(room);
     }
+  }
+
+  /**
+   * The fire, once per step, for one man.
+   *
+   * Only the first line reads the world. Everything after it is the same
+   * countdown whether he is stood still or sprinting, which is why "standing in
+   * it kills, passing through it hurts" needs no special case anywhere: the man
+   * who leaves after 0.4 s has taken 0.4 s of it, and the man who does not
+   * leave keeps taking it.
+   */
+  function tickBurn(room, player, dt) {
+    // A corpse goes on burning and then goes out. It cannot be hurt any more and
+    // it is not re-lit by lying in the flames — this is a timer and nothing else,
+    // so a body is not still alight when the round break ends and it is not the
+    // renderer's job to decide when a dead man stops smoking.
+    if (player.state === "dead") {
+      if (player.burnTimer > 0) {
+        player.burnTimer -= dt;
+        if (player.burnTimer <= 0) { player.burnTimer = 0; player.burning = false; player.burnInside = false; }
+      }
+      return;
+    }
+
+    // Spawn and dodge invincibility are answers to a man swinging at you, and
+    // there is nobody swinging here. A warrior who could stand in the flames for
+    // two seconds at the bell, or roll through them for free, would be reading
+    // i-frames as fireproofing. Fire is terrain: the way out of it is to walk.
+    // Nothing can be spawned into it either way — the ring starts at 6 m.
+    if (Math.hypot(player.position.x, player.position.z) < HAZARD_RADIUS) {
+      player.burning = true;
+      player.burnInside = true;
+      player.burnTimer = BURN_LINGER;   // refreshed on re-entry, never stacked
+      // A man killed here keeps his full afterburn, so the corpse in the flames
+      // is still alight when it lands. The dead branch above burns it down.
+      burnDamage(room, player, BURN_DPS_INSIDE * dt);
+      return;
+    }
+
+    if (player.burnTimer <= 0) {
+      if (player.burning) { player.burning = false; player.burnInside = false; }
+      return;
+    }
+    player.burnInside = false;
+    player.burnTimer -= dt;
+    burnDamage(room, player, BURN_DPS_AFTER * dt);
+    // Clamped whether or not that last dribble killed him: a man who goes down on
+    // the final tick of an afterburn was already going out.
+    if (player.burnTimer <= 0) { player.burnTimer = 0; player.burning = false; player.burnInside = false; }
+  }
+
+  function burnDamage(room, player, amount) {
+    player.health -= amount;
+    if (player.health > 0) return;
+    player.health = 0;
+    burnDeath(room, player);
+  }
+
+  /**
+   * Burning to death.
+   *
+   * Nobody swung, so nothing comes off. `deathZone` stays null — already the
+   * client's no-severance path — and `deathCause` says "fire" outright rather
+   * than leaving a renderer to infer a whole death from an absence. A man who
+   * burns to death falls; he does not come apart.
+   *
+   * Credit goes to whoever last drew blood inside BURN_CREDIT_WINDOW: he drove
+   * this man into the flames and it is his kill. Outside it the fire took him
+   * and it is nobody's. That cannot disagree with how a round is won, because a
+   * round is won by who is left standing rather than by who is credited — so the
+   * last man alive burning to death ends the round with no side left and
+   * checkRoundEnd calls it a draw, instead of handing it to the corpse whose
+   * blow chased him in.
+   */
+  function burnDeath(room, victim) {
+    victim.state = "dead";
+    victim.deaths++;
+    victim.deadAt = room.matchTimer;
+    victim.deathZone = null; victim.deathDir = null; victim.deathHeavy = false;
+    victim.deathCause = "fire";
+    clearMotion(victim);
+
+    const last = room.players.get(victim.lastHitBy);
+    const credited = last && last.id !== victim.id &&
+      room.matchTimer - victim.lastHitAt <= BURN_CREDIT_WINDOW ? last : null;
+    if (credited) { credited.kills++; credited.score += 100; }
+    const killerName = credited ? credited.name : "The Fire";
+    room.killFeed.push({
+      killer: credited ? credited.id : "", victim: victim.id,
+      killerName, victimName: victim.name, timestamp: Date.now(), hitZone: null,
+    });
+    broadcast(room, { type: "kill", data: {
+      killerId: credited ? credited.id : "", killerName,
+      victimId: victim.id, victimName: victim.name,
+      hitZone: null, direction: null, heavy: false, cause: "fire",
+    } });
+    if (room.mode !== "solo") checkRoundEnd(room);
   }
 
   function activateAbility(room, player) {
@@ -1204,7 +1381,7 @@ function makeEngine() {
         p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
         p.position = { x: 0, y: 0, z: 0 }; p.invincible = false;
         clearMotion(p);
-        clearDeathMark(p);
+        clearBodyMarks(p);
       });
       sendLobbyUpdate(room);
     }, 10000);
@@ -1222,7 +1399,55 @@ function makeEngine() {
   // both the same way. A bot that could write its own velocity was a bot that
   // could not be outrun, however fast the class sheet said you were.
   function botIntent(bot, moveX, moveZ, sprint) {
-    bot.latestInput = { moveX, moveZ, rotationY: bot.yaw, sprint: !!sprint, block: false };
+    const clear = steerClearOfFire(bot, moveX, moveZ);
+    bot.latestInput = { moveX: clear.x, moveZ: clear.z, rotationY: bot.yaw, sprint: !!sprint, block: false };
+  }
+
+  /**
+   * Keep a bot out of the bonfire.
+   *
+   * This is the way the hazard would most likely have shipped broken. botThink
+   * beelines at whatever it is fighting, the fire is at the exact centre of an
+   * arena everything orbits, and a bot has no reason of its own to walk round
+   * anything — so left alone, every match ends with the whole ring stood in the
+   * flames burning itself down.
+   *
+   * It filters INTENT rather than position, and it does it here, in the one
+   * place a bot asks to move, so the chase, the strafe, the pacing and the roll
+   * all get it without any of them having to know a fire exists. Two cases:
+   *
+   *   already too close — out is the only direction worth having, at a full
+   *     stride, and it overrides whatever it was doing.
+   *   the line goes through it — swing onto the tangent it is already nearest,
+   *     hard in proportion to how central the miss would have been. A dead-on
+   *     beeline arcs the whole way round; a glancing one barely bends. It never
+   *     reverses, so a bot does not back into the man behind him to dodge a fire
+   *     in front of him.
+   *
+   * Length is throttle to the tick, so the deflected vector keeps the caller's
+   * pace: a bot circling at 0.45 goes on circling, it does not charge.
+   */
+  function steerClearOfFire(bot, ix, iz) {
+    const px = bot.position.x, pz = bot.position.z;
+    const r = Math.hypot(px, pz);
+    if (r < BOT_FIRE_KEEPOUT) {
+      // Dead centre has no outward direction, so any bearing is out of it.
+      if (r < 0.001) return { x: Math.sin(bot.yaw || 0), z: Math.cos(bot.yaw || 0) };
+      return { x: px / r, z: pz / r };
+    }
+    const len = Math.hypot(ix, iz);
+    if (len < 0.05) return { x: ix, z: iz };
+    const dx = ix / len, dz = iz / len;
+    const along = -(px * dx + pz * dz);   // ground to the closest approach
+    if (along <= 0 || along > BOT_FIRE_LOOKAHEAD) return { x: ix, z: iz };
+    const miss = Math.hypot(px + dx * along, pz + dz * along);
+    if (miss >= BOT_FIRE_KEEPOUT) return { x: ix, z: iz };
+    let tx = -pz / r, tz = px / r;
+    if (tx * dx + tz * dz < 0) { tx = -tx; tz = -tz; }
+    const bend = (1 - miss / BOT_FIRE_KEEPOUT) * 1.8;
+    const bx = dx + tx * bend, bz = dz + tz * bend;
+    const bl = Math.hypot(bx, bz) || 1;
+    return { x: (bx / bl) * len, z: (bz / bl) * len };
   }
 
   // One-shot deed. Movement intent is left alone: a swing does not stop a bot
@@ -1329,9 +1554,13 @@ function makeEngine() {
       return;
     }
 
-    // Dodge an imminent close blow
+    // Dodge an imminent close blow. The roll goes through the same filter as a
+    // stride, because it is the longest single movement in the game — a
+    // runekeeper's is 5.6 m — and backing away from a man stood with the fire
+    // behind him is precisely how a bot would roll into it.
     if (enemyAttacking && dist < theirReach * 0.65 && bot.dodgeTimer <= 0 && Math.random() < 0.08 + bot.aiSkill * 0.18) {
-      botAct(room, bot, { moveX: -nx, moveZ: -nz, dodge: true });
+      const roll = steerClearOfFire(bot, -nx, -nz);
+      botAct(room, bot, { moveX: roll.x, moveZ: roll.z, dodge: true });
       return;
     }
 
@@ -1524,6 +1753,13 @@ function makeEngine() {
     room.matchTimer += dt;
 
     room.players.forEach((player) => {
+      // The fire first, because it can kill: a man it kills has to drop out of
+      // the rest of this step exactly the way a man cut down last step does, and
+      // every branch below already knows how to skip the dead. It reads the
+      // position the previous step left him at, which is one tick of lag against
+      // a 1.5 m radius and not worth a second pass over the room to remove.
+      tickBurn(room, player, dt);
+
       // Solo respawns for endless training
       if (room.mode === "solo" && player.state === "dead") {
         if (room.matchTimer - player.deadAt > 5) {
@@ -1535,9 +1771,9 @@ function makeEngine() {
           player.invincible = true; player.invincibleTimer = 1.5;
           player.deadAt = -999;
           clearMotion(player);      // you come back standing, not still running
-          clearDeathMark(player);   // ...and whole. This is the leak the client
-                                    // would otherwise inherit: solo respawns run
-                                    // every five seconds, forever.
+          clearBodyMarks(player);   // ...and whole, and not on fire. This is the
+                                    // leak the client would otherwise inherit:
+                                    // solo respawns run every five seconds, forever.
         }
         return;
       }
@@ -1598,9 +1834,8 @@ function makeEngine() {
         const dx = b.position.x - a.position.x;
         const dz = b.position.z - a.position.z;
         const d = Math.hypot(dx, dz);
-        const MIN = 1.05;
-        if (d < MIN && d > 0.0001) {
-          const push = (MIN - d) * 0.5;
+        if (d < BODY_MIN_SEP && d > 0.0001) {
+          const push = (BODY_MIN_SEP - d) * 0.5;
           const nx = dx / d, nz = dz / d;
           // A roll goes through the scrum rather than being sorted by it.
           if (a.state !== "dodging") { a.position.x -= nx * push; a.position.z -= nz * push; killComponent(a, nx, nz); }
