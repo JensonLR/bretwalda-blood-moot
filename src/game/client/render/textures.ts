@@ -1229,6 +1229,68 @@ function verdigris(c: Float32Array, i: number, light: RGB, dark: RGB, amount: nu
 // roughly two thirds to four fifths of the luma spread the four-cycle grid was
 // providing, and it puts the tile's own spread up by a sixth at close range. The
 // shortfall at distance is genuinely gone, because it *was* the grid.
+//
+// And it was gone at a cost the paragraph above did not price. With the last
+// coarse term deleted, EVERYTHING this recipe drew sat between twelve and
+// thirty-two cycles across the tile — and measured against the frame rather than
+// against the tile, that whole band is under a pixel wherever wool is worn.
+//
+// The arithmetic, off `v8/closeup.png`. The hero stands 410 px for 1.85 m, so the
+// closeup framing runs ~220 px/m, and characters.ts sizes the cloak at 24 repeats
+// over a 1.22 m hem: a 51 mm tile is ELEVEN PIXELS. The nap at eighteen cycles is
+// 0.6 px, the dye blotch at twelve is 0.9 px, the tooth at thirty-two is 0.35 px.
+// Every one of them belongs to the mip chain and none of them belongs to the
+// frame. Measured on the capture, band energy relative to the local mean over the
+// cloak: 0.054 at 0.6-1.5 px, 0.041 at 1.5-3 px, 0.045 at 3-6 px, against mail in
+// the same shot at 0.200 / 0.171 / 0.164 — and against the post chain's own film
+// grain, which postfx.ts puts at 0.052. The panel's "its only high-frequency
+// content is the grain" is not a figure of speech; the cloth is *at* the grain
+// floor and the two bands that should carry it sit below it.
+//
+// `v8/laststand.png` is the same defect seen from the other end. The berserker's
+// back pelt is the same `wool` map at a 300 mm tile, where the eighteen-cycle nap
+// lands at 17 mm and draws hard visible streaks — the "hair" panel, with the
+// cloak's flat 51 mm tile sharing an edge with it. One recipe, one band,
+// photographed at two scales six times apart: hair on one garment and paint on
+// the other, with a razor between them.
+//
+// So the recipe carries a coarse octave again, and where it sits is decided by
+// the frame: 3-6 px on an 11 px tile is one to four cycles, so that is where the
+// energy has to go. That is the band the detiling rule at the head of this file
+// forbids, and the way through is the one the paragraph above already named and
+// the code then failed to implement — anisotropy, at the only aspect ratio that
+// actually escapes.
+//
+// A tap scale must be an integer or the tile seams, so the longest thing `soft`
+// can carry along v is ONE cycle per tile: 44 mm against 25 mm across, which is a
+// blob at 1.8:1 and not a streak. A CONSTANT v argument has no period at all. The
+// lay is therefore a function of u alone, swayed sideways by the warp's own
+// displacement — so it is continuous down the whole garment, joins its own copy
+// across every tile boundary in v, and what the eye gets is one long striation
+// instead of a stack of cells. There is no cell to count, which is the entire
+// difference between nap and basketwork; and u is across the body and v is down
+// it on every shell characters.ts sweeps, so a streak long in v runs down the
+// fall of the cloth on all of them.
+//
+// Two octaves of it, at two and five cycles across — 25 mm and 10 mm on the
+// cloak, 150 mm and 60 mm of clumped pelt on the back panel — so the substance
+// has something in the visible band at both ends of the six-fold tile range
+// instead of at neither. Not harmonics of each other, deliberately: two and four
+// reinforce into an even pitch and an even pitch at this scale is corduroy.
+//
+// It is spent on relief first and paint second — ±16% of the height field
+// against ±14% of the albedo gain, where the dye blotch spends ±17% — and that
+// ordering is doing real work rather than hedging. Relief is not paint: what it
+// puts on screen is a shading gradient whose contrast follows where the drape is
+// facing, so it lives and dies with the fold it is on instead of printing evenly
+// across the garment the way the old four-cycle dye gain did. It is also what was
+// asked for by name — nap catching the light along the fall — and it is all a
+// texture can contribute to fold shading; the rest of that belongs to the drape
+// rig. Measured on the built map, box-averaged to the eleven texels one closeup
+// pixel covers: albedo spread 0.074 -> 0.095, mean normal tilt 3.2 -> 3.8
+// degrees. At the five texels of the lineup framing the same numbers are 0.021 ->
+// 0.035 and 0.7 -> 1.2, which is the one number in this note to watch — it is a
+// striation and not a cell, but it is a 1.7x rise in a band the bar scores.
 function buildWool(g: Gen): void {
   const { size, h, r, m, c, bank } = g;
   const base = col(0x9d968b);
@@ -1243,6 +1305,27 @@ function buildWool(g: Gen): void {
     warpUV(bank, u, v, 0.07);
     const wu = WARP[0];
     const wv = WARP[1];
+
+    // The warp's own sideways displacement, reused rather than re-tapped — the
+    // same trick the dye field below plays. This is the term that decides whether
+    // the lay reads as combed fibre or as corduroy, and it wants to be large: a
+    // fifth of a tile of sideways wander, swung back four times per tile, which
+    // on a cloak is 9 mm of drift every 11 mm of fall. That is finer in v than
+    // the frame resolves at any framing wool is worn at, and that is the point —
+    // what it buys is not a visible wave but a striation that never holds one
+    // column long enough to become a rib. Scaled down for the finer octave so it
+    // wanders the same fraction of its own pitch rather than a whole period of
+    // it, which would scramble it into swirl.
+    const sway = (wu - u) * 5;
+    // The lay of the nap. Constant in v by construction — see the note above on
+    // why one cycle per tile is a blob and no cycles at all is a streak. The v
+    // arguments are the two fixed rows of the field these read, chosen only to be
+    // uncorrelated with each other; they carry no scale.
+    const stria = sampleField(bank.soft, (u + sway) * 2, 0.13);
+    const striaFine = sampleField(bank.soft, (u + sway * 0.4) * 5, 0.61);
+    // Expanded because `soft` is five octaves normalised and piles up around 0.5
+    // — see `contrast`. Left alone this lands a third of the relief it reads as.
+    const drape = contrast(stria * 0.56 + striaFine * 0.44, 1.6);
 
     // Fibre, long one way and narrow the other. Sampled off `grain` rather than
     // `fine` so the coarse octave lands at three or four texels: fibre that
@@ -1287,7 +1370,16 @@ function buildWool(g: Gen): void {
     const dye = contrast(sampleField(bank.soft, (u + dw + 1) * 12, (v - dw * 0.74 + 1) * 12), 1.7);
 
     const fibre = clamp01(nap * 0.74 + hairy * 0.26);
-    h[i] = clamp01(0.4 + (fibre - 0.5) * 0.6 + (tooth - 0.5) * 0.18 + pill * 0.28);
+    // The lay is added to the fibre rather than taken out of it. Two cycles per
+    // tile against the nap's eighteen is a ninth of the slope for the same
+    // amplitude, so it has to be the larger term in the height field just to be
+    // the equal of the nap in the normal map — and the whole argument for it is
+    // that it is the only one of the two the frame can still see. Spending the
+    // nap's relief on it instead of adding to it cost more tilt at every
+    // footprint than it bought: measured on the built map, box-averaged to 11
+    // texels, 3.22 -> 2.79 degrees.
+    h[i] = clamp01(0.42 + (drape - 0.5) * 0.58 + (fibre - 0.5) * 0.6
+      + (tooth - 0.5) * 0.18 + pill * 0.28);
 
     // Wider across the nap than the weave ever ran across its crossings, and it
     // is the trade the dye field paid for: this is variation that lives on a
@@ -1299,10 +1391,19 @@ function buildWool(g: Gen): void {
     // crowns it came back as lint.
     toward(c, i, lift, clamp01((fibre - 0.62) * 2.4) * 0.66 + pill * 0.22);
     toward(c, i, dusty, smoothstep(0.56, 0.06, dye) * 0.4);
-    gain(c, i, 0.8 + dye * 0.5 + (tooth - 0.5) * 0.12);
-    // Felt is the most light-absorbing thing in the frame and has no crowns to
-    // shine off: the spread is a tenth wide and all of it sits at the top.
-    r[i] = clamp01(0.99 - fibre * 0.09 - pill * 0.05 + (tooth - 0.5) * 0.05);
+    // The lay in the albedo, kept just under what the dye blotch spends. This is
+    // the term that would print as a check if the lay were isotropic, and the
+    // only reason it is safe at two cycles per tile is that it has no cross-axis
+    // structure to be a cell of — so it is sized against the dye rather than
+    // against the relief, which can afford to be louder.
+    gain(c, i, 0.8 + dye * 0.5 + (tooth - 0.5) * 0.12 + (drape - 0.5) * 0.5);
+    // Felt is the most light-absorbing thing in the frame, but a fulled nap is
+    // not uniformly matte — the crowns of the lay are combed flat and take a
+    // soft directional sheen, which is most of what says "wool" rather than
+    // "paper" on a surface this dark. Only the crowns: the troughs stay at 0.99,
+    // so the spread reads as the lay of the fibre and never as gloss.
+    r[i] = clamp01(0.99 - fibre * 0.1 - clamp01((drape - 0.5) * 1.5) * 0.16
+      - pill * 0.05 + (tooth - 0.5) * 0.05);
     m[i] = 0;
   });
 }
@@ -1480,13 +1581,36 @@ function buildRope(g: Gen): void {
 // Flat-sawn board: the annual rings are circles in the log's cross-section, so
 // on the face of a board cut at distance c from the pith you see sqrt(x² + c²).
 // Letting c wander along the length is what produces the cathedral figure.
+//
+// What no board here shows is a whole cathedral. The widest timber tile in the
+// game is a palisade stake at 140 mm and the narrowest a shield board at 35 mm,
+// so `cath` slides the crown off the tile and what is drawn is a slice through
+// one — see the note in `wood` on why that has to be an integer.
 interface WoodOpts {
+  /** Depth of the radial (cathedral) term — how uneven the ring pitch gets. */
   rings: number;
+  /**
+   * Rings crossed straight across one tile. MUST be an integer: it is what takes
+   * the figure's apex off the tile without breaking the wrap. See `wood`.
+   */
+  cath: number;
+  /**
+   * Rings the figure slides sideways over the swing of one board's cut, so about
+   * 0.4 of this in practice — `alongV` is an fBm and spans roughly 0.3 to 0.7.
+   */
+  snake: number;
   wander: number;
   early: RGB;
   late: RGB;
   knotCol: RGB;
   knots: number;
+  /**
+   * How much a knot is squashed along v, against the v stretch its callers use.
+   * Every timber mesh in the game runs v along the grain and most stretch it hard
+   * — a shield board is 6.7:1 — so a knot drawn round in UV comes out as a
+   * vertical smear on the wood and roughly round on a wall.
+   */
+  knotV: number;
   /** Weathered boards lose the soft earlywood, leaving the latewood proud. */
   erosion: number;
   pore: number;
@@ -1544,7 +1668,7 @@ function wood(g: Gen, o: WoodOpts): void {
       let dy = v - knots[k][1];
       dx -= Math.round(dx);
       dy -= Math.round(dy);
-      const d = Math.sqrt(dx * dx + dy * dy * 2.2);
+      const d = Math.sqrt(dx * dx + dy * dy * o.knotV);
       if (d > knots[k][2] * 3.4) continue;
       const t = smoothstep(knots[k][2] * 3.2, knots[k][2] * 0.5, d);
       if (t > knot) knot = t;
@@ -1552,25 +1676,47 @@ function wood(g: Gen, o: WoodOpts): void {
     }
 
     const x = u - 0.5 + bow;
-    // One `soft` tap, read twice: where the pith wandered, and how the tone of
-    // this stretch of board differs from the next. That second read is what keeps
-    // a palisade built from one shared material from being a row of identical
-    // stakes, and it costs nothing.
+    // How far up the board this is from the pith, and where the figure has slid
+    // to. Both are functions of v alone — a board's cut and its crown change as
+    // you walk ALONG it and not at all as you cross it — and both used to come
+    // off one tap, `sampleField(bank.soft, u, v * 4)`, which is where the shield's
+    // basketwork came from. `soft` peaks at ONE cycle per unit, so that tap laid a
+    // full-range blob one tile wide and a quarter of a tile tall on every tile: on
+    // a shield board, oak at three repeats over a 105 x 700 mm plank, the cell is
+    // 35 x 58 mm — square enough in world units to be counted — and it appears
+    // three times across the board and twelve times down it, at identical heights
+    // on all seven boards because every board carries the same 0..1 UVs. The
+    // comment that used to sit here claimed the tap ran "long in V"; three of its
+    // four axes' worth of energy sat at the tile's own fundamental across the
+    // grain.
+    const alongV = sampleField(bank.soft, 0.31, v * 2);
+    // Guarded rather than clamped for taste: `pithOff` and the wander can both
+    // pull this negative on a plank, and a pith at zero is a ring pattern with an
+    // infinitely sharp crown in it.
+    const pith = Math.max(0.12, 0.26 + pithOff + (alongV - 0.5) * o.wander);
+    // The other half of the waffle, and the one that took some finding: the
+    // radial term is EVEN in u about the middle of the tile, so every tile carried
+    // a mirror axis down its own centre line — and that mirror is not decoration,
+    // it is what makes the pattern wrap at all. Break it by leaning `x` and the
+    // tile grows a hard vertical seam at every repeat, which is worse than the
+    // arch.
     //
-    // `v * 4`, and the comment that used to sit here already said why — "sampled
-    // long in V, so it drifts up the timber rather than across it" — while the
-    // code sampled one cycle each way and drifted equally in both. An isotropic
-    // term at one cycle per tile is a blob the size of the tile, which is the
-    // definition of a landmark, and it is most of why a palisade stake at
-    // repeat [2,5] shows the same dark patch ten times over in `arena.png`.
-    // Anisotropy is also just what timber is: a board's figure and its tone change
-    // as you walk along it and barely at all as you cross it. Not taken to a pure
-    // function of v, tempting as that is — the ring coordinate is symmetric about
-    // the middle of the tile, so a wander with no u term would mirror every
-    // board's figure down its own centre line.
-    const soft1 = sampleField(bank.soft, u, v * 4);
-    const pith = 0.26 + pithOff + (soft1 - 0.5) * o.wander;
-    let rr = Math.sqrt(x * x + pith * pith) * o.rings * ringK;
+    // A linear term is the way through. `cath * u` slides the whole coordinate
+    // across the tile, and because it is an INTEGER number of rings the wrap is
+    // untouched — `frac(rr)` at u = 1 is what it was at u = 0. What it buys is
+    // that the figure's crown, which is the stationary point of the radial term,
+    // is pushed off the tile entirely when `cath` exceeds the radial term's own
+    // slope: what is left is rings that run monotonically across the board and
+    // change pitch as they go, which is a slice of a flat-sawn face rather than a
+    // whole cathedral stamped into 35 mm. Nothing in the game shows a board wide
+    // enough to hold a cathedral — the widest oak tile in the frame is a palisade
+    // stake at 140 mm — so the arch was never anything but a repeat.
+    //
+    // `snake` then slides that pattern sideways as it goes up the board, which is
+    // free of the wrap for the same reason: a phase that depends only on v cannot
+    // affect how u closes.
+    let rr = Math.sqrt(x * x + pith * pith) * o.rings * ringK
+      + o.cath * u + alongV * o.snake;
     rr += (sampleField(bank.grain, u * 2, v * 1) - 0.5) * 0.8;
 
     const ring = frac(rr);
@@ -1593,7 +1739,13 @@ function wood(g: Gen, o: WoodOpts): void {
     // sparkle §2 scores at distance. At v * 3 a fleck is two or three texels
     // tall and four times as wide as it is tall, which is the shape of one.
     const fleck = smoothstep(0.62, 0.9, sampleField(bank.fine, u * 1, v * 3)) * o.ray;
-    const drift = contrast(soft1, 1.9);
+    // The board's own tone. Its own tap now rather than a second read of the
+    // figure's: three cycles each way turns the 35 x 58 mm cell into a 12 x 78 mm
+    // streak on the same board, which is 6:1 along the grain in world units
+    // because every timber call in the game stretches v — the shield 6.7:1, a
+    // palisade stake [2,5], a spear shaft [1,8], a hut wall [3,2]. Same energy,
+    // laid the way a board actually varies, and nothing left with a square cell.
+    const drift = contrast(sampleField(bank.soft, u * 3, v * 3), 1.9);
 
     const height = clamp01(0.55 + late * o.erosion * 0.55 + fleck * 0.05 - pore - seam * 0.9 - split * 0.5 - knot * 0.1);
     h[i] = height;
@@ -1619,19 +1771,33 @@ function wood(g: Gen, o: WoodOpts): void {
     // and sun leave streaks down a stake, and a two-cycle isotropic mask leaves
     // two grey clouds per tile that the eye finds again on the next stake along.
     toward(c, i, weathered, clamp01(o.grey * bGrey[bi]) * sampleField(bank.soft, u * 2, v * 7));
-    gain(c, i, bTint[bi] * (0.8 + drift * 0.36) * (0.9 + sampleField(bank.grain, u * 4, v * 2) * 0.24 - seam * 0.45 - split * 0.3));
+    // Half a stop wider on the drift than it was, and it is buying back what
+    // re-banding that field cost rather than adding anything: measured on the
+    // built tile, box-averaged to 8 texels, oak's albedo spread fell 0.159 to
+    // 0.103 when the tile-wide blob went, and half the arena's timber is seen at
+    // that footprint. The energy comes back along the grain instead of across it,
+    // which is the whole point of the move.
+    gain(c, i, bTint[bi] * (0.78 + drift * 0.46) * (0.9 + sampleField(bank.grain, u * 4, v * 2) * 0.24 - seam * 0.45 - split * 0.3));
     r[i] = clamp01(o.roughHigh - late * (o.roughHigh - o.roughLow) - fleck * 0.1 + pore * 0.4 + split * 0.2);
     m[i] = 0;
   });
 }
 
+// `cath` at 8 against a radial depth of 5 puts the ring pitch 4:1 apart between
+// the two edges of the tile and leaves no crown inside it — 4.4 mm rings on a
+// shield board, 17 mm on a palisade stake, both inside what oak does. One knot,
+// not two: at three repeats a shield board was carrying eighteen of them and a
+// stake ten, and a knot is the most countable mark this recipe draws.
 const buildOak = (g: Gen) => wood(g, {
-  rings: 11,
+  rings: 5,
+  cath: 8,
+  snake: 3,
   wander: 0.5,
   early: col(0xb08a5c),
   late: col(0x63421f),
   knotCol: col(0x39230f),
-  knots: 2,
+  knots: 1,
+  knotV: 9,
   erosion: 0.35,
   pore: 0.06,
   seams: 0,
@@ -1641,13 +1807,20 @@ const buildOak = (g: Gen) => wood(g, {
   ray: 0.55,
 });
 
+// A hut wall takes plank at [3,2] over a wall metres on a side, so its tile is
+// near enough square in world units and its knots want to be round rather than
+// squashed. It is also the one timber surface wide enough to hold a crown, so it
+// keeps a deeper radial term against a shallower linear one.
 const buildPlank = (g: Gen) => wood(g, {
-  rings: 8,
+  rings: 6,
+  cath: 6,
+  snake: 2,
   wander: 0.7,
   early: col(0x968875),
   late: col(0x554c40),
   knotCol: col(0x2e2720),
   knots: 2,
+  knotV: 2.2,
   erosion: 1,
   pore: 0.1,
   seams: 4,

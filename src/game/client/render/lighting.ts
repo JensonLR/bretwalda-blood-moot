@@ -230,6 +230,83 @@
 //     doing the rim, which is its job; the beam goes to the top of the flame
 //     column at 3.35 m, which is the only place a fire shadow of a standing man
 //     exists. See `BEAM_RISE`.
+//
+// ---------------------------------------------------------------------------
+// Why v8 pointed every shadow in the game at the sun
+// ---------------------------------------------------------------------------
+//
+// Four panels scored the palisade stripes in `laststand` as the lighting win of
+// two iterations. They run down-LEFT, and the sun glare is at frame-left. Every
+// stripe, every warrior shadow and every contact edge in the build was aimed at
+// the brightest object in the sky, because the only shadow-casting directional
+// in the rig was hung on `sky.moonDirection` and the arena's dominant body is
+// not the moon.
+//
+// It is not close. sky.ts hands out `sunIntensity: 22` against
+// `moonIntensity: 0.1`, and at the dusk geometry the sun clears the horizon at
+// 2.4° while the moon sits at 11.5°: after extinction the sun's beam is
+// (5.45, 1.79, 0.11) linear against the moon's (0.067, 0.049, 0.023). Three
+// orders of magnitude. Aiming the caster at the moon was never a stylistic
+// choice — the interface field is called `key` and it was wired to the moon
+// because a night rig wants a moon key, and nobody re-checked once the sky
+// became a *sunset*.
+//
+// The fix is a swap of two azimuths and nothing else, and it is worth stating
+// that it is only that, because the obvious worry is what re-aiming the largest
+// light in the rig does to the frame's colour:
+//
+//  1. **The caster follows whichever body dominates.** `casterShare` blends the
+//     axis from the moon to the sun as the sun clears the horizon, so a
+//     `setTimeOfDay` sweep hands the shadows over at nautical twilight rather
+//     than snapping them 80° round. The occlusion light leans along the same
+//     axis, so contact and cast agree as they always did.
+//  2. **The low rake takes the body the caster left.** Otherwise the whole east
+//     side of the settlement loses its only directional and goes to ambient:
+//     the two lights are a *pair*, one per body, and which of them casts is the
+//     only thing this pass changes about them.
+//  3. **Neither light's colour moves, and that is arithmetic rather than luck.**
+//     `aim` re-extincts a body's hue for the elevation the rig actually hangs it
+//     at, and both bodies are low enough that both get re-extincted to nearly
+//     the same place. The caster at 37° comes out at (1, 0.899, 0.690) off the
+//     sun where it was (1, 0.900, 0.693) off the moon; the rake, once it is
+//     clamped *down* to 9.2° rather than merely up (see `FILL_MAX_ELEVATION`),
+//     comes out at (1, 0.398, 0.072) off the moon where it was (1, 0.395,
+//     0.071) off the sun. The change is geometric. The palette is untouched.
+//
+// The same panel found three more, and two of them are this module's:
+//
+// **No contact darkening at any boot, measured rather than argued.** In
+// `v8/lineup.png` the ground at the huscarl's right toe reads luma 82.3 against
+// an open-floor mean of 62.1 — the boot does not sit in a darker patch, it sits
+// in a *brighter* one. Two mechanisms, both here. The near cascade's 2.4 cm
+// normalBias slips its shadow 3.2 cm downstream at a 37° key, which is most of
+// what is visible of a sole; and the occlusion light that exists to cover that
+// gap was leaning 14° off vertical, so its darkening fell 0.25 × height — i.e.
+// *underneath* the caster, where the caster hides it from a gameplay camera.
+// `AO_TILT` goes to 26°, which throws the same darkening half a metre onto the
+// camera side of the boot where the lens can see it, and `AO_SHADOW_INTENSITY`
+// goes to 0.85 now that the black-oval trade it was paying for has its own
+// light. Full shadow moves 3.10 → 4.56:1 at dusk and 2.66 → 3.67:1 in the last
+// stand, with the palisade stripe held at 1.83:1 and total ground exposure
+// within 0.2%. A boot's own surround is still only 1.48:1 against turf whose
+// measured σ/µ is 0.367, and that is the honest ceiling of a light rig: the
+// occlusion term cannot remove more of the ground than it puts on it. See
+// RIM_SWING for the half of that variance which is this module's.
+//
+// **Half the faces are black ovals, and the reason is a hue rather than a
+// level.** Sampled in `v8/lineup.png` the huscarl's face comes back at luma 33
+// with an R:G:B of 54:30:12, against ground at 75. Every directional in the rig
+// except the bounce sits *behind* the subject — both bodies are at −z and the
+// separation pair is camera-relative — so the only thing reaching a face turned
+// toward the lens is `bounce`, and `bounce` is olive (0x93a084) because it is
+// turf. Those three numbers are what an olive fill on warm skin comes to once
+// the grade has been over it: a muddy dark patch rather than an underlit face,
+// which is why raising a level was never going to recover it. `faceFill` is the
+// answer OPEN-DEFECTS asked for: a warm, near-level front fill hung below the
+// horizon so that it *provably cannot touch the ground* — an up-facing normal
+// against a light at negative elevation clamps to zero, which is the same
+// guarantee the bounce trades on — and therefore cannot spend a unit of the
+// contact darkening the pass above just bought.
 
 import * as THREE from "three";
 import type { FrameContext, Mood, QualitySettings } from "./quality";
@@ -289,7 +366,12 @@ interface MoodRig {
   hemiSky: number;
   hemiGround: number;
   key: number;
-  /** The low sun, raking the west side. Shadowless, so it can sit very low. */
+  /**
+   * The low rake off whichever body is *not* casting — the sun's afterglow once
+   * the moon has the shadows, the moon's own low disc while the sun has them.
+   * Shadowless, so it can sit very low, and clamped to one elevation either way
+   * so that swapping bodies swaps a bearing and not a colour.
+   */
   warm: number;
   /** Camera-relative back light, swung left. Cuts the silhouette out of the sky. */
   rim: number;
@@ -300,6 +382,14 @@ interface MoodRig {
   /** Turf bounce, from below the subject. The only fill on the camera-facing planes. */
   bounce: number;
   bounceColor: number;
+  /**
+   * The face fill: warm, near level, hung a hair below the horizon in front of
+   * the subject. Not a sixth shaping light either — it is the one term in the
+   * rig aimed at a *composition* failure rather than a physical one, and its
+   * elevation is negative so that it cannot pay for that with ground contrast.
+   */
+  face: number;
+  faceColor: number;
   /**
    * Sky occlusion. Not a sixth shaping light — it is the part of the flat fill
    * that has been given a direction so that it can be *blocked*, and its
@@ -352,10 +442,20 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
   // woodpiles — while the warrior is a lone vertical standing in the open. A
   // fill that can be blocked therefore sinks the background and keeps the
   // figure, which no unshadowed term in this rig can do at any intensity.
+  //
+  // ambient and hemi come down once more — 0.32/0.21 against v8's 0.40/0.26 —
+  // and `ao` takes it, for the third pass running and for the same reason each
+  // time. What is different this pass is that the occlusion light finally spends
+  // it somewhere the camera can see: at `AO_TILT`'s new 26° its darkening lands
+  // beside a boot rather than under one. Against an up-facing normal the three
+  // now sum to 0.32 + 0.21 + 2.55·cos(AO_TILT) ≈ 2.81 where v8 summed 2.79, and
+  // 0.85 of the occlusion term is blockable where v8 blocked 0.62 of a smaller
+  // one — so what a shadow actually removes from the turf goes from 4.03 to 4.65
+  // against a total that has moved by 0.14%.
   dusk: {
-    ambient: 0.4,
+    ambient: 0.32,
     ambientColor: 0x6a86a0,
-    hemi: 0.26,
+    hemi: 0.21,
     hemiSky: 0x8fb4d2,
     hemiGround: 0x7a5a3c,
     key: 4.5,
@@ -368,13 +468,15 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
     // and provably cannot land on the background behind it, so it is the term
     // that buys separation back.
     //
-    // 3.3, down from v7's 3.9, and the edge is *not* down with it. What a rim
-    // puts on a silhouette is `intensity · cos(elevation) · sin(swing)`; taking
-    // the elevation to 3° and widening the swing to 0.80 holds that product to
-    // within 1% of v7's while the two things the level was actually costing —
-    // 0.51 of unblockable ground fill and a specular lobe hard enough to read
-    // as a searchlight — come down with the number. See RIM_ELEVATION.
-    rim: 3.3,
+    // 3.02, down from v7's 3.9 and v8's 3.3, and the edge is *not* down with it
+    // on either step. What a rim puts on a silhouette is
+    // `intensity · cos(elevation) · sin(swing)`; taking the elevation to 3° and
+    // widening the swing to 0.90 holds that product to within 0.1% of v7's while
+    // the three things the level was actually costing come down with the number
+    // — unblockable ground fill, a specular lobe hard enough to read as a
+    // searchlight, and the ground's own *variance*. See RIM_SWING for the last
+    // of those, which is the one this pass found.
+    rim: 3.02,
     rimColor: 0x9ec8ff,
     kick: 1.65,
     kickColor: 0xffbe8c,
@@ -394,19 +496,29 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
     // blocker.
     bounce: 2.35,
     bounceColor: 0x93a084,
+    // The olive above is right for turf and wrong for a cheekbone, and until
+    // this pass it was the *only* light a face turned toward the lens received:
+    // measured off `v8/lineup.png`, the huscarl's face came back at luma 33 with
+    // an R:G:B of 54:30:12 against ground at 75. A face is not underexposed
+    // there so much as it is the wrong substance. So the face fill is warm
+    // ivory, sized to add about 0.79 to a camera-facing face — a third again on
+    // top of the bounce — and nothing whatever to the turf. It reads as the
+    // ground and the fire in front of the subject throwing light back up into
+    // him, which at this hour is exactly what would be doing it.
+    face: 0.95,
+    faceColor: 0xd9bfa4,
     // Cool, and a shade bluer than the hemisphere's sky half. It is standing in
     // for the whole upper dome, which at dusk is the one large *cold* source in
     // the arena, and giving it its own hue is what stops a rig with three warm
     // terms in it turning every up-facing plane sepia.
     //
-    // It is also, at 2.20, now the second largest number in the rig, and that is
-    // the point: it is the only large term a boot can block. It is nearly
-    // doubled rather than merely raised because `AO_SHADOW_INTENSITY` hands 38%
-    // of it back inside the shadow — 0.62 · 2.20 · cos(AO_TILT) ≈ 1.32 is what
-    // actually lands under a boot, which is where v7's 1.15 at full strength
-    // already sat. The light grows so that the *shadow* can stay where it was
-    // while a face under a helm rim stops going to black.
-    ao: 2.2,
+    // It is also, at 2.55, the second largest number in the rig, and that is the
+    // point: it is the only large term a boot can block. 0.85 · 2.55 ·
+    // cos(AO_TILT) ≈ 1.94 is what a contact now removes, against v8's 1.32 and
+    // v7's 1.15 — and unlike either of those it is removed from ground the lens
+    // can actually see, because the light has come off vertical far enough to
+    // throw past its own caster.
+    ao: 2.55,
     aoColor: 0x9db8d4,
     // 31 candela at decay 1.35 — see HEARTH_DECAY. Only a fifth up on v6's 26,
     // and deliberately so: the measured defect was never that the fire was dim,
@@ -432,25 +544,31 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
   // grade is tuned against. Its ground total lands within 1% of v7's and its
   // unblockable half comes down from 2.12 to 1.03, which is the whole change.
   lastStand: {
-    ambient: 0.28,
+    ambient: 0.23,
     ambientColor: 0x8a6046,
-    hemi: 0.19,
+    hemi: 0.155,
     hemiSky: 0xa87a54,
     hemiGround: 0x7d4526,
     key: 2.9,
     warm: 1.85,
-    rim: 2.15,
+    rim: 1.97,
     rimColor: 0x8fb0e0,
     kick: 2.3,
     kickColor: 0xff8a3c,
     bounce: 2.15,
     bounceColor: 0x8a6a48,
+    // Hotter and a shade stronger than dusk's. This is the mood where a face is
+    // most likely to be the only thing in frame worth reading, and where what is
+    // in front of the subject throwing light back at him is a burning hall
+    // rather than wet turf.
+    face: 1.05,
+    faceColor: 0xe8a878,
     // Ember rather than sky: in this mood the dome above the moot is lit by what
     // is burning under it, so the occlusion term stops being the cold half of
     // the frame. It also stays large, because this mood's ambient is the one
     // most at risk of reading as a flat orange wash — and an occluded fill is
     // the cheapest structure a wash can be given.
-    ao: 1.68,
+    ao: 1.9,
     aoColor: 0xc08a5e,
     hearth: 60,
     hearthColor: 0xff5a1a,
@@ -467,6 +585,13 @@ export interface LightingOptions {
    * live and re-aims every frame, so `setTimeOfDay` moving the bodies moves the
    * shadows with them. Without this the key comes from a corner of the sky with
    * nothing in it and the moon is visibly somewhere else.
+   *
+   * **`key` is the moon and `warm` is the sun**, and the names are a hazard
+   * rather than a description: they were chosen when the caster was the moon,
+   * which is the whole of the v8 blocker. `casterShare` decides which of the two
+   * the shadows hang on, per frame, from the sun's own elevation. Renaming the
+   * fields to `moon`/`sun` is a one-line change in GameCanvas.tsx and is the
+   * cross-module edit this pass wants and did not make.
    */
   key?: THREE.Vector3;
   keyColor?: THREE.Color;
@@ -511,8 +636,9 @@ const BOUNCE_DISTANCE = 10;
  * and the specular lobe on a vertical surface lands within a few degrees of the
  * horizon, which is where the camera is.
  *
- * 9.2° for the warm fill, down from v7's 17°, and it is down for two reasons
- * that happen to agree. The sun this stands in for is at 2.4° (`DUSK_SUN`), so
+ * 9.2° for the low rake, down from v7's 17°, and it is down for two reasons
+ * that happen to agree. Both bodies this can stand in for are low — the sun at
+ * 2.4° and the moon at 11.5° (`DUSK_SUN`, `DUSK_MOON`) — so
  * 17° was never the honest number for it — and a shadowless light hung at 17°
  * mirrors off a puddle straight into an eye-height lens from about five metres
  * out, which is a blob no shadow map can touch (see RIM_ELEVATION for the
@@ -531,6 +657,49 @@ const BOUNCE_DISTANCE = 10;
  */
 const KEY_MIN_ELEVATION = 0.6;
 const FILL_MIN_ELEVATION = 0.16;
+/**
+ * …and the ceilings, which exist because a body can now arrive from either
+ * side of the number the rig wants.
+ *
+ * Until this pass both lights were pinned to one body each and both bodies were
+ * lower than the elevation the rig hangs them at, so a floor was the whole of
+ * the clamp. Now the caster follows whichever body dominates and the rake takes
+ * the other, and at dusk the moon is at 11.5° while the rake wants 9.2° — so
+ * without a ceiling, swapping bodies would move the rake's elevation as well as
+ * its bearing, and `aim`'s re-extinction would then move its *colour*. The whole
+ * claim this pass rests on is that the swap is geometric. The ceiling is what
+ * makes that true: clamped down to 9.2° the moon re-extincts to (1, 0.398,
+ * 0.072) against the sun's (1, 0.395, 0.071) at the same elevation, which is a
+ * colour change of under a per cent on the largest hue in the rig.
+ *
+ * The key's ceiling is defensive rather than load-bearing — nothing in the dusk
+ * sky reaches 46° — but `setTimeOfDay` can put a body overhead, and a key at 70°
+ * is the noon top light the whole 37° argument above exists to have avoided.
+ */
+const KEY_MAX_ELEVATION = 0.72;
+const FILL_MAX_ELEVATION = 0.16;
+
+/**
+ * Which body owns the shadows, as the sun's share of them, against the sun's
+ * own elevation.
+ *
+ * This is astronomy and not a tuning knob. A sun anywhere near the horizon
+ * out-illuminates a full moon by five orders of magnitude, and sky.ts's own
+ * numbers say so at this hour — 22 units of sun against 0.1 of moon before
+ * extinction, (5.45, 1.79, 0.11) against (0.067, 0.049, 0.023) after it. So the
+ * only question the rig has to answer is whether the sun is up, and the honest
+ * answer is a band rather than a line: between about −6° and −1° the sun is
+ * setting, its own beam is nearly gone and the moon has not yet taken over.
+ *
+ * Blended rather than switched for one reason: a hard swap would spin every
+ * shadow in the settlement 80° in a frame the first time anyone animates
+ * `setTimeOfDay`. Inside the band the caster's axis is a mix of the two, which
+ * is a bearing neither body is at — and that is the one interval where nobody
+ * can check, because the sun is below the horizon and the moon is putting 0.05
+ * linear units on the ground. Shadows are not readable there at all.
+ */
+const SUN_CASTS_BELOW = -0.1;
+const SUN_CASTS_ABOVE = -0.015;
 
 /**
  * The separation pair, as elevation and as bearing measured from straight behind
@@ -562,16 +731,37 @@ const FILL_MIN_ELEVATION = 0.16;
  * 10 m. The key still matches at about 2 m, which is under the lens in every
  * over-shoulder preset and is not a number worth spending the 37° on.
  *
- * `RIM_SWING` widens to 0.80 to hold the edge exactly. What lands on a
- * silhouette is `intensity · cos(elevation) · sin(swing)`, so widening the
- * bearing is the lever that lets the *level* come down — 3.3 at 0.80 puts 2.36
- * on an edge where v7's 3.9 at 0.66 put 2.37, and the 0.6 of intensity that
- * comes off is 0.6 the wet ground no longer mirrors. It stops well short of the
- * kick's 0.92: the two swings still differ in magnitude as well as sign, which
- * is what keeps the pair from reading as symmetrical headlights.
+ * `RIM_SWING` widens to hold the edge exactly. What lands on a silhouette is
+ * `intensity · cos(elevation) · sin(swing)`, so widening the bearing is the
+ * lever that lets the *level* come down — 3.02 at 0.90 puts 2.36 on an edge
+ * where v8's 3.3 at 0.80 put 2.36 and v7's 3.9 at 0.66 put 2.37, and the 0.9 of
+ * intensity that has come off across the two passes is 0.9 the wet ground no
+ * longer mirrors. It still stops short of the kick's 0.92: the two swings differ
+ * in magnitude as well as sign, which is what keeps the pair from reading as
+ * symmetrical headlights, and there is no more room on that side.
+ *
+ * The third thing the level was costing, which is new and is the answer to
+ * "does anything in this module widen the ground's variance": **it does, and
+ * this pair is the largest term doing it.** A directional at 3° meets flat
+ * ground at N·L = 0.05 and a normal-mapped micro-facet tilted 20° toward it at
+ * N·L = 0.39 — eight times as much light on the crown of a rut as in the trough
+ * beside it, at texel frequency, from one light. Summed over the rim, the kick
+ * and the low rake, v8 put 0.45 of mean on the turf and up to 2.46 on a
+ * 20° facet: a ±34% swing at the exact frequency of `buildGroundDetail`'s
+ * relief, against a total ground irradiance near 5.95. Measured on the capture,
+ * `v8/lineup.png`'s open floor runs σ/µ = 0.367 — and OPEN-DEFECTS attributes
+ * that to albedo mottle in world.ts, which cannot be the whole of it.
+ *
+ * The arithmetic that makes this hard is worth recording so the next pass does
+ * not spend itself on the wrong knob. *Raising* the elevation does not help:
+ * the absolute modulation across a 20° facet is `I·sin(e+20°) − I·sin(e)`,
+ * which is 0.34·I at e = 3° and 0.31·I at e = 17°, while the ground *mean*
+ * quadruples. Only the level moves it, and the level is bounded below by the
+ * silhouette. So 8% is what a free swap of swing for intensity buys; the rest
+ * of that variance is the relief's own amplitude and belongs to world.ts.
  */
 const RIM_ELEVATION = 0.05;
-const RIM_SWING = 0.8;
+const RIM_SWING = 0.9;
 const KICK_ELEVATION = 0.07;
 const KICK_SWING = -0.92;
 
@@ -583,6 +773,43 @@ const KICK_SWING = -0.92;
  */
 const BOUNCE_ELEVATION = -0.4;
 const BOUNCE_SWING = Math.PI - 0.42;
+
+/**
+ * The face fill: in front of the subject, level with a face, and a hair below
+ * the horizon.
+ *
+ * The elevation is the whole design and it is doing two jobs at once. Negative,
+ * so an up-facing ground normal clamps to zero and this light provably cannot
+ * spend a unit of the contact darkening the rest of this pass is buying — the
+ * same guarantee the bounce trades on, and the reason a fill aimed at faces is
+ * safe to add while a shadow ratio is the blocker. And only *just* negative,
+ * because what puts a face under a helm brow into shadow is the brow, which is
+ * an overhang: a light level with the eye line walks straight in under it while
+ * anything with real elevation is stopped by the same rim that stops the sky.
+ *
+ * −7.5° rather than 0° for the ground's sake and not the face's. At elevation
+ * zero this light would still meet a micro-facet tilted 20° toward it at
+ * N·L = 0.34 and add its own row to the variance ledger in `RIM_SWING`; at
+ * −7.5° that falls to 0.22 and the face loses 0.9% of its light. The bounce is
+ * at −23° and reaches the underside of a jaw; this is the shallower half of the
+ * same idea and reaches the front of it.
+ *
+ * Swung to the opposite side of the camera axis from the bounce, so the two
+ * front fills model a face between them rather than stacking into one flat
+ * head-on lamp. 33° is enough that one cheek carries more than the other.
+ *
+ * It is not a point light at head height, which is what "face fill" usually
+ * means and what this wanted to be. A punctual source hung 1.6 m up two metres
+ * in front of a warrior meets the ground under him at N·L ≈ 0.6 and lays a
+ * bright pool exactly where the boot's contact shadow has to read. A directional
+ * cannot be height-selective, so the cost of the guarantee is that this lands on
+ * every camera-facing vertical in the frame and not only on skin — about 0.79
+ * linear units, against a hut wall already carrying the sky. That is the trade,
+ * and the composition failure it answers is worth it.
+ */
+const FACE_ELEVATION = -0.13;
+const FACE_SWING = -(Math.PI - 0.58);
+const FACE_DISTANCE = 11;
 
 // ---------------------------------------------------------------------------
 // The hearth
@@ -636,12 +863,22 @@ const HEARTH_DECAY = 1.35;
  *
  * The shares are the honest part. The beam does not replace the pool, it adds
  * to it, so a warrior standing in it removes `BEAM_SHARE / (POOL_SHARE +
- * BEAM_SHARE)` of the fire's light rather than all of it — an even half now,
- * up from v6's 44%. That is the most a rig without a cube map can take away, and
- * it is enough: a warrior in front of a fire that halves behind him lays a
- * shadow the eye reads as cast rather than as a smudge. The pool keeps the other
- * half rather than being robbed to pay for it, so the far side of the fire — the
- * side the beam never reaches — is no darker than it was.
+ * BEAM_SHARE)` of the fire's light rather than all of it — 58% now, up from v6's
+ * 44% and v8's even half. That is the most a rig without a cube map can take
+ * away, and the reason it went up is the contact blocker rather than the fire:
+ * the pool is a point light with no shadow map, it is 31 candela at decay 1.35,
+ * and in `lineup` it stands three metres behind four warriors putting something
+ * like 3.4 unblockable linear units on the very ground their boots are supposed
+ * to be darkening. It is the largest single unshadowable term anywhere near a
+ * contact edge in this rig, and shifting energy from it into the beam is the
+ * only lever on that a rig with one hearth shadow has.
+ *
+ * The two shares sum to 1.46 rather than to 1, and deliberately: the total the
+ * mood asks for is what a warrior *outside* the beam receives, so the sum is
+ * held across the change (1.44 → 1.46, 1.4%) while the shadowable fraction
+ * moves. What the shift costs is the far side of the fire, which the cone never
+ * reaches, going 14% dimmer — that is the side of a bonfire facing away from the
+ * camera, and it is the cheapest 14% in the frame.
  */
 const BEAM_ANGLE = 1.02;
 /**
@@ -679,8 +916,8 @@ const BEAM_RISE = 1.55;
  * enough to draw the ellipse on the ground that penumbra 1 was avoiding.
  */
 const BEAM_PENUMBRA = 0.88;
-const BEAM_SHARE = 0.72;
-const POOL_SHARE_WITH_BEAM = 0.72;
+const BEAM_SHARE = 0.84;
+const POOL_SHARE_WITH_BEAM = 0.62;
 /**
  * How far in front of the fire the beam looks, and how far it drops over that
  * run — together, the rake of its axis, which `BEAM_RISE` has just made a real
@@ -820,15 +1057,34 @@ const SETTLEMENT_MIN_RATIO = 1.4;
  * gap. So the rig's flat fill is given a direction it can be blocked from, and
  * the direction chosen is the one where blocking lands *where the blocker is*.
  * That is what turns a shadow map into an ambient occlusion term, and it is why
- * this light is near-vertical rather than merely high.
+ * this light is high rather than low.
  *
- * Not *actually* vertical, for a duller reason: three aims a shadow camera with
- * `Object3D.lookAt`, whose basis degenerates when the view axis is parallel to
- * the world up. 14° is far enough off to keep that cross product healthy, short
- * enough to keep the tangent at 4, and — leaning along the key's own azimuth —
- * reads as the same evening rather than as a second source.
+ * **14° was too high, and that is the second half of the v8 no-contact blocker.**
+ * The argument above optimises attachment and stops there, and attachment is
+ * only half of what a contact shadow has to be — it also has to be *visible*. A
+ * light at 14° off vertical throws its darkening 0.25 × the caster's height,
+ * which for a boot is 2.5 cm and for a standing warrior is 44 cm, and it throws
+ * all of it into the footprint of the thing casting it. From a gameplay camera
+ * at eye height looking down at fifteen degrees, that ground is behind the boot
+ * that made it. Measured in `v8/lineup.png`, the turf at the huscarl's toe reads
+ * luma 82.3 against an open-floor mean of 62.1: the only shadow near the boot
+ * was under the boot, and what the lens got instead was the near cascade's
+ * 3.2 cm normalBias slip, which is a *bright* halo of exactly the size of the
+ * thing everyone was looking for.
+ *
+ * 26° throws 0.50 × height — half a metre of body-shaped darkening starting at
+ * the sole and running out onto the camera side of it, over the top of the key's
+ * slip — and costs 1.4 cm of slip against 0.6, still well under a sole. The
+ * ground gain falls from cos 14° to cos 26°, 3% of the term, paid back in the
+ * level. It has not become a second key: it leans along the caster's own azimuth
+ * so the two shadows agree in direction and differ only in length, which is what
+ * a broad sky occlusion wrapped round a hard sun shadow looks like.
+ *
+ * It is also not *vertical*, for a duller reason that has not changed: three
+ * aims a shadow camera with `Object3D.lookAt`, whose basis degenerates when the
+ * view axis is parallel to the world up.
  */
-const AO_TILT = 0.25;
+const AO_TILT = 0.46;
 const AO_DISTANCE = 46;
 
 /**
@@ -860,14 +1116,15 @@ const AO_NORMAL_BIAS_CAP = 0.03;
  * A normal offset is sized against the depth slope the light sees across one
  * texel, and that slope is a function of the light's own elevation — so the
  * 1.6 the two cascades share, which is sized for a 37° key raking the ground, is
- * simply the wrong coefficient for a light at 76°. At 1.0 this cascade takes
- * 2.5 cm of offset instead of 4.0 and turns it into 0.6 cm of slip instead of
- * 1.0. Under a boot sole that is the difference between a contact edge and a
- * contact edge with a hairline of daylight under it, and acne is not the
- * countervailing risk it would be on the key: a near-vertical light on
- * near-horizontal ground has almost no slope to fight.
+ * simply the wrong coefficient for a light at 64°. At 1.15 this cascade takes
+ * 2.9 cm of offset instead of 4.0 and turns it into 1.4 cm of slip. Under a boot
+ * sole that is the difference between a contact edge and a contact edge with a
+ * hairline of daylight under it, and acne is not the countervailing risk it
+ * would be on the key: a steep light on near-horizontal ground has little slope
+ * to fight. Up from 1.0 with `AO_TILT`, and by less than the tilt moved — the
+ * slope this has to cover grew, the margin for it did not.
  */
-const AO_NORMAL_BIAS_SLOPE = 1.0;
+const AO_NORMAL_BIAS_SLOPE = 1.15;
 /**
  * How much of the sky-occlusion light a blocked point still receives — or
  * rather, how much of it is taken away, since three states this as the shadow's
@@ -883,18 +1140,28 @@ const AO_NORMAL_BIAS_SLOPE = 1.0;
  * v7 ran it binary and `lineup` scored the result: four faces as black ovals
  * under their helm brows, which OPEN-DEFECTS traced correctly to this light and
  * then had nowhere to go, because backing the light out would have taken the
- * contact term with it. 0.62 is the way out of that trade. It costs the contact
- * darkening nothing — the term it takes 62% of has nearly doubled, so what
- * actually lands under a boot goes from 1.11 to 1.32 — while a helmed face gets
- * 0.21 of this light back where v7 gave it none, and the raised bounce brings
- * the rest. The whole face recovery is +0.40 against an unmoved ground.
+ * contact term with it. v8's 0.62 bought the faces out of that trade by handing
+ * 38% of the term back everywhere, and the bill for it arrived as the contact
+ * blocker: 1.32 removed under a boot against a ground carrying 5.95, which is a
+ * 22% darkening on a surface whose own measured σ/µ is 0.367. A shadow below the
+ * noise of what it falls on is not a soft shadow.
  *
- * It is also the more physical of the two settings. 0.62 says a fully sky-blocked
- * point still collects about a third of the dome by bounce and by the parts of
- * the sky the single sampled direction is standing in for, which is roughly what
- * a real ambient occlusion term integrates to under a brow.
+ * 0.85 now, because the trade is gone rather than because it was judged wrong.
+ * `faceFill` lifts a face by 0.79 with a light that a boot's shadow does not
+ * pass through, so the occlusion term is free to go back to nearly binary and
+ * spend all of it on the junction it was built for — 1.94 removed at a contact
+ * against v8's 1.32, and thrown where the lens can see it by the new `AO_TILT`.
+ * Nothing here darkens a face: this light leans 26° along the caster's azimuth,
+ * both bodies sit behind the subject in every preset, and a camera-facing
+ * vertical therefore takes N·L ≤ 0 from it and always did.
+ *
+ * Not 1.0, and the residual is the honest part rather than a hedge. A shadow map
+ * is a binary visibility test and the sky is a hemisphere: a wall under an eave
+ * and a boot beside a stake both still collect a real fraction of the dome. 0.85
+ * says a fully sky-blocked point keeps about a seventh of it by bounce and by
+ * the parts of the sky the single sampled direction is standing in for.
  */
-const AO_SHADOW_INTENSITY = 0.62;
+const AO_SHADOW_INTENSITY = 0.85;
 /**
  * Where the occlusion term's energy goes on a tier that cannot afford its
  * cascade: back into the two flat fills it was taken out of. A low-tier frame
@@ -903,17 +1170,16 @@ const AO_SHADOW_INTENSITY = 0.62;
  *
  * Almost all of it goes to the hemisphere now rather than 60/40 to ambient,
  * because the two are not interchangeable and this light is strongly
- * ground-biased: at 76° it puts 0.97 of itself on an up-facing normal and 0.25
- * on a vertical, a ratio of 3.9, while ambient's is 1.0 and the hemisphere's is
- * 2.0. Nothing in three can hit 3.9, so the fold is aimed at the closest thing
- * available and the ground — which is where the term's energy actually lives and
- * where the exposure is judged — comes back exact. Verticals on a tier with no
- * occlusion cascade are lit about twice as flat as on high, which is the shape
- * of the effect being dropped rather than a second error: with no shadow to cast,
- * a directional fill and a flat one are the same light.
+ * ground-biased: at 64° it puts 0.90 of itself on an up-facing normal and 0.44
+ * on a vertical, a ratio of 2.0, while ambient's is 1.0 and the hemisphere's is
+ * 2.0. The two coefficients sum to the ground gain the cascade would have had,
+ * so the ground — which is where the term's energy actually lives and where the
+ * exposure is judged — comes back exact. They came down with `AO_TILT`: a
+ * shallower occlusion light spends less of itself on the turf, so a fold that
+ * did not follow it would brighten every tier below high.
  */
-const AO_FOLD_AMBIENT = 0.12;
-const AO_FOLD_HEMI = 0.85;
+const AO_FOLD_AMBIENT = 0.11;
+const AO_FOLD_HEMI = 0.786;
 
 /**
  * How the key's energy divides between the two cascades.
@@ -1018,6 +1284,11 @@ export function createLighting(
   // this into it, and at 0xffa85c the product came out at roughly 1 : 0.23 :
   // 0.03 — a pure red floodlight on everything facing west. Firelight bounce is
   // warm; it is not monochromatic.
+  //
+  // It is the base for the *rake*, which is now whichever body is not casting,
+  // and it stays warm for either of them: a body at 9.2° has crossed six air
+  // masses whether it is a sun or a moon, and the two come out within a per cent
+  // of each other once `FILL_MAX_ELEVATION` has put them at the same height.
   const WARM_BASE = new THREE.Color(0xffc98f);
 
   // ---- cascade geometry, decided once ----
@@ -1203,6 +1474,20 @@ export function createLighting(
   root.add(bounce.target);
   root.add(bounce);
 
+  // ---- the face fill ----
+  //
+  // Every tier gets this one, including the phone. The rig's rule for a tier
+  // drop is that it loses *effects* and keeps art direction, and being able to
+  // see a warrior's face on the class-select screen is not an effect — it is the
+  // screen. The kick is dropped below high because a second silhouette edge is a
+  // refinement of a read that still works with one; a face lit only by olive
+  // turf bounce does not work at all.
+  const faceFill = new THREE.DirectionalLight(rig.faceColor, rig.face);
+  faceFill.position.set(0, -1, -11);
+  faceFill.target.position.set(0, 0, 0);
+  root.add(faceFill.target);
+  root.add(faceFill);
+
   // ---- the hearth pool ----
   //
   // world.ts owns the bonfire's flame light and should: it is the flicker source
@@ -1289,6 +1574,12 @@ export function createLighting(
   const camBehind = new THREE.Vector3();
   const behind = new THREE.Vector3();
   const beamAim = new THREE.Vector3();
+  // The two bodies after `casterShare` has decided which of them the shadows
+  // hang on. Held rather than allocated: `reaim` runs every frame.
+  const casterDir = new THREE.Vector3();
+  const rakeDir = new THREE.Vector3();
+  const casterHue = new THREE.Color();
+  const rakeHue = new THREE.Color();
   /**
    * The mood's own colours for the two steerable lights, kept apart from the
    * lights themselves. `update` rewrites `rim.color` and `kick.color` every
@@ -1325,17 +1616,23 @@ export function createLighting(
     color: THREE.Color | undefined,
     distance: number,
     minElevation: number,
+    maxElevation: number,
     axis?: THREE.Vector3,
   ): void {
+    // Clamped into a band rather than merely lifted off a floor, because the two
+    // lights can now swap bodies and the rig's claim is that the swap moves a
+    // bearing and not a colour. A ceiling is what holds the second half of that.
+    const held = dir ? THREE.MathUtils.clamp(dir.y, minElevation, maxElevation) : 0;
+
     // Without a sky vector there is nothing to re-aim to; the hand-placed
     // direction the light was built with stands, and so does whatever axis the
     // caller is already holding.
     if (dir) {
       scratch.copy(dir);
-      if (scratch.y < minElevation) {
+      if (held !== scratch.y) {
         const az = Math.hypot(scratch.x, scratch.z) || 1;
-        const want = Math.sqrt(Math.max(0, 1 - minElevation * minElevation));
-        scratch.set((scratch.x / az) * want, minElevation, (scratch.z / az) * want);
+        const want = Math.sqrt(Math.max(0, 1 - held * held));
+        scratch.set((scratch.x / az) * want, held, (scratch.z / az) * want);
       }
       light.position.copy(scratch).multiplyScalar(distance);
       axis?.copy(scratch);
@@ -1344,10 +1641,12 @@ export function createLighting(
     if (!color) return;
     const peak = Math.max(color.r, color.g, color.b);
     if (peak <= 1e-4) return;
-    // Only ever thins the extinction: a body already above the elevation floor
-    // was not moved, so its colour is left exactly as the sky measured it.
-    const thin = dir && dir.y < minElevation
-      ? airMass(minElevation) / Math.max(airMass(dir.y), 1e-4)
+    // Re-extincts for the elevation the light is actually at, in whichever
+    // direction it was moved: a body lifted off the floor loses extinction, a
+    // body pulled down under the ceiling gains it, and a body already inside the
+    // band keeps its colour exactly as the sky measured it.
+    const thin = dir && held !== dir.y
+      ? airMass(held) / Math.max(airMass(dir.y), 1e-4)
       : 1;
     hue.setRGB(
       Math.pow(color.r / peak, thin),
@@ -1490,6 +1789,7 @@ export function createLighting(
     if (keyFar) keyFar.intensity = rig.key * (1 - nearShare);
     warmFill.intensity = rig.warm;
     bounce.intensity = rig.bounce;
+    faceFill.intensity = rig.face;
     hearth.distance = rig.hearthRange;
     if (beam) {
       beam.distance = rig.hearthRange;
@@ -1510,6 +1810,7 @@ export function createLighting(
     rig.rim = m(blendFrom.rim, to.rim);
     rig.kick = m(blendFrom.kick, to.kick);
     rig.bounce = m(blendFrom.bounce, to.bounce);
+    rig.face = m(blendFrom.face, to.face);
     rig.ao = m(blendFrom.ao, to.ao);
     rig.hearth = m(blendFrom.hearth, to.hearth);
     rig.hearthRange = m(blendFrom.hearthRange, to.hearthRange);
@@ -1520,23 +1821,64 @@ export function createLighting(
     rimMood.setHex(blendFrom.rimColor).lerp(moodHue.setHex(to.rimColor), t);
     kickMood.setHex(blendFrom.kickColor).lerp(moodHue.setHex(to.kickColor), t);
     bounce.color.setHex(blendFrom.bounceColor).lerp(moodHue.setHex(to.bounceColor), t);
+    faceFill.color.setHex(blendFrom.faceColor).lerp(moodHue.setHex(to.faceColor), t);
     hearth.color.setHex(blendFrom.hearthColor).lerp(moodHue.setHex(to.hearthColor), t);
     beam?.color.copy(hearth.color);
     applyRig();
   }
 
+  /**
+   * Mixes the two bodies into one direction, guarding the case a lerp between
+   * unit vectors cannot survive: `setTimeOfDay` can put the sun and the moon
+   * opposite each other, and the midpoint of two opposed vectors has no bearing
+   * at all. There is a dominant body whenever that happens, so fall back to it.
+   */
+  function blendBody(
+    out: THREE.Vector3, from: THREE.Vector3, to: THREE.Vector3, t: number,
+  ): THREE.Vector3 {
+    out.copy(from).lerp(to, t);
+    if (out.lengthSq() < 1e-6) out.copy(t >= 0.5 ? to : from);
+    return out.normalize();
+  }
+
   function reaim(): void {
-    aim(key, KEY_BASE, opts.key, opts.keyColor, KEY_DISTANCE, KEY_MIN_ELEVATION, keyAxis);
-    aim(warmFill, WARM_BASE, opts.warm, opts.warmColor, WARM_DISTANCE, FILL_MIN_ELEVATION);
-    // One moon, two maps: the far cascade never re-derives the hue, it copies
-    // it, so the two halves of the split can never drift into two moons.
+    // `key` is the moon and `warm` is the sun — see LightingOptions. Either may
+    // be absent, in which case the one that is present has to be both bodies;
+    // the share then still decides which *light* it drives.
+    const moonAt = opts.key ?? opts.warm;
+    const sunAt = opts.warm ?? opts.key;
+    const moonHue = opts.keyColor ?? opts.warmColor;
+    const sunHue = opts.warmColor ?? opts.keyColor;
+
+    let castAt: THREE.Vector3 | undefined;
+    let castHue: THREE.Color | undefined;
+    let lowAt: THREE.Vector3 | undefined;
+    let lowHue: THREE.Color | undefined;
+
+    if (moonAt && sunAt) {
+      // The whole of the v8 blocker is this number. See SUN_CASTS_BELOW.
+      const share = THREE.MathUtils.smoothstep(sunAt.y, SUN_CASTS_BELOW, SUN_CASTS_ABOVE);
+      castAt = blendBody(casterDir, moonAt, sunAt, share);
+      lowAt = blendBody(rakeDir, sunAt, moonAt, share);
+      if (moonHue && sunHue) {
+        castHue = casterHue.copy(moonHue).lerp(sunHue, share);
+        lowHue = rakeHue.copy(sunHue).lerp(moonHue, share);
+      }
+    }
+
+    aim(key, KEY_BASE, castAt, castHue,
+      KEY_DISTANCE, KEY_MIN_ELEVATION, KEY_MAX_ELEVATION, keyAxis);
+    aim(warmFill, WARM_BASE, lowAt, lowHue,
+      WARM_DISTANCE, FILL_MIN_ELEVATION, FILL_MAX_ELEVATION);
+    // One body, two maps: the far cascade never re-derives the hue, it copies
+    // it, so the two halves of the split can never drift into two suns.
     keyFar?.color.copy(key.color);
 
-    // The occlusion light leans along the key's azimuth. It has to lean
+    // The occlusion light leans along the caster's azimuth. It has to lean
     // somewhere — `AO_TILT` explains why not straight down — and leaning it with
-    // the moon means the millimetres of slip it does have run the same way as
-    // the metres of shadow beside them, so the two never disagree about which
-    // side of a stake is dark.
+    // the caster means its half-metre of throw runs the same way as the metres
+    // of shadow beside it, so the two never disagree about which side of a stake
+    // is dark, and a shot never carries two shadow directions.
     const az = Math.hypot(keyAxis.x, keyAxis.z);
     const lean = Math.sin(AO_TILT);
     if (az > 1e-4) aoAxis.set((keyAxis.x / az) * lean, Math.cos(AO_TILT), (keyAxis.z / az) * lean);
@@ -1582,6 +1924,7 @@ export function createLighting(
         rimColor: rimMood.getHex(),
         kickColor: kickMood.getHex(),
         bounceColor: bounce.color.getHex(),
+        faceColor: faceFill.color.getHex(),
         hearthColor: hearth.color.getHex(),
       };
       blend = 0;
@@ -1648,6 +1991,13 @@ export function createLighting(
         rim.intensity = (rig.rim + rig.kick * KICK_FOLD) * (1 + (HEARTH_RIM_GAIN - 1) * folded);
       }
       place(bounce, ctx.focus, camBehind, BOUNCE_SWING, BOUNCE_ELEVATION, BOUNCE_DISTANCE);
+      // Camera-relative like the bounce, and for the stronger version of the
+      // same reason: this light exists to put something on the side of a face
+      // the lens is looking at, so the lens is the only frame that can define
+      // it. It never takes the fire steer — a face fill that swung round behind
+      // the subject when he walked past the bonfire would be answering a
+      // composition failure by reproducing it.
+      place(faceFill, ctx.focus, camBehind, FACE_SWING, FACE_ELEVATION, FACE_DISTANCE);
 
       // ---- the fire ----
       //
@@ -1693,6 +2043,7 @@ export function createLighting(
       rim.dispose();
       kick?.dispose();
       bounce.dispose();
+      faceFill.dispose();
       hearth.dispose();
       beam?.dispose();
     },
