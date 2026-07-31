@@ -441,20 +441,28 @@ CELL_ALPHA[CELL.flame] = (u, v) => {
   return clamp01((body * (0.35 + n) - y * 0.35) * 1.6);
 };
 
-function buildAtlas(cellSize: number, aniso: number): THREE.DataTexture {
-  const edge = cellSize * TILES;
+function buildAtlas(
+  cells: readonly CellFn[],
+  tiles: number,
+  cellSize: number,
+  aniso: number,
+  /** Domain width in cell widths. Over 1 leaves the mip chain room to bleed. */
+  overscan: number,
+  name: string,
+): THREE.DataTexture {
+  const edge = cellSize * tiles;
   const data = new Uint8Array(edge * edge * 4);
   const inv = 1 / cellSize;
-  for (let cell = 0; cell < TILES * TILES; cell++) {
-    const cx = (cell % TILES) * cellSize;
-    const cy = Math.floor(cell / TILES) * cellSize;
-    const fn = CELL_ALPHA[cell];
+  for (let cell = 0; cell < tiles * tiles; cell++) {
+    const cx = (cell % tiles) * cellSize;
+    const cy = Math.floor(cell / tiles) * cellSize;
+    const fn = cells[cell];
     for (let y = 0; y < cellSize; y++) {
       for (let x = 0; x < cellSize; x++) {
         // Evaluated over a slightly wider domain than the cell, so every shape
         // finishes at zero with a texel or two of margin for the mip chain.
-        const u = ((x + 0.5) * inv - 0.5) * 1.26 + 0.5;
-        const v = ((y + 0.5) * inv - 0.5) * 1.26 + 0.5;
+        const u = ((x + 0.5) * inv - 0.5) * overscan + 0.5;
+        const v = ((y + 0.5) * inv - 0.5) * overscan + 0.5;
         const o = ((cy + y) * edge + cx + x) * 4;
         data[o] = 255;
         data[o + 1] = 255;
@@ -473,10 +481,178 @@ function buildAtlas(cellSize: number, aniso: number): THREE.DataTexture {
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
   tex.anisotropy = aniso;
-  tex.name = "vfx:atlas";
+  tex.name = name;
   tex.needsUpdate = true;
   return tex;
 }
+
+// ---------------------------------------------------------------------------
+// The stain atlas
+// ---------------------------------------------------------------------------
+//
+// Ground blood used to be one silhouette — textures.ts's `splat`, drawn at one
+// of a few sizes with a random spin — and eight of those round a corpse read as
+// red foliage on grass rather than as a man bleeding out. Three separate things
+// made it read that way and none of them was the placement:
+//
+//   * **One shape, repeated.** Sixteen cells here, no two alike, and the two
+//     families below are different *kinds* of mark rather than one kind at two
+//     sizes. The same shape scaled up is exactly what "eight petals" looked like.
+//   * **A hard edge.** `splat` crosses from covered to clear inside 11% of its
+//     radius, so every mark drew its own outline and every outline was the same
+//     outline. These feather over a quarter to a third of the radius and finish
+//     in specks rather than in a boundary.
+//   * **No depth.** Coverage was effectively binary, so a mark was one flat tone
+//     and had no way to say where it was deep. The decal layer multiplies, which
+//     turns alpha directly into darkness — so an alpha that peaks where the lobes
+//     pile up *is* a pool that is darkest where it is deepest, for free.
+//
+// Cells 0–7 are spatter: small, thrown, stretched along their own travel, with
+// satellite specks flung ahead of them. Cells 8–15 are pooled: wider, built from
+// overlapping lobes so the rim is not a closed curve, and much softer.
+
+const STAIN_TILES = 4;
+const STAIN_CELLS = STAIN_TILES * STAIN_TILES;
+/** First pooled cell. Below it is thrown spatter, from it up is blood at rest. */
+const STAIN_POOL_FIRST = 8;
+/** Angular samples in a lobe's rim table. Trig once per cell, not per texel. */
+const RIM_N = 96;
+
+interface StainLobe {
+  ox: number; oy: number;
+  radius: number;
+  feather: number;
+  /** Elongation along `dir`; a drop that arrived moving lands as a comma. */
+  stretch: number;
+  cos: number; sin: number;
+  rim: Float32Array;
+}
+
+interface StainSpeck {
+  ox: number; oy: number; radius: number;
+}
+
+/**
+ * A lobe's ragged rim, tabulated.
+ *
+ * Summed harmonics at coprime rates, never a product: a product of two sines is
+ * an evenly spiked star and no mark of anything is a star. The table exists
+ * because the alternative is four `sin` and an `atan2` per texel per lobe, and
+ * this atlas is generated on the main thread while the arena is loading.
+ */
+function buildRim(seed: number, rough: number): Float32Array {
+  const rim = new Float32Array(RIM_N + 1);
+  for (let i = 0; i <= RIM_N; i++) {
+    const a = (i / RIM_N) * TAU;
+    rim[i] = 1 + rough * (
+      0.34 * Math.sin(a * 2 + seed) +
+      0.24 * Math.sin(a * 3 - seed * 1.7) +
+      0.13 * Math.sin(a * 5 + seed * 2.3) +
+      0.07 * Math.sin(a * 8 - seed * 0.6)
+    );
+  }
+  return rim;
+}
+
+function makeStainCell(cell: number): CellFn {
+  const pooled = cell >= STAIN_POOL_FIRST;
+  const idx = cell + 1;
+  const h = (k: number) => hash2(idx, k, 1471);
+  const dir = h(1) * TAU;
+  const lobes: StainLobe[] = [];
+
+  // The main mass. A pool is wide and soft; spatter is small, hard-thrown and
+  // stretched along the line it came in on.
+  const lobeCount = pooled ? 2 + Math.floor(h(2) * 3) : 1 + Math.floor(h(3) * 2);
+  for (let i = 0; i < lobeCount; i++) {
+    // Satellite lobes sit a fraction of the parent's radius out, so they merge
+    // with it rather than floating beside it — the union below is what makes
+    // two overlapping lobes one mark instead of two.
+    const first = i === 0;
+    const base = pooled ? 0.23 + h(10 + i) * 0.17 : 0.17 + h(10 + i) * 0.09;
+    const radius = first ? base : base * (0.42 + h(20 + i) * 0.4);
+    const a = pooled ? h(30 + i) * TAU : dir + (h(30 + i) - 0.5) * 1.4;
+    const off = first ? 0 : (pooled ? 0.14 + h(40 + i) * 0.18 : 0.1 + h(40 + i) * 0.11);
+    const spin = pooled ? h(50 + i) * TAU : dir;
+    lobes.push({
+      ox: Math.cos(a) * off,
+      oy: Math.sin(a) * off,
+      radius,
+      feather: pooled ? 0.26 + h(60 + i) * 0.16 : 0.22 + h(60 + i) * 0.16,
+      // Pools get real elongation too. Held near-round they all correlated
+      // above 0.9 with each other at some rotation, which is the repeat this
+      // atlas exists to break — sixteen cells of one silhouette is one cell.
+      stretch: pooled ? h(70 + i) * 0.55 : 0.25 + h(70 + i) * 0.7,
+      cos: Math.cos(spin), sin: Math.sin(spin),
+      rim: buildRim(h(80 + i) * 12, pooled ? 0.34 : 0.5),
+    });
+  }
+
+  // Specks thrown clear of the mass. They are most of what separates blood that
+  // landed at speed from a leaf, and they cost a `hypot` each because they are
+  // round — nothing this small can carry a rim.
+  const specks: StainSpeck[] = [];
+  const speckCount = pooled ? 2 : 4;
+  for (let i = 0; i < speckCount; i++) {
+    const a = pooled ? h(100 + i) * TAU : dir + (h(100 + i) - 0.5) * 1.1;
+    const off = 0.26 + h(110 + i) * 0.2;
+    specks.push({
+      ox: Math.cos(a) * off,
+      oy: Math.sin(a) * off,
+      radius: (pooled ? 0.012 : 0.016) + h(120 + i) * (pooled ? 0.022 : 0.03),
+    });
+  }
+
+  return (u, v) => {
+    const dx = u - 0.5;
+    const dy = v - 0.5;
+    // `mass` is the unclamped sum and `cover` the probabilistic union. The union
+    // decides the silhouette and the sum decides the depth, which is why a place
+    // two lobes both reach comes out darker than either — blood pools by pooling.
+    let cover = 0;
+    let mass = 0;
+    for (const L of lobes) {
+      const px = dx - L.ox;
+      const py = dy - L.oy;
+      const ax = (px * L.cos + py * L.sin) / (1 + L.stretch);
+      const ay = -px * L.sin + py * L.cos;
+      const r = Math.hypot(ax, ay);
+      if (r > L.radius * 1.6) continue;
+      let ang = Math.atan2(ay, ax) / TAU;
+      ang -= Math.floor(ang);
+      const f = ang * RIM_N;
+      const i0 = f | 0;
+      const t = f - i0;
+      const rim = L.rim[i0] + (L.rim[i0 + 1] - L.rim[i0]) * t;
+      const rn = r / (L.radius * rim);
+      const q = clamp01((rim - r / L.radius) / L.feather);
+      const c = q * q * (3 - 2 * q);
+      cover = cover + c - cover * c;
+      // Depth keeps rising toward each lobe's own centre rather than stopping
+      // at its plateau. Summing the coverage alone put a hard contour wherever
+      // one lobe's plateau began, and a pool with creases in it reads as flat
+      // shapes stacked rather than as one body of liquid.
+      mass += c * (1.15 - 0.75 * clamp01(rn));
+    }
+    for (const S of specks) {
+      const r = Math.hypot(dx - S.ox, dy - S.oy) / S.radius;
+      if (r >= 1.35) continue;
+      const c = clamp01((1.35 - r) / 0.7);
+      cover = cover + c - cover * c;
+      mass += c * 0.5;
+    }
+    // Alpha *is* depth here, and the exponent is what keeps it from being a
+    // wash. A linear map put most of a pool's area in the half-covered band,
+    // which over olive turf is neither blood nor grass but the muddy brown in
+    // between; the root pushes the interior up to its own colour and leaves the
+    // fade to `cover`, so the mark is dense where it is deep and thin only at
+    // the rim, which is what a puddle soaking into grass actually does.
+    return cover * (0.34 + 0.66 * Math.pow(clamp01(mass / (pooled ? 1.9 : 1.15)), 0.5));
+  };
+}
+
+const STAIN_ALPHA: CellFn[] = [];
+for (let i = 0; i < STAIN_CELLS; i++) STAIN_ALPHA[i] = makeStainCell(i);
 
 /** Tileable fbm in three channels at three rates: the fire's turbulence field. */
 function buildNoise(size: number): THREE.DataTexture {
@@ -1344,15 +1520,26 @@ interface Decal {
   x: number; y: number; z: number;
   size0: number; size1: number;
   /**
-   * Seconds to grow from `size0` to `size1`. Zero for a thrown droplet, which
-   * lands the size it lands; seconds for a pool, which is the only thing on the
-   * ground that is still arriving after it is drawn.
+   * The age window over which the mark grows from `size0` to `size1`. Empty for
+   * a thrown droplet, which lands the size it lands; seconds wide for a pool,
+   * which is the only thing on the ground still arriving after it is drawn. It
+   * is a window rather than a duration because a mark that another droplet runs
+   * into starts growing again from wherever it had got to.
    */
+  spread0: number;
   spread: number;
   rot: number;
   age: number; life: number;
   /** A pool under a body: evicted last, dries slowest, darkest at the centre. */
   pool: boolean;
+  /** Which stain cell. Sixteen shapes, so a cluster has no repeat in it. */
+  cell: number;
+  /**
+   * How much blood has run into this mark, 0..1. It rises every time another
+   * lands inside it, and it drives the tint darker — the thing that makes a
+   * place where a man bled out read as deeper than a place he was grazed.
+   */
+  depth: number;
   /** Bumped on reuse, so a jet can tell its own pool from the one that took its slot. */
   stamp: number;
 }
@@ -1427,7 +1614,17 @@ export function createVfx(
   const groundAt = opts.groundAt ?? (() => 0);
   const budget = settings.particleBudget;
 
-  const atlas = buildAtlas(Math.max(32, settings.spriteSize), textures.maxAnisotropy);
+  const atlas = buildAtlas(CELL_ALPHA, TILES, Math.max(32, settings.spriteSize), textures.maxAnisotropy, 1.26, "vfx:atlas");
+  // Stains are soft by construction — there is no high-frequency detail in one
+  // to lose — so they are generated at half a particle's resolution and capped
+  // at 64. Sixteen cells at a full 128 is a megabyte for a mark that is never
+  // sharp. As capped: 256² and 26 ms on high and medium, 128² and 6 ms on low,
+  // against the 250 ms and 40 MB the visual bar gives the whole texture set.
+  const stainAtlas = buildAtlas(
+    STAIN_ALPHA, STAIN_TILES,
+    Math.max(24, Math.min(64, settings.spriteSize)), textures.maxAnisotropy,
+    1.0, "vfx:stains",
+  );
   const noise = buildNoise(tier === "low" ? 64 : 128);
 
   // ---- layers -------------------------------------------------------------
@@ -1443,10 +1640,20 @@ export function createVfx(
   const ringLayer = new QuadLayer(48, atlas, TILES, 2, "add", 2);
   /** Spilled coals per bonfire. Enough to read as a bed, few enough to count. */
   const COAL_BED = tier === "low" ? 6 : 11;
-  // Blood on the ground borrows the texture library's splat rather than adding a
-  // seventeenth atlas cell: it is already built, already cached, and its ragged
-  // edge with the one thrown satellite droplet is exactly right.
-  const decalLayer = new QuadLayer(Math.max(1, settings.decalBudget), textures.sprite("splat"), 1, 2, "multiply", 1);
+  const decalLayer = new QuadLayer(Math.max(1, settings.decalBudget), stainAtlas, STAIN_TILES, 2, "multiply", 1);
+  /**
+   * Blood on a body, as opposed to blood on the ground.
+   *
+   * Camera-facing rather than ground-lying, and it multiplies for the same
+   * reason the ground marks do: an alpha-blended stain carries its own
+   * brightness and glows on a warrior standing in shadow, which is the failure
+   * this file already records for red-on-turf. Depth-tested against the body it
+   * is on, so a mark on a man's back is correctly hidden when you are in front
+   * of him. It costs one draw call and only while somebody is bloodied — the
+   * layer hides itself at zero instances.
+   */
+  const bodyMarkCap = tier === "high" ? 36 : tier === "medium" ? 20 : 8;
+  const bodyLayer = new QuadLayer(bodyMarkCap, stainAtlas, STAIN_TILES, 0, "multiply", 2);
 
   const FIRE_CAPACITY = tier === "high" ? 128 : tier === "medium" ? 96 : 48;
   const fireLayer = new FireLayer(FIRE_CAPACITY, FIRE_FRAG, noise, 6);
@@ -1457,7 +1664,7 @@ export function createVfx(
   const hazeLayer = tier === "high" ? new FireLayer(8, HAZE_FRAG, noise, 5) : null;
   if (hazeLayer) hazeLayer.material.uniforms.uIntensity.value = 0.03;
 
-  root.add(decalLayer.mesh, ringLayer.mesh, alphaLayer.mesh, additiveLayer.mesh, fireLayer.mesh);
+  root.add(decalLayer.mesh, bodyLayer.mesh, ringLayer.mesh, alphaLayer.mesh, additiveLayer.mesh, fireLayer.mesh);
   if (hazeLayer) root.add(hazeLayer.mesh);
 
   // ---- particles ----------------------------------------------------------
@@ -1466,6 +1673,9 @@ export function createVfx(
    *  ten minutes can never crowd out the sparks off a parry. */
   const ambientCap = Math.floor(budget * 0.45);
   let ambientLive = 0;
+  /** Live droplets that could hit a body, so a fight with no blood in it pays
+   *  nothing for the body scan. Kept the same way `ambientLive` is. */
+  let stainLive = 0;
 
   function spawn(s: Seed): boolean {
     if (store.n >= store.cap) return false;
@@ -1473,6 +1683,7 @@ export function createVfx(
       if (ambientLive >= ambientCap) return false;
       ambientLive++;
     }
+    if (s.flags & F_STAIN) stainLive++;
     const i = store.n++;
     store.px[i] = s.x; store.py[i] = s.y; store.pz[i] = s.z;
     store.vx[i] = s.vx; store.vy[i] = s.vy; store.vz[i] = s.vz;
@@ -1499,6 +1710,7 @@ export function createVfx(
 
   function kill(i: number): void {
     if (store.flags[i] & F_AMBIENT) ambientLive--;
+    if (store.flags[i] & F_STAIN) stainLive--;
     const last = --store.n;
     if (i !== last) {
       for (const f of STORE_FIELDS) store[f][i] = store[f][last];
@@ -1518,9 +1730,20 @@ export function createVfx(
   for (let i = 0; i < decalCap; i++) {
     decals.push({
       active: false, x: 0, y: 0, z: 0,
-      size0: 0, size1: 0, spread: 0, rot: 0, age: 0, life: 0,
-      pool: false, stamp: 0,
+      size0: 0, size1: 0, spread0: 0, spread: 0, rot: 0, age: 0, life: 0,
+      pool: false, cell: 0, depth: 0, stamp: 0,
     });
+  }
+
+  /**
+   * What a mark measures across right now, part-way through its spreading.
+   * Eases out: blood runs fastest when there is most of it behind it, and a
+   * pool that grows linearly reads as something being scaled.
+   */
+  function decalSize(d: Decal): number {
+    const span = d.spread - d.spread0;
+    const grow = span > 0 ? 1 - Math.pow(1 - clamp01((d.age - d.spread0) / span), 2) : 1;
+    return d.size0 + (d.size1 - d.size0) * grow;
   }
 
   /**
@@ -1543,13 +1766,90 @@ export function createVfx(
     best.age = 0;
     best.stamp = ++decalStamp;
     best.rot = Math.random() * TAU;
+    // Pooled cells for a pool, thrown cells for spatter. They are different
+    // kinds of mark and drawing one with the other's silhouette is what made a
+    // pool read as a rosette of droplets in the first place.
+    best.cell = pool
+      ? STAIN_POOL_FIRST + Math.floor(Math.random() * (STAIN_CELLS - STAIN_POOL_FIRST))
+      : Math.floor(Math.random() * STAIN_POOL_FIRST);
+    best.depth = pool ? 0.55 : 0.16;
+    return best;
+  }
+
+  /**
+   * The largest a mark is allowed to grow by merging. Past this a fight in one
+   * place turns the whole floor one colour, which is a different defect from the
+   * one merging exists to fix.
+   */
+  const MERGE_CEIL = 1.5;
+
+  /**
+   * Blood that lands on blood joins it instead of taking a slot of its own.
+   *
+   * This is the whole of "a pool under a body is one mark, not eight petals".
+   * The old path claimed a fresh decal per droplet, so a stump emptying itself
+   * over one square metre left a dozen separate hard-edged blobs of roughly one
+   * size — which is what a scatter of leaves looks like and what the capture
+   * caught. Marks that touch are one mark: areas add, the centre moves toward
+   * the new arrival by its share, and the depth rises so the place that has
+   * taken the most blood is the darkest.
+   *
+   * It also spends the budget the way it should be spent. Sixty-four slots on
+   * high and eight on low go a great deal further when the sixtieth droplet
+   * deepens the pool it fell in rather than evicting the mark on the far side of
+   * the arena.
+   */
+  function mergeStain(x: number, z: number, size: number, pool: boolean): Decal | null {
+    let best: Decal | null = null;
+    let bestGap = Infinity;
+    for (const d of decals) {
+      if (!d.active) continue;
+      // Spatter joins a pool; a pool never degrades into spatter, and a mark
+      // that has all but dried is a stain on the ground rather than liquid and
+      // has nothing left to flow into.
+      if (d.pool && !pool && d.age > d.life * 0.75) continue;
+      if (!d.pool && pool && d.age > d.life * 0.9) continue;
+      const cur = decalSize(d);
+      const gap = Math.hypot(d.x - x, d.z - z);
+      // Overlap, not proximity: rims that touch run together and rims that do
+      // not are two marks, which is the behaviour that keeps spatter reading as
+      // spatter instead of collapsing every fleck into one disc.
+      if (gap > (cur + size) * 0.5) continue;
+      if (gap >= bestGap) continue;
+      bestGap = gap;
+      best = d;
+    }
+    if (!best) return null;
+
+    const cur = decalSize(best);
+    const merged = Math.min(MERGE_CEIL, Math.sqrt(cur * cur + size * size));
+    // Weighted by area: a fleck landing in a pool barely moves it, and two
+    // marks of a size meet in the middle.
+    const w = clamp01((size * size) / (cur * cur + size * size)) * 0.55;
+    best.x += (x - best.x) * w;
+    best.z += (z - best.z) * w;
+    best.y = groundAt(best.x, best.z) + 0.015;
+    // Growth restarts from where it had got to rather than from `size0`, and it
+    // takes time — a mark that jumps to its new size on the frame a droplet
+    // lands in it is the "decal" pop this file already spends `spread` avoiding.
+    // Wet again where it landed, but only partly: a mark does not un-dry. Done
+    // before the growth window is set, or the window starts in that mark's past
+    // and it holds at its old size until the clock catches up.
+    best.age *= 1 - w * 0.5;
+    best.size0 = cur;
+    best.size1 = merged;
+    best.spread0 = best.age;
+    best.spread = best.age + (pool ? 2.4 : 0.4);
+    best.depth = clamp01(best.depth + (pool ? 0.3 : 0.05 + size * 0.3));
+    if (pool) best.pool = true;
     return best;
   }
 
   function addDecal(x: number, z: number, size: number, life = 26, age = 0): void {
+    if (mergeStain(x, z, size, false)) return;
     const d = claimDecal(false);
     d.x = x; d.y = groundAt(x, z) + 0.015; d.z = z;
-    d.size0 = size; d.size1 = size; d.spread = 0;
+    d.size0 = size; d.size1 = size; d.spread0 = 0; d.spread = 0;
     d.life = life; d.age = age;
   }
 
@@ -1560,11 +1860,254 @@ export function createVfx(
    * under a corpse is the single most obvious way to say "decal".
    */
   function addPool(x: number, z: number, size: number, spread: number, life: number): Decal {
+    // A body comes to rest where it has already been bleeding, so the spatter
+    // under it is the same blood: the pool takes it over rather than being drawn
+    // on top of eight flecks that then dry at their own separate rates.
+    const joined = mergeStain(x, z, size, true);
+    if (joined) {
+      joined.life = Math.max(joined.life, life);
+      joined.size1 = Math.max(joined.size1, size);
+      joined.spread = joined.age + spread;
+      return joined;
+    }
     const d = claimDecal(true);
     d.x = x; d.y = groundAt(x, z) + 0.015; d.z = z;
-    d.size0 = size * 0.22; d.size1 = size; d.spread = spread;
+    d.size0 = size * 0.22; d.size1 = size; d.spread0 = 0; d.spread = spread;
     d.life = life; d.age = 0;
     return d;
+  }
+
+  // ---- bodies -------------------------------------------------------------
+  //
+  // Blood tested the terrain height and nothing else, so a spray crossing a
+  // warrior went straight through him and stained the grass behind. Blood on the
+  // man who did the killing is the strongest single image this feature can throw
+  // and it was not reachable at all.
+  //
+  // The warriors are found by scanning the scene for the groups `anim.ts` names
+  // `warrior:<id>`, because that name is the only seam between this module and
+  // the rigs: `FrameContext` carries `focus` and `localState` and nothing
+  // per-warrior, so there is no way to be *told* where eight bodies are. That
+  // makes this a read of somebody else's naming convention, which is a real
+  // coupling and is why it degrades to the old ground-only behaviour rather than
+  // throwing if the scan comes back empty.
+  //
+  // The capsule is an approximation and deliberately a coarse one. Its foot is
+  // the group's origin and its head is the `spine` node — the belt-height joint
+  // `anim.ts` inserts — carried up the spine's own Y, so the axis tilts as a
+  // corpse folds over instead of standing upright above a body lying down. What
+  // it cannot do is follow a limb: an arm flung out to the side is outside its
+  // own capsule, and blood passes through it. A per-bone test is a different
+  // feature and would want the rig handed over rather than scraped.
+
+  interface Body {
+    group: THREE.Object3D;
+    spine: THREE.Object3D | null;
+    /** Capsule foot and head in world space, refreshed every frame. */
+    ax: number; ay: number; az: number;
+    bx: number; by: number; bz: number;
+    radius: number;
+  }
+
+  const bodies: Body[] = [];
+  /** Where the rigs hang, once one has been found. Saves a whole-scene walk. */
+  let bodyHost: THREE.Object3D | null = null;
+  let bodyScanAt = -1e3;
+  /** Rescan interval. Warriors join, die and respawn; nothing tells us when. */
+  const BODY_SCAN = 0.6;
+  /** Trunk half-width. A warrior in mail is wider than a warrior in wool, but
+   *  not by enough to be worth reading a bounding box for every frame. */
+  const BODY_RADIUS = 0.28;
+  /** How far past the belt joint the capsule runs, along the spine's own up. */
+  const BODY_RISE = 0.62;
+
+  function rescanBodies(): void {
+    bodies.length = 0;
+    const take = (o: THREE.Object3D) => {
+      if (!o.name.startsWith("warrior:")) return false;
+      let spine: THREE.Object3D | null = null;
+      o.traverse((c) => { if (!spine && c.name === "spine") spine = c; });
+      bodies.push({
+        group: o, spine,
+        ax: 0, ay: 0, az: 0, bx: 0, by: 1, bz: 0,
+        radius: BODY_RADIUS,
+      });
+      return true;
+    };
+    if (bodyHost && bodyHost.parent) {
+      for (const c of bodyHost.children) take(c);
+      if (bodies.length > 0) return;
+    }
+    bodyHost = null;
+    scene.traverse((o) => { if (take(o) && !bodyHost) bodyHost = o.parent; });
+  }
+
+  /**
+   * Pulls every capsule onto this frame's transforms. Called only when there is
+   * something in the air that could hit one, so a fight with no blood in it pays
+   * nothing for this at all.
+   */
+  function refreshBodies(): void {
+    if (clock - bodyScanAt > BODY_SCAN) {
+      bodyScanAt = clock;
+      rescanBodies();
+    }
+    for (let i = bodies.length - 1; i >= 0; i--) {
+      const b = bodies[i];
+      if (!b.group.parent) { bodies.splice(i, 1); continue; }
+      b.group.updateWorldMatrix(true, false);
+      const g = b.group.matrixWorld.elements;
+      b.ax = g[12]; b.ay = g[13]; b.az = g[14];
+      const s = b.spine;
+      if (s) {
+        s.updateWorldMatrix(true, false);
+        const e = s.matrixWorld.elements;
+        const ul = 1 / (Math.hypot(e[4], e[5], e[6]) || 1);
+        b.bx = e[12] + e[4] * ul * BODY_RISE;
+        b.by = e[13] + e[5] * ul * BODY_RISE;
+        b.bz = e[14] + e[6] * ul * BODY_RISE;
+      } else {
+        b.bx = b.ax; b.by = b.ay + 1.55; b.bz = b.az;
+      }
+    }
+  }
+
+  /** Squared distance from a point to a capsule's axis, and where along it. */
+  function axisDist2(b: Body, x: number, y: number, z: number): number {
+    const dx = b.bx - b.ax;
+    const dy = b.by - b.ay;
+    const dz = b.bz - b.az;
+    const len2 = dx * dx + dy * dy + dz * dz || 1e-6;
+    let t = ((x - b.ax) * dx + (y - b.ay) * dy + (z - b.az) * dz) / len2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = x - (b.ax + dx * t);
+    const py = y - (b.ay + dy * t);
+    const pz = z - (b.az + dz * t);
+    return px * px + py * py + pz * pz;
+  }
+
+  // ---- blood on bodies ----------------------------------------------------
+  //
+  // A mark is stored in the frame of the node it landed on, not in world space,
+  // so it rides the body: a warrior who turns away carries the blood round with
+  // him and a corpse takes its own down with it. That is the same mechanism the
+  // running jets use for stumps and it is here for the same reason — the
+  // alternative hangs the stain in the air where the man was standing.
+
+  interface BodyMark {
+    anchor: THREE.Object3D | null;
+    /**
+     * The warrior group the anchor hangs under, and the thing that is actually
+     * unparented when a rig is torn down (`anim.ts` removes the group, not the
+     * spine). Testing the anchor's own parent looked right and never fired: the
+     * spine keeps its parent for as long as the disposed rig keeps its shape.
+     */
+    owner: THREE.Object3D | null;
+    /** Impact point and outward normal, both in the anchor's local frame. */
+    lx: number; ly: number; lz: number;
+    nx: number; ny: number; nz: number;
+    size: number;
+    rot: number;
+    cell: number;
+    depth: number;
+    age: number; life: number;
+  }
+
+  const bodyMarks: BodyMark[] = [];
+  for (let i = 0; i < bodyMarkCap; i++) {
+    bodyMarks.push({
+      anchor: null, owner: null, lx: 0, ly: 0, lz: 0, nx: 0, ny: 0, nz: 1,
+      size: 0.1, rot: 0, cell: 0, depth: 0, age: 0, life: 0,
+    });
+  }
+  const markMat = new THREE.Matrix4();
+  const markVec = new THREE.Vector3();
+  const markNrm = new THREE.Vector3();
+  /** Blood on a man outlives the spray that put it there, and is meant to. */
+  const MARK_LIFE = tier === "low" ? 14 : 30;
+
+  function addBodyMark(
+    anchor: THREE.Object3D,
+    owner: THREE.Object3D,
+    wx: number, wy: number, wz: number,
+    nx: number, ny: number, nz: number,
+    size: number,
+  ): void {
+    markMat.copy(anchor.matrixWorld).invert();
+    markVec.set(wx, wy, wz).applyMatrix4(markMat);
+    // The normal takes the same inverse without the translation, so it stays a
+    // direction. Not normalised again: an anim rig does not scale its bones, and
+    // if one ever does, a mark drifting a millimetre off the skin is the least
+    // of what breaks.
+    markNrm.set(nx, ny, nz).transformDirection(markMat);
+
+    // Blood that lands on blood joins it, here as on the ground. Without it one
+    // spray from a stump spends the whole pool on one shoulder.
+    for (const m of bodyMarks) {
+      if (m.life <= 0 || m.anchor !== anchor) continue;
+      const gap = Math.hypot(m.lx - markVec.x, m.ly - markVec.y, m.lz - markVec.z);
+      if (gap > (m.size + size) * 0.5) continue;
+      const merged = Math.min(0.34, Math.sqrt(m.size * m.size + size * size));
+      const w = clamp01((size * size) / (m.size * m.size + size * size)) * 0.5;
+      m.lx += (markVec.x - m.lx) * w;
+      m.ly += (markVec.y - m.ly) * w;
+      m.lz += (markVec.z - m.lz) * w;
+      m.nx += (markNrm.x - m.nx) * w;
+      m.ny += (markNrm.y - m.ny) * w;
+      m.nz += (markNrm.z - m.nz) * w;
+      m.size = merged;
+      m.depth = clamp01(m.depth + 0.16);
+      m.age *= 1 - w;
+      return;
+    }
+
+    // Free slot, else the mark furthest through its life. Never grows.
+    let slot = bodyMarks[0];
+    let worst = -1;
+    for (const m of bodyMarks) {
+      if (m.life <= 0) { slot = m; break; }
+      const t = m.age / m.life;
+      if (t > worst) { worst = t; slot = m; }
+    }
+    slot.anchor = anchor;
+    slot.owner = owner;
+    slot.lx = markVec.x; slot.ly = markVec.y; slot.lz = markVec.z;
+    slot.nx = markNrm.x; slot.ny = markNrm.y; slot.nz = markNrm.z;
+    slot.size = size;
+    slot.rot = Math.random() * TAU;
+    slot.cell = Math.floor(Math.random() * STAIN_POOL_FIRST);
+    slot.depth = 0.2;
+    slot.age = 0;
+    slot.life = MARK_LIFE;
+  }
+
+  function writeBodyMarks(dt: number): void {
+    bodyLayer.begin();
+    for (const m of bodyMarks) {
+      if (m.life <= 0) continue;
+      m.age += dt;
+      const a = m.anchor;
+      // Losing its parent is how a mark ends without anyone telling us — the
+      // same rule the jets use, and what makes a respawn clean the man.
+      if (m.age >= m.life || !a || !m.owner?.parent) { m.life = 0; m.anchor = null; m.owner = null; continue; }
+      a.updateWorldMatrix(true, false);
+      markVec.set(m.lx, m.ly, m.lz).applyMatrix4(a.matrixWorld);
+      markNrm.set(m.nx, m.ny, m.nz).transformDirection(a.matrixWorld);
+      const t = m.age / m.life;
+      const alpha = 0.95 * (1 - clamp01((t - 0.55) / 0.45));
+      stainTint(t, false, m.depth);
+      // Stood off the skin along the impact normal. The quad faces the camera,
+      // so on a curved body its far corners would otherwise sink into the mesh
+      // and the depth test would eat half the mark.
+      bodyLayer.push(
+        markVec.x + markNrm.x * 0.022,
+        markVec.y + markNrm.y * 0.022,
+        markVec.z + markNrm.z * 0.022,
+        m.size, m.size, m.rot, alpha,
+        tint[0], tint[1], tint[2], m.cell,
+      );
+    }
+    bodyLayer.end();
   }
 
   // ---- ground rings -------------------------------------------------------
@@ -1902,6 +2445,8 @@ export function createVfx(
   const tmpB = new THREE.Vector3();
   const tmpC = new THREE.Vector3();
   const tmpColor = new THREE.Color();
+  /** Scratch for `stainTint`, which runs once per mark per frame. */
+  const tint = [0, 0, 0];
 
   // ---- effect recipes -----------------------------------------------------
 
@@ -2702,6 +3247,60 @@ export function createVfx(
         pz += wind.y * d;
       }
 
+      // A body before the ground, because a man standing on it is in the way
+      // first. Enter-only — the previous position must be outside and the new
+      // one inside — which is what stops a stump's own burst, born inside the
+      // victim's capsule, staining him on the frame it leaves the wound. The
+      // 30 ms grace is the other half of that: a droplet spawned a few
+      // centimetres proud of the skin gets long enough to clear it.
+      if ((flags & F_STAIN) && bodies.length > 0 && store.maxLife[i] - store.life[i] > 0.03) {
+        const ox = store.px[i];
+        const oy = store.py[i];
+        const oz = store.pz[i];
+        let struck: Body | null = null;
+        for (const b of bodies) {
+          const r2 = b.radius * b.radius;
+          if (axisDist2(b, px, py, pz) > r2) continue;
+          if (axisDist2(b, ox, oy, oz) <= r2) continue;
+          struck = b;
+          break;
+        }
+        if (struck) {
+          // Pushed back out to the surface along the radial normal rather than
+          // solved for the crossing: at a droplet's size the two differ by
+          // millimetres and one of them costs a square root in a loop that runs
+          // for every drop of blood in the arena.
+          const abx = struck.bx - struck.ax;
+          const aby = struck.by - struck.ay;
+          const abz = struck.bz - struck.az;
+          const len2 = abx * abx + aby * aby + abz * abz || 1e-6;
+          let s = ((px - struck.ax) * abx + (py - struck.ay) * aby + (pz - struck.az) * abz) / len2;
+          s = s < 0 ? 0 : s > 1 ? 1 : s;
+          let nx = px - (struck.ax + abx * s);
+          let ny = py - (struck.ay + aby * s);
+          let nz = pz - (struck.az + abz * s);
+          const nl = Math.hypot(nx, ny, nz);
+          if (nl < 1e-4) { nx = 0; ny = 0; nz = 1; } else { nx /= nl; ny /= nl; nz /= nl; }
+          const anchor = struck.spine ?? struck.group;
+          // Not every drop leaves a mark. A stump throws twenty-six at the man
+          // it came out of and the pool is thirty-six for the whole arena; a
+          // third of them is a bloodied warrior, all of them is a red silhouette
+          // and eight warriors' worth of slots gone in one death.
+          if (Math.random() < 0.36) {
+            addBodyMark(
+              anchor, struck.group,
+              struck.ax + abx * s + nx * struck.radius,
+              struck.ay + aby * s + ny * struck.radius,
+              struck.az + abz * s + nz * struck.radius,
+              nx, ny, nz,
+              Math.min(0.2, Math.max(0.035, store.size0[i] * 3.2)) * rand(0.8, 1.3),
+            );
+          }
+          kill(i);
+          continue;
+        }
+      }
+
       if (flags & (F_BOUNCE | F_STAIN)) {
         const gy = groundAt(px, pz);
         if (py <= gy + 0.012) {
@@ -2924,30 +3523,37 @@ export function createVfx(
       d.age += dt;
       if (d.age >= d.life) { d.active = false; continue; }
       const t = d.age / d.life;
-      // Spreading eases out: blood runs fastest when there is most of it behind
-      // it, and a pool that grows linearly reads as something being scaled.
-      const grow = d.spread > 0 ? 1 - Math.pow(1 - clamp01(d.age / d.spread), 2) : 1;
-      const size = d.size0 + (d.size1 - d.size0) * grow;
-      // The multiply tint *is* the stain, and multiply can only take light away
-      // — it cannot put red back. Holding red down at a fifth alongside green
-      // was arithmetically a black mark: the arena's turf is greener than it is
-      // red, so cutting both left nothing but a hole in the grass, and the first
-      // gore capture is a corpse surrounded by ink blots. Red now passes almost
-      // untouched and green and blue are what get taken out, which is the only
-      // way this blend mode says "blood" instead of "shadow".
-      const dry = t * 0.55;
+      const size = decalSize(d);
       const a = 0.95 * (1 - clamp01((t - 0.6) / 0.4));
-      // A pool is deep enough to be its own colour rather than the ground's,
-      // and it does not brown until much later — there is a hundred times as
-      // much of it as there is in a fleck of spatter.
-      const k = d.pool ? 0.55 : 1;
-      decalLayer.push(
-        d.x, d.y, d.z, size, size, d.rot, a,
-        0.72 + dry * 0.22 * k, 0.07 + dry * 0.45 * k, 0.06 + dry * 0.36 * k,
-        0,
-      );
+      stainTint(t, d.pool, d.depth);
+      decalLayer.push(d.x, d.y, d.z, size, size, d.rot, a, tint[0], tint[1], tint[2], d.cell);
     }
     decalLayer.end();
+  }
+
+  /**
+   * The multiply tint a stain darkens the ground with, as [r, g, b].
+   *
+   * Multiply can only take light away — it cannot put red back. Holding red down
+   * at a fifth alongside green was arithmetically a black mark: the arena's turf
+   * is greener than it is red, so cutting both left nothing but a hole in the
+   * grass, and the first gore capture is a corpse surrounded by ink blots. Red
+   * passes almost untouched and green and blue are what get taken out, which is
+   * the only way this blend mode says "blood" instead of "shadow".
+   *
+   * `depth` is allowed to pull red down as well, and only red — the hue stays
+   * where it is and the *value* falls. That is the difference between a graze
+   * and the middle of a pool, and it is a distinction the flat tint could not
+   * make. It is capped well short of the level that produced the ink blots.
+   */
+  function stainTint(t: number, pool: boolean, depth: number): void {
+    // Drying browns a mark by letting green and blue back through. A pool is a
+    // hundred times the volume of a fleck of spatter and browns far later.
+    const dry = t * 0.55 * (pool ? 0.55 : 1);
+    const deep = clamp01(depth);
+    tint[0] = (0.74 - deep * 0.26) + dry * 0.22;
+    tint[1] = (0.075 - deep * 0.03) + dry * 0.45;
+    tint[2] = (0.065 - deep * 0.025) + dry * 0.36;
   }
 
   function writeRings(dt: number): void {
@@ -3098,6 +3704,10 @@ export function createVfx(
       // the same frame rather than sitting on it for one. On `dt` rather than
       // `rawDt`: blood is combat, and hit-stop is meant to hold it.
       stepJets(dt);
+      // After the jets, so a droplet born this frame is tested against capsules
+      // that are on this frame's transforms rather than the last one's. Skipped
+      // entirely when nothing is bleeding, which is most frames of most matches.
+      if (stainLive > 0) refreshBodies();
       integrate(dt, rawDt);
       stepMotes(rawDt);
 
@@ -3189,6 +3799,7 @@ export function createVfx(
       if (ribbonMat) ribbonMat.uniforms.uScroll.value = clock * 1.6;
       writeRibbons(dt);
       writeDecals(rawDt);
+      writeBodyMarks(rawDt);
       writeRings(dt);
     },
 
@@ -3198,6 +3809,7 @@ export function createVfx(
       // match starts on an empty arena rather than on the last one's blood.
       store.n = 0;
       ambientLive = 0;
+      stainLive = 0;
       dustSeeded = false;
       groundMarked = false;
       haveFocus = false;
@@ -3209,6 +3821,12 @@ export function createVfx(
         j.anchor = null;
       }
       jetsLive = 0;
+      // Body marks hold rig nodes for the same reason jets do, and drop them
+      // for the same reason: a stopped match must not leave this module pointing
+      // into a disposed skeleton.
+      for (const m of bodyMarks) { m.life = 0; m.anchor = null; m.owner = null; }
+      bodies.length = 0;
+      bodyHost = null;
       for (const d of decals) d.active = false;
       rings.length = 0;
       fires.length = 0;
@@ -3225,9 +3843,11 @@ export function createVfx(
       alphaLayer.dispose();
       ringLayer.dispose();
       decalLayer.dispose();
+      bodyLayer.dispose();
       fireLayer.dispose();
       hazeLayer?.dispose();
       atlas.dispose();
+      stainAtlas.dispose();
       noise.dispose();
       scene.remove(root);
       root.clear();
