@@ -2600,22 +2600,26 @@ function axeBlade(
 /**
  * The berserker's Dane axe: bearded crescent, langets down the haft, 1.44 m.
  *
- * Rebalanced about the grip this pass, and the reason is a defect the owner read
- * as a broken *helmet*. `STANCE.berserker.rest` in anim.ts is -1.78 against a grip
- * pitch of 1.28, so at rest the axe lies back over the shoulder at half a radian
- * off vertical — the shouldered carry the class is supposed to have. The head used
- * to sit 1.12 m up the haft from the grip, and the grip sits at 0.90 m: 0.90 +
- * 1.12·cos(0.5) puts a 256 mm steel crescent at y = 1.89, which is the middle of
- * the skull. In `art/shots/v3/lineup.png` it overlaps the helm's silhouette and
+ * Rebalanced about the grip, and the reason is a defect one panel read as a broken
+ * *helmet*. The head used to sit 1.12 m up the haft from a grip at 0.90 m, and at
+ * the shouldered carry that put a 256 mm steel crescent at y = 1.89 — the middle
+ * of the skull. In `art/shots/v3/lineup.png` it overlaps the helm's silhouette and
  * reads as a second, detached bowl, and its polished face — 0.22 roughness against
  * a bright sky env map — blows to 250 luma and becomes the "white blob beside the
  * helm". Nothing was wrong with the berserker's head assembly at all.
  *
- * So the mass has come 260 mm down the haft and the butt has grown by the same,
- * which leaves the weapon's overall length and its head-to-butt reach where they
- * were and moves the crescent to y = 1.66 at rest — shoulder height, behind the
- * deltoid, clear of the skull. `rig.reach` in anim.ts is measured off this
- * geometry's bounding box, so the blade trail follows it without being told.
+ * So the mass came 260 mm down the haft and the butt grew by the same, which
+ * leaves the weapon's overall length and its head-to-butt reach where they were
+ * and moves the crescent to shoulder height at rest. That overshot in the other
+ * direction — at `STANCE.berserker.rest` of -1.78 the head sat *behind* the
+ * deltoid and pauldron with only 16% of it visible, so the fix for one defect
+ * created another and no amount of blade modelling could show through it. The
+ * carry angle is -1.35 now, which is the other half of the same fix and lives in
+ * anim.ts. Geometry could not reach it: sweeping `headY` up far enough to clear
+ * the shoulder puts the head back on the helm.
+ *
+ * `rig.reach` in anim.ts is measured off this geometry's bounding box, so the
+ * blade trail follows it without being told.
  */
 export function buildAxe(materials?: CharacterMaterials): THREE.Group {
   const M = materials ?? RAW;
