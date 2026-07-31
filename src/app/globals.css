@@ -252,7 +252,16 @@
     font-weight: 700;
   }
 
+  /* The gradient is clipped to the glyphs, so any glyph that overflows this
+     element's box is painted with nothing at all and simply disappears —
+     which is why the title used to read "BRETWALD". The size is therefore
+     capped to what is guaranteed to fit the column rather than left to a
+     viewport unit that can outgrow it. */
   .title-hero {
+    display: block;
+    white-space: nowrap;
+    font-size: min(12vw, 4.4rem);
+    line-height: 0.95;
     background: linear-gradient(to bottom, #fff7d6 0%, #ffd97a 40%, #e8a020 70%, #8a5c0a 100%);
     -webkit-background-clip: text;
     background-clip: text;
@@ -587,6 +596,8 @@
     transform: translateY(0);
   }
 
+  /* The mask is the only cue that there is more to the right: the strip has
+     no visible scrollbar and on a phone the last tab is always cut. */
   .tab-strip {
     display: flex;
     gap: 4px;
@@ -596,6 +607,7 @@
     border: 1px solid rgba(150, 125, 95, 0.35);
     border-radius: 0.75rem;
     scrollbar-width: none;
+    mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 2.25rem), transparent 100%);
   }
   .tab-strip::-webkit-scrollbar {
     display: none;
@@ -639,9 +651,17 @@
     padding-inline: var(--gutter);
     background: linear-gradient(180deg, rgba(10, 8, 6, 0) 0%, rgba(10, 8, 6, 0.82) 38%, rgba(10, 8, 6, 0.96) 100%);
   }
+  /* Capped and centred: a "START" button 900px wide is not more clickable,
+     it just stops reading as a button. */
   .action-bar-row {
     display: flex;
     gap: 0.6rem;
+    width: 100%;
+    max-width: 34rem;
+    margin-inline: auto;
+  }
+  .action-bar > p {
+    text-align: center;
   }
 
   /* --------------------------------------------------------------- badges */

@@ -584,8 +584,10 @@ export default function Page() {
 
           {/* warriors */}
           <section className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-              <h2 className="section-title !flex-none"><User size={12} className="shrink-0" /> WARRIORS <span className="tracking-normal text-stone-500">{playersList.length}/{maxP}</span></h2>
+            {/* Stacked on a phone: side by side, the title shrinks under the
+                controls and its player count disappears behind the select. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
+              <h2 className="section-title min-w-0 sm:flex-1"><User size={12} className="shrink-0" /> WARRIORS <span className="tracking-normal text-stone-500">{playersList.length}/{maxP}</span></h2>
               {isHost && (
                 <div className="flex flex-wrap items-center gap-2">
                   <select
@@ -666,9 +668,9 @@ export default function Page() {
 
           {/* class select */}
           <section className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <h2 className="section-title !flex-none"><Swords size={12} className="shrink-0" /> CHOOSE WARRIOR</h2>
-              <button onClick={() => openArmoury("lobby")} className="flex items-center gap-1.5 text-xs font-bold text-amber-400 transition hover:text-amber-300">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <h2 className="section-title min-w-0 basis-full sm:flex-1 sm:basis-auto"><Swords size={12} className="shrink-0" /> CHOOSE WARRIOR</h2>
+              <button onClick={() => openArmoury("lobby")} className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-bold text-amber-400 transition hover:text-amber-300">
                 <Shirt size={13} /> EDIT APPEARANCE <ChevronRight size={12} />
               </button>
             </div>
@@ -697,9 +699,11 @@ export default function Page() {
 
           {/* actions — pinned bottom on mobile for thumb reach */}
           <div className="action-bar">
+            {/* Three targets share one 390px row, so the two word buttons are
+                allowed to shrink but never to wrap onto a second line. */}
             <div className="action-bar-row">
               <button onClick={() => sendMsg("ready")}
-                className={`flex-1 !min-h-[3.5rem] !text-base ${
+                className={`min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-base ${
                   roomState.players[playerId]?.ready
                     ? "btn-primary !border-emerald-400/60 !bg-emerald-700 !shadow-[0_0_28px_rgba(16,150,90,0.45)]"
                     : "btn-ghost"
@@ -707,11 +711,11 @@ export default function Page() {
                 {roomState.players[playerId]?.ready ? "READY — SKAL!" : "READY UP"}
               </button>
               {isHost && (
-                <button onClick={() => sendMsg("start")} className="btn-primary flex-1 !min-h-[3.5rem] !text-base">
-                  <Swords size={18} /> START
+                <button onClick={() => sendMsg("start")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-base">
+                  <Swords size={18} className="shrink-0" /> START
                 </button>
               )}
-              <button onClick={() => { leaveRoom(); setScreen("landing"); }} aria-label="Leave room" className="btn-danger !px-4">
+              <button onClick={() => { leaveRoom(); setScreen("landing"); }} aria-label="Leave room" className="btn-danger shrink-0 !px-3">
                 <ArrowLeft size={18} />
               </button>
             </div>
@@ -848,7 +852,7 @@ export default function Page() {
       {screen === "landing" && (
         // Centred as a whole rather than as a stack of centred children, so the
         // title and the controls stay one composition from 390px to 1440px.
-        <div className="wrap flex min-h-[calc(100dvh-6rem)] max-w-[27rem] flex-col justify-center gap-8 py-6 sm:max-w-[30rem] sm:gap-10">
+        <div className="wrap flex min-h-[calc(100dvh-6rem)] max-w-[34rem] flex-col justify-center gap-8 py-6 sm:gap-10">
           <div className="text-center">
             <div className="flex items-center justify-center gap-2.5 text-amber-300/90 sm:gap-3">
               <span className="ornament-line" />
@@ -857,15 +861,15 @@ export default function Page() {
               <Swords size={13} className="shrink-0" />
               <span className="ornament-line" />
             </div>
-            <h1 className="title-hero font-display mt-4 text-[15vw] leading-[0.92] sm:text-[5.5rem]">BRETWALDA</h1>
+            <h1 className="title-hero font-display mt-4">BRETWALDA</h1>
             <h2
-              className="font-display mt-1 text-[6.2vw] tracking-[0.26em] text-red-400 sm:text-[2.1rem]"
+              className="font-display mt-1 text-[5.6vw] tracking-[0.26em] text-red-400 sm:text-[2rem]"
               style={{ textShadow: "0 0 35px rgba(230,60,40,0.55), 0 2px 6px rgba(0,0,0,0.8)" }}
             >
               BLOOD MOOT
             </h2>
             <p
-              className="mx-auto mt-5 max-w-[24rem] text-[15px] leading-relaxed text-stone-300/90"
+              className="mx-auto mt-5 max-w-[26rem] text-[15px] leading-relaxed text-stone-300/90"
               style={{ textShadow: "0 1px 4px black" }}
             >
               Sword fighting in Dark Age Britain. Send a code, choose a warrior, fight — no downloads.
@@ -874,7 +878,7 @@ export default function Page() {
 
           {/* The controls sit on a panel. On a black field they read as three
               loose buttons; framed, they read as the front of a game. */}
-          <div className="card card-glow flex flex-col gap-3.5 p-4 sm:p-5">
+          <div className="card card-glow mx-auto flex w-full max-w-[26rem] flex-col gap-3.5 p-4 sm:p-5">
             <label className="label-overline block text-center">YOUR WARRIOR NAME</label>
             <input
               type="text"
@@ -893,7 +897,7 @@ export default function Page() {
             </button>
           </div>
 
-          <div className="flex flex-col gap-3">
+          <div className="mx-auto flex w-full max-w-[26rem] flex-col gap-3">
             <div className="grid grid-cols-3 gap-2.5">
               <button onClick={() => setScreen("training")} className="mini-nav">
                 <Crosshair size={19} className="text-amber-400" />
@@ -1044,8 +1048,8 @@ export default function Page() {
 
               <div>
                 <button onClick={() => setScreen("muster")} disabled={busy}
-                  className="btn-primary w-full !min-h-[3.5rem]">
-                  <Users size={17} /> MUSTER THE TESTGROUNDS
+                  className="btn-primary w-full whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-[0.95rem]">
+                  <Users size={17} className="shrink-0" /> MUSTER THE TESTGROUNDS
                 </button>
                 <p className="mt-2.5 text-center text-[11px] leading-relaxed text-stone-400">
                   Choose how many AI you face and how good they are, pick your warrior,
@@ -1299,7 +1303,9 @@ function ScreenHead({ overline, title, lede, center, onBack, aside }: {
     <div className="flex flex-col gap-4">
       {onBack && <BackButton onClick={onBack} />}
       <div className={`flex flex-wrap items-end justify-between gap-x-6 gap-y-4 ${center ? "justify-center" : ""}`}>
-        <div className={`screen-head min-w-0 flex-1 ${center ? "screen-head-center" : ""}`}>
+        {/* The min-width forces an aside onto its own line on a phone rather
+            than squeezing the lede into a 3-word column beside it. */}
+        <div className={`screen-head min-w-[18rem] flex-1 ${center ? "screen-head-center" : ""}`}>
           {overline && <div className="label-overline">{overline}</div>}
           <h1>{title}</h1>
           {lede && <p>{lede}</p>}
