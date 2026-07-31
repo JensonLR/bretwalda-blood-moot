@@ -3108,6 +3108,812 @@ const HAND_GRIP: Record<WarriorClass, { main: number; off: number | null }> = {
 };
 
 // ============================================================
+// Dismemberment
+// ============================================================
+//
+// A warrior is merged geometry — one shell per substance per moving part — which
+// is why eight of them fit in a frame and also why, until this pass, nothing
+// could come off one. The rule this section adds is narrow and deliberately so:
+//
+//   THE BODY IS NEVER REBUILT. A severance is a cut through the rig that is
+//   already standing there, taken once, on the frame the kill arrives.
+//
+// Three mechanisms, in increasing order of cost, and the cut picks the cheapest
+// one that is honest for each mesh it meets:
+//
+//   1. **Untouched.** A mesh entirely on the body's side of the plane is not
+//      read, not copied and not disturbed. Most of a warrior is this.
+//   2. **Carried over.** A rigid mesh entirely on the leaving side is *shared*:
+//      a new `THREE.Mesh` on the same geometry, moved into the severed piece.
+//      Zero triangles, zero vertex work. A head comes off this way, which is
+//      the common case and costs nothing but a draw call that already existed.
+//   3. **Baked.** A mesh the plane actually crosses — or a skinned limb, which
+//      has to be frozen in the pose it died in or it snaps back to bind — is
+//      walked once, its vertices pushed through the skeleton, and split into
+//      two geometries by triangle centroid. One pass over one limb, once, on
+//      the frame of a death. Nothing here runs per frame, ever.
+//
+// The split is by centroid and not by a real clip: a clipped triangle needs new
+// vertices, new UVs and a re-triangulation, and buys a boundary that is at most
+// half a triangle straighter. What actually reads at the cut is the wound
+// (see `unitWound`) — a plugged, ragged, bone-in-the-middle section that sits in
+// the hole — and against that, half a triangle of raggedness on the shell's rim
+// is free realism rather than a defect.
+//
+// Everything the cut produces is pooled. Baked geometry comes from a fixed ring
+// of slots with stable attributes, so after the first brawl a severance uploads
+// vertices into buffers that already exist and allocates nothing on the GPU; the
+// wound is one unit geometry per tier, scaled to the section it plugs; and the
+// piece hands back a `release()` that puts the body back exactly as it was, so a
+// respawn is an undo and not a rebuild.
+
+/**
+ * Where a killing blow landed. This is the server's `hitZone` verbatim — see
+ * `deriveHitZone` in engine.mjs — and it is a union rather than a string so the
+ * mapping below fails at compile time if the sim ever grows a zone.
+ */
+export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "torso" | "waist";
+
+/** Every place this body can come apart. `R`/`L` are the warrior's own sides. */
+export type SeamId =
+  | "neck"
+  | "shoulderR" | "shoulderL" | "elbowR" | "elbowL"
+  | "hipR" | "hipL" | "kneeR" | "kneeL"
+  | "waist";
+
+/**
+ * One cut, measured at build time off the same skeleton the body was swept from,
+ * so a proportion change carries its seams with it instead of leaving them
+ * 40 mm up the humerus.
+ *
+ * `anchor` is a node that survives everything `anim.ts` does to the rig —
+ * `articulate` swaps every limb mesh for a `SkinnedMesh` and `insertSpine`
+ * reparents the whole upper body under a spine node, and neither touches a pivot
+ * or the torso mesh. The cut plane in world space is always
+ * `anchor.matrixWorld · translate(0, y, 0)`, and `severWorld` will hand it over
+ * rather than have two owners derive it.
+ */
+export interface Seam {
+  id: SeamId;
+  anchor: THREE.Object3D;
+  /** Height of the cut in the anchor's own frame, metres. */
+  y: number;
+  /** The body's section at the cut: half-width across, half-depth front to back. */
+  hw: number;
+  hd: number;
+  /** Which way along the anchor's Y the leaving piece lies. +1 above, −1 below. */
+  away: 1 | -1;
+  /** Long bones in the section — one at a shoulder, two through a forearm. */
+  bones: number;
+  /** Rough mass of what comes away, kg. For whatever integrator throws it. */
+  mass: number;
+}
+
+export interface SeverOptions {
+  /**
+   * How far down the limb. `joint` takes the whole arm or leg off at the
+   * shoulder or hip; `mid` takes it at the elbow or knee. Ignored by the head
+   * and the waist, which have one seam each.
+   *
+   * The defaults differ per limb on purpose. An arm defaults to `mid`, because
+   * a forearm leaving with the fist still closed on a sword is the shot this
+   * whole feature exists for. A leg defaults to `joint`, because a man standing
+   * on a stump reads as a bug and a man whose leg went at the hip falls.
+   */
+  at?: "joint" | "mid";
+  /**
+   * Tier to cut at. Defaults to the tier the character was built at. `low`
+   * refuses the waist — that is the one cut that has to bake the whole upper
+   * body — and takes the head instead, because the bar is that a death still
+   * reads as a death on a phone, not that it reads as the same death.
+   */
+  detail?: CharacterDetail;
+}
+
+/**
+ * A limb that has come off, and everything the caller needs to throw it, bleed
+ * it and put it back.
+ *
+ * The piece arrives parented to nothing, standing in world space at the cut.
+ * Add it to a node with an identity world transform — the arena root — and drive
+ * it from there; add it under something that moves and it will inherit that
+ * motion on top of its own.
+ */
+export interface Severance {
+  zone: HitZone;
+  seam: SeamId;
+  /** The free piece. Unparented; its transform is the cut, in world space. */
+  part: THREE.Group;
+  /**
+   * Centre of mass in the piece's own frame. It is not the origin and that is
+   * the point: a head hung off its own neck stump tumbles, and a torso half
+   * pitches onto its face, because both are being spun about a point they do
+   * not balance on.
+   */
+  com: THREE.Vector3;
+  mass: number;
+  /** World position of the wound *on the body* — where blood comes out. */
+  wound: THREE.Vector3;
+  /** Unit world direction the stump faces. The spray axis. */
+  spray: THREE.Vector3;
+  /**
+   * The wound left on the body, as a node parented into it. `wound` and `spray`
+   * are the instant of separation; this is the same place a second later, after
+   * the corpse has fallen on it — read `getWorldPosition`/`getWorldDirection`
+   * off this for the spray that keeps running, rather than deriving the seam's
+   * frame a second time in another file.
+   */
+  stump: THREE.Object3D;
+  /** Section radius at the cut, metres. How wide the spray should be. */
+  radius: number;
+  /**
+   * Whatever the piece took with it — weapon, shield, offhand. Their transforms
+   * now live under `part`, so anything still posing them each frame (`applyPose`
+   * writes the weapon's rotation) has to let go of these.
+   */
+  carried: readonly THREE.Object3D[];
+  /**
+   * Puts the body back together and hands the piece's geometry back to the pool.
+   * Idempotent, and safe from any state.
+   *
+   * It can also be called *for* you: the pool is finite, and once the field has
+   * more pieces on it than the pool has slots the oldest one is reclaimed —
+   * `part` leaves the scene, and the body it came from stays severed, which is
+   * the right way round for a brawl. A piece whose `part` has lost its parent
+   * has been taken back.
+   */
+  release(): void;
+}
+
+// The prefix every mesh and pivot this file emits carries, so a walk over a rig
+// that `anim.ts` has since hung a weapon, a shield and a bone chain off can tell
+// what is body and what is baggage without a whitelist that goes stale.
+const RIG_TAG = "rig:";
+// `insertSpine`'s node. Named here rather than imported because the dependency
+// only runs one way — anim.ts knows about this file and this file must not know
+// about anim.ts — and because a walk that fails to descend it would find a body
+// with no torso rather than fail loudly.
+const SPINE_NODE = "spine";
+
+/** Seam a zone maps to, at each depth. `torso` severs nothing. */
+const ZONE_SEAM: Record<HitZone, { joint: SeamId; mid: SeamId; deep: "joint" | "mid" } | null> = {
+  head: { joint: "neck", mid: "neck", deep: "joint" },
+  neck: { joint: "neck", mid: "neck", deep: "joint" },
+  armR: { joint: "shoulderR", mid: "elbowR", deep: "mid" },
+  armL: { joint: "shoulderL", mid: "elbowL", deep: "mid" },
+  legR: { joint: "hipR", mid: "kneeR", deep: "joint" },
+  legL: { joint: "hipL", mid: "kneeL", deep: "joint" },
+  waist: { joint: "waist", mid: "waist", deep: "joint" },
+  torso: null,
+};
+
+/** A seam is unavailable once the piece it hangs off has already gone. */
+const SEAM_NEEDS: Partial<Record<SeamId, SeamId>> = {
+  elbowR: "shoulderR", elbowL: "shoulderL",
+  kneeR: "hipR", kneeL: "hipL",
+};
+
+// ------------------------------------------------------------
+// The wound
+// ------------------------------------------------------------
+
+/**
+ * Gore materials, one set per library rather than per warrior, so eight men can
+ * be taken apart in the same brawl for two programs. Weak on the library for the
+ * same reason `SHAPED_GLOW` is: the preview allocates and disposes its own, and
+ * a strong map would outlive it.
+ */
+const GORE_MATS = new WeakMap<CharacterMaterials, { meat: THREE.Material; bone: THREE.Material }>();
+
+function goreMats(M: CharacterMaterials): { meat: THREE.Material; bone: THREE.Material } {
+  let g = GORE_MATS.get(M);
+  if (!g) {
+    // Dark and wet rather than bright and matte. A saturated red at 0.9
+    // roughness is a felt patch; the whole read of an open section is that it
+    // catches a highlight the skin around it does not.
+    g = {
+      meat: M.standard(0x5c0f0b, 0.34),
+      bone: M.standard(0xd6cbac, 0.62),
+    };
+    GORE_MATS.set(M, g);
+  }
+  return g;
+}
+
+const WOUND_CACHE = new Map<string, { meat: THREE.BufferGeometry; bone: THREE.BufferGeometry }>();
+
+/**
+ * The stump, and it is worth the forty lines. A flat cap over a severed limb is
+ * the single thing that makes dismemberment read as a toy coming apart rather
+ * than as a man being cut: it is one polygon, one value, no silhouette, and the
+ * eye reads "hollow" instantly.
+ *
+ * So the section is built as what a section is — a rim of flesh standing proud
+ * of a sunken middle, torn rather than circular, with bone in it:
+ *
+ *   * The **profile** dips below the cut at the centre and rises above it at
+ *     0.78 of the radius. That ridge is the only part of a wound that catches a
+ *     key light, and the hollow behind it is what an AO pass finds.
+ *   * The **outline** is not a circle. Two harmonics take it ±20% off round, so
+ *     the boundary against the shell's own rim is ragged and no two azimuths
+ *     tear the same distance.
+ *   * The **tags** are the last ring folded back under, unevenly. Flesh that
+ *     hangs over the edge of the cut is what says the limb was *torn* off by an
+ *     axe rather than sawn.
+ *   * The **bone** stands proud in the middle, snapped short, with a jagged top
+ *     ring. One shaft at a shoulder or a hip, two through a forearm or a shin.
+ *
+ * Built on a unit section and scaled to the seam, so the whole game holds three
+ * of these — one per tier — instead of one per limb per class per stature.
+ */
+function unitWound(seg: number, rows: number, bones: number): { meat: THREE.BufferGeometry; bone: THREE.BufferGeometry } {
+  const key = `${seg}|${rows}|${bones}`;
+  const hit = WOUND_CACHE.get(key);
+  if (hit) return hit;
+
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  // t → height, in units of the section's radius. Below the cut in the middle,
+  // above it at the rim, folded back under at the very edge.
+  const LIP: Array<[number, number]> = [[0, -0.22], [0.4, -0.15], [0.78, 0.11], [0.9, 0.05], [1, -0.2]];
+  const lip = (t: number): number => {
+    let i = 0;
+    while (i < LIP.length - 2 && t > LIP[i + 1][0]) i++;
+    const f = clamp01((t - LIP[i][0]) / (LIP[i + 1][0] - LIP[i][0]));
+    return mix(LIP[i][1], LIP[i + 1][1], f);
+  };
+  for (let j = 0; j <= rows; j++) {
+    const t = j / rows;
+    for (let i = 0; i <= seg; i++) {
+      const a = (i / seg) * Math.PI * 2;
+      const torn = 1 + 0.20 * Math.sin(a * 3 + 0.9) + 0.11 * Math.sin(a * 7 + 2.3);
+      const r = t * torn;
+      // The tags only exist on the outermost ring, and they vary round it:
+      // an even fringe is a doily.
+      const tag = j === rows ? 0.6 + 0.9 * Math.abs(Math.sin(a * 2.5 + 0.4)) : 1;
+      pos.push(r * Math.cos(a), lip(t) * (j === rows ? tag : 1), r * Math.sin(a));
+      uv.push(i / seg, t);
+    }
+  }
+  const stride = seg + 1;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < seg; i++) {
+      const a = j * stride + i;
+      const b = a + 1;
+      const c = b + stride;
+      const d = a + stride;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  const meat = finish(pos, uv, idx);
+
+  // Snapped shafts. `rod` gives a closed cylinder; the top ring is then pushed
+  // about unevenly, which is the difference between a bone and a dowel.
+  const shafts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < bones; k++) {
+    const r = bones > 1 ? 0.19 : 0.28;
+    const dx = bones > 1 ? (k === 0 ? -0.34 : 0.30) : 0;
+    const dz = bones > 1 ? (k === 0 ? 0.08 : -0.1) : 0;
+    const g = rod(r * 0.92, r, 0.46, Math.max(5, Math.round(seg * 0.5)));
+    const p = g.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) <= 0) continue;
+      p.setY(i, p.getY(i) + hash(i, 17 + k * 7) * 0.16 - 0.04);
+    }
+    p.needsUpdate = true;
+    g.computeVertexNormals();
+    // Sunk so the shaft rises out of the hollow rather than floating over it.
+    g.applyMatrix4(xf(dx, 0.06, dz));
+    shafts.push(g);
+  }
+  const bone = shafts.length === 1 ? shafts[0] : (mergeGeometries(shafts, false) ?? shafts[0]);
+  if (shafts.length > 1) for (const g of shafts) if (g !== bone) g.dispose();
+
+  const made = { meat, bone };
+  WOUND_CACHE.set(key, made);
+  return made;
+}
+
+const WOUND_LOD: Record<CharacterDetail, { seg: number; rows: number }> = {
+  high: { seg: 16, rows: 5 },
+  medium: { seg: 12, rows: 4 },
+  low: { seg: 8, rows: 3 },
+};
+
+/**
+ * A wound sized onto one seam and pointed the way it opens. Two meshes, sharing
+ * one geometry pair with every other wound in the match.
+ */
+function woundAt(seam: Seam, M: CharacterMaterials, detail: CharacterDetail, facing: number): THREE.Group {
+  const { seg, rows } = WOUND_LOD[detail];
+  const geo = unitWound(seg, rows, seam.bones);
+  const mats = goreMats(M);
+  const g = new THREE.Group();
+  g.name = `${RIG_TAG}wound`;
+  const meat = new THREE.Mesh(geo.meat, mats.meat);
+  const bone = new THREE.Mesh(geo.bone, mats.bone);
+  g.add(meat, bone);
+  // Slightly proud of the section so it plugs the shell's open end rather than
+  // sitting flush in it and z-fighting the rim.
+  g.scale.set(seam.hw * 1.04, (seam.hw + seam.hd) * 0.52, seam.hd * 1.04);
+  if (facing < 0) g.rotation.x = Math.PI;
+  return g;
+}
+
+// ------------------------------------------------------------
+// The cut
+// ------------------------------------------------------------
+
+const _sm = new THREE.Matrix4();
+const _sv = new THREE.Vector3();
+let SCRATCH_P = new Float32Array(0);
+let SCRATCH_R = new Int32Array(0);
+
+/**
+ * Every vertex of a mesh in the cut's frame, skinning included.
+ *
+ * The skinning is why this exists at all. A limb is a `SkinnedMesh` in attached
+ * bind mode, which means its own transform cancels out of the shader and the
+ * bones place it in world space — so a piece that merely gets reparented does
+ * not move, and one that gets cloned as a plain mesh snaps back to bind pose
+ * with its elbow straight, mid-swing. Pushing the vertices through the skeleton
+ * once, here, is what freezes an arm in the pose it died in.
+ */
+function project(mesh: THREE.Mesh, worldToFrame: THREE.Matrix4): Float32Array {
+  const geo = mesh.geometry;
+  const pos = geo.getAttribute("position");
+  const n = pos.count;
+  if (SCRATCH_P.length < n * 3) SCRATCH_P = new Float32Array(n * 3);
+  const out = SCRATCH_P;
+  const skin = geo.hasAttribute("skinIndex") ? asSkinned(mesh) : null;
+  const m = _sm.multiplyMatrices(worldToFrame, mesh.matrixWorld);
+  for (let i = 0; i < n; i++) {
+    _sv.fromBufferAttribute(pos, i);
+    if (skin) skin.applyBoneTransform(i, _sv);
+    _sv.applyMatrix4(m);
+    out[i * 3] = _sv.x;
+    out[i * 3 + 1] = _sv.y;
+    out[i * 3 + 2] = _sv.z;
+  }
+  return out;
+}
+
+/**
+ * One pooled slot of baked geometry.
+ *
+ * The attributes are allocated once at their high-water mark and then never
+ * replaced: a bake overwrites the arrays, sets a draw range and flags an upload.
+ * That is the difference between a pool and a free list — a free list of
+ * `BufferGeometry` still hands the driver a new buffer per acquisition, because
+ * the GPU-side allocation follows the *attribute* object and not the geometry.
+ */
+interface PieceSlot {
+  geo: THREE.BufferGeometry;
+  pos: THREE.BufferAttribute;
+  uv: THREE.BufferAttribute;
+  idx: THREE.BufferAttribute;
+  verts: number;
+  tris: number;
+  busy: boolean;
+  stamp: number;
+  owner: object | null;
+}
+
+const PIECES: PieceSlot[] = [];
+// A waist cut on a cloaked huscarl is the worst case at about twenty slots, so
+// this holds two of them plus a scattering of limbs. Past it the oldest
+// severance on the field is put back — a corpse losing its arm again after four
+// other men have died is the correct thing to spend.
+const PIECE_CAP = 48;
+let pieceClock = 0;
+const LIVE: Array<{ owner: object; release: () => void }> = [];
+
+function newSlot(): PieceSlot {
+  const slot: PieceSlot = {
+    geo: new THREE.BufferGeometry(),
+    pos: new THREE.BufferAttribute(new Float32Array(0), 3),
+    uv: new THREE.BufferAttribute(new Float32Array(0), 2),
+    idx: new THREE.BufferAttribute(new Uint32Array(0), 1),
+    verts: 0, tris: 0, busy: false, stamp: 0, owner: null,
+  };
+  return slot;
+}
+
+function fitSlot(slot: PieceSlot, verts: number, tris: number): void {
+  if (slot.verts >= verts && slot.tris >= tris) return;
+  const v = Math.max(verts, slot.verts);
+  const t = Math.max(tris, slot.tris);
+  // Frees whatever the old attributes hold on the GPU. Only ever runs while the
+  // pool is warming up to the largest limb the roster owns.
+  slot.geo.dispose();
+  slot.pos = new THREE.BufferAttribute(new Float32Array(v * 3), 3);
+  slot.uv = new THREE.BufferAttribute(new Float32Array(v * 2), 2);
+  slot.idx = new THREE.BufferAttribute(new Uint32Array(t * 3), 1);
+  slot.pos.setUsage(THREE.DynamicDrawUsage);
+  slot.uv.setUsage(THREE.DynamicDrawUsage);
+  slot.idx.setUsage(THREE.DynamicDrawUsage);
+  slot.geo.setAttribute("position", slot.pos);
+  slot.geo.setAttribute("uv", slot.uv);
+  slot.geo.setIndex(slot.idx);
+  slot.verts = v;
+  slot.tris = t;
+}
+
+function acquirePiece(verts: number, tris: number, owner: object): PieceSlot {
+  let slot = PIECES.find((s) => !s.busy);
+  if (!slot && PIECES.length >= PIECE_CAP) {
+    // Never evict the severance being assembled, or a waist cut would eat its
+    // own torso half-way through building itself.
+    const victim = LIVE.find((s) => s.owner !== owner);
+    if (victim) {
+      victim.release();
+      slot = PIECES.find((s) => !s.busy);
+    }
+  }
+  if (!slot) {
+    slot = newSlot();
+    PIECES.push(slot);
+  }
+  fitSlot(slot, verts, tris);
+  slot.busy = true;
+  slot.owner = owner;
+  slot.stamp = ++pieceClock;
+  return slot;
+}
+
+/**
+ * Copies the triangles on one side of the cut into a pooled slot.
+ *
+ * `side` is the sign of the frame-space Y the kept triangles lie on, judged by
+ * centroid: a triangle belongs wholly to whichever half its middle is in. `into`
+ * moves the result out of the cut's frame and into whatever space the mesh it
+ * replaces lived in — the piece keeps the cut's frame, the stump goes back into
+ * the body's.
+ */
+function harvest(
+  mesh: THREE.Mesh,
+  p: Float32Array,
+  side: number,
+  into: THREE.Matrix4 | null,
+  owner: object,
+): PieceSlot | null {
+  const geo = mesh.geometry;
+  const pos = geo.getAttribute("position");
+  const uv = geo.getAttribute("uv");
+  const index = geo.getIndex();
+  const faces = index ? index.count / 3 : pos.count / 3;
+  const vertOf = index ? (k: number) => index.getX(k) : (k: number) => k;
+
+  let tris = 0;
+  for (let f = 0; f < faces; f++) {
+    const a = vertOf(f * 3);
+    const b = vertOf(f * 3 + 1);
+    const c = vertOf(f * 3 + 2);
+    if ((p[a * 3 + 1] + p[b * 3 + 1] + p[c * 3 + 1]) * side > 0) tris++;
+  }
+  if (tris === 0) return null;
+
+  const slot = acquirePiece(Math.min(pos.count, tris * 3), tris, owner);
+  if (SCRATCH_R.length < pos.count) SCRATCH_R = new Int32Array(pos.count);
+  const remap = SCRATCH_R;
+  remap.fill(-1, 0, pos.count);
+  const P = slot.pos.array as Float32Array;
+  const U = slot.uv.array as Float32Array;
+  const I = slot.idx.array as Uint32Array;
+  const box = new THREE.Box3();
+  let vn = 0;
+  let tn = 0;
+  for (let f = 0; f < faces; f++) {
+    const tri = [vertOf(f * 3), vertOf(f * 3 + 1), vertOf(f * 3 + 2)];
+    if ((p[tri[0] * 3 + 1] + p[tri[1] * 3 + 1] + p[tri[2] * 3 + 1]) * side <= 0) continue;
+    for (const v of tri) {
+      let r = remap[v];
+      if (r < 0) {
+        r = vn++;
+        remap[v] = r;
+        _sv.set(p[v * 3], p[v * 3 + 1], p[v * 3 + 2]);
+        if (into) _sv.applyMatrix4(into);
+        P[r * 3] = _sv.x;
+        P[r * 3 + 1] = _sv.y;
+        P[r * 3 + 2] = _sv.z;
+        U[r * 2] = uv ? uv.getX(v) : 0;
+        U[r * 2 + 1] = uv ? uv.getY(v) : 0;
+        box.expandByPoint(_sv);
+      }
+      I[tn++] = r;
+    }
+  }
+  // The tail of the index is collapsed onto vertex 0 rather than left holding a
+  // previous tenant's triangles: the draw range hides them, but
+  // `computeVertexNormals` walks the whole attribute and would fold a stale
+  // face's normal into a live vertex. A degenerate triangle contributes nothing.
+  I.fill(0, tn);
+  slot.pos.needsUpdate = true;
+  slot.uv.needsUpdate = true;
+  slot.idx.needsUpdate = true;
+  slot.geo.setDrawRange(0, tn);
+  slot.geo.computeVertexNormals();
+  // Written rather than computed, because the attributes are longer than the
+  // piece and `computeBoundingSphere` would include the unused tail.
+  slot.geo.boundingBox = box;
+  slot.geo.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+  return slot;
+}
+
+/**
+ * Duck-typed rather than `instanceof`, and this is the one place in the file
+ * where that is the right call: everything below is inspecting objects another
+ * module made — `articulate` rebuilds every limb as a `SkinnedMesh` and hangs
+ * its own `Bone`s off the pivots — and a class check answers "was this made by
+ * the same copy of three as me", which is not the question. three carries these
+ * flags for exactly this reason.
+ */
+const asMesh = (o: THREE.Object3D): THREE.Mesh | null => ((o as THREE.Mesh).isMesh ? (o as THREE.Mesh) : null);
+const asSkinned = (o: THREE.Object3D): THREE.SkinnedMesh | null =>
+  ((o as THREE.SkinnedMesh).isSkinnedMesh ? (o as THREE.SkinnedMesh) : null);
+const isBone = (o: THREE.Object3D): boolean => (o as THREE.Bone).isBone === true;
+
+/** Walks a rig subtree, separating what this file built from what was hung on it. */
+function collectRig(
+  node: THREE.Object3D,
+  skip: THREE.Object3D[] | null,
+  meshes: THREE.Mesh[],
+  carried: THREE.Object3D[],
+): void {
+  for (const c of node.children) {
+    if (skip && skip.includes(c)) continue;
+    const mesh = asMesh(c);
+    if (mesh) {
+      if (mesh.name.startsWith(RIG_TAG)) meshes.push(mesh);
+      else carried.push(mesh);
+      continue;
+    }
+    if (isBone(c) || c.name === "handMount" || c.name === SPINE_NODE || c.name.startsWith(RIG_TAG)) {
+      collectRig(c, skip, meshes, carried);
+      continue;
+    }
+    // A weapon, a shield, a rune light — anything another owner mounted. It
+    // travels whole or not at all; nobody cuts a sword in half.
+    carried.push(c);
+  }
+}
+
+/** Bumps the shared-geometry refcount `emit` keeps, if this geometry is shared. */
+function retainRig(geo: THREE.BufferGeometry): boolean {
+  const n = USES.get(geo);
+  if (n === undefined) return false;
+  USES.set(geo, n + 1);
+  return true;
+}
+
+/** Everything `sever` needs off the body it is cutting. Built once, per warrior. */
+interface SeverContext {
+  root: THREE.Group;
+  seams: Record<SeamId, Seam>;
+  /** The two leg pivots — the only part of the body a waist cut leaves alone. */
+  legs: THREE.Object3D[];
+  head: THREE.Object3D;
+  torso: THREE.Mesh[];
+  materials: CharacterMaterials;
+  detail: CharacterDetail;
+  live: Map<SeamId, Severance>;
+}
+
+const _sf = new THREE.Matrix4();
+
+function severBody(ctx: SeverContext, zone: HitZone, opts: SeverOptions = {}): Severance | null {
+  const route = ZONE_SEAM[zone];
+  if (!route) return null;
+  const detail = opts.detail ?? ctx.detail;
+  let id = route[opts.at ?? route.deep];
+  if (id === "waist" && detail === "low") id = "neck";
+  // Once already gone, or hanging off something already gone. A man cannot lose
+  // the same forearm twice, and nothing comes off an upper body that has itself
+  // left the field.
+  if (ctx.live.has(id) || ctx.live.has("waist")) return null;
+  const needs = SEAM_NEEDS[id];
+  if (needs && ctx.live.has(needs)) return null;
+  const seam = ctx.seams[id];
+
+  // Every matrix under this body, and every bone in it, current as of this
+  // frame — `project` reads bone world matrices directly and a stale one bakes
+  // the arm into last frame's swing.
+  ctx.root.updateWorldMatrix(true, true);
+  const frame = seam.anchor.matrixWorld.clone().multiply(new THREE.Matrix4().makeTranslation(0, seam.y, 0));
+  const toFrame = frame.clone().invert();
+
+  const meshes: THREE.Mesh[] = [];
+  const carried: THREE.Object3D[] = [];
+  if (id === "waist") {
+    collectRig(ctx.root, ctx.legs, meshes, carried);
+  } else if (id === "neck") {
+    collectRig(ctx.head, null, meshes, carried);
+    // The throat is torso geometry — the neck shell, its two straps and the
+    // larynx are swept with the body and merged into its skin slot — so a head
+    // that came off without them would leave the collar's contents standing.
+    meshes.push(...ctx.torso);
+  } else {
+    collectRig(seam.anchor, null, meshes, carried);
+  }
+
+  const owner = {};
+  const away = seam.away;
+  const part = new THREE.Group();
+  part.name = `${RIG_TAG}severed:${id}`;
+  frame.decompose(part.position, part.quaternion, part.scale);
+
+  const slots: PieceSlot[] = [];
+  const hidden: THREE.Mesh[] = [];
+  const grafted: THREE.Object3D[] = [];
+  const retained: THREE.BufferGeometry[] = [];
+  const moved: Array<{
+    obj: THREE.Object3D; parent: THREE.Object3D | null;
+    position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3;
+  }> = [];
+
+  const carryWhole = (mesh: THREE.Mesh): void => {
+    const clone = new THREE.Mesh(mesh.geometry, mesh.material);
+    clone.name = mesh.name;
+    clone.castShadow = mesh.castShadow;
+    clone.receiveShadow = mesh.receiveShadow;
+    _sf.multiplyMatrices(toFrame, mesh.matrixWorld).decompose(clone.position, clone.quaternion, clone.scale);
+    part.add(clone);
+    if (retainRig(mesh.geometry)) retained.push(mesh.geometry);
+    mesh.visible = false;
+    hidden.push(mesh);
+  };
+
+  // The low tier's one concession beyond particle counts: a limb taken off at
+  // the shoulder or the hip is carried whole rather than baked, which costs the
+  // pose it died in — the arm straightens as it leaves — and saves the entire
+  // vertex pass. At the distance a phone plays this game the pop is invisible
+  // and the arm coming off is not.
+  const cheap = detail === "low"
+    && (id === "shoulderR" || id === "shoulderL" || id === "hipR" || id === "hipL");
+
+  const span = new THREE.Box3();
+  for (const mesh of meshes) {
+    const skinned = mesh.geometry.hasAttribute("skinIndex") && asSkinned(mesh) !== null;
+    if (cheap) {
+      carryWhole(mesh);
+      continue;
+    }
+    if (!skinned) {
+      // A rigid mesh the plane misses is settled without reading a vertex: the
+      // bind-pose bounding box is exact for anything the skeleton does not move,
+      // and most of a body is exactly that.
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const bb = mesh.geometry.boundingBox;
+      if (bb) {
+        span.copy(bb).applyMatrix4(_sf.multiplyMatrices(toFrame, mesh.matrixWorld));
+        const near = Math.min(span.min.y * away, span.max.y * away);
+        const far = Math.max(span.min.y * away, span.max.y * away);
+        if (far <= 0) continue;
+        if (near >= 0) {
+          carryWhole(mesh);
+          continue;
+        }
+      }
+    }
+    const p = project(mesh, toFrame);
+    const go = harvest(mesh, p, away, null, owner);
+    if (go) {
+      slots.push(go);
+      const m = new THREE.Mesh(go.geo, mesh.material);
+      m.name = mesh.name;
+      m.castShadow = mesh.castShadow;
+      m.receiveShadow = mesh.receiveShadow;
+      part.add(m);
+    }
+    // The stump goes back into the frame of the mesh it replaces and is hung off
+    // the same parent, so whatever drives that node — a shoulder pivot, the
+    // spine — goes on driving what is left of the limb.
+    const keepInto = new THREE.Matrix4().copy(mesh.matrixWorld).invert().multiply(frame);
+    const keep = harvest(mesh, p, -away, keepInto, owner);
+    if (keep) {
+      slots.push(keep);
+      const m = new THREE.Mesh(keep.geo, mesh.material);
+      m.name = mesh.name;
+      m.castShadow = mesh.castShadow;
+      m.receiveShadow = mesh.receiveShadow;
+      m.position.copy(mesh.position);
+      m.quaternion.copy(mesh.quaternion);
+      m.scale.copy(mesh.scale);
+      mesh.parent?.add(m);
+      grafted.push(m);
+    }
+    mesh.visible = false;
+    hidden.push(mesh);
+  }
+
+  // What the piece takes with it. A weapon rides the fist it was in — which is
+  // the whole point of cutting an arm at the elbow — and a shield rides the
+  // forearm it is strapped to. Neither ever gets cut, so each is judged whole.
+  //
+  // The test is the plane only for a limb cut, where the walk covers a limb the
+  // plane crosses and the question is genuinely which side the object is on.
+  // Above the waist and the neck the walk *is* the piece, so a sword goes with
+  // the arm holding it whatever height it happens to hang at: a man cut in half
+  // at the belt does not leave his axe standing on the field, and his fist is
+  // below the cut while his shoulder is above it.
+  const wholeWalk = id === "waist" || id === "neck";
+  for (const obj of carried) {
+    obj.updateWorldMatrix(true, false);
+    _sf.multiplyMatrices(toFrame, obj.matrixWorld);
+    if (!wholeWalk && _sv.setFromMatrixPosition(_sf).y * away <= 0) continue;
+    moved.push({
+      obj,
+      parent: obj.parent,
+      position: obj.position.clone(),
+      quaternion: obj.quaternion.clone(),
+      scale: obj.scale.clone(),
+    });
+    part.add(obj);
+    _sf.decompose(obj.position, obj.quaternion, obj.scale);
+  }
+
+  // Two wounds: one in the body facing the way the piece went, one in the piece
+  // facing back at it. The second is what makes a severed arm read as severed
+  // while it is in the air rather than as an arm that was always a prop.
+  const stumpUnder = asMesh(seam.anchor) ? (seam.anchor.parent ?? ctx.root) : seam.anchor;
+  const stump = new THREE.Group();
+  stump.name = `${RIG_TAG}stump`;
+  stump.add(woundAt(seam, ctx.materials, detail, away));
+  stumpUnder.updateWorldMatrix(true, false);
+  _sf.copy(stumpUnder.matrixWorld).invert().multiply(frame).decompose(stump.position, stump.quaternion, stump.scale);
+  stumpUnder.add(stump);
+  part.add(woundAt(seam, ctx.materials, detail, -away));
+
+  part.updateMatrixWorld(true);
+  const com = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3()).applyMatrix4(toFrame);
+
+  let done = false;
+  const severance: Severance = {
+    zone,
+    seam: id,
+    part,
+    com,
+    mass: seam.mass,
+    wound: new THREE.Vector3().setFromMatrixPosition(frame),
+    spray: new THREE.Vector3(0, away, 0).transformDirection(frame),
+    stump,
+    radius: (seam.hw + seam.hd) * 0.5,
+    carried: moved.map((m) => m.obj),
+    release() {
+      if (done) return;
+      done = true;
+      // The piece's geometry belongs to the pool the moment this returns, so the
+      // piece itself has to leave the scene with it.
+      part.removeFromParent();
+      for (const m of grafted) m.removeFromParent();
+      stump.removeFromParent();
+      for (const s of slots) {
+        s.busy = false;
+        s.owner = null;
+      }
+      // Shared body geometry the piece was carrying rather than copying. This is
+      // the refcount `emit` keeps, not a real free — the last body wearing this
+      // kit is still the one that releases it.
+      for (const g of retained) g.dispose();
+      for (const r of moved) {
+        r.parent?.add(r.obj);
+        r.obj.position.copy(r.position);
+        r.obj.quaternion.copy(r.quaternion);
+        r.obj.scale.copy(r.scale);
+      }
+      for (const m of hidden) m.visible = true;
+      ctx.live.delete(id);
+      const i = LIVE.findIndex((e) => e.owner === owner);
+      if (i >= 0) LIVE.splice(i, 1);
+    },
+  };
+  ctx.live.set(id, severance);
+  LIVE.push({ owner, release: severance.release });
+  return severance;
+}
+
+// ============================================================
 // Character builder
 // ============================================================
 
@@ -3120,6 +3926,36 @@ export interface BuiltCharacter {
   head: THREE.Group;
   cloak?: THREE.Group;
   torso: THREE.Mesh;
+  /**
+   * Every place this body can come apart, with the node and the local height of
+   * each cut. Read it to aim a blood emitter or to measure a limb before it
+   * leaves; `sever` is what actually takes one off.
+   */
+  seams: Readonly<Record<SeamId, Seam>>;
+  /**
+   * Takes a limb off, on the frame the kill arrives.
+   *
+   * Returns the piece, or `null` when the zone severs nothing — `torso` never
+   * does, and neither does a seam whose limb has already gone. The body is
+   * mutated in place: the severed geometry is hidden, a stump is grafted on and
+   * a wound is plugged into it. The piece comes back unparented and standing in
+   * world space at the cut; add it to a node with an identity world transform
+   * and drive it from there.
+   *
+   * Everything it allocates is returned by `release()`, which puts the body back
+   * exactly as it was. `reassemble()` does that for every piece at once, and a
+   * respawn must call one or the other — pieces hold pooled geometry, and a pool
+   * slot that is never handed back is a limb that vanishes off somebody else's
+   * corpse five deaths later.
+   */
+  sever(zone: HitZone, opts?: SeverOptions): Severance | null;
+  /**
+   * Releases every live severance on this body. Safe to call on an intact one,
+   * and the right thing to call on respawn and *before* disposing the rig —
+   * a stump grafted onto a body holds pooled geometry, and the walk that
+   * disposes a dead warrior's meshes would free buffers the pool still owns.
+   */
+  reassemble(): void;
 }
 
 function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail: CharacterDetail, lib: string): string {
@@ -3354,6 +4190,11 @@ export function buildCharacter(
     for (const { geo, mat } of merged) {
       if (sig) USES.set(geo, (USES.get(geo) ?? 0) + 1);
       const mesh = new THREE.Mesh(geo, reskin.get(mat) ?? mat);
+      // Tagged so a cut can walk a rig that other owners have since hung a
+      // weapon, a shield and a bone chain off, and tell body from baggage. The
+      // name and not `userData`, because `articulate` rebuilds every limb mesh
+      // as a `SkinnedMesh` and carries the name across — nothing else survives.
+      mesh.name = RIG_TAG + name;
       parent.add(mesh);
       meshes.push(mesh);
     }
@@ -3372,6 +4213,7 @@ export function buildCharacter(
   const legPivots: THREE.Group[] = [];
   for (const side of [-1, 1]) {
     const pivot = new THREE.Group();
+    pivot.name = `${RIG_TAG}leg${side}`;
     pivot.position.set(side * S.hipX, S.hipY, 0);
     root.add(pivot);
     legPivots.push(pivot);
@@ -3976,6 +4818,7 @@ export function buildCharacter(
   const armPivots: THREE.Group[] = [];
   for (const side of [1, -1]) {
     const pivot = new THREE.Group();
+    pivot.name = `${RIG_TAG}arm${side}`;
     pivot.position.set(side * S.shoulderX, S.shoulderY, 0);
     root.add(pivot);
     armPivots.push(pivot);
@@ -4181,6 +5024,7 @@ export function buildCharacter(
   // HEAD — pivot at the atlas, everything measured off the skull
   // ==========================================================
   const headPivot = new THREE.Group();
+  headPivot.name = `${RIG_TAG}headPivot`;
   headPivot.position.set(0, S.neckTop, 0);
   root.add(headPivot);
 
@@ -4971,6 +5815,7 @@ export function buildCharacter(
   let cloak: THREE.Group | undefined;
   if (ap.cloak !== "none") {
     const pivot = new THREE.Group();
+    pivot.name = `${RIG_TAG}cloak`;
     pivot.position.set(0, S.shoulderY + 0.035, -0.02);
     root.add(pivot);
     cloak = pivot;
@@ -5045,6 +5890,70 @@ export function buildCharacter(
     });
   }
 
+  // ==========================================================
+  // SEAMS — where this body comes apart
+  // ==========================================================
+  //
+  // Measured off `S` like everything else, so the cuts move with the skeleton
+  // instead of being written down twice. Two choices here are worth stating:
+  //
+  //   * A joint cut is taken a centimetre or two *inside* the joint rather than
+  //     through it, so the kit over the joint stays on the body. An arm off at
+  //     the shoulder leaves the pauldron's top lame sitting on the deltoid,
+  //     which is what a real shoulder defence does when the arm under it goes,
+  //     and it is far better than the alternative — a floating shell fragment
+  //     riding an arm that is no longer there.
+  //   * The waist is anchored to the torso mesh and not to the body root. The
+  //     mesh's own frame *is* the space its stations were swept in, and it is
+  //     the one node that keeps that space after `insertSpine` reparents the
+  //     upper body and offsets it by a belt height.
+  const seams: Record<SeamId, Seam> = {
+    neck: {
+      id: "neck", anchor: headPivot, y: S.neckRoot - S.neckTop,
+      hw: S.neckHW * 0.94, hd: S.neckHD * 0.94, away: 1, bones: 1, mass: 5.0,
+    },
+    shoulderR: {
+      id: "shoulderR", anchor: rightArm, y: -0.018,
+      hw: S.armR[0] * 1.02, hd: S.armR[0] * 1.06, away: -1, bones: 1, mass: 4.3,
+    },
+    shoulderL: {
+      id: "shoulderL", anchor: leftArm, y: -0.018,
+      hw: S.armR[0] * 1.02, hd: S.armR[0] * 1.06, away: -1, bones: 1, mass: 4.3,
+    },
+    elbowR: {
+      id: "elbowR", anchor: rightArm, y: -S.upperArm - 0.012,
+      hw: S.armR[2] * 1.02, hd: S.armR[2] * 1.06, away: -1, bones: 2, mass: 2.2,
+    },
+    elbowL: {
+      id: "elbowL", anchor: leftArm, y: -S.upperArm - 0.012,
+      hw: S.armR[2] * 1.02, hd: S.armR[2] * 1.06, away: -1, bones: 2, mass: 2.2,
+    },
+    hipR: {
+      id: "hipR", anchor: rightLeg, y: -0.026,
+      hw: S.legR[0] * 0.98, hd: S.legR[0] * 1.02, away: -1, bones: 1, mass: 11.5,
+    },
+    hipL: {
+      id: "hipL", anchor: leftLeg, y: -0.026,
+      hw: S.legR[0] * 0.98, hd: S.legR[0] * 1.02, away: -1, bones: 1, mass: 11.5,
+    },
+    kneeR: {
+      id: "kneeR", anchor: rightLeg, y: S.kneeY - S.hipY - 0.02,
+      hw: S.legR[2] * 0.98, hd: S.legR[2] * 1.04, away: -1, bones: 2, mass: 4.6,
+    },
+    kneeL: {
+      id: "kneeL", anchor: leftLeg, y: S.kneeY - S.hipY - 0.02,
+      hw: S.legR[2] * 0.98, hd: S.legR[2] * 1.04, away: -1, bones: 2, mass: 4.6,
+    },
+    waist: {
+      id: "waist", anchor: torsoMeshes[0], y: mix(S.waistY, S.beltY, 0.55),
+      hw: S.waistHW * 0.96, hd: S.waistHD * 0.96, away: 1, bones: 1, mass: 33,
+    },
+  };
+  const cutting: SeverContext = {
+    root, seams, legs: legPivots, head: headPivot, torso: torsoMeshes,
+    materials: M, detail, live: new Map<SeamId, Severance>(),
+  };
+
   return {
     group: root,
     rightArm,
@@ -5054,5 +5963,10 @@ export function buildCharacter(
     head: headPivot,
     cloak,
     torso: torsoMeshes[0],
+    seams,
+    sever: (zone, opts) => severBody(cutting, zone, opts),
+    reassemble: () => {
+      for (const s of [...cutting.live.values()]) s.release();
+    },
   };
 }
