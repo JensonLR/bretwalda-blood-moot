@@ -200,9 +200,15 @@ async function main() {
 
   // ---- 6. block ----
   await page.waitForTimeout(600);
+  const s3 = await seq();
   await page.mouse.down({ button: "right" });
   await page.waitForTimeout(450);
-  const a5 = await me();
+  // Needs the same staleness guard as the dodge, for the same reason: a bare
+  // me() returns whichever packet last arrived, and on a stalled main thread
+  // that can predate the press entirely and report idle while the block is
+  // genuinely live. Reading one packet past the press keeps the assertion
+  // ("the sim says blocking") intact while removing the race that flakes it.
+  const a5 = await me(s3 + 1);
   await page.mouse.up({ button: "right" });
   check("right click blocks", a5.state === "blocking", `state=${a5.state}`);
 

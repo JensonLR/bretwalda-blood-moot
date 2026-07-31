@@ -757,7 +757,10 @@ export default function Page() {
                     <button key={w.id} onClick={() => setPreviewClass(w.id)}
                       className={`card card-interactive flex flex-col items-center justify-center gap-1 py-2 ${previewClass === w.id ? "card-selected" : ""}`}>
                       <w.Icon size={15} className={previewClass === w.id ? "text-amber-300" : "text-stone-400"} />
-                      <span className="text-[8px] font-bold tracking-wider text-stone-300">{w.name.slice(0, 5)}</span>
+                      {/* Full name, not a 5-char slice: "HUSCA / WARDE / RUNEK / BERSE"
+                          read as truncation bugs, and the chip is wide enough for
+                          the longest of them at this size. */}
+                      <span className="text-[8px] font-bold leading-none tracking-wide text-stone-300">{w.name}</span>
                     </button>
                   ))}
                 </div>
