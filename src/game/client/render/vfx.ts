@@ -7,6 +7,13 @@
 // a brawl allocated and disposed forty shader-bearing objects a second and the
 // collector was visible in the frame time.
 //
+// A warrior alight is not a seventh system. He is the bonfire — the same tongue
+// shader, the same ember and smoke emitters, the same halo quad, one warm light
+// off the same never-hidden pool the impact flashes use — anchored to a rig
+// instead of to the ground. The only thing that costs anything is that his
+// origin moves, so the flame layer is repacked per frame while anybody is
+// burning instead of on a dirty flag. See `Burner` and `setBurning`.
+//
 // The one non-negotiable rule is that no particle is ever an untextured square.
 // Everything samples a procedurally generated atlas or is a shader with a real
 // profile in it; there is no `PointsMaterial` in this file and there must never
@@ -44,7 +51,7 @@
 import * as THREE from "three";
 import { LAYER_UNOCCLUDED, setLayerDeep, type FrameContext, type Mood, type QualitySettings } from "./quality";
 import type { TextureLibrary, SpriteName } from "./textures";
-import type { HitZone, Vec3 } from "../../types";
+import { FIRE, type HitZone, type Vec3 } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -188,6 +195,30 @@ export interface VfxHandle {
   severed(opts: SeveranceOptions): BleedHandle;
   addFire(spec: FireSpec): number;
   removeFire(id: number): void;
+  /**
+   * A warrior the server says is alight — flame on him, the light it throws,
+   * embers off him, and smoke that outlives the flames.
+   *
+   * Every argument is a wire field passed through untouched, and that is the
+   * whole contract: nothing here works out who is burning. The hazard sits half
+   * a metre inside the visible flame on purpose, so a client that decided this
+   * from where a rig happens to be standing would disagree with the sim exactly
+   * at the boundary the sim was tuned to be generous at.
+   *
+   * Call it every frame for every player, alight or not — a burner that stops
+   * being mentioned goes out on its own, so a man who dies, respawns or leaves
+   * needs no second call:
+   *
+   * ```ts
+   * vfx.setBurning(id, p.burning === true, p.burnTimer ?? 0, p.burnInside === true);
+   * ```
+   *
+   * @param burning   `GamePlayer.burning` — alight, in the fire or out of it.
+   * @param timer     `GamePlayer.burnTimer`, seconds. Normalised against
+   *                  `FIRE.linger` into the flame's own 1→0 fade.
+   * @param inside    `GamePlayer.burnInside` — engulfed, as against trailing.
+   */
+  setBurning(id: string, burning: boolean, timer: number, inside: boolean): void;
   setMood(mood: Mood): void;
   update(dt: number, ctx: FrameContext): void;
   dispose(): void;
@@ -1598,6 +1629,61 @@ interface Fire {
   spec: FireSpec;
   emberAcc: number;
   smokeAcc: number;
+  /**
+   * Per-tongue height and rate wobble, drawn once and kept.
+   *
+   * It used to be a `rand()` inside the rebuild, which was safe only because a
+   * static fire is rebuilt on a dirty flag and almost never. Burning warriors
+   * move, so the layer is now repacked every frame they exist — and a fresh
+   * draw every frame would make every torch in the arena strobe the moment
+   * somebody caught fire. Same distribution, drawn once.
+   */
+  jitter: Float32Array | null;
+}
+
+/**
+ * A warrior the server says is alight.
+ *
+ * This is the bonfire's own machinery at a smaller scale and on a moving
+ * anchor: the same tongue shader, the same ember and smoke emitters, the same
+ * halo quad, one warm point light. The only thing a burner adds over a `Fire`
+ * is that its origin moves, which is why its tongues are repacked every frame
+ * instead of on a dirty flag — and that motion is the whole feature. A man
+ * fleeing the fire still alight is the image this exists to produce.
+ */
+interface Burner {
+  id: string;
+  active: boolean;
+  /** The server's `burning`. False starts the tail; it does not end the burner. */
+  alight: boolean;
+  /** `burnTimer / FIRE.linger`, curved. Drives flame size, radiance and light. */
+  flame: number;
+  /** Smoothed `burnInside`. Engulfed is taller, brighter and over the head. */
+  inside: number;
+  insideTarget: number;
+  /**
+   * Seconds of smoke left once the flames are gone.
+   *
+   * Not a second burn timer and it must never grow into one — the server owns
+   * how long a man smokes, including a corpse's smoulder. This is a render-side
+   * dissolve, the same as a decal fading: a body that was throwing smoke a
+   * moment ago does not stop throwing it on a packet boundary.
+   */
+  tail: number;
+  /** Capsule foot and chest in world space. Held after death so smoke stays put. */
+  ax: number; ay: number; az: number;
+  bx: number; by: number; bz: number;
+  /** A rig has been found at least once, so the held position means something. */
+  placed: boolean;
+  emberAcc: number;
+  smokeAcc: number;
+  seed: number;
+  /** Clock of the last `setBurning`. A caller that goes quiet puts him out. */
+  seenAt: number;
+  /** What a real light on this man would be worth, before the pool is shared. */
+  want: number;
+  /** Light bid: `want` fought over by distance to what the frame is looking at. */
+  score: number;
 }
 
 export function createVfx(
@@ -1655,7 +1741,22 @@ export function createVfx(
   const bodyMarkCap = tier === "high" ? 36 : tier === "medium" ? 20 : 8;
   const bodyLayer = new QuadLayer(bodyMarkCap, stainAtlas, STAIN_TILES, 0, "multiply", 2);
 
-  const FIRE_CAPACITY = tier === "high" ? 128 : tier === "medium" ? 96 : 48;
+  /** A blood moot seats eight, so eight men can be alight at once and no more. */
+  const BURN_SLOTS = 8;
+  /**
+   * Tongues per burning man. The low tier thins him the way it thins the
+   * bonfire — fewer tongues, each proportionally wider — rather than shrinking
+   * him, because three fat licks still read as a man on fire at fight distance
+   * on a phone and nine thin ones would not survive the pixel count anyway.
+   */
+  const BURN_TONGUES = tier === "high" ? 7 : tier === "medium" ? 5 : 3;
+
+  // Burners get their own reserved slice of the flame layer rather than sharing
+  // the arena's headroom. The arena is a bonfire and ten torches — 56 tongues on
+  // high, 29 on low — and the low tier's spare 19 would have silently dropped
+  // five of eight burning men, which is the one failure mode that must not be
+  // possible. Instance storage is ten floats a tongue; the reserve is free.
+  const FIRE_CAPACITY = (tier === "high" ? 128 : tier === "medium" ? 96 : 48) + BURN_SLOTS * BURN_TONGUES;
   const fireLayer = new FireLayer(FIRE_CAPACITY, FIRE_FRAG, noise, 6);
   // Haze is the one thing in this module that is an effect rather than art
   // direction, so it is the one thing the lower tiers drop: the fire is fully
@@ -1901,6 +2002,8 @@ export function createVfx(
   // feature and would want the rig handed over rather than scraped.
 
   interface Body {
+    /** Player id, off the group name. The seam a burner is matched through. */
+    id: string;
     group: THREE.Object3D;
     spine: THREE.Object3D | null;
     /** Capsule foot and head in world space, refreshed every frame. */
@@ -1928,7 +2031,7 @@ export function createVfx(
       let spine: THREE.Object3D | null = null;
       o.traverse((c) => { if (!spine && c.name === "spine") spine = c; });
       bodies.push({
-        group: o, spine,
+        id: o.name.slice(8), group: o, spine,
         ax: 0, ay: 0, az: 0, bx: 0, by: 1, bz: 0,
         radius: BODY_RADIUS,
       });
@@ -1970,6 +2073,12 @@ export function createVfx(
         b.bx = b.ax; b.by = b.ay + 1.55; b.bz = b.az;
       }
     }
+  }
+
+  /** The capsule for one player, or null while the scan has not seen him yet. */
+  function findBody(id: string): Body | null {
+    for (const b of bodies) if (b.id === id) return b;
+    return null;
   }
 
   /** Squared distance from a point to a capsule's axis, and where along it. */
@@ -2263,7 +2372,7 @@ export function createVfx(
 
   function addFire(spec: FireSpec): number {
     const id = nextFireId++;
-    fires.push({ id, spec, emberAcc: 0, smokeAcc: 0 });
+    fires.push({ id, spec, emberAcc: 0, smokeAcc: 0, jitter: null });
     firesDirty = true;
     return id;
   }
@@ -2271,6 +2380,101 @@ export function createVfx(
   function removeFire(id: number): void {
     const i = fires.findIndex((f) => f.id === id);
     if (i >= 0) { fires.splice(i, 1); firesDirty = true; }
+  }
+
+  // ---- burning warriors ---------------------------------------------------
+
+  /** How long an unmentioned burner keeps burning. Three snapshots at 20 Hz. */
+  const BURN_STALE = 0.15;
+  /** Seconds of smoke after the flames go out. See `Burner.tail`. */
+  const BURN_TAIL = 1.15;
+  /**
+   * Reference tongue count for the width correction, the way the bonfire has
+   * one: nine narrow tongues and three fat ones have to cover the same man, or
+   * the low tier's flame sums to more radiance than the high tier's.
+   */
+  const BURN_REFERENCE = 5;
+  /**
+   * Per-instance radiance, and the same load-bearing number `RING_LEVEL` is for
+   * the bonfire. Seven tongues on a 0.25 m ring means about two cover any given
+   * pixel, so this is chosen so that pair sums near 3.2 — hot and saturated and
+   * under the 4.07 clip, so a burning man is deep orange rather than a white
+   * blob with a warrior-shaped hole in it. Engulfed pushes it to ~3.8, which is
+   * a nucleus at the clip point, and is meant to be.
+   */
+  const BURN_LEVEL = 0.46;
+  /**
+   * Cooler than the bonfire. Wool, fat and hair burn a long way below a metre of
+   * oak, and the temperature term is what keeps a man's flames orange while the
+   * fire he ran out of stays gold — which at fight distance is most of what
+   * tells the two apart.
+   */
+  const BURN_TEMP = 0.7;
+  /** Cycles per second. Faster than a log fire: less fuel, more air. */
+  const BURN_RATE = 1.9;
+
+  const burners: Burner[] = [];
+  for (let i = 0; i < BURN_SLOTS; i++) {
+    burners.push({
+      id: "", active: false, alight: false, flame: 0, inside: 0, insideTarget: 0, tail: 0,
+      ax: 0, ay: 0, az: 0, bx: 0, by: 1.4, bz: 0, placed: false,
+      emberAcc: 0, smokeAcc: 0, seed: 0, seenAt: -1e3, want: 0, score: 0,
+    });
+  }
+  let burnersLive = 0;
+  /** Tongues the last repack spent on burners, so the layer can settle at zero. */
+  let burnerTongues = 0;
+
+  // Real light off a burning man, on the same terms as the impact flashes: built
+  // up front, never added, never removed, never hidden — a light that leaves the
+  // list recompiles every program in the scene, and it would do it on the exact
+  // frame somebody caught fire. Two on high, one on medium, none on low, because
+  // each one is a permanent term in every lit surface's shader and the arena is
+  // already carrying the bonfire and up to five torches.
+  //
+  // Eight men can be alight and one or two can have a light. The rest are lit by
+  // their own halo quad, which costs nothing and is what carries the read on the
+  // tier that has no light at all.
+  const burnLights: THREE.PointLight[] = [];
+  const burnLightCount = tier === "high" ? 2 : tier === "medium" ? 1 : 0;
+  for (let i = 0; i < burnLightCount; i++) {
+    const light = new THREE.PointLight(0xff7a2a, 0, 5.5, 2);
+    root.add(light);
+    burnLights.push(light);
+  }
+  /** Who each light is currently on. Handovers go through dark — see `stepBurners`. */
+  const burnLightOwner: Array<Burner | null> = burnLights.map(() => null);
+  const burnLightPick: Array<Burner | null> = burnLights.map(() => null);
+
+  function setBurning(id: string, burning: boolean, timer: number, inside: boolean): void {
+    let b: Burner | null = null;
+    let free: Burner | null = null;
+    for (const c of burners) {
+      if (c.active && c.id === id) { b = c; break; }
+      if (!c.active && !free) free = c;
+    }
+    if (!b) {
+      // Nothing to start and nothing to end. This is the call for every man in
+      // the room on every frame of every match, so it has to cost a scan of
+      // eight slots and then nothing at all.
+      if (!burning) return;
+      if (!free) return;
+      b = free;
+      b.active = true;
+      b.id = id;
+      b.flame = 0; b.inside = 0; b.insideTarget = 0; b.tail = BURN_TAIL;
+      b.emberAcc = 0; b.smokeAcc = 0; b.placed = false; b.want = 0; b.score = 0;
+      b.seed = Math.random() * 100;
+      burnersLive++;
+      firesDirty = true;
+    }
+    b.seenAt = clock;
+    b.alight = burning;
+    b.insideTarget = burning && inside ? 1 : 0;
+    // Curved, not linear: a man who has just run clear is still properly alight
+    // and only loses his flames over the last second of the three. A linear fade
+    // spends the whole linger looking like it is going out.
+    if (burning) b.flame = Math.pow(clamp01(timer / FIRE.linger), 0.55);
   }
 
   /**
@@ -2378,6 +2582,11 @@ export function createVfx(
       // half the radiance off two of them puts the flame under the palisade
       // behind it.
       const crowded = kind === "bonfire";
+      let jitter = fires[f].jitter;
+      if (!jitter || jitter.length < n * 2) {
+        jitter = fires[f].jitter = new Float32Array(n * 2);
+        for (let k = 0; k < n * 2; k++) jitter[k] = rand(0.85, 1.15);
+      }
       for (let i = 0; i < n; i++) {
         // Nested rings of tongues: the outer ones are shorter, wider and out of
         // phase, so the fire has a core rather than being one silhouette.
@@ -2390,11 +2599,11 @@ export function createVfx(
           pos.y,
           pos.z + Math.sin(a) * spread,
           radius * (0.92 - ring * 0.2) * fill,
-          height * (1 - ring * 0.22) * rand(0.85, 1.15),
+          height * (1 - ring * 0.22) * jitter[i * 2],
           (i * 0.618) % 1,
           i * 1.37 + f * 5.1,
           temp * (1 - ring * 0.08),
-          FLAME_RATE[kind] * rand(0.85, 1.15),
+          FLAME_RATE[kind] * jitter[i * 2 + 1],
           // Narrower tongues cover less, so the ring weight is corrected by the
           // same fill factor the width uses — otherwise a low tier's nine fat
           // tongues sum to more than a high tier's sixteen thin ones.
@@ -2407,9 +2616,175 @@ export function createVfx(
         }
       }
     }
+
+    // Warriors alight, in the same pass and the same layer — a burning man is
+    // not a second fire system, he is a fire whose origin moved since last
+    // frame. No haze: it is a high-tier sheet of warm air and on a running man
+    // it reads as a smeared frame rather than as heat.
+    burnerTongues = 0;
+    const fill = Math.sqrt(BURN_REFERENCE / BURN_TONGUES);
+    for (const b of burners) {
+      if (!b.active || !b.placed || b.flame <= 0.02) continue;
+      const dx = b.bx - b.ax;
+      const dy = b.by - b.ay;
+      const dz = b.bz - b.az;
+      // The axis is the man, so a corpse folded over the turf burns along
+      // himself instead of standing a column of flame up out of the grass.
+      const span = Math.hypot(dx, dy, dz) || 1.4;
+      const reach = 0.86 + b.inside * 0.26;
+      for (let i = 0; i < BURN_TONGUES; i++) {
+        // Up the body, not round his feet — and past the crown once he is
+        // engulfed. That is the whole difference between a man standing in a
+        // fire and a man who *is* one.
+        const t = ((i + 0.5) / BURN_TONGUES) * reach;
+        // The ring turns, slowly, so the flames crawl over him. Fixed offsets
+        // give a cage of licks bolted to the rig, which is the same failure as
+        // the tint this feature exists instead of.
+        const a = i * 2.399 + clock * 0.6 + b.seed;
+        const off = 0.05 + 0.2 * Math.sin(Math.PI * Math.min(1, t + 0.12));
+        const wob = ((i * 0.37 + b.seed) % 1) * 0.3 + 0.85;
+        fireLayer.push(
+          b.ax + dx * t + Math.cos(a) * off,
+          b.ay + dy * t,
+          b.az + dz * t + Math.sin(a) * off,
+          0.3 * fill * (0.7 + b.flame * 0.5),
+          span * 0.42 * (0.72 + b.inside * 0.5) * fill * (0.55 + b.flame * 0.55) * wob,
+          (i * 0.618 + b.seed) % 1,
+          i * 1.37 + b.seed,
+          BURN_TEMP,
+          BURN_RATE * wob,
+          BURN_LEVEL * b.flame * (0.8 + b.inside * 0.4) / fill,
+        );
+        burnerTongues++;
+      }
+    }
+
     fireLayer.end();
     hazeLayer?.end();
     firesDirty = false;
+  }
+
+  /**
+   * Everything about a burning man that is not his flame: where he is, how hard
+   * he is burning, what he throws off, and which one or two of eight get a real
+   * light. Runs on the capsules `refreshBodies` has already pulled onto this
+   * frame's transforms, so the fire is on the pose the frame will draw.
+   */
+  function stepBurners(dt: number, focus: THREE.Vector3): void {
+    // Eight men alight share one man's worth of embers and smoke. The particle
+    // budget is a fight's, and a burning man is not allowed to spend a brawl's
+    // worth of it — but he is not allowed to disappear at eight either, so the
+    // share falls off well short of linearly.
+    const crowd = 1 / Math.max(1, burnersLive * 0.55);
+    for (const b of burners) {
+      if (!b.active) continue;
+
+      // A caller that has gone quiet is a man who left the room, died out of the
+      // snapshot, or a match that ended. He goes out; he does not burn forever
+      // on a rig that is no longer in the scene.
+      if (clock - b.seenAt > BURN_STALE) b.alight = false;
+
+      if (b.alight) {
+        // The anchor only tracks the rig while the server still says he is
+        // alight, which is what makes the smoke stay where the burn ended. A
+        // respawn is a teleport — the same man, the same rig, six metres away
+        // and no longer on fire — and a tail that followed him would put a
+        // pillar of smoke over a warrior who has just been handed a clean body.
+        const body = findBody(b.id);
+        if (body) {
+          b.ax = body.ax; b.ay = body.ay; b.az = body.az;
+          // Chest, not the crown: every tongue grows upward from where it is
+          // put, so anchoring the column at the top of the capsule stands the
+          // whole fire above his head.
+          b.bx = body.ax + (body.bx - body.ax) * 0.92;
+          b.by = body.ay + (body.by - body.ay) * 0.92;
+          b.bz = body.az + (body.bz - body.az) * 0.92;
+          b.placed = true;
+        }
+        b.tail = BURN_TAIL;
+      } else {
+        // Flames out over a third of a second rather than on the packet that
+        // says so. The server's `burning` is a step function and a step in the
+        // one thing carrying the state reads as a bug.
+        b.flame = Math.max(0, b.flame - dt * 3);
+        b.tail -= dt;
+        if (b.tail <= 0 && b.flame <= 0) {
+          b.active = false;
+          b.id = "";
+          b.placed = false;
+          b.want = 0;
+          burnersLive--;
+          continue;
+        }
+      }
+      b.inside += (b.insideTarget - b.inside) * Math.min(1, dt * 6);
+
+      if (!b.placed) { b.want = 0; b.score = 0; continue; }
+      const cx = b.ax + (b.bx - b.ax) * 0.62;
+      const cy = b.ay + (b.by - b.ay) * 0.62;
+      const cz = b.az + (b.bz - b.az) * 0.62;
+
+      b.emberAcc += 11 * b.flame * (0.6 + b.inside * 0.7) * settings.particleScale * crowd * dt;
+      // Smoke climbs as the flame drops and keeps running through the tail, so
+      // the state has a visible ending rather than a cut. It is thrown from a
+      // man who is moving, so the column lays itself out behind him — that trail
+      // is the tail, and it costs nothing beyond the puffs already being spent.
+      const smoking = Math.max(b.flame, b.tail / BURN_TAIL);
+      b.smokeAcc += (1.6 + 3.4 * (1 - b.flame)) * smoking * settings.particleScale * crowd * dt;
+      while (b.emberAcc >= 1) {
+        b.emberAcc -= 1;
+        emberAt(cx, cy, cz, 0.24, 0.8);
+      }
+      while (b.smokeAcc >= 1) {
+        b.smokeAcc -= 1;
+        smokeAt(cx, cy + 0.3, cz, 0.2, 0.42);
+      }
+
+      b.want = b.flame * (0.55 + b.inside * 0.45);
+      // Distance to what the frame is looking at, so the light lands on the man
+      // whose light would be missed. A burner across the arena is four pixels
+      // of flame and lights nothing anybody can see.
+      const fx = cx - focus.x;
+      const fz = cz - focus.z;
+      b.score = b.want / (1 + (fx * fx + fz * fz) * 0.05);
+    }
+
+    // Outside the loop above and never short-circuited on an empty pool: a light
+    // whose man has gone out has to be walked down to zero, and the frame that
+    // happens on is precisely the frame there are no burners left to iterate.
+    for (let s = 0; s < burnLights.length; s++) {
+      let best: Burner | null = null;
+      for (const b of burners) {
+        if (!b.active || !b.placed || b.score <= 0.01) continue;
+        let taken = false;
+        for (let t = 0; t < s; t++) if (burnLightPick[t] === b) { taken = true; break; }
+        if (taken || (best && b.score <= best.score)) continue;
+        best = b;
+      }
+      burnLightPick[s] = best;
+
+      const light = burnLights[s];
+      const owner = burnLightOwner[s];
+      if (owner !== best) {
+        // Hand a light over dark. Teleporting it between two burning men lights
+        // the ground between them for a frame, and with two lights and eight
+        // burners the pick can legitimately change every second or so.
+        light.intensity += (0 - light.intensity) * Math.min(1, dt * 9);
+        if (light.intensity < 0.06) burnLightOwner[s] = best;
+        continue;
+      }
+      if (!owner) { light.intensity = 0; continue; }
+      light.position.set(
+        owner.ax + (owner.bx - owner.ax) * 0.6,
+        owner.ay + (owner.by - owner.ay) * 0.6,
+        owner.az + (owner.bz - owner.az) * 0.6,
+      );
+      // Two beats, neither of them the flame's, so the light breathes instead of
+      // buzzing at whatever the tongue rate happens to be.
+      const flick = 0.72 + 0.28 * Math.sin(clock * 13.0 + owner.seed) * Math.sin(clock * 5.1 + owner.seed * 2.0);
+      const want = 3.4 * owner.want * flick;
+      light.intensity += (want - light.intensity) * Math.min(1, dt * 12);
+    }
   }
 
   // ---- state --------------------------------------------------------------
@@ -3666,6 +4041,7 @@ export function createVfx(
 
     addFire,
     removeFire,
+    setBurning,
 
     setMood(mood) {
       moodTarget = mood === "lastStand" ? 1 : 0;
@@ -3706,13 +4082,23 @@ export function createVfx(
       stepJets(dt);
       // After the jets, so a droplet born this frame is tested against capsules
       // that are on this frame's transforms rather than the last one's. Skipped
-      // entirely when nothing is bleeding, which is most frames of most matches.
-      if (stainLive > 0) refreshBodies();
+      // entirely when nothing is bleeding and nobody is alight, which is most
+      // frames of most matches — the burners want the same capsules the blood
+      // does, so nobody pays for a second scan.
+      if (stainLive > 0 || burnersLive > 0) refreshBodies();
+      // On raw time with the rest of the fire. Hit-stop is a combat effect and a
+      // burn is not a blow: freezing a man's flames for the seventieth of a
+      // second somebody else got hit is the tell that they are pasted on.
+      stepBurners(rawDt, ctx.focus);
       integrate(dt, rawDt);
       stepMotes(rawDt);
 
       // ---- fire ----
-      if (firesDirty) rebuildFires();
+      // A static fire is repacked on a dirty flag and almost never; a burning
+      // man moves, so his tongues are repacked every frame he exists. The
+      // trailing `burnerTongues` term is the one frame after the last man goes
+      // out, which is what takes his flames back out of the layer.
+      if (firesDirty || burnersLive > 0 || burnerTongues > 0) rebuildFires();
       const fireU = fireLayer.material.uniforms;
       fireU.uTime.value = clock;
       // Where the ramp above lands on the curve. Everything else about the fire
@@ -3794,6 +4180,25 @@ export function createVfx(
         );
       }
 
+      // The same halo on a burning man, and on the low tier the only light he
+      // gets. It is what makes him read as *lit* rather than as flame stickers
+      // at the range a phone actually plays the game at: a metre of soft glow
+      // survives being twenty pixels tall, and seven individual tongues do not.
+      for (const b of burners) {
+        if (!b.active || !b.placed || b.flame <= 0.02) continue;
+        const flick = 0.8 + 0.2 * Math.sin(clock * 12.0 + b.seed) * Math.sin(clock * 4.4 + b.seed * 3.0);
+        const s = (0.78 + b.inside * 0.5) * (0.6 + b.flame * 0.4);
+        additiveLayer.push(
+          b.ax + (b.bx - b.ax) * 0.62,
+          b.ay + (b.by - b.ay) * 0.62,
+          b.az + (b.bz - b.az) * 0.62,
+          s, s * 1.15, 0,
+          0.26 * b.flame * flick * (1 + b.inside * 0.3),
+          PALETTE.fireHalo.r, PALETTE.fireHalo.g, PALETTE.fireHalo.b,
+          CELL.glow,
+        );
+      }
+
       additiveLayer.end();
       alphaLayer.end();
       if (ribbonMat) ribbonMat.uniforms.uScroll.value = clock * 1.6;
@@ -3831,6 +4236,22 @@ export function createVfx(
       rings.length = 0;
       fires.length = 0;
       auraSites.length = 0;
+      // Burners hold no rig node — they look one up by id every frame — so this
+      // is only about the next match not opening with the last one's men still
+      // alight, and about the lights going with their pool.
+      for (const b of burners) {
+        b.active = false; b.id = ""; b.alight = false;
+        b.flame = 0; b.tail = 0; b.placed = false; b.want = 0; b.score = 0;
+      }
+      burnersLive = 0;
+      burnerTongues = 0;
+      for (let i = 0; i < burnLights.length; i++) {
+        root.remove(burnLights[i]);
+        burnLights[i].dispose();
+        burnLightOwner[i] = null;
+        burnLightPick[i] = null;
+      }
+      burnLights.length = 0;
       for (const f of flashes) {
         root.remove(f.light);
         f.light.dispose();
