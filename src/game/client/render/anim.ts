@@ -370,6 +370,13 @@ export function createWarriorRig(
     // mount carries the grip pitch every weapon is tuned against, and the brace
     // in `blockLayer` is an elbow — the elbow is what puts a shield in front of
     // a face. `applyPose` writes the position every frame; see `SHIELD_GRIP_Z`.
+    //
+    // Re-measured on the built rig at rest rather than taken on trust, because
+    // `buildShield`'s own doc comment still describes the mount this replaced:
+    // the off fist now sits at (-2.7, +0.6, +39.9) mm from the shield's origin
+    // on a disc that spans ±402 mm in both axes, i.e. dead centre laterally and
+    // exactly the 40 mm of grip-bar standoff, against the 260 mm of rise the old
+    // entry recorded. That defect is gone; the note in `characters.ts` is stale.
     shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226, materials);
     joints.elbowL.add(shield);
   }
@@ -1089,6 +1096,23 @@ interface Stance {
   sink: number;
   /** How much of a thrust's shaft slides through the fist. */
   slide: number;
+  /**
+   * How much of the shoulder's abduction the wrist gives back, so a haft
+   * carried butt-down hangs plumb instead of leaning along the arm.
+   *
+   * The carry angles are all pitches, taken in the arm's own frame, so a weapon
+   * inherits the shoulder's roll whole. `spread + 0.10` of abduction puts the
+   * fist outboard of the shoulder — which is what a stance is for — and tips
+   * everything standing up out of that fist inboard by the same angle, into the
+   * deltoid it just cleared. Gravity does not do that: a haft held butt-down
+   * hangs plumb whatever the arm under it is doing, which is the same argument
+   * `applyPose` already makes for the shield's pitch.
+   *
+   * Only the two long hafts want it. A sword or a seax carried point-down leans
+   * the *other* way out of the same abduction — the point swings outboard, away
+   * from the thigh — and giving that back would walk the tip into his own leg.
+   */
+  plumb: number;
 }
 
 // The grip is pitched forward by ~1.28 rad, so a weapon left at zero sticks
@@ -1099,18 +1123,33 @@ interface Stance {
 // arm length — the fist sits at 0.87 m and a sword is 1.06 m from grip to
 // point, so anything past ~50° off vertical drives the tip through the turf.
 const STANCE: Record<WarriorClass, Stance> = {
-  huscarl: { rest: 0.94, live: 0.10, spread: 0.10, guard: -0.66, sink: 0.13, slide: 0.3 },
-  warden: { rest: -1.24, live: 0.02, spread: 0.05, guard: -0.34, sink: 0.08, slide: 1 },
-  runekeeper: { rest: 1.66, live: 0.14, spread: 0.02, guard: -0.24, sink: 0.06, slide: 0.35 },
+  huscarl: { rest: 0.94, live: 0.10, spread: 0.10, guard: -0.66, sink: 0.13, slide: 0.3, plumb: 0 },
+  warden: { rest: -1.24, live: 0.02, spread: 0.05, guard: -0.34, sink: 0.08, slide: 1, plumb: 1 },
+  runekeeper: { rest: 1.66, live: 0.14, spread: 0.02, guard: -0.24, sink: 0.06, slide: 0.35, plumb: 0 },
   // -1.35, not -1.78. The shouldered carry was rolled far enough back that the
   // axe head sat *behind* the deltoid and pauldron — measured at `lineup`
   // framing, only 16% of the head's projected area survived, so the weapon read
   // as a bare stick however well the head was modelled. Sweeping the angle, the
   // head breaks clear of the body plane at about -1.35 (91% visible) while its
   // crown still tops out 160 mm below the helm, so this does not re-create the
-  // v3 defect where the axe overlapped the skull. There is no grip roll to fix
-  // this with instead: `rig.weapon.rotation.set(wrist, 0, P.wz)` never writes Y.
-  berserker: { rest: -1.35, live: 0.08, spread: 0.15, guard: -0.18, sink: 0.16, slide: 0.3 },
+  // v3 defect where the axe overlapped the skull.
+  //
+  // What that sweep did not check is that standing the haft up puts it *inside
+  // the arm holding it*. Measured on the built rig at rest: the shaft ran 14.8°
+  // off vertical and only 10.6° off the forearm, its clearance to the upper arm
+  // was 72 mm against a limb thicker than that, and **97 of the axe's 556
+  // vertices stood inside the warrior's own surface**, continuously from the
+  // wrist at 1.04 m to the shoulder at 1.72 m. The axe did not come out of a
+  // fist, it came out of a shoulder — which is what "not holding it properly"
+  // looks like from the front, whatever the hand is doing. `plumb` takes it out
+  // (97 -> 3, and the three that remain are the fist closing on the grip, which
+  // is where every other class sits too).
+  //
+  // `rest` is deliberately untouched: the pitch is what bought the visibility
+  // and the roll is a different axis. Y is still never written — a yaw would
+  // move the head without moving the haft off the arm, which is the wrong half
+  // of the problem.
+  berserker: { rest: -1.35, live: 0.08, spread: 0.15, guard: -0.18, sink: 0.16, slide: 0.3, plumb: 1 },
 };
 
 // ---------------------------------------------------------------------------
@@ -1458,7 +1497,16 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
   P.cry += (0.14 + ready * 0.09) * carry * w;
   P.crx += (0.05 + ready * 0.06) * w;
   P.arx += (0.16 - ready * 0.32) * w;
-  P.arz += (st.spread + 0.10) * w;
+  const abduct = (st.spread + 0.10) * w;
+  P.arz += abduct;
+  // ...and the wrist gives it straight back to anything carried butt-down, so
+  // the haft hangs plumb while the arm under it still stands out from the ribs.
+  // Written here rather than in `applyPose` off the assembled `P.arz` on
+  // purpose: the block and the swing author their own roll against their own
+  // abduction and have been tuned that way, and a correction that read the sum
+  // would silently re-tune both. Faded out with the strike for the same reason
+  // the rest of the carry is — a swing aims the weapon, it does not hang it.
+  P.wz += -st.plumb * abduct * (1 - act);
   P.olx += (st.guard * (0.55 + ready * 0.45)) * w;
   // The off arm hangs *near* the body, not clear of it. At rest this carried
   // the shoulder 14° out, and on the huscarl that is the whole shield swung
