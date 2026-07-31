@@ -18,7 +18,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import GameCanvas from "@/game/client/GameCanvas";
 import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone } from "@/game/types";
 import { WARRIOR_STATS } from "@/game/types";
-import { defaultAppearance } from "@/game/client/characters";
+import { defaultAppearance, type Appearance } from "@/game/client/characters";
 
 type Pose = {
   id: string;
@@ -41,6 +41,13 @@ type Pose = {
    * backwards along the renderer's default and the limb goes with it.
    */
   killer?: string;
+  /**
+   * Overrides on top of the class default. Without this every pose in the file
+   * wore `defaultAppearance(cls)`, so the shop could grow ten helmets and not
+   * one of them could be looked at — the capture set could only ever review
+   * what a warrior is issued, never what a player buys.
+   */
+  ap?: Partial<Appearance>;
 };
 
 /**
@@ -52,6 +59,25 @@ type Pose = {
  */
 const GORE_FRAMING: { position: [number, number, number]; target: [number, number, number]; fov: number } =
   { position: [-2.6, 2.6, 1.0], target: [-6.6, 1.1, 4.8], fov: 55 };
+
+/**
+ * A row of the same warrior in different helmets, evenly spaced about the
+ * arena's z=6 line. 1.15 m apart: wide enough that no shoulder occludes the
+ * next man's head, tight enough that five fit a frame the heads are still
+ * readable in.
+ */
+function helmRow(helms: string[]): Pose[] {
+  return helms.map((helm, i) => ({
+    id: i === 0 ? "me" : `h${i}`,
+    name: helm,
+    cls: "huscarl" as WarriorClass,
+    x: (i - (helms.length - 1) / 2) * 1.15,
+    z: 6.0,
+    rot: 0,
+    state: "idle" as PlayerState,
+    ap: { helm },
+  }));
+}
 
 /**
  * Camera yaw is chosen per preset so framing is reproducible. A preset may
@@ -172,6 +198,58 @@ const PRESETS: Record<string, {
       state: "idle" as PlayerState,
     })),
   },
+  // ---- Helmets. The shop's whole ladder, and the piece at the top of it. ----
+  //
+  // Five to a row and not ten: the row has to fit the frame, and fitting ten
+  // across at this aspect puts the camera 11 m back, which is 25 px of head —
+  // enough to count helmets and not enough to tell a crest from a rivet. The
+  // question these shots exist to answer is whether the rungs differ in
+  // SILHOUETTE, and that is a question about heads, so the camera sits at eye
+  // level and lets the bodies crop.
+  //
+  // All huscarls, deliberately. The huscarl wears a mail coif, which is the one
+  // head in the game that can swallow a nape flange — casting the row in the
+  // class most likely to hide the new work is the honest test, not the kind one.
+  // Ids stay distinct so each man draws a different face seed: a mask fitted to
+  // one skull proves nothing about the next.
+  helms: {
+    cam: Math.PI,
+    matchTimer: 40,
+    // 5.6 m back, not 3.85: the first capture fitted five heads and clipped the
+    // outer two men off at the shoulder, which reads as a botched photograph
+    // rather than a row of warriors. A silhouette is a whole shape or it is not
+    // a silhouette.
+    framing: { position: [0, 1.85, 11.6], target: [0, 1.40, 6.0], fov: 44 },
+    poses: helmRow(["none", "hood", "iron", "nasal", "ridge"]),
+  },
+  helms2: {
+    cam: Math.PI,
+    matchTimer: 40,
+    // 5.6 m back, not 3.85: the first capture fitted five heads and clipped the
+    // outer two men off at the shoulder, which reads as a botched photograph
+    // rather than a row of warriors. A silhouette is a whole shape or it is not
+    // a silhouette.
+    framing: { position: [0, 1.85, 11.6], target: [0, 1.40, 6.0], fov: 44 },
+    poses: helmRow(["spectacle", "boar", "crowned", "wyrm", "suttonhoo"]),
+  },
+  // The face mask at conversational distance, on `portrait`'s framing, because
+  // the four features that make this helm the artefact rather than a bucket —
+  // mask, brows, the nose-and-moustache bird, the crest — are all inside 300 mm
+  // of the face, and the eye openings only answer at this range.
+  suttonhoo: {
+    cam: Math.PI,
+    matchTimer: 40,
+    // Aimed at the head and nothing else. `portrait`'s framing was the first
+    // try and it is the wrong instrument: it frames a man, so the head lands
+    // near 200 px and the raised shield takes half the picture — every question
+    // this shot exists to answer is inside 300 mm of the face. Measured off that
+    // capture, a huscarl's head runs y 1.67 to 2.00, so the frame is 0.9 m tall
+    // about y 1.84 and the head fills a third of it.
+    framing: { position: [-7.0, 1.86, 2.6], target: [-7.0, 1.84, 4.6], fov: 26 },
+    poses: [
+      { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "idle", ap: { helm: "suttonhoo" } },
+    ],
+  },
   // ---- Gore. Three deaths, caught in the second they happen. -------------
   //
   // All three share a mark and a camera so the four questions the owner will
@@ -226,6 +304,20 @@ const PRESETS: Record<string, {
     poses: [
       { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "waist", dir: "right", heavy: true, killer: "foe" },
       { id: "foe", name: "Grim", cls: "berserker", x: -9.1, z: 3.6, rot: 1.0, state: "attacking", dir: "right", swing: 0.95, hp: 0.7 },
+    ],
+  },
+  // `gorehead` again, wearing the helm. The neck seam runs where this helm's
+  // neck guard sits and no other helmet in the set has one, so this is the only
+  // capture that can answer whether a head that leaves takes its mask, its
+  // cheeks and its crest with it — and whether the cut goes through the guard.
+  gorehelm: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 20,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "neck", dir: "overhead", heavy: true, killer: "foe", ap: { helm: "suttonhoo" } },
+      { id: "foe", name: "Grim", cls: "berserker", x: -9.0, z: 3.4, rot: 1.03, state: "attacking", dir: "overhead", swing: 0.86, hp: 0.74 },
     ],
   },
   // Last-stand mood — judges the dramatic colour grade.
@@ -291,7 +383,7 @@ function makePlayer(p: Pose, isLocal: boolean, revived = false): GamePlayer {
     deathHeavy: p.state === "dead" ? (p.heavy ?? false) : false,
     ...(isLocal ? {} : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    appearance: defaultAppearance(p.cls) as any,
+    appearance: { ...defaultAppearance(p.cls), ...(p.ap ?? {}) } as any,
   } as GamePlayer;
 }
 

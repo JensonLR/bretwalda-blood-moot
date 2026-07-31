@@ -24,7 +24,9 @@ const ALL_PRESETS = ["duel", "arena", "closeup", "brawl", "laststand", "portrait
 // Deaths. Off the default run: they are a review of one feature rather than of
 // the game's look, and each one costs a preset's worth of frames on a box with
 // no GPU. Ask for them by name — `npm run shots -- gorehead --out art/shots/gore`.
-const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit"];
+// Helmets are the same: a review of the shop's ladder rather than of the game's
+// look, asked for by name — `npm run shots -- helms helms2 suttonhoo`.
+const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "helms", "helms2", "suttonhoo"];
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
