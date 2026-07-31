@@ -586,17 +586,17 @@ export interface LightingOptions {
    * shadows with them. Without this the key comes from a corner of the sky with
    * nothing in it and the moon is visibly somewhere else.
    *
-   * **`key` is the moon and `warm` is the sun**, and the names are a hazard
-   * rather than a description: they were chosen when the caster was the moon,
-   * which is the whole of the v8 blocker. `casterShare` decides which of the two
-   * the shadows hang on, per frame, from the sun's own elevation. Renaming the
-   * fields to `moon`/`sun` is a one-line change in GameCanvas.tsx and is the
-   * cross-module edit this pass wants and did not make.
+   * These name **bodies, not roles**. They used to be called `key` and `warm`,
+   * from a night rig where the moon was the caster; the sky became a sunset, the
+   * names did not, and four review panels read past a caster aimed at the wrong
+   * body because the field it arrived in was called `key`. Which body the
+   * shadows hang on is `casterShare`'s decision, taken per frame from the sun's
+   * own elevation — it is not encoded in an interface.
    */
-  key?: THREE.Vector3;
-  keyColor?: THREE.Color;
-  warm?: THREE.Vector3;
-  warmColor?: THREE.Color;
+  moon?: THREE.Vector3;
+  moonColor?: THREE.Color;
+  sun?: THREE.Vector3;
+  sunColor?: THREE.Color;
   /** The arena's main fire, as its radiant centre. Same thing `setHearth` sets. */
   hearth?: THREE.Vector3;
 }
@@ -1842,13 +1842,12 @@ export function createLighting(
   }
 
   function reaim(): void {
-    // `key` is the moon and `warm` is the sun — see LightingOptions. Either may
-    // be absent, in which case the one that is present has to be both bodies;
-    // the share then still decides which *light* it drives.
-    const moonAt = opts.key ?? opts.warm;
-    const sunAt = opts.warm ?? opts.key;
-    const moonHue = opts.keyColor ?? opts.warmColor;
-    const sunHue = opts.warmColor ?? opts.keyColor;
+    // Either body may be absent, in which case the one that is present has to be
+    // both; the share then still decides which *light* it drives.
+    const moonAt = opts.moon ?? opts.sun;
+    const sunAt = opts.sun ?? opts.moon;
+    const moonHue = opts.moonColor ?? opts.sunColor;
+    const sunHue = opts.sunColor ?? opts.moonColor;
 
     let castAt: THREE.Vector3 | undefined;
     let castHue: THREE.Color | undefined;

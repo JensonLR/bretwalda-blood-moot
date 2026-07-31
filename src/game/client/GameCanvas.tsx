@@ -160,10 +160,12 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     // a one-shot setEnvironment here would go stale the first time the mood
     // changes and every metal in the arena would reflect a dead texture.
     const sky = createSky(scene, renderer, materials, quality);
-    // The key light is the moon, so it comes from where the moon actually is.
+    // Hand the rig both bodies and let it decide which one the shadows hang on;
+    // naming a field for the role rather than the body is what let a sunset ship
+    // with every shadow pointing at the sun.
     const lighting = createLighting(scene, quality, {
-      key: sky.moonDirection, keyColor: sky.moonColor,
-      warm: sky.sunDirection, warmColor: sky.sunColor,
+      moon: sky.moonDirection, moonColor: sky.moonColor,
+      sun: sky.sunDirection, sunColor: sky.sunColor,
     });
     const world = createWorld(scene, materials, quality);
     // vfx after world, and not only for draw order: it finds the arena's fires

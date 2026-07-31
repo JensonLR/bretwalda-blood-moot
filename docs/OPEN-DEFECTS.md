@@ -6,32 +6,43 @@ change is made.
 
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
-Current reference: **`art/shots/v8/`**. A/B against `v7/`.
+Current reference: **`art/shots/v9/`**. A/B against `v8/`.
 
 ---
 
-## Painted shield planks are still a woven cell — the substance changed, the tile did not
+## Shield planks share one phase — the woven cell is gone, the repeat is not
 
-The v7 entry blamed `buildShield`'s `paint = M.tunic(0xb8a276)` for dressing a
-painted board in wool at a fixed five repeats. That was right, and it is fixed —
-`paint` is `M.timber` now, the same substance as the boards behind it. **It did
-not fix the picture.** Compare the shield in `v7/portrait.png` with
-`v8/portrait.png`: the cells are finer and more regular and they are still there,
-because `M.timber` is `tint("oak", …, { repeat: 3 })` and a repeat is not a texel
-density. Three repeats across a 105 mm plank is a 35 mm tile carrying two of
-oak's knots, and at portrait framing that tile is ~35 px — a woven mat.
+**The mat read is fixed and a capture proves it.** `v8/portrait.png`'s shield is
+unmistakable basketry: a grid of identical "П" glyphs, three per plank, with a
+mirror axis down every tile. `v9/portrait.png` is painted boards with lengthwise
+grain, and the same change shows on the ground litter, which was the loudest
+waffle in the set — the plank at the hero's feet in `v8/closeup.png` is a diagonal
+cross-hatch and in `v9/closeup.png` it is parallel grain with knots in it.
+Measured on the portrait crop: sigma/mu over a pale board 0.438 -> 0.254, over a
+crimson board 0.572 -> 0.315, and the row spectrum across the board drops ~40% at
+every cycle from 1 to 12. The cause was not the tile size — it was that `wood()`'s
+radial term is even in u, so every tile carried a mirror and a cathedral crown.
+An integer `cath` term slides the crown off the tile without touching the wrap.
 
-The same arithmetic is on the ground litter: the planks under the boots in
-`v8/closeup.png` are the loudest waffle left in the set.
+**What survives is the phase.** Every board still carries identical grain at
+identical heights, because all seven planks are `BoxGeometry` merged into one
+geometry with one material (`characters.ts:705`) and every front face has the same
+0..1 UVs. No texture content can differentiate them; this has to be fixed where
+the UVs are made. Two ways, and the second is strictly better:
 
-The fix is the one the v7 entry already described, applied to timber rather than
-to wool: a per-call world tile — `tile?: number` on `TintOptions`, overriding both
-`repeat` and `WORLD_TILE` — so a shield board, a hut wall and a floor plank all
-get one grain. `M.timber`'s three repeats are right for a hut wall and wrong for
-everything smaller than one.
+- offset each plank's `uv` attribute by a per-index amount in the loop at
+  `characters.ts:2608–2620`; or
+- the per-call `tile?: number` on `TintOptions` this entry has wanted since v7.
+  `materials.ts`'s `projectFromObjectSpace` derives UVs from `vSubstancePos` and
+  `Part.merge()` bakes each plank's `xf(cx, …)` into its positions, so a world
+  tile delivers the phase *for free* and gives the shield, the hut wall and the
+  floor plank one grain. `WORLD_TILE` cannot take oak globally — world.ts's
+  per-mesh repeats would all be overridden.
 
-At **lineup and duel framing this now reads as painted planking** and the entry no
-longer applies there; it is a close-range defect only.
+The paint quarters are a second density error on the same object:
+`characters.ts:2619` builds them as `box(halfW*1.94, edge, 0.004)` with their own
+0..1 v, so at `M.timber`'s repeat 3 the paint's grain is exactly 2x finer in v
+than the board 2 mm under it. Same fix.
 
 ## The arena floor reads as cobbles — dry ones now, not wet ones
 
@@ -46,7 +57,7 @@ driving roughness up rather than clamping it down, did what it was built to do.
 What survives is the *shape* of the relief, not its gloss. The floor still
 carries a regular lozenge cell at 2–4 px that reads as pebbles or scales rather
 than as churned earth — clearest across the whole foreground of
-`v8/laststand.png` and in the mid-ground of `v8/arena.png`. It is not the
+`v9/laststand.png` and in the mid-ground of `v9/arena.png`. It is not the
 metre-scale rut waves `world.ts` added (those are 1.1–2.4 m and invisible at this
 pitch); it is `buildGroundDetail`'s own normal map, which was always there and
 which the sheen used to hide. Now that the surface is matte, its relief is what
@@ -56,30 +67,51 @@ The `held` term in `groundDetail` (`print*0.95 + well*0.5`, depth 0.46) is the
 first thing to look at: `world.ts`'s world-scale film now covers part of the same
 job.
 
+**This is now the binding constraint on the shadow work, and it is unowned.**
+The v9 lighting pass took the warrior shadow from below the surface's own noise
+to about 2:1 above it, and it did that entirely by adding contrast — the mottle
+underneath is untouched, measured at sigma/mu 0.373 on open lineup floor in `v9`
+against 0.375 in `v8`. `lighting.ts`'s own note says a rig cannot subtract more
+of the ground than it puts on it; the next real gain on axis 3 is either this
+amplitude or a screen-space AO pass in `postfx.ts`.
+
 ## The bonfire core still clips flat
 
-Unchanged v7 → v8; nobody owned it this pass. `v8/lineup.png` and `v8/arena.png`:
+Unchanged v7 → v8 → v9; nobody has owned it for three passes. Re-measured over
+the `arena` flame box, pixels at or above 250 luma: 1385 (v7) -> 1547 (v8) ->
+1268 (v9), and the mean saturation of the hottest 2% is **0.054 in all three**.
+The count wanders with the framing; the saturation is the number that matters and
+it has never moved. `v9/lineup.png` and `v9/arena.png`:
 the flame is a real flame — tongues, a visible log crib, coals, and it pools
-light on the ground — but its core is still welded to white. Measured over the
-`arena` flame box: 1385 → 1113 pixels at or above 250 luma, and the mean
-saturation of the hottest 2% is 0.055 in both. What little the count moved is the
-aberration coming out, not the emissive coming down. It is the emissive in
+light on the ground — but its core is still welded to white. It is the emissive in
 `vfx.ts` saturating the tone curve, and `postfx.ts`'s own note says where the
 curve actually clips: `white: 7.8` overstates it by 2.2x, because
 `contrast: 0.36`/`pivot: 0.2` applies a 1.22 power *before* the curve, so the
 frame reaches code 255 at ~3.5 scene units. Anything emissive above that welds.
 Axis 9 does not pass on a flame with no colour in its hottest part.
 
-## Faces go dark at lineup distance
+## Faces at lineup distance are lit now, and still the coolest skin in the frame
 
-Still true in `v8/lineup.png`, and only partly. The warden's and the
-runekeeper's faces read; the huscarl's and the berserker's are dark ovals under
-the helm brow. This is the sky-occlusion light in `lighting.ts` doing exactly
-what it was built to do — a face under a helm rim is sky-occluded and loses 0.37
-— plus the fire being behind them. Physically correct and a net gain everywhere
-else; but a class-select lineup where you cannot see half the faces is a
-composition failure, and the fix belongs in the preset's lighting or in a
-face-height fill, not in backing the AO light out.
+**Mostly fixed.** The diagnosis in the v8 entry was wrong about the mechanism and
+the right fix landed anyway. It was never the level: every directional in the rig
+except `bounce` sits *behind* the subject, so the only light reaching a face
+turned to the lens was `bounce`, which is `0x93a084` because it is turf — olive
+light on warm skin, which reads as a muddy patch rather than as an underlit face.
+`lighting.ts`'s `faceFill` is a warm near-level front fill, 33° off the camera
+axis at elevation −0.13 so an up-facing normal clamps to zero and it cannot spend
+any of the contact darkening.
+
+Measured on the lineup crop, v8 -> v9: huscarl 34.7 -> 45.1 luma with R:G going
+1.87 -> 2.08, warden 55.3 -> 66.9, berserker 57.7 -> 62.8. In `v9/lineup.png` the
+huscarl's eyes, mouth, nose and cheek modelling all read where `v8` had a flat
+olive oval. The predicted cost — a directional cannot be height-selective, so it
+lands on every camera-facing vertical — **did not appear**: the far palisade is
+61.7 in both and the `closeup` hut wall went 72.7 -> 69.0, because the ambient and
+hemisphere were drained to pay for the AO by more than the fill puts back.
+
+What is left is that skin is still the coolest-lit material in a warm frame, and
+the runekeeper's face under a deep hood is still the darkest of the four. That
+wants a hue, not a level.
 
 ## Edges are anti-aliased now, and it is a smaller win than the diagnosis implied
 
@@ -115,8 +147,9 @@ land. If a capture still shows staircases after MSAA, that is where to look.
   `dark` shadow gore's rim.
 - **The baldric's five segments** show faceting between them at close range.
 - **The tunic-through-cloak hole is back, and bigger than the speck it was.**
-  `v8/duel.png` carries a ~65 × 35 px olive wedge of tunic standing in a hole in
-  the hero's cloak, at the same place the 3 px speck was in `v7`. The mechanism is
+  Unchanged in `v9/duel.png` — still a ~65 × 35 px olive wedge of tunic standing
+  in a hole in the hero's cloak, in the same place the 3 px speck was in `v7`, and
+  now more legible because the wool around it carries fibre. The mechanism is
   new: the drape rig's `GATHER` rotates each wing inward about the yoke, and with
   no collision the only thing stopping it is the ~60 mm the cloak was cut clear of
   the tunic's flared hem. At the 0.17 rad/ring it landed at, the wedge was
@@ -128,6 +161,15 @@ land. If a capture still shows staircases after MSAA, that is where to look.
   cloak to the traffic cone it was.
 - **`torchFlame` in the materials catalog is dead** — nothing calls `get()` on
   it. Either wire it or delete the entry.
+- **`buildWool`'s `lay` is finer than the nap it steers.** The fibre-direction
+  chooser runs at 12 cycles/tile against a mid nap at 5, so it flips direction
+  every 1.5 cycles of the thing it is choosing for and chops the streaks. Costs
+  nothing on the 51 mm cloak tile; it is the mush on the 300 mm back pelt.
+  Coarsening to 4–8 is a one-token change that wanted an A/B it did not get.
+- **`buildWool`'s `dye` still spends ±17% of albedo range at 12 cycles/tile**,
+  which is 0.9 px at `closeup` framing — below anything a garment can resolve.
+  Left alone deliberately: re-banding that field is what produced the flat-paint
+  cloak in the first place, so it wants a capture behind it, not an argument.
 - **`DEEPEST_WATER` is a normaliser with nothing clamping to it.** A puddle
   deeper than 30 mm takes its colour and opacity out of range. Documented at the
   constant, not enforced.
@@ -266,6 +308,33 @@ than what it looked like:
   a life value of 0.39 head-heights, which the eye reads as a small head on a
   long body. The skeleton computed 7.5 heads because the skeleton never measured
   the neck.
+- **A field named for a role outlived the role, and four panels read past it.**
+  `LightingOptions` had a `key` and a `warm`; `GameCanvas` passed the moon as
+  `key` because a night rig wants a moon key, and only `key` cast. The sky then
+  became a sunset and nobody re-checked, so every shadow in the game ran at the
+  brightest thing in it — at `sunIntensity 22` against `moonIntensity 0.1`, which
+  is not a close call. Three review passes celebrated those stripes as the
+  lighting win. The fields are `moon`/`sun` now and which one casts is
+  `casterShare`'s per-frame decision. **Name an interface field for the thing it
+  carries, not for the job you currently do with it** — a role can be re-derived,
+  a mis-labelled body cannot be noticed.
+- **A texture fix cannot show on a surface with no light gradient across it.**
+  Wool gained a real nap and it is plainly visible in `stance`, `duel`,
+  `laststand` and `portrait` — and it went measurably *flatter* in `closeup`, the
+  one shot the "cloak is untextured" defect was raised on, because that garment
+  faces away from every directional and sits at 15/255. Most of what a cloth
+  recipe adds is relief, and relief is N·L. **Before scoring a material defect,
+  check the light on it** — otherwise the fix lands and the frame that raised the
+  bug is the one frame that cannot show it.
+- **The mirror that made the shield a basket was also what made its tile wrap.**
+  `wood()`'s radial term `sqrt(x² + pith²)` is even in u about the tile centre, so
+  every tile carried an axis and a cathedral crown, three per plank, and that read
+  as woven cells. Leaning `x` to break the symmetry puts a hard vertical seam at
+  every repeat — worse than the arch. The way through was a linear term with an
+  **integer** ring count (`+ cath * u`): it slides the stationary point off the
+  tile entirely while leaving `frac(rr)` at u = 1 exactly what it was at u = 0.
+  **When a periodic artifact is load-bearing for the wrap, translate it out of
+  frame rather than destroying it.**
 - **The ground "glitter" was specular, not albedo.** The wet/puddle mask was
   gated on the full height field, which carries fine noise at ×5 and ×9, so
   wetness bled onto dry ground at texel frequency. The give-away: specks took the
@@ -287,47 +356,78 @@ version rather than refreshing an old one.
 
 ---
 
-## Fourth panel (on v8) — the shadow answer, and a new one
+## v9 verify pass — what the capture proves, and what it does not
 
-**Shadows point at the sun.** The only shadow-casting directional is the
-moon-aimed key, so the palisade stripes in `v8/laststand.png` run down-LEFT,
-toward the sun glare at frame-left. Every shadow in the game points at the
-brightest thing in the sky. Four panels missed this; it invalidates the
-direction of every stripe now being celebrated as a win. `lighting.ts` — the
-caster has to be aimed by whichever body is actually dominant for the mood.
+Four blockers went in; three reached the frame. Every number below is measured on
+`art/shots/v9/` against `art/shots/v8/`.
 
-**Warrior shadows now exist but sit at the noise floor.** Both halves of the
-pair landed, and the limiter is now a third thing: the hero's shadow in
-`v8/laststand.png` dips 50 -> 31 luma (~1.5:1) while the palisade stripe beside
-it row-averages 101.8/44.9 (2.27:1) — against ground albedo noise of
-sigma/mu = 0.30. The shadow is *below the variance of the surface it falls on*.
-The arena hero moved 1.24 -> 1.31 between v7 and v8, a 6% gain, while the
-palisade's stripe on the same floor went 2.07 -> 3.48. So the receiver fix
-helped the big hard-edged caster far more than the small soft one. Reducing the
-ground's albedo mottle is now as load-bearing as any lighting change.
+**Shadows point away from the sun. Proven, and the v8 entry is deleted.** The
+cleanest evidence is `v9/lineup.png`: four warriors on one floor, and a column
+profile across the foreground band (y 735–775) shows four dark troughs at
+x≈160–320, 640–800, 1040–1160 and 1480–1560, each one starting at its own
+caster's boots and running to the RIGHT, with 65–81 luma peaks between them. The
+sun glare is at frame-LEFT. Four of four, no exceptions. The same reversal is
+visible as an absence: `v8/laststand.png`'s palisade threw six-metre stripes
+toward the camera across the whole right of the frame, and in `v9` that ground is
+clean, because the fence's shadows now fall behind the fence where they belong.
 
-**Still no contact darkening at any boot.** In `v8/lineup.png` at 4x both
-huscarl soles sit on ground *brighter* than the ground 40 px away, and the
-shadow only begins a boot-length behind the foot.
+**Contact darkening exists and is attached to the sole. Proven.** In `v8` the
+region immediately camera-right of the warden's boots measured 78.1 luma against
+open-floor controls of 67.4 and 71.6 — the boot sat in a *brighter* patch, which
+is what the v8 entry recorded. In `v9` the same region is 42.0 against 62.4, a
+1.49:1 darkening, and at 2x the blob is visibly welded to both soles rather than
+starting a boot-length downstream. On `arena` the hero's cast shadow beyond the
+feet goes ~56 -> ~35 luma against unchanged open floor: 1.10:1 -> 1.77:1. Trough
+to adjacent peak on `lineup` is about 2.0:1, against ground noise of
+sigma/mu = 0.37 — the shadow is finally above the variance of its receiver, and
+it is the *coherence* of a half-metre body-shaped blob that carries it, not the
+per-pixel contrast.
 
-**The cloak is untextured.** The crimson cloak in `v8/closeup.png` is flat paint
-across ~380x520 px — no weave, no fibre direction, no fold shading. Its only
-high-frequency content is the post-pass film grain, i.e. noise standing in for
-texture. In `v8/laststand.png` the same garment carries a hard-edged rectangular
-panel of streaky 'hair' texture over a flat body: one garment, two substances,
-razor boundary.
+**The cloak reads as cloth in five presets and as paint in the one the defect was
+raised on.** `v9/stance.png` at 4x is fulled wool: lengthwise fibre striation, a
+nap sheen, tonal drape. `v8` at the same crop is flat brown under a uniform
+pinprick dither. `duel`, `laststand`, `portrait` and `lineup` all carry it.
+**`closeup` does not** — measured on the cloak interior, sigma/mu went 0.358 ->
+0.236 and 5-px band energy 0.166 -> 0.115, i.e. *down*, while mean luma went 13.3
+-> 14.6. The recipe is not the problem; that garment faces away from every
+directional in the rig and sits at 15/255, and relief with no N·L gradient across
+it cannot show. This is a **lighting** defect wearing a texture defect's clothes,
+and it is the one blocker of the four that did not reach its own frame.
 
-**Shield planks share one tile AND one phase.** The portrait crop shows the same
-knot at the same height on boards 1, 2 and 3. A per-plank phase offset is a
-smaller fix than the world-tile work and would break the waffle read on its own.
-
-**The bonfire core got worse, measurably.** Pixels at or above 250 luma over the
-arena flame box went 1381 -> 1547 v7 -> v8, and mean saturation of the hottest
-2% is unchanged at 0.15.
+**The `laststand` back panel is unchanged.** Still a hard-edged rectangular patch
+of streaky pelt over a flat cloak body with a razor boundary — one garment, two
+substances. `characters.ts:2862–2872` puts a 51 mm tile on the cloak
+(`clothRepeat`) and a 300 mm one on the pelt (`PELT_TILE`, `round(0.3/0.25) = 1`).
+6:1 on adjacent surfaces of one warrior is the whole defect and no texture recipe
+can close it; the pelt wants 2–3 repeats, or `PELT_TILE` wants to be ~0.12.
 
 **No sparks, no dust, no blood anywhere in eight captures** — including
-`laststand`, where the hero is at ~15% health. Axis 9 cannot pass on that.
+`laststand`, where the hero is at ~15% health. Unchanged. Axis 9 cannot pass.
 
-**Credit, measured:** violet edge fringing fell 3666 -> 196 in `duel`; no
-banding (the sky carries 217/148/102 unique per-channel values); no
-PointsMaterial squares; no floating orange quad.
+**Regression: `stance` lost tonal range.** meanLuma 60.7 -> 58.5 (−3.7%), maxLuma
+235 -> 218, `tonalBuckets` **11 -> 9** — one above the FAIL line. `arena` 12 -> 11
+and `closeup` 13 -> 11 moved the same way; the other five held or improved
+(`duel` 14 -> 15, `lineup` 16). The histogram says where it went: `stance`'s
+16-bucket occupancy gains 5 points in the 16–32 luma band and loses the 128–176
+tail. That is `lighting.ts` draining ambient and hemisphere to pay for
+`AO_SHADOW_INTENSITY 0.85`, and `stance` is the preset with the least sky in it
+and so the least headroom to give. The lever named at the constant is 0.78; the
+retreat is that, not `AO_TILT`.
+
+**Credit, re-measured on v9:** no banding (the `duel` sky carries 240/161/104
+unique per-channel values, against 238/159/107 in v8); no `PointsMaterial`
+squares; no floating orange quad; no untextured surface in any frame; violet
+fringing flat within 5%. Whole-frame exposure held within ~1% on six of eight
+presets while the shadow contrast roughly doubled, which was the hard part of the
+lighting change and it landed.
+
+**`right click blocks` in `npm run playtest` is flaky — 1 failure in 4 runs.** It
+failed with `state=idle` and passed on three consecutive re-runs with identical
+stamina numbers everywhere else, so the sim is deterministic and the read is not.
+The check presses right mouse, waits a fixed 450 ms and reads one snapshot; the
+dodge 600 ms earlier lasts 0.35 s and the block can land inside its recovery.
+This is the same class of bug as the one `bf0b58a` fixed for the dodge assertion
+by reading three packets after the press. **Do not relax the assertion to make it
+green** — either read a sequence the way the dodge check does, or give the dodge
+room to finish. Recorded here rather than fixed because a flaky test is a finding
+and this pass did not own `tools/`.

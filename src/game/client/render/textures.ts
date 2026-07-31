@@ -1305,6 +1305,18 @@ function buildWool(g: Gen): void {
     warpUV(bank, u, v, 0.07);
     const wu = WARP[0];
     const wv = WARP[1];
+    // Every warped tap below reads `wu + 1` and `wv + 1`, the same guard the dye
+    // field at the bottom of this function already carries. `tap` documents that
+    // its argument must be non-negative and this recipe was quietly breaking it:
+    // a warp of 0.07 puts `wu` to -0.035 over the first nine texel columns, where
+    // `fx | 0` truncates toward zero instead of flooring and returns a texel out
+    // of place with a negative interpolation weight. Measured rather than
+    // assumed, and the honest answer is that it did not matter — the step across
+    // the wrap in column-mean luma is 0.61 against a median interior step of 1.01
+    // either way, because the field is smooth enough that being a texel out is
+    // smaller than the variation already there. The guard stays because it is
+    // free (period 1, integer scales, so no sample already in range moves) and
+    // because the next recipe to raise its warp amplitude will not be so lucky.
 
     // The warp's own sideways displacement, reused rather than re-tapped — the
     // same trick the dye field below plays. This is the term that decides whether
@@ -1321,8 +1333,8 @@ function buildWool(g: Gen): void {
     // why one cycle per tile is a blob and no cycles at all is a streak. The v
     // arguments are the two fixed rows of the field these read, chosen only to be
     // uncorrelated with each other; they carry no scale.
-    const stria = sampleField(bank.soft, (u + sway) * 2, 0.13);
-    const striaFine = sampleField(bank.soft, (u + sway * 0.4) * 5, 0.61);
+    const stria = sampleField(bank.soft, (u + sway + 1) * 2, 0.13);
+    const striaFine = sampleField(bank.soft, (u + sway * 0.4 + 1) * 5, 0.61);
     // Expanded because `soft` is five octaves normalised and piles up around 0.5
     // — see `contrast`. Left alone this lands a third of the relief it reads as.
     const drape = contrast(stria * 0.56 + striaFine * 0.44, 1.6);
@@ -1330,12 +1342,12 @@ function buildWool(g: Gen): void {
     // Fibre, long one way and narrow the other. Sampled off `grain` rather than
     // `fine` so the coarse octave lands at three or four texels: fibre that
     // resolves is fibre, fibre at half a texel is the dither the mips eat.
-    const napV = sampleField(bank.grain, wu * 3, wv * 1);
-    const napH = sampleField(bank.grain, wu * 1, wv * 3);
+    const napV = sampleField(bank.grain, (wu + 1) * 3, (wv + 1) * 1);
+    const napH = sampleField(bank.grain, (wu + 1) * 1, (wv + 1) * 3);
     const lay = smoothstep(0.4, 0.6, sampleField(bank.warp, u * 3, v * 3));
     const nap = napV + (napH - napV) * lay;
     // Loose hair standing off the surface, and the tooth under all of it.
-    const hairy = sampleField(bank.fine, wu * 2, wv * 1);
+    const hairy = sampleField(bank.fine, (wu + 1) * 2, (wv + 1) * 1);
     const tooth = sampleField(bank.fine, u * 2, v * 2);
 
     // Pills — the knots fulled wool raises wherever it has been rubbed. Sparse,
