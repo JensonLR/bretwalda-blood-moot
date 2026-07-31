@@ -4143,9 +4143,19 @@ export function buildCharacter(
   // metalness 0.9 and roughness 0.34, which returns the sky's whole orange band
   // in one specular hit: every buckle, rivet and boss on the warrior was reading
   // as a blown yellow chip in `art/shots/v4/lineup.png`, and the belt plate was
-  // reading as a placeholder square. On the bronze substrate at 0.46 the same
-  // fittings hold their shape and still read as the most precious thing worn.
-  const brass = M.tinted("bronze", 0xc0a45c, { roughness: 0.46 });
+  // reading as a placeholder square. Roughness 0.46 fixed that and is kept.
+  //
+  // What is dropped this pass is the *substrate*. The `bronze` recipe is a
+  // corroded casting — its own comment says "verdigris in the cavities" — and it
+  // grows broad green blooms off a field sampled at a 160 mm world tile. That is
+  // right for a ship's rivet and wrong for every fitting a man wears: a 20 mm
+  // shoulder boss gets a fifth of one bloom, so the stud is half green, and a
+  // 4 mm cabochon lands wherever the field happens to be. Under the fire key in
+  // `art/shots/helm/suttonhoo.png` every gold thing on the warrior is speckled
+  // green and reads as glitter glue. Smooth and untextured, the same fittings
+  // read as one poured metal, which is what cast bronze is. The micro-relief
+  // that is lost was never resolvable at the size any of these are seen.
+  const brass = M.standard(0xbfa25c, 0.46, 0.78);
   // The Sutton Hoo palette. Three substances that exist nowhere else on a
   // warrior, so the most expensive thing in the shop is not a recolour of the
   // second most expensive — and minted only for the helm that wears them, which
@@ -4156,18 +4166,33 @@ export function buildCharacter(
   //             0.3 roughness the largest plate in the portrait framing returns
   //             the sky as one blown bar, which is the defect the brow band was
   //             taken off polish for, and a full face mask is four times the area.
-  //   `gilt`    a little brighter and a little glossier than the `brass` every
-  //             other fitting on the roster uses, on the same bronze substrate for
-  //             the same reason — `M.blade`'s 0.9 metalness returns the ember
-  //             horizon in one hit and every fitting reads as a blown yellow chip.
+  //   `gilt`    fire-gilding is mercury and gold burnished into bronze: it has no
+  //             grain of its own, and the surface it leaves is continuous. So this
+  //             is untextured, brighter and glossier than `brass`, and it is the
+  //             one metal on the warrior allowed near a mirror. Metalness stays off
+  //             1.0 and roughness off 0.25 for the reason the whole file keeps
+  //             repeating — the arena's ember horizon comes back in one hit and the
+  //             fitting turns into a blown yellow chip — but at 0.31 the brow, the
+  //             nose and the crest each roll a single travelling highlight, which
+  //             is the difference between cast metal and speckle.
   //   `garnet`  a dielectric, not a metal, and that is the whole trick. F0 of 0.04
-  //             at 0.17 roughness gives a small hard specular dot over an albedo
-  //             dark enough to stay red under the arena's fire, which is what
-  //             cabochon garnet does and what a metallic red never does.
+  //             gives a small hard specular dot over an albedo dark enough to stay
+  //             red under the arena's fire, which is what a cabochon does and a
+  //             metallic red never does. 0.17 roughness was still too open: the
+  //             lobe was wide enough to pull the fire's whole orange band across a
+  //             4 mm cell, so the cells rendered mottled orange-gold rather than
+  //             red — the previous owner predicted this number would need tuning
+  //             and it did. 0.12 keeps the dot to a dot. The albedo went to a third
+  //             of its old luma in the same pass and that overshot: a dielectric
+  //             with almost no diffuse and nothing bright to reflect is a black
+  //             bead, and a row of black beads on gold reads as rivets rather than
+  //             as cloisonné — which is what the first capture of this pass showed.
+  //             0x6a1019 is dark enough to stay red under the arena's fire and
+  //             light enough to be seen as red rather than as a hole in the metal.
   const noble = helmStyle(ap.helm).noble;
   const silver = noble ? M.tinted("steel", 0x9aa6ae, { roughness: 0.46, metalness: 0.72 }) : steel;
-  const gilt = noble ? M.tinted("bronze", 0xd2ae58, { roughness: 0.38 }) : brass;
-  const garnet = noble ? M.standard(0x5c1016, 0.17) : brass;
+  const gilt = noble ? M.standard(0xd9b45f, 0.31, 0.9) : brass;
+  const garnet = noble ? M.standard(0x6a1019, 0.12) : brass;
   // Flesh is authored against a *canonical* tone and swapped at mesh time. The
   // geometry a warrior's arms and neck merge into does not depend on his
   // complexion — only the material bound to it does — so folding the tone into the
@@ -5592,7 +5617,17 @@ export function buildCharacter(
       // This is the cheapest silhouette differentiator on the head: a bowl pulled
       // down to the brow with a deep dome is a different outline from a cap sitting
       // on the crown, at any distance and from behind. See `BuildTrait.bowl`.
-      const bandLo = lat(Y_BROW + mix(0.15, 0.05, clamp01((B.bowl - 0.76) / 0.36)));
+      // The mask helm wears 5 mm deeper than the open ones, and that is a
+      // proportion fix rather than a fit change. An open helm is read against the
+      // face under it; a mask helm is read against *itself*, and with the band at
+      // the open helms' height the bowl stood as a tall dome over a shallow plate
+      // and the eye openings sat in the bottom third of a letterbox. Dropping the
+      // band brings the cap onto the brow, which is where the artefact's is, and
+      // hands the height it gives up to the mask. It stops well clear of the brow
+      // ridge at 0.049 rad — putting the band *on* the ridge is the defect logged
+      // twenty lines above and this does not repeat it.
+      const bandLo = lat(Y_BROW + mix(0.15, 0.05, clamp01((B.bowl - 0.76) / 0.36)))
+        - (style.mask ? 0.055 : 0);
       const bandHi = bandLo + 0.20;
       // The two substances the whole cap is cut from. Every helm below the noble
       // tier gets the iron/steel pair it always had; the Sutton Hoo gets tinned
@@ -5783,11 +5818,23 @@ export function buildCharacter(
         // angle a helmet like this is most often seen from. A deep guard covers the
         // ear, which is what these are for, and at 1.45 it clears the helix by
         // 12 mm rather than grazing it.
+        //
+        // Two numbers move when there is a mask under the guard, and both are
+        // about what the plate is standing on. Its inner edge goes from 0.50 rad
+        // to 0.78: at 0.50 it lands halfway across the cheek, and over an open
+        // helm that is a plate against skin — a boundary the eye reads as kit —
+        // but over a mask it is a plate against a plate, and it drew a fold down
+        // the middle of each cheek of the one face in the game that has to read as
+        // one formed surface. At 0.78 it sits at the mask's own outer curve and
+        // frames it. And the tessellation goes up, because 6 spans across a 0.95
+        // rad guard put four visible facets in a silhouette that used to be behind
+        // an open helm's jaw and is now the outline of the face itself.
+        const guardIn = style.mask ? 0.78 : 0.50;
         for (const s of [-1, 1]) {
           p.add(headWear(K, {
-            ...sideArc(s, 0.50, 1.45),
+            ...sideArc(s, guardIn, 1.45),
             v0: () => lat(Y_CHIN + 0.05), v1: () => bandLo + 0.01,
-            nu: 6, nv: 4,
+            nu: style.mask ? 10 : 6, nv: style.mask ? 6 : 4,
             lift: (_u, v) => 0.027 + 0.011 * (1 - v), thick: 0.008,
           }), capMetal, place.clone());
         }
@@ -5977,64 +6024,192 @@ export function buildCharacter(
         // guess at where the eye ended up.
         const eu = 0.355 * K.F.eyeU;
         const ev = lat(Y_EYE) + K.F.eyeV;
-        const uIn = eu - 0.185;
-        const uOut = eu + 0.185;
-        // 35 mm across and 22 mm tall, closing to a point at both canthi. Square
+        const uIn = eu - 0.170;
+        const uOut = eu + 0.170;
+        // 32 mm across and 27 mm tall, closing to a point at both canthi. Square
         // ends would read as two rectangles punched in a plate; this is the one
         // boundary on the helmet a viewer's eye goes to first, and it is the
         // difference between a mask and a letterbox.
+        //
+        // It shipped at 35 x 22 and that ratio was the letterbox. An aperture
+        // three half-heights wide reads as a slot at any distance the game is
+        // played at, whatever its ends do; 32 x 27 is 1.6:1, which is what the
+        // artefact's openings measure and what stops reading as a visor slit.
         const slot = (u: number) =>
           Math.pow(Math.sin(Math.PI * clamp01((Math.abs(u) - uIn) / (uOut - uIn))), 0.55);
-        const openHi = (u: number) => ev + 0.100 * slot(u);
-        const openLo = (u: number) => ev - 0.078 * slot(u);
+        const openHi = (u: number) => ev + 0.118 * slot(u);
+        const openLo = (u: number) => ev - 0.098 * slot(u);
         const maskTop = bandLo + 0.025;
-        // Under the moustache and above the chin. A mask that reached the menton
-        // would have to fight the beard hang and the jaw's own silhouette for the
-        // same 40 mm, and the artefact stops here too — the deep cheek guards
-        // take the jaw.
-        const maskBot = lat(Y_LIP - 0.115);
+        // How far round the head the plate reaches. 1.16 rad, not 1.00: at 1.00
+        // the silver stopped short of the cheekbone's widest point, so the mask
+        // was a strip down the middle of a face with skin either side of it and
+        // the deep guards standing off *that* — three narrow verticals instead of
+        // one broad face. The guards begin at 0.78 on this helm, so the last
+        // 0.38 rad is plate behind plate, which is what a hinged guard is.
+        const uEdge = 1.16;
+        // WHERE THE MASK STOPS, and this is the fault the previous owner flagged
+        // and could not close. It ended at `lat(Y_LIP - 0.115)` — below the mouth
+        // but well above the menton — and left a lit column of chin and throat
+        // hanging under it. That single wedge of skin undoes the entire object:
+        // "a man with no face" becomes a man wearing a snorkel, because the eye
+        // reads the flesh as the face and the metal as a thing stuck on it.
+        //
+        // So it now closes on the jaw, and it closes at a latitude that depends on
+        // where round the head it is: down to the chin on the centreline, rising
+        // as it goes out so the last of it tucks behind the cheek guards rather
+        // than fighting them for the same 20 mm. The guards floor at
+        // `lat(Y_CHIN + 0.05)` and stand 27 mm out against this 29, so the two
+        // still read as hinged over a face and not as one welded bucket.
+        const chinV = lat(Y_CHIN + 0.005);
+        const jawV = lat(Y_LIP - 0.055);
+        const maskBot = (u: number) => mix(chinV, jawV, smooth(0.34, 1.02, Math.abs(u)));
         // Standoff as a function of LATITUDE, not of the patch's own parameter.
-        // Seven panels meet along six seams to leave two holes in one sheet, and
-        // each panel spans a different range of v — so a lift written against `s`
-        // ramps at a different rate in every panel and the field steps at every
-        // seam. Sampled off v it cannot. This is the entire difference between one
-        // mask and seven plates screwed to a face.
-        const maskLift = (v: number) => mix(0.029, 0.0225, smooth(maskBot, maskTop, v));
-        const facet = (
+        // Panels that span different ranges of v would otherwise ramp at different
+        // rates and the field would step at every seam.
+        const maskLift = (v: number) => mix(0.029, 0.0225, smooth(chinV, maskTop, v));
+        // THE MASK IS A FORMED PLATE, NOT A SKIN, and this is what made it read as
+        // folded low-poly card. Everything else on this head is lifted straight off
+        // `faceSurface`, which is right for hair, paint and a nasal bar — they lie
+        // on the face. But that field carries the nasal dorsum, the orbital
+        // margins, the lip line, the mental protuberance and the buccal hollows,
+        // so a sheet drawn through it inherits every crease the face has and none
+        // of the curvature a beaten plate has. Hence: low-pass the field over about
+        // ±0.09 rad before lifting. The average keeps the skull the mask has to
+        // fit — a wide head still gets a wide mask — and loses the features it must
+        // not copy, which leaves one continuous surface for the fire key to travel
+        // across. `crownU` then adds the smith's own doming back, greatest on the
+        // centreline and gone by the flanks.
+        //
+        // Nine taps, at build time only, on a geometry the cache keeps. It costs
+        // nothing anybody can measure and it is the difference between a mask and
+        // a paper bag.
+        // ±0.13 rad, which is about 12 mm on this skull, over two rings. One ring
+        // at ±0.09 left the nasolabial fold and the buccal hollow legible as two
+        // creases running from the nose wing to the jaw — soft, but a *face* under
+        // silver rather than a plate over one, and at that point the mask is a
+        // death-mask cast off the man instead of a thing beaten over a form. The
+        // widest feature the field carries is the zygomatic, and 12 mm clears it.
+        const BLUR: Array<[number, number, number]> = [
+          [0, 0, 1.0],
+          [0.07, 0, 0.70], [-0.07, 0, 0.70], [0, 0.07, 0.70], [0, -0.07, 0.70],
+          [0.05, 0.05, 0.42], [-0.05, 0.05, 0.42],
+          [0.05, -0.05, 0.42], [-0.05, -0.05, 0.42],
+          [0.13, 0, 0.34], [-0.13, 0, 0.34], [0, 0.13, 0.34], [0, -0.13, 0.34],
+          [0.095, 0.095, 0.22], [-0.095, 0.095, 0.22],
+          [0.095, -0.095, 0.22], [-0.095, -0.095, 0.22],
+        ];
+        const _bp = new THREE.Vector3();
+        const _bn = new THREE.Vector3();
+        const crownU = (u: number) =>
+          0.010 * Math.pow(Math.cos(clamp01(Math.abs(u) / uEdge) * Math.PI * 0.5), 1.4);
+        /** The mask's own surface: the head's shape, none of its features. */
+        const shell = (u: number, v: number, off: number, out: THREE.Vector3) => {
+          out.set(0, 0, 0);
+          _n.set(0, 0, 0);
+          let w = 0;
+          for (const [du, dv, k] of BLUR) {
+            dirOf(u + du, v + dv, _d);
+            faceSurface(K, _d, _bp);
+            faceNormal(K, _d, _bn);
+            out.addScaledVector(_bp, k);
+            _n.addScaledVector(_bn, k);
+            w += k;
+          }
+          out.multiplyScalar(1 / w);
+          _n.normalize();
+          out.addScaledVector(_n, off + crownU(u));
+        };
+        /** A point on the mask's shell, for the fittings that ride on it. */
+        const onMask = (u: number, v: number, off: number): THREE.Vector3 => {
+          const out = new THREE.Vector3();
+          shell(u, v, maskLift(v) + off, out);
+          return out;
+        };
+        // Everything on this mask — field, brows, nose, moustache — is swept
+        // through `shell` and nothing through `headWear`, because a fitting drawn
+        // on the face's field and riveted to a plate drawn on the mask's would sit
+        // wherever the two disagree, which over the nose is 6 mm of float.
+        const onShell = (
           u0: number, u1: number,
           v0: (u: number) => number, v1: (u: number) => number,
           nu: number, nv: number,
-        ) => p.add(headWear(K, {
-          u0, u1, v0, v1, nu, nv,
-          lift: (u, s) => maskLift(mix(v0(u), v1(u), s)),
-          thick: 0.0075,
-        }), silver, place.clone());
-        const capV = () => maskTop;
-        const hemV = () => maskBot;
-        // Centre column first: brow to under the moustache, and the strip the nose
-        // piece rides on. Then, each side, the two panels that dodge the opening
-        // and the temple-to-jaw field outboard of it.
-        facet(-uIn, uIn, hemV, capV, 3, 6);
-        for (const s of [-1, 1]) {
-          const eye = sideArc(s, uIn, uOut);
-          facet(eye.u0, eye.u1, openHi, capV, 5, 2);
-          facet(eye.u0, eye.u1, hemV, openLo, 5, 3);
-          const flank = sideArc(s, uOut, 1.00);
-          facet(flank.u0, flank.u1, hemV, capV, 3, 6);
-        }
+          lift: (u: number, v: number, s: number) => number,
+          thick: number,
+          mat: THREE.Material,
+        ) => {
+          const surf = (t: number, s: number, off: number, out: THREE.Vector3) => {
+            const u = mix(u0, u1, t);
+            const v = mix(v0(u), v1(u), s);
+            shell(u, v, lift(u, v, s) + off, out);
+          };
+          p.add(patch({
+            nu, nv,
+            outer: (t, s, out) => surf(t, s, 0, out),
+            inner: (t, s, out) => surf(t, s, -thick, out),
+          }), mat, place.clone());
+        };
+        // TWO panels, not seven. `slot` is zero outside the eye zone, so `openHi`
+        // and `openLo` both collapse onto `ev` there and the upper and lower
+        // plates meet edge to edge down the middle of the face and again out past
+        // the canthi — leaving exactly two holes in what is otherwise one sheet.
+        // The seven-panel build left six vertical seams across the face, each one
+        // a shading discontinuity in the largest unbroken area of metal in the
+        // portrait framing. These two have one horizontal join, and it runs along
+        // the eye line where the openings and the brows are already breaking the
+        // surface up.
+        //
+        // Where they meet away from the openings they OVERLAP rather than abut.
+        // `patch` closes each v-boundary with a rim strip whose normal points
+        // along the sheet, so two edges meeting flush put two 7.5 mm rims nose to
+        // nose and draw a bright line straight across both cheeks at eye level —
+        // visible in the first capture of this pass, and the same defect the brows
+        // and the cloak hem are already written around. Lapping the lower plate
+        // 15 mm up behind the upper one, and dropping its lift by 1.8 mm as it
+        // goes, puts the join under metal where it belongs. The lap is taken to
+        // nothing as the opening opens, so nothing intrudes into the aperture.
+        const lapped = (u: number) => {
+          const lap = 1 - clamp01(slot(u) * 3);
+          return openLo(u) + 0.015 * lap;
+        };
+        // Spans off the LOD, because these two sheets are now the largest thing on
+        // the head and a phone should not buy the portrait's tessellation to see a
+        // helmet across an arena. 26 at high, 18 at medium, 14 at low.
+        const maskU = Math.max(14, lod.shellU * 2 - 2);
+        onShell(-uEdge, uEdge, openHi, () => maskTop, maskU, 4,
+          (_u, v) => maskLift(v), 0.0075, silver);
+        onShell(-uEdge, uEdge, maskBot, lapped, maskU, 5,
+          (u, v, s) => maskLift(v) - 0.0018 * s * (1 - clamp01(slot(u) * 3)),
+          0.0075, silver);
         // Black voids behind the openings. This file has spent two passes making
         // sure a helmet is not an empty hole; here the hole is the point, and what
         // has to show through it is an eye in the dark rather than a lit cheekbone
-        // 30 mm behind a slot. A dark course laid straight on the skin takes the
-        // skin out of the aperture, and the globe — which `eyeFrame` stands 13 mm
-        // proud of the socket floor — is left in front of it with its own specular
-        // dot. Cheaper and far more reliable than asking a shadow map to resolve
-        // the 20 mm of tunnel the mask's own thickness makes.
+        // 30 mm behind a slot.
+        //
+        // The flat dark course this replaces sat 3.5 mm off the skin with 20 mm of
+        // lit tunnel between it and the mask's inner face, so from anywhere but
+        // dead ahead the aperture showed brow, lid and cheek — which is what
+        // `art/shots/helm/suttonhoo.png` shows. This is a funnel instead: it meets
+        // the mask's inner surface at the rim of the opening and falls away to the
+        // socket floor at the centre, so there is no lit surface anywhere inside
+        // the aperture at any bearing. The globe still stands 13 mm proud of that
+        // floor and still catches its own specular dot, which is the call this
+        // helmet needs — the doc asks for black voids and the doc is right about
+        // the field, but at the portrait framing a wholly empty socket is the
+        // "nobody home" defect the top of this file warns about, and a wet dot in
+        // a black hole is a man looking at you. Void first, eye second.
         for (const s of [-1, 1]) {
+          const socket = sideArc(s, uIn - 0.050, uOut + 0.050);
           p.add(headWear(K, {
-            ...sideArc(s, uIn - 0.055, uOut + 0.055),
-            v0: (u) => openLo(u) - 0.055, v1: (u) => openHi(u) + 0.055,
-            nu: 6, nv: 3, lift: () => 0.0035, thick: 0.0012,
+            ...socket,
+            v0: (u) => openLo(u) - 0.050, v1: (u) => openHi(u) + 0.050,
+            nu: 8, nv: 4,
+            // Rim to mask, centre to skin. `t` is across, `q` up.
+            lift: (u, q) => {
+              const t = clamp01((u - socket.u0) / (socket.u1 - socket.u0));
+              const bowlT = Math.sin(Math.PI * t) * Math.sin(Math.PI * q);
+              return mix(0.019, 0.0035, Math.pow(bowlT, 0.55));
+            },
+            thick: 0.0012,
           }), dark, place.clone());
         }
 
@@ -6045,10 +6220,10 @@ export function buildCharacter(
         // the two heavy gold arcs, and they earn that weight: they are the only
         // horizontal in the composition and they are what turns two holes into a
         // face rather than a colander.
-        const browLo = (u: number) => ev + 0.088 + 0.030 * smooth(uIn - 0.06, uOut + 0.04, Math.abs(u));
-        const browHi = (u: number) => browLo(u) + 0.086 - 0.030 * smooth(uIn, uOut + 0.10, Math.abs(u));
+        const browLo = (u: number) => ev + 0.132 + 0.030 * smooth(uIn - 0.06, uOut + 0.04, Math.abs(u));
+        const browHi = (u: number) => browLo(u) + 0.098 - 0.030 * smooth(uIn, uOut + 0.10, Math.abs(u));
         const browIn = uIn - 0.06;
-        const browEnd = uOut + 0.105;
+        const browEnd = uOut + 0.115;
         const along = (u: number) => clamp01((Math.abs(u) - browIn) / (browEnd - browIn));
         // Relief on the fitting, taken to nothing on all four boundaries. Every
         // rim strip a `patch` closes with points its normal *along* the sheet, so
@@ -6061,31 +6236,33 @@ export function buildCharacter(
           * Math.pow(Math.sin(Math.PI * clamp01(s)), 0.45);
         for (const s of [-1, 1]) {
           const b = sideArc(s, browIn, browEnd);
-          p.add(headWear(K, {
-            ...b,
-            v0: browLo, v1: browHi,
-            nu: 7, nv: 2,
-            lift: (u, t) => maskLift(mix(browLo(u), browHi(u), t)) + relief(along(u), t, 0.0058),
-            thick: 0.004,
-          }), gilt, place.clone());
+          onShell(b.u0, b.u1, browLo, browHi, Math.max(8, lod.shellU), 3,
+            (u, v, t) => maskLift(v) + relief(along(u), t, 0.0072), 0.004, gilt);
           if (lod.trim) {
-            // The garnets, as seven cabochons rather than as a strip. A 3 mm rail
-            // would have to end in rim strips 3 mm wide standing on gilt, which is
+            // The garnets, as cabochons rather than as a strip. A 3 mm rail would
+            // have to end in rim strips 3 mm wide standing on gilt, which is
             // exactly the width that stipples; a cell has no rim at all. It is also
             // what the object is — cloisonné is discrete cells, not a line of paint.
-            for (let i = 0; i < 7; i++) {
-              const t = 0.13 + (i / 6) * 0.74;
+            //
+            // Five, not seven, and each one 40% wider. Seven 3.6 mm balls at six
+            // segments along an eyebrow is a row of faceted specks: each facet
+            // returns a different sample of the fire, so the line read as sparkle
+            // rather than as stones, and it was half of what made the gilt look
+            // like glitter. Five 5 mm cells at ten segments hold a single highlight
+            // each, which is what a polished cabochon does.
+            for (let i = 0; i < 5; i++) {
+              const t = 0.15 + (i / 4) * 0.70;
               const u = s * mix(browIn, browEnd, t);
               const v = mix(browLo(u), browHi(u), 0.5);
-              const q = onFace(u, v, maskLift(v) + relief(t, 0.5, 0.0058) + 0.0012);
-              p.add(ball(0.0036, 6), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1.0, 0.62, 1.0));
+              const q = onMask(u, v, relief(t, 0.5, 0.0072) + 0.0014);
+              p.add(ball(0.0050, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1.0, 0.60, 0.85));
             }
             // The boar's head each eyebrow ends in. Two solids and a pair of
             // tusks: at the size this is seen it is a snout that overhangs the
             // temple, and everything finer than that is spent on nothing.
             const bu = s * (browEnd - 0.012);
             const bv = mix(browLo(bu), browHi(bu), 0.45);
-            const q = onFace(bu, bv, maskLift(bv) + 0.0075);
+            const q = onMask(bu, bv, 0.0075);
             p.add(ball(0.0105, 7), gilt,
               xf(q.x, skullY + q.y, q.z, 0, s * 0.55, 0, 1.45, 0.92, 0.95));
             p.add(ball(0.0052, 6), gilt,
@@ -6112,75 +6289,107 @@ export function buildCharacter(
         // than abut, and the moustache is wider than the eyebrows are long.
         const noseTop = lat(Y_BROW + 0.03);
         const noseBot = lat(Y_NOSE - 0.02);
-        p.add(headWear(K, {
-          u0: -0.105, u1: 0.105,
-          v0: () => noseBot, v1: () => noseTop,
-          nu: 4, nv: 5,
-          lift: (u, t) => maskLift(mix(noseBot, noseTop, t))
-            + relief(clamp01(0.5 + u / 0.21), t, 0.0082),
-          thick: 0.0045,
-        }), gilt, place.clone());
-        // The moustache. Two leaves rather than one bar, parted at the philtrum
-        // and drooping as they go out — 84 mm across, which is wider than the face
-        // between the openings and is what makes the tail read as a tail.
+        onShell(-0.105, 0.105, () => noseBot, () => noseTop, 8, 8,
+          (u, v, t) => maskLift(v) + relief(clamp01(0.5 + u / 0.21), t, 0.0092),
+          0.0045, gilt);
+        // The moustache, and it is ONE form. It shipped as two leaves parted at
+        // the philtrum, each a lens that came to nothing at both ends, and at the
+        // size a face is read from that is a bowtie: two gold blobs under a nose.
+        // The cost of that is not the moustache, it is the bird — the whole point
+        // of this group is that brows, nose and moustache resolve as a bird in
+        // flight, and a tail split into two lobes reads as neither a tail nor a
+        // moustache. So: a single sheet the full 88 mm across, at full depth from
+        // the centre out to two thirds of its span and closing only in the last
+        // third, with a shallow notch under the philtrum instead of a gap. A real
+        // moustache is one mass with a parting drawn on it, not two of anything.
         const mTop = lat(Y_NOSE - 0.045);
         const mBot = lat(Y_LIP + 0.02);
         const mMid = (mTop + mBot) * 0.5;
         const mHalf = (mTop - mBot) * 0.5;
-        const leaf = (u: number) =>
-          mHalf * Math.pow(Math.sin(Math.PI * clamp01((Math.abs(u) - 0.018) / 0.45)), 0.45);
-        const droop = (u: number) => mMid - 0.075 * smooth(0.05, 0.44, Math.abs(u));
-        for (const s of [-1, 1]) {
-          const m = sideArc(s, 0.018, 0.468);
-          p.add(headWear(K, {
-            ...m,
-            v0: (u) => droop(u) - leaf(u), v1: (u) => droop(u) + leaf(u),
-            nu: 7, nv: 2,
-            lift: (u, t) => maskLift(mix(droop(u) - leaf(u), droop(u) + leaf(u), t))
-              + relief(clamp01((Math.abs(u) - 0.018) / 0.45), t, 0.0072),
-            thick: 0.0045,
-          }), gilt, place.clone());
-        }
+        const mSpan = 0.475;
+        const mT = (u: number) => clamp01(Math.abs(u) / mSpan);
+        // Full through the middle, tapering only near the tips.
+        const leaf = (u: number) => mHalf * (1 - Math.pow(mT(u), 3.2));
+        // The droop, and the notch. The notch is 3 mm of the lower edge at the
+        // centreline — enough to say "parted" from a metre away and not enough to
+        // break the mass in two.
+        const droop = (u: number) =>
+          mMid - 0.088 * Math.pow(mT(u), 1.5) - 0.022 * Math.pow(1 - smooth(0, 0.055, Math.abs(u)), 2);
+        onShell(-mSpan, mSpan,
+          (u) => droop(u) - leaf(u), (u) => droop(u) + leaf(u), Math.max(12, lod.shellU + 10), 4,
+          (u, v, t) => maskLift(v) + relief(1 - Math.pow(mT(u), 2.4), t, 0.0080),
+          0.0045, gilt);
         if (lod.trim) {
           // Two garnets where the nose piece meets the brows — the dragon's eyes
           // on the upside-down read, and the only red above the eyebrow line.
           for (const s of [-1, 1]) {
             const v = mix(noseBot, noseTop, 0.86);
-            const q = onFace(s * 0.055, v, maskLift(v) + 0.0072);
-            p.add(ball(0.0034, 6), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1, 0.7, 1));
+            const q = onMask(s * 0.055, v, 0.0082);
+            p.add(ball(0.0042, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1, 0.7, 0.85));
           }
         }
 
         // ---- the crest ----
         //
-        // Front to back over the crown, terminating at the brow band where the
-        // nose piece takes over — so from dead ahead there is one unbroken gilt
-        // line from the nape, over the skull, down between the eyes and out into
-        // the moustache. Two patches meeting at the crown pole, the same way the
-        // warden's comb is built.
-        // Climbing to the crown, so the crest is in the outline from the side and
-        // not only a line on the cap. Shared with the garnet siting below, which
-        // has to land on the crest's own surface rather than near it.
-        const crestLift = (t: number) => 0.020 + 0.028 * Math.pow(clamp01(t), 0.55);
+        // "A crest running front to back over the crown of the cap", which is
+        // what the doc asks for and what the last build did not deliver. It was
+        // 8 mm wide, it climbed to 48 mm of standoff at the crown pole, and it
+        // came to nothing at both ends — so from the front, which is the only
+        // bearing the portrait sees, it was a thin antenna standing straight up
+        // out of the brow with a red bead on the tip. Two things were wrong:
+        // height and section.
+        //
+        // Height, because a crest is a *ridge* on a cap, not a fin above one. Its
+        // standoff is now the bowl's own standoff plus a fixed 13 mm the whole way
+        // along, so it travels the length of the skull at a constant proud height
+        // and reads from the side as a spine rather than from the front as a
+        // spike. Section, because a flat strip lifted off the dome ends in two rim
+        // strips whose normals point along the sheet — a bright wire down each
+        // side of the crest, which is exactly how you draw an antenna. A
+        // semicircular section merges into the bowl at both edges instead, so
+        // there is no rim to catch anything, and the round back rolls one
+        // continuous highlight the length of the helmet.
+        const crestHalf = 0.062;
+        const crownTop = Math.PI / 2 - 0.02;
+        const bowlLo = bandLo + 0.015;
+        // The bowl's own surface under the crest, so the ridge sits *on* the cap
+        // however domed this warrior's cap is.
+        const bowlAt = (v: number) => {
+          const t = clamp01((v - bowlLo) / (crownTop - bowlLo));
+          return mix(0.013, crest, t * t);
+        };
+        // 13 mm proud everywhere, easing to nothing at the nape and holding most
+        // of its height at the brow, where the nose piece takes over from it.
+        const ridgeAt = (v: number, front: boolean) => {
+          const run = front
+            ? mix(0.72, 1, smooth(bandLo, bandLo + 0.38, v))
+            : smooth(bandLo - 0.44, bandLo - 0.02, v);
+          return 0.0132 * run;
+        };
+        /** `du` is the signed offset from the crest's own centreline, in radians. */
+        const crestLift = (du: number, v: number, front: boolean) => {
+          const x = clamp01(Math.abs(du) / crestHalf);
+          return bowlAt(v) + ridgeAt(v, front) * Math.sqrt(Math.max(0, 1 - x * x));
+        };
         for (const u of [0, Math.PI]) {
           const front = u === 0;
+          const v0 = front ? bandLo : bandLo - 0.44;
           p.add(headWear(K, {
-            u0: u - 0.042, u1: u + 0.042,
-            v0: () => (front ? bandLo : bandLo - 0.30), v1: () => Math.PI / 2 - 0.02,
-            nu: 1, nv: 5,
-            lift: (_x, t) => crestLift(t),
-            thick: 0.009,
+            u0: u - crestHalf, u1: u + crestHalf,
+            v0: () => v0, v1: () => crownTop,
+            nu: 6, nv: Math.max(5, lod.shellV + 1),
+            lift: (x, t) => crestLift(x - u, mix(v0, crownTop, t), front),
+            thick: 0.006,
           }), gilt, place.clone());
         }
         if (lod.trim) {
           // Garnet down the spine of the crest. Five cells over the crown, which
           // is where the key at 60° actually lands — the one place on the helmet
           // a dark red reads as glass rather than as a hole.
-          const crestTop = Math.PI / 2 - 0.02;
           for (let i = 0; i < 5; i++) {
-            const v = mix(bandHi, crestTop - 0.08, i / 4);
-            const q = onFace(0, v, crestLift((v - bandLo) / (crestTop - bandLo)) + 0.0036);
-            p.add(ball(0.0038, 6), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 0.85, 1, 1));
+            const v = mix(bandHi, crownTop - 0.10, i / 4);
+            const q = onFace(0, v, crestLift(0, v, true) + 0.0030);
+            p.add(ball(0.0040, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 0.80, 1, 0.85));
           }
         }
       }
