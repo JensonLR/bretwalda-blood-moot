@@ -11,14 +11,18 @@
 // PNGs to art/shots/. Visual-critic agents read those PNGs.
 //
 // CONTRACT (renderer refactors must keep these working):
-//   window.__photoCam   — camera yaw in radians, read by the renderer
-//   window.__shotReady  — set true once N frames have been presented
+//   window.__photoCam    — camera yaw in radians, read by the renderer
+//   window.__shotReady   — set true once N frames have been presented
+//   window.__shotSubject — what a parametric preset actually staged, so the
+//                          tool can check it against what it asked for
+//   window.__shotError   — set instead of __shotReady when the query string
+//                          named something that does not exist
 // ============================================================
 import React, { useEffect, useMemo, useState } from "react";
 import GameCanvas from "@/game/client/GameCanvas";
 import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone } from "@/game/types";
 import { WARRIOR_STATS } from "@/game/types";
-import { defaultAppearance, type Appearance } from "@/game/client/characters";
+import { defaultAppearance, HELM_VALUES, type Appearance } from "@/game/client/characters";
 
 type Pose = {
   id: string;
@@ -99,6 +103,13 @@ const PRESETS: Record<string, {
    * seconds × 20 and the same on any machine slower than 20 fps.
    */
   settle?: number;
+  /**
+   * The preset is a stage, not a photograph: `?helm=` and `?turn=` redress and
+   * rotate it, and the capture tool takes a series. Only a preset that opts in
+   * reads them, so a stray query param can never quietly restage a shot that
+   * was authored to be fixed.
+   */
+  parametric?: boolean;
 }> = {
   // Over-shoulder gameplay view, mid-swing against a blocking foe.
   // Offset from the origin because the bonfire stands there — framing a duel
@@ -246,6 +257,60 @@ const PRESETS: Record<string, {
     // capture, a huscarl's head runs y 1.67 to 2.00, so the frame is 0.9 m tall
     // about y 1.84 and the head fills a third of it.
     framing: { position: [-7.0, 1.86, 2.6], target: [-7.0, 1.84, 4.6], fov: 26 },
+    poses: [
+      { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "idle", ap: { helm: "suttonhoo" } },
+    ],
+  },
+  // ---- The helmet card. One mark, one camera, one light. ------------------
+  //
+  // This replaces the row-of-five as the instrument for judging a helmet, and
+  // it exists because the row could not answer the question it was built to
+  // ask. Five men standing abreast at z=6 are five different distances and five
+  // different bearings from the bonfire, which is the arena's largest source:
+  // the middle of the row was backlit by flame and blown to orange while the
+  // ends sat in shadow, so a strip cropped out of it compared ten silhouettes
+  // across ten exposures. Panels that are not comparable are worse than no
+  // panels, because a reviewer will compare them anyway and be confident.
+  //
+  // A card fixes every variable but the helmet. The man never moves, so the
+  // photons are the same in every panel by construction rather than by
+  // intention; the camera never moves, so scale and background are the same;
+  // and the id stays "me" in all of them, so the face under the helmet is one
+  // face and not ten seeds. `?turn=` puts him on a turntable instead of moving
+  // the lens, which is the whole point — orbiting the camera would swing the
+  // bonfire through the background and put the flame behind panel four again.
+  //
+  // The mark is `portrait`'s, at 8.4 m from the fire: far enough out that the
+  // hearth is a fill rather than the key, which is what lets silver read as
+  // silver and gold read as gold instead of both reading as orange. It is not
+  // a neutral studio — there isn't one in this arena, the rig is a dusk rig —
+  // but it is the most neutral standing room the world has, and every card
+  // shares it.
+  //
+  // Negative `turn` rotates him *toward* the fire. At -35° his face still takes
+  // the hearth square on; at +35° the same three-quarter puts it in shadow and
+  // photographs the helmet's dark side. The sign is not cosmetic.
+  //
+  // 17.5° of vertical field over 2.05 m frames y 1.52–2.15: crest tip to collar
+  // and nothing else. That is ~450 px of head against the ~200 px the cropped
+  // row gave, which is the difference between seeing a garnet and inferring one.
+  // It also crops the floating health bar, which sits above the head and was in
+  // frame at the portrait's wider field.
+  helmcard: {
+    cam: Math.PI,
+    matchTimer: 40,
+    parametric: true,
+    // 16, not the default 26. There is no camera lerp in photo mode (the
+    // framing is set outright) and an idle pose has no swing to settle, so the
+    // remaining frames are procedural texture generation. At ~3.5 s a frame on
+    // a GPU-less box, ten frames saved is two minutes off a ten-card sheet.
+    settle: 16,
+    // x is -7.07 and not the mark's -7.0: the idle pose carries the head a
+    // little off the body's own axis, and at this field that is 16% of the
+    // frame width thrown away on one side. Measured off a front card, not
+    // guessed. The camera is 4.4° above the target so the crown is in shot —
+    // level, a crest that runs fore-and-aft is a line at the top of the skull.
+    framing: { position: [-7.07, 2.0, 2.55], target: [-7.07, 1.81, 4.6], fov: 16.5 },
     poses: [
       { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "idle", ap: { helm: "suttonhoo" } },
     ],
@@ -416,7 +481,42 @@ export default function ShotPage() {
   const [phase, setPhase] = useState<0 | 1>(0);
   const presetName = params?.get("preset") ?? "duel";
   const clean = params?.get("clean") === "1";
-  const preset = PRESETS[presetName] ?? PRESETS.duel;
+
+  /**
+   * Restages a `parametric` preset from the query string, and refuses rather
+   * than improvises when it cannot. An unknown helm value builds a bare head
+   * and says nothing about it (see `HELM` in characters.ts), so a typo in the
+   * capture tool would file a hatless man under "wyrm" and the sheet would read
+   * as a helmet that does not differ from the one beside it. That is the exact
+   * failure this whole pass exists to stop, so the harness proves what it
+   * photographed: the applied subject is published for the tool to check
+   * against what it asked for, and a value off the roster never renders at all.
+   */
+  const { preset, subject, subjectError } = useMemo(() => {
+    const base = PRESETS[presetName] ?? PRESETS.duel;
+    if (!params || !base.parametric) return { preset: base, subject: null, subjectError: null };
+    const helm = params.get("helm");
+    const turn = params.get("turn");
+    if (helm !== null && !HELM_VALUES.includes(helm)) {
+      return { preset: base, subject: null, subjectError: `unknown helm "${helm}"` };
+    }
+    const deg = turn !== null ? parseFloat(turn) : 0;
+    if (!Number.isFinite(deg)) {
+      return { preset: base, subject: null, subjectError: `unreadable turn "${turn}"` };
+    }
+    return {
+      preset: {
+        ...base,
+        poses: base.poses.map((p) => ({
+          ...p,
+          rot: Math.PI + (deg * Math.PI) / 180,
+          ap: { ...(p.ap ?? {}), ...(helm !== null ? { helm } : {}) },
+        })),
+      },
+      subject: { helm: helm ?? base.poses[0]?.ap?.helm ?? "none", turn: deg },
+      subjectError: null,
+    };
+  }, [presetName, params]);
 
   const roomState = useMemo(() => {
     const players: Record<string, GamePlayer> = {};
@@ -448,6 +548,10 @@ export default function ShotPage() {
 
   useEffect(() => {
     if (!params) return;
+    if (subjectError) {
+      (window as unknown as Record<string, unknown>).__shotError = subjectError;
+      return;
+    }
     let frames = 0;
     let raf = 0;
     const override = params.get("settle");
@@ -469,6 +573,7 @@ export default function ShotPage() {
         // a shot has to be able to check the assumption rather than inherit it.
         g.__shotFrames = frames;
         g.__shotMsPerFrame = (performance.now() - t0) / frames;
+        if (subject) g.__shotSubject = subject;
         g.__shotReady = true;
         return;
       }
@@ -476,7 +581,7 @@ export default function ShotPage() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [params, preset, phase]);
+  }, [params, preset, phase, subject, subjectError]);
 
   if (!params) return <div className="w-screen h-screen bg-black" />;
 
