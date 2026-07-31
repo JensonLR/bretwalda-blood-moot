@@ -2933,10 +2933,14 @@ export function buildSpear(materials?: CharacterMaterials): THREE.Group {
  *      planking turns all six seams into shadow lines, which is the only thing that
  *      makes planking read as planking at gameplay distance.
  *
- * What this cannot fix from here: the carry transform is `built.leftArm.add(shield)`
- * at (-0.14, -0.4, 0.26) in anim.ts, which puts the fist 260 mm *above* the boss —
- * i.e. gripping the shield near its bottom edge — and hangs the whole disc outboard
- * of the arm. That is what throws it against the frame edge, and it is not mine.
+ * The carry used to be the fourth item here and it is fixed: `anim.ts` hung the
+ * disc off `leftArm` at (-0.14, -0.4, 0.26), which put the fist 260 mm *above*
+ * the boss — a man holding a centre-grip shield by its bottom rim — and threw the
+ * whole disc against the frame edge. Re-measured on the built rig by the owner of
+ * that file, the off fist now sits (-2.7, +0.6, +39.9) mm from this origin on a
+ * disc spanning ±402 mm: dead centre laterally, and the 40 mm of standoff is
+ * exactly the grip bar below. The fist that closes on that bar is sized to it —
+ * see `HAND_GRIP.huscarl.off`.
  */
 export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): THREE.Group {
   const M = materials ?? RAW;
