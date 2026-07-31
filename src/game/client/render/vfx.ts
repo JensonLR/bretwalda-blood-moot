@@ -1,4 +1,4 @@
-// Fire, smoke, impacts, blade trails, decals and the air itself.
+// Fire, smoke, blood, impacts, blade trails, decals and the air itself.
 //
 // Every effect in the game is one of five instanced-quad layers, a fire layer
 // and a ribbon buffer, and each one is allocated once at build time. Nothing
@@ -44,6 +44,7 @@
 import * as THREE from "three";
 import { LAYER_UNOCCLUDED, setLayerDeep, type FrameContext, type Mood, type QualitySettings } from "./quality";
 import type { TextureLibrary, SpriteName } from "./textures";
+import type { HitZone, Vec3 } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -79,6 +80,74 @@ export interface BurstOptions {
   /** Legacy. The kind decides its own blending; a spark is never alpha-blended. */
   blending?: THREE.Blending;
   kind?: BurstKind;
+  /**
+   * Sim damage points, for `kind: "blood"` only. A graze and a cleaving heavy
+   * are not the same wound and have no business throwing the same spray. Absent,
+   * it is inferred from `count` — see `burst` — which is the shim, not the design.
+   */
+  damage?: number;
+}
+
+/**
+ * A blow that broke skin. This is the whole non-fatal case: everything about the
+ * spray comes off `damage`, so the orchestrator never has to decide what a hit
+ * looks like, only how hard it was.
+ */
+export interface WoundOptions {
+  /** World point the blow opened. */
+  position: Vec3;
+  /** Sim damage points. Roughly 10 is a graze and 50 a cleaving heavy. */
+  damage: number;
+  /**
+   * World direction the blood should leave in — the blade's travel, or the line
+   * from attacker to victim. Omitted, it fans off in a random horizontal
+   * direction, which is what the call sites that predate hit zones get.
+   */
+  direction?: Vec3;
+  /** Where the server said it landed. A throat throws more than a thigh. */
+  zone?: HitZone;
+  /**
+   * This blow killed him, and nothing came off. `torso` is a third of all hits
+   * and severs nothing, and the low tier refuses the bisection outright — both
+   * of those still have to read as deaths, so a fatal wound bleeds out and
+   * pools where a survivable one only spatters.
+   */
+  fatal?: boolean;
+}
+
+/**
+ * A limb has just come off. Every field here is `Severance` from characters.ts
+ * passed straight through: the two ends of this seam must never derive the cut's
+ * frame twice, or the blood and the stump will disagree about where the wound is.
+ */
+export interface SeveranceOptions {
+  /** World point of the cut at the instant of separation. */
+  position: Vec3;
+  /** Unit world direction the stump faces. The spray axis. */
+  direction: Vec3;
+  /** Section radius at the cut, metres. Sets how wide and how hard it throws. */
+  radius: number;
+  /**
+   * The wound node left on the *body*. Given one, the spray tracks it — down
+   * with the corpse as it falls, and inheriting that fall's momentum, instead of
+   * hanging in the air where the man used to be standing.
+   */
+  stump?: THREE.Object3D;
+  /** The severed piece. Given one, it trails blood as it tumbles. */
+  piece?: THREE.Object3D;
+  zone?: HitZone;
+  /** Overall strength, 1 by default. A bisection is worth more than a wrist. */
+  power?: number;
+}
+
+/**
+ * A wound that is still running. `stop()` is idempotent and safe from any state;
+ * call it on respawn. It is a belt to the braces rather than the mechanism —
+ * a jet also stops on its own the moment its anchor leaves the scene graph,
+ * which is what `Severance.release()` does to a stump.
+ */
+export interface BleedHandle {
+  stop(): void;
 }
 
 /** Something burning, that wants flame, embers, smoke, haze and a glow on it. */
@@ -110,6 +179,13 @@ export interface VfxHandle {
   /** A blade tip mid-arc. Successive calls that stay close become one ribbon. */
   trail(opts: BurstOptions): void;
   /** Hang fire on something. Returns an id for `removeFire`. */
+  /** A blow that broke skin and did not kill. Scales with damage. */
+  wound(opts: WoundOptions): void;
+  /**
+   * A limb has just come off: a burst from the stump on this frame, a weaker
+   * spray for a beat while the part falls, then a pool on the ground.
+   */
+  severed(opts: SeveranceOptions): BleedHandle;
   addFire(spec: FireSpec): number;
   removeFire(id: number): void;
   setMood(mood: Mood): void;
@@ -1159,6 +1235,12 @@ const PALETTE = {
   fireHalo: linear(0xff8a2e, 1.35),
   bloodFresh: linear(0x8e1208, 0.95),
   bloodDark: linear(0x360609, 0.7),
+  // The head of a stump spray. Oxygenated blood under pressure really is
+  // brighter than what runs out of a cut, and the half-stop between this and
+  // `bloodFresh` is the whole difference between a wound and a severance — it
+  // cannot be carried by particle count alone, because on the low tier there
+  // are not enough particles for a count to say anything.
+  bloodArterial: linear(0xb4200c, 1.1),
   mist: linear(0x6d1410, 0.7),
   dustNear: linear(0x9c8f6f, 0.5),
   dustFar: linear(0x6a6252, 0.3),
@@ -1257,9 +1339,56 @@ interface Ribbon {
 // ---------------------------------------------------------------------------
 
 interface Decal {
+  /** Slots are preallocated and reused; this is what says one is in the world. */
+  active: boolean;
   x: number; y: number; z: number;
-  size: number; rot: number;
+  size0: number; size1: number;
+  /**
+   * Seconds to grow from `size0` to `size1`. Zero for a thrown droplet, which
+   * lands the size it lands; seconds for a pool, which is the only thing on the
+   * ground that is still arriving after it is drawn.
+   */
+  spread: number;
+  rot: number;
   age: number; life: number;
+  /** A pool under a body: evicted last, dries slowest, darkest at the centre. */
+  pool: boolean;
+  /** Bumped on reuse, so a jet can tell its own pool from the one that took its slot. */
+  stamp: number;
+}
+
+/**
+ * A wound that keeps running.
+ *
+ * It is not a particle and it is not a burst: it is an emitter that reads a
+ * node's world transform every frame. That is the difference between blood that
+ * stays welded to a stump as the corpse folds over onto it and blood that hangs
+ * in the air where the man used to be standing — and it is what lets a spray
+ * inherit the motion of the thing it is coming out of, which is most of why a
+ * severed head trailing blood reads as heavy.
+ */
+interface Jet {
+  active: boolean;
+  /** Followed while it has a parent. Null for a jet pinned to a world point. */
+  anchor: THREE.Object3D | null;
+  /** Which way along the anchor's own Y the wound opens. */
+  axis: 1 | -1;
+  /** Last known wound frame in world space. */
+  x: number; y: number; z: number;
+  dx: number; dy: number; dz: number;
+  radius: number;
+  power: number;
+  age: number;
+  life: number;
+  /** Fractional droplets carried between frames, so a low rate is not a stutter. */
+  acc: number;
+  /** Previous frame's position, for the momentum a spray inherits. */
+  lx: number; ly: number; lz: number;
+  tracked: boolean;
+  /** True for the jet on the body: the one that leaves a pool where it ends. */
+  pools: boolean;
+  /** Bumped on reuse, so a stale `BleedHandle` cannot stop somebody else's wound. */
+  serial: number;
 }
 
 interface Ring {
@@ -1378,19 +1507,64 @@ export function createVfx(
   }
 
   // ---- decals -------------------------------------------------------------
+  // Every slot exists before the first blow lands and none is ever allocated
+  // again. The array this replaces pushed an object per stain and shifted the
+  // front off when it overflowed, which is one allocation and one O(n) copy per
+  // droplet that hits the ground — cheap alone, and a hundred droplets land in
+  // the second after a bisection.
   const decalCap = Math.max(1, settings.decalBudget);
   const decals: Decal[] = [];
+  let decalStamp = 1;
+  for (let i = 0; i < decalCap; i++) {
+    decals.push({
+      active: false, x: 0, y: 0, z: 0,
+      size0: 0, size1: 0, spread: 0, rot: 0, age: 0, life: 0,
+      pool: false, stamp: 0,
+    });
+  }
+
+  /**
+   * A slot to stain. Free one if there is one, otherwise the most-dried mark —
+   * but a droplet always goes before a pool, whatever their ages. A pool is
+   * metres of the frame under a body that is still lying there; a fleck of
+   * spatter is centimetres. Evicting by age alone is what lets sixty droplets
+   * from one death scrub out the pool that same death left.
+   */
+  function claimDecal(pool: boolean): Decal {
+    let best = decals[0];
+    let bestScore = -1;
+    for (const d of decals) {
+      if (!d.active) { best = d; break; }
+      const score = (d.pool ? 0 : 2) + d.age / d.life;
+      if (score > bestScore) { bestScore = score; best = d; }
+    }
+    best.active = true;
+    best.pool = pool;
+    best.age = 0;
+    best.stamp = ++decalStamp;
+    best.rot = Math.random() * TAU;
+    return best;
+  }
 
   function addDecal(x: number, z: number, size: number, life = 26, age = 0): void {
-    const d: Decal = {
-      x, y: groundAt(x, z) + 0.015, z,
-      size, rot: Math.random() * TAU,
-      age, life,
-    };
-    decals.push(d);
-    // Oldest out. A ring buffer would be tidier if decals only ever expired by
-    // age, but they also expire by time and the two indices drift apart.
-    while (decals.length > decalCap) decals.shift();
+    const d = claimDecal(false);
+    d.x = x; d.y = groundAt(x, z) + 0.015; d.z = z;
+    d.size0 = size; d.size1 = size; d.spread = 0;
+    d.life = life; d.age = age;
+  }
+
+  /**
+   * Blood that has run out rather than been thrown. It arrives small and spreads,
+   * because a pool is the one mark on the ground that is still happening after
+   * the blow that made it — and because a full-sized stain popping into existence
+   * under a corpse is the single most obvious way to say "decal".
+   */
+  function addPool(x: number, z: number, size: number, spread: number, life: number): Decal {
+    const d = claimDecal(true);
+    d.x = x; d.y = groundAt(x, z) + 0.015; d.z = z;
+    d.size0 = size * 0.22; d.size1 = size; d.spread = spread;
+    d.life = life; d.age = 0;
+    return d;
   }
 
   // ---- ground rings -------------------------------------------------------
@@ -1754,41 +1928,391 @@ export function createVfx(
     }
   }
 
-  function bloodSpray(x: number, y: number, z: number, count: number, spread: number, up: number, tint: THREE.Color): void {
-    // One throw direction for the whole spray, so it reads as a wound opening
-    // rather than as an explosion of red dots.
-    const a = Math.random() * TAU;
-    const ax = Math.cos(a);
-    const az = Math.sin(a);
+  // ---- blood ---------------------------------------------------------------
+  //
+  // One gravity for every droplet, because it is gravity. What sorts blood in
+  // the air is *drag*: a fat gout carries its momentum and draws a clean
+  // parabola, and the fine stuff loses its throw inside a metre and drifts. A
+  // spray authored as one size is the confetti failure two panels have already
+  // named — not because it ignores gravity, which the code it replaces did not,
+  // but because a population that all decelerates identically has no depth in it.
+  //
+  // 18.5 rather than 9.81. The arena reads at roughly half real scale through a
+  // 55° lens, so a droplet thrown at a believable 6 m/s has to fall about twice
+  // as fast to land where the eye expects. Every other ballistic thing in this
+  // file is scaled the same way (sparks 16, mail 18) and blood matching them
+  // matters more than blood matching Earth.
+  const BLOOD_G = 18.5;
+
+  /**
+   * Droplets leaving a wound along an axis. This is the only thing in the file
+   * that throws blood — the burst, the running jet and the non-fatal hit are all
+   * this function with different numbers, so there is one answer to what blood
+   * looks like rather than three that drift.
+   *
+   * `ivx/ivy/ivz` is the velocity of whatever the wound is attached to. A head
+   * spinning away from a neck throws its blood along its own arc, and the same
+   * term is what keeps the spray from a falling corpse under the corpse.
+   */
+  function spurt(
+    x: number, y: number, z: number,
+    dx: number, dy: number, dz: number,
+    count: number, speed: number, cone: number, scale: number,
+    tint: THREE.Color,
+    ivx = 0, ivy = 0, ivz = 0,
+  ): void {
+    // Any vector not parallel to the axis gives a basis; picking off the axis's
+    // own smallest component keeps it conditioned when a stump points straight up.
+    const ax = Math.abs(dx);
+    const ay = Math.abs(dy);
+    const az = Math.abs(dz);
+    const hx = ax <= ay && ax <= az ? 1 : 0;
+    const hy = hx === 0 && ay <= az ? 1 : 0;
+    const hz = hx === 0 && hy === 0 ? 1 : 0;
+    let ux = hy * dz - hz * dy;
+    let uy = hz * dx - hx * dz;
+    let uz = hx * dy - hy * dx;
+    const ul = 1 / (Math.hypot(ux, uy, uz) || 1);
+    ux *= ul; uy *= ul; uz *= ul;
+    const vx = dy * uz - dz * uy;
+    const vy = dz * ux - dx * uz;
+    const vz = dx * uy - dy * ux;
+
     for (let i = 0; i < count; i++) {
-      const speed = rand(1.8, 6.5) * spread;
-      const fan = rand(0.35, 1);
+      // One in five is a gout and one in four of the rest is atomised. The mix is
+      // fixed by index rather than sampled so that a four-particle spray on the
+      // low tier still gets one of each rather than four of whatever came up.
+      const gout = i % 5 === 0;
+      const fine = !gout && i % 4 === 3;
+      // Square-rooted so the cone fills by area: sampling the angle flat piles
+      // the whole spray up the middle and leaves the edge empty.
+      const ang = cone * Math.sqrt(Math.random());
+      const phi = Math.random() * TAU;
+      const ca = Math.cos(ang);
+      const sa = Math.sin(ang);
+      const cp = Math.cos(phi);
+      const sp = Math.sin(phi);
+      const ex = dx * ca + (ux * cp + vx * sp) * sa;
+      const ey = dy * ca + (uy * cp + vy * sp) * sa;
+      const ez = dz * ca + (uz * cp + vz * sp) * sa;
+      const v = speed * rand(0.4, 1.15) * (gout ? 0.8 : fine ? 1.25 : 1);
       spawn({
-        x, y: y + sym(0.12), z,
-        vx: (ax * fan + sym(0.55)) * speed,
-        vy: rand(0.35, 1.15) * speed * 0.55 * up,
-        vz: (az * fan + sym(0.55)) * speed,
-        life: rand(0.55, 1.25),
-        size0: rand(0.05, 0.13), size1: rand(0.03, 0.07),
-        aspect: 2.2,
+        x: x + ex * 0.05, y: y + ey * 0.05, z: z + ez * 0.05,
+        vx: ex * v + ivx, vy: ey * v + ivy, vz: ez * v + ivz,
+        life: gout ? rand(0.9, 1.8) : fine ? rand(0.35, 0.75) : rand(0.6, 1.3),
+        size0: scale * (gout ? rand(1.6, 2.6) : fine ? rand(0.35, 0.65) : rand(0.85, 1.35)),
+        // Blood in air stretches, it does not shrink. Holding the size and
+        // letting F_ALIGN do the elongating is what keeps a droplet a droplet
+        // right up to the frame it lands and stains.
+        size1: scale * (gout ? rand(1.4, 2.2) : fine ? rand(0.3, 0.5) : rand(0.7, 1.1)),
+        aspect: gout ? 2.6 : 2.1,
         c0: tint, c1: PALETTE.bloodDark,
-        alpha: 0.95, fadeIn: 0.01, fadePow: 0.6,
-        drag: 0.45, grav: 19, frame: CELL.drop,
+        // Barely fades: a droplet's story ends when it hits the ground and
+        // stains, not by dissolving on the way down.
+        alpha: 0.96, fadeIn: 0.01, fadePow: gout ? 0.35 : 0.7,
+        drag: gout ? 0.22 : fine ? 2.6 : 0.62,
+        grav: BLOOD_G,
+        frame: CELL.drop,
         flags: F_ALIGN | F_STAIN | F_ALPHA,
       });
     }
-    // Fine mist hangs where the blow landed after the heavy drops have gone.
-    for (let i = 0; i < Math.max(2, count >> 2); i++) {
+  }
+
+  /** The haze a wound opening puts in the air. Dropped whole on the low tier. */
+  function bloodMist(x: number, y: number, z: number, count: number, scale: number): void {
+    if (tier === "low") return;
+    for (let i = 0; i < count; i++) {
       spawn({
         x, y, z,
         vx: sym(1.4), vy: rand(0.2, 1.5), vz: sym(1.4),
         life: rand(0.35, 0.7),
-        size0: rand(0.1, 0.2), size1: rand(0.24, 0.42),
+        size0: rand(0.1, 0.2) * scale, size1: rand(0.24, 0.42) * scale,
         c0: PALETTE.mist, c1: PALETTE.bloodDark,
         alpha: 0.34, fadeIn: 0.08, fadePow: 1.6,
         drag: 3.2, grav: 2.5, frame: CELL.soft,
         flags: F_ALPHA | F_WIND,
       });
+    }
+  }
+
+  /** Zones with a big vessel in them. The rest of the body is not a fountain. */
+  function arterial(zone: HitZone | undefined): boolean {
+    return zone === "head" || zone === "neck" || zone === "waist";
+  }
+
+  function woundBlood(o: WoundOptions): void {
+    // Normalised against a heavy: the berserker's is 50, and the sim's own
+    // multipliers put the very worst blow in the game a little over 70. A graze
+    // is a fifth of this and looks it.
+    const k = clamp01(o.damage / 45);
+    const hot = arterial(o.zone);
+    const count = Math.max(2, Math.round((3.5 + 18 * k) * (hot ? 1.3 : 1) * settings.particleScale));
+    if (store.n + count > budget) return;
+
+    let dx: number;
+    let dy: number;
+    let dz: number;
+    if (o.direction) {
+      // Lifted off the blade's own line. Blood follows the edge, but an edge
+      // travelling flat still throws upward, because what leaves the wound
+      // leaves it off the *face* of the cut and the cut is rarely level.
+      dx = o.direction.x; dy = o.direction.y + 0.4; dz = o.direction.z;
+    } else {
+      const a = Math.random() * TAU;
+      dx = Math.cos(a); dy = rand(0.35, 0.8); dz = Math.sin(a);
+    }
+    const inv = 1 / (Math.hypot(dx, dy, dz) || 1);
+
+    spurt(
+      o.position.x, o.position.y, o.position.z,
+      dx * inv, dy * inv, dz * inv,
+      count,
+      2.4 + 5.6 * k,
+      // A light cut sprays wide and weakly; a heavy one drives it in one
+      // direction. The cone narrowing with damage is what makes the two read
+      // differently at a glance even before the count registers.
+      0.95 - 0.35 * k,
+      0.038 + 0.035 * k,
+      // Deeper the harder it was hit: more of it, and less of it aerated.
+      tmpColor.copy(hot ? PALETTE.bloodArterial : PALETTE.bloodFresh).lerp(PALETTE.bloodDark, k * 0.2),
+    );
+    if (k > 0.22) bloodMist(o.position.x, o.position.y, o.position.z, Math.max(1, Math.round(count * 0.28)), 0.7 + k * 0.5);
+
+    // A kill that took nothing off still empties out. Pinned to the world rather
+    // than to a node, because this path has no cut and therefore no stump to
+    // follow — the pool lands where he was standing, which for a man who folds
+    // straight down is within half a metre of where he ends up.
+    if (o.fatal) {
+      startJet(null, o.position.x, o.position.y, o.position.z, dx * inv, dy * inv, dz * inv,
+        0.07, 0.5 + k * 0.35, JET_LIFE * 1.4, true);
+    }
+  }
+
+  // ---- running wounds ------------------------------------------------------
+  //
+  // Two jets per severance — one on the body, one on the piece — so eight
+  // warriors coming apart at once is sixteen. The pool is sized for that on high
+  // and deliberately not on low, where the oldest wound stops early instead:
+  // a phone that drops a frame is a worse death than a phone with less blood.
+  const JET_SLOTS = tier === "high" ? 20 : tier === "medium" ? 14 : 8;
+  /** How long a stump keeps running after the part has gone. */
+  const JET_LIFE = tier === "low" ? 0.85 : 1.6;
+  /**
+   * Droplets a second at full pressure, before scale, pulse and crowding. It
+   * decays as (1 − t)^1.6 over the jet's life, so a stump spends about a third
+   * of this in total: thirty-odd droplets across three visible spurts, against
+   * the twenty-six the separation burst throws in one frame. The running spray
+   * is meant to be the weaker half of the effect and this is where that is said.
+   */
+  const JET_RATE = 58;
+
+  const jets: Jet[] = [];
+  let jetSerial = 0;
+  let jetsLive = 0;
+  for (let i = 0; i < JET_SLOTS; i++) {
+    jets.push({
+      active: false, anchor: null, axis: 1,
+      x: 0, y: 0, z: 0, dx: 0, dy: 1, dz: 0,
+      radius: 0.06, power: 1, age: 0, life: 0, acc: 0,
+      lx: 0, ly: 0, lz: 0, tracked: false, pools: false, serial: 0,
+    });
+  }
+
+  /** Free slot, else the wound furthest through its life. Never grows. */
+  function claimJet(): Jet {
+    let best = jets[0];
+    let bestT = -1;
+    for (const j of jets) {
+      if (!j.active) { best = j; break; }
+      const t = j.age / j.life;
+      if (t > bestT) { bestT = t; best = j; }
+    }
+    if (best.active) finishJet(best, false);
+    best.active = true;
+    best.serial = ++jetSerial;
+    best.age = 0;
+    best.acc = 0;
+    best.tracked = false;
+    jetsLive++;
+    return best;
+  }
+
+  /**
+   * Ends a jet, and leaves the pool where the body actually came to rest rather
+   * than where it was hit — which is the whole reason the pool is dropped here
+   * and not at the cut. A man opened at the throat walks, staggers or topples
+   * a metre and a half before he lies still, and the mark belongs under him.
+   */
+  function finishJet(j: Jet, leavePool: boolean): void {
+    if (!j.active) return;
+    j.active = false;
+    j.anchor = null;
+    jetsLive--;
+    if (!leavePool || !j.pools) return;
+    addPool(
+      j.x, j.z,
+      (0.42 + j.radius * 3.4) * (0.75 + j.power * 0.45),
+      // Spreads over seconds, not frames. It is what is left of the effect once
+      // the particles are gone, so it is the part a player actually looks at.
+      tier === "low" ? 2.4 : 4.5,
+      tier === "low" ? 30 : 70,
+    );
+  }
+
+  function stopJet(j: Jet, serial: number): void {
+    if (!j.active || j.serial !== serial) return;
+    finishJet(j, true);
+  }
+
+  /**
+   * Which way along the anchor's own Y the wound faces, worked out once from the
+   * separation frame. Storing the sign rather than the vector is what lets the
+   * spray follow a corpse that rolls: the axis is re-read off the live matrix
+   * every frame, and a world-space direction captured at the cut would not turn.
+   */
+  function axisSignFor(a: THREE.Object3D, dx: number, dy: number, dz: number): 1 | -1 {
+    a.updateWorldMatrix(true, false);
+    const e = a.matrixWorld.elements;
+    return e[4] * dx + e[5] * dy + e[6] * dz >= 0 ? 1 : -1;
+  }
+
+  function startJet(
+    anchor: THREE.Object3D | null,
+    x: number, y: number, z: number,
+    dx: number, dy: number, dz: number,
+    radius: number, power: number, life: number, pools: boolean,
+  ): Jet {
+    const j = claimJet();
+    j.anchor = anchor;
+    j.axis = anchor ? axisSignFor(anchor, dx, dy, dz) : 1;
+    j.x = x; j.y = y; j.z = z;
+    j.dx = dx; j.dy = dy; j.dz = dz;
+    j.radius = radius;
+    j.power = power;
+    j.life = life;
+    j.pools = pools;
+    return j;
+  }
+
+  function severed(o: SeveranceOptions): BleedHandle {
+    const power = o.power ?? 1;
+    const radius = Math.max(0.025, o.radius);
+    const hot = arterial(o.zone);
+    const inv = 1 / (Math.hypot(o.direction.x, o.direction.y, o.direction.z) || 1);
+    const dx = o.direction.x * inv;
+    const dy = o.direction.y * inv;
+    const dz = o.direction.z * inv;
+    const { x, y, z } = o.position;
+    // A neck is 55 mm of artery and a thigh is a hand's breadth of meat: the
+    // section is most of how hard it throws, and it is the one number the cut
+    // measured for us.
+    const force = power * (hot ? 1.3 : 1) * (0.7 + radius * 3.2);
+
+    const count = Math.round(26 * force * settings.particleScale);
+    if (store.n + count <= budget) {
+      spurt(
+        x, y, z, dx, dy, dz,
+        count,
+        3.6 + 4.4 * force,
+        0.52,
+        0.045 + radius * 0.42,
+        PALETTE.bloodArterial,
+      );
+      bloodMist(x, y, z, Math.max(2, Math.round(count * 0.3)), 1 + radius * 2);
+    }
+
+    const life = JET_LIFE * (0.75 + force * 0.4);
+    const body = startJet(o.stump ?? null, x, y, z, dx, dy, dz, radius, force, life, true);
+    const bodySerial = body.serial;
+
+    // The piece bleeds too, from its own face, pointing the other way. Skipped on
+    // the low tier: two emitters per death is the second thing that tier cannot
+    // afford, after the bisection it already refuses.
+    let piece: Jet | null = null;
+    let pieceSerial = 0;
+    if (o.piece && tier !== "low") {
+      piece = startJet(o.piece, x, y, z, -dx, -dy, -dz, radius, force * 0.55, life * 0.8, false);
+      pieceSerial = piece.serial;
+    }
+
+    return {
+      stop() {
+        stopJet(body, bodySerial);
+        if (piece) stopJet(piece, pieceSerial);
+      },
+    };
+  }
+
+  function stepJets(dt: number): void {
+    if (jetsLive === 0 || dt <= 0) return;
+    // Blood yields to the budget rather than the budget yielding to blood. Past
+    // two thirds full the jets thin out and then stop emitting entirely, which
+    // is what stops eight simultaneous deaths from spiking: the first two deaths
+    // look exactly as they should and the eighth spends what is left.
+    const headroom = clamp01((budget - store.n) / (budget * 0.34));
+    const crowd = 1 / (1 + jetsLive * 0.16);
+    for (const j of jets) {
+      if (!j.active) continue;
+      j.age += dt;
+
+      const a = j.anchor;
+      if (a) {
+        // Losing its parent is how a wound ends without anyone telling us. It is
+        // exactly what `Severance.release()` does to a stump and what the piece
+        // pool does to a limb it reclaims, so a respawn stops the blood even if
+        // the caller never touches the handle. The grace period is because a
+        // freshly cut piece is unparented for the frame before anim.ts adds it.
+        if (!a.parent && j.age > 0.25) { finishJet(j, true); continue; }
+        a.updateWorldMatrix(true, false);
+        const e = a.matrixWorld.elements;
+        j.x = e[12]; j.y = e[13]; j.z = e[14];
+        const s = j.axis;
+        const nx = e[4] * s;
+        const ny = e[5] * s;
+        const nz = e[6] * s;
+        const nl = 1 / (Math.hypot(nx, ny, nz) || 1);
+        j.dx = nx * nl; j.dy = ny * nl; j.dz = nz * nl;
+      }
+
+      let ivx = 0;
+      let ivy = 0;
+      let ivz = 0;
+      if (j.tracked) {
+        // Clamped: a corpse being respawned or a piece being reparented moves
+        // several metres in one frame, and an unclamped inheritance answers that
+        // with a wall of blood across the arena.
+        const cap = 14;
+        ivx = Math.max(-cap, Math.min(cap, (j.x - j.lx) / dt)) * 0.6;
+        ivy = Math.max(-cap, Math.min(cap, (j.y - j.ly) / dt)) * 0.6;
+        ivz = Math.max(-cap, Math.min(cap, (j.z - j.lz) / dt)) * 0.6;
+      }
+      j.lx = j.x; j.ly = j.y; j.lz = j.z;
+      j.tracked = true;
+
+      const t = clamp01(j.age / j.life);
+      if (t >= 1) { finishJet(j, true); continue; }
+
+      // Pressure falls away as the man does, and it pulses on the way. A heart
+      // under load is why a stump spurts rather than pours, and the pulse is the
+      // difference between this and a garden hose.
+      const pulse = 0.42 + 0.58 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
+      j.acc += JET_RATE * j.power * Math.pow(1 - t, 1.6) * pulse * settings.particleScale * headroom * crowd * dt;
+      if (j.acc < 1) continue;
+      const n = Math.min(6, Math.floor(j.acc));
+      j.acc -= n;
+      if (store.n + n > budget) continue;
+      spurt(
+        // Off the face of the wound, not out of one point: a stump is a section
+        // and blood leaves all of it.
+        j.x + sym(j.radius * 0.55), j.y + sym(j.radius * 0.55), j.z + sym(j.radius * 0.55),
+        j.dx, j.dy, j.dz,
+        n,
+        (1.6 + 3.4 * j.power) * (0.55 + pulse * 0.6),
+        0.38,
+        0.035 + j.radius * 0.3,
+        tmpColor.copy(PALETTE.bloodArterial).lerp(PALETTE.bloodFresh, t),
+        ivx, ivy, ivz,
+      );
     }
   }
 
@@ -1921,12 +2445,17 @@ export function createVfx(
         debris(x, y, z, Math.max(1, count >> 1), spread * 0.5);
         break;
       case "blood":
-        // The call site's colour carries which blow this was — a fresh cut is
-        // brighter than a killing one — but it is pulled most of the way to the
-        // palette's arterial red, because #d42a1a taken at face value is a
-        // primary and blood at dusk is not.
-        bloodSpray(x, y, z, count, spread, up,
-          tmpColor.setHex(o.color, THREE.SRGBColorSpace).lerp(PALETTE.bloodFresh, 0.7).clone());
+        // Damage, not colour, is what makes one blow's blood differ from
+        // another's now. `color` is ignored here for the first time: the six
+        // call sites were passing #d42a1a for a hit and #881410 for a death,
+        // which is a hand-tuned two-step where the sim has the real number. A
+        // caller that has not been updated to pass `damage` gets it inferred
+        // from `count`, which reproduces those two steps to within a point.
+        woundBlood({
+          position: o.position,
+          damage: o.damage ?? o.count * 1.4,
+          direction: undefined,
+        });
         break;
       case "dust":
         dust(x, y, z, count, spread, up);
@@ -2171,7 +2700,15 @@ export function createVfx(
             // was never the constraint, and the frame that raised the "there is
             // no blood anywhere" defect is a frame where a fight has been going
             // for minutes and the ground should show it.
-            if (speed > 1.2 && Math.random() < 0.34) addDecal(px, pz, rand(0.18, 0.42));
+            //
+            // The mark is sized off the droplet that made it rather than sampled
+            // from a range, so the gouts a stump throws leave the wide splashes
+            // and the atomised half of the same spray leaves flecks. It is the
+            // cheapest way to get the ground to record which blow it was.
+            if (speed > 1.2 && Math.random() < 0.34) {
+              const mark = Math.min(0.62, Math.max(0.09, store.size0[i] * 3.4)) * rand(0.8, 1.3);
+              addDecal(px, pz, mark);
+            }
             kill(i);
             continue;
           }
@@ -2368,19 +2905,27 @@ export function createVfx(
 
   function writeDecals(dt: number): void {
     decalLayer.begin();
-    for (let i = decals.length - 1; i >= 0; i--) {
-      const d = decals[i];
+    for (const d of decals) {
+      if (!d.active) continue;
       d.age += dt;
-      if (d.age >= d.life) { decals.splice(i, 1); continue; }
+      if (d.age >= d.life) { d.active = false; continue; }
       const t = d.age / d.life;
+      // Spreading eases out: blood runs fastest when there is most of it behind
+      // it, and a pool that grows linearly reads as something being scaled.
+      const grow = d.spread > 0 ? 1 - Math.pow(1 - clamp01(d.age / d.spread), 2) : 1;
+      const size = d.size0 + (d.size1 - d.size0) * grow;
       // The multiply tint *is* the stain: fresh blood takes the ground down to a
       // fifth of its red and almost none of its green, and as it dries it lets
       // more through and browns toward the turf.
       const dry = t * 0.55;
       const a = 0.95 * (1 - clamp01((t - 0.6) / 0.4));
+      // A pool is deep enough to be its own colour rather than the ground's,
+      // and it does not brown until much later — there is a hundred times as
+      // much of it as there is in a fleck of spatter.
+      const k = d.pool ? 0.55 : 1;
       decalLayer.push(
-        d.x, d.y, d.z, d.size, d.size, d.rot, a,
-        0.22 + dry * 0.5, 0.05 + dry * 0.42, 0.05 + dry * 0.34,
+        d.x, d.y, d.z, size, size, d.rot, a,
+        0.22 + dry * 0.5 * k, 0.05 + dry * 0.42 * k, 0.05 + dry * 0.34 * k,
         0,
       );
     }
@@ -2492,6 +3037,9 @@ export function createVfx(
       }
     },
 
+    wound: woundBlood,
+    severed,
+
     addFire,
     removeFire,
 
@@ -2528,6 +3076,10 @@ export function createVfx(
         emitAmbient(0, true);
       }
 
+      // Before the integrator, so a droplet born this frame leaves the wound in
+      // the same frame rather than sitting on it for one. On `dt` rather than
+      // `rawDt`: blood is combat, and hit-stop is meant to hold it.
+      stepJets(dt);
       integrate(dt, rawDt);
       stepMotes(rawDt);
 
@@ -2631,7 +3183,15 @@ export function createVfx(
       dustSeeded = false;
       groundMarked = false;
       haveFocus = false;
-      decals.length = 0;
+      // Jets before anything else: each one holds a node out of a warrior rig,
+      // and a stopped match whose blood still points at a disposed skeleton is
+      // the leak this module is most likely to have.
+      for (const j of jets) {
+        j.active = false;
+        j.anchor = null;
+      }
+      jetsLive = 0;
+      for (const d of decals) d.active = false;
       rings.length = 0;
       fires.length = 0;
       auraSites.length = 0;
