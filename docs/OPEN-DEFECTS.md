@@ -6,7 +6,7 @@ change is made.
 
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
-Current reference: **`art/shots/v10/`**. A/B against `v9/`.
+Current reference: **`art/shots/v12/`**. A/B against `v11/`.
 
 ---
 
@@ -648,3 +648,126 @@ An agent used `git stash` mid-pass while another owner had uncommitted work in
 the tree. Nothing was lost — the working tree was verified strictly ahead of the
 stash on both files — but with two owners writing under a 2-agent cap, a stash
 can silently bank someone else's half-finished work. Commit instead.
+
+---
+
+## v12 verify pass — the hand closes on the shaft, and the frame proves it
+
+Gates: `npx tsc --noEmit` clean, `npm run lint` **12 problems** (unchanged, all in
+`GameCanvas.tsx` / `shot/page.tsx` / `CharacterPreview.tsx`), `npm run playtest`
+**9/9** with no assertion touched, and all eight presets `ready: true`,
+`blank: false`, `errors: []`, `tonalBuckets` 9–14 (`duel` 14, `arena` 11,
+`closeup` 11, `brawl` 14, `laststand` 12, `portrait` 11, `stance` 9,
+`lineup` 13).
+
+**Read the span before trusting a number below.** `art/shots/v11/` was written at
+10:05 against `5b2b3a0`; `24207e2`, `90115d9`, `bb4dda3`, `c8ea1d1` and `cd7e992`
+all land after it. So v11 → v12 is **five commits**, not one, and the frame shows
+the finger rebuild, the plumb carry and the wrist bone together. Where the
+mechanism separates them it is said so below.
+
+**The owner's report is fixed, and `stance` is the shot that proves it.**
+`stance` is the one preset whose warrior is pixel-stable across the two captures
+— the fence correlates 0.990 at zero shift and *the warrior himself* correlates
+0.979 at zero shift — so the same crop is the same thing in both. At 8× on the
+axe grip (x 780–980, y 330–450): in `v11` the four fingers run **across** the
+haft and their tips hang off its lower edge with turf visible behind them, a
+hand laid over a stick. In `v12` the fingers run **along** the haft, stacked down
+its length, each one crossing the wood and reappearing under it. The same
+reversal is on the huscarl's sword in `portrait` (registered at −77 px): `v11` is
+a smooth mitten with one fused C of knuckle standing clear of the grip, `v12` is
+four separate fingers lying on the cord wraps. And on the warden's spear in
+`lineup`, four distinct pale fingertips now show on the far side of the shaft
+where `v11` had a single crescent beside it.
+
+**Which half did what.** The finger *shape* is `24207e2`'s; the finger
+*orientation* is `cd7e992`'s, and the second is what the report was about. Held
+constant on one build and rendered offline through a scratch rasteriser — the
+same rig, the wrist bone forced back to the builder's bind pitch — the fingers
+curl on empty air beside the haft, and released they close on it. Measured on
+the built rig across idle / walking / blocking / overhead / thrust on all four
+classes, the angle between the circle the digits close on and the weapon's own
+axis goes **48–75° → 0.0° in every pose**, and hand vertices sitting inside the
+shaft go **8–34 → 0–5**.
+
+**The v11 visibility win survives and the plumb term improved it.** In
+`v11/lineup.png` the axe head's lower half lies over the berserker's shoulder cap
+and arm; in `v12/lineup.png` it stands entirely over open ground and palisade,
+socket and blade both legible. That is `90115d9` arriving on the frame — the
+carry that was leaning 215 mm inboard of the fist now hangs plumb.
+
+**No regression in the four things that were asked about.**
+- *Shadow direction.* `lineup`'s canonical floor band (y 735–775) carries four
+  dark troughs in both captures at the same x windows, each starting at its
+  caster's boots and running frame-**right** with the sun glare at frame-left.
+  Band mean is 57.4 in both; trough depth 57.4:33–35 in v11 against 57.4:33–34
+  in v12.
+- *Contact darkening.* Same measurement: the blob is welded to the soles in both
+  and its depth is flat to marginally better.
+- *Fire colour.* Hottest-2% saturation inside the flame box — `arena` 0.335 →
+  0.327, `closeup` 0.258 → **0.397**, `duel` 0.209 → 0.178 — all an order above
+  the 0.054 the v10 entry recorded as the failure, and clipping stays at 0–58 px
+  of a 100 k box.
+- *Cloth grain.* `stance`'s cloak, registered at zero shift: sigma/mu 0.326 →
+  0.312, 2–14 cycle band energy 186.6 → 182.4. `portrait`'s shield planks,
+  registered at −77 px: sigma/mu 0.504 → **0.507**, band 1094.8 → 1094.1. Both
+  flat. (Unregistered, the shield reads 0.504 → 0.345, which is a crop error and
+  not a defect — see below.)
+
+### New, and it corrects an instruction this file already gives
+
+**`portrait` is not pose-stable either.** The v10 entry tells future passes to
+take per-warrior A/Bs on `stance`, `duel` or `portrait`. Measured across v11 →
+v12: the `portrait` background hut correlates **0.996 at zero shift** while the
+huscarl in front of it correlates 0.902 at **−77 px**. `stance` is stable (0.979
+at zero); `lineup` moved its warriors −18, +24 and +1 px. Until the presets are
+made deterministic, **`stance` is the only per-warrior A/B in the set**, and any
+crop taken on `portrait` must be registered first.
+
+**The plumb carry pushes the axe head into the right frame edge in `lineup`.**
+The head's own pixels run to x = 1599 in `v12` against 1450–1555 in `v11`, so the
+beard is cut off by the frame. It is the cost of the 242 mm the head gained
+outboard and it is a composition defect (§7), not a rig one: the fix is the
+preset's camera or the berserker's mark, not the carry.
+
+### Measured and rejected: choking up the axe
+
+The rig owner asked for the bound hand-hold to move up the haft to y ≈ 0.55–0.65
+so a one-handed rest grips near the head. **Measured on the built rig at rest,
+the geometry cannot take it.** The fist sits at 974 mm with 573 mm of haft below
+it, which leaves the butt at 401 mm: move the hold 550 mm up the haft and the
+butt lands at **−149 mm**, and at 0.65 it is −249 mm.
+The butt goes through the turf. The suggestion was written against a haft that
+still leaned outboard, where the butt swings up; hanging plumb it goes straight
+down. Grounding the butt instead needs 360 mm more haft — a 1.86 m axe that
+ploughs the turf on every overhead — and shortening the haft below the grip makes
+it a different weapon. The grip is at 37% from the butt and staying there; if
+this is taken up again it is a weapon-design change with its own capture, not a
+defect fix.
+
+### Still weak, carried forward
+
+- **The huscarl's off fist does not align to its shield bar.** Measured at rest,
+  the circle the off fingers close on sits **28.6°** off the grip bar's own long
+  axis. The bar is behind the boards and the fist with it, so nothing in eight
+  presets can see it — but the weapon hand's fix does not reach it, because the
+  shield hangs off `elbowL` and not off the hand mount, and `applyPose` has no
+  term that would carry the hand with it.
+- **`HAND_GRIP.off` in `characters.ts` duplicates what `anim.ts` mounts.** A class
+  gaining or losing an off-hand item is a second edit in a second file and
+  nothing enforces it.
+- **The thumb's standoff is a fixed offset outside the wrap circle.** Past ~30 mm
+  of grip radius it stops reaching across the fingers; only the fingers have a
+  sweep cap. The berserker's grip is 21 mm, so this is headroom rather than a
+  live defect.
+- **The overhead's cocked load puts 38 of 556 axe vertices through the shoulder
+  at swing 0.35.** Pre-existing, transient, and no preset catches it — `stance`
+  sits at 0.45 where it is 7 and all fist.
+- **Low tier's open hand is still a mitten with a thumb** — the fingers are one
+  swept collar there and always were.
+- **Both weapon butts float** — axe 401 mm, spear 286 mm — and neither can be
+  grounded from the builder's grip station.
+- **The wrist bone costs a bigger bone texture.** Seventeen bones is four texels
+  past the 8×8 target, so a warrior now gets a 16×16 float texture: 4 kB each,
+  32 kB for a full lobby. Cheap, but it is no longer the "one 8×8 per man" the
+  file used to claim.
