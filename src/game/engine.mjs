@@ -81,6 +81,153 @@ function reachOf(p) {
   return ATTACK_RANGE[p.warriorClass] ?? DEFAULT_ATTACK_RANGE;
 }
 
+// ---- hit zones ----
+// The simulation has never had a hit *location*. `processAttack` finds a body
+// inside a cone and takes health off it; the only thing on the wire that sounds
+// like a place is `direction`, which is the attacker's swing, not a part of the
+// man. Everything the death sequence wants — which limb leaves the body — has to
+// be decided here, on the server, because two players watching the same death
+// have to see the same corpse.
+//
+// The closed set the wire carries. `armL`/`legL` are the *target's own* left,
+// anatomically: `characters.ts` mounts the right arm at local +x (`for (const
+// side of [1, -1])`, and `armPivots[0]` is the weapon arm), so this is the same
+// handedness the body is built with.
+export const HIT_ZONES = ["head", "neck", "armL", "armR", "legL", "legR", "torso", "waist"];
+
+// Class heights, as a multiple of the 1.965 m canonical figure. Lifted from
+// `BUILD[cls].stature` in `characters.ts`: the server holds no geometry, and this
+// is the smallest thing it can carry that still knows a berserker's chest sweep
+// arrives at a runekeeper's throat. Re-copy it if a build trait moves — nothing
+// fails loudly when it drifts, the deaths just stop matching the bodies.
+//
+// It deliberately does not carry the ±2.2% per-warrior stature step, which the
+// client draws from a face seed the server never sees. The server's answer is the
+// one every client draws, so that costs a hair of realism at a band edge and can
+// never cost two spectators the same corpse.
+const STATURE = { huscarl: 1.005, warden: 1.005, runekeeper: 0.945, berserker: 1.065 };
+const DEFAULT_STATURE = 1.0;
+
+// Where a swing's edge is when it arrives, as a fraction of the ATTACKER's own
+// height, read against the landmarks a body is actually built from: crown 1.00,
+// chin 0.863, collar 0.839, shoulder 0.795, chest 0.728, waist 0.613, hip 0.519,
+// knee 0.270 of stature.
+//
+// The two horizontals are one motion at two heights, and that split is the design
+// decision in this table rather than a measurement. A light side-cut is a
+// wrist-and-shoulder stroke thrown at chest height; a heavy one is the committed
+// body-weight sweep a two-hander is really swung with, and it goes through the
+// belt. That is what buys the samurai bisection, and it turns the heavy attack
+// into a choice a player can learn: chop overhead for a head, sweep heavy for a
+// waist.
+const SWING_HEIGHT = { overhead: 0.88, left: 0.70, right: 0.70, stab: 0.66 };
+const HEAVY_SWEEP_DROP = 0.115;  // how much lower a committed horizontal bites
+const CROUCH_DROP = 0.14;        // crouch and you cut at the legs. Desktop only —
+                                 // `input.ts` binds it to ctrl and the touch path
+                                 // never sends it, so it is something a player with
+                                 // a keyboard can reach for, never a requirement.
+
+// Band edges on the TARGET's body, same fractions-of-stature scale.
+const Y_HEAD = 0.865;   // above the chin
+const Y_NECK = 0.775;   // collar to chin, and the shoulder line just under it
+const Y_TORSO = 0.615;  // chest and gut
+const Y_WAIST = 0.500;  // belt to hip — the band the bisection lives in
+
+// How far off the centre of his own arc the attacker has to catch a man before
+// the edge is meeting the side of him rather than the middle. As a fraction of
+// the class's own `SWING_ARC`, so it means the same thing on a spear as on an axe.
+const LIMB_OFFSET = 0.62;
+
+// Measured off the TARGET's facing: a blow arriving from back here never severs a
+// face, it takes the nape.
+const REAR_ARC = 1.95;  // radians from the target's forward, ~112 degrees
+
+// What a zone is worth. Same blow, same weapon — where it lands is the only thing
+// that changes. Kept close to neutral on average, because the previous pass
+// retuned reach and arc and this must not quietly shorten every fight on top of
+// that: the head's premium is paid for by the limbs, not printed.
+//
+// The ceiling on `head` is one interaction and it is worth naming. A berserker's
+// heavy under BLOOD FURY is 75 before zoning and a runekeeper has 90 health;
+// 1.18 makes that 88 and leaves him standing on 2. Anything from 1.20 up makes it
+// the first blow in the game that kills a full-health warrior outright, which is
+// not something to add as a side effect of a gore feature.
+const ZONE_DAMAGE = {
+  head: 1.18, neck: 1.12, waist: 1.10, torso: 1.0,
+  armL: 0.85, armR: 0.85, legL: 0.72, legR: 0.72,
+};
+
+const wrapPi = (a) => {
+  let r = a;
+  while (r > Math.PI) r -= Math.PI * 2;
+  while (r < -Math.PI) r += Math.PI * 2;
+  return r;
+};
+
+/**
+ * Which part of `target` this blow landed on. Server-side and final: the client
+ * is told, never asked.
+ *
+ * Two independent reads, both off state the sim already had in hand:
+ *
+ *   HEIGHT — where the weapon is when it arrives, expressed in the attacker's own
+ *   body, then divided by the target's. This is the whole reason a berserker and
+ *   a runekeeper should not kill each other the same way: one stroke is a chest
+ *   wound in one direction and a throat in the other, and both statures were
+ *   sitting in the sim all along without anything ever asking for them.
+ *
+ *   OFFSET — how far off the centre of his own swing the attacker caught him,
+ *   which `processAttack` already computes to decide whether the blow lands at
+ *   all. Dead centre is the body; the outside of the arc is the side of the man,
+ *   so it takes an arm when it is high and a leg when it is low. It also gives
+ *   the existing generosity of that cone an honest story: at the edge of a
+ *   spear's arc the target's centre is a metre to one side, and the only thing
+ *   out there to hit is a limb.
+ *
+ * Approach angle is the third signal and it only ever takes away: from behind, a
+ * head strike becomes the nape rather than the face.
+ *
+ * @param {number} angleDiff signed bearing of the target off the attacker's facing
+ * @param {number} arc the attacker's `SWING_ARC`, so offset is relative to his own swing
+ * @returns {string} one of HIT_ZONES
+ */
+export function deriveHitZone(attacker, target, angleDiff, arc, isHeavy) {
+  const dir = SWING_HEIGHT[attacker.attackDir] === undefined ? "right" : attacker.attackDir;
+  const horizontal = dir === "left" || dir === "right";
+
+  let h = SWING_HEIGHT[dir];
+  if (horizontal && isHeavy) h -= HEAVY_SWEEP_DROP;
+  if (attacker.latestInput && attacker.latestInput.crouch) h -= CROUCH_DROP;
+  h *= (STATURE[attacker.warriorClass] ?? DEFAULT_STATURE) /
+       (STATURE[target.warriorClass] ?? DEFAULT_STATURE);
+
+  // Which of the target's own sides the edge came in on. The derivation needs no
+  // handedness convention at all: a blade travelling from the attacker's right
+  // meets whichever flank of the target is turned toward the attacker's right,
+  // and whether that is the target's right or his left depends only on whether
+  // the two men are facing each other.
+  const opposed = Math.cos(wrapPi(attacker.rotation - target.rotation)) < 0;
+  // A horizontal names its own side. An overhead or a thrust comes down the
+  // attacker's centreline, so the only side it can catch is the target's near
+  // flank — the one turned toward the attacker's aim, which is the opposite sign.
+  const from = horizontal ? (dir === "right" ? 1 : -1) : (angleDiff >= 0 ? -1 : 1);
+  const side = (opposed ? -from : from) > 0 ? "R" : "L";
+
+  if (arc > 0 && Math.abs(angleDiff) / arc > LIMB_OFFSET) {
+    return (h >= Y_TORSO ? "arm" : "leg") + side;
+  }
+
+  // Bearing from the target out to the attacker, against the target's own facing.
+  const approach = wrapPi(angleDiff + attacker.rotation + Math.PI - target.rotation);
+  if (h >= Y_HEAD) return Math.abs(approach) > REAR_ARC ? "neck" : "head";
+  if (h >= Y_NECK) return "neck";
+  if (h >= Y_TORSO) return "torso";
+  // The samurai cut is a *cut*. A thrust at belt height is a gut wound and an
+  // overhead cannot arrive down there at all, so neither one halves a man.
+  if (h >= Y_WAIST) return horizontal ? "waist" : "torso";
+  return "leg" + side;
+}
+
 // ---- movement tuning ----
 // Every number here is a time constant in seconds, never a per-tick factor.
 // gameTick turns them into per-dt rates, so they mean the same thing whatever
@@ -186,8 +333,15 @@ function makeEngine() {
       kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
       comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
       deadAt: 0,
+      // How this warrior last died, for whoever has to draw the corpse. Null on a
+      // living body, and cleared on every road back to standing — a warrior who
+      // respawns with a zone still on him is a warrior the client rebuilds with
+      // an arm missing.
+      deathZone: null, deathDir: null, deathHeavy: false,
     };
   }
+
+  const clearDeathMark = (p) => { p.deathZone = null; p.deathDir = null; p.deathHeavy = false; };
 
   function spawnPositions(count) {
     const positions = [];
@@ -487,8 +641,9 @@ function makeEngine() {
       p.state = "idle";
       p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
       p.invincible = true; p.invincibleTimer = SPAWN_INVINCIBLE;
-      // Nobody walks out of the last fight into this one.
+      // Nobody walks out of the last fight into this one — nor bleeds out of it.
       clearMotion(p);
+      clearDeathMark(p);
       i++;
     });
     broadcast(room, { type: "countdown", data: { ...serializeRoom(room), countdown: room.countdown } });
@@ -594,6 +749,12 @@ function makeEngine() {
       if (Math.abs(angleDiff) > arc) return;
       if (target.invincible) return;
 
+      // Decided once, here, and carried through every branch below: the blocked
+      // paths kill too, and a killing blow that a shield only half-stopped still
+      // has to tell the client what came off.
+      const hitZone = deriveHitZone(attacker, target, angleDiff, arc, isHeavy);
+      const zoned = Math.floor(dmg * (ZONE_DAMAGE[hitZone] ?? 1));
+
       if (target.state === "blocking") {
         const blockStats = WARRIOR_STATS[target.warriorClass];
         const shieldWall = target.abilityActive && target.warriorClass === "huscarl";
@@ -605,27 +766,33 @@ function makeEngine() {
         }
         if (isHeavy && !shieldWall) {
           target.state = "staggered"; target.staggerTimer = STAGGER_DURATION;
-          applyDamage(room, attacker, target, Math.floor(dmg * (1 - eff * 0.5)), "blocked_heavy");
+          applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff * 0.5)), "blocked_heavy", hitZone);
         } else {
           target.stamina -= 10;
-          applyDamage(room, attacker, target, Math.floor(dmg * (1 - eff)), "blocked");
+          applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff)), "blocked", hitZone);
         }
         return;
       }
-      applyDamage(room, attacker, target, dmg, isHeavy ? "heavy" : "light");
+      applyDamage(room, attacker, target, zoned, isHeavy ? "heavy" : "light", hitZone);
     });
   }
 
-  function applyDamage(room, attacker, target, damage, hitType) {
+  function applyDamage(room, attacker, target, damage, hitType, hitZone = "torso") {
+    const heavy = hitType === "heavy" || hitType === "blocked_heavy";
     target.health -= damage; target.lastHitBy = attacker.id; attacker.damage += damage;
-    broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir } });
+    broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir, hitZone } });
     if (target.health <= 0) {
       target.health = 0; target.state = "dead"; target.deaths++;
       target.deadAt = room.matchTimer;
+      // The killing blow is marked on the body and not only in the message. The
+      // `kill` broadcast reaches whoever was connected when the man fell;
+      // `serializeRoom` reaches everyone else, so a spectator who arrives a minute
+      // later rebuilds the same one-armed corpse the room watched drop.
+      target.deathZone = hitZone; target.deathDir = attacker.attackDir; target.deathHeavy = heavy;
       clearMotion(target);   // the dead stop running
       attacker.kills++; attacker.score += 100;
-      room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: Date.now() });
-      broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name } });
+      room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: Date.now(), hitZone });
+      broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy } });
       if (room.mode !== "solo") checkMatchEnd(room);
     }
   }
@@ -690,6 +857,7 @@ function makeEngine() {
         p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
         p.position = { x: 0, y: 0, z: 0 }; p.invincible = false;
         clearMotion(p);
+        clearDeathMark(p);
       });
       sendLobbyUpdate(room);
     }, 10000);
@@ -1014,7 +1182,10 @@ function makeEngine() {
           player.state = "idle";
           player.invincible = true; player.invincibleTimer = 1.5;
           player.deadAt = -999;
-          clearMotion(player);   // you come back standing, not still running
+          clearMotion(player);      // you come back standing, not still running
+          clearDeathMark(player);   // ...and whole. This is the leak the client
+                                    // would otherwise inherit: solo respawns run
+                                    // every five seconds, forever.
         }
         return;
       }
