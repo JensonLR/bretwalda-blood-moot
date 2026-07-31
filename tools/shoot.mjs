@@ -21,6 +21,10 @@ import { fileURLToPath } from "url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // portrait/stance/lineup use an aimed camera; the rest follow the warrior.
 const ALL_PRESETS = ["duel", "arena", "closeup", "brawl", "laststand", "portrait", "stance", "lineup"];
+// Deaths. Off the default run: they are a review of one feature rather than of
+// the game's look, and each one costs a preset's worth of frames on a box with
+// no GPU. Ask for them by name — `npm run shots -- gorehead --out art/shots/gore`.
+const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit"];
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -35,7 +39,7 @@ const HEIGHT = parseInt(flag("h", "900"), 10);
 // Derive a per-process port so concurrent captures don't fight over one.
 const PORT = parseInt(flag("port", String(3100 + (process.pid % 700))), 10);
 const CLEAN = has("hud") ? "0" : "1";
-const presets = argv.filter((a) => ALL_PRESETS.includes(a));
+const presets = argv.filter((a) => ALL_PRESETS.includes(a) || EXTRA_PRESETS.includes(a));
 const TARGETS = presets.length ? presets : ALL_PRESETS;
 
 mkdirSync(OUT, { recursive: true });
@@ -115,7 +119,14 @@ async function main() {
     page.on("console", (m) => { if (m.type() === "error") note(m.text()); });
     page.on("pageerror", (e) => note(String(e)));
 
-    const url = `http://127.0.0.1:${PORT}/shot?preset=${preset}&clean=${CLEAN}`;
+    const settle = flag("settle", null);
+    // `--revive` runs the preset, then puts the dead back on their feet and
+    // captures that instead. On a gore preset it is the respawn check: a body
+    // that came apart has to go back together, and this is the only way to look
+    // at the result rather than argue about it.
+    const url = `http://127.0.0.1:${PORT}/shot?preset=${preset}&clean=${CLEAN}`
+      + (settle ? `&settle=${settle}` : "")
+      + (has("revive") ? "&revive=1" : "");
     console.log(`[shoot] ${preset} -> ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
 
@@ -130,6 +141,15 @@ async function main() {
       ready = false;
       errors.push("renderer never signalled __shotReady (scene may have failed to build)");
     }
+
+    // How long the settle actually took. A gore preset names an instant in a
+    // death in frames and converts at the renderer's 0.05 s dt cap; if a frame
+    // here is faster than that, the shot is of an earlier instant than the
+    // preset asked for and the pose review is measuring the wrong moment.
+    const clock = await page.evaluate(() => ({
+      frames: window.__shotFrames ?? 0,
+      msPerFrame: window.__shotMsPerFrame ?? 0,
+    }));
 
     const file = resolve(OUT, `${preset}.png`);
     // Playwright's screenshot budget defaults to 30 s, which was never a
@@ -168,10 +188,11 @@ async function main() {
     }, buf.toString("base64"));
 
     const blank = stats.ok && stats.maxLuma < 8;
-    report.push({ preset, file, ready, blank, ...stats, errors: errors.slice(0, 8) });
+    report.push({ preset, file, ready, blank, ...clock, ...stats, errors: errors.slice(0, 8) });
     console.log(
       `[shoot] ${preset}: ${blank ? "BLANK FRAME" : "ok"} ` +
-      `meanLuma=${stats.meanLuma?.toFixed(1)} errors=${errors.length}`
+      `meanLuma=${stats.meanLuma?.toFixed(1)} ` +
+      `frames=${clock.frames}@${clock.msPerFrame.toFixed(0)}ms errors=${errors.length}`
     );
     await page.close();
   }

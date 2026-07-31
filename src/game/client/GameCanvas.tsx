@@ -23,7 +23,7 @@ import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/cam
 import { createHud3d, type Hud3D } from "./render/hud3d";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior,
-  type WarriorRig, type WarriorMotion,
+  type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./render/anim";
 
 interface GameCanvasProps {
@@ -357,6 +357,37 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       // this effect, not here — see the note there.
 
       // ===== warriors =====
+      // One hooks object for the whole frame rather than one per warrior. Every
+      // callback closes over `stage` alone, so there is nothing per-warrior in
+      // here to capture — and a brawl poses eight bodies a frame.
+      const animHooks: AnimHooks = {
+        // The arena's own height field, so a severed limb lands on the bank
+        // rather than through it. anim.ts falls back to a raycast without it.
+        groundAt: stage.world.heightAt,
+        // The one place the cut's frame crosses from the body to the blood.
+        // Every field is passed through untouched: derive the wound twice and
+        // the spray and the stump disagree about where the man was opened.
+        onSever: (cut, victim) => {
+          stage.vfx.severed({
+            position: cut.wound,
+            direction: cut.spray,
+            radius: cut.radius,
+            stump: cut.stump,
+            piece: cut.part,
+            zone: cut.zone,
+            // A body cut in two opens the whole trunk; a forearm opens a wrist.
+            power: (cut.seam === "waist" ? 1.55 : 1) * (victim.deathHeavy ? 1.15 : 1),
+          });
+        },
+        onBladeTrail: (pos, cls) => {
+          stage.vfx.trail({
+            position: pos,
+            color: cls === "runekeeper" ? 0x66c8ff : 0xe8ecff,
+            count: 3, spread: 1.2, up: 1.4, gravity: 3,
+          });
+        },
+      };
+
       const activeIds = new Set<string>();
       for (const id of Object.keys(players)) {
         const p = players[id];
@@ -377,7 +408,21 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         // ---- HIT FEEDBACK (damage numbers + rumble + hit-stop) ----
         if (p.health < slot.prevHp - 0.5) {
           const dmg = Math.round(slot.prevHp - p.health);
-          stage.vfx.burst({ position: { x: at.x, y: 1.4, z: at.z }, color: 0xd42a1a, count: 16, spread: 5, up: 4.5, kind: "blood" });
+          // The line from the man who swung to the man who took it. Without it
+          // blood fans off in a random direction and a cleaving blow reads the
+          // same as a graze from the other side.
+          const away = attacker
+            ? { x: at.x - attacker.position.x, y: 0.12, z: at.z - attacker.position.z }
+            : undefined;
+          stage.vfx.wound({
+            position: { x: at.x, y: 1.4, z: at.z },
+            damage: dmg,
+            direction: away,
+            // The zone only exists on the record once he is down; a survivable
+            // blow has no location on the wire and gets the generic spatter.
+            zone: p.state === "dead" ? (p.deathZone ?? undefined) : undefined,
+            fatal: p.state === "dead",
+          });
           // A blocked blow throws steel off steel, not blood: the kind is the only
           // thing that tells the two apart, and the server already said which it was.
           stage.vfx.burst({ position: { x: at.x, y: 1.5, z: at.z }, color: 0xffe28a, count: 7, spread: 7, up: 5, gravity: 8, kind: "spark" });
@@ -401,7 +446,19 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         slot.prevHp = p.health;
 
         if (slot.prevState !== "dead" && p.state === "dead") {
-          stage.vfx.burst({ position: { x: at.x, y: 1.3, z: at.z }, color: 0x881410, count: 34, spread: 7, up: 5.5, kind: "blood" });
+          // A severance brings its own burst from the stump, aimed and sized by
+          // the cut — a second generic gout at chest height on top of it is the
+          // confetti the panels warned about. This is the fallback for the kills
+          // that take nothing off: a torso hit, and every kill on the low tier
+          // that would have been a bisection.
+          if (!p.deathZone || p.deathZone === "torso") {
+            stage.vfx.wound({
+              position: { x: at.x, y: 1.3, z: at.z },
+              damage: 34,
+              zone: p.deathZone ?? undefined,
+              fatal: true,
+            });
+          }
           stage.vfx.burst({ position: { x: at.x, y: 0.5, z: at.z }, color: 0x3a2a20, count: 20, spread: 5, up: 3, kind: "dust" });
           if (p.lastHitBy === playerId) {
             rumble([60, 40, 80]);
@@ -424,15 +481,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
 
         stage.hud.setHealth(id, p.health, p.maxHealth);
 
-        poseWarrior(slot.rig, slot.motion, p, dt, ctx, {
-          onBladeTrail: (pos, cls) => {
-            stage.vfx.trail({
-              position: pos,
-              color: cls === "runekeeper" ? 0x66c8ff : 0xe8ecff,
-              count: 3, spread: 1.2, up: 1.4, gravity: 3,
-            });
-          },
-        });
+        poseWarrior(slot.rig, slot.motion, p, dt, ctx, animHooks);
 
         // ability aura
         if (p.abilityActive) {

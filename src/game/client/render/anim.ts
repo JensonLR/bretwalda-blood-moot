@@ -2590,6 +2590,12 @@ const THROW: Record<SeamId, { push: number; lift: number; out: number; tumble: n
 const GORE_G = 11.6;
 /** Air, as one number. Enough to keep a light piece from carrying too far. */
 const GORE_DRAG = 0.25;
+/**
+ * Hard ceiling on how fast anything leaves a body, upward. Chosen against
+ * `GORE_G`: 4.4 m/s is 0.83 m of rise, so a head clears the shoulders of the man
+ * who took it and comes down inside the same second.
+ */
+const RISE_CEIL = 4.4;
 /** Below this it is not moving, it is resting; see `REST_HOLD`. */
 const REST_SPEED = 0.4;
 const REST_SPIN = 1.2;
@@ -2655,6 +2661,13 @@ function beginGore(rig: WarriorRig, motion: WarriorMotion, player: GamePlayer, h
   const vel = _gv.clone().multiplyScalar(t.push * heavy)
     .addScaledVector(UP, t.lift * heavy)
     .addScaledVector(cut.spray, t.out * heavy);
+  // A neck stump points straight up, so `lift` and `out` were adding on the same
+  // axis and a heavy multiplied the sum: 5.7 m/s off a 1.55 m collar, which is
+  // 1.4 m of rise and a head that leaves the top of the frame. The tables' own
+  // note draws the line at 5 — "past about 5 it stops reading as a head coming
+  // off and starts reading as a head being punted" — so the ceiling is enforced
+  // here rather than left to two entries that only collide on one seam.
+  if (vel.y > RISE_CEIL) vel.y = RISE_CEIL;
 
   // End over end about the axis across the push, so the piece tumbles the way it
   // is travelling rather than about an axis of its own choosing. The upper half
@@ -2862,7 +2875,15 @@ function deathLayer(d: number, fall: number, shape: FallShape): void {
   const sway = shape.lean * 1.05;
   // And how far over it goes at all. A man who has lost his head does not
   // topple; his legs stop holding him and he goes down where he stood.
-  const flat = (Math.PI / 2) * (1 - shape.crumple * 0.62);
+  //
+  // 0.18, not 0.62. At 0.62 the trunk stopped 34° off vertical and the capture
+  // is a beheaded warrior still standing with his guard up — which is the one
+  // failure this whole feature cannot survive, because a corpse that does not
+  // lie down reads as the animation having broken rather than as a death. The
+  // crumple's job is to change *how* he gets there, not whether: the knees go
+  // first and `settleOnFeet` drops him onto them, and only then does what is
+  // left of him go over. He still lands in his own footprint.
+  const flat = (Math.PI / 2) * (1 - shape.crumple * 0.18);
   const pitch = fall * flat * Math.cos(sway);
   const roll = flat * Math.sin(sway);
 

@@ -3719,7 +3719,20 @@ function severBody(ctx: SeverContext, zone: HitZone, opts: SeverOptions = {}): S
   // Every matrix under this body, and every bone in it, current as of this
   // frame — `project` reads bone world matrices directly and a stale one bakes
   // the arm into last frame's swing.
-  ctx.root.updateWorldMatrix(true, true);
+  //
+  // Two calls, and both are load-bearing. `updateWorldMatrix` is the only one
+  // that walks *up* to the parents, and `updateMatrixWorld` is the only one that
+  // walks down through the virtual override — which matters because
+  // `SkinnedMesh` refreshes `bindMatrixInverse` there and nowhere else, and
+  // `applyBoneTransform` finishes by applying it. Update a rig with the walker
+  // that skips the override and every skinned limb bakes with a bind-time
+  // inverse: the arm comes off in the body's own local frame and the piece is
+  // flung to wherever the arena origin happens to be. Live that hid behind the
+  // renderer having refreshed it the frame before — it only bites a body that
+  // is built and cut in the same tick, which is exactly what a spectator or a
+  // late joiner does with a corpse that was already on the ground.
+  ctx.root.updateWorldMatrix(true, false);
+  ctx.root.updateMatrixWorld(true);
   const frame = seam.anchor.matrixWorld.clone().multiply(new THREE.Matrix4().makeTranslation(0, seam.y, 0));
   const toFrame = frame.clone().invert();
 

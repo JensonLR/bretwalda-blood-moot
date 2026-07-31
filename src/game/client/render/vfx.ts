@@ -1999,12 +1999,16 @@ export function createVfx(
       spawn({
         x: x + ex * 0.05, y: y + ey * 0.05, z: z + ez * 0.05,
         vx: ex * v + ivx, vy: ey * v + ivy, vz: ez * v + ivz,
-        life: gout ? rand(0.9, 1.8) : fine ? rand(0.35, 0.75) : rand(0.6, 1.3),
-        size0: scale * (gout ? rand(1.6, 2.6) : fine ? rand(0.35, 0.65) : rand(0.85, 1.35)),
+        // Sized against the body it came out of, not against legibility. The
+        // first capture threw quarter-metre gouts — at that size a droplet is
+        // as long as a forearm, it reads as a card rather than as liquid, and
+        // no amount of arc rescues it. A gout is now a closed fist at most.
+        life: gout ? rand(0.55, 1.05) : fine ? rand(0.25, 0.5) : rand(0.4, 0.8),
+        size0: scale * (gout ? rand(0.8, 1.3) : fine ? rand(0.2, 0.36) : rand(0.45, 0.72)),
         // Blood in air stretches, it does not shrink. Holding the size and
         // letting F_ALIGN do the elongating is what keeps a droplet a droplet
         // right up to the frame it lands and stains.
-        size1: scale * (gout ? rand(1.4, 2.2) : fine ? rand(0.3, 0.5) : rand(0.7, 1.1)),
+        size1: scale * (gout ? rand(0.7, 1.1) : fine ? rand(0.17, 0.28) : rand(0.38, 0.6)),
         aspect: gout ? 2.6 : 2.1,
         c0: tint, c1: PALETTE.bloodDark,
         // Barely fades: a droplet's story ends when it hits the ground and
@@ -2067,7 +2071,10 @@ export function createVfx(
       o.position.x, o.position.y, o.position.z,
       dx * inv, dy * inv, dz * inv,
       count,
-      2.4 + 5.6 * k,
+      // Same ceiling as a severance burst, for the same reason: everything this
+      // module throws has to be on the ground within about half a second or the
+      // spray outlives the blow that caused it.
+      2.2 + 3.1 * k,
       // A light cut sprays wide and weakly; a heavy one drives it in one
       // direction. The cone narrowing with damage is what makes the two read
       // differently at a glance even before the count registers.
@@ -2213,7 +2220,12 @@ export function createVfx(
       spurt(
         x, y, z, dx, dy, dz,
         count,
-        3.6 + 4.4 * force,
+        // Sized to land, which is the whole test: at the old 3.6 + 4.4·force a
+        // gout left the stump at 11 m/s and was still six metres out and three
+        // up when the camera took the picture — spray that never arrives is
+        // exactly what "reads as confetti" describes. This puts the far edge of
+        // the burst down inside three metres.
+        2.6 + 2.5 * force,
         0.52,
         0.045 + radius * 0.42,
         PALETTE.bloodArterial,
@@ -2307,7 +2319,7 @@ export function createVfx(
         j.x + sym(j.radius * 0.55), j.y + sym(j.radius * 0.55), j.z + sym(j.radius * 0.55),
         j.dx, j.dy, j.dz,
         n,
-        (1.6 + 3.4 * j.power) * (0.55 + pulse * 0.6),
+        (1.4 + 2.1 * j.power) * (0.55 + pulse * 0.6),
         0.38,
         0.035 + j.radius * 0.3,
         tmpColor.copy(PALETTE.bloodArterial).lerp(PALETTE.bloodFresh, t),
@@ -2706,7 +2718,9 @@ export function createVfx(
             // and the atomised half of the same spray leaves flecks. It is the
             // cheapest way to get the ground to record which blow it was.
             if (speed > 1.2 && Math.random() < 0.34) {
-              const mark = Math.min(0.62, Math.max(0.09, store.size0[i] * 3.4)) * rand(0.8, 1.3);
+              // 6.0, not 3.4 — the droplet that makes the mark is now half the
+              // size it was, and a spatter is wider than the drop that threw it.
+              const mark = Math.min(0.58, Math.max(0.09, store.size0[i] * 6.0)) * rand(0.8, 1.3);
               addDecal(px, pz, mark);
             }
             kill(i);
@@ -2914,9 +2928,13 @@ export function createVfx(
       // it, and a pool that grows linearly reads as something being scaled.
       const grow = d.spread > 0 ? 1 - Math.pow(1 - clamp01(d.age / d.spread), 2) : 1;
       const size = d.size0 + (d.size1 - d.size0) * grow;
-      // The multiply tint *is* the stain: fresh blood takes the ground down to a
-      // fifth of its red and almost none of its green, and as it dries it lets
-      // more through and browns toward the turf.
+      // The multiply tint *is* the stain, and multiply can only take light away
+      // — it cannot put red back. Holding red down at a fifth alongside green
+      // was arithmetically a black mark: the arena's turf is greener than it is
+      // red, so cutting both left nothing but a hole in the grass, and the first
+      // gore capture is a corpse surrounded by ink blots. Red now passes almost
+      // untouched and green and blue are what get taken out, which is the only
+      // way this blend mode says "blood" instead of "shadow".
       const dry = t * 0.55;
       const a = 0.95 * (1 - clamp01((t - 0.6) / 0.4));
       // A pool is deep enough to be its own colour rather than the ground's,
@@ -2925,7 +2943,7 @@ export function createVfx(
       const k = d.pool ? 0.55 : 1;
       decalLayer.push(
         d.x, d.y, d.z, size, size, d.rot, a,
-        0.22 + dry * 0.5 * k, 0.05 + dry * 0.42 * k, 0.05 + dry * 0.34 * k,
+        0.72 + dry * 0.22 * k, 0.07 + dry * 0.45 * k, 0.06 + dry * 0.36 * k,
         0,
       );
     }

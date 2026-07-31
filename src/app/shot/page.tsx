@@ -35,7 +35,23 @@ type Pose = {
   /** The killing blow, for staging a dismemberment. Only read when state is "dead". */
   zone?: HitZone;
   heavy?: boolean;
+  /**
+   * Id of the man who landed it. The fall and the throw both take their bearing
+   * from the attacker's position, so without this a staged death topples
+   * backwards along the renderer's default and the limb goes with it.
+   */
+  killer?: string;
 };
+
+/**
+ * One camera for all three deaths, so the shots can be compared by flicking
+ * between them. Wide and standing back: the first capture was framed like the
+ * `stance` portrait and the head left the top of the picture, which reviewed as
+ * "no head visible" when the truth was "no room". A death needs the air the
+ * piece travels through in shot as much as it needs the body.
+ */
+const GORE_FRAMING: { position: [number, number, number]; target: [number, number, number]; fov: number } =
+  { position: [-2.6, 2.6, 1.0], target: [-6.6, 1.1, 4.8], fov: 55 };
 
 /**
  * Camera yaw is chosen per preset so framing is reproducible. A preset may
@@ -49,6 +65,14 @@ const PRESETS: Record<string, {
   matchTimer: number;
   lastStand?: boolean;
   framing?: { position: [number, number, number]; target: [number, number, number]; fov?: number };
+  /**
+   * Frames to run before the capture is taken. The default settles the lerps and
+   * then stops; a death is the one thing in the set that is not a settled pose
+   * but a second of motion, so a gore preset names the instant it wants. Every
+   * frame on a GPU-less box is a full 0.05 s step of sim, so the count is
+   * seconds × 20 and the same on any machine slower than 20 fps.
+   */
+  settle?: number;
 }> = {
   // Over-shoulder gameplay view, mid-swing against a blocking foe.
   // Offset from the origin because the bonfire stands there — framing a duel
@@ -148,6 +172,62 @@ const PRESETS: Record<string, {
       state: "idle" as PlayerState,
     })),
   },
+  // ---- Gore. Three deaths, caught in the second they happen. -------------
+  //
+  // All three share a mark and a camera so the four questions the owner will
+  // ask can be answered by flicking between the images: the killer stands off
+  // the victim's weapon side, so the push carries the piece left-to-right
+  // across the frame instead of away from the lens, and the camera is lifted
+  // and pulled back from `stance`'s framing to leave air above the body for
+  // whatever is still in it.
+  //
+  // The victim faces the camera. That costs a little of the wound — the cut
+  // faces the killer, not us — but it is the only way to see the helm on a
+  // head that has left, and a back is not a death.
+  //
+  // Beheading. `settle: 20` is ~0.95 s: the head is past its apex and coming
+  // down, the burst has arced and landed, and the stump is still running.
+  gorehead: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 20,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "neck", dir: "overhead", heavy: true, killer: "foe" },
+      { id: "foe", name: "Grim", cls: "berserker", x: -9.0, z: 3.4, rot: 1.03, state: "attacking", dir: "overhead", swing: 0.86, hp: 0.74 },
+    ],
+  },
+  // Sword arm off at the elbow. The zone is the one the design doc singles out:
+  // the fist stays closed on the weapon and the whole forearm leaves holding it.
+  //
+  // A huscarl and not a warden, which was the first casting. The warden fights
+  // with a spear held down the body in both hands, so his forearm leaving with
+  // it is indistinguishable in a still from a spear simply lying on the grass —
+  // the shot could not answer the question it exists to ask. The huscarl's
+  // sword stands clear of him in one fist and the answer is unambiguous.
+  gorearm: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 22,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "armR", dir: "right", heavy: false, killer: "foe" },
+      { id: "foe", name: "Grim", cls: "warden", x: -9.0, z: 3.4, rot: 1.03, state: "attacking", dir: "right", swing: 0.9, hp: 0.66 },
+    ],
+  },
+  // The samurai case. Held a beat longer than the other two — the halves are
+  // slower than a head and the shot has to show both of them on the ground,
+  // separately, or it has not shown the thing that was asked for.
+  goresplit: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 30,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "waist", dir: "right", heavy: true, killer: "foe" },
+      { id: "foe", name: "Grim", cls: "berserker", x: -9.1, z: 3.6, rot: 1.0, state: "attacking", dir: "right", swing: 0.95, hp: 0.7 },
+    ],
+  },
   // Last-stand mood — judges the dramatic colour grade.
   laststand: {
     cam: Math.PI,
@@ -160,8 +240,17 @@ const PRESETS: Record<string, {
   },
 };
 
-function makePlayer(p: Pose, isLocal: boolean): GamePlayer {
+/**
+ * `revived` is the respawn half of a gore preset: the same synthetic room, with
+ * the corpse handed back its health and its state and — as the server does on
+ * every road back to standing — its death mark cleared. It exists because "a
+ * dismembered body cleans up on respawn" is a claim about the client that only
+ * a frame can settle, and the renderer reaches that path from a state change on
+ * the player record and from nothing else.
+ */
+function makePlayer(p: Pose, isLocal: boolean, revived = false): GamePlayer {
   const stats = WARRIOR_STATS[p.cls];
+  if (revived && p.state === "dead") p = { ...p, state: "idle", hp: 1, zone: undefined };
   const moving = p.state === "walking" || p.state === "running" || p.state === "sprinting";
   const speed = p.state === "sprinting" ? stats.sprintSpeed : stats.moveSpeed;
   return {
@@ -192,7 +281,7 @@ function makePlayer(p: Pose, isLocal: boolean): GamePlayer {
     deaths: 0,
     damage: 140,
     score: 200,
-    lastHitBy: "",
+    lastHitBy: p.killer ?? "",
     comboCount: 0,
     comboTimer: 0,
     invincible: false,
@@ -229,13 +318,17 @@ export default function ShotPage() {
     setParams(search);
   }, []);
 
+  // 0 is the preset as authored. 1 is the same room after `?revive=1` has put
+  // every dead warrior back on his feet, so a capture can show what the body
+  // looks like once the renderer has been asked to reassemble it.
+  const [phase, setPhase] = useState<0 | 1>(0);
   const presetName = params?.get("preset") ?? "duel";
   const clean = params?.get("clean") === "1";
   const preset = PRESETS[presetName] ?? PRESETS.duel;
 
   const roomState = useMemo(() => {
     const players: Record<string, GamePlayer> = {};
-    preset.poses.forEach((p) => { players[p.id] = makePlayer(p, p.id === "me"); });
+    preset.poses.forEach((p) => { players[p.id] = makePlayer(p, p.id === "me", phase === 1); });
     return {
       code: "PHOTO01",
       mode: "blood_moot",
@@ -251,7 +344,7 @@ export default function ShotPage() {
       ],
       lastStandTriggered: !!preset.lastStand,
     };
-  }, [preset]);
+  }, [preset, phase]);
 
   // Signal readiness once the renderer has presented enough frames for the
   // lerped camera and poses to settle. Every lerp in the rig runs at
@@ -265,17 +358,33 @@ export default function ShotPage() {
     if (!params) return;
     let frames = 0;
     let raf = 0;
+    const override = params.get("settle");
+    const authored = override !== null ? parseInt(override, 10) : (preset.settle ?? 26);
+    // The second phase is short on purpose. Reassembly is one frame's work, so a
+    // long hold would only prove that a standing warrior stays standing; what is
+    // worth capturing is the frame right after the limbs go back on.
+    const limit = phase === 1 ? 12 : authored;
+    const t0 = performance.now();
     const tick = () => {
       frames++;
-      if (frames > 26) {
-        (window as unknown as Record<string, unknown>).__shotReady = true;
+      if (frames > limit) {
+        if (phase === 0 && params.get("revive") === "1") { setPhase(1); return; }
+        const g = window as unknown as Record<string, unknown>;
+        // Published, not just counted. A settle is quoted in this file as
+        // seconds of simulation, and that conversion is only true while a frame
+        // is slower than the renderer's 0.05 s dt cap — which is a property of
+        // the capture box, not of the code. Anything reading a timed pose out of
+        // a shot has to be able to check the assumption rather than inherit it.
+        g.__shotFrames = frames;
+        g.__shotMsPerFrame = (performance.now() - t0) / frames;
+        g.__shotReady = true;
         return;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [params]);
+  }, [params, preset, phase]);
 
   if (!params) return <div className="w-screen h-screen bg-black" />;
 
