@@ -591,3 +591,60 @@ should not be relied on. The `faceFill` change may still have been right — the
 qualitative read of `v9/lineup.png` stands — but it is not measured. Any future
 per-warrior A/B must use `stance`, `duel` or `portrait`, which are stable, or
 must register the crop first.
+
+---
+
+## Fifth panel (on v10) — and one harness defect that invalidates old comparisons
+
+**`lineup` does not pose its warriors deterministically across captures.** World
+geometry is pixel-exact between runs — the palisade strip cross-correlates at
+**0.997 at zero shift** — but the warriors move **−53 to +45 px** between v9 and
+v10 at correlations of only 0.58–0.82. This predates v10: v8→v9 shows the
+huscarl at −44 px, r = 0.54.
+
+That means any per-warrior A/B taken on `lineup` compared crops that were not the
+same crop of the same thing. The v9 entry's face-luma numbers are among them.
+Per-warrior comparison needs `stance`, `duel` or `portrait`, or a registered
+crop, until the preset is made deterministic.
+
+**The bonfire core was authored grey, not merely clipping.** `vec3(1.0, 0.93,
+0.72)` measures 0.02 saturation after the grade *at any radiance*, so three
+passes spent pushing emissive intensity up and down were adjusting a parameter
+that could not move the metric being measured. Same failure class as the
+`key`/`warm` misnaming: the thing everyone was tuning was not the thing that was
+wrong. Now fixed — hottest-2% saturation 0.054 → 0.286 in `arena`, clipped
+pixels in the flame box 608 → 64.
+
+**The fire fix over-corrected.** Three cuts pulled the same way at once
+(`uIntensity` 2.6 → 2.3×(1−0.37·moodHeat), the inner ring dimmed, and the
+emitter dedup halving tongue count). maxLuma fell in five presets, tonalBuckets
+in three, and in `lineup` the warriors visibly lost the warm fill the fire had
+been giving them. The dedup and `RING_LEVEL` are right; `uIntensity` is the one
+to give back.
+
+**The ground pass did not reach the pixel, and its negative results are worth
+keeping.** Receiver sigma/mu went the wrong way, 0.3235 → 0.3547; band-passed
+floor sigma at 2–5 px is flat-to-worse in six of seven presets and improves only
+in `stance` (−12%, the closest camera). The sub-2 m octaves of `mid`, `churn` and
+`drainage` are confirmed *not* the culprit. The binding constraint is
+`buildGroundDetail`'s `peb` term plus a screen-space AO pass — and the AO pass is
+unowned.
+
+**Everything past ~10 m is one colour.** In `v10/duel.png` the background band
+has a hue circular-std of **6.2 degrees** at saturation 0.71 — palisade oak, hut
+daub, thatch, tree canopy and soil all arrive as the same orange (arena 8.7,
+brawl 13.3, laststand 13.7).
+
+**The pale coal bed is now the loudest thing in the crib** — `materials.ts:169`
+at `emissiveIntensity 5.6`, measuring [254, 203, 165]. Unchanged material; the
+fixed flame simply stopped hiding it.
+
+**Bloom is unreachable**: its threshold of 5.0/6.0 sits above the 4.07/2.48
+points where the grade already clips.
+
+### Process: `git stash` is not safe here
+
+An agent used `git stash` mid-pass while another owner had uncommitted work in
+the tree. Nothing was lost — the working tree was verified strictly ahead of the
+stash on both files — but with two owners writing under a 2-agent cap, a stash
+can silently bank someone else's half-finished work. Commit instead.
