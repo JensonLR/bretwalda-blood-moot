@@ -12,7 +12,38 @@ export type AttackType = "light" | "heavy";
 // never disagree about which limb came off.
 export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "torso" | "waist";
 export type PlayerState = "idle" | "walking" | "running" | "sprinting" | "attacking" | "blocking" | "dodging" | "rolling" | "staggered" | "dead" | "ability";
-export type MatchState = "lobby" | "countdown" | "fighting" | "last_stand" | "finished";
+// "intermission" is the breath between rounds: everyone still dead where they
+// fell, the round result on screen, the next countdown already scheduled.
+export type MatchState = "lobby" | "countdown" | "fighting" | "last_stand" | "intermission" | "finished";
+
+/** Best of 1, 3 or 5 rounds. The host picks; the server decides everything else. */
+export const ROUND_OPTIONS = [1, 3, 5] as const;
+export type BestOf = (typeof ROUND_OPTIONS)[number];
+export const DEFAULT_BEST_OF: BestOf = 3;
+
+/** Round wins that take the match — first to this, so a best-of-3 can end 2-0. */
+export function roundsToWin(bestOf: number): number {
+  return Math.ceil(bestOf / 2);
+}
+
+/**
+ * What the keys of `roundWins` mean. A free-for-all is scored by man and keys
+ * are player ids; a war band is scored by side and the keys are "red" and
+ * "blue". The HUD reads this rather than inferring it from the mode.
+ */
+export type RoundScoreBy = "player" | "team";
+
+/** The round just finished. Null until one has. */
+export interface RoundResult {
+  index: number;
+  /** Set in a free-for-all; null in a war band. */
+  winnerId: string | null;
+  /** Set in a war band; null in a free-for-all. */
+  winnerTeam: Team | null;
+  winnerName: string;
+  /** Last two men down on the same tick: nobody takes the round. */
+  draw: boolean;
+}
 
 export interface Vec3 {
   x: number;
@@ -161,7 +192,60 @@ export interface Room {
   maxPlayers: number;
   teamSize: number;
   killFeed: KillFeedEntry[];
+  /** A round-level moment — two men left in THIS round. Reset every round. */
   lastStandTriggered: boolean;
+  /** Rounds in the match: 1, 3 or 5. Solo training is not a match and is always 1. */
+  bestOf: number;
+  /** 1-based, 0 before the first round of a match has been placed. */
+  roundIndex: number;
+  /** `roundsToWin(bestOf)`, carried so the HUD never recomputes it. */
+  roundTarget: number;
+  /** Keyed by player id or by team — see `roundScoreBy`. */
+  roundWins: Record<string, number>;
+  roundScoreBy: RoundScoreBy;
+  lastRound: RoundResult | null;
+  /** Epoch ms the next round starts, during "intermission". 0 otherwise. */
+  nextRoundAt: number;
+}
+
+/** `round_end` payload: a whole room snapshot plus the round that just ended. */
+export interface RoundEndData extends RoundResult {
+  matchOver: boolean;
+  roundWins: Record<string, number>;
+  roundTarget: number;
+  bestOf: number;
+  nextRoundAt: number;
+}
+
+export interface MatchResult {
+  id: string;
+  name: string;
+  kills: number;
+  deaths: number;
+  damage: number;
+  score: number;
+  isWinner: boolean;
+  xpEarned: number;
+  goldEarned: number;
+}
+
+/**
+ * `match_end`. `winnerId` alone could not say that a war band had won, so the
+ * winner is named by kind: a man, a side, or nobody. Kills and damage in
+ * `results` are the match's totals across every round; gold and XP are paid
+ * once, from those totals.
+ */
+export interface MatchEndData {
+  winnerKind: "player" | "team" | "none";
+  winnerId: string | null;
+  winnerTeam: Team | null;
+  winnerName: string;
+  bestOf: number;
+  roundsPlayed: number;
+  roundTarget: number;
+  roundWins: Record<string, number>;
+  roundScoreBy: RoundScoreBy;
+  results: MatchResult[];
 }
 
 export interface KillFeedEntry {
@@ -186,6 +270,8 @@ export type WSMessageType =
   | "game_state"
   | "hit"
   | "kill"
+  | "set_rounds"
+  | "round_end"
   | "match_end"
   | "error"
   | "player_joined"

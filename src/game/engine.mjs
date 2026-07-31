@@ -15,6 +15,40 @@ const MATCH_COUNTDOWN = 3;
 const SPAWN_INVINCIBLE = 2.0;
 const ARENA_RADIUS = 18;
 
+// ---- rounds ----
+// A match is best of N. The host picks N in the lobby; the sim only ever asks
+// two things of it — how many round wins take the match, and whether the format
+// has run out of rounds to change anyone's mind.
+const ROUND_OPTIONS = [1, 3, 5];
+const DEFAULT_BEST_OF = 3;
+const ROUND_BREAK = 5;          // seconds between rounds: long enough to read the
+                                // result off the screen, short enough that nobody
+                                // reaches for another tab
+
+// ---- where men start ----
+// The ring is sized from the headcount rather than fixed, because the same
+// radius cannot serve two duellists and eight men in a moot. SPAWN_GAP is the
+// straight-line room each man is owed from the neighbour beside him: more than
+// three times the longest reach in the game (a warden's 2.64), so the bell is
+// never a free first blow, and it is what the radius is solved for.
+const SPAWN_GAP = 7.5;
+// The floor clears the bonfire at the origin with room to spare — its widest
+// geometry reaches 2 m and the hearth stones a little past that — and stops two
+// duellists from being solved onto opposite sides of a hearth six paces wide.
+const SPAWN_MIN_RADIUS = 6;
+// The ceiling keeps everyone a good six metres inside the palisade at ARENA_RADIUS,
+// so nobody opens a round with his back already against the timber.
+const SPAWN_MAX_RADIUS = 12;
+// A shield wall is a line. Men of one team stand this far apart along their own
+// arc, and the arc never opens wider than TEAM_ARC — past that a war band is
+// spread around the ring again, which is the fault this is here to fix.
+const TEAM_LINE_GAP = 3.0;
+const TEAM_ARC = Math.PI * 0.55;
+// Golden angle. The whole ring turns by this much each round, so a best-of-5 is
+// five different openings, and it is derived from the round index alone — the
+// server stays the only authority on where anybody stands.
+const ROUND_SPIN = 2.399963;
+
 // ---- reach ----
 // One flat ATTACK_RANGE of 3.0 for every class is why a berserker connected with
 // the middle of his haft: the server was granting a metre of reach the weapon
@@ -296,6 +330,144 @@ const BOT_APPEARANCES = [
   { helm: "iron", hairStyle: "shaved", hairColor: 0x1c1712, beardStyle: "forked", beardColor: 0x1c1712, cloak: "blue", armorColor: 0x8a6a3a, warPaint: "cross" },
 ];
 
+// ---- the ground under a spawn ----
+// The interior of `groundHeight` in `world.ts`, copied. Not imported, because
+// that module is the renderer's and pulls three.js in with it, and the server
+// cannot take a browser dependency to find out how high a patch of turf is.
+//
+// Copied to the term rather than approximated: the noise, the octave rotation
+// and the worn tracks are the ones the terrain mesh is built from, so a warrior
+// is placed on the surface a client actually draws instead of near it. What is
+// deliberately NOT copied is the bank-and-ditch beyond the palisade (spawns
+// never leave the interior, which SPAWN_MAX_RADIUS guarantees) and the puddle
+// basins, which need the whole puddle table for at most 30 mm of dip.
+//
+// The interior is flat to within ~5 cm by design — `world.ts` says so, and says
+// it is flat *because* the server plants boots at y = 0 — so this is a small
+// number by construction. Re-copy it if that field is re-cut; nothing fails
+// loudly when it drifts, a spawned man just stands a centimetre off the turf.
+const GATE_ANGLES = [0.42, 2.55, 4.55];
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+function smoothstep(e0, e1, x) {
+  const t = clamp01((x - e0) / (e1 - e0));
+  return t * t * (3 - 2 * t);
+}
+
+function hash2(ix, iy) {
+  let h = Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iy | 0, 0x165667b1);
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  h ^= h >>> 12;
+  h = Math.imul(h, 0x297a2d39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+
+function noise2(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy), b = hash2(ix + 1, iy);
+  const c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
+  return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
+}
+
+function fbm(x, y, octaves) {
+  let sum = 0, amp = 0.5, norm = 0, fx = x, fy = y;
+  for (let i = 0; i < octaves; i++) {
+    sum += noise2(fx, fy) * amp;
+    norm += amp;
+    amp *= 0.5;
+    const nx = fx * 1.97 + fy * 0.42;
+    const ny = fy * 1.97 - fx * 0.42;
+    fx = nx + 31.7; fy = ny - 17.3;
+  }
+  return sum / norm;
+}
+
+/** 0..1 where the turf has been walked off — the tracks sit a little lower. */
+function pathMask(x, z, r) {
+  if (r > 31) return 0;
+  const th = Math.atan2(z, x);
+  let m = 0;
+  for (const g of GATE_ANGLES) {
+    const target = g + Math.sin(r * 0.26 + g * 3.1) * 0.1;
+    let d = th - target;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    const lateral = Math.abs(d) * Math.max(r, 1.2);
+    const width = 0.95 + r * 0.06;
+    m = Math.max(m, 1 - smoothstep(width * 0.35, width, lateral));
+  }
+  m = Math.max(m, 0.8 * Math.exp(-(((r - 10.8) / 2.6) ** 2)));
+  m = Math.max(m, 1 - smoothstep(2.2, 5.6, r));
+  return m * (1 - smoothstep(24, 31, r));
+}
+
+/** Ground height under a world-space point, inside the palisade. */
+export function groundHeight(x, z) {
+  const r = Math.hypot(x, z);
+  let h = (fbm(x * 0.085 + 17.3, z * 0.085 - 5.1, 3) - 0.5) * 0.062;
+  h -= pathMask(x, z, r) * 0.024;
+  return h;
+}
+
+// ---- spawn placement ----
+/**
+ * The ring men start on, solved from the headcount so that neighbours are
+ * SPAWN_GAP apart along the chord. Two men come in at the floor and eight at
+ * 9.8 m, against the flat 9 that used to stand a duel 18 m apart and crowd a
+ * moot of eight into 6.9 m of arc.
+ */
+function spawnRadius(count) {
+  const n = Math.max(2, count);
+  const solved = SPAWN_GAP / (2 * Math.sin(Math.PI / n));
+  return Math.max(SPAWN_MIN_RADIUS, Math.min(SPAWN_MAX_RADIUS, solved));
+}
+
+/** One man's place: on the ring, on the ground, looking at what he came to fight. */
+function spawnPoint(angle, radius, faceX, faceZ) {
+  const x = Math.cos(angle) * radius;
+  const z = Math.sin(angle) * radius;
+  return { x, y: groundHeight(x, z), z, rotation: Math.atan2(faceX - x, faceZ - z) };
+}
+
+/**
+ * Spawn points for one round.
+ *
+ * One group is a free-for-all: an even ring, every man facing the fire. Two or
+ * more are sides, each on its own arc facing the enemy's — which is the whole
+ * point of a war band and the thing spawning by index around one circle could
+ * never give it. The arc widens with the side's size up to TEAM_ARC, so four
+ * men are a line rather than a huddle and a lone man is not one.
+ *
+ * The ring turns by ROUND_SPIN per round, so a best-of-5 opens five ways.
+ *
+ * @param {number[]} sizes headcount per side, in the caller's own order
+ * @returns {Array<Array<{x:number,y:number,z:number,rotation:number}>>}
+ */
+function spawnLayout(sizes, roundIndex) {
+  const total = sizes.reduce((a, b) => a + b, 0);
+  const radius = spawnRadius(total);
+  const spin = (roundIndex - 1) * ROUND_SPIN;
+  if (sizes.length < 2) {
+    const n = Math.max(1, total);
+    return [Array.from({ length: total }, (_, i) => spawnPoint(spin + (i / n) * Math.PI * 2, radius, 0, 0))];
+  }
+  return sizes.map((n, side) => {
+    const base = spin + (side / sizes.length) * Math.PI * 2;
+    const enemy = base + Math.PI;
+    const ex = Math.cos(enemy) * radius, ez = Math.sin(enemy) * radius;
+    // Shoulder to shoulder at TEAM_LINE_GAP, unless that many men would wrap the
+    // side further than TEAM_ARC — then the line closes up rather than curling.
+    const step = n > 1
+      ? Math.min(2 * Math.asin(Math.min(1, TEAM_LINE_GAP / (2 * radius))), TEAM_ARC / (n - 1))
+      : 0;
+    return Array.from({ length: n }, (_, i) => spawnPoint(base + (i - (n - 1) / 2) * step, radius, ex, ez));
+  });
+}
+
 function makeEngine() {
   const rooms = new Map();          // code -> room
   const sessions = new Map();       // sid -> { sender, roomCode, playerId|null }
@@ -343,13 +515,60 @@ function makeEngine() {
 
   const clearDeathMark = (p) => { p.deathZone = null; p.deathDir = null; p.deathHeavy = false; };
 
-  function spawnPositions(count) {
-    const positions = [];
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      positions.push({ x: Math.cos(angle) * 9, y: 0, z: Math.sin(angle) * 9 });
+  const isTeamMode = (room) => room.mode === "war_band";
+
+  /**
+   * Stand everyone up for a round. War band spawns by side; everything else
+   * spawns as a ring. A war band man who never picked a colour is given the
+   * shorter side here rather than left on "none" — the sim scores a round by
+   * team and friendly fire is decided by team, so a man on no side is a bug
+   * however he got there.
+   */
+  function placeForRound(room, roundIndex) {
+    const fighters = [...room.players.values()];
+    if (!isTeamMode(room)) {
+      const [ring] = spawnLayout([fighters.length], roundIndex);
+      fighters.forEach((p, i) => setSpawn(p, ring[i]));
+      return;
     }
-    return positions;
+    const sides = { red: [], blue: [] };
+    for (const p of fighters) {
+      if (p.team !== "red" && p.team !== "blue") p.team = sides.red.length <= sides.blue.length ? "red" : "blue";
+      sides[p.team].push(p);
+    }
+    const [red, blue] = spawnLayout([sides.red.length, sides.blue.length], roundIndex);
+    sides.red.forEach((p, i) => setSpawn(p, red[i]));
+    sides.blue.forEach((p, i) => setSpawn(p, blue[i]));
+  }
+
+  function setSpawn(player, point) {
+    player.position = { x: point.x, y: point.y, z: point.z };
+    player.rotation = point.rotation;
+    if (player.bot) { player.yaw = point.rotation; player.nextThink = 0; player.nextAttackAt = 0; }
+  }
+
+  /**
+   * Where a solo trainee comes back. The old path picked one of eight fixed
+   * points at random, which is how a respawn dropped a player inside the bot
+   * that had just killed him. Same eight candidates, chosen instead of drawn:
+   * the one furthest from the nearest living enemy, so coming back is worth
+   * something and the ring still varies as the fight moves around it.
+   */
+  function safestSpawn(room, player) {
+    const radius = spawnRadius(room.players.size);
+    const spin = (player.deaths % 8) * ROUND_SPIN;
+    let best = null, bestClearance = -1;
+    for (let i = 0; i < 8; i++) {
+      const point = spawnPoint(spin + (i / 8) * Math.PI * 2, radius, 0, 0);
+      let clearance = Infinity;
+      room.players.forEach((other) => {
+        if (other.id === player.id || other.state === "dead") return;
+        if (isTeamMode(room) && other.team === player.team && other.team !== "none") return;
+        clearance = Math.min(clearance, Math.hypot(other.position.x - point.x, other.position.z - point.z));
+      });
+      if (clearance > bestClearance) { bestClearance = clearance; best = point; }
+    }
+    return best;
   }
 
   function sendSession(sid, msg) {
@@ -386,7 +605,46 @@ function makeEngine() {
       // Room setup, so a lobby screen can render what it is about to start.
       difficulty: room.difficulty || null, botCount: botsIn(room), maxBots: botCapacity(room),
       autoStart: !!room.autoStart,
+      // The round state, carried on every snapshot and not only on the message
+      // that changed it — same requirement `deathZone` had. A late joiner, a
+      // spectator or a reconnect rebuilds the scoreboard from this alone.
+      bestOf: room.bestOf || 1,
+      roundIndex: room.roundIndex || 0,
+      roundTarget: roundsToWin(room),
+      // Keyed by player id in a free-for-all and by "red"/"blue" in a war band;
+      // `roundScoreBy` says which, so the HUD never has to guess from the mode.
+      roundWins: { ...(room.roundWins || {}) },
+      roundScoreBy: isTeamMode(room) ? "team" : "player",
+      lastRound: room.lastRound || null,
+      nextRoundAt: room.nextRoundAt || 0,
     };
+  }
+
+  /** Round wins that take the match. First to this, so a best-of-3 can end 2-0. */
+  const roundsToWin = (room) => Math.ceil((room.bestOf || 1) / 2);
+
+  const normalizeBestOf = (value, fallback) => {
+    const n = Math.round(finite(value));
+    if (ROUND_OPTIONS.includes(n)) return n;
+    return ROUND_OPTIONS.includes(fallback) ? fallback : DEFAULT_BEST_OF;
+  };
+
+  /** Who a round-win key belongs to, for a scoreboard that shows names. */
+  function keyName(room, key) {
+    if (!key) return "Draw";
+    if (isTeamMode(room)) return key === "red" ? "Red War Band" : "Blue War Band";
+    const p = room.players.get(key);
+    return p ? p.name : "Draw";
+  }
+
+  /** The key with the most round wins, or null if nobody leads alone. */
+  function roundLeader(room) {
+    let leader = null, best = 0, tied = false;
+    for (const [key, wins] of Object.entries(room.roundWins || {})) {
+      if (wins > best) { best = wins; leader = key; tied = false; }
+      else if (wins === best && wins > 0) tied = true;
+    }
+    return tied ? null : leader;
   }
 
   const sendLobbyUpdate = (room) => broadcast(room, { type: "lobby_update", data: serializeRoom(room) });
@@ -454,13 +712,20 @@ function makeEngine() {
         while (botsIn(room) < want) addBot(room, botsIn(room), diff);
         sendLobbyUpdate(room);
       });
+      // Best of 1, 3 or 5. The host's, and only in the lobby: changing the
+      // format mid-match would rewrite what the men already fought for.
+      case "set_rounds": return withRoom(sid, (room, player) => {
+        if (room.hostId !== player.id || room.state !== "lobby" || room.mode === "solo") return;
+        room.bestOf = normalizeBestOf(data.bestOf, room.bestOf);
+        sendLobbyUpdate(room);
+      });
       case "start": return withRoom(sid, (room, player) => {
         if (room.hostId !== player.id || room.state !== "lobby") return;
         // A trial may be a lonely one; a shared room still needs an opponent.
         if (room.mode !== "solo" && room.players.size < 2) {
           return sendSession(sid, { type: "error", data: { message: "Summon a friend, or press ADD AI below your war code." } });
         }
-        startCountdown(room);
+        startMatch(room);
       });
       case "set_appearance": return withRoom(sid, (room, player) => { player.appearance = data.appearance || null; sendLobbyUpdate(room); });
       case "input": return withRoom(sid, (room, player) => {
@@ -517,6 +782,8 @@ function makeEngine() {
       code, mode, state: "lobby", arena: "saxon_village",
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
+      bestOf: normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
+      roundIndex: 0, roundWins: {}, lastRound: null, nextRoundAt: 0,
     };
     const pid = randomUUID();
     const player = createPlayer(pid, name, "warden", data.appearance || null);
@@ -569,6 +836,8 @@ function makeEngine() {
       code, mode: "solo", state: "lobby", arena: "saxon_village",
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: 1, killFeed: [], lastStandTriggered: false,
+      // Training is not a match: it has one endless round and pays nothing out.
+      bestOf: 1, roundIndex: 0, roundWins: {}, lastRound: null, nextRoundAt: 0,
       difficulty, solo: true, autoStart,
     };
     const pid = randomUUID();
@@ -583,7 +852,7 @@ function makeEngine() {
     sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
     if (autoStart) {
       setTimeout(() => {
-        if (rooms.get(code) === room && room.state === "lobby") startCountdown(room);
+        if (rooms.get(code) === room && room.state === "lobby") startMatch(room);
       }, 800);
     }
   }
@@ -628,32 +897,56 @@ function makeEngine() {
     return true;
   }
 
-  function startCountdown(room) {
+  // A match is the thing that pays out and the thing a scoreboard is about; a
+  // round is one fight inside it. Kills, deaths and damage are zeroed here and
+  // nowhere else, so they read over the whole match however many rounds it took.
+  function startMatch(room) {
+    room.roundIndex = 0;
+    room.roundWins = {};
+    room.lastRound = null;
+    room.matchTimer = 0;
+    room.killFeed = [];
+    if (isTeamMode(room)) { room.roundWins.red = 0; room.roundWins.blue = 0; }
+    room.players.forEach((p) => {
+      p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
+      if (!isTeamMode(room) && room.mode !== "solo") room.roundWins[p.id] = 0;
+    });
+    startRound(room);
+  }
+
+  function startRound(room) {
+    room.roundIndex = (room.roundIndex || 0) + 1;
     room.state = "countdown";
     room.countdown = MATCH_COUNTDOWN;
-    const spawns = spawnPositions(room.players.size);
-    let i = 0;
+    room.nextRoundAt = 0;
+    // Last stand is a round-level moment: two men left in THIS round. Carrying
+    // it forward would mean it never fired again after the first round.
+    room.lastStandTriggered = false;
+    room.killFeed = [];
+    placeForRound(room, room.roundIndex);
     room.players.forEach((p) => {
-      p.position = { ...spawns[i] };
-      p.rotation = Math.atan2(-p.position.x, -p.position.z);
       p.health = p.maxHealth;
       p.stamina = p.maxStamina;
       p.state = "idle";
-      p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
       p.invincible = true; p.invincibleTimer = SPAWN_INVINCIBLE;
-      // Nobody walks out of the last fight into this one — nor bleeds out of it.
+      // Nobody walks out of the last fight into this one — nor bleeds out of it,
+      // nor comes back still swinging the blow that killed him.
+      p.attackTimer = 0; p.blockTimer = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
+      p.abilityActive = false; p.abilityTimer = 0; p.abilityCooldown = 0;
+      p.comboCount = 0; p.comboTimer = 0; p.lastHitBy = ""; p.deadAt = 0;
       clearMotion(p);
       clearDeathMark(p);
-      i++;
     });
     broadcast(room, { type: "countdown", data: { ...serializeRoom(room), countdown: room.countdown } });
 
     const ci = setInterval(() => {
+      // A room that has been emptied, or dragged into another state by a
+      // disconnect, must not be counted into a fight by a stale interval.
+      if (rooms.get(room.code) !== room || room.state !== "countdown") return clearInterval(ci);
       room.countdown--;
       if (room.countdown <= 0) {
         clearInterval(ci);
         room.state = "fighting";
-        room.matchTimer = 0;
         broadcast(room, { type: "game_state", data: serializeRoom(room) });
       } else {
         broadcast(room, { type: "countdown", data: { countdown: room.countdown } });
@@ -793,7 +1086,7 @@ function makeEngine() {
       attacker.kills++; attacker.score += 100;
       room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: Date.now(), hitZone });
       broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy } });
-      if (room.mode !== "solo") checkMatchEnd(room);
+      if (room.mode !== "solo") checkRoundEnd(room);
     }
   }
 
@@ -823,34 +1116,88 @@ function makeEngine() {
     broadcast(room, { type: "ability_used", data: { playerId: player.id, ability: stats.ability, warriorClass: player.warriorClass } });
   }
 
-  function checkMatchEnd(room) {
+  // The condition that used to end a match now ends a ROUND. It is the same
+  // condition and it was always right; what was wrong was what it decided.
+  function checkRoundEnd(room) {
+    if (room.mode === "solo") return;
+    if (room.state !== "fighting" && room.state !== "last_stand") return;
     const alive = [];
     room.players.forEach((p) => { if (p.state !== "dead") alive.push(p); });
-    if (room.mode === "blood_moot" || room.mode === "honour_duel") {
-      if (alive.length === 2 && !room.lastStandTriggered && room.players.size > 2) {
-        room.lastStandTriggered = true; room.state = "last_stand";
-        broadcast(room, { type: "last_stand", data: { players: alive.map((p) => ({ id: p.id, name: p.name })) } });
-      }
-      if (alive.length <= 1) endMatch(room, alive[0] || null);
-    } else if (room.mode === "war_band") {
+    if (isTeamMode(room)) {
       const ra = alive.filter((p) => p.team === "red").length;
       const ba = alive.filter((p) => p.team === "blue").length;
-      if (ra === 0 || ba === 0) endMatch(room, alive[0] || null);
+      if (ra > 0 && ba > 0) return;
+      // Both sides wiped in the same tick is a draw: no round win to anybody.
+      endRound(room, ra > 0 ? "red" : ba > 0 ? "blue" : null);
+      return;
     }
+    if (alive.length === 2 && !room.lastStandTriggered && room.players.size > 2) {
+      room.lastStandTriggered = true; room.state = "last_stand";
+      broadcast(room, { type: "last_stand", data: { players: alive.map((p) => ({ id: p.id, name: p.name })) } });
+    }
+    if (alive.length <= 1) endRound(room, alive[0] ? alive[0].id : null);
   }
 
-  function endMatch(room, winner) {
+  /**
+   * A round is over. `winnerKey` is a player id in a free-for-all, "red" or
+   * "blue" in a war band, and null for a draw — the last two men falling on the
+   * same tick awards nothing and the match moves on.
+   */
+  function endRound(room, winnerKey) {
+    if (winnerKey) room.roundWins[winnerKey] = (room.roundWins[winnerKey] || 0) + 1;
+    const teamMode = isTeamMode(room);
+    room.lastRound = {
+      index: room.roundIndex,
+      winnerId: teamMode ? null : winnerKey || null,
+      winnerTeam: teamMode ? winnerKey || null : null,
+      winnerName: keyName(room, winnerKey),
+      draw: !winnerKey,
+    };
+    // Either somebody has the round wins that take it, or the format has run out
+    // of rounds — a best-of-3 that draws twice still has to stop at three.
+    const decided = !!winnerKey && room.roundWins[winnerKey] >= roundsToWin(room);
+    const over = decided || room.roundIndex >= (room.bestOf || 1) || room.players.size < 2;
+    room.state = over ? "finished" : "intermission";
+    room.nextRoundAt = over ? 0 : Date.now() + ROUND_BREAK * 1000;
+    broadcast(room, { type: "round_end", data: { ...serializeRoom(room), ...room.lastRound, matchOver: over } });
+    if (over) return endMatch(room);
+    setTimeout(() => {
+      if (rooms.get(room.code) === room && room.state === "intermission") startRound(room);
+    }, ROUND_BREAK * 1000);
+  }
+
+  // Paid ONCE, from the totals the whole match accumulated. Per-round payout
+  // would make a best-of-5 worth five times a best-of-1 for the same evening,
+  // and the format a player picks is not supposed to be an economic decision.
+  function endMatch(room) {
     room.state = "finished";
+    const teamMode = isTeamMode(room);
+    const winnerKey = roundLeader(room);
+    const won = (p) => !!winnerKey && (teamMode ? p.team === winnerKey : p.id === winnerKey);
     const results = [];
     room.players.forEach((p) => {
-      const xp = 50 + p.kills * 30 + p.damage * 0.5 + (p.id === winner?.id ? 100 : 0);
-      const gold = 10 + p.kills * 15 + (p.id === winner?.id ? 50 : 0);
-      results.push({ id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, damage: p.damage, score: p.score, isWinner: p.id === winner?.id, xpEarned: Math.floor(xp), goldEarned: Math.floor(gold) });
+      const victor = won(p);
+      const xp = 50 + p.kills * 30 + p.damage * 0.5 + (victor ? 100 : 0);
+      const gold = 10 + p.kills * 15 + (victor ? 50 : 0);
+      results.push({ id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, damage: p.damage, score: p.score, isWinner: victor, xpEarned: Math.floor(xp), goldEarned: Math.floor(gold) });
     });
-    broadcast(room, { type: "match_end", data: { winnerId: winner?.id || null, winnerName: winner?.name || "Draw", results } });
+    broadcast(room, { type: "match_end", data: {
+      // `winnerId` stays what it was so nothing already reading it breaks, but a
+      // war band cannot be expressed by one man's id: `winnerKind` says which of
+      // the two fields carries the answer, and "none" is an honest draw.
+      winnerKind: winnerKey ? (teamMode ? "team" : "player") : "none",
+      winnerId: teamMode ? null : winnerKey,
+      winnerTeam: teamMode ? winnerKey : null,
+      winnerName: keyName(room, winnerKey),
+      bestOf: room.bestOf || 1, roundsPlayed: room.roundIndex || 0,
+      roundTarget: roundsToWin(room), roundWins: { ...room.roundWins },
+      roundScoreBy: teamMode ? "team" : "player",
+      results,
+    } });
     setTimeout(() => {
       if (!rooms.has(room.code)) return;
       room.state = "lobby"; room.matchTimer = 0; room.countdown = 0; room.killFeed = []; room.lastStandTriggered = false;
+      room.roundIndex = 0; room.roundWins = {}; room.lastRound = null; room.nextRoundAt = 0;
       room.players.forEach((p) => {
         const stats = WARRIOR_STATS[p.warriorClass];
         p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;
@@ -901,11 +1248,17 @@ function makeEngine() {
       bot.isBlocking = false;
     }
 
-    // Find nearest living enemy (prefer humans in solo for pressure)
+    // Find nearest living enemy (prefer humans in solo for pressure).
+    // ENEMY, not merely nearest: a war band puts a bot's shield-friend three
+    // metres from his shoulder, and a bot that walks up to him and swings is a
+    // bot that never lands anything — processAttack drops the blow for friendly
+    // fire, so the round would run until the clock did. Harmless before only
+    // because nothing ever put a bot on a side.
     let target = null, minDist = Infinity;
     let human = null, humanDist = Infinity;
     room.players.forEach((p) => {
       if (p.id === bot.id) return;
+      if (isTeamMode(room) && p.team === bot.team && p.team !== "none") return;
       const d = Math.hypot(p.position.x - bot.position.x, p.position.z - bot.position.z);
       if (p.state === "dead") return;
       if (d < minDist) { minDist = d; target = p; }
@@ -1175,8 +1528,7 @@ function makeEngine() {
       if (room.mode === "solo" && player.state === "dead") {
         if (room.matchTimer - player.deadAt > 5) {
           const stats = WARRIOR_STATS[player.warriorClass];
-          const sp = spawnPositions(8)[(Math.random() * 8) | 0];
-          player.position = { ...sp };
+          setSpawn(player, safestSpawn(room, player));
           player.health = stats.maxHealth;
           player.stamina = stats.staminaMax;
           player.state = "idle";
@@ -1328,7 +1680,7 @@ function makeEngine() {
           if (room.hostId === s.playerId) {
             for (const [pid] of room.players) { if (!pid.startsWith("bot_")) { room.hostId = pid; break; } }
           }
-          if (room.state === "fighting" || room.state === "last_stand") checkMatchEnd(room);
+          if (room.state === "fighting" || room.state === "last_stand") checkRoundEnd(room);
           else sendLobbyUpdate(room);
         }
       }
