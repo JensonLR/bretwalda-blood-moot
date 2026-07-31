@@ -284,3 +284,50 @@ claiming to compare one change.
 Captures are a shared, mutable resource. Only one capture may run at a time, and
 a directory that has been scored must be treated as immutable — write a new
 version rather than refreshing an old one.
+
+---
+
+## Fourth panel (on v8) — the shadow answer, and a new one
+
+**Shadows point at the sun.** The only shadow-casting directional is the
+moon-aimed key, so the palisade stripes in `v8/laststand.png` run down-LEFT,
+toward the sun glare at frame-left. Every shadow in the game points at the
+brightest thing in the sky. Four panels missed this; it invalidates the
+direction of every stripe now being celebrated as a win. `lighting.ts` — the
+caster has to be aimed by whichever body is actually dominant for the mood.
+
+**Warrior shadows now exist but sit at the noise floor.** Both halves of the
+pair landed, and the limiter is now a third thing: the hero's shadow in
+`v8/laststand.png` dips 50 -> 31 luma (~1.5:1) while the palisade stripe beside
+it row-averages 101.8/44.9 (2.27:1) — against ground albedo noise of
+sigma/mu = 0.30. The shadow is *below the variance of the surface it falls on*.
+The arena hero moved 1.24 -> 1.31 between v7 and v8, a 6% gain, while the
+palisade's stripe on the same floor went 2.07 -> 3.48. So the receiver fix
+helped the big hard-edged caster far more than the small soft one. Reducing the
+ground's albedo mottle is now as load-bearing as any lighting change.
+
+**Still no contact darkening at any boot.** In `v8/lineup.png` at 4x both
+huscarl soles sit on ground *brighter* than the ground 40 px away, and the
+shadow only begins a boot-length behind the foot.
+
+**The cloak is untextured.** The crimson cloak in `v8/closeup.png` is flat paint
+across ~380x520 px — no weave, no fibre direction, no fold shading. Its only
+high-frequency content is the post-pass film grain, i.e. noise standing in for
+texture. In `v8/laststand.png` the same garment carries a hard-edged rectangular
+panel of streaky 'hair' texture over a flat body: one garment, two substances,
+razor boundary.
+
+**Shield planks share one tile AND one phase.** The portrait crop shows the same
+knot at the same height on boards 1, 2 and 3. A per-plank phase offset is a
+smaller fix than the world-tile work and would break the waffle read on its own.
+
+**The bonfire core got worse, measurably.** Pixels at or above 250 luma over the
+arena flame box went 1381 -> 1547 v7 -> v8, and mean saturation of the hottest
+2% is unchanged at 0.15.
+
+**No sparks, no dust, no blood anywhere in eight captures** — including
+`laststand`, where the hero is at ~15% health. Axis 9 cannot pass on that.
+
+**Credit, measured:** violet edge fringing fell 3666 -> 196 in `duel`; no
+banding (the sky carries 217/148/102 unique per-channel values); no
+PointsMaterial squares; no floating orange quad.
