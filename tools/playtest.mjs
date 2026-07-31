@@ -190,7 +190,11 @@ async function main() {
   const b4 = await me();
   const s2 = await seq();
   await page.keyboard.press("Space");
-  const a4 = await me(s2);
+  // Three packets, not one. A dodge has to clear the 16ms input timer and then
+  // a 50ms server tick before it can appear in a snapshot, so the first packet
+  // after the press is usually still pre-dodge — and the dodge state only lasts
+  // 0.35s, so reading one packet early and one late both miss it.
+  const a4 = await me(s2 + 2);
   check("space dodges", a4.stam < b4.stam - 5 || a4.state === "dodging",
     `stamina ${b4.stam.toFixed(1)} -> ${a4.stam.toFixed(1)}, state=${a4.state}`);
 
