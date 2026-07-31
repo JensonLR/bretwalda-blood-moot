@@ -9,7 +9,10 @@
 // Order, and why:
 //
 //   RenderPass    scene -> linear HDR
-//   GTAO          occlusion multiplied into the HDR buffer before anything
+//   GTAO          a generator, like Meter and Bloom below: it renders its own
+//                 depth/normal buffer and its own occlusion map at half
+//                 resolution and hands the composer's buffers back untouched
+//   AO            that map multiplied into the HDR buffer, before anything
 //                 reads brightness, so a darkened crevice does not bloom
 //   Bokeh         optional DoF, before bloom, so a defocused torch throws a
 //                 wide soft glow rather than a sharp disc that is then blurred
@@ -413,7 +416,19 @@ export interface GradeLook {
    * thirteen times larger once it comes back out of a near-black shadow.
    */
   grain: number;
-  /** How hard occlusion is pushed. Scales GTAO's blend, not its radius. */
+  /**
+   * How hard occlusion is pushed, as an **exponent** on the visibility term —
+   * `ao^aoIntensity`. 1 is the occlusion the pass computed; above 1 deepens it,
+   * below 1 lifts it. It does not touch the radius.
+   *
+   * An exponent rather than the `mix(1, ao, k)` GTAOPass's own blend shader
+   * does, and that is a correctness fix rather than taste: that mix is a linear
+   * *extrapolation*, so at the last stand's 1.3 any pixel whose visibility fell
+   * below 0.23 was multiplied by a negative number and wrote negative radiance
+   * into a half-float HDR buffer that the curve then has to clamp. An exponent
+   * is monotone, bounded in 0..1 for any positive intensity, and is what an
+   * occlusion term means physically.
+   */
   aoIntensity: number;
 }
 
@@ -575,36 +590,54 @@ const DUSK: GradeLook = {
   // v4's [0.004, 0.008, 0.018] and roughly the same visible black, except it no
   // longer sits on top of the shadow detail — see the field docs.
   shadowLift: [0.012, 0.022, 0.05],
-  // A dusk sky is genuinely bright — 4.4 linear at the horizon, brighter than
-  // any flame the arena used to carry — so a threshold below it blooms the sky
-  // itself, and the pyramid then smears that across every pixel in frame. 1.35
-  // is what washed v1 to one orange. 2.15 was the second attempt and it was
-  // still under the sky: the v2 captures came back with turf, thatch, mail and
-  // a warrior's cloak all landing within a few code values of each other,
-  // because a constant of pure ember had been added to all of them.
+  // 2.55, down from 5.0, and the reason is arithmetic rather than taste: **5.0
+  // was above the point where this grade already clips**, so no source in the
+  // game could both bloom and keep its colour. Running the chain below on the
+  // CPU — exposure, balance, the contrast power, crosstalk, the curve, the
+  // metered response, the split-tone and the encode — a neutral reaches code 255
+  // at **3.23 scene units** and the fire's own hue at **3.09**, and above about
+  // 4.4 the frame stops changing at all because `filmicCurve * uWhiteScale` is
+  // clamped to 1 in every channel. A threshold of 5.0 sat a stop and a half
+  // inside that dead zone. Measured on v10: 1.4–1.7% of every dusk capture has
+  // R at 255 while G is nowhere near it, which is what "it clips first, every
+  // time" looks like on a histogram.
   //
-  // 5.0 sits *above* the horizon and below the fire, which is only possible
-  // because the flames were raised to meet it — vfx.ts's fire layer and the
-  // emissives in materials.ts both carry more radiance than the sky now, which
-  // is what a fire at dusk actually does. What blooms is the sun's own disc and
-  // the few degrees of sky beside it, every flame, every torch and every rune;
-  // what does not is the other three-quarters of the sky.
+  // That is also the reason every emissive in this game has been tuned upward
+  // until something went white. `torchFlame` is at 6.4, `bonfireFlame` at 5.6,
+  // `runeGlow` at 8 — all chosen to clear 5.0, all of them therefore *twice* the
+  // radiance at which they lose their chroma. The pale peach coal bed is that
+  // number, not that material.
   //
-  // Except that in v2 it did, because the threshold was only half the gate: the
-  // knee was 35% of it, so the band actually started at 3.25 and the 4.5-unit
-  // horizon sat a third of the way up it. Measured, that fed 0.19 linear units
-  // into the pyramid across the whole lower sky, which the geometric upsample
-  // multiplies by about 3.5 over a region that large — 0.57 units of warm veil
-  // laid over a treeline whose own surfaces return about 0.25. Three times a
-  // midtone, in the key's hue, over the entire background. That is the
-  // orange-sepia cast, and it is this line that fixes it.
+  // The gate still has to clear the sky, and the sky is the binding constraint
+  // rather than the fire: sky.ts puts ~4.4 units under the sun and 1.9 fifteen
+  // degrees off it. So the band has to fit between 1.9 and 3.1 — the fire's clip
+  // — and it is a narrow window because *the arena's brightest emissive is barely
+  // brighter than its own sky*, which is a scene problem this line cannot fix.
+  // 2.55 with a 0.45 knee puts the floor at 2.10, 10% clear of the 1.9 horizon.
+  // The obvious fear is v2's orange veil, and it is measurable rather than a
+  // matter of nerve: inverting this grade per pixel over the v10 captures, the
+  // whole newly-admitted *unclipped* population — every pixel the sky actually
+  // occupies — contributes a frame-mean of **0.0045 linear units in `duel`,
+  // 0.0026 in `arena`, 0.0038 in `lineup`** to the bright pass, against a lit
+  // midtone of about 0.25. Even after the pyramid's ~2.4x upsample gain that is
+  // four per cent of a midtone. v2's veil was 0.57 units over surfaces returning
+  // 0.25. The knee's quadratic is what does it: a pixel at 2.2 enters the band
+  // and hands over 0.006 units, not 0.006 of its own radiance.
+  //
+  // Where the energy does move is the clipped 1.4–1.7%, and that moves *down* as
+  // much as up: the sun's disc went from 15 units of excess to 5.1, because the
+  // bright pass's ceiling is now three times the threshold rather than a fixed
+  // 20 — see BLOOM_CEILING. `BLOOM_SKIRT` came down alongside it to hold the
+  // frame-wide rung, which is the one that lays a near-constant on a background.
   bloomStrength: 0.85,
-  bloomThreshold: 5.0,
-  // 0.40, so the band runs 4.60 -> 5.00 and the floor clears the horizon with
-  // room rather than landing on it. Eight per cent of the threshold is still a
-  // wide enough soft entry to stop a flickering flame edge popping in and out,
-  // which is the only thing the knee was ever for.
-  bloomKnee: 0.4,
+  bloomThreshold: 2.55,
+  // 0.45, so the band runs 2.10 -> 2.55. Still an absolute width and not a
+  // fraction of the threshold, for the reason the field docs give: expressed as a
+  // percentage it walked *down* every time the threshold walked up, which is how
+  // a gate set above the sky kept blooming the sky. Keep `threshold - knee` above
+  // whatever sky.ts's horizon is carrying; at 2.10 against 1.9 that margin is now
+  // thin, and it is the number to re-derive if sky.ts moves its horizon.
+  bloomKnee: 0.45,
   // Near-neutral, down from [1.0, 0.93, 0.8]. Everything that gets past a
   // 5-unit threshold is a fire, a rune or the sun, and all three already carry
   // their own colour out of vfx.ts and materials.ts. Tinting the glow warm on
@@ -758,16 +791,26 @@ const LAST_STAND: GradeLook = {
   // because it lands after the encode: the same amount in display-linear was what
   // left this preset with the least tonal room in the set.
   shadowLift: [0.03, 0.032, 0.045],
-  // Higher than dusk's, not lower: the last stand's air carries three times the
-  // aerosol and its sun is hotter, so the sky it has to clear is brighter. At
-  // 1.6 the entire pall was over threshold and the frame came back as one flat
-  // apricot with no separation between a warrior and the palisade behind him.
+  // 1.30, and the collapse from 6.0 is much larger than dusk's because this look
+  // compresses much harder. Half the highlight latitude, contrast 0.36 about a
+  // pivot of 0.16, a metered stretch of about 1.44 (its own band is 64 code
+  // values against an `adaptBand` of 0.36, so the response runs near its
+  // ceiling), and a `highlightTint` whose red is 1.48 at `splitTone` 0.85 —
+  // a 1.41x multiply applied *after* the curve has already been clamped to 1.
+  // Put together, a neutral reaches code 255 at **1.40 scene units** here and the
+  // fire's own hue at **1.00**. Six was four stops of dead zone.
+  //
+  // The floor at 1.00 is where this look's own emissives sit — vfx.ts runs the
+  // fire at 2.3x(1 - 0.37) = 1.45 in this mood — so the last stand genuinely has
+  // no window in which a flame both blooms and holds its hue. It is graded to
+  // scream rather than to roll to white (`crosstalk` 0.14), and that is the
+  // trade. Recorded rather than papered over: the lever is that red tint, not
+  // this line.
   bloomStrength: 1.2,
-  bloomThreshold: 6.0,
-  // The last stand's air carries three times the aerosol, so the sky it has to
-  // clear is brighter than dusk's and the threshold is already higher to match.
-  // The band runs 5.50 -> 6.00.
-  bloomKnee: 0.5,
+  bloomThreshold: 1.3,
+  // The band runs 1.00 -> 1.30, which is 1.5–2.5% of the v10 capture by pixel
+  // count — the ember horizon, the torch, and the fire-lit ground.
+  bloomKnee: 0.3,
   // Still warmer than dusk's, because a fire's glow genuinely is, but pulled back
   // toward neutral: the bloom skirt is the widest signal in the chain and this look
   // now spends its warmth deliberately, in the split-tone, on the 4% of the frame
@@ -991,14 +1034,36 @@ void main() {
  * 45%. The core sum falls from 2.88x the bright-pass value to 2.39x.
  *
  * That is the lever for the bonfire glow landing on a warrior's sword arm in
- * `brawl`, and it is the right one: the gate is not the problem (see BLOOM_BRIGHT
- * — the arena's brightest emissive is the torch flame at 9 linear units against a
- * threshold of 5, so only genuinely emissive things are in the pyramid at all),
- * the problem is how far what is legitimately in it is allowed to spread. A wide
- * additive skirt is also a near-constant added across the frame, which compresses
- * every contrast under it — the same mechanism the header describes for the sky.
+ * `brawl`, and it is also the whole defence for the threshold coming down under
+ * the grade's clip point. Dropping the gate from 5.0 to 2.55 roughly doubles the
+ * share of the frame in the pyramid (1.4–1.7% -> 3.7–3.8%, measured), and the
+ * added set is the sun's glare band — a *wide* region just over threshold, which
+ * is exactly the shape that v2's orange veil had. The tight rungs are what makes
+ * a flame read as a flame; the widest rung is what lays a near-constant over the
+ * background and compresses every contrast under it. 0.55 costs the tightest rung
+ * 11% and the fifty-pixel one 38%, which spends the reduction where the risk is.
  */
-const BLOOM_SKIRT = 0.62;
+const BLOOM_SKIRT = 0.55;
+
+/**
+ * Ceiling on the bright pass, as a multiple of the threshold.
+ *
+ * The sun's disc carries hundreds of units and one celestial body must not own
+ * the whole glow budget — but the clamp is applied *before* the excess is taken,
+ * so it is a statement about headroom above the gate and not an absolute
+ * radiance. Left at the 20 it was authored against a threshold of 5, the drop to
+ * 2.55 would have *raised* the sun's share from 15 units of excess to 17.4 while
+ * every fire in the arena gained a fraction of one, which is the opposite of what
+ * lowering the gate is for.
+ *
+ * Three times the threshold holds the relationship the old comment reasoned
+ * about: enough room above the gate that a bonfire core is not competing with the
+ * clamp, and close enough that the sun is a few times a flame rather than a few
+ * hundred. Note this is the opposite treatment to `bloomKnee`, deliberately: the
+ * knee is absolute because it must stay clear of the sky *below* the gate, and
+ * this is relative because it must stay clear of the gate *above* it.
+ */
+const BLOOM_CEILING = 3.0;
 
 function bloomTarget(width: number, height: number): THREE.WebGLRenderTarget {
   const rt = new THREE.WebGLRenderTarget(Math.max(2, width), Math.max(2, height), {
@@ -1047,16 +1112,9 @@ class BloomChain extends Pass {
       uTexel: { value: new THREE.Vector2() },
       uThreshold: { value: DUSK.bloomThreshold },
       uKnee: { value: DUSK.bloomKnee },
-      // The sun disc carries a hundred times the radiance of anything else in
-      // frame. Capping the bright pass is what keeps one celestial body from
-      // owning the whole glow budget. The ceiling has to stay well clear of the
-      // threshold, though: it is applied *before* the excess is taken, so a
-      // clamp of 6 against a threshold of 5 leaves every fire in the arena one
-      // single unit of glow between them, and the frame loses the bloom it was
-      // being thresholded for in the first place. Twenty leaves the bonfire's
-      // core room to be the brightest thing in the moot and still holds the sun
-      // to five times it rather than five hundred.
-      uClamp: { value: 20 },
+      // Set from the threshold — see BLOOM_CEILING. Seeded here so the material
+      // is well defined before the first applyLook.
+      uClamp: { value: DUSK.bloomThreshold * BLOOM_CEILING },
     });
     this.down = mat(BLOOM_DOWN, { tDiffuse: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.up = mat(BLOOM_UP, {
@@ -1088,6 +1146,10 @@ class BloomChain extends Pass {
   setThreshold(threshold: number, knee: number): void {
     this.bright.uniforms.uThreshold.value = threshold;
     this.bright.uniforms.uKnee.value = THREE.MathUtils.clamp(knee, 0.02, threshold * 0.9);
+    // Derived here rather than exposed on the look, because it is not a
+    // creative number: it is the headroom the gate leaves above itself, and it
+    // has exactly one right answer once the gate is chosen.
+    this.bright.uniforms.uClamp.value = threshold * BLOOM_CEILING;
   }
 
   setSize(width: number, height: number): void {
@@ -2015,15 +2077,240 @@ function maxColorSamples(renderer: THREE.WebGLRenderer): number {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ambient occlusion
+// ---------------------------------------------------------------------------
+//
+// GTAOPass computes the occlusion; this file owns everything that happens to it
+// afterwards. `output` is set to `Off` and `needsSwap` to false, so the pass
+// becomes a generator in the same shape as BloomChain and MeterPass — it renders
+// its own depth/normal buffer and its own denoised occlusion map into private
+// targets and hands the composer's buffers back untouched — and `AoComposite`
+// below does the multiply.
+//
+// The reason it moved is a diagnosis rather than a preference, so it is worth
+// being exact about how far it is proven. **The pass was already here, already
+// tuned, already built on the high tier the captures run at, and already
+// costing a measured 2.1 full-screen passes a frame — and
+// there is no ambient occlusion anywhere in `art/shots/v10/`.** Not weak: absent.
+// Two logs crossing in the bonfire crib meet with no darkening at all; a palisade
+// stake meets grass with none; a face at `portrait` framing has none in its eye
+// sockets, none under its jaw and none where the coif lies on the cheek. A term
+// that was running at any strength could not leave all of those clean.
+//
+// What was in the path and is now not: GTAOPass's `Default` output composites by
+// re-binding the composer's **multisampled** RGBA16F write buffer and drawing a
+// quad with `CustomBlending` at `blendSrc: DstColorFactor, blendDst: ZeroFactor`
+// — a destination-read multiply into a multisample renderbuffer, which is the one
+// operation in this chain nothing else performs and the one this project has the
+// least reason to trust: the captures rasterise through ANGLE/SwiftShader, the
+// buffers only exist at all through EXT_color_buffer_float, and a blend factor
+// that reads the destination of a multisample colour attachment is exactly where
+// a software path quietly degrades. It is a hypothesis and it is not proven —
+// proving it needs a capture, which this pass could not run. It is, however,
+// cheap to remove: the multiply below is a plain opaque write, the same operation
+// every other pass in this file already performs successfully, so if the
+// occlusion still does not reach the frame the answer is upstream of the
+// composite and the next pass can stop looking here.
+//
+// Three things owning the composite buys regardless of whether that hypothesis
+// holds, and the first of them is a defect on its own:
+//
+//   1. **The composite has to be halo-guarded and GTAOPass's is not.** The
+//      occlusion map is half resolution and its sky pixels are `discard`ed, so
+//      they hold the target's white clear. A full-resolution pixel of sky within
+//      one half-res texel of a silhouette therefore takes a bilinear mix of white
+//      and the warrior's occlusion, and comes out darker than the sky beside it:
+//      a two-pixel dark fringe drawn round every warrior, stake and hut ridge
+//      against the brightest part of the frame. That is the same artefact class
+//      as the classic bright SSAO rim, in the other direction, and this frame
+//      cannot afford another edge artefact. The guard is in AO_COMPOSITE.
+//   2. **`blendIntensity` above 1 writes negative radiance.** GTAOPass's blend
+//      shader is `mix(vec3(1), ao, intensity)`, a linear extrapolation — at the
+//      last stand's 1.3 any pixel whose visibility fell under 0.23 was multiplied
+//      by a negative number. An exponent cannot do that; see `aoIntensity`.
+//   3. It is cheaper. GTAOPass's `Default` output is a full-resolution copy of
+//      the read buffer *plus* a full-resolution custom-blend over it; the
+//      multiply below is one full-resolution pass that does both.
+//
+// What is deliberately kept from GTAOPass: the depth/normal prepass. It is a
+// second draw of the scene and it is the expensive half of the stage, but the
+// composer's own colour buffers carry a depth *renderbuffer* rather than a depth
+// texture, so there is nothing to sample without either reallocating the
+// composer's targets or reconstructing normals from a depth buffer that does not
+// exist yet. That trade is worth revisiting; it is not worth doing blind.
+
 /**
- * Occlusion runs at half resolution and is bilinearly upsampled by GTAO's own
- * blend pass. AO is a low-frequency signal — the denoiser is already smoothing
- * it over a several-pixel radius — so the visible difference is close to
- * nothing, and it is a straight four-to-one saving on the single most expensive
- * thing in the chain. Measured: 470 ms/frame at full resolution on the capture
- * box, 96 ms at half.
+ * Resolution scale of the occlusion buffer, per tier.
+ *
+ * AO is a low-frequency signal and the Poisson denoiser is already smoothing it
+ * over several pixels, so half resolution costs almost nothing visible and is a
+ * straight four-to-one saving on the most expensive stage in the chain.
+ * Measured on the capture box: 470 ms/frame at full resolution, 96 ms at half.
  */
-const AO_SCALE = 0.5;
+const AO_SCALE: Record<QualityTier, number> = { high: 0.5, medium: 0.5, low: 0 };
+
+/**
+ * Horizon samples per pixel, per tier. Three slice directions either way (the
+ * shader picks 3 under 30 samples), so this is really "radial steps x 3": 16
+ * gives six steps out along each slice, 9 gives three.
+ */
+const AO_SAMPLES: Record<QualityTier, number> = { high: 16, medium: 9, low: 0 };
+
+/** Poisson denoise taps, per tier. Below about six the magic-square noise shows. */
+const AO_DENOISE_SAMPLES: Record<QualityTier, number> = { high: 8, medium: 6, low: 0 };
+
+/**
+ * The occlusion radius, as a fraction of the frame's height at the subject's
+ * distance. The world radius is derived from it every frame.
+ *
+ * A fixed world radius cannot serve this game's framings, and that on its own
+ * would have left the faces bare even with everything else working. `distanceExponent`
+ * 1.6 over six steps puts the innermost sample at 5.7% of the radius, so at the
+ * 0.5 m this file shipped it lands within 29 mm — which at `portrait` framing is
+ * about a dozen screen pixels. An eye socket, a nostril, the line under a jaw and
+ * the fold between two mail sleeves are all *smaller than the first sample*, so
+ * the trace stepped straight over every one of them. The same 0.5 m at `arena`
+ * framing is a reasonable contact radius for a boot, which is why it was chosen.
+ *
+ * Fixing it by turning `screenSpaceRadius` on is the wrong half of the trade —
+ * it holds the radius constant at the camera and loses it out at the palisade,
+ * where the stake-to-ground junctions are. So the radius is a screen-space
+ * *fraction* converted to world units against the distance the camera is
+ * actually looking at, then clamped at both ends so it stays a physical quantity:
+ * the near clamp stops a macro framing asking for millimetres, and the far clamp
+ * stops a long lens asking for a radius bigger than the props it is shading.
+ *
+ * 6% of frame height is 54 output pixels at 900, so 27 texels of a
+ * half-resolution buffer, and the six steps span 1.5 to 27 of them — the
+ * innermost one resolves a crease and the outermost still reaches across a
+ * junction. In world units it lands at 0.13 m for `portrait`, 0.22 m for
+ * `stance`, 0.24 m for `lineup` and 0.31 m for the over-shoulder framings.
+ */
+const AO_FRAME_FRACTION = 0.06;
+const AO_RADIUS_MIN = 0.11;
+const AO_RADIUS_MAX = 0.55;
+
+/**
+ * How far behind a sample's own depth an occluder may lie and still count, as a
+ * multiple of the radius. This is the pass's only defence against shading a
+ * surface with something that is nowhere near it — a warrior's silhouette
+ * against a hut thirty metres back — so it wants to be a little over the radius
+ * and not several times it. Above about 2 the dark fringes come back on their
+ * own, below about 1 a log lying across another log stops occluding it.
+ */
+const AO_THICKNESS_RATIO = 1.6;
+
+/**
+ * Exponent on the visibility term inside GTAO itself, before `aoIntensity`.
+ * Darkens the whole curve rather than only its floor, which is what makes a
+ * contact read at gameplay distance. Past about 2 the contact darkening stops
+ * being a gradient and becomes a black outline.
+ */
+const AO_CURVE = 1.7;
+
+/**
+ * The most radiance occlusion may take, as the fraction it leaves behind.
+ *
+ * A screen-space term has no idea what light is actually reaching a crevice, so
+ * letting it reach zero is how SSAO reads as dirt rubbed into the model. It also
+ * matters more here than in most games because lighting.ts has already moved
+ * half the flat fill into a near-vertical shadow-casting light that is doing the
+ * same job geometrically — the two stack, and this floor is what stops them
+ * stacking to black.
+ */
+const AO_FLOOR = 0.18;
+
+// The composite. One full-resolution pass: read the beauty buffer, read the
+// occlusion map, multiply, write.
+//
+// The four taps are the halo guard and they are the reason this shader exists.
+// They sit at the corners of the source texel and the *brightest* wins, which
+// dilates unoccluded by one half-resolution texel in every direction. A sky
+// pixel next to a silhouette then has at least one fully-lit neighbour in its
+// footprint and cannot be darkened at all, so the dark fringe that a plain
+// bilinear upsample draws round every warrior is gone by construction rather
+// than by tuning.
+//
+// It is not free: the same dilation erodes genuine occlusion by that same texel,
+// so a crevice narrower than about four output pixels loses some of its depth.
+// That is the right side of the trade at this resolution — the occlusion buffer
+// cannot resolve a two-pixel crevice honestly in the first place, and `AO_CURVE`
+// buys the depth back on the features that survive.
+const AO_COMPOSITE = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform sampler2D tAo;
+uniform vec2 uAoTexel;
+uniform float uIntensity;
+uniform float uFloor;
+varying vec2 vUv;
+void main() {
+  vec2 o = uAoTexel * 0.5;
+  float a = texture2D( tAo, vUv + vec2( -o.x, -o.y ) ).r;
+  a = max( a, texture2D( tAo, vUv + vec2(  o.x, -o.y ) ).r );
+  a = max( a, texture2D( tAo, vUv + vec2( -o.x,  o.y ) ).r );
+  a = max( a, texture2D( tAo, vUv + vec2(  o.x,  o.y ) ).r );
+  // An exponent, so no intensity can drive the multiplier negative the way the
+  // linear extrapolation it replaces did.
+  a = pow( clamp( a, 0.0, 1.0 ), uIntensity );
+  vec4 c = texture2D( tDiffuse, vUv );
+  gl_FragColor = vec4( c.rgb * mix( uFloor, 1.0, a ), c.a );
+}`;
+
+/**
+ * Multiplies the occlusion map into the HDR beauty buffer, ahead of the meter
+ * and the bloom so that a darkened crevice is not metered as bright and does not
+ * glow. Swaps, like any pass that transforms the picture.
+ */
+class AoComposite extends Pass {
+  private readonly material: THREE.ShaderMaterial;
+  private readonly quad: FullScreenQuad;
+
+  constructor(aoMap: THREE.Texture) {
+    super();
+    this.needsSwap = true;
+    this.material = new THREE.ShaderMaterial({
+      uniforms: {
+        tDiffuse: { value: null },
+        tAo: { value: aoMap },
+        uAoTexel: { value: new THREE.Vector2(1 / 800, 1 / 450) },
+        uIntensity: { value: 1 },
+        uFloor: { value: AO_FLOOR },
+      },
+      vertexShader: FS_VERT,
+      fragmentShader: AO_COMPOSITE,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.quad = new FullScreenQuad(this.material);
+  }
+
+  /** The occlusion buffer's own size, which is not the composer's. */
+  setAoSize(width: number, height: number): void {
+    setTexel(this.material.uniforms.uAoTexel.value as THREE.Vector2, width, height);
+  }
+
+  setIntensity(intensity: number): void {
+    // Clamped away from zero because it is an exponent: at 0 every pixel would
+    // come back fully lit, which is a silent way for a look override to turn the
+    // stage off without saying so.
+    this.material.uniforms.uIntensity.value = Math.max(0.05, intensity);
+  }
+
+  render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {
+    this.material.uniforms.tDiffuse.value = readBuffer.texture;
+    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+    // An opaque write, not a blend. That is the point of the pass existing: it
+    // is the same operation every other stage in this chain performs, rather
+    // than a destination-read multiply into a multisampled float attachment.
+    this.quad.render(renderer);
+  }
+
+  dispose(): void {
+    this.material.dispose();
+    this.quad.dispose();
+  }
+}
 
 /**
  * Measured on the capture box (SwiftShader, 1600x900) as the share of one
@@ -2050,7 +2337,28 @@ const PASS_COST: Record<string, number> = {
    * no samples.
    */
   msaa: 0.9,
-  gtao: 2.1,
+  /**
+   * The occlusion generator: a second draw of the scene into a half-resolution
+   * depth/normal buffer, then the horizon trace, then the Poisson denoise, both
+   * at half resolution.
+   *
+   * 2.1 was the measured cost of the whole stage when it also did a
+   * full-resolution copy and a full-resolution blend. Those two are gone — the
+   * composite below replaces both with one pass — so what is left is the prepass
+   * plus two quarter-area passes. **Derived, not measured**, and the derivation
+   * is stated so it can be checked rather than believed: of the measured 96 ms at
+   * half resolution the two full-resolution passes were about 27 ms of it at the
+   * ~13.5 ms a full-screen pass costs on the capture box, which leaves 1.5.
+   *
+   * Per tier, at the same output resolution: `high` 1.5, `medium` about 1.1 (the
+   * prepass is unchanged and dominates; nine horizon samples against sixteen and
+   * six denoise taps against eight take roughly a quarter off the two traced
+   * passes), `low` 0 — the stage is not built. All three want re-measuring on the
+   * capture box, and the number that matters for §5 is a GPU's, which nobody has.
+   */
+  gtao: 1.5,
+  /** One full-resolution multiply with four taps into a quarter-area texture. */
+  ao: 1.05,
   bokeh: 4.9,
   /**
    * Almost all of it is the seed, which reads a quarter of the frame with four
@@ -2111,6 +2419,8 @@ export function createPostFx(
   const passes: PostFxPassInfo[] = [];
   let composer: EffectComposer | null = null;
   let gtao: GTAOPass | null = null;
+  let aoComposite: AoComposite | null = null;
+  let aoRadius = 0;
   let bokeh: BokehPass | null = null;
   let bokehInfo: PostFxPassInfo | null = null;
   let meter: MeterPass | null = null;
@@ -2119,11 +2429,20 @@ export function createPostFx(
   let aa: Pass | null = null;
   let blackBloom: THREE.DataTexture | null = null;
 
-  const track = (name: string, enabled = true): PostFxPassInfo => {
-    const info = { name, enabled, cost: PASS_COST[name] ?? 1 };
+  const track = (name: string, enabled = true, cost = PASS_COST[name] ?? 1): PostFxPassInfo => {
+    const info = { name, enabled, cost };
     passes.push(info);
     return info;
   };
+
+  // Off on the low tier whatever a preset says, because the tier's contract is
+  // that it drops effects and keeps art direction, and a half-resolution scene
+  // reprojection is squarely an effect. Stated here as well as in quality.ts so
+  // this file is not relying on a preset it does not own to keep a phone at 30.
+  const aoScale = settings.tier === "low" ? 0 : AO_SCALE[settings.tier];
+  const wantAo = settings.ambientOcclusion && aoScale > 0;
+  const aoW = Math.max(2, Math.round(bufW * aoScale));
+  const aoH = Math.max(2, Math.round(bufH * aoScale));
 
   if (settings.postProcessing && !opts.bypass) {
     try {
@@ -2153,27 +2472,46 @@ export function createPostFx(
       // order the frame is actually built.
       if (samples > 1) track("msaa");
 
-      if (settings.ambientOcclusion) {
-        gtao = new GTAOPass(scene, camera, Math.round(bufW * AO_SCALE), Math.round(bufH * AO_SCALE));
-        // Half a metre of radius is the scale of the things that have to read:
-        // the gap under a hut's eaves, the inside of a helmet's cheek guard, and
-        // the ground right where a boot meets it. A screen-space radius would
-        // hold that constant at the camera and lose it out at the palisade.
+      if (wantAo) {
+        gtao = new GTAOPass(scene, camera, aoW, aoH);
+        // A generator, not a filter: it writes its own targets and hands the
+        // composer's buffers straight back. `needsSwap` has to come down with
+        // `output`, or the composer swaps to a buffer this pass never wrote and
+        // the beauty pass is thrown away.
+        gtao.output = GTAOPass.OUTPUT.Off;
+        gtao.needsSwap = false;
         gtao.updateGtaoMaterial({
-          radius: 0.5,
+          // Replaced every frame from the framing — see AO_FRAME_FRACTION. Seeded
+          // at the wide-framing value so the first frame after construction is
+          // not a special case.
+          radius: AO_RADIUS_MAX * 0.5,
+          thickness: AO_RADIUS_MAX * 0.5 * AO_THICKNESS_RATIO,
+          // Steps bunch toward the origin: with six of them this puts the first
+          // at 6% of the radius and the third at a third of it, which is the
+          // right distribution for a term whose job is contact rather than
+          // large-scale shadowing.
           distanceExponent: 1.6,
-          thickness: 0.55,
           distanceFallOff: 1.0,
-          // `scale` is an exponent on the visibility term, not a multiplier.
-          // Past about 2 the contact darkening turns into a black outline.
-          scale: 1.5,
-          samples: 16,
+          scale: AO_CURVE,
+          samples: AO_SAMPLES[settings.tier],
+          // World units, not screen. See AO_FRAME_FRACTION for why the radius is
+          // nonetheless re-derived from the framing every frame — the two are not
+          // the same thing, and only one of them keeps the palisade shaded.
           screenSpaceRadius: false,
         });
-        // The denoiser is what lets 16 samples survive a moving camera. Normal
-        // weighting is high so occlusion does not bleed across a silhouette.
-        gtao.updatePdMaterial({ lumaPhi: 8, depthPhi: 2.5, normalPhi: 5, radius: 3, rings: 2, samples: 8 });
-        gtao.blendIntensity = current.aoIntensity;
+        // The denoiser is what lets this few samples survive a moving camera.
+        // `normalPhi` is an exponent on the normal dot product and is high so
+        // occlusion cannot bleed round a silhouette; `depthPhi` and `lumaPhi` are
+        // divisors and are loose, because the signal is a scalar in 0..1 and the
+        // normal term is already doing the edge-stopping.
+        gtao.updatePdMaterial({
+          lumaPhi: 8,
+          depthPhi: 2.5,
+          normalPhi: 5,
+          radius: 3,
+          rings: 2,
+          samples: AO_DENOISE_SAMPLES[settings.tier],
+        });
         // GTAO derives its depth and normals by re-rendering the scene through
         // `scene.overrideMaterial`, which replaces the depth-write-off,
         // transparent materials the HUD plates and the particle billboards were
@@ -2191,9 +2529,15 @@ export function createPostFx(
           camera.layers.enable(LAYER_UNOCCLUDED);
         };
         composer.addPass(gtao);
-        // addPass sized it to the full buffer; put it back to half.
-        gtao.setSize(Math.round(bufW * AO_SCALE), Math.round(bufH * AO_SCALE));
-        track("gtao");
+        // addPass sized it to the full buffer; put it back to the AO scale.
+        gtao.setSize(aoW, aoH);
+        track("gtao", true, PASS_COST.gtao * (settings.tier === "medium" ? 0.75 : 1));
+
+        aoComposite = new AoComposite(gtao.gtaoMap);
+        aoComposite.setAoSize(aoW, aoH);
+        aoComposite.setIntensity(current.aoIntensity);
+        composer.addPass(aoComposite);
+        track("ao");
       }
 
       if (settings.depthOfField) {
@@ -2328,7 +2672,7 @@ export function createPostFx(
     } else {
       u.uBloom.value = 0;
     }
-    if (gtao) gtao.blendIntensity = pick("aoIntensity");
+    aoComposite?.setIntensity(pick("aoIntensity"));
   }
 
   applyLook();
@@ -2353,6 +2697,28 @@ export function createPostFx(
       if (blend < 1) {
         blend = Math.min(1, blend + dt / MOOD_BLEND);
         lerpLook(blendFrom, looks[mood], THREE.MathUtils.smootherstep(blend, 0, 1), current);
+      }
+
+      if (gtao) {
+        // The occlusion radius follows the framing. `ctx.focus` is the point the
+        // camera is built around — the local warrior, else the arena centre — so
+        // the distance to it is what "how big is a face in this frame" means, and
+        // it is the same number the DoF focus below rides. Half the frame's
+        // vertical extent at that distance is `dist * tan(fov/2)`.
+        const dist = Math.max(1.2, ctx.camera.position.distanceTo(ctx.focus));
+        const half = dist * Math.tan(THREE.MathUtils.degToRad(ctx.camera.fov) * 0.5);
+        const want = THREE.MathUtils.clamp(
+          AO_FRAME_FRACTION * 2 * half,
+          AO_RADIUS_MIN,
+          AO_RADIUS_MAX,
+        );
+        // Only when it has actually moved: `updateGtaoMaterial` writes uniforms
+        // and no defines for these two, so it costs nothing per frame — but the
+        // follow camera's distance jitters and there is no reason to churn.
+        if (Math.abs(want - aoRadius) > 0.002) {
+          aoRadius = want;
+          gtao.updateGtaoMaterial({ radius: want, thickness: want * AO_THICKNESS_RATIO });
+        }
       }
 
       if (bokeh) {
@@ -2383,8 +2749,15 @@ export function createPostFx(
       // to go first; setSize then forwards device pixels on to every pass.
       composer.setPixelRatio(ratio);
       composer.setSize(width, height);
-      // The composer sizes every pass to the full buffer; occlusion stays half.
-      gtao?.setSize(Math.round(width * ratio * AO_SCALE), Math.round(height * ratio * AO_SCALE));
+      // The composer sizes every pass to the full buffer; occlusion goes back to
+      // its own scale, and the composite has to be told the new source size or
+      // its halo guard reaches the wrong distance.
+      if (gtao) {
+        const w = Math.max(2, Math.round(width * ratio * aoScale));
+        const h = Math.max(2, Math.round(height * ratio * aoScale));
+        gtao.setSize(w, h);
+        aoComposite?.setAoSize(w, h);
+      }
       // MeterPass.setSize already rebuilt its own chain off the full buffer and
       // dropped the adaptation history, which is what a resize should do — the
       // reduction it was averaging no longer exists.
@@ -2434,6 +2807,7 @@ export function createPostFx(
       // given, so every pass is released here by hand.
       composer?.dispose();
       gtao?.dispose();
+      aoComposite?.dispose();
       bokeh?.dispose();
       meter?.dispose();
       bloom?.dispose();
