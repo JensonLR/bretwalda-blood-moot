@@ -23,4 +23,11 @@ yarn-error.log*
 .DS_Store
 *.pem
 .vercel
-.tsbuildinfo
+*.tsbuildinfo
+
+# generated capture output
+art/shots/
+!art/shots/baseline/
+
+# TS incremental build info
+tsconfig.tsbuildinfo

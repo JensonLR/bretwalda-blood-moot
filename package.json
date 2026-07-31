@@ -3,10 +3,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "play": "node dev-server.mjs",
+    "shots": "node tools/shoot.mjs",
     "build": "next build",
     "start": "node custom-server.mjs",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "perf": "node tools/perf.mjs",
+    "playtest": "node tools/playtest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
@@ -32,6 +36,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "playwright": "^1.62.0",
     "postcss": "8.5.8",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3"
