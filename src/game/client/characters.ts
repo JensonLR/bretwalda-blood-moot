@@ -2363,7 +2363,10 @@ function fistGeometry(
   // opaque hand round an opaque grip reads as pressure, and a hand held clear of
   // it reads as a floating glove. Open, it stops at the knuckle line, because the
   // fingers below it are the shape and a wedge that ran past them is the mitten.
-  body.push(shell(open ? [
+  // The short palm is for the tier that has fingers to put below it. On low there
+  // is one swept collar standing in for four digits, and a palm that stopped at
+  // the knuckles under it left a paddle rather than a hand.
+  body.push(shell(open && lod.fingers ? [
     { y: opts.reach, hw: 0.027 * s, hd: 0.019 * s, z: opts.lead },
     { y: 0.048 * s, hw: 0.036 * s, hd: 0.021 * s, z: 0.014 * s },
     { y: 0.010 * s, hw: 0.044 * s, hd: 0.019 * s, z: 0.027 * s },
@@ -2438,7 +2441,7 @@ function fistGeometry(
     // Low tier: the wrap is one swept collar and the thumb is one taper. The
     // silhouette still closes on the grip and still has an opposed thumb —
     // what goes is the crease detail, not the anatomy.
-    const span = Math.min((open ? 0.082 : 0.093) * s, curl * 4.0);
+    const span = Math.min((open ? 0.058 : 0.093) * s, curl * 4.0);
     body.push(digit(fingerPath(0, wrap, curl, phi0, span, 5, 0.042 * s, 0.0095 * s, [1]), ring));
     body.push(digit(open ? [
       { x: -0.048 * s, y: 0.006 * s, z: 0.020 * s, a: 0.012 * s, b: 0.012 * s },
@@ -4419,10 +4422,20 @@ export function buildCharacter(
       // the cheekbone rather than at the eye line. Ramped from 0.25 and topping out
       // at −0.03, the stubble climbed to the temple across almost the whole cheek
       // and rendered as a dark trapezoid over the side of the face.
+      //
+      // Two harmonics, and three times the amplitude on stubble. This boundary is
+      // the "hard elliptical material seam ringing the jaw" the panel logged, and
+      // it is a boundary between two *materials* — wool on skin — so nothing but
+      // its own shape can break the tonal step at it. One cosine at one frequency
+      // gives a scalloped ellipse, which at sixty pixels is still an ellipse. A
+      // beard's edge is where hair thins out, not where it was cut, and the only
+      // honest way to say that with a patch rim is to make the rim disagree with
+      // itself. The second term stays above Nyquist at `nu` = 11.
       const cheek = (u: number) => {
         const t = smooth(0.55, 1.20, Math.abs(u));
         const y = mix(full ? Y_LIP + 0.06 : Y_LIP - 0.155, full ? -0.19 : -0.13, t);
-        return lat(y) + 0.03 * Math.cos(u * 6.5);
+        return lat(y) + (full ? 0.030 : 0.055) * Math.cos(u * 6.5)
+          + (full ? 0.012 : 0.026) * Math.cos(u * 11.3 + 1.9);
       };
       // The lower silhouette, and this is what was reading as "a doormat strapped
       // to the jaw". It used to be the constant latitude −1.05 across the entire
@@ -4436,7 +4449,9 @@ export function buildCharacter(
       const hang = (u: number) => {
         const a = Math.abs(u);
         const arc = (full ? -1.27 : -1.06) + (full ? 0.52 : 0.34) * Math.pow(smooth(0.1, 1.24, a), 1.35);
-        return arc + (full ? 0.052 : 0.016) * Math.cos(u * 4.7 + 0.6) * smooth(0.04, 0.5, a);
+        const rag = smooth(0.04, 0.5, a);
+        return arc + (full ? 0.052 : 0.040) * Math.cos(u * 4.7 + 0.6) * rag
+          + (full ? 0.016 : 0.020) * Math.cos(u * 9.1 - 0.8) * rag;
       };
       p.add(headWear(K, {
         // Round to the ear, so the patch's own u edge is behind the sideburn rather
