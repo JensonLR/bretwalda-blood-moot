@@ -1933,17 +1933,19 @@ const BLOOM_LEVELS: Record<QualityTier, number> = { high: 5, medium: 4, low: 3 }
  * are solid `leafClump` geometry, the thatch is solid courses, and `blood` is the
  * only cutout surface in the library. There is nothing to apply it to.
  *
- * **High is 2, not the 4 this landed at, and the honest reason is caution rather
- * than measurement.** `brawl` failed to present a frame inside 30 s on the capture
- * box and took the whole run down with it; that turned out to be a second
- * shadow-casting light rather than coverage — `duel`, `arena` and `closeup` cost
- * the same at 4 samples as at 2 as at none — so this file is not the culprit and
- * dropping to 2 did not fix it. It stays at 2 anyway. The frame we can least afford
- * is already the one that cannot hold a frame budget, MSAA is the newest thing in
- * the chain and the only one never measured on real hardware, and 2 samples is
- * where a staircase stops being a staircase: the third and fourth buy intermediate
- * shades of an edge that SMAA is sitting at the end of the chain to interpolate
- * anyway. Take it back to 4 when someone can profile the scene on a GPU.
+ * **High is 2, not the 4 this landed at, and a capture set the number.** At 4,
+ * `brawl` — eight warriors, and since the fire beam started casting, eight warriors
+ * rendered into a second shadow map as well — ran 46 minutes without presenting a
+ * frame, against v7's 3 minutes for the whole preset. At 2 it captures in 3. The
+ * three light presets cost the same either way, which is the tell: the price is
+ * paid per covered triangle edge, and a frame that is mostly sky and ground has
+ * almost none while a frame with eight men in it is nothing else. A GPU resolves
+ * this in fixed-function hardware and the capture box rasterises it in software, so
+ * the multiplier there is not the multiplier a player sees — but §5 asks for 30 fps
+ * on a phone, the busiest frame we can build is the one that blew up, and 2 samples
+ * is where a staircase stops being a staircase. The third and fourth buy
+ * intermediate shades of an edge that SMAA is sitting at the end of the chain to
+ * interpolate anyway. Take it back up when someone can profile the scene on a GPU.
  */
 const MSAA_SAMPLES: Record<QualityTier, number> = { high: 2, medium: 2, low: 0 };
 
