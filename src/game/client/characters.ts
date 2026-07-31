@@ -1176,6 +1176,13 @@ export const FOOT_BACK = 0.073;
 const CANON = skeleton(BUILD.huscarl);
 export const ELBOW_ALONG = CANON.upperArm / (CANON.upperArm + CANON.foreArm + CANON.gripDrop);
 export const KNEE_ALONG = (CANON.hipY - CANON.kneeY) / CANON.hipY;
+/**
+ * The drop from the wrist station to the grip, on the same scale — what
+ * `anim.ts` needs to find the gap between the forearm's cap and the knuckles
+ * and cut a wrist into it. Same argument as the two above: the number belongs
+ * where the skeleton is authored, not copied into the poser.
+ */
+export const GRIP_ALONG = CANON.gripDrop / (CANON.upperArm + CANON.foreArm + CANON.gripDrop);
 
 // ============================================================
 // Level of detail

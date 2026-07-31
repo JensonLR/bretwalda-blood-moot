@@ -76,7 +76,7 @@ import type { GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
-  defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_PITCH,
+  defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter,
 } from "../characters";
 import type { MaterialLibrary } from "./materials";
@@ -116,6 +116,21 @@ export interface RigPivots {
    */
   elbowR: THREE.Bone;
   elbowL: THREE.Bone;
+  /**
+   * The fist, so it can turn with what it is holding.
+   *
+   * Every carry angle in this file is written onto the *weapon*, which hangs
+   * inside a hand the builder baked at one grip pitch — so a rest carry 77° off
+   * that pitch left the haft running across the circle the fingers close on
+   * instead of through it, and the axe read as floating beside the man rather
+   * than carried by him. The bone sits at the mount in the mount's own frame:
+   * give it the pitch and roll the weapon got and the hand arrives with it.
+   *
+   * Driven on X and Z only. A hand that can also yaw against its forearm is a
+   * broken arm, and the weapon has no yaw term to give it either.
+   */
+  wristR: THREE.Bone;
+  wristL: THREE.Bone;
   kneeR: THREE.Bone;
   kneeL: THREE.Bone;
   cloak?: THREE.Group;
@@ -441,6 +456,8 @@ export function createWarriorRig(
       chest,
       elbowR: joints.elbowR,
       elbowL: joints.elbowL,
+      wristR: joints.wristR,
+      wristL: joints.wristL,
       kneeR: joints.kneeR,
       kneeL: joints.kneeL,
       cloak: built.cloak,
@@ -469,8 +486,8 @@ export function createWarriorRig(
       body.traverse((o) => {
         if (o instanceof THREE.Mesh) o.geometry.dispose();
       });
-      // The bone texture is this rig's alone — one 8×8 float target per warrior,
-      // and the only GPU resource `articulate` allocates.
+      // The bone texture is this rig's alone — one 16×16 float target per
+      // warrior, and the only GPU resource `articulate` allocates.
       joints.skeleton.dispose();
       blobGeo.dispose();
       blobMat.dispose();
@@ -540,6 +557,29 @@ const SHIELD_GRIP_Z = 0.04;
 const WRIST_BACK = 1.55;
 const WRIST_FWD = 0.75;
 /**
+ * Where the hand is cut off the forearm, along the fist's own axis and as a
+ * fraction of the drop from the wrist station to the grip.
+ *
+ * A fraction rather than a constant, for the reason `ELBOW_ALONG` is one:
+ * stature is per class, and a fixed 45 mm cut lands in the bracer on a short
+ * arm and in the palm on a long one. Measured off the built arms by connected
+ * component — the fingers and the thumb end 22–26 mm past the mount, the
+ * forearm's cap and the bracer's rim begin at 66–75 mm — so a ramp centred at
+ * 0.60 of the drop with a 0.25 band lands wholly inside the bare wrist between
+ * them on all four classes, with a couple of millimetres to spare at each end.
+ */
+const WRIST_ALONG = 0.60;
+const WRIST_BAND = 0.25;
+
+/** The wrist ramp, resolved onto one arm: a plane, an axis and a bone. */
+interface Hand {
+  at: THREE.Vector3;
+  axis: THREE.Vector3;
+  joint: number;
+  band: number;
+  index: number;
+}
+/**
  * How low the fist gets through a strike. Measured off the built rig rather
  * than guessed — it runs 0.62 m at the moment of impact on every class, because
  * the body settles onto the blow — and it is deliberately the *low* figure: the
@@ -588,8 +628,10 @@ const RINGS = [
  *
  * Three and not two, because the gather wants somewhere to gather *to*: the
  * wings draw in toward a back panel that stays where the spine puts it. Three
- * columns of two rings under a shared yoke is seven bones, which with the eight
- * the limbs already use still fits the one 8×8 bone target a warrior gets.
+ * columns of two rings under a shared yoke is seven bones; with the ten the
+ * limbs use that is seventeen, and seventeen is four texels past the 8×8 bone
+ * target — three.js takes the next power of two and a warrior gets a 16×16.
+ * 4 kB of float per man against a fist that turns with what it holds.
  */
 const DRAPE_COLS = [-0.62, 0, 0.62] as const;
 const DRAPE_RINGS = 2;
@@ -598,6 +640,8 @@ const DRAPE_BONES = 1 + DRAPE_COLS.length * DRAPE_RINGS;
 interface Articulation {
   elbowR: THREE.Bone;
   elbowL: THREE.Bone;
+  wristR: THREE.Bone;
+  wristL: THREE.Bone;
   kneeR: THREE.Bone;
   kneeL: THREE.Bone;
   drape?: THREE.Bone[];
@@ -622,12 +666,20 @@ interface Articulation {
  * key on the joint height instead — a shared arm weighted at somebody else's
  * elbow bends in the middle of the forearm.
  */
-function weightLimb(geo: THREE.BufferGeometry, joint: number, band: number, upper: number, lower: number): void {
+function weightLimb(
+  geo: THREE.BufferGeometry,
+  joint: number,
+  band: number,
+  upper: number,
+  lower: number,
+  hand?: Hand,
+): void {
   if (geo.hasAttribute("skinIndex")) return;
   const pos = geo.getAttribute("position");
   const n = pos.count;
   const index = new Uint16Array(n * 4);
   const weight = new Float32Array(n * 4);
+  const v = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
     // A ramp, not a cut. The builder puts its widest station right on the joint,
     // and a hard split there opens a hole in the knee the first time it bends.
@@ -636,6 +688,24 @@ function weightLimb(geo: THREE.BufferGeometry, joint: number, band: number, uppe
     index[i * 4 + 1] = lower;
     weight[i * 4] = 1 - t;
     weight[i * 4 + 1] = t;
+    if (!hand) continue;
+    // The wrist is *not* a height in the arm: the fist is set on the grip axis
+    // and reaches back up to the forearm's cap along its own tilted axis, so a
+    // horizontal cut at the same station runs through the middle of the palm on
+    // one side and past the bracer's rim on the other. Measured on the built
+    // arm along this axis, the knuckles end 22–26 mm past the mount and the
+    // forearm's cap begins at 66–74 mm; the ramp is placed in that gap so the
+    // only thing it splits is the metacarpal wedge, which is what a wrist is.
+    const d = v.fromBufferAttribute(pos, i).sub(hand.at).dot(hand.axis);
+    const h = smooth(clamp01((hand.joint + hand.band - d) / (hand.band * 2)));
+    if (h <= 0) continue;
+    // The hand comes off the forearm's share, never off the upper arm's: the
+    // two ramps are far enough apart on every stature the builder makes that a
+    // vertex is only ever in one of them, and taking it from `lower` keeps the
+    // sum at one without a normalise pass.
+    index[i * 4 + 2] = hand.index;
+    weight[i * 4 + 2] = t * h;
+    weight[i * 4 + 1] = t * (1 - h);
   }
   geo.setAttribute("skinIndex", new THREE.BufferAttribute(index, 4));
   geo.setAttribute("skinWeight", new THREE.BufferAttribute(weight, 4));
@@ -649,8 +719,8 @@ function weightLimb(geo: THREE.BufferGeometry, joint: number, band: number, uppe
  * skip a second time because the builder's signature already carries the class
  * and the cloak, which is everything the cut depends on. The bone indices can be
  * named outright for the same reason `weightLimb` names its own — the limb loop
- * always emits exactly eight bones before this runs, so the yoke is always bone
- * 8 whichever warrior is wearing it.
+ * always emits the same ten bones before this runs (three per arm, two per leg),
+ * so the yoke is always bone 10 whichever warrior is wearing it.
  *
  * Four influences is the whole budget a `skinIndex` has, and the partition is
  * built to land inside it exactly: at most two adjacent rings by height and at
@@ -792,18 +862,20 @@ function articulate(built: BuiltCharacter): Articulation {
   const legLen = built.leftLeg.position.y || 1.02;
 
   // Order fixes the bone indices, and the indices are baked into shared
-  // geometry — weapon arm, off arm, weapon leg, off leg, upper before lower.
+  // geometry — weapon arm, off arm, weapon leg, off leg, upper before lower,
+  // and an arm's wrist after its own forearm. Arms emit three bones, legs two.
   const limbs = [
-    { pivot: built.rightArm, joint: gripR * ELBOW_ALONG, band: 0.055, span: Math.abs(gripR) + 0.24 },
-    { pivot: built.leftArm, joint: gripL * ELBOW_ALONG, band: 0.055, span: Math.abs(gripL) + 0.24 },
-    { pivot: built.rightLeg, joint: -legLen * KNEE_ALONG, band: 0.075, span: legLen + 0.18 },
-    { pivot: built.leftLeg, joint: -legLen * KNEE_ALONG, band: 0.075, span: legLen + 0.18 },
+    { pivot: built.rightArm, joint: gripR * ELBOW_ALONG, band: 0.055, span: Math.abs(gripR) + 0.24, grip: gripR },
+    { pivot: built.leftArm, joint: gripL * ELBOW_ALONG, band: 0.055, span: Math.abs(gripL) + 0.24, grip: gripL },
+    { pivot: built.rightLeg, joint: -legLen * KNEE_ALONG, band: 0.075, span: legLen + 0.18, grip: 0 },
+    { pivot: built.leftLeg, joint: -legLen * KNEE_ALONG, band: 0.075, span: legLen + 0.18, grip: 0 },
   ];
 
   const bones: THREE.Bone[] = [];
+  const wrists: THREE.Bone[] = [];
   const bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Object3D }> = [];
 
-  limbs.forEach((limb, i) => {
+  limbs.forEach((limb) => {
     const upper = new THREE.Bone();
     const lower = new THREE.Bone();
     lower.position.y = limb.joint;
@@ -812,11 +884,44 @@ function articulate(built: BuiltCharacter): Articulation {
     // geometry's own space *is* its space and the bind matrix below is just the
     // pivot's world matrix. Cheaper to reason about than an offset chain.
     limb.pivot.add(upper);
+    const iUpper = bones.length;
     bones.push(upper, lower);
+
+    // The wrist. It exists so the fist can turn with what it is holding: every
+    // carry angle is written onto the weapon *inside* a hand baked at the
+    // builder's grip pitch, so at rest the haft ran 77° across the circle the
+    // fingers close on — a hand curling on air beside a floating axe. The bone
+    // sits at the mount, in the mount's own frame, so the same `(pitch, 0, roll)`
+    // the weapon is given lands the hand on it exactly.
+    let hand: Hand | undefined;
+    if (limb.grip) {
+      // Emitted for both arms whether the mount was found or not: the bone
+      // indices below are baked into shared geometry, so a rig that skipped one
+      // would weight the next warrior's forearm to somebody's knee.
+      const mount = limb.pivot.getObjectByName("handMount");
+      const pitch = mount?.rotation.x || GRIP_PITCH_FALLBACK;
+      const at = mount ? mount.position.clone() : new THREE.Vector3(0, limb.grip, 0);
+      const wrist = new THREE.Bone();
+      wrist.position.set(at.x, at.y - limb.joint, at.z);
+      wrist.rotation.x = pitch;
+      lower.add(wrist);
+      // Up the forearm from the grip — the mount's own −Z, which is the axis
+      // `fistPlacement` builds the hand along.
+      const drop = Math.abs(limb.grip) * GRIP_ALONG;
+      hand = {
+        at,
+        axis: new THREE.Vector3(0, Math.sin(pitch), -Math.cos(pitch)),
+        joint: drop * WRIST_ALONG,
+        band: drop * WRIST_BAND,
+        index: bones.length,
+      };
+      bones.push(wrist);
+      wrists.push(wrist);
+    }
 
     for (const child of limb.pivot.children.slice()) {
       if (!(child instanceof THREE.Mesh)) continue;
-      weightLimb(child.geometry, limb.joint, limb.band, i * 2, i * 2 + 1);
+      weightLimb(child.geometry, limb.joint, limb.band, iUpper, iUpper + 1, hand);
       const skinned = new THREE.SkinnedMesh(child.geometry, child.material as THREE.Material);
       skinned.name = child.name;
       // Culled off the bind pose, written by hand. Left alone, three walks every
@@ -841,8 +946,8 @@ function articulate(built: BuiltCharacter): Articulation {
   });
 
   // The cloak joins the same skeleton rather than getting one of its own: a
-  // second `THREE.Skeleton` is a second bone texture per warrior, and fifteen
-  // bones fit the same 8×8 target eight did — 60 of its 64 texels.
+  // second `THREE.Skeleton` is a second bone texture per warrior, and one
+  // texture holds the whole man — ten limb bones and seven of cloak.
   const hung = built.cloak ? hangCloak(built.cloak, bones.length, bound) : undefined;
   if (hung) bones.push(...hung.bones);
 
@@ -859,7 +964,8 @@ function articulate(built: BuiltCharacter): Articulation {
   for (const b of bound) b.mesh.bind(skeleton, b.at.matrixWorld.clone());
 
   return {
-    elbowR: bones[1], elbowL: bones[3], kneeR: bones[5], kneeL: bones[7],
+    elbowR: bones[1], wristR: wrists[0], elbowL: bones[4], wristL: wrists[1],
+    kneeR: bones[7], kneeL: bones[9],
     drape: hung?.bones, drapeAt: hung?.at, skeleton,
   };
 }
@@ -2564,6 +2670,13 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   const solved = clamp(want + TAU * Math.round((inLine - want) / TAU), inLine - WRIST_BACK, inLine + WRIST_FWD);
   const wrist = P.waw > 1e-4 ? solved : P.wx;
   rig.weapon.rotation.set(wrist, 0, P.wz);
+  // And the hand goes with it. The mount's pitch is already in the bone's bind
+  // pose, so this adds the same turn the weapon just took rather than replacing
+  // it — `Rx(grip)·Rx(wrist)·Rz(roll)` on the weapon is `Rx(grip + wrist)·Rz(roll)`
+  // on the fist, exactly. Without it the fingers close on the axis the builder
+  // baked and the haft runs past behind them; with it the closed ring is on the
+  // shaft, which is the whole of "he is holding it".
+  piv.wristR.rotation.set(rig.gripPitch + wrist, 0, P.wz);
   // A spear runs through the fist on a thrust, which is most of what makes a
   // thrust read; a sword only creeps, because a hand sliding down a blade is a
   // different and much worse-looking idea.
@@ -2576,6 +2689,8 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
     // very different things.
     const lead = wrist + P.arb;
     rig.offhand.rotation.set(mix(st.rest, lead, 0.55) - P.olb, 0, -P.wz * 0.6);
+    // The off fist follows its own seax on the same argument as the main one.
+    piv.wristL.rotation.set(rig.gripPitch + rig.offhand.rotation.x, 0, rig.offhand.rotation.z);
   }
   if (rig.shield) {
     // The pitch is solved, not authored: the disc gives back whatever the
