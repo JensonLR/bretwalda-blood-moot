@@ -16,7 +16,7 @@
 // ============================================================
 import React, { useEffect, useMemo, useState } from "react";
 import GameCanvas from "@/game/client/GameCanvas";
-import type { GamePlayer, WarriorClass, PlayerState, AttackDirection } from "@/game/types";
+import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone } from "@/game/types";
 import { WARRIOR_STATS } from "@/game/types";
 import { defaultAppearance } from "@/game/client/characters";
 
@@ -32,6 +32,9 @@ type Pose = {
   hp?: number;
   /** 0..1 through the attack animation; converted to attackTimer */
   swing?: number;
+  /** The killing blow, for staging a dismemberment. Only read when state is "dead". */
+  zone?: HitZone;
+  heavy?: boolean;
 };
 
 /**
@@ -194,6 +197,9 @@ function makePlayer(p: Pose, isLocal: boolean): GamePlayer {
     comboTimer: 0,
     invincible: false,
     invincibleTimer: 0,
+    deathZone: p.state === "dead" ? (p.zone ?? "torso") : null,
+    deathDir: p.state === "dead" ? (p.dir ?? "right") : null,
+    deathHeavy: p.state === "dead" ? (p.heavy ?? false) : false,
     ...(isLocal ? {} : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     appearance: defaultAppearance(p.cls) as any,

@@ -7,6 +7,10 @@ export type WarriorClass = "huscarl" | "warden" | "runekeeper" | "berserker";
 export type Team = "red" | "blue" | "none";
 export type AttackDirection = "left" | "right" | "overhead" | "stab";
 export type AttackType = "light" | "heavy";
+// Where a blow landed on the body. The server is the only authority on this —
+// see deriveHitZone in engine.mjs — so that two clients watching one death
+// never disagree about which limb came off.
+export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "torso" | "waist";
 export type PlayerState = "idle" | "walking" | "running" | "sprinting" | "attacking" | "blocking" | "dodging" | "rolling" | "staggered" | "dead" | "ability";
 export type MatchState = "lobby" | "countdown" | "fighting" | "last_stand" | "finished";
 
@@ -136,6 +140,13 @@ export interface GamePlayer {
   comboTimer: number;
   invincible: boolean;
   invincibleTimer: number;
+  // The killing blow, carried on the player rather than only in the kill
+  // message, so a spectator or late joiner rebuilding from a snapshot still
+  // sees the body the way everyone else does. Cleared on every road back to
+  // standing.
+  deathZone: HitZone | null;
+  deathDir: AttackDirection | null;
+  deathHeavy: boolean;
 }
 
 export interface Room {
@@ -159,6 +170,7 @@ export interface KillFeedEntry {
   killerName: string;
   victimName: string;
   timestamp: number;
+  hitZone: HitZone;
 }
 
 // WebSocket message types
