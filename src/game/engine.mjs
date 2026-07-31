@@ -6,7 +6,6 @@
 import { randomUUID } from "crypto";
 
 const TICK_RATE = 20;
-const ATTACK_RANGE = 3.0;
 const PARRY_WINDOW = 0.15;
 const COMBO_WINDOW = 0.8;
 const DODGE_DURATION = 0.35;
@@ -15,6 +14,72 @@ const STAGGER_DURATION = 0.6;
 const MATCH_COUNTDOWN = 3;
 const SPAWN_INVINCIBLE = 2.0;
 const ARENA_RADIUS = 18;
+
+// ---- reach ----
+// One flat ATTACK_RANGE of 3.0 for every class is why a berserker connected with
+// the middle of his haft: the server was granting a metre of reach the weapon
+// does not have, so the only part of the axe near the target at the moment of
+// the hit was wood. The server stays authoritative; what changes is that its
+// numbers now describe the weapons the player is actually looking at.
+//
+// These are measurements, not tuning knobs. Each is the largest local-space
+// bounding-box max.y over the weapon's meshes — how far past the fist the steel
+// goes — which is precisely how `anim.ts` derives `rig.reach` for the blade
+// trail. Same definition on both sides, so the hit and the streak that draws it
+// cannot drift apart. Re-measure when a builder in `characters.ts` is re-cut.
+//
+//   runekeeper  seax      0.50  buildDagger, blade tip station y = 0.50
+//   berserker   Dane axe  1.00  buildAxe, headY 0.86 + top horn at +0.137;
+//                               the haft alone stops at 0.92, which is the
+//                               difference between an edge hit and a haft hit
+//   huscarl     sword     1.06  buildSword, blade tip station y = 1.055
+//   warden      spear     1.44  buildSpear, blade tip station y = 1.44
+//
+// NOTE: the warden carries `buildSpear`, not a sword, and it out-reaches the
+// axe by 440 mm. The axe is a big weapon, but most of it hangs *below* the
+// grip — the butt is 580 mm down the haft — and none of that is reach.
+const WEAPON_REACH = { huscarl: 1.055, warden: 1.44, runekeeper: 0.50, berserker: 1.00 };
+
+// The two bodies between the two fists, which no weapon table can supply:
+// ~0.60 m from the attacker's centre out to his extended fist, ~0.25 m from the
+// target's centre to the chest that stops the blade, and ~0.35 m of forgiveness
+// so a hit the client already drew does not get denied by the lag between them.
+// This is the one number here that is a judgement call rather than a measurement.
+const BODY_REACH = 1.20;
+
+const ATTACK_RANGE = Object.fromEntries(
+  Object.entries(WEAPON_REACH).map(([cls, r]) => [cls, r + BODY_REACH]),
+);
+const DEFAULT_ATTACK_RANGE = ATTACK_RANGE.huscarl;
+
+// How far off his facing a warrior may land a blow. Flat at 0.6π for every
+// class before, which let a seax thrust connect with something stood behind the
+// attacker's own shoulder. It is per-weapon now for the same reason reach is —
+// a two-handed axe really does cross the whole front in one sweep, and a spear
+// really is thrust down its own line and cannot be waved sideways.
+//
+// It is also where the warden pays for that 1.44 m of steel. Reach and arc
+// multiply into the ground a single swing covers (~r²·θ), so leaving the spear
+// on the old wide window would have handed the longest weapon the largest
+// footprint as well, and a long weapon is supposed to trade something for the
+// length. The footprints these land on, against 16.97 flat before:
+// huscarl 8.0, warden 8.3, berserker 8.8, runekeeper 5.4. The runekeeper is
+// lowest on purpose and is answering with the roster's best damage rate and
+// best mobility; if it turns out to be answering with too little, this table
+// is the lever, not `WARRIOR_STATS` — see the note on that table.
+const SWING_ARC = {
+  huscarl: Math.PI * 0.50,     // sword and shield: compact, worked in close
+  warden: Math.PI * 0.38,      // spear: a line, not a sweep
+  runekeeper: Math.PI * 0.60,  // twin seaxes, and the class that must fight from
+                               // inside everyone else's guard needs the width
+  berserker: Math.PI * 0.58,   // the two-handed sweep, which is genuinely wide
+};
+const DEFAULT_SWING_ARC = SWING_ARC.huscarl;
+
+/** Centre-to-centre distance at which this warrior's weapon can bite. */
+function reachOf(p) {
+  return ATTACK_RANGE[p.warriorClass] ?? DEFAULT_ATTACK_RANGE;
+}
 
 // ---- movement tuning ----
 // Every number here is a time constant in seconds, never a per-tick factor.
@@ -51,6 +116,22 @@ const BOT_TITLES = { recruit: " the Young", warrior: "", jarl: " the Grim" };
 const SOLO_BOTS_BY_DIFFICULTY = { recruit: 1, warrior: 2, jarl: 3 };
 const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood moot
 
+// This is the sheet the simulation fights by, and it is deliberately untouched
+// by the reach pass even though the reach pass changed the balance under it.
+// Two reasons, and the second is the hard one:
+//
+//   Reach came *down* for every class, so nobody was handed an advantage that
+//   has to be paid for here. The class that gained relative ground is the
+//   warden, and it pays in `SWING_ARC` instead.
+//
+//   `src/game/types.ts` carries a second copy of this table that the class-select
+//   screen and the HUD read, and the two already disagree — that copy still has
+//   the huscarl at 3.5 move / 0.7 attack against 4.0 / 0.6 here. Anything edited
+//   here that a player can *see* on a card widens a drift that is already a bug:
+//   change `maxHealth` and the card promises 90 while the health bar fills to
+//   100. The runekeeper is the class the reach pass costs most (3.0 -> 1.70, and
+//   it must now stand inside every other weapon), and if it needs paying back,
+//   the payment has to land in both tables at once or not at all.
 export const WARRIOR_STATS = {
   huscarl: { maxHealth: 150, moveSpeed: 4.0, sprintSpeed: 6.4, attackDamage: 18, heavyDamage: 30, attackSpeed: 0.6, blockReduction: 0.8, dodgeDistance: 3.6, staminaMax: 105, staminaRegen: 17, ability: "SHIELD WALL", abilityCooldown: 12 },
   warden: { maxHealth: 120, moveSpeed: 4.5, sprintSpeed: 6.8, attackDamage: 20, heavyDamage: 35, attackSpeed: 0.5, blockReduction: 0.6, dodgeDistance: 4.1, staminaMax: 115, staminaRegen: 20, ability: "BATTLE FOCUS", abilityCooldown: 15 },
@@ -496,6 +577,8 @@ function makeEngine() {
     const abilityMult = attacker.abilityActive && attacker.warriorClass === "berserker" ? 1.5 :
       attacker.abilityActive && attacker.warriorClass === "warden" ? 1.3 : 1;
     const dmg = Math.floor(baseDamage * comboMult * abilityMult);
+    const range = reachOf(attacker);
+    const arc = SWING_ARC[attacker.warriorClass] ?? DEFAULT_SWING_ARC;
 
     room.players.forEach((target) => {
       if (target.id === attacker.id || target.state === "dead") return;
@@ -503,12 +586,12 @@ function makeEngine() {
       const dx = target.position.x - attacker.position.x;
       const dz = target.position.z - attacker.position.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
-      if (dist > ATTACK_RANGE) return;
+      if (dist > range) return;
       const angleToTarget = Math.atan2(dx, dz);
       let angleDiff = angleToTarget - attacker.rotation;
       while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
       while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-      if (Math.abs(angleDiff) > Math.PI * 0.6) return;
+      if (Math.abs(angleDiff) > arc) return;
       if (target.invincible) return;
 
       if (target.state === "blocking") {
@@ -690,8 +773,20 @@ function makeEngine() {
     const attackDir = dirs[(Math.random() * 4) | 0];
     const enemyAttacking = target.state === "attacking";
 
-    // Perfect-spacing steering: close in hungry, back off when too close
-    const wantDist = 2.1;
+    // Every distance a bot judges is now judged against a weapon rather than
+    // against one constant. Two different weapons are in play and the bot needs
+    // both: its own reach decides where it stands and when it swings, the
+    // target's decides when it is in danger and must guard or roll.
+    const myReach = reachOf(bot);
+    const theirReach = reachOf(target);
+
+    // Perfect-spacing steering: close in hungry, back off when too close.
+    // Held at 0.7 of its own reach, which is where the old 2.1 sat inside the
+    // old flat 3.0 — near enough to strike on the next beat without standing so
+    // deep that a backstep takes it out of range. A runekeeper bot that kept the
+    // old 2.1 would have paced around a seax that stops biting at 1.70 and swung
+    // at air for the whole match.
+    const wantDist = myReach * 0.7;
     let toward = 0;
     if (dist > wantDist + 0.4) toward = 1;
     else if (dist < wantDist - 0.5) toward = -0.7;
@@ -706,7 +801,7 @@ function makeEngine() {
     }
 
     // Guard: hold a BLOCK for a short window when enemy winds up
-    if (enemyAttacking && !bot.isBlocking && dist < 3.4 && Math.random() < 0.22 + bot.aiSkill * 0.3) {
+    if (enemyAttacking && !bot.isBlocking && dist < theirReach * 1.15 && Math.random() < 0.22 + bot.aiSkill * 0.3) {
       botAct(room, bot, { block: true, attackDir: target.attackDir });
       bot.isBlocking = true;
       bot.blockUntil = now + 0.45 + Math.random() * 0.6;
@@ -714,7 +809,7 @@ function makeEngine() {
     }
 
     // Dodge an imminent close blow
-    if (enemyAttacking && dist < 1.9 && bot.dodgeTimer <= 0 && Math.random() < 0.08 + bot.aiSkill * 0.18) {
+    if (enemyAttacking && dist < theirReach * 0.65 && bot.dodgeTimer <= 0 && Math.random() < 0.08 + bot.aiSkill * 0.18) {
       botAct(room, bot, { moveX: -nx, moveZ: -nz, dodge: true });
       return;
     }
@@ -725,7 +820,7 @@ function makeEngine() {
     }
 
     // Strike cadence
-    if (!bot.isBlocking && dist <= ATTACK_RANGE * 0.95 && now >= bot.nextAttackAt && bot.stamina > 25) {
+    if (!bot.isBlocking && dist <= myReach * 0.95 && now >= bot.nextAttackAt && bot.stamina > 25) {
       const heavy = Math.random() < 0.2 * bot.aiSkill + (target.state === "blocking" ? 0.18 : 0);
       botAct(room, bot, {
         rotationY: bot.yaw + (Math.random() - 0.5) * 0.15,
