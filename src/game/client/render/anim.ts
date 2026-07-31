@@ -1102,7 +1102,15 @@ const STANCE: Record<WarriorClass, Stance> = {
   huscarl: { rest: 0.94, live: 0.10, spread: 0.10, guard: -0.66, sink: 0.13, slide: 0.3 },
   warden: { rest: -1.24, live: 0.02, spread: 0.05, guard: -0.34, sink: 0.08, slide: 1 },
   runekeeper: { rest: 1.66, live: 0.14, spread: 0.02, guard: -0.24, sink: 0.06, slide: 0.35 },
-  berserker: { rest: -1.78, live: 0.08, spread: 0.15, guard: -0.18, sink: 0.16, slide: 0.3 },
+  // -1.35, not -1.78. The shouldered carry was rolled far enough back that the
+  // axe head sat *behind* the deltoid and pauldron — measured at `lineup`
+  // framing, only 16% of the head's projected area survived, so the weapon read
+  // as a bare stick however well the head was modelled. Sweeping the angle, the
+  // head breaks clear of the body plane at about -1.35 (91% visible) while its
+  // crown still tops out 160 mm below the helm, so this does not re-create the
+  // v3 defect where the axe overlapped the skull. There is no grip roll to fix
+  // this with instead: `rig.weapon.rotation.set(wrist, 0, P.wz)` never writes Y.
+  berserker: { rest: -1.35, live: 0.08, spread: 0.15, guard: -0.18, sink: 0.16, slide: 0.3 },
 };
 
 // ---------------------------------------------------------------------------

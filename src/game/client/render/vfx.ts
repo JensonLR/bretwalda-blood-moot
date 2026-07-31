@@ -1120,13 +1120,21 @@ interface Seed {
 // Palette
 // ---------------------------------------------------------------------------
 //
-// Linear radiance throughout. The bloom threshold these numbers used to quote —
-// 2.15 — has not been the threshold for three iterations; it is 5.0 at dusk and
-// 6.0 on the last stand, which is *above* the 4.07 point where the dusk grade
-// already clips. Nothing in this list can therefore both bloom and keep its
-// colour, so the list stops trying: everything hot sits in the 1.6–4.4 band
-// where the curve still has slope, and the one exception is a struck spark,
-// which is genuinely white-hot metal and is allowed to blow.
+// Linear radiance throughout. The bloom threshold is 2.55 at dusk and 1.30 on
+// the last stand, and both now sit *below* the point where the grade clips, so
+// for the first time a source in this list can bloom and keep its hue. That
+// clip point is strongly hue-dependent and it is the number to check against
+// before moving anything here: running the whole chain — exposure, balance,
+// contrast, crosstalk, filmic, the metered response, the split-tone and the
+// encode — a neutral reaches code 255 at 3.23 scene units at dusk and 1.40 on
+// the last stand, but a fire hue reaches it far sooner, ~2.3–2.5, because the
+// split-tone's highlight tint multiplies R *after* the curve is already
+// clamped. Blue has the most headroom of anything here, ~6.25.
+//
+// So everything hot sits in the band between its own gate and its own clip,
+// which for a fire hue at dusk is roughly 2.6–3.0 and on the last stand is
+// empty. The one exception is a struck spark, which is genuinely white-hot
+// metal and is allowed to blow.
 //
 // Where a comment below quotes an RGB triple it is the *displayed* code that
 // value produces at dusk, from running postfx's exposure, balance, contrast,
@@ -2530,12 +2538,22 @@ export function createVfx(
       // Where the ramp above lands on the curve. Everything else about the fire
       // is shape; this is the one number that decides whether it has colour.
       //
-      // 2.3, and *down* on the last stand rather than up. The old line went to
-      // 3.8 there, which is half a stop past the point where that look reaches
-      // display white with a neutral — so the hottest moment in the game was
-      // also the one frame where the fire had no colour left at all. The two
-      // looks are graded a long way apart and the emissive has to follow.
-      fireU.uIntensity.value = 2.3 * (1 - moodHeat * 0.37);
+      // Down on the last stand rather than up. The pre-v10 line went to 3.8
+      // there, which is well past the point where that look reaches display
+      // white with a fire hue — so the hottest moment in the game was also the
+      // one frame where the fire had no colour left at all. The two looks are
+      // graded a long way apart and the emissive has to follow.
+      //
+      // 2.9 at dusk, not v10's 2.3: v10 cut this at the same time as the inner
+      // ring level and the emitter dedup, three levers pulled the same way, and
+      // the frame lost its top end (maxLuma down in five presets, tonalBuckets
+      // in three). The other two cuts were the right ones. This band is bounded
+      // on both sides — over the bright pass's 2.55 gate so the flame can
+      // actually bloom, and under the ~3.09 where the re-authored ramp's own hue
+      // reaches code 255, which is the headroom that re-author bought. On the
+      // last stand the same hue clips at ~1.00 against a 1.30 gate: there is no
+      // window there at all, so that end stays where it is.
+      fireU.uIntensity.value = 2.9 * (1 - moodHeat * 0.5);
       (fireU.uWind.value as THREE.Vector2).copy(wind);
       if (hazeLayer) {
         hazeLayer.material.uniforms.uTime.value = clock;
@@ -2567,11 +2585,13 @@ export function createVfx(
       writeParticles();
       writeMotes();
 
-      // The fire's own halo, and the only thing in the frame doing the job that
-      // bloom cannot. Bloom needs 5.0 scene units and the grade clips at 4.07, so
-      // there is no radiance at which a flame both glows and keeps its hue — an
-      // authored halo is what is left, and it is better anyway: it is shaped, it
-      // breathes on the flame's own clock, and it costs one quad.
+      // The fire's own halo. It was built because bloom was unreachable — the
+      // threshold sat above the point where the grade clipped — and that is no
+      // longer true: the gate is 2.55 and the flame runs at 2.9. It stays
+      // anyway, because it is the better of the two effects and they stack
+      // cleanly. Bloom is isotropic and knows nothing about the source; this is
+      // shaped, it breathes on the flame's own clock, it survives on the low
+      // tier where the bright pass is dropped entirely, and it costs one quad.
       //
       // A torch gets proportionally far more of it than a bonfire. It is 0.1 m
       // of flame twenty metres away, so on the old `radius * 3.4` its halo was

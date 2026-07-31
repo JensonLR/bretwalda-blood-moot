@@ -107,7 +107,11 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     envMapSize: 128,
     postProcessing: true,
     bloom: true,
-    ambientOcclusion: false,
+    // AO is art direction, not an effect: without it nothing in the frame meets
+    // anything else. postfx.ts tiers the sample counts down for medium and
+    // refuses the pass outright on low, so the cost here is roughly half of
+    // high's rather than all of it.
+    ambientOcclusion: true,
     depthOfField: false,
     colorGrade: true,
     vignette: true,

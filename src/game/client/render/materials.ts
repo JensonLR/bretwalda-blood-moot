@@ -156,22 +156,33 @@ const CATALOG: Record<MaterialName, Spec> = {
   // The fire entries no longer draw a flame — vfx.ts owns those — but they are
   // still what a coal bed and a hearth seen through a doorway are made of, and
   // those have to clear the bloom threshold or the one genuinely hot thing in
-  // the arena is the only thing in it that does not glow. The threshold sits
-  // above the dusk sky at 5.0, which is the whole reason the frame stopped
-  // being one colour, so an ember that reads as hot to the eye has to read as
-  // hot to the bright pass — but only *just* over, because a bare emissive far
-  // above it clips its whole footprint flat and stops being an ember at all.
-  torchFlame:      { color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff7711, emissiveIntensity: 6.4 },
+  // the arena is the only thing in it that does not glow.
+  //
+  // Every number in this block used to be roughly *twice* its own clip point,
+  // because they were sized to clear a gate of 5.0 that the grade could never
+  // reach — so each one arrived as a flat white-pink footprint with no hue,
+  // which is what made the coal bed read as marshmallows. The gate is 2.55 now,
+  // and the ceiling is per-hue: running the full chain, a source clips at the
+  // peak channel, and for these near-red emissives that lands at 2.3–2.5. Sit
+  // between the two and a coal is both hot to the bright pass and still orange.
+  //
+  // 2.8 with the hue pulled off the red axis (0xff8a2e, not 0xff7711): a torch
+  // is the smallest hot thing in the frame and wants the most bloom, and moving
+  // green up buys the peak channel room before the split-tone's red multiply.
+  torchFlame:      { color: 0xffbb44, roughness: 1, metalness: 0, emissive: 0xff8a2e, emissiveIntensity: 2.8 },
   bonfireLog:      { color: 0x3a2515, roughness: 0.98, metalness: 0, surface: "oak", repeat: [1, 4] },
   // Coals: opaque lumps, not flame. The old `opacity: 0.9` bought nothing on a
   // solid icosahedron and cost the whole instanced bed a sorted transparent
   // pass.
-  bonfireFlame:    { color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff5500, emissiveIntensity: 5.6 },
+  // 0xff8a28 at 2.2: this is the pale-peach coal bed, and it was measuring
+  // [254, 203, 165] — a lump whose R had clipped while the crosstalk dragged G
+  // and B up behind it. 0xff5500 at 5.6 was 2.4x its own clip point of ~2.32.
+  bonfireFlame:    { color: 0xffaa33, roughness: 1, metalness: 0, emissive: 0xff8a28, emissiveIntensity: 2.2 },
   // Firelight through the hall door. Its footprint is ~12 px in `laststand`, so
   // every pixel of it is either the blob or its edge; as a flat opaque quad at
   // intensity 7 it drew a hard uniform orange square that two critic panels read
   // as a UI glitch, and one of them traced to the HUD.
-  hearthGlow:      { color: 0xffb055, roughness: 1, metalness: 0, emissive: 0xff6a1e, emissiveIntensity: 4.2, glow: true },
+  hearthGlow:      { color: 0xffb055, roughness: 1, metalness: 0, emissive: 0xff6a1e, emissiveIntensity: 2.2, glow: true },
 
   hutWall:         { color: 0x6a553c, roughness: 0.95, metalness: 0, surface: "plank", repeat: [3, 2] },
   hutRoof:         { color: 0x41301c, roughness: 0.98, metalness: 0, surface: "thatch", repeat: [7, 3] },
@@ -191,10 +202,14 @@ const CATALOG: Record<MaterialName, Spec> = {
   // Sized against the bloom threshold, which is the only thing that decides
   // whether a rune glows or merely is blue. The bright pass measures the max
   // channel, so what matters here is the blue: 0x2288dd carries 0.68 linear in
-  // it, and 8.0 puts that at 5.4 — clear of the 5.0 threshold that keeps the
-  // dusk sky out of the pyramid, with enough margin that the carved bottoms of
-  // the strokes still glow and not only their edges.
-  runeGlow:        { color: 0x66c8ff, roughness: 0.4, metalness: 0, emissive: 0x2288dd, emissiveIntensity: 8 },
+  // it, and 5.0 puts that at 3.4 — clear of the 2.55 gate with enough margin
+  // that the carved bottoms of the strokes glow and not only their edges.
+  //
+  // Blue keeps far more headroom than the fire hues do (it clips at ~6.25
+  // rather than ~2.4, because the split-tone's warm highlight tint pushes red
+  // and leaves blue alone), so this is the one emissive in the catalogue that
+  // can afford to sit well over its gate.
+  runeGlow:        { color: 0x66c8ff, roughness: 0.4, metalness: 0, emissive: 0x2288dd, emissiveIntensity: 5 },
 
   bloodDecal:      { color: 0x4a0a08, roughness: 0.35, metalness: 0, surface: "blood", repeat: [1, 1], decal: true },
 };
