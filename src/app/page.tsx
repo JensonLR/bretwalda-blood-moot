@@ -4,10 +4,13 @@ import {
   Swords, Target, Scroll, ArrowLeft, Copy, Share2, Crown,
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
-  Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus
+  Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
+  Flag, Hourglass
 } from "lucide-react";
-import type { GamePlayer, WarriorClass, GameMode, Team } from "../game/types";
-import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel } from "../game/types";
+import type {
+  GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
+} from "../game/types";
+import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 import {
   ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, type Appearance,
 } from "../game/client/characters";
@@ -27,15 +30,11 @@ interface RoomState {
   countdown: number; matchTimer: number;
   killFeed: Array<{ killerName: string; victimName: string; timestamp: number }>;
   lastStandTriggered: boolean;
-}
-
-interface MatchResults {
-  winnerId: string | null; winnerName: string;
-  results: Array<{
-    id: string; name: string; kills: number; deaths: number;
-    damage: number; score: number; isWinner: boolean;
-    xpEarned: number; goldEarned: number;
-  }>;
+  // The round state rides on every snapshot, so the screens never keep their
+  // own copy of the score — the server is the only thing that knows it.
+  bestOf: number; roundIndex: number; roundTarget: number;
+  roundWins: Record<string, number>; roundScoreBy: RoundScoreBy;
+  lastRound: RoundResult | null; nextRoundAt: number;
 }
 
 interface ProfileData {
@@ -93,8 +92,9 @@ export default function Page() {
   const [soloDifficulty, setSoloDifficulty] = useState<Difficulty>("warrior");
   const [soloBots, setSoloBots] = useState(2);
   const [botDifficulty, setBotDifficulty] = useState<Difficulty>("warrior");
+  const [bestOf, setBestOf] = useState<BestOf>(DEFAULT_BEST_OF);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
-  const [matchResults, setMatchResults] = useState<MatchResults | null>(null);
+  const [matchResults, setMatchResults] = useState<MatchEndData | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [linkMode, setLinkMode] = useState<"ws" | "http" | null>(null);
@@ -205,8 +205,16 @@ export default function Page() {
         setRoomState((prev) => prev ? { ...prev, lastStandTriggered: true, state: "last_stand" } : prev);
         break;
       }
+      // A whole room snapshot with the round's result spread over it. Taking the
+      // snapshot is what puts the screen into "intermission" and shows the break
+      // card; the round result itself is read back out of `lastRound`.
+      case "round_end": {
+        const d = msg.data as unknown as RoomState;
+        if (d.players) setRoomState(d);
+        break;
+      }
       case "match_end": {
-        const d = msg.data as unknown as MatchResults;
+        const d = msg.data as unknown as MatchEndData;
         setMatchResults(d);
         const myResult = d.results.find((r) => r.id === playerIdRef.current);
         if (myResult) {
@@ -308,8 +316,8 @@ export default function Page() {
     localStorage.setItem("bretwalda_name", playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("create", { name: playerName, mode: selectedMode, appearance: profileRef.current.appearance });
-  }, [playerName, selectedMode, ensureTransport, sendMsg, showError]);
+    sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance });
+  }, [playerName, selectedMode, bestOf, ensureTransport, sendMsg, showError]);
 
   const handleJoin = useCallback(async () => {
     if (!playerName.trim()) { showError("Enter your warrior name first!"); return; }
@@ -475,6 +483,16 @@ export default function Page() {
     return (
       <div className="fixed inset-0 bg-black">
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} />
+        {/* The score of the match, over the fight. A best-of is worth nothing
+            if a player cannot see where he stands in it, and the HUD proper
+            only knows about this round. Sits below the health bar the HUD
+            owns, and never takes a pointer event off the controls. */}
+        {roomState && roomState.mode !== "solo" && (roomState.bestOf ?? 1) > 1 && roomState.state !== "lobby" && (
+          <div className="pointer-events-none absolute left-1/2 top-[4.6rem] z-20 -translate-x-1/2">
+            <RoundTally roomState={roomState} playerId={playerId} />
+          </div>
+        )}
+        {roomState?.state === "intermission" && <RoundBreak roomState={roomState} playerId={playerId} />}
         {roomState?.mode === "solo" && (
           <button
             onClick={() => { leaveRoom(); setScreen("muster"); }}
@@ -489,22 +507,29 @@ export default function Page() {
 
   // ==================== RESULTS ====================
   if (screen === "results" && matchResults) {
+    const mine = matchResults.results.find((r) => r.id === playerId);
     return (
       <MenuShell art="hall">
         <ContentWrap>
-          <div className="flex flex-col items-center gap-3 text-center">
-            <Trophy className="text-amber-400" size={44} />
+          <div className="card card-noble card-glow flex flex-col items-center gap-3 p-5 text-center sm:p-6">
+            <Trophy className="text-amber-400" size={40} />
             <div className="label-overline">BATTLE COMPLETE</div>
             <h1 className="font-display text-2xl text-amber-100 sm:text-4xl" style={{ textShadow: "0 0 30px rgba(255,180,60,0.4)" }}>
-              {matchResults.winnerName === "Draw" ? "BLOOD SPILT — A DRAW" : `${matchResults.winnerName} PREVAILS`}
+              {matchResults.winnerKind === "none" || matchResults.winnerName === "Draw"
+                ? "BLOOD SPILT — A DRAW"
+                : `${matchResults.winnerName} PREVAILS`}
             </h1>
-            {matchResults.winnerId === playerId && (
+            {/* `isWinner` and not an id match: a war band is won by a side, and
+                every man on it won it. */}
+            {mine?.isWinner && (
               <div className="font-display animate-pulse text-sm tracking-[0.35em] text-yellow-400">VICTORY IS YOURS</div>
             )}
+            <div className="knot-band w-full max-w-xs" />
+            <MatchTally data={matchResults} playerId={playerId} />
           </div>
 
           <div className="flex flex-col gap-2.5">
-            {matchResults.results.sort((a, b) => b.score - a.score).map((r, i) => (
+            {[...matchResults.results].sort((a, b) => b.score - a.score).map((r, i) => (
               <div key={r.id} className={`card flex items-center gap-3.5 px-4 py-3.5 ${
                 r.isWinner ? "!border-amber-500/70 !bg-amber-900/25" : r.id === playerId ? "!border-sky-600/60 !bg-sky-950/30" : ""
               }`}>
@@ -523,9 +548,11 @@ export default function Page() {
             ))}
           </div>
 
+          {/* Both labels stay on one line at 390px: "BACK TO / LOBBY" over two
+              rows makes the pair look like different-sized buttons. */}
           <div className="flex gap-3">
-            <button onClick={() => setScreen("lobby")} className="btn-primary flex-1 !min-h-[3.5rem] !text-sm">BACK TO LOBBY</button>
-            <button onClick={() => { leaveRoom(); setScreen("landing"); }} className="btn-ghost flex-1 !min-h-[3.5rem] !text-sm">LEAVE</button>
+            <button onClick={() => setScreen("lobby")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">BACK TO LOBBY</button>
+            <button onClick={() => { leaveRoom(); setScreen("landing"); }} className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">LEAVE</button>
           </div>
         </ContentWrap>
       </MenuShell>
@@ -556,10 +583,11 @@ export default function Page() {
           {/* INVITE — this is the whole reason the lobby exists. A second
               player only ever arrives through this block, so it gets the top
               of the screen, the largest type and the widest target. */}
-          <div className="warcode-frame mx-auto flex w-full max-w-md flex-col gap-4 p-5 sm:p-6">
-            <div className="text-center">
+          <div className="warcode-frame card-noble mx-auto flex w-full max-w-md flex-col gap-4 p-5 sm:p-6">
+            <div className="flex flex-col items-center text-center">
               <div className="label-overline">WAR CODE</div>
               <div className="warcode mt-2">{roomCode}</div>
+              <div className="knot-band mt-1 w-full max-w-[15rem]" />
             </div>
 
             <div className="flex flex-col gap-2.5">
@@ -581,6 +609,32 @@ export default function Page() {
               <div className="link-preview">{shareUrl()}</div>
             </div>
           </div>
+
+          {/* THE FORMAT — the host's, and the server's answer is what is drawn:
+              the picker reads roomState, never a local copy, so every man in
+              the lobby sees the same format at the same moment. */}
+          <section className="flex flex-col gap-3">
+            <h2 className="section-title"><Flag size={12} className="shrink-0" /> THE FORMAT</h2>
+            {isHost ? (
+              <div className="card flex flex-col gap-3 p-4">
+                <RoundPicker
+                  value={(roomState.bestOf as BestOf) || DEFAULT_BEST_OF}
+                  onChange={(n) => sendMsg("set_rounds", { bestOf: n })}
+                />
+                <p className="text-[11px] leading-relaxed text-stone-400">
+                  {roundsBlurb(roomState.bestOf || 1, roomState.mode)}
+                </p>
+              </div>
+            ) : (
+              <div className="card flex items-center gap-3 px-4 py-3">
+                <span className="cabochon" />
+                <span className="font-display text-sm tracking-wider text-amber-100">
+                  {(roomState.bestOf || 1) > 1 ? `BEST OF ${roomState.bestOf}` : "SINGLE ROUND"}
+                </span>
+                <span className="text-[11px] text-stone-400">{roundsBlurb(roomState.bestOf || 1, roomState.mode)}</span>
+              </div>
+            )}
+          </section>
 
           {/* warriors */}
           <section className="flex flex-col gap-3">
@@ -819,7 +873,10 @@ export default function Page() {
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-bold text-stone-100">{opt.label}</div>
+                        {/* Two lines, not one with an ellipsis: the most
+                            expensive helm in the game was rendering as
+                            "The Sutton Hoo H…". */}
+                        <div className="line-clamp-2 text-sm font-bold leading-snug text-stone-100">{opt.label}</div>
                         <div className="mt-0.5 text-[10px] text-stone-400">
                           {equipped ? "EQUIPPED" : stagedNow ? "ON MANNEQUIN — equip above" : owned ? "Owned — tap to preview" : opt.cost === 0 ? "Free" : `${opt.cost} gold`}
                         </div>
@@ -865,12 +922,10 @@ export default function Page() {
               <span className="ornament-line" />
             </div>
             <h1 className="title-hero font-display mt-4">BRETWALDA</h1>
-            <h2
-              className="font-display mt-1 text-[5.6vw] tracking-[0.26em] text-red-400 sm:text-[2rem]"
-              style={{ textShadow: "0 0 35px rgba(230,60,40,0.55), 0 2px 6px rgba(0,0,0,0.8)" }}
-            >
+            <h2 className="title-sub font-display mt-1 text-[5.6vw] tracking-[0.26em] sm:text-[2rem]">
               BLOOD MOOT
             </h2>
+            <div className="knot-band mx-auto mt-3 w-full max-w-[18rem]" />
             <p
               className="mx-auto mt-5 max-w-[26rem] text-[15px] leading-relaxed text-stone-300/90"
               style={{ textShadow: "0 1px 4px black" }}
@@ -881,7 +936,7 @@ export default function Page() {
 
           {/* The controls sit on a panel. On a black field they read as three
               loose buttons; framed, they read as the front of a game. */}
-          <div className="card card-glow mx-auto flex w-full max-w-[26rem] flex-col gap-3.5 p-4 sm:p-5">
+          <div className="card card-noble card-glow mx-auto flex w-full max-w-[26rem] flex-col gap-3.5 p-5 sm:p-6">
             <label className="label-overline block text-center">YOUR WARRIOR NAME</label>
             <input
               type="text"
@@ -964,6 +1019,17 @@ export default function Page() {
               </button>
             ))}
           </div>
+
+          {/* One life was the whole match before this control existed. It is
+              set here rather than only in the lobby because the host decides
+              the shape of the fight at the same moment he decides its mode. */}
+          <section className="flex flex-col gap-3">
+            <h2 className="section-title"><Flag size={12} className="shrink-0" /> HOW LONG IS THE FIGHT</h2>
+            <div className="card flex flex-col gap-3 p-4">
+              <RoundPicker value={bestOf} onChange={setBestOf} />
+              <p className="text-[11px] leading-relaxed text-stone-400">{roundsBlurb(bestOf, selectedMode)}</p>
+            </div>
+          </section>
 
           <button onClick={handleCreate} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
             {busy ? "SUMMONING..." : "CREATE ROOM"}
@@ -1311,6 +1377,9 @@ function ScreenHead({ overline, title, lede, center, onBack, aside }: {
         <div className={`screen-head min-w-[18rem] flex-1 ${center ? "screen-head-center" : ""}`}>
           {overline && <div className="label-overline">{overline}</div>}
           <h1>{title}</h1>
+          {/* Only under a centred masthead: off to one side the plait has no
+              axis to sit on and reads as a stray rule. */}
+          {center && <div className="knot-band w-full max-w-[16rem]" />}
           {lede && <p>{lede}</p>}
         </div>
         {aside}
@@ -1326,7 +1395,7 @@ function WarriorPanel({ warriorClass, appearance, name, note, onCustomise }: {
   note: string; onCustomise: () => void;
 }) {
   return (
-    <div className="card card-glow flex flex-col items-center gap-4 p-4 sm:flex-row sm:gap-6 sm:p-5">
+    <div className="card card-noble card-glow flex flex-col items-center gap-4 p-5 sm:flex-row sm:gap-6 sm:p-6">
       <div className="w-full sm:w-[42%] sm:shrink-0">
         <CharacterPreview warriorClass={warriorClass} appearance={appearance} height={210} />
       </div>
@@ -1369,6 +1438,145 @@ function ClassGrid({ selected, onSelect }: { selected: WarriorClass | undefined;
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------- rounds ----------------
+
+// What a format means, in the words a player would use. The mode matters
+// because a war band scores by side and a duel does not.
+function roundsBlurb(bestOf: number, mode: string): string {
+  const team = mode === "war_band";
+  if (bestOf <= 1) return "One round decides everything. Fall once and the match is over.";
+  const need = Math.ceil(bestOf / 2);
+  return `First ${team ? "war band" : "warrior"} to ${need} round${need === 1 ? "" : "s"} takes the match — so it can end ${need}–0. Kills carry across every round; gold and glory are paid at the end.`;
+}
+
+function RoundPicker({ value, onChange }: { value: BestOf; onChange: (n: BestOf) => void }) {
+  return (
+    <div className="seg" role="group" aria-label="Rounds in the match">
+      {ROUND_OPTIONS.map((n) => (
+        <button key={n} onClick={() => onChange(n)} aria-pressed={value === n}
+          className={`seg-item flex-col gap-0.5 ${value === n ? "seg-item-active" : ""}`}>
+          <span className="text-lg leading-none">{n}</span>
+          <span className="text-[8.5px] font-bold leading-none tracking-[0.18em] opacity-80">
+            {n === 1 ? "ROUND" : "ROUNDS"}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// One round: an empty gilt setting, or the stone sitting in it.
+function Pips({ won, of, blue }: { won: number; of: number; blue?: boolean }) {
+  return (
+    <span className="flex items-center gap-1">
+      {Array.from({ length: Math.max(1, of) }, (_, i) => (
+        <span key={i} className={`pip ${i < won ? (blue ? "pip-won pip-won-blue" : "pip-won") : ""}`} />
+      ))}
+    </span>
+  );
+}
+
+// The match score, read straight off the server's snapshot. `roundScoreBy`
+// says whether the keys of roundWins are men or sides, so this never has to
+// infer the shape of the match from its mode.
+function RoundTally({ roomState, playerId, noRound }: { roomState: RoomState; playerId: string; noRound?: boolean }) {
+  const of = roomState.roundTarget || 1;
+  const wins = roomState.roundWins || {};
+  const round = roomState.roundIndex || 1;
+  // The break card is already headed with the round; repeating it inside the
+  // tally reads as two different numbers rather than one.
+  const counter = noRound ? null : <span className="text-stone-500">ROUND {round}/{roomState.bestOf}</span>;
+
+  if (roomState.roundScoreBy === "team") {
+    const mine = roomState.players[playerId]?.team;
+    return (
+      <div className="round-hud">
+        <span className={mine === "red" ? "text-amber-200" : "text-stone-400"}>RED</span>
+        <Pips won={wins.red || 0} of={of} />
+        {counter ?? <span className="text-stone-600">·</span>}
+        <Pips won={wins.blue || 0} of={of} blue />
+        <span className={mine === "blue" ? "text-amber-200" : "text-stone-400"}>BLUE</span>
+      </div>
+    );
+  }
+
+  // Free-for-all: your own tally, and the man to beat if it is not you.
+  const lead = Object.entries(wins).sort((a, b) => b[1] - a[1])[0];
+  const leadName = lead && lead[1] > 0 && lead[0] !== playerId ? roomState.players[lead[0]]?.name : null;
+  return (
+    <div className="round-hud">
+      {counter}
+      <span className="text-amber-200">YOU</span>
+      <Pips won={wins[playerId] || 0} of={of} />
+      {leadName && (
+        <>
+          <span className="text-stone-600">·</span>
+          <span className="max-w-[6rem] truncate text-stone-400">{leadName}</span>
+          <Pips won={lead[1]} of={of} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// The breath between rounds. The sim is stopped and the dead are lying where
+// they fell, so this is the only thing on screen that moves — hence the count,
+// which is also the promise that the match has not simply hung.
+function RoundBreak({ roomState, playerId }: { roomState: RoomState; playerId: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+  const r = roomState.lastRound;
+  const left = Math.max(0, Math.ceil(((roomState.nextRoundAt || 0) - now) / 1000));
+  const won = r && !r.draw && (r.winnerId === playerId || (r.winnerTeam && roomState.players[playerId]?.team === r.winnerTeam));
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6">
+      <div className="card card-noble card-glow animate-fadeIn flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
+        <div className="label-overline">ROUND {r?.index ?? roomState.roundIndex} OF {roomState.bestOf}</div>
+        <div className="font-display text-2xl leading-tight text-amber-100" style={{ textShadow: "0 0 26px rgba(217,164,65,0.35)" }}>
+          {!r || r.draw ? "NO MAN LEFT STANDING" : won ? "THE ROUND IS YOURS" : `${r.winnerName} TAKES IT`}
+        </div>
+        <div className="knot-band w-full max-w-[13rem]" />
+        <RoundTally roomState={roomState} playerId={playerId} noRound />
+        <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-stone-400">
+          <Hourglass size={12} className="text-amber-400" />
+          NEXT ROUND IN {left}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The same score, after the last round, where it explains the result rather
+// than tracking it.
+function MatchTally({ data, playerId }: { data: MatchEndData; playerId: string }) {
+  const of = data.roundTarget || 1;
+  const wins = data.roundWins || {};
+  if ((data.bestOf || 1) <= 1) return null;
+  if (data.roundScoreBy === "team") {
+    return (
+      <div className="round-hud">
+        <span className={data.winnerTeam === "red" ? "text-amber-200" : "text-stone-400"}>RED</span>
+        <Pips won={wins.red || 0} of={of} />
+        <span className="text-stone-500">BEST OF {data.bestOf}</span>
+        <Pips won={wins.blue || 0} of={of} blue />
+        <span className={data.winnerTeam === "blue" ? "text-amber-200" : "text-stone-400"}>BLUE</span>
+      </div>
+    );
+  }
+  return (
+    <div className="round-hud">
+      <span className="text-stone-500">BEST OF {data.bestOf}</span>
+      <span className="text-amber-200">YOUR ROUNDS</span>
+      <Pips won={wins[playerId] || 0} of={of} />
+      <span className="text-stone-500">· {data.roundsPlayed} FOUGHT</span>
     </div>
   );
 }

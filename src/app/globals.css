@@ -27,6 +27,27 @@
        named multiple of it, so nothing is placed by eye. */
     --rhythm: clamp(1.5rem, 4.5vw, 2.25rem);
     --tap: 44px;
+
+    /* ---- SUTTON HOO ----------------------------------------------------
+       docs/SUTTON-HOO.md gives the game its palette: gilded bronze fittings
+       and garnet inlay on tinned-silver panels, over near black. The amber
+       these screens already used was reaching for gilt and never got there,
+       so gilt REPLACES it rather than joining it — three metals and one
+       stone, and no fourth accent hue anywhere in the menus.
+
+       The doc also rules that the reference badge's crown, interlace ring
+       and cabochons belong on the UI and not on the helmet. That is what
+       --knot and .cabochon below are. */
+    --gilt: #d9a441;
+    --gilt-lit: #f6dda0;
+    --garnet: #7c1420;
+    --garnet-lit: #c8323c;
+
+    /* Plaitwork, drawn as two strands weaving through each other. An inline
+       SVG is the only honest way to get a curve that crosses itself — it is
+       markup, not an asset, so it still costs zero requests, which is the
+       whole reason this game opens from a link. Tiles every 48px. */
+    --knot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='16' viewBox='0 0 48 16'%3E%3Cg fill='none' stroke='%23d9a441' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M0 8C4 8 8 2 12 2 16 2 20 14 24 14 28 14 32 2 36 2 40 2 44 8 48 8'/%3E%3Cpath d='M0 8C4 8 8 14 12 14 16 14 20 2 24 2 28 2 32 14 36 14 40 14 44 8 48 8'/%3E%3C/g%3E%3C/svg%3E");
   }
 
   * {
@@ -270,6 +291,18 @@
     filter: drop-shadow(0 0 48px rgba(255, 200, 70, 0.35)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
   }
 
+  /* The second line of the wordmark. Garnet, not the pink that "red-400" was:
+     under the same fire key as the title's gilt these are the two colours the
+     helm is actually made of. Shadowed, not glowing, so the gold above it
+     stays the brightest thing on the screen. */
+  .title-sub {
+    color: #d4453c;
+    text-shadow:
+      0 0 26px rgba(160, 20, 24, 0.7),
+      0 0 60px rgba(200, 50, 60, 0.28),
+      0 2px 5px rgba(0, 0, 0, 0.9);
+  }
+
   .label-overline {
     font-family: "Cinzel", serif;
     font-size: 10px;
@@ -277,7 +310,7 @@
     /* The tracking pushes the last glyph past the box; without this the text
        looks optically off-centre everywhere it is centred. */
     text-indent: 0.42em;
-    color: #f0a92e;
+    color: var(--gilt);
     font-weight: 800;
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
   }
@@ -290,6 +323,9 @@
     flex-direction: column;
     gap: 0.5rem;
   }
+  /* Struck-gilt fill. It is drop-shadow and not text-shadow on purpose: a
+     shadow behind a transparent fill shows THROUGH the glyph and fills the
+     letter with its own blur — the same trap title-hero documents. */
   .screen-head h1 {
     font-family: "Cinzel", serif;
     font-weight: 700;
@@ -297,7 +333,11 @@
     line-height: 1.08;
     color: #fbeecd;
     letter-spacing: 0.02em;
-    text-shadow: 0 0 34px rgba(255, 180, 60, 0.28), 0 2px 6px rgba(0, 0, 0, 0.8);
+    background: linear-gradient(180deg, #fff6dd 0%, #f2d79a 46%, #d9a441 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 26px rgba(217, 164, 65, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85));
   }
   .screen-head p {
     font-size: 0.875rem;
@@ -331,65 +371,181 @@
     flex: 1 1 auto;
     height: 1px;
     min-width: 1.5rem;
-    background: linear-gradient(90deg, rgba(217, 119, 6, 0.55), rgba(217, 119, 6, 0));
+    background: linear-gradient(90deg, rgba(217, 164, 65, 0.7), rgba(217, 164, 65, 0));
   }
 
   .ornament-line {
     display: inline-block;
     width: clamp(1.5rem, 8vw, 2.75rem);
     height: 1px;
-    background: linear-gradient(90deg, transparent, #d97706, transparent);
+    background: linear-gradient(90deg, transparent, var(--gilt), transparent);
+  }
+
+  /* ------------------------------------------------------- knot & garnet */
+
+  /* A band of plaitwork with a garnet set in the middle of it. This is the
+     one ornament the screens repeat, so it is a single component rather than
+     a shape each screen draws for itself. The plait lives on the ::before and
+     not on the element, because the mask that fades its ends would otherwise
+     take the stone with it — a mask applies to everything the box paints,
+     generated content included. */
+  .knot-band {
+    position: relative;
+    height: 16px;
+  }
+  .knot-band::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: var(--knot);
+    background-repeat: repeat-x;
+    background-position: center;
+    background-size: auto 16px;
+    opacity: 0.65;
+    /* Two masks intersected: the fade at both ends, and a hole for the stone.
+       The strands are broken either side of the garnet rather than running
+       under it — a cabochon sitting on an unbroken plait reads as a sticker.
+       Where mask-composite is unsupported the layers union instead and the
+       plait simply runs through, which is the older look, not a broken one. */
+    mask-image:
+      linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%),
+      radial-gradient(circle at 50% 50%, transparent 0 7px, #000 8px);
+    -webkit-mask-image:
+      linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%),
+      radial-gradient(circle at 50% 50%, transparent 0 7px, #000 8px);
+    mask-composite: intersect;
+    -webkit-mask-composite: source-in;
+  }
+  .knot-band::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    margin: -3.5px 0 0 -3.5px;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, var(--garnet-lit) 15% 44%, var(--garnet) 45% 78%, #3a070c 100%);
+    box-shadow: 0 0 0 1px rgba(217, 164, 65, 0.7), 0 0 9px rgba(200, 50, 60, 0.5);
+  }
+
+  /* A cut garnet, used inline wherever a screen needs a single point of that
+     red. The offset highlight is the whole trick: it is what makes a dot read
+     as a domed stone instead of a status light. */
+  .cabochon {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    background: radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, var(--garnet-lit) 15% 44%, var(--garnet) 45% 78%, #3a070c 100%);
+    box-shadow: 0 0 0 1px rgba(217, 164, 65, 0.55), 0 0 8px rgba(200, 50, 60, 0.45);
   }
 
   /* ----------------------------------------------------------------- cards */
 
+  /* A panel is a piece of dark bronze plate: lit along its top edge, shadowed
+     under it, sitting on its own shadow. The flat 1px box it used to be is
+     what made these screens read as a settings dialog with a warm border. */
   .card {
-    background: linear-gradient(155deg, rgba(62, 52, 42, 0.72), rgba(32, 27, 22, 0.88));
-    border: 1px solid rgba(150, 125, 95, 0.42);
+    position: relative;
+    background: linear-gradient(158deg, rgba(66, 55, 42, 0.74), rgba(28, 23, 18, 0.9));
+    border: 1px solid rgba(217, 164, 65, 0.26);
     border-radius: 0.85rem;
     backdrop-filter: blur(6px);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    box-shadow:
+      inset 0 1px 0 rgba(246, 221, 160, 0.16),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+      0 3px 14px rgba(0, 0, 0, 0.45);
   }
 
   .card-glow {
-    box-shadow: 0 0 30px rgba(217, 119, 6, 0.18), 0 2px 10px rgba(0, 0, 0, 0.4);
+    box-shadow:
+      inset 0 1px 0 rgba(246, 221, 160, 0.2),
+      0 0 34px rgba(217, 164, 65, 0.16),
+      0 3px 14px rgba(0, 0, 0, 0.45);
   }
 
   .card-glow-green {
-    box-shadow: 0 0 30px rgba(16, 150, 90, 0.14), 0 2px 10px rgba(0, 0, 0, 0.4);
+    box-shadow:
+      inset 0 1px 0 rgba(246, 221, 160, 0.14),
+      0 0 30px rgba(16, 150, 90, 0.14),
+      0 3px 14px rgba(0, 0, 0, 0.45);
+  }
+
+  /* The treatment for a screen's one hero panel — the landing controls, the
+     war code, your own warrior. A gilt inner rule inset from the border, with
+     a garnet set at each corner: the reference badge's ring, flattened onto a
+     rectangle. Deliberately rare. Four corners come off ONE pseudo element
+     with four background layers, because a stud per pseudo would only ever
+     give two. */
+  .card-noble::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border-radius: 0.6rem;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(217, 164, 65, 0.34);
+    /* A garnet dome sitting in a gilt collet — the ring is the last stop of
+       the same gradient, since four studs already cost four layers. The
+       radius is explicit and the tile is larger than it: sized by percent the
+       circle runs to the FARTHEST CORNER of its tile, overflows, and is cut
+       into a square with a round face. */
+    background-image:
+      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%),
+      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%),
+      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%),
+      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%);
+    background-size: 14px 14px;
+    background-repeat: no-repeat;
+    /* Inside the corner radius, not on it: a stud in the corner itself is
+       clipped by the pseudo's own rounded corner and reads as half a stone. */
+    background-position: 2px 2px, calc(100% - 2px) 2px, 2px calc(100% - 2px), calc(100% - 2px) calc(100% - 2px);
   }
 
   .card-interactive {
     transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   }
   .card-interactive:hover {
-    border-color: rgba(200, 165, 115, 0.75);
-    background: linear-gradient(155deg, rgba(76, 63, 50, 0.78), rgba(38, 32, 26, 0.92));
+    border-color: rgba(217, 164, 65, 0.6);
+    background: linear-gradient(158deg, rgba(80, 66, 50, 0.8), rgba(36, 30, 24, 0.94));
     transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    box-shadow:
+      inset 0 1px 0 rgba(246, 221, 160, 0.26),
+      0 6px 20px rgba(0, 0, 0, 0.45);
   }
   .card-interactive:active {
     transform: translateY(0) scale(0.995);
   }
 
+  /* Chosen kit is garnet-lined and gilt-edged — the same read as the selected
+     rung on the helm ladder, and the only place a red field appears outside a
+     warning. */
   .card-selected {
-    border-color: rgba(240, 169, 46, 0.8) !important;
-    background: linear-gradient(155deg, rgba(100, 62, 20, 0.55), rgba(55, 38, 20, 0.85)) !important;
-    box-shadow: 0 0 0 1px rgba(240, 169, 46, 0.45), 0 0 30px rgba(217, 119, 6, 0.2);
+    border-color: rgba(217, 164, 65, 0.85) !important;
+    background: linear-gradient(158deg, rgba(124, 20, 32, 0.5), rgba(48, 22, 16, 0.9)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(246, 221, 160, 0.3),
+      0 0 0 1px rgba(217, 164, 65, 0.35),
+      0 0 30px rgba(160, 40, 40, 0.22) !important;
   }
 
+  /* A struck disc: gilt rim, dark field, light from above. */
   .medallion {
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 9999px;
-    background: rgba(20, 16, 12, 0.85);
-    border: 1px solid rgba(150, 125, 95, 0.6);
+    background: radial-gradient(circle at 50% 24%, rgba(96, 78, 54, 0.8), rgba(16, 12, 9, 0.92) 72%);
+    border: 1px solid rgba(217, 164, 65, 0.45);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fbbf24;
+    color: var(--gilt-lit);
     flex-shrink: 0;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+    box-shadow:
+      inset 0 1px 2px rgba(246, 221, 160, 0.22),
+      inset 0 -2px 5px rgba(0, 0, 0, 0.65),
+      0 1px 3px rgba(0, 0, 0, 0.5);
   }
 
   /* --------------------------------------------------------------- buttons */
@@ -410,17 +566,33 @@
     transition: all 0.15s ease;
   }
 
+  /* Gilded bronze rather than orange plastic: a bright top edge, a dark
+     bottom, and the seam of light that any struck metal has just under its
+     rim. The gleam is a background layer, not a child, so every caller gets
+     it without changing markup. */
   .btn-primary {
-    background: linear-gradient(180deg, #c4671a, #92400e);
-    border: 1px solid rgba(251, 191, 36, 0.55);
-    color: #fff;
-    box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 220, 150, 0.25);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(255, 236, 190, 0.34), rgba(255, 236, 190, 0) 42%),
+      linear-gradient(180deg, #c9761d 0%, #a2540f 46%, #7c3c07 100%);
+    border: 1px solid rgba(246, 221, 160, 0.55);
+    color: #fff6e2;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 240, 200, 0.5),
+      inset 0 -2px 6px rgba(60, 20, 0, 0.55),
+      0 4px 18px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 1px 2px rgba(70, 26, 0, 0.7);
   }
   .btn-primary:hover:not(:disabled) {
-    background: linear-gradient(180deg, #dd7816, #a0500e);
+    background:
+      linear-gradient(180deg, rgba(255, 240, 205, 0.42), rgba(255, 240, 205, 0) 44%),
+      linear-gradient(180deg, #e08a24 0%, #b45f11 46%, #8a4408 100%);
     transform: translateY(-1px);
-    box-shadow: 0 5px 26px rgba(217, 119, 6, 0.4), inset 0 1px 0 rgba(255, 220, 150, 0.3);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 245, 215, 0.6),
+      0 6px 28px rgba(217, 164, 65, 0.35),
+      0 4px 18px rgba(0, 0, 0, 0.5);
   }
   .btn-primary:active:not(:disabled) {
     transform: translateY(1px);
@@ -429,16 +601,25 @@
     opacity: 0.55;
   }
 
+  /* The secondary is tinned silver to the primary's gilt — the two metals the
+     helm actually uses, so a pair of buttons reads as one object. */
   .btn-ghost {
-    background: linear-gradient(180deg, rgba(70, 60, 50, 0.85), rgba(40, 34, 27, 0.95));
-    border: 1px solid rgba(150, 125, 95, 0.55);
-    color: #f3ecdd;
+    background:
+      linear-gradient(180deg, rgba(214, 226, 236, 0.16), rgba(214, 226, 236, 0) 44%),
+      linear-gradient(180deg, rgba(66, 62, 56, 0.92), rgba(30, 27, 23, 0.96));
+    border: 1px solid rgba(179, 190, 199, 0.34);
+    color: #eef1f3;
     font-weight: 700;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    box-shadow:
+      inset 0 1px 0 rgba(226, 236, 244, 0.24),
+      inset 0 -2px 5px rgba(0, 0, 0, 0.5),
+      0 3px 12px rgba(0, 0, 0, 0.4);
   }
   .btn-ghost:hover:not(:disabled) {
-    border-color: rgba(210, 175, 120, 0.9);
-    background: linear-gradient(180deg, rgba(88, 74, 60, 0.95), rgba(50, 42, 33, 0.98));
+    border-color: rgba(196, 210, 220, 0.6);
+    background:
+      linear-gradient(180deg, rgba(220, 232, 242, 0.22), rgba(220, 232, 242, 0) 46%),
+      linear-gradient(180deg, rgba(84, 79, 71, 0.95), rgba(40, 36, 31, 0.98));
     transform: translateY(-1px);
   }
   .btn-ghost:active:not(:disabled) {
@@ -475,14 +656,18 @@
     gap: 0.5rem;
     min-height: 3.25rem;
     padding: 0.75rem 1.1rem;
-    background: linear-gradient(180deg, rgba(90, 15, 15, 0.75), rgba(55, 10, 10, 0.9));
-    border: 1px solid rgba(220, 60, 50, 0.45);
+    background:
+      linear-gradient(180deg, rgba(255, 190, 190, 0.14), rgba(255, 190, 190, 0) 44%),
+      linear-gradient(180deg, rgba(124, 20, 32, 0.85), rgba(48, 8, 12, 0.94));
+    border: 1px solid rgba(200, 50, 60, 0.5);
     border-radius: 0.75rem;
-    color: #fecaca;
+    color: #f3c9c4;
+    box-shadow: inset 0 1px 0 rgba(255, 210, 205, 0.2), 0 3px 12px rgba(0, 0, 0, 0.45);
     transition: all 0.15s ease;
   }
   .btn-danger:hover {
-    border-color: rgba(239, 68, 68, 0.75);
+    border-color: rgba(217, 164, 65, 0.55);
+    color: #ffe0d8;
   }
 
   /* A stepper's two halves are the most-missed targets on the whole site;
@@ -494,14 +679,17 @@
     width: 3rem;
     height: 3rem;
     border-radius: 0.7rem;
-    background: linear-gradient(180deg, rgba(70, 60, 50, 0.85), rgba(40, 34, 27, 0.95));
-    border: 1px solid rgba(150, 125, 95, 0.55);
-    color: #f3ecdd;
+    background:
+      linear-gradient(180deg, rgba(214, 226, 236, 0.16), rgba(214, 226, 236, 0) 44%),
+      linear-gradient(180deg, rgba(66, 62, 56, 0.92), rgba(30, 27, 23, 0.96));
+    border: 1px solid rgba(179, 190, 199, 0.34);
+    color: #eef1f3;
+    box-shadow: inset 0 1px 0 rgba(226, 236, 244, 0.22), 0 2px 8px rgba(0, 0, 0, 0.4);
     transition: all 0.15s ease;
   }
   .btn-step:hover:not(:disabled) {
-    border-color: rgba(210, 175, 120, 0.9);
-    color: #ffd89a;
+    border-color: rgba(217, 164, 65, 0.65);
+    color: var(--gilt-lit);
   }
   .btn-step:disabled {
     opacity: 0.4;
@@ -549,8 +737,8 @@
     color: #6f6558;
   }
   .input-frame:focus {
-    border-color: rgba(240, 169, 46, 0.85);
-    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.22), 0 0 28px rgba(217, 119, 6, 0.15), inset 0 2px 6px rgba(0, 0, 0, 0.3);
+    border-color: rgba(217, 164, 65, 0.9);
+    box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.24), 0 0 28px rgba(217, 164, 65, 0.16), inset 0 2px 6px rgba(0, 0, 0, 0.3);
   }
 
   .select-frame {
@@ -578,19 +766,20 @@
     gap: 0.3rem;
     min-height: 5.5rem;
     padding: 0.9rem 0.4rem;
-    background: linear-gradient(155deg, rgba(62, 52, 42, 0.75), rgba(32, 27, 22, 0.88));
-    border: 1px solid rgba(150, 125, 95, 0.42);
+    background: linear-gradient(158deg, rgba(66, 55, 42, 0.76), rgba(28, 23, 18, 0.9));
+    border: 1px solid rgba(217, 164, 65, 0.24);
     border-radius: 0.85rem;
     color: #ede6d4;
     font-weight: 700;
     font-size: 0.8rem;
     transition: all 0.15s ease;
     backdrop-filter: blur(5px);
+    box-shadow: inset 0 1px 0 rgba(246, 221, 160, 0.16), 0 3px 12px rgba(0, 0, 0, 0.4);
   }
   .mini-nav:hover {
-    border-color: rgba(215, 175, 115, 0.85);
+    border-color: rgba(217, 164, 65, 0.6);
     transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    box-shadow: inset 0 1px 0 rgba(246, 221, 160, 0.26), 0 6px 18px rgba(0, 0, 0, 0.4);
   }
   .mini-nav:active {
     transform: translateY(0);
@@ -631,9 +820,11 @@
     color: #e8e0cf;
   }
   .tab-item-active {
-    background: linear-gradient(180deg, #c4671a, #92400e);
-    color: #fff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    background:
+      linear-gradient(180deg, rgba(255, 236, 190, 0.3), rgba(255, 236, 190, 0) 45%),
+      linear-gradient(180deg, #c9761d, #8a4408);
+    color: #fff6e2;
+    box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.45), 0 2px 8px rgba(0, 0, 0, 0.45);
   }
 
   /* The sticky action bar every long screen ends with. The fade is what keeps
@@ -680,6 +871,20 @@
     padding: 2px 6px;
   }
 
+  .badge-garnet {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: #f0cfc6;
+    background: rgba(124, 20, 32, 0.42);
+    border: 1px solid rgba(217, 164, 65, 0.45);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
   .badge-stone {
     display: inline-flex;
     align-items: center;
@@ -714,12 +919,17 @@
   }
 
   .warcode-frame {
+    position: relative;
     border-radius: 0.9rem;
-    border: 1px solid rgba(240, 169, 46, 0.45);
+    border: 1px solid rgba(217, 164, 65, 0.5);
     background:
-      radial-gradient(120% 100% at 50% 0%, rgba(146, 82, 14, 0.4), transparent 70%),
-      linear-gradient(180deg, rgba(48, 34, 18, 0.9), rgba(24, 18, 12, 0.94));
-    box-shadow: 0 0 40px rgba(217, 119, 6, 0.16), inset 0 1px 0 rgba(255, 210, 140, 0.14);
+      radial-gradient(120% 100% at 50% 0%, rgba(146, 82, 14, 0.42), transparent 70%),
+      linear-gradient(180deg, rgba(48, 34, 18, 0.9), rgba(20, 15, 10, 0.95));
+    box-shadow:
+      inset 0 1px 0 rgba(246, 221, 160, 0.22),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.4),
+      0 0 44px rgba(217, 164, 65, 0.16),
+      0 6px 22px rgba(0, 0, 0, 0.5);
   }
 
   .link-preview {
@@ -772,11 +982,105 @@
     border-left: 2px solid rgba(180, 100, 15, 0.75);
   }
 
+  /* ------------------------------------------------------- rounds & score */
+
+  /* The best-of picker, and the same shape reused anywhere a screen offers
+     two or three exclusive choices. Sunk track, raised chosen segment: the
+     chosen one has to look pressed IN rather than merely coloured, because
+     on a phone this control is read at a glance in a lobby. */
+  .seg {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    /* Capped and centred: three segments stretched across a 990px desktop
+       column stop reading as one control. */
+    width: 100%;
+    max-width: 26rem;
+    margin-inline: auto;
+    border-radius: 0.75rem;
+    background: rgba(14, 10, 7, 0.8);
+    border: 1px solid rgba(217, 164, 65, 0.22);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55);
+  }
+  .seg-item {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: var(--tap);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.5rem;
+    border-radius: 0.55rem;
+    font-family: "Cinzel", serif;
+    font-size: 0.9rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #a99f8d;
+    transition: all 0.15s ease;
+  }
+  .seg-item:hover:not(.seg-item-active) {
+    color: #e8e0cf;
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .seg-item-active {
+    background:
+      linear-gradient(180deg, rgba(255, 236, 190, 0.3), rgba(255, 236, 190, 0) 45%),
+      linear-gradient(180deg, #c9761d, #8a4408);
+    color: #fff6e2;
+    box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 1px 2px rgba(60, 24, 0, 0.6);
+  }
+
+  /* One round, won or not yet. Unwon is an empty gilt setting; won is the
+     stone sitting in it. Same object either way, which is what makes a row of
+     them readable as a score rather than as decoration. */
+  .pip {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    background: rgba(0, 0, 0, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(217, 164, 65, 0.5), inset 0 1px 2px rgba(0, 0, 0, 0.7);
+  }
+  .pip-won {
+    background: radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, var(--garnet-lit) 15% 44%, var(--garnet) 45% 78%, #3a070c 100%);
+    box-shadow: 0 0 0 1px rgba(217, 164, 65, 0.8), 0 0 10px rgba(200, 50, 60, 0.55);
+  }
+  /* A war band's two sides have to stay red and blue — the men are wearing
+     it — so blue's won pip is the one place a colour outside the palette is
+     allowed, and it is kept to the stone. */
+  .pip-won-blue {
+    background: radial-gradient(circle at 34% 30%, #dff2ff 0 14%, #58a8dd 15% 44%, #1c5c8c 45% 78%, #06192b 100%);
+    box-shadow: 0 0 0 1px rgba(217, 164, 65, 0.8), 0 0 10px rgba(70, 150, 220, 0.5);
+  }
+
+  /* The round tally over the arena. Sits under the health bar, dark enough to
+     survive a lit sky behind it, small enough not to be in the way of a
+     fight. */
+  .round-hud {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 9999px;
+    background: rgba(8, 6, 4, 0.62);
+    border: 1px solid rgba(217, 164, 65, 0.3);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    font-family: "Cinzel", serif;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: #f0e3c4;
+    white-space: nowrap;
+  }
+
   /* --------------------------------------------------------------- misc */
 
   .divider {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(150, 125, 95, 0.4), transparent);
+    background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.35), transparent);
   }
 
   .rule-label {
@@ -786,14 +1090,14 @@
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.28em;
-    color: #8b8172;
+    color: #9c8f78;
   }
   .rule-label::before,
   .rule-label::after {
     content: "";
     flex: 1;
     height: 1px;
-    background: rgba(150, 125, 95, 0.3);
+    background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.38), transparent);
   }
 }
 
