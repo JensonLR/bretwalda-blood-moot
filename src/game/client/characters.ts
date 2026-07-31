@@ -700,6 +700,28 @@ function lensPrism(outline: Array<[number, number]>, thickness: number, inset: n
   return finish(pos, uv, idx);
 }
 
+/**
+ * Rewrites a geometry's UVs in place: scale v, then offset both axes.
+ *
+ * For the substances outside `WORLD_TILE` — `oak` on the shield is the one that
+ * matters — the mesh's own UV attribute is the only thing deciding where a
+ * texture lands and how big it is, and `BoxGeometry` hands every face the same
+ * 0..1 whatever size that face is. This is the lever for both the phase and the
+ * density, and it costs one pass over the attribute at build time.
+ *
+ * `sv` scales about v = 0 rather than about the centre, so a run of boards
+ * normalised to a common tile still starts its grain from a common datum and
+ * `dv` remains a meaningful phase.
+ */
+function retile(geo: THREE.BufferGeometry, du: number, dv: number, sv = 1): THREE.BufferGeometry {
+  const uv = geo.getAttribute("uv") as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) + du, uv.getY(i) * sv + dv);
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+
 // ---- primitive shorthands, so the build code reads as anatomy ----
 const ball = (r: number, s = 10) => new THREE.SphereGeometry(r, s, Math.max(4, Math.round(s * 0.6)));
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
@@ -1386,6 +1408,38 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   let py = y * R.y * F.tall - MANDIBLE * Math.pow(clamp01((-y - 0.22) / 0.78), 1.3);
   let pz = z * R.z * F.deep * (1 - 0.1 * low * low) * (1 - 0.09 * high * high);
 
+  // ---- the facial block ----
+  //
+  // The one term that was missing, and it is why five panels called this a
+  // painted decal on an egg. Measured off the built mesh, taking the brow as
+  // zero, the sagittal profile ran: nose tip **+7.7 mm**, subnasale −27.7, lip
+  // line −29.9, chin −42.1. A man's runs roughly +22, −5, −4, −4. So it was not
+  // that the nose was too small — every landmark below the brow was retreating
+  // with the ellipsoid, because a sphere's `cos(v)` has already given up 40% of
+  // its depth by the time it reaches the chin. Twenty separate feature bumps
+  // were being modelled onto a lower face that was falling away underneath all
+  // of them, which is precisely the shape of an egg with a face drawn on it, and
+  // it is also the "muzzle" read: with the chin 50 mm behind the nose, the nose
+  // and moustache are the only things out in front and they read as a snout.
+  //
+  // A skull is a braincase with a *face block* hung on the front of it — maxilla
+  // and mandible standing proud of the cranial sphere — so that is what this is:
+  // one broad forward push that is nothing at the brow and full below the lip
+  // line. It carries every landmark under it, which is why the feature terms
+  // below did not have to change much. `front` and the lateral falloff keep it
+  // off the ears and the back of the skull.
+  // Two parts, because the face block is two bones. The maxillary half is done
+  // by the lip line; the mandible goes on projecting below it, and without the
+  // second term the chin still measured 27–42 mm behind the brow across every
+  // seed — a receding jaw, which is the one facial fault a warrior cannot have.
+  pz += 0.019 * front * bump(x, 0, 0, 1.00, 1, 1) * smooth(Y_BROW - 0.05, Y_LIP, y);
+  // The mandibular half is narrow on purpose. Given the same width as the
+  // maxilla it lands as a plate from gonion to gonion — a lantern jaw with a
+  // hard horizontal crease under the mouth, which is what the first cut of this
+  // rendered. A mandible carries its projection at the *symphysis* and gives it
+  // up toward the angle, so this is a third the width and rides on a longer ramp.
+  pz += 0.016 * front * bump(x, 0, 0, 0.40, 1, 1) * smooth(Y_LIP + 0.14, Y_CHIN - 0.02, y);
+
   // Parietal eminence: a skull is widest just above and behind the ear and rolls
   // over from there, rather than being a ball of one radius. Without it the only
   // vertical in the head's outline is the coif hanging beside it — which is the
@@ -1408,8 +1462,8 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // the skin immediately below it is what turns 20 mm of projection into an
   // overhang with a lit top and a dark underside.
   const brow = bump(ax - 0.34, y - Y_BROW, 0, 0.30, 0.105, 1) * front;
-  pz += 0.019 * F.brow * brow;
-  py += 0.007 * F.brow * brow;
+  pz += 0.024 * F.brow * brow;
+  py += 0.009 * F.brow * brow;
   pz += 0.009 * F.brow * bump(x, y - (Y_BROW - 0.02), 0, 0.12, 0.10, 1) * front;
   // Frontal eminences: the two low mounds either side of the midline that give a
   // forehead any form at all. There is a real forehead to put them on now — the
@@ -1420,7 +1474,7 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // job is to hold shade under a helmet brim, and the sclera below has to sit in
   // something darker than itself or the eye reads as a bead glued to a cheek.
   const socket = bump(ax - 0.36, y - Y_EYE, 0, 0.19, 0.125, 1) * front;
-  pz -= 0.021 * F.deepSet * socket;
+  pz -= 0.018 * F.deepSet * socket;
   px -= sx * 0.005 * socket;
   py -= 0.004 * socket;
   // The orbital upper margin — the crease immediately under the ridge, and the
@@ -1469,8 +1523,21 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // The bridge, carried up between the brows — this is what stops the nose
   // reading as a lump stuck onto a flat plane — and the nasion pinch above it,
   // which is the notch that separates nose from forehead.
+  //
+  // The pinch is nearly twice as deep as it was, and that is the second thing
+  // wrong with this profile after the face block. At 5 mm the forehead and the
+  // dorsum were one continuous plane — measured, the midline ran 129.9 at the
+  // brow and 129.1 immediately under it, a dip of *0.8 mm* — so the nose was not
+  // a separate mass at all, it was where the front of the head happened to stop.
+  // The notch is what makes a viewer read two forms instead of one, and it costs
+  // nothing because it lands in a crease.
   pz += 0.006 * F.bridge * bump(x, y - (Y_BROW - 0.06), 0, 0.085, 0.17, 1) * front;
-  pz -= 0.005 * bump(x, y - (Y_BROW - 0.015), 0, 0.10, 0.05, 1) * front;
+  // 0.078 in y and not 0.055, for the reason the LOD table gives: the head
+  // samples about 0.069 of field-`y` per row near the face, so a notch narrower
+  // than that is below Nyquist and the mesh cannot see it. Measured across six
+  // seeds the old pinch moved the midline by 0.0 mm — it was not shallow, it was
+  // invisible.
+  pz -= 0.009 * bump(x, y - (Y_BROW - 0.015), 0, 0.10, 0.078, 1) * front;
   // Nostril wings: two rounded masses either side of the tip, standing out in x
   // as much as in z so the nose has a *width* at its base and the alar crease
   // that separates wing from cheek has something to cut into.
@@ -1490,13 +1557,24 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // and the 13 mm lateral push is also 26 mm of the head's apparent width, put
   // where a viewer reads breadth from.
   const zygo = bump(ax - 0.55, y - (Y_EYE - 0.10), 0, 0.22, 0.17, 1) * front;
-  px += sx * 0.013 * F.cheek * zygo;
-  pz += 0.010 * F.cheek * zygo;
+  px += sx * 0.016 * F.cheek * zygo;
+  pz += 0.012 * F.cheek * zygo;
+  // The zygomatic arch: the bar of bone that runs from the cheekbone back to the
+  // ear at eye level. Not `front`-masked, because it is the one facial landmark
+  // that lives on the *side* of the head — which is exactly why it is worth
+  // having, since it is the only thing that gives the 3/4 bearing a horizontal
+  // to read across the temple. Under it the buccal hollow already dips, so the
+  // pair reads as bone over a hollow rather than as a bulge.
+  px += sx * 0.007 * F.cheek * bump(ax - 0.76, y - (Y_EYE - 0.05), z - 0.30, 0.22, 0.11, 0.62);
   const hollow = bump(ax - 0.46, y - (Y_LIP + 0.03), 0, 0.20, 0.16, 1) * front;
   px -= sx * 0.008 * F.gaunt * hollow;
   pz -= 0.009 * F.gaunt * hollow;
   // Nasolabial fold: from beside the nostril down past the mouth corner.
-  pz -= 0.005 * bump(ax - 0.26, y - (Y_LIP + 0.12), 0, 0.075, 0.19, 1) * front;
+  // Widened from 0.075 to 0.13 across. A narrow groove cut into the raised face
+  // block below reads as the *outline of a muzzle* rather than as a fold of
+  // skin: two hard verticals bounding the mouth, which is the read the panels
+  // logged at the 3/4 bearing. A nasolabial fold is a soft diagonal.
+  pz -= 0.004 * bump(ax - 0.30, y - (Y_LIP + 0.12), 0, 0.13, 0.19, 1) * front;
 
   // Mouth: a crease with a lip above and below it, and a shelf under the lower
   // lip so the chin is a separate mass rather than the bottom of the mouth.
@@ -1517,10 +1595,21 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // jaw — this is the one place where adding depth also makes the lower face read
   // *shorter*, because it gives the eye a second landmark to divide it at.
   const chin = bump(x, y - Y_CHIN, 0, 0.27, 0.155, 1) * front;
-  pz += 0.026 * F.chin * chin;
+  pz += 0.032 * F.chin * chin;
   py -= 0.004 * chin;
-  const gonion = bump(ax - 0.68, y - Y_GONION, z, 0.26, 0.22, 0.95);
-  px += sx * 0.019 * F.jaw * gonion;
+  // Mental tubercles: the two low mounds either side of the midline that make a
+  // man's chin a *box* rather than the bottom of a curve. They are the last
+  // horizontal landmark on the face and the only one below the mouth, so at the
+  // seventy pixels a face gets they are worth more than their 4 mm.
+  pz += 0.004 * F.chin * bump(ax - 0.13, y - (Y_CHIN + 0.03), 0, 0.11, 0.12, 1) * front;
+  // Gonial angle and the ramus above it. Tightened in y from 0.22 to 0.15 and
+  // pushed harder: a jaw needs a *corner* in the silhouette, and a 220 mm-tall
+  // gaussian is a swell — it widened the whole side of the head and left the
+  // outline the unbroken arc from temple to chin that reads as an egg. The ramus
+  // term above it gives the corner something to be the bottom of.
+  const gonion = bump(ax - 0.68, y - Y_GONION, z, 0.26, 0.17, 0.95);
+  px += sx * 0.026 * F.jaw * gonion;
+  px += sx * 0.011 * F.jaw * bump(ax - 0.70, y - (Y_GONION + 0.20), z + 0.25, 0.22, 0.20, 0.85);
   // Mandible edge: a crease above the jawline so the jaw casts its own shadow
   // onto the neck instead of melting into it. Deepened to 5 mm and run further
   // back toward the gonion — it is working with a real throat mass underneath
@@ -1530,7 +1619,13 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // Temple hollow and occipital bun. The temple is down from 5 mm to 2.5: on a
   // head this narrow it was cutting into the one place the eye measures breadth.
   px -= sx * 0.0025 * bump(ax - 0.85, y - (Y_BROW + 0.12), z - 0.3, 0.18, 0.20, 0.7);
-  pz -= 0.009 * bump(x, y - 0.02, z + 0.92, 1, 0.4, 0.32);
+  // The occiput comes in as the face block goes out, and that is deliberate
+  // book-keeping rather than a taste call: the head measured 262 mm deep against
+  // 265 tall before this pass, which is already a long skull, and 24 mm of new
+  // face in front of it would have made a horse of it. Flatter behind, fuller in
+  // front, same overall length — and the helm bowl follows, because it is swept
+  // through this same field.
+  pz -= 0.016 * bump(x, y - 0.02, z + 0.92, 1, 0.4, 0.32);
 
   return out.set(px, py, pz);
 }
@@ -1680,7 +1775,7 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // key still finds the iris. At 6.5 mm it was 27 mm behind and the socket read
   // as the void it was supposed to be replacing.
   const floor = faceSurface(K, dir, new THREE.Vector3());
-  const c = floor.addScaledVector(fwd, 0.011 - GLOBE);
+  const c = floor.addScaledVector(fwd, 0.013 - GLOBE);
   // `lat` stays with the skull's +x rather than flipping to "outward", so
   // (lat, up, fwd) is right-handed on both sides of the face. That matters: every
   // patch below takes its winding from that cross product, and a mirrored frame
@@ -1825,7 +1920,7 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     p.add(globePatch(f, GLOBE + 0.00015, 0.0002, Math.max(4, lod.shellU - 4), 1, (t, s, out) => {
       const tt = t * 2 - 1;
       const hh = fissure(f, tt);
-      out.set(tt * f.wA, f.tilt * tt + mix(0.52, 1.0, s) * hh);
+      out.set(tt * f.wA, f.tilt * tt + mix(0.68, 1.0, s) * hh);
     }), M.dark, place.clone());
 
     // Iris, then pupil, each a shallow disc lying on the globe. Low roughness on
@@ -2345,8 +2440,18 @@ export function buildSword(materials?: CharacterMaterials): THREE.Group {
     { y: 0.55, hw: 0.028, hd: 0.0035 },
     { y: 0.163, hw: 0.031, hd: 0.0042 },
   ]), steel);
-  // Fuller — a shallow dark groove down the centre of both faces.
-  part.add(box(0.014, 0.72, 0.0086), dark, xf(0, 0.53, 0));
+  // Fuller — a dark line down the centre of both faces, and it has to be a
+  // *swept* one. As a box it was 8.6 mm deep on a blade that is 5.4 mm thick at
+  // the forte and 4.2 at the foible, so the groove stood up to 1.6 mm proud of
+  // the steel either side of it: seen from the edge the sword's silhouette was
+  // the fuller and not the blade. Following the blade's own `hd` keeps it inside
+  // a tenth of a millimetre of the surface, which is under a pixel at any range
+  // and cannot break the section.
+  part.add(shell([
+    { y: 0.885, hw: 0.0062, hd: 0.0027 },
+    { y: 0.55, hw: 0.008, hd: 0.0036 },
+    { y: 0.19, hw: 0.0085, hd: 0.0043 },
+  ], 6, { power: 2.6, capTop: true, capBottom: true }), dark);
   // Lower guard, grip, upper guard, lobed pommel.
   part.add(shell([
     { y: 0.028, hw: 0.096, hd: 0.019 },
@@ -2411,6 +2516,88 @@ export function buildDagger(materials?: CharacterMaterials): THREE.Group {
 }
 
 /**
+ * An axe blade: a crescent whose section is a real wedge rather than a plate.
+ *
+ * `lensPrism` cannot build this and that is why the axe read as a stick. It
+ * scales the whole outline about its centroid to get the two faces, so the inset
+ * a cutting edge needs — a few tenths of a millimetre — is the same inset the
+ * socket end gets, where the metal is forty millimetres thick. Every axe head cut
+ * that way is uniformly thin, every concavity in the outline is rounded away by
+ * the scale, and what comes out is a pillow. Held anywhere but square to the lens
+ * a pillow is a stick.
+ *
+ * So the head is parameterised the way a smith thinks about it instead: `t` runs
+ * along the cutting edge from the top horn round to the beard, `s` runs from the
+ * edge back to the eye, and the half-thickness is a function of **distance from
+ * the edge**. That gives, in one surface and for free:
+ *
+ *   - a *land* at the edge rather than a mathematical point (`SECTION[0]`), for
+ *     the same reason `bladeSection` carries `phase: 0.5` — a zero-width edge
+ *     alternates between covering and missing pixel centres and crawls;
+ *   - a **bevel break** at `s = 0.12`, ~19 mm back, at 21° included. That normal
+ *     discontinuity is the line of light that runs the whole crescent and it is
+ *     the single feature that says "axe" at fifty metres;
+ *   - a blade that swells out of the eye and thins to the edge, so the head has a
+ *     lit top plane and a dark underside from every bearing, not just square on;
+ *   - horns and beard that are thin where they are thin on a real head, because
+ *     `horn` tapers the section toward both ends of the arc — but only near the
+ *     edge, so the metal is still full thickness where it meets the socket.
+ *
+ * Both polylines must be the same length; `t` is their shared index.
+ */
+function axeBlade(
+  edge: Array<[number, number]>,
+  root: Array<[number, number]>,
+  eyeHalf: number,
+): THREE.BufferGeometry {
+  // Distance from the edge, and the half-thickness there as a fraction of the
+  // eye. Front-loaded: an axe is a long thin wedge for most of its width and
+  // then nearly doubles in the last fifth, which is the mass behind the eye.
+  //
+  // The **repeated stations are the point of this table**. `finish` averages
+  // vertex normals over whatever shares an index, so a section written as six
+  // rising stations shades as one smooth pillow and the ground bevel — the whole
+  // reason a blade catches a line of light down its length — averages away
+  // before it reaches a pixel. A duplicated station puts two coincident rows in
+  // the grid with different indices; the quad between them has no area and so
+  // contributes no normal, and the faces above and below it end up with normals
+  // of their own. That is a hard crease for the cost of one row of vertices, and
+  // there are two of them: one at the land, one at the bevel shoulder 21 mm back.
+  const SECTION: Array<[number, number]> = [
+    [0, 0.030], [0, 0.030], [0.12, 0.17], [0.12, 0.17], [0.34, 0.27], [0.62, 0.40], [1, 1],
+  ];
+  const n = edge.length - 1;
+  const rows = SECTION.length - 1;
+  const at = (t: number, s: number, sign: number, out: THREE.Vector3) => {
+    const ti = Math.min(n - 1, Math.floor(t * n));
+    const tf = t * n - ti;
+    const si = Math.min(rows - 1, Math.floor(s * rows));
+    const sf = s * rows - si;
+    const ex = mix(edge[ti][0], edge[ti + 1][0], tf);
+    const ey = mix(edge[ti][1], edge[ti + 1][1], tf);
+    const rx = mix(root[ti][0], root[ti + 1][0], tf);
+    const ry = mix(root[ti][1], root[ti + 1][1], tf);
+    const sv = mix(SECTION[si][0], SECTION[si + 1][0], sf);
+    const k = mix(SECTION[si][1], SECTION[si + 1][1], sf);
+    // Thin toward both ends of the arc — a horn and a beard tip are sheet metal
+    // — but only out at the edge. `sv` carries the taper back to nothing at the
+    // eye, where the head has to be one solid mass whatever `t` says.
+    const horn = mix(0.40 + 0.60 * Math.sqrt(Math.sin(Math.PI * t)), 1, Math.pow(sv, 1.4));
+    out.set(mix(ex, rx, sv), mix(ey, ry, sv), sign * eyeHalf * k * horn);
+  };
+  // One column per authored point and one row per section station: the
+  // interpolation between them is linear, so any extra grid line would only add
+  // collinear vertices. Curvature is bought by authoring points, not by nu.
+  // `u` runs backwards so ∂u × ∂v comes out along +z and the outer grid faces
+  // out; taken forwards the whole head renders inside out and disappears.
+  return patch({
+    nu: n, nv: rows,
+    outer: (u, v, out) => at(1 - u, v, 1, out),
+    inner: (u, v, out) => at(1 - u, v, -1, out),
+  });
+}
+
+/**
  * The berserker's Dane axe: bearded crescent, langets down the haft, 1.44 m.
  *
  * Rebalanced about the grip this pass, and the reason is a defect the owner read
@@ -2444,41 +2631,84 @@ export function buildAxe(materials?: CharacterMaterials): THREE.Group {
 
   const headY = 0.86;
 
-  // Haft with a slightly oval section, thickening toward the head.
+  // Haft with an oval section — and the oval's long axis runs **along the cut**,
+  // which is the way round a real haft is shaped so the hand knows where the edge
+  // is without looking. It was the other way round, which cost twice: the haft
+  // presented its narrow 42 mm face to a camera that is nearly always in front of
+  // the warrior, and the section disagreed with the head it carries.
   part.add(shell([
-    { y: headY + 0.06, hw: 0.021, hd: 0.026 },
-    { y: 0.44, hw: 0.019, hd: 0.024 },
-    { y: -0.16, hw: 0.02, hd: 0.025 },
-    { y: -0.56, hw: 0.023, hd: 0.028 },
+    { y: headY + 0.06, hw: 0.026, hd: 0.020 },
+    { y: 0.44, hw: 0.024, hd: 0.019 },
+    { y: -0.16, hw: 0.025, hd: 0.020 },
+    { y: -0.56, hw: 0.028, hd: 0.023 },
   ], 8, { capTop: true, capBottom: true }), ash);
   part.add(shell([
-    { y: -0.54, hw: 0.03, hd: 0.032 },
-    { y: -0.58, hw: 0.026, hd: 0.028 },
+    { y: -0.54, hw: 0.034, hd: 0.030 },
+    { y: -0.58, hw: 0.030, hd: 0.026 },
   ], 8, { capTop: true, capBottom: true }), iron);
 
-  // Head: outline traced counter-clockwise from the socket, out along the top
-  // horn, down the crescent edge and back under the beard. Pulled in about 10%
-  // from the old outline — 222 mm of blade off a 21 mm haft was at the very top of
-  // what the finds support, and it is the flattest plate on any warrior.
-  const head: Array<[number, number]> = [
-    [-0.033, -0.055], [0.028, -0.069], [0.083, -0.09], [0.142, -0.096],
-    [0.183, -0.064], [0.202, 0.0], [0.193, 0.066], [0.155, 0.119],
-    [0.092, 0.14], [0.032, 0.136], [-0.033, 0.124],
+  // The cutting edge, top horn round to the beard tip, and the line where the
+  // blade dies into the eye. 295 mm of edge on 176 mm of blade beyond the socket,
+  // which is a large but unremarkable Petersen type M — the reach off the haft is
+  // 204 mm, i.e. exactly what the old plate had. The head is bigger in silhouette
+  // and no longer in reach, and that is the trade this pass wanted: what was
+  // missing was never length, it was *form*.
+  //
+  // The last four stations of both curves are the beard, and they are the reason
+  // this is a table rather than an arc. The edge hooks down and *back* toward the
+  // haft while the root runs under the socket to x = -20 mm, so the two curves
+  // open a concave throat beneath the eye. That notch is the one piece of an axe's
+  // outline no other weapon in the game has, and it survives being 30 px tall.
+  const edge: Array<[number, number]> = [
+    [0.163, 0.137], [0.181, 0.116], [0.192, 0.093], [0.199, 0.068],
+    [0.203, 0.042], [0.204, 0.016], [0.203, -0.010], [0.200, -0.036],
+    [0.194, -0.061], [0.186, -0.085], [0.176, -0.108], [0.161, -0.130],
+    [0.143, -0.148], [0.122, -0.162], [0.098, -0.170],
   ];
-  part.add(lensPrism(head, 0.05, 0.42), steel, xf(0, headY, 0));
-  // Socket and eye of the axe, wrapped round the haft.
+  const root: Array<[number, number]> = [
+    [0.008, 0.066], [0.015, 0.058], [0.020, 0.048], [0.024, 0.036],
+    [0.027, 0.022], [0.028, 0.008], [0.028, -0.006], [0.027, -0.020],
+    [0.025, -0.033], [0.021, -0.046], [0.016, -0.059], [0.009, -0.072],
+    [0.000, -0.086], [-0.013, -0.100], [-0.026, -0.112],
+  ];
+  // The root line sits inside the socket's own waist, so the blade's inboard rim
+  // is buried in it rather than ending in a lit 38 mm plate.
+  part.add(axeBlade(edge, root, 0.019), steel, xf(0, headY, 0));
+
+  // The eye: a forged collar round the haft with a lip at each end and a waist
+  // between them. The lips are the point — they are two hard horizontal edges at
+  // the one place on the weapon where the light is not raking, and without them
+  // the socket was a 96 mm-deep lozenge that read as a fist round the haft and
+  // stood proud of the blade it is supposed to carry.
   part.add(shell([
-    { y: 0.086, hw: 0.036, hd: 0.042 },
-    { y: -0.02, hw: 0.04, hd: 0.048 },
-    { y: -0.086, hw: 0.035, hd: 0.042 },
-  ], 10, { power: 2.4 }), iron, xf(0, headY, 0));
+    { y: 0.092, hw: 0.030, hd: 0.020 },
+    { y: 0.079, hw: 0.036, hd: 0.025 },
+    { y: 0.058, hw: 0.032, hd: 0.022 },
+    { y: -0.058, hw: 0.032, hd: 0.022 },
+    { y: -0.079, hw: 0.036, hd: 0.025 },
+    { y: -0.092, hw: 0.030, hd: 0.020 },
+  ], 10, { power: 2.5 }), iron, xf(0, headY, 0));
+
+  // Langets: two straps down the faces the blade lies in, tapering to a point,
+  // riveted through. They used to be a pair of 50 mm-deep boxes standing 5 mm
+  // clear of the haft on either side of it — at gameplay distance that is a fork,
+  // not a binding, and it was most of what made the visible half of this weapon
+  // read as a stick. Built as prisms in their own plane and turned onto the haft,
+  // so each lies *on* the wood with a rounded back.
+  const langet: Array<[number, number]> = [
+    [-0.014, 0.020], [0.014, 0.020], [0.012, -0.052], [0.007, -0.108],
+    [0.0, -0.145], [-0.007, -0.108], [-0.012, -0.052],
+  ];
   for (const s of [-1, 1]) {
-    part.add(box(0.008, 0.3, 0.05), iron, xf(s * 0.026, headY - 0.17, 0));
+    part.add(lensPrism(langet, 0.007, 0.3), iron, xf(s * 0.024, headY - 0.10, 0, 0, s * Math.PI / 2, 0));
+    for (const ry of [-0.01, -0.09]) {
+      part.add(ball(0.005, 6), iron, xf(s * 0.029, headY - 0.10 + ry, 0, 0, 0, 0, 0.6, 1, 1));
+    }
   }
   // Grip binding, and a thong at the butt.
   part.add(shell([
-    { y: 0.09, hw: 0.026, hd: 0.031 },
-    { y: -0.09, hw: 0.028, hd: 0.033 },
+    { y: 0.09, hw: 0.031, hd: 0.026 },
+    { y: -0.09, hw: 0.033, hd: 0.028 },
   ], 8, { wall: 0.005 }), leather, xf(0, 0.02, 0));
 
   for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
@@ -2518,7 +2748,17 @@ export function buildSpear(materials?: CharacterMaterials): THREE.Group {
     { y: 1.22, hw: 0.038, hd: 0.0068 },
     { y: 1.13, hw: 0.022, hd: 0.005 },
   ]), steel);
-  part.add(box(0.009, 0.3, 0.016), iron, xf(0, 1.28, 0));
+  // The midrib, and it is meant to stand proud — but as a 300 mm box it ran past
+  // the blade at both ends and ended in a square face 10 mm short of the point,
+  // which renders as a fin sticking out of the leaf. Swept, it dies into the
+  // blade at the tip and again at the socket, standing ~1.2 mm off the faces
+  // where a rib actually stands and nowhere else.
+  part.add(shell([
+    { y: 1.405, hw: 0.0034, hd: 0.0044 },
+    { y: 1.30, hw: 0.006, hd: 0.0075 },
+    { y: 1.22, hw: 0.0062, hd: 0.008 },
+    { y: 1.14, hw: 0.005, hd: 0.0062 },
+  ], 6, { power: 2.2, capTop: true, capBottom: true }), iron);
   // Ferrule at the butt and a bound hand-hold.
   part.add(shell([
     { y: -0.52, hw: 0.021, hd: 0.021 },
@@ -2605,18 +2845,49 @@ export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): T
   // turf through it. 6 mm of rawhide backing costs ~70 triangles and no draw call.
   part.add(new THREE.CylinderGeometry(R * 0.99, R * 0.99, 0.006, 24), leather, xf(0, 0, zf - 0.007, Math.PI / 2));
 
+  // Seven boards, one geometry, one material — and until this pass one *grain*.
+  // `BoxGeometry` parameterises every face over 0..1 whatever size the face is,
+  // so all seven front faces asked `oak` for the same three repeats of the same
+  // texture and got back the same knots at the same heights. No texture recipe
+  // can fix that; it has to be fixed where the UVs are made, which is here.
+  //
+  // Two errors, and they are separable. The first is *phase*: identical boards.
+  // The second is *density*, and it is the larger of the two — the boards are
+  // chords of a circle, 100 mm tall at the rim against 753 mm through the
+  // middle, so three repeats over each of them is a 33 mm grain on the outer
+  // board and a 251 mm grain on the centre one. Seven boards nailed edge to edge
+  // out of one tree, showing a 7.5:1 range of grain, is not a shield.
+  //
+  // `PLANK_V` is the v-tile every board is normalised to — the centre board's,
+  // so the plank the eye actually lands on is unchanged and the rest come to
+  // meet it. The u repeat is left alone: 35 mm across the width is the close
+  // ring spacing that makes quarter-sawn oak read as oak, and it is already
+  // consistent because every board is the same width.
+  const PLANK_V = 0.7526;
   for (let i = 0; i < planks; i++) {
     const cx = ((i + 0.5) / planks - 0.5) * 2 * R;
     // Chord height, so the board's outline follows the circle instead of ending
     // in a square corner, and a dome forward of centre.
     const edge = Math.max(0.05, Math.sqrt(Math.max(0, R * R - (Math.abs(cx) + halfW) ** 2)));
     const dome = crest * (1 - (cx / R) ** 2);
-    part.add(box(halfW * 2, edge * 2, 0.019), board, xf(cx, 0, zf + dome));
+    // Phase: irrational-ish per board in both axes, so no two share a knot and
+    // no pair lines up again further along the disc. `hash` would do as well;
+    // these are written out because the whole point is that a reader can see
+    // seven different numbers.
+    const du = (i * 0.37) % 1;
+    const dv = (i * 0.61 + 0.13) % 1;
+    part.add(retile(box(halfW * 2, edge * 2, 0.019), du, dv, (edge * 2) / PLANK_V), board, xf(cx, 0, zf + dome));
     // The painted quarter, cut per plank: boards right of centre carry it on their
     // upper half, boards left of centre on their lower half, which is the same
     // two-colour quartering the disc wedges were drawing — except this one is
     // lying on the wood.
-    part.add(box(halfW * 1.94, edge, 0.004), paint, xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115));
+    //
+    // Half the board's height and its own 0..1 v, so at `M.timber`'s repeat 3 the
+    // paint's grain used to be exactly twice as fine as the board 2 mm under it.
+    // Same normalisation, same phase as the board it lies on, so the grain runs
+    // through the paint the way it does on a limewood shield.
+    part.add(retile(box(halfW * 1.94, edge, 0.004), du, dv, edge / PLANK_V), paint,
+      xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115));
   }
 
   // Rawhide binding folded over the board edge, then iron clamps over it.
@@ -3786,11 +4057,64 @@ export function buildCharacter(
     // nose, which the layout rewrite moved 27 and 32 mm respectively; left at
     // `skullY - 0.004` they sat level with the brow, which is the one place on a
     // head an ear never is.
+    // An ear is a rim round a hollow, and until this pass it was two scaled
+    // spheres — which at any bearing renders as a bean stuck to the skull, and
+    // which every panel read as "there is no ear". Four shapes fix that, and the
+    // order they matter in is: the **helix** (the rim, an open arc — an ear's
+    // whole outline is that one curve and it must not close at the bottom), the
+    // **concha** in the shade tone (a hollow, not a hole: the tone does the work
+    // the geometry cannot at 60 mm), the **antihelix** as a second, shorter arc
+    // inside it, and the **lobe**. The rim stands 13 mm off the skull with a bowl
+    // behind it, which is the crevice an SSAO pass can actually find — none of
+    // this is painted.
     const earY = skullY + (Y_EYE + Y_NOSE) * 0.5 * R.y - 0.004;
     for (const s of [-1, 1]) {
-      p.add(ball(0.024, 8), skin, xf(s * R.x * 0.95, earY, -0.028, 0.12, s * 0.42, 0, 0.38, 1.25, 0.92));
+      // Ear space: +Y up the ear, +X toward the face, +Z out of the skull.
+      //
+      // The sign gymnastics are unavoidable and worth one sentence. Two ears are
+      // mirror images, a rotation cannot make one out of the other, and a
+      // negative scale would turn every surface inside out — the same trap
+      // `mirrorZ` exists for on the hands. So `s` flips the *authored* in-plane
+      // axis instead: `-s * ex` puts +X toward the face on both sides, and the
+      // rake follows it as `-s * roll`.
+      const ear = (
+        ex: number, ey: number, ez: number, roll: number,
+        kx: number, ky: number, kz: number,
+      ) => new THREE.Matrix4()
+        .makeTranslation(s * (R.x * 1.0), earY, -0.024)
+        .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
+        .multiply(xf(-s * ex, ey, ez, 0, 0, -s * roll, kx, ky, kz));
+      // The concha, and it is built first because it is what the rest hangs on:
+      // a bowl whose inner half is buried in the skull, so the ear is *attached*
+      // rather than perched. In the form-shadow tone, because at 60 mm the
+      // hollow cannot out-shade its own rim on geometry alone — and because that
+      // rim now stands 12 mm off the skull with a bowl behind it, which is a
+      // crevice a screen-space AO pass can find on its own.
+      p.add(ball(0.0175, 9), skinDark, ear(-0.002, -0.002, -0.004, 0.22, 1.0, 1.55, 0.66));
+      // Helix: 4.5 rad of rim, centred up-and-back and left open at the front
+      // bottom where a real one runs down into the tragus instead of closing
+      // into a ring. An ear's whole outline is this one curve.
+      const arc = 4.9;
+      p.add(new THREE.TorusGeometry(0.0235, 0.0048, 5, 14, arc), skin,
+        new THREE.Matrix4()
+          .makeTranslation(s * (R.x * 1.0), earY, -0.024)
+          .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
+          .multiply(xf(0, 0, 0.006, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2, 0.84, 1.34, 0.86)));
+      // The lobe, warm because it is the thinnest flesh on the head and the
+      // place a backlight actually passes through.
+      p.add(ball(0.0105, 7), skinWarm, ear(0.003, -0.028, 0.002, 0, 0.62, 0.95, 0.80));
       if (lod.trim) {
-        p.add(ball(0.0135, 6), skinWarm, xf(s * R.x * 1.0, earY, -0.024, 0.12, s * 0.42, 0, 0.4, 1.12, 0.8));
+        // Antihelix — the second, shorter ridge inside the rim, and the thing
+        // that stops the bowl reading as a thumbprint pressed into the skull.
+        p.add(new THREE.TorusGeometry(0.0105, 0.0033, 4, 9, 3.2), skin,
+          new THREE.Matrix4()
+            .makeTranslation(s * (R.x * 1.015), earY + 0.001, -0.024)
+            .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
+            .multiply(xf(0, 0, 0, 0, 0, Math.PI / 2 - s * 0.9 - 1.6, 0.9, 1.2, 0.7)));
+        // Tragus: three millimetres of flap over the canal, and the one part of
+        // an ear that faces forward — so it is the part a front fill finds, and
+        // the part that tells the eye where the opening is.
+        p.add(ball(0.0062, 6), skin, ear(0.013, -0.008, 0.001, 0, 0.7, 1.2, 0.85));
       }
     }
 
@@ -3964,7 +4288,7 @@ export function buildCharacter(
         // a beard actually is, and at 2 mm of lift on the boundary the rim strip
         // is inside the skin and cannot be seen at all.
         lift: (_u, s) => (full
-          ? 0.002 + 0.019 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.55)), 1.15)
+          ? 0.002 + 0.016 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.55)), 1.15)
           : 0.0004 + 0.0012 * Math.sin(Math.PI * clamp01(s))),
         thick: full ? 0.005 : 0.0007,
       }), beard, place.clone());
@@ -3979,7 +4303,7 @@ export function buildCharacter(
         // what is left is a moustache that grows out of the lip and thins toward
         // the corner.
         const swell = (u: number, v: number) =>
-          0.0015 + 0.012 * Math.sin(Math.PI * clamp01(v))
+          0.0015 + 0.008 * Math.sin(Math.PI * clamp01(v))
           * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.035) / 0.345));
         // A leaf, not a rectangle. Both v bounds converge at both ends of u, so
         // the half pinches shut against the philtrum on one side and against the
@@ -4011,25 +4335,25 @@ export function buildCharacter(
         // three-station taper is a cone, and a cone under a jaw reads as a beak;
         // the belly at −180 mm is what makes it hang.
         p.add(shell([
-          { y: skullY - 0.126, hw: 0.066, hd: 0.054, z: 0.024 },
-          { y: skullY - 0.180, hw: 0.071, hd: 0.058, z: 0.026 },
-          { y: skullY - 0.232, hw: 0.058, hd: 0.048, z: 0.024 },
-          { y: skullY - 0.278, hw: 0.036, hd: 0.031, z: 0.020 },
-          { y: skullY - 0.302, hw: 0.014, hd: 0.013, z: 0.017 },
+          { y: skullY - 0.126, hw: 0.066, hd: 0.054, z: 0.038 },
+          { y: skullY - 0.180, hw: 0.071, hd: 0.058, z: 0.038 },
+          { y: skullY - 0.232, hw: 0.058, hd: 0.048, z: 0.034 },
+          { y: skullY - 0.278, hw: 0.036, hd: 0.031, z: 0.028 },
+          { y: skullY - 0.302, hw: 0.014, hd: 0.013, z: 0.023 },
         ], lod.limb, { power: 2.15, capBottom: true }), beard);
       } else if (ap.beardStyle === "forked") {
         for (const s of [-1, 1]) {
           p.add(shell([
-            { y: skullY - 0.130, hw: 0.036, hd: 0.032, z: 0.026 },
-            { y: skullY - 0.220, hw: 0.03, hd: 0.026, z: 0.022 },
-            { y: skullY - 0.290, hw: 0.014, hd: 0.013, z: 0.016 },
+            { y: skullY - 0.130, hw: 0.036, hd: 0.032, z: 0.040 },
+            { y: skullY - 0.220, hw: 0.03, hd: 0.026, z: 0.032 },
+            { y: skullY - 0.290, hw: 0.014, hd: 0.013, z: 0.022 },
           ], 8, { capBottom: true }), beard, xf(s * 0.032, 0, 0, 0, 0, -s * 0.18));
         }
       } else if (ap.beardStyle === "braided") {
         for (let i = 0; i < 4; i++) {
-          p.add(ball(0.03 - i * 0.004, 8), beard, xf(0, skullY - 0.132 - i * 0.052, 0.026 - i * 0.003, 0, 0, 0, 1, 1.1, 1));
+          p.add(ball(0.03 - i * 0.004, 8), beard, xf(0, skullY - 0.132 - i * 0.052, 0.040 - i * 0.004, 0, 0, 0, 1, 1.1, 1));
         }
-        p.add(ring(0.021, 0.005, 4, 10), brass, xf(0, skullY - 0.265, 0.016, Math.PI / 2, 0, 0));
+        p.add(ring(0.021, 0.005, 4, 10), brass, xf(0, skullY - 0.265, 0.026, Math.PI / 2, 0, 0));
       }
     }
 
