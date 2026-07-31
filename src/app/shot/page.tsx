@@ -120,7 +120,13 @@ const PRESETS: Record<string, {
     matchTimer: 40,
     framing: { position: [-4.4, 1.9, 1.6], target: [-7.0, 1.0, 4.6], fov: 46 },
     poses: [
-      { id: "me", name: "Aethelred", cls: "berserker", x: -7.0, z: 4.6, rot: 2.42, state: "attacking", dir: "overhead", swing: 0.45 },
+      // 1.53, not 2.42. The camera sits on bearing 2.428 from this mark, so 2.42
+      // framed the warrior dead head-on — every sagittal channel a swing authors
+      // (blade arc, hip/shoulder separation, weight over the front foot) projects
+      // to nothing on that axis, and the one shot in the set that exists to prove
+      // a loaded swing was the one that could not show it. 0.9 rad off, taken
+      // toward his sword side so the arm and the blade stay in front of the body.
+      { id: "me", name: "Aethelred", cls: "berserker", x: -7.0, z: 4.6, rot: 1.53, state: "attacking", dir: "overhead", swing: 0.45 },
       { id: "foe", name: "Osric", cls: "warden", x: -8.6, z: 6.6, rot: -0.72, state: "blocking", hp: 0.5 },
     ],
   },

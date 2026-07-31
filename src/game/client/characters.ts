@@ -1130,14 +1130,30 @@ function skeleton(b: BuildTrait): Skeleton {
  * The solve wants the sole's lowest *corner*, not a point, and the trailing foot
  * wants an ankle to roll onto. Both belong in `anim.ts`; what belongs here is the
  * number, so that when the last is next reshaped the poser moves with it instead
- * of carrying a stale copy — the fate `ELBOW_ALONG` and `KNEE_ALONG` are already
- * logged for in `docs/OPEN-DEFECTS.md`.
+ * of carrying a stale copy — the fate `ELBOW_ALONG` and `KNEE_ALONG` used to be
+ * logged for, and which the two exports below now close.
  *
  * Not scaled by build: the whole roster wears one last, which is a simplification
  * the file has always made and the wrong pass to unmake.
  */
 export const FOOT_FWD = 0.172;
 export const FOOT_BACK = 0.073;
+
+/**
+ * Where the elbow and the knee sit along their limb, as a fraction of the whole
+ * shoulder-to-fist and hip-to-sole span.
+ *
+ * `anim.ts` solves the arm and the new two-segment leg reach against these and
+ * had been carrying its own literals, which is a silent breakage the first time
+ * the proportion table moves — and it moved twice in the last three passes.
+ * Measured off the skeleton rather than written down, so they cannot drift.
+ *
+ * One sample is enough for the whole roster: every term either ratio touches is
+ * a bare multiple of stature, so build and limb-length traits divide out.
+ */
+const CANON = skeleton(BUILD.huscarl);
+export const ELBOW_ALONG = CANON.upperArm / (CANON.upperArm + CANON.foreArm + CANON.gripDrop);
+export const KNEE_ALONG = (CANON.hipY - CANON.kneeY) / CANON.hipY;
 
 // ============================================================
 // Level of detail
@@ -2258,8 +2274,15 @@ function fistPlacement(gripPitch: number, x: number, y: number, z: number): THRE
 // Weapons
 // ============================================================
 
-/** The pitch the hand mounts sit at; weapons are built along +Y and tipped here. */
-const GRIP_PITCH = 1.28;
+/**
+ * The pitch the hand mounts sit at; weapons are built along +Y and tipped here.
+ *
+ * Exported because `anim.ts` now *solves* the wrist so the blade points where the
+ * swing table asks, and that solve has to subtract this. It reads the mount at
+ * runtime where it can; this is the value behind the fallback, shared rather than
+ * copied.
+ */
+export const GRIP_PITCH = 1.28;
 
 /**
  * A lenticular blade with an edge that survives a pixel.
@@ -2545,7 +2568,13 @@ export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): T
   const g = new THREE.Group();
   const part = new Part();
   const board = M.timber(color);
-  const paint = M.tunic(0xb8a276);
+  // A painted board is timber under paint, not cloth. `M.tunic` dressed these
+  // quarters in wool at a fixed five repeats — a ~60 mm tile on a 105 mm plank —
+  // and that is the basket in `art/shots/v7/portrait.png`: the pale quarters read
+  // as wickerwork while the boards *behind* them, on the same geometry, read as
+  // wood. Same substance as the board now, so the grain runs through the paint
+  // the way it does on a real limewood shield.
+  const paint = M.timber(0xb8a276);
   const iron = M.tinted("iron", 0x5f666f, { roughness: 0.5 });
   // 0.42 rather than 0.32: the boss is the one convex metal shape on the shield and
   // at close roughness it returned a single clipped dot instead of a rolled
@@ -2718,7 +2747,14 @@ export function buildCharacter(
   const wrapWool = cloth(0xa2926e, 2 * Math.PI * S.legR[2]);
   const hide = M.hide(0x4a3524);
   const buff = thrifty ? hide : M.hide(0x7a5b38);
-  const linen = thrifty ? wool : M.tinted("linen", 0xc2b69c, { repeat: 6 });
+  // Linen is asked for by girth for the same reason wool is. A flat `repeat: 6`
+  // put a ~200 mm tile on the shirt body and a ~75 mm one on the same shirt's
+  // sleeve — one garment, two fabrics — and the coarse end is the finest cloth
+  // in the set, where a visible tile costs most.
+  const flax = (girth: number) =>
+    thrifty ? wool : M.tinted("linen", 0xc2b69c, { repeat: clothRepeat(girth) });
+  const linen = flax(bodyGirth);
+  const sleeveLinen = flax(2 * Math.PI * S.armR[0] * 1.12);
   const iron = M.tinted("iron", 0x6e767f, { roughness: 0.5 });
   const steel = thrifty ? iron : M.blade(0xb6bfca, 0.3);
   // Cast bronze, not a bezel. `M.blade` puts brass on the steel substrate at
@@ -2814,7 +2850,23 @@ export function buildCharacter(
   // Fur goes the other way from hair: the wool tile's dye blotches are the one
   // thing in the library that reads as clumps of pelt, so this wants them large.
   // Six repeats over a shoulder ruff puts a clump every 40 mm, which is a fleece.
-  const fur = M.tinted("wool", 0x8a7050, { repeat: 6 });
+  // Fur is wool at a much coarser tile than clothing — the dye field's blotches
+  // are the one thing in the library that reads as clumps of pelt — but it has to
+  // be a *constant* coarseness. A flat `repeat: 6` spanned a shoulder ruff, a
+  // hanging lock and a box pelt off one material, an 8:1 texel scatter inside one
+  // garment: the same class of defect `WORLD_TILE` exists to kill. The tile below
+  // is what 6 repeats gave the ruff, which is the surface it was tuned on, so the
+  // ruff does not move and everything else comes to meet it. Integer repeats
+  // rather than a continuous ratio: a fractional repeat wraps mid-tile and draws
+  // a seam, which on a 90 mm lock would be most of the lock.
+  const PELT_TILE = 0.25;
+  const pelt = (girth: number) =>
+    M.tinted("wool", 0x8a7050, { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
+  const ruffX = S.chestHW + 0.062;
+  const ruffZ = S.chestHD + 0.062;
+  const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
+  const furLock = pelt(2 * Math.PI * 0.024);
+  const furPelt = pelt(0.3);
   const dark = M.standard(0x1a1310, 0.42);
   const rune = M.get("runeGlow");
   const cloakMat = cloth(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, bodyGirth * 1.4);
@@ -3307,13 +3359,13 @@ export function buildCharacter(
           const rx = S.chestHW + 0.062;
           const rz = S.chestHD + 0.062;
           const len = 0.09 + Math.sin(i * 2.7) * 0.028;
-          p.add(rod(0.024, 0.005, len, 5), fur, xf(
+          p.add(rod(0.024, 0.005, len, 5), furLock, xf(
             Math.sin(a) * rx, S.shoulderY - 0.01 - len * 0.4, Math.cos(a) * rz,
             0.55 * Math.cos(a), 0, -0.55 * Math.sin(a),
           ));
         }
       }
-      p.add(box(0.3, 0.6, 0.03), fur, xf(0, S.chestY - 0.12, -S.chestHD - 0.075, -0.12, 0, 0));
+      p.add(box(0.3, 0.6, 0.03), furPelt, xf(0, S.chestY - 0.12, -S.chestHD - 0.075, -0.12, 0, 0));
       for (let i = 0; i < 4; i++) {
         p.add(rod(0.008, 0.003, 0.06, 5), M.tinted("bone", 0xd8cfb4, { repeat: 1 }), xf(-0.06 + i * 0.04, S.chestY + 0.06, S.chestHD + 0.05, 2.6, 0, 0.2 - i * 0.13));
       }
@@ -3515,7 +3567,7 @@ export function buildCharacter(
         p.add(shell([
           { y: 0.012, hw: rSh * 1.12, hd: rSh * 1.12 },
           { y: elbow + 0.06, hw: rEl * 1.16, hd: rEl * 1.18 },
-        ], lod.limb, { wall: 0.007 }), linen);
+        ], lod.limb, { wall: 0.007 }), sleeveLinen);
         p.add(shell([
           { y: 0.004, hw: rSh * 1.22, hd: rSh * 1.22 },
           { y: -0.16, hw: rSh * 1.14, hd: rSh * 1.18 },
@@ -3606,7 +3658,7 @@ export function buildCharacter(
           { y: 0.075, hw: rSh * 1.1, hd: rSh * 1.14 },
           { y: -0.02, hw: rSh * 1.5, hd: rSh * 1.55 },
           { y: -0.075, hw: rSh * 1.3, hd: rSh * 1.34 },
-        ], lod.limb, { power: 2.0, wall: 0.016, capTop: true }), fur);
+        ], lod.limb, { power: 2.0, wall: 0.016, capTop: true }), pelt(2 * Math.PI * rSh * 1.45));
         p.add(ring(rSh * 1.02, 0.011, 5, 12), brass, xf(0, -0.14, 0, Math.PI / 2, 0, 0));
         if (lod.trim) p.add(ring(rSh * 0.96, 0.009, 5, 12), brass, xf(0, -0.2, 0, Math.PI / 2, 0, 0));
       }

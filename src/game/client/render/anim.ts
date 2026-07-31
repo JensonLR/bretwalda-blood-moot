@@ -76,7 +76,8 @@ import type { GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
-  defaultAppearance, type Appearance, type BuiltCharacter,
+  defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_PITCH,
+  type Appearance, type BuiltCharacter,
 } from "../characters";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
@@ -488,27 +489,19 @@ export function createWarriorRig(
 // do and holds a bent knee together at closeup range.
 // ---------------------------------------------------------------------------
 
-/**
- * Where the joint sits along the limb, as a fraction of the limb the rig can
- * actually measure.
- *
- * These are proportions rather than lengths on purpose — stature is quantised
- * per warrior in `characters.ts` and every segment scales with it, so a fraction
- * of the measured shoulder-to-fist or hip-to-sole distance survives a stature
- * change that a constant would not. They are the builder's own numbers:
- * `upperArm / (upperArm + foreArm + gripDrop)` and `(hipY - kneeY) / hipY`.
- * They are duplicated here because `BuiltCharacter` does not carry the joint
- * heights; see the note in the report about exporting them instead.
- */
-const ELBOW_ALONG = 0.4864;
-const KNEE_ALONG = 0.48;
+// `ELBOW_ALONG` and `KNEE_ALONG` — where the joint sits along the limb, as a
+// fraction of the span the rig can actually measure — now come from
+// `characters.ts`, which derives them from the proportion table. They were
+// literals here for three passes and `KNEE_ALONG` is load-bearing in the reach
+// model below, so a stature change would have moved the body and left the
+// solver's idea of it behind.
 
 /**
  * The builder's grip pitch, used only when the mount cannot be found. Kept as a
  * number rather than a guess at runtime because a blade solved against zero
  * points straight out of the fist like a lance.
  */
-const GRIP_PITCH_FALLBACK = 1.28;
+const GRIP_PITCH_FALLBACK = GRIP_PITCH;
 
 /**
  * How far the grip bar stands proud of the shield's own origin, along its face
@@ -1995,17 +1988,25 @@ function kneeFor(t: number, f: number, want: number): number {
 //
 // What follows is not a cloth solver and does not want to be — eight men on a
 // phone cannot afford a particle grid. It is the part of one that a viewer can
-// actually see: three rings on a chain hanging along whatever direction the
-// pseudo-force in the yoke's own frame is pointing, each softer and later than
-// the one above it.
+// actually see: a shared yoke and three columns of cloth beside it, each hanging
+// two rings deep along whatever direction the pseudo-force at *that column's*
+// place in the cloth is pointing, each ring softer and later than the one above.
 //
-// Everything falls out of that one field. Standing still it is gravity, so the
-// cloak hangs plumb and stays plumb while its owner leans over a swing. Running,
-// drag adds to it and the cloak trails. Stopping, the inertial term reverses and
-// the hem swings through and comes back. Turning, the drag at the hem is
-// tangential and the cloth is left behind on the outside of the turn. None of
-// those are four separate animations; they are one solve read four ways, which
-// is why they compose instead of fighting.
+// Almost everything falls out of that one field. Standing still it is gravity,
+// so the cloak hangs plumb and stays plumb while its owner leans over a swing.
+// Running, drag adds to it and the cloak trails. Stopping, the inertial term
+// reverses and the hem swings through and comes back. Turning, the field is
+// `ω × r` and `r` differs across the cloth — the back panel is swept sideways
+// while the two leading edges go fore and aft in opposite directions, which is a
+// swirl and not a roll. None of those are separate animations; they are one
+// solve read at three places, which is why they compose instead of fighting.
+//
+// The one term that is not in the field is `GATHER`, and it is the term the
+// previous rig could not have held at all: cloth hanging off a yoke falls *in*
+// and finds the body, and a chain of bones down the body axis can turn a hem but
+// can never narrow one. It is what stops a still of a standing man photographing
+// a traffic cone, and it relaxes as he moves, because a cloak at a run really is
+// out at its cut radius.
 // ---------------------------------------------------------------------------
 
 /** Gravity, and how hard the air pulls on a square metre of wool per metre per second. */
