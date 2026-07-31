@@ -2237,11 +2237,93 @@ function digit(path: Knuckle[], ring: number): THREE.BufferGeometry {
 }
 
 /**
- * A closed fist around a shaft, built in a canonical frame: the shaft runs along
- * +X, the palm presses on the +Z face of it, the four fingers are stacked along
- * the shaft and wrap under it, and the thumb lies across them. +Z is the *medial*
- * side once `fistPlacement` has turned it — a right hand grips with its palm
- * toward the body's midline — so a left hand is this geometry mirrored in Z.
+ * How far round a shaft each finger reaches, as arc length in the hand's own
+ * scale — index, middle, ring, little.
+ *
+ * Lengths rather than angles, because a finger does not change length when the
+ * weapon does. The same 96 mm of middle finger covers 3.5 radians of an axe haft
+ * and 3.9 of a seax grip, and *that* is the reason a grip has to be measured
+ * instead of posed: these were four fixed end angles, tuned once against a
+ * nominal 19 mm shaft, and every weapon that is not 19 mm got a hand that either
+ * hung open on it or closed inside it. The spread between the four is what gives
+ * the fist a diagonal tip line instead of a row of dominoes.
+ */
+const FIST_ARC = [0.0892, 0.0963, 0.0930, 0.0846];
+/**
+ * The same fingers with nothing to close on. Shorter, because a closing finger's
+ * first 25 mm is buried in the palm mass and an open one's is not — carrying the
+ * grip lengths over gives a hand with spider fingers.
+ */
+const OPEN_ARC = [0.0760, 0.0820, 0.0790, 0.0700];
+
+/**
+ * One finger, integrated as an arc across the shaft: it starts on the wrap
+ * circle at the knuckle, sets off tangentially, and bends at 1/`curl`.
+ *
+ * `wrap` and `curl` are separate because they answer different questions.
+ * `wrap` is *where the hand sits* — the shaft's surface plus a finger's own
+ * half-depth, so the inside of the finger lands on the leather rather than
+ * through it. `curl` is *how hard the finger closes*. On a grip they are the
+ * same number, which is what makes a hand close on something whatever its
+ * diameter; on an empty hand `curl` is four times larger and the fingers hang
+ * relaxed instead of clenching on nothing.
+ */
+function fingerPath(
+  fx: number, wrap: number, curl: number, phi0: number, arc: number,
+  nodes: number, a0: number, b0: number, swell: number[],
+): Knuckle[] {
+  const path: Knuckle[] = [];
+  let y = -wrap * Math.sin(phi0);
+  let z = wrap * Math.cos(phi0);
+  let ty = -Math.cos(phi0);
+  let tz = -Math.sin(phi0);
+  const ds = arc / (nodes - 1);
+  for (let i = 0; i < nodes; i++) {
+    const k = i / (nodes - 1);
+    const w = swell[Math.min(swell.length - 1, Math.round(k * (swell.length - 1)))];
+    path.push({ x: fx, y, z, a: a0 * w * (1 - 0.2 * k), b: b0 * w * (1 - 0.22 * k) });
+    if (i === nodes - 1) break;
+    // Tighter toward the tip: the distal joints of a closing hand flex further
+    // than the knuckle does, and one constant curvature reads as a hoop.
+    const r = curl * (1 - 0.10 * k);
+    const c = Math.cos(ds / r);
+    const sn = Math.sin(ds / r);
+    // Centre of curvature is one radius along the inward normal (-tz, ty); the
+    // point rotates about it and the tangent turns with it.
+    const cy = y - r * tz;
+    const cz = z + r * ty;
+    const ry = y - cy;
+    const rz = z - cz;
+    y = cy + ry * c - rz * sn;
+    z = cz + ry * sn + rz * c;
+    const nty = ty * c - tz * sn;
+    tz = ty * sn + tz * c;
+    ty = nty;
+  }
+  return path;
+}
+
+/**
+ * A hand on a shaft, built in a canonical frame: the shaft runs along +X through
+ * the origin, the palm presses on the +Z face of it, the four fingers are stacked
+ * along the shaft and wrap under it, and the thumb lies across them. +Z is the
+ * *medial* side once `fistPlacement` has turned it — a right hand grips with its
+ * palm toward the body's midline — so a left hand is this geometry mirrored in Z.
+ *
+ * `grip` is the radius of what is being held, in metres, and it is not optional.
+ * This roster carries a seax at 13 mm, a sword grip at 16, a shield bar at 17, an
+ * axe haft at 21 and a spear shaft at 24 — and one hard-coded curl cannot be
+ * right for more than one of them. Measured on the built mesh before this change:
+ * the berserker's finger surfaces sat **11 mm inside** the axe's bound grip on the
+ * axis the camera sees, so the only part of the hand outside the wood was the
+ * back of it. That is a hand that cannot be seen to hold anything, whatever the
+ * fingers are made of.
+ *
+ * `grip: null` is an empty hand, and it is a different pose rather than the same
+ * one relaxed: the fingers curl at about four times the radius from a knuckle
+ * line that is barely flexed, the palm ends at the knuckles instead of running on
+ * to the heel and making a mitten, and the thumb stays out on the radial side
+ * rather than closing over a shaft that is not there.
  *
  * Returned in two pieces because flesh is not one colour: the tips and the
  * thumb pad get the warm tone, which is where a real hand is reddest and, not
@@ -2250,50 +2332,63 @@ function digit(path: Knuckle[], ring: number): THREE.BufferGeometry {
 function fistGeometry(
   lod: Lod,
   scale: number,
-  opts: { reach: number; lead: number; mirror: boolean },
+  opts: { reach: number; lead: number; mirror: boolean; grip: number | null },
 ): { skin: THREE.BufferGeometry; warm: THREE.BufferGeometry | null } {
   const s = scale;
   const body: THREE.BufferGeometry[] = [];
   const tips: THREE.BufferGeometry[] = [];
   const ring = lod.fingers ? 7 : 5;
   const nodes = lod.fingers ? 7 : 4;
-  // Radius the digits wrap at: the nominal grip plus a finger's own half-depth,
-  // so the inside of the finger sits on the leather rather than through it.
-  const rr = 0.0272 * s;
+  const held = opts.grip;
+  const open = held === null;
+  // A finger's own half-depth. The wrap radius is the shaft plus that, so the
+  // inner surface of every finger lands on the leather exactly.
+  const pad = 0.0086 * s;
+  const wrap = held === null ? 0.0272 * s : held + pad;
+  // 0.090 is about 55° of total flexion over a finger's length, which is what an
+  // unloaded hand rests at. Flat is not the alternative to clenched — a hand with
+  // straight fingers reads as a salute, and a hand with its fingers on one radius
+  // reads as a claw. Both are as wrong as the fist was.
+  const curl = open ? 0.090 * s : wrap;
+  // Where on the wrap circle the knuckle line sits. Nearly on the palm axis for
+  // an open hand, well round it for a grip.
+  const phi0 = open ? 0.16 : 0.44;
+  // The palm rides the shaft, so a fatter one carries the whole hand outboard of
+  // the axis. One to five millimetres across this roster — small, but it is the
+  // difference between a palm resting on wood and a palm inside it.
+  const lift = wrap - 0.0272 * s;
 
-  // Metacarpal wedge — wrist down to the heel, biased onto the palm side. It
-  // deliberately passes through the shaft: an opaque hand round an opaque grip
-  // reads as pressure, and a hand held clear of it reads as a floating glove.
-  body.push(shell([
+  // Metacarpal wedge — wrist down to the knuckles, biased onto the palm side. On
+  // a grip it runs on to the heel and deliberately passes through the shaft: an
+  // opaque hand round an opaque grip reads as pressure, and a hand held clear of
+  // it reads as a floating glove. Open, it stops at the knuckle line, because the
+  // fingers below it are the shape and a wedge that ran past them is the mitten.
+  body.push(shell(open ? [
     { y: opts.reach, hw: 0.027 * s, hd: 0.019 * s, z: opts.lead },
     { y: 0.048 * s, hw: 0.036 * s, hd: 0.021 * s, z: 0.014 * s },
-    { y: 0.014 * s, hw: 0.044 * s, hd: 0.02 * s, z: 0.03 * s },
-    { y: -0.022 * s, hw: 0.045 * s, hd: 0.019 * s, z: 0.032 * s },
-    { y: -0.05 * s, hw: 0.037 * s, hd: 0.015 * s, z: 0.028 * s },
+    { y: 0.010 * s, hw: 0.044 * s, hd: 0.019 * s, z: 0.027 * s },
+    { y: -0.014 * s, hw: 0.042 * s, hd: 0.014 * s, z: 0.029 * s },
+  ] : [
+    { y: opts.reach, hw: 0.027 * s, hd: 0.019 * s, z: opts.lead },
+    { y: 0.048 * s, hw: 0.036 * s, hd: 0.021 * s, z: 0.014 * s + lift },
+    { y: 0.014 * s, hw: 0.044 * s, hd: 0.02 * s, z: 0.03 * s + lift },
+    { y: -0.022 * s, hw: 0.045 * s, hd: 0.019 * s, z: 0.032 * s + lift },
+    { y: -0.05 * s, hw: 0.037 * s, hd: 0.015 * s, z: 0.028 * s + lift },
   ], ring + 2, { power: 2.5, capTop: true, capBottom: true }));
 
   if (lod.fingers) {
-    // Four fingers. The wrap angle differs per digit — the middle finger reaches
-    // furthest round the shaft and the little finger least — which is what gives
-    // the fist a diagonal tip line instead of a row of dominoes.
-    const endAngle = [3.72, 3.98, 3.86, 3.55];
     // Joint / shaft alternation down the length. The dips are the creases.
     const swell = [1.04, 0.9, 1.0, 0.87, 0.96, 0.84, 0.62];
+    const arcs = open ? OPEN_ARC : FIST_ARC;
     for (let f = 0; f < 4; f++) {
       const fx = (-0.0325 + f * 0.0217) * s;
-      const a0 = 0.0093 * s * (1 - f * 0.055);
-      const b0 = 0.0086 * s * (1 - f * 0.05);
-      const path: Knuckle[] = [];
-      for (let i = 0; i < nodes; i++) {
-        const k = i / (nodes - 1);
-        const phi = mix(0.44, endAngle[f], k);
-        const r = rr * (1 - 0.06 * k) * (1 - f * 0.02);
-        const w = swell[Math.min(swell.length - 1, Math.round(k * (swell.length - 1)))];
-        path.push({
-          x: fx, y: -r * Math.sin(phi), z: r * Math.cos(phi),
-          a: a0 * w * (1 - 0.2 * k), b: b0 * w * (1 - 0.22 * k),
-        });
-      }
+      // Capped at four radians of sweep. A finger closing on something thin
+      // enough would otherwise spiral past the palm and come out of the wrist.
+      const arc = Math.min(arcs[f] * s, curl * 4.0);
+      const path = fingerPath(
+        fx, wrap * (1 - f * 0.02), curl, phi0, arc, nodes,
+        0.0093 * s * (1 - f * 0.055), pad * (1 - f * 0.05), swell,
+      );
       // The distal third in the warm tone: two path nodes, one extra small mesh
       // per finger, and the single cheapest thing that stops a hand reading grey.
       const cut = nodes - 3;
@@ -2304,35 +2399,55 @@ function fistGeometry(
     // Thumb: metacarpal off the radial edge of the palm, then a phalanx laid
     // across the fingers. Separated from the fist and pointing the other way —
     // the opposition is the whole read, and a mitten has none of it.
-    const thumbA: Knuckle[] = [
-      { x: -0.046 * s, y: 0.012 * s, z: 0.018 * s, a: 0.0125 * s, b: 0.0125 * s },
-      { x: -0.038 * s, y: -0.004 * s, z: 0.028 * s, a: 0.0118 * s, b: 0.0115 * s },
-      { x: -0.024 * s, y: -0.022 * s, z: 0.034 * s, a: 0.0108 * s, b: 0.0105 * s },
+    //
+    // On a grip it is authored in (x, angle round the shaft, standoff from the
+    // wrap circle) rather than in raw coordinates, so the pad tracks the shaft:
+    // a thumb left at fixed coordinates while the fingers move out to a thicker
+    // haft ends up buried in them, and one that scaled with the shaft would
+    // swell. The standoff is a finger's thickness, which is what the thumb is
+    // actually lying on.
+    const THUMB: Array<[number, number, number, number, number]> = [
+      [-0.046, -0.588, -0.0056, 0.0125, 0.0125],
+      [-0.038, 0.142, 0.0011, 0.0118, 0.0115],
+      [-0.024, 0.574, 0.0133, 0.0107, 0.0104],
+      [-0.006, 0.769, 0.0174, 0.0098, 0.0094],
+      [0.014, 0.914, 0.0170, 0.0074, 0.0072],
     ];
-    const thumbB: Knuckle[] = [
-      { x: -0.024 * s, y: -0.022 * s, z: 0.034 * s, a: 0.0105 * s, b: 0.0102 * s },
-      { x: -0.006 * s, y: -0.031 * s, z: 0.032 * s, a: 0.0098 * s, b: 0.0094 * s },
-      { x: 0.014 * s, y: -0.035 * s, z: 0.027 * s, a: 0.0074 * s, b: 0.0072 * s },
+    // Open, the thumb is abducted and roughly parallel to the index rather than
+    // crossed over it, and it is authored directly: with no shaft there is no
+    // circle for a polar form to be about.
+    const OPEN_THUMB: Array<[number, number, number, number, number]> = [
+      [-0.046, 0.012, 0.018, 0.0125, 0.0125],
+      [-0.056, -0.008, 0.024, 0.0118, 0.0115],
+      [-0.062, -0.030, 0.026, 0.0107, 0.0104],
+      [-0.060, -0.050, 0.023, 0.0098, 0.0094],
+      [-0.054, -0.066, 0.017, 0.0074, 0.0072],
     ];
-    body.push(digit(thumbA, ring));
-    tips.push(digit(thumbB, ring));
+    const thumb: Knuckle[] = (open ? OPEN_THUMB : THUMB).map(([x, u, v, a, b]) => {
+      const r = open ? 0 : wrap + v * s;
+      return {
+        x: x * s,
+        y: open ? u * s : -r * Math.sin(u),
+        z: open ? v * s : r * Math.cos(u),
+        a: a * s, b: b * s,
+      };
+    });
+    body.push(digit(thumb.slice(0, 3), ring));
+    tips.push(digit(thumb.slice(2), ring));
   } else {
     // Low tier: the wrap is one swept collar and the thumb is one taper. The
     // silhouette still closes on the grip and still has an opposed thumb —
     // what goes is the crease detail, not the anatomy.
-    const collar: Knuckle[] = [];
-    for (let i = 0; i < 5; i++) {
-      const phi = mix(0.5, 3.8, i / 4);
-      collar.push({
-        x: 0, y: -rr * Math.sin(phi), z: rr * Math.cos(phi),
-        a: 0.042 * s, b: 0.0095 * s,
-      });
-    }
-    body.push(digit(collar, ring));
-    body.push(digit([
-      { x: -0.042 * s, y: 0.008 * s, z: 0.02 * s, a: 0.012 * s, b: 0.012 * s },
-      { x: -0.014 * s, y: -0.026 * s, z: 0.032 * s, a: 0.0102 * s, b: 0.01 * s },
-      { x: 0.01 * s, y: -0.034 * s, z: 0.026 * s, a: 0.008 * s, b: 0.0078 * s },
+    const span = Math.min((open ? 0.082 : 0.093) * s, curl * 4.0);
+    body.push(digit(fingerPath(0, wrap, curl, phi0, span, 5, 0.042 * s, 0.0095 * s, [1]), ring));
+    body.push(digit(open ? [
+      { x: -0.048 * s, y: 0.006 * s, z: 0.020 * s, a: 0.012 * s, b: 0.012 * s },
+      { x: -0.058 * s, y: -0.030 * s, z: 0.024 * s, a: 0.0102 * s, b: 0.01 * s },
+      { x: -0.054 * s, y: -0.062 * s, z: 0.018 * s, a: 0.008 * s, b: 0.0078 * s },
+    ] : [
+      { x: -0.042 * s, y: 0.008 * s, z: 0.02 * s + lift, a: 0.012 * s, b: 0.012 * s },
+      { x: -0.014 * s, y: -0.026 * s, z: 0.032 * s + lift, a: 0.0102 * s, b: 0.01 * s },
+      { x: 0.01 * s, y: -0.034 * s, z: 0.026 * s + lift, a: 0.008 * s, b: 0.0078 * s },
     ], ring));
   }
 
@@ -2640,10 +2755,21 @@ export function buildAxe(materials?: CharacterMaterials): THREE.Group {
   // is without looking. It was the other way round, which cost twice: the haft
   // presented its narrow 42 mm face to a camera that is nearly always in front of
   // the warrior, and the section disagreed with the head it carries.
+  //
+  // Waisted where the hand closes, and that is the other half of the grip
+  // defect. Over the binding the haft measured **64 mm across** at the fist —
+  // wider than the span between a closed thumb and forefinger — so the fingers
+  // were modelled inside the wood and what showed outside it was the back of a
+  // hand lying against a post. A Dane axe haft is ~35 mm at the grip and swells
+  // again at the butt for the lower hand to pull against, which is the shape
+  // below: full section under the head where the langets ride, 41 mm at the
+  // grip, 56 mm at the butt.
   part.add(shell([
     { y: headY + 0.06, hw: 0.026, hd: 0.020 },
     { y: 0.44, hw: 0.024, hd: 0.019 },
-    { y: -0.16, hw: 0.025, hd: 0.020 },
+    { y: 0.12, hw: 0.0205, hd: 0.0160 },
+    { y: -0.12, hw: 0.0205, hd: 0.0160 },
+    { y: -0.34, hw: 0.024, hd: 0.0195 },
     { y: -0.56, hw: 0.028, hd: 0.023 },
   ], 8, { capTop: true, capBottom: true }), ash);
   part.add(shell([
@@ -2709,11 +2835,13 @@ export function buildAxe(materials?: CharacterMaterials): THREE.Group {
       part.add(ball(0.005, 6), iron, xf(s * 0.029, headY - 0.10 + ry, 0, 0, 0, 0, 0.6, 1, 1));
     }
   }
-  // Grip binding, and a thong at the butt.
+  // Grip binding: 3 mm of hide over the waisted wood, not 8. It used to stand
+  // proud enough to be a collar rather than a wrap, and it is the surface the
+  // fist is fitted to — `HAND_GRIP.berserker` is this radius and nothing else.
   part.add(shell([
-    { y: 0.09, hw: 0.031, hd: 0.026 },
-    { y: -0.09, hw: 0.033, hd: 0.028 },
-  ], 8, { wall: 0.005 }), leather, xf(0, 0.02, 0));
+    { y: 0.09, hw: 0.0235, hd: 0.0190 },
+    { y: -0.09, hw: 0.0240, hd: 0.0195 },
+  ], 8, { wall: 0.004 }), leather, xf(0, 0.02, 0));
 
   for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
   return g;
@@ -2933,6 +3061,37 @@ export function buildWeaponForClass(cls: WarriorClass, materials?: CharacterMate
   if (cls === "warden") return buildSpear(materials);
   return buildSword(materials);
 }
+
+/**
+ * What each class's two hands actually close on, as a shaft radius in metres at
+ * the point the hand mount sits — `main` is the weapon `buildWeaponForClass`
+ * hands that class, `off` is whatever the off hand carries and `null` when it
+ * carries nothing.
+ *
+ * Every number is read off the geometry above at y = 0, which is where the mount
+ * is: sword 16 mm over the cord, seax 14, shield bar 17 across its narrow face,
+ * axe 21 over the binding, spear 24 over its hand-hold. They are here rather
+ * than in the builders because the *hand* is what needs them and a hand is built
+ * before a weapon is chosen. Re-measure when a grip is re-cut; a stale number
+ * here does not break anything, it just puts the fingers a few millimetres off
+ * the leather.
+ *
+ * `off` mirrors what `anim.ts` mounts — the runekeeper fights with a seax in each
+ * hand and the huscarl's left fist closes on the shield's centre bar, while the
+ * warden and the berserker carry nothing in the off hand and so get an open one.
+ * That coupling is real and unavoidable from here: this file cannot see the
+ * mounting, so if a class ever gains or loses an off-hand item, this table is the
+ * second edit.
+ */
+const HAND_GRIP: Record<WarriorClass, { main: number; off: number | null }> = {
+  // Between the sword's 16 mm core and the 21 mm crest of its cord helix, which
+  // is where a hand on a corded grip actually sits — proud of the wood, sunk into
+  // the binding.
+  huscarl: { main: 0.017, off: 0.017 },
+  warden: { main: 0.024, off: null },
+  runekeeper: { main: 0.014, off: 0.014 },
+  berserker: { main: 0.021, off: null },
+};
 
 // ============================================================
 // Character builder
@@ -3799,6 +3958,7 @@ export function buildCharacter(
   // ==========================================================
   // ARMS — pivot at the shoulder joint
   // ==========================================================
+  const grips = HAND_GRIP[cls] ?? HAND_GRIP.warden;
   const armPivots: THREE.Group[] = [];
   for (const side of [1, -1]) {
     const pivot = new THREE.Group();
@@ -3981,6 +4141,11 @@ export function buildCharacter(
         reach: sp * S.gripDrop + cp * 0.028,
         lead: 0.006,
         mirror: side < 0,
+        // `armPivots[0]` is the weapon arm; the off hand gets whatever that class
+        // carries there, or an open hand when it carries nothing. A hand with
+        // nothing in it clenched on the same imaginary shaft as the weapon hand
+        // was a fist gripping air, which reads as a cramp rather than as a guard.
+        grip: side > 0 ? grips.main : grips.off,
       });
       const hand = fistPlacement(GRIP_PITCH, side * 0.006, grip, 0.028);
       p.add(fist.skin, skin, hand.clone());
