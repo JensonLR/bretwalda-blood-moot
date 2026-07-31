@@ -18,10 +18,28 @@
 //
 // Colour here is linear radiance, because postfx renders the beauty pass into a
 // half-float buffer with three's tone-mapping chunk switched off and applies the
-// filmic curve by hand at the end. That is also why the numbers below look odd:
-// bloom thresholds at 2.15 in *scene* radiance, so a flame core has to clear it
-// and a drifting ash mote has to stay well under it, or the mote blooms into a
-// headlight.
+// filmic curve by hand at the end. Every level in this file is therefore chosen
+// against that curve, and the curve has two numbers in it that decide what an
+// emissive is allowed to be. Both were re-derived for this pass by running
+// postfx's own stages on the CPU, because the constants this file used to quote
+// were three iterations stale:
+//
+//   dusk        reaches code 255 at 4.07 scene units (neutral), blooms above 5.0
+//   last stand  reaches code 255 at 2.48 scene units (neutral), blooms above 6.0
+//
+// There is no window between those two numbers. Anything bright enough to reach
+// the bright pass is already welded to display white, and on the way there the
+// grade's `crosstalk` walks it toward its own peak channel — so the brighter an
+// emissive is authored, the *less* colour it has. That is the whole of the
+// "bonfire core clips flat" defect, and it was never only the clip: a flame
+// authored at (1.0, 0.93, 0.72) is a neutral grey before it is anything else and
+// measures saturation 0.02 at any level, clipped or not.
+//
+// So everything hot in here is authored deep and saturated and kept under the
+// clip point, and the heat is carried by area, by the halo and by the ember
+// column rather than by radiance. The last stand scales *down* for it, because
+// its look has 40% less highlight latitude than dusk's and the code it replaces
+// turned the fire up when it got there.
 
 import * as THREE from "three";
 import { LAYER_UNOCCLUDED, setLayerDeep, type FrameContext, type Mood, type QualitySettings } from "./quality";
@@ -551,7 +569,12 @@ const FIRE_VERT = /* glsl */ `
 
 attribute vec3 iOrigin;
 attribute vec4 iParams;   // width, height, phase, seed
-attribute vec2 iHeat;     // heat, cycles per second
+// Temperature and radiance are two different things and used to be one number.
+// Temperature says how far up the blackbody ramp a tongue reaches and how hard
+// the noise erodes it; radiance says how much light it puts in the frame. A
+// bonfire's inner tongues are the hottest *and* the most overlapped, so they
+// have to be the dimmest per instance or their sum is the thing that welds.
+attribute vec3 iHeat;     // temperature, cycles per second, radiance
 
 uniform float uTime;
 uniform vec2 uWind;
@@ -560,12 +583,14 @@ varying vec2 vUv;
 varying float vCyc;
 varying float vSeed;
 varying float vHeat;
+varying float vLevel;
 
 void main() {
   float cyc = fract( uTime * iHeat.y + iParams.z );
   vCyc = cyc;
   vSeed = iParams.w;
   vHeat = iHeat.x;
+  vLevel = iHeat.z;
 
   float w = iParams.x * ( 1.35 - 0.4 * cyc );
   float h = iParams.y * ( 0.62 + 0.45 * cyc );
@@ -602,6 +627,7 @@ varying vec2 vUv;
 varying float vCyc;
 varying float vSeed;
 varying float vHeat;
+varying float vLevel;
 
 void main() {
   float y = vUv.y;
@@ -639,17 +665,32 @@ void main() {
   float fade = sin( vCyc * PI );
   float flick = 0.76 + 0.24 * sin( uTime * 11.0 + vSeed * 21.0 ) * sin( uTime * 4.3 + vSeed * 6.0 );
 
-  // Three stops of blackbody. White is held back to the densest tenth, because
-  // a flame that is white over half its area is a lamp.
-  vec3 col = mix( vec3( 0.85, 0.055, 0.006 ), vec3( 1.0, 0.34, 0.045 ), smoothstep( 0.02, 0.40, dens ) );
-  col = mix( col, vec3( 1.0, 0.72, 0.30 ), smoothstep( 0.45, 0.86, dens ) );
-  col = mix( col, vec3( 1.0, 0.93, 0.72 ), smoothstep( 0.88, 1.0, dens ) );
+  // Blackbody, authored two stops deeper than a photometer would ask for and
+  // stopping well short of white. It has to be: the grade white-balances toward
+  // neutral, then walks a quarter of the chroma out of anything this bright, and
+  // then the shoulder compresses what is left — so an authored (1, 0.46, 0.105)
+  // lands on screen at about (245, 216, 171), which is what the core of a
+  // bonfire looks like in a photograph. Authoring the *screen* colour here, as
+  // the ramp this replaces did, spends the whole chain arriving at grey.
+  //
+  // The top band deliberately does not reach the clip point on its own. It gets
+  // there where three or four tongues cross, which is a small area and a moving
+  // one — a nucleus, not a disc — and that is the only part of a fire that is
+  // allowed to be white.
+  vec3 col = mix( vec3( 0.50, 0.020, 0.002 ), vec3( 0.95, 0.135, 0.010 ), smoothstep( 0.02, 0.34, dens ) );
+  col = mix( col, vec3( 1.0, 0.285, 0.038 ), smoothstep( 0.38, 0.74, dens ) );
+  col = mix( col, vec3( 1.0, 0.46, 0.105 ), smoothstep( 0.80, 1.0, dens ) );
+  // Temperature pulls the whole ramp back down it. A rag soaked in fat burns a
+  // long way cooler than a metre of oak, so a torch comes out deep orange
+  // instead of reading as a bonfire someone has stood on a pole — which, at four
+  // pixels across against a night sky, is the only cue there is room for.
+  col *= mix( vec3( 1.0, 0.72, 0.45 ), vec3( 1.0 ), vHeat );
 
   // Squared density. An additive falloff that is linear in coverage reads as a
   // flat card, because what the eye reads is the derivative at the edge.
   float a = dens * dens * fade * flick;
   if ( a < 0.004 ) discard;
-  gl_FragColor = vec4( col * uIntensity * vHeat, a );
+  gl_FragColor = vec4( col * uIntensity * vLevel, a );
 
 ${FOG_ATTENUATE}
 }
@@ -933,10 +974,10 @@ class FireLayer {
     this.geometry = quadGeometry();
     this.origin = new Float32Array(capacity * 3);
     this.params = new Float32Array(capacity * 4);
-    this.heat = new Float32Array(capacity * 2);
+    this.heat = new Float32Array(capacity * 3);
     this.aOrigin = new THREE.InstancedBufferAttribute(this.origin, 3);
     this.aParams = new THREE.InstancedBufferAttribute(this.params, 4);
-    this.aHeat = new THREE.InstancedBufferAttribute(this.heat, 2);
+    this.aHeat = new THREE.InstancedBufferAttribute(this.heat, 3);
     this.geometry.setAttribute("iOrigin", this.aOrigin);
     this.geometry.setAttribute("iParams", this.aParams);
     this.geometry.setAttribute("iHeat", this.aHeat);
@@ -968,7 +1009,11 @@ class FireLayer {
     this.n = 0;
   }
 
-  push(x: number, y: number, z: number, w: number, h: number, phase: number, seed: number, heat: number, rate: number): void {
+  push(
+    x: number, y: number, z: number,
+    w: number, h: number, phase: number, seed: number,
+    temperature: number, rate: number, level: number,
+  ): void {
     if (this.n >= this.capacity) return;
     const i = this.n++;
     this.origin[i * 3] = x;
@@ -978,8 +1023,9 @@ class FireLayer {
     this.params[i * 4 + 1] = h;
     this.params[i * 4 + 2] = phase;
     this.params[i * 4 + 3] = seed;
-    this.heat[i * 2] = heat;
-    this.heat[i * 2 + 1] = rate;
+    this.heat[i * 3] = temperature;
+    this.heat[i * 3 + 1] = rate;
+    this.heat[i * 3 + 2] = level;
   }
 
   end(): void {
@@ -1049,6 +1095,17 @@ interface Seed {
   frame: number;
   flags: number;
   aspect?: number;
+  /**
+   * Fraction of `life` already spent at spawn, 0..1.
+   *
+   * A capture is twenty-six animation frames against a 50 ms clamp — 1.35
+   * seconds of simulated time, whatever the wall clock says — so any effect that
+   * has to accumulate for longer than that is structurally invisible to the
+   * review process, however correct it is in play. This is how an ambient
+   * population arrives already established rather than all born at t = 0 and all
+   * still fading in.
+   */
+  born?: number;
   fadeIn?: number;
   fadePow?: number;
   rot?: number;
@@ -1063,17 +1120,35 @@ interface Seed {
 // Palette
 // ---------------------------------------------------------------------------
 //
-// Linear radiance throughout, chosen against postfx's 2.15 bloom threshold:
-// spark and ember cores clear it, blood and dust are nowhere near it, and a
-// drifting ash mote sits at a tenth of it so it stays a mote and not a star.
+// Linear radiance throughout. The bloom threshold these numbers used to quote —
+// 2.15 — has not been the threshold for three iterations; it is 5.0 at dusk and
+// 6.0 on the last stand, which is *above* the 4.07 point where the dusk grade
+// already clips. Nothing in this list can therefore both bloom and keep its
+// colour, so the list stops trying: everything hot sits in the 1.6–4.4 band
+// where the curve still has slope, and the one exception is a struck spark,
+// which is genuinely white-hot metal and is allowed to blow.
+//
+// Where a comment below quotes an RGB triple it is the *displayed* code that
+// value produces at dusk, from running postfx's exposure, balance, contrast,
+// crosstalk and curve on the CPU — not the linear number on the line.
 
 const linear = (hex: number, k = 1) => new THREE.Color().setHex(hex, THREE.SRGBColorSpace).multiplyScalar(k);
 
 const PALETTE = {
-  sparkHot: linear(0xfff2cc, 5.4),
+  // Steel on steel. Blows to [255,255,255] and is meant to — but at 5.4 it also
+  // sat far enough over the clip that the *cooling* half of its life was white
+  // too. 4.4 keeps the head white and lets the tail go amber.
+  sparkHot: linear(0xffe6a8, 4.4),
   sparkCool: linear(0xff4407, 0.85),
-  emberHot: linear(0xffb257, 3.2),
+  // [219,161,97], saturation 0.56. At the old 3.2 this was [241,209,160] at dusk
+  // and [255,238,204] on the last stand — an ember column that read as a spray
+  // of white specks in `v9/lineup.png`, which is exactly what it looked like.
+  emberHot: linear(0xff9a34, 2.15),
   emberCool: linear(0x9c2000, 0.3),
+  /** Spilled coals on the ground round a fire: dimmer and redder than airborne. */
+  coalBed: linear(0xff7a1e, 1.6),
+  /** The halo a fire hangs in. Wide, soft, and deliberately under the clip. */
+  fireHalo: linear(0xff8a2e, 1.35),
   bloodFresh: linear(0x8e1208, 0.95),
   bloodDark: linear(0x360609, 0.7),
   mist: linear(0x6d1410, 0.7),
@@ -1083,8 +1158,12 @@ const PALETTE = {
   smokeCold: linear(0x2c2b2d, 0.12),
   mail: linear(0xc2ccd6, 0.55),
   cloth: linear(0x6d6152, 0.35),
-  ash: linear(0xd8cfc0, 0.16),
-  emberMote: linear(0xff8f3a, 0.5),
+  // At 0.16 a mote added about six code values to a 60-luma floor, which is
+  // below what a JPEG would survive: two hundred and twenty of them were in
+  // every frame and none of them was visible. 0.30 puts a speck a stop over the
+  // ground it crosses and still a long way under anything that could bloom.
+  ash: linear(0xd8cfc0, 0.3),
+  emberMote: linear(0xff8f3a, 0.85),
 };
 
 // ---------------------------------------------------------------------------
@@ -1222,7 +1301,11 @@ export function createVfx(
   const moteCount = settings.moteCount;
   const additiveLayer = new QuadLayer(budget + moteCount + 64, atlas, TILES, 0, "add", 4);
   const alphaLayer = new QuadLayer(budget, atlas, TILES, 0, "alpha", 3);
-  const ringLayer = new QuadLayer(12, atlas, TILES, 2, "add", 2);
+  // Ground-lying additive: ability shockwaves, plus the coal bed round every
+  // bonfire. Ten rings and a bed per fire, so the capacity is no longer twelve.
+  const ringLayer = new QuadLayer(48, atlas, TILES, 2, "add", 2);
+  /** Spilled coals per bonfire. Enough to read as a bed, few enough to count. */
+  const COAL_BED = tier === "low" ? 6 : 11;
   // Blood on the ground borrows the texture library's splat rather than adding a
   // seventeenth atlas cell: it is already built, already cached, and its ragged
   // edge with the one thrown satellite droplet is exactly right.
@@ -1256,7 +1339,8 @@ export function createVfx(
     const i = store.n++;
     store.px[i] = s.x; store.py[i] = s.y; store.pz[i] = s.z;
     store.vx[i] = s.vx; store.vy[i] = s.vy; store.vz[i] = s.vz;
-    store.life[i] = s.life; store.maxLife[i] = s.life;
+    store.maxLife[i] = s.life;
+    store.life[i] = s.life * (1 - clamp01(s.born ?? 0));
     store.size0[i] = s.size0; store.size1[i] = s.size1;
     store.aspect[i] = s.aspect ?? 1;
     store.r0[i] = s.c0.r; store.g0[i] = s.c0.g; store.b0[i] = s.c0.b;
@@ -1289,11 +1373,11 @@ export function createVfx(
   const decalCap = Math.max(1, settings.decalBudget);
   const decals: Decal[] = [];
 
-  function addDecal(x: number, z: number, size: number): void {
+  function addDecal(x: number, z: number, size: number, life = 26, age = 0): void {
     const d: Decal = {
       x, y: groundAt(x, z) + 0.015, z,
       size, rot: Math.random() * TAU,
-      age: 0, life: 26,
+      age, life,
     };
     decals.push(d);
     // Oldest out. A ring buffer would be tidier if decals only ever expired by
@@ -1465,23 +1549,32 @@ export function createVfx(
   }
 
   /**
-   * Fire is where the fire lights are. world.ts owns the bonfire and the torch
-   * lights and does not publish their positions, so rather than duplicate its
-   * scatter constants here — which would silently drift the first time someone
-   * moves a torch — this reads the scene once, at build time, and treats every
-   * warm point light as something burning. A light more than two and a half
-   * metres above the ground under it is on a pole; anything else is a fire on
-   * the ground. An object carrying `userData.vfxFire` overrides all of that,
-   * which is the seam world.ts should eventually use.
+   * Where the fires are. world.ts marks them with `userData.vfxFire` — that is
+   * the seam, and it is used now — but the module also predates the seam and
+   * kept a fallback that treats any warm point light as something burning.
+   *
+   * **The fallback was firing on top of the seam, and every fire in the arena
+   * was being drawn twice.** world.ts puts a `PointLight` inside the bonfire and
+   * inside each lit torch cup; the marker and the light are different objects,
+   * so one traversal produced both. That is twenty-eight additive tongues on a
+   * shader authored for fourteen, superimposed within a few centimetres, and it
+   * is most of why the core welded to white — the ramp was never asked to carry
+   * that sum. It also doubled the ember and smoke emission rates and the halo.
+   *
+   * A fire's own light is not a second fire. A warm light that no marker claims
+   * still gets one, because that is what the fallback is for: a world.ts that
+   * lights a brazier and forgets to mark it should still burn.
    */
   function discoverFires(): void {
     scene.updateMatrixWorld(true);
     const p = new THREE.Vector3();
+    const marked: FireSpec[] = [];
+    const warmLights: THREE.Vector3[] = [];
     scene.traverse((o) => {
       const explicit = (o.userData as { vfxFire?: Omit<FireSpec, "position"> }).vfxFire;
       if (explicit) {
         p.setFromMatrixPosition(o.matrixWorld);
-        addFire({ position: { x: p.x, y: p.y, z: p.z }, ...explicit });
+        marked.push({ position: { x: p.x, y: p.y, z: p.z }, ...explicit });
         return;
       }
       const light = o as THREE.PointLight;
@@ -1489,13 +1582,29 @@ export function createVfx(
       // Warm only: a rune glow or a cold fill is not a fire.
       if (light.color.r <= light.color.b * 1.4) return;
       p.setFromMatrixPosition(o.matrixWorld);
-      const ground = groundAt(p.x, p.z);
-      if (p.y - ground > 2.5) {
-        addFire({ position: { x: p.x, y: p.y - 0.24, z: p.z }, radius: 0.1, height: 0.5, kind: "torch" });
-      } else {
-        addFire({ position: { x: p.x, y: ground + 0.16, z: p.z }, radius: 0.58, height: 1.75, kind: "bonfire" });
-      }
+      warmLights.push(p.clone());
     });
+
+    for (const spec of marked) addFire(spec);
+
+    for (const q of warmLights) {
+      // Claimed by a marker if it is inside that fire's own footprint. The
+      // vertical slack is generous because a bonfire's light hangs well above
+      // its fuel — that is what makes it light the faces round it.
+      const claimed = marked.some((spec) => (
+        Math.hypot(q.x - spec.position.x, q.z - spec.position.z) < Math.max(1.2, spec.radius * 3) &&
+        Math.abs(q.y - spec.position.y) < 2.6
+      ));
+      if (claimed) continue;
+      const ground = groundAt(q.x, q.z);
+      // A light more than two and a half metres above the ground under it is on
+      // a pole; anything else is a fire on the ground.
+      if (q.y - ground > 2.5) {
+        addFire({ position: { x: q.x, y: q.y - 0.24, z: q.z }, radius: 0.1, height: 0.5, kind: "torch" });
+      } else {
+        addFire({ position: { x: q.x, y: ground + 0.16, z: q.z }, radius: 0.58, height: 1.75, kind: "bonfire" });
+      }
+    }
   }
   if (opts.autoFires !== false) discoverFires();
 
@@ -1503,12 +1612,29 @@ export function createVfx(
   // each proportionally wider, so a low-end bonfire is still one mass of flame
   // rather than six separate candles.
   const TONGUES = {
-    bonfire: tier === "high" ? 14 : tier === "medium" ? 12 : 9,
+    bonfire: tier === "high" ? 16 : tier === "medium" ? 12 : 9,
     torch: tier === "high" ? 4 : tier === "medium" ? 3 : 2,
   };
   const TONGUE_REFERENCE = { bonfire: 14, torch: 4 };
   /** Tongue cycles per second. A real lick lives well under a second. */
   const FLAME_RATE = { bonfire: 1.05, torch: 2.3 };
+  /**
+   * Per-instance radiance by ring, and the single most load-bearing number in
+   * the fire.
+   *
+   * The rings are not equally crowded. Ring 0 puts a third of the tongues inside
+   * a 0.35 m circle and each of them is half a metre wide, so at any instant
+   * three of them cover the same pixel and the framebuffer adds all three. Ring 2
+   * is a lone tongue at the rim. Giving them the same radiance — which is what
+   * `heat * (1 - ring * 0.1)` did, and it went the *wrong way*, brightest at the
+   * middle — means the core is three times whatever a tongue is worth, and three
+   * times anything that reads as fire is white.
+   *
+   * These are chosen so that ring 0's *sum* lands near 3.5 scene units: hot,
+   * saturated, and under the 4.07 clip. Four-way coincidence still tips over,
+   * which is the nucleus, and it is meant to.
+   */
+  const RING_LEVEL = [0.5, 0.78, 1.0];
 
   function rebuildFires(): void {
     fireLayer.begin();
@@ -1517,7 +1643,16 @@ export function createVfx(
       const { position: pos, radius, height, kind } = fires[f].spec;
       const n = TONGUES[kind];
       const fill = Math.sqrt(TONGUE_REFERENCE[kind] / n);
-      const heat = kind === "bonfire" ? 1 : 0.78;
+      // Temperature, not brightness, and they are now two separate numbers. A
+      // torch is a rag of fat on a stick: much cooler than a log fire and much
+      // dimmer, and only the second of those used to be expressible.
+      const temp = kind === "bonfire" ? 1 : 0.6;
+      const level = kind === "bonfire" ? 1 : 0.72;
+      // Only a bonfire is crowded enough for the ring falloff to be a fix rather
+      // than a tax. Four torch tongues in a 10 cm cup barely stack, and taking
+      // half the radiance off two of them puts the flame under the palisade
+      // behind it.
+      const crowded = kind === "bonfire";
       for (let i = 0; i < n; i++) {
         // Nested rings of tongues: the outer ones are shorter, wider and out of
         // phase, so the fire has a core rather than being one silhouette.
@@ -1533,13 +1668,17 @@ export function createVfx(
           height * (1 - ring * 0.22) * rand(0.85, 1.15),
           (i * 0.618) % 1,
           i * 1.37 + f * 5.1,
-          heat * (1 - ring * 0.1),
+          temp * (1 - ring * 0.08),
           FLAME_RATE[kind] * rand(0.85, 1.15),
+          // Narrower tongues cover less, so the ring weight is corrected by the
+          // same fill factor the width uses — otherwise a low tier's nine fat
+          // tongues sum to more than a high tier's sixteen thin ones.
+          level * (crowded ? RING_LEVEL[ring] : 1) / fill,
         );
       }
       if (hazeLayer && kind === "bonfire") {
         for (let i = 0; i < 3; i++) {
-          hazeLayer.push(pos.x, pos.y + height * 0.7, pos.z, radius * 3.2, height * 2.2, i / 3, i * 3.1 + f, 1, 0.18);
+          hazeLayer.push(pos.x, pos.y + height * 0.7, pos.z, radius * 3.2, height * 2.2, i / 3, i * 3.1 + f, 1, 0.18, 1);
         }
       }
     }
@@ -1555,6 +1694,24 @@ export function createVfx(
   /** Slowly turning breeze. Smoke, embers, motes and flame tips all read it. */
   const wind = new THREE.Vector2(0.32, 0.14);
   const auraSites: Array<{ x: number; z: number; t: number; hex: number }> = [];
+
+  /**
+   * Live population target for the ambient ground dust, and the rate that holds
+   * it there against a ~4.8 s mean life. Scaled off `moteCount` rather than off
+   * `particleBudget` because it is weather, not combat, and the tiers already
+   * express how much weather they can afford in that number.
+   */
+  const DUST_POPULATION = Math.max(6, Math.round(moteCount * 0.11));
+  const DUST_RATE = DUST_POPULATION / 4.8;
+  let dustAcc = 0;
+  let bootAcc = 0;
+  /** Set once the ambient dust has been seeded around the real camera. */
+  let dustSeeded = false;
+  /** Set once the last stand's ground has been given its history. */
+  let groundMarked = false;
+  /** Previous frame's focus, for deriving the local warrior's own speed. */
+  const lastFocus = new THREE.Vector3();
+  let haveFocus = false;
 
   const camRight = new THREE.Vector3();
   const camUp = new THREE.Vector3();
@@ -1778,23 +1935,30 @@ export function createVfx(
     }
   }
 
-  function emberAt(x: number, y: number, z: number, radius: number, heat: number): void {
+  function emberAt(x: number, y: number, z: number, radius: number, heat: number, born = 0): void {
     const a = Math.random() * TAU;
     const r = Math.sqrt(Math.random()) * radius;
+    // One in five is a big slow one that rides the column right up and out. A
+    // population that is all the same size and all the same speed reads as
+    // noise; the spread in lifetimes is what turns it into a column with a
+    // shape, and it is what puts embers at head height rather than all of them
+    // inside the flame that made them.
+    const lofted = Math.random() < 0.22;
     spawn({
       x: x + Math.cos(a) * r, y: y + rand(0, 0.3), z: z + Math.sin(a) * r,
       vx: sym(0.55), vy: rand(1.1, 3.2), vz: sym(0.55),
-      life: rand(1.5, 3.6 + moodHeat),
-      size0: rand(0.028, 0.062) * (1 + heat * 0.3), size1: rand(0.006, 0.016),
+      life: (lofted ? rand(3.4, 6.2) : rand(1.5, 3.6)) + moodHeat,
+      size0: rand(0.034, lofted ? 0.088 : 0.062) * (1 + heat * 0.3),
+      size1: rand(0.008, 0.02),
       c0: PALETTE.emberHot, c1: PALETTE.emberCool,
-      alpha: 1, fadeIn: 0.06, fadePow: 1.8,
-      drag: 1.1, grav: 1.0, buoy: 2.2, turb: 0.85,
+      alpha: 1, born, fadeIn: 0.06, fadePow: lofted ? 2.4 : 1.8,
+      drag: lofted ? 0.7 : 1.1, grav: 1.0, buoy: lofted ? 2.6 : 2.2, turb: 0.85,
       frame: CELL.ember,
       flags: F_TWINKLE | F_WIND | F_AMBIENT,
     });
   }
 
-  function smokeAt(x: number, y: number, z: number, radius: number, scale: number): void {
+  function smokeAt(x: number, y: number, z: number, radius: number, scale: number, born = 0): void {
     const a = Math.random() * TAU;
     const r = Math.sqrt(Math.random()) * radius;
     spawn({
@@ -1805,11 +1969,151 @@ export function createVfx(
       // Warm at the root where the fire is under it, cold and grey by the time
       // it has climbed clear. One column, two colours, and the height reads.
       c0: PALETTE.smokeLit, c1: PALETTE.smokeCold,
-      alpha: 0.22 + moodHeat * 0.1, fadeIn: 0.14, fadePow: 1.5,
+      alpha: 0.22 + moodHeat * 0.1, born, fadeIn: 0.14, fadePow: 1.5,
       rotV: sym(0.35), drag: 0.8, grav: 0.2, buoy: 1.9, turb: 0.3,
       frame: SMOKE_CELLS[(Math.random() * 3) | 0],
       flags: F_ALPHA | F_WIND | F_AMBIENT,
     });
+  }
+
+  /**
+   * The air over churned ground. Not a puff kicked by anything — a population
+   * that is simply *there*, the way the motes are, because an arena floor that
+   * eight warriors have been fighting on carries dust whether or not anyone is
+   * moving in the frame you happen to be looking at.
+   *
+   * This is the shape of the fix for "no grain of dust in eight captures". The
+   * dust that existed was driven entirely by `state === "sprinting"` arriving as
+   * an event, and a still frame of a fight has no events in it at all. Ambient
+   * effects have to be a function of state, and the only state a dust cloud
+   * needs is that there is ground and there is wind.
+   */
+  function groundDustAt(x: number, z: number, born = 0): void {
+    const gy = groundAt(x, z);
+    spawn({
+      x, y: gy + rand(0.02, 0.34), z,
+      vx: sym(0.16), vy: rand(0.02, 0.2), vz: sym(0.16),
+      life: rand(3.2, 6.4),
+      size0: rand(0.22, 0.55), size1: rand(0.75, 1.5),
+      c0: PALETTE.dustNear, c1: PALETTE.dustFar,
+      // Low enough that thirty of them are air rather than fog. The eye reads
+      // dust as motion and as the light through it, not as opacity.
+      alpha: 0.11 + moodHeat * 0.06, born, fadeIn: 0.12, fadePow: 1.7,
+      rotV: sym(0.4), drag: 1.6, grav: 0.35, buoy: 0.32, turb: 0.14,
+      frame: CELL.dust,
+      flags: F_ALPHA | F_WIND | F_AMBIENT,
+    });
+  }
+
+  /**
+   * Everything that burns or blows, emitted from state alone. No event reaches
+   * this function and none ever should: it is what makes a paused frame of the
+   * arena still contain a fire that is throwing embers and air that has
+   * something in it.
+   */
+  function emitAmbient(dt: number, seed = false): void {
+    const emberScale = settings.particleScale * (1 + moodHeat * 0.9);
+    for (const f of fires) {
+      const bonfire = f.spec.kind === "bonfire";
+      // Up from 24, because the duplicate-fire fix above halved how many
+      // emitters a bonfire has and the column has to carry on one. A torch is
+      // 18 m from every camera in the set and its embers are sub-pixel there, so
+      // it goes the other way — that budget is better spent on the fire the
+      // frame is actually looking at.
+      f.emberAcc += (bonfire ? 34 : 2.2) * emberScale * dt;
+      f.smokeAcc += (bonfire ? 5 : 0.6) * settings.particleScale * (1 + moodHeat * 0.4) * dt;
+      while (f.emberAcc >= 1) {
+        f.emberAcc -= 1;
+        emberAt(f.spec.position.x, f.spec.position.y + f.spec.height * 0.35, f.spec.position.z, f.spec.radius * 0.9, bonfire ? 1 : 0.6);
+      }
+      while (f.smokeAcc >= 1) {
+        f.smokeAcc -= 1;
+        smokeAt(f.spec.position.x, f.spec.position.y + f.spec.height * 0.8, f.spec.position.z, f.spec.radius, bonfire ? 1 : 0.32);
+      }
+    }
+
+    dustAcc += DUST_RATE * settings.particleScale * dt;
+    while (dustAcc >= 1) {
+      dustAcc -= 1;
+      // A ring rather than a disc, biased outward: dust spawned under the camera
+      // is a smear across the lens, and dust spawned at the far edge of the box
+      // is gone before it drifts anywhere worth looking. `seed` fills the whole
+      // area at once instead, for the first frame that knows where the camera is.
+      const a = Math.random() * TAU;
+      const r = seed ? Math.sqrt(Math.random()) * 11 : rand(3, 11);
+      groundDustAt(camPos.x + Math.cos(a) * r, camPos.z + Math.sin(a) * r, seed ? Math.random() * 0.8 : 0);
+    }
+  }
+
+  /**
+   * The last stand's ground carries the fight that got there.
+   *
+   * `laststand` frames a warrior at about fifteen per cent health and the floor
+   * under him is spotless, because every stain in the game comes from a droplet
+   * that landed, and every droplet comes from a `hit` the capture never sends.
+   * The mood flag is the state that says this fight has been going for a while,
+   * so it is the state that puts the marks down — once, not per frame, and only
+   * over half the decal budget so a live blow still has somewhere to stain.
+   */
+  function markGround(ctx: FrameContext): void {
+    if (groundMarked || moodTarget < 0.5) return;
+    groundMarked = true;
+    const n = Math.min(Math.round(decalCap * 0.5), 20);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU;
+      // Clustered, not scattered: a fight happens in a place. Squaring the
+      // radius pulls the mass in toward where the two of them have been standing.
+      const r = Math.random() * Math.random() * 4.2;
+      const big = i % 5 === 0;
+      addDecal(
+        ctx.focus.x + Math.cos(a) * r,
+        ctx.focus.z + Math.sin(a) * r,
+        big ? rand(0.34, 0.62) : rand(0.12, 0.34),
+        // Long-lived and started part-dried, so the set reads as an afternoon of
+        // this rather than as one blow twenty seconds ago.
+        260,
+        rand(0, 105),
+      );
+    }
+  }
+
+  /**
+   * Dust off the local warrior's own boots, derived from where he is rather than
+   * from being told he moved.
+   *
+   * The one dust call in the game fires on `state === "sprinting"`, which is a
+   * state nothing in the capture set is ever in, and a warrior at a walk over
+   * churned mud kicks plenty. Speed comes from the focus point because that is
+   * the only per-warrior signal `FrameContext` carries; it is clamped because a
+   * respawn or a switch to spectate teleports it across the arena and an
+   * unclamped delta would answer that with a dust explosion.
+   */
+  function kickBootDust(dt: number, ctx: FrameContext): void {
+    const focus = ctx.focus;
+    if (!haveFocus) { lastFocus.copy(focus); haveFocus = true; return; }
+    const moved = Math.hypot(focus.x - lastFocus.x, focus.z - lastFocus.z);
+    lastFocus.copy(focus);
+    if (dt <= 0) return;
+    const speed = Math.min(moved / dt, 8);
+    const state = ctx.localState;
+    const afoot = state === "walking" || state === "running" || state === "sprinting";
+    if (speed < 0.6 && !afoot) return;
+    bootAcc += Math.min(speed, 6) * 1.3 * settings.particleScale * dt;
+    while (bootAcc >= 1) {
+      bootAcc -= 1;
+      const gy = groundAt(focus.x, focus.z);
+      spawn({
+        x: focus.x + sym(0.2), y: gy + rand(0.02, 0.14), z: focus.z + sym(0.2),
+        vx: sym(0.5), vy: rand(0.15, 0.7), vz: sym(0.5),
+        life: rand(0.7, 1.4),
+        size0: rand(0.14, 0.3), size1: rand(0.5, 0.95),
+        c0: PALETTE.dustNear, c1: PALETTE.dustFar,
+        alpha: 0.24, fadeIn: 0.1, fadePow: 1.6,
+        rotV: sym(0.8), drag: 2.9, grav: 1.3, buoy: 0.6,
+        frame: CELL.dust,
+        flags: F_ALPHA | F_WIND,
+      });
+    }
   }
 
   // ---- frame --------------------------------------------------------------
@@ -1854,7 +2158,12 @@ export function createVfx(
         if (py <= gy + 0.012) {
           if (flags & F_STAIN) {
             const speed = Math.hypot(vx, vy, vz);
-            if (speed > 1.2 && Math.random() < 0.22) addDecal(px, pz, rand(0.18, 0.42));
+            // A third rather than a fifth. Sixteen droplets a blow at 0.22 left
+            // about three marks, and the decal budget is sixty-four — the pool
+            // was never the constraint, and the frame that raised the "there is
+            // no blood anywhere" defect is a frame where a fight has been going
+            // for minutes and the ground should show it.
+            if (speed > 1.2 && Math.random() < 0.34) addDecal(px, pz, rand(0.18, 0.42));
             kill(i);
             continue;
           }
@@ -2072,6 +2381,32 @@ export function createVfx(
 
   function writeRings(dt: number): void {
     ringLayer.begin();
+    // Spilled coals, drawn flat on the ground outside the log crib. A bonfire
+    // this size does not stop at its fuel — it throws embers out onto the earth
+    // and they sit there glowing and cooling for minutes. They lie in the ring
+    // layer because a coal on the ground is a mark on the ground and should not
+    // swing round to face the camera the way a spark does, and because that
+    // layer already carries the polygon offset a decal needs on sloped terrain.
+    for (const f of fires) {
+      if (f.spec.kind !== "bonfire") continue;
+      const p = f.spec.position;
+      for (let i = 0; i < COAL_BED; i++) {
+        const a = i * 2.3999 + f.id * 1.7;
+        const r = f.spec.radius * (0.95 + 0.85 * ((i * 0.618) % 1));
+        const x = p.x + Math.cos(a) * r;
+        const z = p.z + Math.sin(a) * r;
+        // Each coal breathes on its own slow clock. A bed that pulses together
+        // is a lamp on a dimmer, not a fire.
+        const glow = 0.35 + 0.65 * Math.abs(Math.sin(clock * (0.5 + (i % 5) * 0.13) + i * 2.1));
+        const s = f.spec.radius * (0.16 + 0.1 * ((i * 0.382) % 1));
+        ringLayer.push(
+          x, groundAt(x, z) + 0.018, z,
+          s, s, a, 0.34 + glow * 0.3,
+          PALETTE.coalBed.r * glow, PALETTE.coalBed.g * glow, PALETTE.coalBed.b * glow,
+          CELL.ember,
+        );
+      }
+    }
     for (let i = rings.length - 1; i >= 0; i--) {
       const r = rings[i];
       r.age += dt;
@@ -2083,6 +2418,36 @@ export function createVfx(
     }
     ringLayer.end();
   }
+
+  /**
+   * Run the ambient systems forward before the first frame is drawn.
+   *
+   * This is the fix for the whole "no embers, no smoke, no dust in eight
+   * captures" finding, and the reason it is a build-time step rather than a
+   * tuning change. `GameCanvas` clamps its frame delta to 50 ms and the capture
+   * harness signals readiness after twenty-six animation frames, so a shot is
+   * taken **1.35 seconds** into the simulation no matter how long the headless
+   * box actually took to render it. An ember lives one and a half to six
+   * seconds and has to climb; a smoke puff needs four to reach the size at which
+   * it is a plume rather than a speck. Neither has happened yet. The motes were
+   * the only ambient thing that appeared in any capture, and the only reason is
+   * that they are seeded into a box at construction instead of emitted.
+   *
+   * Nine seconds at twelve steps is a hundred and eight iterations over a few
+   * hundred particles — under a millisecond, once, and the same code path the
+   * frame loop uses, so there is no second definition of what a fire emits that
+   * could drift away from the first. It also means a real match opens on a fire
+   * that is already burning rather than on one lighting itself.
+   */
+  function warmUp(seconds: number): void {
+    const step = 1 / 12;
+    for (let t = 0; t < seconds; t += step) {
+      clock += step;
+      emitAmbient(step);
+      integrate(step, step);
+    }
+  }
+  warmUp(9);
 
   // Every quad this module draws is a billboard standing in for something with
   // no surface — fire, smoke, a spark. None of it should occlude anything, and
@@ -2143,6 +2508,18 @@ export function createVfx(
       const wt = clock * 0.07;
       wind.set(0.35 + Math.sin(wt) * 0.22, 0.16 + Math.cos(wt * 0.83) * 0.22);
 
+      // The warm-up ran before anything knew where the camera would be, so its
+      // dust is centred on the origin. This is the first frame that has a real
+      // camera matrix; fill the box around it in one go, with ages spread across
+      // the population so it arrives established rather than all fading in
+      // together. Every preset frames a different part of the arena and this is
+      // what stops three of them showing dust and five showing none.
+      if (!dustSeeded) {
+        dustSeeded = true;
+        dustAcc = DUST_POPULATION;
+        emitAmbient(0, true);
+      }
+
       integrate(dt, rawDt);
       stepMotes(rawDt);
 
@@ -2150,34 +2527,24 @@ export function createVfx(
       if (firesDirty) rebuildFires();
       const fireU = fireLayer.material.uniforms;
       fireU.uTime.value = clock;
-      // The core has to clear postfx's 2.15 bloom threshold and the skirt has to
-      // stay under it, or the whole fire blooms as one disc. Squared density
-      // does the separating; this number only sets where the knee lands.
-      // Erred low while world.ts was still drawing its own emissive flames on
-      // top of these; it is not any more, and the bloom threshold has moved up
-      // above the dusk sky, so the fire has to be the brightest thing in the
-      // arena for the arena to have a brightest thing.
-      fireU.uIntensity.value = 2.6 + moodHeat * 1.2;
+      // Where the ramp above lands on the curve. Everything else about the fire
+      // is shape; this is the one number that decides whether it has colour.
+      //
+      // 2.3, and *down* on the last stand rather than up. The old line went to
+      // 3.8 there, which is half a stop past the point where that look reaches
+      // display white with a neutral — so the hottest moment in the game was
+      // also the one frame where the fire had no colour left at all. The two
+      // looks are graded a long way apart and the emissive has to follow.
+      fireU.uIntensity.value = 2.3 * (1 - moodHeat * 0.37);
       (fireU.uWind.value as THREE.Vector2).copy(wind);
       if (hazeLayer) {
         hazeLayer.material.uniforms.uTime.value = clock;
         (hazeLayer.material.uniforms.uWind.value as THREE.Vector2).copy(wind);
       }
 
-      const emberScale = settings.particleScale * (1 + moodHeat * 0.9);
-      for (const f of fires) {
-        const bonfire = f.spec.kind === "bonfire";
-        f.emberAcc += (bonfire ? 24 : 2.6) * emberScale * rawDt;
-        f.smokeAcc += (bonfire ? 5 : 0.6) * settings.particleScale * (1 + moodHeat * 0.4) * rawDt;
-        while (f.emberAcc >= 1) {
-          f.emberAcc -= 1;
-          emberAt(f.spec.position.x, f.spec.position.y + f.spec.height * 0.35, f.spec.position.z, f.spec.radius * 0.9, bonfire ? 1 : 0.6);
-        }
-        while (f.smokeAcc >= 1) {
-          f.smokeAcc -= 1;
-          smokeAt(f.spec.position.x, f.spec.position.y + f.spec.height * 0.8, f.spec.position.z, f.spec.radius, bonfire ? 1 : 0.32);
-        }
-      }
+      emitAmbient(rawDt);
+      markGround(ctx);
+      kickBootDust(rawDt, ctx);
 
       // ---- impact flashes ----
       for (const fl of flashes) {
@@ -2200,20 +2567,29 @@ export function createVfx(
       writeParticles();
       writeMotes();
 
-      // The fire's own halo. Wide, soft, and flickering on the same clock as the
-      // flame shader so the bloom around a bonfire breathes with it instead of
-      // sitting there as a static disc. Deliberately held under the bloom
-      // threshold: its job is to give the flame something to sit inside, not to
-      // add another blown highlight to a frame that already had too many.
+      // The fire's own halo, and the only thing in the frame doing the job that
+      // bloom cannot. Bloom needs 5.0 scene units and the grade clips at 4.07, so
+      // there is no radiance at which a flame both glows and keeps its hue — an
+      // authored halo is what is left, and it is better anyway: it is shaped, it
+      // breathes on the flame's own clock, and it costs one quad.
+      //
+      // A torch gets proportionally far more of it than a bonfire. It is 0.1 m
+      // of flame twenty metres away, so on the old `radius * 3.4` its halo was
+      // 16 cm across — under a pixel of glow round a flame that had none of its
+      // own, which is exactly the "flat white sliver" the portrait and lineup
+      // shots show. Its halo is now sized to what a torch lights, not to how big
+      // its flame is.
       for (const f of fires) {
         const p = f.spec.position;
+        const torch = f.spec.kind === "torch";
         const flick = 0.84 + 0.16 * Math.sin(clock * 9.1 + p.x) * Math.sin(clock * 3.7 + p.z);
-        const heat = (f.spec.kind === "bonfire" ? 1 : 0.45) * (1 + moodHeat * 0.3);
-        const s = f.spec.radius * 3.4 * heat;
+        const heat = 1 + moodHeat * 0.3;
+        const s = (torch ? Math.max(f.spec.radius * 5.2, 0.44) : f.spec.radius * 3.6) * heat;
+        const a = (torch ? 0.4 : 0.3) * flick * heat;
         additiveLayer.push(
-          p.x, p.y + f.spec.height * 0.55, p.z,
-          s, s * 1.15, 0, 0.26 * flick * heat,
-          PALETTE.emberHot.r * 0.42, PALETTE.emberHot.g * 0.3, PALETTE.emberHot.b * 0.16,
+          p.x, p.y + f.spec.height * (torch ? 0.42 : 0.55), p.z,
+          s, s * 1.15, 0, a,
+          PALETTE.fireHalo.r, PALETTE.fireHalo.g, PALETTE.fireHalo.b,
           CELL.glow,
         );
       }
@@ -2232,6 +2608,9 @@ export function createVfx(
       // match starts on an empty arena rather than on the last one's blood.
       store.n = 0;
       ambientLive = 0;
+      dustSeeded = false;
+      groundMarked = false;
+      haveFocus = false;
       decals.length = 0;
       rings.length = 0;
       fires.length = 0;

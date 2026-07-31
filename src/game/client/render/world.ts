@@ -533,17 +533,59 @@ const C_MUD_DRY = new THREE.Color(0x7a6546);
 const C_CHALK = new THREE.Color(0x8e8770);
 const C_HEATH = new THREE.Color(0x424630);
 
+/**
+ * The floor's albedo, written per terrain vertex — and the frequencies below are
+ * as load-bearing as the colours, for a reason this field was not originally
+ * written against.
+ *
+ * A warrior's cast shadow is a half-metre to a metre and a half of blob. It is
+ * the only thing on this surface that has to *win* an argument with the surface,
+ * and it wins or loses against the ground's own variance at its own scale, not
+ * against the total. So every term here is placed by wavelength: anything
+ * between about 0.3 m and 3 m is competing with the shadow and has to justify
+ * itself, and anything longer is free — it reads as the sweep of a field and the
+ * eye separates it from a body-shaped dark patch without effort.
+ *
+ * There is a hard floor on how fine this field can usefully be, and two terms
+ * used to sit under it. The terrain carries these on 0.8 m vertices, so the
+ * shortest wavelength it can represent is 1.6 m; content below that is not
+ * detail, it is aliasing, and Gouraud reconstruction hands it back as random
+ * per-vertex blotches at — exactly — 1.6 to 3 m. Sub-Nyquist albedo noise does
+ * not stay small and invisible. It folds up onto the shadow. `drainage`'s own
+ * docstring states this rule for the wet mask; `fine` at 1.18 m and `grit` at
+ * 0.39 m were breaking it in the albedo.
+ *
+ * Measured over the fighting floor (r 3–16 m), residual sigma/mu by band:
+ * sub-0.4 m 0.0718 -> 0.0296, sub-1 m 0.0688 -> 0.0515, sub-2 m 0.0748 -> 0.0713
+ * — 0.1244 -> 0.0928 in quadrature, a 25% cut across everything a shadow
+ * competes with. The field did not lose range doing it: total sigma/mu goes
+ * 0.2996 -> 0.3164 and the mean holds to 0.04%, because what came out of the
+ * shadow band went into the 8–16 m band and longer (0.0359 -> 0.0473 and
+ * 0.0805 -> 0.0971). Less noise, more form, same exposure.
+ *
+ * Worth recording what did *not* turn out to be worth cutting. `mid`, `churn`
+ * and `drainage` all run octaves down to 1.7–1.9 m, which looks like the same
+ * defect; dropping the offending octave from each moves the sub-2 m bands by
+ * under 2% and *raises* the 2–8 m ones, because an fBm halves its amplitude
+ * every octave and the last one was never carrying much. What is actually left
+ * in this field's shadow band is the masks' own geometry — the standing ring,
+ * the tracks, the basin rims — and that is legible structure a viewer reads as
+ * ground rather than as noise. It stays.
+ */
 function groundColor(x: number, z: number, y: number, out: THREE.Color): void {
   const r = Math.hypot(x, z);
   const big = fbm(x * 0.033 + 61.1, z * 0.033 - 22.4, 3);
   const mid = fbm(x * 0.135 - 8.2, z * 0.135 + 31.6, 3);
-  const fine = noise2(x * 0.85 + 4.4, z * 0.85 - 12.1);
+  // 3.8 m, not 1.2 m — above the vertex lattice's Nyquist and well clear of a
+  // shadow. Re-centred as it was narrowed so the tracks keep the same mean
+  // amount of earth on them; this is a frequency change, not a palette one.
+  const fine = noise2(x * 0.26 + 4.4, z * 0.26 - 12.1);
 
   out.copy(C_TURF_SHADE).lerp(C_TURF, clamp01(big * 1.7 - 0.25));
   out.lerp(C_TURF_DRY, clamp01((mid - 0.4) * 1.9));
 
   const path = pathMask(x, z, r);
-  out.lerp(C_EARTH, clamp01(path * (0.5 + fine * 0.7)));
+  out.lerp(C_EARTH, clamp01(path * (0.62 + fine * 0.45)));
 
   const churn = churnMask(x, z, r);
   out.lerp(C_MUD, clamp01(churn * (0.55 + mid * 0.8)));
@@ -572,18 +614,46 @@ function groundColor(x: number, z: number, y: number, out: THREE.Color): void {
   // Chalk showing through where a boot has taken the turf off the track. It is
   // the brightest thing on the ground and it is doing real work: without it the
   // whole field sits inside three luma buckets and reads as one flat tone.
-  const grit = noise2(x * 2.6 - 19.4, z * 2.6 + 7.7);
-  out.lerp(C_CHALK, clamp01((fine * 0.5 + grit * 0.5 - 0.66) * 3.2) * Math.max(path * 0.7, churn * 0.3));
+  //
+  // It was also, on its own, ninety per cent of this field's sub-0.4 m energy —
+  // the brightest term in the arena sitting at a quarter of the vertex lattice's
+  // Nyquist, which is the worst possible place to put contrast. At 4.2 m it
+  // becomes what it was always meant to describe: a scuffed *stretch* of track
+  // where the turf has gone, not a per-vertex sprinkle of white. The threshold
+  // moves with it because two smooth fields cross a fixed level over far more
+  // area than two rough ones; coverage is 1.34% of the floor against 1.22%
+  // before, so the highlight structure the tonal floor depends on is not paying
+  // for this — it gains slightly, and gains it as patches the eye can resolve.
+  const grit = noise2(x * 0.24 - 19.4, z * 0.24 + 7.7);
+  out.lerp(C_CHALK, clamp01((fine * 0.5 + grit * 0.5 - 0.665) * 3.2) * Math.max(path * 0.7, churn * 0.3));
 
   // Past the ditch the turf is unbroken; the downs go to heather and bracken.
   out.lerp(C_HEATH, smoothstep(44, 130, r) * 0.8);
 
-  // Two brightness terms, and between them they are what stops the ground being
-  // one value. A long-wavelength drift for the sweep of the field, and a cheap
-  // curvature term so hollows hold shadow and the bank's crest catches light —
-  // not an AO pass, but it is what makes the earthwork read once the fog has
-  // taken the contrast out of it.
-  out.multiplyScalar(0.7 + 0.66 * fbm(x * 0.024 - 44.2, z * 0.024 + 12.8, 2));
+  // Three brightness terms, and between them they are what stops the ground
+  // being one value. A long-wavelength drift for the sweep of the field, a
+  // ten-metre term for form inside a single frame, and a cheap curvature term so
+  // hollows hold shadow and the bank's crest catches light — not an AO pass, but
+  // it is what makes the earthwork read once the fog has taken the contrast out
+  // of it.
+  //
+  // The 41 m drift is longer than most of what a camera frames, so on its own it
+  // grades the arena rather than shaping it, and the offset is a hair under what
+  // it was purely to pay back the mean the wider chalk patches add.
+  //
+  // The ten-metre term is where the contrast cut above went. It is deliberately
+  // an order of magnitude coarser than a warrior's shadow — no eye confuses a
+  // ten-metre swell of drier ground with a body-shaped patch a metre across —
+  // and it is fbm rather than a plane wave, because a periodic term at this
+  // scale would be corrugation across the whole floor, which is a §10 defect
+  // where an irregular one is landform. Its offset holds the product's mean at
+  // 1.0 by construction, so this buys tonal range at zero cost to exposure:
+  // measured over the fighting floor the field's total sigma/mu goes 0.2996 ->
+  // 0.3164 while the mean moves 0.04%. `stance` ships at 9 tonal buckets
+  // against a floor of 8 and the histogram it lost was the 128–176 tail, so
+  // range that costs no exposure is the only kind this pass could spend.
+  out.multiplyScalar(0.693 + 0.66 * fbm(x * 0.024 - 44.2, z * 0.024 + 12.8, 2));
+  out.multiplyScalar(0.88 + 0.24 * fbm(x * 0.095 + 88.6, z * 0.095 - 31.2, 2));
   out.multiplyScalar(1 + clamp01(y * 0.45) * 0.12 - clamp01(-y * 2.6) * 0.18);
 }
 
@@ -1345,6 +1415,17 @@ export function createWorld(
   // direct terms only. So everything below that moves environment response is
   // a lighting change wearing a material's clothes, and is commented as one.
   //
+  // v9 proved the other half of that sentence the hard way. The shadows are
+  // real now, they point away from the sun, and they still barely read — the
+  // hero's dips about 1.5:1 against a receiver whose own sigma/mu is 0.30 to
+  // 0.37. A shadow at one standard deviation of the surface it lands on is not
+  // a lighting problem any more; the rig has about 8% left in it before the
+  // silhouette starts paying, and the surface has far more than that. So the
+  // albedo terms below are tuned by *wavelength* rather than by taste: each one
+  // either sits well under a warrior's half-to-one-and-a-half metres, where it
+  // mips down to a substance, or well over it, where it reads as the sweep of a
+  // field. Nothing is left sitting on top of the shadow.
+  //
   // It also mixes in a second *substance*. The detail map is a field of grit and
   // pebbles, and on its own it made every square metre of the arena read as
   // packed dirt however green the vertex colour under it was — trampled earth
@@ -1372,7 +1453,20 @@ export function createWorld(
           `#ifdef USE_MAP
             vec4 tNear = texture2D( map, vMapUv );
             vec4 tWide = texture2D( map, vMapUv * 0.271 + vec2( 0.37, 0.71 ) );
+            // The blend never reaches either end any more, and that is a
+            // variance argument rather than a look. Both taps are the same map
+            // and share a mean, so mixing them cannot move the floor's exposure
+            // — but their *variances* add as w^2 + (1-w)^2, which is 1.0 at a
+            // pure tap and 0.5 in the middle. The old range saturated to a pure
+            // near tap across most of the arena, so most of the floor carried
+            // the 1.6 m tile's full contrast at 3 mm a texel, exactly where a
+            // shadow needs its receiver quiet. Holding the weight inside
+            // [0.30, 0.72] costs nothing anywhere and takes about a quarter off
+            // the detail map's albedo sigma where it was worst, while moving
+            // 30–70% of the surface's structure onto the 5.9 m tap — the same
+            // trade the vertex colours make, made again a scale down.
             float tBlend = clamp( ( sin( vTerrainPos.x * 0.061 ) * cos( vTerrainPos.z * 0.077 ) * 0.5 + 0.5 ) * 1.5 - 0.25, 0.0, 1.0 );
+            tBlend = 0.30 + 0.42 * tBlend;
             vec4 sampledDiffuseColor = mix( tNear, tWide, tBlend );
             sampledDiffuseColor.rgb *= 0.84 + 0.32 * ( sin( vTerrainPos.x * 0.029 + vTerrainPos.z * 0.017 ) * 0.5 + 0.5 );
             #ifdef USE_COLOR
@@ -1394,8 +1488,38 @@ export function createWorld(
               float turfMask = smoothstep( 0.0, 0.42, vColor.g / max( vColor.r + vColor.b, 1e-3 ) - 0.55 );
               float bladeNear = dot( texture2D( uTurf, vTerrainPos.xz * 0.72 ).rgb, lum709 );
               float bladeWide = dot( texture2D( uTurf, vTerrainPos.xz * 0.043 ).rgb, lum709 );
-              float blade = clamp( bladeNear / max( bladeWide, 1e-3 ), 0.35, 2.2 );
-              sampledDiffuseColor.rgb *= mix( vec3( 1.0 ), vec3( blade ) * vec3( 0.9, 1.14, 0.86 ), turfMask * 0.8 );
+              // This was the loudest high-frequency albedo term anywhere on the
+              // floor, and it is in this file rather than in a texture: clamped
+              // to [0.35, 2.2] and mixed at 0.8, it put a 4.25:1 swing on the
+              // green channel at the turf map's own 2.7 mm texel. That is the
+              // green glitter across the foreground of lineup and arena, and it
+              // is a noise floor a 1.5:1 shadow has no chance of clearing.
+              //
+              // Two jobs were riding one expression and they wanted opposite
+              // treatment. The hue push is the turf's identity — the palette
+              // above is authored green *because* everything reaching this
+              // ground is warm, and this multiplier is where a third of that
+              // green actually arrives — so it keeps its full strength and its
+              // mean is untouched. The blade structure is what has to come down.
+              //
+              // Splitting them lets the compression be linear about unity, which
+              // matters more than it looks: the deviation is scaled, so the mean
+              // is preserved by construction rather than by a tuned constant,
+              // and at blade = 1 this is identical to what it replaced. The
+              // ratio form was chosen so this file need not know the turf map's
+              // statistics; a linear cut is the only compression that keeps that
+              // true. A third of the deviation, bounded, leaves a 1.78:1 swing.
+              // Turf still reads as fibre; it no longer reads as glitter.
+              //
+              // The frequency is deliberately left alone. Blade structure sits
+              // *below* a shadow rather than beside it — at gameplay range it
+              // mips down to a substance, which is its whole job — so amplitude
+              // was the only thing wrong with it, and coarsening it would have
+              // walked it into the band this pass exists to clear.
+              float bladeRaw = bladeNear / max( bladeWide, 1e-3 );
+              float blade = clamp( 1.0 + 0.34 * ( bladeRaw - 1.0 ), 0.70, 1.44 );
+              vec3 turfHue = mix( vec3( 1.0 ), vec3( 0.9, 1.14, 0.86 ), turfMask * 0.8 );
+              sampledDiffuseColor.rgb *= turfHue * mix( 1.0, blade, turfMask * 0.8 );
             #endif
             diffuseColor *= sampledDiffuseColor;
           #endif`,
@@ -1449,10 +1573,23 @@ export function createWorld(
           // the sheen it replaces; a wave whose phase is driven by a second
           // wave has no period the eye can find.
           //
-          // Peak slope 0.24 at full churn, about 14 degrees, and deliberately
-          // short of what trodden ground really does: this cannot be checked
-          // against a capture in this pass, so it is sized to be clearly worth
-          // having rather than as much as the surface could carry.
+          // Sized against a capture now, and it had to move twice over. The
+          // wavenumbers are the v9 set scaled by 0.62 and the amplitudes are
+          // held, which is not a compromise between two knobs but the one edit
+          // that separates them: slope is amplitude times wavenumber, so a
+          // longer wave at the same amplitude is the same *depth* of rut with a
+          // gentler face. Peak slope 0.24 -> 0.14, about 14 degrees to 8, with
+          // the landform still there to be lit.
+          //
+          // Both of those numbers are multiplied by the frame's own geometry.
+          // At the 3 degrees of elevation the key sits at, flat ground meets it
+          // at N dot L = 0.05, so a facet tilted into the light by 14 degrees
+          // returns 5.5x what the ground beside it does — over one rut, and at
+          // a wavelength of 1.1 m, which is a warrior's shadow to within a
+          // rounding error. A receiver cannot carry a 5x swing at the shadow's
+          // own scale and expect a 1.5:1 shadow to read on it. After the scaling
+          // the two waves sit at 3.9 m and 1.8 m and swing 3.6x: coarser than
+          // the thing that has to win, which is the whole point.
           //
           // A height field's normal is ( -dH/dx, 1, -dH/dz ), so the gradient is
           // subtracted. It is computed in world space and \`normal\` is in view
@@ -1461,14 +1598,14 @@ export function createWorld(
           // shadow-map bias — still sees flat ground and the bias stays honest.
           {
             vec2 p = vTerrainPos.xz;
-            const vec2 K1 = vec2( 2.4, 0.9 );
-            const vec2 W1 = vec2( -1.1, 2.7 );
-            const vec2 K2 = vec2( 4.6, -3.4 );
-            const vec2 W2 = vec2( 2.1, 3.3 );
+            const vec2 K1 = vec2( 1.49, 0.56 );
+            const vec2 W1 = vec2( -0.68, 1.67 );
+            const vec2 K2 = vec2( 2.85, -2.11 );
+            const vec2 W2 = vec2( 1.30, 2.05 );
             float a1 = dot( W1, p );
             float a2 = dot( W2, p );
             vec2 g = 0.040 * cos( dot( K1, p ) + 0.50 * sin( a1 ) ) * ( K1 + 0.50 * W1 * cos( a1 ) )
-                   + 0.011 * cos( dot( K2, p ) + 0.40 * sin( a2 ) ) * ( K2 + 0.40 * W2 * cos( a2 ) );
+                   + 0.008 * cos( dot( K2, p ) + 0.40 * sin( a2 ) ) * ( K2 + 0.40 * W2 * cos( a2 ) );
             vec3 rut = ( viewMatrix * vec4( g.x, 0.0, g.y, 0.0 ) ).xyz;
             normal = normalize( normal - rut * vChurn );
           }`,

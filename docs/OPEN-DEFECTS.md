@@ -6,7 +6,7 @@ change is made.
 
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
-Current reference: **`art/shots/v9/`**. A/B against `v8/`.
+Current reference: **`art/shots/v10/`**. A/B against `v9/`.
 
 ---
 
@@ -75,20 +75,60 @@ against 0.375 in `v8`. `lighting.ts`'s own note says a rig cannot subtract more
 of the ground than it puts on it; the next real gain on axis 3 is either this
 amplitude or a screen-space AO pass in `postfx.ts`.
 
-## The bonfire core still clips flat
+**v10 attacked the amplitude from `world.ts` and the capture says it did not
+reach the pixel.** The vertex-albedo field was re-banded away from the shadow's
+wavelength (`fine` 1.18 m -> 3.8 m, `grit` 0.39 m -> 4.2 m, `blade`'s green swing
+4.25:1 -> 1.78:1, `rut` slope 0.24 -> 0.14), and the field measured in isolation
+improved by 25% in the shadow band. On the frame, band-passed floor sigma at
+2–5 px is **flat to slightly worse in six of seven presets** (`arena` 10.76 ->
+11.08 code values, `closeup` 10.89 -> 11.56, `brawl` 11.31 -> 11.86, `lineup`
+6.85 -> 6.98, `laststand` 6.03 -> 6.13, `duel` 8.59 -> 8.49) and improves in
+exactly one — `stance`, 6.35 -> 5.60, −12%, which is the preset whose camera is
+lowest and closest and therefore the one where a world-scale term subtends the
+most screen. That is the shape of a real but tiny win being swamped, and it
+confirms rather than refutes the diagnosis in this entry: the relief the eye is
+reading is `buildGroundDetail`'s, at 33 mm–11 cm, and it was not touched.
+`world.ts`'s own note now records that the sub-2 m octaves of `mid`/`churn`/
+`drainage` were tested and are *not* the culprit, so the next pass should not
+re-derive that.
 
-Unchanged v7 → v8 → v9; nobody has owned it for three passes. Re-measured over
-the `arena` flame box, pixels at or above 250 luma: 1385 (v7) -> 1547 (v8) ->
-1268 (v9), and the mean saturation of the hottest 2% is **0.054 in all three**.
-The count wanders with the framing; the saturation is the number that matters and
-it has never moved. `v9/lineup.png` and `v9/arena.png`:
-the flame is a real flame — tongues, a visible log crib, coals, and it pools
-light on the ground — but its core is still welded to white. It is the emissive in
-`vfx.ts` saturating the tone curve, and `postfx.ts`'s own note says where the
-curve actually clips: `white: 7.8` overstates it by 2.2x, because
-`contrast: 0.36`/`pivot: 0.2` applies a 1.22 power *before* the curve, so the
-frame reaches code 255 at ~3.5 scene units. Anything emissive above that welds.
-Axis 9 does not pass on a flame with no colour in its hottest part.
+The specific term to cut is named and still unowned: in `buildGroundDetail`,
+`height` takes `peb` from `sampleCell(bank.micro, u*2, v*2)` — ~33 mm on the
+1.6 m tile — at `+0.16` into a `bump: 1.9` normal. That, not the `held`
+roughness term this entry used to point at, is the 2–4 px cell. `dome` at 11 cm
+is worth keeping.
+
+## The bonfire's coal bed is pale peach lumps, and it is now the loudest thing in the crib
+
+The flame above it has colour (see the v10 entry below) and that is exactly what
+exposed this: with the tongues no longer welded to white, what the eye lands on
+in `v10/closeup.png` at 2x is a ring of pale, waxy lumps sitting in the log crib
+that read as marshmallows, not as embers. Measured over the crib base
+(`closeup`, x 1230–1420, y 495–545), lumps above 170 luma are **[254, 203, 165]**
+in v10 against [245, 207, 174] in v9 — the material never changed; only its
+surroundings got out of its way, and the count halved (988 -> 536) because the
+flame is no longer over-brightening its neighbours.
+
+The cause is named and unowned: `materials.ts:169`,
+`bonfireFlame: { emissive: 0xff5500, emissiveIntensity: 5.6 }`, on the
+`IcosahedronGeometry` coal instances `world.ts:3027` places. 5.6 linear in R
+clips before the other two channels do, so the grade's crosstalk drags G and B up
+to ~205/165 and the lump arrives desaturated and pink. It wants roughly
+`0xff8a28` at 2.2–2.4. The comment above the entry reasons from a bloom threshold
+that, per the next entry, the chain cannot reach without clipping first.
+
+## Bloom is unreachable — the threshold sits above where the grade already clips
+
+Not visible as an artifact; visible as an absence, and it is why every emissive
+in the game has been tuned by pushing intensity until something goes white.
+Running postfx's own chain (exposure -> white balance -> contrast power ->
+crosstalk -> filmic) on the CPU, the frame reaches code 255 at **4.07 scene units
+in dusk and 2.48 in `laststand`**. `bloomThreshold` is **5.0 and 6.0**. There is
+no radiance at which a source both blooms and keeps its chroma: it clips first,
+every time. v10 worked around it for the bonfire with an authored halo, but
+"let bloom carry the heat" cannot literally happen until the threshold drops to
+~3.2–3.6 or `crosstalk` comes down from 0.3. Unowned, and it constrains axis 9
+for anything else that wants to glow.
 
 ## Faces at lineup distance are lit now, and still the coolest skin in the frame
 
@@ -197,6 +237,22 @@ land. If a capture still shows staircases after MSAA, that is where to look.
   halves move as one" entry is gone. What replaces it is that the gather is
   bounded by a hand-tuned constant instead of by the body, and the tunic wedge
   above is what that costs.
+- **Nothing with a time constant over ~1.4 s can appear in a capture.**
+  `GameCanvas.tsx:297` clamps `rawDt` to 0.05 and `shot/page.tsx:264` sets
+  `__shotReady` after 26 rAF ticks, so **every capture is taken 1.35 s into the
+  simulation** whatever the wall clock does. An ember lives 1.5–3.6 s and has to
+  climb; a smoke puff needs ~4 s to become a plume. v10 works around it with a
+  `warmUp(9)` that steps the particle system forward through the real frame path
+  at construction, which is why embers exist in v10 at all — but the workaround
+  is per-system, and anything else that accumulates (smoke, decal drying, fire
+  flicker phase) needs its own. This is a sharper statement of "events never
+  arrive": it is not only events, it is anything slow.
+- **`FrameContext` in `quality.ts` carries no per-warrior data** — only `focus`
+  and `localState` — so `vfx.ts` cannot make any warrior but the local one dust,
+  bleed or react. A `pressure` (health fraction) field would also let ground
+  marks key off actual health rather than off `lastStandTriggered`. Related:
+  `GameCanvas.tsx:419` only emits dust for `state === "sprinting"`, and no preset
+  is ever sprinting; walking and running over churned mud kick dust too.
 - **The de-overlap solver in `hud3d.ts` has never been photographed doing work.**
   No preset puts two plates close enough to trigger `compact`.
 - **The tally notches never render in `brawl`.** Bars are ~10 px there, so
@@ -354,6 +410,16 @@ Captures are a shared, mutable resource. Only one capture may run at a time, and
 a directory that has been scored must be treated as immutable — write a new
 version rather than refreshing an old one.
 
+**`git stash` is the same class of hazard and bit us again before v10.** An agent
+wanting a lint baseline ran `git stash`, which is repo-global: it reverted a file
+a concurrent workflow was mid-edit on, and `git stash pop` then refused because
+that workflow had written to the file again. Nothing was ultimately lost — the
+v10 verify pass confirmed the working tree was strictly ahead of `stash@{0}` on
+both files — but the recovery cost a pass of anxiety and the stash entry had to
+be carried between sessions. **Never run a repo-global git command to answer a
+question about one file.** A lint baseline for your own file is `npm run lint`
+filtered to your own path; a diff baseline is `git show HEAD:<path>`.
+
 ---
 
 ## v9 verify pass — what the capture proves, and what it does not
@@ -402,7 +468,8 @@ substances. `characters.ts:2862–2872` puts a 51 mm tile on the cloak
 can close it; the pelt wants 2–3 repeats, or `PELT_TILE` wants to be ~0.12.
 
 **No sparks, no dust, no blood anywhere in eight captures** — including
-`laststand`, where the hero is at ~15% health. Unchanged. Axis 9 cannot pass.
+`laststand`, where the hero is at ~15% health. *Superseded by the v10 entry: all
+three now exist, and two of the three are below the threshold of being seen.*
 
 **Regression: `stance` lost tonal range.** meanLuma 60.7 -> 58.5 (−3.7%), maxLuma
 235 -> 218, `tonalBuckets` **11 -> 9** — one above the FAIL line. `arena` 12 -> 11
@@ -431,3 +498,96 @@ by reading three packets after the press. **Do not relax the assertion to make i
 green** — either read a sequence the way the dodge check does, or give the dodge
 room to finish. Recorded here rather than fixed because a flaky test is a finding
 and this pass did not own `tools/`.
+
+---
+
+## v10 verify pass — one blocker fell, one moved without arriving, and the fire cost the frame its top end
+
+Gates: `npx tsc --noEmit` clean, `npm run lint` 12 problems (unchanged, all in
+`GameCanvas.tsx` / `shot/page.tsx` / `CharacterPreview.tsx`), `npm run playtest`
+**9/9** with no assertion touched, and all eight presets `ready: true`,
+`blank: false`, `errors: []`, `tonalBuckets >= 9`. Every number below is measured
+on `art/shots/v10/` against `art/shots/v9/`, and the two sets are **pixel-aligned
+on world geometry** — the palisade strip in `lineup` cross-correlates at 0.997
+with a best shift of (0, 0), so ground, fire and shadow comparisons are sound.
+
+**The bonfire core has colour, and the entry that said it never would is
+deleted.** This is the one number OPEN-DEFECTS had recorded as immovable across
+v7, v8 and v9: mean saturation of the hottest 2% of the flame box, 0.054 in all
+three. In v10 it is **0.286 in `arena` (5.2x), 0.314 in `closeup`, 0.276 in
+`duel`**, and the clipping that caused it is gone with it — pixels at or above
+250 luma inside the flame box go **608 -> 64** in `arena`, **800 -> 1** in
+`closeup`, **104 -> 0** in `duel`. At 2x, `v9/closeup.png` is a white blowtorch
+whose glare eats the log crib; `v10/closeup.png` is an amber flame with graded,
+individually readable tongues and a fully legible crib behind them. The cause was
+not the tone curve alone: the ramp's top band was authored `vec3(1.0, 0.93, 0.72)`,
+which measures 0.02 saturation after white balance and crosstalk *at any
+level* — an achromatic source, which is why raising or lowering radiance never
+moved the metric. Re-authoring it to `(1.0, 0.46, 0.105)` is what fixed it.
+
+**Blood, embers and ambient dust all exist now. Only blood reads.**
+- *Blood is real and visible at 1:1.* `v10/laststand.png` carries **60 distinct
+  regions on the floor band that darkened by more than 14 luma** against v9,
+  13 790 px in total, and those pixels are redder in v10 than the turf they
+  replaced (R:G **1.495 -> 1.601**) — a multiply decal over grass. Two spot
+  checks: (490, 660) goes 74.0 -> 42.4 against an unchanged 64/66 control, and
+  (810, 712) goes 64.4 -> 33.4 against an unchanged 92/93 control. The clustering
+  around `ctx.focus` reads as a place a fight happened.
+- *Embers exist and are sub-visible.* The air column above the `arena` fire
+  carries **117 new warm specks** against v9, peaking at +73 luma, scattered from
+  y≈122 up out of a flame that tops at y≈350 — a genuine rising column. At 1:1
+  they are 1–2 px and read as sensor speckle against a bright dusk sky. They are
+  in the file; they are not in the picture.
+- *Dust exists as a veil, not as grains.* In `closeup` the frame carries a
+  monotone near-field lift — **+4.4 luma at the bottom row, +3.1 at y 780, +1.6
+  at y 650, −0.7 at the horizon** — which is exactly what a camera-centred dust
+  ring at `alpha 0.11` does. `vfx.ts`'s own note flagged this as the parameter it
+  was least sure of without a frame, and the frame agrees: it is haze. It wants
+  fewer, larger, brighter motes rather than more opacity.
+
+**The shadow does not read any better against the ground, and `world.ts` is not
+to blame for that.** Measured per-frame so the warrior jitter below cannot
+invalidate it — depth of the darkest coherent (>= 25 px) floor feature divided by
+the receiver's own fine-scale sigma — v9 -> v10: `arena` 1.23 -> 1.20, `lineup`
+1.33 -> 1.30, `duel` 1.53 -> 1.45, `laststand` 1.78 -> 1.80, `brawl` 1.25 ->
+1.24, `closeup` 1.70 -> 1.78, `stance` 2.36 -> 2.53. Mean 1.60 -> 1.61: unchanged
+within the spread. On the canonical `lineup` band (y 735–775) the four troughs
+sit at the same x windows and the contrast is **2.30:1 -> 2.29:1**, while the
+open-floor receiver's sigma/mu went the wrong way, **0.3235 -> 0.3547**. See the
+cobbles entry above for why.
+
+**Regression: the fire fix cost the frame its top end.** `uIntensity` went from
+`2.6 + moodHeat*1.2` to `2.3 * (1 - moodHeat*0.37)`, the inner tongue ring was
+dimmed to pay for its own stacking, and the duplicate-emitter fix halved the
+tongue count — three cuts in the same direction at once. maxLuma falls in five
+presets (`arena` 250 -> 221, `closeup` 250 -> 213, `lineup` 250 -> 239, `brawl`
+250 -> 242, `portrait` 247 -> 242) and **`tonalBuckets` falls in three: `duel`
+15 -> 13, `brawl` 15 -> 12, `lineup` 16 -> 13.** All still pass, none is near the
+line, and whole-frame meanLuma holds within 1.3% on eight of eight — but the
+brightest object in the scene is now dimmer than the sky behind it, and in
+`lineup` the warriors visibly lost the warm fill the fire was giving them. The
+cut was three levers where one would have done; `RING_LEVEL[0]` and the
+dedup are the ones worth keeping, and `uIntensity` is the one to give back.
+
+**No regression in the three things v9 won.** Shadow direction: `v10/lineup.png`
+still shows four troughs running frame-RIGHT from four casters with the sun glare
+at frame-LEFT, at x≈180, 640–690, 1040–1150 and 1480–1560. Boot contact: the
+warden's sole region measures 47.6 against 78.0 on the same row, **1.64:1**,
+against v9's 1.59:1 on the same crop — welded, and marginally better. Cloth
+grain: `v10/stance.png` at 2x still carries lengthwise fibre and nap sheen on the
+cloak, and `v10/portrait.png` still shows lengthwise plank grain on the shield.
+
+**New, and it invalidates a measurement this file already published:
+`lineup` does not pose its warriors deterministically across captures.** The
+world is pixel-exact (palisade correlates 0.997 at zero shift) while every
+warrior in the frame has moved: v9 -> v10 best-match offsets are huscarl +10 px,
+warden −44, runekeeper +45, berserker −53, and the best-match correlations are
+only 0.58–0.82, so they changed pose as well as position. **This predates v10** —
+v8 -> v9 shows huscarl −44 px at correlation 0.54 and warden +14 at 0.61. The
+consequence is that the v9 entry above reporting face luma on lineup crops
+(huscarl 34.7 -> 45.1, warden 55.3 -> 66.9, berserker 57.7 -> 62.8) compared
+crops that were not on the same pixels of the same thing, and those numbers
+should not be relied on. The `faceFill` change may still have been right — the
+qualitative read of `v9/lineup.png` stands — but it is not measured. Any future
+per-warrior A/B must use `stance`, `duel` or `portrait`, which are stable, or
+must register the crop first.
