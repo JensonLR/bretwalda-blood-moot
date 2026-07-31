@@ -132,7 +132,15 @@ async function main() {
     }
 
     const file = resolve(OUT, `${preset}.png`);
-    const buf = await page.screenshot({ path: file });
+    // Playwright's screenshot budget defaults to 30 s, which was never a
+    // deliberate choice here and is the one budget in this file that was not
+    // sized against a GPU-less box. It forces a fresh paint, so it costs a whole
+    // frame — and `brawl` is now well past 30 s a frame, because the bonfire
+    // beam became a second shadow-casting light and eight warriors are rendered
+    // into its map as well as the key's. That failed the entire capture at the
+    // fourth preset with three good PNGs already on disk. Same budget as the
+    // settle wait above; it is a ceiling, not a delay.
+    const buf = await page.screenshot({ path: file, timeout: 300000 });
 
     // A dead-black frame means the scene never rendered — catch it here
     // rather than letting a critic agent review an empty image. Measure the

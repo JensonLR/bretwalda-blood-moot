@@ -2047,8 +2047,19 @@ const WING_FWD = 0.62;
  * kept its cut radius whatever it did. Cloth does not. Hanging off a yoke it
  * falls inward and finds the body, and only speed and a turn throw it back out
  * — which is why this is scaled by how *still* the wearer is and not added flat.
+ *
+ * 0.07, down from the 0.17 this landed at. There is no collision here, so the
+ * only thing stopping the gather is the clearance the cloak was cut with, and
+ * `characters.ts` says that clearance is about 60 mm over the tunic's flared hem.
+ * At 0.17 the hem came in 125–165 mm and the middle of each wing came in about
+ * half of that — past the garment under it — and `art/shots/v8/duel.png` showed
+ * the result: an olive wedge of tunic standing in a hole in the hero's cloak,
+ * which is the same defect, arrived at from the opposite direction, that the
+ * outward-only folds were introduced to close. A gather is not worth a hole.
+ * This is the number that fits inside the cut, not the number cloth would want;
+ * the number cloth would want needs the cloak cut wider first.
  */
-const GATHER = 0.17;
+const GATHER = 0.07;
 /** Where the leading edges turn out to, so the two wings are not one plane. */
 const WING_SPLAY = 0.07;
 /** Sub-step ceiling. `dt` is capped at 50 ms upstream and the stiff ring is 26 rad/s. */

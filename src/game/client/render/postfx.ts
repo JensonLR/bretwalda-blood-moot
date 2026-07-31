@@ -1927,13 +1927,25 @@ const BLOOM_LEVELS: Record<QualityTier, number> = { high: 5, medium: 4, low: 3 }
  * composer owning its own allocation, which is a trade worth taking over hand-rolling
  * a resolve into the chain. See PASS_COST.msaa.
  *
- * Alpha-tested geometry — the leaf cards, thatch battens and twigs the aberration
- * was beading — is *not* covered by this, because an alpha test kills the whole
- * fragment rather than part of its coverage mask. Those want `alphaToCoverage` on
- * their materials, which is a one-line change per material and only becomes
- * meaningful now that there are samples for it to write into.
+ * Alpha-tested geometry is *not* covered by this, because an alpha test kills the
+ * whole fragment rather than part of its coverage mask. That would want
+ * `alphaToCoverage` — except this project has no alpha-tested foliage: the trees
+ * are solid `leafClump` geometry, the thatch is solid courses, and `blood` is the
+ * only cutout surface in the library. There is nothing to apply it to.
+ *
+ * **High is 2, not the 4 this landed at, and the honest reason is caution rather
+ * than measurement.** `brawl` failed to present a frame inside 30 s on the capture
+ * box and took the whole run down with it; that turned out to be a second
+ * shadow-casting light rather than coverage — `duel`, `arena` and `closeup` cost
+ * the same at 4 samples as at 2 as at none — so this file is not the culprit and
+ * dropping to 2 did not fix it. It stays at 2 anyway. The frame we can least afford
+ * is already the one that cannot hold a frame budget, MSAA is the newest thing in
+ * the chain and the only one never measured on real hardware, and 2 samples is
+ * where a staircase stops being a staircase: the third and fourth buy intermediate
+ * shades of an edge that SMAA is sitting at the end of the chain to interpolate
+ * anyway. Take it back to 4 when someone can profile the scene on a GPU.
  */
-const MSAA_SAMPLES: Record<QualityTier, number> = { high: 4, medium: 2, low: 0 };
+const MSAA_SAMPLES: Record<QualityTier, number> = { high: 2, medium: 2, low: 0 };
 
 /**
  * How far SMAA traces a detected edge looking for its crossing, in pixels.
