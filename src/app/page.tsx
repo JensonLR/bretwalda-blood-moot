@@ -21,8 +21,16 @@ import {
   LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 import dynamic from "next/dynamic";
+import type { ForgeProgress } from "../game/client/GameCanvas";
 
-const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
+// `loading` matters as much as the import does. The renderer is a large chunk
+// and the arena it builds is several seconds of arithmetic on a phone, so
+// without something here the player taps DRAW STEEL and gets a black screen
+// with no evidence the game is doing anything at all.
+const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), {
+  ssr: false,
+  loading: () => <ForgeScreen progress={null} />,
+});
 const CharacterPreview = dynamic(() => import("../game/client/CharacterPreview"), { ssr: false });
 
 type Screen = "landing" | "create" | "join" | "lobby" | "game" | "results" | "training" | "muster" | "profile" | "armoury";
@@ -126,6 +134,11 @@ export default function Page() {
   // rather than notice it on the landing screen an hour later.
   const [payState, setPayState] = useState<"none" | "asking" | "paid" | "unpaid">("none");
   const [carried, setCarried] = useState<{ gold: number; unlocks: number } | null>(null);
+  // How far the renderer has got building the arena. null means it has not
+  // reported yet — the chunk is still arriving — which is still a wait, and
+  // still gets the screen. Cleared on the way into a fight so the second
+  // muster of a session shows the forge again rather than a stale 100%.
+  const [forge, setForge] = useState<ForgeProgress | null>(null);
 
   const transportRef = useRef<Transport | null>(null);
   const screenRef = useRef(screen); screenRef.current = screen;
@@ -311,13 +324,14 @@ export default function Page() {
         if (d.players) setRoomState(d);
         else setRoomState((prev) => prev ? { ...prev, state: "countdown", countdown: (msg.data?.countdown as number) || 0 } : prev);
         setBusy(false);
+        setForge(null);
         setScreen("game");
         break;
       }
       case "game_state": {
         const d = msg.data as unknown as RoomState;
         setRoomState(d);
-        if (screenRef.current !== "game" && (d.state === "fighting" || d.state === "last_stand")) setScreen("game");
+        if (screenRef.current !== "game" && (d.state === "fighting" || d.state === "last_stand")) { setForge(null); setScreen("game"); }
         break;
       }
       case "last_stand": {
@@ -673,7 +687,11 @@ export default function Page() {
   if (screen === "game") {
     return (
       <div className="fixed inset-0 bg-black">
-        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} />
+        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} onForge={setForge} />
+        {/* Over the canvas until the arena stands. Nothing under it is worth
+            looking at before then, and nothing under it can be touched either:
+            the controls are drawn but the world they act on does not exist. */}
+        {(!forge || forge.done < forge.total) && <ForgeScreen progress={forge} />}
         {/* The score of the match, over the fight. A best-of is worth nothing
             if a player cannot see where he stands in it, and the HUD proper
             only knows about this round. Sits below the health bar the HUD
@@ -1582,6 +1600,85 @@ export default function Page() {
 // be rendered inside the menu block alone, so a purchase that failed in the
 // armoury — or a lobby that lost the link — said nothing at all. A message a
 // player cannot see is the same as no message.
+/**
+ * THE FORGE — what a player looks at while the arena is being built.
+ *
+ * The progress is real: every step of it is a stage of the renderer's build
+ * reporting that it has landed, and the bar's stages are weighted by what they
+ * actually cost, so it does not race to 90% and sit there. A spinner would
+ * have been a third of the code and would have been a lie — on a phone this
+ * wait is seconds long, and the one thing the player needs to know is that
+ * something is happening and roughly how much of it is left.
+ *
+ * `progress` is null while the renderer's own chunk is still on the wire.
+ * That is a real part of the wait, so it gets the screen too, at zero.
+ */
+function ForgeScreen({ progress }: { progress: ForgeProgress | null }) {
+  const pct = progress && progress.total > 0
+    ? Math.max(0, Math.min(100, Math.round((progress.done / progress.total) * 100)))
+    : 0;
+  const label = progress?.label ?? "WAKING THE FORGE";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={`Building the arena — ${label.toLowerCase()}, ${pct} per cent`}
+      className="animate-fadeIn fixed inset-0 z-50 flex items-center justify-center bg-[#0a0806] px-6"
+    >
+      <div className="backdrop backdrop-hall" aria-hidden />
+      <div className="relative flex w-full max-w-sm flex-col items-center gap-4 text-center">
+        <div className="label-overline">RAISING THE GROUND</div>
+        <h1
+          className="font-display text-[clamp(1.6rem,8vw,2.5rem)] leading-none tracking-[0.2em] text-amber-100"
+          style={{ textShadow: "0 0 36px rgba(217,164,65,0.38)" }}
+        >
+          BRETWALDA
+        </h1>
+        <div className="font-display -mt-2 text-[clamp(0.7rem,3.2vw,0.95rem)] tracking-[0.32em] text-amber-300/70">
+          BLOOD MOOT
+        </div>
+        <div className="knot-band w-full max-w-[15rem]" />
+
+        {/* The bar. Gilt over near black, and the fill is a gradient rather
+            than a flat colour so the leading edge reads as hot metal. */}
+        <div className="relative mt-1 h-2.5 w-full overflow-hidden rounded-full border border-amber-200/25 bg-black/70 shadow-inner">
+          <div
+            className="h-full rounded-full transition-[width] duration-300 ease-out"
+            style={{
+              width: `${pct}%`,
+              background: "linear-gradient(90deg, #6b3d0e 0%, #d9a441 62%, #f6dda0 100%)",
+              boxShadow: "0 0 16px rgba(217,164,65,0.55)",
+            }}
+          />
+          {/* A breath of heat over the track. This is an opacity animation and
+              nothing else, which is the point: the compositor runs it off the
+              main thread, so it keeps moving through the one stage that cannot
+              be broken up — the WebGL context handshake — where the bar itself
+              genuinely has nothing new to say. It never implies progress. */}
+          <div
+            aria-hidden
+            className="animate-pulse pointer-events-none absolute inset-0 rounded-full"
+            style={{ background: "linear-gradient(90deg, transparent, rgba(246,221,160,0.16), transparent)" }}
+          />
+        </div>
+
+        <div className="flex w-full items-baseline justify-between gap-3">
+          <span className="font-display flex min-w-0 items-center gap-2 text-[10px] tracking-[0.2em] text-amber-200/90 sm:text-[11px]">
+            <span className="cabochon" />
+            <span className="truncate">{label}</span>
+          </span>
+          <span className="font-display shrink-0 text-[10px] tabular-nums tracking-[0.16em] text-stone-400 sm:text-[11px]">{pct}%</span>
+        </div>
+
+        <p className="mt-1 text-[11px] leading-relaxed text-stone-400">
+          Every stone, flame and stitch of this arena is drawn from arithmetic —
+          there are no pictures to download. The first muster pays for it once.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function MenuShell({ children, art = "hall", notice, onDismiss }: {
   children: React.ReactNode; art?: "hero" | "hall" | "none";
   notice?: Notice | null; onDismiss?: () => void;

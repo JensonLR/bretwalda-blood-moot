@@ -26,10 +26,39 @@ import {
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./render/anim";
 
+/** How far the forge has got. `done === total` means the first frame is next. */
+export interface ForgeProgress {
+  done: number;
+  total: number;
+  label: string;
+}
+
 interface GameCanvasProps {
   playerId: string;
   roomState: RoomState | null;
   onSendInput: (input: Record<string, unknown>) => void;
+  /**
+   * Called as each build stage lands, so whoever mounted this can hold a
+   * loading screen up in front of the canvas. Optional on purpose: /shot
+   * mounts the same component and wants no chrome at all.
+   */
+  onForge?: (p: ForgeProgress) => void;
+}
+
+/**
+ * Hands the frame back to the browser and waits for it to be presented.
+ *
+ * A `requestAnimationFrame` alone is not enough: its callback runs *before*
+ * the paint, and resolving a promise from it continues on the microtask queue
+ * still ahead of that paint. The `setTimeout` scheduled from inside the frame
+ * is the first thing that is guaranteed to run after the pixels are up, so
+ * this is what makes the difference between a progress bar that moves and one
+ * that renders once at 100%.
+ */
+function paint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => { setTimeout(resolve, 0); });
+  });
 }
 
 interface RoomState {
@@ -71,7 +100,7 @@ interface WarriorSlot {
   dustTick: number;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, onForge }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -87,8 +116,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
   // packet does not tear down and rebuild the animation frame callback.
   const roomStateRef = useRef<RoomState | null>(roomState);
   const sendInputRef = useRef(onSendInput);
+  const onForgeRef = useRef(onForge);
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
+  // Held in a ref rather than read from the closure: a parent that rebuilds
+  // this callback each render must not tear the whole arena down and build it
+  // again, which is exactly what putting it in the effect's deps would do.
+  useEffect(() => { onForgeRef.current = onForge; }, [onForge]);
 
   const hitStopRef = useRef(0);
   const animRef = useRef(0);
@@ -118,9 +152,74 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
   }, []));
 
   // ---------- stage init ----------
+  //
+  // Built in stages with a paint between each one. The work is the same work
+  // in the same order it was always done in; the only change is that the main
+  // thread is handed back between the pieces, which is what lets the loading
+  // screen in front of the canvas draw its own progress. Done in one block,
+  // the arena took several seconds during which the browser painted nothing at
+  // all — indistinguishable, on a phone, from the game having hung.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // Cancelled builds still have to give their WebGL objects back, and a
+    // stage that finished after the unmount is holding real GPU memory. Every
+    // stage pushes its own release here the moment it lands.
+    let cancelled = false;
+    const disposers: Array<() => void> = [];
+
+    // Only yield when somebody is drawing the progress. /shot mounts this
+    // component with no `onForge` and counts settle frames from the moment it
+    // mounts, so a build spread over eight animation frames would eat the
+    // frame budget its poses are supposed to converge in. With no consumer,
+    // every `await` below is on an already-resolved promise — the microtask
+    // queue drains before the browser reaches rAF, so the whole build still
+    // lands inside the mount task, exactly as it did before.
+    const staged = onForgeRef.current != null;
+
+    // The stages, and what each one costs as a share of the whole. Measured
+    // rather than assumed: an evenly-spaced bar over stages this uneven lies
+    // twice, racing the cheap half and then appearing to stall on the arena.
+    //
+    // The shares are the CPU cost measured on the capture box, which has no
+    // GPU. That is the right basis for every stage but the first: the
+    // arithmetic is the same arithmetic on a phone, while "waking the forge"
+    // is a WebGL context creation that costs two seconds under SwiftShader and
+    // a few milliseconds on real silicon, so it is weighted for the phone the
+    // game is actually played on rather than for the box that timed it.
+    // `window.__forgeStages` carries the real per-stage times so this can be
+    // checked on a device instead of inherited.
+    const STAGES: ReadonlyArray<{ label: string; weight: number }> = [
+      { label: "WAKING THE FORGE", weight: 6 },
+      { label: "GRINDING PIGMENT AND DYE", weight: 3 },
+      { label: "SETTING THE GRADE", weight: 8 },
+      { label: "RAISING THE SKY", weight: 18 },
+      { label: "LIGHTING THE TORCHES", weight: 1 },
+      { label: "RAISING THE MOOT", weight: 55 },
+      { label: "KINDLING THE FIRES", weight: 8 },
+      { label: "HANGING THE BANNERS", weight: 1 },
+    ];
+    const TOTAL = STAGES.reduce((a, s) => a + s.weight, 0);
+    const BEFORE = STAGES.map((_, i) => STAGES.slice(0, i).reduce((a, s) => a + s.weight, 0));
+    const marks: Array<{ label: string; ms: number }> = [];
+    let markedAt = 0;
+
+    /**
+     * Announce stage `i`, hand the frame back, and say whether to carry on.
+     * Called *before* the stage's work, so the label on screen is the thing
+     * currently being made rather than the thing just finished.
+     */
+    const at = async (i: number): Promise<boolean> => {
+      if (i > 0) marks.push({ label: STAGES[i - 1].label, ms: performance.now() - markedAt });
+      onForgeRef.current?.({ done: BEFORE[i], total: TOTAL, label: STAGES[i].label });
+      if (staged) await paint();
+      markedAt = performance.now();
+      return !cancelled;
+    };
+
+    const build = async () => {
+    if (!await at(0)) return;
 
     isMobile.current = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const quality = resolveQuality();
@@ -148,18 +247,33 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     canvas.addEventListener("webglcontextrestored", () => setGlError(null));
     renderer.setSize(window.innerWidth, window.innerHeight);
     configureRenderer(renderer, quality);
+    disposers.push(() => renderer.dispose());
 
     const scene = new THREE.Scene();
+
+    if (!await at(1)) return;
     const textures = createTextureLibrary(renderer, quality);
+    // Every surface materials.ts asks for is generated on this line, which is
+    // why textures and materials are one stage rather than two: splitting them
+    // would put a boundary where there is no work on one side of it.
     const materials = createMaterialLibrary(textures, quality);
+    disposers.push(() => { materials.dispose(); textures.dispose(); });
+
+    if (!await at(2)) return;
     const rig = createCameraRig(quality, { aspect: window.innerWidth / window.innerHeight });
     // postfx first: it owns renderer.toneMappingExposure, and sky.ts encodes
     // its fog and clear colours against that value from its own constructor.
     const postfx = createPostFx(renderer, scene, rig.camera, quality);
+    disposers.push(() => { postfx.dispose(); rig.dispose(); });
+
+    if (!await at(3)) return;
     // sky pushes its PMREM into the material library itself, on every rebake —
     // a one-shot setEnvironment here would go stale the first time the mood
     // changes and every metal in the arena would reflect a dead texture.
     const sky = createSky(scene, renderer, materials, quality);
+    disposers.push(() => sky.dispose());
+
+    if (!await at(4)) return;
     // Hand the rig both bodies and let it decide which one the shadows hang on;
     // naming a field for the role rather than the body is what let a sunset ship
     // with every shadow pointing at the sun.
@@ -167,13 +281,28 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       moon: sky.moonDirection, moonColor: sky.moonColor,
       sun: sky.sunDirection, sunColor: sky.sunColor,
     });
+    disposers.push(() => lighting.dispose());
+
+    if (!await at(5)) return;
     const world = createWorld(scene, materials, quality);
+    disposers.push(() => world.dispose());
+
+    if (!await at(6)) return;
     // vfx after world, and not only for draw order: it finds the arena's fires
     // by reading the props world.ts has already built, and it lands its blood
     // and its bounces on world.ts's terrain rather than on y = 0, which stopped
     // being the ground the moment the arena got a bank and a ditch.
     const vfx = createVfx(scene, textures, quality, { groundAt: world.heightAt });
+    disposers.push(() => vfx.dispose());
+
+    if (!await at(7)) return;
     const hud = createHud3d(scene, quality);
+    const warriors = warriorsRef.current;
+    disposers.push(() => {
+      warriors.forEach((slot, id) => { hud.detach(id); slot.rig.dispose(); });
+      warriors.clear();
+      hud.dispose();
+    });
 
     // The haze picks up the arena's real hero fire rather than sky.ts's
     // documented guess at where it is, so moving the bonfire moves the glow it
@@ -181,20 +310,20 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     // torches are built first and the ordering of that list is world.ts's
     // business, not ours.
     {
-      const at = new THREE.Vector3();
+      const hearthAt = new THREE.Vector3();
       let hero: THREE.PointLight | null = null;
       for (const light of world.pointLights) {
         if (!hero || light.distance > hero.distance) hero = light;
       }
       if (hero) {
-        hero.getWorldPosition(at);
-        sky.setHazeLight({ position: at, color: hero.color.clone(), gain: 1 });
+        hero.getWorldPosition(hearthAt);
+        sky.setHazeLight({ position: hearthAt, color: hero.color.clone(), gain: 1 });
         // The same fire, told to the light rig. lighting.ts carries the hearth's
         // wide pool because it is built before world.ts and cannot be handed a
         // light that does not exist yet; without this it pools at a documented
         // default at the arena origin, which is right only for as long as nobody
         // moves the bonfire.
-        lighting.setHearth(at);
+        lighting.setHearth(hearthAt);
       }
     }
 
@@ -212,7 +341,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
 
     const stage: Stage = { renderer, scene, quality, textures, materials, sky, lighting, world, vfx, postfx, rig, hud };
     stageRef.current = stage;
-    const warriors = warriorsRef.current;
+    disposers.push(() => { stageRef.current = null; });
 
     // input listeners
     const inp = inputState.current;
@@ -255,7 +384,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     window.addEventListener("resize", onResize);
     (window as unknown as Record<string, unknown>).__bretwalda_mouse = mouseDelta;
 
-    return () => {
+    disposers.push(() => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       canvas.removeEventListener("mousedown", onMouseDown);
@@ -264,19 +393,23 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       document.removeEventListener("pointerlockchange", onPLChange);
       canvas.removeEventListener("mousemove", onMM);
       window.removeEventListener("resize", onResize);
+    });
 
-      warriors.forEach((slot, id) => { hud.detach(id); slot.rig.dispose(); });
-      warriors.clear();
-      hud.dispose();
-      postfx.dispose();
-      rig.dispose();
-      vfx.dispose();
-      world.dispose();
-      lighting.dispose();
-      sky.dispose();
-      materials.dispose();
-      textures.dispose();
-      renderer.dispose();
+    marks.push({ label: STAGES[STAGES.length - 1].label, ms: performance.now() - markedAt });
+    // Per-stage cost, published rather than logged: the weights above are only
+    // honest for as long as somebody can check them on a real device.
+    (window as unknown as Record<string, unknown>).__forgeStages = marks;
+    // The arena stands. The next frame the loop draws is the game, so the
+    // screen in front of it can come down.
+    onForgeRef.current?.({ done: TOTAL, total: TOTAL, label: "THE MOOT IS SET" });
+    };
+
+    void build();
+
+    return () => {
+      cancelled = true;
+      // Reverse order: a handle gives back what it was built on top of.
+      for (const release of disposers.reverse()) release();
       stageRef.current = null;
     };
   }, []);
