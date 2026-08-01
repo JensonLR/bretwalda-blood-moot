@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import {
   Swords, Target, Scroll, ArrowLeft, Copy, Share2, Crown,
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
@@ -15,6 +15,7 @@ import {
   ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, type Appearance,
 } from "../game/client/characters";
 import { Transport } from "../game/client/transport";
+import { getHandedness, getServerHandedness, subscribeHandedness } from "../game/client/input";
 import dynamic from "next/dynamic";
 
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
@@ -478,6 +479,11 @@ export default function Page() {
     setScreen("armoury");
   }, [roomState, soloClass]);
 
+  // Which side of a phone the movement thumb is on. Read here for the same
+  // reason GameHud reads it: anything drawn over the fight has to keep off the
+  // free-look half, and which half that is is the player's choice.
+  const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
+
   // ==================== GAME ====================
   if (screen === "game") {
     return (
@@ -493,12 +499,18 @@ export default function Page() {
           </div>
         )}
         {roomState?.state === "intermission" && <RoundBreak roomState={roomState} playerId={playerId} />}
+        {/* Centred on a desktop; on a phone it moves to the movement thumb's
+            corner and mirrors with the rest of the controls. Centred, it
+            straddles the line the touch scheme splits the screen on and leaves
+            a 108px-wide patch of "a drag here does nothing" in the free-look
+            half — see docs/MOBILE-CONTROLS.md. The short label is what lets it
+            clear the split outright rather than nearly. */}
         {roomState?.mode === "solo" && (
           <button
             onClick={() => { leaveRoom(); setScreen("muster"); }}
-            className="absolute top-3 left-1/2 -translate-x-1/2 mt-16 z-30 px-5 py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-sm font-bold tracking-wider text-stone-200 transition flex items-center gap-2 backdrop-blur"
+            className={`absolute top-3 ${lefty ? "right-3" : "left-3"} sm:left-1/2 sm:right-auto sm:-translate-x-1/2 mt-16 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-stone-200 transition flex items-center gap-2 backdrop-blur`}
           >
-            <DoorOpen size={15} /> END SESSION
+            <DoorOpen size={15} /> <span className="sm:hidden">END</span><span className="hidden sm:inline">END SESSION</span>
           </button>
         )}
       </div>

@@ -301,6 +301,96 @@ async function main() {
   const SLASH = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   console.log(`[touchtest] slash button at ${Math.round(SLASH.x)},${Math.round(SLASH.y)} on a ${SCREEN.width}x${SCREEN.height} screen\n`);
 
+  // =====================================================================
+  // 0. The layout, before a finger touches it. Two claims in
+  //    docs/MOBILE-CONTROLS.md are geometry rather than behaviour and no
+  //    amount of dragging proves them: that the buttons carve themselves
+  //    out of free-look leaving no dead gutters, and that they do not sit
+  //    on top of anything. Both are measured off the DOM, so a layout
+  //    change that quietly reintroduces either fails here rather than in
+  //    someone's hand.
+  // =====================================================================
+  // Every point on the look side must reach either the canvas — where a drag
+  // becomes yaw — or a control the player is deliberately pressing. Anything
+  // else standing there is a patch of screen where a drag silently does
+  // nothing, which is the exact complaint the rebuild set out to answer: the
+  // old zone ignored the bottom third and players read that as broken.
+  // Run for both handednesses, because everything drawn over the fight has to
+  // mirror and the pieces that do not are invisible until someone flips it.
+  const CLUSTER = ["Slash", "Heavy attack", "Block", "Dodge", "Power"];
+  const checkLookSideIsClear = async (hand) => {
+    const dead = await page.evaluate(([cluster, mirrored]) => {
+      const W = window.innerWidth, H = window.innerHeight;
+      // input.ts splits the screen at MOVE_SIDE_FRACTION and swaps the sides
+      // for a left-handed player; everything on the look side of that line is
+      // free-look unless something is standing on it.
+      const from = mirrored ? 0 : Math.ceil(W * 0.45);
+      const to = mirrored ? Math.floor(W * 0.55) : W;
+      const found = new Map();
+      let total = 0;
+      for (let y = 2; y < H; y += 5) {
+        for (let x = from; x < to; x += 5) {
+          total++;
+          const el = document.elementFromPoint(x, y);
+          if (el && el.tagName === "CANVAS") continue;
+          const btn = el && el.closest("button");
+          const label = btn && (btn.getAttribute("aria-label") || btn.textContent.trim());
+          if (label && cluster.some((c) => label.includes(c))) continue;
+          const what = label ? `the "${label}" button` : `<${el ? el.tagName.toLowerCase() : "nothing"}>`;
+          found.set(what, (found.get(what) || 0) + 1);
+        }
+      }
+      return { total, worst: [...found.entries()].sort((a, b) => b[1] - a[1]) };
+    }, [CLUSTER, hand === "left-handed"]);
+    const deadCells = dead.worst.reduce((n, [, c]) => n + c, 0);
+    check(`${hand}: no patch of the free-look side swallows a drag`, deadCells === 0,
+      deadCells === 0
+        ? `every one of ${dead.total} sampled points on the look side reaches the canvas or a combat button`
+        : `${deadCells} of ${dead.total} sampled points reach neither the canvas nor a combat button: ${
+          dead.worst.map(([w, c]) => `${w} (${c})`).join(", ")}`);
+  };
+
+  {
+    await checkLookSideIsClear("right-handed");
+
+    // And nothing is drawn on top of anything. Buttons that overlap steal each
+    // other's presses; a readout under a button is a number the player cannot
+    // read, which is how the ability cooldown and the one line of tuition the
+    // scheme gets were both being covered by the cluster.
+    const collisions = await page.evaluate(() => {
+      const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const rect = (el) => el.getBoundingClientRect();
+      const buttons = [...document.querySelectorAll("button")]
+        .map((el) => ({ name: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 18), r: rect(el) }))
+        .filter((b) => b.r.width > 0);
+      const out = [];
+      for (let i = 0; i < buttons.length; i++) {
+        for (let j = i + 1; j < buttons.length; j++) {
+          if (hits(buttons[i].r, buttons[j].r)) out.push(`"${buttons[i].name}" overlaps "${buttons[j].name}"`);
+        }
+      }
+      // Anything in the thumbs' half of the screen that the player is meant to
+      // read rather than press. Leaves only, so one box is not reported once
+      // per nested span, and only what is genuinely painted.
+      const H = window.innerHeight;
+      const readouts = [...document.querySelectorAll("div,span")].filter((el) => {
+        if (el.querySelector("div,span") || el.closest("button")) return false;
+        if (!el.textContent.trim()) return false;
+        if (window.getComputedStyle(el).pointerEvents !== "none") return false;
+        const r = rect(el);
+        return r.width > 0 && r.height > 0 && r.top > H * 0.5;
+      });
+      for (const el of readouts) {
+        for (const b of buttons) {
+          if (hits(rect(el), b.r)) out.push(`"${b.name}" is drawn over "${el.textContent.trim().slice(0, 22)}"`);
+        }
+      }
+      return out;
+    });
+    check("nothing in the cluster is drawn on top of anything else", collisions.length === 0,
+      collisions.length ? collisions.join("; ") : "no button overlaps another button or covers a readout");
+  }
+
   const cdp = await ctx.newCDPSession(page);
   const hand = makeHand(cdp);
 
@@ -427,6 +517,20 @@ async function main() {
     await wait(160);
     await hand.lift(SWING);
   };
+
+  /**
+   * The weakest stick deflection the client sent over a window, 0..1. Ground
+   * covered is the honest end of "the stick still works", but the arena has a
+   * palisade at ARENA_RADIUS=18 that stops a man dead, and a walk measured
+   * against it reports nothing about the thumb. This reads the intent itself:
+   * a finger the client has stopped tracking sends 0, so a floor near 1 over a
+   * whole window is proof the stick was never dropped, wherever he is standing.
+   */
+  const weakestStick = (mark) => page.evaluate((t) => {
+    const sent = window.__probe.sent.filter((s) => s.t >= t);
+    if (!sent.length) return 0;
+    return Math.min(...sent.map((s) => Math.hypot(s.d.moveX, s.d.moveZ)));
+  }, mark);
 
   /** Every swing the server accepted since `mark`, oldest first. */
   const swingsSince = (mark) => page.evaluate((t) => window.__probe.swings.filter((s) => s.t >= t), mark);
@@ -598,12 +702,20 @@ async function main() {
   //    the stick or the drag away with it.
   // =====================================================================
   {
+    // The look thumb turns the camera BEFORE the stick is pushed, not during.
+    // Movement is camera-relative and the server keeps acting on the last stick
+    // vector it was given, so a heading chosen before a 34° turn is a heading
+    // into the palisade by the time the turn finishes — and a man pinned on the
+    // palisade covers no ground for reasons that have nothing to do with a
+    // stray finger. Both thumbs are still down together across the strays,
+    // which is the whole assertion; only the order of the first two is fixed.
+    await pressLook();
+    await dragLook(60, 4);
+    await wait(200);
     const stood = await settle();
     const push = sweep(stood);
     await hand.press(STICK, stickHome.x, stickHome.y);
     await pushStick(push.x, push.y);
-    await pressLook();
-    await dragLook(60, 4);
 
     // Two of them, one on each side of the split, both while the first two
     // thumbs stay down: one is the palm heel on the moving side, the other is
@@ -626,12 +738,16 @@ async function main() {
     // A moving thumb, not a new one. The identifier that was down before the
     // strays landed is the one steering now, which is the whole assertion.
     const reaim = sweep(walkFrom);
+    const stickMark = await now();
     await hand.move(STICK, stickHome.x + reaim.x, stickHome.y + reaim.y);
     await wait(400);
     const walked = await afterInput();
+    const held = await weakestStick(stickMark);
     const dist = Math.hypot(walked.x - walkFrom.x, walked.z - walkFrom.z);
-    check("a stray third touch does not drop the stick", dist > 1.0,
-      `travelled ${dist.toFixed(2)} units after two strays landed and left, ending ${radius(walked).toFixed(1)} units out of the middle`);
+    // Both, and for different reasons: the deflection says the client never
+    // stopped tracking that finger, the distance says the server acted on it.
+    check("a stray third touch does not drop the stick", held > 0.9 && dist > 1.0,
+      `every packet after the strays carried at least ${held.toFixed(2)} of full stick deflection, and he travelled ${dist.toFixed(2)} units, from ${radius(walkFrom).toFixed(1)} to ${radius(walked).toFixed(1)} units out of the middle (the palisade is at 18)`);
 
     await dragLook(SCREEN.width * 0.22);
     const turned = await afterInput();
@@ -683,6 +799,9 @@ async function main() {
     const flipped = await slashBtn.boundingBox();
     check("the left-handed toggle mirrors the button cluster", flipped.x + flipped.width / 2 < SCREEN.width / 2,
       `slash button centre moved from x=${Math.round(SLASH.x)} to x=${Math.round(flipped.x + flipped.width / 2)} on a ${SCREEN.width}px screen`);
+    // The cluster is not the only thing over the fight. Anything that fails to
+    // mirror with it lands in the free-look half it just vacated.
+    await checkLookSideIsClear("left-handed");
 
     // The zones follow the buttons: the stick is now the right-hand side and
     // free-look is the left. Both thumbs swap seats, nothing else changes.

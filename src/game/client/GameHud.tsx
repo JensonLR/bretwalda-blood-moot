@@ -284,9 +284,13 @@ export default function GameHud({
           </div>
 
           {/* Ability cooldown. It follows the mirror on a phone: left-handed, the
-              action cluster is where this used to sit. */}
+              action cluster is where this used to sit — and on a phone it is
+              lifted clear of the RUN/HAND pair below it, which used to be drawn
+              straight over the top of the cooldown readout. */}
           <div className="absolute bottom-28 sm:bottom-6 pointer-events-none z-10"
-            style={isMobile.current && lefty ? { right: 12 } : { left: 12 }}>
+            style={isMobile.current
+              ? { bottom: 152, ...(lefty ? { right: 12 } : { left: 12 }) }
+              : { left: 12 }}>
             <div className="bg-black/55 backdrop-blur-sm px-3 py-1.5 rounded-md border border-purple-900/60">
               <div className="text-[9px] text-purple-300 tracking-[0.15em] font-bold">{WARRIOR_STATS[localPlayer.warriorClass].ability}</div>
               <div className="text-amber-300 font-bold text-sm">
@@ -342,9 +346,13 @@ export default function GameHud({
           </div>
         )}
 
+        {/* Sits above the cluster rather than under it. At the foot of the
+            screen it was drawn behind the HEAVY button — the one instruction a
+            new player gets, with a button through the middle of it — and
+            wrapped onto two lines to do it. */}
         {!taught && (
-          <div className="absolute bottom-1 left-1/2 -translate-x-1/2 pointer-events-none z-10 text-center">
-            <div className="text-[10px] tracking-[0.18em] font-bold text-amber-100/85 bg-black/45 px-2.5 py-1 rounded-md"
+          <div className="absolute bottom-[288px] left-1/2 -translate-x-1/2 pointer-events-none z-10 text-center">
+            <div className="text-[10px] tracking-[0.18em] font-bold text-amber-100/85 bg-black/45 px-2.5 py-1 rounded-md whitespace-nowrap"
               style={{ textShadow: "0 1px 4px black" }}>
               FLICK THE SLASH TO AIM THE CUT
             </div>

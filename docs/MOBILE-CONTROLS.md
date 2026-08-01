@@ -112,3 +112,12 @@ multi-touch through the browser's own input pipeline and reads the answers back
 off the game socket, so what it grades is what the server was told, not what a
 handler was called with. `npm run playtest` still guards the desktop path; the
 two are siblings and both have to stay green.
+
+Two of the claims above are geometry, not behaviour, and no amount of dragging
+proves them — so the harness measures those off the DOM instead. It sweeps the
+free-look half point by point and requires every one of them to reach either the
+canvas or a combat button, which is the "no dead gutters" promise stated as a
+test; and it requires that nothing in the cluster is drawn over anything else,
+button or readout. Both run **for each handedness**, because a thing that fails
+to mirror lands in the free-look half the cluster has just vacated — which is
+how the training screen's own END button came to be sitting in it.
