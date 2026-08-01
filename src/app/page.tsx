@@ -700,10 +700,15 @@ export default function Page() {
 
   // The bindings, live. Every key printed on a menu comes through this, so a
   // remap changes the reference instead of leaving it lying.
-  useSyncExternalStore(subscribeBindings, getBindings, getServerBindings);
+  // Read the SNAPSHOT this returns, never `bindingsFor()` behind its back. The
+  // caps below are server-rendered, and `getServerBindings` is what React
+  // replays during hydration — so a store read here makes the hydration pass
+  // print the player's remapped caps against server HTML holding the defaults,
+  // and React throws #418 and re-renders the landing on every custom bind.
+  const binds = useSyncExternalStore(subscribeBindings, getBindings, getServerBindings);
   useEffect(() => { void loadKeyboardLayout(); }, []);
   const moveKeys = (["forward", "left", "back", "right"] as const)
-    .map((a) => labelForCode(bindingsFor(a)[0] ?? "")).join(" ");
+    .map((a) => labelForCode(binds[a]?.[0] ?? "")).join(" ");
 
   // ==================== GAME ====================
   if (screen === "game") {

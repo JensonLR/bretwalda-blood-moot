@@ -812,3 +812,58 @@ from stage zero's body and prove it completes before wiring any screen to it.
 **And whatever is built next must be run against `npm run playtest` before it is
 believed.** This is the third time on this project that a confident report has
 been contradicted by the harness it claimed to have run.
+
+### The rebuild landed, and this time the harness says so
+
+The second attempt (`de6d19b`) completes. Driven headlessly through the real
+landing -> training -> fight flow, all **8/8 stages land in 717 ms** and the
+list stops growing only because there is nothing left to build:
+
+```
++  58ms WAKING THE FORGE (48)   +  71ms GRINDING PIGMENT AND DYE (11)
++ 122ms SETTING THE GRADE (46)  + 365ms RAISING THE SKY (240)
++ 369ms LIGHTING THE TORCHES(2) + 680ms RAISING THE MOOT (308)
++ 714ms KINDLING THE FIRES (32) + 717ms HANGING THE BANNERS (1)
+```
+
+No repeated stage label (a restart would show one), the screen is down by the
+time the fight is live, and a second forge after a reload lands 8/8 too. What
+makes it checkable is that `window.__forgeStages` is appended to **only by a
+stage that has finished** — the thing the first attempt could not show.
+
+**Caveat for the next harness: `window.__forgeProgress` is dead whenever a
+React parent is mounted.** `GameCanvas` resolves `onForgeRef.current ?? hook`,
+and `src/app/page.tsx` always passes `onForge`, so a harness watching the
+window hook through the real app records **zero** progress events while the
+build runs perfectly. Read `__forgeStages` instead. This cost a verify pass a
+false FAIL.
+
+## Bindings live in localStorage only — the profile column was never added
+
+`docs/KEYBINDS.md` asked for bindings to persist to the **profile**, so they
+follow a player to a new device through the four-word recovery code. They do
+not. `bretwalda.bindings` in localStorage is the whole of it, which means a
+remap is lost on a new device, a new browser, or a site-data clear.
+
+The client half is already built and waiting: `setBindingsPersister(fn)` and
+`hydrateBindings(profile.bindings)` are exported from
+`src/game/client/bindings.ts` and nothing calls either. What is missing is
+server-side and untouched — a `bindings jsonb` column on the profile row and a
+`bindings?` field accepted by `/api/profile/equip`. Until then the fallback is
+the only path, exactly as the profile layer's own no-database fallback works.
+
+## A server-rendered binding cap is a hydration mismatch waiting to happen
+
+Fixed where it bit, recorded because the shape recurs. `src/app/page.tsx`
+called `useSyncExternalStore(subscribeBindings, getBindings, getServerBindings)`
+for its subscription and then computed the caps from `bindingsFor()` — a direct
+store read behind the hook's back. `getServerBindings` returns defaults, and
+React replays the *server* snapshot during hydration, so any player with a
+custom bind hydrated `T A S D` against server HTML holding `W A S D` and took
+**React #418** on every landing, visible in `playtest`'s page-error log. The
+fix is to render the snapshot the hook returns.
+
+The same hazard is live in `labelForAction`, which reads `getBindings()`
+directly and feeds the training control reference. It is safe **only** because
+that screen is never in the server-rendered HTML. Move any binding cap onto a
+server-rendered surface and #418 comes back.
