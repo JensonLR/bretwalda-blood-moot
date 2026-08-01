@@ -771,3 +771,44 @@ defect fix.
   past the 8×8 target, so a warrior now gets a 16×16 float texture: 4 kB each,
   32 kB for a full lobby. Cheap, but it is no longer the "one 8×8 per man" the
   file used to claim.
+
+## The first load has no loading screen, and the first attempt at one hung
+
+The owner reported it plainly: *"training sometimes takes a while to load on the
+first time."* He is right, and the diagnosis holds — **there is no loading state
+anywhere in the app.** No spinner, no progress, no ready signal. `GameCanvas`
+mounts and the browser then generates every texture in the game procedurally and
+builds the world, synchronously on the main thread, with nothing on screen.
+Second load is fast because the textures are cached in module scope, which is
+exactly the "first time" pattern he describes. It is the first impression of
+every player who opens an invite link and it currently looks like a hang.
+
+**An attempt at this shipped as `dbb21aa` and was reverted as `2d3ad51`.** It
+split the build into eight named stages with a paint between each, and a gilt
+`ForgeScreen` drawing real progress. Its author measured 16.8 s of unbroken
+block becoming ~3.0 s staged, and reported all four suites green.
+
+That claim did not survive the harness. `npm run playtest` hangs: the forge
+screen sits at **"waking the forge, 0 per cent"** — sampled six times over seven
+minutes, never advancing — with its `fixed inset-0 z-50` overlay correctly
+intercepting every click behind it. Stage zero's *work* never completes.
+
+Three wrong diagnoses were spent on it before the evidence was read, and they
+are worth recording so they are not spent again:
+
+1. **Not a blocked click.** The overlay intercepting pointer events is it doing
+   its job, not the fault.
+2. **Not a stale build.** Rebuilding from clean changed nothing.
+3. **Not the paint yield.** `paint()` waits on `requestAnimationFrame`, which is
+   throttled to nothing in a backgrounded tab — a real hazard, since a player
+   opens a link, flicks to the group chat and comes back. Racing rAF against a
+   250 ms floor was written and **made no difference**, which is what proves the
+   yield is not the stuck part.
+
+So the fault is in the async restructuring of the build itself, not in the
+progress screen or the yield. The idea is right and should be rebuilt; start
+from stage zero's body and prove it completes before wiring any screen to it.
+
+**And whatever is built next must be run against `npm run playtest` before it is
+believed.** This is the third time on this project that a confident report has
+been contradicted by the harness it claimed to have run.
