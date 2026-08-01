@@ -1,21 +1,38 @@
-// Arena construction: terrain, settlement, palisade, fire, and the props that
-// tell the moot's story.
+// Grounds: the shared machinery that turns a place into a scene, and the Saxon
+// village built on it.
 //
-// Everything static in the frame is built here once and hung off a single root
-// group, so the whole arena is one add and one remove. The only per-frame work
-// is fire, banners and the fire lights, driven off cached references rather
-// than a scene-wide traverse — the traverse used to walk every warrior's ~60
-// meshes looking for two names.
+// This file used to build *the* arena. Every part of it — terrain field,
+// settlement, palisade, bonfire, torches, banners, props — was written as the
+// only one of its kind, which meant a second arena could only ever have been a
+// copy of this file, and a third a copy of that. The seam is here now: a ground
+// is DATA plus a build function, and everything a build function needs is
+// handed to it.
 //
-// Three ideas hold the rest of the file together.
+//   * `GroundSpec` (in `@/game/grounds.mjs`) is the half with no opinion about
+//     pixels — height field, play radius, spawn ring, hazards. It is plain ESM
+//     because the *server* needs those four things and cannot load three.js.
+//     There is exactly one copy of a ground's height field in this repo now.
+//   * `GroundDef` is the half this file owns: the terrain's palette and
+//     surface fields, and a `build` function that stands things on the ground.
+//   * `GroundBuildContext` is the machinery — instancing, footing, prop
+//     scatter, the fire markers, the frame hooks, the dispose ledger. A ground
+//     that wants a hut, a tree, a rock or a puddle uses the same code the
+//     village does; what it *decides* is where and how many.
 //
-// One: the ground is a single analytic height field, `groundHeight`. Terrain
+// A new ground is a new `GroundDef` in its own module, `registerGround`d, and
+// a new `GroundSpec` beside the village's. It does not touch this file.
+//
+// Five ideas hold the rest together, and they are the machinery's ideas rather
+// than the village's.
+//
+// One: the ground is a single analytic height field, `spec.heightAt`. Terrain
 // vertices, every prop's footing and the puddle basins all read from it, which
-// is the only reason nothing floats and nothing is buried. It is deliberately
-// flat to within ~5 cm inside the palisade — the server sim is 2-D at y = 0 and
-// a warrior's boots are placed there — so interior relief is carried by colour,
-// normals and shadow rather than by displacement, and the real landform starts
-// at the earthwork and runs out to the downs.
+// is the only reason nothing floats and nothing is buried. The village's is
+// deliberately flat to within ~5 cm inside the palisade — the server sim is 2-D
+// at y = 0 and a warrior's boots are placed there — so interior relief is
+// carried by colour, normals and shadow rather than by displacement, and the
+// real landform starts at the earthwork and runs out to the downs. A ground
+// that wants relief underfoot has to move the sim first, not this file.
 //
 // Two: repeated geometry is instanced and merged per material. A hut is not
 // eighty meshes; it is four merged geometries (timber, daub, thatch, the dark
@@ -24,6 +41,11 @@
 // draw. That is where the triangle and draw-call budget went instead of into
 // unique meshes nobody can tell apart at 30 m.
 //
+// Three: UVs are box-projected from world space on anything built out of boxes,
+// so a 4 m wall plate and a 0.2 m peg carry the same texel density. BoxGeometry's
+// own 0..1-per-face UVs stretch the first and tile the second, and §2 of the bar
+// scores exactly that.
+//
 // Four: nothing beyond the earthwork is inside the key light's shadow cascade,
 // which is 24 m wide and follows the fight. The settlement and the wood
 // therefore carry their own shading in their vertex colours — the band under an
@@ -31,24 +53,39 @@
 // straw. See `shade()`. Materials that read those colours are patched here and
 // restored on dispose, and every geometry wearing one has to have them.
 //
-// Three: UVs are box-projected from world space on anything built out of boxes,
-// so a 4 m wall plate and a 0.2 m peg carry the same texel density. BoxGeometry's
-// own 0..1-per-face UVs stretch the first and tile the second, and §2 of the bar
-// scores exactly that.
+// Five: a build function draws its randomness from one stream in one order.
+// Two captures of the same ground have to be comparable — an A/B against
+// art/shots/baseline is worthless if the rocks moved — so anything that wants
+// its own randomness takes its own seeded stream rather than spending numbers
+// out of the shared one. The woodpile does exactly that, and says why.
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { FrameContext, Mood, QualitySettings } from "./quality";
+import {
+  clamp01, smoothstep, noise2, fbm, hash2,
+  SAXON_VILLAGE, DEFAULT_GROUND_ID,
+  type GroundSpec,
+} from "@/game/grounds.mjs";
+import type { FrameContext, Mood, QualitySettings, QualityTier } from "./quality";
 import type { MaterialLibrary } from "./materials";
+
+export type { GroundSpec };
 
 export interface WorldOptions {
   /**
-   * Prop scatter source. Defaults to a fixed seed, so the arena lays out the
+   * Prop scatter source. Defaults to a fixed seed, so a ground lays out the
    * same way on every load and two capture runs are comparable — an A/B against
    * art/shots/baseline is worthless if the rocks moved. Pass Math.random for a
    * different moot each match.
    */
   rng?: () => number;
+  /**
+   * Which ground to build, by the id that travels on the wire. Unknown ids
+   * fall back to the village rather than throwing: an id reaching here that
+   * this build does not know means a client and a server disagree about what
+   * exists, and dropping everyone into the village beats a black screen.
+   */
+  ground?: string;
 }
 
 /** Fixed-seed PRNG. The seed is arbitrary; that it never changes is the point. */
@@ -64,14 +101,22 @@ function seeded(seed: number): () => number {
 
 export interface WorldHandle {
   readonly root: THREE.Group;
+  /**
+   * The ground on screen, sim-facing half. Whatever asks this module where the
+   * floor is, how big it is or what burns on it reads it from here, so the
+   * client cannot hold a different answer from the server's.
+   */
+  readonly spec: GroundSpec;
   /** Terrain mesh, for camera collision and decal projection later. */
   readonly ground: THREE.Mesh;
   /** Fire lights that belong to props. Owned here, tuned by whoever grades the frame. */
   readonly pointLights: readonly THREE.PointLight[];
   /**
-   * Ground height under a world-space point. The same field the terrain was
-   * built from, so anything a caller places with it lands on the surface rather
-   * than near it. Cheap enough to call per frame; it is pure arithmetic.
+   * Ground height under a world-space point — `spec.heightAt`, re-exposed
+   * because half the renderer already calls it by this name. The same field the
+   * terrain was built from, so anything a caller places with it lands on the
+   * surface rather than near it. Cheap enough to call per frame; it is pure
+   * arithmetic.
    */
   heightAt(x: number, z: number): number;
   setMood(mood: Mood): void;
@@ -81,580 +126,122 @@ export interface WorldHandle {
 
 const TAU = Math.PI * 2;
 
-const ARENA_RADIUS = 21.5;
-const PALISADE_RADIUS = 19.6;
-const TORCH_RADIUS = 18.2;
-/** Terrain runs to here — inside the camera's 200 m far plane, past the fog. */
-const TERRAIN_RADIUS = 176;
-/** 1.6 m per repeat of the ground detail map, given the catalog's 22× tiling. */
-const GROUND_UV = 1 / 35.2;
-
-/**
- * Nothing at boot height goes inside this radius but the fire, which is the
- * arena's centrepiece and carries its own ring of hearth stones to say so.
- *
- * There is no prop collision anywhere in the stack — the server sim is 2-D and
- * knows about warriors and the arena bound, nothing else — so a prop standing
- * inside the fighting circle is not a *risk* of clipping, it is a guarantee of
- * it. The brawl preset stands eight warriors on a 4.2 m circle and a spear adds
- * most of two metres to that; `brawl` is the shot that has to prove crowd
- * readability, and it was proving it with a warrior's shins inside a woodpile.
- *
- * This is the cheap half of the fix. The other half is a real obstacle radius in
- * the sim, which is not this module's to add.
- *
- * Measured since: nothing this module places is inside a warrior in `brawl` —
- * the fire's widest geometry reaches 2.0 m and the nearest spawn is 4.2. What
- * the panel read as legs through the fire is the *camera*: the brawl ring puts
- * a warrior at (0, −4.2), and the follow rig sits at (−1, 2.05, 8.9), so he
- * stands on the arena's own axis 31 px from the flame column and his shins
- * arrive in its white core. The half of that this file can answer is that the
- * fire had a hole in it at exactly that height — see the bonfire's core.
- */
-const CLEAR_RADIUS = 6.2;
-
-/** Where the tracks in and out of the moot cross the earthwork. */
-const GATE_ANGLES = [0.42, 2.55, 4.55];
-/** The gate proper — a break in the palisade with posts and a lintel. */
-const GATE_MAIN = GATE_ANGLES[0];
-
-/**
- * Standing water. One list carves the basins into the height field, drives the
- * damp margin the terrain shades, and places the meshes — so a puddle can only
- * ever be in a hollow it made itself.
- *
- * *Where* the entries are is the whole of the art direction here. Rain does not
- * stand on open turf; it stands where something has already broken the ground.
- * So every puddle below is in a cart rut on one of the three tracks, against the
- * foot of the palisade where run-off collects, or in ground the moot has churned
- * — and nothing sits on unbroken grass. The version this replaces was six discs
- * on radii chosen to look evenly spread, which put a 2.5 m pool exactly where
- * every framed character shot stands its subject: `stance` came back with the
- * near half of the frame under water and the moot reading as flooded rather than
- * muddy. Nominal wetted area is down from ~88 m² to ~26, the largest open pool
- * from 5.0 m across to 2.4, and the deepest hollow inside the palisade from
- * 81 mm below the boot plane to 63.
- *
- * They are ellipses because a rut is not a disc, and a pool lying along the base
- * of a stake line is not either. Depth varies with what made the hollow: a wheel
- * rut holds 20 mm, a trampled hollow 30.
- */
-interface Puddle {
-  x: number;
-  z: number;
-  /** Semi-axis along `rot`, in metres. */
-  a: number;
-  /** Semi-axis across it. */
-  b: number;
-  rot: number;
-  /** Standing depth at the centre. The basin beneath is deeper — see WATER_FILL. */
-  depth: number;
-  /** Derived once: `heightAt` is on the per-frame path and this is its inner loop. */
-  cos: number;
-  sin: number;
-  /** Squared world distance past which this puddle contributes nothing measurable. */
-  reach2: number;
-}
-
-/**
- * Standing depth as a fraction of the basin holding it. Every puddle therefore
- * leaves dry basin wall above its own waterline for the churn to read on, and —
- * because the fraction is shared — the ring radii the water mesh is built from
- * can be solved once for the whole list however much the depths vary.
- */
-const WATER_FILL = 0.625;
-
-/**
- * How far past the water's edge the mud stays visibly damp. A distance, not a
- * ratio: a 0.25 m rut with a margin scaled to its own size would have no margin
- * at all, and the damp ring is what stops small water reading as a sticker.
- */
-const WET_MARGIN = 0.5;
-
-/**
- * The deepest water in the list; shallower puddles grade their colour, their
- * opacity and their damp margin against it. Has to track the largest `depth`
- * below — it is a normaliser, not a limit, and nothing clamps to it.
- */
-const DEEPEST_WATER = 0.030;
-
-function puddle(x: number, z: number, a: number, b: number, rot: number, depth: number): Puddle {
-  // 2.2 rim-radii out the Gaussian below is at 4e-4 — under a tenth of a
-  // millimetre of carve, and nothing the eye can find in the damp mask.
-  const reach = (Math.max(a, b) + WET_MARGIN) * 2.2;
-  return { x, z, a, b, rot, depth, cos: Math.cos(rot), sin: Math.sin(rot), reach2: reach * reach };
-}
-
-/** Where a gate track crosses radius `r`, wander included — see `pathMask`. */
-function trackAt(gate: number, r: number): { x: number; z: number; th: number } {
-  const th = gate + Math.sin(r * 0.26 + gate * 3.1) * 0.1;
-  return { x: Math.cos(th) * r, z: Math.sin(th) * r, th };
-}
-
-/**
- * The pair of ruts a cart's wheels cut into a track. Derived from the track
- * rather than written out as coordinates, so ruts stay in the wheel-line if the
- * gates ever move; a rut beside its own path is worse than no rut.
- */
-function ruts(gate: number, r: number, half: number, a: number, b: number, depth: number): Puddle[] {
-  const t = trackAt(gate, r);
-  const px = -Math.sin(t.th) * half;
-  const pz = Math.cos(t.th) * half;
-  // The far wheel a little shallower: a matched pair reads as a decal.
-  return [
-    puddle(t.x + px, t.z + pz, a, b, t.th, depth),
-    puddle(t.x - px, t.z - pz, a * 0.92, b, t.th, depth * 0.84),
-  ];
-}
-
-/** A pool against the foot of the palisade, lying along the ring rather than across it. */
-function dripLine(bearing: number, r: number, a: number, b: number, depth: number): Puddle {
-  return puddle(Math.cos(bearing) * r, Math.sin(bearing) * r, a, b, bearing + Math.PI / 2, depth);
-}
-
-/**
- * "Nothing lands under a boot" is the invariant this list is built on, and it
- * had never been checked against the poses the captures actually use. Measured
- * against all 25 warriors in the eight presets, in rim-radii of the nearest
- * puddle: two of `brawl`'s ring of eight stood *inside* the water at 0.26 and
- * 0.96, and eight of the 25 stood in a damp margin — including the framed
- * subject of `portrait`, `stance` and `closeup`, which is the shot the whole
- * list was last rearranged to protect.
- *
- * Three radii move below and nothing else does. Afterwards the closest any
- * warrior stands is 1.41 rim-radii, none is in water, and the interior height
- * field is unchanged at −63 mm … +18 mm — the basins moved, they did not grow.
- */
-const PUDDLES: readonly Puddle[] = [
-  // Cart ruts on the three tracks. Radii chosen so each pair lands in a frame
-  // that wants water — the main gate's beside the duel, the north-west track's
-  // behind the character shots' subject rather than under him, the south's
-  // where the last stand is fought — and so none of them lands under a boot.
-  //
-  // The north-west pair at 10.0 was not behind the subject, it was *through*
-  // him: a rut is 1.6 m of semi-axis lying along the radius, so a pair centred
-  // at r = 10.0 runs from r = 8.4 to r = 11.6, and `portrait`/`stance` stand
-  // their subject at r = 8.38 and `closeup` at r = 9.22 — both inside the run.
-  // At 12.5 the inner tip sits at r = 10.9 and clears the furthest of them by
-  // 1.7 m. `stance`'s blocking foe at r = 10.88 is the one pose still level
-  // with a rut; he is 0.9 m off its centreline and keeps a 0.08 damp margin,
-  // which is what a man standing beside a cart track should have.
-  ...ruts(GATE_ANGLES[0], 9.0, 0.66, 1.7, 0.25, 0.021),
-  ...ruts(GATE_ANGLES[1], 12.5, 0.65, 1.6, 0.24, 0.019),
-  ...ruts(GATE_ANGLES[2], 11.4, 0.68, 1.75, 0.27, 0.023),
-
-  // The drip line inside the stakes. Shallowest water in the arena and the
-  // thinnest, because nothing treads there to deepen it — it is the timber's
-  // own run-off, and it reads mostly as a dark line under the palisade.
-  dripLine(1.28, 19.25, 2.3, 0.4, 0.016),
-  dripLine(3.62, 19.3, 2.0, 0.36, 0.015),
-  dripLine(5.55, 19.2, 1.7, 0.33, 0.014),
-
-  // Churned ground. The deep one is in the standing ring where the crowd has
-  // been treading all evening; the small ones are inside the fighting circle,
-  // placed off every framed subject's feet but close enough to the brawl to be
-  // fought around.
-  //
-  // The two small ones sat on `brawl`'s spawn circle. That ring is r = 4.2 on
-  // eight bearings half a step off the cardinals, and these were at r = 4.35
-  // and r = 4.65 on two of those bearings — 0.17 m and 0.63 m from a warrior's
-  // feet, so two of the eight stood in the water. They keep their bearings and
-  // go out to r = 5.74 and 6.20, between the ring and the standing crowd, which
-  // is still ground the brawl is fought over and is 2.19 m clear of the
-  // nearest boot.
-  puddle(9.35, -5.35, 1.2, 0.95, 0.85, 0.030),
-  puddle(-4.15, -4.6, 0.85, 0.6, 2.15, 0.024),
-  puddle(4.35, -3.75, 0.72, 0.55, -0.55, 0.021),
-  puddle(-2.6, 4.4, 0.85, 0.62, -0.9, 0.023),
-  puddle(-9.6, -9.4, 1.15, 0.9, 0.3, 0.027),
-];
-
 // ---------------------------------------------------------------------------
-// Noise. Value noise off an integer lattice, hashed — no tables, no allocation,
-// deterministic across reloads and independent of the prop rng's call order, so
-// changing the scatter never moves the ground under it.
+// The ground contract, renderer side
 // ---------------------------------------------------------------------------
 
-const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
-
-function smoothstep(e0: number, e1: number, x: number): number {
-  const t = clamp01((x - e0) / (e1 - e0));
-  return t * t * (3 - 2 * t);
-}
-
-function hash2(ix: number, iy: number): number {
-  let h = Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iy | 0, 0x165667b1);
-  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h, 0x297a2d39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
-}
-
-function noise2(x: number, y: number): number {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = x - ix;
-  const fy = y - iy;
-  const ux = fx * fx * (3 - 2 * fx);
-  const uy = fy * fy * (3 - 2 * fy);
-  const a = hash2(ix, iy);
-  const b = hash2(ix + 1, iy);
-  const c = hash2(ix, iy + 1);
-  const d = hash2(ix + 1, iy + 1);
-  return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
-}
-
-/** 0..1, roughly centred on 0.5. */
-function fbm(x: number, y: number, octaves: number): number {
-  let sum = 0;
-  let amp = 0.5;
-  let norm = 0;
-  let fx = x;
-  let fy = y;
-  for (let i = 0; i < octaves; i++) {
-    sum += noise2(fx, fy) * amp;
-    norm += amp;
-    amp *= 0.5;
-    // Rotate as well as scale, so the octaves do not stack into a visible grid.
-    const nx = fx * 1.97 + fy * 0.42;
-    const ny = fy * 1.97 - fx * 0.42;
-    fx = nx + 31.7;
-    fy = ny - 17.3;
-  }
-  return sum / norm;
-}
-
-/** Ridged fbm — downland has crests, and plain fbm reads as dunes. */
-function ridged(x: number, y: number, octaves: number): number {
-  let sum = 0;
-  let amp = 0.5;
-  let norm = 0;
-  let fx = x;
-  let fy = y;
-  for (let i = 0; i < octaves; i++) {
-    const n = 1 - Math.abs(noise2(fx, fy) * 2 - 1);
-    sum += n * n * amp;
-    norm += amp;
-    amp *= 0.45;
-    const nx = fx * 2.11 + fy * 0.37;
-    const ny = fy * 2.11 - fx * 0.37;
-    fx = nx + 5.1;
-    fy = ny + 9.9;
-  }
-  return sum / norm;
-}
-
-// ---------------------------------------------------------------------------
-// The ground itself
-// ---------------------------------------------------------------------------
-
-/**
- * 0..1 where the turf has been walked off. Three tracks converge on the fire
- * from the gates, a ring is worn where the crowd stands back, and the centre is
- * bare. Everything about the ground's colour hangs off this.
- */
-function pathMask(x: number, z: number, r: number): number {
-  if (r > 31) return 0;
-  const th = Math.atan2(z, x);
-  let m = 0;
-  for (const g of GATE_ANGLES) {
-    // The track wanders. A straight radial line reads as a decal, not a path.
-    const target = g + Math.sin(r * 0.26 + g * 3.1) * 0.1;
-    let d = th - target;
-    d = Math.atan2(Math.sin(d), Math.cos(d));
-    const lateral = Math.abs(d) * Math.max(r, 1.2);
-    const width = 0.95 + r * 0.06;
-    m = Math.max(m, 1 - smoothstep(width * 0.35, width, lateral));
-  }
-  // The standing ring, and the bare circle the fire keeps clear.
-  m = Math.max(m, 0.8 * Math.exp(-(((r - 10.8) / 2.6) ** 2)));
-  m = Math.max(m, 1 - smoothstep(2.2, 5.6, r));
-  return m * (1 - smoothstep(24, 31, r));
-}
-
-/** 0..1 churned mud, heaviest where the fighting actually happens. */
-function churnMask(x: number, z: number, r: number): number {
-  const n = fbm(x * 0.15 + 41.3, z * 0.15 + 7.9, 3);
-  return clamp01((1 - smoothstep(3.5, 15, r)) * (0.35 + n * 1.1));
+/** Per-vertex surface fields the terrain material reads. Filled in place. */
+export interface TerrainSurface {
+  /** Where water stands. The only thing on the floor allowed to be glossy. */
+  wet: number;
+  /** How badly the ground has been opened. Drives roughness the other way. */
+  churn: number;
 }
 
 /**
- * Distance from a puddle's centre in rim-radii: 1 on the rim, whatever the
- * puddle's shape or orientation. `grow` widens both axes by a distance in
- * metres, which is how the damp margin can be a constant width around water
- * that runs from a 0.25 m rut to a 1.2 m hollow.
+ * Everything the terrain mesh needs that is not the height field. Two grounds
+ * sharing this builder get the same tessellation, the same jitter and the same
+ * skirt; what they do not share is what the surface is made of.
  */
-function puddleDist(p: Puddle, x: number, z: number, grow: number): number {
-  const dx = x - p.x;
-  const dz = z - p.z;
-  const u = (dx * p.cos + dz * p.sin) / (p.a + grow);
-  const v = (dz * p.cos - dx * p.sin) / (p.b + grow);
-  return Math.sqrt(u * u + v * v);
+export interface TerrainSpec {
+  /** How far the mesh runs — inside the camera's far plane, past the fog. */
+  radius: number;
+  /** Ring spacing over the fighting floor, in metres, per tier. */
+  step: Record<QualityTier, number>;
+  /** Vertices around a ring, per tier. */
+  segments: Record<QualityTier, number>;
+  /** 1 / metres per repeat of the ground detail map. */
+  uvScale: number;
+  /** The floor's albedo, written per vertex. */
+  colorAt(x: number, z: number, y: number, out: THREE.Color): void;
+  /** Wetness and churn, written per vertex. */
+  surfaceAt(x: number, z: number, out: TerrainSurface): void;
 }
 
 /**
- * 0..1 proximity to standing water. The dark wet ring, the surface of the
- * puddle and the wet sheen in the terrain shader all read this one function and
- * cannot drift apart.
+ * The machinery a ground builds with. Everything here is shared: what a ground
+ * contributes is the calls it makes, not the code behind them.
+ *
+ * The scratch `E`/`Q`/`V` are on the context rather than allocated per call
+ * because a build makes thousands of transforms and the alternative is
+ * thousands of dead Vector3s. They are scratch — nothing may hold one.
  */
-function basinWet(x: number, z: number): number {
-  let w = 0;
-  for (const p of PUDDLES) {
-    const dx = x - p.x;
-    const dz = z - p.z;
-    if (dx * dx + dz * dz > p.reach2) continue;
-    const d = puddleDist(p, x, z, WET_MARGIN);
-    // Compact support, and that is a correction rather than a taste. The
-    // gaussian this replaces still returned a third of full wetness *on* the
-    // grown rim, so a 0.24 m cart rut laid a damp stain more than a metre wide
-    // on either side of itself and `portrait`, `stance` and `closeup` all stood
-    // their subject inside one. Measured across the north-west rut's short
-    // axis: v7 read 0.42 at 0.6 m off the centreline and 0.12 at a full metre,
-    // this reads 0.12 and zero, and both still read 0.88 on the water itself.
-    // A margin named WET_MARGIN has to be WET_MARGIN wide.
-    //
-    // Graded by depth: a 14 mm drip line has not saturated the ground around it
-    // the way a 30 mm hollow has, and giving every puddle the same near-black
-    // margin is how a list of small water turns into a field of dark stains.
-    const n = (1 - smoothstep(0.3, 1, d)) * (0.66 + 0.34 * (p.depth / DEEPEST_WATER));
-    if (n > w) w = n;
-  }
-  return w;
+export interface GroundBuildContext {
+  readonly spec: GroundSpec;
+  readonly root: THREE.Group;
+  /** The terrain mesh, already built and added. */
+  readonly ground: THREE.Mesh;
+  /** The material the terrain wears, for a ground that wants to patch it. */
+  readonly groundMaterial: THREE.Material;
+  readonly materials: MaterialLibrary;
+  readonly settings: QualitySettings;
+  readonly tier: QualityTier;
+  /** The one prop stream. Draw from it in build order; see idea five. */
+  readonly rng: () => number;
+  /** A prop count, scaled by the tier's density and never below one. */
+  readonly scatter: (base: number) => number;
+  /** Ground height under a point. `spec.heightAt`, handed over for brevity. */
+  readonly heightAt: (x: number, z: number) => number;
+  /**
+   * Ground a building can stand on: the lowest point under a footprint of
+   * `foot` metres, so the downhill sill lands and the uphill one digs in. A
+   * single sample at the centre leaves half a sill in mid-air anywhere the
+   * field moves — which, on any ground with real relief, is most of it.
+   */
+  readonly footing: (x: number, z: number, foot: number) => number;
+  /** Register a geometry for disposal. Everything a ground makes goes through it. */
+  readonly own: <T extends THREE.BufferGeometry>(g: T) => T;
+  /** A placed transform. Euler order YXZ, uniform scale. */
+  readonly place: (x: number, y: number, z: number, ry?: number, s?: number, rx?: number, rz?: number) => THREE.Matrix4;
+  /** Places one geometry many times — see the implementation for the tier fallback. */
+  readonly field: (
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    xforms: THREE.Matrix4[],
+    tints?: THREE.Color[] | null,
+    castShadow?: boolean,
+  ) => THREE.InstancedMesh | null;
+  /** Fire lights a ground owns. The flicker and the mood ramp are machinery. */
+  readonly pointLights: THREE.PointLight[];
+  /** Materials a ground built itself, released on dispose. */
+  readonly ownedMats: THREE.Material[];
+  /** Undo for anything patched on a shared object. Run in reverse of nothing — order does not matter, but leaving one out does. */
+  readonly restore: Array<() => void>;
+  /**
+   * Per-frame work a build block registers for itself, so a prop that needs a
+   * clock does not have to be hoisted out of the section that explains it.
+   * Called with the frame's dt, in registration order.
+   */
+  readonly frameHooks: Array<(dt: number, ctx: FrameContext) => void>;
+  /** Scratch. Nothing may keep a reference past the statement it is used in. */
+  readonly E: THREE.Euler;
+  readonly Q: THREE.Quaternion;
+  readonly V: THREE.Vector3;
 }
 
-/**
- * 0..1 how badly trodden ground drains, at the scale a hollow in it actually
- * is — a couple of metres, which is what an evening of boots leaves behind.
- *
- * One field, read three times: the mud's sodden patches, the drying ridges
- * between them, and the only places a film of water is allowed to stand. So
- * colour, roughness and water cannot disagree about where the low ground is,
- * which is the same invariant `basinWet` gives the puddles.
- *
- * Two octaves and no more. The terrain carries this on 0.8 m vertices and a
- * third octave lands at 0.9 m, under the sampling — and a wet mask modulating
- * below its own sampling rate is exactly how the ground came back salted with
- * specular glitter two passes ago.
- */
-function drainage(x: number, z: number): number {
-  return fbm(x * 0.28 - 63.7, z * 0.28 + 18.9, 2);
+/** A ground, renderer side: what its floor is made of and what stands on it. */
+export interface GroundDef {
+  /** The sim-facing half. One object, shared with the server. */
+  readonly spec: GroundSpec;
+  readonly terrain: TerrainSpec;
+  /** Stands everything that is not the floor. Called once, after the terrain. */
+  build(ctx: GroundBuildContext): void;
 }
 
+const GROUND_DEFS = new Map<string, GroundDef>();
+
 /**
- * The one height field. Inside the palisade it stays within about 5 cm of zero,
- * because the server places boots at y = 0 and a 20 cm hollow there is a warrior
- * standing in mid-air. Outside, the moot sits inside a bank-and-ditch earthwork
- * that runs out into rolling turf and then downland — which is what stops the
- * arena reading as a disc drawn on a plain.
+ * Adds a ground to the registry, keyed by its spec id. A ground module calls
+ * this at import time; nothing in this file needs editing to add one.
  */
-function groundHeight(x: number, z: number): number {
-  const r = Math.hypot(x, z);
-
-  // Interior: shallow swales, the tracks worn a little lower, puddle basins.
-  let h = (fbm(x * 0.085 + 17.3, z * 0.085 - 5.1, 3) - 0.5) * 0.062;
-  h -= pathMask(x, z, r) * 0.024;
-  // The invariant this whole field is built around is that the interior stays
-  // within ~5 cm of zero, because the server sim is 2-D and a warrior's boots
-  // are planted at y = 0 — and the basins were the single term most responsible
-  // for breaking it: worst |y| inside the palisade was 107 mm before they were
-  // cut back. The deepest basin here is 30 mm of water over WATER_FILL = 48 mm,
-  // unchanged, and most of them are two thirds of that. The rest of the budget
-  // is the swale above, which is what carries the interior's relief.
-  //
-  // No puddle now sits under a framed subject's feet, so the old worry — the
-  // gap between the boot plane and a waterline 1.1 m from the shot's subject —
-  // is placement's problem rather than depth's, and it is solved in PUDDLES.
-  for (const p of PUDDLES) {
-    const dx = x - p.x;
-    const dz = z - p.z;
-    if (dx * dx + dz * dz > p.reach2) continue;
-    const d = puddleDist(p, x, z, 0);
-    h -= (p.depth / WATER_FILL) * Math.exp(-d * d * 1.6);
-  }
-
-  // Relief is masked off inside the ring and ramps in fast just outside it, so
-  // the bank is a bank rather than a swelling the mask has flattened to a bump.
-  const out = smoothstep(ARENA_RADIUS - 2, ARENA_RADIUS + 4, r);
-
-  // Bank and ditch. The crest sits behind the palisade line, the ditch outside
-  // it, so the ring reads as defended ground from every camera angle.
-  const bank = 0.88 * Math.exp(-(((r - 23.4) / 2.5) ** 2)) - 0.62 * Math.exp(-(((r - 27.8) / 2.2) ** 2));
-  h += bank * out;
-
-  // Gates cut through the bank, or the tracks would climb a wall to leave.
-  const th = Math.atan2(z, x);
-  let cut = 0;
-  for (const g of GATE_ANGLES) {
-    let d = th - g;
-    d = Math.atan2(Math.sin(d), Math.cos(d));
-    cut = Math.max(cut, 1 - smoothstep(0.05, 0.19, Math.abs(d)));
-  }
-  h -= bank * out * cut * 0.9;
-
-  const rolling = (fbm(x * 0.019 + 3.7, z * 0.019 + 9.4, 4) - 0.5) * 2;
-  h += rolling * (0.45 + 4.6 * smoothstep(26, 74, r)) * out;
-
-  h += (ridged(x * 0.0062 + 21.7, z * 0.0062 - 13.2, 3) - 0.28) * 19 * smoothstep(52, 158, r);
-  // One term at a wavelength longer than the whole map, so the horizon is high
-  // downland in some directions and open sky in others. Without it every
-  // bearing out of the moot looks like every other bearing.
-  h += (fbm(x * 0.0037 + 71.3, z * 0.0037 - 5.6, 2) - 0.5) * 30 * smoothstep(55, 175, r);
-
-  return h;
+export function registerGround(def: GroundDef): GroundDef {
+  GROUND_DEFS.set(def.spec.id, def);
+  return def;
 }
 
-// Ground palette. These are the arena's art direction as much as the material
-// catalog is: Anglo-Saxon Britain in late summer, which is turf gone dry at the
-// tips, bare earth on the tracks, and churned mud where the moot has been
-// standing on it all evening. Nothing here is sand.
-// These carry more chroma than a photograph of turf would, and deliberately.
-// Everything that reaches this ground is warm — a low sun, a bonfire, the
-// hemisphere's own earth bounce and an environment map convolved from an ember
-// horizon — so an albedo authored at the green a meter would read comes back
-// with its green cancelled and the field renders as trampled dust. The turf is
-// pushed toward the green side of what is plausible so that what *arrives* is
-// plausible. Change the light rig and these have to move with it.
-const C_TURF_SHADE = new THREE.Color(0x33471a);
-const C_TURF = new THREE.Color(0x4d6a22);
-const C_TURF_DRY = new THREE.Color(0x7d7635);
-const C_EARTH = new THREE.Color(0x5e4e35);
-const C_MUD = new THREE.Color(0x3d3122);
-const C_MUD_WET = new THREE.Color(0x201a12);
-// The crust on a ridge of churn that has had an hour to dry. Borrowed from the
-// `mud` recipe's own `drying` swatch in textures.ts so the two agree about what
-// half-dry earth is; it is the light end of the mud mottle and the only reason
-// the churn is more than one value once its sheen has gone.
-const C_MUD_DRY = new THREE.Color(0x7a6546);
-// Chalk is the brightest thing on the ground and it was the brightest thing in
-// the arena — a pale scuff ring reading as bare sand across the middle of every
-// frame. It is a scuff, so it is turf-coloured dirt with the chalk showing
-// through it, not a chalk floor.
-const C_CHALK = new THREE.Color(0x8e8770);
-const C_HEATH = new THREE.Color(0x424630);
-
-/**
- * The floor's albedo, written per terrain vertex — and the frequencies below are
- * as load-bearing as the colours, for a reason this field was not originally
- * written against.
- *
- * A warrior's cast shadow is a half-metre to a metre and a half of blob. It is
- * the only thing on this surface that has to *win* an argument with the surface,
- * and it wins or loses against the ground's own variance at its own scale, not
- * against the total. So every term here is placed by wavelength: anything
- * between about 0.3 m and 3 m is competing with the shadow and has to justify
- * itself, and anything longer is free — it reads as the sweep of a field and the
- * eye separates it from a body-shaped dark patch without effort.
- *
- * There is a hard floor on how fine this field can usefully be, and two terms
- * used to sit under it. The terrain carries these on 0.8 m vertices, so the
- * shortest wavelength it can represent is 1.6 m; content below that is not
- * detail, it is aliasing, and Gouraud reconstruction hands it back as random
- * per-vertex blotches at — exactly — 1.6 to 3 m. Sub-Nyquist albedo noise does
- * not stay small and invisible. It folds up onto the shadow. `drainage`'s own
- * docstring states this rule for the wet mask; `fine` at 1.18 m and `grit` at
- * 0.39 m were breaking it in the albedo.
- *
- * Measured over the fighting floor (r 3–16 m), residual sigma/mu by band:
- * sub-0.4 m 0.0718 -> 0.0296, sub-1 m 0.0688 -> 0.0515, sub-2 m 0.0748 -> 0.0713
- * — 0.1244 -> 0.0928 in quadrature, a 25% cut across everything a shadow
- * competes with. The field did not lose range doing it: total sigma/mu goes
- * 0.2996 -> 0.3164 and the mean holds to 0.04%, because what came out of the
- * shadow band went into the 8–16 m band and longer (0.0359 -> 0.0473 and
- * 0.0805 -> 0.0971). Less noise, more form, same exposure.
- *
- * Worth recording what did *not* turn out to be worth cutting. `mid`, `churn`
- * and `drainage` all run octaves down to 1.7–1.9 m, which looks like the same
- * defect; dropping the offending octave from each moves the sub-2 m bands by
- * under 2% and *raises* the 2–8 m ones, because an fBm halves its amplitude
- * every octave and the last one was never carrying much. What is actually left
- * in this field's shadow band is the masks' own geometry — the standing ring,
- * the tracks, the basin rims — and that is legible structure a viewer reads as
- * ground rather than as noise. It stays.
- */
-function groundColor(x: number, z: number, y: number, out: THREE.Color): void {
-  const r = Math.hypot(x, z);
-  const big = fbm(x * 0.033 + 61.1, z * 0.033 - 22.4, 3);
-  const mid = fbm(x * 0.135 - 8.2, z * 0.135 + 31.6, 3);
-  // 3.8 m, not 1.2 m — above the vertex lattice's Nyquist and well clear of a
-  // shadow. Re-centred as it was narrowed so the tracks keep the same mean
-  // amount of earth on them; this is a frequency change, not a palette one.
-  const fine = noise2(x * 0.26 + 4.4, z * 0.26 - 12.1);
-
-  out.copy(C_TURF_SHADE).lerp(C_TURF, clamp01(big * 1.7 - 0.25));
-  out.lerp(C_TURF_DRY, clamp01((mid - 0.4) * 1.9));
-
-  const path = pathMask(x, z, r);
-  out.lerp(C_EARTH, clamp01(path * (0.62 + fine * 0.45)));
-
-  const churn = churnMask(x, z, r);
-  out.lerp(C_MUD, clamp01(churn * (0.55 + mid * 0.8)));
-
-  // Mud is not one tone, and this is the term that carries what the wet sheen
-  // used to. Ground the moot has trodden all evening drains in patches metres
-  // across: sodden and near-black where it holds, drying back to crust on the
-  // ridges a boot pushed up between them. Broad and low-frequency on purpose —
-  // this is the same drainage field the sheen and the roughness read, so the
-  // dark patches, the rough ground and the water all agree, and unlike a
-  // specular highlight a value difference in the albedo is something the key
-  // light and the shadow map can both act on. Measured over the fighting
-  // floor it widens the ground's own p95/p05 luma spread from 2.95 to 3.25
-  // while holding the mean within 1%, which is the trade this pass needs:
-  // tonal range bought without moving the operating point the grade is cut to.
-  const drain = drainage(x, z);
-  out.lerp(C_MUD_WET, smoothstep(0.44, 0.86, drain) * churn * 0.8);
-  out.lerp(C_MUD_DRY, smoothstep(0.46, 0.08, drain) * churn * 0.55);
-
-  // Wet where water actually is. Applied last so it wins over the mottle above:
-  // a hollow that holds standing water is wetter than one that merely drains
-  // into it, and the dark ring has to land on the rim of the water rather than
-  // on whatever the drainage field happened to say there.
-  out.lerp(C_MUD_WET, clamp01(basinWet(x, z) * 0.9));
-
-  // Chalk showing through where a boot has taken the turf off the track. It is
-  // the brightest thing on the ground and it is doing real work: without it the
-  // whole field sits inside three luma buckets and reads as one flat tone.
-  //
-  // It was also, on its own, ninety per cent of this field's sub-0.4 m energy —
-  // the brightest term in the arena sitting at a quarter of the vertex lattice's
-  // Nyquist, which is the worst possible place to put contrast. At 4.2 m it
-  // becomes what it was always meant to describe: a scuffed *stretch* of track
-  // where the turf has gone, not a per-vertex sprinkle of white. The threshold
-  // moves with it because two smooth fields cross a fixed level over far more
-  // area than two rough ones; coverage is 1.34% of the floor against 1.22%
-  // before, so the highlight structure the tonal floor depends on is not paying
-  // for this — it gains slightly, and gains it as patches the eye can resolve.
-  const grit = noise2(x * 0.24 - 19.4, z * 0.24 + 7.7);
-  out.lerp(C_CHALK, clamp01((fine * 0.5 + grit * 0.5 - 0.665) * 3.2) * Math.max(path * 0.7, churn * 0.3));
-
-  // Past the ditch the turf is unbroken; the downs go to heather and bracken.
-  out.lerp(C_HEATH, smoothstep(44, 130, r) * 0.8);
-
-  // Three brightness terms, and between them they are what stops the ground
-  // being one value. A long-wavelength drift for the sweep of the field, a
-  // ten-metre term for form inside a single frame, and a cheap curvature term so
-  // hollows hold shadow and the bank's crest catches light — not an AO pass, but
-  // it is what makes the earthwork read once the fog has taken the contrast out
-  // of it.
-  //
-  // The 41 m drift is longer than most of what a camera frames, so on its own it
-  // grades the arena rather than shaping it, and the offset is a hair under what
-  // it was purely to pay back the mean the wider chalk patches add.
-  //
-  // The ten-metre term is where the contrast cut above went. It is deliberately
-  // an order of magnitude coarser than a warrior's shadow — no eye confuses a
-  // ten-metre swell of drier ground with a body-shaped patch a metre across —
-  // and it is fbm rather than a plane wave, because a periodic term at this
-  // scale would be corrugation across the whole floor, which is a §10 defect
-  // where an irregular one is landform. Its offset holds the product's mean at
-  // 1.0 by construction, so this buys tonal range at zero cost to exposure:
-  // measured over the fighting floor the field's total sigma/mu goes 0.2996 ->
-  // 0.3164 while the mean moves 0.04%. `stance` ships at 9 tonal buckets
-  // against a floor of 8 and the histogram it lost was the 128–176 tail, so
-  // range that costs no exposure is the only kind this pass could spend.
-  out.multiplyScalar(0.693 + 0.66 * fbm(x * 0.024 - 44.2, z * 0.024 + 12.8, 2));
-  out.multiplyScalar(0.88 + 0.24 * fbm(x * 0.095 + 88.6, z * 0.095 - 31.2, 2));
-  out.multiplyScalar(1 + clamp01(y * 0.45) * 0.12 - clamp01(-y * 2.6) * 0.18);
+/** Every ground this build can draw. */
+export function groundIds(): string[] {
+  return [...GROUND_DEFS.keys()];
 }
 
 // ---------------------------------------------------------------------------
@@ -1179,226 +766,276 @@ function roofSag(u: number, amp: number): number {
 const HALL_A = -1.62;
 const HALL_D = 37;
 
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// THE SAXON VILLAGE
+//
+// Dusk, firelit, warm. A palisade ring, thatch and timber halls, a bonfire at
+// the centre: enclosed and communal, a moot that turned to violence.
+//
+// Everything from here to `registerGround` below is this one ground. Its shape
+// — the height field, the play radius, the fire — lives in `grounds.mjs` with
+// the server's copy; what lives here is what it looks like.
+// ===========================================================================
 
-export function createWorld(
-  scene: THREE.Scene,
-  materials: MaterialLibrary,
-  settings: QualitySettings,
-  opts: WorldOptions = {},
-): WorldHandle {
-  const rng = opts.rng ?? seeded(0x5b7ea41d);
-  const root = new THREE.Group();
-  root.name = "world";
 
-  const pointLights: THREE.PointLight[] = [];
-  /** Every geometry this module made, so dispose releases each exactly once. */
-  const owned = new Set<THREE.BufferGeometry>();
-  /**
-   * Materials this module built itself rather than taking from the library.
-   * There is exactly one — the water, which needs a shading model the catalog
-   * does not offer — and it is ours to release, because materials.dispose()
-   * only knows about its own.
-   */
-  const ownedMats: THREE.Material[] = [];
-  const restore: Array<() => void> = [];
-  /**
-   * Per-frame work a build block registers for itself, so a prop that needs a
-   * clock does not have to be hoisted out of the section that explains it and
-   * into `update`. Called with the frame's dt, in registration order.
-   */
-  const frameHooks: Array<(dt: number, ctx: FrameContext) => void> = [];
-  const own = <T extends THREE.BufferGeometry>(g: T): T => { owned.add(g); return g; };
+// Ground palette. These are the arena's art direction as much as the material
+// catalog is: Anglo-Saxon Britain in late summer, which is turf gone dry at the
+// tips, bare earth on the tracks, and churned mud where the moot has been
+// standing on it all evening. Nothing here is sand.
+// These carry more chroma than a photograph of turf would, and deliberately.
+// Everything that reaches this ground is warm — a low sun, a bonfire, the
+// hemisphere's own earth bounce and an environment map convolved from an ember
+// horizon — so an albedo authored at the green a meter would read comes back
+// with its green cancelled and the field renders as trampled dust. The turf is
+// pushed toward the green side of what is plausible so that what *arrives* is
+// plausible. Change the light rig and these have to move with it.
+const C_TURF_SHADE = new THREE.Color(0x33471a);
+const C_TURF = new THREE.Color(0x4d6a22);
+const C_TURF_DRY = new THREE.Color(0x7d7635);
+const C_EARTH = new THREE.Color(0x5e4e35);
+const C_MUD = new THREE.Color(0x3d3122);
+const C_MUD_WET = new THREE.Color(0x201a12);
+// The crust on a ridge of churn that has had an hour to dry. Borrowed from the
+// `mud` recipe's own `drying` swatch in textures.ts so the two agree about what
+// half-dry earth is; it is the light end of the mud mottle and the only reason
+// the churn is more than one value once its sheen has gone.
+const C_MUD_DRY = new THREE.Color(0x7a6546);
+// Chalk is the brightest thing on the ground and it was the brightest thing in
+// the arena — a pale scuff ring reading as bare sand across the middle of every
+// frame. It is a scuff, so it is turf-coloured dirt with the chalk showing
+// through it, not a chalk floor.
+const C_CHALK = new THREE.Color(0x8e8770);
+const C_HEATH = new THREE.Color(0x424630);
 
-  const density = settings.propDensity;
-  const scatter = (base: number) => Math.max(1, Math.round(base * density));
-  const tier = settings.tier;
+/**
+ * The floor's albedo, written per terrain vertex — and the frequencies below are
+ * as load-bearing as the colours, for a reason this field was not originally
+ * written against.
+ *
+ * A warrior's cast shadow is a half-metre to a metre and a half of blob. It is
+ * the only thing on this surface that has to *win* an argument with the surface,
+ * and it wins or loses against the ground's own variance at its own scale, not
+ * against the total. So every term here is placed by wavelength: anything
+ * between about 0.3 m and 3 m is competing with the shadow and has to justify
+ * itself, and anything longer is free — it reads as the sweep of a field and the
+ * eye separates it from a body-shaped dark patch without effort.
+ *
+ * There is a hard floor on how fine this field can usefully be, and two terms
+ * used to sit under it. The terrain carries these on 0.8 m vertices, so the
+ * shortest wavelength it can represent is 1.6 m; content below that is not
+ * detail, it is aliasing, and Gouraud reconstruction hands it back as random
+ * per-vertex blotches at — exactly — 1.6 to 3 m. Sub-Nyquist albedo noise does
+ * not stay small and invisible. It folds up onto the shadow. `drainage`'s own
+ * docstring states this rule for the wet mask; `fine` at 1.18 m and `grit` at
+ * 0.39 m were breaking it in the albedo.
+ *
+ * Measured over the fighting floor (r 3–16 m), residual sigma/mu by band:
+ * sub-0.4 m 0.0718 -> 0.0296, sub-1 m 0.0688 -> 0.0515, sub-2 m 0.0748 -> 0.0713
+ * — 0.1244 -> 0.0928 in quadrature, a 25% cut across everything a shadow
+ * competes with. The field did not lose range doing it: total sigma/mu goes
+ * 0.2996 -> 0.3164 and the mean holds to 0.04%, because what came out of the
+ * shadow band went into the 8–16 m band and longer (0.0359 -> 0.0473 and
+ * 0.0805 -> 0.0971). Less noise, more form, same exposure.
+ *
+ * Worth recording what did *not* turn out to be worth cutting. `mid`, `churn`
+ * and `drainage` all run octaves down to 1.7–1.9 m, which looks like the same
+ * defect; dropping the offending octave from each moves the sub-2 m bands by
+ * under 2% and *raises* the 2–8 m ones, because an fBm halves its amplitude
+ * every octave and the last one was never carrying much. What is actually left
+ * in this field's shadow band is the masks' own geometry — the standing ring,
+ * the tracks, the basin rims — and that is legible structure a viewer reads as
+ * ground rather than as noise. It stays.
+ */
+function groundColor(x: number, z: number, y: number, out: THREE.Color): void {
+  const r = Math.hypot(x, z);
+  const big = fbm(x * 0.033 + 61.1, z * 0.033 - 22.4, 3);
+  const mid = fbm(x * 0.135 - 8.2, z * 0.135 + 31.6, 3);
+  // 3.8 m, not 1.2 m — above the vertex lattice's Nyquist and well clear of a
+  // shadow. Re-centred as it was narrowed so the tracks keep the same mean
+  // amount of earth on them; this is a frequency change, not a palette one.
+  const fine = noise2(x * 0.26 + 4.4, z * 0.26 - 12.1);
 
-  const M4 = new THREE.Matrix4();
-  const Q = new THREE.Quaternion();
-  const V = new THREE.Vector3();
-  const E = new THREE.Euler();
+  out.copy(C_TURF_SHADE).lerp(C_TURF, clamp01(big * 1.7 - 0.25));
+  out.lerp(C_TURF_DRY, clamp01((mid - 0.4) * 1.9));
 
-  /**
-   * Places one geometry many times. InstancedMesh when the tier allows it,
-   * otherwise plain meshes sharing the same geometry and material — still one
-   * upload, just more draw calls. The per-instance tint is the only thing the
-   * fallback loses, and it loses it silently on purpose: a colour variation is
-   * worth less than a device that renders at all.
-   */
-  function field(
-    geo: THREE.BufferGeometry,
-    mat: THREE.Material,
-    xforms: THREE.Matrix4[],
-    tints: THREE.Color[] | null = null,
-    castShadow = true,
-  ): THREE.InstancedMesh | null {
-    own(geo);
-    if (xforms.length === 0) return null;
-    if (!settings.instancing) {
-      for (const m of xforms) {
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.applyMatrix4(m);
-        mesh.castShadow = castShadow;
-        root.add(mesh);
-      }
-      return null;
-    }
-    const inst = new THREE.InstancedMesh(geo, mat, xforms.length);
-    for (let i = 0; i < xforms.length; i++) {
-      inst.setMatrixAt(i, xforms[i]);
-      if (tints) inst.setColorAt(i, tints[i]);
-    }
-    inst.instanceMatrix.needsUpdate = true;
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-    inst.castShadow = castShadow;
-    inst.computeBoundingSphere();
-    root.add(inst);
-    return inst;
-  }
+  const path = pathMask(x, z, r);
+  out.lerp(C_EARTH, clamp01(path * (0.62 + fine * 0.45)));
 
-  const place = (x: number, y: number, z: number, ry = 0, s = 1, rx = 0, rz = 0): THREE.Matrix4 => {
-    E.set(rx, ry, rz, "YXZ");
-    Q.setFromEuler(E);
-    return new THREE.Matrix4().compose(V.set(x, y, z), Q, new THREE.Vector3(s, s, s));
-  };
+  const churn = churnMask(x, z, r);
+  out.lerp(C_MUD, clamp01(churn * (0.55 + mid * 0.8)));
 
-  // =========================================================================
-  // Terrain
-  // =========================================================================
+  // Mud is not one tone, and this is the term that carries what the wet sheen
+  // used to. Ground the moot has trodden all evening drains in patches metres
+  // across: sodden and near-black where it holds, drying back to crust on the
+  // ridges a boot pushed up between them. Broad and low-frequency on purpose —
+  // this is the same drainage field the sheen and the roughness read, so the
+  // dark patches, the rough ground and the water all agree, and unlike a
+  // specular highlight a value difference in the albedo is something the key
+  // light and the shadow map can both act on. Measured over the fighting
+  // floor it widens the ground's own p95/p05 luma spread from 2.95 to 3.25
+  // while holding the mean within 1%, which is the trade this pass needs:
+  // tonal range bought without moving the operating point the grade is cut to.
+  const drain = drainage(x, z);
+  out.lerp(C_MUD_WET, smoothstep(0.44, 0.86, drain) * churn * 0.8);
+  out.lerp(C_MUD_DRY, smoothstep(0.46, 0.08, drain) * churn * 0.55);
 
-  const groundMat = materials.get("ground");
-  const ground = (() => {
-    const segs = tier === "high" ? 168 : tier === "medium" ? 128 : 88;
-    const step = tier === "high" ? 0.8 : tier === "medium" ? 1.0 : 1.4;
+  // Wet where water actually is. Applied last so it wins over the mottle above:
+  // a hollow that holds standing water is wetter than one that merely drains
+  // into it, and the dark ring has to land on the rim of the water rather than
+  // on whatever the drainage field happened to say there.
+  out.lerp(C_MUD_WET, clamp01(basinWet(x, z) * 0.9));
 
-    // Concentric rings, uniform across the moot and growing geometrically out to
-    // the downs. A square grid at this resolution would be a quarter of a million
-    // vertices to put 0.8 m of detail where the fight is.
-    const radii: number[] = [];
-    let r = 0;
-    while (r < 29) { r += step; radii.push(r); }
-    let s = step;
-    while (r < TERRAIN_RADIUS) { s *= 1.11; r = Math.min(r + s, TERRAIN_RADIUS); radii.push(r); }
-    // Skirt: the outermost ring again, dropped below the horizon, so the terrain
-    // can never show its own edge against the sky no matter where the camera goes.
-    radii.push(TERRAIN_RADIUS);
-    const rings = radii.length;
-    const skirt = rings - 1;
+  // Chalk showing through where a boot has taken the turf off the track. It is
+  // the brightest thing on the ground and it is doing real work: without it the
+  // whole field sits inside three luma buckets and reads as one flat tone.
+  //
+  // It was also, on its own, ninety per cent of this field's sub-0.4 m energy —
+  // the brightest term in the arena sitting at a quarter of the vertex lattice's
+  // Nyquist, which is the worst possible place to put contrast. At 4.2 m it
+  // becomes what it was always meant to describe: a scuffed *stretch* of track
+  // where the turf has gone, not a per-vertex sprinkle of white. The threshold
+  // moves with it because two smooth fields cross a fixed level over far more
+  // area than two rough ones; coverage is 1.34% of the floor against 1.22%
+  // before, so the highlight structure the tonal floor depends on is not paying
+  // for this — it gains slightly, and gains it as patches the eye can resolve.
+  const grit = noise2(x * 0.24 - 19.4, z * 0.24 + 7.7);
+  out.lerp(C_CHALK, clamp01((fine * 0.5 + grit * 0.5 - 0.665) * 3.2) * Math.max(path * 0.7, churn * 0.3));
 
-    const count = 1 + rings * segs;
-    const pos = new Float32Array(count * 3);
-    const uv = new Float32Array(count * 2);
-    const col = new Float32Array(count * 3);
-    // Two attributes, because the floor is two substances and they want
-    // opposite answers out of the shader. `wet` is where water stands and is
-    // the only thing allowed to be glossy; `chn` is how badly the moot has
-    // opened this ground, and it drives roughness the other way. v7 had one
-    // channel doing both jobs and that is the whole of the defect this pass
-    // exists for — see the write() below.
+  // Past the ditch the turf is unbroken; the downs go to heather and bracken.
+  out.lerp(C_HEATH, smoothstep(44, 130, r) * 0.8);
+
+  // Three brightness terms, and between them they are what stops the ground
+  // being one value. A long-wavelength drift for the sweep of the field, a
+  // ten-metre term for form inside a single frame, and a cheap curvature term so
+  // hollows hold shadow and the bank's crest catches light — not an AO pass, but
+  // it is what makes the earthwork read once the fog has taken the contrast out
+  // of it.
+  //
+  // The 41 m drift is longer than most of what a camera frames, so on its own it
+  // grades the arena rather than shaping it, and the offset is a hair under what
+  // it was purely to pay back the mean the wider chalk patches add.
+  //
+  // The ten-metre term is where the contrast cut above went. It is deliberately
+  // an order of magnitude coarser than a warrior's shadow — no eye confuses a
+  // ten-metre swell of drier ground with a body-shaped patch a metre across —
+  // and it is fbm rather than a plane wave, because a periodic term at this
+  // scale would be corrugation across the whole floor, which is a §10 defect
+  // where an irregular one is landform. Its offset holds the product's mean at
+  // 1.0 by construction, so this buys tonal range at zero cost to exposure:
+  // measured over the fighting floor the field's total sigma/mu goes 0.2996 ->
+  // 0.3164 while the mean moves 0.04%. `stance` ships at 9 tonal buckets
+  // against a floor of 8 and the histogram it lost was the 128–176 tail, so
+  // range that costs no exposure is the only kind this pass could spend.
+  out.multiplyScalar(0.693 + 0.66 * fbm(x * 0.024 - 44.2, z * 0.024 + 12.8, 2));
+  out.multiplyScalar(0.88 + 0.24 * fbm(x * 0.095 + 88.6, z * 0.095 - 31.2, 2));
+  out.multiplyScalar(1 + clamp01(y * 0.45) * 0.12 - clamp01(-y * 2.6) * 0.18);
+}
+
+const VILLAGE_FIELD = SAXON_VILLAGE.field;
+
+/**
+ * The village's floor. Ring spacing is 0.8 m where the fight is because that
+ * is the wavelength every albedo term in `groundColor` is authored against —
+ * the field's Nyquist is what decides which of its terms are detail and which
+ * are aliasing — so a tier that coarsens it is trading detail for frame rate
+ * knowingly rather than silently.
+ */
+const VILLAGE_TERRAIN: TerrainSpec = {
+  /** Inside the camera's 200 m far plane, past the fog. */
+  radius: 176,
+  segments: { high: 168, medium: 128, low: 88 },
+  step: { high: 0.8, medium: 1.0, low: 1.4 },
+  /** 1.6 m per repeat of the ground detail map, given the catalog's 22× tiling. */
+  uvScale: 1 / 35.2,
+  colorAt: groundColor,
+  surfaceAt(x, z, out) {
+    // Two fields, because the floor is two substances and they want opposite
+    // answers out of the shader. v7 had one channel doing both jobs and that is
+    // the whole of the defect this pass exists for.
     //
-    // Both ride their own attributes rather than being inferred in the shader
-    // from how dark the vertex colour is. That inference is what put a mirror
-    // on the grass: turf in shade is as dark as mud, so shaded turf came back
-    // at a quarter of its roughness and returned a per-pixel blue reflection of
-    // the night sky. Darkness is not a wetness channel. These are, and they are
-    // the same fields groundColor grades with.
-    const wet = new Float32Array(count);
-    const chn = new Float32Array(count);
-    const c = new THREE.Color();
+    // v7 wrote max(basinWet, churn * 0.4) on the argument that trodden ground
+    // is damp and damp ground holds a broad sheen. The argument is right about
+    // mud and wrong about rendering, and it is why a warrior casts no shadow
+    // while the palisade beside him throws six-metre stripes.
+    //
+    // A broad sheen is a *lower roughness*, a lower roughness returns more of
+    // the environment map, and no shadow map can darken an environment
+    // reflection. Run through three's own split-sum approximation at the 16°
+    // these presets look down at the floor, against the ground's real linear
+    // albedo of about 0.05: at the roughness that term left, 49% of a pixel
+    // at a warrior's feet was unshadowable environment specular on average
+    // and 89% at the worst of the 25, against 26% on the dry grass outside
+    // the mask. 23 of the 25 stand inside the churn mask and the palisade's
+    // working stripe lands outside it. Same fence, same moon, two receivers —
+    // the light was never the problem.
+    //
+    // So the sheen stops following the churn and follows water. `churn` says
+    // how opened the ground is and drives roughness up; `wet` is standing
+    // water — a basin, or the top tenth of the drainage field where trodden
+    // ground actually holds a film — and it is the only glossy thing left.
+    // Over the fighting floor that takes the mean sheen from 0.164 to 0.036
+    // and the area carrying a real one from 27% to 5%, and what is left is
+    // brighter for being scarce: a scatter of bright wells against matte mud
+    // holds far more highlight structure than an even damp haze, which only
+    // ever averaged.
+    const churn = VILLAGE_FIELD.churnMask(x, z, Math.hypot(x, z));
+    out.churn = churn;
+    out.wet = clamp01(Math.max(
+      VILLAGE_FIELD.basinWet(x, z),
+      smoothstep(0.7, 0.93, VILLAGE_FIELD.drainage(x, z)) * churn * 0.8,
+    ));
+  },
+};
 
-    const write = (i: number, x: number, z: number, y: number) => {
-      pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
-      uv[i * 2] = x * GROUND_UV + 0.5;
-      uv[i * 2 + 1] = z * GROUND_UV + 0.5;
-      groundColor(x, z, y, c);
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+/** Where the tracks in and out of the moot cross the earthwork. */
+const GATE_ANGLES = VILLAGE_FIELD.gateAngles;
+/** The gate proper — a break in the palisade with posts and a lintel. */
+const GATE_MAIN = GATE_ANGLES[0];
+const PALISADE_RADIUS = 19.6;
+const TORCH_RADIUS = 18.2;
 
-      // v7 wrote one channel here — max(basinWet, churn * 0.4) — on the
-      // argument that trodden ground is damp and damp ground holds a broad
-      // sheen. The argument is right about mud and wrong about rendering, and
-      // it is why a warrior casts no shadow while the palisade beside him
-      // throws six-metre stripes.
-      //
-      // A broad sheen is a *lower roughness*, a lower roughness returns more of
-      // the environment map, and no shadow map can darken an environment
-      // reflection. Run through three's own split-sum approximation at the 16°
-      // these presets look down at the floor, against the ground's real linear
-      // albedo of about 0.05: at the roughness that term left, 49% of a pixel
-      // at a warrior's feet was unshadowable environment specular on average
-      // and 89% at the worst of the 25, against 26% on the dry grass outside
-      // the mask. 23 of the 25 stand inside the churn mask and the palisade's
-      // working stripe lands outside it. Same fence, same moon, two receivers —
-      // the light was never the problem.
-      //
-      // So the sheen stops following the churn and follows water. `chn` says
-      // how opened the ground is and drives roughness up; `wet` is standing
-      // water — a basin, or the top tenth of the drainage field where trodden
-      // ground actually holds a film — and it is the only glossy thing left.
-      // Over the fighting floor that takes the mean sheen from 0.164 to 0.036
-      // and the area carrying a real one from 27% to 5%, and what is left is
-      // brighter for being scarce: a scatter of bright wells against matte mud
-      // holds far more highlight structure than an even damp haze, which only
-      // ever averaged.
-      const rr = Math.hypot(x, z);
-      const churn = churnMask(x, z, rr);
-      chn[i] = churn;
-      wet[i] = clamp01(Math.max(basinWet(x, z), smoothstep(0.7, 0.93, drainage(x, z)) * churn * 0.8));
-    };
+const PUDDLES = VILLAGE_FIELD.puddles;
+const WATER_FILL = VILLAGE_FIELD.waterFill;
+const DEEPEST_WATER = VILLAGE_FIELD.deepestWater;
+const { pathMask, churnMask, basinWet, drainage } = VILLAGE_FIELD;
 
-    write(0, 0, 0, groundHeight(0, 0));
-    for (let i = 0; i < rings; i++) {
-      const rad = radii[i];
-      const span = i === 0 ? rad : rad - radii[i - 1];
-      // Jitter breaks the polar lattice. Without it the ground shows concentric
-      // rings and radial spokes in every vertex-coloured gradient it carries.
-      const jit = i >= skirt - 1 ? 0 : Math.min(span, 1.6) * 0.34;
-      for (let j = 0; j < segs; j++) {
-        const idx = 1 + i * segs + j;
-        // Angular jitter is capped against the ring's own angular pitch. Near
-        // the centre a polar grid is 168 vertices around a 1 m circle, and an
-        // unclamped shuffle there swaps neighbours and folds the triangles.
-        const angJit = Math.min(jit, ((rad * TAU) / segs) * 0.45) / Math.max(rad, 0.001);
-        const jr = rad + (hash2(i * 7919 + 13, j * 104729 + 5) - 0.5) * jit;
-        const ja = (j / segs) * TAU + (hash2(j * 7919 + 3, i * 104729 + 11) - 0.5) * angJit;
-        const x = Math.cos(ja) * jr;
-        const z = Math.sin(ja) * jr;
-        write(idx, x, z, i === skirt ? -34 : groundHeight(x, z));
-      }
-    }
+/**
+ * Nothing at boot height goes inside this radius but the fire, which is the
+ * arena's centrepiece and carries its own ring of hearth stones to say so.
+ *
+ * There is no prop collision anywhere in the stack — the server sim is 2-D and
+ * knows about warriors, the play bound and the ground's declared hazards,
+ * nothing else — so a prop standing inside the fighting circle is not a *risk*
+ * of clipping, it is a guarantee of it. The brawl preset stands eight warriors
+ * on a 4.2 m circle and a spear adds most of two metres to that; `brawl` is the
+ * shot that has to prove crowd readability, and it was proving it with a
+ * warrior's shins inside a woodpile.
+ *
+ * This is the cheap half of the fix. The other half is a real obstacle radius
+ * in the sim, which `spec.obstacles` now has somewhere to be declared.
+ *
+ * Measured since: nothing this ground places is inside a warrior in `brawl` —
+ * the fire's widest geometry reaches 2.0 m and the nearest spawn is 4.2. What
+ * the panel read as legs through the fire is the *camera*: the brawl ring puts
+ * a warrior at (0, −4.2), and the follow rig sits at (−1, 2.05, 8.9), so he
+ * stands on the arena's own axis 31 px from the flame column and his shins
+ * arrive in its white core. The half of that this ground can answer is that the
+ * fire had a hole in it at exactly that height — see the bonfire's core.
+ */
+const CLEAR_RADIUS = 6.2;
 
-    // Wound so the face normal is +Y. Rings run counter-clockwise in XZ, which
-    // puts radial-then-tangential the wrong way round; getting this backwards
-    // does not shade the ground darkly, it deletes it.
-    const idx: number[] = [];
-    for (let j = 0; j < segs; j++) {
-      idx.push(0, 1 + ((j + 1) % segs), 1 + j);
-    }
-    for (let i = 0; i < rings - 1; i++) {
-      const a0 = 1 + i * segs;
-      const b0 = 1 + (i + 1) * segs;
-      for (let j = 0; j < segs; j++) {
-        const jn = (j + 1) % segs;
-        idx.push(a0 + j, a0 + jn, b0 + j, a0 + jn, b0 + jn, b0 + j);
-      }
-    }
+function buildSaxonVillage(ctx: GroundBuildContext): void {
+  // Destructured rather than reached through, because a village build is a few
+  // thousand calls into this machinery and `ctx.` on every one of them buries
+  // what is actually being placed. Nothing here rebinds — these are the
+  // context's own objects.
+  const {
+    root, materials, settings, rng, scatter, tier, own, field, place, footing,
+    pointLights, ownedMats, restore, frameHooks, E, Q, V,
+  } = ctx;
+  const groundHeight = ctx.heightAt;
+  const groundMat = ctx.groundMaterial;
 
-    const geo = own(new THREE.BufferGeometry());
-    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
-    geo.setAttribute("wetness", new THREE.BufferAttribute(wet, 1));
-    geo.setAttribute("churn", new THREE.BufferAttribute(chn, 1));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-
-    const mesh = new THREE.Mesh(geo, groundMat);
-    mesh.receiveShadow = true;
-    // The whole world is inside it; culling it is only ever a chance to be wrong.
-    mesh.frustumCulled = false;
-    root.add(mesh);
-    return mesh;
-  })();
 
   // The ground detail map is one 512² tile over a 350 m field, and no amount of
   // vertex colour hides a tile that repeats every 1.6 m. So the albedo is mixed
@@ -2646,21 +2283,9 @@ export function createWorld(
       { parts: buildHut({ w: 4.1, d: 1.95, wallH: 2.75, pitch: 1.52, seed: 0x9abc, vent: true }), xf: [], daub: [], thatch: [], depth: 1.95, foot: 4.5 },
     ];
 
-    /**
-     * Ground a building can stand on: the lowest point under its footprint, so
-     * the downhill sill lands and the uphill one digs in. Two of the sites sit
-     * across the ditch outside the earthwork, where the ground moves the better
-     * part of a metre in three, and a single sample at the centre leaves half a
-     * sill in mid-air there.
-     */
-    const footing = (x: number, z: number, foot: number): number => {
-      let y = groundHeight(x, z);
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * TAU;
-        y = Math.min(y, groundHeight(x + Math.cos(a) * foot, z + Math.sin(a) * foot));
-      }
-      return y;
-    };
+    // `ctx.footing` rather than a centre sample, and it is not a nicety here:
+    // two of the sites sit across the ditch outside the earthwork, where the
+    // ground moves the better part of a metre in three.
 
     // A village, not a ring: clustered, at spread distances so the frame gets a
     // midground, most doors turned toward the moot — and a third of them stood
@@ -3647,9 +3272,256 @@ export function createWorld(
     field(boneGeo, boneMat, bones, null, false);
   }
 
+  // Banners ripple as cloth: a wave travelling out from the pole, with the
+  // amplitude ramping from nothing at the hoist to everything at the fly.
+  // Registered as a frame hook rather than living in the orchestrator's
+  // `update`, because it is four pieces of this ground's cloth and no other
+  // ground has to know they exist.
+  frameHooks.push((_dt, frame) => {
+    const t = frame.time;
+    for (const b of banners) {
+      const attr = b.mesh.geometry.attributes.position as THREE.BufferAttribute;
+      const base = b.base;
+      for (let i = 0; i < attr.count; i++) {
+        const x = base[i * 3];
+        const y = base[i * 3 + 1];
+        const grip = clamp01((x + 0.48) / 0.95);
+        const amp = grip * grip * 0.14;
+        attr.setZ(i, Math.sin(x * 6.5 - t * 5 + b.phase) * amp + Math.sin(y * 3.1 - t * 3.4) * amp * 0.4);
+        attr.setY(i, y - grip * 0.03 * (1 + Math.sin(t * 2.6 + b.phase)));
+      }
+      attr.needsUpdate = true;
+      b.mesh.geometry.computeVertexNormals();
+    }
+  });
+}
+
+/**
+ * The village, registered. A second ground is a second module that imports
+ * `registerGround`, `TerrainSpec` and `GroundBuildContext` from here, hands
+ * over its own `GroundSpec` from `grounds.mjs`, and is imported once by
+ * whoever chooses grounds. Nothing in this file changes for it.
+ */
+export const SAXON_VILLAGE_GROUND = registerGround({
+  spec: SAXON_VILLAGE,
+  terrain: VILLAGE_TERRAIN,
+  build: buildSaxonVillage,
+});
+
+// ---------------------------------------------------------------------------
+// The machinery
+// ---------------------------------------------------------------------------
+
+/**
+ * How far the terrain's outermost ring is dropped below the horizon. It is a
+ * skirt, not a wall: its only job is that the ground can never show its own
+ * edge against the sky whatever the camera does, and 34 m clears the deepest
+ * the far landform ever goes.
+ */
+const SKIRT_DROP = -34;
+
+export function createWorld(
+  scene: THREE.Scene,
+  materials: MaterialLibrary,
+  settings: QualitySettings,
+  opts: WorldOptions = {},
+): WorldHandle {
+  const def = GROUND_DEFS.get(opts.ground ?? DEFAULT_GROUND_ID) ?? SAXON_VILLAGE_GROUND;
+  const spec = def.spec;
+  const terrain = def.terrain;
+
+  const rng = opts.rng ?? seeded(0x5b7ea41d);
+  const root = new THREE.Group();
+  root.name = "world";
+
+  const pointLights: THREE.PointLight[] = [];
+  /** Every geometry this module made, so dispose releases each exactly once. */
+  const owned = new Set<THREE.BufferGeometry>();
+  /**
+   * Materials a ground built itself rather than taking from the library — the
+   * village's water needs a shading model the catalog does not offer — and they
+   * are ours to release, because materials.dispose() only knows about its own.
+   */
+  const ownedMats: THREE.Material[] = [];
+  const restore: Array<() => void> = [];
+  const frameHooks: Array<(dt: number, ctx: FrameContext) => void> = [];
+  const own = <T extends THREE.BufferGeometry>(g: T): T => { owned.add(g); return g; };
+
+  const density = settings.propDensity;
+  const scatter = (base: number) => Math.max(1, Math.round(base * density));
+  const tier = settings.tier;
+
+  const Q = new THREE.Quaternion();
+  const V = new THREE.Vector3();
+  const E = new THREE.Euler();
+
+  /**
+   * Places one geometry many times. InstancedMesh when the tier allows it,
+   * otherwise plain meshes sharing the same geometry and material — still one
+   * upload, just more draw calls. The per-instance tint is the only thing the
+   * fallback loses, and it loses it silently on purpose: a colour variation is
+   * worth less than a device that renders at all.
+   */
+  function field(
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    xforms: THREE.Matrix4[],
+    tints: THREE.Color[] | null = null,
+    castShadow = true,
+  ): THREE.InstancedMesh | null {
+    own(geo);
+    if (xforms.length === 0) return null;
+    if (!settings.instancing) {
+      for (const m of xforms) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.applyMatrix4(m);
+        mesh.castShadow = castShadow;
+        root.add(mesh);
+      }
+      return null;
+    }
+    const inst = new THREE.InstancedMesh(geo, mat, xforms.length);
+    for (let i = 0; i < xforms.length; i++) {
+      inst.setMatrixAt(i, xforms[i]);
+      if (tints) inst.setColorAt(i, tints[i]);
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    inst.castShadow = castShadow;
+    inst.computeBoundingSphere();
+    root.add(inst);
+    return inst;
+  }
+
+  const place = (x: number, y: number, z: number, ry = 0, s = 1, rx = 0, rz = 0): THREE.Matrix4 => {
+    E.set(rx, ry, rz, "YXZ");
+    Q.setFromEuler(E);
+    return new THREE.Matrix4().compose(V.set(x, y, z), Q, new THREE.Vector3(s, s, s));
+  };
+
+  const footing = (x: number, z: number, foot: number): number => {
+    let y = spec.heightAt(x, z);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * TAU;
+      y = Math.min(y, spec.heightAt(x + Math.cos(a) * foot, z + Math.sin(a) * foot));
+    }
+    return y;
+  };
+
+  // =========================================================================
+  // Terrain
+  //
+  // The tessellation is the machinery's and the substance is the ground's.
+  // Concentric rings, uniform across the fighting floor and growing
+  // geometrically out to the horizon: a square grid at this resolution would be
+  // a quarter of a million vertices to put 0.8 m of detail where the fight is.
+  // =========================================================================
+
+  const groundMat = materials.get("ground");
+  const ground = (() => {
+    const segs = terrain.segments[tier];
+    const step = terrain.step[tier];
+
+    const radii: number[] = [];
+    let r = 0;
+    while (r < 29) { r += step; radii.push(r); }
+    let s = step;
+    while (r < terrain.radius) { s *= 1.11; r = Math.min(r + s, terrain.radius); radii.push(r); }
+    // Skirt: the outermost ring again, dropped below the horizon.
+    radii.push(terrain.radius);
+    const rings = radii.length;
+    const skirt = rings - 1;
+
+    const count = 1 + rings * segs;
+    const pos = new Float32Array(count * 3);
+    const uv = new Float32Array(count * 2);
+    const col = new Float32Array(count * 3);
+    // Two attributes rather than one, because a floor is more than one
+    // substance and they want opposite answers out of the shader. Both ride
+    // their own attribute rather than being inferred in the shader from how
+    // dark the vertex colour is: that inference is what put a mirror on the
+    // grass, because turf in shade is as dark as mud and came back at a quarter
+    // of its roughness with a per-pixel blue reflection of the night sky.
+    // Darkness is not a wetness channel.
+    const wet = new Float32Array(count);
+    const chn = new Float32Array(count);
+    const c = new THREE.Color();
+    const surface: TerrainSurface = { wet: 0, churn: 0 };
+
+    const write = (i: number, x: number, z: number, y: number) => {
+      pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
+      uv[i * 2] = x * terrain.uvScale + 0.5;
+      uv[i * 2 + 1] = z * terrain.uvScale + 0.5;
+      terrain.colorAt(x, z, y, c);
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+      terrain.surfaceAt(x, z, surface);
+      chn[i] = surface.churn;
+      wet[i] = surface.wet;
+    };
+
+    write(0, 0, 0, spec.heightAt(0, 0));
+    for (let i = 0; i < rings; i++) {
+      const rad = radii[i];
+      const span = i === 0 ? rad : rad - radii[i - 1];
+      // Jitter breaks the polar lattice. Without it the ground shows concentric
+      // rings and radial spokes in every vertex-coloured gradient it carries.
+      const jit = i >= skirt - 1 ? 0 : Math.min(span, 1.6) * 0.34;
+      for (let j = 0; j < segs; j++) {
+        const idx = 1 + i * segs + j;
+        // Angular jitter is capped against the ring's own angular pitch. Near
+        // the centre a polar grid is 168 vertices around a 1 m circle, and an
+        // unclamped shuffle there swaps neighbours and folds the triangles.
+        const angJit = Math.min(jit, ((rad * TAU) / segs) * 0.45) / Math.max(rad, 0.001);
+        const jr = rad + (hash2(i * 7919 + 13, j * 104729 + 5) - 0.5) * jit;
+        const ja = (j / segs) * TAU + (hash2(j * 7919 + 3, i * 104729 + 11) - 0.5) * angJit;
+        const x = Math.cos(ja) * jr;
+        const z = Math.sin(ja) * jr;
+        write(idx, x, z, i === skirt ? SKIRT_DROP : spec.heightAt(x, z));
+      }
+    }
+
+    // Wound so the face normal is +Y. Rings run counter-clockwise in XZ, which
+    // puts radial-then-tangential the wrong way round; getting this backwards
+    // does not shade the ground darkly, it deletes it.
+    const idx: number[] = [];
+    for (let j = 0; j < segs; j++) {
+      idx.push(0, 1 + ((j + 1) % segs), 1 + j);
+    }
+    for (let i = 0; i < rings - 1; i++) {
+      const a0 = 1 + i * segs;
+      const b0 = 1 + (i + 1) * segs;
+      for (let j = 0; j < segs; j++) {
+        const jn = (j + 1) % segs;
+        idx.push(a0 + j, a0 + jn, b0 + j, a0 + jn, b0 + jn, b0 + j);
+      }
+    }
+
+    const geo = own(new THREE.BufferGeometry());
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    geo.setAttribute("wetness", new THREE.BufferAttribute(wet, 1));
+    geo.setAttribute("churn", new THREE.BufferAttribute(chn, 1));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geo, groundMat);
+    mesh.receiveShadow = true;
+    // The whole world is inside it; culling it is only ever a chance to be wrong.
+    mesh.frustumCulled = false;
+    root.add(mesh);
+    return mesh;
+  })();
+
+  def.build({
+    spec, root, ground, groundMaterial: groundMat, materials, settings, tier,
+    rng, scatter, heightAt: spec.heightAt, footing, own, place, field,
+    pointLights, ownedMats, restore, frameHooks, E, Q, V,
+  });
+
   // Only the ground received before this: huts, stakes, rocks and barrels cast
   // shadows onto a world that could not show one landing on them. Cheap, and it
-  // is most of what makes the settlement stop reading as cardboard.
+  // is most of what makes a settlement stop reading as cardboard.
   root.traverse((o) => {
     if (o instanceof THREE.Mesh && o !== ground) o.receiveShadow = settings.shadows;
   });
@@ -3665,10 +3537,11 @@ export function createWorld(
 
   return {
     root,
+    spec,
     ground,
     pointLights,
 
-    heightAt: groundHeight,
+    heightAt: spec.heightAt,
 
     setMood(mood) {
       // Mood is carried by the air and the grade, and the props stay out of it —
@@ -3693,23 +3566,6 @@ export function createWorld(
         const f = 1 + Math.sin(t * 9.3 + i * 2.7) * 0.07 + Math.sin(t * 21.7 + i) * 0.035;
         pointLights[i].intensity = baseIntensity[i] * (1 + moodHeat * 0.45) * f;
         pointLights[i].color.copy(COOL).lerp(HOT, moodHeat);
-      }
-
-      // Banners ripple as cloth: a wave travelling out from the pole, with the
-      // amplitude ramping from nothing at the hoist to everything at the fly.
-      for (const b of banners) {
-        const attr = b.mesh.geometry.attributes.position as THREE.BufferAttribute;
-        const base = b.base;
-        for (let i = 0; i < attr.count; i++) {
-          const x = base[i * 3];
-          const y = base[i * 3 + 1];
-          const grip = clamp01((x + 0.48) / 0.95);
-          const amp = grip * grip * 0.14;
-          attr.setZ(i, Math.sin(x * 6.5 - t * 5 + b.phase) * amp + Math.sin(y * 3.1 - t * 3.4) * amp * 0.4);
-          attr.setY(i, y - grip * 0.03 * (1 + Math.sin(t * 2.6 + b.phase)));
-        }
-        attr.needsUpdate = true;
-        b.mesh.geometry.computeVertexNormals();
       }
     },
 
