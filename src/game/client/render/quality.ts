@@ -187,6 +187,20 @@ export function probeDevice(): DeviceProbe {
   };
 }
 
+/**
+ * Measured on real hardware, which nothing else in this project has been: the
+ * development box has no GPU and rasterises in software at about 1 fps, so every
+ * tier decision before this was reasoned rather than observed.
+ *
+ * The owner tested his own phone and desktop with `?quality=` pinned:
+ *   phone   — `high` is laggy, `medium` is smooth.  Ceiling confirmed correct.
+ *   desktop — `high` is fine.
+ *
+ * So `medium` is not a compromise for phones, it is the right answer, and the
+ * only thing that was ever wrong here was the floor dropping good phones below
+ * it. Do not raise the phone ceiling to `high` on a hunch — it has been tried
+ * on a real device and it stutters.
+ */
 export function detectTier(probe: DeviceProbe = probeDevice()): QualityTier {
   // Desktop-class machines only step down for a cramped window, and never on a
   // GL renderer string: the headless capture box reports SwiftShader, and its
