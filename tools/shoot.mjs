@@ -28,7 +28,10 @@ const ALL_PRESETS = ["duel", "arena", "closeup", "brawl", "laststand", "portrait
 // no GPU. Ask for them by name — `npm run shots -- gorehead --out art/shots/gore`.
 // Helmets are the same: a review of the shop's ladder rather than of the game's
 // look, asked for by name — `npm run shots -- helmcards helmturn`.
-const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "helms", "helms2", "suttonhoo"];
+// `pyre` and `burnman` are the fire's two shots and are off the default run for
+// the same reason the deaths are: they review one feature, and `burnman` in
+// particular exists to be looked at rather than to be shipped in a gallery.
+const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "helms", "helms2", "suttonhoo", "pyre", "burnman"];
 
 // ============================================================
 // CONTACT SHEETS

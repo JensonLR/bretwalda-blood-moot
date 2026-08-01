@@ -405,8 +405,22 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
         stepWarriorTransform(slot.rig, slot.motion, p, dt, ctx, attacker);
         const at = slot.rig.group.position;
 
+        // The flame is the server's, not ours. The hazard sits half a metre
+        // inside the visible fire so that clipping its edge is free, so a client
+        // that decided who was alight from where a rig is standing would disagree
+        // with the sim exactly at the boundary the sim was tuned to be forgiving
+        // at. Three fields off the snapshot, nothing derived.
+        stage.vfx.setBurning(id, p.burning === true, p.burnTimer ?? 0, p.burnInside === true);
+
         // ---- HIT FEEDBACK (damage numbers + rumble + hit-stop) ----
-        if (p.health < slot.prevHp - 0.5) {
+        // Fire is not a blow. Burning drains 22 hp/s against 20 Hz snapshots, so
+        // an unguarded gate here spends a blood gout and a damage number twenty
+        // times a second on a man who was never struck — aimed, worse, by
+        // whichever `lastHitBy` was last written. He is on fire; the flames are
+        // the feedback. A blow landed *while* he burns is lost with it, and that
+        // is the cheap side of the trade: four seconds of standing in a bonfire
+        // is not where a player is reading damage numbers.
+        if (p.health < slot.prevHp - 0.5 && !p.burning) {
           const dmg = Math.round(slot.prevHp - p.health);
           // The line from the man who swung to the man who took it. Without it
           // blood fans off in a random direction and a cleaving blow reads the
@@ -451,7 +465,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
           // confetti the panels warned about. This is the fallback for the kills
           // that take nothing off: a torso hit, and every kill on the low tier
           // that would have been a bisection.
-          if (!p.deathZone || p.deathZone === "torso") {
+          if (p.deathCause !== "fire" && (!p.deathZone || p.deathZone === "torso")) {
             stage.vfx.wound({
               position: { x: at.x, y: 1.3, z: at.z },
               damage: 34,
@@ -495,6 +509,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       // cleanup stale
       warriorsRef.current.forEach((slot, id) => {
         if (activeIds.has(id)) return;
+        // Put him out before the rig goes. The burner is keyed on the id, not on
+        // the object, so a man who leaves mid-burn would otherwise leave his
+        // flames hunting for a capsule that no longer exists.
+        stage.vfx.setBurning(id, false, 0, false);
         stage.hud.detach(id);
         slot.rig.dispose();
         warriorsRef.current.delete(id);

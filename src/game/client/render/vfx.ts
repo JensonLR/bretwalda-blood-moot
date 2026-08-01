@@ -1749,7 +1749,18 @@ export function createVfx(
    * him, because three fat licks still read as a man on fire at fight distance
    * on a phone and nine thin ones would not survive the pixel count anyway.
    */
-  const BURN_TONGUES = tier === "high" ? 7 : tier === "medium" ? 5 : 3;
+  //
+  // 10/7/4, up from 7/5/3, and the reason is a photograph rather than a theory.
+  // `art/shots/fire/burnman.png` was the first frame of a burning man anybody had
+  // ever looked at, and the answer to "does he read as on fire" was no — he read
+  // as a man standing beside a small campfire. Part of that was placement (see
+  // the tongue loop) and part of it is simply count: seven tongues on a turning
+  // ring means that at any instant about three are on the camera's side of him
+  // and the rest are occluded by his own body, because a flame is depth-tested
+  // against the mail it is coming off. Three licks do not engulf anybody. Ten
+  // keeps four or five in front at every phase of the turn, and the width
+  // correction below holds the total radiance where it was.
+  const BURN_TONGUES = tier === "high" ? 10 : tier === "medium" ? 7 : 4;
 
   // Burners get their own reserved slice of the flame layer rather than sharing
   // the arena's headroom. The arena is a bonfire and ten torches — 56 tongues on
@@ -2402,7 +2413,18 @@ export function createVfx(
    * blob with a warrior-shaped hole in it. Engulfed pushes it to ~3.8, which is
    * a nucleus at the clip point, and is meant to be.
    */
-  const BURN_LEVEL = 0.46;
+  // Measured against a real frame this was low, and low in a way the arithmetic
+  // above could not see: the pair-overlap it is derived from assumes both
+  // tongues of the pair are drawn, and on a man half of them are behind him. So
+  // the sum that actually reaches a pixel on his lit side was nearer 1.6 than
+  // 3.2, and at 1.6 against a 4.07 clip a flame is a tint on the grass rather
+  // than a fire. 0.52 with ten tongues restores the pair sum on the side the
+  // camera is on and leaves the engulfed nucleus where it was meant to be. It is
+  // 0.52 rather than the 0.60 the first correction reached, because moving the
+  // ring out onto the body's surface roughly doubled how many tongues survive
+  // the depth test: the radiance that was missing was never all of it missing,
+  // half of it was being drawn inside a hauberk.
+  const BURN_LEVEL = 0.52;
   /**
    * Cooler than the bonfire. Wool, fat and hair burn a long way below a metre of
    * oak, and the temperature term is what keeps a man's flames orange while the
@@ -2632,23 +2654,47 @@ export function createVfx(
       // himself instead of standing a column of flame up out of the grass.
       const span = Math.hypot(dx, dy, dz) || 1.4;
       const reach = 0.86 + b.inside * 0.26;
+      // WHERE THE FLAMES START, and this is the fault the first photograph of
+      // this feature found. The capsule's `a` end is the rig group's own origin,
+      // which is the man's FEET on the turf — so a run from 0 up put the lowest
+      // tongue at ankle height with a 0.4 m flame on it, and a 0.4 m flame at
+      // ankle height standing on grass is a campfire. It read as a man beside a
+      // fire rather than a man on fire, which is exactly the thing this whole
+      // feature exists instead of. Cloth and hair catch at the hem and the flame
+      // goes UP; nothing burns below the boot. So the run starts a quarter of the
+      // way up the body and spends the rest of its length on the trunk, the arms
+      // and the head, where a man is actually alight.
+      const FOOT = 0.24;
       for (let i = 0; i < BURN_TONGUES; i++) {
         // Up the body, not round his feet — and past the crown once he is
         // engulfed. That is the whole difference between a man standing in a
         // fire and a man who *is* one.
-        const t = ((i + 0.5) / BURN_TONGUES) * reach;
+        const t = FOOT + ((i + 0.5) / BURN_TONGUES) * (reach - FOOT * 0.5);
         // The ring turns, slowly, so the flames crawl over him. Fixed offsets
         // give a cage of licks bolted to the rig, which is the same failure as
         // the tint this feature exists instead of.
         const a = i * 2.399 + clock * 0.6 + b.seed;
-        const off = 0.05 + 0.2 * Math.sin(Math.PI * Math.min(1, t + 0.12));
+        // ON the man, not inside him. This ran 0.05→0.25 m off the axis against
+        // a body capsule of 0.28 m, so every tongue was launched from within the
+        // torso: the only flame that reached the frame was whatever stuck out
+        // past his silhouette, which in `burnman.png` was a column up his shield
+        // arm and nothing at all across his chest. A man with a fire inside him
+        // reads as a man standing in front of one. 0.26→0.40 puts the tongues on
+        // the surface and a little proud of it, so the ones on the camera's side
+        // are in front of the mail rather than behind it, and the golden-angle
+        // spacing then keeps four or five of ten there at any phase of the turn.
+        const off = 0.26 + 0.14 * Math.sin(Math.PI * Math.min(1, t + 0.12));
         const wob = ((i * 0.37 + b.seed) % 1) * 0.3 + 0.85;
         fireLayer.push(
           b.ax + dx * t + Math.cos(a) * off,
           b.ay + dy * t,
           b.az + dz * t + Math.sin(a) * off,
-          0.3 * fill * (0.7 + b.flame * 0.5),
-          span * 0.42 * (0.72 + b.inside * 0.5) * fill * (0.55 + b.flame * 0.55) * wob,
+          // Wider and taller than they were. A tongue narrower than the body it
+          // is coming off draws a candle standing beside a man; it has to be
+          // wide enough that the licks meet across his chest, which at 0.36 m
+          // they do on every stature in the roster.
+          0.36 * fill * (0.7 + b.flame * 0.5),
+          span * 0.50 * (0.72 + b.inside * 0.5) * fill * (0.55 + b.flame * 0.55) * wob,
           (i * 0.618 + b.seed) % 1,
           i * 1.37 + b.seed,
           BURN_TEMP,

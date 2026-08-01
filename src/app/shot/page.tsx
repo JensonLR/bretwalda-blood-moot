@@ -46,6 +46,16 @@ type Pose = {
    */
   killer?: string;
   /**
+   * The fire, staged. Three fields off the wire and nothing derived, because
+   * that is exactly what the renderer is handed in a match — a preset that
+   * worked out its own flame from a position would be photographing a code path
+   * no player ever runs. `inside` is the difference between engulfed and
+   * trailing; `timer` is seconds of `FIRE.linger` left.
+   */
+  burn?: { timer: number; inside?: boolean };
+  /** A burn death carries no cut. Only read when state is "dead". */
+  cause?: "blow" | "fire";
+  /**
    * Overrides on top of the class default. Without this every pose in the file
    * wore `defaultAppearance(cls)`, so the shop could grow ten helmets and not
    * one of them could be looked at — the capture set could only ever review
@@ -310,7 +320,15 @@ const PRESETS: Record<string, {
     // frame width thrown away on one side. Measured off a front card, not
     // guessed. The camera is 4.4° above the target so the crown is in shot —
     // level, a crest that runs fore-and-aft is a line at the top of the skull.
-    framing: { position: [-7.07, 2.0, 2.55], target: [-7.07, 1.81, 4.6], fov: 16.5 },
+    // −7.215, not −7.07. The authored 70 mm was measured off a card of an
+    // earlier build and it is short: with it, all four turntable panels came back
+    // with the head the same 145 mm left of the axis — a CONSTANT error across
+    // every bearing, which is the tell that it is the mark and not the man's own
+    // turn. (The rotational half of the correction is `aimAtHead`, and at turn 0
+    // it is identically zero by construction, so it can never have caused this
+    // and could never have fixed it either.) Measured off `art/shots/review2`:
+    // 210 px of a 700 px card at a 485 mm frame width.
+    framing: { position: [-7.215, 2.0, 2.55], target: [-7.215, 1.81, 4.6], fov: 16.5 },
     poses: [
       { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "idle", ap: { helm: "suttonhoo" } },
     ],
@@ -385,6 +403,44 @@ const PRESETS: Record<string, {
       { id: "foe", name: "Grim", cls: "berserker", x: -9.0, z: 3.4, rot: 1.03, state: "attacking", dir: "overhead", swing: 0.86, hp: 0.74 },
     ],
   },
+  // ---- The fire. Two shots, because there are two questions. -------------
+  //
+  // `pyre` is the wide one: a man standing in the bonfire, a man who has run
+  // clear of it and is still alight, and a corpse still smouldering — all in one
+  // frame with the bonfire itself, so the flames on a warrior can be compared
+  // against the flames they came from. If a burning man only reads as burning
+  // while he is next to the hearth, this is the frame that shows it.
+  pyre: {
+    cam: Math.PI,
+    matchTimer: 96,
+    // 12, not 34. Three warriors, a bonfire and eight flame lights put this
+    // scene past 9 s a frame on a GPU-less box, and 34 of those overruns the
+    // harness's own 300 s settle budget — the first run of this preset captured
+    // an unsettled frame and reported `frames=0`. 12 is ~0.6 s of simulation:
+    // enough for the flame ring to have turned and for the smoke to have left
+    // the shoulder, not enough for a long tail. The tail is a claim `firetest`
+    // settles anyway; this frame's job is whether he reads as alight.
+    settle: 12,
+    framing: { position: [8.6, 3.0, 7.4], target: [1.6, 1.15, 0.2], fov: 40 },
+    poses: [
+      // r = 1.11 m against a 1.475 m hazard: in it, not beside it.
+      { id: "me", name: "Aethelred", cls: "huscarl", x: 1.05, z: 0.35, rot: 2.4, state: "walking", hp: 0.44, burn: { timer: 3.0, inside: true } },
+      { id: "foe", name: "Osric", cls: "berserker", x: 4.3, z: 2.4, rot: 0.95, state: "sprinting", hp: 0.51, burn: { timer: 1.9 } },
+      { id: "grim", name: "Grim", cls: "runekeeper", x: 3.1, z: -2.7, rot: 1.2, state: "dead", hp: 0, cause: "fire", killer: "", burn: { timer: 0.9 } },
+    ],
+  },
+  // `burnman` is the honest one. The portrait mark is 8.4 m from the hearth and
+  // the bonfire is behind the lens, so there is nothing orange in the frame but
+  // the man. Either he is on fire here or the feature does not work.
+  burnman: {
+    cam: Math.PI,
+    matchTimer: 96,
+    settle: 12,
+    framing: { position: [-4.6, 2.0, 1.5], target: [-7.0, 1.15, 4.6], fov: 44 },
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: 1.6, state: "running", hp: 0.38, burn: { timer: 2.3 } },
+    ],
+  },
   // Last-stand mood — judges the dramatic colour grade.
   laststand: {
     cam: Math.PI,
@@ -443,13 +499,63 @@ function makePlayer(p: Pose, isLocal: boolean, revived = false): GamePlayer {
     comboTimer: 0,
     invincible: false,
     invincibleTimer: 0,
-    deathZone: p.state === "dead" ? (p.zone ?? "torso") : null,
+    // A burn death has no cut and therefore no zone: `anim.ts` early-returns on
+    // a null zone, which is the whole of "fire does not sever a limb".
+    deathZone: p.state === "dead" && p.cause !== "fire" ? (p.zone ?? "torso") : null,
     deathDir: p.state === "dead" ? (p.dir ?? "right") : null,
     deathHeavy: p.state === "dead" ? (p.heavy ?? false) : false,
+    deathCause: p.state === "dead" ? (p.cause ?? "blow") : null,
+    burning: !!p.burn,
+    burnTimer: p.burn?.timer ?? 0,
+    burnInside: p.burn?.inside ?? false,
     ...(isLocal ? {} : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     appearance: { ...defaultAppearance(p.cls), ...(p.ap ?? {}) } as any,
   } as GamePlayer;
+}
+
+/**
+ * The head is not on the body's axis, and `?turn=` turns the body.
+ *
+ * The card framing carries a fixed 70 mm lateral correction because at this
+ * field that offset is 16% of the frame width — but the offset is fixed in the
+ * MAN's frame, not the world's, so turning him swings it round a small circle
+ * and the correction goes from right to wrong to backwards. At 180° it is
+ * applied with the wrong sign on both axes, which is 150 mm of lateral error on
+ * a 485 mm frame: the panel whose whole job is the crest and the nape guard put
+ * the head half off the left edge and spent the rest of the frame on grass.
+ *
+ * So the correction is rotated with him. `right` is the measured offset off a
+ * front card — the same number the framing used to hard-code — and `fwd` is the
+ * depth half of it, which the fixed framing had no way to express at all: at
+ * 180° the head comes forward and the panel was also a different scale from the
+ * other three, which is the one thing a turntable must not be.
+ */
+const HEAD_OFF = { right: 0.070, fwd: 0.055 };
+
+function aimAtHead(
+  f: { position: [number, number, number]; target: [number, number, number]; fov?: number },
+  turnDeg: number,
+): { position: [number, number, number]; target: [number, number, number]; fov?: number } {
+  if (!Number.isFinite(turnDeg)) return f;
+  // The pose's own yaw. Forward is (sin, cos) and right is (cos, −sin), which is
+  // the convention `makePlayer` builds velocity on.
+  const rot = Math.PI + (turnDeg * Math.PI) / 180;
+  const s = Math.sin(rot);
+  const c = Math.cos(rot);
+  // The authored framing already contains the offset at turn 0, so what is
+  // applied is the DIFFERENCE from there. That keeps the front card pixel-identical
+  // to the one that was measured and moves only the panels that were wrong.
+  const dx = (HEAD_OFF.right * c + HEAD_OFF.fwd * s) - -HEAD_OFF.right;
+  const dz = (-HEAD_OFF.right * s + HEAD_OFF.fwd * c) - -HEAD_OFF.fwd;
+  return {
+    // The camera moves with the target rather than swinging to face it: a
+    // turntable is only a turntable if the bearing between lens and subject is
+    // the same in every panel.
+    position: [f.position[0] + dx, f.position[1], f.position[2] + dz],
+    target: [f.target[0] + dx, f.target[1], f.target[2] + dz],
+    fov: f.fov,
+  };
 }
 
 export default function ShotPage() {
@@ -470,7 +576,7 @@ export default function ShotPage() {
     // Deleted rather than left stale: these globals outlive a client-side
     // navigation, and a framing carried over from the previous preset would
     // silently pin the camera in a shot that meant to follow the warrior.
-    if (chosen.framing) globals.__photoFraming = chosen.framing;
+    if (chosen.framing) globals.__photoFraming = aimAtHead(chosen.framing, chosen.parametric ? parseFloat(search.get("turn") ?? "0") : 0);
     else delete globals.__photoFraming;
     setParams(search);
   }, []);
