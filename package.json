@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "perf": "node tools/perf.mjs",
-    "playtest": "node tools/playtest.mjs"
+    "playtest": "node tools/playtest.mjs",
+    "touchtest": "node tools/touchtest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

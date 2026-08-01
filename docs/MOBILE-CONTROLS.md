@@ -106,3 +106,9 @@ Not by reading the diff. A control scheme is a feel problem:
 - Then a human-shaped pass: does a swipe-up overhead while strafing left
   actually land as an overhead? That is the owner's exact complaint and it is
   the acceptance case.
+
+`npm run touchtest` is that harness. It drives a phone-shaped session with real
+multi-touch through the browser's own input pipeline and reads the answers back
+off the game socket, so what it grades is what the server was told, not what a
+handler was called with. `npm run playtest` still guards the desktop path; the
+two are siblings and both have to stay green.
