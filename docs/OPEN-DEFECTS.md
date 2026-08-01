@@ -914,3 +914,34 @@ The same hazard is live in `labelForAction`, which reads `getBindings()`
 directly and feeds the training control reference. It is safe **only** because
 that screen is never in the server-rendered HTML. Move any binding cap onto a
 server-rendered surface and #418 comes back.
+
+## The screen sounds are nine instruments, not one — and the report said otherwise
+
+`npm run soundtest` on `main` (`0e560b0`) is **20/21**, failing:
+
+```
+FAIL  the screen sounds are one instrument, not nine
+      brightest/darkest = 4.45x across the nine (need <= 3x)
+      tap 666, confirm 823, back 388, purchase 1730, refusal 519,
+      countdown 1085, roundWon 809, roundLost 494, matchWon 577
+```
+
+`purchase` is the outlier at 1730 Hz — its third note is an octave up and left
+to ring — against `back` at 388. `countdown` at 1085 is the next brightest, also
+an octave degree (`V8`). So the spread comes from the octave notes, not from the
+mode: the composition is coherent, the *timbre* is not.
+
+**The shipping report claimed `[soundtest] 21/21` and a family spread of 2.47x.**
+The harness, run against the merged code, measures 4.45x and fails. That is the
+fourth time on this project a confident report has not survived the harness it
+claimed to have run, and the second where the agent's own number contradicted
+the tool's.
+
+Not fixed here deliberately. Brightness is a spectral-centroid measurement of an
+aesthetic property, the owner is the final ear on the whole sound set, and
+retuning a parameter nobody in this container can hear is how the Sutton Hoo
+helm acquired a beak. The fix is small — bring `purchase` and `countdown` down,
+or lift `back` and `roundLost` — but it should be made by someone listening.
+
+Note for whoever picks this up: **the rest of the suite is green**, so a red
+`soundtest` here is this one claim and not a regression elsewhere.
