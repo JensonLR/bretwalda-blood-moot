@@ -73,7 +73,7 @@
 
 import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
-import { WARRIOR_STATS } from "../../types";
+import { WARRIOR_STATS, SWING_PHASES } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -1497,8 +1497,21 @@ function takeBearing(motion: WarriorMotion, attacker: GamePlayer): void {
 // The swing
 // ---------------------------------------------------------------------------
 
-const LOAD_END = 0.34;
-const IMPACT = 0.64;
+/**
+ * Where the coil ends and where the blade is fully through the target, as
+ * fractions of the whole stroke — and they are NOT numbers this file picks any
+ * more. They are the server's own phase boundaries.
+ *
+ * `SWING_PHASES` is windup 0.40 / contact 0.15 / recovery 0.45 and the sim
+ * resolves the blow the step it crosses out of the windup. This file used to
+ * load until 0.34 and reach the target at 0.64, which put the damage a fifth of
+ * the way into the release: the man took the hit while the axe was still coming
+ * round, and every blow read as passing through him because it literally did.
+ * Coil is the windup, the pass is the contact window, the settle is the
+ * recovery — one clock, three phases, and the sim owns all three.
+ */
+const LOAD_END = SWING_PHASES.windup;                          // 0.40
+const IMPACT = SWING_PHASES.windup + SWING_PHASES.contact;     // 0.55
 
 /**
  * The end of a chain: slow off the load, explosive through the middle, a little
@@ -1681,6 +1694,32 @@ function readSwing(motion: WarriorMotion, player: GamePlayer, dt: number): numbe
     // its windup while the layer faded would snap the arm back up on every blow.
     motion.swing = approach(motion.swing, 1, dt, 7);
     return motion.swing;
+  }
+
+  // THE WIRE NOW STATES ALL OF THIS OUTRIGHT. `swingDuration` is the length of
+  // the stroke, `swingHeavy` says which it was, and `swingT` is the sim's own
+  // 0..1 through it — the same number `advanceSwing` tests against the phase
+  // boundaries when it decides the blow has landed. Reading it means the pose
+  // and the damage are driven by one value rather than by two derivations of a
+  // countdown that agree only approximately.
+  //
+  // The carry below still applies: 20 Hz of wire against 60 Hz of frame is
+  // unchanged by where the number came from. And it is still suppressed during
+  // HITSTOP — the sim is holding this man completely still, and a pose that
+  // kept easing forward through the freeze is the client sliding him through a
+  // stop the server says is total, which is exactly the bug the freeze exists
+  // to prevent.
+  if (player.swingDuration !== undefined && player.swingDuration > 0 && player.swingT !== undefined) {
+    motion.swingDur = player.swingDuration;
+    motion.heavy = approach(motion.heavy, player.swingHeavy ? 1 : 0, dt, 9);
+    const frozen = (player.hitstop ?? 0) > 0;
+    motion.swingHold = frozen || Math.abs(player.attackTimer - motion.swingPrev) > 1e-5
+      ? 0
+      : motion.swingHold + dt;
+    motion.swingPrev = player.attackTimer;
+    const carry = frozen ? 0 : Math.min(motion.swingHold, player.swingDuration * 0.12);
+    const lead = carry * (1 - smooth(clamp01((motion.swingHold - TICK) / TICK)));
+    return (motion.swing = clamp01(player.swingT + lead / player.swingDuration));
   }
 
   // A timer that jumped up is a new swing. Its opening value is the length of

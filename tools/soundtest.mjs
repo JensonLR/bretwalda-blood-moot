@@ -550,11 +550,28 @@ async function audit(page, rel) {
   // nine must sit close together in brightness, because a family drawn from one
   // instrument cannot have one member three octaves off the rest.
   {
-    const UI = [
-      ["tap", 30, 260], ["confirm", 60, 600], ["back", 60, 520],
-      ["purchase", 150, 1200], ["refusal", 50, 480], ["countdown", 50, 420],
-      ["roundWon", 250, 1700], ["roundLost", 250, 1700], ["matchWon", 400, 2600],
-    ];
+    // Every screen sound the module declares, not a list this file keeps in its
+    // head. A sound added to `UiSound` and never given a window here would
+    // otherwise be the one thing in the family nobody measured — and the spread
+    // assertion below is only worth anything if it is taken across ALL of them.
+    // A name with no window is a FAIL, not a skip.
+    const WINDOWS = {
+      tap: [30, 260], confirm: [60, 600], back: [60, 520],
+      purchase: [150, 1200], refusal: [50, 480], countdown: [50, 420],
+      roundWon: [250, 1700], roundLost: [250, 1700],
+      // The reward, and the two that are music rather than a sting.
+      levelUp: [150, 1000], matchWon: [400, 2600], matchLost: [400, 2600],
+    };
+    const declared = await page.evaluate(async (u) => {
+      const m = await import(u);
+      return m.UI_SOUNDS ?? null;
+    }, `${ORIGIN}/mod/${rel}`).catch(() => null);
+    const names = declared ?? Object.keys(WINDOWS);
+    const unwindowed = names.filter((k) => !WINDOWS[k]);
+    check("every screen sound the module declares has a window this file grades it against",
+      unwindowed.length === 0,
+      unwindowed.length ? `no window for: ${unwindowed.join(", ")}` : `${names.length} declared, ${names.length} graded${declared ? " (read off the module's own UI_SOUNDS)" : " (module declares no list; using this file's)"}`);
+    const UI = names.filter((k) => WINDOWS[k]).map((k) => [k, WINDOWS[k][0], WINDOWS[k][1]]);
     const cen = {}, ms = {}, pk = {};
     let bad = 0, first = null, missing = 0;
     for (const [kind, lo, hi] of UI) {
@@ -565,15 +582,15 @@ async function audit(page, rel) {
       note(`${ok ? "ok  " : "BAD "} ${kind}: ${ms[kind].toFixed(0)} ms (window ${lo}-${hi}), peak ${pk[kind].toFixed(3)}, centroid ${cen[kind].toFixed(0)} Hz`);
       if (!ok) { bad++; first = first ?? `${kind} ${ms[kind].toFixed(0)} ms / peak ${pk[kind].toFixed(3)}`; }
     }
-    check("all nine screen sounds are voiced and none is silence", missing === 0 && Object.keys(pk).length === UI.length,
+    check("every screen sound is voiced and none is silence", missing === 0 && Object.keys(pk).length === UI.length,
       `${Object.keys(pk).length}/${UI.length} voiced${missing ? `, ${missing} missing` : ""}`);
     check("every screen sound rings inside the window its meaning allows", bad === 0 && missing === 0,
       bad ? `${bad} outside — first: ${first}` : `${UI.length - missing}/${UI.length} inside, none clipping`);
 
     const vals = Object.values(cen).filter((v) => v > 0);
     const spread = vals.length ? Math.max(...vals) / Math.min(...vals) : Infinity;
-    check("the screen sounds are one instrument, not nine", spread <= 3.0,
-      `brightest/darkest = ${spread.toFixed(2)}x across the nine (need <= 3x) — ${Object.entries(cen).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(", ")}`);
+    check(`the screen sounds are one instrument, not ${UI.length}`, spread <= 3.0,
+      `brightest/darkest = ${spread.toFixed(2)}x across the ${UI.length} (need <= 3x) — ${Object.entries(cen).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(", ")}`);
 
     // And the family must not be the combat family. A menu tap that lands on
     // top of a sword hitting mail is a UI that fights the game.

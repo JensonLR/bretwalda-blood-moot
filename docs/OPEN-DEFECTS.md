@@ -945,3 +945,62 @@ or lift `back` and `roundLost` — but it should be made by someone listening.
 
 Note for whoever picks this up: **the rest of the suite is green**, so a red
 `soundtest` here is this one claim and not a regression elsewhere.
+
+---
+
+## `cameratest`'s mirror check is flaky, and it was flaky before this pass
+
+**What happens.** `tools/cameratest.mjs:241` — "the mirror is a true mirror, not
+a second offset" — fails on roughly one run in three. Three consecutive runs on
+the same build:
+
+```
+[cameratest] 13/13 passed
+  FAIL  the mirror is a true mirror, not a second offset — shoulder 1.00 vs -1.00; blade -0.282 vs 0.405
+[cameratest] 12/13 passed
+[cameratest] 13/13 passed
+```
+
+**Why.** It compares the blade's body-space X taken from two *independent*
+browser sessions and asserts `|L + R| < 0.1`. The two sessions are sampled at
+unrelated phases of the idle, and the reading across runs spans 0.199 to 0.405 m
+— a 0.2 m drift against a 0.1 m tolerance. The comment above the check already
+concedes the sampling problem and then picks a tolerance tighter than the drift
+it admits to. The shoulder half of the same assertion is exact every time,
+because the camera offset is a constant and the hand is not.
+
+**It is not the swing work in this pass.** Every use of `LOAD_END` and `IMPACT`
+is inside `attackLayer` (`anim.ts:1948-2056`), and the new `swingT` branch in
+`readSwing` sits *after* the `player.state !== "attacking"` early return, so
+neither can run for the idle warrior this check samples. The camera pass that
+added the harness reported `blade at x=-0.404 m`; this branch reads -0.199 to
+-0.405 on the same code.
+
+**To close it**, sample the blade on a *held* frame rather than a live one — the
+photo path already freezes a pose — or assert the mirror on `hand.scale.x`,
+which is the thing that actually mirrors, instead of on a limb position that
+breathes.
+
+---
+
+## Nothing measures the swing phases or the hitstop on the CLIENT
+
+**What is proven.** The sim's side is: `playtest` 21/21 covers the phase shares,
+the turn cap and the wire fields.
+
+**What is not proven.** The three client wirings added in this pass have no
+harness at all:
+
+- the whoosh now fires on the `windup -> contact` edge (`GameCanvas.tsx:673`)
+  rather than on the `attacking` state edge;
+- the freeze is taken from `GamePlayer.hitstop` off the wire
+  (`GameCanvas.tsx:686`) instead of three hand-picked client numbers;
+- the pose's coil and pass are now `SWING_PHASES.windup` and
+  `windup + contact` (`anim.ts:1500`) instead of 0.34 / 0.64.
+
+`profiletest` proves only that a fight still starts. Nothing samples a warrior
+mid-stroke on the client and checks the blade is where the sim says the blow
+landed. **To close it**, extend `cameratest`'s readback — it already reaches
+into the rig from a live fight — to log `attackPhase`, `swingT` and the blade's
+world position over one stroke, and assert the blade crosses the target between
+`swingT` 0.40 and 0.55.

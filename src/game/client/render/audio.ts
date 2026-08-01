@@ -49,13 +49,20 @@ export interface AudioVec3 { x: number; y: number; z: number }
 export type ImpactMaterial = "flesh" | "shield" | "mail" | "parry";
 
 /**
- * The interface's nine words. They are one instrument played nine ways — see
- * `strike()` — because a screen whose buttons each have their own sound is a
- * screen with no voice at all.
+ * The interface's eleven words. They are one instrument played eleven ways —
+ * see `strike()` — because a screen whose buttons each have their own sound is
+ * a screen with no voice at all.
+ *
+ * The last three are the long ones. `matchWon` and `matchLost` are the only
+ * MUSIC in the game: a phrase rather than a sting, because the end of a match
+ * is the one moment the interface is allowed to say something. They are still
+ * the same bar, the same root and the same mode as the tap that opened the
+ * menu — that is the whole reason a fanfare here does not sound bolted on.
  */
 export type UiSound =
   | "tap" | "confirm" | "back" | "purchase" | "refusal"
-  | "countdown" | "roundWon" | "roundLost" | "matchWon";
+  | "countdown" | "roundWon" | "roundLost" | "levelUp"
+  | "matchWon" | "matchLost";
 
 /** The server's `hit` message `type` field, verbatim. */
 export type WireHitType = "light" | "heavy" | "blocked" | "blocked_heavy" | "parry";
@@ -297,11 +304,12 @@ const n = (at: number, degree: number, gain: number, decay: number, wood: number
   ({ at, degree, gain, decay, wood });
 
 /**
- * Nine sounds, one instrument, one mode. Read down the column: the answer to a
- * tap is a single blow; anything that CHANGED something gets two notes; the
- * three verdicts get a phrase and a drone. Nothing here is longer than the
- * moment it describes — the whole set is measured against these windows in
- * `soundtest`.
+ * Eleven sounds, one instrument, one mode. Read down the column: the answer to
+ * a tap is a single blow; anything that CHANGED something gets two notes; the
+ * verdicts get a phrase and a drone. Nothing here is longer than the moment it
+ * describes — the whole set is measured against these windows in `soundtest`,
+ * and the eleven are held inside 3x of each other in brightness there, which is
+ * the falsifiable form of "one instrument".
  */
 const UI_SCORE: Record<UiSound, UiScore> = {
   // A finger on gilt. The quietest thing in the game, and the most frequent.
@@ -314,12 +322,12 @@ const UI_SCORE: Record<UiSound, UiScore> = {
   // The same two, falling and damped. The way out of a screen.
   back: {
     gain: 1, priority: PRIORITY.IMPORTANT,
-    notes: [n(0, D.V, 0.14, 0.16, 0.5), n(0.07, D.i, 0.15, 0.22, 1)],
+    notes: [n(0, D.V, 0.14, 0.16, 0.5), n(0.07, D.i, 0.15, 0.22, 0.3)],
   },
   // Gold changing hands: three rising, the last an octave up and left to ring.
   purchase: {
     gain: 1, priority: PRIORITY.IMPORTANT,
-    notes: [n(0, D.i, 0.17, 0.24, 0.9), n(0.08, D.V, 0.16, 0.3, 0.5), n(0.17, D.i8, 0.18, 0.55, 0.45)],
+    notes: [n(0, D.i, 0.17, 0.24, 0.9), n(0.08, D.V, 0.16, 0.3, 0.5), n(0.17, D.i8, 0.18, 0.55, 0.8)],
   },
   // No. A flat second against the root, struck on wood and stopped dead — the
   // only dissonance in the set, so a refusal cannot be mistaken for anything.
@@ -342,17 +350,58 @@ const UI_SCORE: Record<UiSound, UiScore> = {
     notes: [n(0, D.V, 0.16, 0.28, 0.5), n(0.12, D.III, 0.16, 0.36, 0.5), n(0.26, D.i, 0.17, 0.6, 0.5)],
     drone: { degree: D.low, gain: 0.07, decay: 0.8 },
   },
-  // The match. Everything the family has, and the only sound in the game
-  // allowed to ring for a second and a half.
+  // A level taken. The reward sound of the game, and the only thing in the set
+  // that climbs the whole way without ever falling back: root, third, fifth,
+  // octave, each brighter and less wooden than the last, so the bar is heard to
+  // open up. Short — it lands on top of the match verdict, and two phrases in
+  // one mode on one root are a chord, not a clash, which is the entire reason
+  // the family is built this way.
+  levelUp: {
+    gain: 1, priority: PRIORITY.CRITICAL,
+    notes: [
+      n(0, D.i, 0.17, 0.2, 0.7), n(0.07, D.III, 0.16, 0.24, 0.4),
+      n(0.14, D.V, 0.17, 0.3, 0.22), n(0.22, D.i8, 0.19, 0.5, 0.1),
+    ],
+  },
+  // VICTORY. Not a sting — a phrase, and the longest thing in the game. It
+  // rises to the octave, walks the flat seventh and sixth back down over the
+  // drone, and settles on the fifth above before the octave closes it. Under a
+  // second and a half of it, because it plays at the end of every single match
+  // and the fourth hearing must not be a thing to be sat through.
   matchWon: {
     gain: 1, priority: PRIORITY.CRITICAL,
     notes: [
-      n(0, D.i, 0.2, 0.34, 1), n(0.09, D.V, 0.18, 0.4, 0.4),
-      n(0.19, D.i8, 0.19, 0.55, 0.2), n(0.32, D.V8, 0.16, 0.9, 0),
+      n(0, D.i, 0.2, 0.34, 0.45), n(0.10, D.V, 0.17, 0.36, 0.45),
+      n(0.20, D.i8, 0.18, 0.42, 0.2), n(0.34, D.VII, 0.15, 0.34, 0.25),
+      n(0.44, D.VI, 0.14, 0.34, 0.25), n(0.56, D.V8, 0.16, 0.5, 0),
+      n(0.74, D.i8, 0.19, 0.72, 0.15),
     ],
-    drone: { degree: D.low, gain: 0.12, decay: 1.25 },
+    drone: { degree: D.low, gain: 0.12, decay: 1.45 },
+  },
+  // LOSS. The same length and the same instrument, walked the other way: from
+  // the octave down through the seventh, fifth and minor third onto the root,
+  // getting slower, darker and more wooden every step. The drone outlasts the
+  // last note, which is what makes it read as the hall emptying rather than as
+  // a buzzer.
+  matchLost: {
+    gain: 1, priority: PRIORITY.CRITICAL,
+    notes: [
+      n(0, D.i8, 0.17, 0.34, 0.5), n(0.13, D.VII, 0.15, 0.36, 0.5),
+      n(0.27, D.V, 0.16, 0.4, 0.6), n(0.42, D.III, 0.15, 0.46, 0.6),
+      n(0.60, D.i, 0.18, 0.78, 0.65),
+    ],
+    drone: { degree: D.low, gain: 0.1, decay: 1.5 },
   },
 };
+
+/**
+ * The family, enumerated off the score itself rather than typed out a second
+ * time. `soundtest` reads this to decide what it has to grade, so a sound added
+ * to `UI_SCORE` and forgotten everywhere else still gets measured — and the
+ * "one instrument" spread is taken across every member, not across the nine
+ * somebody once wrote into the harness.
+ */
+export const UI_SOUNDS = Object.keys(UI_SCORE) as UiSound[];
 
 // ------------------------------------------------------------------- helpers
 
@@ -1054,11 +1103,30 @@ class AudioEngine implements AudioHandle {
     const ac = this.ac!;
     // The mallet. Short, filtered noise: the sound of contact, before the bar
     // has decided what note it is.
+    //
+    // IT IS THE SAME MALLET WHATEVER NOTE IT STRIKES, and that is not a detail.
+    // This used to be a wide band (Q 1.1) tracking the note at `hz * 4.5`, and
+    // that one line was the whole of the family's brightness problem:
+    //
+    //  - it made the contact noise the brightest thing in every screen sound
+    //    AND made it climb with the note, so the octave-up flourish at the end
+    //    of a purchase measured almost 2 kHz against a wooden 420 Hz for a lost
+    //    match. The spread the harness caught was the mallet's, not the mode's.
+    //  - worse, it was UNSTABLE. `noiseAt` starts at a random offset in the
+    //    shared bed on purpose — it is what keeps a synthesised library from
+    //    sounding machine-gunned — and through a wide band a different slice of
+    //    white noise is a different spectrum. The same unchanged `purchase`
+    //    measured 856 Hz on one run of soundtest and 1567 Hz on the next. Every
+    //    reading anyone has taken of this family, including the 4.45x that put
+    //    it on the owner's list, was a reading of that dice roll.
+    //
+    // Fixed and narrow, the contact is a constant across the eleven, the mode
+    // is what separates them, and the measurement repeats.
     const mal = ac.createBiquadFilter();
-    mal.type = "bandpass"; mal.Q.value = 1.1;
-    mal.frequency.value = clamp(hz * 4.5, 400, 7000);
+    mal.type = "bandpass"; mal.Q.value = 2.6;
+    mal.frequency.value = 1150;
     const mg = ac.createGain();
-    envelope(mg.gain, t, 0.14 * gain, 0.001, 0.014);
+    envelope(mg.gain, t, 0.12 * gain, 0.001, 0.014);
     this.noiseAt(t, 0.03, 1.2).connect(mal); mal.connect(mg); mg.connect(dest);
 
     // The bar. Free-bar modes, not harmonics — a struck bar is inharmonic and
