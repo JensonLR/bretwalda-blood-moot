@@ -51,6 +51,14 @@ shown Z and a QWERTY player is shown W for the same physical key.
   cosmetics; bindings belong with them, so they follow a player to a new device
   through the same four-word recovery code. Fall back to localStorage when
   there is no database, exactly as the profile layer already does.
+  **Done.** `players.bindings jsonb` (nullable — see below), `bindings?` on
+  `POST /api/profile/equip`, validated server-side against the real action list
+  and refused rather than repaired, and the two client calls at boot. The null
+  matters: it means "this player never saved any", which is what tells the
+  client to send the table already on his device up instead of handing him
+  defaults and losing a remap he made before the column existed. localStorage
+  is still written on every change and is still the whole store with no
+  database.
 - **Mouse buttons are bindings too.** Block is right-mouse today and a player
   who wants it on a key should be able to say so.
 
@@ -96,4 +104,14 @@ expected, which is mid-fight.
 Extend it: rebind an action, press the **new** key, and assert the server sees
 the action; press the **old** key and assert it does not. That is the whole
 feature stated as a test, and it is the only way to know a remap actually took
-rather than merely being stored.
+rather than merely being stored. `npm run playtest` does this, at 11/11.
+
+Persistence gets the same treatment, because a stored blob is not the feature
+either. `PROFILE_TEST_DB=postgres://… node tools/bindsynctest.mjs` remaps
+Forward onto T through the settings screen in one browser context, reads the
+four words off the profile screen, types them into a **second** context with
+its own localStorage, and asserts the remapped key moves the warrior there and
+the old one does not. It also seeds a pre-column remap in a third context and
+asserts first sign-in carries it up rather than overwriting it. The wire itself
+— what `/equip` will take and what it refuses — is guarded in the database half
+of `npm run profiletest`.

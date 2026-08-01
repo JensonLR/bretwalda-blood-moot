@@ -46,6 +46,16 @@ export const players = pgTable("players", {
   cosmetics: jsonb("cosmetics").$type<Appearance | Record<string, never>>().notNull().default({}),
   /** ARMOURY option ids the player owns. Free ids are seeded at mint. */
   unlockedCosmetics: jsonb("unlocked_cosmetics").$type<string[]>().notNull().default([]),
+  /**
+   * The key bindings table, action id -> physical `event.code`s. Validated
+   * against the real action list before it lands here (see `db/bindings.ts`).
+   *
+   * Nullable rather than defaulted, and the null is load bearing: "this player
+   * has never saved bindings" is what tells the client to carry the ones already
+   * on his device up to the server instead of handing him back defaults and
+   * losing a remap he made before this column existed.
+   */
+  bindings: jsonb("bindings").$type<Record<string, string[]>>(),
   /** Set the once a localStorage profile is folded in; a second claim is refused. */
   legacyClaimedAt: timestamp("legacy_claimed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

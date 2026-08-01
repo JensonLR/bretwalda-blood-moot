@@ -86,6 +86,7 @@ async function ensureSchema(db: Db): Promise<boolean> {
         favorite_class text NOT NULL DEFAULT 'warden',
         cosmetics jsonb NOT NULL DEFAULT '{}'::jsonb,
         unlocked_cosmetics jsonb NOT NULL DEFAULT '[]'::jsonb,
+        bindings jsonb,
         legacy_claimed_at timestamp,
         created_at timestamp NOT NULL DEFAULT now(),
         updated_at timestamp NOT NULL DEFAULT now()
@@ -97,6 +98,10 @@ async function ensureSchema(db: Db): Promise<boolean> {
     await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS secret_hash text`);
     await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS recovery_code text`);
     await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS legacy_claimed_at timestamp`);
+    // Key bindings arrived after the table did, and there is no migrate step in
+    // this deploy — so the column has to appear on an existing `players` the
+    // same way the three above do, on the first request after a boot.
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS bindings jsonb`);
     await db.execute(sql`ALTER TABLE players ALTER COLUMN name SET DEFAULT ''`);
     await db.execute(sql`
       DO $$ BEGIN

@@ -24,6 +24,11 @@ export interface ServerProfile {
   favoriteClass: string;
   appearance: Appearance;
   unlocked: string[];
+  /**
+   * The key bindings on the roll, or null for a player who has never saved
+   * any. Null is not "defaults" — see `syncBindings`.
+   */
+  bindings: Record<string, string[]> | null;
   /** Four words. The only way back in on another device. */
   recoveryCode: string;
   createdAt: string;
@@ -292,6 +297,47 @@ export async function syncName(name: string): Promise<void> {
   if (!clean || clean === lastName) return;
   lastName = clean;
   await withCreds<{ profile: ServerProfile }>("/api/profile/equip", { name: clean });
+}
+
+let lastBindings: string | null = null;
+
+/**
+ * Key order is not information here, and `jsonb` does not keep it: a table
+ * comes back out of Postgres ordered by key length, so comparing raw JSON would
+ * report every boot's hydrated table as a change and post it straight back.
+ */
+function canonical(bindings: unknown): string {
+  if (!bindings || typeof bindings !== "object") return JSON.stringify(bindings ?? null);
+  const src = bindings as Record<string, unknown>;
+  return JSON.stringify(Object.keys(src).sort().map((k) => [k, src[k]]));
+}
+
+/**
+ * Sends the key bindings up, so a remap follows the four words rather than the
+ * device it was made on.
+ *
+ * Free, like the name, so it is fire-and-forget — a player mid-rebind is not
+ * waiting on a round trip, and localStorage has already taken the change by the
+ * time this is called. De-duped, because the settings screen writes the whole
+ * table on every keystroke of a capture. A refusal clears the de-dupe rather
+ * than remembering a table the server did not take, so the next change tries
+ * again instead of being swallowed as "already sent".
+ */
+export async function syncBindings(bindings: unknown): Promise<void> {
+  const wire = canonical(bindings);
+  if (wire === lastBindings) return;
+  lastBindings = wire;
+  const reply = await withCreds<{ profile: ServerProfile }>("/api/profile/equip", { bindings });
+  if (reply.kind !== "server") lastBindings = null;
+}
+
+/**
+ * Marks a table as already on the server, without sending it. Called with what
+ * a profile answered with, so hydrating from the roll does not immediately post
+ * the roll back to itself.
+ */
+export function noteBindingsSynced(bindings: unknown): void {
+  lastBindings = canonical(bindings);
 }
 
 // ---------------------------------------------------------------- recovery
