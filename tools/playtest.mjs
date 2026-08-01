@@ -17,6 +17,12 @@ import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+// The weight pass is a set of NUMBERS as much as it is a feel, and the numbers
+// are assertable without a browser. Importing the engine is side-effect free —
+// `makeEngine` only runs from `getEngine`, so nothing starts a tick here.
+import {
+  WARRIOR_STATS, SWING_PHASES, SWING_TURN_RATE, SWING_TURN_PHASE, HITSTOP, swingDurationOf,
+} from "../src/game/engine.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = parseInt(process.env.PORT || String(3800 + (process.pid % 150)), 10);
@@ -39,7 +45,7 @@ function waitForServer(url, timeoutMs = 180000) {
 // real input rate and read the server's authoritative player state.
 const PROBE = () => {
   const w = window;
-  w.__probe = { sent: [], lastState: null, states: 0, opened: false };
+  w.__probe = { sent: [], lastState: null, states: 0, opened: false, rec: null };
   const RealWS = window.WebSocket;
   function TappedWS(url, protocols) {
     const ws = protocols === undefined ? new RealWS(url) : new RealWS(url, protocols);
@@ -59,6 +65,26 @@ const PROBE = () => {
           if (m.type === "game_state" || m.type === "countdown") {
             w.__probe.states++;
             w.__probe.lastState = m.data;
+            // The swing recorder. Every snapshot while recording, stamped with
+            // the SERVER's own clock — a stalled main thread can delay when a
+            // message is read but it cannot change the matchTimer inside it, so
+            // a turn RATE computed from these is the simulation's, not the box's.
+            if (w.__probe.rec) {
+              const mine = Object.values(m.data.players || {}).find((p) => !String(p.id).startsWith("bot_"));
+              // `aim` is the yaw the CLIENT last asked for, paired with the
+              // rotation the server actually gave him. During a swing those two
+              // are supposed to come apart — that gap is the whole of commitment
+              // — so both have to be recorded or the cap cannot be told apart
+              // from a client that simply stopped asking.
+              const last = w.__probe.sent[w.__probe.sent.length - 1];
+              if (mine) w.__probe.rec.push({
+                t: m.data.matchTimer, cls: mine.warriorClass, state: mine.state,
+                rot: mine.rotation, phase: mine.attackPhase ?? null,
+                swingT: mine.swingT ?? 0, dur: mine.swingDuration ?? 0,
+                heavy: !!mine.swingHeavy, hitstop: mine.hitstop ?? null,
+                aim: last ? last.d.rotationY : null,
+              });
+            }
           }
         } catch { /* ignore */ }
       });
@@ -76,7 +102,81 @@ const check = (name, pass, detail) => {
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
+const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+const wrapPi = (a) => { let r = a; while (r > Math.PI) r -= Math.PI * 2; while (r < -Math.PI) r += Math.PI * 2; return r; };
+
+// Fastest the body actually turned, in rad/s, over a run of snapshots — using
+// the server's matchTimer as the clock, so it is the simulation's rate.
+function peakTurnRate(samples) {
+  let peak = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const dt = samples[i].t - samples[i - 1].t;
+    if (dt <= 1e-6) continue;
+    peak = Math.max(peak, Math.abs(wrapPi(samples[i].rot - samples[i - 1].rot)) / dt);
+  }
+  return peak;
+}
+
+// ---- the weight numbers, asserted off the engine itself ----
+// None of this needs a browser: the shares, the per-class seconds and the turn
+// cap are constants the simulation is built from, and a browser can only ever
+// confirm that the same constants reached the wire.
+function checkWeightNumbers() {
+  const { windup, contact, recovery } = SWING_PHASES;
+  check("a swing is split windup/contact/recovery 0.40/0.15/0.45",
+    near(windup, 0.40) && near(contact, 0.15) && near(recovery, 0.45) &&
+    near(windup + contact + recovery, 1) && recovery > windup && windup > contact,
+    `${windup}/${contact}/${recovery}, sum ${(windup + contact + recovery).toFixed(3)}; recovery is the largest share`);
+
+  // Each class's stroke, in seconds, against those shares.
+  let sharesHold = true;
+  const rows = [];
+  for (const cls of ["runekeeper", "warden", "huscarl", "berserker"]) {
+    const total = swingDurationOf(cls, false);
+    const w = total * windup, c = total * contact, r = total * recovery;
+    if (!near(w / total, windup, 1e-12) || !near(c / total, contact, 1e-12) ||
+        !near(r / total, recovery, 1e-12) || !near(w + c + r, total, 1e-9)) sharesHold = false;
+    rows.push(`${cls} ${total.toFixed(2)}s = ${w.toFixed(3)}+${c.toFixed(3)}+${r.toFixed(3)}`);
+  }
+  check("every class's windup, contact and recovery are those shares of its own stroke",
+    sharesHold, rows.join("; "));
+
+  // The runekeeper is the class this pass could break, so the ratio it is
+  // balanced on is asserted rather than asserted-about. A common multiplier
+  // means every relative number survives; anything that pulled the classes
+  // together would show up here first.
+  const rk = WARRIOR_STATS.runekeeper.attackSpeed, bz = WARRIOR_STATS.berserker.attackSpeed;
+  const dps = (c) => WARRIOR_STATS[c].attackDamage / WARRIOR_STATS[c].attackSpeed;
+  const orderKept = dps("runekeeper") > dps("warden") && dps("warden") > dps("berserker") &&
+    dps("berserker") > dps("huscarl");
+  check("the fast class stayed fast relative to the field",
+    Math.abs(bz / rk - 2.294) < 0.02 && orderKept,
+    `berserker/runekeeper stroke ${(bz / rk).toFixed(3)}x (was 0.78/0.34 = 2.294x); light dps ` +
+    ["runekeeper", "warden", "berserker", "huscarl"].map((c) => `${c} ${dps(c).toFixed(1)}`).join(" > "));
+
+  // Turning under commitment. A free warrior adopts the client's yaw outright —
+  // 180 degrees in one message — so the reduction is stated as the absolute cap
+  // and totalled over the shortest stroke in the game.
+  const rkTotal = swingDurationOf("runekeeper", false);
+  const allowed = rkTotal * (windup * SWING_TURN_PHASE.windup + contact * SWING_TURN_PHASE.contact +
+    recovery * SWING_TURN_PHASE.recovery) * SWING_TURN_RATE;
+  check("turning is capped to the stated rate for the whole of a swing",
+    near(SWING_TURN_RATE, 1.8) && near(SWING_TURN_PHASE.windup, 1.0) &&
+    near(SWING_TURN_PHASE.contact, 0.25) && near(SWING_TURN_PHASE.recovery, 0.6) &&
+    Math.abs(allowed - 0.739) < 0.002,
+    `${SWING_TURN_RATE} rad/s x windup 1.0 / contact 0.25 / recovery 0.6; a whole runekeeper ` +
+    `light allows ${allowed.toFixed(3)} rad = ${(allowed * 180 / Math.PI).toFixed(1)} deg, against 180 deg free`);
+
+  check("hitstop is a real freeze on both fighters",
+    near(HITSTOP.light, 0.06) && near(HITSTOP.heavy, 0.11) && HITSTOP.heavy > HITSTOP.light,
+    `light ${HITSTOP.light}s (${(HITSTOP.light * 60).toFixed(1)} frames at 60Hz), heavy ${HITSTOP.heavy}s ` +
+    `(${(HITSTOP.heavy * 60).toFixed(1)} frames); applied to attacker and target alike`);
+}
+
 async function main() {
+  console.log("[playtest] the weight numbers\n");
+  checkWeightNumbers();
+  console.log("");
   const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
   console.log(`[playtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
@@ -229,7 +329,104 @@ async function main() {
   check("mouse turns the camera", Math.abs(a6.rot - b6.rot) > 0.05,
     `rotation ${b6.rot.toFixed(2)} -> ${a6.rot.toFixed(2)} (pointerLock=${locked})`);
 
-  // ---- 8. a remap actually takes ----
+  // ---- 8. the swing arrives on the wire in three phases ----
+  // Three strokes pooled, not one. A snapshot is one per server WAKE rather than
+  // one per step, so on a starved box a wake can cover three steps at once and a
+  // contact band only 0.128 s wide can fall between two packets. Three swings
+  // make that a vanishing coincidence rather than a coin flip, and every sample
+  // is still checked against its own swingT whichever phases turn up.
+  const rec = () => page.evaluate(() => { window.__probe.rec = []; });
+  const stopRec = () => page.evaluate(() => { const r = window.__probe.rec || []; window.__probe.rec = null; return r; });
+
+  await page.waitForTimeout(700);
+  await rec();
+  for (let i = 0; i < 3; i++) {
+    await page.mouse.down();
+    await page.waitForTimeout(120);
+    await page.mouse.up();
+    await page.waitForTimeout(1300);
+  }
+  const swung = await stopRec();
+  const inSwing = swung.filter((s) => s.phase !== null);
+  const cls = inSwing.length ? inSwing[0].cls : "warden";
+  const nominal = WARRIOR_STATS[cls]?.attackSpeed ?? 0;
+
+  // The assertion the whole pass turns on: for every snapshot taken mid-stroke,
+  // the phase the server named agrees with where swingT actually is against the
+  // 0.40 / 0.55 boundaries. A phase table that drifted from the shares — or a
+  // hit resolved anywhere but the windup/contact boundary — fails here.
+  const bandOf = (t) => (t < SWING_PHASES.windup ? "windup"
+    : t < SWING_PHASES.windup + SWING_PHASES.contact ? "contact" : "recovery");
+  const wrong = inSwing.filter((s) => s.phase !== bandOf(s.swingT));
+  check("each phase occupies its stated share of the swing on the wire",
+    inSwing.length >= 6 && wrong.length === 0,
+    `${inSwing.length} mid-stroke snapshots over 3 ${cls} swings, ${wrong.length} disagreed with ` +
+    `swingT against the 0.40/0.55 boundaries` +
+    (wrong.length ? ` (e.g. swingT=${wrong[0].swingT.toFixed(3)} called ${wrong[0].phase})` : ""));
+
+  const seen = new Set(inSwing.map((s) => s.phase));
+  check("windup, contact and recovery all reach the client",
+    seen.has("windup") && seen.has("contact") && seen.has("recovery"),
+    `saw ${[...seen].join(", ") || "nothing"}`);
+
+  check("the wire carries the stroke's own length and its hitstop",
+    inSwing.length > 0 && Math.abs(inSwing[0].dur - nominal) < 1e-6 &&
+    inSwing.every((s) => typeof s.hitstop === "number" && s.hitstop >= 0),
+    `swingDuration ${inSwing.length ? inSwing[0].dur : "?"}s against ${cls}'s stated ${nominal}s; ` +
+    `hitstop present on every snapshot`);
+
+  // ---- 9. commitment: the body cannot chase the aim mid-swing ----
+  // The same violent sweep of the mouse, once free and once inside a stroke.
+  // Free, the server adopts the client's yaw outright; committed, it may only
+  // slew toward it at SWING_TURN_RATE.
+  // Under pointer lock only the DELTA between moves reaches the page, so the
+  // sweep has to be monotonic and the mouse has to be parked before recording
+  // starts — a there-and-back sweep nets to zero and asks the warrior to turn
+  // by nothing at all, which is a test measuring itself.
+  const park = async () => { await page.mouse.move(200, 400); await page.waitForTimeout(350); };
+  const sweepRight = () => page.mouse.move(1240, 400, { steps: 12 });
+
+  await park();
+  await rec();
+  await sweepRight();
+  await page.waitForTimeout(500);
+  const freeSamples = await stopRec();
+  const freePeak = peakTurnRate(freeSamples.filter((s) => s.phase === null));
+
+  await park();
+  await page.waitForTimeout(500);
+  await rec();
+  await page.mouse.down();
+  await page.waitForTimeout(120);
+  await page.mouse.up();
+  await sweepRight();                  // inside the windup, and held through contact
+  await page.waitForTimeout(1400);
+  const commSamples = await stopRec();
+  const mid = commSamples.filter((s) => s.phase !== null);
+  const commPeak = peakTurnRate(mid);
+  // How far the CLIENT's aim travelled over the same snapshots. This is what
+  // stops the cap assertion being vacuous: a body that did not turn because
+  // nothing asked it to would prove nothing at all.
+  let asked = 0;
+  for (let i = 1; i < mid.length; i++) {
+    if (mid[i].aim === null || mid[i - 1].aim === null) continue;
+    asked += Math.abs(wrapPi(mid[i].aim - mid[i - 1].aim));
+  }
+  const turned = mid.length > 1 ? Math.abs(wrapPi(mid[mid.length - 1].rot - mid[0].rot)) : 0;
+
+  check("free turning is faster than the committed cap", freePeak > SWING_TURN_RATE,
+    `${freePeak.toFixed(2)} rad/s under the same mouse sweep, against a cap of ${SWING_TURN_RATE}`);
+  // `asked` is only there to keep this honest: a body that did not turn because
+  // nothing asked it to would pass a cap test while proving nothing. A 1040px
+  // sweep buys about 0.4 rad at desktop sensitivity, so 0.2 is a real demand
+  // rather than a threshold picked to be cleared.
+  check("turning is reduced to the stated cap while committed",
+    mid.length >= 3 && asked > 0.2 && commPeak <= SWING_TURN_RATE * 1.05,
+    `over ${mid.length} mid-stroke snapshots the client asked for ${asked.toFixed(2)} rad of turn and the ` +
+    `body delivered ${turned.toFixed(2)} rad, peaking at ${commPeak.toFixed(2)} rad/s against ${SWING_TURN_RATE} ` +
+    `allowed — the same sweep taken free ran at ${freePeak.toFixed(1)} rad/s`);
+
+  // ---- 10. a remap actually takes ----
   // The whole hotkeys feature stated as a test. Storing a binding proves
   // nothing; what matters is that the NEW key reaches the server as the action
   // and the OLD key no longer does. Forward is moved off KeyW onto KeyT, which

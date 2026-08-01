@@ -7,6 +7,20 @@ export type WarriorClass = "huscarl" | "warden" | "runekeeper" | "berserker";
 export type Team = "red" | "blue" | "none";
 export type AttackDirection = "left" | "right" | "overhead" | "stab";
 export type AttackType = "light" | "heavy";
+/**
+ * Where in a stroke a warrior is. Null on `GamePlayer.attackPhase` whenever he
+ * is not swinging — which is the same thing as `state !== "attacking"`, so a
+ * renderer may test either.
+ *
+ *   "windup"    the blade goes back and nothing has happened yet. This is the
+ *               only phase in which a defender has a decision.
+ *   "contact"   the edge is out; the server resolved the hit on the step that
+ *               entered this phase, so by the time a client sees it the damage
+ *               is already decided.
+ *   "recovery"  the weight is being brought back. The largest share of the
+ *               stroke, and what a whiff costs.
+ */
+export type AttackPhase = "windup" | "contact" | "recovery";
 // Where a blow landed on the body. The server is the only authority on this —
 // see deriveHitZone in engine.mjs — so that two clients watching one death
 // never disagree about which limb came off.
@@ -86,6 +100,16 @@ export interface WarriorStats {
   abilityCooldown: number;
 }
 
+/**
+ * `attackSpeed` is the WHOLE stroke — windup, contact and recovery — and these
+ * four numbers are held identical to `engine.mjs`, which is the authority. They
+ * have to be: `anim.ts` drives the swing animation off this copy, and a drift
+ * is a blade that finishes on the client before it lands on the server.
+ *
+ * The other columns still disagree with the engine (huscarl 3.5 move here
+ * against 4.0 there). That is an older display bug and is deliberately not
+ * touched by the weight pass.
+ */
 export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
   huscarl: {
     maxHealth: 150,
@@ -93,7 +117,7 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
     sprintSpeed: 5.5,
     attackDamage: 18,
     heavyDamage: 30,
-    attackSpeed: 0.7,
+    attackSpeed: 1.02,
     blockReduction: 0.8,
     dodgeDistance: 3,
     staminaMax: 100,
@@ -107,7 +131,7 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
     sprintSpeed: 6,
     attackDamage: 20,
     heavyDamage: 35,
-    attackSpeed: 0.6,
+    attackSpeed: 0.85,
     blockReduction: 0.6,
     dodgeDistance: 3.5,
     staminaMax: 110,
@@ -121,7 +145,7 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
     sprintSpeed: 7.5,
     attackDamage: 14,
     heavyDamage: 25,
-    attackSpeed: 0.4,
+    attackSpeed: 0.58,
     blockReduction: 0.4,
     dodgeDistance: 5,
     staminaMax: 130,
@@ -135,7 +159,7 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
     sprintSpeed: 6.5,
     attackDamage: 28,
     heavyDamage: 50,
-    attackSpeed: 0.9,
+    attackSpeed: 1.33,
     blockReduction: 0.3,
     dodgeDistance: 3,
     staminaMax: 90,
@@ -177,6 +201,32 @@ export interface GamePlayer {
   comboTimer: number;
   invincible: boolean;
   invincibleTimer: number;
+  // ---- the swing, phase by phase ----
+  // Optional for the same reason the fire fields below are: `shot/page.tsx`
+  // fabricates a warrior for a portrait and has no arena to swing in. Anything
+  // that came out of `serializeRoom` carries all six, every snapshot, on every
+  // man, and they are the whole of what a client needs to animate weight.
+  //
+  // `attackTimer` is unchanged and still counts the WHOLE stroke down, so
+  // anything already reading it keeps working.
+  /** Which third of the stroke he is in. Null whenever he is not swinging. */
+  attackPhase?: AttackPhase | null;
+  /** 0 -> 1 through the CURRENT phase. Restarts at each boundary. */
+  attackPhaseT?: number;
+  /** 0 -> 1 through the whole stroke. Crosses SWING_PHASES boundaries. */
+  swingT?: number;
+  /** Seconds this whole stroke takes, heavy scaling already applied. 0 when idle. */
+  swingDuration?: number;
+  /** This stroke is a heavy. Authoritative — do not infer it from `attackTimer`. */
+  swingHeavy?: boolean;
+  /**
+   * Seconds of HITSTOP left on this man. Both fighters get it at contact and it
+   * is the same value for both. While it is above zero the server advances
+   * nothing about him — no swing clock, no stagger, no stamina, no travel — and
+   * reports `velocity` as zero, so a client extrapolating between packets must
+   * freeze him too rather than sliding him through it. 0 the rest of the time.
+   */
+  hitstop?: number;
   // The four fire fields are optional only because a warrior is not always a
   // warrior off the wire: `shot/page.tsx` fabricates one to stand in front of a
   // camera, and a portrait has no arena to be burning in. Anything that came
@@ -240,6 +290,51 @@ export const FIRE = {
   /** Health per second for the tail after. */
   dpsAfter: 4,
 } as const;
+
+/**
+ * The three phases of a stroke, as fractions of `WarriorStats.attackSpeed`.
+ * Mirrored from `engine.mjs`, which is the authority and asserts them —
+ * nothing here decides anything. Multiply by a man's `swingDuration` for
+ * seconds; the boundaries in `swingT` are 0.40 and 0.55 for every class.
+ *
+ * The server resolves the hit on the step that crosses into "contact", so a
+ * client may draw the edge arriving anywhere inside that band and be right.
+ */
+export const SWING_PHASES = { windup: 0.40, contact: 0.15, recovery: 0.45 } as const;
+
+/**
+ * Seconds of freeze at contact, by blow. Also carried on the `hit` message as
+ * `hitstop`, so the camera and the impact effects can start on the message
+ * rather than waiting for the next snapshot to show `GamePlayer.hitstop`.
+ * A parry uses the heavy value.
+ */
+export const HITSTOP = { light: 0.06, heavy: 0.11 } as const;
+
+/**
+ * Commitment. Free turning is instantaneous — the server adopts the client's
+ * yaw as sent. Inside a swing it is capped at SWING_TURN_RATE radians per
+ * second, scaled per phase, and integrated on the server's fixed 20 Hz step.
+ *
+ * So during a stroke the client's own yaw is NOT the warrior's rotation: the
+ * body lags the aim on purpose and `GamePlayer.rotation` is the only truth
+ * about where he is pointed. A camera may keep looking where the player asked;
+ * the man underneath it will not have got there yet.
+ *
+ * Over a whole runekeeper light (0.58 s) the cap allows 0.739 rad — 42.3 deg —
+ * against the 180 deg a free warrior takes instantly.
+ */
+export const SWING_TURN_RATE = 1.8;
+export const SWING_TURN_PHASE: Record<AttackPhase, number> = {
+  windup: 1.0,
+  contact: 0.25,
+  recovery: 0.6,
+};
+
+/** Seconds a whole stroke takes for this class. Heavies are 1.25x a light. */
+export const HEAVY_SWING_SCALE = 1.25;
+export function swingDuration(warriorClass: WarriorClass, isHeavy: boolean): number {
+  return WARRIOR_STATS[warriorClass].attackSpeed * (isHeavy ? HEAVY_SWING_SCALE : 1);
+}
 
 export interface Room {
   code: string;
