@@ -19,11 +19,12 @@ import { getHandedness, getServerHandedness, subscribeHandedness } from "../game
 import {
   bindingsFor, labelForAction, labelForCode, loadKeyboardLayout,
   getBindings, getServerBindings, subscribeBindings,
+  bindingsAreDefault, hydrateBindings, setBindingsPersister,
 } from "../game/client/bindings";
 import type { ForgeProgress } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 import dynamic from "next/dynamic";
 
@@ -190,6 +191,30 @@ export default function Page() {
     });
   }, [saveProfile]);
 
+  /**
+   * The key bindings, taken off the roll or carried up to it.
+   *
+   * Two cases, and the second is the one that is easy to get wrong. A profile
+   * that has bindings hands them to the input layer — that is the whole
+   * feature: remap on a laptop, type the four words on another, and the same
+   * key moves the warrior. A profile with `bindings: null` has never saved any,
+   * and the table on THIS device is then the only copy in existence — a player
+   * who remapped before this column shipped has his in localStorage — so it
+   * goes up rather than being overwritten with the defaults he would get back.
+   *
+   * From then on every change is sent by the persister below. Neither call can
+   * fail into a broken control scheme: a refusal leaves localStorage as the
+   * store, which is exactly how the game ran before there was a server.
+   */
+  const adoptBindings = useCallback((p: ServerProfile | null) => {
+    if (p?.bindings && Object.keys(p.bindings).length > 0) {
+      noteBindingsSynced(p.bindings);
+      if (hydrateBindings(p.bindings)) return;
+    }
+    const mine = getBindings();
+    if (!bindingsAreDefault(mine)) void syncBindings(mine);
+  }, []);
+
   // One place where "where does the gold live" changes, because two places
   // would eventually disagree and one of them is what the armoury reads.
   const settleLink = useCallback((next: Link) => {
@@ -241,6 +266,12 @@ export default function Page() {
       if (dropped) return;
       settleLink(result.mode);
       if (result.profile) adoptServer(result.profile);
+      if (result.mode === "server") {
+        // Hydrate first, install the persister second: seeding the table from
+        // the roll is not a change the player made and must not be posted back.
+        adoptBindings(result.profile);
+        setBindingsPersister((b) => { void syncBindings(b); });
+      }
       if (result.carried && (result.carried.gold > 0 || result.carried.unlocks > 0)) {
         // The server counts every id it folded in, free starting kit included.
         // A player means "the things I bought", so the number he is shown is
@@ -253,8 +284,8 @@ export default function Page() {
       const waiting = unboundRef.current;
       if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
     }).catch(() => settleLink("local"));
-    return () => { dropped = true; };
-  }, [adoptServer, settleLink]);
+    return () => { dropped = true; setBindingsPersister(null); };
+  }, [adoptServer, settleLink, adoptBindings]);
 
   const say = useCallback((text: string, tone: "bad" | "good" = "bad") => {
     setNotice({ text, tone });
@@ -658,6 +689,11 @@ export default function Page() {
     const reply = await recoverProfile(code);
     if (reply.kind === "server") {
       adoptServer(reply.value.profile);
+      // This device is now that player, keys included. A profile carrying
+      // bindings takes this machine's over — that is what "restored" means —
+      // and one carrying none is given the table already on it.
+      adoptBindings(reply.value.profile);
+      setBindingsPersister((b) => { void syncBindings(b); });
       settleLink("server");
       setCarried(null);
       say("Your saga is restored.", "good");
@@ -665,7 +701,7 @@ export default function Page() {
     }
     if (reply.kind === "local") return "No war rolls are being kept today, so there is nothing to bring back.";
     return reply.message;
-  }, [adoptServer, say, settleLink]);
+  }, [adoptServer, adoptBindings, say, settleLink]);
 
   const openArmoury = useCallback((from: Screen) => {
     setStaged({});

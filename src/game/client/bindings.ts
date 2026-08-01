@@ -184,6 +184,19 @@ export function bindingsFor(action: ActionId): readonly BindingCode[] {
   return getBindings()[action] ?? [];
 }
 
+/**
+ * Is this still the shipped table? Asked at sign-in: a profile with no bindings
+ * on the roll takes this device's, and there is no point writing a row for a
+ * player who has never touched a key.
+ */
+export function bindingsAreDefault(b: Bindings = getBindings()): boolean {
+  return ACTION_IDS.every((id) => {
+    const mine = b[id] ?? [];
+    const shipped = DEFAULT_BINDINGS[id];
+    return mine.length === shipped.length && mine.every((c, i) => c === shipped[i]);
+  });
+}
+
 export function subscribeBindings(onChange: () => void): () => void {
   load();
   listeners.add(onChange);
@@ -192,9 +205,10 @@ export function subscribeBindings(onChange: () => void): () => void {
 
 /**
  * Called for every change, with the whole table, so the profile layer can send
- * it up. Bindings belong with the cosmetics on the server profile so they
- * follow a player through the four-word recovery code; until the profile row
- * carries the field, this fires and localStorage is the store. One call.
+ * it up. Bindings sit with the cosmetics on the server profile so they follow a
+ * player through the four-word recovery code; localStorage is written either
+ * way, and remains the whole store wherever there is no database. One call,
+ * from the boot in `page.tsx`.
  */
 export function setBindingsPersister(fn: ((bindings: Bindings) => void) | null): void {
   persist = fn;

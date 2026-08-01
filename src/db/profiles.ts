@@ -8,6 +8,7 @@ import {
   priceBasket, sanitizeAppearance, startingUnlocks, type Appearance,
 } from "./catalogue";
 import { claimAward, installMatchLedger, type MatchAward } from "./matchLedger";
+import { bindingsView, sanitizeBindings, type StoredBindings } from "./bindings";
 
 /**
  * Everything the server will do to a profile, and the only place it happens.
@@ -29,6 +30,7 @@ export type StoreError =
   | "offline"        // no database, or it is down — play locally
   | "auth"           // id + secret did not match a row
   | "unknown_item"   // an id that is not in the armoury
+  | "bad_bindings"   // a key binding table this server would not have written
   | "insufficient_gold"
   | "no_award"       // no witnessed payout for that engine player id
   | "not_yours"      // someone else's payout, or someone else's profile
@@ -58,6 +60,12 @@ export interface ProfileView {
   favoriteClass: string;
   appearance: Appearance;
   unlocked: string[];
+  /**
+   * The key bindings this player saved, or null if he never has. Null means
+   * "the device's own table is the only copy" and the client carries it up;
+   * anything else is what follows the four words onto a new device.
+   */
+  bindings: StoredBindings | null;
   /** Four words. Shown on the profile screen; it is the only way back in. */
   recoveryCode: string;
   createdAt: string;
@@ -94,6 +102,10 @@ function view(row: PlayerRow): ProfileView {
     favoriteClass: row.favoriteClass,
     appearance: sanitizeAppearance(stored, unlocked, baseAppearance(row.favoriteClass)),
     unlocked,
+    // Checked on the way out as well as on the way in: a row written by an
+    // older build, or by hand, must not be able to hand a client a table its
+    // input layer cannot read.
+    bindings: bindingsView(row.bindings),
     recoveryCode: row.recoveryCode ?? "",
     createdAt: row.createdAt.toISOString(),
   };
@@ -172,6 +184,7 @@ export interface Presentation {
   name?: unknown;
   appearance?: unknown;
   favoriteClass?: unknown;
+  bindings?: unknown;
 }
 
 /**
@@ -199,6 +212,14 @@ export async function setPresentation(
   if (typeof next.favoriteClass === "string") changes.favoriteClass = next.favoriteClass.slice(0, 20);
   if (next.appearance !== undefined) {
     changes.cosmetics = sanitizeAppearance(next.appearance, current.unlocked, current.appearance);
+  }
+  if (next.bindings !== undefined) {
+    // Refused rather than reduced, unlike the appearance above: a half-kept
+    // binding table is a warrior who will not walk on the next device this
+    // profile is opened on, and the row is better off keeping what it had.
+    const clean = sanitizeBindings(next.bindings);
+    if (!clean) return fail("bad_bindings");
+    changes.bindings = clean;
   }
   const updated = await db.update(players).set(changes).where(eq(players.id, row.id)).returning();
   return updated[0] ? done(view(updated[0])) : fail("offline");

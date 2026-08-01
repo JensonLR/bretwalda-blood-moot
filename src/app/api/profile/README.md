@@ -31,7 +31,7 @@ logs and screenshots.
 |---|---|---|
 | `/api/profile/new` | `{ name? }` | `{ id, secret, profile }` |
 | `/api/profile/me` | `{ id, secret }` | `{ profile }` |
-| `/api/profile/equip` | `{ id, secret, appearance?, name?, favoriteClass? }` | `{ profile }` |
+| `/api/profile/equip` | `{ id, secret, appearance?, name?, favoriteClass?, bindings? }` | `{ profile }` |
 | `/api/profile/purchase` | `{ id, secret, itemIds: string[] }` | `{ profile, spent, bought }` |
 | `/api/profile/bind` | `{ id, secret, playerId }` | `{ bound: boolean }` |
 | `/api/profile/match` | `{ id, secret, playerId }` | `{ profile, award, granted }` |
@@ -68,6 +68,11 @@ state from any successful response and never has to add up gold itself.
 5. **Armoury APPLY** — `POST /purchase` with the ids of everything staged.
    Owned items cost nothing, so this is also how kit is equipped from the shop.
 6. **Anything free** — `POST /equip`.
+7. **Key bindings** — `POST /equip` with `bindings`, on every remap, and read
+   `profile.bindings` at boot. `profile.bindings` is `null` for a player who has
+   never saved any; that is not "defaults", it is "the table on this device is
+   the only copy there is", and the client sends its own up rather than
+   hydrating over a remap somebody made before the column existed.
 
 ## What the server will not do
 
@@ -78,3 +83,9 @@ state from any successful response and never has to add up gold itself.
 - Equip kit a profile does not own. The slot silently keeps what it had.
 - Believe a migrated save. `/claim` is capped, once per profile, once per
   save, and closes on a fixed date.
+- Store a binding table it would not have written itself. Unknown action ids,
+  codes that are not `event.code` shaped, reserved keys, more than three keys on
+  one action, or a blob over 1200 bytes are refused with `bad_bindings` and the
+  row keeps what it had. A malformed table is not a cosmetic problem the way a
+  wrong helm is — it hydrates into the input layer, and a player who cannot move
+  is worse off than one whose remap did not save.

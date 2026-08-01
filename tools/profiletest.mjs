@@ -194,10 +194,47 @@ async function withDatabase() {
   check("the helm is owned and worn", buy.json?.profile?.appearance?.helm === "iron");
   check("re-equipping owned kit is free", (await post("/api/profile/purchase", { id, secret, itemIds: ["helm_iron"] })).json?.spent === 0);
 
+  // ---- key bindings live on the profile, and junk does not ----
+  // The remap is only worth persisting if it survives the trip to another
+  // device, so it is checked here and driven for real in a browser by
+  // tools/playtest.mjs. What this block guards is the wire: what the server
+  // will take, and what it refuses rather than storing.
+  const remap = {
+    forward: ["KeyT", "ArrowUp"], back: ["KeyS"], left: ["KeyA"], right: ["KeyD"],
+    sprint: ["ShiftLeft"], dodge: ["Space"], crouch: ["ControlLeft"], attack: ["Mouse0"],
+    heavy: ["KeyE"], block: ["Mouse2"], ability: ["KeyQ"],
+  };
+  check("a profile starts with no bindings of its own",
+    (await post("/api/profile/me", { id, secret })).json?.profile?.bindings === null,
+    "null is what tells a client to carry the device's own table up");
+  const kept = await post("/api/profile/equip", { id, secret, bindings: remap });
+  check("a remap is kept on the roll", kept.json?.profile?.bindings?.forward?.[0] === "KeyT",
+    JSON.stringify(kept.json?.profile?.bindings?.forward));
+  check("saving bindings does not disturb the gold",
+    kept.json?.profile?.gold === paid.goldEarned - 30, `${kept.json?.profile?.gold} gold`);
+
+  const junkTables = [
+    ["an action this game does not have", { fly: ["KeyT"] }],
+    ["a code that is not a code", { forward: ["'; drop table players --"] }],
+    ["a key the browser has already taken", { forward: ["F12"] }],
+    ["more keys than one action can hold", { forward: ["KeyT", "KeyU", "KeyI", "KeyO"] }],
+    ["a table that is not a table", ["KeyT"]],
+    ["a blob far bigger than a binding table", { forward: new Array(400).fill("KeyT") }],
+  ];
+  for (const [what, blob] of junkTables) {
+    const r = await post("/api/profile/equip", { id, secret, bindings: blob });
+    check(`${what} is refused`, r.status === 400 && r.json?.error === "bad_bindings",
+      `${r.status} ${r.json?.error}`);
+  }
+  check("and the refusals left the real bindings alone",
+    (await post("/api/profile/me", { id, secret })).json?.profile?.bindings?.forward?.[0] === "KeyT");
+
   const spoken = `  ${profile.recoveryCode.toUpperCase().replace(/ /g, "-")}. `;
   const rec = await post("/api/profile/recover", { recoveryCode: spoken });
   check("four words bring the profile back on another device", rec.json?.profile?.id === id, JSON.stringify(rec.json)?.slice(0, 90));
   check("and the gold comes with it", rec.json?.profile?.gold === paid.goldEarned - 30);
+  check("and so do the keys he plays with", rec.json?.profile?.bindings?.forward?.[0] === "KeyT",
+    JSON.stringify(rec.json?.profile?.bindings?.forward));
   check("the old key stops working", (await post("/api/profile/me", { id, secret })).status === 401);
   check("a made-up code finds nobody", (await post("/api/profile/recover", { recoveryCode: "wolf wolf wolf wolf" })).status === 404);
 
