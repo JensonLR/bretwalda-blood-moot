@@ -5,7 +5,7 @@ import {
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
   Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
-  Flag, Hourglass, KeyRound, CloudOff
+  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX
 } from "lucide-react";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
@@ -24,8 +24,14 @@ import {
 import type { ForgeProgress } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  syncBindings, noteBindingsSynced, LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
+// Statically imported, unlike the canvas: this module builds no AudioContext
+// until a gesture and pulls in nothing else, so the landing screen pays a
+// couple of kilobytes for it and the FIRST tap on the page is already a sound.
+import {
+  getAudio, subscribeMuted, getMuted, getServerMuted, type UiSound,
+} from "../game/client/render/audio";
 import dynamic from "next/dynamic";
 
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
@@ -166,6 +172,39 @@ export default function Page() {
 
   const [inviteCode, setInviteCode] = useState("");
 
+  // ------------------------------------------------------------------ sound
+  //
+  // The whole interface is voiced from here rather than from fifty onClicks.
+  // One delegated listener on the capture phase gives every button in the app
+  // its tap; the handful of presses that MEAN something — a confirm, a way out,
+  // a purchase, a refusal — carry `data-snd` and say so. A screen added
+  // tomorrow is audible without anybody remembering to make it audible, which
+  // is the only way a UI sound set stays complete.
+  const audio = getAudio();
+  const muted = useSyncExternalStore(subscribeMuted, getMuted, getServerMuted);
+
+  const toggleMute = useCallback(() => {
+    const next = !audio.muted;
+    audio.setMuted(next);
+    // Unmuting is itself a gesture, so this is also where a player who muted
+    // before ever tapping anything gets his context built.
+    if (!next) { void audio.unlock().then(() => audio.ui("confirm")); }
+    void syncMuted(next);
+  }, [audio]);
+
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.("button,[role=\"button\"],a[href]") as HTMLElement | null;
+      if (!el || el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") return;
+      // The mute button voices itself — a tap on it must not play the sound it
+      // is in the middle of turning off.
+      if (el.dataset.snd === "none") return;
+      audio.ui((el.dataset.snd as UiSound) || "tap");
+    };
+    window.addEventListener("pointerdown", onDown, { capture: true, passive: true });
+    return () => window.removeEventListener("pointerdown", onDown, { capture: true });
+  }, [audio]);
+
   const saveProfile = useCallback((updates: Partial<ProfileData>) => {
     setProfile((prev) => {
       const next = { ...prev, ...updates };
@@ -271,6 +310,13 @@ export default function Page() {
         // the roll is not a change the player made and must not be posted back.
         adoptBindings(result.profile);
         setBindingsPersister((b) => { void syncBindings(b); });
+        // The mute, on the same terms as the keys. The one asymmetry: `false`
+        // on the roll is indistinguishable from "never said", so a device that
+        // is muted pushes its answer up rather than being un-muted by a default
+        // — silence a man asked for is not something to undo at a boot.
+        const roll = result.profile?.muted === true;
+        if (audio.muted && !roll) { void syncMuted(true); noteMutedSynced(true); }
+        else { noteMutedSynced(roll); audio.setMuted(roll); }
       }
       if (result.carried && (result.carried.gold > 0 || result.carried.unlocks > 0)) {
         // The server counts every id it folded in, free starting kit included.
@@ -285,13 +331,50 @@ export default function Page() {
       if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
     }).catch(() => settleLink("local"));
     return () => { dropped = true; setBindingsPersister(null); };
-  }, [adoptServer, settleLink, adoptBindings]);
+  }, [adoptServer, settleLink, adoptBindings, audio]);
+
+  // The three moments the game speaks without being pressed. Each is guarded by
+  // what it last said, because a re-render is not an event — and each of the
+  // three is already on screen in words, so nothing here is carried in sound
+  // alone.
+  const spokenRef = useRef("");
+  useEffect(() => {
+    const tick = roomState?.state === "countdown" ? Math.ceil(roomState.countdown || 0) : 0;
+    if (tick <= 0) return;
+    const key = `count:${roomState?.roundIndex ?? 0}:${tick}`;
+    if (spokenRef.current === key) return;
+    spokenRef.current = key;
+    audio.ui("countdown");
+  }, [roomState?.state, roomState?.countdown, roomState?.roundIndex, audio]);
+
+  useEffect(() => {
+    const r = roomState?.lastRound;
+    if (!r || roomState?.state !== "intermission") return;
+    const key = `round:${r.index}`;
+    if (spokenRef.current === key) return;
+    spokenRef.current = key;
+    const mine = !r.draw && (r.winnerId === playerId
+      || (r.winnerTeam && roomState.players[playerId]?.team === r.winnerTeam));
+    audio.ui(mine ? "roundWon" : "roundLost");
+  }, [roomState?.lastRound, roomState?.state, roomState?.players, playerId, audio]);
+
+  useEffect(() => {
+    if (!matchResults) return;
+    const key = `match:${matchResults.winnerId ?? "none"}:${matchResults.results.length}`;
+    if (spokenRef.current === key) return;
+    spokenRef.current = key;
+    audio.ui(matchResults.winnerId === playerId ? "matchWon" : "roundLost");
+  }, [matchResults, playerId, audio]);
 
   const say = useCallback((text: string, tone: "bad" | "good" = "bad") => {
+    // The banner and its sound are set in the same call so they cannot drift:
+    // there is no path that refuses a player silently or congratulates him
+    // with the refusal.
+    audio.ui(tone === "good" ? "confirm" : "refusal");
     setNotice({ text, tone });
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
     errorTimerRef.current = setTimeout(() => setNotice(null), tone === "good" ? 3200 : 4600);
-  }, []);
+  }, [audio]);
 
   const showError = useCallback((msg: string) => say(msg, "bad"), [say]);
 
@@ -642,11 +725,12 @@ export default function Page() {
       }
     }
     saveProfile({ appearance: ap, unlocked, gold: p.gold - cost });
+    if (cost > 0) audio.ui("purchase");
     if (prevScreen === "lobby" || screenRef.current === "lobby") {
       sendMsg("set_appearance", { appearance: ap });
     }
     setStaged({});
-  }, [staged, stagedCost, saveProfile, sendMsg, prevScreen, showError]);
+  }, [staged, stagedCost, saveProfile, sendMsg, prevScreen, showError, audio]);
 
   /**
    * EQUIP & BUY. The client sends the ids on the mannequin and nothing else —
@@ -667,6 +751,7 @@ export default function Page() {
           sendMsg("set_appearance", { appearance: reply.value.profile.appearance });
         }
         setStaged({});
+        if (reply.value.spent > 0) audio.ui("purchase");
         say(reply.value.spent > 0 ? `Bought for ${reply.value.spent} gold.` : "Kit equipped.", "good");
         return;
       }
@@ -675,7 +760,7 @@ export default function Page() {
       settleLink("local");
     }
     applyLocally();
-  }, [staged, prevScreen, adoptServer, applyLocally, sendMsg, say, showError, settleLink, settled]);
+  }, [staged, prevScreen, adoptServer, applyLocally, sendMsg, say, showError, settleLink, settled, audio]);
 
   /**
    * Four words, typed on a phone that has never seen this profile. On success
@@ -796,9 +881,20 @@ export default function Page() {
             a 108px-wide patch of "a drag here does nothing" in the free-look
             half — see docs/MOBILE-CONTROLS.md. The short label is what lets it
             clear the split outright rather than nearly. */}
+        {/* Sound, over the fight: the one place a player wants it off in a
+            hurry is the one place he cannot reach a menu.
+
+            It sits on the MOVEMENT side, under the END button, and that is not
+            a taste — touchtest measured 80 sampled points on the free-look side
+            that this button swallowed. Free look is a drag anywhere on that
+            half of the screen, so anything opaque parked there is a patch of
+            dead camera. See docs/MOBILE-CONTROLS.md. */}
+        <SoundToggle muted={muted} onToggle={toggleMute}
+          className={`absolute top-3 ${lefty ? "right-3" : "left-3"} mt-[7rem] z-30`} />
         {roomState?.mode === "solo" && (
           <button
             onClick={() => { leaveRoom(); setScreen("muster"); }}
+            data-snd="back"
             className={`absolute top-3 ${lefty ? "right-3" : "left-3"} sm:left-1/2 sm:right-auto sm:-translate-x-1/2 mt-16 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-stone-200 transition flex items-center gap-2 backdrop-blur`}
           >
             <DoorOpen size={15} /> <span className="sm:hidden">END</span><span className="hidden sm:inline">END SESSION</span>
@@ -812,7 +908,7 @@ export default function Page() {
   if (screen === "results" && matchResults) {
     const mine = matchResults.results.find((r) => r.id === playerId);
     return (
-      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)}>
+      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
         <ContentWrap>
           <div className="card card-noble card-glow flex flex-col items-center gap-3 p-5 text-center sm:p-6">
             <Trophy className="text-amber-400" size={40} />
@@ -866,7 +962,7 @@ export default function Page() {
               rows makes the pair look like different-sized buttons. */}
           <div className="flex gap-3">
             <button onClick={() => setScreen("lobby")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">BACK TO LOBBY</button>
-            <button onClick={() => { leaveRoom(); setScreen("landing"); }} className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">LEAVE</button>
+            <button onClick={() => { leaveRoom(); setScreen("landing"); }} data-snd="back" className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">LEAVE</button>
           </div>
         </ContentWrap>
       </MenuShell>
@@ -881,7 +977,7 @@ export default function Page() {
     const botCount = playersList.filter((p) => p.id.startsWith("bot_")).length;
 
     return (
-      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)}>
+      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
         <ContentWrap wide>
           {/* header */}
           <div className="flex flex-col items-center gap-2.5 text-center">
@@ -1070,7 +1166,7 @@ export default function Page() {
             {/* Three targets share one 390px row, so the two word buttons are
                 allowed to shrink but never to wrap onto a second line. */}
             <div className="action-bar-row">
-              <button onClick={() => sendMsg("ready")}
+              <button data-snd="confirm" onClick={() => sendMsg("ready")}
                 className={`min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-base ${
                   roomState.players[playerId]?.ready
                     ? "btn-primary !border-emerald-400/60 !bg-emerald-700 !shadow-[0_0_28px_rgba(16,150,90,0.45)]"
@@ -1079,11 +1175,11 @@ export default function Page() {
                 {roomState.players[playerId]?.ready ? "READY — SKAL!" : "READY UP"}
               </button>
               {isHost && (
-                <button onClick={() => sendMsg("start")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-base">
+                <button onClick={() => sendMsg("start")} data-snd="confirm" className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-base">
                   <Swords size={18} className="shrink-0" /> START
                 </button>
               )}
-              <button onClick={() => { leaveRoom(); setScreen("landing"); }} aria-label="Leave room" className="btn-danger shrink-0 !px-3">
+              <button onClick={() => { leaveRoom(); setScreen("landing"); }} data-snd="back" aria-label="Leave room" className="btn-danger shrink-0 !px-3">
                 <ArrowLeft size={18} />
               </button>
             </div>
@@ -1099,7 +1195,7 @@ export default function Page() {
     const slot = ARMOURY[armouryTab];
     const cost = stagedCost();
     return (
-      <MenuShell notice={notice} onDismiss={() => setNotice(null)}>
+      <MenuShell notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
         <ContentWrap wide>
           <ScreenHead
             onBack={() => { clearStaged(); setScreen(prevScreen); }}
@@ -1223,7 +1319,7 @@ export default function Page() {
 
   // ==================== MENUS ====================
   return (
-    <MenuShell art={screen === "landing" ? "hero" : "hall"} notice={notice} onDismiss={() => setNotice(null)}>
+    <MenuShell art={screen === "landing" ? "hero" : "hall"} notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
       {keysOpen && <KeyBindingsPanel onClose={() => setKeysOpen(false)} />}
       {screen === "landing" && (
         // Centred as a whole rather than as a stack of centred children, so the
@@ -1371,7 +1467,7 @@ export default function Page() {
             </div>
           </section>
 
-          <button onClick={handleCreate} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
+          <button data-snd="confirm" onClick={handleCreate} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
             {busy ? "SUMMONING..." : "CREATE ROOM"}
           </button>
         </ContentWrap>
@@ -1423,7 +1519,7 @@ export default function Page() {
                 className="input-frame font-mono text-center !text-2xl !tracking-[0.25em]"
               />
             </div>
-            <button onClick={handleJoin} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
+            <button data-snd="confirm" onClick={handleJoin} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
               {busy ? "ANSWERING..." : "JOIN"}
             </button>
             <p className="text-center text-xs leading-relaxed text-stone-400">
@@ -1616,7 +1712,7 @@ export default function Page() {
           {/* the fight is always one press away, pinned for thumbs */}
           <div className="action-bar">
             <div className="action-bar-row">
-              <button onClick={() => handleSolo()} disabled={busy}
+              <button data-snd="confirm" onClick={() => handleSolo()} disabled={busy}
                 className="btn-primary flex-1 !min-h-[3.5rem] !text-base">
                 <Swords size={18} /> {busy ? "SUMMONING..." : "DRAW STEEL"}
               </button>
@@ -1678,6 +1774,17 @@ export default function Page() {
             onSay={say}
           />
 
+          <Section title="SOUND" icon={<Volume2 size={15} />}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-xs leading-relaxed text-stone-400">
+                {muted
+                  ? "The hall is silent. Nothing in this game is told by sound alone."
+                  : "Struck metal and low wood, synthesised as you play — no download."}
+              </div>
+              <SoundToggle muted={muted} onToggle={toggleMute} className="shrink-0" />
+            </div>
+          </Section>
+
           <div className="flex flex-col gap-3">
             <button onClick={() => openArmoury("profile")} className="btn-primary w-full !min-h-[3.5rem]">
               <Shirt size={16} /> OPEN THE ARMOURY
@@ -1701,12 +1808,14 @@ export default function Page() {
 // be rendered inside the menu block alone, so a purchase that failed in the
 // armoury — or a lobby that lost the link — said nothing at all. A message a
 // player cannot see is the same as no message.
-function MenuShell({ children, art = "hall", notice, onDismiss }: {
+function MenuShell({ children, art = "hall", notice, onDismiss, muted, onMute }: {
   children: React.ReactNode; art?: "hero" | "hall" | "none";
   notice?: Notice | null; onDismiss?: () => void;
+  muted?: boolean; onMute?: () => void;
 }) {
   return (
     <div className="shell">
+      {onMute && <SoundToggle muted={muted === true} onToggle={onMute} className="fixed right-3 top-3 z-40" />}
       {art !== "none" && (
         <div className={`backdrop ${art === "hero" ? "backdrop-hero" : "backdrop-hall"}`}>
           {art === "hero" && <div className="embers" />}
@@ -2119,9 +2228,35 @@ function StatBar({ label, value, max, cls }: { label: string; value: number; max
   );
 }
 
+/**
+ * One tap, everywhere, and it looks the same everywhere. `data-snd="none"`
+ * keeps the delegated tap off it: a button that silences the game must not make
+ * a noise on the way, and un-silencing it says `confirm` for itself.
+ */
+function SoundToggle({ muted, onToggle, className = "" }: {
+  muted: boolean; onToggle: () => void; className?: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      data-snd="none"
+      aria-pressed={muted}
+      aria-label={muted ? "Turn sound on" : "Turn sound off"}
+      title={muted ? "Sound off — tap for sound" : "Sound on — tap to silence"}
+      className={`flex h-11 w-11 items-center justify-center rounded-lg border backdrop-blur transition ${
+        muted
+          ? "border-stone-600 bg-stone-900/90 text-stone-500 hover:text-stone-300"
+          : "border-amber-700/70 bg-stone-900/90 text-amber-400 hover:border-amber-500 hover:text-amber-300"
+      } ${className}`}
+    >
+      {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+    </button>
+  );
+}
+
 function BackButton({ onClick }: { onClick: () => void }) {
   return (
-    <button onClick={onClick} className="btn-back">
+    <button onClick={onClick} data-snd="back" className="btn-back">
       <ArrowLeft size={16} /> BACK
     </button>
   );

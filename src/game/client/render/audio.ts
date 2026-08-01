@@ -33,7 +33,6 @@
 //     deliberately calls into here from beside the `vfx` call that draws the
 //     same moment, so the two cannot drift apart.
 
-import * as THREE from "three";
 import { FIRE, type WarriorClass, type HitZone, type DeathCause } from "../../types";
 import type { FrameContext, QualitySettings, QualityTier } from "./quality";
 
@@ -48,6 +47,15 @@ export interface AudioVec3 { x: number; y: number; z: number }
  * wooden shield, then the mail, then the parry's bright ring on top.
  */
 export type ImpactMaterial = "flesh" | "shield" | "mail" | "parry";
+
+/**
+ * The interface's nine words. They are one instrument played nine ways — see
+ * `strike()` — because a screen whose buttons each have their own sound is a
+ * screen with no voice at all.
+ */
+export type UiSound =
+  | "tap" | "confirm" | "back" | "purchase" | "refusal"
+  | "countdown" | "roundWon" | "roundLost" | "matchWon";
 
 /** The server's `hit` message `type` field, verbatim. */
 export type WireHitType = "light" | "heavy" | "blocked" | "blocked_heavy" | "parry";
@@ -127,6 +135,13 @@ export interface AudioHandle {
   /** A limb off. The moment the whole gore pass was built for. */
   sever(e: SeverEvent): void;
   ability(e: AudioEvent & { warriorClass: WarriorClass }): void;
+
+  // ---- screens ----
+  /**
+   * One of the nine interface sounds. Never spatialised and never dropped for
+   * distance: a menu has no world position and the player pressed it himself.
+   */
+  ui(kind: UiSound): void;
 
   /**
    * Straight off the server's `hit` payload, so a caller that has the real
@@ -248,10 +263,119 @@ export function materialFor(type: WireHitType, zone?: HitZone | null, damage = 0
   return damage >= 22 ? "flesh" : "mail";
 }
 
+// ------------------------------------------------------------- the interface
+//
+// The palette the nine screen sounds are drawn from, kept together here so it
+// can be re-tuned as a set. `strike()` in the engine is the instrument; this is
+// the music.
+
+/**
+ * Free-bar modes. A bar clamped nowhere rings at these ratios, and they are
+ * NOT harmonics — the ear reads the inharmonicity as struck metal. Flatten
+ * these to 1/2/3 and the whole interface turns into a cheap synth beep.
+ */
+const BAR_MODES: readonly (readonly [number, number])[] = [[1, 0.5], [2.76, 0.22], [5.4, 0.08]];
+
+/** D3. Every note the interface plays is a degree of one mode on this root. */
+const UI_ROOT = 146.83;
+
+/** The mode. Minor third and flat seventh: this game is not a cheerful one. */
+const D = {
+  low: 0.5, i: 1, ii: 1.125, III: 1.2, IV: 4 / 3, V: 1.5, VI: 1.6, VII: 16 / 9, i8: 2, V8: 3,
+} as const;
+
+interface UiNote { at: number; degree: number; gain: number; decay: number; wood: number }
+interface UiScore {
+  notes: readonly UiNote[];
+  /** A sustained low note under the big moments. Not struck; the hall answering. */
+  drone?: { degree: number; gain: number; decay: number };
+  gain: number;
+  priority: number;
+}
+
+const n = (at: number, degree: number, gain: number, decay: number, wood: number): UiNote =>
+  ({ at, degree, gain, decay, wood });
+
+/**
+ * Nine sounds, one instrument, one mode. Read down the column: the answer to a
+ * tap is a single blow; anything that CHANGED something gets two notes; the
+ * three verdicts get a phrase and a drone. Nothing here is longer than the
+ * moment it describes — the whole set is measured against these windows in
+ * `soundtest`.
+ */
+const UI_SCORE: Record<UiSound, UiScore> = {
+  // A finger on gilt. The quietest thing in the game, and the most frequent.
+  tap: { gain: 1, priority: PRIORITY.IMPORTANT, notes: [n(0, D.i8, 0.16, 0.1, 0.6)] },
+  // Two notes rising: something was accepted.
+  confirm: {
+    gain: 1, priority: PRIORITY.IMPORTANT,
+    notes: [n(0, D.i, 0.2, 0.22, 0.9), n(0.075, D.V, 0.17, 0.3, 0.35)],
+  },
+  // The same two, falling and damped. The way out of a screen.
+  back: {
+    gain: 1, priority: PRIORITY.IMPORTANT,
+    notes: [n(0, D.V, 0.14, 0.16, 0.5), n(0.07, D.i, 0.15, 0.22, 1)],
+  },
+  // Gold changing hands: three rising, the last an octave up and left to ring.
+  purchase: {
+    gain: 1, priority: PRIORITY.IMPORTANT,
+    notes: [n(0, D.i, 0.17, 0.24, 0.9), n(0.08, D.V, 0.16, 0.3, 0.5), n(0.17, D.i8, 0.18, 0.55, 0.45)],
+  },
+  // No. A flat second against the root, struck on wood and stopped dead — the
+  // only dissonance in the set, so a refusal cannot be mistaken for anything.
+  refusal: {
+    gain: 1, priority: PRIORITY.IMPORTANT,
+    notes: [n(0, D.i, 0.19, 0.14, 1.2), n(0.012, D.ii, 0.15, 0.13, 0.7)],
+  },
+  // One bright blow per second before the fight. Tight, so it does not smear
+  // into the next one.
+  countdown: { gain: 1, priority: PRIORITY.IMPORTANT, notes: [n(0, D.V8, 0.16, 0.17, 0.2)] },
+  // A round taken: a rising fifth and the octave over it.
+  roundWon: {
+    gain: 1, priority: PRIORITY.CRITICAL,
+    notes: [n(0, D.i, 0.19, 0.3, 0.8), n(0.1, D.V, 0.18, 0.38, 0.3), n(0.2, D.i8, 0.19, 0.6, 0)],
+    drone: { degree: D.low, gain: 0.1, decay: 0.7 },
+  },
+  // A round lost. The same shape inverted and dropped onto the minor third.
+  roundLost: {
+    gain: 1, priority: PRIORITY.CRITICAL,
+    notes: [n(0, D.V, 0.16, 0.28, 0.5), n(0.12, D.III, 0.16, 0.36, 0.5), n(0.26, D.i, 0.17, 0.6, 0.5)],
+    drone: { degree: D.low, gain: 0.07, decay: 0.8 },
+  },
+  // The match. Everything the family has, and the only sound in the game
+  // allowed to ring for a second and a half.
+  matchWon: {
+    gain: 1, priority: PRIORITY.CRITICAL,
+    notes: [
+      n(0, D.i, 0.2, 0.34, 1), n(0.09, D.V, 0.18, 0.4, 0.4),
+      n(0.19, D.i8, 0.19, 0.55, 0.2), n(0.32, D.V8, 0.16, 0.9, 0),
+    ],
+    drone: { degree: D.low, gain: 0.12, decay: 1.25 },
+  },
+};
+
 // ------------------------------------------------------------------- helpers
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * Four scratch vectors' worth of arithmetic, written out rather than imported.
+ *
+ * This file used `THREE.Vector3` for the camera basis, which meant the audio
+ * engine pulled the whole renderer in behind it — and the landing screen loads
+ * `three` only through a dynamic import precisely so a link dropped in a group
+ * chat opens instantly. Audio has no business depending on the renderer, and
+ * this is the entire dependency it had.
+ */
+class Vec3 {
+  x = 0; y = 0; z = 0;
+  set(x: number, y: number, z: number): this { this.x = x; this.y = y; this.z = z; return this; }
+  sub(v: Vec3): this { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+  dot(v: Vec3): number { return this.x * v.x + this.y * v.y + this.z * v.z; }
+  length(): number { return Math.hypot(this.x, this.y, this.z); }
+  normalize(): this { const l = this.length() || 1; return this.set(this.x / l, this.y / l, this.z / l); }
 }
 
 /** An exponential ramp cannot touch zero; this is the floor every envelope uses. */
@@ -316,10 +440,10 @@ class AudioEngine implements AudioHandle {
   private injected = false;
 
   // Camera basis, rebuilt once a frame rather than once a sound.
-  private camPos = new THREE.Vector3();
-  private camRight = new THREE.Vector3();
-  private camFwd = new THREE.Vector3();
-  private tmp = new THREE.Vector3();
+  private camPos = new Vec3();
+  private camRight = new Vec3();
+  private camFwd = new Vec3();
+  private tmp = new Vec3();
 
   constructor() {
     try {
@@ -458,7 +582,9 @@ class AudioEngine implements AudioHandle {
   }
 
   setMuted(muted: boolean): void {
+    if (this._muted === muted) return;
     this._muted = muted;
+    for (const fn of muteListeners) fn();
     try { localStorage?.setItem(MUTE_KEY, muted ? "1" : "0"); } catch { /* ok */ }
     if (this.master && this.ac) {
       const t = this.ac.currentTime;
@@ -622,10 +748,17 @@ class AudioEngine implements AudioHandle {
 
     // The transient. Every material gets one and they differ only in colour —
     // it is what follows it that says what was struck.
+    //
+    // The colour is a BAND, not a shelf, for the three that are not a parry. A
+    // highpass leaves white noise open all the way to Nyquist, and a burst of
+    // that measures brighter than anything tonal on top of it — which is how
+    // the mail ended up brighter than the parry, the one event in the game
+    // that is supposed to ring highest. Only the parry gets an open top.
     const tg = ac.createGain();
     const tf = ac.createBiquadFilter();
-    tf.type = mat === "flesh" ? "lowpass" : "highpass";
-    tf.frequency.value = mat === "flesh" ? 900 : mat === "mail" ? 2400 : mat === "parry" ? 1800 : 700;
+    tf.type = mat === "flesh" ? "lowpass" : mat === "parry" ? "highpass" : "bandpass";
+    tf.frequency.value = mat === "flesh" ? 900 : mat === "mail" ? 3300 : mat === "parry" ? 5200 : 1250;
+    if (tf.type === "bandpass") tf.Q.value = mat === "mail" ? 1.1 : 0.9;
     this.noiseAt(t, 0.05).connect(tf);
     tf.connect(tg); tg.connect(dest);
     envelope(tg.gain, t, 0.30 * force, 0.001, mat === "flesh" ? 0.05 : 0.09);
@@ -671,14 +804,18 @@ class AudioEngine implements AudioHandle {
       g.connect(dest);
       const jangle = ac.createGain();
       const bp = ac.createBiquadFilter();
-      bp.type = "bandpass"; bp.Q.value = 2.2; bp.frequency.value = 4300;
+      bp.type = "bandpass"; bp.Q.value = 2.2; bp.frequency.value = 3200;
       this.noiseAt(t, 0.24, 1.4).connect(bp);
       bp.connect(jangle); jangle.connect(dest);
       envelope(jangle.gain, t, 0.20 * force, 0.002, 0.22);
-      for (const [f, a] of [[3180, 0.10], [4790, 0.08], [6250, 0.05]] as const) {
+      // Triangles, not squares. A square at 6 kHz puts a harmonic every 6 kHz
+      // up the spectrum, which pushed the mail ABOVE the parry — the harness
+      // caught that, and it was wrong by ear as well as by measurement: mail is
+      // a dull rustle of turned rings, and only the parry rings.
+      for (const [f, a] of [[2760, 0.10], [3820, 0.07], [4610, 0.04]] as const) {
         const rg = ac.createGain();
-        envelope(rg.gain, t, a * force, 0.001, 0.16);
-        this.tone("square", t, f, f * 0.96, 0.18).connect(rg);
+        envelope(rg.gain, t, a * force, 0.001, 0.14);
+        this.tone("triangle", t, f, f * 0.96, 0.16).connect(rg);
         rg.connect(dest);
       }
       return;
@@ -686,7 +823,10 @@ class AudioEngine implements AudioHandle {
 
     // Parry: edge caught on edge and turned. The only event in the game that
     // RINGS — long, bright and inharmonic, and unmistakable next to a block.
-    for (const [f, a, d] of [[1760, 0.20, 0.55], [2643, 0.14, 0.44], [3970, 0.09, 0.30], [880, 0.10, 0.35]] as const) {
+    // It sits at the top of the material range on purpose: the ordering flesh <
+    // shield < mail < parry is what lets a player read the fight without
+    // looking, and it is measured in `soundtest`, not asserted here.
+    for (const [f, a, d] of [[2093, 0.19, 0.55], [3136, 0.15, 0.46], [4699, 0.12, 0.34], [6270, 0.08, 0.26], [9400, 0.05, 0.18], [1046, 0.07, 0.35]] as const) {
       const g = ac.createGain();
       envelope(g.gain, t, a * force, 0.002, d);
       this.tone("triangle", t, f, f * 0.995, d + 0.05).connect(g);
@@ -893,6 +1033,80 @@ class AudioEngine implements AudioHandle {
     }
   }
 
+  // ------------------------------------------------------------- the screens
+  //
+  // Nine sounds and ONE instrument. The visual language is gilt, garnet and
+  // knotwork on near black, so the audio is struck metal over low wood — a
+  // small bronze bar on an oak board — and never a modern UI blip. Every one of
+  // the nine is `strike()` with different notes, so they cannot drift into nine
+  // unrelated noises the way a UI sound set usually does: change the bar and
+  // the whole interface changes together.
+  //
+  // The notes come from one mode on one root (D), which is what makes a
+  // sequence of taps in a menu sound like somebody playing rather than like a
+  // machine answering.
+
+  /**
+   * One blow on the bar. A wooden mallet, three inharmonic bar modes over it,
+   * and the board underneath — that is the entire instrument.
+   */
+  private strike(dest: AudioNode, t: number, hz: number, gain: number, decay: number, wood: number): void {
+    const ac = this.ac!;
+    // The mallet. Short, filtered noise: the sound of contact, before the bar
+    // has decided what note it is.
+    const mal = ac.createBiquadFilter();
+    mal.type = "bandpass"; mal.Q.value = 1.1;
+    mal.frequency.value = clamp(hz * 4.5, 400, 7000);
+    const mg = ac.createGain();
+    envelope(mg.gain, t, 0.14 * gain, 0.001, 0.014);
+    this.noiseAt(t, 0.03, 1.2).connect(mal); mal.connect(mg); mg.connect(dest);
+
+    // The bar. Free-bar modes, not harmonics — a struck bar is inharmonic and
+    // that is exactly what separates bronze from a synthesiser's beep.
+    for (const [ratio, amp] of BAR_MODES) {
+      const g = ac.createGain();
+      const d = decay / (1 + 0.55 * (ratio - 1));
+      envelope(g.gain, t, gain * amp, 0.003, d);
+      this.tone("triangle", t, hz * ratio, hz * ratio * 0.998, d + 0.03).connect(g);
+      g.connect(dest);
+    }
+
+    // The board it is mounted on. Low, brief, and the reason the family reads
+    // as wood-and-metal rather than as a bell.
+    if (wood > 0) {
+      const g = ac.createGain();
+      const d = Math.min(decay, 0.2);
+      envelope(g.gain, t, gain * wood * 0.55, 0.004, d);
+      this.tone("sine", t, hz * 0.5, hz * 0.34, d + 0.02).connect(g);
+      g.connect(dest);
+    }
+  }
+
+  ui(kind: UiSound): void {
+    const ac = this.ac; if (!ac) return;
+    const score = UI_SCORE[kind];
+    if (!score) return;
+    let span = 0;
+    for (const n of score.notes) span = Math.max(span, n.at + n.decay);
+    span = Math.max(span, score.drone ? score.drone.decay : 0);
+    const out = this.claim(score.priority, span);
+    if (!out) return;
+    const t = ac.currentTime;
+    const dest = this.sink(out, HERE);
+
+    for (const n of score.notes) {
+      this.strike(dest, t + n.at, UI_ROOT * n.degree, n.gain * score.gain, n.decay, n.wood);
+    }
+    // Under the big moments only: the hall itself answering. Nothing is struck
+    // here, so it stays part of the same instrument rather than a second one.
+    if (score.drone) {
+      const g = ac.createGain();
+      envelope(g.gain, t, score.drone.gain * score.gain, 0.05, score.drone.decay);
+      this.tone("triangle", t, UI_ROOT * score.drone.degree, UI_ROOT * score.drone.degree * 0.99, score.drone.decay + 0.1).connect(g);
+      g.connect(dest);
+    }
+  }
+
   // ------------------------------------------------------------------ fire
   //
   // The one continuous, spatialised source in the game, and the reason
@@ -1025,6 +1239,23 @@ class AudioEngine implements AudioHandle {
 // ------------------------------------------------------------------ the door
 
 let engine: AudioEngine | null = null;
+const muteListeners = new Set<() => void>();
+
+/**
+ * The mute as an external store, so a React tree can render it without keeping
+ * a second copy that drifts. Same shape the key bindings use, and for the same
+ * reason: the switch is on three screens at once and there is one answer.
+ *
+ * `getServerMuted` is deliberately always `false`. The server has no
+ * localStorage to read, and a snapshot that guessed would make React hydrate a
+ * crossed-out speaker against server HTML holding a plain one.
+ */
+export function subscribeMuted(fn: () => void): () => void {
+  muteListeners.add(fn);
+  return () => { muteListeners.delete(fn); };
+}
+export function getMuted(): boolean { return getAudio().muted; }
+export function getServerMuted(): boolean { return false; }
 
 /**
  * The single engine. There is one AudioContext per page and browsers cap how

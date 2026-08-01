@@ -15,7 +15,8 @@
     "touchtest": "node tools/touchtest.mjs",
     "profiletest": "node tools/profiletest.mjs",
     "cheattest": "node tools/cheattest.mjs",
-    "soundtest": "node tools/soundtest.mjs"
+    "soundtest": "node tools/soundtest.mjs",
+    "phonesound": "node tools/phonesound.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

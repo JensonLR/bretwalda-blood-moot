@@ -412,6 +412,9 @@ window.__bind = async (ctx, mod, presets, tier, doAdopt) => {
       case "dodge": return call("dodge", { local: true, ...at });
       case "footfall": return call("footfall", { ground: 0, weight: 0.7, local: true, ...at });
       case "ability": return call("ability", { warriorClass: s.cls || "berserker", local: true, ...at });
+      // The screen family. A bare string, not an event object — there is no
+      // world position on a menu and nothing to attenuate it by.
+      case "ui": return call("ui", s.kind) || call("emit", { type: "ui", ui: s.kind });
       default: return false;
     }
   };
@@ -469,12 +472,13 @@ async function audit(page, rel) {
     const locked = await auditRender(page, rel, 1.5, { adopt: false, body: `
       for (let i = 0; i < 6; i++) fire({ k: "impact", material: "flesh", damage: 30 });
       fire({ k: "swing", cls: "berserker", heavy: true });
-      fire({ k: "death" }); fire({ k: "sever" }); fire({ k: "block" }); fire({ k: "footfall" });` });
+      fire({ k: "death" }); fire({ k: "sever" }); fire({ k: "block" }); fire({ k: "footfall" });
+      for (const kind of ["tap", "confirm", "purchase", "matchWon"]) fire({ k: "ui", kind });` });
     note(`exports [${locked.exports.join(", ")}]`);
     if (stubbed.size) note(`stubbed non-source imports: ${[...stubbed].join(", ")}`);
     check("nothing is emitted before the context is unlocked",
       peak(locked.samples) === 0 && locked.voices.length === 0,
-      `11 events into a locked engine: peak ${peak(locked.samples).toExponential(2)} (must be exactly 0), ${locked.voices.length} sources scheduled`);
+      `15 events into a locked engine: peak ${peak(locked.samples).toExponential(2)} (must be exactly 0), ${locked.voices.length} sources scheduled`);
     check("no AudioContext is built at import or before a gesture", locked.ctors === 0,
       `${locked.ctors} constructions — any one of them is created suspended on iOS and never recovers`);
   }
@@ -535,6 +539,49 @@ async function audit(page, rel) {
     check("the four materials are ordered flesh < shield < mail < parry, as the module claims",
       cen.flesh < cen.shield && cen.shield < cen.mail && cen.mail < cen.parry,
       `${["flesh", "shield", "mail", "parry"].map((k) => `${k} ${cen[k].toFixed(0)}`).join(" < ")}`);
+  }
+
+  // ---- 3b. the screen family ----
+  //
+  // docs/SOUND.md asks for nine screen sounds that are a FAMILY — "same
+  // synthesis, same palette — so the interface sounds like one instrument".
+  // That is falsifiable two ways and both are checked here. Each sound must
+  // ring inside a window fit for what it says (a tap is not a fanfare), and the
+  // nine must sit close together in brightness, because a family drawn from one
+  // instrument cannot have one member three octaves off the rest.
+  {
+    const UI = [
+      ["tap", 30, 260], ["confirm", 60, 600], ["back", 60, 520],
+      ["purchase", 150, 1200], ["refusal", 50, 480], ["countdown", 50, 420],
+      ["roundWon", 250, 1700], ["roundLost", 250, 1700], ["matchWon", 400, 2600],
+    ];
+    const cen = {}, ms = {}, pk = {};
+    let bad = 0, first = null, missing = 0;
+    for (const [kind, lo, hi] of UI) {
+      const r = await auditRender(page, rel, 3.0, { body: `if (!fire({ k: "ui", kind: ${JSON.stringify(kind)} })) window.__unvoiced = true;` });
+      if (await page.evaluate(() => window.__unvoiced === true)) { missing++; note(`--   ${kind}: not voiced by this module`); continue; }
+      ms[kind] = envelopeMs(r.samples); cen[kind] = centroidHz(r.samples); pk[kind] = peak(r.samples);
+      const ok = ms[kind] >= lo && ms[kind] <= hi && pk[kind] > 0 && pk[kind] < 0.99;
+      note(`${ok ? "ok  " : "BAD "} ${kind}: ${ms[kind].toFixed(0)} ms (window ${lo}-${hi}), peak ${pk[kind].toFixed(3)}, centroid ${cen[kind].toFixed(0)} Hz`);
+      if (!ok) { bad++; first = first ?? `${kind} ${ms[kind].toFixed(0)} ms / peak ${pk[kind].toFixed(3)}`; }
+    }
+    check("all nine screen sounds are voiced and none is silence", missing === 0 && Object.keys(pk).length === UI.length,
+      `${Object.keys(pk).length}/${UI.length} voiced${missing ? `, ${missing} missing` : ""}`);
+    check("every screen sound rings inside the window its meaning allows", bad === 0 && missing === 0,
+      bad ? `${bad} outside — first: ${first}` : `${UI.length - missing}/${UI.length} inside, none clipping`);
+
+    const vals = Object.values(cen).filter((v) => v > 0);
+    const spread = vals.length ? Math.max(...vals) / Math.min(...vals) : Infinity;
+    check("the screen sounds are one instrument, not nine", spread <= 3.0,
+      `brightest/darkest = ${spread.toFixed(2)}x across the nine (need <= 3x) — ${Object.entries(cen).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(", ")}`);
+
+    // And the family must not be the combat family. A menu tap that lands on
+    // top of a sword hitting mail is a UI that fights the game.
+    const flesh = await auditRender(page, rel, 2.0, { body: `fire({ k: "impact", material: "flesh", damage: 20 });` });
+    const fc = centroidHz(flesh.samples);
+    const ratio = Math.max(cen.tap, fc) / Math.max(1, Math.min(cen.tap, fc));
+    check("a menu tap is not mistakable for a blow landing", ratio >= 1.5,
+      `tap ${cen.tap?.toFixed(0)} Hz vs flesh impact ${fc.toFixed(0)} Hz — ${ratio.toFixed(2)}x apart`);
   }
 
   // ---- 5. voice count never exceeds the tier budget ----

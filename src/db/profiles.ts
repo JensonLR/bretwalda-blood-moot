@@ -66,6 +66,8 @@ export interface ProfileView {
    * anything else is what follows the four words onto a new device.
    */
   bindings: StoredBindings | null;
+  /** Sound off. Follows the four words onto the next device like the keys do. */
+  muted: boolean;
   /** Four words. Shown on the profile screen; it is the only way back in. */
   recoveryCode: string;
   createdAt: string;
@@ -106,6 +108,7 @@ function view(row: PlayerRow): ProfileView {
     // older build, or by hand, must not be able to hand a client a table its
     // input layer cannot read.
     bindings: bindingsView(row.bindings),
+    muted: row.muted === true,
     recoveryCode: row.recoveryCode ?? "",
     createdAt: row.createdAt.toISOString(),
   };
@@ -185,6 +188,7 @@ export interface Presentation {
   appearance?: unknown;
   favoriteClass?: unknown;
   bindings?: unknown;
+  muted?: unknown;
 }
 
 /**
@@ -221,6 +225,9 @@ export async function setPresentation(
     if (!clean) return fail("bad_bindings");
     changes.bindings = clean;
   }
+  // A boolean or nothing. Anything else is a client sending junk and the row
+  // keeps what it had — there is no half-muted.
+  if (typeof next.muted === "boolean") changes.muted = next.muted;
   const updated = await db.update(players).set(changes).where(eq(players.id, row.id)).returning();
   return updated[0] ? done(view(updated[0])) : fail("offline");
 }
