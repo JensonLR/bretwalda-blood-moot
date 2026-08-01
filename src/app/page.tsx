@@ -17,12 +17,21 @@ import {
 import { Transport } from "../game/client/transport";
 import { getHandedness, getServerHandedness, subscribeHandedness } from "../game/client/input";
 import {
+  bindingsFor, labelForAction, labelForCode, loadKeyboardLayout,
+  getBindings, getServerBindings, subscribeBindings,
+} from "../game/client/bindings";
+import type { ForgeProgress } from "../game/client/GameCanvas";
+import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
   LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 import dynamic from "next/dynamic";
 
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
+const KeyBindingsPanel = dynamic(
+  () => import("../game/client/GameHud").then((m) => m.KeyBindingsPanel),
+  { ssr: false },
+);
 const CharacterPreview = dynamic(() => import("../game/client/CharacterPreview"), { ssr: false });
 
 type Screen = "landing" | "create" | "join" | "lobby" | "game" | "results" | "training" | "muster" | "profile" | "armoury";
@@ -98,6 +107,10 @@ const DEFAULT_PROFILE: ProfileData = {
 export default function Page() {
   const [screen, setScreen] = useState<Screen>("landing");
   const [prevScreen, setPrevScreen] = useState<Screen>("landing");
+  const [keysOpen, setKeysOpen] = useState(false);
+  // How far the arena has got. Null until the canvas mounts and reports.
+  const [forge, setForge] = useState<ForgeProgress | null>(null);
+  const [forgeStalled, setForgeStalled] = useState(false);
   const [playerName, setPlayerName] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [roomCode, setRoomCode] = useState("");
@@ -669,11 +682,63 @@ export default function Page() {
   // free-look half, and which half that is is the player's choice.
   const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
 
+  // Leaving the fight tears the canvas down; the next one forges from nothing.
+  useEffect(() => {
+    if (screen !== "game") { setForge(null); setForgeStalled(false); }
+  }, [screen]);
+
+  // A loading screen that outlives the thing it is loading is the one failure
+  // this feature has already had (docs/OPEN-DEFECTS.md). The build lands in
+  // well under two seconds on real silicon and a few on a slow phone; at
+  // twenty the screen comes off regardless and the game is behind it.
+  const forging = Boolean(forge && forge.done < forge.total);
+  useEffect(() => {
+    if (!forging) return;
+    const t = setTimeout(() => setForgeStalled(true), 20000);
+    return () => clearTimeout(t);
+  }, [forging]);
+
+  // The bindings, live. Every key printed on a menu comes through this, so a
+  // remap changes the reference instead of leaving it lying.
+  useSyncExternalStore(subscribeBindings, getBindings, getServerBindings);
+  useEffect(() => { void loadKeyboardLayout(); }, []);
+  const moveKeys = (["forward", "left", "back", "right"] as const)
+    .map((a) => labelForCode(bindingsFor(a)[0] ?? "")).join(" ");
+
   // ==================== GAME ====================
   if (screen === "game") {
     return (
       <div className="fixed inset-0 bg-black">
-        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} />
+        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} onForge={setForge} />
+        {/* The arena being built, instead of a black screen. Driven only by
+            stages that have LANDED (see GameCanvas), and it sits under the
+            HUD's z-50 graphics-error overlay so a forge that will not wake
+            says so rather than hanging behind this. `forgeStalled` is the last
+            resort: whatever happens, the screen comes off. */}
+        {forge && forge.done < forge.total && !forgeStalled && (
+          <div className="pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-stone-950 px-8">
+            <div className="label-overline">THE FORGE</div>
+            <div className="font-display text-center text-lg tracking-[0.2em] text-amber-100 sm:text-2xl"
+              style={{ textShadow: "0 0 30px rgba(255,180,60,0.35)" }}>
+              {forge.label}
+            </div>
+            <div className="knot-band w-full max-w-[18rem]" />
+            <div className="h-1.5 w-full max-w-[18rem] overflow-hidden rounded-full border border-amber-900/70 bg-black/80">
+              {/* No transition. The stages land faster than 300ms and each one
+                  runs synchronously, so an eased bar cannot tick while the
+                  work is happening: it painted 29px of 1440 at 99% built. The
+                  bar is the truth or it is decoration. */}
+              <div className="h-full rounded-full"
+                style={{
+                  width: `${Math.round((forge.done / forge.total) * 100)}%`,
+                  background: "linear-gradient(90deg,#7c2d12,#f0c14b)",
+                }} />
+            </div>
+            <div className="text-[10px] font-bold tracking-[0.25em] text-stone-500">
+              {Math.min(forge.stage + 1, forge.stages)} OF {forge.stages}
+            </div>
+          </div>
+        )}
         {/* The score of the match, over the fight. A best-of is worth nothing
             if a player cannot see where he stands in it, and the HUD proper
             only knows about this round. Sits below the health bar the HUD
@@ -1118,6 +1183,7 @@ export default function Page() {
   // ==================== MENUS ====================
   return (
     <MenuShell art={screen === "landing" ? "hero" : "hall"} notice={notice} onDismiss={() => setNotice(null)}>
+      {keysOpen && <KeyBindingsPanel onClose={() => setKeysOpen(false)} />}
       {screen === "landing" && (
         // Centred as a whole rather than as a stack of centred children, so the
         // title and the controls stay one composition from 390px to 1440px.
@@ -1165,7 +1231,7 @@ export default function Page() {
           </div>
 
           <div className="mx-auto flex w-full max-w-[26rem] flex-col gap-3">
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
               <button onClick={() => setScreen("training")} className="mini-nav">
                 <Crosshair size={19} className="text-amber-400" />
                 <span>Training</span>
@@ -1180,6 +1246,11 @@ export default function Page() {
                 <Scroll size={19} className="text-amber-400" />
                 <span>Saga</span>
                 <span className="text-[9px] font-normal text-stone-400">profile</span>
+              </button>
+              <button onClick={() => setKeysOpen(true)} className="mini-nav">
+                <KeyRound size={19} className="text-amber-400" />
+                <span>Keys</span>
+                <span className="text-[9px] font-normal text-stone-400">rebind</span>
               </button>
             </div>
 
@@ -1211,7 +1282,7 @@ export default function Page() {
 
           <p className="text-center text-[11px] leading-relaxed text-stone-300/60" style={{ textShadow: "0 1px 3px black" }}>
             Plays on phones, tablets &amp; desktops.<br />
-            WASD + mouse on desktop · touch controls on mobile.
+            {moveKeys} + mouse on desktop · touch controls on mobile.
           </p>
         </div>
       )}
@@ -1376,15 +1447,22 @@ export default function Page() {
               Two columns from the tablet up: on a wide viewport a single
               column of short rows is exactly the empty-right-half problem. */}
           <div className="grid items-start gap-4 md:grid-cols-2">
+            {/* Every cap here is read off the binding table, never written out
+                — the reference would otherwise lie the first time anyone
+                remapped, which is the whole point of docs/KEYBINDS.md. */}
             <Section title="DESKTOP CONTROLS" icon={<Swords size={14} />}>
-              <CtrlRow k="WASD" d="Move" />
+              <CtrlRow k={moveKeys} d="Move — the direction also aims the cut" />
               <CtrlRow k="Mouse" d="Camera (over-shoulder)" />
-              <CtrlRow k="Left Click" d="Attack — direction follows movement keys" />
-              <CtrlRow k="E / V" d="Heavy attack — breaks blocks" />
-              <CtrlRow k="Right Click" d="Block (hold); perfect timing = parry" />
-              <CtrlRow k="Space" d="Dodge roll — brief invincibility" />
-              <CtrlRow k="Shift" d="Sprint" />
-              <CtrlRow k="Q" d="Class ability" />
+              <CtrlRow k={labelForAction("attack", " / ")} d="Attack — direction follows movement keys" />
+              <CtrlRow k={labelForAction("heavy", " / ")} d="Heavy attack — breaks blocks" />
+              <CtrlRow k={labelForAction("block", " / ")} d="Block (hold); perfect timing = parry" />
+              <CtrlRow k={labelForAction("dodge", " / ")} d="Dodge roll — brief invincibility" />
+              <CtrlRow k={labelForAction("sprint", " / ")} d="Sprint" />
+              <CtrlRow k={labelForAction("crouch", " / ")} d="Crouch under a high blow" />
+              <CtrlRow k={labelForAction("ability", " / ")} d="Class ability" />
+              <button onClick={() => setKeysOpen(true)} className="btn-ghost mt-3 w-full !min-h-[3rem] !text-[12px]">
+                <KeyRound size={14} /> CHANGE KEYS
+              </button>
             </Section>
 
             <Section title="MOBILE CONTROLS" icon={<Target size={14} />}>

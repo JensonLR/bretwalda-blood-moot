@@ -13,7 +13,7 @@
 // canvas, so the flick that aims the cut has to be read here. The two halves
 // meet at the swing gesture that input.ts owns.
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Swords, Hammer, Shield, Wind, Sparkles, Zap } from "lucide-react";
+import { Swords, Hammer, Shield, Wind, Sparkles, Zap, KeyRound, RotateCcw, X, Plus } from "lucide-react";
 import type { AttackDirection, GamePlayer } from "../types";
 import { WARRIOR_STATS } from "../types";
 import {
@@ -21,6 +21,13 @@ import {
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
   type MobileFlags,
 } from "./input";
+import {
+  ACTIONS, MAX_BINDINGS_PER_ACTION, RESERVED_CODES,
+  getBindings, getServerBindings, subscribeBindings,
+  rebind, unbind, resetBindings, resetAction,
+  captureBinding, labelForCode, loadKeyboardLayout,
+  type ActionId, type BindingCode,
+} from "./bindings";
 
 interface HudRoomState {
   state: string;
@@ -175,6 +182,181 @@ function useSwingButton(
   return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, reset };
 }
 
+/**
+ * The key bindings screen. Lives here rather than in the menu tree because the
+ * moment a player wants to rebind is mid-fight — a key did not do what he
+ * expected — so the same panel has to open over the HUD and off the menu, and
+ * two copies of it would drift.
+ *
+ * It reads the table through `useSyncExternalStore`, so every cap on it is the
+ * live binding rather than a literal, and it holds the three things
+ * docs/KEYBINDS.md says it is worse than useless without: conflicts named and
+ * offered rather than silently double-bound, reserved keys refused with the
+ * reason, and a reset that is always on screen.
+ */
+export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
+  const bindings = useSyncExternalStore(subscribeBindings, getBindings, getServerBindings);
+  // Which cap is listening. `slot` names the cap being replaced; absent means
+  // an alternate is being added.
+  const [capture, setCapture] = useState<{ action: ActionId; slot?: number } | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+  // A key already spoken for. Held rather than taken, so the player is the one
+  // who decides to move it.
+  const [clash, setClash] = useState<{ action: ActionId; slot?: number; code: BindingCode; message: string } | null>(null);
+  const cancelRef = useRef<(() => void) | null>(null);
+
+  // W is Z on an AZERTY board and the caps must say so. Resolving re-labels
+  // through the same listener list the table uses.
+  useEffect(() => { void loadKeyboardLayout(); }, []);
+  // A capture left listening after the panel closes eats the next keystroke of
+  // the fight.
+  useEffect(() => () => { cancelRef.current?.(); cancelRef.current = null; }, []);
+
+  const stopCapture = useCallback(() => {
+    cancelRef.current?.();
+    cancelRef.current = null;
+    setCapture(null);
+  }, []);
+
+  const begin = useCallback((action: ActionId, slot?: number) => {
+    cancelRef.current?.();
+    setRefused(null);
+    setClash(null);
+    setCapture({ action, slot });
+    cancelRef.current = captureBinding((code) => {
+      cancelRef.current = null;
+      setCapture(null);
+      // Escape is reserved, and what it is reserved *for* is closing this.
+      if (code === "Escape") { setRefused(`${RESERVED_CODES.Escape} Nothing was changed.`); return; }
+      const r = rebind(action, code, { slot });
+      if (r.ok) return;
+      if (r.reason === "conflict") { setClash({ action, slot, code, message: r.message }); return; }
+      setRefused(r.message);
+    });
+  }, []);
+
+  const take = useCallback(() => {
+    if (!clash) return;
+    const r = rebind(clash.action, clash.code, { slot: clash.slot, force: true });
+    setClash(null);
+    if (!r.ok) setRefused(r.message);
+  }, [clash]);
+
+  const label = (id: ActionId) => ACTIONS.find((a) => a.id === id)?.label ?? id;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-3 backdrop-blur-sm"
+      role="dialog" aria-modal="true" aria-label="Key bindings">
+      <div className="card card-noble card-glow flex max-h-[92vh] w-full max-w-lg flex-col gap-3 p-4 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="label-overline">SETTINGS</div>
+            <div className="font-display text-xl tracking-wider text-amber-100 sm:text-2xl">KEY BINDINGS</div>
+          </div>
+          <button onClick={() => { stopCapture(); onClose(); }} aria-label="Close key bindings"
+            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-stone-300 transition hover:border-amber-600/70 hover:text-amber-200">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="knot-band w-full" />
+        <p className="text-[11px] leading-relaxed text-stone-400">
+          Click a key to change it. Bindings are by physical position, so the cap shown is what is
+          printed on <em>your</em> keyboard.
+        </p>
+
+        {capture && (
+          <div className="animate-fadeIn rounded-lg border border-amber-500/70 bg-amber-950/70 px-3 py-2.5 text-center">
+            <div className="font-display text-sm tracking-[0.2em] text-amber-200">PRESS A KEY</div>
+            <div className="mt-0.5 text-[11px] text-amber-100/80">
+              for {label(capture.action)} — or a mouse button. Escape cancels.
+            </div>
+            <button onClick={stopCapture} className="btn-ghost mt-2 !min-h-[2.25rem] !px-4 !text-[11px]">CANCEL</button>
+          </div>
+        )}
+
+        {refused && !capture && (
+          <div className="animate-fadeIn rounded-lg border border-red-700/70 bg-red-950/60 px-3 py-2.5 text-[11px] leading-relaxed text-red-200">
+            <span className="font-bold">That key is spoken for. </span>{refused}
+          </div>
+        )}
+
+        {clash && (
+          <div className="animate-fadeIn rounded-lg border border-amber-600/70 bg-stone-900/90 px-3 py-2.5">
+            <div className="text-[12px] leading-relaxed text-amber-100">
+              <span className="kbd !min-w-0 !px-1.5 !py-0.5">{labelForCode(clash.code)}</span>{" "}
+              {clash.message} Take it for {label(clash.action)}?
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button onClick={take} className="btn-primary !min-h-[2.5rem] flex-1 !px-3 !text-[11px]">TAKE THE KEY</button>
+              <button onClick={() => setClash(null)} className="btn-ghost !min-h-[2.5rem] flex-1 !px-3 !text-[11px]">LEAVE IT</button>
+            </div>
+          </div>
+        )}
+
+        <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+          {ACTIONS.map((a) => {
+            const codes = bindings[a.id];
+            const capturing = capture?.action === a.id;
+            return (
+              <div key={a.id} className="flex flex-col gap-2 border-b border-stone-100/10 py-3 last:border-0 sm:flex-row sm:items-center sm:gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-[13px] font-bold text-amber-200">
+                    {a.label}
+                    {a.desktopOnly && <span className="rounded border border-stone-600/70 px-1 py-px text-[8px] font-bold tracking-[0.12em] text-stone-400">DESKTOP</span>}
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-stone-400">
+                    {a.hint}{a.alsoAims ? " — also aims the cut" : ""}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {codes.length === 0 && (
+                    <span className="text-[11px] italic text-red-300/80">Unbound</span>
+                  )}
+                  {codes.map((code, slot) => (
+                    <span key={code + slot} className="inline-flex items-center">
+                      <button onClick={() => begin(a.id, slot)}
+                        aria-label={`Change ${a.label} key ${slot + 1}`}
+                        className={`kbd !rounded-r-none transition hover:!border-amber-400/80 hover:!text-amber-100 ${capturing && capture?.slot === slot ? "!border-amber-400 !text-amber-100" : ""}`}>
+                        {labelForCode(code)}
+                      </button>
+                      <button onClick={() => unbind(a.id, code)} aria-label={`Unbind ${labelForCode(code)} from ${a.label}`}
+                        className="kbd !min-w-0 !rounded-l-none !border-l-0 !px-1.5 text-stone-400 transition hover:!text-red-300">
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                  {codes.length < MAX_BINDINGS_PER_ACTION && (
+                    <button onClick={() => begin(a.id)} aria-label={`Add another key for ${a.label}`}
+                      className="kbd !min-w-0 !px-2 text-stone-400 transition hover:!border-amber-400/80 hover:!text-amber-200">
+                      <Plus size={11} />
+                    </button>
+                  )}
+                  <button onClick={() => resetAction(a.id)} aria-label={`Reset ${a.label} to default`}
+                    className="rounded-md p-1.5 text-stone-500 transition hover:text-amber-300">
+                    <RotateCcw size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Always on screen, never behind a scroll: a player who has bound
+            movement somewhere he cannot reach has this or clearing site data. */}
+        <div className="flex flex-col gap-2 border-t border-amber-900/40 pt-3 sm:flex-row">
+          <button onClick={() => { stopCapture(); setRefused(null); setClash(null); resetBindings(); }}
+            className="btn-ghost !min-h-[3rem] flex-1 !border-amber-600/60 !text-[12px] !text-amber-200">
+            <RotateCcw size={14} /> RESET ALL TO DEFAULTS
+          </button>
+          <button onClick={() => { stopCapture(); onClose(); }} className="btn-primary !min-h-[3rem] flex-1 !text-[12px]">
+            DONE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GameHud({
   playerId, roomState, glError, isMobile, pointerLocked, mobileFlags, setFlag, joyOrigin, joystickPos,
 }: GameHudProps) {
@@ -192,6 +374,9 @@ export default function GameHud({
   // to see what his last flick armed without swinging to find out.
   const [armed, setArmed] = useState<AttackDirection>("right");
   const [taught, setTaught] = useState(false);
+  // Rebinding mid-fight, which is when anyone wants it. Opening it gives the
+  // pointer back: locked, the cursor cannot reach a button on it.
+  const [keysOpen, setKeysOpen] = useState(false);
   const onCommit = useCallback((dir: AttackDirection) => {
     setArmed(dir);
     setTaught(true);
@@ -451,6 +636,19 @@ export default function GameHud({
         </div>
       </div>
     )}
+
+    {/* Bindings, from inside the fight. Desktop only — the touch scheme has no
+        keys to remap and its own handedness button already. */}
+    {!isMobile.current && isFighting && (
+      <button
+        onClick={() => { document.exitPointerLock?.(); setKeysOpen(true); }}
+        aria-label="Key bindings"
+        className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-stone-600 bg-stone-900/85 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-stone-200 backdrop-blur transition hover:border-amber-600 hover:text-amber-200">
+        <KeyRound size={13} /> KEYS
+      </button>
+    )}
+
+    {keysOpen && <KeyBindingsPanel onClose={() => setKeysOpen(false)} />}
     </>
   );
 }
