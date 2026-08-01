@@ -6723,7 +6723,7 @@ export function buildCharacter(
         const mBot = lat(Y_LIP - 0.055);
         const mMid = (mTop + mBot) * 0.5;
         const mHalf = (mTop - mBot) * 0.5;
-        const mSpan = 0.475;
+        const mSpan = 0.450;
         const mT = (u: number) => clamp01(Math.abs(u) / mSpan);
         // Keeps 28% of its depth at the tips rather than closing to a point. A
         // moustache that comes to nothing at both ends is a pair of horns; one
@@ -6732,19 +6732,23 @@ export function buildCharacter(
         // a sheet 4.5 mm thick — the tip was deeper than it was tall, which is a
         // ROD, and a rod that sweeps down is the horn the review found. A tail is
         // blunt: the fitting on the object ends in a squared terminal, not a point.
-        const leaf = (u: number) => mHalf * (1 - 0.45 * Math.pow(mT(u), 2.1));
+        const leaf = (u: number) => mHalf * (1 - 0.38 * Math.pow(mT(u), 1.9));
         // The droop, and the notch. The centre sits high and level under the nose
         // so the two forms meet in a T that reads at a glance; the ends fall 10 mm
         // below it, which is the drooping the object has and the last build did
         // not. The notch is 2 mm of the lower edge at the centreline — enough to
         // say "parted" from a metre away and not enough to break the mass in two.
-        // The droop halves with the deepening, and that is not a retreat from it.
-        // 95 mrad of fall on a form 82 mrad deep swung the ends clear of the mass
-        // — two separate falling shapes rather than one broad one. 55 on a form
-        // 141 deep is the ends dropping about a third of their own height, which
-        // is what the object does and what still reads as drooping at 400 px.
+        // THE DROOP HAS TO BEAT THE TAPER OR THE SHAPE IS A BRICK, and that is the
+        // arithmetic the first cut of this pass got wrong. What the eye reads as
+        // drooping is the LOWER edge falling, and the lower edge is
+        // `droop − leaf`: taper the depth by as much as the centreline falls and
+        // the two cancel, so the underside comes out dead level and the fitting
+        // renders as a rectangular bib across the mouth — which is what the front
+        // card showed. 105 mrad of fall against 54 of taper drops the underside
+        // 51 and the top edge 159, so the mass is deepest under the nose and the
+        // ends hang below it. That is a tail.
         const droop = (u: number) =>
-          mMid - 0.055 * Math.pow(mT(u), 1.7) - 0.014 * Math.pow(1 - smooth(0, 0.055, Math.abs(u)), 2);
+          mMid - 0.105 * Math.pow(mT(u), 1.7) - 0.014 * Math.pow(1 - smooth(0, 0.055, Math.abs(u)), 2);
         const mLip = (u: number) => droop(u) + leaf(u);
         onShell(-mSpan, mSpan,
           (u) => droop(u) - leaf(u), mLip, Math.max(14, lod.shellU + 12), 5,
