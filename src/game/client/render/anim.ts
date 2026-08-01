@@ -79,8 +79,76 @@ import {
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
 } from "../characters";
+import { getHandedness, subscribeHandedness } from "../input";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
+
+// ---------------------------------------------------------------------------
+// Handedness
+// ---------------------------------------------------------------------------
+//
+// The character builder mounts the weapon arm at local +X and the body faces
+// local +Z, so the sword has always hung off the hand a man facing +Z carries on
+// his LEFT. Right-handed is the majority, so right-handed is now the default and
+// the mirror is what the minority turn on — the SAME switch that already mirrors
+// the touch zones and the HUD cluster, not a second control beside it.
+//
+// It is done as a scale of -1 on a node inserted above the body rather than by
+// re-mounting the weapon and re-signing every pose channel. Both give a
+// right-handed warrior; only one of them is provably the exact mirror of an
+// animation system this size. Conjugating a rotation by diag(-1,1,1) leaves the
+// X term and negates Y and Z, in any Euler order, which is a sign flip on some
+// hundred and forty channels plus the whole cloth solve, and one missed sign is
+// a shoulder on backwards that nothing in the harness would catch. The scale
+// mirrors the pose, the cloak, the shield, the blade trail and the severance
+// frame at once, and three.js flips the winding for a negative determinant
+// itself (`frontFaceCW` in the renderer), so nothing turns inside out.
+//
+// It sits UNDER `group` and over `body`: the HUD hangs its nameplate off
+// `group`, and a mirrored plate would print the man's name backwards.
+
+/**
+ * -1 puts the weapon in the right hand. The default.
+ *
+ * The store only reads itself out of localStorage once it has a subscriber, and
+ * the HUD is normally that subscriber — but a warrior can be built before the
+ * HUD mounts, and a left-handed player must not get one frame of a right-handed
+ * body. One listener for the module, taken on the first call.
+ */
+let handWired = false;
+function handMirror(): number {
+  if (!handWired) {
+    handWired = true;
+    subscribeHandedness(() => { /* read live, per frame, in `poseWarrior` */ });
+  }
+  return getHandedness() ? 1 : -1;
+}
+
+const _handProbe = new THREE.Vector3();
+
+/**
+ * A readback for `tools/cameratest.mjs`, the same shape of hook `audio.ts` hangs
+ * on the window for `phonesound`. Local warrior only, so it is one
+ * `worldToLocal` a frame and nothing in the game reads it.
+ *
+ * `weaponSide` is the sword's lateral offset in the warrior's OWN frame, and it
+ * is the number worth exporting because it is measured off where the blade
+ * actually ended up rather than off the sign of a constant. A body faces local
+ * +Z, so his right hand is at -X: negative is right-handed. Asserting on this
+ * catches a mirror that was applied to the wrong node, or not applied at all,
+ * which asserting on `mirror.scale.x` would not.
+ */
+function reportHand(rig: WarriorRig, mirrorSign: number): void {
+  if (typeof window === "undefined") return;
+  rig.weapon.getWorldPosition(_handProbe);
+  rig.group.worldToLocal(_handProbe);
+  (window as unknown as Record<string, unknown>).__bretwaldaHand = {
+    lefty: getHandedness(),
+    mirror: mirrorSign,
+    weaponSide: _handProbe.x,
+    cls: rig.warriorClass,
+  };
+}
 
 /** Tunic accent per class — the fastest read of who you are fighting. */
 const CLASS_TUNIC: Record<string, number> = {
@@ -169,7 +237,14 @@ export interface WarriorRig {
    * height while the body underneath leans, drops and falls over.
    */
   readonly group: THREE.Group;
-  /** The character itself, under `group`. Carries the whole pose. */
+  /**
+   * Handedness, as a lateral mirror between `group` and `body`. Carries no pose
+   * and no position — its only job is `scale.x`, and `poseWarrior` writes it
+   * every frame so the toggle lands mid-match on every warrior at once rather
+   * than on the next man to be rebuilt.
+   */
+  readonly mirror: THREE.Group;
+  /** The character itself, under `mirror`. Carries the whole pose. */
   readonly body: THREE.Group;
   readonly pivots: RigPivots;
   readonly weapon: THREE.Group;
@@ -461,7 +536,11 @@ export function createWarriorRig(
 
   const group = new THREE.Group();
   group.name = `warrior:${player.id}`;
-  group.add(body);
+  const mirror = new THREE.Group();
+  mirror.name = "handedness";
+  mirror.scale.x = handMirror();
+  mirror.add(body);
+  group.add(mirror);
 
   const blobGeo = new THREE.CircleGeometry(0.6, 20);
   const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false });
@@ -485,6 +564,7 @@ export function createWarriorRig(
     id: player.id,
     warriorClass: cls,
     group,
+    mirror,
     body,
     pivots: {
       rightArm: built.rightArm,
@@ -2987,6 +3067,14 @@ export function poseWarrior(
   const piv = rig.pivots;
   const t = ctx.time;
   const st = STANCE[rig.warriorClass] ?? STANCE.warden;
+
+  // Handedness, every frame and on every body. One float compare and, on the
+  // frame the player actually flips the switch, one write: the toggle has to
+  // land on the men already standing in the ring, not only on the next one
+  // built, or a left-hander turns it on mid-match and nothing happens.
+  const wantMirror = handMirror();
+  if (rig.mirror.scale.x !== wantMirror) rig.mirror.scale.x = wantMirror;
+  if (player.id === ctx.localId) reportHand(rig, wantMirror);
   // Hip height is the length of the rigid leg, and the leg is what the body
   // has to stand on: everything vertical in here is measured against it.
   const legLen = piv.leftLeg.position.y || 1.02;
