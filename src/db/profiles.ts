@@ -402,6 +402,30 @@ export interface LegacySave {
   name?: unknown; xp?: unknown; gold?: unknown; honour?: unknown;
   kills?: unknown; deaths?: unknown; wins?: unknown; matches?: unknown;
   unlocked?: unknown; appearance?: unknown;
+  /** Only ever written by this server. Its presence is what disqualifies a save. */
+  recoveryCode?: unknown;
+}
+
+/**
+ * A localStorage profile the server itself wrote, rather than one that predates
+ * it.
+ *
+ * The client keeps mirroring the server's totals back into `bretwalda_profile`
+ * so that the day the free tier lapses a player degrades to his real hoard and
+ * not to a stale one. That mirror is the migration's own output, and offering
+ * it back as an old save turns the amnesty into a loop: claim 3000, let the
+ * mirror be rewritten, drop the link key, mint again, claim the same 3000. The
+ * fingerprint index alone does not stop it, because one fight between the two
+ * claims is enough to change the numbers being hashed.
+ *
+ * A recovery code is the one field a pre-server save can never have had — only
+ * the server issues them — so it is the honest discriminator. A player whose
+ * database was wiped is refused too, and that is correct: his row is gone, and
+ * paying him back from a file he owns is exactly the printing press this is
+ * guarding.
+ */
+function isServerMirror(save: LegacySave): boolean {
+  return typeof save.recoveryCode === "string" && save.recoveryCode.trim().length > 0;
 }
 
 export interface ClaimOutcome {
@@ -421,8 +445,13 @@ function clamp(value: unknown, max: number): number {
  * copy of the same localStorage produce the same string, which the unique
  * index on `legacy_claims` turns into "the second one loses" without a
  * read-then-write we would have to get right under a race.
+ *
+ * Only earned kit is hashed. The free ids are seeded at mint, so a save that
+ * has been round-tripped through a profile lists them and the original does
+ * not — hashing them would make two copies of one hoard look like two hoards.
  */
 function fingerprint(save: LegacySave): string {
+  const free = new Set(startingUnlocks());
   const canonical = JSON.stringify({
     xp: clamp(save.xp, LEGACY_CAPS.xp),
     gold: clamp(save.gold, LEGACY_MAX_GOLD),
@@ -430,7 +459,8 @@ function fingerprint(save: LegacySave): string {
     deaths: clamp(save.deaths, LEGACY_CAPS.deaths),
     wins: clamp(save.wins, LEGACY_CAPS.wins),
     matches: clamp(save.matches, LEGACY_CAPS.matches),
-    unlocked: knownIds(Array.isArray(save.unlocked) ? save.unlocked : []).sort(),
+    unlocked: knownIds(Array.isArray(save.unlocked) ? save.unlocked : [])
+      .filter((id) => !free.has(id)).sort(),
   });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -445,6 +475,9 @@ export async function claimLegacySave(
   if (!db) return fail("offline");
 
   const legacy = save as LegacySave;
+  // Refused before the fingerprint is even taken, so a mirror cannot burn the
+  // row that the real save it was made from will need.
+  if (isServerMirror(legacy)) return fail("replayed");
   const print = fingerprint(legacy);
 
   try {

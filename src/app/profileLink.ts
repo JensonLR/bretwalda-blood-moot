@@ -204,6 +204,12 @@ async function carryOldSave(save: unknown): Promise<{
 }> {
   const nothing = { profile: null, carried: null, refused: null };
   if (!save || typeof save !== "object") return nothing;
+  // A save carrying four words is this server's own mirror of a profile it
+  // already keeps, not a hoard from before there was a server. Offering it
+  // back would hand the migration its own output to migrate — the server
+  // refuses it too, but a request that should never be sent is not sent.
+  const code = (save as { recoveryCode?: unknown }).recoveryCode;
+  if (typeof code === "string" && code.trim()) return nothing;
   if (readStore(MIGRATED_KEY)) return nothing;
   writeStore(MIGRATED_KEY, "1");
 

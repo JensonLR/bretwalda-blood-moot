@@ -51,6 +51,15 @@ state from any successful response and never has to add up gold itself.
 2. **First boot with an old localStorage profile** — `POST /claim` once,
    immediately after `/new`, with the stored `bretwalda_profile` object as
    `save`. Never again; a second call is refused.
+   **Never offer a save that carries a `recoveryCode`.** The client keeps
+   mirroring the server's totals back into `bretwalda_profile` so a lapsed
+   database degrades to the player's real hoard, and that mirror looks exactly
+   like an old save. Claiming it feeds the migration its own output: grant
+   3000, let the mirror be rewritten, drop the link key, mint again, claim the
+   same 3000 — and one fight in between moves the numbers enough that the
+   fingerprint index does not catch it. Only the server issues recovery codes,
+   so their presence is what tells the two apart. The route refuses such a save
+   with `replayed`; the client should not send it in the first place.
 3. **On the `join` message** — `POST /bind` with the `playerId` the engine just
    handed out. **This is required.** An unreserved payout is paid to nobody,
    because every other phone in the lobby can read that id off a room snapshot.

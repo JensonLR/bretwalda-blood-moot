@@ -218,6 +218,33 @@ async function withDatabase() {
   const second = (await post("/api/profile/new", {})).json;
   const replay = await post("/api/profile/claim", { id: second.id, secret: second.secret, save });
   check("the same save cannot be claimed again elsewhere", replay.status === 409 && replay.json.error === "replayed");
+
+  // The loop that nearly shipped: the client keeps mirroring the server's
+  // totals back into `bretwalda_profile`, so the migration's own output is
+  // sitting in localStorage looking exactly like an old save. Claiming it
+  // pays the same hoard twice, and a single fight between the two claims
+  // moves the numbers enough that the fingerprint index does not catch it.
+  const mirror = { ...migrated.json.profile };
+  const third = (await post("/api/profile/new", {})).json;
+  const loop = await post("/api/profile/claim", { id: third.id, secret: third.secret, save: mirror });
+  check("the server's own mirror cannot be claimed as an old save",
+    loop.status === 409 && loop.json.error === "replayed", `${loop.status} ${loop.json?.error}`);
+  check("and nothing was granted for it", (await post("/api/profile/me", { id: third.id, secret: third.secret })).json?.profile?.gold === 0);
+
+  const fought = { ...mirror, gold: mirror.gold + 60, matches: mirror.matches + 1, kills: mirror.kills + 2 };
+  const fourth = (await post("/api/profile/new", {})).json;
+  const loop2 = await post("/api/profile/claim", { id: fourth.id, secret: fourth.secret, save: fought });
+  check("nor can it after a fight has moved the numbers",
+    loop2.status === 409 && loop2.json.error === "replayed", `${loop2.status} ${loop2.json?.error}`);
+
+  // The same hoard, hashed the same whichever shape it arrives in: a save
+  // that has been round-tripped through a profile lists the free starting
+  // kit, and the original does not.
+  const dressed = { ...save, unlocked: [...(migrated.json.profile.unlocked || [])] };
+  const fifth = (await post("/api/profile/new", {})).json;
+  const rehash = await post("/api/profile/claim", { id: fifth.id, secret: fifth.secret, save: dressed });
+  check("free starting kit does not make one hoard look like two",
+    rehash.status === 409 && rehash.json.error === "replayed", `${rehash.status} ${rehash.json?.error}`);
 }
 
 async function degraded(label) {
