@@ -320,15 +320,16 @@ const PRESETS: Record<string, {
     // frame width thrown away on one side. Measured off a front card, not
     // guessed. The camera is 4.4° above the target so the crown is in shot —
     // level, a crest that runs fore-and-aft is a line at the top of the skull.
-    // −7.215, not −7.07. The authored 70 mm was measured off a card of an
-    // earlier build and it is short: with it, all four turntable panels came back
-    // with the head the same 145 mm left of the axis — a CONSTANT error across
-    // every bearing, which is the tell that it is the mark and not the man's own
-    // turn. (The rotational half of the correction is `aimAtHead`, and at turn 0
-    // it is identically zero by construction, so it can never have caused this
-    // and could never have fixed it either.) Measured off `art/shots/review2`:
-    // 210 px of a 700 px card at a 485 mm frame width.
-    framing: { position: [-7.215, 2.0, 2.55], target: [-7.215, 1.81, 4.6], fov: 16.5 },
+    // Left at −7.07, and the record of why matters more than the number. A
+    // turntable came back with the FRONT panel's head 145 mm left of the axis
+    // while the other three sat square, so this mark was moved by that amount —
+    // and every panel moved with it, because `camera.lookAt` is fed the target
+    // outright and translating the pair re-aims nothing about their relationship
+    // to each other. The front panel's shift is not in the mark; it is in the
+    // pose, and correcting it needs a lateral term between position and target
+    // rather than a new mark. Reverted rather than left half-applied: the
+    // rotational correction below is what the 180° panel needed and it works.
+    framing: { position: [-7.07, 2.0, 2.55], target: [-7.07, 1.81, 4.6], fov: 16.5 },
     poses: [
       { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "idle", ap: { helm: "suttonhoo" } },
     ],

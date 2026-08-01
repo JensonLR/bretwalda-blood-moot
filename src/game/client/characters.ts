@@ -6600,7 +6600,13 @@ export function buildCharacter(
           // Front arc only, cheek to cheek. u descends so ∂u × ∂v faces out — the
           // same trap the coif and the nape fall are both written around, and a
           // curtain swept the other way renders as a hole in the throat.
-          const vHalf = 1.32;
+          // 1.55, not 1.32. At 1.32 the curtain covered the throat and stopped
+          // in front of the point where the nape fall's own front edge has raked
+          // backwards, so `profile_90_` still showed a wedge of bare neck between
+          // the two under the cheek guard. This is the third piece meeting at
+          // that corner and it is the one that can afford to be generous: mail
+          // laps mail without a seam, where two plates cannot.
+          const vHalf = 1.55;
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
           p.add(patch({
