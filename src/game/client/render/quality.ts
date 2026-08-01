@@ -196,7 +196,13 @@ export function detectTier(probe: DeviceProbe = probeDevice()): QualityTier {
 
   // Phones have a real floor. Any one weak signal is enough — stuttering at
   // 30 fps is a worse experience than a softer shadow.
-  const weak = probe.cores <= 4 || probe.memoryGb <= 4 || Math.min(probe.width, probe.height) < 400;
+  //
+  // Screen width is NOT one of those signals, and used to be: the test was
+  // `< 400`, which every mainstream iPhone fails. The 12 through 16 base models
+  // are 390–393 CSS px wide, so the most common phone in the world was pinned to
+  // the lowest tier on a number that says nothing about its GPU. 320 is kept as
+  // a genuine floor — at that width the device predates any of this.
+  const weak = probe.cores <= 4 || probe.memoryGb <= 4 || Math.min(probe.width, probe.height) <= 320;
   return weak ? "low" : "medium";
 }
 
