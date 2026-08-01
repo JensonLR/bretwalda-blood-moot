@@ -5,7 +5,7 @@ import {
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
   Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
-  Flag, Hourglass
+  Flag, Hourglass, KeyRound, CloudOff
 } from "lucide-react";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
@@ -16,6 +16,10 @@ import {
 } from "../game/client/characters";
 import { Transport } from "../game/client/transport";
 import { getHandedness, getServerHandedness, subscribeHandedness } from "../game/client/input";
+import {
+  bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
+  LEGACY_KEY, type ServerProfile,
+} from "./profileLink";
 import dynamic from "next/dynamic";
 
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
@@ -42,7 +46,18 @@ interface ProfileData {
   name: string; level: number; xp: number; gold: number; honour: number;
   kills: number; deaths: number; wins: number; matches: number;
   unlocked: string[]; appearance: Appearance;
+  /** Four words, only ever set by the server. Absent means "kept on this device". */
+  recoveryCode?: string;
 }
+
+// Where this player's hoard actually lives. "reaching" is the second or two
+// before the first answer comes back, and it is a real state: the armoury must
+// not offer a device-local purchase during it and then be overruled.
+type Link = "reaching" | "server" | "local";
+
+// One banner, two tones. A purchase that failed has to say so, and it has to
+// say so on the screen the player pressed the button on.
+interface Notice { text: string; tone: "bad" | "good" }
 
 const WARRIOR_INFO: Array<{ id: WarriorClass; name: string; desc: string; Icon: typeof Swords }> = [
   { id: "huscarl", name: "HUSCARL", desc: "Shield & sword. Unbreakable.", Icon: Shield },
@@ -96,7 +111,7 @@ export default function Page() {
   const [bestOf, setBestOf] = useState<BestOf>(DEFAULT_BEST_OF);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [matchResults, setMatchResults] = useState<MatchEndData | null>(null);
-  const [error, setError] = useState("");
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [linkMode, setLinkMode] = useState<"ws" | "http" | null>(null);
   const [profile, setProfile] = useState<ProfileData>(DEFAULT_PROFILE);
@@ -104,30 +119,94 @@ export default function Page() {
   const [armouryTab, setArmouryTab] = useState(0);
   const [staged, setStaged] = useState<Record<string, { id: string; cost: number; slot: string; value: string | number }>>({});
   const [previewClass, setPreviewClass] = useState<WarriorClass>("warden");
+  const [link, setLink] = useState<Link>("reaching");
+  const [buying, setBuying] = useState(false);
+  // What became of the pay for the last fight. Shown on the results screen,
+  // because a player whose gold did not land deserves to hear it from us
+  // rather than notice it on the landing screen an hour later.
+  const [payState, setPayState] = useState<"none" | "asking" | "paid" | "unpaid">("none");
+  const [carried, setCarried] = useState<{ gold: number; unlocks: number } | null>(null);
 
   const transportRef = useRef<Transport | null>(null);
   const screenRef = useRef(screen); screenRef.current = screen;
   const playerIdRef = useRef(playerId); playerIdRef.current = playerId;
   const profileRef = useRef(profile); profileRef.current = profile;
   const busyRef = useRef(busy); busyRef.current = busy;
+  // Written by settleLink rather than mirrored on every render: the transport
+  // holds one copy of the message handler for the life of a session, so where
+  // the gold is kept has to be readable from a closure that was made before the
+  // first answer came back.
+  const linkRef = useRef<Link>("reaching");
   const lastInputSentRef = useRef(0);
   const heldActionsRef = useRef<Record<string, boolean>>({});
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A warrior the engine named before the profile had signed in. Binding is
+  // what reserves that fight's pay, and it can only be done before the fight
+  // ends, so a join that lands mid-boot is held here and bound the moment
+  // there is a profile to bind it to.
+  const unboundRef = useRef<string | null>(null);
+  // The sign-in, as a promise. Anything that must not guess where the gold
+  // lives — a purchase, a payout — waits on this rather than reading a link
+  // that has not been settled yet and writing to the wrong ledger.
+  const bootRef = useRef<Promise<void> | null>(null);
 
   const [inviteCode, setInviteCode] = useState("");
+
+  const saveProfile = useCallback((updates: Partial<ProfileData>) => {
+    setProfile((prev) => {
+      const next = { ...prev, ...updates };
+      // Still written in server mode, as a mirror rather than as the store: on
+      // the day the free-tier database lapses the game degrades to device-local
+      // gold, and it should degrade to the player's real total rather than to
+      // whatever he had the week the server came up.
+      localStorage.setItem(LEGACY_KEY, JSON.stringify(next));
+      profileRef.current = next;
+      return next;
+    });
+  }, []);
+
+  // The server's answer, drawn. Nothing here is added up on the client — a
+  // response replaces the totals outright, so a lost reply is a stale screen
+  // and never a wrong balance.
+  const adoptServer = useCallback((p: ServerProfile) => {
+    saveProfile({
+      level: p.level, xp: p.xp, gold: p.gold, honour: p.honour,
+      kills: p.kills, deaths: p.deaths, wins: p.wins, matches: p.matches,
+      unlocked: p.unlocked, appearance: migrateAppearance(p.appearance),
+      recoveryCode: p.recoveryCode,
+    });
+  }, [saveProfile]);
+
+  // One place where "where does the gold live" changes, because two places
+  // would eventually disagree and one of them is what the armoury reads.
+  const settleLink = useCallback((next: Link) => {
+    linkRef.current = next;
+    setLink(next);
+  }, []);
+
+  // Where the gold lives, once that is actually known. On a slow first load a
+  // player can reach EQUIP before the sign-in answers, and a guess there is a
+  // purchase written to the device that the server never sees.
+  const settled = useCallback(async (): Promise<Link> => {
+    if (linkRef.current === "reaching" && bootRef.current) {
+      try { await bootRef.current; } catch { /* the boot never rejects; belt and braces */ }
+    }
+    return linkRef.current;
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("bretwalda_name");
     if (saved) setPlayerName(saved);
-    const savedProfile = localStorage.getItem("bretwalda_profile");
+    const savedProfile = localStorage.getItem(LEGACY_KEY);
+    let parsed: Partial<ProfileData> | null = null;
     if (savedProfile) {
       try {
-        const parsed = JSON.parse(savedProfile);
+        parsed = JSON.parse(savedProfile);
         // Migrated on the way in, not on the way out: the armoury decides what is
         // equipped by matching the stored value against the catalog's, so a
         // finish that was re-graded between releases would show as owning nothing
         // and charge the player a second time for kit he already has.
-        const merged = { ...DEFAULT_PROFILE, ...parsed, unlocked: parsed.unlocked ?? freeCosmeticIds() };
+        const merged = { ...DEFAULT_PROFILE, ...parsed, unlocked: parsed?.unlocked ?? freeCosmeticIds() };
         setProfile({ ...merged, appearance: migrateAppearance(merged.appearance) });
       } catch { /* ok */ }
     }
@@ -139,22 +218,54 @@ export default function Page() {
       setJoinCode(code);
       setScreen("join");
     }
-  }, []);
 
-  const saveProfile = useCallback((updates: Partial<ProfileData>) => {
-    setProfile((prev) => {
-      const next = { ...prev, ...updates };
-      localStorage.setItem("bretwalda_profile", JSON.stringify(next));
-      profileRef.current = next;
-      return next;
-    });
-  }, []);
+    // Sign in behind the landing screen. Nothing waits on this: the player can
+    // be typing a name and creating a room before it answers, and if it never
+    // answers the game is the one it has always been, with the gold on the
+    // device. The one step it must not skip is carrying that gold across.
+    let dropped = false;
+    bootRef.current = bootProfile(saved ?? "", parsed).then((result) => {
+      if (dropped) return;
+      settleLink(result.mode);
+      if (result.profile) adoptServer(result.profile);
+      if (result.carried && (result.carried.gold > 0 || result.carried.unlocks > 0)) {
+        // The server counts every id it folded in, free starting kit included.
+        // A player means "the things I bought", so the number he is shown is
+        // the one he would get by counting his own unlocks.
+        const free = freeCosmeticIds();
+        const bought = result.profile?.unlocked.filter((id) => !free.includes(id)).length;
+        setCarried({ gold: result.carried.gold, unlocks: bought ?? result.carried.unlocks });
+      }
+      if (result.carryRefused) setNotice({ text: result.carryRefused, tone: "bad" });
+      const waiting = unboundRef.current;
+      if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
+    }).catch(() => settleLink("local"));
+    return () => { dropped = true; };
+  }, [adoptServer, settleLink]);
 
-  const showError = useCallback((msg: string) => {
-    setError(msg);
+  const say = useCallback((text: string, tone: "bad" | "good" = "bad") => {
+    setNotice({ text, tone });
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-    errorTimerRef.current = setTimeout(() => setError(""), 4000);
+    errorTimerRef.current = setTimeout(() => setNotice(null), tone === "good" ? 3200 : 4600);
   }, []);
+
+  const showError = useCallback((msg: string) => say(msg, "bad"), [say]);
+
+  // The device-local tally, exactly as it was before there was a server, and
+  // still the entire economy anywhere the database is not. It runs only when
+  // the server has said there is no server — never alongside a payout, or the
+  // same fight would be paid twice.
+  const tallyLocally = useCallback((r: MatchEndData["results"][number]) => {
+    const p = profileRef.current;
+    const xpNew = p.xp + r.xpEarned;
+    saveProfile({
+      kills: p.kills + r.kills, deaths: p.deaths + r.deaths,
+      matches: p.matches + 1, wins: p.wins + (r.isWinner ? 1 : 0),
+      honour: p.honour + (r.isWinner ? 12 : 3) + r.kills * 2,
+      xp: xpNew, gold: p.gold + r.goldEarned,
+      level: Math.max(p.level, Math.floor(1 + Math.sqrt(xpNew / 100))),
+    });
+  }, [saveProfile]);
 
   const sendMsg = useCallback((type: string, data?: Record<string, unknown>) => {
     transportRef.current?.send({ type, data });
@@ -168,6 +279,13 @@ export default function Page() {
         playerIdRef.current = d.playerId;
         setRoomCode(d.code);
         setRoomState(d);
+        setPayState("none");
+        // Reserve this fight's pay before there is any. An unreserved payout
+        // is paid to nobody, on purpose — every other phone in the lobby can
+        // read this id off a room snapshot — so skipping it is silently
+        // earning zero.
+        if (linkRef.current === "server") void bindWarrior(d.playerId);
+        else if (linkRef.current === "reaching") unboundRef.current = d.playerId;
         // A training room has no war code and nobody to wait for. Hold the
         // muster — still showing that the trial is being raised — rather than
         // flashing the invite lobby on the way to the countdown.
@@ -218,16 +336,27 @@ export default function Page() {
         const d = msg.data as unknown as MatchEndData;
         setMatchResults(d);
         const myResult = d.results.find((r) => r.id === playerIdRef.current);
+        const warrior = playerIdRef.current;
         if (myResult) {
-          const p = profileRef.current;
-          const xpNew = p.xp + myResult.xpEarned;
-          saveProfile({
-            kills: p.kills + myResult.kills, deaths: p.deaths + myResult.deaths,
-            matches: p.matches + 1, wins: p.wins + (myResult.isWinner ? 1 : 0),
-            honour: p.honour + (myResult.isWinner ? 12 : 3) + myResult.kills * 2,
-            xp: xpNew, gold: p.gold + myResult.goldEarned,
-            level: Math.max(p.level, Math.floor(1 + Math.sqrt(xpNew / 100))),
-          });
+          // The engine has already decided what this fight paid and told the
+          // server. All the client can do is go and collect it — and if the
+          // answer is that there is no server today, fall back to the tally
+          // the game has always kept on the device.
+          setPayState("asking");
+          settled().then((where) => {
+            if (where === "local") { tallyLocally(myResult); setPayState("paid"); return; }
+            return collectPay(warrior).then((reply) => {
+              if (reply.kind === "server") { adoptServer(reply.value.profile); setPayState("paid"); }
+              else if (reply.kind === "local") { tallyLocally(myResult); setPayState("paid"); }
+              else {
+                setPayState("unpaid");
+                // The results card is gone ten seconds after the last blow, and
+                // an answer that arrives after it has nowhere to land. The
+                // banner outlives the screen, so it carries the bad news too.
+                showError("Your pay for that fight did not reach the war rolls.");
+              }
+            });
+          }).catch(() => setPayState("unpaid"));
         }
         setTimeout(() => setScreen("results"), 2200);
         break;
@@ -247,7 +376,7 @@ export default function Page() {
         break;
       }
     }
-  }, [saveProfile, showError]);
+  }, [adoptServer, tallyLocally, showError, settled]);
 
   const ensureTransport = useCallback(async (): Promise<boolean> => {
     if (transportRef.current && transportRef.current.mode) return true;
@@ -315,6 +444,7 @@ export default function Page() {
     if (!playerName.trim()) { showError("Enter your warrior name first!"); return; }
     setBusy(true);
     localStorage.setItem("bretwalda_name", playerName);
+    void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
     sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance });
@@ -325,6 +455,7 @@ export default function Page() {
     if (!joinCode.trim()) { showError("Enter a room code!"); return; }
     setBusy(true);
     localStorage.setItem("bretwalda_name", playerName);
+    void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
     sendMsg("join", { name: playerName, code: joinCode.toUpperCase(), appearance: profileRef.current.appearance });
@@ -336,6 +467,7 @@ export default function Page() {
     setBusy(true);
     const name = playerName.trim() || "Trainee";
     localStorage.setItem("bretwalda_name", name);
+    void syncName(name);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
     sendMsg("solo", {
@@ -422,17 +554,17 @@ export default function Page() {
     return ap;
   }, [profile.appearance, staged]);
 
+  // Priced the way the server prices it: by what this profile owns, and by
+  // nothing else. The old rule also forgave anything already equipped, which
+  // was a second rule that could only ever disagree with the till.
   const stagedCost = useCallback(() => {
     let total = 0;
     for (const slot of Object.keys(staged)) {
       const s = staged[slot];
-      // if already equipped, skip; if owned, free
-      const cur = equippedValue(slot);
-      if (cur === s.value) continue;
       if (!profile.unlocked.includes(s.id)) total += s.cost;
     }
     return total;
-  }, [staged, equippedValue, profile.unlocked]);
+  }, [staged, profile.unlocked]);
 
   const hasChanges = Object.keys(staged).some((s) => equippedValue(s) !== staged[s].value);
 
@@ -442,7 +574,10 @@ export default function Page() {
 
   const clearStaged = useCallback(() => setStaged({}), []);
 
-  const applyStaged = useCallback(() => {
+  // The device-local till. Still exactly right when there is no server; it is
+  // also, by itself, an economy a player can edit in devtools, which is why it
+  // is now the fallback and not the rule.
+  const applyLocally = useCallback(() => {
     const p = profileRef.current;
     const cost = stagedCost();
     if (p.gold < cost) { showError(`Not enough gold — need ${cost}.`); return; }
@@ -468,6 +603,56 @@ export default function Page() {
     }
     setStaged({});
   }, [staged, stagedCost, saveProfile, sendMsg, prevScreen, showError]);
+
+  /**
+   * EQUIP & BUY. The client sends the ids on the mannequin and nothing else —
+   * no price, no balance — and draws whatever comes back. A refusal keeps the
+   * try-on exactly as it is and says why, because a shop that clears the
+   * basket and shows the old gold looks like it worked.
+   */
+  const applyStaged = useCallback(async () => {
+    const ids = Object.values(staged).map((s) => s.id);
+    if (ids.length === 0) return;
+    if (await settled() !== "local") {
+      setBuying(true);
+      const reply = await buyKit(ids);
+      setBuying(false);
+      if (reply.kind === "server") {
+        adoptServer(reply.value.profile);
+        if (prevScreen === "lobby" || screenRef.current === "lobby") {
+          sendMsg("set_appearance", { appearance: reply.value.profile.appearance });
+        }
+        setStaged({});
+        say(reply.value.spent > 0 ? `Bought for ${reply.value.spent} gold.` : "Kit equipped.", "good");
+        return;
+      }
+      if (reply.kind === "refused") { showError(reply.message); return; }
+      // `local` — no war rolls today, so the device keeps the books.
+      settleLink("local");
+    }
+    applyLocally();
+  }, [staged, prevScreen, adoptServer, applyLocally, sendMsg, say, showError, settleLink, settled]);
+
+  /**
+   * Four words, typed on a phone that has never seen this profile. On success
+   * the server rotates the key and this device becomes that player — which
+   * means the device it was recovered *from* is signed out, and that is the
+   * right trade for the case this exists for: a phone that is gone.
+   *
+   * Answers with the sentence to show under the box, or null for "it worked".
+   */
+  const handleRestore = useCallback(async (code: string): Promise<string | null> => {
+    const reply = await recoverProfile(code);
+    if (reply.kind === "server") {
+      adoptServer(reply.value.profile);
+      settleLink("server");
+      setCarried(null);
+      say("Your saga is restored.", "good");
+      return null;
+    }
+    if (reply.kind === "local") return "No war rolls are being kept today, so there is nothing to bring back.";
+    return reply.message;
+  }, [adoptServer, say, settleLink]);
 
   const openArmoury = useCallback((from: Screen) => {
     setStaged({});
@@ -521,7 +706,7 @@ export default function Page() {
   if (screen === "results" && matchResults) {
     const mine = matchResults.results.find((r) => r.id === playerId);
     return (
-      <MenuShell art="hall">
+      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)}>
         <ContentWrap>
           <div className="card card-noble card-glow flex flex-col items-center gap-3 p-5 text-center sm:p-6">
             <Trophy className="text-amber-400" size={40} />
@@ -538,6 +723,17 @@ export default function Page() {
             )}
             <div className="knot-band w-full max-w-xs" />
             <MatchTally data={matchResults} playerId={playerId} />
+            {/* The pay is the server's to give. When it does not arrive the
+                honest thing is to say so on the screen that shows the number,
+                not to quietly print a total that includes it. */}
+            {payState === "unpaid" && (
+              <div className="text-[11px] leading-relaxed text-red-300/90">
+                This pay has not reached the war rolls — your hoard is unchanged.
+              </div>
+            )}
+            {payState === "asking" && (
+              <div className="animate-pulse text-[11px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
+            )}
           </div>
 
           <div className="flex flex-col gap-2.5">
@@ -579,7 +775,7 @@ export default function Page() {
     const botCount = playersList.filter((p) => p.id.startsWith("bot_")).length;
 
     return (
-      <MenuShell art="hall">
+      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)}>
         <ContentWrap wide>
           {/* header */}
           <div className="flex flex-col items-center gap-2.5 text-center">
@@ -797,16 +993,24 @@ export default function Page() {
     const slot = ARMOURY[armouryTab];
     const cost = stagedCost();
     return (
-      <MenuShell>
+      <MenuShell notice={notice} onDismiss={() => setNotice(null)}>
         <ContentWrap wide>
           <ScreenHead
             onBack={() => { clearStaged(); setScreen(prevScreen); }}
             title="THE ARMOURY"
             lede="Try everything on before you buy. Gold is earned in battle — never bought."
             aside={
-              <div className="card flex shrink-0 items-center gap-2.5 !border-yellow-600/50 px-4 py-2.5">
-                <Coins size={17} className="text-yellow-500" />
-                <span className="text-xl font-bold text-yellow-400">{profile.gold}</span>
+              // Where the purse is kept, next to the purse. A player who is
+              // about to spend 2400 gold is entitled to know whether it
+              // survives him clearing his browser.
+              <div className="card flex shrink-0 flex-col items-center gap-0.5 !border-yellow-600/50 px-4 py-2">
+                <div className="flex items-center gap-2.5">
+                  <Coins size={17} className="text-yellow-500" />
+                  <span className="text-xl font-bold text-yellow-400">{profile.gold}</span>
+                </div>
+                <span className="text-[8.5px] font-bold tracking-[0.16em] text-stone-500">
+                  {link === "server" ? "ON THE WAR ROLLS" : link === "local" ? "ON THIS DEVICE" : "COUNTING…"}
+                </span>
               </div>
             }
           />
@@ -840,8 +1044,9 @@ export default function Page() {
                       </div>
                     </div>
                     <div className="flex gap-2.5">
-                      <button onClick={applyStaged} className="btn-primary flex-1 !min-h-[3rem] !text-sm">
-                        <Check size={15} /> EQUIP{cost > 0 ? " & BUY" : ""}
+                      <button onClick={() => { void applyStaged(); }} disabled={buying}
+                        className="btn-primary flex-1 !min-h-[3rem] !text-sm">
+                        {buying ? "ASKING THE ROLLS…" : <><Check size={15} /> EQUIP{cost > 0 ? " & BUY" : ""}</>}
                       </button>
                       <button onClick={clearStaged} aria-label="Discard try-on" className="btn-ghost !px-4">
                         <ArrowLeft size={15} />
@@ -912,15 +1117,7 @@ export default function Page() {
 
   // ==================== MENUS ====================
   return (
-    <MenuShell art={screen === "landing" ? "hero" : "hall"}>
-      {error && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[92%]">
-          <div className="card !border-red-600/70 !bg-red-950/85 backdrop-blur px-5 py-3 text-center text-red-200 text-sm font-bold shadow-2xl animate-fadeIn">
-            {error}
-          </div>
-        </div>
-      )}
-
+    <MenuShell art={screen === "landing" ? "hero" : "hall"} notice={notice} onDismiss={() => setNotice(null)}>
       {screen === "landing" && (
         // Centred as a whole rather than as a stack of centred children, so the
         // title and the controls stay one composition from 390px to 1440px.
@@ -991,6 +1188,25 @@ export default function Page() {
               <LandingStat value={String(profile.gold)} label="GOLD" cls="text-yellow-400" />
               <LandingStat value={String(profile.wins)} label="VICTORIES" cls="text-emerald-400" />
             </div>
+
+            {/* Shown once, to the player who has been playing all week and has
+                just been given a server profile he never asked for. Without it
+                the migration is invisible and indistinguishable from a wipe. */}
+            {carried && (
+              <button onClick={() => setCarried(null)}
+                className="card card-glow animate-fadeIn !min-h-0 !border-amber-500/50 px-4 py-3 text-left">
+                <div className="flex items-start gap-3">
+                  <Scroll size={16} className="mt-0.5 shrink-0 text-amber-400" />
+                  <div className="min-w-0">
+                    <div className="font-display text-[13px] tracking-wider text-amber-200">YOUR HOARD CAME WITH YOU</div>
+                    <div className="mt-1 text-[11px] leading-relaxed text-stone-300/90">
+                      {carried.gold} gold{carried.unlocks > 0 ? ` and ${carried.unlocks} pieces of kit` : ""} carried
+                      onto the war rolls. It is kept for you now — see the Saga for the four words that bring it back.
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )}
           </div>
 
           <p className="text-center text-[11px] leading-relaxed text-stone-300/60" style={{ textShadow: "0 1px 3px black" }}>
@@ -1336,6 +1552,13 @@ export default function Page() {
             </div>
           </div>
 
+          <TheKeep
+            link={link}
+            code={profile.recoveryCode ?? ""}
+            onRestore={handleRestore}
+            onSay={say}
+          />
+
           <div className="flex flex-col gap-3">
             <button onClick={() => openArmoury("profile")} className="btn-primary w-full !min-h-[3.5rem]">
               <Shirt size={16} /> OPEN THE ARMOURY
@@ -1354,12 +1577,31 @@ export default function Page() {
 
 // Every screen sits inside this. The gutter, the safe areas and the backdrop
 // are decided here once so no screen can invent its own edge spacing.
-function MenuShell({ children, art = "hall" }: { children: React.ReactNode; art?: "hero" | "hall" | "none" }) {
+//
+// The banner lives here too, and that is a fix rather than tidiness: it used to
+// be rendered inside the menu block alone, so a purchase that failed in the
+// armoury — or a lobby that lost the link — said nothing at all. A message a
+// player cannot see is the same as no message.
+function MenuShell({ children, art = "hall", notice, onDismiss }: {
+  children: React.ReactNode; art?: "hero" | "hall" | "none";
+  notice?: Notice | null; onDismiss?: () => void;
+}) {
   return (
     <div className="shell">
       {art !== "none" && (
         <div className={`backdrop ${art === "hero" ? "backdrop-hero" : "backdrop-hall"}`}>
           {art === "hero" && <div className="embers" />}
+        </div>
+      )}
+      {notice && (
+        <div role="status" className="fixed left-1/2 top-4 z-50 w-[92%] max-w-sm -translate-x-1/2">
+          <button onClick={onDismiss} className={`card animate-fadeIn w-full !min-h-0 px-5 py-3 text-center text-sm font-bold shadow-2xl backdrop-blur ${
+            notice.tone === "good"
+              ? "!border-amber-400/70 !bg-amber-950/85 text-amber-100"
+              : "!border-red-600/70 !bg-red-950/85 text-red-200"
+          }`}>
+            {notice.text}
+          </button>
         </div>
       )}
       <div className="shell-inner">{children}</div>
@@ -1424,6 +1666,141 @@ function WarriorPanel({ warriorClass, appearance, name, note, onCustomise }: {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The only visible surface the whole profile feature has.
+ *
+ * There is no account, no email and no password anywhere in this game, so the
+ * four words below are the entire difference between changing your phone and
+ * losing everything you earned. They are therefore given the treatment the war
+ * code gets — the largest type on the screen, in a gilt setting — rather than
+ * being filed under settings, and they are shown as four numbered stones
+ * because the realistic recovery is somebody reading them aloud into a group
+ * chat, not copying a string.
+ *
+ * When there is no database the panel says so plainly instead of hiding. A
+ * player whose gold is device-local needs to know it *before* he clears his
+ * browser, and there is nothing for him to write down.
+ */
+function TheKeep({ link, code, onRestore, onSay }: {
+  link: Link; code: string;
+  onRestore: (code: string) => Promise<string | null>;
+  onSay: (text: string, tone?: "bad" | "good") => void;
+}) {
+  const [entering, setEntering] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [trying, setTrying] = useState(false);
+  const [refusal, setRefusal] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const words = code.split(/\s+/).filter(Boolean);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(code)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
+      .catch(() => onSay("This browser would not let us copy — write the words down instead."));
+  };
+
+  const submit = async () => {
+    if (!typed.trim() || trying) return;
+    setTrying(true);
+    const failed = await onRestore(typed);
+    setTrying(false);
+    setRefusal(failed ?? "");
+    if (!failed) { setTyped(""); setEntering(false); }
+  };
+
+  return (
+    <section className="flex flex-col gap-3">
+      {/* The heading has to be true in both states: there are no words to
+          promise when there is no database keeping them. */}
+      <h2 className="section-title">
+        <KeyRound size={12} className="shrink-0" />
+        {link === "server" ? "THE WORDS THAT BRING YOU BACK" : "WHERE YOUR HOARD IS KEPT"}
+      </h2>
+
+      {link === "reaching" && (
+        <div className="card animate-pulse px-4 py-5 text-center text-[13px] text-stone-400">
+          Reaching the war rolls…
+        </div>
+      )}
+
+      {link === "local" && (
+        <div className="card flex flex-col gap-2.5 p-4 sm:p-5">
+          <div className="flex items-center gap-2.5">
+            <CloudOff size={16} className="shrink-0 text-stone-400" />
+            <span className="badge-stone">KEPT ON THIS DEVICE</span>
+          </div>
+          <p className="text-[13px] leading-relaxed text-stone-300/90">
+            No war rolls are being kept today. Your gold, your kit and your record live in
+            this browser alone — clear it, or change phone, and they are gone. There is
+            nothing to write down, and nothing you can do about it from here.
+          </p>
+        </div>
+      )}
+
+      {link === "server" && words.length > 0 && (
+        <div className="warcode-frame card-noble flex flex-col gap-4 p-5 sm:p-6">
+          <div className="grid grid-cols-2 gap-2.5">
+            {words.map((w, i) => (
+              <div key={`${w}-${i}`} className="relative flex min-h-[3.25rem] items-center justify-center rounded-lg border border-amber-300/30 bg-black/45 px-2 shadow-[inset_0_2px_8px_rgba(0,0,0,0.5)]">
+                <span className="absolute left-2 top-1 text-[9px] font-bold text-amber-200/35">{i + 1}</span>
+                {/* Cinzel is a capitals face, so the words are set as capitals
+                    rather than being shown lowercase in a font that has no
+                    lowercase to show. */}
+                <span className="font-display text-center text-[clamp(0.95rem,4.4vw,1.35rem)] uppercase leading-none tracking-[0.08em] text-amber-100">{w}</span>
+              </div>
+            ))}
+          </div>
+          <div className="knot-band mx-auto w-full max-w-[15rem]" />
+          <button onClick={copy} className="btn-primary w-full !min-h-[3.25rem]">
+            {copied ? <Check size={17} /> : <Copy size={17} />}{copied ? "WORDS COPIED!" : "COPY THE WORDS"}
+          </button>
+          <p className="text-[11px] leading-relaxed text-stone-400">
+            Say them, screenshot them, or send them to yourself. Anyone who types these four
+            words becomes you — gold, kit and all — so keep them the way you would keep a key.
+          </p>
+        </div>
+      )}
+
+      {link === "server" && (
+        entering ? (
+          <div className="card animate-fadeIn flex flex-col gap-3 p-4 sm:p-5">
+            <label className="label-overline">THE FOUR WORDS</label>
+            <input
+              type="text"
+              value={typed}
+              onChange={(e) => { setTyped(e.target.value.substring(0, 80)); setRefusal(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              placeholder="leaf sapling wolf glass"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="input-frame text-center"
+            />
+            {refusal && <p className="text-center text-[12px] font-bold text-red-300">{refusal}</p>}
+            <p className="text-[11px] leading-relaxed text-stone-400">
+              Capitals, hyphens and typos are forgiven. This device becomes that warrior, and
+              the one you left behind is signed out.
+            </p>
+            <div className="flex gap-2.5">
+              <button onClick={() => { void submit(); }} disabled={trying} className="btn-primary flex-1 !min-h-[3.25rem] !text-sm">
+                {trying ? "SEARCHING…" : "BRING IT BACK"}
+              </button>
+              <button onClick={() => { setEntering(false); setRefusal(""); }} aria-label="Cancel recovery" className="btn-ghost !px-4">
+                <ArrowLeft size={15} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setEntering(true)} className="btn-ghost w-full !min-h-[3.25rem] !text-sm">
+            <KeyRound size={15} /> I HAVE FOUR WORDS
+          </button>
+        )
+      )}
+    </section>
   );
 }
 

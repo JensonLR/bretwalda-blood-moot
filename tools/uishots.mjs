@@ -180,6 +180,54 @@ async function main() {
     await page.waitForTimeout(2000);
     await shot("armoury");
 
+    // ...and with a locked helm on the mannequin, which is the only state that
+    // shows the price and the buy button the server now answers for.
+    const helm = page.getByRole("button", { name: /Sutton Hoo/ }).first();
+    if (await helm.count()) {
+      await helm.click();
+      // Back to the top: the mannequin and the price it is asking for are what
+      // this shot is of, and tapping an item leaves the list scrolled to it.
+      await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
+      await page.waitForTimeout(1200);
+      await shot("armoury-staged");
+
+      // Ask to buy 2400 gold of helmet with nothing in the purse. The server
+      // is the one that says no, and the screen has to repeat it rather than
+      // clearing the mannequin and looking like it worked.
+      await page.getByRole("button", { name: /EQUIP & BUY/ }).click();
+      await page.waitForTimeout(2000);
+      await shot("armoury-refused");
+      const refusal = await page.evaluate(() => document.querySelector('[role="status"]')?.textContent?.trim() ?? null);
+      const stillStaged = await page.evaluate(() => !!document.body.textContent.includes("COST TO UNLOCK"));
+      console.log(`[ui] ${vp.tag} refused purchase says: ${JSON.stringify(refusal)} · try-on kept=${stillStaged}`);
+    }
+
+    // saga: the profile screen, and the only surface the whole profile
+    // feature has. The wait is for the silent sign-in to land.
+    await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: /Saga/ }).first().click();
+    await page.waitForTimeout(900);
+    await shot("saga");
+    // The shell scrolls, not the document, so fullPage stops at the fold and
+    // the recovery panel is below it on a phone. Scroll the shell instead.
+    await page.evaluate(() => {
+      const shell = document.querySelector(".shell");
+      if (shell) shell.scrollTop = shell.scrollHeight;
+    });
+    await shot("saga-foot");
+    const words = await page.evaluate(() => {
+      const chips = [...document.querySelectorAll("section .font-display")];
+      return chips.map((e) => e.textContent.trim()).filter((t) => /^[a-z]+$/.test(t)).join(" ");
+    });
+    console.log(`[ui] ${vp.tag} recovery words: ${words || "(none — local mode)"}`);
+    const restore = page.getByRole("button", { name: /I HAVE FOUR WORDS/ });
+    if (await restore.count()) {
+      await restore.click();
+      await page.waitForTimeout(500);
+      await shot("saga-restore");
+    }
+
     // lobby: name -> create battle -> create room
     await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(900);
