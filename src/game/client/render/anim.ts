@@ -73,14 +73,82 @@
 
 import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
-import { WARRIOR_STATS } from "../../types";
+import { WARRIOR_STATS, SWING_PHASES } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
 } from "../characters";
+import { getHandedness, subscribeHandedness } from "../input";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
+
+// ---------------------------------------------------------------------------
+// Handedness
+// ---------------------------------------------------------------------------
+//
+// The character builder mounts the weapon arm at local +X and the body faces
+// local +Z, so the sword has always hung off the hand a man facing +Z carries on
+// his LEFT. Right-handed is the majority, so right-handed is now the default and
+// the mirror is what the minority turn on — the SAME switch that already mirrors
+// the touch zones and the HUD cluster, not a second control beside it.
+//
+// It is done as a scale of -1 on a node inserted above the body rather than by
+// re-mounting the weapon and re-signing every pose channel. Both give a
+// right-handed warrior; only one of them is provably the exact mirror of an
+// animation system this size. Conjugating a rotation by diag(-1,1,1) leaves the
+// X term and negates Y and Z, in any Euler order, which is a sign flip on some
+// hundred and forty channels plus the whole cloth solve, and one missed sign is
+// a shoulder on backwards that nothing in the harness would catch. The scale
+// mirrors the pose, the cloak, the shield, the blade trail and the severance
+// frame at once, and three.js flips the winding for a negative determinant
+// itself (`frontFaceCW` in the renderer), so nothing turns inside out.
+//
+// It sits UNDER `group` and over `body`: the HUD hangs its nameplate off
+// `group`, and a mirrored plate would print the man's name backwards.
+
+/**
+ * -1 puts the weapon in the right hand. The default.
+ *
+ * The store only reads itself out of localStorage once it has a subscriber, and
+ * the HUD is normally that subscriber — but a warrior can be built before the
+ * HUD mounts, and a left-handed player must not get one frame of a right-handed
+ * body. One listener for the module, taken on the first call.
+ */
+let handWired = false;
+function handMirror(): number {
+  if (!handWired) {
+    handWired = true;
+    subscribeHandedness(() => { /* read live, per frame, in `poseWarrior` */ });
+  }
+  return getHandedness() ? 1 : -1;
+}
+
+const _handProbe = new THREE.Vector3();
+
+/**
+ * A readback for `tools/cameratest.mjs`, the same shape of hook `audio.ts` hangs
+ * on the window for `phonesound`. Local warrior only, so it is one
+ * `worldToLocal` a frame and nothing in the game reads it.
+ *
+ * `weaponSide` is the sword's lateral offset in the warrior's OWN frame, and it
+ * is the number worth exporting because it is measured off where the blade
+ * actually ended up rather than off the sign of a constant. A body faces local
+ * +Z, so his right hand is at -X: negative is right-handed. Asserting on this
+ * catches a mirror that was applied to the wrong node, or not applied at all,
+ * which asserting on `mirror.scale.x` would not.
+ */
+function reportHand(rig: WarriorRig, mirrorSign: number): void {
+  if (typeof window === "undefined") return;
+  rig.weapon.getWorldPosition(_handProbe);
+  rig.group.worldToLocal(_handProbe);
+  (window as unknown as Record<string, unknown>).__bretwaldaHand = {
+    lefty: getHandedness(),
+    mirror: mirrorSign,
+    weaponSide: _handProbe.x,
+    cls: rig.warriorClass,
+  };
+}
 
 /** Tunic accent per class — the fastest read of who you are fighting. */
 const CLASS_TUNIC: Record<string, number> = {
@@ -169,7 +237,14 @@ export interface WarriorRig {
    * height while the body underneath leans, drops and falls over.
    */
   readonly group: THREE.Group;
-  /** The character itself, under `group`. Carries the whole pose. */
+  /**
+   * Handedness, as a lateral mirror between `group` and `body`. Carries no pose
+   * and no position — its only job is `scale.x`, and `poseWarrior` writes it
+   * every frame so the toggle lands mid-match on every warrior at once rather
+   * than on the next man to be rebuilt.
+   */
+  readonly mirror: THREE.Group;
+  /** The character itself, under `mirror`. Carries the whole pose. */
   readonly body: THREE.Group;
   readonly pivots: RigPivots;
   readonly weapon: THREE.Group;
@@ -461,7 +536,11 @@ export function createWarriorRig(
 
   const group = new THREE.Group();
   group.name = `warrior:${player.id}`;
-  group.add(body);
+  const mirror = new THREE.Group();
+  mirror.name = "handedness";
+  mirror.scale.x = handMirror();
+  mirror.add(body);
+  group.add(mirror);
 
   const blobGeo = new THREE.CircleGeometry(0.6, 20);
   const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false });
@@ -485,6 +564,7 @@ export function createWarriorRig(
     id: player.id,
     warriorClass: cls,
     group,
+    mirror,
     body,
     pivots: {
       rightArm: built.rightArm,
@@ -1417,8 +1497,21 @@ function takeBearing(motion: WarriorMotion, attacker: GamePlayer): void {
 // The swing
 // ---------------------------------------------------------------------------
 
-const LOAD_END = 0.34;
-const IMPACT = 0.64;
+/**
+ * Where the coil ends and where the blade is fully through the target, as
+ * fractions of the whole stroke — and they are NOT numbers this file picks any
+ * more. They are the server's own phase boundaries.
+ *
+ * `SWING_PHASES` is windup 0.40 / contact 0.15 / recovery 0.45 and the sim
+ * resolves the blow the step it crosses out of the windup. This file used to
+ * load until 0.34 and reach the target at 0.64, which put the damage a fifth of
+ * the way into the release: the man took the hit while the axe was still coming
+ * round, and every blow read as passing through him because it literally did.
+ * Coil is the windup, the pass is the contact window, the settle is the
+ * recovery — one clock, three phases, and the sim owns all three.
+ */
+const LOAD_END = SWING_PHASES.windup;                          // 0.40
+const IMPACT = SWING_PHASES.windup + SWING_PHASES.contact;     // 0.55
 
 /**
  * The end of a chain: slow off the load, explosive through the middle, a little
@@ -1601,6 +1694,32 @@ function readSwing(motion: WarriorMotion, player: GamePlayer, dt: number): numbe
     // its windup while the layer faded would snap the arm back up on every blow.
     motion.swing = approach(motion.swing, 1, dt, 7);
     return motion.swing;
+  }
+
+  // THE WIRE NOW STATES ALL OF THIS OUTRIGHT. `swingDuration` is the length of
+  // the stroke, `swingHeavy` says which it was, and `swingT` is the sim's own
+  // 0..1 through it — the same number `advanceSwing` tests against the phase
+  // boundaries when it decides the blow has landed. Reading it means the pose
+  // and the damage are driven by one value rather than by two derivations of a
+  // countdown that agree only approximately.
+  //
+  // The carry below still applies: 20 Hz of wire against 60 Hz of frame is
+  // unchanged by where the number came from. And it is still suppressed during
+  // HITSTOP — the sim is holding this man completely still, and a pose that
+  // kept easing forward through the freeze is the client sliding him through a
+  // stop the server says is total, which is exactly the bug the freeze exists
+  // to prevent.
+  if (player.swingDuration !== undefined && player.swingDuration > 0 && player.swingT !== undefined) {
+    motion.swingDur = player.swingDuration;
+    motion.heavy = approach(motion.heavy, player.swingHeavy ? 1 : 0, dt, 9);
+    const frozen = (player.hitstop ?? 0) > 0;
+    motion.swingHold = frozen || Math.abs(player.attackTimer - motion.swingPrev) > 1e-5
+      ? 0
+      : motion.swingHold + dt;
+    motion.swingPrev = player.attackTimer;
+    const carry = frozen ? 0 : Math.min(motion.swingHold, player.swingDuration * 0.12);
+    const lead = carry * (1 - smooth(clamp01((motion.swingHold - TICK) / TICK)));
+    return (motion.swing = clamp01(player.swingT + lead / player.swingDuration));
   }
 
   // A timer that jumped up is a new swing. Its opening value is the length of
@@ -2987,6 +3106,14 @@ export function poseWarrior(
   const piv = rig.pivots;
   const t = ctx.time;
   const st = STANCE[rig.warriorClass] ?? STANCE.warden;
+
+  // Handedness, every frame and on every body. One float compare and, on the
+  // frame the player actually flips the switch, one write: the toggle has to
+  // land on the men already standing in the ring, not only on the next one
+  // built, or a left-hander turns it on mid-match and nothing happens.
+  const wantMirror = handMirror();
+  if (rig.mirror.scale.x !== wantMirror) rig.mirror.scale.x = wantMirror;
+  if (player.id === ctx.localId) reportHand(rig, wantMirror);
   // Hip height is the length of the rigid leg, and the leg is what the body
   // has to stand on: everything vertical in here is measured against it.
   const legLen = piv.leftLeg.position.y || 1.02;

@@ -363,8 +363,32 @@ export default function Page() {
     const key = `match:${matchResults.winnerId ?? "none"}:${matchResults.results.length}`;
     if (spokenRef.current === key) return;
     spokenRef.current = key;
-    audio.ui(matchResults.winnerId === playerId ? "matchWon" : "roundLost");
+    audio.ui(matchResults.winnerId === playerId ? "matchWon" : "matchLost");
   }, [matchResults, playerId, audio]);
+
+  /**
+   * The level. It is the one reward in the game that was silent, and it is
+   * deliberately NOT spoken off the payout message: the level rises in three
+   * different places — the server's answer, the device-local tally, and a
+   * recovery on a new phone — and only one of those is a moment worth a
+   * fanfare.
+   *
+   * So it is spoken off the profile itself, guarded twice. `seen` starts null
+   * and the FIRST level this device ever reports is adopted in silence: boot
+   * reads a level 7 profile out of localStorage over the default 1, and a
+   * fanfare for reading a file is how this feature ships broken. And a rise is
+   * only voiced while a match result is on screen, which is the only time a
+   * level can actually have been earned — signing in on a second phone, or
+   * recovering an account, moves the number without anyone having fought.
+   */
+  const levelSeenRef = useRef<number | null>(null);
+  useEffect(() => {
+    const seen = levelSeenRef.current;
+    levelSeenRef.current = profile.level;
+    if (seen === null || profile.level <= seen) return;
+    if (!matchResults) return;
+    audio.ui("levelUp");
+  }, [profile.level, matchResults, audio]);
 
   const say = useCallback((text: string, tone: "bad" | "good" = "bad") => {
     // The banner and its sound are set in the same call so they cannot drift:

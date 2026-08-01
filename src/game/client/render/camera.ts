@@ -6,6 +6,7 @@
 // mouse look, the mobile auto-follow and attack magnetism from fighting over it.
 
 import * as THREE from "three";
+import { getHandedness, subscribeHandedness } from "../input";
 import { LAYER_UNOCCLUDED, type FrameContext, type QualitySettings } from "./quality";
 
 export type CameraMode =
@@ -38,6 +39,14 @@ export interface CameraRig {
   setMode(mode: CameraMode): void;
   /** Aims "photo" mode. Selecting the mode without this leaves the rig put. */
   setPhotoFraming(framing: PhotoFraming): void;
+  /**
+   * The heading the sim spawned this warrior on, for the rig to adopt the next
+   * time a round hands it back to him. One-shot: consumed by the adoption, so
+   * round three never opens on round one's bearing. Left unset, the rig takes
+   * the bearing from the spawn mark to the middle of the arena, which is where
+   * the sim faces men — see `adoptSpawnHeading`.
+   */
+  setSpawnHeading(yaw: number): void;
   /** Adds an impulse; the rig decays it. Larger hits should ask for more. */
   shake(intensity: number): void;
   setViewport(width: number, height: number): void;
@@ -52,6 +61,28 @@ const LOOK_AHEAD = 3.6;
 const LOOK_HEIGHT = 1.3;
 const FOV_BASE = 55;
 const FOV_SPRINT = 61;
+
+/**
+ * A warrior spawned this close to the middle has no bearing to the middle worth
+ * taking, and `atan2(0, 0)` is a silent 0 rather than an error. Inside it the
+ * rig keeps the yaw it had, which is no worse than today.
+ */
+const SPAWN_MIN_RADIUS = 0.35;
+
+/**
+ * Which shoulder the camera looks over, as a sign on the lateral offset.
+ *
+ * `+1` is over the RIGHT shoulder — the default, because the majority are
+ * right-handed and this is what the weapon hand in `anim.ts` is mirrored to
+ * agree with. `-1` is over the left, and it is the SAME one setting that
+ * already mirrors the touch zones (`input.ts`) and the HUD cluster
+ * (`GameHud.tsx`) and rides the profile. There is deliberately no second
+ * control: one switch turns the camera, the sword hand and the HUD together or
+ * the player ends up half left-handed.
+ */
+function shoulderSign(): number {
+  return getHandedness() ? -1 : 1;
+}
 
 export interface CameraOptions {
   aspect?: number;
@@ -78,13 +109,70 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
   let fov = FOV_BASE;
   let shakeAmount = 0;
 
+  // ---- spawn heading ----------------------------------------------------
+  // True while the rig owes the warrior his spawn bearing. Armed at boot and
+  // again every time the rig leaves "follow" — the lobby orbit, the
+  // between-rounds orbit and death all go out through `setMode`, and every one
+  // of those returns is a spawn. Without this the rig kept whatever yaw the
+  // orbit or the last dying look had left in it and the player opened the round
+  // facing the palisade. Best-of-5 makes that up to five wasted openings.
+  let pendingAdopt = true;
+  let spawnHeading: number | null = null;
+  /** Diagnostics. `adoptFrame` is which follow frame of this round adopted. */
+  let adoptions = 0;
+  let followFrame = 0;
+  let adoptFrame = -1;
+  let adoptedFrom = 0;
+  /** Set by an adoption, consumed by the same frame's `follow`: no ease-in. */
+  let snapNext = false;
+  /** Last point the follow rig framed. Only the readback below reads it. */
+  let focusX = 0;
+  let focusZ = 0;
+
+  /**
+   * Take the heading the round starts on. Called from `follow` on the first
+   * frame after the rig is handed back, so "within one tick of a round
+   * starting" is `adoptFrame === 0` and is asserted rather than asserted about.
+   *
+   * The bearing is the sim's own if anything handed it over, otherwise the line
+   * from the spawn mark to the middle of the arena — which is where the sim
+   * faces men, so the two agree without the rig having to be told.
+   */
+  function adoptSpawnHeading(ctx: FrameContext): void {
+    pendingAdopt = false;
+    let want = spawnHeading;
+    spawnHeading = null;
+    if (want === null) {
+      const r2 = ctx.focus.x * ctx.focus.x + ctx.focus.z * ctx.focus.z;
+      if (r2 < SPAWN_MIN_RADIUS * SPAWN_MIN_RADIUS) return;
+      // Forward is (sin yaw, cos yaw), and forward must point at the origin.
+      want = Math.atan2(-ctx.focus.x, -ctx.focus.z);
+    }
+    adoptedFrom = yaw;
+    yaw = want;
+    adoptFrame = followFrame;
+    adoptions++;
+    // Snapped, not eased: the point of the adoption is that the first second of
+    // the round is spent fighting rather than watching the camera swing round.
+    snapNext = true;
+  }
+
   function follow(dt: number, ctx: FrameContext): void {
+    if (pendingAdopt) adoptSpawnHeading(ctx);
+
     const fwdX = Math.sin(yaw);
     const fwdZ = Math.cos(yaw);
-    // Screen-right, so the warrior sits off-centre and the sword arm is clear.
-    const rightX = fwdZ;
-    const rightZ = -fwdX;
-    const damp = Math.min(1, dt * 7);
+    // The shoulder. Screen-right is `up × fwd` = (-fwdZ, fwdX): three.js is
+    // right-handed and the camera looks down its own -Z, so the world axis that
+    // comes out on the right of frame is NOT (fwdZ, -fwdX). The rig shipped
+    // with that second one, which is why the camera sat over the LEFT shoulder
+    // with the warrior filling the right of frame — the owner read it off the
+    // screen before anyone read it off the code. Offsetting the camera to the
+    // warrior's right puts him left of centre, which is over-the-right-shoulder.
+    const side = CAM_SIDE * shoulderSign();
+    const sideX = -fwdZ * side;
+    const sideZ = fwdX * side;
+    const damp = snapNext ? 1 : Math.min(1, dt * 7);
 
     const state = ctx.localState;
     const moving = state === "walking" || state === "running" || state === "sprinting";
@@ -92,14 +180,18 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     const bobAmp = state === "idle" ? 0.016 : 0.032;
     const bob = Math.sin(ctx.time * bobFreq) * bobAmp;
 
-    camera.position.x += (ctx.focus.x - fwdX * CAM_DIST + rightX * CAM_SIDE - camera.position.x) * damp;
-    camera.position.z += (ctx.focus.z - fwdZ * CAM_DIST + rightZ * CAM_SIDE - camera.position.z) * damp;
-    camera.position.y += (CAM_HEIGHT + bob - camera.position.y) * Math.min(1, dt * 10);
+    camera.position.x += (ctx.focus.x - fwdX * CAM_DIST + sideX - camera.position.x) * damp;
+    camera.position.z += (ctx.focus.z - fwdZ * CAM_DIST + sideZ - camera.position.z) * damp;
+    camera.position.y += (CAM_HEIGHT + bob - camera.position.y) * (snapNext ? 1 : Math.min(1, dt * 10));
     camera.lookAt(
       ctx.focus.x + fwdX * LOOK_AHEAD,
       LOOK_HEIGHT + bob * 0.7,
       ctx.focus.z + fwdZ * LOOK_AHEAD,
     );
+    snapNext = false;
+    followFrame++;
+    focusX = ctx.focus.x;
+    focusZ = ctx.focus.z;
 
     // A wider lens while sprinting; speed should be felt at the edges.
     const targetFov = state === "sprinting" ? FOV_SPRINT : FOV_BASE;
@@ -115,7 +207,14 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     camera.lookAt(0, lookY, 0);
   }
 
-  return {
+  // The handedness store lives in `input.ts` and reads itself out of
+  // localStorage on its first subscriber. The HUD is normally that subscriber,
+  // but the rig must not depend on the HUD having mounted first or the opening
+  // frame of a left-handed player's match is framed right-handed. Subscribing
+  // here forces the load and costs one closure.
+  const unsubscribeHand = subscribeHandedness(() => { /* read live, per frame */ });
+
+  const rig: CameraRig = {
     camera,
 
     get yaw() {
@@ -126,7 +225,20 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     },
 
     setMode(next) {
+      // Leaving "follow" arms the next entry. The orchestrator calls this every
+      // frame, so only the leaving edge is an event: lobby, the between-rounds
+      // orbit, the spectate orbit after a death and "photo" all pass through
+      // here, and coming back out of any of them is a spawn.
+      if (next !== "follow" && mode === "follow") {
+        pendingAdopt = true;
+        followFrame = 0;
+        adoptFrame = -1;
+      }
       mode = next;
+    },
+
+    setSpawnHeading(next) {
+      spawnHeading = next;
     },
 
     setPhotoFraming(framing) {
@@ -180,7 +292,41 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     },
 
     dispose() {
-      // Nothing retained. Collision raycasters and DoF focus state land here.
+      unsubscribeHand();
+      if (typeof window !== "undefined") {
+        delete (window as unknown as Record<string, unknown>).__bretwaldaCamera;
+      }
+      // Collision raycasters and DoF focus state land here.
     },
   };
+
+  // A readback for `tools/cameratest.mjs`, the same shape of hook `audio.ts`
+  // already hangs on the window for `phonesound`. Nothing in the game reads it.
+  // The measured lateral offset is the one number worth exporting: an assertion
+  // against the SIGN of a constant would only prove the constant, whereas this
+  // is where the camera actually ended up relative to the man, in his own frame.
+  if (typeof window !== "undefined") {
+    (window as unknown as Record<string, unknown>).__bretwaldaCamera = {
+      get yaw() { return yaw; },
+      get mode() { return mode; },
+      get lefty() { return getHandedness(); },
+      /** Adoptions of a spawn heading since boot. One per round, at least. */
+      get adoptions() { return adoptions; },
+      /** Which follow frame of this round adopted. 0 is "within one tick". */
+      get adoptFrame() { return adoptFrame; },
+      /** The yaw thrown away by the adoption — what the orbit had left behind. */
+      get adoptedFrom() { return adoptedFrom; },
+      /**
+       * How far the camera sits to the warrior's own right, in metres. Positive
+       * is over the right shoulder. Measured off the camera's world position and
+       * this frame's yaw, not off `CAM_SIDE`.
+       */
+      get shoulder() {
+        return (camera.position.x - focusX) * -Math.cos(yaw)
+          + (camera.position.z - focusZ) * Math.sin(yaw);
+      },
+    };
+  }
+
+  return rig;
 }

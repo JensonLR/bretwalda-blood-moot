@@ -5,7 +5,7 @@
 // what and the order they run in.
 import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
-import { WARRIOR_STATS, type GamePlayer, type AttackDirection } from "../types";
+import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase } from "../types";
 import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import {
@@ -118,6 +118,12 @@ interface WarriorSlot {
   stepTick: number;
   /** Last frame's `abilityActive`, so the signature fires once and not per-frame. */
   prevAbility: boolean;
+  /**
+   * Last frame's `attackPhase`. The whoosh is fired on the windup -> contact
+   * edge, which is the instant the server resolves the blow, so this is what
+   * makes it fire once per stroke rather than once per snapshot.
+   */
+  prevPhase: AttackPhase | null;
 }
 
 export default function GameCanvas({ playerId, roomState, onSendInput, onForge }: GameCanvasProps) {
@@ -630,6 +636,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
           slot = {
             rig, motion: createMotion(p), prevHp: p.health, prevState: p.state,
             dustTick: 0, stepTick: 0, prevAbility: p.abilityActive,
+            prevPhase: p.attackPhase ?? null,
           };
           warriorsRef.current.set(id, slot);
         }
@@ -653,12 +660,28 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         // Every branch below sits beside the vfx call that draws the same
         // moment, on purpose: nothing here is the only evidence a thing
         // happened, and a player with the sound off loses no information.
-        if (slot.prevState !== "attacking" && p.state === "attacking") {
-          // A heavy swing is `attackSpeed * 1.4` on the server against a light
-          // one's `attackSpeed`; at 20 Hz the timer has decayed by at most 50 ms
-          // on the frame the state first arrives, and the gap between the two is
-          // never less than 160 ms. So the weight of the swing is read off the
-          // wire rather than guessed.
+        //
+        // THE WHOOSH IS NOT THE CLICK. A stroke is windup 0.40 / contact 0.15 /
+        // recovery 0.45 of one clock and the server resolves the blow at the
+        // windup/contact boundary, so a whoosh fired the instant the state
+        // turned "attacking" played a quarter of a second of air BEFORE the
+        // blade was moving and then fell silent through the part where it
+        // actually passes. It is fired on the phase edge the server itself
+        // crosses, which is the same instant `processAttack` runs. The weight
+        // of the blow is `swingHeavy` off the wire — no longer inferred from
+        // how far a timer had decayed by the frame the state arrived.
+        const phase = p.attackPhase ?? null;
+        if (slot.prevPhase !== "contact" && phase === "contact") {
+          stage.audio.swing({
+            position: { x: at.x, y: 1.3, z: at.z },
+            local: id === playerId,
+            warriorClass: p.warriorClass,
+            heavy: p.swingHeavy === true,
+          });
+        }
+        // A server that never sends a phase — an older build behind a cached
+        // client — still gets a voice, on the edge it used to get one.
+        if (phase === null && slot.prevState !== "attacking" && p.state === "attacking") {
           const speed = WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.7;
           stage.audio.swing({
             position: { x: at.x, y: 1.3, z: at.z },
@@ -666,6 +689,19 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
             warriorClass: p.warriorClass,
             heavy: p.attackTimer > speed * 1.08,
           });
+        }
+        slot.prevPhase = phase;
+
+        // HITSTOP, taken off the wire rather than invented here. The server
+        // freezes both fighters for `HITSTOP.light`/`.heavy` and reports the
+        // remainder on every snapshot; the client's own slow-mo used three
+        // hand-picked numbers that agreed with none of them, so the frame
+        // un-froze while the sim was still holding the man still — which is
+        // exactly the "blow passes through" the weight pass was for. Re-taken
+        // every tick with a max, so the freeze the eye sees ends when the
+        // freeze the sim is running ends.
+        if (id === playerId && (p.hitstop ?? 0) > 0) {
+          hitStopRef.current = Math.max(hitStopRef.current, p.hitstop ?? 0);
         }
         if (slot.prevState !== "blocking" && p.state === "blocking") {
           stage.audio.block({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, raise: true });
@@ -742,15 +778,20 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
           slot.motion.recoil = Math.min(1.6, 0.6 + dmg * 0.03);
           stage.hud.spawnDamageNumber(dmg, { x: at.x, z: at.z }, dmg >= 22);
 
+          // The freeze is NOT set here any more, on either branch. The sim
+          // freezes both fighters for a stated number of seconds and puts the
+          // remainder on the wire; taking it there means the picture and the
+          // simulation come out of the freeze on the same tick instead of the
+          // client guessing 45 or 70 ms at a sim holding 60 or 110. Camera
+          // kick, hurt grade and rumble stay local — they are flourish, and the
+          // freeze is not.
           if (id === playerId) {
             stage.rig.shake(1.1 + dmg * 0.03);
             stage.postfx.hurt(Math.min(1, 0.45 + dmg * 0.02));
-            hitStopRef.current = Math.max(hitStopRef.current, 0.07);
             rumble(dmg >= 25 ? [45, 30, 45] : [35]);
           } else if (p.lastHitBy === playerId) {
             // We're the one dealing this blow — feel the impact
             stage.rig.shake(0.35 + dmg * 0.015);
-            hitStopRef.current = Math.max(hitStopRef.current, 0.045);
             rumble(dmg >= 25 ? [30] : [18]);
           } else {
             stage.rig.shake(0.28);

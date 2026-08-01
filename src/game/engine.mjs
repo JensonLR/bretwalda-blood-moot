@@ -344,6 +344,67 @@ const INPUT_LAPSE_MS = 600;     // a client this quiet has stopped asking for an
                                 // not lose a fifth of his stride to the frame rate — short
                                 // enough that a dead tab's warrior stops inside three strides.
 
+// ---- weight ----
+// A swing used to be one number and one instant: `attackTimer` counted down and
+// `processAttack` resolved the hit on the same line that read the click. Nothing
+// in that can read as heavy, because there is no time in which to read anything
+// — a runekeeper's whole stroke was 0.34 s, less than a human reaction.
+//
+// A swing is now three phases of one clock. `attackTimer` still counts the whole
+// stroke down, so everything that already read it (anim.ts, the audio path)
+// keeps working; what is new is that the hit lands at the WINDUP/CONTACT
+// boundary rather than at the click, and the phase is on the wire.
+//
+//   WINDUP    0.40  the blade goes back. Nothing has happened yet and a
+//                   defender can see that it is about to.
+//   CONTACT   0.15  the edge is out. `processAttack` runs once, on the step
+//                   that crosses into this.
+//   RECOVERY  0.45  the weight has to be brought back. This is what a whiff
+//                   costs, and it is the largest share on purpose.
+//
+// They are fractions rather than seconds so one table describes every class,
+// and playtest asserts each share against the class's own swing.
+export const SWING_PHASES = { windup: 0.40, contact: 0.15, recovery: 0.45 };
+const WINDUP_END = SWING_PHASES.windup;                             // 0.40
+const CONTACT_END = SWING_PHASES.windup + SWING_PHASES.contact;     // 0.55
+
+// A heavy was `attackSpeed * 1.4`. Against swings that are now 1.70x longer in
+// absolute terms that put a berserker's heavy at 1.86 s, which is not a fight,
+// it is a cutscene. 1.25 keeps the berserker heavy the longest committment in
+// the game at 1.66 s and keeps its windup — 0.665 s — the most readable thing
+// on the field, which is the right price for 50 damage.
+const HEAVY_SWING_SCALE = 1.25;
+
+// Hitstop. Both fighters freeze on contact: no timers, no travel, no thinking,
+// and the reported velocity goes to zero so a client extrapolating between
+// packets stops with them. The cheapest impact there is.
+//
+// 0.06 s is three frames at 60 Hz and just over one server tick; 0.11 s is
+// nearly seven frames and two ticks. Both are paid by the ATTACKER as well, so
+// a landed blow lengthens his own swing by exactly that much — impact costs
+// tempo, which is why it reads as impact.
+export const HITSTOP = { light: 0.06, heavy: 0.11 };
+
+// Commitment. Free turning is instantaneous: `processInput` writes the client's
+// yaw straight onto the body, and it stays that way, because a laggy camera is
+// worse than a fast one. Inside a swing it is capped instead, in radians per
+// second, integrated on the fixed step so the cap means the same thing at any
+// message rate.
+//
+// 1.8 rad/s is 103 deg/s, which is about what it takes to hold a man strafing
+// at 5 u/s three metres away — so a windup can still track, and only just. The
+// per-phase scale takes almost all of it away once the edge is out.
+export const SWING_TURN_RATE = 1.8;
+export const SWING_TURN_PHASE = { windup: 1.0, contact: 0.25, recovery: 0.6 };
+
+// What that buys, over a whole runekeeper light (0.58 s), against the 180 deg a
+// free warrior takes instantly:
+//   windup    0.232 s x 1.80 = 0.418 rad
+//   contact   0.087 s x 0.45 = 0.039 rad
+//   recovery  0.261 s x 1.08 = 0.282 rad
+//                              0.739 rad = 42.3 deg for the entire swing.
+// A committed blow can be led. It cannot be steered.
+
 // ---- the clock ----
 // The simulation advances in fixed steps; the wall clock decides how many are
 // owed. See gameTick — this is where the movement-speed bug actually lived.
@@ -355,6 +416,29 @@ const MAX_CATCHUP_MS = 400;     // arrears we will work off in one wake; past th
 
 const DIFFICULTIES = ["recruit", "warrior", "jarl"];
 const BOT_SKILL = { recruit: 0.45, warrior: 0.7, jarl: 0.92 };
+
+// ---- what a bot may read of a swing ----
+// A bot used to guard on `target.state === "attacking"`, which under the old
+// timing meant "the blow has already been resolved" — the state and the damage
+// arrived on the same line, so the guard was decoration. With a windup in front
+// of the hit that same test would make a bot unhittable: it would see every
+// stroke a whole tenth of a second before contact and block all of them.
+//
+// So a bot must now WATCH a windup for this long before it may answer it, and
+// the windup has to still be running when it does. Against the roster's windups
+// (runekeeper 0.232, warden 0.340, huscarl 0.408, berserker 0.532) that means a
+// recruit at 0.287 s can only answer a huscarl or a berserker, a warrior at
+// 0.214 s picks up the warden as well, and only a jarl at 0.174 s reads a seax.
+// The class that is hard for a human to react to is hard for a bot, off the same
+// number, which is the only way the two stay honest with each other.
+const BOT_REACTION = 0.34;
+const BOT_REACTION_SKILL = 0.18;
+// And a bot's own cadence is measured from the end of its stroke rather than
+// from a flat 1.5 s that no longer relates to anything: a berserker bot whose
+// heavy takes 1.66 s would otherwise spend the whole swing throwing attacks the
+// server drops. Recruit leaves 0.45-0.85 s between strokes, a jarl 0.18-0.58.
+const BOT_SWING_GAP = 0.45;
+const BOT_SWING_GAP_SKILL = 0.30;
 const BOT_TITLES = { recruit: " the Young", warrior: "", jarl: " the Grim" };
 const SOLO_BOTS_BY_DIFFICULTY = { recruit: 1, warrior: 2, jarl: 3 };
 const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood moot
@@ -375,12 +459,52 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 //   100. The runekeeper is the class the reach pass costs most (3.0 -> 1.70, and
 //   it must now stand inside every other weapon), and if it needs paying back,
 //   the payment has to land in both tables at once or not at all.
+//
+// ---- the weight pass ----
+// `attackSpeed` is now the WHOLE stroke: windup, contact and recovery, split by
+// SWING_PHASES. One column moved and nothing else did — no damage, no health, no
+// reach, no arc, no zone multiplier. Every class is multiplied by the same
+// 1.70x, to within 0.6%:
+//
+//   class        was    now    factor   windup   contact  recovery  heavy total
+//   runekeeper   0.34   0.58   1.706    0.232    0.087    0.261     0.725
+//   warden       0.50   0.85   1.700    0.340    0.128    0.383     1.063
+//   huscarl      0.60   1.02   1.700    0.408    0.153    0.459     1.275
+//   berserker    0.78   1.33   1.705    0.532    0.200    0.599     1.663
+//
+// Because the factor is common, every ratio the roster is balanced on survives
+// exactly. Light damage per second, which is the number the runekeeper exists to
+// win: 41.2 / 40.0 / 30.0 / 35.9 before, 24.1 / 23.5 / 17.6 / 21.1 after — the
+// same order (runekeeper, warden, berserker, huscarl), the same spread, each a
+// clean 1/1.70 of what it was. Berserker/runekeeper swing time is 2.29x before
+// and 2.293x after. The fast class is exactly as fast, relative to the field, as
+// it was this morning; it is only that the field is now heavy.
+//
+// What the pass DOES change is readability, and there it is deliberately not
+// uniform. The windup a defender gets to answer runs 0.232 s against a seax and
+// 0.532 s against a Dane axe. 232 ms is under a human reaction: a runekeeper's
+// light is meant to be read from his stance, not answered after it starts, and
+// that — not damage — is what the class is buying. Every other class is at 340 ms
+// or more, which is comfortably reactable, and a berserker heavy telegraphs for
+// two thirds of a second.
+//
+// The two tables are held together on this column: `types.ts` carries the same
+// four numbers, because `anim.ts` drives the whole swing animation off its copy
+// (`WARRIOR_STATS[cls].attackSpeed` as the nominal duration) and a drift here is
+// a swing that finishes on the client before it lands on the server. The rest of
+// that table's drift is left where it was — it is a display bug, not this one.
 export const WARRIOR_STATS = {
-  huscarl: { maxHealth: 150, moveSpeed: 4.0, sprintSpeed: 6.4, attackDamage: 18, heavyDamage: 30, attackSpeed: 0.6, blockReduction: 0.8, dodgeDistance: 3.6, staminaMax: 105, staminaRegen: 17, ability: "SHIELD WALL", abilityCooldown: 12 },
-  warden: { maxHealth: 120, moveSpeed: 4.5, sprintSpeed: 6.8, attackDamage: 20, heavyDamage: 35, attackSpeed: 0.5, blockReduction: 0.6, dodgeDistance: 4.1, staminaMax: 115, staminaRegen: 20, ability: "BATTLE FOCUS", abilityCooldown: 15 },
-  runekeeper: { maxHealth: 90, moveSpeed: 5.5, sprintSpeed: 8.2, attackDamage: 14, heavyDamage: 25, attackSpeed: 0.34, blockReduction: 0.4, dodgeDistance: 5.6, staminaMax: 135, staminaRegen: 24, ability: "SHADOW STEP", abilityCooldown: 8 },
-  berserker: { maxHealth: 110, moveSpeed: 4.7, sprintSpeed: 7.2, attackDamage: 28, heavyDamage: 50, attackSpeed: 0.78, blockReduction: 0.3, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
+  huscarl: { maxHealth: 150, moveSpeed: 4.0, sprintSpeed: 6.4, attackDamage: 18, heavyDamage: 30, attackSpeed: 1.02, blockReduction: 0.8, dodgeDistance: 3.6, staminaMax: 105, staminaRegen: 17, ability: "SHIELD WALL", abilityCooldown: 12 },
+  warden: { maxHealth: 120, moveSpeed: 4.5, sprintSpeed: 6.8, attackDamage: 20, heavyDamage: 35, attackSpeed: 0.85, blockReduction: 0.6, dodgeDistance: 4.1, staminaMax: 115, staminaRegen: 20, ability: "BATTLE FOCUS", abilityCooldown: 15 },
+  runekeeper: { maxHealth: 90, moveSpeed: 5.5, sprintSpeed: 8.2, attackDamage: 14, heavyDamage: 25, attackSpeed: 0.58, blockReduction: 0.4, dodgeDistance: 5.6, staminaMax: 135, staminaRegen: 24, ability: "SHADOW STEP", abilityCooldown: 8 },
+  berserker: { maxHealth: 110, moveSpeed: 4.7, sprintSpeed: 7.2, attackDamage: 28, heavyDamage: 50, attackSpeed: 1.33, blockReduction: 0.3, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
 };
+
+/** Seconds a whole swing takes for this class, heavy or light. */
+export function swingDurationOf(warriorClass, isHeavy) {
+  const stats = WARRIOR_STATS[warriorClass] ?? WARRIOR_STATS.huscarl;
+  return stats.attackSpeed * (isHeavy ? HEAVY_SWING_SCALE : 1);
+}
 
 const ROOM_NAMES = ["WESSEX", "MERCIA", "ESSEX", "KENT", "SUSSEX", "ANGLIA", "NORTHUMBRIA", "JORVIK", "LINDSEY", "BERNICIA", "DEIRA", "HWICCE"];
 const BOT_NAMES = ["Ealdred", "Wulfred", "Aelric", "Beorn", "Cynric", "Eadwig", "Grim", "Hardred", "Leofric", "Osric", "Uhtred", "Deor"];
@@ -563,6 +687,15 @@ function makeEngine() {
       stamina: stats.staminaMax, maxStamina: stats.staminaMax,
       state: "idle", attackDir: "right", blockDir: "right",
       attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+      // The swing, on the wire. `attackTimer` is still the whole stroke's clock;
+      // these say where in it he is, so a client animates the phases instead of
+      // guessing them from a single countdown. Null/0 whenever he is not swinging.
+      attackPhase: null, attackPhaseT: 0, swingT: 0, swingDuration: 0, swingHeavy: false,
+      // Seconds of freeze left. Both fighters carry it after a landed blow.
+      hitstop: 0,
+      // Server scratch, never serialised: the yaw the client last ASKED for, and
+      // the blow this swing will deliver when it reaches contact.
+      aimYaw: 0, pendingSwing: null,
       abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
       kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "", lastHitAt: -999,
       comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
@@ -589,6 +722,10 @@ function makeEngine() {
   const clearBodyMarks = (p) => {
     p.deathZone = null; p.deathDir = null; p.deathHeavy = false; p.deathCause = null;
     p.burning = false; p.burnTimer = 0; p.burnInside = false;
+    // Nor mid-stroke, nor frozen in one. A warrior who came back carrying a
+    // pending blow would deliver it out of a spawn, at whoever was nearest.
+    p.hitstop = 0; p.attackPhase = null; p.attackPhaseT = 0;
+    p.swingT = 0; p.swingDuration = 0; p.swingHeavy = false; p.pendingSwing = null;
   };
 
   const isTeamMode = (room) => room.mode === "war_band";
@@ -665,7 +802,8 @@ function makeEngine() {
   // Simulation scratch: needed every tick, meaningless off the server, and
   // twenty times a second of wire it does not deserve.
   const PRIVATE_FIELDS = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt",
-    "aiSkill", "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName"];
+    "aiSkill", "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName",
+    "aimYaw", "pendingSwing"];
 
   function serializeRoom(room) {
     const players = {};
@@ -1051,10 +1189,21 @@ function makeEngine() {
   // Steering is only recorded here; gameTick is what moves anybody.
   function processInput(room, player, input) {
     const stats = WARRIOR_STATS[player.warriorClass];
-    player.rotation = finite(input.rotationY);
+    // The yaw the client is asking for is always recorded. Whether the body
+    // adopts it now is the whole of commitment: free, it snaps, because a
+    // laggy camera is worse than a fast one; mid-swing, `advanceSwing` slews
+    // toward it at SWING_TURN_RATE on the fixed step instead, so the cap does
+    // not become a measurement of the message rate.
+    player.aimYaw = finite(input.rotationY);
+    // Frozen on contact: he is not turning, striking, guarding or rolling. The
+    // aim above is still taken, so the freeze ends pointing where he asked.
+    if (player.hitstop > 0) return;
+    if (!isCommitted(player)) player.rotation = player.aimYaw;
     if (player.state === "staggered") return;
 
-    if (input.dodge && player.dodgeTimer <= 0 && player.stamina >= 20 && player.state !== "dodging") {
+    // A roll used to cancel a swing, which is the whole of what made a light
+    // attack weightless: you could throw one and take it back. You cannot.
+    if (input.dodge && player.dodgeTimer <= 0 && player.stamina >= 20 && player.state !== "dodging" && !isCommitted(player)) {
       player.state = "dodging"; player.dodgeTimer = DODGE_COOLDOWN;
       player.stamina -= 20; player.invincible = true; player.invincibleTimer = DODGE_DURATION;
       // You roll where you lean, and away from the fight if you lean nowhere.
@@ -1076,24 +1225,111 @@ function makeEngine() {
     }
 
     if (input.attack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.stamina >= 13) {
-      player.state = "attacking"; player.attackDir = input.attackDir;
-      player.attackTimer = stats.attackSpeed; player.stamina -= 13;
+      player.stamina -= 13;
       if (player.comboTimer > 0) player.comboCount++; else player.comboCount = 1;
       player.comboTimer = COMBO_WINDOW;
-      // Attack lunge — every strike propels you toward the blow
-      applyImpulse(player, Math.sin(player.rotation), Math.cos(player.rotation), LUNGE_LIGHT, false);
-      processAttack(room, player, stats.attackDamage, false);
+      beginSwing(player, input.attackDir, stats.attackDamage, false);
     }
 
     if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.stamina >= 22) {
-      player.state = "attacking"; player.attackDir = input.attackDir;
-      player.attackTimer = stats.attackSpeed * 1.4; player.stamina -= 22;
+      player.stamina -= 22;
       player.comboCount = 0; player.comboTimer = 0;
-      applyImpulse(player, Math.sin(player.rotation), Math.cos(player.rotation), LUNGE_HEAVY, false);
-      processAttack(room, player, stats.heavyDamage, true);
+      beginSwing(player, input.attackDir, stats.heavyDamage, true);
     }
 
     if (input.ability && player.abilityCooldown <= 0) activateAbility(room, player);
+  }
+
+  /** Swinging. Committed by definition, and the only state the turn cap binds. */
+  const isCommitted = (player) => player.state === "attacking";
+
+  /**
+   * Start a stroke. Nothing is resolved here any more — the blow is parked on
+   * the body and `advanceSwing` delivers it when the clock reaches contact.
+   *
+   * The lunge still fires at the top, and that is deliberate: it is the step
+   * INTO the blow, and spending the windup travelling is what stops the longer
+   * swings from being a range nerf as well as a speed one. The body cannot steer
+   * while committed (see integrateMovement), so it is a step, not a chase.
+   */
+  function beginSwing(player, attackDir, damage, isHeavy) {
+    const dur = swingDurationOf(player.warriorClass, isHeavy);
+    player.state = "attacking";
+    player.attackDir = attackDir;
+    player.attackTimer = dur;
+    player.swingDuration = dur;
+    player.swingHeavy = isHeavy;
+    player.swingT = 0;
+    player.attackPhase = "windup";
+    player.attackPhaseT = 0;
+    player.pendingSwing = { damage, heavy: isHeavy };
+    applyImpulse(player, Math.sin(player.rotation), Math.cos(player.rotation),
+      isHeavy ? LUNGE_HEAVY : LUNGE_LIGHT, false);
+  }
+
+  /**
+   * The stroke is over — finished, parried out of him, or he is dead. Clears the
+   * phase off the wire and drops any blow that had not reached contact yet: a
+   * stagger is the one thing that CAN cancel a swing, which is what makes a
+   * parry worth the timing.
+   */
+  function endSwing(player) {
+    player.attackPhase = null;
+    player.attackPhaseT = 0;
+    player.swingT = 0;
+    player.swingDuration = 0;
+    player.swingHeavy = false;
+    player.pendingSwing = null;
+  }
+
+  /**
+   * One fixed step of one swing: the clock, the phase, the hit, and the cap on
+   * turning. Called for every living warrior, whether or not he is swinging,
+   * because it also owns putting a finished stroke away.
+   */
+  function advanceSwing(room, player, dt) {
+    if (player.attackTimer > 0) {
+      player.attackTimer -= dt;
+      if (player.attackTimer <= 0) {
+        player.attackTimer = 0;
+        if (player.state === "attacking") player.state = "idle";
+      }
+    }
+    const dur = player.swingDuration;
+    if (!isCommitted(player) || dur <= 0) {
+      if (player.attackPhase !== null) endSwing(player);
+      return;
+    }
+
+    const t = clamp01(1 - player.attackTimer / dur);
+    player.swingT = t;
+
+    // Contact. Once, on the step that crosses out of the windup — a 50 ms tick
+    // quantises it, so the edge arrives within one tick of the stated fraction
+    // and never twice.
+    if (t >= WINDUP_END && player.pendingSwing) {
+      const blow = player.pendingSwing;
+      player.pendingSwing = null;
+      processAttack(room, player, blow.damage, blow.heavy);
+      // A parry staggers the man who threw it, mid-stroke. That is the one thing
+      // that can take a swing back off him, and it is why a parry is worth the
+      // timing. (Hitstop does NOT return here: the phase still has to be written
+      // for the snapshot, and the freeze takes hold on the next step.)
+      if (!isCommitted(player)) { endSwing(player); return; }
+    }
+
+    const phase = t < WINDUP_END ? "windup" : t < CONTACT_END ? "contact" : "recovery";
+    const lo = phase === "windup" ? 0 : phase === "contact" ? WINDUP_END : CONTACT_END;
+    const hi = phase === "windup" ? WINDUP_END : phase === "contact" ? CONTACT_END : 1;
+    player.attackPhase = phase;
+    player.attackPhaseT = clamp01((t - lo) / (hi - lo));
+
+    // Commitment: the body turns toward the yaw the client asked for at a capped
+    // rate rather than adopting it. Integrated on the fixed step, so 1.8 rad/s
+    // is 1.8 rad/s at any packet rate.
+    const cap = SWING_TURN_RATE * (SWING_TURN_PHASE[phase] ?? 1) * dt;
+    const off = wrapPi(player.aimYaw - player.rotation);
+    player.rotation = wrapPi(player.rotation + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
   }
 
   function processAttack(room, attacker, baseDamage, isHeavy) {
@@ -1130,7 +1366,10 @@ function makeEngine() {
         const eff = shieldWall ? 0.95 : blockStats.blockReduction;
         if (target.blockTimer > 0 && target.blockTimer < PARRY_WINDOW) {
           attacker.state = "staggered"; attacker.staggerTimer = STAGGER_DURATION * 1.5;
-          broadcast(room, { type: "hit", data: { type: "parry", attackerId: attacker.id, targetId: target.id, damage: 0 } });
+          // A parry is the hardest thing in the game to do and gets the longest
+          // freeze. Both men: the one who read it and the one who was read.
+          applyHitstop(attacker, target, HITSTOP.heavy);
+          broadcast(room, { type: "hit", data: { type: "parry", attackerId: attacker.id, targetId: target.id, damage: 0, hitstop: HITSTOP.heavy } });
           return;
         }
         if (isHeavy && !shieldWall) {
@@ -1146,13 +1385,28 @@ function makeEngine() {
     });
   }
 
+  /**
+   * Freeze both fighters. The longer of any two overlapping freezes wins, so a
+   * man caught by a second blade mid-hitstop is not shortened out of the first.
+   * A corpse is not frozen — the dead are skipped by the step anyway, and a
+   * frozen body would hold its death animation up.
+   */
+  function applyHitstop(attacker, target, seconds) {
+    if (attacker.state !== "dead") attacker.hitstop = Math.max(attacker.hitstop, seconds);
+    if (target.state !== "dead") target.hitstop = Math.max(target.hitstop, seconds);
+  }
+
   function applyDamage(room, attacker, target, damage, hitType, hitZone = "torso") {
     const heavy = hitType === "heavy" || hitType === "blocked_heavy";
     target.health -= damage; target.lastHitBy = attacker.id; attacker.damage += damage;
     // When, not only by whom. A burn death seconds later has to know whether this
     // blow is close enough behind it to have caused it — see burnDeath.
     target.lastHitAt = room.matchTimer;
-    broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir, hitZone } });
+    // Hitstop, before the death check: a killing blow lands on a man who is
+    // still standing at this line, and the freeze is the attacker's either way.
+    const stop = heavy ? HITSTOP.heavy : HITSTOP.light;
+    applyHitstop(attacker, target, stop);
+    broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir, hitZone, hitstop: stop } });
     if (target.health <= 0) {
       target.health = 0; target.state = "dead"; target.deaths++;
       target.deadAt = room.matchTimer;
@@ -1162,6 +1416,8 @@ function makeEngine() {
       // later rebuilds the same one-armed corpse the room watched drop.
       target.deathZone = hitZone; target.deathDir = attacker.attackDir; target.deathHeavy = heavy;
       target.deathCause = "blow";
+      target.hitstop = 0;    // ...and the dead are not held still, they are still
+      endSwing(target);      // ...and a corpse is not mid-swing
       clearMotion(target);   // the dead stop running
       attacker.kills++; attacker.score += 100;
       room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: Date.now(), hitZone });
@@ -1494,7 +1750,8 @@ function makeEngine() {
       // Wander the moot — half a stride, so it reads as pacing, not patrolling
       if (Math.random() < 0.02) {
         const a = Math.random() * Math.PI * 2;
-        bot.yaw = a; bot.rotation = a;
+        bot.yaw = a;
+        if (!isCommitted(bot)) bot.rotation = a;
         botIntent(bot, Math.sin(a) * 0.5, Math.cos(a) * 0.5, false);
       }
       return;
@@ -1505,10 +1762,14 @@ function makeEngine() {
     const dist = Math.max(0.01, Math.hypot(dx, dz));
     const angleTo = Math.atan2(dx, dz);
 
-    // Smooth turning toward target (no snap jitter)
+    // Smooth turning toward target (no snap jitter). The intent keeps tracking
+    // through a swing; the BODY does not — `advanceSwing` slews it toward this
+    // yaw under the same cap a player is held to, so a committed bot cannot
+    // pirouette after a man who stepped aside either.
     const turn = Math.min(1, dt * (6 + bot.aiSkill * 8));
     bot.yaw += angDiff(angleTo, bot.yaw ?? angleTo) * turn;
-    bot.rotation = bot.yaw;
+    bot.aimYaw = bot.yaw;
+    if (!isCommitted(bot)) bot.rotation = bot.yaw;
 
     const nx = dx / dist, nz = dz / dist;         // toward target
     const px = -nz, pz = nx;                       // perpendicular (strafe)
@@ -1517,7 +1778,14 @@ function makeEngine() {
 
     const dirs = ["left", "right", "overhead", "stab"];
     const attackDir = dirs[(Math.random() * 4) | 0];
-    const enemyAttacking = target.state === "attacking";
+    // A blow it has had time to SEE, and which has not yet landed. Everything
+    // defensive hangs off this rather than off `state === "attacking"`, which is
+    // now true for two thirds of a stroke the bot can do nothing about.
+    const windupSeen = target.attackPhase === "windup" ? target.swingT * target.swingDuration : 0;
+    const readable = windupSeen >= BOT_REACTION - bot.aiSkill * BOT_REACTION_SKILL;
+    // ...and the other side of the same coin: a man in recovery has spent his
+    // weight and cannot answer. Only the better bots see the opening.
+    const openings = target.attackPhase === "recovery" && bot.aiSkill > 0.6;
 
     // Every distance a bot judges is now judged against a weapon rather than
     // against one constant. Two different weapons are in play and the bot needs
@@ -1547,7 +1815,7 @@ function makeEngine() {
     }
 
     // Guard: hold a BLOCK for a short window when enemy winds up
-    if (enemyAttacking && !bot.isBlocking && dist < theirReach * 1.15 && Math.random() < 0.22 + bot.aiSkill * 0.3) {
+    if (readable && !bot.isBlocking && dist < theirReach * 1.15 && Math.random() < 0.22 + bot.aiSkill * 0.3) {
       botAct(room, bot, { block: true, attackDir: target.attackDir });
       bot.isBlocking = true;
       bot.blockUntil = now + 0.45 + Math.random() * 0.6;
@@ -1558,7 +1826,7 @@ function makeEngine() {
     // stride, because it is the longest single movement in the game — a
     // runekeeper's is 5.6 m — and backing away from a man stood with the fire
     // behind him is precisely how a bot would roll into it.
-    if (enemyAttacking && dist < theirReach * 0.65 && bot.dodgeTimer <= 0 && Math.random() < 0.08 + bot.aiSkill * 0.18) {
+    if (readable && dist < theirReach * 0.65 && bot.dodgeTimer <= 0 && Math.random() < 0.08 + bot.aiSkill * 0.18) {
       const roll = steerClearOfFire(bot, -nx, -nz);
       botAct(room, bot, { moveX: roll.x, moveZ: roll.z, dodge: true });
       return;
@@ -1569,14 +1837,18 @@ function makeEngine() {
       botAct(room, bot, { ability: true, attackDir });
     }
 
-    // Strike cadence
-    if (!bot.isBlocking && dist <= myReach * 0.95 && now >= bot.nextAttackAt && bot.stamina > 25) {
+    // Strike cadence, now measured against the bot's OWN stroke. A man caught in
+    // recovery is punished on the spot rather than on the next beat — that is
+    // what recovery is for, and a bot that could not use it would leave the whole
+    // point of the weight pass to the player alone.
+    if (!bot.isBlocking && dist <= myReach * 0.95 && (now >= bot.nextAttackAt || openings) && bot.stamina > 25) {
       const heavy = Math.random() < 0.2 * bot.aiSkill + (target.state === "blocking" ? 0.18 : 0);
       botAct(room, bot, {
         rotationY: bot.yaw + (Math.random() - 0.5) * 0.15,
         attack: !heavy, heavyAttack: heavy, attackDir,
       });
-      bot.nextAttackAt = now + (1.5 - bot.aiSkill * 0.75) + Math.random() * 0.7;
+      bot.nextAttackAt = now + swingDurationOf(bot.warriorClass, heavy)
+        + BOT_SWING_GAP - bot.aiSkill * BOT_SWING_GAP_SKILL + Math.random() * 0.4;
     }
   }
 
@@ -1779,9 +2051,25 @@ function makeEngine() {
       }
       if (player.state === "dead") return;
 
+      // HITSTOP. The blow has landed and for these few frames nothing about this
+      // man advances: no swing clock, no stagger, no stamina, no travel, and for
+      // a bot no thinking. The reported velocity goes to zero as well, or a
+      // client extrapolating between packets keeps sliding him through a freeze
+      // the server says is total.
+      //
+      // It cannot chain: the only thing that sets it is a hit resolved out of
+      // `advanceSwing`, and an attacker frozen here is an attacker whose swing
+      // is not advancing either.
+      if (player.hitstop > 0) {
+        player.hitstop -= dt;
+        if (player.hitstop <= 0) player.hitstop = 0;
+        player.velocity.x = 0; player.velocity.z = 0;
+        return;
+      }
+
       if (player.bot) botThink(room, player, dt);
 
-      if (player.attackTimer > 0) { player.attackTimer -= dt; if (player.attackTimer <= 0 && player.state === "attacking") player.state = "idle"; }
+      advanceSwing(room, player, dt);
       if (player.blockTimer > 0) player.blockTimer += dt;
       if (player.dodgeTimer > 0) {
         player.dodgeTimer -= dt;
