@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AttackDirection, GamePlayer, WarriorClass } from "../types";
 import type { CameraRig } from "./render/camera";
+import { clearTapped, ensureKeyTracking, isActionDown, isActionHit } from "./bindings";
 
 export interface MobileFlags {
   attack: boolean;
@@ -261,14 +262,22 @@ export function sampleInput(
   dt: number,
   lastDir: AttackDirection,
 ): InputSample {
-  const { isMobile, keys, joystick, mobile } = sources;
-  const tapped = sources.tapped;
+  const { isMobile, joystick, mobile } = sources;
+  // Desktop intent is read from the binding table (see ./bindings and
+  // docs/KEYBINDS.md), which is keyed on `event.code` — the physical position,
+  // the same key on AZERTY, Dvorak and QWERTY — rather than on the character
+  // produced. The tracker lives in that module because `sources.keys` carries
+  // characters, and a movement cluster wants positions.
+  ensureKeyTracking();
+  const mouse = { left: sources.mouseDown, right: sources.rightMouseDown };
+  /** Bound key held now, or the mouse button the caller reports. */
+  const down = (a: Parameters<typeof isActionDown>[0]) => isActionDown(a, mouse);
   /** Held now, or tapped since the last sample. */
-  const hit = (k: string) => keys.has(k) || tapped.has(k);
+  const hit = (a: Parameters<typeof isActionHit>[0]) => isActionHit(a, mouse);
   const local = players[localId];
   const alive = local && local.state !== "dead";
-  const pressedAttack = isMobile ? mobile.attack : sources.mouseDown;
-  const heavy = isMobile ? mobile.heavy : hit("e") || hit("v");
+  const pressedAttack = isMobile ? mobile.attack : down("attack");
+  const heavy = isMobile ? mobile.heavy : hit("heavy");
 
   // A heavy is a swing too, and it is the one you least want to miss.
   if ((pressedAttack || heavy) && alive) applyFacingAssist(rig, players, local, localId, dt, isMobile);
@@ -280,10 +289,10 @@ export function sampleInput(
     mx = joystick.x;
     mz = joystick.y;
   } else {
-    if (keys.has("w") || keys.has("arrowup")) mz = -1;
-    if (keys.has("s") || keys.has("arrowdown")) mz = 1;
-    if (keys.has("a") || keys.has("arrowleft")) mx = -1;
-    if (keys.has("d") || keys.has("arrowright")) mx = 1;
+    if (down("forward")) mz = -1;
+    if (down("back")) mz = 1;
+    if (down("left")) mx = -1;
+    if (down("right")) mx = 1;
   }
 
   // Camera-relative: forward = (sin, cos)·(-mz), screen-right = (-cos, sin)·mx.
@@ -303,27 +312,32 @@ export function sampleInput(
     // tapped. A scheme where the only way to attack is a gesture loses people.
     attackDir = swingDirection() ?? lastDir;
   } else {
-    if (keys.has("a") || keys.has("arrowleft")) attackDir = "left";
-    else if (keys.has("d") || keys.has("arrowright")) attackDir = "right";
-    else if (keys.has("w") || keys.has("arrowup")) attackDir = "overhead";
-    else if (keys.has("s") || keys.has("arrowdown")) attackDir = "stab";
+    if (down("left")) attackDir = "left";
+    else if (down("right")) attackDir = "right";
+    else if (down("forward")) attackDir = "overhead";
+    else if (down("back")) attackDir = "stab";
   }
 
-  return {
+  const sample: InputSample = {
     pressedAttack,
     attackDir,
     message: {
       moveX, moveZ, rotationY: rig.yaw,
-      sprint: isMobile ? mobile.sprint : keys.has("shift"),
+      sprint: isMobile ? mobile.sprint : down("sprint"),
       attack: pressedAttack,
       heavyAttack: heavy,
-      block: isMobile ? mobile.block : sources.rightMouseDown,
-      dodge: isMobile ? mobile.dodge : hit(" "),
-      crouch: keys.has("control"),
-      ability: isMobile ? mobile.ability : hit("q"),
+      block: isMobile ? mobile.block : down("block"),
+      dodge: isMobile ? mobile.dodge : hit("dodge"),
+      crouch: down("crouch"),
+      ability: isMobile ? mobile.ability : hit("ability"),
       attackDir,
     },
   };
+
+  // The latch exists to survive one poll gap, not to stick. The caller clears
+  // its own character-keyed set; this one is ours.
+  clearTapped();
+  return sample;
 }
 
 // ---------------------------------------------------------------------------

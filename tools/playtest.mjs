@@ -107,14 +107,17 @@ async function main() {
   // An empty ring, deliberately: with an opponent in it the AI can kill the
   // test warrior mid-run, and a corpse neither moves nor spends stamina, so
   // half the assertions fail for a reason that has nothing to do with input.
-  await page.getByText("Training", { exact: false }).first().click();
-  await page.getByText("MUSTER THE TESTGROUNDS", { exact: false }).first().click();
-  const fewer = page.getByLabel("Fewer AI warriors");
-  for (let i = 0; i < 8 && await fewer.isEnabled().catch(() => false); i++) {
-    await fewer.click();
-  }
-  await page.getByText("DRAW STEEL", { exact: false }).first().click();
-  await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 });
+  const reachFight = async () => {
+    await page.getByText("Training", { exact: false }).first().click();
+    await page.getByText("MUSTER THE TESTGROUNDS", { exact: false }).first().click();
+    const fewer = page.getByLabel("Fewer AI warriors");
+    for (let i = 0; i < 8 && await fewer.isEnabled().catch(() => false); i++) {
+      await fewer.click();
+    }
+    await page.getByText("DRAW STEEL", { exact: false }).first().click();
+    await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 });
+  };
+  await reachFight();
   console.log("[playtest] in a fight\n");
 
   // Reads the warrior out of a snapshot STRICTLY NEWER than `afterSeq`.
@@ -152,12 +155,16 @@ async function main() {
     `${rate} input msgs/sec (render loop samples ~60/sec; <45 means samples are being dropped)`);
 
   // ---- 2. WASD actually moves the warrior ----
+  // PHYSICAL codes, not characters. The game binds `event.code` (docs/KEYBINDS.md)
+  // so that the WASD *positions* work on AZERTY, Dvorak and Colemak, where those
+  // same keys produce different characters. "KeyW" is what Playwright calls the
+  // physical key; sending "w" would only test one layout's character.
   const before = await me();
   const s0 = await seq();
-  await page.keyboard.down("w");
+  await page.keyboard.down("KeyW");
   await page.waitForTimeout(1200);
   const after = await me(s0);
-  await page.keyboard.up("w");
+  await page.keyboard.up("KeyW");
   const dist = Math.hypot(after.x - before.x, after.z - before.z);
   // A warden walks 4.5 u/s, so ~1.2s of held W should cover well over 3 units.
   check("W moves the warrior", dist > 0.4, `travelled ${dist.toFixed(2)} units in 1.2s held`);
@@ -167,10 +174,10 @@ async function main() {
   // ---- 3. strafe ----
   const b2 = await me();
   const s1 = await seq();
-  await page.keyboard.down("d");
+  await page.keyboard.down("KeyD");
   await page.waitForTimeout(900);
   const a2 = await me(s1);
-  await page.keyboard.up("d");
+  await page.keyboard.up("KeyD");
   check("D strafes", Math.hypot(a2.x - b2.x, a2.z - b2.z) > 0.4,
     `travelled ${Math.hypot(a2.x - b2.x, a2.z - b2.z).toFixed(2)} units`);
 
@@ -221,6 +228,49 @@ async function main() {
   const locked = await page.evaluate(() => document.pointerLockElement !== null);
   check("mouse turns the camera", Math.abs(a6.rot - b6.rot) > 0.05,
     `rotation ${b6.rot.toFixed(2)} -> ${a6.rot.toFixed(2)} (pointerLock=${locked})`);
+
+  // ---- 8. a remap actually takes ----
+  // The whole hotkeys feature stated as a test. Storing a binding proves
+  // nothing; what matters is that the NEW key reaches the server as the action
+  // and the OLD key no longer does. Forward is moved off KeyW onto KeyT, which
+  // nothing else uses, and the table is seeded through the same store the
+  // settings screen writes (localStorage `bretwalda.bindings`, which is also
+  // the no-database fallback for the profile) and picked up on the next boot.
+  const remapped = {
+    forward: ["KeyT"], back: ["KeyS", "ArrowDown"],
+    left: ["KeyA", "ArrowLeft"], right: ["KeyD", "ArrowRight"],
+    sprint: ["ShiftLeft", "ShiftRight"], dodge: ["Space"],
+    crouch: ["ControlLeft", "ControlRight"], attack: ["Mouse0"],
+    heavy: ["KeyE", "KeyV"], block: ["Mouse2"], ability: ["KeyQ"],
+  };
+  await page.evaluate(([k, v]) => window.localStorage.setItem(k, v),
+    ["bretwalda.bindings", JSON.stringify(remapped)]);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await reachFight();
+  await canvas.click({ position: { x: 640, y: 400 } });
+  await page.waitForTimeout(400);
+  console.log("[playtest] rebound forward: KeyW -> KeyT\n");
+
+  const b7 = await me();
+  const s4 = await seq();
+  await page.keyboard.down("KeyT");
+  await page.waitForTimeout(1200);
+  const a7 = await me(s4);
+  await page.keyboard.up("KeyT");
+  const newDist = Math.hypot(a7.x - b7.x, a7.z - b7.z);
+  check("the rebound key moves the warrior", newDist > 3.0,
+    `KeyT travelled ${newDist.toFixed(2)} units; expected >3.0 for a 4.5 u/s walk`);
+
+  await page.waitForTimeout(300);
+  const b8 = await me();
+  const s5 = await seq();
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(1200);
+  const a8 = await me(s5);
+  await page.keyboard.up("KeyW");
+  const oldDist = Math.hypot(a8.x - b8.x, a8.z - b8.z);
+  check("the old key no longer moves the warrior", oldDist < 0.4,
+    `KeyW travelled ${oldDist.toFixed(2)} units after being unbound; expected <0.4`);
 
   await browser.close();
 
