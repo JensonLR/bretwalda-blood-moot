@@ -105,6 +105,20 @@ export interface TintOptions {
    * metres and a UV repeat has nothing left to say about them.
    */
   repeat?: number;
+  /**
+   * Override the substance's world tile, in metres. For the one case `WORLD_TILE`
+   * cannot serve: a substance worn at two wildly different object scales.
+   *
+   * `steel` tiles at 300 mm because that is right for a blade and a shield boss.
+   * A 20 mm shoulder stud gets a fifteenth of one tile out of that, and a 220 mm
+   * helmet dome gets less than one — so the map contributes a single smooth
+   * gradient and nothing else, which is the whole of "the metal reads as painted
+   * plastic". One highlight sliding unbroken across a fitting is the tell; a
+   * planished surface breaks it, and breaking it needs the tile to be smaller
+   * than the fitting. Only the caller knows how big the thing it is dressing is,
+   * so only the caller can say.
+   */
+  tile?: number;
 }
 
 // Every catalog entry is a standard material. The unlit sky/moon entries that
@@ -490,9 +504,10 @@ export function createMaterialLibrary(
     color: number,
     roughness: number,
     metalness: number,
+    tileOverride?: number,
   ): void {
     const info: SurfaceInfo = textures.info(surface);
-    const tile = WORLD_TILE[surface];
+    const tile = tileOverride ?? WORLD_TILE[surface];
     // A world-sized substance takes the untiled instance: its UVs come out of
     // the shader, so a repeat clone would be a second texture object carrying a
     // transform nothing downstream ever reads.
@@ -665,16 +680,17 @@ export function createMaterialLibrary(
     // characters.ts's own `tinted("skin", …, { repeat: 2 })` mint two identical
     // materials, and eight warriors stop sharing a program over a number
     // neither of them can act on any more.
-    const worldSized = WORLD_TILE[surface] !== undefined;
+    const tile = opts.tile ?? WORLD_TILE[surface];
+    const worldSized = tile !== undefined;
     const repeat = worldSized ? 1 : opts.repeat ?? info.repeat;
     const roughness = opts.roughness ?? info.roughness;
     const metalness = opts.metalness ?? info.metalness;
-    const key = `${surface}|${color}|${roughness}|${metalness}|${repeat}`;
+    const key = `${surface}|${color}|${roughness}|${metalness}|${repeat}|${tile ?? ""}`;
     let m = tints.get(key);
     if (!m) {
       m = new THREE.MeshStandardMaterial();
       m.name = `${surface}:${color.toString(16)}`;
-      dress(m, surface, [repeat, repeat], color, roughness, metalness);
+      dress(m, surface, [repeat, repeat], color, roughness, metalness, opts.tile);
       adopt(m);
       tints.set(key, m);
     }

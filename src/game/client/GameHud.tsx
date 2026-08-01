@@ -5,11 +5,22 @@
 //
 // These elements must remain siblings of the canvas — photo mode hides the
 // interface with `.photo-clean canvas ~ *`, which only sees siblings.
-import React from "react";
+//
+// The mobile cluster is half of the touch scheme in docs/MOBILE-CONTROLS.md;
+// input.ts is the other half. It is here and not there because a touch belongs
+// to the element it started on for its whole life: a thumb that lands on the
+// SLASH button and flicks left is delivered to this button, never to the
+// canvas, so the flick that aims the cut has to be read here. The two halves
+// meet at the swing gesture that input.ts owns.
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Swords, Hammer, Shield, Wind, Sparkles, Zap } from "lucide-react";
-import type { GamePlayer } from "../types";
+import type { AttackDirection, GamePlayer } from "../types";
 import { WARRIOR_STATS } from "../types";
-import type { MobileFlags } from "./input";
+import {
+  beginSwingGesture, endSwingGesture, trackSwingGesture,
+  getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
+  type MobileFlags,
+} from "./input";
 
 interface HudRoomState {
   state: string;
@@ -33,6 +44,137 @@ interface GameHudProps {
   joystickPos: { x: number; y: number; active: boolean };
 }
 
+/**
+ * How long a blow waits for the flick that aims it. The cost is real — a player
+ * who only ever taps pays it on every swing — and it buys the whole feature:
+ * the server locks the direction in at the instant the swing starts, so a
+ * gesture read even one tick late aims the swing after this one. Short enough
+ * to sit inside the 50 ms server tick, and a flick that clears the threshold
+ * early fires immediately without waiting it out.
+ */
+const SWIPE_ARM_MS = 90;
+/** A tap released inside the arming window still has to be held long enough for
+ *  the 60 Hz sampler to see it at all. */
+const MIN_ATTACK_MS = 70;
+
+const DIR_LABEL: Record<AttackDirection, string> = {
+  left: "◀ LEFT",
+  right: "RIGHT ▶",
+  overhead: "▲ OVER",
+  stab: "▼ STAB",
+};
+
+/**
+ * A button that both fires and aims. It is one gesture with two readings: the
+ * thumb goes down, and either it flicks — in which case the flick names the cut
+ * and the blow goes out the moment it reads — or it does not, in which case the
+ * arming window expires and the blow goes out anyway in the last direction.
+ *
+ * `hold` separates the two callers. SLASH is held for a combo and has to be
+ * released; HEAVY is a one-shot the sampler consumes.
+ */
+function useSwingButton(
+  flag: "attack" | "heavy",
+  hold: boolean,
+  setFlag: (f: keyof MobileFlags, v: boolean) => void,
+  onCommit: (dir: AttackDirection) => void,
+) {
+  // The identifier of the finger that owns this button. A second finger landing
+  // on the same button is ignored rather than allowed to end the first one's
+  // press — that is how a held combo used to die to a knuckle.
+  const touchId = useRef<number | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fired = useRef(false);
+
+  const fire = useCallback(() => {
+    if (armTimer.current !== null) { clearTimeout(armTimer.current); armTimer.current = null; }
+    if (fired.current) return;
+    fired.current = true;
+    setFlag(flag, true);
+  }, [flag, setFlag]);
+
+  // No preventDefault: React registers touchstart passively, so it would only
+  // warn. The buttons carry `touch-action: none` instead, which is what stops
+  // the browser reading a flick as a scroll and eating the gesture.
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (touchId.current !== null) return;
+    const t = e.changedTouches[0];
+    touchId.current = t.identifier;
+    fired.current = false;
+    // A tap still in the air from the last press must not put this one down.
+    if (releaseTimer.current !== null) { clearTimeout(releaseTimer.current); releaseTimer.current = null; }
+    if (hold) setFlag(flag, false);
+    beginSwingGesture(t.identifier, t.clientX, t.clientY);
+    armTimer.current = setTimeout(fire, SWIPE_ARM_MS);
+  }, [fire, flag, hold, setFlag]);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== touchId.current) continue;
+      const dir = trackSwingGesture(t.identifier, t.clientX, t.clientY);
+      if (dir) { onCommit(dir); fire(); }
+    }
+  }, [fire, onCommit]);
+
+  // Released if this event names our finger, or if the finger is simply no
+  // longer on the glass. The second half is not paranoia: a stuck attack button
+  // swings forever, and it is the one failure a player cannot work around.
+  const released = useCallback((e: React.TouchEvent) => {
+    if (touchId.current === null) return false;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === touchId.current) return true;
+    }
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === touchId.current) return false;
+    }
+    return true;
+  }, []);
+
+  const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (!released(e)) return;
+    touchId.current = null;
+    if (armTimer.current !== null) { clearTimeout(armTimer.current); armTimer.current = null; }
+    endSwingGesture();
+    if (!fired.current) {
+      // Lifted inside the arming window. A fast tap is still an attack.
+      fired.current = true;
+      setFlag(flag, true);
+      if (hold) releaseTimer.current = setTimeout(() => setFlag(flag, false), MIN_ATTACK_MS);
+    } else if (hold) {
+      setFlag(flag, false);
+    }
+  }, [flag, hold, released, setFlag]);
+
+  // A cancelled touch is the system taking the gesture away — a call, a swipe
+  // from the edge. It ends the press and does not swing.
+  const onTouchCancel = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (!released(e)) return;
+    touchId.current = null;
+    if (armTimer.current !== null) { clearTimeout(armTimer.current); armTimer.current = null; }
+    endSwingGesture();
+    if (hold && fired.current) setFlag(flag, false);
+    fired.current = false;
+  }, [flag, hold, released, setFlag]);
+
+  // Forget everything, timers included. A blow armed 90ms ago must not land on
+  // a man who is no longer holding the button — or no longer alive.
+  const reset = useCallback(() => {
+    touchId.current = null;
+    if (armTimer.current !== null) { clearTimeout(armTimer.current); armTimer.current = null; }
+    if (releaseTimer.current !== null) { clearTimeout(releaseTimer.current); releaseTimer.current = null; }
+    fired.current = false;
+    setFlag(flag, false);
+  }, [flag, setFlag]);
+
+  return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, reset };
+}
+
 export default function GameHud({
   playerId, roomState, glError, isMobile, pointerLocked, mobileFlags, setFlag, joyOrigin, joystickPos,
 }: GameHudProps) {
@@ -40,6 +182,46 @@ export default function GameHud({
   const isAlive = localPlayer && localPlayer.state !== "dead";
   const isFighting = roomState?.state === "fighting" || roomState?.state === "last_stand";
   const hpPct = localPlayer ? Math.max(0, localPlayer.health / localPlayer.maxHealth) : 1;
+
+  // Which way round the thumbs go. Stored, and shared with input.ts so the
+  // touch zones and the buttons mirror as one thing.
+  const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
+
+  // What a tap would cut with right now. It is feedback, not state the sim
+  // reads — input.ts holds the direction itself — but a player needs to be able
+  // to see what his last flick armed without swinging to find out.
+  const [armed, setArmed] = useState<AttackDirection>("right");
+  const [taught, setTaught] = useState(false);
+  const onCommit = useCallback((dir: AttackDirection) => {
+    setArmed(dir);
+    setTaught(true);
+  }, []);
+
+  const slash = useSwingButton("attack", true, setFlag, onCommit);
+  const heavy = useSwingButton("heavy", false, setFlag, onCommit);
+
+  // A man who dies mid-hold takes the buttons out of the tree with him, and a
+  // button that is not there never gets its touchend: the flag it set would
+  // stay set and he would come back next round swinging at nothing. Whenever
+  // the cluster is not on screen, nothing it owns is held.
+  const clusterUp = Boolean(isMobile.current && isFighting && isAlive && localPlayer);
+  const resetSlash = slash.reset;
+  const resetHeavy = heavy.reset;
+  useEffect(() => {
+    if (clusterUp) return;
+    resetSlash();
+    resetHeavy();
+    setFlag("block", false);
+    endSwingGesture();
+  }, [clusterUp, resetSlash, resetHeavy, setFlag]);
+
+  // The action cluster sits under the aiming thumb; the stick and the odds and
+  // ends sit under the other one. Positions are inline rather than in classes
+  // because the whole point is that the side is decided at runtime.
+  const near = (edge: number, bottom: number): React.CSSProperties =>
+    lefty ? { left: edge, bottom, touchAction: "none" } : { right: edge, bottom, touchAction: "none" };
+  const far = (edge: number, bottom: number): React.CSSProperties =>
+    lefty ? { right: edge, bottom, touchAction: "none" } : { left: edge, bottom, touchAction: "none" };
 
   return (
     <>
@@ -101,8 +283,14 @@ export default function GameHud({
             </div>
           </div>
 
-          {/* Ability cooldown */}
-          <div className="absolute bottom-28 sm:bottom-6 left-3 pointer-events-none z-10">
+          {/* Ability cooldown. It follows the mirror on a phone: left-handed, the
+              action cluster is where this used to sit — and on a phone it is
+              lifted clear of the RUN/HAND pair below it, which used to be drawn
+              straight over the top of the cooldown readout. */}
+          <div className="absolute bottom-28 sm:bottom-6 pointer-events-none z-10"
+            style={isMobile.current
+              ? { bottom: 152, ...(lefty ? { right: 12 } : { left: 12 }) }
+              : { left: 12 }}>
             <div className="bg-black/55 backdrop-blur-sm px-3 py-1.5 rounded-md border border-purple-900/60">
               <div className="text-[9px] text-purple-300 tracking-[0.15em] font-bold">{WARRIOR_STATS[localPlayer.warriorClass].ability}</div>
               <div className="text-amber-300 font-bold text-sm">
@@ -141,7 +329,11 @@ export default function GameHud({
       </div>
     )}
 
-    {/* Mobile controls — arc cluster built for one thumb */}
+    {/* Mobile controls. One thumb moves, the other aims and cuts; the cluster
+        mirrors for a left-handed player. Everything here carves itself out of
+        the free-look zone by existing — a touch that starts on a button is
+        delivered to the button and the canvas never hears about it — so there
+        are no gutters to leave around them. */}
     {isMobile.current && isFighting && isAlive && localPlayer && (
       <>
         {joyOrigin && (
@@ -154,58 +346,100 @@ export default function GameHud({
           </div>
         )}
 
-        {/* big primary SLASH - hold for relentless combo swings */}
+        {/* Sits above the cluster rather than under it. At the foot of the
+            screen it was drawn behind the HEAVY button — the one instruction a
+            new player gets, with a button through the middle of it — and
+            wrapped onto two lines to do it. */}
+        {!taught && (
+          <div className="absolute bottom-[288px] left-1/2 -translate-x-1/2 pointer-events-none z-10 text-center">
+            <div className="text-[10px] tracking-[0.18em] font-bold text-amber-100/85 bg-black/45 px-2.5 py-1 rounded-md whitespace-nowrap"
+              style={{ textShadow: "0 1px 4px black" }}>
+              FLICK THE SLASH TO AIM THE CUT
+            </div>
+          </div>
+        )}
+
+        {/* big primary SLASH — hold for relentless combo swings, flick to aim */}
         <button
-          className={`absolute right-4 bottom-10 z-20 w-[84px] h-[84px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
+          style={near(16, 40)}
+          className={`absolute z-20 w-[84px] h-[84px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
             localPlayer.stamina >= 13 ? (mobileFlags.current.attack ? "bg-red-500 border-amber-300 scale-95" : "bg-red-700/95 active:bg-red-500 border-red-300/80") : "bg-stone-600/60 border-stone-500/40 opacity-70"
           }`}
-          onTouchStart={(e) => { e.stopPropagation(); e.preventDefault(); setFlag("attack", true); }}
-          onTouchEnd={(e) => { e.stopPropagation(); setFlag("attack", false); }}>
-          <Swords size={28} /><span className="text-[10px] font-bold tracking-wider">{mobileFlags.current.attack ? "SLYING" : "SLASH"}</span>
+          aria-label="Slash"
+          onTouchStart={slash.onTouchStart}
+          onTouchMove={slash.onTouchMove}
+          onTouchEnd={slash.onTouchEnd}
+          onTouchCancel={slash.onTouchCancel}>
+          <Swords size={26} /><span className="text-[10px] font-bold tracking-wider">{DIR_LABEL[armed]}</span>
         </button>
 
         {/* HEAVY */}
         <button
-          className={`absolute right-[112px] bottom-8 z-20 w-[68px] h-[68px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
+          style={near(112, 32)}
+          className={`absolute z-20 w-[68px] h-[68px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
             localPlayer.stamina >= 22 ? "bg-orange-700/95 active:bg-orange-500 border-orange-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
           }`}
-          onTouchStart={(e) => { e.stopPropagation(); setFlag("heavy", true); }}>
+          aria-label="Heavy attack"
+          onTouchStart={heavy.onTouchStart}
+          onTouchMove={heavy.onTouchMove}
+          onTouchEnd={heavy.onTouchEnd}
+          onTouchCancel={heavy.onTouchCancel}>
           <Hammer size={22} /><span className="text-[9px] font-bold">HEAVY</span>
         </button>
 
         {/* BLOCK (hold) */}
         <button
-          className="absolute right-4 bottom-[128px] z-20 w-[64px] h-[64px] rounded-full bg-sky-800/95 active:bg-sky-500 text-white border-[3px] border-sky-300/80 flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50"
+          style={near(16, 128)}
+          className="absolute z-20 w-[64px] h-[64px] rounded-full bg-sky-800/95 active:bg-sky-500 text-white border-[3px] border-sky-300/80 flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50"
+          aria-label="Block"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("block", true); }}
-          onTouchEnd={() => { setFlag("block", false); }}>
+          onTouchEnd={() => { setFlag("block", false); }}
+          onTouchCancel={() => { setFlag("block", false); }}>
           <Shield size={20} /><span className="text-[9px] font-bold">BLOCK</span>
         </button>
 
         {/* DODGE */}
         <button
-          className={`absolute right-[100px] bottom-[130px] z-20 w-[60px] h-[60px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
+          style={near(100, 130)}
+          className={`absolute z-20 w-[60px] h-[60px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
             localPlayer.stamina >= 20 ? "bg-emerald-700/95 active:bg-emerald-500 border-emerald-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
           }`}
+          aria-label="Dodge"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("dodge", true); }}>
           <Wind size={19} /><span className="text-[9px] font-bold">DODGE</span>
         </button>
 
         {/* POWER */}
         <button
-          className={`absolute right-[56px] bottom-[212px] z-20 w-[60px] h-[60px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
+          style={near(56, 212)}
+          className={`absolute z-20 w-[60px] h-[60px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
             localPlayer.abilityCooldown <= 0 ? "bg-violet-700/95 active:bg-violet-500 border-violet-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
           }`}
+          aria-label="Power"
           onTouchStart={(e) => { e.stopPropagation(); if (localPlayer.abilityCooldown <= 0) setFlag("ability", true); }}>
           <Sparkles size={20} /><span className="text-[8px] font-bold">
             {localPlayer.abilityCooldown > 0 ? `${Math.ceil(localPlayer.abilityCooldown)}s` : "POWER"}
           </span>
         </button>
 
-        {/* RUN toggle (left side, near joystick) */}
+        {/* RUN toggle, on the moving thumb's side */}
         <button
-          className={`absolute left-4 bottom-6 z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${mobileFlags.current.sprint ? "bg-amber-500/95 border-amber-200" : "bg-stone-700/95 border-stone-400/70"}`}
+          style={far(16, 24)}
+          className={`absolute z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${mobileFlags.current.sprint ? "bg-amber-500/95 border-amber-200" : "bg-stone-700/95 border-stone-400/70"}`}
+          aria-label="Run"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("sprint", !mobileFlags.current.sprint); }}>
           <Zap size={18} /><span className="text-[9px] font-bold">{mobileFlags.current.sprint ? "ON" : "RUN"}</span>
+        </button>
+
+        {/* Handedness. Cheap here and expensive later, and a left-handed player
+            who has to aim with the hand holding the phone is not playing. */}
+        <button
+          style={far(16, 92)}
+          className="absolute z-20 w-[48px] h-[48px] rounded-full bg-stone-800/90 active:bg-stone-600 text-amber-100 border-2 border-amber-700/60 flex flex-col items-center justify-center shadow-lg shadow-black/50"
+          aria-label={lefty ? "Switch to right-handed controls" : "Switch to left-handed controls"}
+          onTouchStart={(e) => { e.stopPropagation(); setHandedness(!lefty); }}>
+          <span className="text-[7px] tracking-[0.15em] text-amber-200/70">HAND</span>
+          <span className="text-[13px] font-bold leading-none">{lefty ? "L" : "R"}</span>
         </button>
       </>
     )}

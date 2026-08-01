@@ -5,12 +5,16 @@
     "dev": "next dev",
     "play": "node dev-server.mjs",
     "shots": "node tools/shoot.mjs",
+    "uishots": "node tools/uishots.mjs",
     "build": "next build",
     "start": "node custom-server.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "perf": "node tools/perf.mjs",
-    "playtest": "node tools/playtest.mjs"
+    "playtest": "node tools/playtest.mjs",
+    "touchtest": "node tools/touchtest.mjs",
+    "profiletest": "node tools/profiletest.mjs",
+    "cheattest": "node tools/cheattest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

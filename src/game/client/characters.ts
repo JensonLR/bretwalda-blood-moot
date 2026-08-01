@@ -77,7 +77,9 @@ import type { WarriorClass } from "../types";
 
 // ---------------- Appearance ----------------
 export interface Appearance {
-  helm: string;      // none | iron | nasal | spectacle | crowned | hood
+  // See `HELM` for what each of these is made of, and `HELM_VALUES` for the
+  // list a validator should check a stored or wired appearance against.
+  helm: string;      // none | iron | nasal | hood | ridge | spectacle | boar | crowned | wyrm | suttonhoo
   hairStyle: string; // shaved | short | long | braids
   hairColor: number;
   beardStyle: string;// none | short | full | forked | braided
@@ -143,6 +145,22 @@ export interface ArmouryOption {
 }
 
 export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOption[] }> = [
+  // The helmet ladder is the game's progression, so it is priced against what a
+  // match actually pays and not against the tile next to it.
+  //
+  // `endMatch` today grants `10 + 15·kills + 50·win`: a good match is four kills
+  // and a coin-flip on the win, so 90–120 gold in three or four minutes. The
+  // rounds work landing in parallel does not pay per round — gold is granted once
+  // at match end off accumulated totals — so a best-of-3 is one payout on maybe
+  // 2.2× the kills for 2.5× the wall clock. Call it 200–260 a match afterwards
+  // and roughly flat per minute, which is the assumption every number below rests
+  // on. If that changes, this row is the thing to re-check.
+  //
+  // Against that: the mid rungs are one to three matches apart, which is what
+  // makes them worth buying on the way past. Sutton Hoo is deliberately not on
+  // that curve — 2400 is ten matches under the new economy and twenty under the
+  // old, an evening a week for a month, and it is the only thing in the shop
+  // priced as a season's goal rather than as a purchase.
   {
     slot: "helm", label: "Helmets",
     options: [
@@ -150,8 +168,16 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       { id: "helm_iron", label: "Iron Spangenhelm", cost: 30, slot: "helm", value: "iron" },
       { id: "helm_nasal", label: "Nasal Helm", cost: 110, slot: "helm", value: "nasal" },
       { id: "helm_hood", label: "Shadow Hood", cost: 120, slot: "helm", value: "hood" },
+      { id: "helm_ridge", label: "Ridge Helm", cost: 190, slot: "helm", value: "ridge",
+        desc: "A welded crest fore and aft, and a fall of iron off the nape." },
       { id: "helm_spectacle", label: "Spectacle Helm", cost: 280, slot: "helm", value: "spectacle" },
+      { id: "helm_boar", label: "Boar-Crest Helm", cost: 380, slot: "helm", value: "boar",
+        desc: "A bronze boar stands the length of the crown, tusks forward." },
       { id: "helm_crowned", label: "Jarl's Crowned Helm", cost: 570, slot: "helm", value: "crowned" },
+      { id: "helm_wyrm", label: "Wyrm-Crest Helm", cost: 950, slot: "helm", value: "wyrm",
+        desc: "A serpent arched over the crown, its head thrown out past the brow." },
+      { id: "helm_suttonhoo", label: "The Sutton Hoo Helm", cost: 2400, slot: "helm", value: "suttonhoo",
+        desc: "Tinned silver, gilt and garnet. A face with no man in it." },
     ],
   },
   {
@@ -241,6 +267,65 @@ export function freeCosmeticIds(): string[] {
   return ids;
 }
 
+/**
+ * What a helmet is made of, as parts rather than as a name.
+ *
+ * The build used to branch on `ap.helm ===` in five places, and the boolean that
+ * gated the whole metal-helm block spelled four values out by hand — so adding a
+ * fifth meant finding all of them and getting every one right. A helmet is a set
+ * of pieces; the geometry below asks what it is wearing rather than who it is,
+ * and a new one is a row here plus whatever new piece it introduces.
+ *
+ * `none` and `hood` are rows too, so that one list covers every legal value.
+ */
+export interface HelmStyle {
+  /** A metal cap: bowl, brow band, ribs. False for the bare head and the hood. */
+  cap: boolean;
+  /** The plain bar down the nose. A helm with a face piece of its own says no. */
+  nasal: boolean;
+  /** Spectacle plate: brows in metal with the sockets shadowed under them. */
+  brows: boolean;
+  /** How far the side plates fall. `deep` reaches the jawline and stands outside a mask. */
+  cheek: "none" | "short" | "deep";
+  /** What hangs off the back of the band. `guard` is a plated fall, `flange` a lip. */
+  nape: "none" | "flange" | "guard";
+  crown: "none" | "circlet" | "ridge" | "boar" | "wyrm" | "sutton";
+  /** A solid face with two eye openings. Exactly one helmet in the game has one. */
+  mask: boolean;
+  /** Tinned silver, gilt and garnet in place of iron and steel. */
+  noble: boolean;
+}
+
+const BARE_HEAD: HelmStyle = {
+  cap: false, nasal: false, brows: false,
+  cheek: "none", nape: "none", crown: "none", mask: false, noble: false,
+};
+
+/**
+ * Keyed by `Appearance.helm`. Order is the shop's order, which is also the order
+ * the lineup capture wants them in.
+ */
+export const HELM: Readonly<Record<string, HelmStyle>> = {
+  none: BARE_HEAD,
+  hood: BARE_HEAD,
+  iron: { ...BARE_HEAD, cap: true },
+  nasal: { ...BARE_HEAD, cap: true, nasal: true },
+  ridge: { ...BARE_HEAD, cap: true, nasal: true, crown: "ridge", nape: "flange" },
+  spectacle: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "short" },
+  boar: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "short", crown: "boar", nape: "flange" },
+  crowned: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "short", crown: "circlet" },
+  wyrm: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "deep", crown: "wyrm", nape: "guard" },
+  suttonhoo: {
+    cap: true, nasal: false, brows: false,
+    cheek: "deep", nape: "guard", crown: "sutton", mask: true, noble: true,
+  },
+};
+
+/** Every value `Appearance.helm` may legally hold. Anything else builds bare. */
+export const HELM_VALUES: readonly string[] = Object.keys(HELM);
+
+const helmStyle = (value: string): HelmStyle => HELM[value] ?? BARE_HEAD;
+
 // ---------------- Materials ----------------
 // A warrior asks for substances, not colours: mail, wool, leather, skin, steel,
 // oak. Where those come from is the caller's business — the arena hands over its
@@ -255,7 +340,7 @@ export function freeCosmeticIds(): string[] {
 // which is what lets the arena's full `SurfaceName` union satisfy the narrow
 // list a warrior actually wears.
 export type CharacterSurface =
-  | "mail" | "iron" | "steel" | "bronze"
+  | "mail" | "iron" | "steel" | "bronze" | "interlace"
   | "wool" | "linen" | "leather" | "rope"
   | "oak" | "bone" | "skin";
 
@@ -263,6 +348,15 @@ export interface CharacterTint {
   roughness?: number;
   metalness?: number;
   repeat?: number;
+  /**
+   * The substance's world tile in metres, overriding the library's own. For kit
+   * worn at a scale the substance was never sized for: `steel` is drawn at
+   * 300 mm, which is a blade, and a 15 mm brow band asked for at that density
+   * gets a twentieth of one tile — one smooth gradient, which is what makes a
+   * fitting read as plastic. The armoury preview's stand-in ignores it, because
+   * it has no maps to project in the first place.
+   */
+  tile?: number;
 }
 
 export interface CharacterMaterials {
@@ -3108,6 +3202,825 @@ const HAND_GRIP: Record<WarriorClass, { main: number; off: number | null }> = {
 };
 
 // ============================================================
+// Dismemberment
+// ============================================================
+//
+// A warrior is merged geometry — one shell per substance per moving part — which
+// is why eight of them fit in a frame and also why, until this pass, nothing
+// could come off one. The rule this section adds is narrow and deliberately so:
+//
+//   THE BODY IS NEVER REBUILT. A severance is a cut through the rig that is
+//   already standing there, taken once, on the frame the kill arrives.
+//
+// Three mechanisms, in increasing order of cost, and the cut picks the cheapest
+// one that is honest for each mesh it meets:
+//
+//   1. **Untouched.** A mesh entirely on the body's side of the plane is not
+//      read, not copied and not disturbed. Most of a warrior is this.
+//   2. **Carried over.** A rigid mesh entirely on the leaving side is *shared*:
+//      a new `THREE.Mesh` on the same geometry, moved into the severed piece.
+//      Zero triangles, zero vertex work. A head comes off this way, which is
+//      the common case and costs nothing but a draw call that already existed.
+//   3. **Baked.** A mesh the plane actually crosses — or a skinned limb, which
+//      has to be frozen in the pose it died in or it snaps back to bind — is
+//      walked once, its vertices pushed through the skeleton, and split into
+//      two geometries by triangle centroid. One pass over one limb, once, on
+//      the frame of a death. Nothing here runs per frame, ever.
+//
+// The split is by centroid and not by a real clip: a clipped triangle needs new
+// vertices, new UVs and a re-triangulation, and buys a boundary that is at most
+// half a triangle straighter. What actually reads at the cut is the wound
+// (see `unitWound`) — a plugged, ragged, bone-in-the-middle section that sits in
+// the hole — and against that, half a triangle of raggedness on the shell's rim
+// is free realism rather than a defect.
+//
+// Everything the cut produces is pooled. Baked geometry comes from a fixed ring
+// of slots with stable attributes, so after the first brawl a severance uploads
+// vertices into buffers that already exist and allocates nothing on the GPU; the
+// wound is one unit geometry per tier, scaled to the section it plugs; and the
+// piece hands back a `release()` that puts the body back exactly as it was, so a
+// respawn is an undo and not a rebuild.
+
+/**
+ * Where a killing blow landed. This is the server's `hitZone` verbatim — see
+ * `deriveHitZone` in engine.mjs — and it is a union rather than a string so the
+ * mapping below fails at compile time if the sim ever grows a zone.
+ */
+export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "torso" | "waist";
+
+/** Every place this body can come apart. `R`/`L` are the warrior's own sides. */
+export type SeamId =
+  | "neck"
+  | "shoulderR" | "shoulderL" | "elbowR" | "elbowL"
+  | "hipR" | "hipL" | "kneeR" | "kneeL"
+  | "waist";
+
+/**
+ * One cut, measured at build time off the same skeleton the body was swept from,
+ * so a proportion change carries its seams with it instead of leaving them
+ * 40 mm up the humerus.
+ *
+ * `anchor` is a node that survives everything `anim.ts` does to the rig —
+ * `articulate` swaps every limb mesh for a `SkinnedMesh` and `insertSpine`
+ * reparents the whole upper body under a spine node, and neither touches a pivot
+ * or the torso mesh. The cut plane in world space is always
+ * `anchor.matrixWorld · translate(0, y, 0)`, and `severWorld` will hand it over
+ * rather than have two owners derive it.
+ */
+export interface Seam {
+  id: SeamId;
+  anchor: THREE.Object3D;
+  /** Height of the cut in the anchor's own frame, metres. */
+  y: number;
+  /** The body's section at the cut: half-width across, half-depth front to back. */
+  hw: number;
+  hd: number;
+  /** Which way along the anchor's Y the leaving piece lies. +1 above, −1 below. */
+  away: 1 | -1;
+  /** Long bones in the section — one at a shoulder, two through a forearm. */
+  bones: number;
+  /** Rough mass of what comes away, kg. For whatever integrator throws it. */
+  mass: number;
+}
+
+export interface SeverOptions {
+  /**
+   * How far down the limb. `joint` takes the whole arm or leg off at the
+   * shoulder or hip; `mid` takes it at the elbow or knee. Ignored by the head
+   * and the waist, which have one seam each.
+   *
+   * The defaults differ per limb on purpose. An arm defaults to `mid`, because
+   * a forearm leaving with the fist still closed on a sword is the shot this
+   * whole feature exists for. A leg defaults to `joint`, because a man standing
+   * on a stump reads as a bug and a man whose leg went at the hip falls.
+   */
+  at?: "joint" | "mid";
+  /**
+   * Tier to cut at. Defaults to the tier the character was built at. `low`
+   * refuses the waist — that is the one cut that has to bake the whole upper
+   * body — and takes the head instead, because the bar is that a death still
+   * reads as a death on a phone, not that it reads as the same death.
+   */
+  detail?: CharacterDetail;
+}
+
+/**
+ * A limb that has come off, and everything the caller needs to throw it, bleed
+ * it and put it back.
+ *
+ * The piece arrives parented to nothing, standing in world space at the cut.
+ * Add it to a node with an identity world transform — the arena root — and drive
+ * it from there; add it under something that moves and it will inherit that
+ * motion on top of its own.
+ */
+export interface Severance {
+  zone: HitZone;
+  seam: SeamId;
+  /** The free piece. Unparented; its transform is the cut, in world space. */
+  part: THREE.Group;
+  /**
+   * Centre of mass in the piece's own frame. It is not the origin and that is
+   * the point: a head hung off its own neck stump tumbles, and a torso half
+   * pitches onto its face, because both are being spun about a point they do
+   * not balance on.
+   */
+  com: THREE.Vector3;
+  mass: number;
+  /** World position of the wound *on the body* — where blood comes out. */
+  wound: THREE.Vector3;
+  /** Unit world direction the stump faces. The spray axis. */
+  spray: THREE.Vector3;
+  /**
+   * The wound left on the body, as a node parented into it. `wound` and `spray`
+   * are the instant of separation; this is the same place a second later, after
+   * the corpse has fallen on it — read `getWorldPosition`/`getWorldDirection`
+   * off this for the spray that keeps running, rather than deriving the seam's
+   * frame a second time in another file.
+   */
+  stump: THREE.Object3D;
+  /** Section radius at the cut, metres. How wide the spray should be. */
+  radius: number;
+  /**
+   * Whatever the piece took with it — weapon, shield, offhand. Their transforms
+   * now live under `part`, so anything still posing them each frame (`applyPose`
+   * writes the weapon's rotation) has to let go of these.
+   */
+  carried: readonly THREE.Object3D[];
+  /**
+   * Puts the body back together and hands the piece's geometry back to the pool.
+   * Idempotent, and safe from any state.
+   *
+   * It can also be called *for* you: the pool is finite, and once the field has
+   * more pieces on it than the pool has slots the oldest one is reclaimed —
+   * `part` leaves the scene, and the body it came from stays severed, which is
+   * the right way round for a brawl. A piece whose `part` has lost its parent
+   * has been taken back.
+   */
+  release(): void;
+}
+
+// The prefix every mesh and pivot this file emits carries, so a walk over a rig
+// that `anim.ts` has since hung a weapon, a shield and a bone chain off can tell
+// what is body and what is baggage without a whitelist that goes stale.
+const RIG_TAG = "rig:";
+// `insertSpine`'s node. Named here rather than imported because the dependency
+// only runs one way — anim.ts knows about this file and this file must not know
+// about anim.ts — and because a walk that fails to descend it would find a body
+// with no torso rather than fail loudly.
+const SPINE_NODE = "spine";
+
+/** Seam a zone maps to, at each depth. `torso` severs nothing. */
+const ZONE_SEAM: Record<HitZone, { joint: SeamId; mid: SeamId; deep: "joint" | "mid" } | null> = {
+  head: { joint: "neck", mid: "neck", deep: "joint" },
+  neck: { joint: "neck", mid: "neck", deep: "joint" },
+  armR: { joint: "shoulderR", mid: "elbowR", deep: "mid" },
+  armL: { joint: "shoulderL", mid: "elbowL", deep: "mid" },
+  legR: { joint: "hipR", mid: "kneeR", deep: "joint" },
+  legL: { joint: "hipL", mid: "kneeL", deep: "joint" },
+  waist: { joint: "waist", mid: "waist", deep: "joint" },
+  torso: null,
+};
+
+/** A seam is unavailable once the piece it hangs off has already gone. */
+const SEAM_NEEDS: Partial<Record<SeamId, SeamId>> = {
+  elbowR: "shoulderR", elbowL: "shoulderL",
+  kneeR: "hipR", kneeL: "hipL",
+};
+
+// ------------------------------------------------------------
+// The wound
+// ------------------------------------------------------------
+
+/**
+ * Gore materials, one set per library rather than per warrior, so eight men can
+ * be taken apart in the same brawl for two programs. Weak on the library for the
+ * same reason `SHAPED_GLOW` is: the preview allocates and disposes its own, and
+ * a strong map would outlive it.
+ */
+const GORE_MATS = new WeakMap<CharacterMaterials, { meat: THREE.Material; bone: THREE.Material }>();
+
+function goreMats(M: CharacterMaterials): { meat: THREE.Material; bone: THREE.Material } {
+  let g = GORE_MATS.get(M);
+  if (!g) {
+    // Dark and wet rather than bright and matte. A saturated red at 0.9
+    // roughness is a felt patch; the whole read of an open section is that it
+    // catches a highlight the skin around it does not.
+    g = {
+      meat: M.standard(0x5c0f0b, 0.34),
+      bone: M.standard(0xd6cbac, 0.62),
+    };
+    GORE_MATS.set(M, g);
+  }
+  return g;
+}
+
+const WOUND_CACHE = new Map<string, { meat: THREE.BufferGeometry; bone: THREE.BufferGeometry }>();
+
+/**
+ * The stump, and it is worth the forty lines. A flat cap over a severed limb is
+ * the single thing that makes dismemberment read as a toy coming apart rather
+ * than as a man being cut: it is one polygon, one value, no silhouette, and the
+ * eye reads "hollow" instantly.
+ *
+ * So the section is built as what a section is — a rim of flesh standing proud
+ * of a sunken middle, torn rather than circular, with bone in it:
+ *
+ *   * The **profile** dips below the cut at the centre and rises above it at
+ *     0.78 of the radius. That ridge is the only part of a wound that catches a
+ *     key light, and the hollow behind it is what an AO pass finds.
+ *   * The **outline** is not a circle. Two harmonics take it ±20% off round, so
+ *     the boundary against the shell's own rim is ragged and no two azimuths
+ *     tear the same distance.
+ *   * The **tags** are the last ring folded back under, unevenly. Flesh that
+ *     hangs over the edge of the cut is what says the limb was *torn* off by an
+ *     axe rather than sawn.
+ *   * The **bone** stands proud in the middle, snapped short, with a jagged top
+ *     ring. One shaft at a shoulder or a hip, two through a forearm or a shin.
+ *
+ * Built on a unit section and scaled to the seam, so the whole game holds three
+ * of these — one per tier — instead of one per limb per class per stature.
+ */
+function unitWound(seg: number, rows: number, bones: number): { meat: THREE.BufferGeometry; bone: THREE.BufferGeometry } {
+  const key = `${seg}|${rows}|${bones}`;
+  const hit = WOUND_CACHE.get(key);
+  if (hit) return hit;
+
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  // t → height, in units of the section's radius. Below the cut in the middle,
+  // above it at the rim, folded back under at the very edge.
+  const LIP: Array<[number, number]> = [[0, -0.22], [0.4, -0.15], [0.78, 0.11], [0.9, 0.05], [1, -0.2]];
+  const lip = (t: number): number => {
+    let i = 0;
+    while (i < LIP.length - 2 && t > LIP[i + 1][0]) i++;
+    const f = clamp01((t - LIP[i][0]) / (LIP[i + 1][0] - LIP[i][0]));
+    return mix(LIP[i][1], LIP[i + 1][1], f);
+  };
+  for (let j = 0; j <= rows; j++) {
+    const t = j / rows;
+    for (let i = 0; i <= seg; i++) {
+      const a = (i / seg) * Math.PI * 2;
+      const torn = 1 + 0.20 * Math.sin(a * 3 + 0.9) + 0.11 * Math.sin(a * 7 + 2.3);
+      const r = t * torn;
+      // The tags only exist on the outermost ring, and they vary round it:
+      // an even fringe is a doily.
+      const tag = j === rows ? 0.6 + 0.9 * Math.abs(Math.sin(a * 2.5 + 0.4)) : 1;
+      pos.push(r * Math.cos(a), lip(t) * (j === rows ? tag : 1), r * Math.sin(a));
+      uv.push(i / seg, t);
+    }
+  }
+  const stride = seg + 1;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < seg; i++) {
+      const a = j * stride + i;
+      const b = a + 1;
+      const c = b + stride;
+      const d = a + stride;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  const meat = finish(pos, uv, idx);
+
+  // Snapped shafts. `rod` gives a closed cylinder; the top ring is then pushed
+  // about unevenly, which is the difference between a bone and a dowel.
+  const shafts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < bones; k++) {
+    const r = bones > 1 ? 0.19 : 0.28;
+    const dx = bones > 1 ? (k === 0 ? -0.34 : 0.30) : 0;
+    const dz = bones > 1 ? (k === 0 ? 0.08 : -0.1) : 0;
+    const g = rod(r * 0.92, r, 0.46, Math.max(5, Math.round(seg * 0.5)));
+    const p = g.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) <= 0) continue;
+      p.setY(i, p.getY(i) + hash(i, 17 + k * 7) * 0.16 - 0.04);
+    }
+    p.needsUpdate = true;
+    g.computeVertexNormals();
+    // Sunk so the shaft rises out of the hollow rather than floating over it.
+    g.applyMatrix4(xf(dx, 0.06, dz));
+    shafts.push(g);
+  }
+  const bone = shafts.length === 1 ? shafts[0] : (mergeGeometries(shafts, false) ?? shafts[0]);
+  if (shafts.length > 1) for (const g of shafts) if (g !== bone) g.dispose();
+
+  const made = { meat, bone };
+  WOUND_CACHE.set(key, made);
+  return made;
+}
+
+const WOUND_LOD: Record<CharacterDetail, { seg: number; rows: number }> = {
+  high: { seg: 16, rows: 5 },
+  medium: { seg: 12, rows: 4 },
+  low: { seg: 8, rows: 3 },
+};
+
+/**
+ * A wound sized onto one seam and pointed the way it opens. Two meshes, sharing
+ * one geometry pair with every other wound in the match.
+ */
+function woundAt(seam: Seam, M: CharacterMaterials, detail: CharacterDetail, facing: number): THREE.Group {
+  const { seg, rows } = WOUND_LOD[detail];
+  const geo = unitWound(seg, rows, seam.bones);
+  const mats = goreMats(M);
+  const g = new THREE.Group();
+  g.name = `${RIG_TAG}wound`;
+  const meat = new THREE.Mesh(geo.meat, mats.meat);
+  const bone = new THREE.Mesh(geo.bone, mats.bone);
+  g.add(meat, bone);
+  // Slightly proud of the section so it plugs the shell's open end rather than
+  // sitting flush in it and z-fighting the rim.
+  g.scale.set(seam.hw * 1.04, (seam.hw + seam.hd) * 0.52, seam.hd * 1.04);
+  if (facing < 0) g.rotation.x = Math.PI;
+  return g;
+}
+
+// ------------------------------------------------------------
+// The cut
+// ------------------------------------------------------------
+
+const _sm = new THREE.Matrix4();
+const _sv = new THREE.Vector3();
+let SCRATCH_P = new Float32Array(0);
+let SCRATCH_R = new Int32Array(0);
+
+/**
+ * Every vertex of a mesh in the cut's frame, skinning included.
+ *
+ * The skinning is why this exists at all. A limb is a `SkinnedMesh` in attached
+ * bind mode, which means its own transform cancels out of the shader and the
+ * bones place it in world space — so a piece that merely gets reparented does
+ * not move, and one that gets cloned as a plain mesh snaps back to bind pose
+ * with its elbow straight, mid-swing. Pushing the vertices through the skeleton
+ * once, here, is what freezes an arm in the pose it died in.
+ */
+function project(mesh: THREE.Mesh, worldToFrame: THREE.Matrix4): Float32Array {
+  const geo = mesh.geometry;
+  const pos = geo.getAttribute("position");
+  const n = pos.count;
+  if (SCRATCH_P.length < n * 3) SCRATCH_P = new Float32Array(n * 3);
+  const out = SCRATCH_P;
+  const skin = geo.hasAttribute("skinIndex") ? asSkinned(mesh) : null;
+  const m = _sm.multiplyMatrices(worldToFrame, mesh.matrixWorld);
+  for (let i = 0; i < n; i++) {
+    _sv.fromBufferAttribute(pos, i);
+    if (skin) skin.applyBoneTransform(i, _sv);
+    _sv.applyMatrix4(m);
+    out[i * 3] = _sv.x;
+    out[i * 3 + 1] = _sv.y;
+    out[i * 3 + 2] = _sv.z;
+  }
+  return out;
+}
+
+/**
+ * One pooled slot of baked geometry.
+ *
+ * The attributes are allocated once at their high-water mark and then never
+ * replaced: a bake overwrites the arrays, sets a draw range and flags an upload.
+ * That is the difference between a pool and a free list — a free list of
+ * `BufferGeometry` still hands the driver a new buffer per acquisition, because
+ * the GPU-side allocation follows the *attribute* object and not the geometry.
+ */
+interface PieceSlot {
+  geo: THREE.BufferGeometry;
+  pos: THREE.BufferAttribute;
+  uv: THREE.BufferAttribute;
+  idx: THREE.BufferAttribute;
+  verts: number;
+  tris: number;
+  busy: boolean;
+  stamp: number;
+  owner: object | null;
+}
+
+const PIECES: PieceSlot[] = [];
+// A waist cut on a cloaked huscarl is the worst case at about twenty slots, so
+// this holds two of them plus a scattering of limbs. Past it the oldest
+// severance on the field is put back — a corpse losing its arm again after four
+// other men have died is the correct thing to spend.
+const PIECE_CAP = 48;
+let pieceClock = 0;
+const LIVE: Array<{ owner: object; release: () => void }> = [];
+
+function newSlot(): PieceSlot {
+  const slot: PieceSlot = {
+    geo: new THREE.BufferGeometry(),
+    pos: new THREE.BufferAttribute(new Float32Array(0), 3),
+    uv: new THREE.BufferAttribute(new Float32Array(0), 2),
+    idx: new THREE.BufferAttribute(new Uint32Array(0), 1),
+    verts: 0, tris: 0, busy: false, stamp: 0, owner: null,
+  };
+  return slot;
+}
+
+function fitSlot(slot: PieceSlot, verts: number, tris: number): void {
+  if (slot.verts >= verts && slot.tris >= tris) return;
+  const v = Math.max(verts, slot.verts);
+  const t = Math.max(tris, slot.tris);
+  // Frees whatever the old attributes hold on the GPU. Only ever runs while the
+  // pool is warming up to the largest limb the roster owns.
+  slot.geo.dispose();
+  slot.pos = new THREE.BufferAttribute(new Float32Array(v * 3), 3);
+  slot.uv = new THREE.BufferAttribute(new Float32Array(v * 2), 2);
+  slot.idx = new THREE.BufferAttribute(new Uint32Array(t * 3), 1);
+  slot.pos.setUsage(THREE.DynamicDrawUsage);
+  slot.uv.setUsage(THREE.DynamicDrawUsage);
+  slot.idx.setUsage(THREE.DynamicDrawUsage);
+  slot.geo.setAttribute("position", slot.pos);
+  slot.geo.setAttribute("uv", slot.uv);
+  slot.geo.setIndex(slot.idx);
+  slot.verts = v;
+  slot.tris = t;
+}
+
+function acquirePiece(verts: number, tris: number, owner: object): PieceSlot {
+  let slot = PIECES.find((s) => !s.busy);
+  if (!slot && PIECES.length >= PIECE_CAP) {
+    // Never evict the severance being assembled, or a waist cut would eat its
+    // own torso half-way through building itself.
+    const victim = LIVE.find((s) => s.owner !== owner);
+    if (victim) {
+      victim.release();
+      slot = PIECES.find((s) => !s.busy);
+    }
+  }
+  if (!slot) {
+    slot = newSlot();
+    PIECES.push(slot);
+  }
+  fitSlot(slot, verts, tris);
+  slot.busy = true;
+  slot.owner = owner;
+  slot.stamp = ++pieceClock;
+  return slot;
+}
+
+/**
+ * Copies the triangles on one side of the cut into a pooled slot.
+ *
+ * `side` is the sign of the frame-space Y the kept triangles lie on, judged by
+ * centroid: a triangle belongs wholly to whichever half its middle is in. `into`
+ * moves the result out of the cut's frame and into whatever space the mesh it
+ * replaces lived in — the piece keeps the cut's frame, the stump goes back into
+ * the body's.
+ */
+function harvest(
+  mesh: THREE.Mesh,
+  p: Float32Array,
+  side: number,
+  into: THREE.Matrix4 | null,
+  owner: object,
+): PieceSlot | null {
+  const geo = mesh.geometry;
+  const pos = geo.getAttribute("position");
+  const uv = geo.getAttribute("uv");
+  const index = geo.getIndex();
+  const faces = index ? index.count / 3 : pos.count / 3;
+  const vertOf = index ? (k: number) => index.getX(k) : (k: number) => k;
+
+  let tris = 0;
+  for (let f = 0; f < faces; f++) {
+    const a = vertOf(f * 3);
+    const b = vertOf(f * 3 + 1);
+    const c = vertOf(f * 3 + 2);
+    if ((p[a * 3 + 1] + p[b * 3 + 1] + p[c * 3 + 1]) * side > 0) tris++;
+  }
+  if (tris === 0) return null;
+
+  const slot = acquirePiece(Math.min(pos.count, tris * 3), tris, owner);
+  if (SCRATCH_R.length < pos.count) SCRATCH_R = new Int32Array(pos.count);
+  const remap = SCRATCH_R;
+  remap.fill(-1, 0, pos.count);
+  const P = slot.pos.array as Float32Array;
+  const U = slot.uv.array as Float32Array;
+  const I = slot.idx.array as Uint32Array;
+  const box = new THREE.Box3();
+  let vn = 0;
+  let tn = 0;
+  for (let f = 0; f < faces; f++) {
+    const tri = [vertOf(f * 3), vertOf(f * 3 + 1), vertOf(f * 3 + 2)];
+    if ((p[tri[0] * 3 + 1] + p[tri[1] * 3 + 1] + p[tri[2] * 3 + 1]) * side <= 0) continue;
+    for (const v of tri) {
+      let r = remap[v];
+      if (r < 0) {
+        r = vn++;
+        remap[v] = r;
+        _sv.set(p[v * 3], p[v * 3 + 1], p[v * 3 + 2]);
+        if (into) _sv.applyMatrix4(into);
+        P[r * 3] = _sv.x;
+        P[r * 3 + 1] = _sv.y;
+        P[r * 3 + 2] = _sv.z;
+        U[r * 2] = uv ? uv.getX(v) : 0;
+        U[r * 2 + 1] = uv ? uv.getY(v) : 0;
+        box.expandByPoint(_sv);
+      }
+      I[tn++] = r;
+    }
+  }
+  // The tail of the index is collapsed onto vertex 0 rather than left holding a
+  // previous tenant's triangles: the draw range hides them, but
+  // `computeVertexNormals` walks the whole attribute and would fold a stale
+  // face's normal into a live vertex. A degenerate triangle contributes nothing.
+  I.fill(0, tn);
+  slot.pos.needsUpdate = true;
+  slot.uv.needsUpdate = true;
+  slot.idx.needsUpdate = true;
+  slot.geo.setDrawRange(0, tn);
+  slot.geo.computeVertexNormals();
+  // Written rather than computed, because the attributes are longer than the
+  // piece and `computeBoundingSphere` would include the unused tail.
+  slot.geo.boundingBox = box;
+  slot.geo.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+  return slot;
+}
+
+/**
+ * Duck-typed rather than `instanceof`, and this is the one place in the file
+ * where that is the right call: everything below is inspecting objects another
+ * module made — `articulate` rebuilds every limb as a `SkinnedMesh` and hangs
+ * its own `Bone`s off the pivots — and a class check answers "was this made by
+ * the same copy of three as me", which is not the question. three carries these
+ * flags for exactly this reason.
+ */
+const asMesh = (o: THREE.Object3D): THREE.Mesh | null => ((o as THREE.Mesh).isMesh ? (o as THREE.Mesh) : null);
+const asSkinned = (o: THREE.Object3D): THREE.SkinnedMesh | null =>
+  ((o as THREE.SkinnedMesh).isSkinnedMesh ? (o as THREE.SkinnedMesh) : null);
+const isBone = (o: THREE.Object3D): boolean => (o as THREE.Bone).isBone === true;
+
+/** Walks a rig subtree, separating what this file built from what was hung on it. */
+function collectRig(
+  node: THREE.Object3D,
+  skip: THREE.Object3D[] | null,
+  meshes: THREE.Mesh[],
+  carried: THREE.Object3D[],
+): void {
+  for (const c of node.children) {
+    if (skip && skip.includes(c)) continue;
+    const mesh = asMesh(c);
+    if (mesh) {
+      if (mesh.name.startsWith(RIG_TAG)) meshes.push(mesh);
+      else carried.push(mesh);
+      continue;
+    }
+    if (isBone(c) || c.name === "handMount" || c.name === SPINE_NODE || c.name.startsWith(RIG_TAG)) {
+      collectRig(c, skip, meshes, carried);
+      continue;
+    }
+    // A weapon, a shield, a rune light — anything another owner mounted. It
+    // travels whole or not at all; nobody cuts a sword in half.
+    carried.push(c);
+  }
+}
+
+/** Bumps the shared-geometry refcount `emit` keeps, if this geometry is shared. */
+function retainRig(geo: THREE.BufferGeometry): boolean {
+  const n = USES.get(geo);
+  if (n === undefined) return false;
+  USES.set(geo, n + 1);
+  return true;
+}
+
+/** Everything `sever` needs off the body it is cutting. Built once, per warrior. */
+interface SeverContext {
+  root: THREE.Group;
+  seams: Record<SeamId, Seam>;
+  /** The two leg pivots — the only part of the body a waist cut leaves alone. */
+  legs: THREE.Object3D[];
+  head: THREE.Object3D;
+  torso: THREE.Mesh[];
+  materials: CharacterMaterials;
+  detail: CharacterDetail;
+  live: Map<SeamId, Severance>;
+}
+
+const _sf = new THREE.Matrix4();
+
+function severBody(ctx: SeverContext, zone: HitZone, opts: SeverOptions = {}): Severance | null {
+  const route = ZONE_SEAM[zone];
+  if (!route) return null;
+  const detail = opts.detail ?? ctx.detail;
+  let id = route[opts.at ?? route.deep];
+  if (id === "waist" && detail === "low") id = "neck";
+  // Once already gone, or hanging off something already gone. A man cannot lose
+  // the same forearm twice, and nothing comes off an upper body that has itself
+  // left the field.
+  if (ctx.live.has(id) || ctx.live.has("waist")) return null;
+  const needs = SEAM_NEEDS[id];
+  if (needs && ctx.live.has(needs)) return null;
+  const seam = ctx.seams[id];
+
+  // Every matrix under this body, and every bone in it, current as of this
+  // frame — `project` reads bone world matrices directly and a stale one bakes
+  // the arm into last frame's swing.
+  //
+  // Two calls, and both are load-bearing. `updateWorldMatrix` is the only one
+  // that walks *up* to the parents, and `updateMatrixWorld` is the only one that
+  // walks down through the virtual override — which matters because
+  // `SkinnedMesh` refreshes `bindMatrixInverse` there and nowhere else, and
+  // `applyBoneTransform` finishes by applying it. Update a rig with the walker
+  // that skips the override and every skinned limb bakes with a bind-time
+  // inverse: the arm comes off in the body's own local frame and the piece is
+  // flung to wherever the arena origin happens to be. Live that hid behind the
+  // renderer having refreshed it the frame before — it only bites a body that
+  // is built and cut in the same tick, which is exactly what a spectator or a
+  // late joiner does with a corpse that was already on the ground.
+  ctx.root.updateWorldMatrix(true, false);
+  ctx.root.updateMatrixWorld(true);
+  const frame = seam.anchor.matrixWorld.clone().multiply(new THREE.Matrix4().makeTranslation(0, seam.y, 0));
+  const toFrame = frame.clone().invert();
+
+  const meshes: THREE.Mesh[] = [];
+  const carried: THREE.Object3D[] = [];
+  if (id === "waist") {
+    collectRig(ctx.root, ctx.legs, meshes, carried);
+  } else if (id === "neck") {
+    collectRig(ctx.head, null, meshes, carried);
+    // The throat is torso geometry — the neck shell, its two straps and the
+    // larynx are swept with the body and merged into its skin slot — so a head
+    // that came off without them would leave the collar's contents standing.
+    meshes.push(...ctx.torso);
+  } else {
+    collectRig(seam.anchor, null, meshes, carried);
+  }
+
+  const owner = {};
+  const away = seam.away;
+  const part = new THREE.Group();
+  part.name = `${RIG_TAG}severed:${id}`;
+  frame.decompose(part.position, part.quaternion, part.scale);
+
+  const slots: PieceSlot[] = [];
+  const hidden: THREE.Mesh[] = [];
+  const grafted: THREE.Object3D[] = [];
+  const retained: THREE.BufferGeometry[] = [];
+  const moved: Array<{
+    obj: THREE.Object3D; parent: THREE.Object3D | null;
+    position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3;
+  }> = [];
+
+  const carryWhole = (mesh: THREE.Mesh): void => {
+    const clone = new THREE.Mesh(mesh.geometry, mesh.material);
+    clone.name = mesh.name;
+    clone.castShadow = mesh.castShadow;
+    clone.receiveShadow = mesh.receiveShadow;
+    _sf.multiplyMatrices(toFrame, mesh.matrixWorld).decompose(clone.position, clone.quaternion, clone.scale);
+    part.add(clone);
+    if (retainRig(mesh.geometry)) retained.push(mesh.geometry);
+    mesh.visible = false;
+    hidden.push(mesh);
+  };
+
+  // The low tier's one concession beyond particle counts: a limb taken off at
+  // the shoulder or the hip is carried whole rather than baked, which costs the
+  // pose it died in — the arm straightens as it leaves — and saves the entire
+  // vertex pass. At the distance a phone plays this game the pop is invisible
+  // and the arm coming off is not.
+  const cheap = detail === "low"
+    && (id === "shoulderR" || id === "shoulderL" || id === "hipR" || id === "hipL");
+
+  const span = new THREE.Box3();
+  for (const mesh of meshes) {
+    const skinned = mesh.geometry.hasAttribute("skinIndex") && asSkinned(mesh) !== null;
+    if (cheap) {
+      carryWhole(mesh);
+      continue;
+    }
+    if (!skinned) {
+      // A rigid mesh the plane misses is settled without reading a vertex: the
+      // bind-pose bounding box is exact for anything the skeleton does not move,
+      // and most of a body is exactly that.
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const bb = mesh.geometry.boundingBox;
+      if (bb) {
+        span.copy(bb).applyMatrix4(_sf.multiplyMatrices(toFrame, mesh.matrixWorld));
+        const near = Math.min(span.min.y * away, span.max.y * away);
+        const far = Math.max(span.min.y * away, span.max.y * away);
+        if (far <= 0) continue;
+        if (near >= 0) {
+          carryWhole(mesh);
+          continue;
+        }
+      }
+    }
+    const p = project(mesh, toFrame);
+    const go = harvest(mesh, p, away, null, owner);
+    if (go) {
+      slots.push(go);
+      const m = new THREE.Mesh(go.geo, mesh.material);
+      m.name = mesh.name;
+      m.castShadow = mesh.castShadow;
+      m.receiveShadow = mesh.receiveShadow;
+      part.add(m);
+    }
+    // The stump goes back into the frame of the mesh it replaces and is hung off
+    // the same parent, so whatever drives that node — a shoulder pivot, the
+    // spine — goes on driving what is left of the limb.
+    const keepInto = new THREE.Matrix4().copy(mesh.matrixWorld).invert().multiply(frame);
+    const keep = harvest(mesh, p, -away, keepInto, owner);
+    if (keep) {
+      slots.push(keep);
+      const m = new THREE.Mesh(keep.geo, mesh.material);
+      m.name = mesh.name;
+      m.castShadow = mesh.castShadow;
+      m.receiveShadow = mesh.receiveShadow;
+      m.position.copy(mesh.position);
+      m.quaternion.copy(mesh.quaternion);
+      m.scale.copy(mesh.scale);
+      mesh.parent?.add(m);
+      grafted.push(m);
+    }
+    mesh.visible = false;
+    hidden.push(mesh);
+  }
+
+  // What the piece takes with it. A weapon rides the fist it was in — which is
+  // the whole point of cutting an arm at the elbow — and a shield rides the
+  // forearm it is strapped to. Neither ever gets cut, so each is judged whole.
+  //
+  // The test is the plane only for a limb cut, where the walk covers a limb the
+  // plane crosses and the question is genuinely which side the object is on.
+  // Above the waist and the neck the walk *is* the piece, so a sword goes with
+  // the arm holding it whatever height it happens to hang at: a man cut in half
+  // at the belt does not leave his axe standing on the field, and his fist is
+  // below the cut while his shoulder is above it.
+  const wholeWalk = id === "waist" || id === "neck";
+  for (const obj of carried) {
+    obj.updateWorldMatrix(true, false);
+    _sf.multiplyMatrices(toFrame, obj.matrixWorld);
+    if (!wholeWalk && _sv.setFromMatrixPosition(_sf).y * away <= 0) continue;
+    moved.push({
+      obj,
+      parent: obj.parent,
+      position: obj.position.clone(),
+      quaternion: obj.quaternion.clone(),
+      scale: obj.scale.clone(),
+    });
+    part.add(obj);
+    _sf.decompose(obj.position, obj.quaternion, obj.scale);
+  }
+
+  // Two wounds: one in the body facing the way the piece went, one in the piece
+  // facing back at it. The second is what makes a severed arm read as severed
+  // while it is in the air rather than as an arm that was always a prop.
+  const stumpUnder = asMesh(seam.anchor) ? (seam.anchor.parent ?? ctx.root) : seam.anchor;
+  const stump = new THREE.Group();
+  stump.name = `${RIG_TAG}stump`;
+  stump.add(woundAt(seam, ctx.materials, detail, away));
+  stumpUnder.updateWorldMatrix(true, false);
+  _sf.copy(stumpUnder.matrixWorld).invert().multiply(frame).decompose(stump.position, stump.quaternion, stump.scale);
+  stumpUnder.add(stump);
+  part.add(woundAt(seam, ctx.materials, detail, -away));
+
+  part.updateMatrixWorld(true);
+  const com = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3()).applyMatrix4(toFrame);
+
+  let done = false;
+  const severance: Severance = {
+    zone,
+    seam: id,
+    part,
+    com,
+    mass: seam.mass,
+    wound: new THREE.Vector3().setFromMatrixPosition(frame),
+    spray: new THREE.Vector3(0, away, 0).transformDirection(frame),
+    stump,
+    radius: (seam.hw + seam.hd) * 0.5,
+    carried: moved.map((m) => m.obj),
+    release() {
+      if (done) return;
+      done = true;
+      // The piece's geometry belongs to the pool the moment this returns, so the
+      // piece itself has to leave the scene with it.
+      part.removeFromParent();
+      for (const m of grafted) m.removeFromParent();
+      stump.removeFromParent();
+      for (const s of slots) {
+        s.busy = false;
+        s.owner = null;
+      }
+      // Shared body geometry the piece was carrying rather than copying. This is
+      // the refcount `emit` keeps, not a real free — the last body wearing this
+      // kit is still the one that releases it.
+      for (const g of retained) g.dispose();
+      for (const r of moved) {
+        r.parent?.add(r.obj);
+        r.obj.position.copy(r.position);
+        r.obj.quaternion.copy(r.quaternion);
+        r.obj.scale.copy(r.scale);
+      }
+      for (const m of hidden) m.visible = true;
+      ctx.live.delete(id);
+      const i = LIVE.findIndex((e) => e.owner === owner);
+      if (i >= 0) LIVE.splice(i, 1);
+    },
+  };
+  ctx.live.set(id, severance);
+  LIVE.push({ owner, release: severance.release });
+  return severance;
+}
+
+// ============================================================
 // Character builder
 // ============================================================
 
@@ -3120,6 +4033,36 @@ export interface BuiltCharacter {
   head: THREE.Group;
   cloak?: THREE.Group;
   torso: THREE.Mesh;
+  /**
+   * Every place this body can come apart, with the node and the local height of
+   * each cut. Read it to aim a blood emitter or to measure a limb before it
+   * leaves; `sever` is what actually takes one off.
+   */
+  seams: Readonly<Record<SeamId, Seam>>;
+  /**
+   * Takes a limb off, on the frame the kill arrives.
+   *
+   * Returns the piece, or `null` when the zone severs nothing — `torso` never
+   * does, and neither does a seam whose limb has already gone. The body is
+   * mutated in place: the severed geometry is hidden, a stump is grafted on and
+   * a wound is plugged into it. The piece comes back unparented and standing in
+   * world space at the cut; add it to a node with an identity world transform
+   * and drive it from there.
+   *
+   * Everything it allocates is returned by `release()`, which puts the body back
+   * exactly as it was. `reassemble()` does that for every piece at once, and a
+   * respawn must call one or the other — pieces hold pooled geometry, and a pool
+   * slot that is never handed back is a limb that vanishes off somebody else's
+   * corpse five deaths later.
+   */
+  sever(zone: HitZone, opts?: SeverOptions): Severance | null;
+  /**
+   * Releases every live severance on this body. Safe to call on an intact one,
+   * and the right thing to call on respawn and *before* disposing the rig —
+   * a stump grafted onto a body holds pooled geometry, and the walk that
+   * disposes a dead warrior's meshes would free buffers the pool still owns.
+   */
+  reassemble(): void;
 }
 
 function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail: CharacterDetail, lib: string): string {
@@ -3209,9 +4152,108 @@ export function buildCharacter(
   // metalness 0.9 and roughness 0.34, which returns the sky's whole orange band
   // in one specular hit: every buckle, rivet and boss on the warrior was reading
   // as a blown yellow chip in `art/shots/v4/lineup.png`, and the belt plate was
-  // reading as a placeholder square. On the bronze substrate at 0.46 the same
-  // fittings hold their shape and still read as the most precious thing worn.
-  const brass = M.tinted("bronze", 0xc0a45c, { roughness: 0.46 });
+  // reading as a placeholder square. Roughness 0.46 fixed that and is kept.
+  //
+  // What is dropped this pass is the *substrate*. The `bronze` recipe is a
+  // corroded casting — its own comment says "verdigris in the cavities" — and it
+  // grows broad green blooms off a field sampled at a 160 mm world tile. That is
+  // right for a ship's rivet and wrong for every fitting a man wears: a 20 mm
+  // shoulder boss gets a fifth of one bloom, so the stud is half green, and a
+  // 4 mm cabochon lands wherever the field happens to be. Under the fire key in
+  // `art/shots/helm/suttonhoo.png` every gold thing on the warrior is speckled
+  // green and reads as glitter glue. Smooth and untextured, the same fittings
+  // read as one poured metal, which is what cast bronze is. The micro-relief
+  // that is lost was never resolvable at the size any of these are seen.
+  const brass = M.standard(0xbfa25c, 0.46, 0.78);
+  // The Sutton Hoo palette. Three substances that exist nowhere else on a
+  // warrior, so the most expensive thing in the shop is not a recolour of the
+  // second most expensive — and minted only for the helm that wears them, which
+  // costs nothing when nobody is: the library caches tints by key.
+  //
+  //   `silver`  tinned bronze, which is what the real cap panels are faced with.
+  //             Cool and a long way off white. It is not `steel`: at steel's own
+  //             0.3 roughness the largest plate in the portrait framing returns
+  //             the sky as one blown bar, which is the defect the brow band was
+  //             taken off polish for, and a full face mask is four times the area.
+  //   `gilt`    fire-gilding is mercury and gold burnished into bronze: it has no
+  //             grain of its own, and the surface it leaves is continuous. So this
+  //             is untextured, brighter and glossier than `brass`, and it is the
+  //             one metal on the warrior allowed near a mirror. Metalness stays off
+  //             1.0 and roughness off 0.25 for the reason the whole file keeps
+  //             repeating — the arena's ember horizon comes back in one hit and the
+  //             fitting turns into a blown yellow chip — but at 0.31 the brow, the
+  //             nose and the crest each roll a single travelling highlight, which
+  //             is the difference between cast metal and speckle.
+  //   `garnet`  a dielectric, not a metal, and that is the whole trick. F0 of 0.04
+  //             gives a small hard specular dot over an albedo dark enough to stay
+  //             red under the arena's fire, which is what a cabochon does and a
+  //             metallic red never does. 0.17 roughness was still too open: the
+  //             lobe was wide enough to pull the fire's whole orange band across a
+  //             4 mm cell, so the cells rendered mottled orange-gold rather than
+  //             red — the previous owner predicted this number would need tuning
+  //             and it did. 0.12 keeps the dot to a dot. The albedo went to a third
+  //             of its old luma in the same pass and that overshot: a dielectric
+  //             with almost no diffuse and nothing bright to reflect is a black
+  //             bead, and a row of black beads on gold reads as rivets rather than
+  //             as cloisonné — which is what the first capture of this pass showed.
+  //             0x6a1019 is dark enough to stay red under the arena's fire and
+  //             light enough to be seen as red rather than as a hole in the metal.
+  //
+  // THE TILE, and this is the pass that says why these are textured at all.
+  //
+  // Both of these shipped as smooth fields — `silver` on steel's own 300 mm world
+  // tile and `gilt` on nothing at all — and the review that came back called the
+  // gold "a smooth plastic gradient" and the dome "painted polystyrene", which is
+  // exactly right and is a *density* fault rather than a colour one. A tile
+  // larger than the object it dresses contributes one gradient and nothing else:
+  // the dome is 220 mm across and got less than one tile of steel, a 15 mm brow
+  // band got a twentieth of one, so every fitting on the helmet rolled a single
+  // unbroken specular lozenge from end to end. One smooth travelling highlight is
+  // the plastic tell — real beaten metal breaks it, and breaking it needs the
+  // grain to be finer than the part.
+  //
+  // 85 mm on the cap: two and a half planish courses across the dome, which is
+  // what a hammer leaves and what stops the crown returning the sky as one bar.
+  // 28 mm on the gilt: a chased fitting is worked at a much smaller pitch than a
+  // beaten plate, and at 28 mm the brow band carries three cycles along its length
+  // and the crest seven, so the highlight travels in steps down the ridge instead
+  // of sliding. Both are on the `steel` recipe rather than `bronze` for the reason
+  // written above — bronze's verdigris blooms are 160 mm wide and a fitting cannot
+  // hold one.
+  const noble = helmStyle(ap.helm).noble;
+  // `interlace`, not `steel`, and this is the answer to the loudest single line
+  // in the review: "the single most identifying feature of the artefact — the
+  // whole surface sheathed in figural and interlace panels — is simply absent."
+  // The helmet is not a bare bowl with gold on it; it is a bowl faced all over
+  // in die-stamped tinned foil, and without that it is a helmet rather than the
+  // helmet. The substance is generated in code like every other one here (see
+  // `buildInterlace`), so this costs no asset.
+  //
+  // 30 mm, down from 85, and this is a change of *material* rather than of
+  // detail. At an 85 mm tile the plait crossed every 28 mm — so a 220 mm dome
+  // carried eight crossings and a 130 mm mask five, at which size the ribbons
+  // are as wide as a finger and the relief on them is deep enough to cast its
+  // own shading. What that renders as at portrait distance is not stamped foil;
+  // it is basketwork, and the review said so: the helmet stopped reading as
+  // metal at all. Die-stamped ribbon on the artefact is a few millimetres wide
+  // and its relief is the depth of the foil it is punched into. At 30 mm the
+  // crossing pitch is 10 mm and the ribbon about 4 — fine enough that the eye
+  // takes it as ornament worked into a bright surface instead of as weave, and
+  // still three times the pixel pitch the portrait framing gives it, so it does
+  // not dissolve into the tinned tone until the arena distance where it should.
+  const silver = noble ? M.tinted("interlace", 0x9aa6ae, { roughness: 0.46, metalness: 0.72, tile: 0.030 }) : steel;
+  const gilt = noble ? M.tinted("steel", 0xd9b45f, { roughness: 0.33, metalness: 0.9, tile: 0.028 }) : brass;
+  // Up from 0x6a1019, and this is the third time this number has moved. The last
+  // pass fixed the hue — the cells measured 335–349° with no orange left in them,
+  // which was the fault — and overshot the value: at 0.24–0.39 luma a cabochon on
+  // gold reads as a drill hole rather than as a stone, which is the review this
+  // one is answering. What was missing from the reasoning both times is that a
+  // Sutton Hoo garnet is not a bead sitting on metal. Every cell is floored with
+  // stamped gold foil, and the stone is cut thin over it so that the light which
+  // gets past the surface comes back *through* the red. That is a brighter
+  // dielectric than a solid garnet, and it is why the cloisonné on the artefact
+  // glows in a case rather than going black. 0x8e1a26 is the same hue at 0.56.
+  const garnet = noble ? M.standard(0x8e1a26, 0.13) : brass;
   // Flesh is authored against a *canonical* tone and swapped at mesh time. The
   // geometry a warrior's arms and neck merge into does not depend on his
   // complexion — only the material bound to it does — so folding the tone into the
@@ -3354,6 +4396,11 @@ export function buildCharacter(
     for (const { geo, mat } of merged) {
       if (sig) USES.set(geo, (USES.get(geo) ?? 0) + 1);
       const mesh = new THREE.Mesh(geo, reskin.get(mat) ?? mat);
+      // Tagged so a cut can walk a rig that other owners have since hung a
+      // weapon, a shield and a bone chain off, and tell body from baggage. The
+      // name and not `userData`, because `articulate` rebuilds every limb mesh
+      // as a `SkinnedMesh` and carries the name across — nothing else survives.
+      mesh.name = RIG_TAG + name;
       parent.add(mesh);
       meshes.push(mesh);
     }
@@ -3372,6 +4419,7 @@ export function buildCharacter(
   const legPivots: THREE.Group[] = [];
   for (const side of [-1, 1]) {
     const pivot = new THREE.Group();
+    pivot.name = `${RIG_TAG}leg${side}`;
     pivot.position.set(side * S.hipX, S.hipY, 0);
     root.add(pivot);
     legPivots.push(pivot);
@@ -3976,6 +5024,7 @@ export function buildCharacter(
   const armPivots: THREE.Group[] = [];
   for (const side of [1, -1]) {
     const pivot = new THREE.Group();
+    pivot.name = `${RIG_TAG}arm${side}`;
     pivot.position.set(side * S.shoulderX, S.shoulderY, 0);
     root.add(pivot);
     armPivots.push(pivot);
@@ -4181,6 +5230,7 @@ export function buildCharacter(
   // HEAD — pivot at the atlas, everything measured off the skull
   // ==========================================================
   const headPivot = new THREE.Group();
+  headPivot.name = `${RIG_TAG}headPivot`;
   headPivot.position.set(0, S.neckTop, 0);
   root.add(headPivot);
 
@@ -4193,7 +5243,8 @@ export function buildCharacter(
     skin, shade: skinDark, warm: skinWarm, sclera, iris, dark, lash: hair,
   };
   const skullY = S.headY - S.neckTop;
-  const helmed = ap.helm === "iron" || ap.helm === "nasal" || ap.helm === "spectacle" || ap.helm === "crowned";
+  const style = helmStyle(ap.helm);
+  const helmed = style.cap;
 
   emit("head", headPivot, () => {
     const p = new Part();
@@ -4424,7 +5475,13 @@ export function buildCharacter(
     // keeps its volume — that is the point of a full beard — but its top edge has
     // come down to the lip line as well, so the nose, the philtrum and the fold
     // beside it stay visible.
-    if (ap.beardStyle !== "none") {
+    // A full face mask takes the cheeks, the lip and the philtrum, so the beard
+    // that rides on them has nowhere to be: at 18 mm of lift the patch and its
+    // moustache push straight through 22 mm of plate, and what would show is
+    // whiskers growing out of the metal. What survives a mask is the *hang* —
+    // beard coming out from under the chin below the mask's lower rim — which is
+    // both the honest read and the one that costs nothing.
+    if (ap.beardStyle !== "none" && !(style.mask && ap.beardStyle === "short")) {
       const full = ap.beardStyle !== "short";
       // One patch, not two. The top edge climbs from the lip line at the midline
       // to the sideburn at the ear, which is where a beard's edge actually runs;
@@ -4464,61 +5521,65 @@ export function buildCharacter(
         return arc + (full ? 0.052 : 0.040) * Math.cos(u * 4.7 + 0.6) * rag
           + (full ? 0.016 : 0.020) * Math.cos(u * 9.1 - 0.8) * rag;
       };
-      p.add(headWear(K, {
-        // Round to the ear, so the patch's own u edge is behind the sideburn rather
-        // than standing as a hard vertical line down the middle of the cheek — and
-        // pinched shut there, because a patch that runs to its u limit at full
-        // height ends in a vertical cut whatever the top edge does. Closing v0 onto
-        // v1 turns the far end into a sideburn instead.
-        u0: -1.24, u1: 1.24,
-        v0: (u) => mix(hang(u), cheek(u) - 0.03, smooth(0.98, 1.24, Math.abs(u))),
-        v1: cheek,
-        nu: Math.max(11, lod.shellU + 4), nv: Math.max(5, lod.shellV + 1),
-        // Thickness dies at *both* boundaries rather than being thickest at the
-        // one that is in silhouette. `patch` closes every boundary with a rim
-        // strip whose normal points along the surface, so a patch that ends at
-        // full lift draws its own outline as a bright band — the same defect
-        // `addFaceTones` records, except here the band was 10 mm and in the
-        // silhouette. Peaked at a third of the way up, which is where the mass of
-        // a beard actually is, and at 2 mm of lift on the boundary the rim strip
-        // is inside the skin and cannot be seen at all.
-        lift: (_u, s) => (full
-          ? 0.002 + 0.016 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.55)), 1.15)
-          : 0.0004 + 0.0012 * Math.sin(Math.PI * clamp01(s))),
-        thick: full ? 0.005 : 0.0007,
-      }), beard, place.clone());
-      // Philtrum gap: a real moustache parts under the nose. Two short patches
-      // rather than one bar is what sells it.
-      if (full) {
-        // Each half is a hump, not a slab. As a rectangle in (u, v) at a flat
-        // 8 mm of lift with a 6 mm rim, these rendered as two hard blocks floating
-        // over the mouth with daylight round them — the same failure as the mouth
-        // corners and for the same reason (see `patch`). Taking the lift to
-        // nothing on all four boundaries buries every rim strip in the skin, and
-        // what is left is a moustache that grows out of the lip and thins toward
-        // the corner.
-        const swell = (u: number, v: number) =>
-          0.0015 + 0.008 * Math.sin(Math.PI * clamp01(v))
-          * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.035) / 0.345));
-        // A leaf, not a rectangle. Both v bounds converge at both ends of u, so
-        // the half pinches shut against the philtrum on one side and against the
-        // mouth corner on the other — with parallel bounds it was a quadrilateral
-        // with four visible corners sitting over the lip, which is a postage stamp
-        // and not a moustache.
-        const mTop = lat(Y_NOSE - 0.035);
-        const mBot = lat(Y_LIP + 0.085);
-        const mMid = (mTop + mBot) * 0.5;
-        const mHalf = (mTop - mBot) * 0.5;
-        const leaf = (u: number) =>
-          mHalf * Math.pow(Math.sin(Math.PI * clamp01((Math.abs(u) - 0.025) / 0.365)), 0.5);
-        const droop = (u: number) => mMid - 0.055 * smooth(0.06, 0.38, Math.abs(u));
-        for (const s of [-1, 1]) {
-          p.add(headWear(K, {
-            u0: s * 0.025, u1: s * 0.39,
-            v0: (u) => droop(u) - leaf(u),
-            v1: (u) => droop(u) + leaf(u),
-            nu: 6, nv: 2, lift: swell, thick: 0.004,
-          }), beard, place.clone());
+      // The two pieces that ride on the face. Both are skipped under a mask —
+      // see the note above the beard.
+      if (!style.mask) {
+        p.add(headWear(K, {
+          // Round to the ear, so the patch's own u edge is behind the sideburn rather
+          // than standing as a hard vertical line down the middle of the cheek — and
+          // pinched shut there, because a patch that runs to its u limit at full
+          // height ends in a vertical cut whatever the top edge does. Closing v0 onto
+          // v1 turns the far end into a sideburn instead.
+          u0: -1.24, u1: 1.24,
+          v0: (u) => mix(hang(u), cheek(u) - 0.03, smooth(0.98, 1.24, Math.abs(u))),
+          v1: cheek,
+          nu: Math.max(11, lod.shellU + 4), nv: Math.max(5, lod.shellV + 1),
+          // Thickness dies at *both* boundaries rather than being thickest at the
+          // one that is in silhouette. `patch` closes every boundary with a rim
+          // strip whose normal points along the surface, so a patch that ends at
+          // full lift draws its own outline as a bright band — the same defect
+          // `addFaceTones` records, except here the band was 10 mm and in the
+          // silhouette. Peaked at a third of the way up, which is where the mass of
+          // a beard actually is, and at 2 mm of lift on the boundary the rim strip
+          // is inside the skin and cannot be seen at all.
+          lift: (_u, s) => (full
+            ? 0.002 + 0.016 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.55)), 1.15)
+            : 0.0004 + 0.0012 * Math.sin(Math.PI * clamp01(s))),
+          thick: full ? 0.005 : 0.0007,
+        }), beard, place.clone());
+        // Philtrum gap: a real moustache parts under the nose. Two short patches
+        // rather than one bar is what sells it.
+        if (full) {
+          // Each half is a hump, not a slab. As a rectangle in (u, v) at a flat
+          // 8 mm of lift with a 6 mm rim, these rendered as two hard blocks floating
+          // over the mouth with daylight round them — the same failure as the mouth
+          // corners and for the same reason (see `patch`). Taking the lift to
+          // nothing on all four boundaries buries every rim strip in the skin, and
+          // what is left is a moustache that grows out of the lip and thins toward
+          // the corner.
+          const swell = (u: number, v: number) =>
+            0.0015 + 0.008 * Math.sin(Math.PI * clamp01(v))
+            * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.035) / 0.345));
+          // A leaf, not a rectangle. Both v bounds converge at both ends of u, so
+          // the half pinches shut against the philtrum on one side and against the
+          // mouth corner on the other — with parallel bounds it was a quadrilateral
+          // with four visible corners sitting over the lip, which is a postage stamp
+          // and not a moustache.
+          const mTop = lat(Y_NOSE - 0.035);
+          const mBot = lat(Y_LIP + 0.085);
+          const mMid = (mTop + mBot) * 0.5;
+          const mHalf = (mTop - mBot) * 0.5;
+          const leaf = (u: number) =>
+            mHalf * Math.pow(Math.sin(Math.PI * clamp01((Math.abs(u) - 0.025) / 0.365)), 0.5);
+          const droop = (u: number) => mMid - 0.055 * smooth(0.06, 0.38, Math.abs(u));
+          for (const s of [-1, 1]) {
+            p.add(headWear(K, {
+              u0: s * 0.025, u1: s * 0.39,
+              v0: (u) => droop(u) - leaf(u),
+              v1: (u) => droop(u) + leaf(u),
+              nu: 6, nv: 2, lift: swell, thick: 0.004,
+            }), beard, place.clone());
+          }
         }
       }
       // The hanging mass, for the three styles that have one. Every station has
@@ -4617,8 +5678,45 @@ export function buildCharacter(
       // This is the cheapest silhouette differentiator on the head: a bowl pulled
       // down to the brow with a deep dome is a different outline from a cap sitting
       // on the crown, at any distance and from behind. See `BuildTrait.bowl`.
-      const bandLo = lat(Y_BROW + mix(0.15, 0.05, clamp01((B.bowl - 0.76) / 0.36)));
+      // The mask helm wears 5 mm deeper than the open ones, and that is a
+      // proportion fix rather than a fit change. An open helm is read against the
+      // face under it; a mask helm is read against *itself*, and with the band at
+      // the open helms' height the bowl stood as a tall dome over a shallow plate
+      // and the eye openings sat in the bottom third of a letterbox. Dropping the
+      // band brings the cap onto the brow, which is where the artefact's is, and
+      // hands the height it gives up to the mask. It stops well clear of the brow
+      // ridge at 0.049 rad — putting the band *on* the ridge is the defect logged
+      // twenty lines above and this does not repeat it.
+      const bandLo = lat(Y_BROW + mix(0.15, 0.05, clamp01((B.bowl - 0.76) / 0.36)))
+        - (style.mask ? 0.055 : 0);
       const bandHi = bandLo + 0.20;
+      // The two substances the whole cap is cut from. Every helm below the noble
+      // tier gets the iron/steel pair it always had; the Sutton Hoo gets tinned
+      // silver and gilt through the same lines, so its cap is the same object in
+      // a different metal rather than a second copy of the build.
+      const capMetal = style.noble ? silver : iron;
+      const trimMetal = style.noble ? gilt : steel;
+      // u is authored low-to-high on both sides of the face, always. `patch` takes
+      // its facing from ∂u × ∂v, so a mirrored piece written `u0: s*a, u1: s*b`
+      // sweeps backwards on the left: the outer sheet turns away and what renders
+      // is the inner one, 8 mm closer to the skull than it was drawn. Silent,
+      // because backface culling simply removes the surface that was meant to be
+      // there. Older pieces on this head still do it and are left alone — moving
+      // them moves helmets that shipped — but nothing new does.
+      const sideArc = (s: number, a: number, b: number) =>
+        (s > 0 ? { u0: a, u1: b } : { u0: -b, u1: -a });
+      // A point on the head with a standoff, for the fittings that are solids
+      // rather than sheets — boar snouts, cabochons, the wyrm's head. Same three
+      // calls `headWear` makes, so a fitting cannot drift off the sheet it is
+      // supposed to be riveted to. The vector is reused; consume it before the
+      // next call.
+      const _fp = new THREE.Vector3();
+      const onFace = (u: number, v: number, off: number): THREE.Vector3 => {
+        dirOf(u, v, _d);
+        faceSurface(K, _d, _fp);
+        faceNormal(K, _d, _n);
+        return _fp.addScaledVector(_n, off);
+      };
       // Spangenhelm bowl. The dome term is what gives the huscarl a deep round
       // helm and the berserker a low skull-cap out of the same six lines.
       // Kept inside a liner's thickness of the skull even at its most domed: the
@@ -4633,7 +5731,7 @@ export function buildCharacter(
         nu: Math.max(10, lod.shellU + 2), nv: lod.shellV,
         lift: (_u, v) => mix(0.013, crest, v * v),
         thick: 0.007,
-      }), iron, place.clone());
+      }), capMetal, place.clone());
       // Brow band, sized off the bowl rather than off the skull. Its lower edge
       // stands 8 mm further out than its top, so the rim is a brim that overhangs
       // the forehead instead of a hoop lying flat on it — 8 mm of overhang under a
@@ -4651,18 +5749,47 @@ export function buildCharacter(
         nu: Math.max(10, lod.shellU + 2), nv: 1,
         lift: (_u, v) => 0.016 + 0.008 * (1 - v),
         thick: 0.009,
-      }), iron, place.clone());
+      }), capMetal, place.clone());
       if (lod.trim) {
+        // The bowl's spangen — the strips the cap's plates are riveted along.
+        //
+        // They ran `bandHi − 0.02` to `π/2 − 0.05` at a constant 5 mm lift, and
+        // both ends of that are wrong in the same way: a rib is a *join*, and a
+        // join has to arrive somewhere. The bottom stopped 20 mm above the band's
+        // own top rim — and on the noble helm the band is silver while the rib is
+        // gilt, so the gap was legible — and the top stopped short of the pole and
+        // was closed by a `patch` rim strip, which is a flat cut end facing the
+        // camera. The review counted four gold ribs "terminating in mid-air with
+        // flat cut ends, connecting to neither crest nor brow band", and that is
+        // the whole of it: they were four floating strips.
+        //
+        // So: down onto the band, up to the pole, and tapered to nothing at the
+        // top so the four converge into the crown instead of each presenting an
+        // end. The taper is on the lift rather than on the width, because
+        // narrowing the strip near the pole is where `headWear`'s u-spans are
+        // already crowded and it would only buy a pinch.
+        const ribTop = Math.PI / 2 - 0.012;
+        const ribLo = bandLo + 0.004;
         for (let i = 0; i < 4; i++) {
           const a = Math.PI / 4 + (i / 4) * Math.PI * 2;
           p.add(headWear(K, {
             u0: a - 0.05, u1: a + 0.05,
-            v0: () => bandHi - 0.02, v1: () => Math.PI / 2 - 0.05,
-            nu: 1, nv: 3, lift: () => 0.018, thick: 0.005,
-          }), steel, place.clone());
+            v0: () => ribLo, v1: () => ribTop,
+            nu: 1, nv: 5,
+            // Written as the bowl's own lift plus a proud height, so the strip
+            // cannot leave the cap however domed this warrior's is. `s` is the
+            // patch's own 0→1 parameter and the rib spans almost exactly the
+            // bowl's range, so the first two terms ARE the bowl. 14 mm at the
+            // band, which clears the band's own 24 mm brim, falling to zero at the
+            // pole: at the top the rib is flush with the dome and there is nothing
+            // left of it to cut.
+            lift: (_u, s) =>
+              0.013 + (crest - 0.013) * s * s + 0.014 * (1 - Math.pow(clamp01(s), 2.2)),
+            thick: 0.005,
+          }), trimMetal, place.clone());
         }
       }
-      if (ap.helm !== "iron") {
+      if (style.nasal) {
         // Nasal, and this is the pale slab straight down the middle of the face in
         // `art/shots/v4/portrait.png`. Two things were wrong with it. It was 48 mm
         // across at the top and 30 at the nose — a nasal is 20 to 25 — and its front
@@ -4703,7 +5830,7 @@ export function buildCharacter(
             z: on.z + mix(0.019, 0.009, t),
           });
         }
-        p.add(shell(nasal, 8, { power: 2.6, capTop: true, capBottom: true }), iron);
+        p.add(shell(nasal, 8, { power: 2.6, capTop: true, capBottom: true }), capMetal);
         if (lod.trim) {
           // Two rivet domes where the bar is pinned through the brow plate, in the
           // helm's polished steel rather than its iron.
@@ -4718,7 +5845,7 @@ export function buildCharacter(
           // which is the same luma occupying a shape. Steel is already on this part
           // for the helm's ribs, so it is not a draw call.
           for (const st of nasal.slice(0, 2)) {
-            p.add(ball(0.0042, 6), steel, xf(0, st.y - 0.004, (st.z ?? 0) + 0.0038, 0, 0, 0, 1, 1, 0.7));
+            p.add(ball(0.0042, 6), trimMetal, xf(0, st.y - 0.004, (st.z ?? 0) + 0.0038, 0, 0, 0, 1, 1, 0.7));
           }
         }
         // The plate it is riveted through. A flat 50 mm box at a fixed z could not
@@ -4733,9 +5860,9 @@ export function buildCharacter(
           u0: -0.13, u1: 0.13,
           v0: () => bandLo - 0.01, v1: () => bandHi - 0.015,
           nu: 3, nv: 1, lift: () => 0.026, thick: 0.006,
-        }), iron, place.clone());
+        }), capMetal, place.clone());
       }
-      if (ap.helm === "spectacle" || ap.helm === "crowned") {
+      if (style.brows) {
         // Spectacle plate: brows in iron with the eye holes cut under them. Sits
         // proud of the face so the sockets stay in shadow behind it — and now sits
         // on the brow rather than 30 mm above it.
@@ -4744,21 +5871,176 @@ export function buildCharacter(
             u0: s * 0.1, u1: s * 0.66,
             v0: () => lat(Y_EYE + 0.115), v1: () => lat(Y_BROW + 0.07),
             nu: 4, nv: 2, lift: () => 0.018, thick: 0.008,
-          }), steel, place.clone());
+          }), trimMetal, place.clone());
         }
+      }
+      if (style.cheek === "short") {
         // Cheek guards, hinged off the band. They run from the band down past the
         // cheekbone to the jaw, and they stop short of the mouth: the whole point of
         // the previous pass was to stop kit bricking up the face, and a guard that
         // reaches the chin undoes it.
+        //
+        // Shaped, not rectangular. The contact sheet found this plate on three
+        // helmets at once — "a flat rectangular plate floating off the face with
+        // a hard straight edge and mail visible behind it … it looks pasted on" —
+        // and all three of those complaints come out of the same two lines: a
+        // constant `v0` gave it a straight horizontal hem, and a constant `lift`
+        // gave it a flat plane standing a fixed 18 mm off a face that curves away
+        // under it. A cheek guard is cut to the jaw: deepest at the front where it
+        // covers the cheekbone and the jaw, swept up at the back so it clears the
+        // ear and rides the hinge. And a plate hinged off a band stands furthest
+        // out at its top rim and lies closest at its free edge, which is what
+        // turns a floating rectangle into something worn.
+        for (const s of [-1, 1]) {
+          const hem = (u: number) => {
+            const t = clamp01((Math.abs(u) - 0.42) / 0.60);
+            return lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.42, 1, t), 1.5);
+          };
+          p.add(headWear(K, {
+            ...sideArc(s, 0.42, 1.02),
+            v0: hem, v1: () => bandLo + 0.02,
+            nu: 6, nv: 4,
+            lift: (_u, v) => 0.014 + 0.010 * v,
+            thick: 0.008,
+          }), capMetal, place.clone());
+        }
+      } else if (style.cheek === "deep") {
+        // Deep guards, and the reason the short ones are still here rather than
+        // being deepened for everybody: a guard that reaches the jawline is the
+        // silhouette of a *closed* helmet, and closing the face is exactly what
+        // the two open helms below this price are not allowed to do.
+        //
+        // The floor is `lat(Y_CHIN + 0.05)`, which is 29 mm below where the short
+        // guard stops and about as far as this parametrisation reaches: v is a
+        // latitude on the skull's own sphere, so the last 50 mm to the menton is
+        // all crowded into the pole and a guard cut lower gains nothing but a
+        // pinched corner. It also has to clear a full beard's hanging mass, which
+        // starts 126 mm under the skull's centre; this ends at 91 mm.
+        //
+        // Outboard of the mask on purpose — 27 mm against the mask's 22 to 29 —
+        // so the two plates read as hinged over the face rather than flush with
+        // it, which is the only cue that says the guards move and the face does not.
+        // Round to 1.45 rad, not 1.02. At the short guard's width the plate stops
+        // in front of the ear and leaves a wedge of bare temple between it and the
+        // fall off the nape — visible from any three-quarter bearing, and the one
+        // angle a helmet like this is most often seen from. A deep guard covers the
+        // ear, which is what these are for, and at 1.45 it clears the helix by
+        // 12 mm rather than grazing it.
+        //
+        // Two numbers move when there is a mask under the guard, and both are
+        // about what the plate is standing on. Its inner edge goes from 0.50 rad
+        // to 0.78: at 0.50 it lands halfway across the cheek, and over an open
+        // helm that is a plate against skin — a boundary the eye reads as kit —
+        // but over a mask it is a plate against a plate, and it drew a fold down
+        // the middle of each cheek of the one face in the game that has to read as
+        // one formed surface. At 0.78 it sits at the mask's own outer curve and
+        // frames it. And the tessellation goes up, because 6 spans across a 0.95
+        // rad guard put four visible facets in a silhouette that used to be behind
+        // an open helm's jaw and is now the outline of the face itself.
+        // And 1.62 rad round rather than 1.45 when there is a mask under it.
+        // The nape fall now reaches 1.40, so on paper 1.45 laps it — but the two
+        // are swept in different frames: the guard rides the face field at a
+        // 27 mm standoff while the fall is on rings that flare backwards as they
+        // drop, so its front edge rakes away from the guard's the further down
+        // you look. `profile_90_` shows the result as a brown column of bare neck
+        // between them from the ear down. 1.62 carries the plate past the ear to
+        // where the fall's edge actually is at throat height.
+        const guardIn = style.mask ? 0.78 : 0.50;
         for (const s of [-1, 1]) {
           p.add(headWear(K, {
-            u0: s * 0.42, u1: s * 1.02,
-            v0: () => lat(Y_LIP + 0.02), v1: () => bandLo + 0.02,
-            nu: 3, nv: 3, lift: () => 0.018, thick: 0.008,
-          }), iron, place.clone());
+            ...sideArc(s, guardIn, style.mask ? 1.62 : 1.45),
+            v0: () => lat(Y_CHIN + 0.05), v1: () => bandLo + 0.01,
+            nu: style.mask ? 10 : 6, nv: style.mask ? 6 : 4,
+            lift: (_u, v) => 0.027 + 0.011 * (1 - v), thick: 0.008,
+          }), capMetal, place.clone());
         }
       }
-      if (ap.helm === "crowned") {
+      if (style.nape !== "none") {
+        // ---- the fall off the back of the band ----
+        //
+        // Swept on its own rings rather than off the face field, and that is not a
+        // style choice. Sampled off the skull the way the warden's flange is, a
+        // fall bottoms out about 135 mm behind the head's centre however hard it is
+        // pushed: by the time it is that low the sphere has curved under, so the
+        // standoff points downward rather than backward. Measured on the built
+        // head, the huscarl's coif reaches 170 mm — so a field-sampled guard hangs
+        // *inside* the mail on the one class that wears mail, which is the class
+        // the portrait capture uses and the one most likely to be wearing the
+        // expensive helmet. On rings it clears the coif by 18 to 41 mm at every
+        // level, and it flares as it falls, which is what makes it read as plate
+        // rather than as more head.
+        //
+        // THE CUT. `severBody`'s neck seam runs at `S.neckRoot - S.neckTop` in
+        // this pivot's frame and keeps what is above it, baking flat anything that
+        // crosses. This is the one piece of kit on a head that reaches for that
+        // plane, and a severed head wearing a guard sliced off square is a worse
+        // frame than one wearing no guard at all. So the lowest ring is solved
+        // against the seam instead of eyeballed and held 25 mm clear of it. As the
+        // skeleton stands the deep guard lands 70 mm above the cut and the clamp
+        // never binds — it is written this way round so that a collar line moving
+        // down carries the guard with it rather than quietly putting the cut
+        // through the middle of it.
+        const deep = style.nape === "guard";
+        const cut = S.neckRoot - S.neckTop;
+        const floorY = Math.max(cut + 0.025, skullY - R.y * (deep ? 1.05 : 0.45));
+        // OVER the coif, not inside it. The guard's top ring sat at R.y · 0.30 and
+        // R.x · 1.06 while the huscarl's aventail starts at R.y · 0.44 and
+        // R.x · 1.00 + 11 mm — so on the one class that wears both, the mail's own
+        // top ring stood higher and wider than the plate that is supposed to hide
+        // it, and a band of cut-out mail showed above the guard against the sky.
+        // Because mail's alpha is a texture cutout, what that band drew was a row
+        // of ragged triangles: the review read it as an alpha artifact and a
+        // texture bug, and it was neither — it was a plate 6 mm too small.
+        // The top ring now starts above the coif's and outboard of it, so the
+        // aventail is riveted up under the guard the way it is under the bowl.
+        const topY = skullY + R.y * 0.47;
+        const rings = [
+          { y: topY, hw: R.x * 1.16, hd: R.z * 1.14, z: -0.012 },
+          { y: mix(topY, floorY, 0.5), hw: R.x * 1.26, hd: R.z * 1.20, z: -0.028 },
+          { y: floorY, hw: R.x * (deep ? 1.38 : 1.30), hd: R.z * (deep ? 1.32 : 1.24), z: deep ? -0.040 : -0.034 },
+        ];
+        // Round far enough forward to meet the cheek guard. The deep guard's rear
+        // edge is at 1.45 rad and this arc used to start at π − 1.62 = 1.52, so
+        // there were 4° of nothing between two plates that are meant to overlap —
+        // and behind that gap, from any profile bearing, bare neck and the mail
+        // curtain. π − 1.74 = 1.40 rad laps the cheek plate by 3° instead.
+        const half = deep ? 1.74 : 1.38;
+        const fall = (u: number, v: number, inset: number, out: THREE.Vector3) => {
+          const t = v * (rings.length - 1);
+          const i = Math.min(rings.length - 2, Math.floor(t));
+          const f = t - i;
+          const a = rings[i];
+          const b = rings[i + 1];
+          out.set(
+            Math.sin(u) * (mix(a.hw, b.hw, f) - inset),
+            mix(a.y, b.y, f),
+            mix(a.z, b.z, f) + Math.cos(u) * (mix(a.hd, b.hd, f) - inset),
+          );
+        };
+        // u runs from the near edge round to the far one, the same direction the
+        // coif is swept in and for the same reason: v descends here, so a patch
+        // swept the other way round has ∂u × ∂v pointing into the skull and the
+        // guard renders inside out — which reads as a hole in the back of the head.
+        const sweep = (inset: number) =>
+          (t: number, v: number, out: THREE.Vector3) => fall(mix(Math.PI + half, Math.PI - half, t), v, inset, out);
+        p.add(patch({
+          nu: Math.max(8, lod.shellU - 2), nv: 3,
+          outer: sweep(0), inner: sweep(0.008),
+        }), capMetal);
+        if (style.noble) {
+          // Gilt edging along the rim. From behind — which is a third of the
+          // frames in a brawl — this strip is the only thing that says the helmet
+          // in front of you is the expensive one.
+          // A negative inset is 2.5 mm *outside* the guard, so the strip straddles
+          // the plate's own surface instead of sitting on it: no coplanar pair to
+          // fight for depth, and its two long rims are buried in silver.
+          const lip = (inset: number) =>
+            (t: number, v: number, out: THREE.Vector3) =>
+              fall(mix(Math.PI + half - 0.03, Math.PI - half + 0.03, t), mix(0.86, 1, v), inset, out);
+          p.add(patch({ nu: Math.max(8, lod.shellU - 2), nv: 1, outer: lip(-0.0025), inner: lip(0.0035) }), gilt);
+        }
+      }
+      if (style.crown === "circlet") {
         // Gilded circlet, sized to sit on the bowl rather than to hover round it.
         const cr = R.x + 0.023;
         const cz = (R.z + 0.023) / cr;
@@ -4769,7 +6051,860 @@ export function buildCharacter(
           p.add(rod(0.002, 0.01, 0.042, 4), brass, xf(Math.sin(a) * cr * 0.95, cy + 0.026, Math.cos(a) * cr * cz * 0.95, 0.2 * Math.cos(a), 0, -0.2 * Math.sin(a)));
         }
       }
-      if (lamellar) {
+      if (style.crown === "ridge") {
+        // A welded ridge from brow to nape. Two patches and not one, because a
+        // strip at u = 0 and a strip at u = π both converge on the crown pole and
+        // meet there — the trick the warden's comb already uses. Lower and longer
+        // than that comb: it starts on the brow band rather than above it and runs
+        // all the way down the back of the bowl, so what changes in the outline is
+        // the *profile* of the helmet rather than its height. From the front it is
+        // still a nasal helm, which is the point at this price.
+        // Rounded in section, and 66 mm of arc rather than 48. The contact sheet
+        // read this crest and the wyrm's as "bright bent wire arcing off the
+        // skull" — the same antenna the Sutton Hoo crest was taken off, surviving
+        // on two cheaper rungs. It is the same cause both times: a strip one span
+        // wide, lifted, is closed by two rim strips whose normals point along the
+        // sheet, so each side of it draws a hard bright line and what the eye gets
+        // is two wires with a dark gap between them. A semicircular section merges
+        // into the bowl at both edges and rolls one highlight instead.
+        const ridgeHalf = 0.066;
+        const section = (du: number) =>
+          Math.sqrt(Math.max(0, 1 - Math.pow(clamp01(Math.abs(du) / ridgeHalf), 2)));
+        for (const u of [0, Math.PI]) {
+          p.add(headWear(K, {
+            u0: u - ridgeHalf, u1: u + ridgeHalf,
+            v0: () => (u === 0 ? bandLo : bandLo - 0.26), v1: () => Math.PI / 2 - 0.02,
+            nu: 5, nv: 4,
+            // Rises all the way to the crown rather than peaking mid-slope the
+            // way the warden's comb does. Measured on the built head: peaked in
+            // the middle it lifted the helmet's outline by 3 mm over a plain
+            // spangenhelm, which is a rung nobody can see they bought. Monotonic
+            // it is 30 mm, and the two patches meet at the pole at full height.
+            lift: (x, v) => 0.014 + (0.005 + 0.030 * Math.pow(clamp01(v), 0.6)) * section(x - u),
+            thick: 0.008,
+          }), trimMetal, place.clone());
+        }
+      }
+      if (style.crown === "boar") {
+        // Benty Grange: a boar standing the length of the crown. This is the one
+        // helmet in the set whose silhouette changes from *every* bearing —
+        // 102 mm of animal along the skull from the side, a snout thrown 60 mm
+        // past the bowl from the front, a ridged back from behind — which is what
+        // 380 gold has to buy at a tier where the neighbours differ by a bar and a
+        // plate. It is bronze rather than steel because a figure is cast and a
+        // helmet is beaten, and the two substances say so.
+        // Sunk into the bowl rather than perched on it: at 46 mm the belly cleared
+        // the dome and the animal read as parked above the helmet, which is the
+        // same defect this file logs against the helm itself two hundred lines up.
+        const by = skullY + R.y + 0.030;
+        p.add(ball(0.030, 8), brass, xf(0, by, -0.006, 0, 0, 0, 0.50, 0.62, 1.70));
+        p.add(ball(0.018, 7), brass, xf(0, by - 0.006, 0.062, -0.20, 0, 0, 0.62, 0.72, 1.15));
+        // The dorsal ridge, in the helmet's bright metal so the animal's back
+        // catches the key and its flank does not — a bronze lump on a bronze
+        // helmet is a lump, and the ridge is what makes it read as a spine.
+        p.add(box(0.005, 0.015, 0.062), trimMetal, xf(0, by + 0.013, -0.012));
+        if (lod.trim) {
+          for (const s of [-1, 1]) {
+            p.add(rod(0.0007, 0.0032, 0.019, 4), trimMetal,
+              xf(s * 0.0085, by - 0.012, 0.082, -1.05, 0, -s * 0.30));
+          }
+          for (const s of [-1, 1]) p.add(ball(0.0028, 5), dark, xf(s * 0.0092, by + 0.002, 0.055));
+        }
+      }
+      if (style.crown === "wyrm") {
+        // A serpent arched over the crown with its head thrown out past the brow.
+        // The tier under Sutton Hoo, and it has to be a big silhouette rather than
+        // a rich one — the palette stays iron and steel, because tinned silver,
+        // gilt and garnet are the thing 2400 gold is actually buying and handing
+        // any of it out at 950 is how the top of a ladder stops being the top.
+        // A serpent has a body, and this one had a section 8 mm across carrying
+        // 56 mm of rise — which is not a snake, it is a wire, and the contact
+        // sheet named it as one. Same fix as the ridge helm's crest, and it earns
+        // more here: a round back is what makes the arch read as an animal rather
+        // than as a strap over the cap.
+        const wyrmHalf = 0.062;
+        const wSection = (du: number) =>
+          Math.sqrt(Math.max(0, 1 - Math.pow(clamp01(Math.abs(du) / wyrmHalf), 2)));
+        for (const u of [0, Math.PI]) {
+          p.add(headWear(K, {
+            u0: u - wyrmHalf, u1: u + wyrmHalf,
+            v0: () => (u === 0 ? bandLo - 0.04 : bandLo - 0.24), v1: () => Math.PI / 2 - 0.02,
+            nu: 5, nv: 5,
+            lift: (x, v) =>
+              0.014 + (0.006 + 0.052 * Math.pow(Math.sin(Math.PI * clamp01(v * 0.84 + 0.10)), 0.55)) * wSection(x - u),
+            thick: 0.009,
+          }), trimMetal, place.clone());
+        }
+        // The head, on the brow, looking out along its own body. Three solids and
+        // two horns: at the distance this is read from, a snout that clears the
+        // brow line is the whole shape and anything finer is spent on nothing.
+        const hv = bandLo - 0.10;
+        const hd = onFace(0, hv, 0.052);
+        const hx = hd.x; const hy = skullY + hd.y; const hz = hd.z;
+        p.add(ball(0.019, 7), trimMetal, xf(hx, hy, hz, 0.35, 0, 0, 0.75, 0.80, 1.30));
+        p.add(ball(0.011, 6), trimMetal, xf(hx, hy - 0.016, hz + 0.020, 0.55, 0, 0, 0.60, 0.55, 1.25));
+        if (lod.trim) {
+          for (const s of [-1, 1]) {
+            p.add(rod(0.0008, 0.0034, 0.026, 4), brass,
+              xf(hx + s * 0.010, hy + 0.014, hz - 0.008, -0.75, 0, -s * 0.42));
+            p.add(ball(0.0032, 5), dark, xf(hx + s * 0.0085, hy + 0.004, hz + 0.012));
+          }
+        }
+      }
+      if (style.mask) {
+        // ==========================================================
+        // THE SUTTON HOO HELM — the face mask and its fittings
+        // ==========================================================
+        //
+        // Four features make this helmet this helmet, and they are built in the
+        // order they depend on each other: the silver field with two openings cut
+        // in it, the gilded eyebrows over the openings, the nose-and-moustache
+        // between and below them, and the crest that comes over the crown and
+        // lands on the nose piece's top. Take any one out and it stops being the
+        // artefact and starts being a face plate.
+        //
+        // WHERE THE OPENINGS GO, and this is the whole risk in the piece.
+        // `eyeFrame` sites each globe at azimuth `0.355 · F.eyeU` and latitude
+        // `lat(Y_EYE) + F.eyeV`, both drawn off the per-warrior seed; `F.eyeV`
+        // alone is ±0.035 rad, which is ±8 mm on this skull. The file already
+        // carries the story of a helm cut for a brow 30 mm from where the brow
+        // was. A mask has *less* tolerance for that than an open helm, not more:
+        // an open helm 8 mm out has a slightly wrong brow line, and a mask 8 mm
+        // out is a blindfold. So the two lines below are the two lines out of
+        // `eyeFrame`, in the same order, off the same traits — not `Y_EYE` and a
+        // guess at where the eye ended up.
+        const eu = 0.355 * K.F.eyeU;
+        const ev = lat(Y_EYE) + K.F.eyeV;
+        const uIn = eu - 0.170;
+        const uOut = eu + 0.170;
+        // 32 mm across and 27 mm tall, closing to a point at both canthi. Square
+        // ends would read as two rectangles punched in a plate; this is the one
+        // boundary on the helmet a viewer's eye goes to first, and it is the
+        // difference between a mask and a letterbox.
+        //
+        // It shipped at 35 x 22 and that ratio was the letterbox. An aperture
+        // three half-heights wide reads as a slot at any distance the game is
+        // played at, whatever its ends do; 32 x 27 is 1.6:1, which is what the
+        // artefact's openings measure and what stops reading as a visor slit.
+        const slot = (u: number) =>
+          Math.pow(Math.sin(Math.PI * clamp01((Math.abs(u) - uIn) / (uOut - uIn))), 0.55);
+        const openHi = (u: number) => ev + 0.118 * slot(u);
+        const openLo = (u: number) => ev - 0.098 * slot(u);
+        const maskTop = bandLo + 0.025;
+        // How far round the head the plate reaches. 1.16 rad, not 1.00: at 1.00
+        // the silver stopped short of the cheekbone's widest point, so the mask
+        // was a strip down the middle of a face with skin either side of it and
+        // the deep guards standing off *that* — three narrow verticals instead of
+        // one broad face. The guards begin at 0.78 on this helm, so the last
+        // 0.38 rad is plate behind plate, which is what a hinged guard is.
+        const uEdge = 1.16;
+        // WHERE THE MASK STOPS, and this is the fault the previous owner flagged
+        // and could not close. It ended at `lat(Y_LIP - 0.115)` — below the mouth
+        // but well above the menton — and left a lit column of chin and throat
+        // hanging under it. That single wedge of skin undoes the entire object:
+        // "a man with no face" becomes a man wearing a snorkel, because the eye
+        // reads the flesh as the face and the metal as a thing stuck on it.
+        //
+        // So it now closes on the jaw, and it closes at a latitude that depends on
+        // where round the head it is: down to the chin on the centreline, rising
+        // as it goes out so the last of it tucks behind the cheek guards rather
+        // than fighting them for the same 20 mm. The guards floor at
+        // `lat(Y_CHIN + 0.05)` and stand 27 mm out against this 29, so the two
+        // still read as hinged over a face and not as one welded bucket.
+        const chinV = lat(Y_CHIN + 0.005);
+        const jawV = lat(Y_LIP - 0.055);
+        // The lower edge as a power curve rather than a smoothstep, and that is
+        // the whole of "the mask has a wedge-shaped chin". `smooth(0.34, …)` is
+        // flat for the first 0.34 rad, so the plate carried a 30 mm horizontal
+        // shelf across the centreline and then broke upward — which in profile
+        // is a blade with a straight underside and head-on is a V. A chin is a
+        // continuous curve from the centreline out. The exponent keeps the fall
+        // gentle where the plate is deepest and takes the last of it up quickly
+        // behind the cheek guards, which is the only part of this edge nobody
+        // sees.
+        const maskBot = (u: number) =>
+          mix(chinV, jawV, Math.pow(clamp01(Math.abs(u) / 1.02), 1.55));
+        // Standoff as a function of LATITUDE, not of the patch's own parameter.
+        // Panels that span different ranges of v would otherwise ramp at different
+        // rates and the field would step at every seam.
+        const maskLift = (v: number) => mix(0.029, 0.0225, smooth(chinV, maskTop, v));
+        // THE MASK IS A FORMED PLATE, NOT A SKIN, and this is what made it read as
+        // folded low-poly card. Everything else on this head is lifted straight off
+        // `faceSurface`, which is right for hair, paint and a nasal bar — they lie
+        // on the face. But that field carries the nasal dorsum, the orbital
+        // margins, the lip line, the mental protuberance and the buccal hollows,
+        // so a sheet drawn through it inherits every crease the face has and none
+        // of the curvature a beaten plate has. Hence: low-pass the field over about
+        // ±0.09 rad before lifting. The average keeps the skull the mask has to
+        // fit — a wide head still gets a wide mask — and loses the features it must
+        // not copy, which leaves one continuous surface for the fire key to travel
+        // across. `crownU` then adds the smith's own doming back, greatest on the
+        // centreline and gone by the flanks.
+        //
+        // Nine taps, at build time only, on a geometry the cache keeps. It costs
+        // nothing anybody can measure and it is the difference between a mask and
+        // a paper bag.
+        // ±0.13 rad, which is about 12 mm on this skull, over two rings. One ring
+        // at ±0.09 left the nasolabial fold and the buccal hollow legible as two
+        // creases running from the nose wing to the jaw — soft, but a *face* under
+        // silver rather than a plate over one, and at that point the mask is a
+        // death-mask cast off the man instead of a thing beaten over a form. The
+        // widest feature the field carries is the zygomatic, and 12 mm clears it.
+        const BLUR: Array<[number, number, number]> = [
+          [0, 0, 1.0],
+          [0.07, 0, 0.70], [-0.07, 0, 0.70], [0, 0.07, 0.70], [0, -0.07, 0.70],
+          [0.05, 0.05, 0.42], [-0.05, 0.05, 0.42],
+          [0.05, -0.05, 0.42], [-0.05, -0.05, 0.42],
+          [0.13, 0, 0.34], [-0.13, 0, 0.34], [0, 0.13, 0.34], [0, -0.13, 0.34],
+          [0.095, 0.095, 0.22], [-0.095, 0.095, 0.22],
+          [0.095, -0.095, 0.22], [-0.095, -0.095, 0.22],
+        ];
+        const _bp = new THREE.Vector3();
+        const _bn = new THREE.Vector3();
+        // The smith's doming, and it is now in BOTH directions.
+        //
+        // Across the width it was a cosine peaking on the centreline, which is
+        // convex — but at an exponent of 1.4 almost all of the curvature is spent
+        // in the last third, so the middle 60% of each cheek was very nearly
+        // planar and read as one flat facet with a single shading ramp across it.
+        // Exponent 1.0 spreads the same 10 mm over the whole span, and 13 mm
+        // rather than 10 because the mask is 260 mm wide and 10 mm of rise on that
+        // is a 2% sagitta — flatter than any hand-raised plate.
+        //
+        // Down the height there was nothing at all, so the plate inherited the
+        // low-passed face's own near-straight vertical section. A raised plate is
+        // convex everywhere or it is a sheet of card: 6 mm of belly, greatest over
+        // the cheekbone and gone at both the brow and the chin where the plate is
+        // turning under anyway.
+        //
+        // Both terms up again — 17 mm across and 10 down — because a third review
+        // has come back calling this plate faceted. Curvature is what makes the
+        // difference between reading a surface and reading its polygons: the eye
+        // finds a facet by the *discontinuity* between two shading ramps, and on a
+        // barely-curved plate every ramp is nearly identical, so the only thing
+        // left to see is where they change. Bending the sheet harder gives each
+        // span its own ramp and buries the joins between them. 17 mm on a 260 mm
+        // span is a 3.3% sagitta, which is a hand-raised plate; more than that and
+        // the mask stops fitting the skull it is beaten over.
+        const crownU = (u: number) =>
+          0.017 * Math.cos(clamp01(Math.abs(u) / uEdge) * Math.PI * 0.5);
+        const crownV = (v: number) =>
+          0.010 * Math.sin(Math.PI * clamp01((v - chinV) / (maskTop - chinV)));
+        /** The mask's own surface: the head's shape, none of its features. */
+        const shell = (u: number, v: number, off: number, out: THREE.Vector3) => {
+          out.set(0, 0, 0);
+          _n.set(0, 0, 0);
+          let w = 0;
+          for (const [du, dv, k] of BLUR) {
+            dirOf(u + du, v + dv, _d);
+            faceSurface(K, _d, _bp);
+            faceNormal(K, _d, _bn);
+            out.addScaledVector(_bp, k);
+            _n.addScaledVector(_bn, k);
+            w += k;
+          }
+          out.multiplyScalar(1 / w);
+          _n.normalize();
+          out.addScaledVector(_n, off + crownU(u) + crownV(v));
+        };
+        /** A point on the mask's shell, for the fittings that ride on it. */
+        const onMask = (u: number, v: number, off: number): THREE.Vector3 => {
+          const out = new THREE.Vector3();
+          shell(u, v, maskLift(v) + off, out);
+          return out;
+        };
+        // Everything on this mask — field, brows, nose, moustache — is swept
+        // through `shell` and nothing through `headWear`, because a fitting drawn
+        // on the face's field and riveted to a plate drawn on the mask's would sit
+        // wherever the two disagree, which over the nose is 6 mm of float.
+        // `thick` may be a function, and that is not a flourish. `patch` closes
+        // every v-boundary with a rim strip as tall as the sheet, whose normal
+        // points along the surface — so a 7.5 mm plate ending anywhere visible
+        // draws a 7.5 mm band in a different value. On a cut edge that is right;
+        // it is what a hole punched in foil looks like. On the join between two
+        // sheets of the SAME plate it is a hairline ruled across the face, and no
+        // amount of lapping hides it because the strip belongs to the sheet in
+        // front. Letting the gauge fall off at a boundary feathers the strip out
+        // of existence instead.
+        const onShell = (
+          u0: number, u1: number,
+          v0: (u: number) => number, v1: (u: number) => number,
+          nu: number, nv: number,
+          lift: (u: number, v: number, s: number) => number,
+          thick: number | ((u: number, s: number) => number),
+          mat: THREE.Material,
+        ) => {
+          const gauge = typeof thick === "number" ? () => thick : thick;
+          const surf = (t: number, s: number, back: boolean, out: THREE.Vector3) => {
+            const u = mix(u0, u1, t);
+            const v = mix(v0(u), v1(u), s);
+            shell(u, v, lift(u, v, s) - (back ? gauge(u, s) : 0), out);
+          };
+          p.add(patch({
+            nu, nv,
+            outer: (t, s, out) => surf(t, s, false, out),
+            inner: (t, s, out) => surf(t, s, true, out),
+          }), mat, place.clone());
+        };
+        // TWO panels, not seven. `slot` is zero outside the eye zone, so `openHi`
+        // and `openLo` both collapse onto `ev` there and the upper and lower
+        // plates meet edge to edge down the middle of the face and again out past
+        // the canthi — leaving exactly two holes in what is otherwise one sheet.
+        // The seven-panel build left six vertical seams across the face, each one
+        // a shading discontinuity in the largest unbroken area of metal in the
+        // portrait framing. These two have one horizontal join, and it runs along
+        // the eye line where the openings and the brows are already breaking the
+        // surface up.
+        //
+        // Where they meet away from the openings they OVERLAP rather than abut.
+        // `patch` closes each v-boundary with a rim strip whose normal points
+        // along the sheet, so two edges meeting flush put two 7.5 mm rims nose to
+        // nose and draw a bright line straight across both cheeks at eye level —
+        // visible in the first capture of this pass, and the same defect the brows
+        // and the cloak hem are already written around. Lapping the lower plate
+        // 15 mm up behind the upper one, and dropping its lift by 1.8 mm as it
+        // goes, puts the join under metal where it belongs. The lap is taken to
+        // nothing as the opening opens, so nothing intrudes into the aperture.
+        const lapped = (u: number) => {
+          const lap = 1 - clamp01(slot(u) * 3);
+          return openLo(u) + 0.015 * lap;
+        };
+        // Spans off the LOD, because these two sheets are now the largest thing on
+        // the head and a phone should not buy the portrait's tessellation to see a
+        // helmet across an arena. 26 at high, 18 at medium, 14 at low.
+        // 34/22/16 across and 7/9 down, up from 26 and 4/5.
+        //
+        // The review found "hard planar breaks: a full-height vertical crease down
+        // the viewer's left of the mask, its mirror at the other side, a chevron
+        // fold across the chin, and each cheek reading as one flat plane" — and
+        // called them tessellation rather than shading, which is right and is
+        // checkable: the creases sit exactly on span boundaries. Four spans down a
+        // 130 mm plate is a 32 mm facet, and a facet that size on a surface with
+        // 10 mm of crown across it *is* a fold. The low-pass took the face's
+        // creases out and this is the other half of the same job — a surface can
+        // only be as smooth as the number of quads it is made of. It is the
+        // largest object on the head and it is the one that has to read as beaten,
+        // so it gets the spans. Costs about 480 triangles at high, scaled at the
+        // tiers that cannot afford them.
+        //
+        // 40 across and 10 down at high, and this is the last time spans are
+        // spent on this problem: past here the facets are below the pixel and
+        // anything still reading as a plane is the crown terms' fault, not the
+        // grid's. The lower sheet keeps its two extra rows because it carries the
+        // chin, where the surface turns hardest.
+        const maskU = Math.max(16, Math.round(lod.shellU * 2.4) + 6);
+        const maskV = lod.trim ? 10 : 4;
+        // The upper sheet's lower boundary does two jobs and needs two gauges. Over
+        // the openings it is a CUT EDGE and keeps the full 7.5 mm, because the
+        // thickness of the plate at the rim of the hole is one of the few places
+        // this helmet gets to say it is made of metal at all. Everywhere else the
+        // same boundary is the JOIN with the lower sheet, and there it feathers to
+        // a millimetre — which is the fix for the dark hairline ruled straight
+        // across both cheeks at eye level in every card of the last three
+        // turntables. The lap was already right; the rim strip on top of it was
+        // what was drawing.
+        onShell(-uEdge, uEdge, openHi, () => maskTop, maskU, maskV,
+          (_u, v) => maskLift(v),
+          (u, s) => 0.0075 * mix(0.14, 1, Math.max(clamp01(slot(u) * 3), clamp01(s * 5))),
+          silver);
+        onShell(-uEdge, uEdge, maskBot, lapped, maskU, maskV + 2,
+          (u, v, s) => maskLift(v) - 0.0018 * s * (1 - clamp01(slot(u) * 3)),
+          0.0075, silver);
+        // Black voids behind the openings. This file has spent two passes making
+        // sure a helmet is not an empty hole; here the hole is the point, and what
+        // has to show through it is an eye in the dark rather than a lit cheekbone
+        // 30 mm behind a slot.
+        //
+        // The flat dark course this replaces sat 3.5 mm off the skin with 20 mm of
+        // lit tunnel between it and the mask's inner face, so from anywhere but
+        // dead ahead the aperture showed brow, lid and cheek — which is what
+        // `art/shots/helm/suttonhoo.png` shows. This is a funnel instead: it meets
+        // the mask's inner surface at the rim of the opening and falls away to the
+        // socket floor at the centre, so there is no lit surface anywhere inside
+        // the aperture at any bearing. The globe still stands 13 mm proud of that
+        // floor and still catches its own specular dot, which is the call this
+        // helmet needs — the doc asks for black voids and the doc is right about
+        // the field, but at the portrait framing a wholly empty socket is the
+        // "nobody home" defect the top of this file warns about, and a wet dot in
+        // a black hole is a man looking at you. Void first, eye second.
+        //
+        // ON THE MASK'S SHELL, NOT ON THE FACE'S. This is the fault the review
+        // found — "the same skin geometry is visible inside both eye openings as
+        // brown shapes hanging in the black" — and it was a field mismatch rather
+        // than a shape one. The funnel was swept through `headWear`, which lifts
+        // off `faceSurface`; the mask is swept through `shell`, which low-passes
+        // that field and then adds up to 19 mm of crown to it. So the funnel's rim
+        // was drawn to meet a surface that is not where the mask is, and at the
+        // openings — which sit on the crown's high ground — it fell short by most
+        // of a centimetre. Through that gap the aperture looked straight out at a
+        // lit brow and a lit cheek.
+        //
+        // Swept through the same `shell`, the rim is solved against the mask's own
+        // inner face by construction: it cannot be short at any bearing, on any
+        // warrior's skull, however his crown term happens to land.
+        for (const s of [-1, 1]) {
+          const socket = sideArc(s, uIn - 0.052, uOut + 0.052);
+          // 16 spans across, not 10. The rim has to land on the mask's inner face
+          // and the mask is now drawn at 40 spans: a coarser funnel chords the
+          // aperture the plate curves round, so the two disagree by a fraction of
+          // a millimetre in alternating directions and the opening's edge renders
+          // as a row of bright silver steps inside the black.
+          onShell(socket.u0, socket.u1,
+            (u) => openLo(u) - 0.052, (u) => openHi(u) + 0.052,
+            16, 5,
+            (u, v, q) => {
+              const t = clamp01((u - socket.u0) / (socket.u1 - socket.u0));
+              const bowlT = Math.sin(Math.PI * t) * Math.sin(Math.PI * q);
+              // Rim flush with the mask's inner face (its lift less its 7.5 mm of
+              // thickness, plus a shaving so the two do not z-fight), falling to
+              // the socket floor at the centre. The globe still stands 13 mm proud
+              // of that floor and still catches its own wet dot — void first,
+              // eye second, which is the call this helmet needs.
+              return mix(maskLift(v) - 0.0069, 0.0035, Math.pow(bowlT, 0.55));
+            },
+            0.0012, dark);
+        }
+
+        // ---- the gilded eyebrows ----
+        //
+        // Thick, tapering outward, each ending in a boar's head, each set with a
+        // line of garnet down its length. In the owner's reference badge they are
+        // the two heavy gold arcs, and they earn that weight: they are the only
+        // horizontal in the composition and they are what turns two holes into a
+        // face rather than a colander.
+        //
+        // THEY ARE ARCS, AND THE LAST BUILD DREW A BAR. Both edges were a constant
+        // latitude plus a monotone ramp outward, and a constant latitude near the
+        // equator of a head projects, from the front, as a dead straight
+        // horizontal — so the two fittings and the nose crossing between them read
+        // as one rule ruled across the face. That costs the whole figure: these
+        // are the bird's WINGS, and nothing swept and level is a wing. It also
+        // costs the artefact, whose brows sit down on the eye and arch over it.
+        //
+        // So the lower edge is now the aperture's own upper edge plus a clearance:
+        // `slot` is the curve that opens the eye, so borrowing it makes the brow
+        // ride the socket by construction on every warrior's skull, however his
+        // seed sites the openings. It comes down at the nose, arches ~9 mm over
+        // the middle of the eye, and lands again at the temple where the boar's
+        // head takes over. The small linear term is the sweep — the outer end
+        // finishes above the inner one, which is what makes two arcs read as a
+        // pair of wings rather than as a pair of brackets.
+        const browIn = uIn - 0.045;
+        const browEnd = uOut + 0.115;
+        const along = (u: number) => clamp01((Math.abs(u) - browIn) / (browEnd - browIn));
+        const browLo = (u: number) => ev + 0.070 + 0.080 * slot(u) + 0.020 * along(u);
+        // And it tapers. A band of constant height is a strap; the fitting on the
+        // object is deepest where it leaves the nose and thins to nothing at the
+        // boar, which is also what lets the boar read as a terminal rather than as
+        // a bead stuck on the end of a rail. 11 mm down to 4.
+        const browHi = (u: number) =>
+          browLo(u) + 0.104 * (1 - 0.62 * Math.pow(along(u), 1.35));
+        // Relief on the fitting, taken to nothing on all four boundaries. Every
+        // rim strip a `patch` closes with points its normal *along* the sheet, so
+        // a fitting that ends at full lift draws its own outline in a different
+        // value — the defect logged against the beard, the war paint and the cloak
+        // hem, and the last thing this face needs is a bright wire round the one
+        // shape that is supposed to be soft gold.
+        const relief = (t: number, s: number, peak: number) =>
+          peak * Math.pow(Math.sin(Math.PI * clamp01(t)), 0.40)
+          * Math.pow(Math.sin(Math.PI * clamp01(s)), 0.45);
+        for (const s of [-1, 1]) {
+          const b = sideArc(s, browIn, browEnd);
+          // 5 mm proud, down from 7.2. Every fitting on this face was standing too
+          // far off it — see the nose below, which is the extreme case — and the
+          // brows are read against 130 mm of flat silver, so a couple of
+          // millimetres of relief is already a shadow the eye can find. What makes
+          // a fitting read as applied is its outline and its own highlight, not
+          // its height.
+          onShell(b.u0, b.u1, browLo, browHi, Math.max(10, lod.shellU + 4), 3,
+            (u, v, t) => maskLift(v) + relief(along(u), t, 0.0050), 0.004, gilt);
+          if (lod.trim) {
+            // The garnets, as cabochons rather than as a strip. A 3 mm rail would
+            // have to end in rim strips 3 mm wide standing on gilt, which is
+            // exactly the width that stipples; a cell has no rim at all. It is also
+            // what the object is — cloisonné is discrete cells, not a line of paint.
+            //
+            // Five, not seven, and each one 40% wider. Seven 3.6 mm balls at six
+            // segments along an eyebrow is a row of faceted specks: each facet
+            // returns a different sample of the fire, so the line read as sparkle
+            // rather than as stones, and it was half of what made the gilt look
+            // like glitter. Five 5 mm cells at ten segments hold a single highlight
+            // each, which is what a polished cabochon does.
+            // The run stops at 0.72 rather than 0.85 along: the band is now 4 mm
+            // deep at the boar's end and a 4 mm cell there would stand out past
+            // both its edges, which is a stud on a wire rather than a cell in a
+            // setting. Cloisonné goes where there is metal to cut a cell into.
+            for (let i = 0; i < 5; i++) {
+              const t = 0.12 + (i / 4) * 0.60;
+              const u = s * mix(browIn, browEnd, t);
+              const v = mix(browLo(u), browHi(u), 0.5);
+              const q = onMask(u, v, relief(t, 0.5, 0.0050) + 0.0012);
+              p.add(ball(0.0044, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1.0, 0.60, 0.85));
+            }
+            // The boar's head each eyebrow ends in. Two solids and a pair of
+            // tusks: at the size this is seen it is a snout that overhangs the
+            // temple, and everything finer than that is spent on nothing.
+            //
+            // Sized to the band it terminates rather than to the head it is on. At
+            // 10.5 mm scaled 1.45 the snout was a 30 mm gold pod at each temple —
+            // bigger than the brow it finished and, in the turntable, a second pair
+            // of lumps competing with the nose. A terminal is read by being *on the
+            // end of something*, so it is now a shade wider than the band and no
+            // more.
+            const bu = s * (browEnd - 0.012);
+            const bv = mix(browLo(bu), browHi(bu), 0.45);
+            const q = onMask(bu, bv, 0.0050);
+            p.add(ball(0.0076, 7), gilt,
+              xf(q.x, skullY + q.y, q.z, 0, s * 0.55, 0, 1.40, 0.90, 0.95));
+            p.add(ball(0.0040, 6), gilt,
+              xf(q.x + s * 0.0074, skullY + q.y - 0.0030, q.z - 0.0022, 0, s * 0.55, 0, 1.2, 0.85, 0.9));
+            // Tusks. 0.5 mm at the root over 10 mm of length is a hair, and the
+            // review found them as exactly that: "hair-thin whisker slivers off
+            // both eyebrow terminals". A sliver one pixel wide is not a small
+            // detail, it is an artifact — it aliases, it catches the key at full
+            // value, and it has no shape to lose. Shorter and three times as
+            // thick, so what is there reads as a tusk or is not there at all.
+            for (const t of [-1, 1]) {
+              p.add(rod(0.0013, 0.0024, 0.0060, 5), gilt,
+                xf(q.x + s * 0.0088, skullY + q.y + t * 0.0021, q.z + 0.0030, 0, 0, s * 1.15));
+            }
+          }
+        }
+
+        // ---- the nose-and-moustache piece ----
+        //
+        // The trick the object is famous for, and it is an arrangement rather than
+        // a shape: nose as a body, moustache spread wide beneath it as a tail,
+        // eyebrows sweeping out and up either side as wings — a bird in flight —
+        // and the same three read the other way up as a dragon's head, the nose
+        // becoming a long snout between two brows. Neither read survives flattening
+        // this into a nasal bar, which is why the plain nasal is switched off for
+        // this helmet in `HELM` rather than left on under the mask.
+        //
+        // What makes it work geometrically: the nose runs *above* the eyebrows'
+        // inner ends and continues below them, so the three pieces cross rather
+        // than abut, and the moustache is wider than the eyebrows are long.
+        //
+        // THE FAULT THE LAST PASS INTRODUCED, because it is worth naming before
+        // the numbers. Sent to close a 14 mm band of bare silver between nose and
+        // moustache, it welded them: the nose was run 30 mrad past the moustache's
+        // top edge at 9.2 mm of relief, and the moustache's own relief was keyed
+        // off `1 − mT^2.4` fed into a term that peaks at a half — so the tail was
+        // FLAT on the centreline and stood 8 mm proud at three-quarters of its
+        // span. A tall ridge coming down into a hollow with two horns either side
+        // is not a bird; it is a bill. At −45° and −90° it juts off the face and
+        // it is the first thing in the frame.
+        //
+        // Both halves are fixed here, and the principle behind both is the one
+        // the whole helmet keeps getting wrong: the fittings on the artefact lie
+        // CLOSE to a smooth face. Depth is not what makes them read — outline is.
+        //
+        // The moustache, and it is ONE form: a single broad sheet the full 88 mm
+        // across, at nearly full depth out to two thirds of its span, with a
+        // shallow notch under the philtrum instead of a gap. Its relief now peaks
+        // on the centreline and dies at both tips, which is what a mass with a
+        // parting drawn on it looks like — and it is 3 mm rather than 8, so it is
+        // broad and flat where it used to be lumpy.
+        const mTop = lat(Y_NOSE - 0.045);
+        const mBot = lat(Y_LIP + 0.02);
+        const mMid = (mTop + mBot) * 0.5;
+        const mHalf = (mTop - mBot) * 0.5;
+        const mSpan = 0.475;
+        const mT = (u: number) => clamp01(Math.abs(u) / mSpan);
+        // Keeps 28% of its depth at the tips rather than closing to a point. A
+        // moustache that comes to nothing at both ends is a pair of horns; one
+        // that keeps a hem is a tail, and the tail is what this shape is for.
+        const leaf = (u: number) => mHalf * (1 - 0.72 * Math.pow(mT(u), 2.6));
+        // The droop, and the notch. The centre sits high and level under the nose
+        // so the two forms meet in a T that reads at a glance; the ends fall 10 mm
+        // below it, which is the drooping the object has and the last build did
+        // not. The notch is 2 mm of the lower edge at the centreline — enough to
+        // say "parted" from a metre away and not enough to break the mass in two.
+        const droop = (u: number) =>
+          mMid - 0.095 * Math.pow(mT(u), 1.8) - 0.018 * Math.pow(1 - smooth(0, 0.055, Math.abs(u)), 2);
+        const mLip = (u: number) => droop(u) + leaf(u);
+        onShell(-mSpan, mSpan,
+          (u) => droop(u) - leaf(u), mLip, Math.max(14, lod.shellU + 12), 5,
+          (u, v, t) => maskLift(v) + relief(0.5 + 0.5 * (u / mSpan), t, 0.0030),
+          0.0045, gilt);
+        // The nose, drawn AFTER the moustache and solved against it.
+        //
+        // ITS OUTLINE IS THE POINT, NOT ITS HEIGHT. The outline is carried by the
+        // patch's own v-bounds rather than by a fade in the relief, so the sheet
+        // exists exactly where the fitting is and lies flush with the mask
+        // everywhere it is not — a shape with a real edge does not need to stand
+        // proud to be read.
+        //
+        // The shape is a nose and not a wedge, and the difference is the whole
+        // complaint. Straight-sided from bridge to about two thirds down at 14 mm
+        // across, then flaring to 27 mm at the alae — which is a cubic in the
+        // half-width, inverted here because the sweep is parameterised across the
+        // fitting rather than along it. Ramping the width evenly from apex to base
+        // instead gives a triangle, and a gold triangle down the middle of a face
+        // is a bill however flat it lies. Measured against the artefact: bridge
+        // 15 mm, alae 34 — this is a shade narrower on purpose, because the mask
+        // around it is a rendered 130 mm rather than a real 200.
+        //
+        // Length off the eye line rather than off `Y_BROW`, and shorter by 40 mm.
+        // The brows are keyed to `ev` now, so keying the nose to `Y_BROW` let the
+        // two drift apart on a warrior whose seed sites his eyes low: the nose ran
+        // up past the brow arcs to the cap band, and a 75 mm nose on a 130 mm face
+        // is the single biggest thing in the frame. It now finishes just above the
+        // brows' inner ends, which is where the bird's head sits and where the
+        // artefact's own nose piece stops.
+        //
+        // 2.6 mm proud, down from 9.2. The relief's own taper takes it to nothing
+        // at the foot, so the body sinks into the tail rather than standing over
+        // it, and the tail stays the wider, flatter, separate form it has to be.
+        const noseTop = ev + 0.205;
+        const noseBot = mLip(0) - 0.014;
+        const noseHalf = 0.124;
+        const noseFlare = (u: number) =>
+          Math.cbrt(clamp01((Math.abs(u) - 0.062) / (noseHalf - 0.062)));
+        onShell(-noseHalf, noseHalf,
+          () => noseBot,
+          (u) => mix(noseTop, noseBot, noseFlare(u)),
+          12, 9,
+          (u, v, t) => maskLift(v) + relief(0.5 + 0.5 * (u / noseHalf), t, 0.0026),
+          0.0045, gilt);
+        if (lod.trim) {
+          // THE BIRD'S HEAD, and the other half of the same complaint: "there is
+          // no bird's head at the brow junction — the nasal terminates in a plain
+          // rectangular gold tab with two garnets."
+          //
+          // On the artefact the wings run out from a head, and without one the
+          // group is a bar that happens to meet two arcs. Three solids: a cranium
+          // where the nose meets the brows, a beak thrown up over the band, and
+          // the two garnets moved off the tab and onto the skull as its eyes —
+          // which is where the red was always trying to be. Small deliberately: it
+          // has to break the tab's straight top edge and read as a head in
+          // silhouette, and anything more is spent below a pixel.
+          //
+          // A third smaller again, because it sits at the top of the one form that
+          // was over-built. A 9 mm ball at 9 mm of standoff put 18 mm of solid gold
+          // out from the brow — measured against the mask it terminates, that is
+          // the biggest single protrusion on the helmet, and it was carrying the
+          // beak read as much as the nose was.
+          const hq = onMask(0, noseTop - 0.020, 0.0046);
+          p.add(ball(0.0064, 8), gilt,
+            xf(hq.x, skullY + hq.y, hq.z, -0.30, 0, 0, 0.82, 1.00, 0.78));
+          const bq = onMask(0, noseTop + 0.020, 0.0044);
+          p.add(ball(0.0036, 7), gilt,
+            xf(bq.x, skullY + bq.y, bq.z, -0.55, 0, 0, 0.66, 1.25, 0.70));
+          for (const s of [-1, 1]) {
+            const q = onMask(s * 0.030, noseTop - 0.024, 0.0078);
+            p.add(ball(0.0028, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1, 0.85, 0.75));
+          }
+        }
+
+        // ---- the ventail: what closes the throat ----
+        //
+        // The last flesh in the frame, and the review that logged it as
+        // "partly fixed" was right to. Closing the mask on the jaw was the right
+        // move and it was not enough: at portrait framing there is still ~100 px
+        // of brightly lit skin between the mask's lower edge and the mail collar,
+        // with a seam down the middle of it, and the eye reads that column as the
+        // face — which makes everything above it a thing stuck on rather than a
+        // head. It is the single loudest defect left on the most expensive item in
+        // the shop.
+        //
+        // It cannot be closed with more plate. `v` is a latitude on the skull's own
+        // sphere and the last 50 mm to the throat is crowded into the pole, which
+        // is exactly why the mask stops where it does and why the deep guards do.
+        // What actually closes a throat under a face mask is a mail ventail hung
+        // off the plate, and mail is a substance this file already has, hangs on
+        // rings rather than on latitudes, and reads correctly as cut-out.
+        //
+        // Swept on rings like the nape fall.
+        //
+        // TWO NUMBERS DECIDE WHETHER IT WORKS, and the last build had both wrong
+        // because it sized the curtain off the throat instead of off the head.
+        //
+        // How far DOWN. It floored 14 mm clear of `severBody`'s neck seam so a
+        // severed head would keep an unsliced ventail — which stopped it 28 mm
+        // short of the hauberk's own collar line, and 28 mm of lit neck and linen
+        // is precisely the "bare flesh collar" the frame shows at front and
+        // three-quarter. That trade is the wrong way round: the mail is looked at
+        // in every frame of every match and the severed head is looked at for
+        // about a second. So the floor is now solved against the collar the
+        // curtain has to land on and it crosses the seam to get there, exactly as
+        // the huscarl's coif has always done — a head that comes off wears mail
+        // cut at the neck, which is what a head that comes off should look like.
+        //
+        // How far OUT. The rings were 60–82% of the skull's own half-width, so the
+        // curtain was a bib hanging on the throat with its side edges 60 mm inboard
+        // of where the cheek guard's lower edge and the nape fall's front edge
+        // actually are — and at profile the eye looked straight between them into
+        // bare neck. They are now 86–124%, which puts the curtain's surface within
+        // a few millimetres of the guard's silhouette edge the moment the guard
+        // ends, and inside the coif and the nape fall everywhere the three overlap.
+        // Mail laps mail without a seam, which is why this is the piece that gets
+        // made generous rather than the plates either side of it.
+        {
+          const chinPt = new THREE.Vector3();
+          shell(0, chinV, maskLift(chinV), chinPt);
+          const vTop = skullY + chinPt.y + 0.016;
+          const vBot = S.neckRoot - 0.014 - S.neckTop - 0.022;
+          // Hung off the mask's own lower edge in z and falling back onto the
+          // neck as it drops, so the curtain lies against the throat rather than
+          // standing off it as a bib. Wider at the bottom because it lands on the
+          // collar, which is where a coif's skirt goes.
+          const vRings = [
+            { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
+            { y: mix(vTop, vBot, 0.5), hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
+            { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
+          ];
+          const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
+            const t = v * (vRings.length - 1);
+            const i = Math.min(vRings.length - 2, Math.floor(t));
+            const f = t - i;
+            const a = vRings[i];
+            const b = vRings[i + 1];
+            out.set(
+              Math.sin(u) * (mix(a.hw, b.hw, f) - inset),
+              mix(a.y, b.y, f),
+              mix(a.z, b.z, f) + Math.cos(u) * (mix(a.hd, b.hd, f) - inset),
+            );
+          };
+          // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
+          // fall are both written around, and a curtain swept the other way
+          // renders as a hole in the throat.
+          //
+          // 2.45 rad, not 1.55: the arc now runs well past the ear on both sides
+          // and finishes under the nape fall, which owns everything behind
+          // 1.40 rad. Two prior passes widened this by tenths and the profile card
+          // kept showing a hole, because the gap was never in the arc — it was in
+          // the radius. Both are settled together here: past the ear the curtain
+          // is inside the fall's own plate, so the extra sweep costs a few
+          // triangles nobody will see and removes the last bearing at which the
+          // three pieces can disagree.
+          const vHalf = 2.45;
+          const vSweep = (inset: number) =>
+            (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
+          p.add(patch({
+            nu: Math.max(12, lod.shellU + 2), nv: 4,
+            outer: vSweep(0), inner: vSweep(0.007),
+          }), mail);
+        }
+
+        // ---- the crest ----
+        //
+        // "A crest running front to back over the crown of the cap", which is
+        // what the doc asks for and what the last build did not deliver. It was
+        // 8 mm wide, it climbed to 48 mm of standoff at the crown pole, and it
+        // came to nothing at both ends — so from the front, which is the only
+        // bearing the portrait sees, it was a thin antenna standing straight up
+        // out of the brow with a red bead on the tip. Two things were wrong:
+        // height and section.
+        //
+        // Height, because a crest is a *ridge* on a cap, not a fin above one. Its
+        // standoff is now the bowl's own standoff plus a fixed 13 mm the whole way
+        // along, so it travels the length of the skull at a constant proud height
+        // and reads from the side as a spine rather than from the front as a
+        // spike. Section, because a flat strip lifted off the dome ends in two rim
+        // strips whose normals point along the sheet — a bright wire down each
+        // side of the crest, which is exactly how you draw an antenna. A
+        // semicircular section merges into the bowl at both edges instead, so
+        // there is no rim to catch anything, and the round back rolls one
+        // continuous highlight the length of the helmet.
+        // 74 mm of arc, not 62. The section is already a semicircle; widening it
+        // and holding the height is what turns a blade into a tube, and a tube is
+        // what the artefact's crest is. It also raises the ratio the eye reads
+        // head-on from 1:0.9 to 1:0.7 — wider than it is tall, which is the
+        // difference between a ridge on a cap and a fin standing on one.
+        const crestHalf = 0.074;
+        const crownTop = Math.PI / 2 - 0.02;
+        const bowlLo = bandLo + 0.015;
+        // The bowl's own surface under the crest, so the ridge sits *on* the cap
+        // however domed this warrior's cap is.
+        const bowlAt = (v: number) => {
+          const t = clamp01((v - bowlLo) / (crownTop - bowlLo));
+          return mix(0.013, crest, t * t);
+        };
+        // 13 mm proud along the slopes, easing to nothing at the nape and holding
+        // most of its height at the brow, where the nose piece takes over from it.
+        //
+        // And 8 mm over the crown, which is the fix for the last standing half of
+        // "the crest is a vertical antenna". The section and the run were right —
+        // the profile and three-quarter cards both read it as a ridge — but the
+        // pole was still carrying the full 13 mm, and head-on the pole is the one
+        // part of a fore-and-aft crest that is *silhouette*. 13 mm there is 6% of
+        // head height added straight to the outline as a tapered gold fin, which
+        // is exactly what a reviewer looking at a duel sees. Over the crown the
+        // ridge is now barely proud and the shape is carried by the width and by
+        // the highlight that runs along it, and along the slopes — where a crest
+        // is read against the head rather than against the sky — it keeps all of
+        // its height.
+        const ridgeAt = (v: number, front: boolean) => {
+          const run = front
+            ? mix(0.72, 1, smooth(bandLo, bandLo + 0.38, v))
+            : smooth(bandLo - 0.44, bandLo - 0.02, v);
+          return 0.0132 * run * (1 - 0.40 * smooth(crownTop - 0.34, crownTop, v));
+        };
+        /** `du` is the signed offset from the crest's own centreline, in radians. */
+        const crestLift = (du: number, v: number, front: boolean) => {
+          const x = clamp01(Math.abs(du) / crestHalf);
+          return bowlAt(v) + ridgeAt(v, front) * Math.sqrt(Math.max(0, 1 - x * x));
+        };
+        for (const u of [0, Math.PI]) {
+          const front = u === 0;
+          const v0 = front ? bandLo : bandLo - 0.44;
+          p.add(headWear(K, {
+            u0: u - crestHalf, u1: u + crestHalf,
+            v0: () => v0, v1: () => crownTop,
+            nu: 6, nv: Math.max(5, lod.shellV + 1),
+            lift: (x, t) => crestLift(x - u, mix(v0, crownTop, t), front),
+            thick: 0.006,
+          }), gilt, place.clone());
+        }
+        if (lod.trim) {
+          // Garnet down the spine of the crest. Five cells over the crown, which
+          // is where the key at 60° actually lands — the one place on the helmet
+          // a dark red reads as glass rather than as a hole.
+          //
+          // Stopped 0.24 rad short of the pole rather than 0.10. A cell on the
+          // apex is a finial, and a finial on a fin is a mast: the review named
+          // "a tapered gold fin rising clear above the dome silhouette with a
+          // garnet finial on its tip" as one object, and the tip is half of it.
+          for (let i = 0; i < 5; i++) {
+            const v = mix(bandHi, crownTop - 0.24, i / 4);
+            const q = onFace(0, v, crestLift(0, v, true) + 0.0030);
+            p.add(ball(0.0040, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 0.80, 1, 0.85));
+          }
+          // THE TERMINALS. "Both ends are cut flat; there are no dragon-head
+          // terminals" — and a crest that ends in a cut is a strip of tape. On the
+          // artefact each end of the tube finishes in a gilt beast's head, and
+          // they are what tell a viewer the ridge is an animal lying along the cap
+          // rather than a weld line. Two solids and a pair of garnet eyes each,
+          // which is the same budget the wyrm's head and the boar's are built on
+          // and for the same reason: at the size a helmet is read from, a snout
+          // that clears the ridge is the whole shape.
+          for (const end of [
+            { u: 0, v: bandLo + 0.055, tilt: 0.85, front: true },
+            { u: Math.PI, v: bandLo - 0.395, tilt: -0.75, front: false },
+          ]) {
+            const base = crestLift(0, end.v, end.front);
+            const q = onFace(end.u, end.v, base + 0.0030);
+            const sgn = end.front ? 1 : -1;
+            p.add(ball(0.0102, 8), gilt,
+              xf(q.x, skullY + q.y, q.z, end.tilt, 0, 0, 0.72, 0.80, 1.30));
+            const s2 = onFace(end.u, end.v - sgn * 0.052, base + 0.0018);
+            p.add(ball(0.0058, 7), gilt,
+              xf(s2.x, skullY + s2.y, s2.z, end.tilt, 0, 0, 0.60, 0.62, 1.15));
+            for (const t of [-1, 1]) {
+              const e = onFace(end.u + t * 0.052, end.v - sgn * 0.012, base + 0.0072);
+              p.add(ball(0.0026, 8), garnet, xf(e.x, skullY + e.y, e.z));
+            }
+          }
+        }
+      }
+      // The class's own crest and fall give way to the helmet's when the helmet
+      // has one. A warden in a boar-crest helm was getting the boar *and* his
+      // steel comb on the same 110 mm of crown, and a ridge helm's fall landed on
+      // top of his flange. The circlet is exempt on purpose: it is a hoop round
+      // the bowl, not a spine along it, and the two have always coexisted.
+      const ownCrest = style.crown !== "none" && style.crown !== "circlet";
+      if (lamellar && !ownCrest) {
         // Fore-and-aft comb, raised. The warden's one unmistakable outline cue,
         // and at 30 mm it was inside the bowl's own dome — a ridge on a helmet,
         // not a shape in a silhouette. 52 mm puts a hard vertical fin above the
@@ -4781,18 +6916,22 @@ export function buildCharacter(
             nu: 1, nv: 5, lift: (_u, v) => 0.022 + 0.052 * Math.sin(v * Math.PI), thick: 0.008,
           }), steel, place.clone());
         }
-        // Neck flange off the back of the band. The warden is the one class with
-        // no coif, and without something behind the helm his head ends in a hoop —
-        // this is the fall a ridge helm actually carries, and from behind it is the
-        // difference between him and the berserker at fifty metres.
+      }
+      // Neck flange off the back of the band. The warden is the one class with
+      // no coif, and without something behind the helm his head ends in a hoop —
+      // this is the fall a ridge helm actually carries, and from behind it is the
+      // difference between him and the berserker at fifty metres. His own, and
+      // left exactly as it shipped; a helmet that brings a fall of its own has
+      // already built one above, on rings, and two would fight for the same air.
+      if (lamellar && style.nape === "none") {
         p.add(headWear(K, {
           u0: Math.PI - 1.15, u1: Math.PI + 1.15,
           v0: () => bandLo - 0.30, v1: () => bandLo + 0.01,
           nu: Math.max(6, lod.shellU - 4), nv: 2,
           lift: (_u, v) => 0.017 + 0.020 * (1 - v), thick: 0.007,
-        }), iron, place.clone());
+        }), capMetal, place.clone());
       }
-      if (bare) {
+      if (bare && !ownCrest) {
         // Boar bristle over the crown. The berserker wears the lowest cap on the
         // roster and needs the height back somewhere that is unmistakably *his* —
         // and a ragged organic crest is the opposite read from the warden's
@@ -4971,6 +7110,7 @@ export function buildCharacter(
   let cloak: THREE.Group | undefined;
   if (ap.cloak !== "none") {
     const pivot = new THREE.Group();
+    pivot.name = `${RIG_TAG}cloak`;
     pivot.position.set(0, S.shoulderY + 0.035, -0.02);
     root.add(pivot);
     cloak = pivot;
@@ -5045,6 +7185,70 @@ export function buildCharacter(
     });
   }
 
+  // ==========================================================
+  // SEAMS — where this body comes apart
+  // ==========================================================
+  //
+  // Measured off `S` like everything else, so the cuts move with the skeleton
+  // instead of being written down twice. Two choices here are worth stating:
+  //
+  //   * A joint cut is taken a centimetre or two *inside* the joint rather than
+  //     through it, so the kit over the joint stays on the body. An arm off at
+  //     the shoulder leaves the pauldron's top lame sitting on the deltoid,
+  //     which is what a real shoulder defence does when the arm under it goes,
+  //     and it is far better than the alternative — a floating shell fragment
+  //     riding an arm that is no longer there.
+  //   * The waist is anchored to the torso mesh and not to the body root. The
+  //     mesh's own frame *is* the space its stations were swept in, and it is
+  //     the one node that keeps that space after `insertSpine` reparents the
+  //     upper body and offsets it by a belt height.
+  const seams: Record<SeamId, Seam> = {
+    neck: {
+      id: "neck", anchor: headPivot, y: S.neckRoot - S.neckTop,
+      hw: S.neckHW * 0.94, hd: S.neckHD * 0.94, away: 1, bones: 1, mass: 5.0,
+    },
+    shoulderR: {
+      id: "shoulderR", anchor: rightArm, y: -0.018,
+      hw: S.armR[0] * 1.02, hd: S.armR[0] * 1.06, away: -1, bones: 1, mass: 4.3,
+    },
+    shoulderL: {
+      id: "shoulderL", anchor: leftArm, y: -0.018,
+      hw: S.armR[0] * 1.02, hd: S.armR[0] * 1.06, away: -1, bones: 1, mass: 4.3,
+    },
+    elbowR: {
+      id: "elbowR", anchor: rightArm, y: -S.upperArm - 0.012,
+      hw: S.armR[2] * 1.02, hd: S.armR[2] * 1.06, away: -1, bones: 2, mass: 2.2,
+    },
+    elbowL: {
+      id: "elbowL", anchor: leftArm, y: -S.upperArm - 0.012,
+      hw: S.armR[2] * 1.02, hd: S.armR[2] * 1.06, away: -1, bones: 2, mass: 2.2,
+    },
+    hipR: {
+      id: "hipR", anchor: rightLeg, y: -0.026,
+      hw: S.legR[0] * 0.98, hd: S.legR[0] * 1.02, away: -1, bones: 1, mass: 11.5,
+    },
+    hipL: {
+      id: "hipL", anchor: leftLeg, y: -0.026,
+      hw: S.legR[0] * 0.98, hd: S.legR[0] * 1.02, away: -1, bones: 1, mass: 11.5,
+    },
+    kneeR: {
+      id: "kneeR", anchor: rightLeg, y: S.kneeY - S.hipY - 0.02,
+      hw: S.legR[2] * 0.98, hd: S.legR[2] * 1.04, away: -1, bones: 2, mass: 4.6,
+    },
+    kneeL: {
+      id: "kneeL", anchor: leftLeg, y: S.kneeY - S.hipY - 0.02,
+      hw: S.legR[2] * 0.98, hd: S.legR[2] * 1.04, away: -1, bones: 2, mass: 4.6,
+    },
+    waist: {
+      id: "waist", anchor: torsoMeshes[0], y: mix(S.waistY, S.beltY, 0.55),
+      hw: S.waistHW * 0.96, hd: S.waistHD * 0.96, away: 1, bones: 1, mass: 33,
+    },
+  };
+  const cutting: SeverContext = {
+    root, seams, legs: legPivots, head: headPivot, torso: torsoMeshes,
+    materials: M, detail, live: new Map<SeamId, Severance>(),
+  };
+
   return {
     group: root,
     rightArm,
@@ -5054,5 +7258,10 @@ export function buildCharacter(
     head: headPivot,
     cloak,
     torso: torsoMeshes[0],
+    seams,
+    sever: (zone, opts) => severBody(cutting, zone, opts),
+    reassemble: () => {
+      for (const s of [...cutting.live.values()]) s.release();
+    },
   };
 }

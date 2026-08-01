@@ -11,14 +11,22 @@
 // PNGs to art/shots/. Visual-critic agents read those PNGs.
 //
 // CONTRACT (renderer refactors must keep these working):
-//   window.__photoCam   — camera yaw in radians, read by the renderer
-//   window.__shotReady  — set true once N frames have been presented
+//   window.__photoCam    — camera yaw in radians, read by the renderer
+//   window.__shotReady   — set true once N frames have been presented
+//   window.__shotSubject — every appearance slot a parametric preset actually
+//                          staged, so the tool can check it against what it
+//                          asked for
+//   window.__shotError   — set instead of __shotReady when the query string
+//                          named something that does not exist
+//   window.__shotRoster  — `?roster=1`: the shop's catalogue and this file's
+//                          card sizes, so the capture tool builds its sheets
+//                          from the armoury rather than from a copy of it
 // ============================================================
 import React, { useEffect, useMemo, useState } from "react";
 import GameCanvas from "@/game/client/GameCanvas";
-import type { GamePlayer, WarriorClass, PlayerState, AttackDirection } from "@/game/types";
+import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone } from "@/game/types";
 import { WARRIOR_STATS } from "@/game/types";
-import { defaultAppearance } from "@/game/client/characters";
+import { ARMOURY, defaultAppearance, HELM_VALUES, type Appearance } from "@/game/client/characters";
 
 type Pose = {
   id: string;
@@ -32,7 +40,261 @@ type Pose = {
   hp?: number;
   /** 0..1 through the attack animation; converted to attackTimer */
   swing?: number;
+  /** The killing blow, for staging a dismemberment. Only read when state is "dead". */
+  zone?: HitZone;
+  heavy?: boolean;
+  /**
+   * Id of the man who landed it. The fall and the throw both take their bearing
+   * from the attacker's position, so without this a staged death topples
+   * backwards along the renderer's default and the limb goes with it.
+   */
+  killer?: string;
+  /**
+   * The fire, staged. Three fields off the wire and nothing derived, because
+   * that is exactly what the renderer is handed in a match — a preset that
+   * worked out its own flame from a position would be photographing a code path
+   * no player ever runs. `inside` is the difference between engulfed and
+   * trailing; `timer` is seconds of `FIRE.linger` left.
+   */
+  burn?: { timer: number; inside?: boolean };
+  /** A burn death carries no cut. Only read when state is "dead". */
+  cause?: "blow" | "fire";
+  /**
+   * Overrides on top of the class default. Without this every pose in the file
+   * wore `defaultAppearance(cls)`, so the shop could grow ten helmets and not
+   * one of them could be looked at — the capture set could only ever review
+   * what a warrior is issued, never what a player buys.
+   */
+  ap?: Partial<Appearance>;
 };
+
+/**
+ * One camera for all three deaths, so the shots can be compared by flicking
+ * between them. Wide and standing back: the first capture was framed like the
+ * `stance` portrait and the head left the top of the picture, which reviewed as
+ * "no head visible" when the truth was "no room". A death needs the air the
+ * piece travels through in shot as much as it needs the body.
+ */
+const GORE_FRAMING: { position: [number, number, number]; target: [number, number, number]; fov: number } =
+  { position: [-2.6, 2.6, 1.0], target: [-6.6, 1.1, 4.8], fov: 55 };
+
+// ============================================================
+// THE ARMOURY, STAGED
+//
+// Eight slots and 47 options, of which 37 had never been rendered for review
+// once: every preset but the helmet rows dressed its men in
+// `defaultAppearance(cls)`, so the capture set only ever reviewed what a warrior
+// is ISSUED and never what a player BUYS.
+//
+// Three things are needed to close that, and all three are structural rather
+// than a longer list of poses:
+//
+//   1. A preset has to be redressable in every slot from the query string, not
+//      just in `helm`. That is `SLOT_FIELD` plus `resolveSlot` below.
+//   2. The roster has to come from the shop. A capture tool holding its own copy
+//      of the ladder is a tool that reviews last month's shop and says nothing
+//      about it — which is how 37 options stayed unlooked-at while a helmet
+//      sheet existed. `?roster=1` publishes `ARMOURY` itself.
+//   3. Every panel has to be the same photograph but for the one thing under
+//      test. That is the card marks below.
+// ============================================================
+
+/** Query-string slot name -> the field it sets on `Appearance`. Keys are `ARMOURY`'s. */
+const SLOT_FIELD: Record<string, keyof Appearance> = {
+  helm: "helm",
+  hair: "hairStyle",
+  hairColor: "hairColor",
+  beard: "beardStyle",
+  beardColor: "beardColor",
+  cloak: "cloak",
+  armor: "armorColor",
+  warPaint: "warPaint",
+};
+
+const slotOptions = (slot: string) => ARMOURY.find((s) => s.slot === slot)?.options ?? [];
+
+/** A colour slot's value as the query string and the report both spell it. */
+const hex = (v: number) => `0x${v.toString(16).padStart(6, "0")}`;
+const spell = (v: string | number) => (typeof v === "number" ? hex(v) : v);
+
+/**
+ * One armoury option, from either its shop id (`hc_blond`) or its stored value
+ * (`0xb8a14e`, `braids`). Null when the token is not in the shop at all — which
+ * the caller turns into a refusal, because the alternative is what this whole
+ * pass exists to stop: an unknown value builds a *default* warrior in silence,
+ * and the sheet files that panel under the name the tool meant. "This rung adds
+ * nothing" is the most expensive wrong answer this harness can produce.
+ */
+function resolveSlot(slot: string, token: string) {
+  const opts = slotOptions(slot);
+  return opts.find((o) => o.id === token) ?? opts.find((o) => spell(o.value) === token) ?? null;
+}
+
+/**
+ * What every audit card wears in the seven slots it is not testing.
+ *
+ * Named by shop id rather than by value so it cannot drift from the catalogue:
+ * Rough Iron has already been re-graded once, and a hard-coded 0x4a5568 here
+ * would have quietly become "no finish selected" the day it moved.
+ *
+ * Bare-headed and cloakless on purpose. This is the neutral the slot under test
+ * is added to — a helmet in the base dress would eat the hair sheet and the war
+ * paint sheet both, which is exactly the failure the audit is looking for and
+ * therefore has to be staged deliberately rather than inherited.
+ */
+const DRESS_IDS: Record<string, string> = {
+  helm: "helm_none", hair: "hair_short", hairColor: "hc_brown",
+  beard: "beard_short", beardColor: "bc_brown", cloak: "cloak_none",
+  armor: "armor_iron", warPaint: "wp_none",
+};
+
+const AUDIT_DRESS: Partial<Appearance> = Object.fromEntries(
+  Object.entries(DRESS_IDS).map(([slot, id]) => [SLOT_FIELD[slot], resolveSlot(slot, id)?.value]),
+) as Partial<Appearance>;
+
+// ---- The card marks -----------------------------------------------------
+//
+// One patch of grass, three lenses. Every card in the audit photographs the same
+// warrior standing on the same spot, so the light on him is identical in every
+// panel of every sheet by construction — not by a reviewer trusting that it is.
+// The old ten-helmet strip stood the men in a ROW, which put each of them at a
+// different bearing from the bonfire; comparing those panels was comparing ten
+// exposures, and it produced a confident wrong verdict.
+//
+// What changes between cards is the lens and the back-off, because the three
+// questions the rubric asks need three different distances:
+//
+//   face  — a brow, a braid, a paint stripe. ~400 px of head.
+//   kit   — the whole man, for the slots worn on the body: cloak and finish.
+//   fight — what a player actually sees, at the size he actually sees it.
+//
+// One caveat worth writing down: the grade meters each frame and stretches
+// contrast about that frame's own pivot (see `adaptBand` in postfx.ts), so a
+// framing change is a small exposure change. Within a sheet every panel is the
+// same framing and the meter sees the same picture, so panels stay comparable.
+// Across sheets — face against fight — they are two exposures of one light, and
+// should be read as such.
+const MARK = { x: -7.0, z: 4.6 };
+
+/**
+ * Where a card's subject actually is, in the WARRIOR's own frame: `right` is
+ * screen-right when he faces the lens, `fwd` is toward it.
+ *
+ * The head is not on the body's axis. It has to be corrected for, and the
+ * correction has to be carried in his frame rather than the world's, because
+ * `?turn=` turns HIM: a fixed world offset is right at one bearing, wrong at the
+ * next and backwards at 180°.
+ *
+ * The last attempt at this correction went in with the wrong sign and put the
+ * front panel's head half off the left edge, and that is worth more than a note
+ * about arithmetic — it was measured off a photograph of a man who was swaying.
+ * Nothing here was measurable until the capture tool took the clock away from
+ * the idle animation (`installVirtualClock` in tools/shoot.mjs). `right` is then
+ * a straight read off a calibration frame — `--guides` draws a 50 mm grid at the
+ * subject's own plane — and `fwd`, which does nothing head-on, is checked at
+ * −90° where it becomes the lateral term.
+ */
+const AIM = {
+  head: { right: -0.068, fwd: 0.045 },
+  body: { right: 0, fwd: 0 },
+};
+
+/**
+ * A player's screen, as the reference the fight card is scaled against: 55° of
+ * vertical field over 900 px, which is this capture set's own play frame and
+ * close to a phone held upright.
+ */
+const PLAY = { fovDeg: 55, screenH: 900 };
+
+/**
+ * The lens that puts a subject on a card at the same pixels-per-metre a player
+ * gets in a match.
+ *
+ * px/m at distance d is H / (2·d·tan(fov/2)), so matching H/tan(fov/2) matches
+ * the scale at EVERY distance — the card is a 1:1 crop of the play frame rather
+ * than a picture that merely looks about right. Getting this from a linear
+ * fov·(h/H) would be 7% too big at these angles, and 7% is the difference
+ * between an honest reading and a flattering one.
+ */
+const playScaleFov = (h: number) =>
+  (2 * Math.atan((h / PLAY.screenH) * Math.tan((PLAY.fovDeg * Math.PI) / 360)) * 180) / Math.PI;
+
+interface CardSpec {
+  /** Panel size. The tool takes this from `?roster=1` so a card cannot be shot at the wrong scale. */
+  w: number;
+  h: number;
+  /** Metres from the aim point to the lens, straight back along −z. */
+  dist: number;
+  /** Height of the aim point, and of the lens. */
+  targetY: number;
+  eyeY: number;
+  fov: number;
+  aim: keyof typeof AIM;
+  note: string;
+}
+
+// Every card is framed to top out BELOW y ≈ 2.20 m, and that is a constraint
+// rather than a coincidence. `hud3d` hangs a nameplate and health bar 260 mm
+// over each warrior's crown, in the scene — it is geometry, not DOM, so
+// `clean=1` does not touch it. The first fight card put "Raedwald" and a green
+// bar squarely across the head, which is the one part of the frame a hair, a
+// helm or a paint stripe is judged in. A card that reaches over the crown is
+// photographing the HUD.
+const CARDS: Record<string, CardSpec> = {
+  // Crown to sternum: 0.70 m over 860 px. The helmet card this replaces was
+  // 0.60 m and framed the helm alone, which is too tight for the slots that hang
+  // BELOW a helmet — a ringed braid and a forked beard both leave that frame,
+  // and a cosmetic photographed with its ends cropped off cannot be judged.
+  facecard: { w: 700, h: 860, dist: 2.05, targetY: 1.76, eyeY: 1.94, fov: 19.5, aim: "head",
+    note: "head and shoulders, ~400 px of head" },
+  // The whole man with air around him. Cloak and finish are worn on the body and
+  // the cloak's known defect (gathering through the tunic) is at the waist, so
+  // this card is framed to the boots and not to the belt.
+  kitcard: { w: 700, h: 900, dist: 5.2, targetY: 0.99, eyeY: 1.13, fov: 23.4, aim: "body",
+    note: "full body, boots to a hand over the crown" },
+  // Fight distance, honestly. The follow rig sits 4.4 m behind the local warrior
+  // and 1.0 m to his sword side at 2.05 m of height, and a huscarl's blade bites
+  // at 2.26 m centre to centre — so the man you are actually hitting is 6.8 m
+  // from the lens. At that range he is ~230 px tall and his head is ~43 of them,
+  // which is the pixel budget every cosmetic in the shop is really sold into.
+  //
+  // The lens sits at the follow rig's own height but aims lower than it does, to
+  // get under the nameplate. That costs a little: a true crop of a play frame
+  // would be off-axis and this is a small swing instead, and in play there IS a
+  // plate over that head — reading a hairstyle at fight distance means reading it
+  // around one. Scale is what this card exists to be honest about, and scale is
+  // untouched by where it points.
+  fightcard: { w: 520, h: 320, dist: 6.8, targetY: 0.88, eyeY: 2.05, fov: playScaleFov(320), aim: "body",
+    note: "play scale: 1:1 with a 55° / 900 px game frame at 6.8 m" },
+};
+
+function cardFraming(card: CardSpec, turnDeg: number) {
+  const a = AIM[card.aim];
+  const rot = Math.PI + (turnDeg * Math.PI) / 180;
+  const s = Math.sin(rot);
+  const c = Math.cos(rot);
+  // Forward is (sin, cos) — the convention `makePlayer` builds velocity on — and
+  // screen-right at turn 0 is (cos, −sin), which is −x with him facing the lens.
+  const x = MARK.x + a.right * c + a.fwd * s;
+  const z = MARK.z - a.right * s + a.fwd * c;
+  return {
+    // The lens tracks the aim point instead of swinging to face it: a turntable
+    // is only a turntable if the bearing between lens and subject is the same in
+    // every panel.
+    position: [x, card.eyeY, z - card.dist] as [number, number, number],
+    target: [x, card.targetY, z] as [number, number, number],
+    fov: card.fov,
+  };
+}
+
+/** One warrior, on the mark, in the audit's base dress. Every card stages this. */
+const cardPose = (cls: WarriorClass = "huscarl"): Pose => ({
+  // The id stays "me" in every panel so the face under the helmet is one face
+  // and not one per shot — a mask fitted to a different skull each time proves
+  // nothing about the helmet.
+  id: "me", name: "Raedwald", cls, x: MARK.x, z: MARK.z, rot: Math.PI,
+  state: "idle", ap: AUDIT_DRESS,
+});
 
 /**
  * Camera yaw is chosen per preset so framing is reproducible. A preset may
@@ -46,6 +308,27 @@ const PRESETS: Record<string, {
   matchTimer: number;
   lastStand?: boolean;
   framing?: { position: [number, number, number]; target: [number, number, number]; fov?: number };
+  /**
+   * Frames to run before the capture is taken. The default settles the lerps and
+   * then stops; a death is the one thing in the set that is not a settled pose
+   * but a second of motion, so a gore preset names the instant it wants. Every
+   * frame on a GPU-less box is a full 0.05 s step of sim, so the count is
+   * seconds × 20 and the same on any machine slower than 20 fps.
+   */
+  settle?: number;
+  /**
+   * The preset is a stage, not a photograph: any armoury slot plus `?turn=` and
+   * `?cls=` redress and rotate it, and the capture tool takes a series. Only a
+   * preset that opts in reads them, so a stray query param can never quietly
+   * restage a shot that was authored to be fixed.
+   */
+  parametric?: boolean;
+  /**
+   * Framing computed from a card mark and the turn, instead of authored. A card
+   * has to re-aim as the man turns — the head is off his body's axis — so its
+   * framing is not a constant and cannot be written as one.
+   */
+  card?: keyof typeof CARDS;
 }> = {
   // Over-shoulder gameplay view, mid-swing against a blocking foe.
   // Offset from the origin because the bonfire stands there — framing a duel
@@ -145,6 +428,204 @@ const PRESETS: Record<string, {
       state: "idle" as PlayerState,
     })),
   },
+  // The face mask at conversational distance, on `portrait`'s framing, because
+  // the four features that make this helm the artefact rather than a bucket —
+  // mask, brows, the nose-and-moustache bird, the crest — are all inside 300 mm
+  // of the face, and the eye openings only answer at this range.
+  suttonhoo: {
+    cam: Math.PI,
+    matchTimer: 40,
+    // Aimed at the head and nothing else. `portrait`'s framing was the first
+    // try and it is the wrong instrument: it frames a man, so the head lands
+    // near 200 px and the raised shield takes half the picture — every question
+    // this shot exists to answer is inside 300 mm of the face. Measured off that
+    // capture, a huscarl's head runs y 1.67 to 2.00, so the frame is 0.9 m tall
+    // about y 1.84 and the head fills a third of it.
+    framing: { position: [-7.0, 1.86, 2.6], target: [-7.0, 1.84, 4.6], fov: 26 },
+    poses: [
+      { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "idle", ap: { helm: "suttonhoo" } },
+    ],
+  },
+  // ---- The audit cards. One mark, one camera, one light. ------------------
+  //
+  // These replace the row-of-five as the instrument for judging anything a
+  // player buys, and they exist because the row could not answer the question it
+  // was built to ask. Five men standing abreast at z=6 are five different
+  // distances and five different bearings from the bonfire, which is the arena's
+  // largest source: the middle of the row was backlit by flame and blown to
+  // orange while the ends sat in shadow, so a strip cropped out of it compared
+  // ten silhouettes across ten exposures. Panels that are not comparable are
+  // worse than no panels, because a reviewer will compare them anyway and be
+  // confident. (He was, and he was wrong.)
+  //
+  // A card fixes every variable but the one under test. The man never moves, so
+  // the photons are the same in every panel by construction rather than by
+  // intention; the lens never changes within a sheet, so scale and background
+  // are the same; and the id stays "me" in all of them, so the face is one face
+  // and not one per panel. `?turn=` puts him on a turntable instead of moving
+  // the lens, which is the whole point — orbiting the camera would swing the
+  // bonfire through the background and put the flame behind panel four again.
+  //
+  // The mark is `portrait`'s, at 8.4 m from the fire: far enough out that the
+  // hearth is a fill rather than the key, which is what lets silver read as
+  // silver and gold read as gold instead of both reading as orange. It is not
+  // a neutral studio — there isn't one in this arena, the rig is a dusk rig —
+  // but it is the most neutral standing room the world has, and every card
+  // shares it. That matters most for the 18 options that are pure colour: a
+  // hair tone or a shield-wall finish can only be judged against the light it
+  // will be worn in, and it is the same light in all six panels.
+  //
+  // Negative `turn` rotates him *toward* the fire. At -35° his face still takes
+  // the hearth square on; at +35° the same three-quarter puts it in shadow and
+  // photographs the dark side. The sign is not cosmetic.
+  facecard: {
+    cam: Math.PI,
+    matchTimer: 40,
+    parametric: true,
+    card: "facecard",
+    // 16, not the default 26. There is no camera lerp in photo mode (the
+    // framing is set outright) and an idle pose has no swing to settle, so the
+    // remaining frames are procedural texture generation. At ~5 s a frame on a
+    // GPU-less box, ten frames saved is two minutes off a ten-card sheet — and
+    // this audit is eighty cards, not ten.
+    settle: 16,
+    poses: [cardPose()],
+  },
+  // The same man, same mark, same light, from far enough back to see his boots.
+  // Cloak and finish are the two slots that cannot be reviewed on a head card,
+  // and the cloak has a known defect (it gathers through the tunic) that lives
+  // at the waist.
+  kitcard: {
+    cam: Math.PI,
+    matchTimer: 40,
+    parametric: true,
+    card: "kitcard",
+    settle: 16,
+    poses: [cardPose()],
+  },
+  // The same man again, at the distance a player fights him.
+  //
+  // This is the second reading every slot needs and the one the portrait cannot
+  // give: a cosmetic nobody can see in play is not a cosmetic, however well it
+  // photographs at 2 m. The lens is chosen so the panel is a 1:1 crop of a play
+  // frame rather than a smaller picture of the same thing — same pixels on the
+  // man, just no wasted grass around him.
+  fightcard: {
+    cam: Math.PI,
+    matchTimer: 40,
+    parametric: true,
+    card: "fightcard",
+    settle: 16,
+    poses: [cardPose()],
+  },
+  // ---- Gore. Three deaths, caught in the second they happen. -------------
+  //
+  // All three share a mark and a camera so the four questions the owner will
+  // ask can be answered by flicking between the images: the killer stands off
+  // the victim's weapon side, so the push carries the piece left-to-right
+  // across the frame instead of away from the lens, and the camera is lifted
+  // and pulled back from `stance`'s framing to leave air above the body for
+  // whatever is still in it.
+  //
+  // The victim faces the camera. That costs a little of the wound — the cut
+  // faces the killer, not us — but it is the only way to see the helm on a
+  // head that has left, and a back is not a death.
+  //
+  // Beheading. `settle: 20` is ~0.95 s: the head is past its apex and coming
+  // down, the burst has arced and landed, and the stump is still running.
+  gorehead: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 20,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "neck", dir: "overhead", heavy: true, killer: "foe" },
+      { id: "foe", name: "Grim", cls: "berserker", x: -9.0, z: 3.4, rot: 1.03, state: "attacking", dir: "overhead", swing: 0.86, hp: 0.74 },
+    ],
+  },
+  // Sword arm off at the elbow. The zone is the one the design doc singles out:
+  // the fist stays closed on the weapon and the whole forearm leaves holding it.
+  //
+  // A huscarl and not a warden, which was the first casting. The warden fights
+  // with a spear held down the body in both hands, so his forearm leaving with
+  // it is indistinguishable in a still from a spear simply lying on the grass —
+  // the shot could not answer the question it exists to ask. The huscarl's
+  // sword stands clear of him in one fist and the answer is unambiguous.
+  gorearm: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 22,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "armR", dir: "right", heavy: false, killer: "foe" },
+      { id: "foe", name: "Grim", cls: "warden", x: -9.0, z: 3.4, rot: 1.03, state: "attacking", dir: "right", swing: 0.9, hp: 0.66 },
+    ],
+  },
+  // The samurai case. Held a beat longer than the other two — the halves are
+  // slower than a head and the shot has to show both of them on the ground,
+  // separately, or it has not shown the thing that was asked for.
+  goresplit: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 30,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "waist", dir: "right", heavy: true, killer: "foe" },
+      { id: "foe", name: "Grim", cls: "berserker", x: -9.1, z: 3.6, rot: 1.0, state: "attacking", dir: "right", swing: 0.95, hp: 0.7 },
+    ],
+  },
+  // `gorehead` again, wearing the helm. The neck seam runs where this helm's
+  // neck guard sits and no other helmet in the set has one, so this is the only
+  // capture that can answer whether a head that leaves takes its mask, its
+  // cheeks and its crest with it — and whether the cut goes through the guard.
+  gorehelm: {
+    cam: Math.PI,
+    matchTimer: 88,
+    settle: 20,
+    framing: GORE_FRAMING,
+    poses: [
+      { id: "me", name: "Raedwald", cls: "huscarl", x: -7.0, z: 4.6, rot: Math.PI, state: "dead", hp: 0, zone: "neck", dir: "overhead", heavy: true, killer: "foe", ap: { helm: "suttonhoo" } },
+      { id: "foe", name: "Grim", cls: "berserker", x: -9.0, z: 3.4, rot: 1.03, state: "attacking", dir: "overhead", swing: 0.86, hp: 0.74 },
+    ],
+  },
+  // ---- The fire. Two shots, because there are two questions. -------------
+  //
+  // `pyre` is the wide one: a man standing in the bonfire, a man who has run
+  // clear of it and is still alight, and a corpse still smouldering — all in one
+  // frame with the bonfire itself, so the flames on a warrior can be compared
+  // against the flames they came from. If a burning man only reads as burning
+  // while he is next to the hearth, this is the frame that shows it.
+  pyre: {
+    cam: Math.PI,
+    matchTimer: 96,
+    // 12, not 34. Three warriors, a bonfire and eight flame lights put this
+    // scene past 9 s a frame on a GPU-less box, and 34 of those overruns the
+    // harness's own 300 s settle budget — the first run of this preset captured
+    // an unsettled frame and reported `frames=0`. 12 is ~0.6 s of simulation:
+    // enough for the flame ring to have turned and for the smoke to have left
+    // the shoulder, not enough for a long tail. The tail is a claim `firetest`
+    // settles anyway; this frame's job is whether he reads as alight.
+    settle: 12,
+    framing: { position: [8.6, 3.0, 7.4], target: [1.6, 1.15, 0.2], fov: 40 },
+    poses: [
+      // r = 1.11 m against a 1.475 m hazard: in it, not beside it.
+      { id: "me", name: "Aethelred", cls: "huscarl", x: 1.05, z: 0.35, rot: 2.4, state: "walking", hp: 0.44, burn: { timer: 3.0, inside: true } },
+      { id: "foe", name: "Osric", cls: "berserker", x: 4.3, z: 2.4, rot: 0.95, state: "sprinting", hp: 0.51, burn: { timer: 1.9 } },
+      { id: "grim", name: "Grim", cls: "runekeeper", x: 3.1, z: -2.7, rot: 1.2, state: "dead", hp: 0, cause: "fire", killer: "", burn: { timer: 0.9 } },
+    ],
+  },
+  // `burnman` is the honest one. The portrait mark is 8.4 m from the hearth and
+  // the bonfire is behind the lens, so there is nothing orange in the frame but
+  // the man. Either he is on fire here or the feature does not work.
+  burnman: {
+    cam: Math.PI,
+    matchTimer: 96,
+    settle: 12,
+    framing: { position: [-4.6, 2.0, 1.5], target: [-7.0, 1.15, 4.6], fov: 44 },
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: 1.6, state: "running", hp: 0.38, burn: { timer: 2.3 } },
+    ],
+  },
   // Last-stand mood — judges the dramatic colour grade.
   laststand: {
     cam: Math.PI,
@@ -157,8 +638,17 @@ const PRESETS: Record<string, {
   },
 };
 
-function makePlayer(p: Pose, isLocal: boolean): GamePlayer {
+/**
+ * `revived` is the respawn half of a gore preset: the same synthetic room, with
+ * the corpse handed back its health and its state and — as the server does on
+ * every road back to standing — its death mark cleared. It exists because "a
+ * dismembered body cleans up on respawn" is a claim about the client that only
+ * a frame can settle, and the renderer reaches that path from a state change on
+ * the player record and from nothing else.
+ */
+function makePlayer(p: Pose, isLocal: boolean, revived = false): GamePlayer {
   const stats = WARRIOR_STATS[p.cls];
+  if (revived && p.state === "dead") p = { ...p, state: "idle", hp: 1, zone: undefined };
   const moving = p.state === "walking" || p.state === "running" || p.state === "sprinting";
   const speed = p.state === "sprinting" ? stats.sprintSpeed : stats.moveSpeed;
   return {
@@ -189,16 +679,63 @@ function makePlayer(p: Pose, isLocal: boolean): GamePlayer {
     deaths: 0,
     damage: 140,
     score: 200,
-    lastHitBy: "",
+    lastHitBy: p.killer ?? "",
     comboCount: 0,
     comboTimer: 0,
     invincible: false,
     invincibleTimer: 0,
+    // A burn death has no cut and therefore no zone: `anim.ts` early-returns on
+    // a null zone, which is the whole of "fire does not sever a limb".
+    deathZone: p.state === "dead" && p.cause !== "fire" ? (p.zone ?? "torso") : null,
+    deathDir: p.state === "dead" ? (p.dir ?? "right") : null,
+    deathHeavy: p.state === "dead" ? (p.heavy ?? false) : false,
+    deathCause: p.state === "dead" ? (p.cause ?? "blow") : null,
+    burning: !!p.burn,
+    burnTimer: p.burn?.timer ?? 0,
+    burnInside: p.burn?.inside ?? false,
     ...(isLocal ? {} : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    appearance: defaultAppearance(p.cls) as any,
+    appearance: { ...defaultAppearance(p.cls), ...(p.ap ?? {}) } as any,
   } as GamePlayer;
 }
+
+/**
+ * What a parametric preset was actually asked to wear, resolved against the
+ * shop, or the reason it refused.
+ *
+ * Refusing is the point. An unknown value does not fail — `characters.ts` builds
+ * a bare head for an unknown helm and the class default for everything else — so
+ * a typo in the capture tool renders a plausible warrior in silence and the
+ * sheet files that panel under the name the tool meant. A reviewer then reads
+ * "this rung adds nothing", which is the most expensive wrong answer this
+ * harness can produce and the one it has already produced once.
+ */
+function restage(params: URLSearchParams, base: Partial<Appearance>) {
+  const ap: Partial<Appearance> = { ...base };
+  const asked: Record<string, string> = {};
+  for (const [slot, field] of Object.entries(SLOT_FIELD)) {
+    const token = params.get(slot);
+    if (token === null) continue;
+    const opt = resolveSlot(slot, token);
+    if (!opt) return { error: `${slot} "${token}" is not in the armoury` };
+    // The shop selling something the renderer cannot build is a real defect and
+    // this is the only place both lists are in scope, so it is checked here
+    // rather than assumed. Every other slot degrades to a visible default; an
+    // unlisted helm silently builds a bare head.
+    if (slot === "helm" && !HELM_VALUES.includes(String(opt.value))) {
+      return { error: `shop sells helm "${opt.value}" but the renderer has no such style` };
+    }
+    (ap as Record<string, string | number>)[field] = opt.value;
+    asked[slot] = spell(opt.value);
+  }
+  return { ap, asked };
+}
+
+/** Every slot of a staged appearance, spelled the way the query string spells it. */
+const subjectOf = (ap: Appearance, cls: WarriorClass, turn: number) => ({
+  cls, turn,
+  ...Object.fromEntries(Object.entries(SLOT_FIELD).map(([slot, field]) => [slot, spell(ap[field])])),
+});
 
 export default function ShotPage() {
   const [params, setParams] = useState<URLSearchParams | null>(null);
@@ -218,18 +755,84 @@ export default function ShotPage() {
     // Deleted rather than left stale: these globals outlive a client-side
     // navigation, and a framing carried over from the previous preset would
     // silently pin the camera in a shot that meant to follow the warrior.
-    if (chosen.framing) globals.__photoFraming = chosen.framing;
+    const turn = chosen.parametric ? parseFloat(search.get("turn") ?? "0") : 0;
+    const framing = chosen.card && Number.isFinite(turn)
+      ? cardFraming(CARDS[chosen.card], turn)
+      : chosen.framing;
+    if (framing) globals.__photoFraming = framing;
     else delete globals.__photoFraming;
+    // The shop, published for the capture tool. A tool that keeps its own copy
+    // of the ladder audits the shop it was written against — which is how 37 of
+    // 47 options went unreviewed while a helmet sheet sat in the same file. The
+    // card sizes ride along for the same reason: the fight card's lens is
+    // derived from its panel height, so the two cannot be owned separately.
+    if (search.get("roster") === "1") {
+      globals.__shotRoster = {
+        slots: ARMOURY.map((s) => ({
+          slot: s.slot, label: s.label,
+          options: s.options.map((o) => ({ id: o.id, label: o.label, cost: o.cost, value: spell(o.value) })),
+        })),
+        cards: Object.fromEntries(Object.entries(CARDS).map(([k, c]) => [k, { w: c.w, h: c.h, note: c.note }])),
+        dress: DRESS_IDS,
+        // A slot the shop has and this file cannot drive. Published rather than
+        // ignored: the failure this whole pass is about is a capture set going
+        // quietly out of date, and a ninth slot appearing in `ARMOURY` should
+        // arrive as a complaint from the tool, not as a gap nobody notices.
+        unmapped: ARMOURY.filter((s) => !(s.slot in SLOT_FIELD)).map((s) => s.slot),
+      };
+    }
     setParams(search);
   }, []);
 
+  // 0 is the preset as authored. 1 is the same room after `?revive=1` has put
+  // every dead warrior back on his feet, so a capture can show what the body
+  // looks like once the renderer has been asked to reassemble it.
+  const [phase, setPhase] = useState<0 | 1>(0);
   const presetName = params?.get("preset") ?? "duel";
   const clean = params?.get("clean") === "1";
-  const preset = PRESETS[presetName] ?? PRESETS.duel;
+
+  /**
+   * Restages a `parametric` preset from the query string: any of the eight
+   * armoury slots, the warrior class, and the turntable bearing. The harness
+   * proves what it photographed — the applied appearance is published in full
+   * for the tool to check against what it asked for, and a value off the roster
+   * never renders at all.
+   */
+  const { preset, subject, subjectError } = useMemo(() => {
+    const base = PRESETS[presetName] ?? PRESETS.duel;
+    if (!params || !base.parametric) return { preset: base, subject: null, subjectError: null };
+
+    const turn = params.get("turn");
+    const deg = turn !== null ? parseFloat(turn) : 0;
+    if (!Number.isFinite(deg)) {
+      return { preset: base, subject: null, subjectError: `unreadable turn "${turn}"` };
+    }
+    const clsToken = params.get("cls");
+    if (clsToken !== null && !(clsToken in WARRIOR_STATS)) {
+      return { preset: base, subject: null, subjectError: `unknown class "${clsToken}"` };
+    }
+    const cls = (clsToken ?? base.poses[0]?.cls ?? "huscarl") as WarriorClass;
+
+    const staged = restage(params, base.poses[0]?.ap ?? {});
+    if ("error" in staged) return { preset: base, subject: null, subjectError: staged.error };
+
+    return {
+      preset: {
+        ...base,
+        poses: base.poses.map((p) => ({
+          ...p, cls, rot: Math.PI + (deg * Math.PI) / 180, ap: staged.ap,
+        })),
+      },
+      // Off the merged appearance rather than off the query string, so what is
+      // published is what the warrior is built from and not what was requested.
+      subject: subjectOf({ ...defaultAppearance(cls), ...staged.ap }, cls, deg),
+      subjectError: null,
+    };
+  }, [presetName, params]);
 
   const roomState = useMemo(() => {
     const players: Record<string, GamePlayer> = {};
-    preset.poses.forEach((p) => { players[p.id] = makePlayer(p, p.id === "me"); });
+    preset.poses.forEach((p) => { players[p.id] = makePlayer(p, p.id === "me", phase === 1); });
     return {
       code: "PHOTO01",
       mode: "blood_moot",
@@ -245,7 +848,7 @@ export default function ShotPage() {
       ],
       lastStandTriggered: !!preset.lastStand,
     };
-  }, [preset]);
+  }, [preset, phase]);
 
   // Signal readiness once the renderer has presented enough frames for the
   // lerped camera and poses to settle. Every lerp in the rig runs at
@@ -257,21 +860,56 @@ export default function ShotPage() {
 
   useEffect(() => {
     if (!params) return;
+    if (subjectError) {
+      (window as unknown as Record<string, unknown>).__shotError = subjectError;
+      return;
+    }
+    // The roster is a text answer, not a picture: there is no scene to settle and
+    // no reason to spend a minute of SwiftShader on one.
+    if (params.get("roster") === "1") {
+      (window as unknown as Record<string, unknown>).__shotReady = true;
+      return;
+    }
     let frames = 0;
     let raf = 0;
+    const override = params.get("settle");
+    const authored = override !== null ? parseInt(override, 10) : (preset.settle ?? 26);
+    // The second phase is short on purpose. Reassembly is one frame's work, so a
+    // long hold would only prove that a standing warrior stays standing; what is
+    // worth capturing is the frame right after the limbs go back on.
+    const limit = phase === 1 ? 12 : authored;
+    // `Date.now`, not `performance.now`. The capture tool installs a virtual
+    // clock so a settled pose is a function of the frame count rather than of
+    // how slow the box is (see `installVirtualClock` in tools/shoot.mjs), which
+    // means `performance.now` here would report the simulation's own 50 ms step
+    // back as if it were the wall clock — and this number's whole job is to say
+    // how slow the box actually is.
+    const t0 = Date.now();
     const tick = () => {
       frames++;
-      if (frames > 26) {
-        (window as unknown as Record<string, unknown>).__shotReady = true;
+      if (frames > limit) {
+        if (phase === 0 && params.get("revive") === "1") { setPhase(1); return; }
+        const g = window as unknown as Record<string, unknown>;
+        // Published, not just counted. A settle is quoted in this file as
+        // seconds of simulation, and that conversion is only true while a frame
+        // is slower than the renderer's 0.05 s dt cap — which is a property of
+        // the capture box, not of the code. Anything reading a timed pose out of
+        // a shot has to be able to check the assumption rather than inherit it.
+        g.__shotFrames = frames;
+        g.__shotMsPerFrame = (Date.now() - t0) / frames;
+        if (subject) g.__shotSubject = subject;
+        g.__shotReady = true;
         return;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [params]);
+  }, [params, preset, phase, subject, subjectError]);
 
   if (!params) return <div className="w-screen h-screen bg-black" />;
+  // Roster mode renders no scene at all — see the settle effect.
+  if (params.get("roster") === "1") return <div className="w-screen h-screen bg-black" />;
 
   return (
     <div className={`w-screen h-screen bg-black overflow-hidden ${clean ? "photo-clean" : ""}`}>
@@ -280,9 +918,64 @@ export default function ShotPage() {
       {clean && (
         <style>{`
           .photo-clean canvas ~ * { display: none !important; }
+          /* Next's dev-mode badge, which is neither HUD nor scene and is not a
+             sibling of the canvas. The capture tool falls back to dev whenever
+             src/ is newer than the last build — which is most of the time during
+             an art pass — so this had been sitting in the corner of review
+             frames, including the ones the last helm review was signed off on. */
+          nextjs-portal { display: none !important; }
         `}</style>
       )}
       <GameCanvas playerId="me" roomState={roomState as never} onSendInput={() => {}} />
+      {preset.card && params.get("guides") === "1" && <Guides card={CARDS[preset.card]} />}
     </div>
+  );
+}
+
+/**
+ * A ruler over the frame, in millimetres at the subject's own plane.
+ *
+ * This is the instrument for aiming a card, and it exists because the previous
+ * attempt to aim one was done by eye off a finished panel: the correction went
+ * in with the wrong sign, the front panel put the head half off the left edge,
+ * and three reviews looked past it. A grid in pixels would not have helped —
+ * the number that has to be measured is an offset in metres in the warrior's
+ * frame, so the grid is drawn in the units the constant is written in.
+ *
+ *   npm run shots -- facecard --guides --turn 0
+ *
+ * Never part of a review capture: `?guides=1` is opt-in and the sheets do not
+ * pass it.
+ */
+function Guides({ card }: { card: CardSpec }) {
+  // Read once, at first render rather than from an effect. This component is
+  // only ever mounted below the query-string state, which is itself set in an
+  // effect, so it never renders on the server and the viewport is always there.
+  const [size] = useState(() =>
+    typeof window === "undefined" ? null : { w: window.innerWidth, h: window.innerHeight });
+  if (!size) return null;
+  const span = 2 * card.dist * Math.tan((card.fov * Math.PI) / 360);
+  const pxPerM = size.h / span;
+  const step = pxPerM * 0.05;
+  const n = Math.ceil(size.w / 2 / step);
+  const ticks = Array.from({ length: 2 * n + 1 }, (_, i) => i - n);
+  return (
+    <svg className="absolute inset-0 z-50 pointer-events-none" width={size.w} height={size.h}>
+      {ticks.map((k) => (
+        <g key={k}>
+          <line x1={size.w / 2 + k * step} y1={0} x2={size.w / 2 + k * step} y2={size.h}
+            stroke={k === 0 ? "#ff3b6b" : "#25e0ff"} strokeWidth={k === 0 ? 1.5 : k % 2 ? 0.4 : 0.8} />
+          {k !== 0 && k % 2 === 0 && (
+            <text x={size.w / 2 + k * step + 3} y={16} fill="#25e0ff" fontSize={11} fontFamily="ui-monospace, monospace">
+              {k * 50}
+            </text>
+          )}
+        </g>
+      ))}
+      <line x1={0} y1={size.h / 2} x2={size.w} y2={size.h / 2} stroke="#ff3b6b" strokeWidth={1.5} />
+      <text x={6} y={size.h - 10} fill="#ffe9a8" fontSize={13} fontFamily="ui-monospace, monospace">
+        {`${card.note} · fov ${card.fov.toFixed(2)}° · dist ${card.dist} m · ${(pxPerM / 1000).toFixed(3)} px/mm · grid 50 mm`}
+      </text>
+    </svg>
   );
 }

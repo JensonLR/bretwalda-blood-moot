@@ -31,3 +31,6 @@ art/shots/
 
 # TS incremental build info
 tsconfig.tsbuildinfo
+
+# UI screenshots are regenerable via npm run uishots
+art/ui/

@@ -77,7 +77,7 @@ import { WARRIOR_STATS } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
-  type Appearance, type BuiltCharacter,
+  type Appearance, type BuiltCharacter, type SeamId, type Severance,
 } from "../characters";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
@@ -209,6 +209,12 @@ export interface WarriorRig {
   readonly skeleton: THREE.Skeleton;
   /** The pose applied last frame. Where a state change is blended out of. */
   readonly last: Pose;
+  /**
+   * What this body has lost and where the piece went. Written only by the
+   * Dismemberment section below; a warrior who has never died carries an empty
+   * one and costs nothing for it.
+   */
+  readonly gore: Gore;
   dispose(): void;
 }
 
@@ -259,6 +265,19 @@ export interface WarriorMotion {
   lastState: string;
   /** Which way the corpse goes over; decided once, at the moment of death. */
   fall: number;
+  /**
+   * Whether the killing blow's bearing has been taken yet.
+   *
+   * Every other blow is latched off the rise in `recoil`, which the orchestrator
+   * raises after this function has already run — so the edge is only seen on the
+   * frame after the blow. That is a frame late and nobody could tell, except for
+   * the one blow where it matters: the packet that empties the health bar is the
+   * same packet that says `dead`, so a death reading `hitFwd` was reading the
+   * *previous* hit's bearing, or the spawn default if there wasn't one. The
+   * corpse fell the wrong way for it, and now the limb would leave the wrong way
+   * too. Death takes its bearing from the attacker directly instead.
+   */
+  struckDead: boolean;
 
   // ---- layer weights ----
   wMove: number;
@@ -293,6 +312,25 @@ export interface WarriorMotion {
 export interface AnimHooks {
   /** A blade is mid-arc at this world position. */
   onBladeTrail?(position: THREE.Vector3, cls: WarriorClass, strike: number): void;
+  /**
+   * Ground height under a world point — `WorldHandle.heightAt`, the same field
+   * the terrain was built from and the one `vfx.ts` already places its decals
+   * with. Severed limbs land on it rather than on y = 0.
+   *
+   * Optional because nothing hands this module a world handle: `FrameContext`
+   * carries the camera, the clock and the quality tier and not the arena, so
+   * without it the fallback is a raycast against the terrain mesh found in the
+   * scene — see `probeGround`, which is correct but pays for a lookup that
+   * should be arithmetic. Wiring this up is the one-line fix.
+   */
+  groundAt?(x: number, z: number): number;
+  /**
+   * A limb has just come off, on the frame it separated. Blood belongs to
+   * `vfx.ts` and none is emitted here; the severance carries everything an
+   * emitter needs — `wound` and `spray` for the burst, `stump` to follow the
+   * body as it falls onto it, `radius` for how wide.
+   */
+  onSever?(cut: Severance, victim: GamePlayer): void;
 }
 
 export function createMotion(p: GamePlayer): WarriorMotion {
@@ -303,6 +341,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
     swingPrev: 0, swingHold: 0, heavy: 0,
     flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", fall: -1,
+    struckDead: false,
     wMove: 0, wBlock: 0, wAction: 0,
     vx: 0, vz: 0, ax: 0, az: 0, yawRate: 0,
     pxPrev: p.position.x, pzPrev: p.position.z, yawPrev: p.rotation,
@@ -442,7 +481,7 @@ export function createWarriorRig(
   parent.add(blob);
   parent.add(group);
 
-  return {
+  const rig: WarriorRig = {
     id: player.id,
     warriorClass: cls,
     group,
@@ -474,8 +513,17 @@ export function createWarriorRig(
     blob,
     skeleton: joints.skeleton,
     last: { ...ZERO },
+    // A severed piece stands in world space at the cut, so it is hung off the
+    // node the warrior himself is hung off — the arena root, whose world
+    // transform is identity — and never off `group`, which moves and would add
+    // its own motion on top of the piece's.
+    gore: newGore(built, parent),
 
     dispose() {
+      // Before anything is freed. A severed body is holding pooled geometry
+      // through a grafted stump, and the walk below would dispose buffers the
+      // character builder's pool still owns and hands to the next death.
+      reassemble(rig);
       parent.remove(group);
       parent.remove(blob);
       // Geometry only, and only the body's — the HUD hangs its plates off
@@ -493,6 +541,7 @@ export function createWarriorRig(
       blobMat.dispose();
     },
   };
+  return rig;
 }
 
 // ---------------------------------------------------------------------------
@@ -1289,19 +1338,20 @@ export function stepWarriorTransform(
   const decayed = Math.max(0, motion.recoil - dt * 3.2);
   if (motion.recoil > decayed + 0.04) {
     motion.flinch = 1;
-    if (attacker) {
-      const dx = motion.rx - attacker.position.x;
-      const dz = motion.rz - attacker.position.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const c = Math.cos(-motion.yaw);
-      const s = Math.sin(-motion.yaw);
-      // Into body space: +Z is where the warrior is facing, +X is the weapon side.
-      motion.hitSide = (dx * c - dz * s) / len;
-      motion.hitFwd = (dx * s + dz * c) / len;
-    }
+    if (attacker) takeBearing(motion, attacker);
   }
   motion.recoil = decayed;
   motion.flinch = Math.max(0, motion.flinch - dt * 4.2);
+
+  // The killing blow, which the edge above is structurally a frame too late to
+  // catch — see `struckDead`. Taken here rather than in the pose because this is
+  // where the attacker is in scope, and it runs before the pose in the frame, so
+  // the collapse and the limb that leaves both read a bearing from this blow.
+  if (player.state !== "dead") motion.struckDead = false;
+  else if (!motion.struckDead) {
+    motion.struckDead = true;
+    if (attacker) takeBearing(motion, attacker);
+  }
 
   // Shoved away from whoever last landed a blow. Note this offsets the body
   // from the server-authoritative position by up to ~0.8m for half a second,
@@ -1346,6 +1396,21 @@ export function stepWarriorTransform(
   motion.pxPrev = rig.group.position.x;
   motion.pzPrev = rig.group.position.z;
   motion.yawPrev = motion.yaw;
+}
+
+/**
+ * Which way the blow pushed, in body space: +Z is where the warrior is facing,
+ * +X is his weapon side. It is the line from the attacker to the target, so a
+ * blow from behind reads +Z and puts the man on his face.
+ */
+function takeBearing(motion: WarriorMotion, attacker: GamePlayer): void {
+  const dx = motion.rx - attacker.position.x;
+  const dz = motion.rz - attacker.position.z;
+  const len = Math.hypot(dx, dz) || 1;
+  const c = Math.cos(-motion.yaw);
+  const s = Math.sin(-motion.yaw);
+  motion.hitSide = (dx * c - dz * s) / len;
+  motion.hitFwd = (dx * s + dz * c) / len;
 }
 
 // ---------------------------------------------------------------------------
@@ -2367,6 +2432,416 @@ function springRings(motion: WarriorMotion, base: number, tx: number, tz: number
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dismemberment
+//
+// The cut itself belongs to `characters.ts` — it owns the geometry, the pool and
+// the wound. What is here is the two things a cut is not: *when* it happens, and
+// what happens next.
+//
+// When is the frame the server says a man is dead, because the packet that
+// empties his health bar is the packet that carries `deathZone`. Nothing is
+// inferred and nothing is timed: two clients watching one death cut the same
+// limb off, and a spectator joining afterwards rebuilds the same body from the
+// same field on the player record.
+//
+// What happens next is two independent things that used to be one. The corpse is
+// still a pose — it collapses through the layer below, and it has to, because a
+// nameplate hangs off the node that does not move and the body underneath is
+// what falls. The piece is not a pose at all; it is a rigid body with a mass and
+// a centre of mass that is *not* its origin, integrated about that centre so it
+// tumbles rather than spinning like a signpost. Those are the only two moving
+// parts, and everything the owner asked for is a choice between them:
+//
+//   a leg goes and the *body* changes — the topple swings round the vertical
+//   toward the side that is no longer holding him up, which is the difference
+//   between a man falling over and a man being felled;
+//   an arm goes and the body twists, because the mass it was balancing against
+//   is gone and the shoulder that lost it swings free;
+//   a head goes and the body does *not* topple at all — the legs simply stop,
+//   and he goes down where he stood while the head carries the blow's momentum
+//   off on its own;
+//   the waist is the only case where both halves are objects: the top is the
+//   piece and pitches onto its face, the bottom is the rig and folds where it
+//   stood, because there is nothing above the belt left to topple.
+//
+// Nothing here allocates per frame and nothing runs per frame for a body that is
+// intact, or for a piece that has come to rest.
+// ---------------------------------------------------------------------------
+
+/** How the collapse is bent by what is missing. All zero for an intact body. */
+interface FallShape {
+  /** Where the topple axis lies: +1 puts him on his left side, −1 on his right. */
+  lean: number;
+  /** Twist about the vertical through the fall; +1 turns toward his weapon side. */
+  spin: number;
+  /** 0 topples like a felled tree, 1 folds straight down where it stood. */
+  crumple: number;
+  /** Nothing above the belt is on this body any more. */
+  halved: boolean;
+}
+
+const INTACT: Readonly<FallShape> = Object.freeze({ lean: 0, spin: 0, crumple: 0, halved: false });
+
+/** A severed piece in free flight, integrated about its own centre of mass. */
+interface Piece {
+  part: THREE.Object3D;
+  /** Centre of mass in the piece's frame. Off-origin, which is what makes it tumble. */
+  com: THREE.Vector3;
+  /** World position of that centre, and its derivatives. */
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  /** World angular velocity, rad/s. */
+  spin: THREE.Vector3;
+  quat: THREE.Quaternion;
+  /** Contact radius — half the piece's narrowest dimension, so it lies down flat. */
+  radius: number;
+  /** Seconds of near-stillness in contact. Past `REST_HOLD` the piece sleeps. */
+  still: number;
+  asleep: boolean;
+}
+
+export interface Gore {
+  built: BuiltCharacter;
+  /** Where pieces are hung. Must have an identity world transform. */
+  field: THREE.Object3D;
+  cut: Severance | null;
+  piece: Piece | null;
+  /** One attempt per death, whatever came of it. Cleared on the road back. */
+  done: boolean;
+  /**
+   * Weapon, shield or offhand that left with the piece. `applyPose` writes those
+   * transforms every frame and they now live under a body that is somewhere else
+   * — a sword still being posed after the fist holding it came off snaps back
+   * into a hand that is not there.
+   */
+  dropped: Set<THREE.Object3D>;
+  shape: FallShape;
+  /** The terrain mesh, looked for once. `null` once the look has failed. */
+  probe: THREE.Mesh | null | undefined;
+  /** Last ground sample and where it was taken; see `groundUnder`. */
+  gx: number; gz: number; gy: number;
+}
+
+function newGore(built: BuiltCharacter, field: THREE.Object3D): Gore {
+  return {
+    built, field, cut: null, piece: null, done: false,
+    dropped: new Set<THREE.Object3D>(), shape: INTACT,
+    probe: undefined, gx: 1e9, gz: 1e9, gy: 0,
+  };
+}
+
+/**
+ * What the collapse does about a missing part, keyed on the seam that was
+ * actually taken rather than on the zone that was asked for. They are not the
+ * same: the low tier refuses a bisection and takes the head instead, and a limb
+ * whose parent seam has already gone severs nothing at all.
+ */
+function shapeOf(seam: SeamId | null): FallShape {
+  switch (seam) {
+    // He falls the way the missing leg was holding him up from.
+    case "hipL": case "kneeL": return { lean: 1, spin: 0.25, crumple: 0.3, halved: false };
+    case "hipR": case "kneeR": return { lean: -1, spin: -0.25, crumple: 0.3, halved: false };
+    // Over onto the side that still has weight on it, twisting as it goes.
+    case "shoulderR": case "elbowR": return { lean: 0.5, spin: 1, crumple: 0, halved: false };
+    case "shoulderL": case "elbowL": return { lean: -0.5, spin: -1, crumple: 0, halved: false };
+    // Straight down. A body whose head has gone does not decide which way to go.
+    case "neck": return { lean: 0, spin: 0, crumple: 1, halved: false };
+    case "waist": return { lean: 0, spin: 0, crumple: 0, halved: true };
+    default: return INTACT;
+  }
+}
+
+/**
+ * How hard each piece leaves, per seam.
+ *
+ * `push` is along the blow's own bearing, `lift` is up and `out` is along the
+ * stump's axis — a head goes up out of the collar, an arm goes out along itself.
+ * `tumble` is end over end about the axis across the push and `twist` is about
+ * the vertical, and the split between them is most of what tells a head from a
+ * forearm in the air.
+ *
+ * Stated as the velocity that comes out rather than as an impulse divided by
+ * `Seam.mass`, which would be the same table written twice: an axe does not
+ * deliver a fixed impulse either, and what a viewer is judging is how far a
+ * forearm carries against how little a 33 kg torso half does.
+ */
+const THROW: Record<SeamId, { push: number; lift: number; out: number; tumble: number; twist: number }> = {
+  // 4.3 m/s of rise off a 1.55 m collar is an apex around head height again and
+  // a second and a half in the air. Past about 5 it stops reading as a head
+  // coming off and starts reading as a head being punted, which is the line the
+  // reference class does not cross either.
+  neck: { push: 2.9, lift: 3.2, out: 1.1, tumble: 11, twist: 5 },
+  shoulderR: { push: 2.2, lift: 2.7, out: 1.7, tumble: 8.5, twist: 3 },
+  shoulderL: { push: 2.2, lift: 2.7, out: 1.7, tumble: 8.5, twist: 3 },
+  elbowR: { push: 2.5, lift: 3.0, out: 1.9, tumble: 10, twist: 3.5 },
+  elbowL: { push: 2.5, lift: 3.0, out: 1.9, tumble: 10, twist: 3.5 },
+  hipR: { push: 1.4, lift: 1.4, out: 1.2, tumble: 4.5, twist: 1.5 },
+  hipL: { push: 1.4, lift: 1.4, out: 1.2, tumble: 4.5, twist: 1.5 },
+  kneeR: { push: 1.8, lift: 1.8, out: 1.4, tumble: 6.5, twist: 2 },
+  kneeL: { push: 1.8, lift: 1.8, out: 1.4, tumble: 6.5, twist: 2 },
+  waist: { push: 1.6, lift: 2.0, out: 0.5, tumble: 3.2, twist: 1 },
+};
+
+/**
+ * A shade over standard gravity. Debris at 9.81 reads floaty against a camera
+ * this close to it, and every reference in the class cheats the same way.
+ */
+const GORE_G = 11.6;
+/** Air, as one number. Enough to keep a light piece from carrying too far. */
+const GORE_DRAG = 0.25;
+/**
+ * Hard ceiling on how fast anything leaves a body, upward. Chosen against
+ * `GORE_G`: 4.4 m/s is 0.83 m of rise, so a head clears the shoulders of the man
+ * who took it and comes down inside the same second.
+ */
+const RISE_CEIL = 4.4;
+/** Below this it is not moving, it is resting; see `REST_HOLD`. */
+const REST_SPEED = 0.4;
+const REST_SPIN = 1.2;
+const REST_HOLD = 0.2;
+
+const _gv = new THREE.Vector3();
+const _gu = new THREE.Vector3();
+const _gq = new THREE.Quaternion();
+const _gray = new THREE.Raycaster();
+const _gdown = new THREE.Vector3(0, -1, 0);
+const _gorigin = new THREE.Vector3();
+const _ghits: THREE.Intersection[] = [];
+const _gbox = new THREE.Box3();
+const _gsize = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Take the limb off, on the frame the kill arrives, and throw it.
+ *
+ * Runs once per death and does nothing at all afterwards — `done` is set before
+ * anything can fail, so a zone that severs nothing (a torso hit, a second cut on
+ * a body already halved) costs one branch for the rest of the corpse's life.
+ */
+function beginGore(rig: WarriorRig, motion: WarriorMotion, player: GamePlayer, hooks?: AnimHooks): void {
+  const g = rig.gore;
+  if (g.done) return;
+  g.done = true;
+  if (!player.deathZone) return;
+
+  const cut = g.built.sever(player.deathZone);
+  // The shape the collapse takes is read off what came away, so a body that
+  // refused the cut falls exactly as it always did.
+  g.shape = shapeOf(cut?.seam ?? null);
+  if (!cut) return;
+  g.cut = cut;
+  for (const held of cut.carried) g.dropped.add(held);
+  g.field.add(cut.part);
+
+  const t = THROW[cut.seam];
+  const heavy = player.deathHeavy ? 1.32 : 1;
+
+  // The blow's bearing, back out of body space into the world. `hitFwd` is the
+  // line from the attacker to the man he killed, so this is the way the body was
+  // already being pushed and the way the piece carries on going.
+  const cy = Math.cos(motion.yaw);
+  const sy = Math.sin(motion.yaw);
+  _gv.set(
+    motion.hitSide * cy - motion.hitFwd * sy,
+    0,
+    motion.hitSide * sy + motion.hitFwd * cy,
+  );
+  if (_gv.lengthSq() < 1e-6) _gv.set(sy, 0, cy);
+  _gv.normalize();
+
+  // Where the piece balances, and how big it is. One bounding box, once: the
+  // contact radius is half the narrowest dimension, so an arm lies down on its
+  // side instead of hovering at the length of itself.
+  cut.part.updateMatrixWorld(true);
+  _gbox.setFromObject(cut.part);
+  _gbox.getSize(_gsize);
+  const radius = clamp(0.5 * Math.min(_gsize.x, _gsize.y, _gsize.z), 0.05, 0.32);
+
+  const vel = _gv.clone().multiplyScalar(t.push * heavy)
+    .addScaledVector(UP, t.lift * heavy)
+    .addScaledVector(cut.spray, t.out * heavy);
+  // A neck stump points straight up, so `lift` and `out` were adding on the same
+  // axis and a heavy multiplied the sum: 5.7 m/s off a 1.55 m collar, which is
+  // 1.4 m of rise and a head that leaves the top of the frame. The tables' own
+  // note draws the line at 5 — "past about 5 it stops reading as a head coming
+  // off and starts reading as a head being punted" — so the ceiling is enforced
+  // here rather than left to two entries that only collide on one seam.
+  if (vel.y > RISE_CEIL) vel.y = RISE_CEIL;
+
+  // End over end about the axis across the push, so the piece tumbles the way it
+  // is travelling rather than about an axis of its own choosing. The upper half
+  // of a bisection is the exception and gets the body's *facing* instead: it has
+  // one thing to do, which is go over onto its face.
+  const axis = cut.seam === "waist"
+    ? _gu.set(sy, 0, cy).cross(UP).normalize().negate()
+    : _gu.copy(UP).cross(_gv).normalize();
+  const spin = axis.clone().multiplyScalar(t.tumble * heavy);
+  // A side swing throws the piece round the vertical as well; an overhead or a
+  // thrust has no such component and should not pretend to one.
+  const yawSense = player.deathDir === "left" ? -1 : player.deathDir === "right" ? 1 : 0;
+  spin.addScaledVector(UP, t.twist * yawSense * heavy);
+
+  const pos = cut.com.clone().applyMatrix4(cut.part.matrix);
+  g.piece = {
+    part: cut.part, com: cut.com, pos, vel, spin,
+    quat: cut.part.quaternion.clone(), radius, still: 0, asleep: false,
+  };
+
+  hooks?.onSever?.(cut, player);
+}
+
+/**
+ * The piece, for the second or two it is a physics object.
+ *
+ * Integrated about the centre of mass rather than about the transform's origin,
+ * which is the cut plane: a head hung off its own neck stump and spun about the
+ * stump is a mace, and spun about the point it balances on it is a head.
+ */
+function stepPiece(gore: Gore, dt: number, at?: (x: number, z: number) => number): void {
+  const p = gore.piece;
+  if (!p) return;
+  // The builder's pool is finite and reclaims the oldest piece on the field
+  // under pressure — it takes `part` out of the scene to do it. A piece with no
+  // parent has been taken back and is not ours to move any more.
+  if (!p.part.parent) {
+    gore.piece = null;
+    gore.cut = null;
+    return;
+  }
+  if (p.asleep) return;
+
+  // Two substeps on a long frame. One 50 ms step through a bounce puts a head
+  // through the turf and back out at the speed it arrived.
+  const steps = dt > 0.026 ? 2 : 1;
+  const h = dt / steps;
+  for (let s = 0; s < steps; s++) {
+    p.vel.y -= GORE_G * h;
+    p.vel.multiplyScalar(1 - GORE_DRAG * h);
+    p.pos.addScaledVector(p.vel, h);
+
+    const rate = p.spin.length();
+    if (rate > 1e-4) {
+      _gq.setFromAxisAngle(_gv.copy(p.spin).divideScalar(rate), rate * h);
+      p.quat.premultiply(_gq).normalize();
+    }
+    p.spin.multiplyScalar(1 - 0.55 * h);
+
+    const floor = groundUnder(gore, p.pos.x, p.pos.z, at) + p.radius;
+    if (p.pos.y > floor) {
+      p.still = 0;
+      continue;
+    }
+    p.pos.y = floor;
+    if (p.vel.y < -1.2) {
+      // One weak bounce and no more. Flesh is not a ball and a limb that skips
+      // twice reads as a prop with a bounciness slider.
+      p.vel.y *= -0.22;
+      p.vel.x *= 0.55;
+      p.vel.z *= 0.55;
+      p.spin.multiplyScalar(0.42);
+    } else {
+      p.vel.y = 0;
+      // Hard friction, deliberately harder than anything real. A severed limb
+      // that slides after it lands is the single loudest tell that the thing on
+      // the ground is a box with gravity on it.
+      const f = Math.pow(0.006, h);
+      p.vel.x *= f;
+      p.vel.z *= f;
+      p.spin.multiplyScalar(Math.pow(0.02, h));
+    }
+    if (p.vel.lengthSq() < REST_SPEED * REST_SPEED && p.spin.lengthSq() < REST_SPIN * REST_SPIN) {
+      p.still += h;
+      if (p.still > REST_HOLD) {
+        p.asleep = true;
+        p.vel.setScalar(0);
+        p.spin.setScalar(0);
+      }
+    } else {
+      p.still = 0;
+    }
+  }
+
+  // Origin from centre of mass: the transform the scene wants is the cut plane,
+  // and what was integrated is the point the piece balances on.
+  p.part.quaternion.copy(p.quat);
+  p.part.position.copy(p.pos).sub(_gv.copy(p.com).applyQuaternion(p.quat));
+}
+
+/**
+ * Ground height under a point, memoised.
+ *
+ * `heightAt` is arithmetic and a caller with one may ask every frame; the
+ * fallback is a raycast against the terrain mesh and may not. Half a metre of
+ * travel between samples is well inside what the interior of the moot is flat to
+ * — the whole fighting floor lies within about 50 mm of the boot plane — and a
+ * piece crosses it perhaps three times before it settles.
+ */
+function groundUnder(gore: Gore, x: number, z: number, at?: (x: number, z: number) => number): number {
+  if (at) return at(x, z);
+  if (Math.abs(x - gore.gx) < 0.5 && Math.abs(z - gore.gz) < 0.5) return gore.gy;
+  gore.gx = x;
+  gore.gz = z;
+  gore.gy = probeGround(gore, x, z);
+  return gore.gy;
+}
+
+/**
+ * The terrain, without a handle on the world that built it.
+ *
+ * This is the part of the feature that is held together with string, and it is
+ * worth saying why rather than hiding it: nothing hands this module the arena.
+ * `FrameContext` carries a camera, a clock, a focus point and a quality tier,
+ * and `vfx.ts` gets `heightAt` passed to its constructor because the frame
+ * orchestrator builds it after the world. A rig is built the same way and could
+ * be given the same function; until it is, the mesh is found by walking to the
+ * scene root and taking the one terrain carries a `churn` attribute for. A miss
+ * costs the feature nothing worse than the y = 0 every other body in this game
+ * already stands on.
+ */
+function probeGround(gore: Gore, x: number, z: number): number {
+  if (gore.probe === undefined) {
+    gore.probe = null;
+    let root: THREE.Object3D = gore.field;
+    while (root.parent) root = root.parent;
+    const world = root.getObjectByName("world");
+    for (const child of world?.children ?? []) {
+      if (child instanceof THREE.Mesh && child.geometry.hasAttribute("churn")) {
+        gore.probe = child;
+        break;
+      }
+    }
+  }
+  if (!gore.probe) return 0;
+  _gray.set(_gorigin.set(x, 40, z), _gdown);
+  _ghits.length = 0;
+  gore.probe.raycast(_gray, _ghits);
+  // Highest hit, not first: `Mesh.raycast` does not sort, and the terrain carries
+  // a skirt 34 m below itself that a ray from above passes through on its way
+  // out. Taking the wrong one buries the limb rather than landing it.
+  let top = -Infinity;
+  for (const hit of _ghits) if (hit.point.y > top) top = hit.point.y;
+  return top > -Infinity ? top : 0;
+}
+
+/**
+ * Back to one piece, for a respawn or a teardown.
+ *
+ * `reassemble` is what hands the pooled geometry back; skipping it does not lose
+ * a limb, it loses somebody else's limb four deaths later when the slot it was
+ * still holding is handed out again.
+ */
+function reassemble(rig: WarriorRig): void {
+  const g = rig.gore;
+  if (!g.done) return;
+  g.built.reassemble();
+  g.cut = null;
+  g.piece = null;
+  g.dropped.clear();
+  g.shape = INTACT;
+  g.done = false;
+}
+
 /**
  * Death, as a collapse.
  *
@@ -2375,18 +2850,53 @@ function springRings(motion: WarriorMotion, base: number, tx: number, tz: number
  * rotated the whole warrior to horizontal at a constant rate, which reads as a
  * felled tree — and took the nameplate down with it, because the plates hang
  * off the transform node this no longer touches.
+ *
+ * `shape` is what the body has lost. It bends the collapse rather than replacing
+ * it: the same three beats, about an axis that has swung round toward the leg
+ * that is missing, or with no topple in it at all because the head has gone.
  */
-function deathLayer(d: number, fall: number): void {
+function deathLayer(d: number, fall: number, shape: FallShape): void {
   const buckle = smooth(clamp01(d / 0.24));
   const over = easeInCubic(clamp01((d - 0.16) / 0.44));
   const rest = clamp01((d - 0.6) / 0.5);
   const bounce = Math.exp(-9 * Math.max(0, d - 0.58)) * Math.sin((d - 0.58) * 22) * (d > 0.58 ? 1 : 0);
 
-  const flat = fall * (Math.PI / 2);
-  P.prx = mix(fall * 0.34 * buckle, flat * 1.03, over) + bounce * 0.06;
-  P.prx = mix(P.prx, flat, rest);
-  P.prz = fall * 0.2 * over;
-  P.pry = -fall * 0.16 * over;
+  if (shape.halved) {
+    halfLayer(buckle, bounce, fall, d);
+    return;
+  }
+
+  // The topple is one angle about one axis, and `lean` says where that axis
+  // lies: straight across him for a whole body, swung round toward whichever
+  // leg is no longer under him. Resolving it as an axis rather than adding a
+  // roll term is what keeps the total a right angle however far round it goes —
+  // pitch and roll authored independently and both at 90° is a body lying on its
+  // face and its side at the same time, which is a body screwed into the turf.
+  const sway = shape.lean * 1.05;
+  // And how far over it goes at all. A man who has lost his head does not
+  // topple; his legs stop holding him and he goes down where he stood.
+  //
+  // 0.18, not 0.62. At 0.62 the trunk stopped 34° off vertical and the capture
+  // is a beheaded warrior still standing with his guard up — which is the one
+  // failure this whole feature cannot survive, because a corpse that does not
+  // lie down reads as the animation having broken rather than as a death. The
+  // crumple's job is to change *how* he gets there, not whether: the knees go
+  // first and `settleOnFeet` drops him onto them, and only then does what is
+  // left of him go over. He still lands in his own footprint.
+  const flat = (Math.PI / 2) * (1 - shape.crumple * 0.18);
+  const pitch = fall * flat * Math.cos(sway);
+  const roll = flat * Math.sin(sway);
+
+  P.prx = mix(fall * 0.34 * buckle, pitch * 1.03, over) + bounce * 0.06;
+  P.prx = mix(P.prx, pitch, rest);
+  // The old 0.2 of settling roll survives untouched on a whole body and gives
+  // way to the real one as the lean takes over.
+  P.prz = (roll + fall * 0.2 * (1 - Math.abs(shape.lean))) * over;
+  // Losing an arm is a torque and not a push: the shoulder that was balancing
+  // the other one is gone, so the body keeps turning about the weight it has
+  // left all the way to the ground. It builds over the whole fall rather than
+  // with the topple, or the twist is over before the body has gone anywhere.
+  P.pry = -fall * 0.16 * over + shape.spin * 0.95 * smooth(clamp01(d / 0.6));
 
   // Rise as the body goes flat, or half of it ends up under the turf. The drop
   // of the collapse itself is not authored here: both knees fold below and
@@ -2396,7 +2906,9 @@ function deathLayer(d: number, fall: number): void {
   P.py = 0.12 * Math.abs(Math.sin(P.prx)) + bounce * 0.03;
   P.pz = fall * 0.06 * buckle;
 
-  P.crx = mix(fall * 0.42 * buckle, 0.05, over);
+  // A body going down rather than over folds at the spine on the way: it is the
+  // only thing left saying which way he was facing once the topple is gone.
+  P.crx = mix(fall * 0.42 * buckle, 0.05, over) + shape.crumple * 0.5 * over;
   P.crz = -fall * 0.16 * over;
   P.hrx = mix(fall * 0.5 * buckle, 0.08, over);
   P.hry = 0.55 * over;
@@ -2420,12 +2932,44 @@ function deathLayer(d: number, fall: number): void {
   // They straighten out again as he goes flat, which is both what a body on the
   // ground looks like and what keeps `settleOnFeet` from handing the corpse a
   // step up as its `standing` term fades out from under it.
-  P.lrb = mix(1.58 * buckle, 0.12, over);
-  P.llb = mix(1.34 * buckle, 0.09, over);
+  //
+  // Unless the legs are what he is short of, or what he is short of is above
+  // them. Then they never straighten: `settleOnFeet` reads the fold as reach and
+  // takes the body down onto it, so a knee held at 1.2 rad is a man in a heap
+  // rather than a man laid out, and that is the whole of "he went down where he
+  // stood" — it is measured against his own leg rather than authored as a drop.
+  P.lrb = mix(1.58 * buckle, mix(0.12, 1.24, shape.crumple), over);
+  P.llb = mix(1.34 * buckle, mix(0.09, 1.10, shape.crumple), over);
   P.llz = -0.3 * over;
   P.lrz = 0.36 * over;
   P.wx = mix(0.4, -1.0, limp);
   P.cloak = 0.55 * over;
+}
+
+/**
+ * The bottom half of a bisection.
+ *
+ * There is no topple in this because there is nothing above the belt to topple:
+ * the pelvis and both legs are all that is left on the rig, and what they do is
+ * give. The knees fold past anything a living man's would and stay folded, and
+ * `settleOnFeet` — which measures reach off the fold — takes the pelvis down the
+ * two thirds of a leg that buys, so the half that stayed sits down roughly where
+ * it was standing while the other half is still in the air.
+ */
+function halfLayer(buckle: number, bounce: number, fall: number, d: number): void {
+  const sink = smooth(clamp01(d / 0.5));
+  P.prx = fall * 0.42 * sink + bounce * 0.05;
+  P.prz = fall * 0.1 * sink;
+  P.py = -0.05 * sink + bounce * 0.03;
+  P.lrb = mix(1.7 * buckle, 1.95, sink);
+  P.llb = mix(1.5 * buckle, 1.85, sink);
+  P.lrx = -0.25 * sink;
+  P.llx = -0.18 * sink;
+  // Splayed, because a pair of legs folding under nothing has no reason to keep
+  // them together and every reason not to.
+  P.lrz = 0.3 * sink;
+  P.llz = -0.26 * sink;
+  P.cloak = 0.4 * sink;
 }
 
 // ---------------------------------------------------------------------------
@@ -2457,6 +3001,11 @@ export function poseWarrior(
   // time is the client's to keep; the server owns when the state ends.
   motion.actT = dead || rolling || staggered || casting ? motion.actT + dt : 0;
   if (dead && motion.actT <= dt) motion.fall = motion.hitFwd >= 0 ? 1 : -1;
+  // Every road back to standing goes through here: the server clears the death
+  // mark on a respawn, on a countdown and on the lobby reset, and a warrior who
+  // is not dead is a warrior whose limbs are back on him. Cheap on the frames it
+  // does nothing, which is all but one of them.
+  if (!dead) reassemble(rig);
 
   // The wire delivers a state change as a step, and the pose on either side of
   // one has no reason to be continuous — a man parried out of a raised guard
@@ -2475,12 +3024,16 @@ export function poseWarrior(
   motion.blend = Math.max(0, motion.blend - dt * (player.state === "attacking" ? 22 : 10));
 
   if (dead) {
-    deathLayer(motion.actT, motion.fall);
+    // The cut goes in before the pose is built, so the collapse's first frame is
+    // already the collapse of a body that is missing something.
+    beginGore(rig, motion, player, hooks);
+    deathLayer(motion.actT, motion.fall, rig.gore.shape);
     stops();
     settleOnFeet(legLen, 0);
     motion.leanX *= 0.9;
     commit(rig, piv, st, motion.blend, 0);
     drapeCloak(rig, motion, dt, t, P.cloak);
+    stepPiece(rig.gore, dt, hooks?.groundAt);
     rig.body.visible = player.invincible ? Math.floor(t * 12) % 2 === 0 : true;
     fadeBlob(rig, 1);
     return;
@@ -2669,19 +3222,28 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   const want = mix(carry, Math.min(P.wa / (P.waw || 1), floor), clamp01(P.waw)) - base;
   const solved = clamp(want + TAU * Math.round((inLine - want) / TAU), inLine - WRIST_BACK, inLine + WRIST_FWD);
   const wrist = P.waw > 1e-4 ? solved : P.wx;
-  rig.weapon.rotation.set(wrist, 0, P.wz);
+  // What the corpse dropped. A weapon that left with the arm holding it now
+  // lives under a piece of body somewhere else in the scene, and writing a carry
+  // angle onto it every frame would spin an axe about a fist that is no longer
+  // attached to anybody. Empty for every warrior who has not been dismembered,
+  // which is a set lookup against a set of size zero.
+  const gone = rig.gore.dropped;
+  if (!gone.has(rig.weapon)) {
+    rig.weapon.rotation.set(wrist, 0, P.wz);
+    rig.weapon.position.y = P.wy * st.slide;
+  }
   // And the hand goes with it. The mount's pitch is already in the bone's bind
   // pose, so this adds the same turn the weapon just took rather than replacing
   // it — `Rx(grip)·Rx(wrist)·Rz(roll)` on the weapon is `Rx(grip + wrist)·Rz(roll)`
   // on the fist, exactly. Without it the fingers close on the axis the builder
   // baked and the haft runs past behind them; with it the closed ring is on the
   // shaft, which is the whole of "he is holding it".
-  piv.wristR.rotation.set(rig.gripPitch + wrist, 0, P.wz);
   // A spear runs through the fist on a thrust, which is most of what makes a
   // thrust read; a sword only creeps, because a hand sliding down a blade is a
-  // different and much worse-looking idea.
-  rig.weapon.position.y = P.wy * st.slide;
-  if (rig.offhand) {
+  // different and much worse-looking idea. Written above, with the rotation, so
+  // both are behind the same guard.
+  piv.wristR.rotation.set(rig.gripPitch + wrist, 0, P.wz);
+  if (rig.offhand && !gone.has(rig.offhand)) {
     // The second seax mirrors the main hand, a beat behind and never as far.
     // `wrist + P.arb` is where the weapon hand is pointing once its elbow is
     // counted; subtracting the off elbow gives the same aim from the other arm
@@ -2692,7 +3254,7 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
     // The off fist follows its own seax on the same argument as the main one.
     piv.wristL.rotation.set(rig.gripPitch + rig.offhand.rotation.x, 0, rig.offhand.rotation.z);
   }
-  if (rig.shield) {
+  if (rig.shield && !gone.has(rig.shield)) {
     // The pitch is solved, not authored: the disc gives back whatever the
     // shoulder and elbow just did to it, so it stays upright in the world while
     // the arm swings under it. That is what a wrist is for, and a shield that

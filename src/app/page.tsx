@@ -1,17 +1,25 @@
 "use client";
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import {
   Swords, Target, Scroll, ArrowLeft, Copy, Share2, Crown,
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
-  Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus
+  Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
+  Flag, Hourglass, KeyRound, CloudOff
 } from "lucide-react";
-import type { GamePlayer, WarriorClass, GameMode, Team } from "../game/types";
-import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel } from "../game/types";
+import type {
+  GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
+} from "../game/types";
+import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 import {
   ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, type Appearance,
 } from "../game/client/characters";
 import { Transport } from "../game/client/transport";
+import { getHandedness, getServerHandedness, subscribeHandedness } from "../game/client/input";
+import {
+  bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
+  LEGACY_KEY, type ServerProfile,
+} from "./profileLink";
 import dynamic from "next/dynamic";
 
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
@@ -27,22 +35,29 @@ interface RoomState {
   countdown: number; matchTimer: number;
   killFeed: Array<{ killerName: string; victimName: string; timestamp: number }>;
   lastStandTriggered: boolean;
-}
-
-interface MatchResults {
-  winnerId: string | null; winnerName: string;
-  results: Array<{
-    id: string; name: string; kills: number; deaths: number;
-    damage: number; score: number; isWinner: boolean;
-    xpEarned: number; goldEarned: number;
-  }>;
+  // The round state rides on every snapshot, so the screens never keep their
+  // own copy of the score — the server is the only thing that knows it.
+  bestOf: number; roundIndex: number; roundTarget: number;
+  roundWins: Record<string, number>; roundScoreBy: RoundScoreBy;
+  lastRound: RoundResult | null; nextRoundAt: number;
 }
 
 interface ProfileData {
   name: string; level: number; xp: number; gold: number; honour: number;
   kills: number; deaths: number; wins: number; matches: number;
   unlocked: string[]; appearance: Appearance;
+  /** Four words, only ever set by the server. Absent means "kept on this device". */
+  recoveryCode?: string;
 }
+
+// Where this player's hoard actually lives. "reaching" is the second or two
+// before the first answer comes back, and it is a real state: the armoury must
+// not offer a device-local purchase during it and then be overruled.
+type Link = "reaching" | "server" | "local";
+
+// One banner, two tones. A purchase that failed has to say so, and it has to
+// say so on the screen the player pressed the button on.
+interface Notice { text: string; tone: "bad" | "good" }
 
 const WARRIOR_INFO: Array<{ id: WarriorClass; name: string; desc: string; Icon: typeof Swords }> = [
   { id: "huscarl", name: "HUSCARL", desc: "Shield & sword. Unbreakable.", Icon: Shield },
@@ -93,9 +108,10 @@ export default function Page() {
   const [soloDifficulty, setSoloDifficulty] = useState<Difficulty>("warrior");
   const [soloBots, setSoloBots] = useState(2);
   const [botDifficulty, setBotDifficulty] = useState<Difficulty>("warrior");
+  const [bestOf, setBestOf] = useState<BestOf>(DEFAULT_BEST_OF);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
-  const [matchResults, setMatchResults] = useState<MatchResults | null>(null);
-  const [error, setError] = useState("");
+  const [matchResults, setMatchResults] = useState<MatchEndData | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [linkMode, setLinkMode] = useState<"ws" | "http" | null>(null);
   const [profile, setProfile] = useState<ProfileData>(DEFAULT_PROFILE);
@@ -103,30 +119,94 @@ export default function Page() {
   const [armouryTab, setArmouryTab] = useState(0);
   const [staged, setStaged] = useState<Record<string, { id: string; cost: number; slot: string; value: string | number }>>({});
   const [previewClass, setPreviewClass] = useState<WarriorClass>("warden");
+  const [link, setLink] = useState<Link>("reaching");
+  const [buying, setBuying] = useState(false);
+  // What became of the pay for the last fight. Shown on the results screen,
+  // because a player whose gold did not land deserves to hear it from us
+  // rather than notice it on the landing screen an hour later.
+  const [payState, setPayState] = useState<"none" | "asking" | "paid" | "unpaid">("none");
+  const [carried, setCarried] = useState<{ gold: number; unlocks: number } | null>(null);
 
   const transportRef = useRef<Transport | null>(null);
   const screenRef = useRef(screen); screenRef.current = screen;
   const playerIdRef = useRef(playerId); playerIdRef.current = playerId;
   const profileRef = useRef(profile); profileRef.current = profile;
   const busyRef = useRef(busy); busyRef.current = busy;
+  // Written by settleLink rather than mirrored on every render: the transport
+  // holds one copy of the message handler for the life of a session, so where
+  // the gold is kept has to be readable from a closure that was made before the
+  // first answer came back.
+  const linkRef = useRef<Link>("reaching");
   const lastInputSentRef = useRef(0);
   const heldActionsRef = useRef<Record<string, boolean>>({});
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A warrior the engine named before the profile had signed in. Binding is
+  // what reserves that fight's pay, and it can only be done before the fight
+  // ends, so a join that lands mid-boot is held here and bound the moment
+  // there is a profile to bind it to.
+  const unboundRef = useRef<string | null>(null);
+  // The sign-in, as a promise. Anything that must not guess where the gold
+  // lives — a purchase, a payout — waits on this rather than reading a link
+  // that has not been settled yet and writing to the wrong ledger.
+  const bootRef = useRef<Promise<void> | null>(null);
 
   const [inviteCode, setInviteCode] = useState("");
+
+  const saveProfile = useCallback((updates: Partial<ProfileData>) => {
+    setProfile((prev) => {
+      const next = { ...prev, ...updates };
+      // Still written in server mode, as a mirror rather than as the store: on
+      // the day the free-tier database lapses the game degrades to device-local
+      // gold, and it should degrade to the player's real total rather than to
+      // whatever he had the week the server came up.
+      localStorage.setItem(LEGACY_KEY, JSON.stringify(next));
+      profileRef.current = next;
+      return next;
+    });
+  }, []);
+
+  // The server's answer, drawn. Nothing here is added up on the client — a
+  // response replaces the totals outright, so a lost reply is a stale screen
+  // and never a wrong balance.
+  const adoptServer = useCallback((p: ServerProfile) => {
+    saveProfile({
+      level: p.level, xp: p.xp, gold: p.gold, honour: p.honour,
+      kills: p.kills, deaths: p.deaths, wins: p.wins, matches: p.matches,
+      unlocked: p.unlocked, appearance: migrateAppearance(p.appearance),
+      recoveryCode: p.recoveryCode,
+    });
+  }, [saveProfile]);
+
+  // One place where "where does the gold live" changes, because two places
+  // would eventually disagree and one of them is what the armoury reads.
+  const settleLink = useCallback((next: Link) => {
+    linkRef.current = next;
+    setLink(next);
+  }, []);
+
+  // Where the gold lives, once that is actually known. On a slow first load a
+  // player can reach EQUIP before the sign-in answers, and a guess there is a
+  // purchase written to the device that the server never sees.
+  const settled = useCallback(async (): Promise<Link> => {
+    if (linkRef.current === "reaching" && bootRef.current) {
+      try { await bootRef.current; } catch { /* the boot never rejects; belt and braces */ }
+    }
+    return linkRef.current;
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("bretwalda_name");
     if (saved) setPlayerName(saved);
-    const savedProfile = localStorage.getItem("bretwalda_profile");
+    const savedProfile = localStorage.getItem(LEGACY_KEY);
+    let parsed: Partial<ProfileData> | null = null;
     if (savedProfile) {
       try {
-        const parsed = JSON.parse(savedProfile);
+        parsed = JSON.parse(savedProfile);
         // Migrated on the way in, not on the way out: the armoury decides what is
         // equipped by matching the stored value against the catalog's, so a
         // finish that was re-graded between releases would show as owning nothing
         // and charge the player a second time for kit he already has.
-        const merged = { ...DEFAULT_PROFILE, ...parsed, unlocked: parsed.unlocked ?? freeCosmeticIds() };
+        const merged = { ...DEFAULT_PROFILE, ...parsed, unlocked: parsed?.unlocked ?? freeCosmeticIds() };
         setProfile({ ...merged, appearance: migrateAppearance(merged.appearance) });
       } catch { /* ok */ }
     }
@@ -138,22 +218,54 @@ export default function Page() {
       setJoinCode(code);
       setScreen("join");
     }
-  }, []);
 
-  const saveProfile = useCallback((updates: Partial<ProfileData>) => {
-    setProfile((prev) => {
-      const next = { ...prev, ...updates };
-      localStorage.setItem("bretwalda_profile", JSON.stringify(next));
-      profileRef.current = next;
-      return next;
-    });
-  }, []);
+    // Sign in behind the landing screen. Nothing waits on this: the player can
+    // be typing a name and creating a room before it answers, and if it never
+    // answers the game is the one it has always been, with the gold on the
+    // device. The one step it must not skip is carrying that gold across.
+    let dropped = false;
+    bootRef.current = bootProfile(saved ?? "", parsed).then((result) => {
+      if (dropped) return;
+      settleLink(result.mode);
+      if (result.profile) adoptServer(result.profile);
+      if (result.carried && (result.carried.gold > 0 || result.carried.unlocks > 0)) {
+        // The server counts every id it folded in, free starting kit included.
+        // A player means "the things I bought", so the number he is shown is
+        // the one he would get by counting his own unlocks.
+        const free = freeCosmeticIds();
+        const bought = result.profile?.unlocked.filter((id) => !free.includes(id)).length;
+        setCarried({ gold: result.carried.gold, unlocks: bought ?? result.carried.unlocks });
+      }
+      if (result.carryRefused) setNotice({ text: result.carryRefused, tone: "bad" });
+      const waiting = unboundRef.current;
+      if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
+    }).catch(() => settleLink("local"));
+    return () => { dropped = true; };
+  }, [adoptServer, settleLink]);
 
-  const showError = useCallback((msg: string) => {
-    setError(msg);
+  const say = useCallback((text: string, tone: "bad" | "good" = "bad") => {
+    setNotice({ text, tone });
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-    errorTimerRef.current = setTimeout(() => setError(""), 4000);
+    errorTimerRef.current = setTimeout(() => setNotice(null), tone === "good" ? 3200 : 4600);
   }, []);
+
+  const showError = useCallback((msg: string) => say(msg, "bad"), [say]);
+
+  // The device-local tally, exactly as it was before there was a server, and
+  // still the entire economy anywhere the database is not. It runs only when
+  // the server has said there is no server — never alongside a payout, or the
+  // same fight would be paid twice.
+  const tallyLocally = useCallback((r: MatchEndData["results"][number]) => {
+    const p = profileRef.current;
+    const xpNew = p.xp + r.xpEarned;
+    saveProfile({
+      kills: p.kills + r.kills, deaths: p.deaths + r.deaths,
+      matches: p.matches + 1, wins: p.wins + (r.isWinner ? 1 : 0),
+      honour: p.honour + (r.isWinner ? 12 : 3) + r.kills * 2,
+      xp: xpNew, gold: p.gold + r.goldEarned,
+      level: Math.max(p.level, Math.floor(1 + Math.sqrt(xpNew / 100))),
+    });
+  }, [saveProfile]);
 
   const sendMsg = useCallback((type: string, data?: Record<string, unknown>) => {
     transportRef.current?.send({ type, data });
@@ -167,6 +279,13 @@ export default function Page() {
         playerIdRef.current = d.playerId;
         setRoomCode(d.code);
         setRoomState(d);
+        setPayState("none");
+        // Reserve this fight's pay before there is any. An unreserved payout
+        // is paid to nobody, on purpose — every other phone in the lobby can
+        // read this id off a room snapshot — so skipping it is silently
+        // earning zero.
+        if (linkRef.current === "server") void bindWarrior(d.playerId);
+        else if (linkRef.current === "reaching") unboundRef.current = d.playerId;
         // A training room has no war code and nobody to wait for. Hold the
         // muster — still showing that the trial is being raised — rather than
         // flashing the invite lobby on the way to the countdown.
@@ -205,20 +324,39 @@ export default function Page() {
         setRoomState((prev) => prev ? { ...prev, lastStandTriggered: true, state: "last_stand" } : prev);
         break;
       }
+      // A whole room snapshot with the round's result spread over it. Taking the
+      // snapshot is what puts the screen into "intermission" and shows the break
+      // card; the round result itself is read back out of `lastRound`.
+      case "round_end": {
+        const d = msg.data as unknown as RoomState;
+        if (d.players) setRoomState(d);
+        break;
+      }
       case "match_end": {
-        const d = msg.data as unknown as MatchResults;
+        const d = msg.data as unknown as MatchEndData;
         setMatchResults(d);
         const myResult = d.results.find((r) => r.id === playerIdRef.current);
+        const warrior = playerIdRef.current;
         if (myResult) {
-          const p = profileRef.current;
-          const xpNew = p.xp + myResult.xpEarned;
-          saveProfile({
-            kills: p.kills + myResult.kills, deaths: p.deaths + myResult.deaths,
-            matches: p.matches + 1, wins: p.wins + (myResult.isWinner ? 1 : 0),
-            honour: p.honour + (myResult.isWinner ? 12 : 3) + myResult.kills * 2,
-            xp: xpNew, gold: p.gold + myResult.goldEarned,
-            level: Math.max(p.level, Math.floor(1 + Math.sqrt(xpNew / 100))),
-          });
+          // The engine has already decided what this fight paid and told the
+          // server. All the client can do is go and collect it — and if the
+          // answer is that there is no server today, fall back to the tally
+          // the game has always kept on the device.
+          setPayState("asking");
+          settled().then((where) => {
+            if (where === "local") { tallyLocally(myResult); setPayState("paid"); return; }
+            return collectPay(warrior).then((reply) => {
+              if (reply.kind === "server") { adoptServer(reply.value.profile); setPayState("paid"); }
+              else if (reply.kind === "local") { tallyLocally(myResult); setPayState("paid"); }
+              else {
+                setPayState("unpaid");
+                // The results card is gone ten seconds after the last blow, and
+                // an answer that arrives after it has nowhere to land. The
+                // banner outlives the screen, so it carries the bad news too.
+                showError("Your pay for that fight did not reach the war rolls.");
+              }
+            });
+          }).catch(() => setPayState("unpaid"));
         }
         setTimeout(() => setScreen("results"), 2200);
         break;
@@ -238,7 +376,7 @@ export default function Page() {
         break;
       }
     }
-  }, [saveProfile, showError]);
+  }, [adoptServer, tallyLocally, showError, settled]);
 
   const ensureTransport = useCallback(async (): Promise<boolean> => {
     if (transportRef.current && transportRef.current.mode) return true;
@@ -306,16 +444,18 @@ export default function Page() {
     if (!playerName.trim()) { showError("Enter your warrior name first!"); return; }
     setBusy(true);
     localStorage.setItem("bretwalda_name", playerName);
+    void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("create", { name: playerName, mode: selectedMode, appearance: profileRef.current.appearance });
-  }, [playerName, selectedMode, ensureTransport, sendMsg, showError]);
+    sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance });
+  }, [playerName, selectedMode, bestOf, ensureTransport, sendMsg, showError]);
 
   const handleJoin = useCallback(async () => {
     if (!playerName.trim()) { showError("Enter your warrior name first!"); return; }
     if (!joinCode.trim()) { showError("Enter a room code!"); return; }
     setBusy(true);
     localStorage.setItem("bretwalda_name", playerName);
+    void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
     sendMsg("join", { name: playerName, code: joinCode.toUpperCase(), appearance: profileRef.current.appearance });
@@ -327,6 +467,7 @@ export default function Page() {
     setBusy(true);
     const name = playerName.trim() || "Trainee";
     localStorage.setItem("bretwalda_name", name);
+    void syncName(name);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
     sendMsg("solo", {
@@ -413,17 +554,17 @@ export default function Page() {
     return ap;
   }, [profile.appearance, staged]);
 
+  // Priced the way the server prices it: by what this profile owns, and by
+  // nothing else. The old rule also forgave anything already equipped, which
+  // was a second rule that could only ever disagree with the till.
   const stagedCost = useCallback(() => {
     let total = 0;
     for (const slot of Object.keys(staged)) {
       const s = staged[slot];
-      // if already equipped, skip; if owned, free
-      const cur = equippedValue(slot);
-      if (cur === s.value) continue;
       if (!profile.unlocked.includes(s.id)) total += s.cost;
     }
     return total;
-  }, [staged, equippedValue, profile.unlocked]);
+  }, [staged, profile.unlocked]);
 
   const hasChanges = Object.keys(staged).some((s) => equippedValue(s) !== staged[s].value);
 
@@ -433,7 +574,10 @@ export default function Page() {
 
   const clearStaged = useCallback(() => setStaged({}), []);
 
-  const applyStaged = useCallback(() => {
+  // The device-local till. Still exactly right when there is no server; it is
+  // also, by itself, an economy a player can edit in devtools, which is why it
+  // is now the fallback and not the rule.
+  const applyLocally = useCallback(() => {
     const p = profileRef.current;
     const cost = stagedCost();
     if (p.gold < cost) { showError(`Not enough gold — need ${cost}.`); return; }
@@ -460,6 +604,56 @@ export default function Page() {
     setStaged({});
   }, [staged, stagedCost, saveProfile, sendMsg, prevScreen, showError]);
 
+  /**
+   * EQUIP & BUY. The client sends the ids on the mannequin and nothing else —
+   * no price, no balance — and draws whatever comes back. A refusal keeps the
+   * try-on exactly as it is and says why, because a shop that clears the
+   * basket and shows the old gold looks like it worked.
+   */
+  const applyStaged = useCallback(async () => {
+    const ids = Object.values(staged).map((s) => s.id);
+    if (ids.length === 0) return;
+    if (await settled() !== "local") {
+      setBuying(true);
+      const reply = await buyKit(ids);
+      setBuying(false);
+      if (reply.kind === "server") {
+        adoptServer(reply.value.profile);
+        if (prevScreen === "lobby" || screenRef.current === "lobby") {
+          sendMsg("set_appearance", { appearance: reply.value.profile.appearance });
+        }
+        setStaged({});
+        say(reply.value.spent > 0 ? `Bought for ${reply.value.spent} gold.` : "Kit equipped.", "good");
+        return;
+      }
+      if (reply.kind === "refused") { showError(reply.message); return; }
+      // `local` — no war rolls today, so the device keeps the books.
+      settleLink("local");
+    }
+    applyLocally();
+  }, [staged, prevScreen, adoptServer, applyLocally, sendMsg, say, showError, settleLink, settled]);
+
+  /**
+   * Four words, typed on a phone that has never seen this profile. On success
+   * the server rotates the key and this device becomes that player — which
+   * means the device it was recovered *from* is signed out, and that is the
+   * right trade for the case this exists for: a phone that is gone.
+   *
+   * Answers with the sentence to show under the box, or null for "it worked".
+   */
+  const handleRestore = useCallback(async (code: string): Promise<string | null> => {
+    const reply = await recoverProfile(code);
+    if (reply.kind === "server") {
+      adoptServer(reply.value.profile);
+      settleLink("server");
+      setCarried(null);
+      say("Your saga is restored.", "good");
+      return null;
+    }
+    if (reply.kind === "local") return "No war rolls are being kept today, so there is nothing to bring back.";
+    return reply.message;
+  }, [adoptServer, say, settleLink]);
+
   const openArmoury = useCallback((from: Screen) => {
     setStaged({});
     setPrevScreen(from);
@@ -470,17 +664,38 @@ export default function Page() {
     setScreen("armoury");
   }, [roomState, soloClass]);
 
+  // Which side of a phone the movement thumb is on. Read here for the same
+  // reason GameHud reads it: anything drawn over the fight has to keep off the
+  // free-look half, and which half that is is the player's choice.
+  const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
+
   // ==================== GAME ====================
   if (screen === "game") {
     return (
       <div className="fixed inset-0 bg-black">
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} />
+        {/* The score of the match, over the fight. A best-of is worth nothing
+            if a player cannot see where he stands in it, and the HUD proper
+            only knows about this round. Sits below the health bar the HUD
+            owns, and never takes a pointer event off the controls. */}
+        {roomState && roomState.mode !== "solo" && (roomState.bestOf ?? 1) > 1 && roomState.state !== "lobby" && (
+          <div className="pointer-events-none absolute left-1/2 top-[4.6rem] z-20 -translate-x-1/2">
+            <RoundTally roomState={roomState} playerId={playerId} />
+          </div>
+        )}
+        {roomState?.state === "intermission" && <RoundBreak roomState={roomState} playerId={playerId} />}
+        {/* Centred on a desktop; on a phone it moves to the movement thumb's
+            corner and mirrors with the rest of the controls. Centred, it
+            straddles the line the touch scheme splits the screen on and leaves
+            a 108px-wide patch of "a drag here does nothing" in the free-look
+            half — see docs/MOBILE-CONTROLS.md. The short label is what lets it
+            clear the split outright rather than nearly. */}
         {roomState?.mode === "solo" && (
           <button
             onClick={() => { leaveRoom(); setScreen("muster"); }}
-            className="absolute top-3 left-1/2 -translate-x-1/2 mt-16 z-30 px-5 py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-sm font-bold tracking-wider text-stone-200 transition flex items-center gap-2 backdrop-blur"
+            className={`absolute top-3 ${lefty ? "right-3" : "left-3"} sm:left-1/2 sm:right-auto sm:-translate-x-1/2 mt-16 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-stone-200 transition flex items-center gap-2 backdrop-blur`}
           >
-            <DoorOpen size={15} /> END SESSION
+            <DoorOpen size={15} /> <span className="sm:hidden">END</span><span className="hidden sm:inline">END SESSION</span>
           </button>
         )}
       </div>
@@ -489,43 +704,63 @@ export default function Page() {
 
   // ==================== RESULTS ====================
   if (screen === "results" && matchResults) {
+    const mine = matchResults.results.find((r) => r.id === playerId);
     return (
-      <MenuShell art="hall">
+      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)}>
         <ContentWrap>
-          <div className="text-center mb-8">
-            <Trophy className="text-amber-400 mx-auto mb-4" size={44} />
-            <div className="label-overline mb-2">BATTLE COMPLETE</div>
-            <h1 className="font-display text-3xl sm:text-4xl text-amber-100" style={{ textShadow: "0 0 30px rgba(255,180,60,0.4)" }}>
-              {matchResults.winnerName === "Draw" ? "BLOOD SPILT — A DRAW" : `${matchResults.winnerName} PREVAILS`}
+          <div className="card card-noble card-glow flex flex-col items-center gap-3 p-5 text-center sm:p-6">
+            <Trophy className="text-amber-400" size={40} />
+            <div className="label-overline">BATTLE COMPLETE</div>
+            <h1 className="font-display text-2xl text-amber-100 sm:text-4xl" style={{ textShadow: "0 0 30px rgba(255,180,60,0.4)" }}>
+              {matchResults.winnerKind === "none" || matchResults.winnerName === "Draw"
+                ? "BLOOD SPILT — A DRAW"
+                : `${matchResults.winnerName} PREVAILS`}
             </h1>
-            {matchResults.winnerId === playerId && (
-              <div className="text-yellow-400 animate-pulse tracking-[0.35em] mt-2.5 text-sm font-display">VICTORY IS YOURS</div>
+            {/* `isWinner` and not an id match: a war band is won by a side, and
+                every man on it won it. */}
+            {mine?.isWinner && (
+              <div className="font-display animate-pulse text-sm tracking-[0.35em] text-yellow-400">VICTORY IS YOURS</div>
+            )}
+            <div className="knot-band w-full max-w-xs" />
+            <MatchTally data={matchResults} playerId={playerId} />
+            {/* The pay is the server's to give. When it does not arrive the
+                honest thing is to say so on the screen that shows the number,
+                not to quietly print a total that includes it. */}
+            {payState === "unpaid" && (
+              <div className="text-[11px] leading-relaxed text-red-300/90">
+                This pay has not reached the war rolls — your hoard is unchanged.
+              </div>
+            )}
+            {payState === "asking" && (
+              <div className="animate-pulse text-[11px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
             )}
           </div>
 
-          <div className="space-y-3.5 mb-8">
-            {matchResults.results.sort((a, b) => b.score - a.score).map((r, i) => (
-              <div key={r.id} className={`card flex items-center gap-4 px-5 py-4 ${
+          <div className="flex flex-col gap-2.5">
+            {[...matchResults.results].sort((a, b) => b.score - a.score).map((r, i) => (
+              <div key={r.id} className={`card flex items-center gap-3.5 px-4 py-3.5 ${
                 r.isWinner ? "!border-amber-500/70 !bg-amber-900/25" : r.id === playerId ? "!border-sky-600/60 !bg-sky-950/30" : ""
               }`}>
-                <div className="font-display text-2xl text-stone-500 w-9">#{i + 1}</div>
-                <div className="flex-1 min-w-0">
-                  <div className={`font-bold flex items-center gap-2 truncate ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
-                    {r.name} {r.isWinner && <Crown size={14} className="text-amber-400 shrink-0" />}
+                <div className="font-display w-8 shrink-0 text-2xl text-stone-500">#{i + 1}</div>
+                <div className="min-w-0 flex-1">
+                  <div className={`flex items-center gap-2 font-bold ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
+                    <span className="truncate">{r.name}</span> {r.isWinner && <Crown size={14} className="shrink-0 text-amber-400" />}
                   </div>
-                  <div className="text-xs text-stone-400 mt-0.5">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} damage</div>
+                  <div className="mt-0.5 text-xs text-stone-400">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} damage</div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="text-amber-300 text-sm font-bold">+{r.xpEarned} XP</div>
-                  <div className="text-yellow-500 text-xs flex items-center gap-1 justify-end mt-0.5"><Coins size={10} />+{r.goldEarned}</div>
+                <div className="shrink-0 text-right">
+                  <div className="text-sm font-bold text-amber-300">+{r.xpEarned} XP</div>
+                  <div className="mt-0.5 flex items-center justify-end gap-1 text-xs text-yellow-500"><Coins size={10} />+{r.goldEarned}</div>
                 </div>
               </div>
             ))}
           </div>
 
+          {/* Both labels stay on one line at 390px: "BACK TO / LOBBY" over two
+              rows makes the pair look like different-sized buttons. */}
           <div className="flex gap-3">
-            <button onClick={() => setScreen("lobby")} className="btn-primary flex-1">BACK TO LOBBY</button>
-            <button onClick={() => { leaveRoom(); setScreen("landing"); }} className="btn-ghost flex-1">LEAVE</button>
+            <button onClick={() => setScreen("lobby")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">BACK TO LOBBY</button>
+            <button onClick={() => { leaveRoom(); setScreen("landing"); }} className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">LEAVE</button>
           </div>
         </ContentWrap>
       </MenuShell>
@@ -540,170 +775,184 @@ export default function Page() {
     const botCount = playersList.filter((p) => p.id.startsWith("bot_")).length;
 
     return (
-      <MenuShell art="hall">
+      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)}>
         <ContentWrap wide>
           {/* header */}
-          <div className="text-center mb-8">
-            <div className="flex items-center justify-center gap-2 mb-2.5">
-              <LinkPill mode={linkMode} />
-            </div>
-            <div className="label-overline mb-2.5">
+          <div className="flex flex-col items-center gap-2.5 text-center">
+            <LinkPill mode={linkMode} />
+            <div className="label-overline">
               {roomState.mode === "honour_duel" ? "HONOUR DUEL" : roomState.mode === "blood_moot" ? "BLOOD MOOT" : "WAR BAND"}
             </div>
-            <h1 className="font-display text-3xl text-amber-100 tracking-wider mb-6" style={{ textShadow: "0 0 24px rgba(255,180,60,0.3)" }}>
+            <h1 className="font-display text-2xl tracking-wider text-amber-100 sm:text-3xl" style={{ textShadow: "0 0 24px rgba(255,180,60,0.3)" }}>
               {ARENA_NAMES[roomState.arena as keyof typeof ARENA_NAMES] || roomState.arena}
             </h1>
-            {/* INVITE — the cornerstone: caption + one-tap actions */}
-            <div className="card card-glow max-w-md mx-auto px-6 py-5 mb-3">
-              <div className="label-overline !text-[9px] mb-2">WAR CODE</div>
-              <div className="font-mono text-4xl font-bold text-amber-300 tracking-[0.3em] mb-4" style={{ textShadow: "0 0 22px rgba(255,190,70,0.5)" }}>{roomCode}</div>
-              <div className="flex gap-2 justify-center flex-wrap">
-                <button onClick={handleCopyLink} className="btn-primary !py-2.5 !px-5 text-sm flex items-center gap-2">
-                  {copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "LINK COPIED!" : "COPY INVITE LINK"}
+          </div>
+
+          {/* INVITE — this is the whole reason the lobby exists. A second
+              player only ever arrives through this block, so it gets the top
+              of the screen, the largest type and the widest target. */}
+          <div className="warcode-frame card-noble mx-auto flex w-full max-w-md flex-col gap-4 p-5 sm:p-6">
+            <div className="flex flex-col items-center text-center">
+              <div className="label-overline">WAR CODE</div>
+              <div className="warcode mt-2">{roomCode}</div>
+              <div className="knot-band mt-1 w-full max-w-[15rem]" />
+            </div>
+
+            <div className="flex flex-col gap-2.5">
+              <button onClick={handleCopyLink} className="btn-primary w-full !min-h-[3.25rem]">
+                {copied ? <Check size={17} /> : <Copy size={17} />}{copied ? "LINK COPIED!" : "COPY INVITE LINK"}
+              </button>
+              {typeof navigator !== "undefined" && "share" in navigator && (
+                <button onClick={handleShare} className="btn-info w-full !min-h-[3.25rem]">
+                  <Share2 size={17} /> SHARE INVITE
                 </button>
-                {typeof navigator !== "undefined" && "share" in navigator && (
-                  <button onClick={handleShare} className="btn-info !py-2.5 !px-5 text-sm flex items-center gap-2">
-                    <Share2 size={15} /> SHARE
-                  </button>
-                )}
-              </div>
-              <div className="text-[11px] text-stone-400 mt-3.5 leading-relaxed">
-                Tap <span className="text-amber-300 font-bold">COPY INVITE LINK</span> and paste it in your group chat —<br />
-                friends open it and join instantly, no code typing.
-              </div>
-              <div className="mt-2.5 text-[10px] font-mono text-stone-500 break-all px-2">{shareUrl()}</div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-amber-200/10 pt-3.5 text-center">
+              <p className="text-[11px] leading-relaxed text-stone-400">
+                Paste the link in your group chat — friends open it and join
+                instantly, with no code to type.
+              </p>
+              <div className="link-preview">{shareUrl()}</div>
             </div>
           </div>
 
+          {/* THE FORMAT — the host's, and the server's answer is what is drawn:
+              the picker reads roomState, never a local copy, so every man in
+              the lobby sees the same format at the same moment. */}
+          <section className="flex flex-col gap-3">
+            <h2 className="section-title"><Flag size={12} className="shrink-0" /> THE FORMAT</h2>
+            {isHost ? (
+              <div className="card flex flex-col gap-3 p-4">
+                <RoundPicker
+                  value={(roomState.bestOf as BestOf) || DEFAULT_BEST_OF}
+                  onChange={(n) => sendMsg("set_rounds", { bestOf: n })}
+                />
+                <p className="text-[11px] leading-relaxed text-stone-400">
+                  {roundsBlurb(roomState.bestOf || 1, roomState.mode)}
+                </p>
+              </div>
+            ) : (
+              <div className="card flex items-center gap-3 px-4 py-3">
+                <span className="cabochon" />
+                <span className="font-display text-sm tracking-wider text-amber-100">
+                  {(roomState.bestOf || 1) > 1 ? `BEST OF ${roomState.bestOf}` : "SINGLE ROUND"}
+                </span>
+                <span className="text-[11px] text-stone-400">{roundsBlurb(roomState.bestOf || 1, roomState.mode)}</span>
+              </div>
+            )}
+          </section>
+
           {/* warriors */}
-          <section className="mb-10">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <h2 className="section-title"><User size={12} /> WARRIORS <span className="text-stone-500 normal-case tracking-normal">{playersList.length}/{maxP}</span></h2>
+          <section className="flex flex-col gap-3">
+            {/* Stacked on a phone: side by side, the title shrinks under the
+                controls and its player count disappears behind the select. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
+              <h2 className="section-title min-w-0 sm:flex-1"><User size={12} className="shrink-0" /> WARRIORS <span className="tracking-normal text-stone-500">{playersList.length}/{maxP}</span></h2>
               {isHost && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={botDifficulty}
                     onChange={(e) => setBotDifficulty(e.target.value as "recruit" | "warrior" | "jarl")}
-                    className="bg-stone-900 text-stone-300 text-xs border border-stone-600 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-600"
+                    aria-label="AI difficulty"
+                    className="select-frame"
                   >
                     <option value="recruit">AI: Recruit</option>
                     <option value="warrior">AI: Warrior</option>
                     <option value="jarl">AI: Jarl</option>
                   </select>
                   <button onClick={() => sendMsg("add_bot", { difficulty: botDifficulty })}
-                    className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1.5">
-                    <Bot size={13} /> ADD AI
+                    className="btn-primary !min-h-[2.75rem] !px-4 !text-xs">
+                    <Bot size={14} /> ADD AI
                   </button>
                   {botCount > 0 && (
                     <button onClick={() => sendMsg("remove_bot")}
-                      className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1.5">
-                      <Minus size={13} /> REMOVE
+                      className="btn-ghost !min-h-[2.75rem] !px-4 !text-xs">
+                      <Minus size={14} /> REMOVE
                     </button>
                   )}
                 </div>
               )}
             </div>
-            <div className="space-y-3">
+            <div className="flex flex-col gap-2.5">
               {playersList.map((p) => {
                 const info = WARRIOR_INFO.find((w) => w.id === p.warriorClass);
                 const WIcon = info?.Icon ?? Swords;
                 const isBot = p.id.startsWith("bot_");
                 return (
-                  <div key={p.id} className={`card flex items-center gap-4 px-4 py-3.5 ${p.ready ? "!border-emerald-700/50 !bg-emerald-950/25" : ""}`}>
+                  <div key={p.id} className={`card flex items-center gap-3.5 px-3.5 py-3 sm:px-4 ${p.ready ? "!border-emerald-700/50 !bg-emerald-950/25" : ""}`}>
                     <div className={`medallion ${isBot ? "!text-stone-400" : ""}`}>
                       {isBot ? <BotMessageSquare size={16} /> : <WIcon size={16} />}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-bold">
                         <span className="truncate">{p.name}</span>
-                        {p.id === roomState.hostId && <Crown size={13} className="text-amber-400 shrink-0" />}
+                        {p.id === roomState.hostId && <Crown size={13} className="shrink-0 text-amber-400" />}
                         {p.id === playerId && <span className="badge-sky">YOU</span>}
                         {isBot && <span className="badge-stone">AI</span>}
                       </div>
-                      <div className="text-[11px] text-stone-400 capitalize mt-0.5">
+                      <div className="mt-0.5 text-[11px] capitalize text-stone-400">
                         {p.warriorClass}{(p as GamePlayer & { appearance?: Appearance }).appearance && !isBot ? " · customised" : ""}
                       </div>
                     </div>
                     {roomState.mode === "war_band" && (
-                      <div className={`px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${
+                      <div className={`shrink-0 rounded px-2.5 py-1 text-[10px] font-bold tracking-wider ${
                         p.team === "red" ? "bg-red-900/70 text-red-100" : p.team === "blue" ? "bg-sky-900/70 text-sky-100" : "bg-stone-800 text-stone-400"
                       }`}>{p.team === "none" ? "NO TEAM" : p.team.toUpperCase()}</div>
                     )}
-                    <div className={`w-3.5 h-3.5 rounded-full border-2 ${p.ready ? "bg-emerald-400 border-emerald-300" : "bg-stone-700 border-stone-600"}`} />
+                    <div className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${p.ready ? "border-emerald-300 bg-emerald-400" : "border-stone-600 bg-stone-700"}`} />
                   </div>
                 );
               })}
+
+              {/* An empty roster is the moment the invite matters most, so the
+                  waiting state points back at it rather than showing nothing. */}
+              {playersList.length < 2 && (
+                <div className="card !border-dashed !border-stone-100/15 !bg-transparent px-4 py-5 text-center">
+                  <div className="text-[13px] font-bold text-stone-300">Waiting for a second warrior</div>
+                  <div className="mt-1 text-[11px] leading-relaxed text-stone-500">
+                    Send the invite link above, or add an AI to fight right now.
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
           {/* YOUR WARRIOR — live preview */}
-          <section className="mb-10">
-            <div className="card card-glow p-4 flex flex-col sm:flex-row items-center gap-4">
-              <div className="w-full sm:w-[46%]">
-                <CharacterPreview
-                  warriorClass={roomState.players[playerId]?.warriorClass ?? "warden"}
-                  appearance={profile.appearance}
-                  height={200}
-                />
-              </div>
-              <div className="flex-1 text-center sm:text-left">
-                <div className="label-overline mb-1.5">YOUR WARRIOR</div>
-                <div className="font-display text-2xl text-amber-100">{playerName || "Warrior"}</div>
-                <div className="text-sm text-stone-300 capitalize mt-0.5">{roomState.players[playerId]?.warriorClass ?? "warden"}</div>
-                <p className="text-xs text-stone-400 mt-2 leading-relaxed">
-                  This is exactly how you appear to everyone in battle — armour, helm, cloak and paint.
-                </p>
-                <button onClick={() => openArmoury("lobby")} className="btn-primary !py-2.5 !px-5 text-sm mt-3.5 inline-flex items-center gap-2">
-                  <Shirt size={15} /> CUSTOMISE
-                </button>
-              </div>
-            </div>
-          </section>
+          <WarriorPanel
+            warriorClass={roomState.players[playerId]?.warriorClass ?? "warden"}
+            appearance={profile.appearance}
+            name={playerName || "Warrior"}
+            note="This is exactly how you appear to everyone in battle — armour, helm, cloak and paint."
+            onCustomise={() => openArmoury("lobby")}
+          />
 
           {/* class select */}
-          <section className="mb-10">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="section-title"><Swords size={12} /> CHOOSE WARRIOR</h2>
-              <button onClick={() => openArmoury("lobby")} className="text-amber-400 hover:text-amber-300 text-xs font-bold flex items-center gap-1.5 transition">
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <h2 className="section-title min-w-0 basis-full sm:flex-1 sm:basis-auto"><Swords size={12} className="shrink-0" /> CHOOSE WARRIOR</h2>
+              <button onClick={() => openArmoury("lobby")} className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-bold text-amber-400 transition hover:text-amber-300">
                 <Shirt size={13} /> EDIT APPEARANCE <ChevronRight size={12} />
               </button>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {WARRIOR_INFO.map((w) => {
-                const stats = WARRIOR_STATS[w.id];
-                const isSel = roomState.players[playerId]?.warriorClass === w.id;
-                const WIcon = w.Icon;
-                return (
-                  <button key={w.id}
-                    onClick={() => sendMsg("select_class", { warriorClass: w.id })}
-                    className={`card card-interactive p-4 text-left ${isSel ? "card-selected" : ""}`}>
-                    <div className={`medallion mb-2.5 ${isSel ? "!border-amber-500 !text-amber-300" : ""}`}><WIcon size={17} /></div>
-                    <div className="font-display text-sm text-amber-100 tracking-wider">{w.name}</div>
-                    <div className="text-[10px] text-stone-400 mt-1 leading-snug">{w.desc}</div>
-                    <div className="mt-3 space-y-1.5">
-                      <StatBar label="HP" value={stats.maxHealth} max={150} cls="bg-emerald-500" />
-                      <StatBar label="SPD" value={stats.moveSpeed * 20} max={100} cls="bg-sky-400" />
-                      <StatBar label="ATK" value={stats.attackDamage * 3} max={84} cls="bg-red-500" />
-                      <StatBar label="DEF" value={stats.blockReduction * 100} max={80} cls="bg-amber-400" />
-                    </div>
-                    <div className="mt-2.5 text-[9px] text-purple-300 tracking-[0.15em] font-bold">{stats.ability}</div>
-                  </button>
-                );
-              })}
-            </div>
+            <ClassGrid
+              selected={roomState.players[playerId]?.warriorClass}
+              onSelect={(c) => sendMsg("select_class", { warriorClass: c })}
+            />
           </section>
 
           {/* teams */}
           {roomState.mode === "war_band" && (
-            <section className="mb-10">
-              <h2 className="section-title mb-3"><Users size={12} /> CHOOSE TEAM</h2>
+            <section className="flex flex-col gap-3">
+              <h2 className="section-title"><Users size={12} className="shrink-0" /> CHOOSE TEAM</h2>
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={() => { setSelectedTeam("red"); sendMsg("select_team", { team: "red" }); }}
-                  className={`card card-interactive py-4 font-bold tracking-wider ${selectedTeam === "red" ? "!border-red-500/70 !bg-red-950/40" : ""}`}>
+                  className={`card card-interactive !min-h-[3.5rem] px-3 font-bold tracking-wider ${selectedTeam === "red" ? "!border-red-500/70 !bg-red-950/40" : ""}`}>
                   RED WAR BAND
                 </button>
                 <button onClick={() => { setSelectedTeam("blue"); sendMsg("select_team", { team: "blue" }); }}
-                  className={`card card-interactive py-4 font-bold tracking-wider ${selectedTeam === "blue" ? "!border-sky-500/70 !bg-sky-950/40" : ""}`}>
+                  className={`card card-interactive !min-h-[3.5rem] px-3 font-bold tracking-wider ${selectedTeam === "blue" ? "!border-sky-500/70 !bg-sky-950/40" : ""}`}>
                   BLUE WAR BAND
                 </button>
               </div>
@@ -711,26 +960,28 @@ export default function Page() {
           )}
 
           {/* actions — pinned bottom on mobile for thumb reach */}
-          <div className="sticky bottom-3 mt-8 pt-3 bg-gradient-to-t from-black/80 via-black/60 to-transparent -mx-1 px-1 pb-1">
-            <div className="flex gap-2.5">
+          <div className="action-bar">
+            {/* Three targets share one 390px row, so the two word buttons are
+                allowed to shrink but never to wrap onto a second line. */}
+            <div className="action-bar-row">
               <button onClick={() => sendMsg("ready")}
-                className={`flex-1 py-4 rounded-xl font-bold text-lg transition tracking-wider ${
+                className={`min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-base ${
                   roomState.players[playerId]?.ready
-                    ? "bg-emerald-700 hover:bg-emerald-600 text-white shadow-[0_0_28px_rgba(16,150,90,0.45)]"
+                    ? "btn-primary !border-emerald-400/60 !bg-emerald-700 !shadow-[0_0_28px_rgba(16,150,90,0.45)]"
                     : "btn-ghost"
                 }`}>
                 {roomState.players[playerId]?.ready ? "READY — SKAL!" : "READY UP"}
               </button>
               {isHost && (
-                <button onClick={() => sendMsg("start")} className="btn-primary flex-1 !py-4 !text-lg flex items-center justify-center gap-2">
-                  <Swords size={18} /> START
+                <button onClick={() => sendMsg("start")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-base">
+                  <Swords size={18} className="shrink-0" /> START
                 </button>
               )}
-              <button onClick={() => { leaveRoom(); setScreen("landing"); }} className="btn-danger !px-4">
+              <button onClick={() => { leaveRoom(); setScreen("landing"); }} aria-label="Leave room" className="btn-danger shrink-0 !px-3">
                 <ArrowLeft size={18} />
               </button>
             </div>
-            {!isHost && <p className="text-stone-500 text-xs text-center mt-2.5">Waiting for host to start the battle...</p>}
+            {!isHost && <p className="text-center text-xs text-stone-500">Waiting for host to start the battle...</p>}
           </div>
         </ContentWrap>
       </MenuShell>
@@ -742,59 +993,73 @@ export default function Page() {
     const slot = ARMOURY[armouryTab];
     const cost = stagedCost();
     return (
-      <MenuShell>
+      <MenuShell notice={notice} onDismiss={() => setNotice(null)}>
         <ContentWrap wide>
-          <BackButton onClick={() => { clearStaged(); setScreen(prevScreen); }} />
-          <div className="flex items-start justify-between gap-4 flex-wrap mt-5 mb-8">
-            <div>
-              <h1 className="font-display text-3xl text-amber-100">THE ARMOURY</h1>
-              <p className="text-stone-400 text-sm mt-1.5">Try everything on before you buy. Gold is earned in battle — never bought.</p>
-            </div>
-            <div className="card flex items-center gap-2.5 px-5 py-2.5 !border-yellow-600/50">
-              <Coins size={17} className="text-yellow-500" />
-              <span className="text-yellow-400 font-bold text-xl">{profile.gold}</span>
-            </div>
-          </div>
+          <ScreenHead
+            onBack={() => { clearStaged(); setScreen(prevScreen); }}
+            title="THE ARMOURY"
+            lede="Try everything on before you buy. Gold is earned in battle — never bought."
+            aside={
+              // Where the purse is kept, next to the purse. A player who is
+              // about to spend 2400 gold is entitled to know whether it
+              // survives him clearing his browser.
+              <div className="card flex shrink-0 flex-col items-center gap-0.5 !border-yellow-600/50 px-4 py-2">
+                <div className="flex items-center gap-2.5">
+                  <Coins size={17} className="text-yellow-500" />
+                  <span className="text-xl font-bold text-yellow-400">{profile.gold}</span>
+                </div>
+                <span className="text-[8.5px] font-bold tracking-[0.16em] text-stone-500">
+                  {link === "server" ? "ON THE WAR ROLLS" : link === "local" ? "ON THIS DEVICE" : "COUNTING…"}
+                </span>
+              </div>
+            }
+          />
 
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
             {/* ===== TRY-ON MANNEQUIN ===== */}
-            <div className="lg:w-[46%] shrink-0">
-              <div className="card card-glow p-4 sticky top-4">
-                <div className="section-title mb-2"><Eye size={12} /> PREVIEW — TRY IT ON</div>
+            <div className="lg:w-[42%] lg:shrink-0">
+              <div className="card card-glow flex flex-col gap-3 p-4 lg:sticky lg:top-4">
+                <div className="section-title"><Eye size={12} className="shrink-0" /> PREVIEW — TRY IT ON</div>
                 <CharacterPreview warriorClass={previewClass} appearance={previewAppearance()} height={320} />
                 {/* class picker for the mannequin */}
-                <div className="grid grid-cols-4 gap-1.5 mt-3">
+                <div className="grid grid-cols-4 gap-2">
                   {WARRIOR_INFO.map((w) => (
                     <button key={w.id} onClick={() => setPreviewClass(w.id)}
-                      className={`card card-interactive py-1.5 flex flex-col items-center gap-0.5 ${previewClass === w.id ? "card-selected" : ""}`}>
-                      <w.Icon size={13} className={previewClass === w.id ? "text-amber-300" : "text-stone-400"} />
-                      <span className="text-[8px] font-bold tracking-wider text-stone-300">{w.name.slice(0, 5)}</span>
+                      className={`card card-interactive flex flex-col items-center justify-center gap-1 py-2 ${previewClass === w.id ? "card-selected" : ""}`}>
+                      <w.Icon size={15} className={previewClass === w.id ? "text-amber-300" : "text-stone-400"} />
+                      {/* Full name, not a 5-char slice: "HUSCA / WARDE / RUNEK / BERSE"
+                          read as truncation bugs, and the chip is wide enough for
+                          the longest of them at this size. */}
+                      <span className="text-[8px] font-bold leading-none tracking-wide text-stone-300">{w.name}</span>
                     </button>
                   ))}
                 </div>
                 {/* staged action bar */}
                 {hasChanges && (
-                  <div className="mt-3.5 flex items-center gap-2 animate-fadeIn">
-                    <div className="flex-1 text-center">
-                      <div className="text-[10px] text-stone-400 tracking-widest">COST TO UNLOCK</div>
-                      <div className={`font-bold text-lg flex items-center justify-center gap-1 ${profile.gold >= cost ? "text-yellow-400" : "text-red-400"}`}>
+                  <div className="animate-fadeIn flex flex-col gap-2.5 border-t border-stone-100/10 pt-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[10px] tracking-widest text-stone-400">COST TO UNLOCK</div>
+                      <div className={`flex items-center gap-1.5 text-lg font-bold ${profile.gold >= cost ? "text-yellow-400" : "text-red-400"}`}>
                         <Coins size={14} /> {cost}
                       </div>
                     </div>
-                    <button onClick={applyStaged} className="btn-primary flex-1 !py-2.5 text-sm flex items-center justify-center gap-2">
-                      <Check size={15} /> EQUIP{cost > 0 ? " & BUY" : ""}
-                    </button>
-                    <button onClick={clearStaged} className="btn-ghost !py-2.5 !px-3 text-sm">
-                      <ArrowLeft size={15} />
-                    </button>
+                    <div className="flex gap-2.5">
+                      <button onClick={() => { void applyStaged(); }} disabled={buying}
+                        className="btn-primary flex-1 !min-h-[3rem] !text-sm">
+                        {buying ? "ASKING THE ROLLS…" : <><Check size={15} /> EQUIP{cost > 0 ? " & BUY" : ""}</>}
+                      </button>
+                      <button onClick={clearStaged} aria-label="Discard try-on" className="btn-ghost !px-4">
+                        <ArrowLeft size={15} />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
             {/* ===== ITEMS ===== */}
-            <div className="flex-1 min-w-0">
-              <div className="tab-strip mb-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-4">
+              <div className="tab-strip">
                 {ARMOURY.map((s, i) => (
                   <button key={s.slot} onClick={() => setArmouryTab(i)} className={`tab-item ${armouryTab === i ? "tab-item-active" : ""}`}>
                     {s.label.toUpperCase()}
@@ -802,7 +1067,7 @@ export default function Page() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                 {slot.options.map((opt) => {
                   const owned = isUnlocked(opt.id);
                   const equipped = equippedValue(opt.slot) === opt.value && !staged[opt.slot];
@@ -810,36 +1075,39 @@ export default function Page() {
                   const affordable = profile.gold >= opt.cost;
                   return (
                     <button key={opt.id} onClick={() => stageItem(opt)}
-                      className={`card card-interactive flex items-center gap-4 p-3.5 text-left ${
+                      className={`card card-interactive flex min-h-[4rem] items-center gap-3.5 p-3 text-left ${
                         equipped || stagedNow ? "card-selected" : !owned && !affordable ? "opacity-70" : ""
                       }`}>
                       {typeof opt.value === "number" ? (
-                        <div className="w-10 h-10 rounded-full border-2 border-stone-500 shrink-0 shadow-inner"
+                        <div className="h-10 w-10 shrink-0 rounded-full border-2 border-stone-500 shadow-inner"
                           style={{ backgroundColor: `#${opt.value.toString(16).padStart(6, "0")}` }} />
                       ) : (
-                        <div className="medallion !w-10 !h-10 shrink-0">
+                        <div className="medallion !h-10 !w-10 shrink-0">
                           {opt.slot === "helm" ? <Shield size={15} /> :
                             opt.slot === "cloak" ? <Shirt size={15} /> :
                             opt.slot === "warPaint" ? <Eye size={15} /> :
                             opt.slot === "beard" ? <Ghost size={15} /> : <User size={15} />}
                         </div>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-bold text-stone-100 text-sm">{opt.label}</div>
-                        <div className="text-[10px] text-stone-400 mt-0.5">
+                      <div className="min-w-0 flex-1">
+                        {/* Two lines, not one with an ellipsis: the most
+                            expensive helm in the game was rendering as
+                            "The Sutton Hoo H…". */}
+                        <div className="line-clamp-2 text-sm font-bold leading-snug text-stone-100">{opt.label}</div>
+                        <div className="mt-0.5 text-[10px] text-stone-400">
                           {equipped ? "EQUIPPED" : stagedNow ? "ON MANNEQUIN — equip above" : owned ? "Owned — tap to preview" : opt.cost === 0 ? "Free" : `${opt.cost} gold`}
                         </div>
                       </div>
-                      {equipped ? <Check size={16} className="text-amber-400 shrink-0" /> :
-                        stagedNow ? <Eye size={15} className="text-amber-400 shrink-0" /> :
-                        !owned && (affordable ? <Coins size={14} className="text-yellow-500 shrink-0" /> : <Lock size={14} className="text-stone-500 shrink-0" />)}
+                      {equipped ? <Check size={16} className="shrink-0 text-amber-400" /> :
+                        stagedNow ? <Eye size={15} className="shrink-0 text-amber-400" /> :
+                        !owned && (affordable ? <Coins size={14} className="shrink-0 text-yellow-500" /> : <Lock size={14} className="shrink-0 text-stone-500" />)}
                     </button>
                   );
                 })}
               </div>
             </div>
           </div>
-          <p className="text-stone-500 text-xs text-center mt-6">
+          <p className="text-center text-xs leading-relaxed text-stone-500">
             Tapping items dresses the mannequin. Only press EQUIP &amp; BUY when you love the look — nothing is charged until then.
           </p>
         </ContentWrap>
@@ -849,37 +1117,181 @@ export default function Page() {
 
   // ==================== MENUS ====================
   return (
-    <MenuShell art={screen === "landing" ? "hero" : "hall"}>
-      {error && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[92%]">
-          <div className="card !border-red-600/70 !bg-red-950/85 backdrop-blur px-5 py-3 text-center text-red-200 text-sm font-bold shadow-2xl animate-fadeIn">
-            {error}
+    <MenuShell art={screen === "landing" ? "hero" : "hall"} notice={notice} onDismiss={() => setNotice(null)}>
+      {screen === "landing" && (
+        // Centred as a whole rather than as a stack of centred children, so the
+        // title and the controls stay one composition from 390px to 1440px.
+        <div className="wrap flex min-h-[calc(100dvh-6rem)] max-w-[34rem] flex-col justify-center gap-8 py-6 sm:gap-10">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2.5 text-amber-300/90 sm:gap-3">
+              <span className="ornament-line" />
+              <Swords size={13} className="shrink-0" />
+              <span className="font-display text-[9px] tracking-[0.42em] sm:text-[10px] sm:tracking-[0.5em]">ANGLO-SAXON ARENA</span>
+              <Swords size={13} className="shrink-0" />
+              <span className="ornament-line" />
+            </div>
+            <h1 className="title-hero font-display mt-4">BRETWALDA</h1>
+            <h2 className="title-sub font-display mt-1 text-[5.6vw] tracking-[0.26em] sm:text-[2rem]">
+              BLOOD MOOT
+            </h2>
+            <div className="knot-band mx-auto mt-3 w-full max-w-[18rem]" />
+            <p
+              className="mx-auto mt-5 max-w-[26rem] text-[15px] leading-relaxed text-stone-300/90"
+              style={{ textShadow: "0 1px 4px black" }}
+            >
+              Sword fighting in Dark Age Britain. Send a code, choose a warrior, fight — no downloads.
+            </p>
           </div>
+
+          {/* The controls sit on a panel. On a black field they read as three
+              loose buttons; framed, they read as the front of a game. */}
+          <div className="card card-noble card-glow mx-auto flex w-full max-w-[26rem] flex-col gap-3.5 p-5 sm:p-6">
+            <label className="label-overline block text-center">YOUR WARRIOR NAME</label>
+            <input
+              type="text"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value.substring(0, 20))}
+              placeholder="Enter warrior name..."
+              className="input-frame text-center text-lg"
+            />
+            <button onClick={() => setScreen("create")} disabled={busy}
+              className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
+              <Swords size={20} /> CREATE BATTLE
+            </button>
+            <button onClick={() => setScreen("join")} disabled={busy}
+              className="btn-ghost w-full !min-h-[3.75rem] !text-lg">
+              <Users size={20} /> JOIN BATTLE
+            </button>
+          </div>
+
+          <div className="mx-auto flex w-full max-w-[26rem] flex-col gap-3">
+            <div className="grid grid-cols-3 gap-2.5">
+              <button onClick={() => setScreen("training")} className="mini-nav">
+                <Crosshair size={19} className="text-amber-400" />
+                <span>Training</span>
+                <span className="text-[9px] font-normal text-emerald-400">vs AI</span>
+              </button>
+              <button onClick={() => openArmoury("landing")} className="mini-nav">
+                <Shirt size={19} className="text-amber-400" />
+                <span>Armoury</span>
+                <span className="text-[9px] font-normal text-stone-400">customise</span>
+              </button>
+              <button onClick={() => setScreen("profile")} className="mini-nav">
+                <Scroll size={19} className="text-amber-400" />
+                <span>Saga</span>
+                <span className="text-[9px] font-normal text-stone-400">profile</span>
+              </button>
+            </div>
+
+            <div className="card grid grid-cols-3 divide-x divide-stone-100/10 !bg-stone-950/70 py-3">
+              <LandingStat value={`Lv.${profile.level}`} label={getLevelTitle(profile.level)} />
+              <LandingStat value={String(profile.gold)} label="GOLD" cls="text-yellow-400" />
+              <LandingStat value={String(profile.wins)} label="VICTORIES" cls="text-emerald-400" />
+            </div>
+
+            {/* Shown once, to the player who has been playing all week and has
+                just been given a server profile he never asked for. Without it
+                the migration is invisible and indistinguishable from a wipe. */}
+            {carried && (
+              <button onClick={() => setCarried(null)}
+                className="card card-glow animate-fadeIn !min-h-0 !border-amber-500/50 px-4 py-3 text-left">
+                <div className="flex items-start gap-3">
+                  <Scroll size={16} className="mt-0.5 shrink-0 text-amber-400" />
+                  <div className="min-w-0">
+                    <div className="font-display text-[13px] tracking-wider text-amber-200">YOUR HOARD CAME WITH YOU</div>
+                    <div className="mt-1 text-[11px] leading-relaxed text-stone-300/90">
+                      {carried.gold} gold{carried.unlocks > 0 ? ` and ${carried.unlocks} pieces of kit` : ""} carried
+                      onto the war rolls. It is kept for you now — see the Saga for the four words that bring it back.
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )}
+          </div>
+
+          <p className="text-center text-[11px] leading-relaxed text-stone-300/60" style={{ textShadow: "0 1px 3px black" }}>
+            Plays on phones, tablets &amp; desktops.<br />
+            WASD + mouse on desktop · touch controls on mobile.
+          </p>
         </div>
       )}
 
-      {screen === "landing" && (
-        <div className="min-h-full flex flex-col">
-          {/* HERO AREA over artwork */}
-          <div className="flex-1 flex flex-col items-center justify-center px-4 pt-24 pb-10">
-            <div className="text-center mb-12">
-              <div className="flex items-center justify-center gap-3 text-amber-300/90 mb-4">
-                <span className="ornament-line" />
-                <Swords size={14} />
-                <span className="font-display text-[10px] tracking-[0.55em]">ANGLO-SAXON ARENA</span>
-                <Swords size={14} />
-                <span className="ornament-line" />
+      {screen === "create" && (
+        <ContentWrap>
+          <ScreenHead
+            onBack={() => setScreen("landing")}
+            overline="SELECT GAME MODE"
+            title="CREATE BATTLE"
+            lede="Pick how the fight is fought. You can invite friends once the room is raised."
+            center
+          />
+
+          <div className="flex flex-col gap-3">
+            {([
+              { id: "honour_duel" as GameMode, name: "HONOUR DUEL", desc: "1v1 single combat. Prove your worth.", players: "2 players", Icon: Swords, tint: "text-amber-400" },
+              { id: "blood_moot" as GameMode, name: "BLOOD MOOT", desc: "Free for all. Last warrior standing.", players: "2-8 players", Icon: Skull, tint: "text-red-400" },
+              { id: "war_band" as GameMode, name: "WAR BAND", desc: "Team battles. Shield-friends together.", players: "2v2 · 3v3 · 4v4", Icon: Users, tint: "text-sky-400" },
+            ]).map((mode) => (
+              <button key={mode.id}
+                onClick={() => setSelectedMode(mode.id)}
+                className={`card card-interactive w-full p-4 text-left sm:p-5 ${selectedMode === mode.id ? "card-selected" : ""}`}>
+                <div className="flex items-center gap-4">
+                  <div className={`medallion !h-12 !w-12 ${mode.tint}`}><mode.Icon size={22} /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display tracking-wider text-amber-100">{mode.name}</div>
+                    <div className="mt-1 text-[13px] leading-snug text-stone-300/90">{mode.desc}</div>
+                    <div className="mt-1 text-[11px] tracking-wide text-stone-500">{mode.players}</div>
+                  </div>
+                  <ChevronRight size={18} className={`shrink-0 ${selectedMode === mode.id ? "text-amber-400" : "text-stone-500"}`} />
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* One life was the whole match before this control existed. It is
+              set here rather than only in the lobby because the host decides
+              the shape of the fight at the same moment he decides its mode. */}
+          <section className="flex flex-col gap-3">
+            <h2 className="section-title"><Flag size={12} className="shrink-0" /> HOW LONG IS THE FIGHT</h2>
+            <div className="card flex flex-col gap-3 p-4">
+              <RoundPicker value={bestOf} onChange={setBestOf} />
+              <p className="text-[11px] leading-relaxed text-stone-400">{roundsBlurb(bestOf, selectedMode)}</p>
+            </div>
+          </section>
+
+          <button onClick={handleCreate} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
+            {busy ? "SUMMONING..." : "CREATE ROOM"}
+          </button>
+        </ContentWrap>
+      )}
+
+      {screen === "join" && (
+        <ContentWrap>
+          <ScreenHead
+            onBack={() => setScreen("landing")}
+            overline="ENTER ROOM CODE"
+            title="JOIN BATTLE"
+            center
+          />
+
+          {/* An invited player arrives here with the code already filled, so
+              the screen has to say "you are in the right place" before it asks
+              for anything. */}
+          {inviteCode && (
+            <div className="card card-glow animate-fadeIn !border-amber-500/60 p-5 text-center">
+              <div className="font-display mb-2 flex items-center justify-center gap-2 text-sm tracking-widest text-amber-300">
+                <Swords size={15} /> YOU ARE SUMMONED <Swords size={15} />
               </div>
-              <h1 className="title-hero font-display text-[13vw] leading-none sm:text-7xl">BRETWALDA</h1>
-              <h2 className="font-display text-2xl sm:text-4xl text-red-400 tracking-[0.3em] mt-1.5" style={{ textShadow: "0 0 35px rgba(230,60,40,0.55), 0 2px 6px rgba(0,0,0,0.8)" }}>
-                BLOOD MOOT
-              </h2>
-              <p className="text-stone-300/90 text-sm sm:text-[15px] mt-4 max-w-md mx-auto leading-relaxed text-center" style={{ textShadow: "0 1px 4px black" }}>
-                Sword fighting in Dark Age Britain. Send a code, choose a warrior, fight — no downloads.
+              <p className="text-sm leading-relaxed text-stone-300">
+                A friend invites you to <span className="font-mono font-bold text-amber-300">{inviteCode}</span>.<br />
+                Enter your name, grab your blade, and tap JOIN.
               </p>
             </div>
+          )}
 
-            <div className="w-full max-w-sm flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <label className="label-overline">WARRIOR NAME</label>
               <input
                 type="text"
                 value={playerName}
@@ -887,194 +1299,105 @@ export default function Page() {
                 placeholder="Enter warrior name..."
                 className="input-frame text-center text-lg"
               />
-              <button onClick={() => setScreen("create")} disabled={busy}
-                className="btn-primary !py-4 !text-xl w-full flex items-center justify-center gap-2.5 animate-glow">
-                <Swords size={20} /> CREATE BATTLE
-              </button>
-              <button onClick={() => setScreen("join")} disabled={busy}
-                className="btn-ghost !py-4 !text-xl w-full flex items-center justify-center gap-2.5">
-                <Users size={20} /> JOIN BATTLE
-              </button>
-              <div className="grid grid-cols-3 gap-3 mt-1">
-                <button onClick={() => setScreen("training")} className="mini-nav">
-                  <Crosshair size={18} className="text-amber-400" />
-                  <span>Training</span>
-                  <span className="text-[9px] text-emerald-400 font-normal">vs AI</span>
-                </button>
-                <button onClick={() => openArmoury("landing")} className="mini-nav">
-                  <Shirt size={18} className="text-amber-400" />
-                  <span>Armoury</span>
-                  <span className="text-[9px] text-stone-400 font-normal">customise</span>
-                </button>
-                <button onClick={() => setScreen("profile")} className="mini-nav">
-                  <Scroll size={18} className="text-amber-400" />
-                  <span>Saga</span>
-                  <span className="text-[9px] text-stone-400 font-normal">profile</span>
-                </button>
-              </div>
-              <div className="card !bg-stone-950/75 backdrop-blur px-4 py-3 text-center text-xs text-stone-300">
-                Lv.{profile.level} {getLevelTitle(profile.level)}
-                <span className="mx-2 text-stone-600">·</span>
-                <Coins size={11} className="inline text-yellow-500 -mt-0.5" /> {profile.gold} gold
-                <span className="mx-2 text-stone-600">·</span>
-                {profile.wins} victories
-              </div>
             </div>
-          </div>
-
-          <div className="pt-4 pb-8 text-center text-xs text-stone-300/70 max-w-xs mx-auto leading-relaxed" style={{ textShadow: "0 1px 3px black" }}>
-            Plays on phones, tablets & desktops.<br />WASD + mouse on desktop · touch controls on mobile.
-          </div>
-        </div>
-      )}
-
-      {screen === "create" && (
-        <ContentWrap>
-          <div className="py-8">
-            <BackButton onClick={() => setScreen("landing")} />
-            <div className="text-center my-8">
-              <div className="label-overline mb-2.5">SELECT GAME MODE</div>
-              <h1 className="font-display text-3xl text-white">CREATE BATTLE</h1>
-            </div>
-
-            <div className="space-y-5 mb-9">
-              {([
-                { id: "honour_duel" as GameMode, name: "HONOUR DUEL", desc: "1v1 single combat. Prove your worth.", players: "2 players", Icon: Swords, tint: "text-amber-400" },
-                { id: "blood_moot" as GameMode, name: "BLOOD MOOT", desc: "Free for all. Last warrior standing.", players: "2-8 players", Icon: Skull, tint: "text-red-400" },
-                { id: "war_band" as GameMode, name: "WAR BAND", desc: "Team battles. Shield-friends together.", players: "2v2 · 3v3 · 4v4", Icon: Users, tint: "text-sky-400" },
-              ]).map((mode) => (
-                <button key={mode.id}
-                  onClick={() => setSelectedMode(mode.id)}
-                  className={`card card-interactive w-full p-5 text-left ${selectedMode === mode.id ? "card-selected" : ""}`}>
-                  <div className="flex items-center gap-4">
-                    <div className={`medallion !w-12 !h-12 ${mode.tint}`}><mode.Icon size={22} /></div>
-                    <div className="flex-1">
-                      <div className="font-display text-lg text-amber-100 tracking-wider">{mode.name}</div>
-                      <div className="text-sm text-stone-300/90 mt-0.5">{mode.desc}</div>
-                      <div className="text-[11px] text-stone-400 mt-0.5">{mode.players}</div>
-                    </div>
-                    <ChevronRight size={18} className={selectedMode === mode.id ? "text-amber-400" : "text-stone-500"} />
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <button onClick={handleCreate} disabled={busy} className="btn-primary w-full !py-4 !text-lg">
-              {busy ? "SUMMONING..." : "CREATE ROOM"}
-            </button>
-          </div>
-        </ContentWrap>
-      )}
-
-      {screen === "join" && (
-        <ContentWrap>
-          <div className="py-8">
-            <BackButton onClick={() => setScreen("landing")} />
-            {inviteCode && (
-              <div className="card card-glow !border-amber-500/60 mt-4 p-4 text-center animate-fadeIn">
-                <div className="flex items-center justify-center gap-2 text-amber-300 font-display tracking-widest text-sm mb-1">
-                  <Swords size={15} /> YOU ARE SUMMONED <Swords size={15} />
-                </div>
-                <p className="text-stone-300 text-sm">A friend invites you to <span className="font-mono text-amber-300 font-bold">{inviteCode}</span>.<br />Enter your name, grab your blade, and tap JOIN.</p>
-              </div>
-            )}
-            <div className="text-center my-8">
-              <div className="label-overline mb-2.5">ENTER ROOM CODE</div>
-              <h1 className="font-display text-3xl text-white">JOIN BATTLE</h1>
-            </div>
-
-            <div className="space-y-5">
+            <div className="flex flex-col gap-2">
+              <label className="label-overline">WAR CODE</label>
               <input
                 type="text"
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase().substring(0, 15))}
                 onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }}
                 placeholder="e.g. WESSEX82"
-                className="input-frame text-center !text-2xl font-mono !tracking-[0.3em]"
+                className="input-frame font-mono text-center !text-2xl !tracking-[0.25em]"
               />
-              <button onClick={handleJoin} disabled={busy} className="btn-primary w-full !py-4 !text-lg">
-                {busy ? "ANSWERING..." : "JOIN"}
-              </button>
-              <p className="text-stone-400 text-xs text-center leading-relaxed">
-                Got the link in your group chat? Just open it — the code fills in itself.
-              </p>
             </div>
+            <button onClick={handleJoin} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
+              {busy ? "ANSWERING..." : "JOIN"}
+            </button>
+            <p className="text-center text-xs leading-relaxed text-stone-400">
+              Got the link in your group chat? Just open it — the code fills in itself.
+            </p>
           </div>
         </ContentWrap>
       )}
 
       {screen === "training" && (
-        <ContentWrap>
-          <div className="py-6">
-            <BackButton onClick={() => setScreen("landing")} />
-            <div className="my-6">
-              <div className="label-overline mb-1.5">PRACTICE THE BLADE</div>
-              <h1 className="font-display text-3xl text-amber-100">TRAINING GROUNDS</h1>
-            </div>
+        <ContentWrap wide>
+          <ScreenHead
+            onBack={() => setScreen("landing")}
+            overline="PRACTICE THE BLADE"
+            title="TRAINING GROUNDS"
+            lede="Fight AI warriors at your own pace, and learn what every button does before it matters."
+          />
 
-            {/* ===== TESTGROUNDS: fight AI ===== */}
-            <div className="card !border-emerald-700/60 !bg-gradient-to-br !from-emerald-950/50 !to-stone-900 p-5 mb-8 card-glow-green">
-              <div className="flex items-center gap-2.5 mb-1.5">
-                <Crosshair size={17} className="text-emerald-400" />
-                <h2 className="font-display text-lg text-emerald-200 tracking-wider">TESTGROUNDS — FIGHT THE AI</h2>
-              </div>
-              <p className="text-xs text-stone-300/90 mb-5 leading-relaxed">
-                Sharpen your skills alone against AI warriors. Enemies respawn — fight until you return stronger.
-              </p>
-
-              <button onClick={() => setScreen("muster")} disabled={busy}
-                className="btn-primary w-full !py-3.5 flex items-center justify-center gap-2.5">
-                <Users size={17} /> MUSTER THE TESTGROUNDS
-              </button>
-              <p className="text-[11px] text-stone-400 mt-2.5 leading-relaxed text-center">
-                Choose how many AI you face and how good they are, pick your warrior,
-                dress him in the armoury — then draw steel when you are ready.
-              </p>
-
-              <div className="flex items-center gap-3 my-5">
-                <span className="flex-1 h-px bg-stone-700/70" />
-                <span className="text-[10px] tracking-[0.3em] text-stone-500 font-bold">OR SPAR AT ONCE</span>
-                <span className="flex-1 h-px bg-stone-700/70" />
+          {/* ===== TESTGROUNDS: fight AI ===== */}
+          <div className="card card-glow-green !border-emerald-700/60 !bg-gradient-to-br !from-emerald-950/50 !to-stone-900 p-5 sm:p-6">
+            <div className="flex flex-col gap-5">
+              <div>
+                <div className="mb-2 flex items-center gap-2.5">
+                  <Crosshair size={18} className="shrink-0 text-emerald-400" />
+                  <h2 className="font-display tracking-wider text-emerald-200 sm:text-lg">TESTGROUNDS — FIGHT THE AI</h2>
+                </div>
+                <p className="text-[13px] leading-relaxed text-stone-300/90">
+                  Sharpen your skills alone against AI warriors. Enemies respawn — fight until you return stronger.
+                </p>
               </div>
 
-              <div className="space-y-3.5">
+              <div>
+                <button onClick={() => setScreen("muster")} disabled={busy}
+                  className="btn-primary w-full whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-[0.95rem]">
+                  <Users size={17} className="shrink-0" /> MUSTER THE TESTGROUNDS
+                </button>
+                <p className="mt-2.5 text-center text-[11px] leading-relaxed text-stone-400">
+                  Choose how many AI you face and how good they are, pick your warrior,
+                  dress him in the armoury — then draw steel when you are ready.
+                </p>
+              </div>
+
+              <div className="rule-label">OR SPAR AT ONCE</div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
                 {AI_DIFFICULTIES.map((d) => (
                   <button key={d.id} onClick={() => quickSpar(d)} disabled={busy}
-                    className={`card card-interactive w-full p-4 flex items-center gap-4 text-left border-l-4 ${d.tint}`}>
-                    <div className="flex-1">
+                    className={`card card-interactive flex w-full items-center gap-3 border-l-4 p-4 text-left ${d.tint}`}>
+                    <div className="min-w-0 flex-1">
                       <div className="font-display tracking-wider text-stone-100">{d.name}</div>
-                      <div className="text-[11px] text-stone-400 mt-0.5">{d.bots} AI · {d.desc}</div>
+                      <div className="mt-1 text-[11px] leading-snug text-stone-400">{d.bots} AI · {d.desc}</div>
                     </div>
-                    <Swords size={16} className="text-stone-400" />
+                    <Swords size={16} className="shrink-0 text-stone-400" />
                   </button>
                 ))}
               </div>
-              {busy && <div className="text-center text-amber-300 text-sm mt-3 animate-pulse">Summoning opponents...</div>}
+              {busy && <div className="animate-pulse text-center text-sm text-amber-300">Summoning opponents...</div>}
             </div>
+          </div>
 
-            {/* ===== Controls reference ===== */}
-            <div className="space-y-5">
-              <Section title="DESKTOP CONTROLS" icon={<Swords size={14} />}>
-                <CtrlRow k="WASD" d="Move" />
-                <CtrlRow k="Mouse" d="Camera (over-shoulder)" />
-                <CtrlRow k="Left Click" d="Attack — direction follows movement keys" />
-                <CtrlRow k="E / V" d="Heavy attack — breaks blocks" />
-                <CtrlRow k="Right Click" d="Block (hold); perfect timing = parry" />
-                <CtrlRow k="Space" d="Dodge roll — brief invincibility" />
-                <CtrlRow k="Shift" d="Sprint" />
-                <CtrlRow k="Q" d="Class ability" />
-              </Section>
+          {/* ===== Controls reference =====
+              Two columns from the tablet up: on a wide viewport a single
+              column of short rows is exactly the empty-right-half problem. */}
+          <div className="grid items-start gap-4 md:grid-cols-2">
+            <Section title="DESKTOP CONTROLS" icon={<Swords size={14} />}>
+              <CtrlRow k="WASD" d="Move" />
+              <CtrlRow k="Mouse" d="Camera (over-shoulder)" />
+              <CtrlRow k="Left Click" d="Attack — direction follows movement keys" />
+              <CtrlRow k="E / V" d="Heavy attack — breaks blocks" />
+              <CtrlRow k="Right Click" d="Block (hold); perfect timing = parry" />
+              <CtrlRow k="Space" d="Dodge roll — brief invincibility" />
+              <CtrlRow k="Shift" d="Sprint" />
+              <CtrlRow k="Q" d="Class ability" />
+            </Section>
 
-              <Section title="MOBILE CONTROLS" icon={<Target size={14} />}>
-                <CtrlRow k="Left stick" d="Move; direction picks attack angle" />
-                <CtrlRow k="Swipe upper area" d="Camera" />
-                <CtrlRow k="SLASH / HEAVY" d="Attack buttons" />
-                <CtrlRow k="BLOCK" d="Hold to block; catch the instant to parry" />
-                <CtrlRow k="DODGE / RUN" d="Dodge roll / sprint" />
-                <CtrlRow k="POWER" d="Class ability" />
-              </Section>
+            <Section title="MOBILE CONTROLS" icon={<Target size={14} />}>
+              <CtrlRow k="Left stick" d="Move; direction picks attack angle" />
+              <CtrlRow k="Swipe upper" d="Camera" />
+              <CtrlRow k="SLASH / HEAVY" d="Attack buttons" />
+              <CtrlRow k="BLOCK" d="Hold to block; catch the instant to parry" />
+              <CtrlRow k="DODGE / RUN" d="Dodge roll / sprint" />
+              <CtrlRow k="POWER" d="Class ability" />
+            </Section>
 
-              <Section title="COMBAT ARTS" icon={<Flame size={14} />}>
+            <Section title="COMBAT ARTS" icon={<Flame size={14} />}>
+              <div className="flex flex-col gap-1.5">
                 <Tip text="Parry: begin blocking at the instant the enemy strikes to stagger them — then punish." />
                 <Tip text="Combos: chaining hits builds up to 60% bonus damage. Don't leave gaps." />
                 <Tip text="Heavy attacks smash guards and stagger — except a Huscarl under SHIELD WALL." />
@@ -1082,171 +1405,141 @@ export default function Page() {
                 <Tip text="Stamina regenerates when you stop attacking and sprinting. Exhaustion is death." />
                 <Tip text="Flank: attacks only land facing forward. Circle behind for clean kills." />
                 <Tip text="Strike magnetism nudges your aim toward foes near your crosshair — trust it." />
-              </Section>
+              </div>
+            </Section>
 
-              <Section title="WARRIORS OF THE REALM" icon={<Shield size={14} />}>
+            <Section title="WARRIORS OF THE REALM" icon={<Shield size={14} />}>
+              <div className="flex flex-col">
                 {WARRIOR_INFO.map((w) => {
                   const s = WARRIOR_STATS[w.id];
                   return (
-                    <div key={w.id} className="py-2.5 border-b border-stone-800/60 last:border-0">
-                      <div className="flex items-center gap-2 font-bold text-amber-200 text-sm"><w.Icon size={14} /> {w.name}</div>
-                      <div className="text-xs text-stone-400 mt-1">{w.desc}</div>
-                      <div className="text-[10px] text-purple-300 mt-1 tracking-[0.15em] font-bold">ABILITY — {s.ability}</div>
+                    <div key={w.id} className="border-b border-stone-100/10 py-3 last:border-0 last:pb-0 first:pt-0">
+                      <div className="flex items-center gap-2 text-sm font-bold text-amber-200"><w.Icon size={14} className="shrink-0" /> {w.name}</div>
+                      <div className="mt-1 text-xs leading-snug text-stone-400">{w.desc}</div>
+                      <div className="mt-1.5 text-[10px] font-bold tracking-[0.15em] text-purple-300">ABILITY — {s.ability}</div>
                     </div>
                   );
                 })}
-              </Section>
-            </div>
+              </div>
+            </Section>
           </div>
         </ContentWrap>
       )}
 
       {screen === "muster" && (
         <ContentWrap wide>
-          <div className="py-6">
-            <BackButton onClick={() => setScreen("training")} />
-            <div className="my-6">
-              <div className="label-overline mb-1.5">TESTGROUNDS · THE MUSTER</div>
-              <h1 className="font-display text-3xl text-amber-100">BEFORE STEEL IS DRAWN</h1>
-              <p className="text-stone-400 text-sm mt-2 leading-relaxed">
-                Set the odds, choose your blade, dress for the fight. Nothing begins until you say so.
-              </p>
-            </div>
+          <ScreenHead
+            onBack={() => setScreen("training")}
+            overline="TESTGROUNDS · THE MUSTER"
+            title="BEFORE STEEL IS DRAWN"
+            lede="Set the odds, choose your blade, dress for the fight. Nothing begins until you say so."
+          />
 
-            {/* YOUR WARRIOR — the same live mannequin the lobby shows */}
-            <section className="mb-8">
-              <div className="card card-glow p-4 flex flex-col sm:flex-row items-center gap-4">
-                <div className="w-full sm:w-[46%]">
-                  <CharacterPreview warriorClass={soloClass} appearance={profile.appearance} height={200} />
-                </div>
-                <div className="flex-1 text-center sm:text-left">
-                  <div className="label-overline mb-1.5">YOUR WARRIOR</div>
-                  <div className="font-display text-2xl text-amber-100">{playerName.trim() || "Trainee"}</div>
-                  <div className="text-sm text-stone-300 capitalize mt-0.5">{soloClass}</div>
-                  <div className="text-[10px] text-purple-300 mt-1 tracking-[0.15em] font-bold">
-                    ABILITY — {WARRIOR_STATS[soloClass].ability}
+          {/* YOUR WARRIOR — the same live mannequin the lobby shows */}
+          <WarriorPanel
+            warriorClass={soloClass}
+            appearance={profile.appearance}
+            name={playerName.trim() || "Trainee"}
+            note="Armour, helm, cloak and paint carry into the testgrounds exactly as you see them here."
+            onCustomise={() => openArmoury("muster")}
+          />
+
+          <section className="flex flex-col gap-3">
+            <h2 className="section-title"><Swords size={12} className="shrink-0" /> CHOOSE WARRIOR</h2>
+            <ClassGrid selected={soloClass} onSelect={setSoloClass} />
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <h2 className="section-title"><Bot size={12} className="shrink-0" /> THE OPPOSITION</h2>
+            <div className="card flex flex-col gap-5 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-[12rem] flex-1">
+                  <div className="text-sm font-bold text-stone-100">HOW MANY</div>
+                  <div className="mt-1 text-[11px] leading-snug text-stone-400">
+                    {soloBots === 0
+                      ? "An empty ring — walk, swing and roll with nobody swinging back."
+                      : "They respawn where they fell — the trial ends when you leave it."}
                   </div>
-                  <p className="text-xs text-stone-400 mt-2 leading-relaxed">
-                    Armour, helm, cloak and paint carry into the testgrounds exactly as you see them here.
-                  </p>
-                  <button onClick={() => openArmoury("muster")} className="btn-primary !py-2.5 !px-5 text-sm mt-3.5 inline-flex items-center gap-2">
-                    <Shirt size={15} /> CUSTOMISE
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <button onClick={() => setSoloBots((n) => Math.max(MIN_AI, n - 1))} disabled={soloBots <= MIN_AI}
+                    aria-label="Fewer AI warriors" className="btn-step">
+                    <Minus size={18} />
+                  </button>
+                  <div className="font-display w-10 text-center text-3xl text-amber-200">{soloBots}</div>
+                  <button onClick={() => setSoloBots((n) => Math.min(MAX_AI, n + 1))} disabled={soloBots >= MAX_AI}
+                    aria-label="More AI warriors" className="btn-step">
+                    <Plus size={18} />
                   </button>
                 </div>
               </div>
-            </section>
 
-            <section className="mb-8">
-              <h2 className="section-title mb-3"><Swords size={12} /> CHOOSE WARRIOR</h2>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {WARRIOR_INFO.map((w) => {
-                  const stats = WARRIOR_STATS[w.id];
-                  const isSel = soloClass === w.id;
-                  const WIcon = w.Icon;
-                  return (
-                    <button key={w.id} onClick={() => setSoloClass(w.id)}
-                      className={`card card-interactive p-4 text-left ${isSel ? "card-selected" : ""}`}>
-                      <div className={`medallion mb-2.5 ${isSel ? "!border-amber-500 !text-amber-300" : ""}`}><WIcon size={17} /></div>
-                      <div className="font-display text-sm text-amber-100 tracking-wider">{w.name}</div>
-                      <div className="text-[10px] text-stone-400 mt-1 leading-snug">{w.desc}</div>
-                      <div className="mt-3 space-y-1.5">
-                        <StatBar label="HP" value={stats.maxHealth} max={150} cls="bg-emerald-500" />
-                        <StatBar label="SPD" value={stats.moveSpeed * 20} max={100} cls="bg-sky-400" />
-                        <StatBar label="ATK" value={stats.attackDamage * 3} max={84} cls="bg-red-500" />
-                        <StatBar label="DEF" value={stats.blockReduction * 100} max={80} cls="bg-amber-400" />
-                      </div>
-                      <div className="mt-2.5 text-[9px] text-purple-300 tracking-[0.15em] font-bold">{stats.ability}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+              <div className="divider" />
 
-            <section className="mb-8">
-              <h2 className="section-title mb-3"><Bot size={12} /> THE OPPOSITION</h2>
-              <div className="card p-5">
-                <div className="flex items-center justify-between gap-4 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="font-bold text-stone-100 text-sm">HOW MANY</div>
-                    <div className="text-[11px] text-stone-400 mt-0.5">
-                      {soloBots === 0
-                        ? "An empty ring — walk, swing and roll with nobody swinging back."
-                        : "They respawn where they fell — the trial ends when you leave it."}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <button onClick={() => setSoloBots((n) => Math.max(MIN_AI, n - 1))} disabled={soloBots <= MIN_AI}
-                      aria-label="Fewer AI warriors" className="btn-ghost !py-2.5 !px-3.5">
-                      <Minus size={16} />
-                    </button>
-                    <div className="w-10 text-center font-display text-3xl text-amber-200">{soloBots}</div>
-                    <button onClick={() => setSoloBots((n) => Math.min(MAX_AI, n + 1))} disabled={soloBots >= MAX_AI}
-                      aria-label="More AI warriors" className="btn-ghost !py-2.5 !px-3.5">
-                      <Plus size={16} />
-                    </button>
-                  </div>
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="text-sm font-bold text-stone-100">HOW GOOD</div>
+                  <div className="mt-1 text-[11px] text-stone-400">Every AI in the ring fights at this skill.</div>
                 </div>
-
-                <div className="h-px bg-stone-700/60 my-4" />
-
-                <div className="font-bold text-stone-100 text-sm mb-0.5">HOW GOOD</div>
-                <div className="text-[11px] text-stone-400 mb-3">Every AI in the ring fights at this skill.</div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid gap-3 sm:grid-cols-3">
                   {AI_DIFFICULTIES.map((d) => (
                     <button key={d.id} onClick={() => setSoloDifficulty(d.id)}
-                      className={`card card-interactive p-3.5 text-left border-l-4 ${d.tint} ${soloDifficulty === d.id ? "card-selected" : ""}`}>
-                      <div className="font-display tracking-wider text-stone-100 text-sm">{d.name}</div>
-                      <div className="text-[10px] text-stone-400 mt-1 leading-snug">{d.desc}</div>
+                      className={`card card-interactive border-l-4 p-3.5 text-left ${d.tint} ${soloDifficulty === d.id ? "card-selected" : ""}`}>
+                      <div className="font-display text-sm tracking-wider text-stone-100">{d.name}</div>
+                      <div className="mt-1 text-[10px] leading-snug text-stone-400">{d.desc}</div>
                     </button>
                   ))}
                 </div>
               </div>
-            </section>
-
-            {/* the fight is always one press away, pinned for thumbs */}
-            <div className="sticky bottom-3 mt-8 pt-3 bg-gradient-to-t from-black/80 via-black/60 to-transparent -mx-1 px-1 pb-1">
-              <div className="flex gap-2.5">
-                <button onClick={() => handleSolo()} disabled={busy}
-                  className="btn-primary flex-1 !py-4 !text-lg flex items-center justify-center gap-2">
-                  <Swords size={18} /> {busy ? "SUMMONING..." : "DRAW STEEL"}
-                </button>
-                <button onClick={() => setScreen("training")} className="btn-ghost !px-4">
-                  <ArrowLeft size={18} />
-                </button>
-              </div>
-              <p className="text-stone-400 text-xs text-center mt-2.5">
-                {soloBots} {soloBots === 1 ? "AI warrior" : "AI warriors"} at {soloDifficulty} skill,
-                against your <span className="text-amber-300 font-bold capitalize">{soloClass}</span>.
-              </p>
             </div>
+          </section>
+
+          {/* the fight is always one press away, pinned for thumbs */}
+          <div className="action-bar">
+            <div className="action-bar-row">
+              <button onClick={() => handleSolo()} disabled={busy}
+                className="btn-primary flex-1 !min-h-[3.5rem] !text-base">
+                <Swords size={18} /> {busy ? "SUMMONING..." : "DRAW STEEL"}
+              </button>
+              <button onClick={() => setScreen("training")} aria-label="Back to training" className="btn-ghost !px-4">
+                <ArrowLeft size={18} />
+              </button>
+            </div>
+            <p className="text-center text-xs text-stone-400">
+              {soloBots} {soloBots === 1 ? "AI warrior" : "AI warriors"} at {soloDifficulty} skill,
+              against your <span className="font-bold capitalize text-amber-300">{soloClass}</span>.
+            </p>
           </div>
         </ContentWrap>
       )}
 
       {screen === "profile" && (
         <ContentWrap>
-          <div className="py-8">
-            <BackButton onClick={() => setScreen("landing")} />
-            <div className="text-center my-8">
-              <div className="w-24 h-24 mx-auto rounded-full bg-stone-900 border-2 border-amber-600/70 flex items-center justify-center mb-4 shadow-[0_0_45px_rgba(255,170,50,0.2)]">
-                <Medal size={40} className="text-amber-400" />
-              </div>
-              <h1 className="font-display text-3xl text-white">{playerName || "Unnamed Warrior"}</h1>
-              <div className="text-amber-400 text-sm tracking-[0.25em] mt-1.5">{getLevelTitle(profile.level)}</div>
-              <div className="text-stone-500 text-xs mt-0.5">Level {profile.level}</div>
-            </div>
+          <BackButton onClick={() => setScreen("landing")} />
 
-            <div className="mb-6 px-1">
-              <div className="flex justify-between text-xs text-stone-400 mb-1.5">
-                <span>XP {profile.xp}</span><span>Next: {xpForLevel(profile.level + 1)}</span>
-              </div>
-              <div className="w-full h-3 bg-stone-800/90 rounded-full overflow-hidden border border-stone-600/60">
-                <div className="h-full bg-gradient-to-r from-amber-600 to-amber-300 rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (profile.xp / xpForLevel(profile.level + 1)) * 100)}%` }} />
-              </div>
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-amber-600/70 bg-stone-900 shadow-[0_0_45px_rgba(255,170,50,0.2)]">
+              <Medal size={40} className="text-amber-400" />
             </div>
+            <h1 className="font-display text-3xl text-white">{playerName || "Unnamed Warrior"}</h1>
+            <div>
+              <div className="text-sm tracking-[0.25em] text-amber-400">{getLevelTitle(profile.level)}</div>
+              <div className="mt-1 text-xs text-stone-500">Level {profile.level}</div>
+            </div>
+          </div>
 
-            <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between text-xs text-stone-400">
+              <span>XP {profile.xp}</span><span>Next: {xpForLevel(profile.level + 1)}</span>
+            </div>
+            <div className="h-3 w-full overflow-hidden rounded-full border border-stone-600/60 bg-stone-800/90">
+              <div className="h-full rounded-full bg-gradient-to-r from-amber-600 to-amber-300 transition-all"
+                style={{ width: `${Math.min(100, (profile.xp / xpForLevel(profile.level + 1)) * 100)}%` }} />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
               <ProfStat Icon={Coins} val={profile.gold} label="Gold" cls="text-yellow-400" />
               <ProfStat Icon={Sparkles} val={profile.honour} label="Honour" cls="text-purple-400" />
               <ProfStat Icon={Trophy} val={profile.wins} label="Victories" cls="text-emerald-400" />
@@ -1254,15 +1547,23 @@ export default function Page() {
               <ProfStat Icon={Skull} val={profile.kills} label="Kills" cls="text-red-400" />
               <ProfStat Icon={Heart} val={profile.deaths} label="Deaths" cls="text-stone-400" />
             </div>
-
-            <div className="text-stone-500 text-xs text-center mb-6">
+            <div className="text-center text-xs leading-relaxed text-stone-500">
               K/D {profile.deaths > 0 ? (profile.kills / profile.deaths).toFixed(2) : profile.kills} · Win rate {profile.matches > 0 ? Math.round((profile.wins / profile.matches) * 100) : 0}% · {profile.unlocked.length - freeCosmeticIds().length} unlocks earned
             </div>
+          </div>
 
-            <button onClick={() => openArmoury("profile")} className="btn-primary w-full flex items-center justify-center gap-2">
+          <TheKeep
+            link={link}
+            code={profile.recoveryCode ?? ""}
+            onRestore={handleRestore}
+            onSay={say}
+          />
+
+          <div className="flex flex-col gap-3">
+            <button onClick={() => openArmoury("profile")} className="btn-primary w-full !min-h-[3.5rem]">
               <Shirt size={16} /> OPEN THE ARMOURY
             </button>
-            <button onClick={() => setScreen("training")} className="btn-ghost w-full mt-3 flex items-center justify-center gap-2">
+            <button onClick={() => setScreen("training")} className="btn-ghost w-full !min-h-[3.5rem]">
               <Crosshair size={15} /> ENTER TESTGROUNDS
             </button>
           </div>
@@ -1273,36 +1574,408 @@ export default function Page() {
 }
 
 // ---------------- components ----------------
-function MenuShell({ children, art = "hall" }: { children: React.ReactNode; art?: "hero" | "hall" | "none" }) {
+
+// Every screen sits inside this. The gutter, the safe areas and the backdrop
+// are decided here once so no screen can invent its own edge spacing.
+//
+// The banner lives here too, and that is a fix rather than tidiness: it used to
+// be rendered inside the menu block alone, so a purchase that failed in the
+// armoury — or a lobby that lost the link — said nothing at all. A message a
+// player cannot see is the same as no message.
+function MenuShell({ children, art = "hall", notice, onDismiss }: {
+  children: React.ReactNode; art?: "hero" | "hall" | "none";
+  notice?: Notice | null; onDismiss?: () => void;
+}) {
   return (
-    <div className="fixed inset-0 overflow-y-auto overscroll-contain select-none app-bg-v2"
-      style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
-      {art === "hero" && (
-        <div className="fixed inset-0 pointer-events-none">
-          <div
-            className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: "url(/images/hero-bg.jpg)", opacity: 0.85 }}
-          />
-          <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,8,6,0.5) 0%, rgba(10,8,6,0.1) 42%, rgba(10,8,6,0.9) 100%)" }} />
+    <div className="shell">
+      {art !== "none" && (
+        <div className={`backdrop ${art === "hero" ? "backdrop-hero" : "backdrop-hall"}`}>
+          {art === "hero" && <div className="embers" />}
         </div>
       )}
-      {art === "hall" && (
-        <div className="fixed inset-0 pointer-events-none">
-          <div
-            className="absolute inset-0 bg-cover bg-center opacity-[0.22]"
-            style={{ backgroundImage: "url(/images/hall-banner.jpg)" }}
-          />
-          <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(12,10,8,0.4) 0%, rgba(12,10,8,0.92) 70%)" }} />
+      {notice && (
+        <div role="status" className="fixed left-1/2 top-4 z-50 w-[92%] max-w-sm -translate-x-1/2">
+          <button onClick={onDismiss} className={`card animate-fadeIn w-full !min-h-0 px-5 py-3 text-center text-sm font-bold shadow-2xl backdrop-blur ${
+            notice.tone === "good"
+              ? "!border-amber-400/70 !bg-amber-950/85 text-amber-100"
+              : "!border-red-600/70 !bg-red-950/85 text-red-200"
+          }`}>
+            {notice.text}
+          </button>
         </div>
       )}
-      <div className="relative min-h-full px-5 sm:px-8 pb-32 z-10" style={{ paddingTop: "max(2.75rem, calc(env(safe-area-inset-top) + 1.75rem))" }}>{children}</div>
+      <div className="shell-inner">{children}</div>
     </div>
   );
 }
 
+// The centred column. `wide` is for screens that put two things side by side
+// on a large viewport; everything else stays at a reading measure so a 1440px
+// desktop does not stretch a list of four items across the whole window.
 function ContentWrap({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+  return <div className={`wrap ${wide ? "wrap-wide" : ""} screen`}>{children}</div>;
+}
+
+// One masthead treatment for every screen, so a heading is never just the next
+// element after whatever preceded it.
+function ScreenHead({ overline, title, lede, center, onBack, aside }: {
+  overline?: string; title: string; lede?: string; center?: boolean;
+  onBack?: () => void; aside?: React.ReactNode;
+}) {
   return (
-    <div className={`mx-auto ${wide ? "max-w-3xl" : "max-w-xl"} space-y-8`}>{children}</div>
+    <div className="flex flex-col gap-4">
+      {onBack && <BackButton onClick={onBack} />}
+      <div className={`flex flex-wrap items-end justify-between gap-x-6 gap-y-4 ${center ? "justify-center" : ""}`}>
+        {/* The min-width forces an aside onto its own line on a phone rather
+            than squeezing the lede into a 3-word column beside it. */}
+        <div className={`screen-head min-w-[18rem] flex-1 ${center ? "screen-head-center" : ""}`}>
+          {overline && <div className="label-overline">{overline}</div>}
+          <h1>{title}</h1>
+          {/* Only under a centred masthead: off to one side the plait has no
+              axis to sit on and reads as a stray rule. */}
+          {center && <div className="knot-band w-full max-w-[16rem]" />}
+          {lede && <p>{lede}</p>}
+        </div>
+        {aside}
+      </div>
+    </div>
+  );
+}
+
+// The lobby and the muster show the identical "this is you" block. Shared so
+// the two cannot drift apart, since they are the same promise made twice.
+function WarriorPanel({ warriorClass, appearance, name, note, onCustomise }: {
+  warriorClass: WarriorClass; appearance: Appearance; name: string;
+  note: string; onCustomise: () => void;
+}) {
+  return (
+    <div className="card card-noble card-glow flex flex-col items-center gap-4 p-5 sm:flex-row sm:gap-6 sm:p-6">
+      <div className="w-full sm:w-[42%] sm:shrink-0">
+        <CharacterPreview warriorClass={warriorClass} appearance={appearance} height={210} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center sm:items-start sm:text-left">
+        <div className="label-overline">YOUR WARRIOR</div>
+        <div className="font-display truncate text-2xl text-amber-100">{name}</div>
+        <div className="text-sm capitalize text-stone-300">{warriorClass}</div>
+        <div className="text-[10px] font-bold tracking-[0.15em] text-purple-300">
+          ABILITY — {WARRIOR_STATS[warriorClass].ability}
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-stone-400">{note}</p>
+        <button onClick={onCustomise} className="btn-primary mt-2 !min-h-[2.75rem] !px-5 !text-sm">
+          <Shirt size={15} /> CUSTOMISE
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The only visible surface the whole profile feature has.
+ *
+ * There is no account, no email and no password anywhere in this game, so the
+ * four words below are the entire difference between changing your phone and
+ * losing everything you earned. They are therefore given the treatment the war
+ * code gets — the largest type on the screen, in a gilt setting — rather than
+ * being filed under settings, and they are shown as four numbered stones
+ * because the realistic recovery is somebody reading them aloud into a group
+ * chat, not copying a string.
+ *
+ * When there is no database the panel says so plainly instead of hiding. A
+ * player whose gold is device-local needs to know it *before* he clears his
+ * browser, and there is nothing for him to write down.
+ */
+function TheKeep({ link, code, onRestore, onSay }: {
+  link: Link; code: string;
+  onRestore: (code: string) => Promise<string | null>;
+  onSay: (text: string, tone?: "bad" | "good") => void;
+}) {
+  const [entering, setEntering] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [trying, setTrying] = useState(false);
+  const [refusal, setRefusal] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const words = code.split(/\s+/).filter(Boolean);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(code)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
+      .catch(() => onSay("This browser would not let us copy — write the words down instead."));
+  };
+
+  const submit = async () => {
+    if (!typed.trim() || trying) return;
+    setTrying(true);
+    const failed = await onRestore(typed);
+    setTrying(false);
+    setRefusal(failed ?? "");
+    if (!failed) { setTyped(""); setEntering(false); }
+  };
+
+  return (
+    <section className="flex flex-col gap-3">
+      {/* The heading has to be true in both states: there are no words to
+          promise when there is no database keeping them. */}
+      <h2 className="section-title">
+        <KeyRound size={12} className="shrink-0" />
+        {link === "server" ? "THE WORDS THAT BRING YOU BACK" : "WHERE YOUR HOARD IS KEPT"}
+      </h2>
+
+      {link === "reaching" && (
+        <div className="card animate-pulse px-4 py-5 text-center text-[13px] text-stone-400">
+          Reaching the war rolls…
+        </div>
+      )}
+
+      {link === "local" && (
+        <div className="card flex flex-col gap-2.5 p-4 sm:p-5">
+          <div className="flex items-center gap-2.5">
+            <CloudOff size={16} className="shrink-0 text-stone-400" />
+            <span className="badge-stone">KEPT ON THIS DEVICE</span>
+          </div>
+          <p className="text-[13px] leading-relaxed text-stone-300/90">
+            No war rolls are being kept today. Your gold, your kit and your record live in
+            this browser alone — clear it, or change phone, and they are gone. There is
+            nothing to write down, and nothing you can do about it from here.
+          </p>
+        </div>
+      )}
+
+      {link === "server" && words.length > 0 && (
+        <div className="warcode-frame card-noble flex flex-col gap-4 p-5 sm:p-6">
+          <div className="grid grid-cols-2 gap-2.5">
+            {words.map((w, i) => (
+              <div key={`${w}-${i}`} className="relative flex min-h-[3.25rem] items-center justify-center rounded-lg border border-amber-300/30 bg-black/45 px-2 shadow-[inset_0_2px_8px_rgba(0,0,0,0.5)]">
+                <span className="absolute left-2 top-1 text-[9px] font-bold text-amber-200/35">{i + 1}</span>
+                {/* Cinzel is a capitals face, so the words are set as capitals
+                    rather than being shown lowercase in a font that has no
+                    lowercase to show. */}
+                <span className="font-display text-center text-[clamp(0.95rem,4.4vw,1.35rem)] uppercase leading-none tracking-[0.08em] text-amber-100">{w}</span>
+              </div>
+            ))}
+          </div>
+          <div className="knot-band mx-auto w-full max-w-[15rem]" />
+          <button onClick={copy} className="btn-primary w-full !min-h-[3.25rem]">
+            {copied ? <Check size={17} /> : <Copy size={17} />}{copied ? "WORDS COPIED!" : "COPY THE WORDS"}
+          </button>
+          <p className="text-[11px] leading-relaxed text-stone-400">
+            Say them, screenshot them, or send them to yourself. Anyone who types these four
+            words becomes you — gold, kit and all — so keep them the way you would keep a key.
+          </p>
+        </div>
+      )}
+
+      {link === "server" && (
+        entering ? (
+          <div className="card animate-fadeIn flex flex-col gap-3 p-4 sm:p-5">
+            <label className="label-overline">THE FOUR WORDS</label>
+            <input
+              type="text"
+              value={typed}
+              onChange={(e) => { setTyped(e.target.value.substring(0, 80)); setRefusal(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              placeholder="leaf sapling wolf glass"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="input-frame text-center"
+            />
+            {refusal && <p className="text-center text-[12px] font-bold text-red-300">{refusal}</p>}
+            <p className="text-[11px] leading-relaxed text-stone-400">
+              Capitals, hyphens and typos are forgiven. This device becomes that warrior, and
+              the one you left behind is signed out.
+            </p>
+            <div className="flex gap-2.5">
+              <button onClick={() => { void submit(); }} disabled={trying} className="btn-primary flex-1 !min-h-[3.25rem] !text-sm">
+                {trying ? "SEARCHING…" : "BRING IT BACK"}
+              </button>
+              <button onClick={() => { setEntering(false); setRefusal(""); }} aria-label="Cancel recovery" className="btn-ghost !px-4">
+                <ArrowLeft size={15} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setEntering(true)} className="btn-ghost w-full !min-h-[3.25rem] !text-sm">
+            <KeyRound size={15} /> I HAVE FOUR WORDS
+          </button>
+        )
+      )}
+    </section>
+  );
+}
+
+function ClassGrid({ selected, onSelect }: { selected: WarriorClass | undefined; onSelect: (c: WarriorClass) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {WARRIOR_INFO.map((w) => {
+        const stats = WARRIOR_STATS[w.id];
+        const isSel = selected === w.id;
+        const WIcon = w.Icon;
+        return (
+          <button key={w.id} onClick={() => onSelect(w.id)}
+            className={`card card-interactive flex flex-col p-3.5 text-left sm:p-4 ${isSel ? "card-selected" : ""}`}>
+            <div className={`medallion mb-3 ${isSel ? "!border-amber-500 !text-amber-300" : ""}`}><WIcon size={17} /></div>
+            <div className="font-display text-sm tracking-wider text-amber-100">{w.name}</div>
+            <div className="mt-1 text-[10px] leading-snug text-stone-400">{w.desc}</div>
+            <div className="mt-3 flex flex-col gap-1.5">
+              <StatBar label="HP" value={stats.maxHealth} max={150} cls="bg-emerald-500" />
+              <StatBar label="SPD" value={stats.moveSpeed * 20} max={100} cls="bg-sky-400" />
+              <StatBar label="ATK" value={stats.attackDamage * 3} max={84} cls="bg-red-500" />
+              <StatBar label="DEF" value={stats.blockReduction * 100} max={80} cls="bg-amber-400" />
+            </div>
+            <div className="mt-3 text-[9px] font-bold tracking-[0.15em] text-purple-300">{stats.ability}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------- rounds ----------------
+
+// What a format means, in the words a player would use. The mode matters
+// because a war band scores by side and a duel does not.
+function roundsBlurb(bestOf: number, mode: string): string {
+  const team = mode === "war_band";
+  if (bestOf <= 1) return "One round decides everything. Fall once and the match is over.";
+  const need = Math.ceil(bestOf / 2);
+  return `First ${team ? "war band" : "warrior"} to ${need} round${need === 1 ? "" : "s"} takes the match — so it can end ${need}–0. Kills carry across every round; gold and glory are paid at the end.`;
+}
+
+function RoundPicker({ value, onChange }: { value: BestOf; onChange: (n: BestOf) => void }) {
+  return (
+    <div className="seg" role="group" aria-label="Rounds in the match">
+      {ROUND_OPTIONS.map((n) => (
+        <button key={n} onClick={() => onChange(n)} aria-pressed={value === n}
+          className={`seg-item flex-col gap-0.5 ${value === n ? "seg-item-active" : ""}`}>
+          <span className="text-lg leading-none">{n}</span>
+          <span className="text-[8.5px] font-bold leading-none tracking-[0.18em] opacity-80">
+            {n === 1 ? "ROUND" : "ROUNDS"}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// One round: an empty gilt setting, or the stone sitting in it.
+function Pips({ won, of, blue }: { won: number; of: number; blue?: boolean }) {
+  return (
+    <span className="flex items-center gap-1">
+      {Array.from({ length: Math.max(1, of) }, (_, i) => (
+        <span key={i} className={`pip ${i < won ? (blue ? "pip-won pip-won-blue" : "pip-won") : ""}`} />
+      ))}
+    </span>
+  );
+}
+
+// The match score, read straight off the server's snapshot. `roundScoreBy`
+// says whether the keys of roundWins are men or sides, so this never has to
+// infer the shape of the match from its mode.
+function RoundTally({ roomState, playerId, noRound }: { roomState: RoomState; playerId: string; noRound?: boolean }) {
+  const of = roomState.roundTarget || 1;
+  const wins = roomState.roundWins || {};
+  const round = roomState.roundIndex || 1;
+  // The break card is already headed with the round; repeating it inside the
+  // tally reads as two different numbers rather than one.
+  const counter = noRound ? null : <span className="text-stone-500">ROUND {round}/{roomState.bestOf}</span>;
+
+  if (roomState.roundScoreBy === "team") {
+    const mine = roomState.players[playerId]?.team;
+    return (
+      <div className="round-hud">
+        <span className={mine === "red" ? "text-amber-200" : "text-stone-400"}>RED</span>
+        <Pips won={wins.red || 0} of={of} />
+        {counter ?? <span className="text-stone-600">·</span>}
+        <Pips won={wins.blue || 0} of={of} blue />
+        <span className={mine === "blue" ? "text-amber-200" : "text-stone-400"}>BLUE</span>
+      </div>
+    );
+  }
+
+  // Free-for-all: your own tally, and the man to beat if it is not you.
+  const lead = Object.entries(wins).sort((a, b) => b[1] - a[1])[0];
+  const leadName = lead && lead[1] > 0 && lead[0] !== playerId ? roomState.players[lead[0]]?.name : null;
+  return (
+    <div className="round-hud">
+      {counter}
+      <span className="text-amber-200">YOU</span>
+      <Pips won={wins[playerId] || 0} of={of} />
+      {leadName && (
+        <>
+          <span className="text-stone-600">·</span>
+          <span className="max-w-[6rem] truncate text-stone-400">{leadName}</span>
+          <Pips won={lead[1]} of={of} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// The breath between rounds. The sim is stopped and the dead are lying where
+// they fell, so this is the only thing on screen that moves — hence the count,
+// which is also the promise that the match has not simply hung.
+function RoundBreak({ roomState, playerId }: { roomState: RoomState; playerId: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+  const r = roomState.lastRound;
+  const left = Math.max(0, Math.ceil(((roomState.nextRoundAt || 0) - now) / 1000));
+  const won = r && !r.draw && (r.winnerId === playerId || (r.winnerTeam && roomState.players[playerId]?.team === r.winnerTeam));
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6">
+      <div className="card card-noble card-glow animate-fadeIn flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
+        <div className="label-overline">ROUND {r?.index ?? roomState.roundIndex} OF {roomState.bestOf}</div>
+        <div className="font-display text-2xl leading-tight text-amber-100" style={{ textShadow: "0 0 26px rgba(217,164,65,0.35)" }}>
+          {!r || r.draw ? "NO MAN LEFT STANDING" : won ? "THE ROUND IS YOURS" : `${r.winnerName} TAKES IT`}
+        </div>
+        <div className="knot-band w-full max-w-[13rem]" />
+        <RoundTally roomState={roomState} playerId={playerId} noRound />
+        <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-stone-400">
+          <Hourglass size={12} className="text-amber-400" />
+          NEXT ROUND IN {left}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The same score, after the last round, where it explains the result rather
+// than tracking it.
+function MatchTally({ data, playerId }: { data: MatchEndData; playerId: string }) {
+  const of = data.roundTarget || 1;
+  const wins = data.roundWins || {};
+  if ((data.bestOf || 1) <= 1) return null;
+  if (data.roundScoreBy === "team") {
+    return (
+      <div className="round-hud">
+        <span className={data.winnerTeam === "red" ? "text-amber-200" : "text-stone-400"}>RED</span>
+        <Pips won={wins.red || 0} of={of} />
+        <span className="text-stone-500">BEST OF {data.bestOf}</span>
+        <Pips won={wins.blue || 0} of={of} blue />
+        <span className={data.winnerTeam === "blue" ? "text-amber-200" : "text-stone-400"}>BLUE</span>
+      </div>
+    );
+  }
+  return (
+    <div className="round-hud">
+      <span className="text-stone-500">BEST OF {data.bestOf}</span>
+      <span className="text-amber-200">YOUR ROUNDS</span>
+      <Pips won={wins[playerId] || 0} of={of} />
+      <span className="text-stone-500">· {data.roundsPlayed} FOUGHT</span>
+    </div>
+  );
+}
+
+function LandingStat({ value, label, cls = "text-amber-100" }: { value: string; label: string; cls?: string }) {
+  return (
+    <div className="min-w-0 px-1 text-center">
+      <div className={`font-display text-sm ${cls}`}>{value}</div>
+      <div className="truncate text-[9px] uppercase tracking-[0.16em] text-stone-500">{label}</div>
+    </div>
   );
 }
 
@@ -1329,7 +2002,7 @@ function StatBar({ label, value, max, cls }: { label: string; value: number; max
 
 function BackButton({ onClick }: { onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex items-center gap-2 text-stone-400 hover:text-amber-300 transition text-sm font-bold tracking-wider py-1">
+    <button onClick={onClick} className="btn-back">
       <ArrowLeft size={16} /> BACK
     </button>
   );
@@ -1337,29 +2010,29 @@ function BackButton({ onClick }: { onClick: () => void }) {
 
 function Section({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="card p-5">
-      <div className="text-amber-300 font-bold mb-3 flex items-center gap-2.5 text-sm tracking-[0.2em] font-display">{icon} {title}</div>
-      <div className="space-y-1.5">{children}</div>
+    <div className="card px-5 py-4 sm:px-6 sm:py-5">
+      <div className="section-title !text-amber-300 mb-3">{icon} {title}</div>
+      {children}
     </div>
   );
 }
 
 function CtrlRow({ k, d }: { k: string; d: string }) {
   return (
-    <div className="flex gap-3 items-baseline">
-      <span className="text-amber-300 font-mono text-xs min-w-[118px] shrink-0">{k}</span>
-      <span className="text-stone-300/90 text-xs leading-relaxed">{d}</span>
+    <div className="ctrl-row">
+      <span className="kbd">{k}</span>
+      <span className="text-[13px] text-stone-300/90 leading-snug">{d}</span>
     </div>
   );
 }
 
 function Tip({ text }: { text: string }) {
-  return <div className="text-xs text-stone-200/85 leading-relaxed py-1 border-l-2 border-amber-700/80 pl-3">{text}</div>;
+  return <div className="tip-row">{text}</div>;
 }
 
 function ProfStat({ Icon, val, label, cls }: { Icon: typeof Swords; val: number; label: string; cls: string }) {
   return (
-    <div className="card p-4.5 text-center">
+    <div className="card px-2 py-4 text-center">
       <div className={`text-xl font-bold ${cls} flex items-center justify-center gap-1.5`}><Icon size={15} />{val}</div>
       <div className="text-[10px] text-stone-400 mt-1 tracking-wide">{label}</div>
     </div>

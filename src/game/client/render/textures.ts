@@ -96,6 +96,7 @@ export type SurfaceName =
   | "iron"      // forged and blackened, hammer-planished
   | "steel"     // polished, pattern-welded, ground
   | "bronze"    // sand-cast, verdigris in the cavities
+  | "interlace" // tinned sheet, die-stamped ribbon plait
   // cloth and hide
   | "wool"      // coarse plain weave, fibrous
   | "linen"     // fine plain weave with slubs
@@ -1128,6 +1129,97 @@ function buildSteel(g: Gen): void {
     toward(c, i, nickCol, nick * 0.8);
     r[i] = clamp01(0.1 + weldT * 0.05 + scratch * 0.32 + nick * 0.45 + (tooth - 0.5) * 0.05);
     m[i] = 1 - nick * 0.12;
+  });
+}
+
+// ---- stamped interlace on tinned sheet ----------------------------------
+//
+// The one substance in this file that is a *pattern* rather than a material,
+// and it is here because of what the object it exists for actually is. The
+// Sutton Hoo helmet is not a bare bowl with fittings on it: every square
+// centimetre of the cap and the mask is faced with tinned bronze foils die-
+// stamped with ribbon interlace and figural panels, and that sheathing is the
+// single most identifying thing about the artefact. A review of the helm as
+// shipped scored its texture detail 3 of 10 and said so in one line — "zero
+// interlace, zero stamped panel work" — and it was right: the helmet was a
+// smooth shell with gold trim, which is a helmet and not *the* helmet.
+//
+// It is a plait rather than a knot, and that is a legibility decision. Real
+// Style II interlace is a knot with a drawn path — animals biting their own
+// bodies — and a knot cannot be tiled, cannot be band-limited, and at the ~8 mm
+// a helmet panel occupies on a phone would be one grey smear whatever it drew.
+// A two-strand plait is periodic by construction, so it tiles; it is two
+// families of ribbon at ±45°, so its energy is at one wavelength and mips
+// cleanly to a sheen; and it is what a plaited border on the real object looks
+// like at arm's length. What it buys at portrait framing is the read the review
+// asked for — a surface that is worked rather than blank — and what it costs at
+// arena framing is nothing, because it becomes the tinned tone it is drawn in.
+//
+// The over/under is the whole of whether it reads as woven. Both ribbon
+// families are drawn with a rounded section; at each crossing a checker of the
+// two cell indices decides which one keeps its full height and which is pushed
+// under it. Drop that term and what is left is a diamond lattice — a trellis,
+// not a plait — and the eye reads a trellis as a printed grid.
+function buildInterlace(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const ground = col(0x8f9aa4);
+  const proud = col(0xc6cfd8);
+  const recess = col(0x59626b);
+
+  // Three plait repeats per tile. characters.ts asks for this at an 85 mm world
+  // tile on the cap, which puts a ribbon crossing every 28 mm — the pitch a die
+  // of this kind is actually cut at, and coarse enough that the pattern survives
+  // two mip levels before it becomes tone.
+  const N = 3;
+
+  forEachTexel(size, (i, u, v) => {
+    // Warped before it is plaited. A die is stamped into sheet by hand and no
+    // two panels land square; more to the point, a mathematically exact lattice
+    // beats against the pixel grid the way the wool weave did, and the warp is
+    // what stops the moire. Small — 3% of a cell — so it reads as a hand rather
+    // than as a wobble.
+    const wu = u + (sampleField(bank.warp, u * 2, v * 2) - 0.5) * 0.03;
+    const wv = v + (sampleField(bank.warp, u * 2 + 0.37, v * 2 + 0.61) - 0.5) * 0.03;
+
+    const pa = (wu + wv) * N;
+    const pb = (wu - wv) * N;
+    // Distance from each ribbon's own centreline, 0 at the middle and 1 at the
+    // gap. `tri` is periodic, so both families wrap with the tile.
+    const da = tri(pa);
+    const db = tri(pb);
+    // A ribbon is 44% of its cell, which leaves a groove of the same order —
+    // wider and the plait closes into a solid field, narrower and it is wire.
+    const W = 0.44;
+    const secA = Math.sqrt(Math.max(0, 1 - Math.pow(Math.min(1, da / W), 2)));
+    const secB = Math.sqrt(Math.max(0, 1 - Math.pow(Math.min(1, db / W), 2)));
+    const onA = da < W ? 1 : 0;
+    const onB = db < W ? 1 : 0;
+
+    // Which strand is on top here. Both indices advance by one per cell, so
+    // their sum alternates at every crossing, which is exactly a weave.
+    const over = ((Math.floor(pa + 0.5) + Math.floor(pb + 0.5)) & 1) === 0;
+    const hiA = onA * secA * (over ? 1 : 0.52);
+    const hiB = onB * secB * (over ? 0.52 : 1);
+    const ribbon = Math.max(hiA, hiB);
+    const cover = Math.max(onA * secA, onB * secB);
+
+    // The tinned ground under the plait: hammered sheet, not a flat plane, so
+    // the gaps in the pattern are still metal that was worked.
+    const sheet = (sampleField(bank.grain, u * 6, v * 6) - 0.5) * 0.06
+      + (sampleField(bank.soft, u * 2, v * 2) - 0.5) * 0.05;
+
+    h[i] = clamp01(0.48 + ribbon * 0.44 + sheet);
+    // Tin wears bright on the ribbons the hand and the scabbard touch and stays
+    // dark in the grooves, which is the whole reason a stamped surface reads as
+    // stamped. This is also where the cavity darkening the review asked for
+    // comes from: AO is derived from `h` and nothing else, so a deep groove is
+    // an occluded groove for free.
+    mix(c, i, ground, proud, clamp01(ribbon * 1.15) * 0.62);
+    toward(c, i, recess, (1 - cover) * 0.55);
+    // Polished where it stands proud, scattered where dirt sits.
+    r[i] = clamp01(0.30 - ribbon * 0.13 + (1 - cover) * 0.24 + (sampleField(bank.fine, u * 9, v * 9) - 0.5) * 0.08);
+    // Tinning is metal all the way down; only the grime in the grooves is not.
+    m[i] = 1 - (1 - cover) * 0.10;
   });
 }
 
@@ -2622,6 +2714,12 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   mail:    { detail: "hero", tint: 0x4a5568, roughness: 0.45, metalness: 0.85, normalScale: 1.15, aoIntensity: 1.1, bump: 2.6, cavity: 1.15, repeat: 3, build: buildMail },
   iron:    { detail: "prop", tint: 0x2f343b, roughness: 0.55, metalness: 0.9,  normalScale: 0.9,  aoIntensity: 0.9, bump: 1.6, cavity: 0.9,  repeat: 2, build: buildIron },
   steel:   { detail: "hero", tint: 0xb8c0ca, roughness: 0.18, metalness: 1,    normalScale: 0.6,  aoIntensity: 0.6, bump: 1.1, cavity: 0.7,  repeat: 2, build: buildSteel },
+  // Roughness and metalness here are the recipe's own measured means, because
+  // materials.ts divides a caller's request by them. `normalScale` is under
+  // steel's: a stamped foil stands about a third of a millimetre proud and the
+  // plait is already the loudest thing on the map, so a full-strength normal
+  // turns a beaten cap into a cast waffle.
+  interlace: { detail: "prop", tint: 0x9aa4ad, roughness: 0.34, metalness: 0.95, normalScale: 0.8, aoIntensity: 1.1, bump: 1.6, cavity: 1.15, repeat: 1, build: buildInterlace },
   bronze:  { detail: "prop", tint: 0x9a7038, roughness: 0.38, metalness: 0.92, normalScale: 0.95, aoIntensity: 0.95, bump: 1.7, cavity: 1,   repeat: 2, build: buildBronze },
 
   wool:    { detail: "prop", tint: 0x8d8478, roughness: 0.95, metalness: 0, normalScale: 1,    aoIntensity: 1.15, bump: 2.2, cavity: 1.25, repeat: 4, build: buildWool },
