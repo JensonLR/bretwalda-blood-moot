@@ -182,13 +182,20 @@ const MARK = { x: -7.0, z: 4.6 };
  *
  * The head is not on the body's axis. It has to be corrected for, and the
  * correction has to be carried in his frame rather than the world's, because
- * `?turn=` turns HIM — a fixed world offset is right at one bearing, wrong at
- * the next and backwards at 180°, which is precisely what put the front panel's
- * head half off the left edge of the last turntable while the profile sat
- * square. Measured off a calibration capture (`?guides=1`), not guessed.
+ * `?turn=` turns HIM: a fixed world offset is right at one bearing, wrong at the
+ * next and backwards at 180°.
+ *
+ * The last attempt at this correction went in with the wrong sign and put the
+ * front panel's head half off the left edge, and that is worth more than a note
+ * about arithmetic — it was measured off a photograph of a man who was swaying.
+ * Nothing here was measurable until the capture tool took the clock away from
+ * the idle animation (`installVirtualClock` in tools/shoot.mjs). `right` is then
+ * a straight read off a calibration frame — `--guides` draws a 50 mm grid at the
+ * subject's own plane — and `fwd`, which does nothing head-on, is checked at
+ * −90° where it becomes the lateral term.
  */
 const AIM = {
-  head: { right: -0.105, fwd: 0.0 },
+  head: { right: -0.068, fwd: 0.045 },
   body: { right: 0, fwd: 0 },
 };
 
@@ -226,6 +233,13 @@ interface CardSpec {
   note: string;
 }
 
+// Every card is framed to top out BELOW y ≈ 2.20 m, and that is a constraint
+// rather than a coincidence. `hud3d` hangs a nameplate and health bar 260 mm
+// over each warrior's crown, in the scene — it is geometry, not DOM, so
+// `clean=1` does not touch it. The first fight card put "Raedwald" and a green
+// bar squarely across the head, which is the one part of the frame a hair, a
+// helm or a paint stripe is judged in. A card that reaches over the crown is
+// photographing the HUD.
 const CARDS: Record<string, CardSpec> = {
   // Crown to sternum: 0.70 m over 860 px. The helmet card this replaces was
   // 0.60 m and framed the helm alone, which is too tight for the slots that hang
@@ -236,14 +250,21 @@ const CARDS: Record<string, CardSpec> = {
   // The whole man with air around him. Cloak and finish are worn on the body and
   // the cloak's known defect (gathering through the tunic) is at the waist, so
   // this card is framed to the boots and not to the belt.
-  kitcard: { w: 700, h: 900, dist: 5.2, targetY: 1.02, eyeY: 1.16, fov: 23.4, aim: "body",
+  kitcard: { w: 700, h: 900, dist: 5.2, targetY: 0.99, eyeY: 1.13, fov: 23.4, aim: "body",
     note: "full body, boots to a hand over the crown" },
   // Fight distance, honestly. The follow rig sits 4.4 m behind the local warrior
   // and 1.0 m to his sword side at 2.05 m of height, and a huscarl's blade bites
   // at 2.26 m centre to centre — so the man you are actually hitting is 6.8 m
   // from the lens. At that range he is ~230 px tall and his head is ~43 of them,
   // which is the pixel budget every cosmetic in the shop is really sold into.
-  fightcard: { w: 520, h: 360, dist: 6.8, targetY: 1.30, eyeY: 2.05, fov: playScaleFov(360), aim: "body",
+  //
+  // The lens sits at the follow rig's own height but aims lower than it does, to
+  // get under the nameplate. That costs a little: a true crop of a play frame
+  // would be off-axis and this is a small swing instead, and in play there IS a
+  // plate over that head — reading a hairstyle at fight distance means reading it
+  // around one. Scale is what this card exists to be honest about, and scale is
+  // untouched by where it points.
+  fightcard: { w: 520, h: 320, dist: 6.8, targetY: 0.88, eyeY: 2.05, fov: playScaleFov(320), aim: "body",
     note: "play scale: 1:1 with a 55° / 900 px game frame at 6.8 m" },
 };
 
@@ -753,6 +774,11 @@ export default function ShotPage() {
         })),
         cards: Object.fromEntries(Object.entries(CARDS).map(([k, c]) => [k, { w: c.w, h: c.h, note: c.note }])),
         dress: DRESS_IDS,
+        // A slot the shop has and this file cannot drive. Published rather than
+        // ignored: the failure this whole pass is about is a capture set going
+        // quietly out of date, and a ninth slot appearing in `ARMOURY` should
+        // arrive as a complaint from the tool, not as a gap nobody notices.
+        unmapped: ARMOURY.filter((s) => !(s.slot in SLOT_FIELD)).map((s) => s.slot),
       };
     }
     setParams(search);

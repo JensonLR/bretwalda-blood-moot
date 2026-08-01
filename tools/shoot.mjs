@@ -65,9 +65,9 @@ const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "suttonho
 //
 // A sheet inverts that. The subject never moves, so every panel is the same
 // photons; the camera never moves, so every panel is the same scale and the
-// same background; only the helmet changes. Each panel is its own full-frame
-// capture, so the fittings get the pixels the crop could not give them —
-// ~450 px of head against ~200. The cards are kept on disk beside the sheet,
+// same background; only the slot under test changes. Each panel is its own
+// full-frame capture, so the work gets the pixels the crop could not give it —
+// ~400 px of head against ~200. The cards are kept on disk beside the sheet,
 // because the sheet is for comparing and a card is for looking at.
 //
 // The cost is honest and worth stating: ten captures instead of one, which on
@@ -101,6 +101,9 @@ const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "suttonho
 //    screen of the man you are actually fighting. A cosmetic nobody can see in
 //    play is not a cosmetic, and the `*fight` sheets are where that gets said.
 //
+// 4. THE MAN HOLDS STILL. He did not before — see `installVirtualClock` below,
+//    which is the reason any of the above can be believed.
+//
 // The whole audit is ~100 captures, which on a GPU-less box is about two hours.
 // Each sheet is nameable on its own so it can be run a slot at a time, and that
 // is the intended way to work through it.
@@ -132,7 +135,7 @@ const SHEETS = {
   },
   helmfight: {
     file: "helm-fight.png", card: "fightcard", slot: "helm", cols: 5,
-    title: "HELM LADDER · at fight distance · 1:1 with a 55°/900 px play frame at 6.8 m",
+    title: "HELM LADDER · at fight distance",
     rows: [{ turn: QUARTER }],
   },
   // One helmet is a three-dimensional object and a single bearing is not a
@@ -231,7 +234,7 @@ const SHEETS = {
   },
   finishfight: {
     file: "armour-finish-fight.png", card: "fightcard", slot: "armor", cols: 7,
-    title: "ARMOUR FINISH · at fight distance · the only reading that decides whether a 510-gold finish is visible",
+    title: "ARMOUR FINISH · at fight distance · the reading that decides whether a 510-gold finish is visible at all",
     rows: [{ turn: QUARTER }],
   },
   // ---- warPaint (4) ----
@@ -462,6 +465,12 @@ const report = [];
  *     than approximately so, which is what the gore presets have always claimed;
  *   - `--settle` changes the POSE, not just how long the lerps have had. Panels
  *     shot at different settles are not comparable, and sheets never mix them.
+ *
+ * What this does NOT buy is a byte-reproducible frame: `vfx.ts` rolls its embers
+ * and sparks off `Math.random`, so two captures of one subject differ in the
+ * background by a few thousandths of a code value. Measured on a Sutton Hoo
+ * fight card shot twice: mean luma 67.6705 against 67.6679. The pose is the
+ * claim, and the pose is exact.
  */
 const FRAME_MS = 50;
 function installVirtualClock(stepMs) {
@@ -741,6 +750,14 @@ async function main() {
     await page.close();
     const total = roster.slots.reduce((n, s) => n + s.options.length, 0);
     console.log(`[shoot] armoury: ${roster.slots.length} slots, ${total} options, cards ${Object.keys(roster.cards).join("/")}`);
+    // Two ways the audit can fall behind the shop, both said out loud. A slot
+    // with no sheet is 4-10 more things nobody has looked at, which is the exact
+    // hole this pass was opened to fill; a slot /shot cannot dress is worse,
+    // because no sheet CAN be written for it until the page is taught the field.
+    const covered = new Set(SHEET_NAMES.map((n) => SHEETS[n].slot).filter(Boolean));
+    const uncovered = roster.slots.filter((s) => !covered.has(s.slot)).map((s) => `${s.slot} (${s.options.length})`);
+    if (uncovered.length) console.log(`[shoot] WARNING: armoury slots with no sheet: ${uncovered.join(", ")}`);
+    if (roster.unmapped?.length) console.log(`[shoot] WARNING: /shot cannot dress: ${roster.unmapped.join(", ")}`);
     return roster;
   }
 

@@ -105,3 +105,86 @@ at all of it and say per slot whether it meets the rubric — with the frame nam
 for anything that does not.
 
 No slot passes on the strength of its code.
+
+---
+
+## The instrument
+
+Built, and this is how to drive it.
+
+```
+npm run shots -- armoury        # the whole audit: 12 sheets, ~100 captures, ~2 h
+npm run shots -- armouryfight   # only the fight-distance half, ~30 min
+npm run shots -- cloaks         # one slot at a time — the intended way to work
+```
+
+| sheet | slot | lens | bearings |
+|---|---|---|---|
+| `helmcards` / `helmfight` | helm (10) | face / fight | −35° |
+| `helmturn` | the Sutton Hoo helm | face | 0°, −45°, −90°, 180° |
+| `hair` / `hairfight` | hair (4) | face / fight | −35°, 180°, and −35° under the mask |
+| `hairtone` | hairColor (6) | face | −35°, on the Long Mane |
+| `beards` / `beardfight` | beard (5) | face / fight | −35°, −90° |
+| `beardtone` | beardColor (6) | face | −35°, on the Full Beard |
+| `cloaks` / `cloakfight` | cloak (5) | kit / fight | 180°, −35° |
+| `finishes` / `finishfight` | armor (7) | kit / fight | −35° |
+| `warpaint` / `warpaintfight` | warPaint (4) | face / fight | 0°, and 0° under the mask |
+
+One card on its own, for iterating without shooting a whole sheet:
+
+```
+npm run shots -- facecard --helm helm_wyrm --turn -90
+npm run shots -- kitcard --cloak cloak_gold --armor armor_gold --turn 180
+npm run shots -- facecard --guides --turn 0        # the aiming ruler, in mm
+```
+
+Three properties it now has that the ten-helmet strip did not, each of which was
+a defect found by shooting the thing rather than by reading it:
+
+- **One mark.** Every panel of every sheet photographs the same warrior standing
+  on the same spot, so the light is identical by construction. Three lenses —
+  face, whole body, and fight distance — differ only in back-off.
+- **A pose that does not move.** `idleLayer` puts a standing man on a
+  fifteen-second weight shift driven by `performance.now()`, and a card takes
+  80–100 s to settle on this box. Every panel was catching him at a different
+  point in a swing that moves his head ~180 mm — two panels of the *same* helmet
+  differed in lean by more than two helmets do. The capture tool now installs a
+  virtual clock, one 50 ms step per presented frame, so the pose is a function of
+  the frame count alone. (This is also why the last turntable's front panel had
+  the head half off the left edge: there was no fixed offset to aim at.)
+- **A roster it cannot fall behind.** The sheets are generated from `ARMOURY`
+  itself, read off `/shot?roster=1`. The tool used to keep its own copy of the
+  helmet ladder, which is how the shop grew to 47 options while the capture set
+  reviewed ten.
+
+The evidence is `art/shots/<dir>/report.json`, which now names every slot each
+panel was wearing. Captures are gitignored — regenerate, don't trust a file.
+
+## First readings
+
+Not the audit — the audit is every slot, and this is two sheets and two cards,
+shot to prove the instrument works. Recorded because they are already frames,
+and because both point at the same thing.
+
+- **`helm-fight.png` — the ladder does not exist at fight distance.** Ten panels,
+  one light, play scale. Rungs 2 through 9 — Iron Spangenhelm at 30 gold through
+  the Wyrm-Crest at 950 — are the same grey dome of ~45 px. The 950-gold serpent
+  over the crown is not visible at the range the game is played at. Only three
+  panels read as different objects: Bare Head (skin, not metal), the Shadow Hood
+  (a dark cowl, a genuinely different silhouette) and Sutton Hoo (a pale face).
+  The audit doc already suspected the bowl was near-identical from `iron` to
+  `wyrm`; the fight card says it is worse than that, because at play range even
+  the crown fittings that differentiate them are gone.
+- **`cloaks` — the Gilded War Cloak (400 gold) is a lampshade.** A rigid
+  truncated cone from shoulder to knee with no fall, no gather and no shoulder
+  line, and its hem blows to white under the fire key. One kit card, from behind.
+- **`warpaint.png` — the slot is deleted by the game's most expensive item.**
+  Row 1, bare-headed, the four paints are clearly distinct at portrait range and
+  the card resolves them easily. Row 2 is the same four under the Sutton Hoo
+  mask, and the four panels are **identical**: a player who has bought Half-Face
+  Shadow at 110 gold and the helm at 2400 owns nothing he can see. The suspicion
+  was already written down here; the frame settles it.
+
+The pattern in all three: **what a player buys is priced on the portrait and
+worn at fight distance, under a helmet.** Both sheets exist for every slot now,
+and the gap between them is the thing to look at.
