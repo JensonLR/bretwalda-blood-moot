@@ -20,6 +20,17 @@
 // Boots the app itself (production build if present, else dev),
 // drives /shot with Playwright, writes PNGs, and fails loudly on
 // any WebGL/console error so a broken scene can't pass review.
+//
+// If another agent is running `npm run play` in this checkout, the dev
+// fallback dies with "Another next dev server is already running" — the
+// lock is per-directory (.next/dev/lock), not per-port. Capture from a
+// worktree with its own .next rather than killing his server or building
+// over it:
+//
+//   git worktree add --detach ../shots HEAD
+//   cp -al node_modules ../shots/node_modules   # a symlink is refused by
+//                                               # turbopack: outside the root
+//   cd ../shots && npm run shots -- armoury --out <abs path>
 // ============================================================
 import { chromium } from "playwright";
 import { spawn } from "child_process";

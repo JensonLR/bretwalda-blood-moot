@@ -185,6 +185,15 @@ and because both point at the same thing.
   Shadow at 110 gold and the helm at 2400 owns nothing he can see. The suspicion
   was already written down here; the frame settles it.
 
-The pattern in all three: **what a player buys is priced on the portrait and
+- **`hair-colour.png` — the colour staging works, and two of the six fail on
+  it.** Six identical photographs of one head under one light, differing in
+  nothing but the hex value. Oak Brown and Raven Black are plausible hair; Norse
+  Gold (40g) and Fire Red (30g) come back as saturated yellow and pillar-box red
+  — paint, not hair — and Greybeard and Snow White are near-indistinguishable
+  from each other, which is two of the six paid options selling the same thing.
+  Worth noting separately: the Long Mane they are shown on is a flat curtain with
+  a hard edge and no volume, so the sheet is also a finding about the `hair` slot.
+
+The pattern in all four: **what a player buys is priced on the portrait and
 worn at fight distance, under a helmet.** Both sheets exist for every slot now,
 and the gap between them is the thing to look at.
