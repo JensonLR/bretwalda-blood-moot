@@ -103,6 +103,36 @@ That is a `soundtest.mjs` alongside `playtest`, `touchtest`, `firetest`,
 asserted. **The owner is the final ear.** Everything above proves it is not
 broken; only a person can say whether it is beautiful.
 
+## What shipped
+
+All of it, in two passes, and the harness that grades it was built before the
+second one landed.
+
+- `src/game/client/render/audio.ts` — the engine. Synthesis only; not one byte
+  of sampled audio, and no `three` import, so the landing screen carries it
+  without dragging the renderer in.
+- Combat is wired in `GameCanvas.tsx` beside the `vfx` call that draws the same
+  moment. The screens are wired in `app/page.tsx` by ONE delegated
+  `pointerdown` listener: every button in the game is audible by default and
+  `data-snd="confirm" | "back"` is what the load-bearing presses say instead. A
+  screen added tomorrow is audible without anybody remembering.
+- The nine screen sounds are one instrument — `strike()`, a bronze bar over a
+  wooden board — played nine ways from one mode on one root. Measured:
+  brightest/darkest 2.47x across the nine.
+- The mute is on the profile beside the key bindings (`players.muted`), with
+  localStorage as the fallback, and reachable in one tap from every screen
+  including the fight.
+- `npm run soundtest` (21 claims) and `npm run phonesound` (7 claims, a real
+  suspended context at 390x844 with the autoplay policy left alone).
+
+One thing was found by measurement and would not have been found any other way:
+the mail was BRIGHTER than the parry, because its ring was built from square
+waves and its transient from unbounded highpassed noise, so the "steel turned
+by armour" out-sparkled the one event in the game that is supposed to ring
+highest. See the transient comment in `impact()`.
+
+**And nobody has heard it.** See `docs/OPEN-DEFECTS.md`.
+
 ## Scope note
 
 This is a substantial feature — a synthesis engine, an event layer wired

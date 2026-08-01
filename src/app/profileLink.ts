@@ -29,6 +29,8 @@ export interface ServerProfile {
    * any. Null is not "defaults" — see `syncBindings`.
    */
   bindings: Record<string, string[]> | null;
+  /** Sound off. Unlike the bindings this is never null — false is a real answer. */
+  muted: boolean;
   /** Four words. The only way back in on another device. */
   recoveryCode: string;
   createdAt: string;
@@ -338,6 +340,26 @@ export async function syncBindings(bindings: unknown): Promise<void> {
  */
 export function noteBindingsSynced(bindings: unknown): void {
   lastBindings = canonical(bindings);
+}
+
+let lastMuted: boolean | null = null;
+
+/**
+ * Sends the mute up, so a player who silenced the game at work finds it silent
+ * on his phone. Same shape as `syncBindings` and for the same reason: the
+ * device has already taken the change, so nobody waits on this, and a refusal
+ * clears the de-dupe so the next tap tries again.
+ */
+export async function syncMuted(muted: boolean): Promise<void> {
+  if (muted === lastMuted) return;
+  lastMuted = muted;
+  const reply = await withCreds<{ profile: ServerProfile }>("/api/profile/equip", { muted });
+  if (reply.kind !== "server") lastMuted = null;
+}
+
+/** What the roll already says, so hydrating does not post it straight back. */
+export function noteMutedSynced(muted: boolean): void {
+  lastMuted = muted;
 }
 
 // ---------------------------------------------------------------- recovery

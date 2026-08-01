@@ -5,7 +5,7 @@
 // what and the order they run in.
 import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
-import type { GamePlayer, AttackDirection } from "../types";
+import { WARRIOR_STATS, type GamePlayer, type AttackDirection } from "../types";
 import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import {
@@ -21,6 +21,7 @@ import { createVfx, type VfxHandle } from "./render/vfx";
 import { createPostFx, type PostFxHandle } from "./render/postfx";
 import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/camera";
 import { createHud3d, type Hud3D } from "./render/hud3d";
+import { createAudio, type AudioHandle } from "./render/audio";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior,
   type WarriorRig, type WarriorMotion, type AnimHooks,
@@ -102,6 +103,7 @@ interface Stage {
   postfx: PostFxHandle;
   rig: CameraRig;
   hud: Hud3D;
+  audio: AudioHandle;
 }
 
 /** Per-warrior client state that is not the server's business. */
@@ -112,6 +114,10 @@ interface WarriorSlot {
   prevState: string;
   /** Seconds since this warrior's last dust puff. Per-body, not per-frame. */
   dustTick: number;
+  /** Seconds until his next footfall. Cadence follows the gait, not the frame. */
+  stepTick: number;
+  /** Last frame's `abilityActive`, so the signature fires once and not per-frame. */
+  prevAbility: boolean;
 }
 
 export default function GameCanvas({ playerId, roomState, onSendInput, onForge }: GameCanvasProps) {
@@ -231,6 +237,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
     let world!: WorldHandle;
     let vfx!: VfxHandle;
     let hud!: Hud3D;
+    let audio!: AudioHandle;
 
     // The stages, and what each costs as a share of the whole. Measured rather
     // than assumed: an evenly-spaced bar over stages this uneven lies twice,
@@ -347,9 +354,18 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
           for (const light of world.pointLights) {
             if (!hero || light.distance > hero.distance) hero = light;
           }
+          // Costs nothing and creates no AudioContext — see the head of
+          // audio.ts. The graph is not built until a real user gesture, and
+          // every call into the handle before that emits nothing at all.
+          audio = createAudio(quality);
+          disposers.push(() => audio.dispose());
+
           if (hero) {
             hero.getWorldPosition(at);
             sky.setHazeLight({ position: at, color: hero.color.clone(), gain: 1 });
+            // The same fire again, to the ear. Copied rather than passed: `at`
+            // is scratch and the bed holds this for the life of the arena.
+            audio.setBonfire({ x: at.x, y: at.y, z: at.z });
             // The same fire, told to the light rig. lighting.ts carries the hearth's
             // wide pool because it is built before world.ts and cannot be handed a
             // light that does not exist yet; without this it pools at a documented
@@ -411,7 +427,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
 
       // Committed in one piece after the last stage, never across a yield: the
       // frame loop reads `stageRef` and a half-wired stage is a torn frame.
-      const stage: Stage = { renderer, scene, quality, textures, materials, sky, lighting, world, vfx, postfx, rig, hud };
+      const stage: Stage = { renderer, scene, quality, textures, materials, sky, lighting, world, vfx, postfx, rig, hud, audio };
       stageRef.current = stage;
       disposers.push(() => { stageRef.current = null; });
       wireInput();
@@ -532,6 +548,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
       // nothing to look at yet.
       if (!roomState) {
         stage.vfx.update(dt, ctx);
+        stage.audio.update(dt, ctx);
         stage.postfx.render(dt, ctx);
         return;
       }
@@ -549,6 +566,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         // than up beside world/sky because every quad it draws is billboarded
         // against this frame's view.
         stage.vfx.update(dt, ctx);
+        // The bonfire is the arena's only continuous voice and it burns through
+        // the lobby and the intermission for the same reason vfx runs here: the
+        // establishing orbit is looking straight at it.
+        stage.audio.update(dt, ctx);
         stage.postfx.render(dt, ctx);
         return;
       }
@@ -580,6 +601,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
             // A body cut in two opens the whole trunk; a forearm opens a wrist.
             power: (cut.seam === "waist" ? 1.55 : 1) * (victim.deathHeavy ? 1.15 : 1),
           });
+          // The bone and the tear, on the same frame and from the same cut, so
+          // the thing the gore pass was built for stops landing in silence.
+          stage.audio.sever({
+            position: cut.wound,
+            zone: cut.zone,
+            power: (cut.seam === "waist" ? 1.55 : 1) * (victim.deathHeavy ? 1.15 : 1),
+          });
         },
         onBladeTrail: (pos, cls) => {
           stage.vfx.trail({
@@ -599,7 +627,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         if (!slot) {
           const rig = createWarriorRig(stage.scene, p, stage.materials, stage.quality);
           stage.hud.attach(id, p.name, rig.group, id === playerId, rig.headTop);
-          slot = { rig, motion: createMotion(p), prevHp: p.health, prevState: p.state, dustTick: 0 };
+          slot = {
+            rig, motion: createMotion(p), prevHp: p.health, prevState: p.state,
+            dustTick: 0, stepTick: 0, prevAbility: p.abilityActive,
+          };
           warriorsRef.current.set(id, slot);
         }
 
@@ -613,6 +644,58 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         // with the sim exactly at the boundary the sim was tuned to be forgiving
         // at. Three fields off the snapshot, nothing derived.
         stage.vfx.setBurning(id, p.burning === true, p.burnTimer ?? 0, p.burnInside === true);
+        // The same three wire fields to the ear, every frame, alight or not —
+        // audio.ts holds the same contract vfx does and puts out a burner that
+        // stops being mentioned.
+        stage.audio.setBurning(id, p.burning === true, p.burnTimer ?? 0, p.burnInside === true, { x: at.x, y: 1.0, z: at.z });
+
+        // ---- COMBAT VOICE ----
+        // Every branch below sits beside the vfx call that draws the same
+        // moment, on purpose: nothing here is the only evidence a thing
+        // happened, and a player with the sound off loses no information.
+        if (slot.prevState !== "attacking" && p.state === "attacking") {
+          // A heavy swing is `attackSpeed * 1.4` on the server against a light
+          // one's `attackSpeed`; at 20 Hz the timer has decayed by at most 50 ms
+          // on the frame the state first arrives, and the gap between the two is
+          // never less than 160 ms. So the weight of the swing is read off the
+          // wire rather than guessed.
+          const speed = WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.7;
+          stage.audio.swing({
+            position: { x: at.x, y: 1.3, z: at.z },
+            local: id === playerId,
+            warriorClass: p.warriorClass,
+            heavy: p.attackTimer > speed * 1.08,
+          });
+        }
+        if (slot.prevState !== "blocking" && p.state === "blocking") {
+          stage.audio.block({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, raise: true });
+        }
+        if (slot.prevState !== "dodging" && slot.prevState !== "rolling" && (p.state === "dodging" || p.state === "rolling")) {
+          stage.audio.dodge({ position: { x: at.x, y: 0.9, z: at.z }, local: id === playerId });
+        }
+        if (!slot.prevAbility && p.abilityActive) {
+          stage.audio.ability({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, warriorClass: p.warriorClass });
+        }
+        slot.prevAbility = p.abilityActive;
+
+        // Footfall on the gait's own cadence rather than the frame's, and on
+        // the terrain the height field already describes — the bank is drier
+        // than the ditch and the arena has both.
+        if (p.state === "walking" || p.state === "running" || p.state === "sprinting") {
+          slot.stepTick -= dt;
+          if (slot.stepTick <= 0) {
+            const gait = p.state === "sprinting" ? 0.30 : p.state === "running" ? 0.40 : 0.54;
+            slot.stepTick = gait;
+            stage.audio.footfall({
+              position: { x: at.x, y: 0.1, z: at.z },
+              local: id === playerId,
+              ground: stage.world.heightAt(at.x, at.z),
+              weight: p.state === "sprinting" ? 1 : p.state === "running" ? 0.6 : 0.35,
+            });
+          }
+        } else {
+          slot.stepTick = 0;
+        }
 
         // ---- HIT FEEDBACK (damage numbers + rumble + hit-stop) ----
         // Fire is not a blow. Burning drains 22 hp/s against 20 Hz snapshots, so
@@ -642,6 +725,20 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
           // A blocked blow throws steel off steel, not blood: the kind is the only
           // thing that tells the two apart, and the server already said which it was.
           stage.vfx.burst({ position: { x: at.x, y: 1.5, z: at.z }, color: 0xffe28a, count: 7, spread: 7, up: 5, gravity: 8, kind: "spark" });
+          // Four events the ear must tell apart without looking, named in the
+          // server's own vocabulary: a shield taking it, mail turning it, the
+          // blade finding flesh, or steel caught on steel. A man who was
+          // guarding when it landed was guarding; the zone is only on the wire
+          // once he is down, so a survivable blow is decided by what it took
+          // off — a graze turned by armour, or the one that found the gap.
+          const guarded = slot.prevState === "blocking" || p.state === "blocking";
+          stage.audio.hit({
+            position: { x: at.x, y: 1.4, z: at.z },
+            local: id === playerId,
+            type: guarded ? (dmg >= 22 ? "blocked_heavy" : "blocked") : (dmg >= 22 ? "heavy" : "light"),
+            damage: dmg,
+            hitZone: p.state === "dead" ? p.deathZone : null,
+          });
           slot.motion.recoil = Math.min(1.6, 0.6 + dmg * 0.03);
           stage.hud.spawnDamageNumber(dmg, { x: at.x, z: at.z }, dmg >= 22);
 
@@ -676,6 +773,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
             });
           }
           stage.vfx.burst({ position: { x: at.x, y: 0.5, z: at.z }, color: 0x3a2a20, count: 20, spread: 5, up: 3, kind: "dust" });
+          stage.audio.death({
+            position: { x: at.x, y: 0.8, z: at.z },
+            local: id === playerId,
+            cause: p.deathCause ?? null,
+          });
           if (p.lastHitBy === playerId) {
             rumble([60, 40, 80]);
             hitStopRef.current = Math.max(hitStopRef.current, 0.11);
@@ -715,6 +817,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         // the object, so a man who leaves mid-burn would otherwise leave his
         // flames hunting for a capsule that no longer exists.
         stage.vfx.setBurning(id, false, 0, false);
+        stage.audio.setBurning(id, false, 0, false, { x: 0, y: 0, z: 0 });
         stage.hud.detach(id);
         slot.rig.dispose();
         warriorsRef.current.delete(id);
@@ -740,6 +843,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
       if (localPlayer) stage.postfx.setPressure(localPlayer.health / localPlayer.maxHealth);
 
       stage.vfx.update(dt, ctx);
+      // After the camera, like vfx: every pan and attenuation in the mix is
+      // taken against THIS frame's view.
+      stage.audio.update(dt, ctx);
       stage.hud.update(dt, ctx);
 
       stage.sky.setMood(mood);

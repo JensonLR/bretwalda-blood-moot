@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, serial, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, serial, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import type { Appearance } from "../game/client/characters";
 
 /**
@@ -56,6 +56,13 @@ export const players = pgTable("players", {
    * losing a remap he made before this column existed.
    */
   bindings: jsonb("bindings").$type<Record<string, string[]>>(),
+  /**
+   * Sound off. It rides here for the same reason the bindings do — somebody who
+   * silenced the game at work must find it silent on the next device — but
+   * unlike them it is NOT nullable: false is a real answer, and there is nothing
+   * on a device worth carrying up, so a default is honest here.
+   */
+  muted: boolean("muted").notNull().default(false),
   /** Set the once a localStorage profile is folded in; a second claim is refused. */
   legacyClaimedAt: timestamp("legacy_claimed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

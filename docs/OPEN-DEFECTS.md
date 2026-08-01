@@ -10,6 +10,53 @@ Current reference: **`art/shots/v12/`**. A/B against `v11/`.
 
 ---
 
+## The mute on the war rolls has never met a database
+
+**What is proven.** The mute is remembered on the device — `phonesound` taps the
+toggle at 390x844 and reads `bretwalda.audio.muted=1` back out of localStorage
+with the destination measuring 0.0001 — and the column, the view, the write and
+the sync are all in place: `players.muted`, `ProfileView.muted`,
+`setPresentation`, `POST /api/profile/equip { muted }`, `syncMuted()` in
+`profileLink.ts`, hydrated at boot beside the key bindings.
+
+**What is not proven.** `npm run profiletest` skips its whole database half
+without `PROFILE_TEST_DB` — it prints `no PROFILE_TEST_DB set — skipping the
+database half` and then runs the eleven no-database checks — so on this box the
+22/22 says nothing about the new column. No `soundtest`/`phonesound` assertion
+covers it either; both are client-side.
+
+**To close it**, run `PROFILE_TEST_DB=... npm run profiletest` and add a check
+beside the bindings ones at `tools/profiletest.mjs:207-232`: equip with
+`{ muted: true }`, read it back off `/api/profile/me`, recover onto a second
+device by the four words and confirm the game is still silent there. The risk if
+it is wrong is small and one-directional — a mute that does not follow the
+player, never a mute that will not lift — but the boot rule is the part worth
+testing: a device that is muted pushes its answer up rather than being un-muted
+by the column default, and nothing has exercised that path against real rows.
+
+---
+
+## Nobody has heard any of this
+
+Not a defect so much as the limit of the whole approach, recorded because the
+next iteration should not mistake green harnesses for a verdict.
+
+`soundtest` proves 21 claims about the samples — peak, envelope, spectral
+ordering, voice budgets, silence before unlock — and `phonesound` proves 7 more
+against a real suspended context on a phone viewport. Between them they prove
+the audio is **not broken**. They cannot prove a single note of it is good. The
+nine screen sounds are one instrument by measurement (2.47x brightest/darkest)
+and the four materials are ordered as designed, and both of those facts are
+consistent with a set that is measurably correct and unpleasant to listen to.
+
+**The owner is the final ear.** The specific things a person should judge, in
+the order they will grate first: the `refusal` (a flat second, deliberately
+ugly — it may be too ugly to hear twenty times), the `tap` at 101 ms on every
+button in the game (frequency is what makes a UI sound hateful, and this one
+fires most), and whether `matchWon` at 1.03 s earns its length.
+
+---
+
 ## Shield planks share one phase — the woven cell is gone, the repeat is not
 
 **The mat read is fixed and a capture proves it.** `v8/portrait.png`'s shield is

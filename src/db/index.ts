@@ -87,6 +87,7 @@ async function ensureSchema(db: Db): Promise<boolean> {
         cosmetics jsonb NOT NULL DEFAULT '{}'::jsonb,
         unlocked_cosmetics jsonb NOT NULL DEFAULT '[]'::jsonb,
         bindings jsonb,
+        muted boolean NOT NULL DEFAULT false,
         legacy_claimed_at timestamp,
         created_at timestamp NOT NULL DEFAULT now(),
         updated_at timestamp NOT NULL DEFAULT now()
@@ -102,6 +103,8 @@ async function ensureSchema(db: Db): Promise<boolean> {
     // this deploy — so the column has to appear on an existing `players` the
     // same way the three above do, on the first request after a boot.
     await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS bindings jsonb`);
+    // And the mute, for the same reason and by the same route.
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS muted boolean NOT NULL DEFAULT false`);
     await db.execute(sql`ALTER TABLE players ALTER COLUMN name SET DEFAULT ''`);
     await db.execute(sql`
       DO $$ BEGIN
