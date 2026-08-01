@@ -4227,10 +4227,21 @@ export function buildCharacter(
   // The helmet is not a bare bowl with gold on it; it is a bowl faced all over
   // in die-stamped tinned foil, and without that it is a helmet rather than the
   // helmet. The substance is generated in code like every other one here (see
-  // `buildInterlace`), so this costs no asset. 85 mm puts a ribbon crossing
-  // every 28 mm, which is the pitch a die of this kind is cut at and coarse
-  // enough to survive two mip levels before it becomes tone.
-  const silver = noble ? M.tinted("interlace", 0x9aa6ae, { roughness: 0.46, metalness: 0.72, tile: 0.085 }) : steel;
+  // `buildInterlace`), so this costs no asset.
+  //
+  // 30 mm, down from 85, and this is a change of *material* rather than of
+  // detail. At an 85 mm tile the plait crossed every 28 mm — so a 220 mm dome
+  // carried eight crossings and a 130 mm mask five, at which size the ribbons
+  // are as wide as a finger and the relief on them is deep enough to cast its
+  // own shading. What that renders as at portrait distance is not stamped foil;
+  // it is basketwork, and the review said so: the helmet stopped reading as
+  // metal at all. Die-stamped ribbon on the artefact is a few millimetres wide
+  // and its relief is the depth of the foil it is punched into. At 30 mm the
+  // crossing pitch is 10 mm and the ribbon about 4 — fine enough that the eye
+  // takes it as ornament worked into a bright surface instead of as weave, and
+  // still three times the pixel pitch the portrait framing gives it, so it does
+  // not dissolve into the tinned tone until the arena distance where it should.
+  const silver = noble ? M.tinted("interlace", 0x9aa6ae, { roughness: 0.46, metalness: 0.72, tile: 0.030 }) : steel;
   const gilt = noble ? M.tinted("steel", 0xd9b45f, { roughness: 0.33, metalness: 0.9, tile: 0.028 }) : brass;
   // Up from 0x6a1019, and this is the third time this number has moved. The last
   // pass fixed the hue — the cells measured 335–349° with no orange left in them,
@@ -6202,7 +6213,17 @@ export function buildCharacter(
         // still read as hinged over a face and not as one welded bucket.
         const chinV = lat(Y_CHIN + 0.005);
         const jawV = lat(Y_LIP - 0.055);
-        const maskBot = (u: number) => mix(chinV, jawV, smooth(0.34, 1.02, Math.abs(u)));
+        // The lower edge as a power curve rather than a smoothstep, and that is
+        // the whole of "the mask has a wedge-shaped chin". `smooth(0.34, …)` is
+        // flat for the first 0.34 rad, so the plate carried a 30 mm horizontal
+        // shelf across the centreline and then broke upward — which in profile
+        // is a blade with a straight underside and head-on is a V. A chin is a
+        // continuous curve from the centreline out. The exponent keeps the fall
+        // gentle where the plate is deepest and takes the last of it up quickly
+        // behind the cheek guards, which is the only part of this edge nobody
+        // sees.
+        const maskBot = (u: number) =>
+          mix(chinV, jawV, Math.pow(clamp01(Math.abs(u) / 1.02), 1.55));
         // Standoff as a function of LATITUDE, not of the patch's own parameter.
         // Panels that span different ranges of v would otherwise ramp at different
         // rates and the field would step at every seam.
@@ -6255,10 +6276,20 @@ export function buildCharacter(
         // convex everywhere or it is a sheet of card: 6 mm of belly, greatest over
         // the cheekbone and gone at both the brow and the chin where the plate is
         // turning under anyway.
+        //
+        // Both terms up again — 17 mm across and 10 down — because a third review
+        // has come back calling this plate faceted. Curvature is what makes the
+        // difference between reading a surface and reading its polygons: the eye
+        // finds a facet by the *discontinuity* between two shading ramps, and on a
+        // barely-curved plate every ramp is nearly identical, so the only thing
+        // left to see is where they change. Bending the sheet harder gives each
+        // span its own ramp and buries the joins between them. 17 mm on a 260 mm
+        // span is a 3.3% sagitta, which is a hand-raised plate; more than that and
+        // the mask stops fitting the skull it is beaten over.
         const crownU = (u: number) =>
-          0.013 * Math.cos(clamp01(Math.abs(u) / uEdge) * Math.PI * 0.5);
+          0.017 * Math.cos(clamp01(Math.abs(u) / uEdge) * Math.PI * 0.5);
         const crownV = (v: number) =>
-          0.006 * Math.sin(Math.PI * clamp01((v - chinV) / (maskTop - chinV)));
+          0.010 * Math.sin(Math.PI * clamp01((v - chinV) / (maskTop - chinV)));
         /** The mask's own surface: the head's shape, none of its features. */
         const shell = (u: number, v: number, off: number, out: THREE.Vector3) => {
           out.set(0, 0, 0);
@@ -6286,23 +6317,33 @@ export function buildCharacter(
         // through `shell` and nothing through `headWear`, because a fitting drawn
         // on the face's field and riveted to a plate drawn on the mask's would sit
         // wherever the two disagree, which over the nose is 6 mm of float.
+        // `thick` may be a function, and that is not a flourish. `patch` closes
+        // every v-boundary with a rim strip as tall as the sheet, whose normal
+        // points along the surface — so a 7.5 mm plate ending anywhere visible
+        // draws a 7.5 mm band in a different value. On a cut edge that is right;
+        // it is what a hole punched in foil looks like. On the join between two
+        // sheets of the SAME plate it is a hairline ruled across the face, and no
+        // amount of lapping hides it because the strip belongs to the sheet in
+        // front. Letting the gauge fall off at a boundary feathers the strip out
+        // of existence instead.
         const onShell = (
           u0: number, u1: number,
           v0: (u: number) => number, v1: (u: number) => number,
           nu: number, nv: number,
           lift: (u: number, v: number, s: number) => number,
-          thick: number,
+          thick: number | ((u: number, s: number) => number),
           mat: THREE.Material,
         ) => {
-          const surf = (t: number, s: number, off: number, out: THREE.Vector3) => {
+          const gauge = typeof thick === "number" ? () => thick : thick;
+          const surf = (t: number, s: number, back: boolean, out: THREE.Vector3) => {
             const u = mix(u0, u1, t);
             const v = mix(v0(u), v1(u), s);
-            shell(u, v, lift(u, v, s) + off, out);
+            shell(u, v, lift(u, v, s) - (back ? gauge(u, s) : 0), out);
           };
           p.add(patch({
             nu, nv,
-            outer: (t, s, out) => surf(t, s, 0, out),
-            inner: (t, s, out) => surf(t, s, -thick, out),
+            outer: (t, s, out) => surf(t, s, false, out),
+            inner: (t, s, out) => surf(t, s, true, out),
           }), mat, place.clone());
         };
         // TWO panels, not seven. `slot` is zero outside the eye zone, so `openHi`
@@ -6345,10 +6386,27 @@ export function buildCharacter(
         // largest object on the head and it is the one that has to read as beaten,
         // so it gets the spans. Costs about 480 triangles at high, scaled at the
         // tiers that cannot afford them.
-        const maskU = Math.max(16, lod.shellU * 2 + 6);
-        const maskV = lod.trim ? 7 : 4;
+        //
+        // 40 across and 10 down at high, and this is the last time spans are
+        // spent on this problem: past here the facets are below the pixel and
+        // anything still reading as a plane is the crown terms' fault, not the
+        // grid's. The lower sheet keeps its two extra rows because it carries the
+        // chin, where the surface turns hardest.
+        const maskU = Math.max(16, Math.round(lod.shellU * 2.4) + 6);
+        const maskV = lod.trim ? 10 : 4;
+        // The upper sheet's lower boundary does two jobs and needs two gauges. Over
+        // the openings it is a CUT EDGE and keeps the full 7.5 mm, because the
+        // thickness of the plate at the rim of the hole is one of the few places
+        // this helmet gets to say it is made of metal at all. Everywhere else the
+        // same boundary is the JOIN with the lower sheet, and there it feathers to
+        // a millimetre — which is the fix for the dark hairline ruled straight
+        // across both cheeks at eye level in every card of the last three
+        // turntables. The lap was already right; the rim strip on top of it was
+        // what was drawing.
         onShell(-uEdge, uEdge, openHi, () => maskTop, maskU, maskV,
-          (_u, v) => maskLift(v), 0.0075, silver);
+          (_u, v) => maskLift(v),
+          (u, s) => 0.0075 * mix(0.14, 1, Math.max(clamp01(slot(u) * 3), clamp01(s * 5))),
+          silver);
         onShell(-uEdge, uEdge, maskBot, lapped, maskU, maskV + 2,
           (u, v, s) => maskLift(v) - 0.0018 * s * (1 - clamp01(slot(u) * 3)),
           0.0075, silver);
@@ -6386,9 +6444,14 @@ export function buildCharacter(
         // warrior's skull, however his crown term happens to land.
         for (const s of [-1, 1]) {
           const socket = sideArc(s, uIn - 0.052, uOut + 0.052);
+          // 16 spans across, not 10. The rim has to land on the mask's inner face
+          // and the mask is now drawn at 40 spans: a coarser funnel chords the
+          // aperture the plate curves round, so the two disagree by a fraction of
+          // a millimetre in alternating directions and the opening's edge renders
+          // as a row of bright silver steps inside the black.
           onShell(socket.u0, socket.u1,
             (u) => openLo(u) - 0.052, (u) => openHi(u) + 0.052,
-            10, 5,
+            16, 5,
             (u, v, q) => {
               const t = clamp01((u - socket.u0) / (socket.u1 - socket.u0));
               const bowlT = Math.sin(Math.PI * t) * Math.sin(Math.PI * q);
@@ -6409,11 +6472,33 @@ export function buildCharacter(
         // the two heavy gold arcs, and they earn that weight: they are the only
         // horizontal in the composition and they are what turns two holes into a
         // face rather than a colander.
-        const browLo = (u: number) => ev + 0.132 + 0.030 * smooth(uIn - 0.06, uOut + 0.04, Math.abs(u));
-        const browHi = (u: number) => browLo(u) + 0.098 - 0.030 * smooth(uIn, uOut + 0.10, Math.abs(u));
-        const browIn = uIn - 0.06;
+        //
+        // THEY ARE ARCS, AND THE LAST BUILD DREW A BAR. Both edges were a constant
+        // latitude plus a monotone ramp outward, and a constant latitude near the
+        // equator of a head projects, from the front, as a dead straight
+        // horizontal — so the two fittings and the nose crossing between them read
+        // as one rule ruled across the face. That costs the whole figure: these
+        // are the bird's WINGS, and nothing swept and level is a wing. It also
+        // costs the artefact, whose brows sit down on the eye and arch over it.
+        //
+        // So the lower edge is now the aperture's own upper edge plus a clearance:
+        // `slot` is the curve that opens the eye, so borrowing it makes the brow
+        // ride the socket by construction on every warrior's skull, however his
+        // seed sites the openings. It comes down at the nose, arches ~9 mm over
+        // the middle of the eye, and lands again at the temple where the boar's
+        // head takes over. The small linear term is the sweep — the outer end
+        // finishes above the inner one, which is what makes two arcs read as a
+        // pair of wings rather than as a pair of brackets.
+        const browIn = uIn - 0.045;
         const browEnd = uOut + 0.115;
         const along = (u: number) => clamp01((Math.abs(u) - browIn) / (browEnd - browIn));
+        const browLo = (u: number) => ev + 0.070 + 0.080 * slot(u) + 0.020 * along(u);
+        // And it tapers. A band of constant height is a strap; the fitting on the
+        // object is deepest where it leaves the nose and thins to nothing at the
+        // boar, which is also what lets the boar read as a terminal rather than as
+        // a bead stuck on the end of a rail. 11 mm down to 4.
+        const browHi = (u: number) =>
+          browLo(u) + 0.104 * (1 - 0.62 * Math.pow(along(u), 1.35));
         // Relief on the fitting, taken to nothing on all four boundaries. Every
         // rim strip a `patch` closes with points its normal *along* the sheet, so
         // a fitting that ends at full lift draws its own outline in a different
@@ -6425,8 +6510,14 @@ export function buildCharacter(
           * Math.pow(Math.sin(Math.PI * clamp01(s)), 0.45);
         for (const s of [-1, 1]) {
           const b = sideArc(s, browIn, browEnd);
-          onShell(b.u0, b.u1, browLo, browHi, Math.max(8, lod.shellU), 3,
-            (u, v, t) => maskLift(v) + relief(along(u), t, 0.0072), 0.004, gilt);
+          // 5 mm proud, down from 7.2. Every fitting on this face was standing too
+          // far off it — see the nose below, which is the extreme case — and the
+          // brows are read against 130 mm of flat silver, so a couple of
+          // millimetres of relief is already a shadow the eye can find. What makes
+          // a fitting read as applied is its outline and its own highlight, not
+          // its height.
+          onShell(b.u0, b.u1, browLo, browHi, Math.max(10, lod.shellU + 4), 3,
+            (u, v, t) => maskLift(v) + relief(along(u), t, 0.0050), 0.004, gilt);
           if (lod.trim) {
             // The garnets, as cabochons rather than as a strip. A 3 mm rail would
             // have to end in rim strips 3 mm wide standing on gilt, which is
@@ -6439,23 +6530,34 @@ export function buildCharacter(
             // rather than as stones, and it was half of what made the gilt look
             // like glitter. Five 5 mm cells at ten segments hold a single highlight
             // each, which is what a polished cabochon does.
+            // The run stops at 0.72 rather than 0.85 along: the band is now 4 mm
+            // deep at the boar's end and a 4 mm cell there would stand out past
+            // both its edges, which is a stud on a wire rather than a cell in a
+            // setting. Cloisonné goes where there is metal to cut a cell into.
             for (let i = 0; i < 5; i++) {
-              const t = 0.15 + (i / 4) * 0.70;
+              const t = 0.12 + (i / 4) * 0.60;
               const u = s * mix(browIn, browEnd, t);
               const v = mix(browLo(u), browHi(u), 0.5);
-              const q = onMask(u, v, relief(t, 0.5, 0.0072) + 0.0014);
-              p.add(ball(0.0050, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1.0, 0.60, 0.85));
+              const q = onMask(u, v, relief(t, 0.5, 0.0050) + 0.0012);
+              p.add(ball(0.0044, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1.0, 0.60, 0.85));
             }
             // The boar's head each eyebrow ends in. Two solids and a pair of
             // tusks: at the size this is seen it is a snout that overhangs the
             // temple, and everything finer than that is spent on nothing.
+            //
+            // Sized to the band it terminates rather than to the head it is on. At
+            // 10.5 mm scaled 1.45 the snout was a 30 mm gold pod at each temple —
+            // bigger than the brow it finished and, in the turntable, a second pair
+            // of lumps competing with the nose. A terminal is read by being *on the
+            // end of something*, so it is now a shade wider than the band and no
+            // more.
             const bu = s * (browEnd - 0.012);
             const bv = mix(browLo(bu), browHi(bu), 0.45);
-            const q = onMask(bu, bv, 0.0075);
-            p.add(ball(0.0105, 7), gilt,
-              xf(q.x, skullY + q.y, q.z, 0, s * 0.55, 0, 1.45, 0.92, 0.95));
-            p.add(ball(0.0052, 6), gilt,
-              xf(q.x + s * 0.0092, skullY + q.y - 0.0035, q.z - 0.0028, 0, s * 0.55, 0, 1.2, 0.85, 0.9));
+            const q = onMask(bu, bv, 0.0050);
+            p.add(ball(0.0076, 7), gilt,
+              xf(q.x, skullY + q.y, q.z, 0, s * 0.55, 0, 1.40, 0.90, 0.95));
+            p.add(ball(0.0040, 6), gilt,
+              xf(q.x + s * 0.0074, skullY + q.y - 0.0030, q.z - 0.0022, 0, s * 0.55, 0, 1.2, 0.85, 0.9));
             // Tusks. 0.5 mm at the root over 10 mm of length is a hair, and the
             // review found them as exactly that: "hair-thin whisker slivers off
             // both eyebrow terminals". A sliver one pixel wide is not a small
@@ -6463,8 +6565,8 @@ export function buildCharacter(
             // value, and it has no shape to lose. Shorter and three times as
             // thick, so what is there reads as a tusk or is not there at all.
             for (const t of [-1, 1]) {
-              p.add(rod(0.0015, 0.0028, 0.0072, 5), gilt,
-                xf(q.x + s * 0.011, skullY + q.y + t * 0.0024, q.z + 0.0035, 0, 0, s * 1.15));
+              p.add(rod(0.0013, 0.0024, 0.0060, 5), gilt,
+                xf(q.x + s * 0.0088, skullY + q.y + t * 0.0021, q.z + 0.0030, 0, 0, s * 1.15));
             }
           }
         }
@@ -6482,47 +6584,88 @@ export function buildCharacter(
         // What makes it work geometrically: the nose runs *above* the eyebrows'
         // inner ends and continues below them, so the three pieces cross rather
         // than abut, and the moustache is wider than the eyebrows are long.
-        // The moustache, and it is ONE form. It shipped as two leaves parted at
-        // the philtrum, each a lens that came to nothing at both ends, and at the
-        // size a face is read from that is a bowtie: two gold blobs under a nose.
-        // The cost of that is not the moustache, it is the bird — the whole point
-        // of this group is that brows, nose and moustache resolve as a bird in
-        // flight, and a tail split into two lobes reads as neither a tail nor a
-        // moustache. So: a single sheet the full 88 mm across, at full depth from
-        // the centre out to two thirds of its span and closing only in the last
-        // third, with a shallow notch under the philtrum instead of a gap. A real
-        // moustache is one mass with a parting drawn on it, not two of anything.
+        //
+        // THE FAULT THE LAST PASS INTRODUCED, because it is worth naming before
+        // the numbers. Sent to close a 14 mm band of bare silver between nose and
+        // moustache, it welded them: the nose was run 30 mrad past the moustache's
+        // top edge at 9.2 mm of relief, and the moustache's own relief was keyed
+        // off `1 − mT^2.4` fed into a term that peaks at a half — so the tail was
+        // FLAT on the centreline and stood 8 mm proud at three-quarters of its
+        // span. A tall ridge coming down into a hollow with two horns either side
+        // is not a bird; it is a bill. At −45° and −90° it juts off the face and
+        // it is the first thing in the frame.
+        //
+        // Both halves are fixed here, and the principle behind both is the one
+        // the whole helmet keeps getting wrong: the fittings on the artefact lie
+        // CLOSE to a smooth face. Depth is not what makes them read — outline is.
+        //
+        // The moustache, and it is ONE form: a single broad sheet the full 88 mm
+        // across, at nearly full depth out to two thirds of its span, with a
+        // shallow notch under the philtrum instead of a gap. Its relief now peaks
+        // on the centreline and dies at both tips, which is what a mass with a
+        // parting drawn on it looks like — and it is 3 mm rather than 8, so it is
+        // broad and flat where it used to be lumpy.
         const mTop = lat(Y_NOSE - 0.045);
         const mBot = lat(Y_LIP + 0.02);
         const mMid = (mTop + mBot) * 0.5;
         const mHalf = (mTop - mBot) * 0.5;
         const mSpan = 0.475;
         const mT = (u: number) => clamp01(Math.abs(u) / mSpan);
-        // Full through the middle, tapering only near the tips.
-        const leaf = (u: number) => mHalf * (1 - Math.pow(mT(u), 3.2));
-        // The droop, and the notch. The notch is 3 mm of the lower edge at the
-        // centreline — enough to say "parted" from a metre away and not enough to
-        // break the mass in two.
+        // Keeps 28% of its depth at the tips rather than closing to a point. A
+        // moustache that comes to nothing at both ends is a pair of horns; one
+        // that keeps a hem is a tail, and the tail is what this shape is for.
+        const leaf = (u: number) => mHalf * (1 - 0.72 * Math.pow(mT(u), 2.6));
+        // The droop, and the notch. The centre sits high and level under the nose
+        // so the two forms meet in a T that reads at a glance; the ends fall 10 mm
+        // below it, which is the drooping the object has and the last build did
+        // not. The notch is 2 mm of the lower edge at the centreline — enough to
+        // say "parted" from a metre away and not enough to break the mass in two.
         const droop = (u: number) =>
-          mMid - 0.088 * Math.pow(mT(u), 1.5) - 0.022 * Math.pow(1 - smooth(0, 0.055, Math.abs(u)), 2);
+          mMid - 0.095 * Math.pow(mT(u), 1.8) - 0.018 * Math.pow(1 - smooth(0, 0.055, Math.abs(u)), 2);
+        const mLip = (u: number) => droop(u) + leaf(u);
         onShell(-mSpan, mSpan,
-          (u) => droop(u) - leaf(u), (u) => droop(u) + leaf(u), Math.max(12, lod.shellU + 10), 4,
-          (u, v, t) => maskLift(v) + relief(1 - Math.pow(mT(u), 2.4), t, 0.0080),
+          (u) => droop(u) - leaf(u), mLip, Math.max(14, lod.shellU + 12), 5,
+          (u, v, t) => maskLift(v) + relief(0.5 + 0.5 * (u / mSpan), t, 0.0030),
           0.0045, gilt);
         // The nose, drawn AFTER the moustache and solved against it.
         //
-        // It used to stop at `lat(Y_NOSE − 0.02)` while the moustache's top edge
-        // at the centreline sits at `mTop − 0.022`, which left about 14 mm of bare
-        // silver between them: the review's "a clear band of bare silver runs
-        // between the nasal's lower end and the moustache's top … the bird needs
-        // body and tail joined; they are not touching." That gap is not a detail,
-        // it is the whole figure — three gold objects sharing a face instead of
-        // one bird. The foot now runs 30 mrad *past* the moustache's top edge, so
-        // the body sits on the tail and the join is under metal.
-        const noseTop = lat(Y_BROW + 0.03);
-        const noseBot = droop(0) + leaf(0) - 0.030;
-        onShell(-0.105, 0.105, () => noseBot, () => noseTop, 8, 9,
-          (u, v, t) => maskLift(v) + relief(clamp01(0.5 + u / 0.21), t, 0.0092),
+        // ITS OUTLINE IS THE POINT, NOT ITS HEIGHT. The outline is carried by the
+        // patch's own v-bounds rather than by a fade in the relief, so the sheet
+        // exists exactly where the fitting is and lies flush with the mask
+        // everywhere it is not — a shape with a real edge does not need to stand
+        // proud to be read.
+        //
+        // The shape is a nose and not a wedge, and the difference is the whole
+        // complaint. Straight-sided from bridge to about two thirds down at 14 mm
+        // across, then flaring to 27 mm at the alae — which is a cubic in the
+        // half-width, inverted here because the sweep is parameterised across the
+        // fitting rather than along it. Ramping the width evenly from apex to base
+        // instead gives a triangle, and a gold triangle down the middle of a face
+        // is a bill however flat it lies. Measured against the artefact: bridge
+        // 15 mm, alae 34 — this is a shade narrower on purpose, because the mask
+        // around it is a rendered 130 mm rather than a real 200.
+        //
+        // Length off the eye line rather than off `Y_BROW`, and shorter by 40 mm.
+        // The brows are keyed to `ev` now, so keying the nose to `Y_BROW` let the
+        // two drift apart on a warrior whose seed sites his eyes low: the nose ran
+        // up past the brow arcs to the cap band, and a 75 mm nose on a 130 mm face
+        // is the single biggest thing in the frame. It now finishes just above the
+        // brows' inner ends, which is where the bird's head sits and where the
+        // artefact's own nose piece stops.
+        //
+        // 2.6 mm proud, down from 9.2. The relief's own taper takes it to nothing
+        // at the foot, so the body sinks into the tail rather than standing over
+        // it, and the tail stays the wider, flatter, separate form it has to be.
+        const noseTop = ev + 0.205;
+        const noseBot = mLip(0) - 0.014;
+        const noseHalf = 0.124;
+        const noseFlare = (u: number) =>
+          Math.cbrt(clamp01((Math.abs(u) - 0.062) / (noseHalf - 0.062)));
+        onShell(-noseHalf, noseHalf,
+          () => noseBot,
+          (u) => mix(noseTop, noseBot, noseFlare(u)),
+          12, 9,
+          (u, v, t) => maskLift(v) + relief(0.5 + 0.5 * (u / noseHalf), t, 0.0026),
           0.0045, gilt);
         if (lod.trim) {
           // THE BIRD'S HEAD, and the other half of the same complaint: "there is
@@ -6536,15 +6679,21 @@ export function buildCharacter(
           // which is where the red was always trying to be. Small deliberately: it
           // has to break the tab's straight top edge and read as a head in
           // silhouette, and anything more is spent below a pixel.
-          const hq = onMask(0, noseTop - 0.026, 0.0092);
-          p.add(ball(0.0092, 8), gilt,
-            xf(hq.x, skullY + hq.y, hq.z, -0.30, 0, 0, 0.78, 1.00, 0.90));
-          const bq = onMask(0, noseTop + 0.020, 0.0090);
-          p.add(ball(0.0050, 7), gilt,
-            xf(bq.x, skullY + bq.y, bq.z, -0.55, 0, 0, 0.62, 1.25, 0.80));
+          //
+          // A third smaller again, because it sits at the top of the one form that
+          // was over-built. A 9 mm ball at 9 mm of standoff put 18 mm of solid gold
+          // out from the brow — measured against the mask it terminates, that is
+          // the biggest single protrusion on the helmet, and it was carrying the
+          // beak read as much as the nose was.
+          const hq = onMask(0, noseTop - 0.020, 0.0046);
+          p.add(ball(0.0064, 8), gilt,
+            xf(hq.x, skullY + hq.y, hq.z, -0.30, 0, 0, 0.82, 1.00, 0.78));
+          const bq = onMask(0, noseTop + 0.020, 0.0044);
+          p.add(ball(0.0036, 7), gilt,
+            xf(bq.x, skullY + bq.y, bq.z, -0.55, 0, 0, 0.66, 1.25, 0.70));
           for (const s of [-1, 1]) {
-            const q = onMask(s * 0.038, noseTop - 0.030, 0.0126);
-            p.add(ball(0.0034, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1, 0.85, 0.75));
+            const q = onMask(s * 0.030, noseTop - 0.024, 0.0078);
+            p.add(ball(0.0028, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 1, 0.85, 0.75));
           }
         }
 
@@ -6566,24 +6715,44 @@ export function buildCharacter(
         // off the plate, and mail is a substance this file already has, hangs on
         // rings rather than on latitudes, and reads correctly as cut-out.
         //
-        // Swept on rings like the nape fall, and solved against the same seam:
-        // `severBody` bakes flat anything crossing `S.neckRoot − S.neckTop`, so
-        // the floor is held clear of the cut and a severed head keeps its ventail
-        // instead of wearing a sliced one.
+        // Swept on rings like the nape fall.
+        //
+        // TWO NUMBERS DECIDE WHETHER IT WORKS, and the last build had both wrong
+        // because it sized the curtain off the throat instead of off the head.
+        //
+        // How far DOWN. It floored 14 mm clear of `severBody`'s neck seam so a
+        // severed head would keep an unsliced ventail — which stopped it 28 mm
+        // short of the hauberk's own collar line, and 28 mm of lit neck and linen
+        // is precisely the "bare flesh collar" the frame shows at front and
+        // three-quarter. That trade is the wrong way round: the mail is looked at
+        // in every frame of every match and the severed head is looked at for
+        // about a second. So the floor is now solved against the collar the
+        // curtain has to land on and it crosses the seam to get there, exactly as
+        // the huscarl's coif has always done — a head that comes off wears mail
+        // cut at the neck, which is what a head that comes off should look like.
+        //
+        // How far OUT. The rings were 60–82% of the skull's own half-width, so the
+        // curtain was a bib hanging on the throat with its side edges 60 mm inboard
+        // of where the cheek guard's lower edge and the nape fall's front edge
+        // actually are — and at profile the eye looked straight between them into
+        // bare neck. They are now 86–124%, which puts the curtain's surface within
+        // a few millimetres of the guard's silhouette edge the moment the guard
+        // ends, and inside the coif and the nape fall everywhere the three overlap.
+        // Mail laps mail without a seam, which is why this is the piece that gets
+        // made generous rather than the plates either side of it.
         {
           const chinPt = new THREE.Vector3();
           shell(0, chinV, maskLift(chinV), chinPt);
-          const vCut = S.neckRoot - S.neckTop;
           const vTop = skullY + chinPt.y + 0.016;
-          const vBot = Math.max(vCut + 0.014, vTop - 0.098);
+          const vBot = S.neckRoot - 0.014 - S.neckTop - 0.022;
           // Hung off the mask's own lower edge in z and falling back onto the
           // neck as it drops, so the curtain lies against the throat rather than
           // standing off it as a bib. Wider at the bottom because it lands on the
           // collar, which is where a coif's skirt goes.
           const vRings = [
-            { y: vTop, hw: R.x * 0.60, hd: R.z * 0.52, z: chinPt.z * 0.56 },
-            { y: mix(vTop, vBot, 0.55), hw: R.x * 0.70, hd: R.z * 0.62, z: chinPt.z * 0.34 },
-            { y: vBot, hw: R.x * 0.82, hd: R.z * 0.72, z: chinPt.z * 0.16 },
+            { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
+            { y: mix(vTop, vBot, 0.5), hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
+            { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
           ];
           const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
             const t = v * (vRings.length - 1);
@@ -6597,20 +6766,23 @@ export function buildCharacter(
               mix(a.z, b.z, f) + Math.cos(u) * (mix(a.hd, b.hd, f) - inset),
             );
           };
-          // Front arc only, cheek to cheek. u descends so ∂u × ∂v faces out — the
-          // same trap the coif and the nape fall are both written around, and a
-          // curtain swept the other way renders as a hole in the throat.
-          // 1.55, not 1.32. At 1.32 the curtain covered the throat and stopped
-          // in front of the point where the nape fall's own front edge has raked
-          // backwards, so `profile_90_` still showed a wedge of bare neck between
-          // the two under the cheek guard. This is the third piece meeting at
-          // that corner and it is the one that can afford to be generous: mail
-          // laps mail without a seam, where two plates cannot.
-          const vHalf = 1.55;
+          // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
+          // fall are both written around, and a curtain swept the other way
+          // renders as a hole in the throat.
+          //
+          // 2.45 rad, not 1.55: the arc now runs well past the ear on both sides
+          // and finishes under the nape fall, which owns everything behind
+          // 1.40 rad. Two prior passes widened this by tenths and the profile card
+          // kept showing a hole, because the gap was never in the arc — it was in
+          // the radius. Both are settled together here: past the ear the curtain
+          // is inside the fall's own plate, so the extra sweep costs a few
+          // triangles nobody will see and removes the last bearing at which the
+          // three pieces can disagree.
+          const vHalf = 2.45;
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
           p.add(patch({
-            nu: Math.max(8, lod.shellU - 2), nv: 3,
+            nu: Math.max(12, lod.shellU + 2), nv: 4,
             outer: vSweep(0), inner: vSweep(0.007),
           }), mail);
         }
