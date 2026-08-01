@@ -64,3 +64,27 @@ true means the graph is silent and the fault is downstream.
 
 **Do not add another Chromium test and call it proven.** That is what produced
 this entry.
+
+---
+
+## Resolved — it was the stale bundle
+
+The owner reports sound working on mobile. No code changed between the report
+and the fix, so candidate 1 is what it was: the phone was running the bundle
+from before audio existed, which is a genuinely silent build.
+
+**The test gap above is not resolved and this entry stays open for it.**
+`phonesound` was green while a phone was silent. It happened to be green for an
+honest reason this time — the deployed code really was fine — but it would be
+just as green if iOS Safari broke the unlock tomorrow, because it cannot run
+iOS Safari. Nothing has been learned about the thing it claims to prove.
+
+Two things follow, and they are the point of keeping this:
+
+- **Treat `phonesound` as proving the unlock LOGIC, never the platform.** Say so
+  in any report that cites it. The temptation to write "verified on mobile" off
+  a Chromium run is exactly how this entry came to exist.
+- **A stale bundle is now a known cause on this project.** Sound merged hours
+  before the report, and the first instinct was to distrust the code. Anything
+  shipped in the last day should have a hard reload ruled out before it is
+  debugged — it costs the owner ten seconds and it saved a wasted pass here.
