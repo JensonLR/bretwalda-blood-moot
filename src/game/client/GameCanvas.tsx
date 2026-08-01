@@ -26,10 +26,53 @@ import {
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./render/anim";
 
+/**
+ * How far the build has got. `done` is the weight of the stages that have
+ * *landed*; `label` is the stage now being made. `done === total` means the
+ * arena stands and the next frame the loop draws is the game.
+ */
+export interface ForgeProgress {
+  done: number;
+  total: number;
+  label: string;
+  /** Index of the stage being made, or `stages` once they have all landed. */
+  stage: number;
+  stages: number;
+}
+
+type ForgeSink = (p: ForgeProgress) => void;
+
 interface GameCanvasProps {
   playerId: string;
   roomState: RoomState | null;
   onSendInput: (input: Record<string, unknown>) => void;
+  /**
+   * Called as each build stage lands, so whoever mounted this can hold a
+   * loading screen in front of the canvas. Optional on purpose: /shot mounts
+   * the same component and wants no chrome at all — and its absence is what
+   * keeps the build inside the mount task (see the note on the init effect).
+   */
+  onForge?: ForgeSink;
+}
+
+/**
+ * Hands the main thread back between stages and returns once the browser has
+ * had its chance to put pixels up.
+ *
+ * `requestAnimationFrame` alone resolves too early — its callback runs before
+ * the paint — so the timeout scheduled from inside the frame is what waits for
+ * it. And rAF alone is not safe either: it is throttled to nothing in a
+ * backgrounded tab, which is exactly where a player who opens an invite link
+ * and flicks to the group chat leaves this build. Whichever arm lands first
+ * resolves; the other becomes a no-op. Neither arm can wedge the build.
+ */
+function yieldToPaint(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => { if (!settled) { settled = true; resolve(); } };
+    requestAnimationFrame(() => { setTimeout(done, 0); });
+    setTimeout(done, 100);
+  });
 }
 
 interface RoomState {
@@ -71,7 +114,7 @@ interface WarriorSlot {
   dustTick: number;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, onForge }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -87,8 +130,17 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
   // packet does not tear down and rebuild the animation frame callback.
   const roomStateRef = useRef<RoomState | null>(roomState);
   const sendInputRef = useRef(onSendInput);
+  // Initialised from the first render's prop rather than filled in by an
+  // effect: the build reads it on mount, before any effect that assigns it
+  // would have run, and a build that could not see its consumer would silently
+  // decide it had none and stop yielding.
+  const onForgeRef = useRef(onForge);
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
+  // Held in a ref rather than read from the effect's closure: a parent that
+  // rebuilds this callback every render must not tear the arena down and build
+  // it again, which is what listing it in the effect's deps would do.
+  useEffect(() => { onForgeRef.current = onForge; }, [onForge]);
 
   const hitStopRef = useRef(0);
   const animRef = useRef(0);
@@ -118,103 +170,256 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
   }, []));
 
   // ---------- stage init ----------
+  //
+  // The arena is built in named stages that report as they land, rather than
+  // in one synchronous block. The work and its order are untouched; the only
+  // change is that there is a boundary between the pieces, so the main thread
+  // can be handed back in between and a consumer can be told where the build
+  // has got to. Done in one block it is seconds of arithmetic on a phone with
+  // nothing painted at all, which is indistinguishable from a hang.
+  //
+  // Three rules hold this together, and each one is a bill already paid:
+  //
+  //  - **With no consumer, nothing yields.** /shot mounts this component with
+  //    no `onForge` and counts settle frames from the moment it mounts, so a
+  //    build spread over eight animation frames would eat the frame budget its
+  //    poses converge in. With no consumer the loop never awaits at all, and
+  //    the whole build lands inside the mount task exactly as it did before.
+  //  - **`done` only advances on work that has finished.** The label names the
+  //    stage being made, but the number behind it is the weight of the stages
+  //    already standing. A bar fed from this cannot claim ground it has not
+  //    taken.
+  //  - **`window.__forgeStages` grows only when a stage lands**, with what it
+  //    cost. The first attempt at this was believed because its screen was
+  //    drawing something; it sat at stage zero for seven minutes. A timeline
+  //    that only grows on completion is what proves the build, and it can be
+  //    read on a real device instead of inherited from this box.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    isMobile.current = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-    const quality = resolveQuality();
-
-    let renderer: THREE.WebGLRenderer;
-    try {
-      // Context MSAA only earns its keep when the beauty pass reaches the
-      // canvas. With the composer up, the only thing the default framebuffer
-      // ever sees is a fullscreen quad, and a 4x resolve of that is pure cost —
-      // SMAA/FXAA in the chain is what resolves the geometry edges.
-      renderer = new THREE.WebGLRenderer({
-        canvas,
-        antialias: quality.antialias && !quality.postProcessing,
-        powerPreference: "high-performance",
-      });
-    } catch {
-      setGlError("Your device's browser could not start 3D graphics (WebGL). Try Chrome, Safari, or updating your OS.");
-      return;
-    }
-    // Recover gracefully if the GPU context is lost (common on mobile when switching tabs)
-    canvas.addEventListener("webglcontextlost", (e) => {
-      e.preventDefault();
-      setGlError("Graphics paused — tap anywhere to resume the battle.");
-    });
-    canvas.addEventListener("webglcontextrestored", () => setGlError(null));
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    configureRenderer(renderer, quality);
-
-    const scene = new THREE.Scene();
-    const textures = createTextureLibrary(renderer, quality);
-    const materials = createMaterialLibrary(textures, quality);
-    const rig = createCameraRig(quality, { aspect: window.innerWidth / window.innerHeight });
-    // postfx first: it owns renderer.toneMappingExposure, and sky.ts encodes
-    // its fog and clear colours against that value from its own constructor.
-    const postfx = createPostFx(renderer, scene, rig.camera, quality);
-    // sky pushes its PMREM into the material library itself, on every rebake —
-    // a one-shot setEnvironment here would go stale the first time the mood
-    // changes and every metal in the arena would reflect a dead texture.
-    const sky = createSky(scene, renderer, materials, quality);
-    // Hand the rig both bodies and let it decide which one the shadows hang on;
-    // naming a field for the role rather than the body is what let a sunset ship
-    // with every shadow pointing at the sun.
-    const lighting = createLighting(scene, quality, {
-      moon: sky.moonDirection, moonColor: sky.moonColor,
-      sun: sky.sunDirection, sunColor: sky.sunColor,
-    });
-    const world = createWorld(scene, materials, quality);
-    // vfx after world, and not only for draw order: it finds the arena's fires
-    // by reading the props world.ts has already built, and it lands its blood
-    // and its bounces on world.ts's terrain rather than on y = 0, which stopped
-    // being the ground the moment the arena got a bank and a ditch.
-    const vfx = createVfx(scene, textures, quality, { groundAt: world.heightAt });
-    const hud = createHud3d(scene, quality);
-
-    // The haze picks up the arena's real hero fire rather than sky.ts's
-    // documented guess at where it is, so moving the bonfire moves the glow it
-    // throws into the air with it. Chosen by reach rather than by index — the
-    // torches are built first and the ordering of that list is world.ts's
-    // business, not ours.
-    {
-      const at = new THREE.Vector3();
-      let hero: THREE.PointLight | null = null;
-      for (const light of world.pointLights) {
-        if (!hero || light.distance > hero.distance) hero = light;
-      }
-      if (hero) {
-        hero.getWorldPosition(at);
-        sky.setHazeLight({ position: at, color: hero.color.clone(), gain: 1 });
-        // The same fire, told to the light rig. lighting.ts carries the hearth's
-        // wide pool because it is built before world.ts and cannot be handed a
-        // light that does not exist yet; without this it pools at a documented
-        // default at the arena origin, which is right only for as long as nobody
-        // moves the bonfire.
-        lighting.setHearth(at);
-      }
-    }
-
-    // Photo mode (/shot) pins the camera yaw so captures are reproducible.
-    const photoGlobals = window as unknown as Record<string, unknown>;
-    const photoCam = photoGlobals.__photoCam;
-    if (typeof photoCam === "number") rig.yaw = photoCam;
-    // A capture may also aim the camera outright, which is the only way to see
-    // a warrior's front — every play mode is over his shoulder.
-    const framing = photoGlobals.__photoFraming as PhotoFraming | undefined;
-    if (framing?.position && framing?.target) {
-      rig.setPhotoFraming(framing);
-      photoFramedRef.current = true;
-    }
-
-    const stage: Stage = { renderer, scene, quality, textures, materials, sky, lighting, world, vfx, postfx, rig, hud };
-    stageRef.current = stage;
+    const globals = window as unknown as Record<string, unknown>;
     const warriors = warriorsRef.current;
 
+    // A build that is cancelled mid-flight still has to give back whatever it
+    // had already made — a stage that lands after the unmount is holding real
+    // GPU memory. Every stage pushes its own release the moment it lands, and
+    // cleanup runs them in reverse: a handle gives back what it was built on.
+    let cancelled = false;
+    let failed = false;
+    const disposers: Array<() => void> = [];
+
+    // Resolved once, before the first stage, and never re-read: the yielding
+    // behaviour must not change halfway through a build. `__forgeProgress` is
+    // the same hook by another door, for a harness that has to watch the build
+    // without a React parent to hang a callback on.
+    const hook = globals.__forgeProgress;
+    const sink: ForgeSink | null =
+      onForgeRef.current ?? (typeof hook === "function" ? (hook as ForgeSink) : null);
+
+    // Everything the stages write into. Declared out here rather than threaded
+    // through arguments so the bodies below read as the single block they were.
+    let renderer!: THREE.WebGLRenderer;
+    let scene!: THREE.Scene;
+    let quality!: QualitySettings;
+    let textures!: TextureLibrary;
+    let materials!: MaterialLibrary;
+    let rig!: CameraRig;
+    let postfx!: PostFxHandle;
+    let sky!: SkyHandle;
+    let lighting!: LightingHandle;
+    let world!: WorldHandle;
+    let vfx!: VfxHandle;
+    let hud!: Hud3D;
+
+    // The stages, and what each costs as a share of the whole. Measured rather
+    // than assumed: an evenly-spaced bar over stages this uneven lies twice,
+    // racing the cheap half and then appearing to stall on the arena. The
+    // shares are CPU cost, which is the right basis for every stage but the
+    // first — waking the forge is a WebGL handshake that costs seconds under a
+    // software rasteriser and milliseconds on real silicon, so it is weighted
+    // for the phone the game is played on rather than for the box that timed it.
+    const steps: ReadonlyArray<{ label: string; weight: number; run: () => void }> = [
+      {
+        label: "WAKING THE FORGE", weight: 6, run: () => {
+          isMobile.current = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+          quality = resolveQuality();
+          try {
+            // Context MSAA only earns its keep when the beauty pass reaches the
+            // canvas. With the composer up, the only thing the default framebuffer
+            // ever sees is a fullscreen quad, and a 4x resolve of that is pure cost —
+            // SMAA/FXAA in the chain is what resolves the geometry edges.
+            renderer = new THREE.WebGLRenderer({
+              canvas,
+              antialias: quality.antialias && !quality.postProcessing,
+              powerPreference: "high-performance",
+            });
+          } catch {
+            setGlError("Your device's browser could not start 3D graphics (WebGL). Try Chrome, Safari, or updating your OS.");
+            failed = true;
+            return;
+          }
+          disposers.push(() => renderer.dispose());
+          // Recover gracefully if the GPU context is lost (common on mobile when switching tabs)
+          canvas.addEventListener("webglcontextlost", onContextLost);
+          canvas.addEventListener("webglcontextrestored", onContextRestored);
+          disposers.push(() => {
+            canvas.removeEventListener("webglcontextlost", onContextLost);
+            canvas.removeEventListener("webglcontextrestored", onContextRestored);
+          });
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          configureRenderer(renderer, quality);
+          scene = new THREE.Scene();
+        },
+      },
+      {
+        label: "GRINDING PIGMENT AND DYE", weight: 3, run: () => {
+          textures = createTextureLibrary(renderer, quality);
+          // Every surface materials.ts asks for is generated on the next line,
+          // which is why these are one stage and not two: splitting them would
+          // put a boundary where there is no work on one side of it.
+          materials = createMaterialLibrary(textures, quality);
+          disposers.push(() => { materials.dispose(); textures.dispose(); });
+        },
+      },
+      {
+        label: "SETTING THE GRADE", weight: 8, run: () => {
+          rig = createCameraRig(quality, { aspect: window.innerWidth / window.innerHeight });
+          // postfx first: it owns renderer.toneMappingExposure, and sky.ts encodes
+          // its fog and clear colours against that value from its own constructor.
+          postfx = createPostFx(renderer, scene, rig.camera, quality);
+          disposers.push(() => { postfx.dispose(); rig.dispose(); });
+        },
+      },
+      {
+        label: "RAISING THE SKY", weight: 18, run: () => {
+          // sky pushes its PMREM into the material library itself, on every rebake —
+          // a one-shot setEnvironment here would go stale the first time the mood
+          // changes and every metal in the arena would reflect a dead texture.
+          sky = createSky(scene, renderer, materials, quality);
+          disposers.push(() => sky.dispose());
+        },
+      },
+      {
+        label: "LIGHTING THE TORCHES", weight: 1, run: () => {
+          // Hand the rig both bodies and let it decide which one the shadows hang on;
+          // naming a field for the role rather than the body is what let a sunset ship
+          // with every shadow pointing at the sun.
+          lighting = createLighting(scene, quality, {
+            moon: sky.moonDirection, moonColor: sky.moonColor,
+            sun: sky.sunDirection, sunColor: sky.sunColor,
+          });
+          disposers.push(() => lighting.dispose());
+        },
+      },
+      {
+        label: "RAISING THE MOOT", weight: 55, run: () => {
+          world = createWorld(scene, materials, quality);
+          disposers.push(() => world.dispose());
+        },
+      },
+      {
+        label: "KINDLING THE FIRES", weight: 8, run: () => {
+          // vfx after world, and not only for draw order: it finds the arena's fires
+          // by reading the props world.ts has already built, and it lands its blood
+          // and its bounces on world.ts's terrain rather than on y = 0, which stopped
+          // being the ground the moment the arena got a bank and a ditch.
+          vfx = createVfx(scene, textures, quality, { groundAt: world.heightAt });
+          disposers.push(() => vfx.dispose());
+        },
+      },
+      {
+        label: "HANGING THE BANNERS", weight: 1, run: () => {
+          hud = createHud3d(scene, quality);
+          disposers.push(() => {
+            warriors.forEach((slot, id) => { hud.detach(id); slot.rig.dispose(); });
+            warriors.clear();
+            hud.dispose();
+          });
+
+          // The haze picks up the arena's real hero fire rather than sky.ts's
+          // documented guess at where it is, so moving the bonfire moves the glow it
+          // throws into the air with it. Chosen by reach rather than by index — the
+          // torches are built first and the ordering of that list is world.ts's
+          // business, not ours.
+          const at = new THREE.Vector3();
+          let hero: THREE.PointLight | null = null;
+          for (const light of world.pointLights) {
+            if (!hero || light.distance > hero.distance) hero = light;
+          }
+          if (hero) {
+            hero.getWorldPosition(at);
+            sky.setHazeLight({ position: at, color: hero.color.clone(), gain: 1 });
+            // The same fire, told to the light rig. lighting.ts carries the hearth's
+            // wide pool because it is built before world.ts and cannot be handed a
+            // light that does not exist yet; without this it pools at a documented
+            // default at the arena origin, which is right only for as long as nobody
+            // moves the bonfire.
+            lighting.setHearth(at);
+          }
+
+          // Photo mode (/shot) pins the camera yaw so captures are reproducible.
+          const photoCam = globals.__photoCam;
+          if (typeof photoCam === "number") rig.yaw = photoCam;
+          // A capture may also aim the camera outright, which is the only way to see
+          // a warrior's front — every play mode is over his shoulder.
+          const framing = globals.__photoFraming as PhotoFraming | undefined;
+          if (framing?.position && framing?.target) {
+            rig.setPhotoFraming(framing);
+            photoFramedRef.current = true;
+          }
+        },
+      },
+    ];
+
+    const onContextLost = (e: Event) => {
+      e.preventDefault();
+      setGlError("Graphics paused — tap anywhere to resume the battle.");
+    };
+    const onContextRestored = () => setGlError(null);
+
+    const total = steps.reduce((sum, s) => sum + s.weight, 0);
+    // Only ever appended to by a stage that has finished. This is the evidence,
+    // not the decoration: a build that is stuck shows a short list that stops
+    // growing, and it can be read off a real device.
+    const marks: Array<{ label: string; ms: number; at: number }> = [];
+    globals.__forgeStages = marks;
+
+    const build = async () => {
+      const t0 = performance.now();
+      let done = 0;
+      for (let i = 0; i < steps.length; i++) {
+        if (cancelled) return;
+        const step = steps[i];
+        // The label is the thing being made; the number is what already stands.
+        sink?.({ done, total, label: step.label, stage: i, stages: steps.length });
+        if (sink) await yieldToPaint();
+        if (cancelled) return;
+        const started = performance.now();
+        step.run();
+        // A forge that would not wake has nothing to build on. The message is
+        // already on screen; the remaining stages would only throw.
+        if (failed) return;
+        marks.push({
+          label: step.label,
+          ms: Math.round(performance.now() - started),
+          at: Math.round(performance.now() - t0),
+        });
+        done += step.weight;
+      }
+      if (cancelled) return;
+
+      // Committed in one piece after the last stage, never across a yield: the
+      // frame loop reads `stageRef` and a half-wired stage is a torn frame.
+      const stage: Stage = { renderer, scene, quality, textures, materials, sky, lighting, world, vfx, postfx, rig, hud };
+      stageRef.current = stage;
+      disposers.push(() => { stageRef.current = null; });
+      wireInput();
+      sink?.({ done: total, total, label: "THE MOOT IS SET", stage: steps.length, stages: steps.length });
+    };
+
     // input listeners
+    const wireInput = () => {
     const inp = inputState.current;
     const mouseDelta = { x: 0, y: 0 };
     const onKeyDown = (e: KeyboardEvent) => {
@@ -253,9 +458,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
     document.addEventListener("pointerlockchange", onPLChange);
     canvas.addEventListener("mousemove", onMM);
     window.addEventListener("resize", onResize);
-    (window as unknown as Record<string, unknown>).__bretwalda_mouse = mouseDelta;
+    globals.__bretwalda_mouse = mouseDelta;
 
-    return () => {
+    disposers.push(() => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       canvas.removeEventListener("mousedown", onMouseDown);
@@ -264,19 +469,16 @@ export default function GameCanvas({ playerId, roomState, onSendInput }: GameCan
       document.removeEventListener("pointerlockchange", onPLChange);
       canvas.removeEventListener("mousemove", onMM);
       window.removeEventListener("resize", onResize);
+    });
+    };
 
-      warriors.forEach((slot, id) => { hud.detach(id); slot.rig.dispose(); });
-      warriors.clear();
-      hud.dispose();
-      postfx.dispose();
-      rig.dispose();
-      vfx.dispose();
-      world.dispose();
-      lighting.dispose();
-      sky.dispose();
-      materials.dispose();
-      textures.dispose();
-      renderer.dispose();
+    void build();
+
+    return () => {
+      cancelled = true;
+      // Reverse of the order they were made in: a handle gives back what it
+      // was built on top of. Whatever the build had reached is what is here.
+      for (const release of disposers.reverse()) release();
       stageRef.current = null;
     };
   }, []);
