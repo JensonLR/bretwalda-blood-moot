@@ -140,10 +140,33 @@ const LOCK_ACQUIRE_RANGE = 11.0;
  * and out of the lock, and the camera does not lurch every time he does.
  */
 const LOCK_DROP_RANGE = 15.0;
-/** How far off the current view a man may be and still be picked up cold. Wide
- *  — 143° either side — because being jumped from the flank is exactly when a
- *  phone player most needs the camera to find the man for him. */
+/**
+ * How far off the current view a man may be and still be picked up cold, out at
+ * LOCK_ACQUIRE_RANGE. Wide — 143° either side — because being jumped from the
+ * flank is exactly when a phone player most needs the camera to find the man.
+ */
 const LOCK_ACQUIRE_CONE = 2.5;
+/**
+ * And inside this, no cone at all.
+ *
+ * The harness found this the hard way: the lock's man died, and with two live
+ * recruits standing at 1.4 m and a third at 4.1 m the lock came up EMPTY and
+ * handed the camera back to free-look — because all three happened to be behind
+ * where the dead man had been. A phone player with two men hitting him in the
+ * back and no camera is worse off than before lock-on existed.
+ *
+ * A cone is a statement about relevance, and at arm's length every direction is
+ * relevant: a man close enough to hit you IS the fight, whichever way he is
+ * standing. So the cone opens to the full circle inside the bubble and closes
+ * back to LOCK_ACQUIRE_CONE by the time he is out at acquire range. Turning
+ * round is still eased and still rate-capped — the lock never snaps.
+ */
+const LOCK_CLOSE_RANGE = 3.6;
+
+function acquireCone(d: number): number {
+  const k = Math.min(1, Math.max(0, (d - LOCK_CLOSE_RANGE) / (LOCK_ACQUIRE_RANGE - LOCK_CLOSE_RANGE)));
+  return Math.PI + (LOCK_ACQUIRE_CONE - Math.PI) * k;
+}
 /**
  * The weighting, in metres of cost per radian off screen centre. This is the
  * whole of "nearest, weighted by how near centre he already is": a man 6 m
@@ -207,6 +230,10 @@ const lock = {
   switches: 0,
   /** A flick asked for a new man: -1 screen-left, +1 screen-right, 0 nothing. */
   pending: 0,
+  /** Why there is nobody, in words. Diagnostics only — the harness prints it,
+   *  because "the lock let go" and "the lock never took hold" are different
+   *  bugs and a verdict alone cannot tell them apart. */
+  reason: "boot",
 };
 
 const lockListeners = new Set<() => void>();
@@ -344,22 +371,35 @@ function applySwitch(
 function pickTarget(yaw: number, players: Record<string, GamePlayer>, local: GamePlayer, localId: string): void {
   const held = lock.id ? players[lock.id] : null;
   const keeps = held && held.state !== "dead" && distTo(local, held) <= LOCK_DROP_RANGE;
-  if (!keeps && lock.id) { lock.id = null; lock.sticky = 0; }
+  if (!keeps && lock.id) {
+    lock.reason = !held ? "the man left the fight"
+      : held.state === "dead" ? "the man died"
+        : "the man went outside drop range";
+    lock.id = null;
+    lock.sticky = 0;
+  }
 
   applySwitch(players, local, localId);
   if (lock.id && lock.sticky > 0) return;
 
   let best: string | null = null;
   let bestScore = Infinity;
+  let inRange = 0;
   for (const id of liveEnemies(players, localId)) {
     const e = players[id];
     const d = distTo(local, e);
     if (d > (id === lock.id ? LOCK_DROP_RANGE : LOCK_ACQUIRE_RANGE)) continue;
-    if (id !== lock.id && Math.abs(shortestAngle(yaw, bearingTo(local, e))) > LOCK_ACQUIRE_CONE) continue;
+    inRange++;
+    if (id !== lock.id && Math.abs(shortestAngle(yaw, bearingTo(local, e))) > acquireCone(d)) continue;
     const s = lockScore(yaw, local, e);
     if (s < bestScore) { bestScore = s; best = id; }
   }
-  if (!lock.id) { lock.id = best; return; }
+  if (!lock.id) {
+    lock.id = best;
+    if (best) lock.reason = "held";
+    else lock.reason = inRange ? `${inRange} in range, none inside the acquire cone` : "no live enemy in range";
+    return;
+  }
   if (!best || best === lock.id) return;
   if (bestScore < lockScore(yaw, local, players[lock.id]) * LOCK_HYSTERESIS) lock.id = best;
 }
@@ -383,6 +423,7 @@ function updateLock(
   if (!enabled || !local || local.state === "dead") {
     lock.id = null;
     lock.pending = 0;
+    lock.reason = !enabled ? "lock-on is off" : "the warrior is down";
   } else {
     pickTarget(rig.yaw, players, local, localId);
   }
@@ -423,6 +464,7 @@ if (typeof window !== "undefined") {
     get blend() { return lock.blend; },
     get switches() { return lock.switches; },
     get desktop() { return lock.desktop; },
+    get reason() { return lock.reason; },
   };
 }
 

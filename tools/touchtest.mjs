@@ -355,6 +355,7 @@ async function lockAct(browser, url, check) {
     engaged: !!(window.__bretwaldaLock && window.__bretwaldaLock.engaged),
     blend: (window.__bretwaldaLock && window.__bretwaldaLock.blend) || 0,
     switches: (window.__bretwaldaLock && window.__bretwaldaLock.switches) || 0,
+    reason: (window.__bretwaldaLock && window.__bretwaldaLock.reason) || "?",
   }));
   const waitForLock = () => page.waitForFunction(
     () => window.__bretwaldaLock && window.__bretwaldaLock.engaged && window.__bretwaldaLock.blend > 0.9,
@@ -454,7 +455,7 @@ async function lockAct(browser, url, check) {
     }, mark);
     check("a flick across the button side switches target",
       !!after.target && after.target !== before.target && after.switches > before.switches,
-      `flicked 92px right: the lock went ${trace.held}; live foes now ${trace.foes || "none"}; the camera came onto the new man to within ${trace.off === null ? "n/a" : (trace.off * 57.3).toFixed(1) + "°"}`);
+      `flicked 92px right: the lock went ${trace.held}; live foes now ${trace.foes || "none"}; the camera came onto the new man to within ${trace.off === null ? "n/a" : (trace.off * 57.3).toFixed(1) + "°"}; lock says "${after.reason}"`);
   }
 
   // ===================================================================
@@ -529,8 +530,12 @@ async function lockAct(browser, url, check) {
 
       const m = await page.evaluate(([t, cap]) => {
         const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+        // Six snapshots and a third of a second, or it is not a measurement:
+        // a rate taken across four packets on a box with no GPU is mostly the
+        // jitter between them, and the first cut of this test reported 1.45
+        // rad/s off a 0.15 s window that proved nothing either way.
         const rows = window.__probe.frames.filter((f) => f.t >= t && f.state === "attacking");
-        if (rows.length < 3) return null;
+        if (rows.length < 6 || rows[rows.length - 1].t - rows[0].t < 300) return null;
         let turned = 0;
         for (let i = 1; i < rows.length; i++) turned += Math.abs(wrap(rows[i].rot - rows[i - 1].rot));
         const elapsed = (rows[rows.length - 1].t - rows[0].t) / 1000;
@@ -577,7 +582,14 @@ async function lockAct(browser, url, check) {
         const el = document.querySelector("[data-lock-reticle]");
         if (!el) return null;
         const r = el.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2, o: parseFloat(el.style.opacity || "0"), w: window.innerWidth };
+        const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
+        return {
+          x: r.left + r.width / 2, y: r.top + r.height / 2,
+          o: parseFloat(el.style.opacity || "0"), w: window.innerWidth,
+          // The rig's own arithmetic, so a reticle in the wrong place says
+          // WHICH number was wrong rather than just that it was.
+          paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
+        };
       }));
       await wait(220);
     }
@@ -588,7 +600,7 @@ async function lockAct(browser, url, check) {
       ? Math.max(...seen.map((s) => s.x)) - Math.min(...seen.map((s) => s.x)) : 0;
     check("the lock is drawn on the man it is holding",
       seen.length >= 5 && offCentre < W * 0.42 && travel > 3,
-      `the reticle was painted on ${seen.length} of ${samples.length} samples at opacity>0.5, never further than ${Math.round(offCentre)}px from the horizontal centre of a ${W}px screen (the over-the-shoulder rig alone puts a man at arm's length ~30% off), and slid ${Math.round(travel)}px across the glass as he moved`);
+      `the reticle was painted on ${seen.length} of ${samples.length} samples at opacity>0.5, never further than ${Math.round(offCentre)}px from the horizontal centre of a ${W}px screen (the over-the-shoulder rig alone puts a man at arm's length ~30% off), and slid ${Math.round(travel)}px across the glass as he moved; last paint ${seen.length ? seen[seen.length - 1].paint : "none"}`);
   }
 
   // ===================================================================

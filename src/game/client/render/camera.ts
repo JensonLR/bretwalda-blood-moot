@@ -141,6 +141,9 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
 
   const orbitTarget = new THREE.Vector3();
   const markPoint = new THREE.Vector3();
+  const viewPoint = new THREE.Vector3();
+  /** Where the last painted reticle landed, for tools/touchtest.mjs. */
+  const lockPaint = { sx: 0, sy: 0, ndcZ: 0, viewZ: 0, dist: 0, w: 0 };
   // Seeded rather than left at 1: `setViewport` is called from the resize
   // handler, so on a phone that never rotates it is never called at all, and a
   // reticle projected against a 1×1 viewport is painted in the top-left corner
@@ -270,16 +273,35 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     }
     markPoint.set(v.x, LOCK_MARK_HEIGHT, v.z);
     const dist = camera.position.distanceTo(markPoint);
+    // The camera is positioned by hand above and only the renderer refreshes
+    // its world matrix, so without this the reticle is projected through LAST
+    // frame's lens — which at 120 Hz is a reticle that visibly trails the man.
+    camera.updateMatrixWorld();
+    // Behind the lens, tested in VIEW SPACE rather than off the projected z.
+    // `project` divides by w, and for a point at or behind the eye plane w
+    // approaches zero: the NDC does not politely exceed 1, it explodes. The
+    // harness caught the explosion as a reticle 22589 px off centre — the sign
+    // of an out-of-frame point being clamped by nothing at all.
+    viewPoint.copy(markPoint).applyMatrix4(camera.matrixWorldInverse);
+    if (viewPoint.z > -camera.near) {
+      if (el.style.opacity !== "0") el.style.opacity = "0";
+      return;
+    }
     markPoint.project(camera);
-    // Behind the lens. `project` mirrors points behind the camera into the
-    // frame, so without this the reticle appears on the wrong side of the
-    // screen the instant a target walks past you.
-    if (markPoint.z > 1) {
+    // And a belt for the braces: anything this far outside the frustum is not
+    // on the man, whatever the arithmetic says.
+    if (Math.abs(markPoint.x) > 4 || Math.abs(markPoint.y) > 4) {
       if (el.style.opacity !== "0") el.style.opacity = "0";
       return;
     }
     const sx = (markPoint.x * 0.5 + 0.5) * viewW;
     const sy = (-markPoint.y * 0.5 + 0.5) * viewH;
+    lockPaint.sx = sx;
+    lockPaint.sy = sy;
+    lockPaint.ndcZ = markPoint.z;
+    lockPaint.viewZ = viewPoint.z;
+    lockPaint.dist = dist;
+    lockPaint.w = viewW;
     const scale = Math.max(LOCK_MARK_MIN_SCALE, Math.min(LOCK_MARK_MAX_SCALE, LOCK_MARK_REF_DIST / Math.max(0.5, dist)));
     el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -50%) scale(${scale.toFixed(3)})`;
     el.style.opacity = Math.min(1, v.blend).toFixed(3);
@@ -439,6 +461,8 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
        * is over the right shoulder. Measured off the camera's world position and
        * this frame's yaw, not off `CAM_SIDE`.
        */
+      /** Where the lock reticle was last painted, and the numbers behind it. */
+      get lockPaint() { return { ...lockPaint }; },
       get shoulder() {
         return (camera.position.x - focusX) * -Math.cos(yaw)
           + (camera.position.z - focusZ) * Math.sin(yaw);
