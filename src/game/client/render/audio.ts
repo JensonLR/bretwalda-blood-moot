@@ -33,7 +33,7 @@
 //     deliberately calls into here from beside the `vfx` call that draws the
 //     same moment, so the two cannot drift apart.
 
-import { FIRE, type WarriorClass, type HitZone, type DeathCause } from "../../types";
+import { FIRE, type WarriorClass, type HitZone, type DeathCause, type EmoteId } from "../../types";
 import type { FrameContext, QualitySettings, QualityTier } from "./quality";
 
 // ---------------------------------------------------------------- vocabulary
@@ -137,6 +137,21 @@ export interface AudioHandle {
   /** A shield taking a blow it was raised for, or being raised. */
   block(e: AudioEvent & { raise?: boolean }): void;
   dodge(e: AudioEvent): void;
+  /**
+   * The shove, fired on the state edge. The breath is the audible half of the
+   * windup tell; the body-drive thump is scheduled SHOVE-windup seconds later
+   * inside the synth, so it lands with the server's contact. `shield` adds the
+   * boss knock a huscarl's disc makes doing the same job.
+   */
+  shove(e: AudioEvent & { shield?: boolean }): void;
+  /**
+   * A victory emote, fired on the server's relay so every phone in the room
+   * hears the same flourish it sees. Three voices from the palette the module
+   * already speaks: the raised blade is a rising war-shout, the boss two knocks
+   * of wood (or the duller chest, with `shield` false), the taunt a falling
+   * two-note jeer.
+   */
+  emote(e: AudioEvent & { emote: EmoteId; shield?: boolean }): void;
   footfall(e: FootfallEvent): void;
   death(e: DeathEvent): void;
   /** A limb off. The moment the whole gore pass was built for. */
@@ -925,6 +940,112 @@ class AudioEngine implements AudioHandle {
     const g = ac.createGain();
     envelope(g.gain, t, 0.15 * s.gain, 0.02, 0.19);
     this.noiseAt(t, 0.24).connect(bp); bp.connect(g); g.connect(dest);
+  }
+
+  shove(e: AudioEvent & { shield?: boolean }): void {
+    const s = this.spatial(e); if (!s) return;
+    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.NORMAL, 0.75);
+    if (!out || !this.ac) return;
+    const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
+    const g = s.gain;
+
+    // The effort: breath forced out through the coil. Same cloth-and-air
+    // palette as the dodge, pitched lower and shorter — a grunt, not a rush.
+    const bp = ac.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(1000, t);
+    bp.frequency.exponentialRampToValueAtTime(320, t + 0.22);
+    const bg = ac.createGain();
+    envelope(bg.gain, t, 0.16 * g, 0.03, 0.20);
+    this.noiseAt(t, 0.26, 0.8).connect(bp); bp.connect(bg); bg.connect(dest);
+
+    // The drive, 0.30 s later — the same offset the server resolves the
+    // contact at (SHOVE.windup), so the thump lands with the impulse. A low
+    // body note with a short scuff of boots driving off the turf.
+    const hit = t + 0.30;
+    const tg = ac.createGain();
+    envelope(tg.gain, hit, 0.34 * g, 0.005, 0.16);
+    this.tone("sine", hit, 130, 56, 0.2).connect(tg); tg.connect(dest);
+    const scuff = ac.createBiquadFilter();
+    scuff.type = "lowpass"; scuff.frequency.setValueAtTime(900, hit);
+    scuff.frequency.exponentialRampToValueAtTime(260, hit + 0.1);
+    const sg = ac.createGain();
+    envelope(sg.gain, hit, 0.10 * g, 0.004, 0.10);
+    this.noiseAt(hit, 0.14, 0.9).connect(scuff); scuff.connect(sg); sg.connect(dest);
+
+    if (e.shield) {
+      // The boss doing the pushing: the shield impact's wooden partials, at a
+      // fraction of the blow's weight — this is the disc meeting a chest, not
+      // an axe meeting the disc.
+      for (const [f, a, d] of [[186, 0.14, 0.16], [279, 0.08, 0.12]] as const) {
+        const rg = ac.createGain();
+        envelope(rg.gain, hit, a * g, 0.003, d);
+        this.tone("triangle", hit, f, f * 0.86, d + 0.04).connect(rg);
+        rg.connect(dest);
+      }
+    }
+  }
+
+  emote(e: AudioEvent & { emote: EmoteId; shield?: boolean }): void {
+    const s = this.spatial(e); if (!s) return;
+    // NORMAL even for the local man: a flourish must never steal a voice from
+    // the blow that interrupts it.
+    const out = this.claim(PRIORITY.NORMAL, 1.3); if (!out || !this.ac) return;
+    const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
+    const g = s.gain * (e.local ? 1 : 0.8);
+
+    /** One throat: bandpass noise swept between two formants. The whole voice
+     *  family is this one shape at three different pitches and lengths, which
+     *  is what keeps three emotes sounding like one warrior. */
+    const cry = (at: number, f0: number, f1: number, amp: number, dur: number, q = 2.2) => {
+      const bp = ac.createBiquadFilter();
+      bp.type = "bandpass"; bp.Q.value = q;
+      bp.frequency.setValueAtTime(f0, at);
+      bp.frequency.exponentialRampToValueAtTime(f1, at + dur);
+      const bg = ac.createGain();
+      envelope(bg.gain, at, amp * g, 0.04, dur);
+      this.noiseAt(at, dur + 0.05, 0.8).connect(bp); bp.connect(bg); bg.connect(dest);
+      // The chest under the throat: a quiet fundamental sweeping the same way.
+      const tg = ac.createGain();
+      envelope(tg.gain, at, amp * 0.5 * g, 0.03, dur * 0.9);
+      this.tone("sawtooth", at, f0 * 0.22, f1 * 0.22, dur).connect(tg); tg.connect(dest);
+    };
+
+    switch (e.emote) {
+      case "raise": {
+        // The war-shout rises with the blade and holds.
+        cry(t + 0.10, 340, 620, 0.20, 0.55, 1.8);
+        break;
+      }
+      case "boss": {
+        // Two knocks on the clock the animator beats them: the strikes land at
+        // the two drive peaks of the performance (~0.44 s and ~0.86 s in).
+        for (const at of [t + 0.44, t + 0.86]) {
+          if (e.shield !== false) {
+            // The shield impact's wooden partials, lighter than a blow.
+            for (const [f, a, d] of [[196, 0.16, 0.14], [294, 0.09, 0.10]] as const) {
+              const rg = ac.createGain();
+              envelope(rg.gain, at, a * g, 0.003, d);
+              this.tone("triangle", at, f, f * 0.88, d + 0.04).connect(rg); rg.connect(dest);
+            }
+          } else {
+            // The chest: a dull body note, no ring in it.
+            const tg = ac.createGain();
+            envelope(tg.gain, at, 0.20 * g, 0.004, 0.12);
+            this.tone("sine", at, 110, 62, 0.14).connect(tg); tg.connect(dest);
+          }
+        }
+        // A short grunt under the second knock — the effort of the rhythm.
+        cry(t + 0.80, 420, 260, 0.08, 0.18, 1.6);
+        break;
+      }
+      case "taunt": {
+        // A falling two-note jeer: HA — haa. Mockery is downhill.
+        cry(t + 0.12, 560, 400, 0.16, 0.22, 2.6);
+        cry(t + 0.48, 470, 250, 0.18, 0.42, 2.6);
+        break;
+      }
+    }
   }
 
   footfall(e: FootfallEvent): void {

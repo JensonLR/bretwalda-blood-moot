@@ -73,7 +73,7 @@
 
 import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
-import { WARRIOR_STATS, SWING_PHASES } from "../../types";
+import { WARRIOR_STATS, SWING_PHASES, SHOVE, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -334,6 +334,14 @@ export interface WarriorMotion {
   hitSide: number;
   /** Seconds spent in the current one-shot state (dodge, stagger, shout, death). */
   actT: number;
+  /**
+   * The emote being performed, or null. Client-side only — the server relays
+   * the press and keeps the chosen id; the performance itself is this clock.
+   * Set through `triggerEmote`, advanced and cleared by `poseWarrior`.
+   */
+  emote: EmoteId | null;
+  /** Seconds into the performance. 0..EMOTE_SECONDS. */
+  emoteT: number;
   /** 1 on the frame the server state changed, decaying; crossfades the pose. */
   blend: number;
   /** The state that blend is coming out of. */
@@ -416,6 +424,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
     swingPrev: 0, swingHold: 0, heavy: 0,
     flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", fall: -1,
+    emote: null, emoteT: 0,
     struckDead: false,
     wMove: 0, wBlock: 0, wAction: 0,
     vx: 0, vz: 0, ax: 0, az: 0, yawRate: 0,
@@ -1881,7 +1890,7 @@ function idleLayer(t: number, seed: number, wounded: number, w: number): void {
  * The rise and fall of the body is not authored here at all; it falls out of
  * `settleOnFeet` from the leg angles below.
  */
-function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: number, w: number): void {
+function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: number, w: number, armW = 1): void {
   const amp = Math.min(0.56, 0.26 + speed * 0.05);
   const strideLen = Math.max(0.35, 2 * legLen * Math.sin(amp));
   const before = motion.stride;
@@ -1927,13 +1936,16 @@ function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: num
   // Arms counter the legs, one beat behind them: a shoulder is not bolted to
   // the opposite hip, it is dragged by it. The elbows swing with them and stay
   // bent throughout — nobody walks into a fight with their arms hanging.
+  // `armW` fades them out when another layer holds the arms (a raised guard, a
+  // stagger) while the legs go on stepping under it.
+  const arm = w * armW;
   const lag = Math.sin(ph - 0.42);
-  P.arx += -(-amp * lag) * 0.42 * w;
-  P.olx += -(amp * lag) * 0.55 * w;
-  P.arb += (-0.16 - Math.max(0, -amp * lag) * 0.55) * w;
-  P.olb += (-0.22 - Math.max(0, amp * lag) * 0.70) * w;
-  P.arz += 0.06 * w;
-  P.olz += -0.06 * w;
+  P.arx += -(-amp * lag) * 0.42 * arm;
+  P.olx += -(amp * lag) * 0.55 * arm;
+  P.arb += (-0.16 - Math.max(0, -amp * lag) * 0.55) * arm;
+  P.olb += (-0.22 - Math.max(0, amp * lag) * 0.70) * arm;
+  P.arz += 0.06 * arm;
+  P.olz += -0.06 * arm;
 
   // Hips turn with the stride, shoulders against them.
   P.pry += -0.11 * sw * w;
@@ -2123,6 +2135,166 @@ function blockLayer(hasShield: boolean, settle: number, w: number): void {
     P.wx += 1.18 * w;
     P.wz += -0.35 * w;
   }
+}
+
+/**
+ * The shove: coil, drive, recover, on the same clock the server runs
+ * (SHOVE.windup then SHOVE.recover — `ph` is 0..1 over the pair). The weapon
+ * is LOWERED for the whole of it, which is half the tell: a man about to shove
+ * has visibly stopped being a man about to cut. With a shield the boss leads —
+ * the off arm punches the disc out flat while the sword hand trails low; bare
+ * handed both palms drive out together from the chest.
+ */
+function shoveLayer(ph: number, shielded: boolean, w: number): void {
+  const windF = SHOVE.windup / (SHOVE.windup + SHOVE.recover);
+  const coilUp = smooth(clamp01(ph / windF));
+  const punch = ph <= windF ? 0 : easeOutCubic(clamp01((ph - windF) / 0.17));
+  const settle = smooth(clamp01((ph - windF - 0.17) / Math.max(0.05, 1 - windF - 0.17)));
+  const coil = coilUp * (1 - punch) * w;
+  const drive = punch * (1 - settle) * w;
+
+  // Weight back and down through the coil, forward through the drive: the
+  // whole body throws it, not the arms, or it reads as a wave hello.
+  P.pz += -0.10 * coil + 0.15 * drive;
+  P.py += -0.045 * coil - 0.02 * drive;
+  P.prx += -0.06 * coil + 0.10 * drive;
+  P.crx += -0.20 * coil + 0.32 * drive;
+  P.hrx += 0.12 * coil - 0.06 * drive;
+  P.llb += 0.38 * coil + 0.16 * drive;
+  P.lrb += 0.34 * coil + 0.30 * drive;
+  P.llx += -0.12 * coil - 0.10 * drive;
+  P.lrx += 0.10 * coil + 0.14 * drive;
+  P.cloak += 0.25 * drive;
+
+  // The weapon drops out of the guard and stays down: the hands are busy.
+  P.wx += 0.55 * coil + 0.7 * drive;
+
+  if (shielded) {
+    // Boss first. The shield arm folds the disc to the chest, then punches it
+    // out flat; the sword hand pulls low and back, out of the way.
+    P.olx += 0.30 * coil + 1.05 * drive;
+    P.olb += -1.30 * coil - 0.25 * drive;
+    P.olz += 0.30 * coil + 0.10 * drive;
+    P.sx += 0.16 * drive;       // top rim tipped into the man being hit
+    P.sfz += 0.05 * drive;
+    P.arx += 0.20 * coil + 0.35 * drive;
+    P.arb += -0.90 * coil - 0.40 * drive;
+    P.arz += -0.20 * coil;
+  } else {
+    // Two palms from the chest. Elbows fold hard in the coil and straighten
+    // through the drive — the positive elbow terms are cancelling the fold,
+    // not bending backwards; `stops()` holds the hinge at its limit.
+    P.arx += 0.35 * coil + 1.00 * drive;
+    P.arb += -1.30 * coil + 0.85 * drive;
+    P.arz += 0.16 * coil + 0.10 * drive;
+    P.olx += 0.32 * coil + 0.95 * drive;
+    P.olb += -1.35 * coil + 0.80 * drive;
+    P.olz += -0.16 * coil - 0.10 * drive;
+  }
+}
+
+/**
+ * Start a victory flourish on this body. The caller (the orchestrator, off the
+ * server's relay; the summary stage, off the victor's chosen id) owns WHETHER;
+ * this module owns the performance. Re-triggering mid-performance restarts it,
+ * which is what a deliberate second press should do.
+ */
+export function triggerEmote(motion: WarriorMotion, emote: EmoteId): void {
+  motion.emote = emote;
+  motion.emoteT = 0;
+}
+
+/**
+ * The three victory emotes, on one clock (`ph` is 0..1 over EMOTE_SECONDS).
+ * Additive like every other layer, and gated by `poseWarrior` to bodies that
+ * are not spent — a swing, a roll or a stagger simply drops the flourish. Each
+ * one is authored to read at nameplate distance in under two seconds, because
+ * the audience is a phone across a group chat, not a cinematic.
+ */
+function emoteLayer(kind: EmoteId, ph: number, shielded: boolean): void {
+  // Eased in and out on its own envelope so the flourish enters and leaves the
+  // standing pose without a snap, whatever the body was doing either side.
+  const w = smooth(clamp01(ph / 0.14)) * smooth(clamp01((1 - ph) / 0.16));
+
+  if (kind === "raise") {
+    // The blade to the sky: a short coil, then the arm thrust straight up and
+    // held, eyes following it. The aim channel is what actually points the
+    // steel — the same solve a strike uses, so a spear and a seax both end
+    // vertical instead of sharing one wrist angle.
+    const up = easeOutCubic(clamp01((ph - 0.10) / 0.24)) * smooth(clamp01((0.95 - ph) / 0.18));
+    const coil = smooth(clamp01(ph / 0.12)) * (1 - easeOutCubic(clamp01((ph - 0.10) / 0.22)));
+    P.py += -0.035 * coil * w;
+    P.llb += 0.18 * coil * w;
+    P.lrb += 0.22 * coil * w;
+    P.crx += (0.10 * coil - 0.16 * up) * w;   // chest opens, back arches a touch
+    P.prx += -0.05 * up * w;
+    P.hrx += -0.34 * up * w;                  // eyes go up with the steel
+    P.arx += (0.25 * coil - 2.05 * up) * w;
+    P.arz += 0.24 * up * w;
+    P.arb += -0.08 * up * w;
+    // Straight up with a shade of forward, stated as a destination.
+    P.wa += 0.10 * up * w;
+    P.waw += up * w;
+    // The off arm drives down and back — the counterweight of a shout.
+    P.olx += 0.35 * up * w;
+    P.olb += -0.30 * up * w;
+    P.cloak += 0.30 * up * w;
+    return;
+  }
+
+  if (kind === "boss") {
+    // The boss beaten twice. The off arm presents the disc; the weapon hand
+    // cocks out and hammers across onto it, twice on one clock. The classes
+    // that carry no shield beat the chest with the same two strokes — same
+    // rhythm, nearer target — so the emote reads as one gesture roster-wide.
+    const present = smooth(clamp01(ph / 0.16)) * smooth(clamp01((1 - ph) / 0.16));
+    const p2 = clamp01((ph - 0.08) / 0.84);
+    const s = Math.sin(p2 * Math.PI * 4);
+    const lift = Math.max(0, s) * present;    // cocked out to the weapon side
+    const drive = Math.max(0, -s) * present;  // crossed onto the boss
+    P.wx += 0.85 * present * w;               // the blade is a mallet now, not a guard
+    P.crx += 0.09 * drive * w;
+    P.cry += (0.06 * lift - 0.08 * drive) * w;
+    P.hrx += 0.14 * drive * w;                // the nod lands with each knock
+    P.arx += (-0.55 - 0.20 * lift + 0.10 * drive) * w;
+    P.arz += (0.35 * lift - 0.60 * drive) * w;
+    P.arb += (-0.55 - 0.30 * lift) * w;
+    if (shielded) {
+      // The disc folded to the sternum and tipped flat to take the knocks.
+      P.olx += 0.40 * present * w;
+      P.olb += -1.15 * present * w;
+      P.olz += 0.25 * present * w;
+      P.sx += 0.18 * present * w;
+      P.sfz += 0.04 * present * w;
+    } else {
+      // No disc: the fist and haft land on his own chest.
+      P.olx += 0.20 * present * w;
+      P.olb += -0.60 * present * w;
+    }
+    P.cloak += 0.15 * drive * w;
+    return;
+  }
+
+  // "taunt" — chest open, arms flung wide, then a beckoning flick and a jeer
+  // of the head: COME ON THEN, readable from the far side of the ring.
+  const open = smooth(clamp01((ph - 0.05) / 0.20)) * smooth(clamp01((0.95 - ph) / 0.18));
+  const beck = ph > 0.42 && ph < 0.92
+    ? Math.pow(Math.max(0, Math.sin((ph - 0.42) / 0.5 * Math.PI * 2)), 2) : 0;
+  P.crx += -0.15 * open * w;
+  P.prx += -0.05 * open * w;
+  P.py += -0.02 * open * w;
+  P.hrx += (-0.24 * open + 0.20 * beck) * w;
+  P.hrz += 0.08 * Math.sin(ph * 15) * open * w;   // the jeering waggle
+  // Arms wide, palms up — the z terms mirror, same convention as the shove's
+  // two-palm drive, so both arms open outward rather than swinging together.
+  P.arx += -0.70 * open * w;
+  P.arz += 0.85 * open * w;
+  P.arb += (-0.30 - 0.55 * beck) * open * w;      // the flick is the elbow's
+  P.olx += -0.65 * open * w;
+  P.olz += -0.85 * open * w;
+  P.olb += -0.30 * open * w;
+  P.wx += 0.75 * open * w;                        // the blade lolls — no guard in this
+  P.cloak += 0.20 * open * w;
 }
 
 /** Struck. The body goes where it was hit, then argues its way back. */
@@ -3124,9 +3296,10 @@ export function poseWarrior(
   const rolling = player.state === "dodging" || player.state === "rolling";
   const staggered = player.state === "staggered";
   const casting = player.state === "ability";
+  const shoving = player.state === "shoving";
   // One clock for whatever one-shot the warrior is in the middle of. Elapsed
   // time is the client's to keep; the server owns when the state ends.
-  motion.actT = dead || rolling || staggered || casting ? motion.actT + dt : 0;
+  motion.actT = dead || rolling || staggered || casting || shoving ? motion.actT + dt : 0;
   if (dead && motion.actT <= dt) motion.fall = motion.hitFwd >= 0 ? 1 : -1;
   // Every road back to standing goes through here: the server clears the death
   // mark on a respawn, on a countdown and on the lobby reset, and a warrior who
@@ -3151,6 +3324,9 @@ export function poseWarrior(
   motion.blend = Math.max(0, motion.blend - dt * (player.state === "attacking" ? 22 : 10));
 
   if (dead) {
+    // A man cut down mid-flourish stopped celebrating; nothing may resume it
+    // on the respawn.
+    motion.emote = null;
     // The cut goes in before the pose is built, so the collapse's first frame is
     // already the collapse of a body that is missing something.
     beginGore(rig, motion, player, hooks);
@@ -3173,14 +3349,36 @@ export function poseWarrior(
   motion.leanX += (sideLean - motion.leanX) * Math.min(1, dt * 8);
   const fwdLean = -Math.cos(velAngle - motion.yaw) * Math.min(0.1, spd * 0.018);
 
-  const moving = player.state === "walking" || player.state === "running" || player.state === "sprinting";
   const attacking = player.state === "attacking";
   const blocking = player.state === "blocking";
+
+  // ONE CHANNEL, TWO FACTS — fourth sighting of this shape in the codebase.
+  // `state` is a single slot that carries both the guard/commit fact and the
+  // locomotion fact, and the guard WINS the slot: a blocking man walking
+  // backwards is "blocking" on the wire, never "walking", so feet gated on the
+  // locomotion names froze while the server translated him — the glide. (The
+  // engine hit the same wall three times before: steering vs burst velocity
+  // split into moveVel/impulse, `direction` on the hit message meaning swing
+  // not body part, roundWins keyed by player or team needing roundScoreBy.)
+  // The honest movement channel is `velocity`, which engine.mjs keeps as the
+  // serialized total of stride and impulse — so the feet are driven off THAT,
+  // and `state` keeps only what it can actually name: the guard, the swing,
+  // the roll. When a fifth slot grows a second fact, split the wire, not the
+  // reader.
+  //
+  // The states whose layers own the whole body, feet included, stay off the
+  // gait: a swing's lunge, a roll and the shout author their own legs, and
+  // gait under them would fight authored keys rather than correct a lie. A
+  // stagger is deliberately NOT in that set — the server carries momentum
+  // through it (and a shove throws a man metres while staggered), so the feet
+  // stumble along under the stagger layer instead of skating.
+  const bodyOwned = attacking || rolling || casting || shoving;
+  const moving = !bodyOwned && spd > 0.15;
 
   // Layer weights are the only thing smoothed. A state arrives on the wire as a
   // step, and a step in the weight — not in the pose — is what keeps a swing
   // crisp while still not snapping into it from a standing start.
-  motion.wMove = approach(motion.wMove, moving && spd > 0.15 ? 1 : 0, dt, 9);
+  motion.wMove = approach(motion.wMove, moving ? 1 : 0, dt, 9);
   motion.wBlock = approach(motion.wBlock, blocking ? 1 : 0, dt, 14);
   // Snaps in, releases slowly. It has to snap in or the windup is half over
   // before the layer has any weight; it has to release slowly because the wrist
@@ -3194,16 +3392,35 @@ export function poseWarrior(
 
   // How braced the man is. Idling in the open he stands off his guard; the
   // moment he is moving, swinging or covering he is on it.
-  const ready = clamp01(motion.wMove * 0.55 + motion.wAction + motion.wBlock + (staggered ? 0.4 : 0));
+  const ready = clamp01(motion.wMove * 0.55 + motion.wAction + motion.wBlock + (staggered ? 0.4 : 0) + (shoving ? 0.7 : 0));
   stanceLayer(st, ready, motion.wAction, 1);
 
   const calm = clamp01(1 - motion.wAction - motion.wBlock * 0.7 - motion.wMove * 0.85);
   if (calm > 0.001) idleLayer(t, motion.seed, wounded, calm);
-  if (motion.wMove > 0.001) gaitLayer(motion, Math.max(spd, 1.4), legLen, dt, motion.wMove);
+  // The legs step whenever the body travels; the ARMS only counter-swing when
+  // nothing owns them — a guarded walk keeps the shield up and a staggered
+  // stumble keeps the arms where the stagger threw them.
+  const gaitArms = clamp01(1 - motion.wBlock - (staggered ? 0.75 : 0));
+  if (motion.wMove > 0.001) gaitLayer(motion, Math.max(spd, 1.4), legLen, dt, motion.wMove, gaitArms);
   motion.land = Math.max(0, motion.land - dt * 7);
 
   if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, !!rig.shield, motion.wAction);
   if (motion.wBlock > 0.001) blockLayer(!!rig.shield, clamp01(player.blockTimer / 0.22), motion.wBlock);
+  if (shoving) shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), !!rig.shield, smooth(clamp01(motion.actT / 0.06)));
+
+  // The emote rides on top of idle, walk and guard, and is simply dropped by
+  // anything that owns the body — a man who starts a swing mid-flourish is a
+  // man who stopped celebrating, and the layer must not fight the windup.
+  if (motion.emote) {
+    if (bodyOwned || staggered) {
+      motion.emote = null;
+    } else {
+      motion.emoteT += dt;
+      const ph = motion.emoteT / EMOTE_SECONDS;
+      if (ph >= 1) motion.emote = null;
+      else emoteLayer(motion.emote, ph, !!rig.shield);
+    }
+  }
 
   if (staggered) {
     // Elapsed over elapsed-plus-remaining is exact progress through a stagger

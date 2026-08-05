@@ -145,6 +145,22 @@ async function session(browser, { lefty }) {
   // the one frame in which it snapped.
   await page.waitForTimeout(1200);
 
+  // The blade is not sampled once: the idle layer's weight shift is a ~15 s
+  // sine that carries the hand through ±10 cm of body-space X, so one frame is
+  // one arbitrary phase of the breath and two sessions land on unrelated
+  // phases. What the mirror promises to flip is the CARRY — the centre the
+  // breath swings around — so that is what is measured: the mean over at least
+  // one full period. Distinct values only, because under a slow rasteriser the
+  // same rendered pose is read back many times and would weight itself.
+  const sides = [];
+  let last = null;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 40000 && !(sides.length >= 24 && Date.now() - t0 >= 16000)) {
+    const x = await page.evaluate(() => window.__bretwaldaHand?.weaponSide ?? null);
+    if (x !== null && x !== last) { sides.push(x); last = x; }
+    await page.waitForTimeout(300);
+  }
+
   const out = await page.evaluate(() => ({
     watch: window.__camwatch,
     cam: window.__bretwaldaCamera && {
@@ -157,6 +173,10 @@ async function session(browser, { lefty }) {
     hand: window.__bretwaldaHand,
   }));
   await ctx.close();
+  if (out.hand && sides.length) {
+    out.hand.weaponSide = sides.reduce((a, b) => a + b, 0) / sides.length;
+    out.hand.samples = sides.length;
+  }
   return out;
 }
 
@@ -196,7 +216,7 @@ async function main() {
   // A body faces local +Z, so the hand on his right is at -X.
   check("weapon hangs in the RIGHT hand by default",
     (R.hand?.weaponSide ?? 0) < -0.05,
-    `blade at x=${(R.hand?.weaponSide ?? 0).toFixed(3)} m in body space (negative is his right); ${R.hand?.cls}`);
+    `blade at x=${(R.hand?.weaponSide ?? 0).toFixed(3)} m in body space (negative is his right), mean of ${R.hand?.samples ?? 0} poses; ${R.hand?.cls}`);
 
   // ---- the spawn heading ----
   const s = R.watch?.atStart;
@@ -236,13 +256,12 @@ async function main() {
 
   check("that SAME switch moves the weapon to the LEFT hand",
     (L.hand?.weaponSide ?? 0) > 0.05,
-    `blade at x=${(L.hand?.weaponSide ?? 0).toFixed(3)} m in body space (positive is his left)`);
+    `blade at x=${(L.hand?.weaponSide ?? 0).toFixed(3)} m in body space (positive is his left), mean of ${L.hand?.samples ?? 0} poses`);
 
   check("the mirror is a true mirror, not a second offset",
-    // The blade tolerance is loose on purpose: the two sessions are sampled at
-    // unrelated phases of the idle, and the hand swings through a few cm of the
-    // body's own X while it breathes. Half the offset is still an order of
-    // magnitude more than the drift.
+    // Both blades are period-averaged in session(), so what is compared here
+    // is the carry and not two unrelated phases of the breath. The residual of
+    // that average is a couple of cm; half a tenth of the carry still clears it.
     Math.abs((L.cam?.shoulder ?? 0) + (R.cam?.shoulder ?? 0)) < 0.25
       && Math.abs((L.hand?.weaponSide ?? 0) + (R.hand?.weaponSide ?? 0)) < 0.1,
     `shoulder ${(R.cam?.shoulder ?? 0).toFixed(2)} vs ${(L.cam?.shoulder ?? 0).toFixed(2)}; blade ${(R.hand?.weaponSide ?? 0).toFixed(3)} vs ${(L.hand?.weaponSide ?? 0).toFixed(3)}`);

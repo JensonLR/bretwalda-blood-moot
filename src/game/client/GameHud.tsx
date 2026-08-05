@@ -13,7 +13,7 @@
 // canvas, so the flick that aims the cut has to be read here. The two halves
 // meet at the swing gesture that input.ts owns.
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Swords, Hammer, Shield, Wind, Sparkles, Zap, KeyRound, RotateCcw, X, Plus } from "lucide-react";
+import { Swords, Hammer, Shield, Wind, Sparkles, Zap, KeyRound, RotateCcw, X, Plus, Hand } from "lucide-react";
 import type { AttackDirection, GamePlayer } from "../types";
 import { WARRIOR_STATS } from "../types";
 import {
@@ -592,6 +592,19 @@ export default function GameHud({
           aria-label="Dodge"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("dodge", true); }}>
           <Wind size={19} /><span className="text-[9px] font-bold">DODGE</span>
+        </button>
+
+        {/* SHOVE — one-shot, like DODGE. Beats a raised shield; a dodge beats
+            it; by the bonfire it is a kill. Sits outboard of DODGE where the
+            aiming thumb already lives, clear of every other footprint. */}
+        <button
+          style={near(124, 200)}
+          className={`absolute z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
+            localPlayer.stamina >= 25 ? "bg-amber-800/95 active:bg-amber-600 border-amber-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
+          }`}
+          aria-label="Shove"
+          onTouchStart={(e) => { e.stopPropagation(); setFlag("shove", true); }}>
+          <Hand size={18} /><span className="text-[9px] font-bold">SHOVE</span>
         </button>
 
         {/* POWER */}

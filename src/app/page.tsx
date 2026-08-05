@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
+  EmoteId,
 } from "../game/types";
 import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 import {
@@ -41,7 +42,7 @@ const KeyBindingsPanel = dynamic(
 );
 const CharacterPreview = dynamic(() => import("../game/client/CharacterPreview"), { ssr: false });
 
-type Screen = "landing" | "create" | "join" | "lobby" | "game" | "results" | "training" | "muster" | "profile" | "armoury";
+type Screen = "landing" | "create" | "join" | "lobby" | "game" | "training" | "muster" | "profile" | "armoury";
 
 type Difficulty = "recruit" | "warrior" | "jarl";
 
@@ -97,7 +98,7 @@ const MAX_AI = 7;
 // Actions that fire on the press rather than while held. The server reads them
 // as plain booleans, so the single sample where one flips false -> true is the
 // only evidence that the press ever happened.
-const EDGE_ACTIONS = ["attack", "heavyAttack", "dodge", "ability", "block"] as const;
+const EDGE_ACTIONS = ["attack", "heavyAttack", "dodge", "ability", "block", "shove"] as const;
 
 // What a message costs is what decides how often continuous state goes out. A
 // frame on an already-open socket is a few hundred bytes, so the render loop's
@@ -165,10 +166,22 @@ export default function Page() {
   // ends, so a join that lands mid-boot is held here and bound the moment
   // there is a profile to bind it to.
   const unboundRef = useRef<string | null>(null);
+  // FIGHT AGAIN, pressed before the server has rolled the room back to its
+  // lobby. The engine clears every ready flag when it does (engine.mjs,
+  // endMatch), so a "ready" sent early would be wiped — the intent is held
+  // here and honoured on the lobby_update that announces the rollback.
+  const rematchRef = useRef(false);
+  const [rematchWaiting, setRematchWaiting] = useState(false);
   // The sign-in, as a promise. Anything that must not guess where the gold
   // lives — a purchase, a payout — waits on this rather than reading a link
   // that has not been settled yet and writing to the wrong ledger.
   const bootRef = useRef<Promise<void> | null>(null);
+  // Emote relays from the server, queued for the canvas's frame loop — the
+  // only thing that can reach the rigs. Drained there, pushed here.
+  const emoteFeedRef = useRef<Array<{ playerId: string; emote: EmoteId }>>([]);
+  // A held emote key auto-repeats messages the server would only drop; this
+  // spares the wire, nothing more — the real cooldown is the server's.
+  const emoteSentRef = useRef(0);
 
   const [inviteCode, setInviteCode] = useState("");
 
@@ -431,6 +444,7 @@ export default function Page() {
         setRoomCode(d.code);
         setRoomState(d);
         setPayState("none");
+        setMatchResults(null);
         // Reserve this fight's pay before there is any. An unreserved payout
         // is paid to nobody, on purpose — every other phone in the lobby can
         // read this id off a room snapshot — so skipping it is silently
@@ -454,7 +468,16 @@ export default function Page() {
       }
       case "lobby_update": {
         setRoomState(msg.data as unknown as RoomState);
-        if ((msg.data as { state?: string })?.state === "lobby" && screenRef.current === "results") setScreen("lobby");
+        // The rematch loop: the room has rolled back to its lobby — ready
+        // flags freshly cleared — and this player already said "again" from
+        // the summary screen. Now the ready can actually stick.
+        if ((msg.data as { state?: string })?.state === "lobby" && rematchRef.current) {
+          rematchRef.current = false;
+          setRematchWaiting(false);
+          sendMsg("ready");
+          setMatchResults(null);
+          setScreen("lobby");
+        }
         break;
       }
       case "countdown": {
@@ -462,6 +485,11 @@ export default function Page() {
         if (d.players) setRoomState(d);
         else setRoomState((prev) => prev ? { ...prev, state: "countdown", countdown: (msg.data?.countdown as number) || 0 } : prev);
         setBusy(false);
+        // A new match is starting: strike the last one's summary set, or the
+        // canvas would stage a victory tableau over the opening bell.
+        setMatchResults(null);
+        rematchRef.current = false;
+        setRematchWaiting(false);
         setScreen("game");
         break;
       }
@@ -509,7 +537,24 @@ export default function Page() {
             });
           }).catch(() => setPayState("unpaid"));
         }
-        setTimeout(() => setScreen("results"), 2200);
+        // No screen change. The summary is not a menu — the canvas stays up,
+        // render/summary.ts stages the men who fought, and MatchSummary lays
+        // the numbers over them. The player leaves when he presses something.
+        break;
+      }
+      // A flourish, already validated and throttled by the server. Two homes:
+      // the feed hands it to the canvas loop to perform and voice, and the
+      // room record keeps it as the player's CHOSEN emote so a summary staged
+      // minutes later can pose the victor with it.
+      case "emote": {
+        const pid = msg.data?.playerId as string | undefined;
+        const emote = msg.data?.emote as EmoteId | undefined;
+        if (!pid || !emote) break;
+        emoteFeedRef.current.push({ playerId: pid, emote });
+        setRoomState((prev) => {
+          if (!prev?.players?.[pid]) return prev;
+          return { ...prev, players: { ...prev.players, [pid]: { ...prev.players[pid], emote } } };
+        });
         break;
       }
       case "error": {
@@ -527,7 +572,7 @@ export default function Page() {
         break;
       }
     }
-  }, [adoptServer, tallyLocally, showError, settled]);
+  }, [adoptServer, tallyLocally, showError, settled, sendMsg]);
 
   const ensureTransport = useCallback(async (): Promise<boolean> => {
     if (transportRef.current && transportRef.current.mode) return true;
@@ -548,6 +593,15 @@ export default function Page() {
   const sendInputNow = useCallback((sample: Record<string, unknown>) => {
     lastInputSentRef.current = performance.now();
     sendMsg("input", sample);
+  }, [sendMsg]);
+
+  // One road for every emote press — the bound key, the break card, the
+  // summary — so the client-side splash guard covers them all alike.
+  const sendEmote = useCallback((emote: EmoteId) => {
+    const now = performance.now();
+    if (now - emoteSentRef.current < 500) return;
+    emoteSentRef.current = now;
+    sendMsg("emote", { emote });
   }, [sendMsg]);
 
   // Input used to be parked in a single slot that a timer drained, so a press
@@ -859,7 +913,8 @@ export default function Page() {
   if (screen === "game") {
     return (
       <div className="fixed inset-0 bg-black">
-        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} onForge={setForge} />
+        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} matchEnd={matchResults} onForge={setForge}
+          onEmote={sendEmote} emoteFeed={emoteFeedRef} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
@@ -893,12 +948,39 @@ export default function Page() {
             if a player cannot see where he stands in it, and the HUD proper
             only knows about this round. Sits below the health bar the HUD
             owns, and never takes a pointer event off the controls. */}
-        {roomState && roomState.mode !== "solo" && (roomState.bestOf ?? 1) > 1 && roomState.state !== "lobby" && (
+        {roomState && roomState.mode !== "solo" && (roomState.bestOf ?? 1) > 1 && roomState.state !== "lobby" && roomState.state !== "finished" && (
           <div className="pointer-events-none absolute left-1/2 top-[4.6rem] z-20 -translate-x-1/2">
             <RoundTally roomState={roomState} playerId={playerId} />
           </div>
         )}
-        {roomState?.state === "intermission" && <RoundBreak roomState={roomState} playerId={playerId} />}
+        {roomState?.state === "intermission" && <RoundBreak roomState={roomState} playerId={playerId} onEmote={sendEmote} />}
+        {/* The end of the match. The stage behind this is the summary — the
+            canvas is showing the victor and the wall, or the duel's corpse —
+            so this overlay is only the numbers and the two ways out, top and
+            bottom, with the picture left alone in between. It outlives the
+            server's rollback to "lobby" on purpose: the player leaves the
+            tableau when he presses something, not when a timer does. */}
+        {matchResults && roomState && roomState.mode !== "solo" &&
+          (roomState.state === "finished" || roomState.state === "lobby") && (
+          <MatchSummary
+            data={matchResults}
+            playerId={playerId}
+            payState={payState}
+            waiting={rematchWaiting}
+            onEmote={roomState.players[playerId]?.state !== "dead" ? sendEmote : undefined}
+            onFightAgain={() => {
+              if (roomState.state === "lobby") {
+                if (!roomState.players[playerId]?.ready) sendMsg("ready");
+                setMatchResults(null);
+                setScreen("lobby");
+              } else {
+                rematchRef.current = true;
+                setRematchWaiting(true);
+              }
+            }}
+            onLeave={() => { leaveRoom(); setMatchResults(null); setScreen("landing"); }}
+          />
+        )}
         {/* Centred on a desktop; on a phone it moves to the movement thumb's
             corner and mirrors with the rest of the controls. Centred, it
             straddles the line the touch scheme splits the screen on and leaves
@@ -925,71 +1007,6 @@ export default function Page() {
           </button>
         )}
       </div>
-    );
-  }
-
-  // ==================== RESULTS ====================
-  if (screen === "results" && matchResults) {
-    const mine = matchResults.results.find((r) => r.id === playerId);
-    return (
-      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
-        <ContentWrap>
-          <div className="card card-noble card-glow flex flex-col items-center gap-3 p-5 text-center sm:p-6">
-            <Trophy className="text-amber-400" size={40} />
-            <div className="label-overline">BATTLE COMPLETE</div>
-            <h1 className="font-display text-2xl text-amber-100 sm:text-4xl" style={{ textShadow: "0 0 30px rgba(255,180,60,0.4)" }}>
-              {matchResults.winnerKind === "none" || matchResults.winnerName === "Draw"
-                ? "BLOOD SPILT — A DRAW"
-                : `${matchResults.winnerName} PREVAILS`}
-            </h1>
-            {/* `isWinner` and not an id match: a war band is won by a side, and
-                every man on it won it. */}
-            {mine?.isWinner && (
-              <div className="font-display animate-pulse text-sm tracking-[0.35em] text-yellow-400">VICTORY IS YOURS</div>
-            )}
-            <div className="knot-band w-full max-w-xs" />
-            <MatchTally data={matchResults} playerId={playerId} />
-            {/* The pay is the server's to give. When it does not arrive the
-                honest thing is to say so on the screen that shows the number,
-                not to quietly print a total that includes it. */}
-            {payState === "unpaid" && (
-              <div className="text-[11px] leading-relaxed text-red-300/90">
-                This pay has not reached the war rolls — your hoard is unchanged.
-              </div>
-            )}
-            {payState === "asking" && (
-              <div className="animate-pulse text-[11px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2.5">
-            {[...matchResults.results].sort((a, b) => b.score - a.score).map((r, i) => (
-              <div key={r.id} className={`card flex items-center gap-3.5 px-4 py-3.5 ${
-                r.isWinner ? "!border-amber-500/70 !bg-amber-900/25" : r.id === playerId ? "!border-sky-600/60 !bg-sky-950/30" : ""
-              }`}>
-                <div className="font-display w-8 shrink-0 text-2xl text-stone-500">#{i + 1}</div>
-                <div className="min-w-0 flex-1">
-                  <div className={`flex items-center gap-2 font-bold ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
-                    <span className="truncate">{r.name}</span> {r.isWinner && <Crown size={14} className="shrink-0 text-amber-400" />}
-                  </div>
-                  <div className="mt-0.5 text-xs text-stone-400">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} damage</div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-sm font-bold text-amber-300">+{r.xpEarned} XP</div>
-                  <div className="mt-0.5 flex items-center justify-end gap-1 text-xs text-yellow-500"><Coins size={10} />+{r.goldEarned}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Both labels stay on one line at 390px: "BACK TO / LOBBY" over two
-              rows makes the pair look like different-sized buttons. */}
-          <div className="flex gap-3">
-            <button onClick={() => setScreen("lobby")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">BACK TO LOBBY</button>
-            <button onClick={() => { leaveRoom(); setScreen("landing"); }} data-snd="back" className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">LEAVE</button>
-          </div>
-        </ContentWrap>
-      </MenuShell>
     );
   }
 
@@ -1618,6 +1635,7 @@ export default function Page() {
               <CtrlRow k={labelForAction("heavy", " / ")} d="Heavy attack — breaks blocks" />
               <CtrlRow k={labelForAction("block", " / ")} d="Block (hold); perfect timing = parry" />
               <CtrlRow k={labelForAction("dodge", " / ")} d="Dodge roll — brief invincibility" />
+              <CtrlRow k={labelForAction("shove", " / ")} d="Shove — breaks a guard, drives a man back" />
               <CtrlRow k={labelForAction("sprint", " / ")} d="Sprint" />
               <CtrlRow k={labelForAction("crouch", " / ")} d="Crouch under a high blow" />
               <CtrlRow k={labelForAction("ability", " / ")} d="Class ability" />
@@ -1632,6 +1650,7 @@ export default function Page() {
               <CtrlRow k="SLASH / HEAVY" d="Attack buttons" />
               <CtrlRow k="BLOCK" d="Hold to block; catch the instant to parry" />
               <CtrlRow k="DODGE / RUN" d="Dodge roll / sprint" />
+              <CtrlRow k="SHOVE" d="Two hands — breaks a guard; by the fire, a kill" />
               <CtrlRow k="POWER" d="Class ability" />
             </Section>
 
@@ -2164,10 +2183,36 @@ function RoundTally({ roomState, playerId, noRound }: { roomState: RoomState; pl
   );
 }
 
+/**
+ * The three victory emotes, as a row of buttons. This is the touch path — the
+ * bound keys are the desktop's — and it lives on the round-break and summary
+ * surfaces rather than the combat HUD: mid-fight both thumbs are spoken for,
+ * and a flourish is something you do over a man, not instead of blocking one.
+ * The server validates and throttles every press, so these can be plain.
+ */
+function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
+  const items: Array<{ id: EmoteId; label: string; Icon: typeof Swords }> = [
+    { id: "raise", label: "RAISE", Icon: Swords },
+    { id: "boss", label: "BOSS", Icon: Shield },
+    { id: "taunt", label: "TAUNT", Icon: Flag },
+  ];
+  return (
+    <div className="pointer-events-auto flex items-center justify-center gap-2">
+      {items.map(({ id, label, Icon }) => (
+        <button key={id} onClick={() => onEmote(id)} data-snd="tap"
+          aria-label={`Emote: ${label.toLowerCase()}`}
+          className="flex min-h-[2.75rem] items-center gap-1.5 rounded-lg border border-amber-800/60 bg-stone-900/85 px-3 py-1.5 text-[10px] font-bold tracking-[0.18em] text-amber-200/90 backdrop-blur transition hover:border-amber-500 hover:text-amber-100 active:scale-95">
+          <Icon size={13} /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // The breath between rounds. The sim is stopped and the dead are lying where
 // they fell, so this is the only thing on screen that moves — hence the count,
 // which is also the promise that the match has not simply hung.
-function RoundBreak({ roomState, playerId }: { roomState: RoomState; playerId: string }) {
+function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; playerId: string; onEmote: (emote: EmoteId) => void }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 250);
@@ -2186,9 +2231,102 @@ function RoundBreak({ roomState, playerId }: { roomState: RoomState; playerId: s
         </div>
         <div className="knot-band w-full max-w-[13rem]" />
         <RoundTally roomState={roomState} playerId={playerId} noRound />
+        {/* Only a man still standing celebrates — the server refuses the dead,
+            so the buttons do not offer what the round did not earn. */}
+        {roomState.players[playerId]?.state !== "dead" && <EmoteRow onEmote={onEmote} />}
         <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-stone-400">
           <Hourglass size={12} className="text-amber-400" />
           NEXT ROUND IN {left}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The end-of-match summary, over the staged tableau. Rocket League's trick,
+ * kept whole: the picture behind this is the GAME — the victor and the wall,
+ * or the duel's corpse — so this overlay owns only the top and bottom bands of
+ * the screen and leaves the middle to the stage. Designed at 390x844 first:
+ * the verdict up top, a compact ledger and the two ways out under the thumb.
+ */
+function MatchSummary({ data, playerId, payState, waiting, onEmote, onFightAgain, onLeave }: {
+  data: MatchEndData;
+  playerId: string;
+  payState: "none" | "asking" | "paid" | "unpaid";
+  waiting: boolean;
+  /** Absent when this player is a corpse on the stage — the dead don't jeer. */
+  onEmote?: (emote: EmoteId) => void;
+  onFightAgain: () => void;
+  onLeave: () => void;
+}) {
+  const mine = data.results.find((r) => r.id === playerId);
+  const rows = [...data.results].sort((a, b) => b.score - a.score);
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-7 sm:p-6">
+      <div className="animate-fadeIn flex flex-col items-center gap-1.5 text-center">
+        <div className="label-overline">BATTLE COMPLETE</div>
+        <h1 className="font-display text-2xl leading-tight text-amber-100 sm:text-4xl"
+          style={{ textShadow: "0 2px 24px rgba(0,0,0,0.85), 0 0 30px rgba(255,180,60,0.4)" }}>
+          {data.winnerKind === "none" || data.winnerName === "Draw"
+            ? "BLOOD SPILT — A DRAW"
+            : `${data.winnerName.toUpperCase()} PREVAILS`}
+        </h1>
+        {/* `isWinner` and not an id match: a war band is won by a side, and
+            every man on it won it. */}
+        {mine?.isWinner && (
+          <div className="font-display animate-pulse text-sm tracking-[0.35em] text-yellow-400"
+            style={{ textShadow: "0 2px 14px rgba(0,0,0,0.9)" }}>VICTORY IS YOURS</div>
+        )}
+        <MatchTally data={data} playerId={playerId} />
+      </div>
+
+      <div className="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-2">
+        {/* The flourish, performed live on the tableau behind these numbers.
+            The stage shares the fight's rigs, so the press plays mid-portrait. */}
+        {onEmote && <EmoteRow onEmote={onEmote} />}
+        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col gap-1 overflow-y-auto p-2 backdrop-blur">
+          {rows.map((r, i) => (
+            <div key={r.id} className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 ${
+              r.isWinner ? "bg-amber-900/30" : r.id === playerId ? "bg-sky-950/40" : ""
+            }`}>
+              <div className="font-display w-6 shrink-0 text-lg leading-none text-stone-500">#{i + 1}</div>
+              <div className="min-w-0 flex-1">
+                <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
+                  <span className="truncate">{r.name}</span>
+                  {r.isWinner && <Crown size={12} className="shrink-0 text-amber-400" />}
+                </div>
+                <div className="text-[10px] leading-tight text-stone-400">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>
+              </div>
+              <div className="shrink-0 text-right text-[11px] font-bold leading-tight">
+                <div className="text-amber-300">+{r.xpEarned} XP</div>
+                <div className="flex items-center justify-end gap-1 text-yellow-500"><Coins size={9} />+{r.goldEarned}</div>
+              </div>
+            </div>
+          ))}
+          {/* The pay is the server's to give. When it does not arrive the
+              honest thing is to say so on the screen that shows the number,
+              not to quietly print a total that includes it. */}
+          {payState === "unpaid" && (
+            <div className="px-2.5 py-1 text-[11px] leading-snug text-red-300/90">
+              This pay has not reached the war rolls — your hoard is unchanged.
+            </div>
+          )}
+          {payState === "asking" && (
+            <div className="animate-pulse px-2.5 py-1 text-[10px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
+          )}
+        </div>
+        <div className="flex gap-2.5">
+          <button onClick={onFightAgain} disabled={waiting} data-snd="confirm"
+            className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">
+            {waiting
+              ? <span className="animate-pulse tracking-[0.14em]">MUSTERING…</span>
+              : <><Swords size={16} className="shrink-0" /> FIGHT AGAIN</>}
+          </button>
+          <button onClick={onLeave} data-snd="back"
+            className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">
+            LEAVE
+          </button>
         </div>
       </div>
     </div>
