@@ -46,6 +46,11 @@ export default function CharacterPreview({
   faceSeed = 0,
   /** Show the lens strip and the drag hint. Off for the small class-picker use. */
   controls = false,
+  /**
+   * The crop to open on when no armoury slot is driving it — the lobby's
+   * "this is you" panel wants the whole man and his weapon, not a head crop.
+   */
+  defaultLens = "figure",
 }: {
   warriorClass: WarriorClass;
   appearance?: Appearance;
@@ -54,6 +59,7 @@ export default function CharacterPreview({
   focusSlot?: string;
   faceSeed?: number;
   controls?: boolean;
+  defaultLens?: PreviewLens;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<StageHandle | null>(null);
@@ -77,7 +83,7 @@ export default function CharacterPreview({
   // asked to see the item at the range he fights at has asked a question, and
   // silently answering a different one on the next tab is how the shop got
   // accused of hiding things in the first place.
-  const slotLens: PreviewLens = (focusSlot && SLOT_LENS[focusSlot]) || "face";
+  const slotLens: PreviewLens = (focusSlot && SLOT_LENS[focusSlot]) || defaultLens;
   const [pin, setPin] = useState<{ lens: PreviewLens; slot: string } | null>(null);
   const lens: PreviewLens =
     pin && (pin.lens === "fight" || pin.slot === (focusSlot ?? "")) ? pin.lens : slotLens;
