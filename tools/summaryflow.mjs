@@ -80,6 +80,25 @@ async function until(cond, what, timeoutMs = 15000) {
   }
 }
 
+/**
+ * A press that does not wait to be allowed. Playwright's own click waits for
+ * the element to be actionable, and on a software rasteriser the first summary
+ * frame jams the main thread long enough for that wait to be MEASURED at eight
+ * to twenty-five seconds — which silently moves the press outside the server's
+ * ten-second rematch window and fails a branch that is not broken. The DOM
+ * click is dispatched now; React handles it on the same event loop the player's
+ * thumb would have.
+ */
+async function tapNow(page, label) {
+  return page.evaluate((text) => {
+    const b = [...document.querySelectorAll("button")]
+      .find((el) => (el.textContent || "").includes(text));
+    if (!b) return false;
+    b.click();
+    return true;
+  }, label);
+}
+
 /** A fresh phone, tapped and named, on the landing screen. */
 async function phone(browser) {
   const ctx = await browser.newContext({
@@ -311,30 +330,27 @@ async function duelPhase(browser) {
   const myId = await page.evaluate(() => window.__probe?.playerId);
   check("the verdict names the phone player", verdict.winnerId === myId, `winner ${verdict.winnerName}`);
 
-  // Let the stage build and the push start.
-  await sleep(1200);
-  await until(() => page.evaluate(() => !!window.__summaryStage), "the stage to build", 30000);
-  console.log(`[flow] stage built at ${since()}`);
-  const duelEarly = await castNow(page);
-  console.log(`[flow] duel cast reported at ${since()}`);
-  await emoteCheck(page, duelEarly, "duel");
-  console.log(`[flow] emote row read at ${since()}`);
-  const overlayUp = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
-  const fightAgainUp = await page.getByText("FIGHT AGAIN", { exact: false }).first().isVisible().catch(() => false);
-  const canvasUp = await page.evaluate(() => !!document.querySelector("canvas"));
-  check("the summary overlay stands over a live canvas", overlayUp && fightAgainUp && canvasUp,
-    `verdict=${overlayUp}, FIGHT AGAIN=${fightAgainUp}, canvas=${canvasUp}`);
-
-  // ---- FIGHT AGAIN pressed EARLY, before the rollback (screenshot comes
-  // after: a SwiftShader screenshot costs seconds and last run it spent the
-  // whole ten-second window, so the park branch was never exercised) ----
-  console.log(`[flow] overlay checks done at ${since()}`);
+  // ---- FIGHT AGAIN PRESSED FIRST, AND NOTHING BEFORE IT ----
+  // The park branch only exists inside the server's ten-second window, and on
+  // a software rasteriser the first summary frame alone costs this box most of
+  // it: the click's own actionability wait was measured at eight seconds, and
+  // every assertion put ahead of the press spends the window on the way. So
+  // the press goes first and the picture is examined afterwards — the tableau
+  // stays up until the player leaves it, which is the whole design.
+  const pressed = await tapNow(page, "FIGHT AGAIN");
   const stateNow = await page.evaluate(() => window.__probe?.latest?.state);
-  await page.getByText("FIGHT AGAIN", { exact: false }).first().click();
-  console.log(`[flow] FIGHT AGAIN pressed at ${since()}`);
-  const waitingShown = await page.getByText("MUSTERING", { exact: false }).first().isVisible().catch(() => false);
-  check("pressed before the rollback, the intent parks", stateNow === "finished" && waitingShown,
-    `pressed at state=${stateNow}, button shows MUSTERING`);
+  const waitingShown = await page.evaluate(() =>
+    !!document.body.textContent && document.body.textContent.includes("MUSTERING"));
+  check("pressed before the rollback, the intent parks",
+    pressed && stateNow === "finished" && waitingShown,
+    `pressed at ${since()} with state=${stateNow}, button shows ${waitingShown ? "MUSTERING" : "FIGHT AGAIN"}`);
+
+  const overlayUp = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
+  const canvasUp = await page.evaluate(() => !!document.querySelector("canvas"));
+  check("the summary overlay stands over a live canvas", overlayUp && canvasUp,
+    `verdict=${overlayUp}, canvas=${canvasUp}`);
+  const duelEarly = await castNow(page);
+  await emoteCheck(page, duelEarly, "duel");
   await page.screenshot({ path: `${OUT}/summary-real-phone.png` });
   console.log(`[flow] wrote ${OUT}/summary-real-phone.png`);
 
