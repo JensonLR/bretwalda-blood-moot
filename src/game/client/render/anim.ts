@@ -343,6 +343,24 @@ export interface WarriorMotion {
   netInterval: number;
   /** Clock at which the newest packet was noticed. */
   netArrive: number;
+  /** How late arrivals have been running lately. Widens the phase window. */
+  netJit: number;
+  /**
+   * Error smoothing. The zero-delay local rig extrapolates, and an
+   * extrapolation is a guess: when the next packet disagrees with it the
+   * difference has to go somewhere. Applied on the frame it appears it is a
+   * visible flick — on a loaded server the measured-wire replay found frames
+   * running at 19 u/s and frames running backwards. Carried here instead and
+   * bled off over about sixty milliseconds, it becomes a small speed offset
+   * nobody can see. `raw*` is the interpolator's own solution and its learned
+   * velocity, which is how the unexpected part of a step is told from the
+   * expected part; on a clean wire the unexpected part is zero every frame and
+   * this whole mechanism costs exactly nothing.
+   */
+  errX: number; errZ: number; errYaw: number;
+  rawX: number; rawZ: number; rawYaw: number;
+  rawVx: number; rawVz: number; rawVyaw: number;
+  rawPrimed: boolean;
   /** Visual roll into the direction of travel. */
   leanX: number;
   /** Hit impulse, decays to zero; pushes the body away from its attacker. */
@@ -465,7 +483,10 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     rx: p.position.x, rz: p.position.z, yaw: p.rotation,
     net: Array.from({ length: SNAP_KEEP }, () => ({ t: 0, x: 0, z: 0, yaw: 0, yawRaw: 0 })),
     netHead: 0, netCount: 0, netClock: 0,
-    netInterval: NET_INTERVAL_GUESS, netArrive: 0,
+    netInterval: NET_INTERVAL_GUESS, netArrive: 0, netJit: 0,
+    errX: 0, errZ: 0, errYaw: 0,
+    rawX: p.position.x, rawZ: p.position.z, rawYaw: p.rotation,
+    rawVx: 0, rawVz: 0, rawVyaw: 0, rawPrimed: false,
     leanX: 0, recoil: 0, trailTick: 0,
     stride: hash01(p.id) * Math.PI * 2, land: 0, seed: hash01(p.id + "s") * 6.28,
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
@@ -1509,6 +1530,11 @@ const REMOTE_DELAY_PACKETS = 1.5;
 const NET_MAX_EXTRAPOLATE = 0.22;
 /** A single-packet jump further than this is a respawn, not a walk. */
 const NET_TELEPORT = 6;
+/** How fast a carried error bleeds off, per second. ~60 ms to a twentieth. */
+const NET_ERR_RATE = 50;
+/** The most error the smoother will ever hold, in metres and radians. */
+const NET_ERR_MAX = 0.6;
+const NET_ERR_MAX_YAW = 0.8;
 
 /** Ring accessor: k = 0 is the oldest live snapshot, k = netCount-1 the newest. */
 function snapAt(m: WarriorMotion, k: number): NetSnapshot {
@@ -1570,9 +1596,30 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
       // given a whole number of slots, so the long move is spread over a
       // correspondingly long segment and is drawn at the CORRECT speed — the
       // motion stretches, it does not teleport and it does not sprint.
-      const slots = gap > m.netInterval * 1.6 + dtFrame
+      let slots = gap > m.netInterval * 1.6 + dtFrame
         ? clamp(Math.round(gap / m.netInterval), 2, 8)
         : 1;
+      // AND THE ARRIVAL IS NOT THE ONLY WITNESS. A broadcast whose wake slipped
+      // steps the simulation twice and ships both steps in ONE packet, and that
+      // packet arrives on time — its CONTENT jumped two intervals while its
+      // arrival gap says one. Timing alone is blind to it, and stamping it one
+      // slot along drives two intervals of walking through one interval of
+      // segment: the body sprints at 14 u/s for three frames and is yanked back
+      // on the next packet. That was the whole of the failure the measured-wire
+      // replay found, and on a loaded server it happens every ten packets or so.
+      //
+      // The wire's own velocity is the second witness. How far the man moved,
+      // divided by how fast he says he is going, is how much TIME this packet
+      // is carrying. Only consulted when he is moving fast enough for the
+      // division to mean anything, and only believed when it claims half an
+      // interval more than the arrival did.
+      const spd = Math.hypot(p.velocity?.x || 0, p.velocity?.z || 0);
+      if (spd > 0.5) {
+        const carried = Math.hypot(x - newest.x, z - newest.z) / spd;
+        if (carried > m.netInterval * (slots + 0.5)) {
+          slots = clamp(Math.round(carried / m.netInterval), slots + 1, 8);
+        }
+      }
       t = prevT + m.netInterval * slots;
       // WHAT THE ARRIVAL ACTUALLY TELLS US. Not an instant — a window. A packet
       // is noticed on the first frame that runs after it lands, so all that is
@@ -1584,7 +1631,16 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
       // its edge is unbiased, and once the grid is locked the stamp lands inside
       // the window every time and the correction is exactly zero — which is what
       // makes the segments exactly equal.
-      const lo = now - dtFrame;
+      // AND WIDER THAN ONE FRAME WHEN THE WIRE IS ROUGH. Under load the
+      // engine's wake slips (measured: p95 53 ms, max 58 ms against a nominal
+      // 50), so an arrival is the send time plus a latency that VARIES. The
+      // grid must lock to the earliest arrivals — the ones that waited least —
+      // and simply tolerate the late ones, or every slipped wake yanks it and
+      // the yank is the judder. `netJit` is how late arrivals have been running
+      // lately; it decays back to nothing on a clean wire, where this widening
+      // is exactly zero and the numbers above are unchanged.
+      m.netJit = Math.max(m.netJit * 0.985, Math.min(Math.abs(now - t), m.netInterval));
+      const lo = now - dtFrame - m.netJit;
       const off = t < lo ? t - lo : t > now ? t - now : 0;
       if (Math.abs(off) > 0.5) {
         // The client clock and the wire have genuinely parted company; the
@@ -1683,6 +1739,51 @@ function sampleNet(m: WarriorMotion, rt: number, p: GamePlayer): void {
 }
 
 /**
+ * Bleed off the disagreements rather than showing them.
+ *
+ * `sampleNet` gives the interpolator's best answer for this instant. Between
+ * packets on a clean wire that answer moves by exactly the same amount every
+ * frame, and everything below reduces to `m.rx = the answer` with no error to
+ * carry. It earns its keep on a wire that is NOT clean: when a packet lands and
+ * disagrees with what the extrapolation had guessed, the difference is taken
+ * into an offset instead of onto the screen, and the offset is bled off over
+ * about sixty milliseconds.
+ *
+ * The unexpected part of a step is what gets absorbed, not the whole step —
+ * otherwise the body would simply stop dead every time a packet arrived. The
+ * expected part is the interpolator's own learned velocity, which on constant
+ * motion is exact, so the residual is zero and nothing is smoothed at all.
+ *
+ * NOT applied to the knockback push: that is added to the rig AFTER this, and
+ * a shove that eased in over sixty milliseconds would not be a shove.
+ */
+function smoothNetError(m: WarriorMotion, dt: number, teleported: boolean): void {
+  if (teleported || !m.rawPrimed || dt <= 1e-4) {
+    m.errX = 0; m.errZ = 0; m.errYaw = 0;
+    m.rawVx = 0; m.rawVz = 0; m.rawVyaw = 0;
+    m.rawX = m.rx; m.rawZ = m.rz; m.rawYaw = m.yaw;
+    m.rawPrimed = true;
+    return;
+  }
+  const jx = m.rx - m.rawX - m.rawVx * dt;
+  const jz = m.rz - m.rawZ - m.rawVz * dt;
+  const jy = shortestAngle(m.rawYaw + m.rawVyaw * dt, m.yaw);
+  const kv = Math.min(1, dt * 18);
+  m.rawVx += ((m.rx - m.rawX) / dt - m.rawVx) * kv;
+  m.rawVz += ((m.rz - m.rawZ) / dt - m.rawVz) * kv;
+  m.rawVyaw += (shortestAngle(m.rawYaw, m.yaw) / dt - m.rawVyaw) * kv;
+  m.rawX = m.rx; m.rawZ = m.rz; m.rawYaw = m.yaw;
+
+  const keep = Math.exp(-dt * NET_ERR_RATE);
+  m.errX = clamp((m.errX - jx) * keep, -NET_ERR_MAX, NET_ERR_MAX);
+  m.errZ = clamp((m.errZ - jz) * keep, -NET_ERR_MAX, NET_ERR_MAX);
+  m.errYaw = clamp((m.errYaw - jy) * keep, -NET_ERR_MAX_YAW, NET_ERR_MAX_YAW);
+  m.rx += m.errX;
+  m.rz += m.errZ;
+  m.yaw += m.errYaw;
+}
+
+/**
  * Moves the rig onto the server's position with snapshot interpolation, and
  * applies the hit-push impulse. Read `rig.group.position` after this and before
  * poseWarrior.
@@ -1705,6 +1806,7 @@ export function stepWarriorTransform(
   // the section header for why the two are not the same problem.
   const delay = player.id === ctx.localId ? 0 : REMOTE_DELAY_PACKETS * motion.netInterval;
   sampleNet(motion, motion.netClock - delay, player);
+  smoothNetError(motion, dt, teleported);
 
   // The orchestrator raises recoil on the frame damage lands. A rise is the
   // only edge we get for "struck just now" — the wire has no hit event on the

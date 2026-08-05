@@ -65,6 +65,9 @@ export function row(label, s, unit = "ms") {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** engine.mjs:452 — a wake this close to a step boundary counts as on time. */
+const TICK_SLACK = 0.003;
+
 // ===========================================================================
 // 1. SERVER TICK REGULARITY
 // ===========================================================================
@@ -288,23 +291,39 @@ function traceWalk(anim, THREE, {
     // The client is still fed `dt` per frame exactly as a renderer would be —
     // only the harness's own reckoning of where it is in the trace is exact.
     t = (f + 1) / fps;
-    // advance the authoritative sim in fixed 1/20 steps
-    const steps = Math.floor(t / 0.05 + 1e-9);
-    while (simStep < steps) { simStep++; simT = simStep * 0.05; simX = speed * simT; simRot = turnRate * simT; }
-    // deliver a packet when one is due
-    // Packets land on their own fixed grid, not on the frame that noticed them
-    // — otherwise the harness itself beats against the frame clock and invents
-    // a hitch the game does not have.
+    // THE SIMULATION AND THE BROADCAST SHARE A WAKE, because engine.mjs does:
+    // `gameTick` owes itself steps against performance.now(), returns WITHOUT
+    // broadcasting when it is owed none (engine.mjs:2203, "no simulation, no
+    // duplicate snapshot"), and otherwise steps that many times and broadcasts
+    // once. So a packet always carries at least one step, the client never sees
+    // a repeat, and a packet's content advances by exactly as much time as its
+    // arrival gap did.
+    //
+    // This harness used to run the sim on its own exact 1/20 grid and deliver
+    // packets on a separate jittered one. Under a jittered wire that
+    // manufactured two things the engine cannot produce — duplicate snapshots,
+    // and packets whose CONTENT jumped two steps while their arrival gap said
+    // one — and then charged the client for failing to untangle them. The
+    // packet grid is still its own grid; the SIM now moves only when a wake
+    // says so, off the wake's own clock and not off the frame that noticed it.
     if (t * 1000 >= nextPacket - 1e-9) {
+      const wake = nextPacket / 1000;
       nextPacket += jitter ? jitter[ji % jitter.length] : packetMs;
-      // A DROPPED PACKET. The grid does not move — the server sent it, the wire
-      // ate it — so the client simply never sees that state and the packet after
-      // it carries two intervals of motion. This is the case the old smoothing
-      // could not tell apart from a teleport.
-      if (!(drop && drop(ji))) {
-        wire.position = { x: simX, y: 0, z: 0 };
-        wire.rotation = simRot;
-        wire.velocity = { x: speed, y: 0, z: 0 };
+      const owed = Math.floor((wake - simT + TICK_SLACK) / 0.05);
+      if (owed > 0) {
+        simStep += owed;
+        simT += owed * 0.05;
+        simX = speed * simStep * 0.05;
+        simRot = turnRate * simStep * 0.05;
+        // A DROPPED PACKET. The server sent it, the wire ate it, so the client
+        // never sees that state and the packet after it carries two intervals
+        // of motion. This is the case the old smoothing could not tell apart
+        // from a teleport.
+        if (!(drop && drop(ji))) {
+          wire.position = { x: simX, y: 0, z: 0 };
+          wire.rotation = simRot;
+          wire.velocity = { x: speed, y: 0, z: 0 };
+        }
       }
       ji++;
     }
