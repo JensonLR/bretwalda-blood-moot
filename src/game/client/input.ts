@@ -8,9 +8,14 @@
 // How intent is gathered on a phone is set out in docs/MOBILE-CONTROLS.md. The
 // short version, because it explains most of the shape of this file: movement,
 // aim and attack direction are three separate intentions and they get three
-// separate inputs. The left thumb moves and does nothing else. The right thumb
-// looks. The direction the right thumb flicks as it attacks is the direction of
-// the cut.
+// separate inputs. The left thumb moves and does nothing else. The direction
+// the right thumb flicks as it attacks is the direction of the cut.
+//
+// Aim is nobody's thumb any more. The camera locks onto the man trying to kill
+// you and the left thumb circles him; the right thumb is buttons only, and
+// free-look comes back the moment there is nobody to lock. See "THE OVERLOADED
+// CHANNEL" below — the reasoning is there, not here, because it is the fifth
+// time the same mistake has been made in this codebase.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AttackDirection, GamePlayer, WarriorClass } from "../types";
