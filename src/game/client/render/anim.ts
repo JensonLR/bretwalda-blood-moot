@@ -1525,11 +1525,9 @@ function snapAt(m: WarriorMotion, k: number): NetSnapshot {
  * is picked up as a resync when it starts moving again.
  *
  * THE STAMP IS THE DELICATE PART. The observed arrival is quantised to the
- * frame clock, so it is not used directly. The period is tracked as a running
- * mean over the whole burst (quantisation error falls off as 1/k and is gone
- * within a second), the stamp is placed one period after the previous one, and
- * the observed arrival is only allowed to pull it when the two have drifted
- * more than a frame apart. The result is a grid of exactly-even segments.
+ * frame clock, so it is not used directly. The stamp is placed one measured
+ * period after the one before it, and the arrival is only allowed to correct
+ * that grid, never to set it. The result is exactly-even segments.
  */
 function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
   const x = p.position.x;
@@ -1560,11 +1558,10 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
       // put that wobble straight back on the motion.
       //
       // Correcting it is a phase lock with a frequency term, and the frequency
-      // term is not optional. Phase alone locks happily onto a wrong period:
-      // the error stays inside the deadband and the grid drifts for ever. With
-      // it, a systematic error accumulates until it leaves the deadband, and
-      // each correction nudges the PERIOD as well as the phase, so the estimate
-      // walks onto the true wire rate and then stops moving altogether.
+      // term is not optional. Phase alone would happily hold a wrong period for
+      // ever, re-centring the grid every packet and putting a step on the motion
+      // every time it did. With it, a systematic error walks the PERIOD onto the
+      // true wire rate and the corrections then stop happening at all.
       const prevT = snapAt(m, m.netCount - 1).t;
       // A gap long enough to be more than one period is a dropped packet. It is
       // given a whole number of slots, so the long move is spread over a
