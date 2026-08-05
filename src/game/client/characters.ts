@@ -5918,6 +5918,11 @@ export function buildCharacter(
     // passes.
     if (ap.hairStyle !== "shaved") {
       const crop = ap.hairStyle === "short";
+      /** Angular distance from dead ahead, folded into 0..PI. */
+      const awayFromFace = (u: number) => {
+        const a = ((u % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        return a > Math.PI ? Math.PI * 2 - a : a;
+      };
       // The hairline. Three harmonics rather than two, and the third is above
       // Nyquist for `nu` on purpose: a hairline is where hair thins out, not
       // where it was cut, and a curve at one frequency is still a curve. The
@@ -5934,7 +5939,14 @@ export function buildCharacter(
       const line = (u: number) => (crop ? 0.30 : 0.21)
         + 0.235 * Math.cos(u) - 0.080 * Math.cos(u * 2)
         + 0.080 * Math.cos(u * 5 + 1.1) + 0.042 * Math.cos(u * 9 - 0.7)
-        + 0.020 * Math.cos(u * 17 + 2.3);
+        + 0.020 * Math.cos(u * 17 + 2.3)
+        // Under a helm the hairline drops 0.12 rad at the sides and the nape —
+        // about 16 mm — so hair emerges below the brow band's rim instead of the
+        // iron meeting bare scalp all the way round. A helmet on a man who has
+        // no hair anywhere it can be seen is a helmet on a mannequin, and it is
+        // half of what "a helmet must look WORN" means. Nothing changes at the
+        // front, where the band is meant to bear on the frontal bone.
+        - (helmed ? 0.12 * smooth(0.55, 1.25, awayFromFace(u)) : 0);
       // The shell. Under a helm it flattens to a liner's thickness — a helm
       // flattens hair, and 24 mm of crown volume would push straight through a
       // bowl that now sits on the skull.
@@ -5970,13 +5982,13 @@ export function buildCharacter(
         // is free: it is where the two shells stop.
         for (const s of [-1, 1]) {
           p.add(shell([
-            { y: skullY + 0.085, hw: R.x * 0.70, hd: R.z * 1.02, z: -0.030 },
-            { y: skullY - 0.045, hw: R.x * 0.86, hd: R.z * 0.92, z: -0.052 },
-            { y: skullY - 0.150, hw: R.x * 0.94, hd: R.z * 0.74, z: -0.062 },
-            { y: skullY - 0.245, hw: R.x * 0.88, hd: R.z * 0.58, z: -0.058 },
-            { y: skullY - 0.320, hw: R.x * 0.62, hd: R.z * 0.42, z: -0.048 },
-          ], Math.max(8, lod.limb), { power: 2.3, wall: 0.013 }), hair,
-            xf(s * R.x * 0.52, 0, 0, 0, 0, -s * 0.06));
+            { y: skullY + 0.012, hw: R.x * 0.50, hd: R.z * 0.86, z: -0.040 },
+            { y: skullY - 0.070, hw: R.x * 0.62, hd: R.z * 0.80, z: -0.056 },
+            { y: skullY - 0.160, hw: R.x * 0.68, hd: R.z * 0.66, z: -0.062 },
+            { y: skullY - 0.250, hw: R.x * 0.62, hd: R.z * 0.52, z: -0.058 },
+            { y: skullY - 0.322, hw: R.x * 0.40, hd: R.z * 0.36, z: -0.048 },
+          ], Math.max(9, lod.limb + 1), { power: 2.0, wall: 0.013 }), hair,
+            xf(s * R.x * 0.44, 0, 0, 0, 0, -s * 0.05));
         }
         if (lod.trim) {
           // Six locks down the fall, three a side, so the mass has strands in it
@@ -6061,11 +6073,20 @@ export function buildCharacter(
       // beard's edge is where hair thins out, not where it was cut, and the only
       // honest way to say that with a patch rim is to make the rim disagree with
       // itself. The second term stays above Nyquist at `nu` = 11.
+      // The harmonics came DOWN and the column count went up, which is the
+      // opposite of what the note above says and the frames say the note was
+      // wrong. `nu` was 14 over 2.48 rad — a sample every 0.177 — and the second
+      // term's period is 0.556, so it was being sampled three times a cycle:
+      // below Nyquist, aliasing, and what it drew was not a ragged edge but four
+      // large triangular notches bitten out of the jaw
+      // (`art/shots/wip/b2-*_beard=beard_full_*`). A boundary can only disagree
+      // with itself as finely as the mesh can carry, and the honest raggedness
+      // at this scale is now in the complexion field's stubble, which has no
+      // mesh at all and can therefore be as fine as it likes.
       const cheek = (u: number) => {
         const t = smooth(0.55, 1.20, Math.abs(u));
-        const y = mix(full ? Y_LIP + 0.06 : Y_LIP - 0.155, full ? -0.19 : -0.13, t);
-        return lat(y) + (full ? 0.030 : 0.055) * Math.cos(u * 6.5)
-          + (full ? 0.012 : 0.026) * Math.cos(u * 11.3 + 1.9);
+        const y = mix(Y_LIP + 0.045, -0.20, t);
+        return lat(y) + 0.024 * Math.cos(u * 4.5) + 0.010 * Math.cos(u * 7.5 + 1.9);
       };
       // The lower silhouette, and this is what was reading as "a doormat strapped
       // to the jaw". It used to be the constant latitude −1.05 across the entire
@@ -6078,10 +6099,9 @@ export function buildCharacter(
       // scale still reads as something cut to a pattern.
       const hang = (u: number) => {
         const a = Math.abs(u);
-        const arc = (full ? -1.27 : -1.06) + (full ? 0.52 : 0.34) * Math.pow(smooth(0.1, 1.24, a), 1.35);
+        const arc = -1.27 + 0.52 * Math.pow(smooth(0.1, 1.24, a), 1.35);
         const rag = smooth(0.04, 0.5, a);
-        return arc + (full ? 0.052 : 0.040) * Math.cos(u * 4.7 + 0.6) * rag
-          + (full ? 0.016 : 0.020) * Math.cos(u * 9.1 - 0.8) * rag;
+        return arc + 0.044 * Math.cos(u * 3.7 + 0.6) * rag + 0.016 * Math.cos(u * 6.9 - 0.8) * rag;
       };
       // The two pieces that ride on the face. Both are skipped under a mask —
       // see the note above the beard.
@@ -6095,7 +6115,7 @@ export function buildCharacter(
           u0: -1.24, u1: 1.24,
           v0: (u) => mix(hang(u), cheek(u) - 0.03, smooth(0.98, 1.24, Math.abs(u))),
           v1: cheek,
-          nu: Math.max(11, lod.shellU + 4), nv: Math.max(5, lod.shellV + 1),
+          nu: Math.max(20, lod.shellU + 10), nv: Math.max(5, lod.shellV + 1),
           // Thickness dies at *both* boundaries rather than being thickest at the
           // one that is in silhouette. `patch` closes every boundary with a rim
           // strip whose normal points along the surface, so a patch that ends at
@@ -6120,7 +6140,7 @@ export function buildCharacter(
           // what is left is a moustache that grows out of the lip and thins toward
           // the corner.
           const swell = (u: number, v: number) =>
-            0.0015 + 0.008 * Math.sin(Math.PI * clamp01(v))
+            0.0010 + 0.0052 * Math.sin(Math.PI * clamp01(v))
             * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.035) / 0.345));
           // A leaf, not a rectangle. Both v bounds converge at both ends of u, so
           // the half pinches shut against the philtrum on one side and against the
@@ -6149,16 +6169,33 @@ export function buildCharacter(
       // i.e. inside the chin, so a "full" beard's hang emerged from the middle of
       // the jaw rather than from under it.
       if (ap.beardStyle === "full") {
-        // Five stations rather than three, and it swells before it tapers. A
-        // three-station taper is a cone, and a cone under a jaw reads as a beak;
-        // the belly at −180 mm is what makes it hang.
-        p.add(shell([
-          { y: skullY - 0.126, hw: 0.066, hd: 0.054, z: 0.038 },
-          { y: skullY - 0.180, hw: 0.071, hd: 0.058, z: 0.038 },
-          { y: skullY - 0.232, hw: 0.058, hd: 0.048, z: 0.034 },
-          { y: skullY - 0.278, hw: 0.036, hd: 0.031, z: 0.028 },
-          { y: skullY - 0.302, hw: 0.014, hd: 0.013, z: 0.023 },
-        ], lod.limb, { power: 2.15, capBottom: true }), beard);
+        // Three lobes, not one cone. One swept shell under a jaw is a single
+        // smooth mass with a smooth outline, and at portrait range that is a
+        // bib — `art/shots/wip/b3-*` is a brown block with a straight bottom
+        // edge. A beard hangs in hanks: a long one at the chin and two shorter
+        // ones either side of it, each with its own belly and its own tip, so
+        // the mass has strands running down it and the outline is broken in
+        // three places. Same triangle count as the five-station cone it
+        // replaces, because each lobe is coarser.
+        // One mass, and the three separate hanks that were tried here are why it
+        // is written down. Split into a long lobe and two short ones, each shell
+        // presented its own open top ring under the cheek patch and the beard
+        // rendered as three cut tubes hanging off a jaw — a beard is one volume
+        // that hair falls out of, and dividing the volume divides it visibly.
+        // The strands belong on the surface, and that is what the second, offset
+        // shell below is: the same mass again at 3 mm less radius and a slight
+        // lean, so the two outlines disagree down the length of the beard and
+        // the edge is broken without the mass being.
+        const belly = (k: number, lean: number) => p.add(shell([
+          { y: skullY - 0.122, hw: 0.062 * k, hd: 0.052 * k, z: 0.038 },
+          { y: skullY - 0.178, hw: 0.068 * k, hd: 0.056 * k, z: 0.038 },
+          { y: skullY - 0.232, hw: 0.055 * k, hd: 0.046 * k, z: 0.034 },
+          { y: skullY - 0.280, hw: 0.033 * k, hd: 0.029 * k, z: 0.028 },
+          { y: skullY - 0.308, hw: 0.012 * k, hd: 0.011 * k, z: 0.023 },
+        ], Math.max(8, lod.limb), { power: 2.15, capTop: true, capBottom: true }), beard,
+          xf(0, 0, 0, 0, 0, lean));
+        belly(1, 0);
+        if (lod.trim) belly(0.94, 0.075);
       } else if (ap.beardStyle === "forked") {
         // FORKED, 80 gold, and the audit's instruction was to check it against
         // the profile card: "a fork that does not separate in profile is a beard
@@ -6247,8 +6284,18 @@ export function buildCharacter(
       // hands the height it gives up to the mask. It stops well clear of the brow
       // ridge at 0.049 rad — putting the band *on* the ridge is the defect logged
       // twenty lines above and this does not repeat it.
-      const bandLo = lat(Y_BROW + mix(0.15, 0.05, clamp01((B.bowl - 0.76) / 0.36)))
-        - (style.mask ? 0.055 : 0);
+      // DOWN ONTO THE BROW, and this is the owner's complaint about how a helm
+      // sits, measured rather than adjusted by eye. At `Y_BROW + 0.15` the band's
+      // lower rim landed at 29% of head height from the crown — 19 mm ABOVE the
+      // brow ridge — and the band is 26 mm tall on top of that, so the iron
+      // occupied the top of the forehead and the whole bowl read as a small dome
+      // parked on a large bald head. A spangenhelm's browband bears on the frontal
+      // bone with its rim at or just over the eyebrow; that is 35% of head height,
+      // which is `Y_BROW + 0.04`. The note twenty lines below about not putting
+      // the band ON the ridge still holds and this does not break it — the ridge
+      // peaks at `Y_BROW` and the rim now clears it by 5 mm rather than by 19.
+      const bandLo = lat(Y_BROW + mix(0.065, 0.005, clamp01((B.bowl - 0.76) / 0.36)))
+        - (style.mask ? 0.050 : 0);
       const bandHi = bandLo + 0.20;
       // The two substances the whole cap is cut from. Every helm below the noble
       // tier gets the iron/steel pair it always had; the Sutton Hoo gets tinned
@@ -6303,12 +6350,19 @@ export function buildCharacter(
       // helmeted warrior in `art/shots/v4`. The ribs, the comb and the spectacle
       // plate keep the polish, so the helm still has bright metal on it; it is just
       // no longer the brightest thing in the frame.
+      // 13 mm at the top rim and 20 at the bottom, not 16 and 24. A helm is worn
+      // over 8-12 mm of liner, so its inner surface — `lift - thick` — is what has
+      // to land on the skull: at 24 and 9 mm thick there was 15 mm of daylight
+      // under the brim and the band was standing off the head. It is now within a
+      // liner everywhere, and the 7 mm of flare from top rim to bottom is still a
+      // brim that overhangs the forehead and throws the shadow line the whole face
+      // composition hangs off.
       p.add(headWear(K, {
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: () => bandLo, v1: () => bandHi,
         nu: Math.max(10, lod.shellU + 2), nv: 1,
-        lift: (_u, v) => 0.016 + 0.008 * (1 - v),
-        thick: 0.009,
+        lift: (_u, v) => 0.013 + 0.007 * (1 - v),
+        thick: 0.008,
       }), capMetal, place.clone());
       if (lod.trim) {
         // The bowl's spangen — the strips the cap's plates are riveted along.
@@ -6343,9 +6397,16 @@ export function buildCharacter(
             // band, which clears the band's own 24 mm brim, falling to zero at the
             // pole: at the top the rib is flush with the dome and there is nothing
             // left of it to cut.
+            // 6 mm proud at the band, not 14. A rib is a strip of iron riveted
+            // over a plate join and stands about the thickness of the strip; at
+            // 14 mm on top of a 13 mm bowl the four of them sat 27 mm off the
+            // skull with 22 mm of air behind them, and what that draws is a
+            // birdcage over the head rather than a cap on it. It is the single
+            // loudest part of the owner's "the helms hover" — visible in
+            // `art/ui/armourycard-desktop.png` on every rung of the ladder.
             lift: (_u, s) =>
-              0.013 + (crest - 0.013) * s * s + 0.014 * (1 - Math.pow(clamp01(s), 2.2)),
-            thick: 0.005,
+              0.013 + (crest - 0.013) * s * s + 0.006 * (1 - Math.pow(clamp01(s), 2.2)),
+            thick: 0.004,
           }), trimMetal, place.clone());
         }
       }
@@ -7759,24 +7820,34 @@ export function buildCharacter(
       // brim overhangs the face it is supposed to be shading.
       p.add(headWear(K, {
         u0: 0, u1: Math.PI * 2, wrapU: true,
-        v0: (u) => -0.9 + 1.32 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2),
+        // The opening runs higher across the front — 0.50 rad rather than 0.42,
+        // which is 12 mm further up the forehead — so there is a face under the
+        // hood and not a slot. With the brim's standoff halved the two together
+        // are what turn a cone into a cowl.
+        v0: (u) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2),
         v1: () => Math.PI / 2 - 0.02,
         nu: Math.max(12, lod.shellU + 2), nv: lod.shellV + 1,
         // Down from 30 mm of base lift to 20. Cloth over a skull follows the skull;
         // the extra volume it needs belongs at the nape and over the brim, which is
         // where the two directional terms put it, not in a uniform standoff that
         // inflates the whole hood into a bell.
-        lift: (u, v) => 0.02 + 0.018 * v
-          + 0.055 * (1 - v) * clamp01(-Math.cos(u))
-          + 0.05 * Math.pow(1 - v, 1.5) * clamp01(Math.cos(u)),
-        thick: 0.012,
+        // The brim came down from 70 mm of standoff to 38. At 0.02 base plus
+        // 0.05 at the front rim the cloth stood 70 mm clear of the brow, which is
+        // not a hood — it is a lampshade with a man in it, and it is the whole of
+        // "the Shadow Hood swallows the head". Cloth over a skull follows the
+        // skull; the volume it needs is at the nape, where the point is, and a
+        // brim only has to overhang far enough to shade.
+        lift: (u, v) => 0.016 + 0.016 * v
+          + 0.048 * (1 - v) * clamp01(-Math.cos(u))
+          + 0.022 * Math.pow(1 - v, 1.5) * clamp01(Math.cos(u)),
+        thick: 0.010,
       }), robed ? cloakMat : hide, place.clone());
       // Shadow gore: a dark inner course set well inside the cloth, so what you
       // see through the opening is a lined cavity rather than the sky behind it.
       // Cheaper and more reliable than asking a shadow map to resolve 30 mm.
       p.add(headWear(K, {
         u0: 0, u1: Math.PI * 2, wrapU: true,
-        v0: (u) => -0.9 + 1.32 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2),
+        v0: (u) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2),
         v1: () => 0.9,
         nu: Math.max(10, lod.shellU), nv: 2,
         lift: (u, v) => 0.012 + 0.03 * Math.pow(1 - v, 1.5) * clamp01(Math.cos(u)),
@@ -7796,10 +7867,17 @@ export function buildCharacter(
       // the shoulder line it is resting on, and the hem `wall` gives it an edge
       // there. It still hides the throat, which is the point of a hood, but it hides
       // it under cloth instead of under a cone.
+      // The drape's top ring has dropped from R.y·0.55 to R.y·1.45 — from level
+      // with the MOUTH to level with the bottom of the jaw. At 0.55 it stood
+      // 124 mm off the spine, which is wider than the head, so a wall of cloth
+      // crossed the face at nose height and everything below the eyes was gone:
+      // that, and not the cowl, is most of "the Shadow Hood swallows the head"
+      // (`art/shots/wip/hm1-*_helm=helm_hood_*`). A mantle lies on the shoulders
+      // and its collar meets the throat, which is where this now starts.
       p.add(shell([
-        { y: skullY - R.y * 0.55, hw: R.x * 1.30, hd: R.z * 1.18 },
-        { y: skullY - R.y * 1.45, hw: R.x * 1.72, hd: R.z * 1.44 },
-        { y: skullY - R.y * 2.40, hw: R.x * 2.02, hd: R.z * 1.58 },
+        { y: skullY - R.y * 1.45, hw: R.x * 1.16, hd: R.z * 1.10 },
+        { y: skullY - R.y * 2.10, hw: R.x * 1.62, hd: R.z * 1.40 },
+        { y: skullY - R.y * 2.95, hw: R.x * 2.02, hd: R.z * 1.58 },
       ], Math.max(10, lod.body - 4), { power: 2.2, wall: 0.014 }), robed ? cloakMat : hide);
     }
 
