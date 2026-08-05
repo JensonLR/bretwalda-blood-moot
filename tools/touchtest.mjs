@@ -604,48 +604,62 @@ async function lockAct(browser, url, check) {
   //    pointing that way; never carry information in one channel only.
   // ===================================================================
   {
+    const W = SCREEN.width;
+    const sampleReticle = async (n) => {
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        out.push(await page.evaluate(() => {
+          const el = document.querySelector("[data-lock-reticle]");
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
+          return {
+            x: r.left + r.width / 2, o: parseFloat(el.style.opacity || "0"),
+            paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
+          };
+        }));
+        await wait(200);
+      }
+      const seen = out.filter((s) => s && s.o > 0.5);
+      const xs = seen.map((s) => s.x).sort((a, b) => a - b);
+      return {
+        n, seen: seen.length,
+        median: xs.length ? xs[Math.floor(xs.length / 2)] : 0,
+        travel: xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0,
+        paint: seen.length ? seen[seen.length - 1].paint : "none",
+      };
+    };
+
+    // THE CLAIM IS THAT IT IS ON THE MAN, and the honest way to prove that is
+    // NOT that it sits near the middle of the screen. The lock holds him there
+    // — the previous cut of this test asked whether the reticle was on his side
+    // of the centre line and got "0 of 0 samples", because the facing error
+    // never once exceeded three degrees. A reticle painted at a fixed spot
+    // would have passed that.
+    //
+    // What cannot be faked is the SHOULDER. The rig sits a metre to the
+    // warrior's right, so a man dead ahead of him is drawn LEFT of centre — and
+    // the one handedness switch moves the camera to the other shoulder, so the
+    // same man is then drawn RIGHT of centre. Parallax through the real camera
+    // matrix, and it flips with the one store that flips everything else.
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
-    const samples = [];
-    for (let i = 0; i < 12; i++) {
-      samples.push(await page.evaluate(() => {
-        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-        const el = document.querySelector("[data-lock-reticle]");
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
-        const f = window.__probe.frames[window.__probe.frames.length - 1];
-        const foe = f && f.lock && f.foes[f.lock];
-        return {
-          x: r.left + r.width / 2,
-          o: parseFloat(el.style.opacity || "0"),
-          // Where the man the lock holds actually is, relative to the facing.
-          // Screen-right is a NEGATIVE offset (see applySwitch in input.ts), so
-          // the reticle must sit right of centre exactly when this is negative.
-          off: foe && !foe.dead ? wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot) : null,
-          paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
-        };
-      }));
-      await wait(200);
-    }
-    const W = SCREEN.width;
-    const seen = samples.filter((s) => s && s.o > 0.5);
-    // THE CLAIM IS THAT IT IS ON THE MAN, not that the man is near the middle.
-    // A reticle near the middle proves nothing — the lock puts him there — and
-    // a man who walks THROUGH you at a metre sweeps the frame faster than any
-    // camera should follow, which is correct behaviour that a centred-ness
-    // assertion fails. So the test is the side he is on: the reticle must be
-    // right of centre exactly when he is, on every sample where he is off the
-    // centre line at all. Parked, mirrored, or drawn on the wrong man, it fails.
-    const sided = seen.filter((s) => s.off !== null && Math.abs(s.off) > 0.05);
-    const agree = sided.filter((s) => Math.sign(s.x - W / 2) === Math.sign(-s.off));
-    const xs = seen.map((s) => s.x).sort((a, b) => a - b);
-    const median = xs.length ? xs[Math.floor(xs.length / 2)] : 0;
-    const travel = xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0;
-    const rate = sided.length ? agree.length / sided.length : 0;
-    check("the lock is drawn on the man it is holding",
-      seen.length >= 8 && sided.length >= 5 && rate >= 0.8 && travel > 3,
-      `painted on ${seen.length} of ${samples.length} samples at opacity>0.5; on ${agree.length} of ${sided.length} of them the man was off the centre line and the reticle was on HIS side of it (${(rate * 100).toFixed(0)}%); it slid ${Math.round(travel)}px across a ${W}px screen as he moved, median x=${Math.round(median)}; last paint ${seen.length ? seen[seen.length - 1].paint : "none"}`);
+    const overRight = await sampleReticle(8);
+    await page.getByLabel("Switch to left-handed controls").tap();
+    await wait(600);
+    await waitForAlive().catch(() => {});
+    await waitForLock().catch(() => {});
+    const overLeft = await sampleReticle(8);
+    // Put it back, because the layout scan below runs right-handed first.
+    await page.getByLabel("Switch to right-handed controls").tap();
+    await wait(500);
+
+    const margin = W * 0.02;
+    check("the lock is drawn on the man it is holding, through the real camera",
+      overRight.seen >= 6 && overLeft.seen >= 6
+      && overRight.median < W / 2 - margin && overLeft.median > W / 2 + margin
+      && Math.max(overRight.travel, overLeft.travel) > 3,
+      `over the RIGHT shoulder the reticle sat at median x=${Math.round(overRight.median)} on a ${W}px screen — left of the centre line, where the shoulder offset puts a man who is dead ahead — and over the LEFT shoulder the SAME man was drawn at x=${Math.round(overLeft.median)}, right of it; painted on ${overRight.seen}+${overLeft.seen} of ${overRight.n * 2} samples and sliding up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
   }
 
   // ===================================================================
@@ -1047,14 +1061,21 @@ async function main() {
     // lock's own state is read as well, because "free-look works" and "the lock
     // is off" are two different claims and a lock that was quietly holding a
     // corpse would satisfy only one of them.
-    const idle = await page.evaluate(() => ({
-      engaged: !!(window.__bretwaldaLock && window.__bretwaldaLock.engaged),
-      target: (window.__bretwaldaLock && window.__bretwaldaLock.target) || null,
-      blend: (window.__bretwaldaLock && window.__bretwaldaLock.blend) || 0,
-    }));
+    const idle = await page.evaluate(() => {
+      const el = document.querySelector("[data-lock-reticle]");
+      return {
+        engaged: !!(window.__bretwaldaLock && window.__bretwaldaLock.engaged),
+        target: (window.__bretwaldaLock && window.__bretwaldaLock.target) || null,
+        blend: (window.__bretwaldaLock && window.__bretwaldaLock.blend) || 0,
+        reason: (window.__bretwaldaLock && window.__bretwaldaLock.reason) || "?",
+        // And the reticle is off with it. A lock mark left on the glass with
+        // nothing behind it is a worse lie than no mark at all.
+        reticle: el ? parseFloat(el.style.opacity || "0") : -1,
+      };
+    });
     check("no enemy near: free-look comes back and the lock stays off",
-      !idle.engaged && idle.target === null && idle.blend < 0.02 && dyaw > 0.5,
-      `lock engaged=${idle.engaged}, target=${idle.target ?? "nobody"}, blend=${idle.blend.toFixed(3)}; the drag above still turned the camera ${(dyaw * 57.3).toFixed(1)}°`);
+      !idle.engaged && idle.target === null && idle.blend < 0.02 && idle.reticle === 0 && dyaw > 0.5,
+      `lock engaged=${idle.engaged}, target=${idle.target ?? "nobody"} ("${idle.reason}"), blend=${idle.blend.toFixed(3)}, reticle opacity ${idle.reticle}; the drag above still turned the camera ${(dyaw * 57.3).toFixed(1)}°`);
   }
 
   // =====================================================================
