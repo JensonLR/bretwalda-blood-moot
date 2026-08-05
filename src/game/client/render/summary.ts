@@ -433,7 +433,14 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       const shot = {
         from: [ux * startR, gy + 2.3, uz * startR] as [number, number, number],
         to: [ux * endR, gy + 1.68, uz * endR] as [number, number, number],
-        target: [midX, gy + 0.95, midZ] as [number, number, number],
+        // 0.62, not 0.95. The aim height is the tilt, and the tilt is where in
+        // the frame the tableau sits: measured, the corpse's own mark projects
+        // at ndc.y -0.41 with a 0.95 aim, which is 594 px down a 390x844 phone
+        // and 507 px down a 1280x720 desktop — both of them inside the emote
+        // row and the ledger band. Dropping the aim 0.33 m pitches the lens
+        // about five degrees further down and carries the whole tableau up out
+        // of the DOM, at the cost of foreground mud nobody was looking at.
+        target: [midX, gy + 0.62, midZ] as [number, number, number],
         fov: 50, seconds: 8,
       };
       deps.rig.setSummaryShot(shot);
