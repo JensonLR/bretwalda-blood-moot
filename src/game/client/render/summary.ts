@@ -5,9 +5,14 @@
 // a menu two seconds later. This module keeps the arena on screen and restages
 // the men who fought it: the victor centre frame, lit and facing the lens; the
 // rest of the moot stood back up into a shield-wall line behind him; and in a
-// duel the loser is NOT stood up — his corpse lies exactly where the gore
-// system dropped it, and the victor is posed over it. The numbers are DOM and
-// live in page.tsx; everything in here is scene.
+// duel the loser is NOT stood up — his corpse keeps the pose the gore system
+// left it in, and the victor is posed over it. The numbers are DOM and live in
+// page.tsx; everything in here is scene.
+//
+// The duel tableau is composed AGAINST THE BONFIRE — see the block of
+// constants below. That is not decoration: the first version of this file was
+// signed off on a staged capture whose corpse happened to lie 8.7 m out, and
+// shipped a real-match frame that was aimed straight into the fire.
 //
 // Nothing in this file invents match state. The verdict is the server's
 // `match_end` payload passed down whole, and the bodies are the same rigs the
@@ -19,12 +24,12 @@
 import * as THREE from "three";
 import type { GamePlayer, MatchEndData } from "../../types";
 import {
-  stepWarriorTransform, poseWarrior, triggerEmote,
+  stepWarriorTransform, poseWarrior, triggerEmote, carryGore,
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./anim";
 import type { EmoteId } from "../../types";
 import type { CameraRig, SummaryShot } from "./camera";
-import type { FrameContext } from "./quality";
+import type { FrameContext, QualitySettings } from "./quality";
 
 /** The one slice of a warrior slot the stage needs. */
 export interface StagedBody {
@@ -88,6 +93,103 @@ const LINE_SPACING = 1.12;
 /** Metres between the duel corpse and the man stood over it. */
 const DUEL_STANDOFF = 1.7;
 
+// ---- The duel tableau's ground rules, all of them about the hearth. -------
+//
+// The bonfire burns at the world origin, its geometry reaches 2 m and its light
+// and its bloom reach a great deal further. The first version of this stage
+// took the corpse where it lay and pointed the lens at it, and a duel decided
+// AT the fire — a shove into the flames, which is a headline play of this game
+// and the way every bot and every harness kills — put the hearth square between
+// the lens and the tableau at four metres. The result is the frame the owner
+// rejected: an orange wash over every surface, and a body invisible inside a
+// burning log pile. Nothing about the lights or the grade caused it; the camera
+// was aimed into a fire.
+//
+// So the tableau is given a radius from the hearth that leaves room to stand
+// the lens BETWEEN the fire and the men, looking outward, with the flames
+// behind the camera. That is the composition the staged `summaryduel` capture
+// has always had (its corpse lies at 8.7 m) and it is why that frame is cool
+// blue-and-green while the real one was amber.
+/** No lens, and no man, closer to the hearth than this. */
+const HEARTH_CLEAR = 3.2;
+/** The nearest the tableau may stand: HEARTH_CLEAR + a lens's working room. */
+const DUEL_MIN_R = 7.6;
+/** The furthest. Past this the palisade crowds the backdrop. */
+const DUEL_MAX_R = 12.0;
+/** Fallback bearing when a duel ends dead on the hearth: the portrait quarter. */
+const STAGE_BEARING = { x: 0.06, z: 0.998 };
+/**
+ * Seconds of death clock at which the collapse is done arguing. `deathLayer`
+ * has its last beat (`rest`) complete at 1.1; past that the pose is static.
+ */
+const DEATH_SETTLED = 1.6;
+
+// ---- The key light's shadow, in the units three wants it in. -------------
+/** The key's reach. Also the far plane three forces on its shadow camera. */
+const KEY_RANGE = 17;
+const KEY_SHADOW_NEAR = 0.6;
+/** Light-to-subject distance the bias is tuned at: the key's own offset. */
+const KEY_SHADOW_REF = 3.4;
+/** Depth bias at that range, in metres, before normalisation. */
+const KEY_BIAS_METRES = 0.012;
+
+/**
+ * What the stage decided, published for a capture harness. A summary frame is
+ * aimed by code from wherever the fight happened to end, so "why does this
+ * frame look like that" is otherwise unanswerable from outside — the first
+ * version of this stage shipped aiming its lens straight through the bonfire
+ * and every review of it argued about the colour grade instead. Written on
+ * stage build only; nothing reads it in the game.
+ */
+function publishDiag(d: Record<string, unknown>): void {
+  if (typeof window === "undefined") return;
+  (window as unknown as Record<string, unknown>).__summaryStage = d;
+}
+
+const _box = new THREE.Box3();
+const _v = new THREE.Vector3();
+
+/**
+ * Where the staged bodies ACTUALLY ended up, per frame, for a harness that has
+ * asked for it (`window.__summaryDiag = true`). Off by default and free when
+ * off: a world bounding box per man per frame is not something the game pays
+ * for so that a screenshot can be argued about. It exists because "the corpse
+ * is floating" and "the corpse is further away than it should be" produce the
+ * same pixels, and only one of them is a bug in this file.
+ */
+function reportBodies(
+  cast: CastMember[] | null, warriors: Map<string, StagedBody>, cam: THREE.PerspectiveCamera,
+): void {
+  if (typeof window === "undefined" || !cast) return;
+  const w = window as unknown as Record<string, unknown>;
+  if (!w.__summaryDiag) return;
+  // Where the lens ACTUALLY is when the shutter goes, which is not where the
+  // push was aimed: `summaryT` accumulates rendered dt, so a slow renderer is
+  // still travelling long after the wall clock says the move is over.
+  w.__summaryCam = [+cam.position.x.toFixed(2), +cam.position.y.toFixed(2), +cam.position.z.toFixed(2)];
+  w.__summaryBodies = cast.map((m) => {
+    const b = warriors.get(m.id);
+    if (!b) return { id: m.id, missing: true };
+    // The BODY, not the group: the HUD hangs its name plates off the group and
+    // a box round that measures a floating label, not a man.
+    _box.setFromObject(b.rig.body);
+    // WHERE HE LANDS ON THE GLASS, in normalised screen units: -1 is the left
+    // or bottom edge, +1 the right or top. Geometry that is provably correct
+    // still puts a body behind the ledger band, and this is the only number
+    // that answers whether the man is in the picture.
+    _v.set(b.rig.group.position.x, 0.15, b.rig.group.position.z).project(cam);
+    const foot: [number, number] = [+_v.x.toFixed(3), +_v.y.toFixed(3)];
+    _v.set(b.rig.group.position.x, 1.75, b.rig.group.position.z).project(cam);
+    return {
+      id: m.id, state: m.player.state,
+      at: [b.rig.group.position.x, b.rig.group.position.y, b.rig.group.position.z],
+      lo: +_box.min.y.toFixed(3), hi: +_box.max.y.toFixed(3),
+      foot, head: [+_v.x.toFixed(3), +_v.y.toFixed(3)],
+      actT: +b.motion.actT.toFixed(2), fall: b.motion.fall,
+    };
+  });
+}
+
 export function createSummary(deps: SummaryDeps): SummaryHandle {
   let cast: CastMember[] | null = null;
   let lights: THREE.Group | null = null;
@@ -105,6 +207,37 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     ...p,
     position: { ...p.position },
     velocity: { ...p.velocity },
+  });
+
+  /**
+   * The fallen man laid out on the stage's mark. State, health, severance,
+   * burn and the pose he collapsed into are all untouched — what this sets is
+   * the ground under him and the compass bearing he lies on.
+   *
+   * HEAD UP-FRAME, ALWAYS. The lens is pinned to the radial line by the
+   * bonfire and it looks slightly down, so on a phone the aim point sits at
+   * about 70% of the frame height — measured, `foot` ndc.y -0.41 — and the
+   * emote row and the ledger band start just under it. Which way a body lies
+   * from that point is therefore the whole difference between reading and not:
+   *
+   *   head AWAY from the lens — the body climbs up-frame from its own mark,
+   *     boots nearest the camera, and lies full length under the victor. This
+   *     is what the one frame everybody liked was doing, by luck of the bearing
+   *     the man happened to die on.
+   *   head TOWARD the lens — it falls down-frame into the DOM panels. Captured
+   *     at 390x844 that is a boot and a shoulder either side of the ledger.
+   *   broadside — it straddles the aim point and the buttons cut it in half.
+   *     Tried, captured, and worse than the accident it replaced.
+   *
+   * `fall` is which way the collapse took him: -1 put his head behind his own
+   * facing, +1 in front of it. 0.35 rad off the axis keeps the pose diagonal
+   * rather than a plan view of a man.
+   */
+  const lay = (p: GamePlayer, x: number, z: number, rot: number): GamePlayer => ({
+    ...freeze(p),
+    position: { x, y: 0, z },
+    rotation: rot,
+    velocity: { x: 0, y: 0, z: 0 },
   });
 
   /** A dead man handed back his feet, on a mark, facing `rot`. */
@@ -130,30 +263,96 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   };
 
   /**
-   * A warm key and a cool rim on the victor, over the arena's own dusk rig.
+   * Three lights on the tableau, over the arena's own dusk rig.
+   *
+   * `camDir` points from the subject TOWARD the lens, so the three marks are a
+   * portrait rig read straight off it: key on the lens's left shoulder, rim
+   * opposite the lens, fill down the lens axis.
+   *
+   * The previous pass named its two lights key and rim and then stood them the
+   * wrong way round — the warm "key" sat 1.4 m BEHIND the man and the cool
+   * "rim" 1.9 m in FRONT of him, which is a warm hair light and a cold frontal
+   * fill. Its author scored the result 7.5 and wrote down what was missing:
+   * nothing separated the victor from the background, because the only light
+   * that could have drawn his edge was pointed at his face.
+   *
    * Sized against the hearth's own lights (31–60): with decay 2 the key lands
-   * on the man at about a fifth of what standing beside the fire reads as —
-   * enough to pick him out of the dusk, or out of open moonlight when a duel
-   * ended far from the hearth. The first pass authored these at 26/11 and the
-   * capture showed NOTHING — both sat entirely under the grade's ambience, and
-   * a stage light that cannot be seen in the frame is a comment, not a light.
+   * on the man at about a fifth of what standing beside the fire reads as. The
+   * rim runs hotter than the key on purpose — it is grazing an edge, not
+   * lighting a face — but it is a SPOT with a tight cone aimed at his chest, so
+   * what it actually reaches is one man's shoulders and a metre of ground, not
+   * the field behind him. A phone crops in hard on this man; the numbers were
+   * settled against the 390-wide frame, not the desktop one.
    */
-  function raiseLights(at: THREE.Vector3, camDir: THREE.Vector3): void {
+  function raiseLights(
+    at: THREE.Vector3, camDir: THREE.Vector3, q: QualitySettings, spill?: THREE.Vector3,
+  ): void {
     const g = new THREE.Group();
     const leftX = -camDir.z, leftZ = camDir.x;
-    const key = new THREE.SpotLight(0xffd9a0, 80, 15, 0.55, 0.55, 2);
-    key.position.set(at.x + leftX * 2.4 - camDir.x * 1.4, at.y + 3.1, at.z + leftZ * 2.4 - camDir.z * 1.4);
-    key.target.position.copy(at);
+    // KEY — warm, three-quarter front left, high. Aimed between the victor and
+    // the body at his feet when there is one, so the same light that models his
+    // face is the light the corpse is read by: the fallen man is the point of
+    // the picture and a stage that lit only the standing one would be lying.
+    const key = new THREE.SpotLight(0xffd2a0, 86, KEY_RANGE, 0.7, 0.62, 2);
+    key.position.set(
+      at.x + leftX * 2.2 + camDir.x * 1.7, at.y + 3.0, at.z + leftZ * 2.2 + camDir.z * 1.7);
+    key.target.position.copy(spill ? spill.clone().add(at).multiplyScalar(0.5) : at);
+    // AND IT CASTS. The frame this stage replaced had no contact shadow under
+    // either man and nothing grounding them: captured at 1280x720 the victor's
+    // boots read as hovering a hand's width over the turf, because the arena's
+    // own dusk key throws nothing this soft light could stand in for. The rig
+    // was already a portrait rig in every other respect and this is the one
+    // thing that makes a portrait sit on the ground.
+    //
+    // Cheap where it is spent: the summary screen is not the fight, so this is
+    // one extra shadow pass over a 40° cone containing two men and a patch of
+    // turf, drawn on a screen with no gameplay behind it. Gated on the tier's
+    // own shadow switch, so a device that has refused shadows keeps refusing.
+    if (q.shadows) {
+      key.castShadow = true;
+      // Half the arena cascade and far finer per texel: a 40° frustum whose far
+      // plane is the light's own reach covers about 12 m at the men, so 1024
+      // lands near a centimetre per texel where the boots meet the ground.
+      const map = Math.max(512, Math.min(1024, q.shadowMapSize));
+      key.shadow.mapSize.set(map, map);
+      key.shadow.camera.near = KEY_SHADOW_NEAR;
+      // three overwrites a spot's shadow-camera far with `light.distance`, so
+      // the normalised bias is derived against that rather than baked — same
+      // derivation as the hearth beam's in lighting.ts.
+      const near = KEY_SHADOW_NEAR, far = KEY_RANGE, z = KEY_SHADOW_REF;
+      key.shadow.bias = -(KEY_BIAS_METRES * far * near) / ((far - near) * z * z);
+      key.shadow.normalBias = 0.03;
+      key.shadow.radius = q.softShadows ? 3 : 1;
+    }
     g.add(key, key.target);
-    const rim = new THREE.PointLight(0x8fb4ff, 30, 9, 2);
-    rim.position.set(at.x + camDir.x * 1.9, at.y + 2.1, at.z + camDir.z * 1.9);
-    g.add(rim);
+    // RIM — cool, off the shoulder the key is not on, three-quarters behind
+    // him and LEVEL with his chest. Both halves of that were paid for in
+    // captures:
+    //   - Square behind him, the edge wraps equally onto both sides and reads
+    //     as nothing at all on a 390-wide frame. From the far side it draws one
+    //     long lit edge down the side the key never reaches, which is what
+    //     separation actually is.
+    //   - Hung above him — where a rim belongs on paper — its cone lands on the
+    //     turf behind the men, and at the intensity an edge needs that is a
+    //     blue spotlight puddle on the grass. Level, the cone grazes the ground
+    //     at a glancing angle and dies; what it lights is a man.
+    const rim = new THREE.SpotLight(0x9ec6ff, 270, 9, 0.34, 0.5, 2);
+    rim.position.set(
+      at.x - camDir.x * 1.5 - leftX * 2.8, at.y + 1.05, at.z - camDir.z * 1.5 - leftZ * 2.8);
+    rim.target.position.set(at.x, at.y + 0.3, at.z);
+    g.add(rim, rim.target);
+    // FILL — cool, weak, down the lens axis. Keeps the shadow side off black
+    // without flattening what the other two just built.
+    const fill = new THREE.PointLight(0x8fb4ff, 16, 9, 2);
+    fill.position.set(at.x + camDir.x * 2.6, at.y + 1.5, at.z + camDir.z * 2.6);
+    g.add(fill);
     deps.scene.add(g);
     lights = g;
   }
 
   function buildStage(
     room: SummaryRoomView, verdict: MatchEndData, warriors: Map<string, StagedBody>,
+    q: QualitySettings,
   ): CastMember[] {
     const staged: CastMember[] = [];
     // Who remains: disconnected men have no record and no rig, and the stage
@@ -180,45 +379,84 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     // First performance shortly after the cut, once the lens has settled.
     emoteClock = 1.1;
 
-    // THE OWNER'S FAVOURITE: in a duel the loser lies where he fell. The gore
-    // system already left the body — severed, smouldering, whatever the last
-    // blow made of it — so the corpse is frozen as-is and never re-marked.
+    // THE OWNER'S FAVOURITE: in a duel the loser is not stood up, he is left
+    // dead in the picture. The gore system already made him what he is —
+    // severed, smouldering, whatever the last blow left — and none of that is
+    // touched here; the only thing this stage will move is the ground he lies
+    // on, and only when where he fell cannot be photographed at all.
     const loser = here.find((p) => victor && p.id !== victor.id) ?? null;
     const duel = here.length === 2 && victor !== null
       && loser !== null && loser.state === "dead";
 
     if (duel && victor && loser) {
-      // The corpse anchor is the renderer's own idea of where the body lies —
-      // motion.rx/rz, NOT rig.group.position. The group is only moved by
-      // stepWarriorTransform, and a canvas mounted straight into a finished
-      // room (a /shot capture, a refresh mid-summary) builds the rig and
-      // stages in the same frame, before any step has run — its group is at
-      // the origin, and a shot aimed off it framed the bonfire with the whole
-      // tableau hidden inside the flames. motion is seeded from the wire
-      // position at creation and tracks the smoothed body ever after, so it is
-      // right on both the warm path and the cold one.
-      const body = warriors.get(loser.id);
-      const cx = body ? body.motion.rx : loser.position.x;
-      const cz = body ? body.motion.rz : loser.position.z;
-      const r = Math.hypot(cx, cz);
-      // The lens axis, chosen so the shot can be taken anywhere the man fell:
-      // far out, shoot from the middle of the arena looking outward (the
-      // village is his backdrop); close in, shoot along the tangent so the
-      // bonfire stays off-axis instead of framing the camera inside it.
-      const ux = r > 0.3 ? cx / r : 1, uz = r > 0.3 ? cz / r : 0;
-      let nx: number, nz: number, dist: number;
-      if (r >= 5.2) {
-        nx = -ux; nz = -uz;
-        dist = Math.min(4.6, Math.max(2.6, r - 2.8));
-      } else {
-        nx = -uz; nz = ux;
-        dist = 4.3;
-      }
-      const vx = cx - nx * DUEL_STANDOFF;
-      const vz = cz - nz * DUEL_STANDOFF;
+      // WHERE HE FELL is the server's word for it, not the renderer's.
+      //
+      // The first version anchored on motion.rx/rz — the smoothed, extrapolated
+      // body — read on the frame the stage is built. A man killed at a sprint
+      // is nowhere near his own corpse in that value: measured on the real
+      // flow it sat 2.4–3.8 m from the wire position and drifted back over the
+      // seconds that followed, so the lens settled on a patch of mud while the
+      // body slid out of a phone's narrow crop. `loser.position` is where the
+      // sim stopped him and it is the same number on the cold /shot path,
+      // where motion was seeded from it and no step has run.
+      const fellX = loser.position.x, fellZ = loser.position.z;
+      const r0 = Math.hypot(fellX, fellZ);
+      // The bearing he lies on. A duel decided IN the hearth has no useful
+      // bearing of its own, so it borrows the victor's, and failing that the
+      // quarter every framed shot in this game is composed into.
+      const vr = Math.hypot(victor.position.x, victor.position.z);
+      let ux: number, uz: number;
+      if (r0 > 0.9) { ux = fellX / r0; uz = fellZ / r0; }
+      else if (vr > 0.9) { ux = victor.position.x / vr; uz = victor.position.z / vr; }
+      else { ux = STAGE_BEARING.x; uz = STAGE_BEARING.z; }
+      // The tableau's mark: his own place if there is room to shoot it, else
+      // carried out along his own bearing until there is. A body that fell in
+      // the fire is carried clear — the alternative is the shipped frame, where
+      // the owner's favourite part of this feature was inside a burning log
+      // pile and could not be seen at all. He keeps his pose, his severance and
+      // his smoke; only the ground under him changes.
+      const R = Math.min(DUEL_MAX_R, Math.max(DUEL_MIN_R, r0));
+      const cx = ux * R, cz = uz * R;
+      const carriedX = cx - fellX, carriedZ = cz - fellZ;
+      const carried = Math.hypot(carriedX, carriedZ);
+      // The lens stands INSIDE the tableau, between hearth and men, looking
+      // outward with the fire behind it and the village behind them. There is
+      // no second branch any more: the tangential shot the near case used to
+      // take is what aimed the camera through the bonfire.
+      const nx = -ux, nz = -uz;
+      const endR = Math.max(HEARTH_CLEAR, R - 4.4);
+      const startR = Math.max(HEARTH_CLEAR - 0.4, endR - 1.7);
+      const vx = cx + ux * DUEL_STANDOFF;
+      const vz = cz + uz * DUEL_STANDOFF;
       const facing = Math.atan2(nx, nz);
-      staged.push({ id: loser.id, player: freeze(loser) });
+      // Head up-frame, away from the lens. See `lay`.
+      const dead = warriors.get(loser.id);
+      const lie = ((dead?.motion.fall ?? -1) >= 0
+        ? Math.atan2(ux, uz) : Math.atan2(-ux, -uz)) + 0.35;
+      staged.push({ id: loser.id, player: lay(loser, cx, cz, lie) });
       staged.push({ id: victor.id, player: stand(victor, vx, vz, facing + 0.18) });
+      if (dead) {
+        // Snapped even when the mark is his own: the smoothing is mid-flight at
+        // the moment a match ends and a corpse that is still catching up with
+        // itself walks across the frame under a lens that has stopped moving.
+        snap(dead.motion, cx, cz, lie);
+        // THE COLLAPSE IS OVER BEFORE THE PORTRAIT BEGINS.
+        //
+        // `motion.actT` is the death clock the animator eases the collapse on,
+        // and it counts rendered frames, not wall clock. A match can end on the
+        // frame the killing blow lands, and on a phone that has just spent a
+        // fight at 30 fps and is now compositing a stage, the body arrives at
+        // the tableau still toppling — pivoted about the hips, arms out, a
+        // metre off the turf. That is the "oddly stiff corpse" this feature
+        // shipped with: not a pose bug, a pose caught mid-fall and then
+        // photographed. The stage runs the clock out so the first frame of the
+        // portrait is a body that has already landed, whatever the frame rate.
+        dead.motion.actT = Math.max(dead.motion.actT, DEATH_SETTLED);
+        // His arm goes with him. A severed piece is integrated in world space
+        // off the arena root, so a corpse carried out of the fire would
+        // otherwise leave its own head behind in the flames.
+        if (carried > 0.001) carryGore(dead.rig, carriedX, carriedZ);
+      }
       const w = warriors.get(victor.id);
       if (w) snap(w.motion, vx, vz, facing + 0.18);
       deps.douse(victor.id);
@@ -228,14 +466,31 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       // the portrait crop is savage sideways, and the dead man — the owner's
       // favourite part of this — was the thing it cropped first. The victor
       // stands close enough behind him that he rides up-frame instead of out.
-      const midX = cx - nx * 0.55, midZ = cz - nz * 0.55;
-      deps.rig.setSummaryShot({
-        from: [cx + nx * (dist + 1.9), gy + 1.75, cz + nz * (dist + 1.9)],
-        to: [cx + nx * dist, gy + 1.35, cz + nz * dist],
-        target: [midX, gy + 0.95, midZ],
+      const midX = cx + ux * 0.55, midZ = cz + uz * 0.55;
+      // The push is short at the near mark, so most of the move is the drop in
+      // height: the lens settles onto the pair rather than crawling at them.
+      const shot = {
+        from: [ux * startR, gy + 2.3, uz * startR] as [number, number, number],
+        to: [ux * endR, gy + 1.68, uz * endR] as [number, number, number],
+        // 0.62, not 0.95. The aim height is the tilt, and the tilt is where in
+        // the frame the tableau sits: measured, the corpse's own mark projects
+        // at ndc.y -0.41 with a 0.95 aim, which is 594 px down a 390x844 phone
+        // and 507 px down a 1280x720 desktop — both of them inside the emote
+        // row and the ledger band. Dropping the aim 0.33 m pitches the lens
+        // about five degrees further down and carries the whole tableau up out
+        // of the DOM, at the cost of foreground mud nobody was looking at.
+        target: [midX, gy + 0.62, midZ] as [number, number, number],
         fov: 50, seconds: 8,
+      };
+      deps.rig.setSummaryShot(shot);
+      raiseLights(
+        new THREE.Vector3(vx, gy + 1.1, vz), new THREE.Vector3(nx, 0, nz), q,
+        new THREE.Vector3(cx, gy + 0.3, cz));
+      publishDiag({
+        kind: "duel", fell: [fellX, fellZ], fellR: r0, carried,
+        corpse: [cx, cz], corpseR: R, victor: [vx, vz],
+        lensR: endR, lie, ...shot, cause: loser.deathCause ?? null,
       });
-      raiseLights(new THREE.Vector3(vx, gy + 1.1, vz), new THREE.Vector3(nx, 0, nz));
       return staged;
     }
 
@@ -283,15 +538,20 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     });
     raiseLights(
       new THREE.Vector3(VICTOR_MARK.x, gy + 1.1, focusZ),
-      new THREE.Vector3(camEnd.x - VICTOR_MARK.x, 0, camEnd.z - focusZ).normalize(),
+      new THREE.Vector3(camEnd.x - VICTOR_MARK.x, 0, camEnd.z - focusZ).normalize(), q,
     );
+    publishDiag({
+      kind: victor ? "wall" : "draw", cast: staged.length,
+      from: [2.3, gy + 2.1, 11.1], to: [camEnd.x, gy + 1.7, camEnd.z],
+      target: [VICTOR_MARK.x, gy + 1.12, focusZ],
+    });
     return staged;
   }
 
   return {
     update(dt, ctx, room, verdict, warriors, localId) {
       void localId;
-      if (!cast) cast = buildStage(room, verdict, warriors);
+      if (!cast) cast = buildStage(room, verdict, warriors, ctx.quality);
       // The orchestrator normally stamps the mode per frame; on this path the
       // stage does, so nothing else has to know the summary exists.
       deps.rig.setMode("summary");
@@ -312,6 +572,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
           if (body) triggerEmote(body.motion, victorEmote);
         }
       }
+      reportBodies(cast, warriors, deps.rig.camera);
     },
 
     reset() {
@@ -323,7 +584,12 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         deps.scene.remove(lights);
         lights.traverse((o) => {
           const l = o as THREE.Light;
-          if (l.isLight) l.dispose();
+          if (!l.isLight) return;
+          // The key owns a shadow map on any tier that allows one; a stage torn
+          // down between matches that only disposed the light would leak a
+          // depth target per match for as long as the tab is open.
+          (l as THREE.SpotLight).shadow?.dispose();
+          l.dispose();
         });
         lights = null;
       }

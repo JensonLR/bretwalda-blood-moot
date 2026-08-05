@@ -3263,6 +3263,30 @@ function halfLayer(buckle: number, bounce: number, fall: number, d: number): voi
   P.cloak = 0.4 * sink;
 }
 
+/**
+ * Carry a severed piece with the body it came off.
+ *
+ * A piece is integrated in WORLD space and hung off the arena root, which is
+ * exactly right while it is tumbling and exactly wrong the moment something
+ * moves the corpse: the summary stage carries a man who died in the hearth out
+ * onto clear ground, and without this his arm stays behind in the fire. The
+ * piece is asleep by then, so this is a translation of a resting body — no
+ * velocity is touched and nothing is re-thrown.
+ *
+ * The ground memo goes with it (`gx/gz` are where the last height sample was
+ * taken); leaving it would let a piece carried onto a different height sit at
+ * the old floor until it happened to wake.
+ */
+export function carryGore(rig: WarriorRig, dx: number, dz: number): void {
+  const p = rig.gore.piece;
+  if (!p) return;
+  p.pos.x += dx;
+  p.pos.z += dz;
+  rig.gore.gx = 1e9;
+  rig.gore.gz = 1e9;
+  p.part.position.copy(p.pos).sub(_gv.copy(p.com).applyQuaternion(p.quat));
+}
+
 // ---------------------------------------------------------------------------
 // Pose
 // ---------------------------------------------------------------------------
