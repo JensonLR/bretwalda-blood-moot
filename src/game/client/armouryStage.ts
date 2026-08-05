@@ -413,6 +413,11 @@ function disposeForge(): void {
   (f.contact.material as THREE.MeshBasicMaterial).map?.dispose();
   (f.contact.material as THREE.Material).dispose();
   f.backdrop.dispose();
+  // `dispose()` frees three's own objects; it does not hand the GL context
+  // back. A browser allows on the order of sixteen live contexts per page and
+  // silently kills the oldest past that — which, on the way into a match,
+  // would be `GameCanvas`'s.
+  f.renderer.forceContextLoss();
   f.renderer.dispose();
 }
 
