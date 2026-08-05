@@ -219,3 +219,63 @@ test; and it requires that nothing in the cluster is drawn over anything else,
 button or readout. Both run **for each handedness**, because a thing that fails
 to mirror lands in the free-look half the cluster has just vacated — which is
 how the training screen's own END button came to be sitting in it.
+
+## Soft lock-on: the decision, and what it costs
+
+The scheme above gave the phone player independent aim, and then charged him a
+thumb for it. Both thumbs are spoken for in a fight — the left one walks, the
+right one presses SLASH, BLOCK, DODGE, SHOVE — so the drag that turns the camera
+has to happen in the gaps between blows. Against a man who circles you, there
+are no gaps.
+
+**The decision: the camera holds the nearest man in front of you, by itself.**
+`input.ts` scores every live enemy at `metres + 3.2 x radians off screen centre`
+and holds the best, with 28% hysteresis so two men shoulder to shoulder do not
+trade the reticle at frame rate. It acquires inside 11 m and drops at 15 m; a
+target the player picked himself outranks the scoring for 1.2 s. When nobody is
+near, free-look eases back in and the drag works exactly as it did.
+
+So a player can fight the whole match with **the left stick and the right-hand
+buttons and never touch the glass to turn**. That is the claim, and touchtest
+asserts it with no thumb anywhere near the button side: over 32 snapshots the
+locked man travelled 5.22 units, the camera turned 78 degrees to stay on him,
+and the worst facing error was 9.4 degrees.
+
+**Switching targets is a horizontal flick on bare glass**, on the button side.
+This was chosen over on-screen target chips because the thumb is already there,
+the gesture is directional in the way the choice is, and it draws nothing new
+over the fight. The cost is that horizontal travel on that half of the screen no
+longer free-looks while a lock is held — which is why the lock eases out and
+hands the drag back the moment nobody is in range.
+
+### What the lock deliberately does NOT do
+
+**It does not turn a committed swing.** A body with a blow out turns at
+`SWING_TURN_RATE = 1.8 rad/s` and no faster; the server enforces it on its own
+fixed step and the client mirrors the same cap, so the camera is held with the
+body rather than sliding off it. Strafe around a man at arm's length and the
+bearing to him moves faster than the shoulders are allowed to follow, and the
+blow misses — which is the point. Measured: the direction to the target swept at
+2.10 rad/s while the server turned the attacker at 0.90 rad/s mean and 1.85 peak
+against the 1.8 cap, leaving 22 degrees between them when the blow finished. An
+uncapped lock runs at 5.0. This is the line between an assist and an aimbot and
+it is a test, not a comment.
+
+It also drops a target that dies or leaves 15 m, it never acquires a man outside
+the cone, and it is **off by default on desktop** (`lockon`, bound to `R`),
+because desktop mouse-look adds its own dX to `rig.yaw` before `sampleInput` and
+the two fight. That routing hook is still open.
+
+### The reticle mirrors
+
+The ring is drawn on the man through the real camera, offset to his weapon
+shoulder — so it mirrors with everything else. Measured across a single
+handedness switch with nothing else changed: the same man's reticle moved from
+x=97 to x=300 on a 390 px screen, a 203 px shift.
+
+**The whole top row mirrors too, not just the thumb cluster.** END and the mute
+toggle live under the timer on the movement side so they never sit in the
+free-look half — which puts them on the RIGHT for a left-handed player, straight
+through five rows of kill feed. The layout sweep did not catch it because it
+measures overlaps in the *button* half and this is the other half; a capture
+caught it. The kill feed and the timer now swap sides with everything else.
