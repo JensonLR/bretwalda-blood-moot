@@ -138,6 +138,7 @@ function publishDiag(d: Record<string, unknown>): void {
 }
 
 const _box = new THREE.Box3();
+const _v = new THREE.Vector3();
 
 /**
  * Where the staged bodies ACTUALLY ended up, per frame, for a harness that has
@@ -163,10 +164,18 @@ function reportBodies(
     // The BODY, not the group: the HUD hangs its name plates off the group and
     // a box round that measures a floating label, not a man.
     _box.setFromObject(b.rig.body);
+    // WHERE HE LANDS ON THE GLASS, in normalised screen units: -1 is the left
+    // or bottom edge, +1 the right or top. Geometry that is provably correct
+    // still puts a body behind the ledger band, and this is the only number
+    // that answers whether the man is in the picture.
+    _v.set(b.rig.group.position.x, 0.15, b.rig.group.position.z).project(cam);
+    const foot: [number, number] = [+_v.x.toFixed(3), +_v.y.toFixed(3)];
+    _v.set(b.rig.group.position.x, 1.75, b.rig.group.position.z).project(cam);
     return {
       id: m.id, state: m.player.state,
       at: [b.rig.group.position.x, b.rig.group.position.y, b.rig.group.position.z],
       lo: +_box.min.y.toFixed(3), hi: +_box.max.y.toFixed(3),
+      foot, head: [+_v.x.toFixed(3), +_v.y.toFixed(3)],
       actT: +b.motion.actT.toFixed(2), fall: b.motion.fall,
     };
   });
@@ -192,13 +201,33 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   });
 
   /**
-   * The fallen man carried onto the stage's mark, still exactly as he died.
-   * State, health, severance, burn and facing are untouched — this moves the
-   * ground under a corpse and nothing else.
+   * The fallen man laid out on the stage's mark. State, health, severance,
+   * burn and the pose he collapsed into are all untouched — what this sets is
+   * the ground under him and the compass bearing he lies on.
+   *
+   * HEAD UP-FRAME, ALWAYS. The lens is pinned to the radial line by the
+   * bonfire and it looks slightly down, so on a phone the aim point sits at
+   * about 70% of the frame height — measured, `foot` ndc.y -0.41 — and the
+   * emote row and the ledger band start just under it. Which way a body lies
+   * from that point is therefore the whole difference between reading and not:
+   *
+   *   head AWAY from the lens — the body climbs up-frame from its own mark,
+   *     boots nearest the camera, and lies full length under the victor. This
+   *     is what the one frame everybody liked was doing, by luck of the bearing
+   *     the man happened to die on.
+   *   head TOWARD the lens — it falls down-frame into the DOM panels. Captured
+   *     at 390x844 that is a boot and a shoulder either side of the ledger.
+   *   broadside — it straddles the aim point and the buttons cut it in half.
+   *     Tried, captured, and worse than the accident it replaced.
+   *
+   * `fall` is which way the collapse took him: -1 put his head behind his own
+   * facing, +1 in front of it. 0.35 rad off the axis keeps the pose diagonal
+   * rather than a plan view of a man.
    */
-  const lay = (p: GamePlayer, x: number, z: number): GamePlayer => ({
+  const lay = (p: GamePlayer, x: number, z: number, rot: number): GamePlayer => ({
     ...freeze(p),
     position: { x, y: 0, z },
+    rotation: rot,
     velocity: { x: 0, y: 0, z: 0 },
   });
 
@@ -361,14 +390,17 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       const vx = cx + ux * DUEL_STANDOFF;
       const vz = cz + uz * DUEL_STANDOFF;
       const facing = Math.atan2(nx, nz);
-      staged.push({ id: loser.id, player: lay(loser, cx, cz) });
-      staged.push({ id: victor.id, player: stand(victor, vx, vz, facing + 0.18) });
+      // Head up-frame, away from the lens. See `lay`.
       const dead = warriors.get(loser.id);
+      const lie = ((dead?.motion.fall ?? -1) >= 0
+        ? Math.atan2(ux, uz) : Math.atan2(-ux, -uz)) + 0.35;
+      staged.push({ id: loser.id, player: lay(loser, cx, cz, lie) });
+      staged.push({ id: victor.id, player: stand(victor, vx, vz, facing + 0.18) });
       if (dead) {
         // Snapped even when the mark is his own: the smoothing is mid-flight at
         // the moment a match ends and a corpse that is still catching up with
         // itself walks across the frame under a lens that has stopped moving.
-        snap(dead.motion, cx, cz, dead.motion.yaw);
+        snap(dead.motion, cx, cz, lie);
         // THE COLLAPSE IS OVER BEFORE THE PORTRAIT BEGINS.
         //
         // `motion.actT` is the death clock the animator eases the collapse on,
@@ -411,7 +443,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       publishDiag({
         kind: "duel", fell: [fellX, fellZ], fellR: r0, carried,
         corpse: [cx, cz], corpseR: R, victor: [vx, vz],
-        lensR: endR, ...shot, cause: loser.deathCause ?? null,
+        lensR: endR, lie, ...shot, cause: loser.deathCause ?? null,
       });
       return staged;
     }

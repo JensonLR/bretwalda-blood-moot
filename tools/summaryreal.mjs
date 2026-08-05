@@ -40,6 +40,10 @@ const OUT = arg("out", "art/shots/real");
 // way through its move. A phone runs it in eight; a settled frame here costs
 // two minutes.
 const SETTLE = parseInt(arg("settle", "11"), 10) * 1000;
+// Default low, as the other flow harnesses run: a software rasteriser at a
+// higher tier spends the whole capture budget on one frame. Pass --quality auto
+// to review what a device that can afford shadows is given.
+const QUALITY = arg("quality", "low");
 const SHOTS = [
   { name: "phone", width: 390, height: 844, mobile: true },
   { name: "desktop", width: 1280, height: 720, mobile: false },
@@ -130,7 +134,7 @@ async function oneShot(shot) {
   });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[pageerror] ${e}`));
-  await page.goto(`http://127.0.0.1:${PORT}/?quality=low`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${PORT}/?quality=${QUALITY}`, { waitUntil: "domcontentloaded" });
 
   await page.getByText("CREATE BATTLE", { exact: false }).first().click();
   await page.getByText("HONOUR DUEL", { exact: false }).first().click();
