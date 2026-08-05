@@ -21,7 +21,8 @@ import { fileURLToPath } from "url";
 // are assertable without a browser. Importing the engine is side-effect free —
 // `makeEngine` only runs from `getEngine`, so nothing starts a tick here.
 import {
-  WARRIOR_STATS, SWING_PHASES, SWING_TURN_RATE, SWING_TURN_PHASE, HITSTOP, swingDurationOf,
+  WARRIOR_STATS, SWING_PHASES, SWING_TURN_RATE, SWING_TURN_PHASE, HITSTOP, SHOVE,
+  swingDurationOf, getEngine,
 } from "../src/game/engine.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -173,10 +174,205 @@ function checkWeightNumbers() {
     `(${(HITSTOP.heavy * 60).toFixed(1)} frames); applied to attacker and target alike`);
 }
 
+// ---- the shove, proved on the REAL engine ----
+// Same discipline as firetest: `getEngine()` is the singleton the servers hand
+// the sockets to, already ticking on its own interval, and every number below
+// is read out of a packet. Two humans in a blood-moot room, because the shove's
+// four claims are about what happens BETWEEN two men — a shove displaces, a
+// shove into the fire is the shover's kill, a shield does not stop it, a dodge
+// does — and none of them can be reached from a browser without scripting two.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function until(cond, what, timeoutMs = 15000) {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    const v = cond();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await sleep(40);
+  }
+}
+
+function shoveSession(engine, name) {
+  const state = { latest: null, kills: [], hits: [], playerId: null, joinData: null };
+  const sid = engine.connect((str) => {
+    const m = JSON.parse(str);
+    if (m.type === "join") { state.playerId = m.data.playerId; state.joinData = m.data; }
+    // The mid-countdown ticks carry only the number; never let them clobber a
+    // full snapshot.
+    if ((m.type === "game_state" || m.type === "lobby_update" || m.type === "countdown") && m.data.players) state.latest = m.data;
+    if (m.type === "kill") state.kills.push(m.data);
+    if (m.type === "hit") state.hits.push(m.data);
+  });
+  return { sid, state, name };
+}
+
+const myself = (s) => s.state.latest?.players?.[s.state.playerId] ?? null;
+
+/**
+ * Held input, resent every 50 ms the way the render loop does it. The throttle
+ * eases off inside the last stride and a half — a full-stick arrival slides
+ * MOVE_STOP_TAU's worth past the mark after the input stops, which against a
+ * hazard line at 1.475 m and a shove range of 1.7 m is the difference between
+ * a measurement and a flake.
+ */
+async function walkNear(engine, s, targetOf, stopWithin = 0.25, timeoutMs = 20000) {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    const me = myself(s);
+    if (!me || me.state === "dead") return me;
+    const [tx, tz] = targetOf();
+    const dx = tx - me.position.x, dz = tz - me.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < stopWithin) return me;
+    const th = Math.min(1, d / 1.5);
+    engine.message(s.sid, { type: "input", data: {
+      moveX: (dx / d) * th, moveZ: (dz / d) * th, rotationY: Math.atan2(dx, dz), sprint: false,
+      attack: false, heavyAttack: false, block: false, dodge: false, shove: false, attackDir: "right",
+    } });
+    await sleep(50);
+  }
+  return myself(s);
+}
+
+/** Create + join one two-man room and fight it. A is host and shover. */
+async function startDuel(engine, bClass) {
+  const A = shoveSession(engine, "Shover");
+  engine.message(A.sid, { type: "create", data: { name: "Shover", mode: "blood_moot", bestOf: 1 } });
+  await until(() => A.state.joinData, "host join");
+  const B = shoveSession(engine, "Mark");
+  engine.message(B.sid, { type: "join", data: { code: A.state.joinData.code } });
+  await until(() => B.state.joinData, "second join");
+  if (bClass) engine.message(B.sid, { type: "select_class", data: { warriorClass: bClass } });
+  engine.message(A.sid, { type: "start", data: {} });
+  await until(() => A.state.latest?.state === "fighting" && myself(A) && myself(B), "the fight", 20000);
+  // Spawn invincibility answers blows and shoves alike; wait it out.
+  await sleep(2300);
+  return { A, B };
+}
+
+/** One shove from A at B, from `gap` metres along B's outward line `dir`. */
+async function throwShove(engine, A, B, dir, gap) {
+  const b = myself(B);
+  await walkNear(engine, A, () => {
+    const t = myself(B).position;
+    return [t.x + dir[0] * gap, t.z + dir[1] * gap];
+  });
+  const a = myself(A), t = myself(B);
+  const yaw = Math.atan2(t.position.x - a.position.x, t.position.z - a.position.z);
+  engine.message(A.sid, { type: "input", data: {
+    moveX: 0, moveZ: 0, rotationY: yaw, sprint: false, attack: false, heavyAttack: false,
+    block: false, dodge: false, shove: true, attackDir: "right",
+  } });
+  return { from: { x: b.position.x, z: b.position.z } };
+}
+
+/** Watch B for `ms`, collecting states and the furthest displacement. */
+async function watch(B, from, ms) {
+  const seen = { staggered: false, burning: false, moved: 0 };
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const b = myself(B);
+    if (b) {
+      if (b.state === "staggered") seen.staggered = true;
+      if (b.burning) seen.burning = true;
+      seen.moved = Math.max(seen.moved, Math.hypot(b.position.x - from.x, b.position.z - from.z));
+    }
+    await sleep(40);
+  }
+  return seen;
+}
+
+async function checkShoveClaims() {
+  console.log("[playtest] the shove, on the live engine\n");
+  check("the shove's numbers are the stated ones",
+    near(SHOVE.windup, 0.30) && near(SHOVE.recover, 0.35) && near(SHOVE.range, 1.7) &&
+    near(SHOVE.stamina, 25) && near(SHOVE.push, 2.2) && near(SHOVE.cooldown, 1.5),
+    `windup ${SHOVE.windup}s (readable, like the weight pass), recover ${SHOVE.recover}s, range ${SHOVE.range} m, ` +
+    `cost ${SHOVE.stamina} stamina (a heavy is 22), push ${SHOVE.push} m, stagger ${SHOVE.stagger}s, cooldown ${SHOVE.cooldown}s`);
+
+  const engine = getEngine();
+  try {
+    // ---- displacement, and the fire kill with the shover's name on it ----
+    // The mark is a runekeeper (90 hp): the burn credit window is 5 s and the
+    // fire kills at 22/s, so the frailest class is the one that provably dies
+    // inside the window it was shoved in.
+    {
+      const { A, B } = await startDuel(engine, "runekeeper");
+      // B stands most of a metre off the hazard line — burning only because he
+      // was PUT there is the claim — and A stands directly outboard of him, so
+      // the push line runs straight through the hearth.
+      await walkNear(engine, B, () => [0, 2.35]);
+      await sleep(700);   // let the stride bleed off so the push is the push
+      const b0 = myself(B).position;
+      const r0 = Math.hypot(b0.x, b0.z) || 1;
+      const { from } = await throwShove(engine, A, B, [b0.x / r0, b0.z / r0], 1.3);
+      await until(() => A.state.hits.some((h) => h.type === "shove" && h.targetId === B.state.playerId), "the shove to land", 3000);
+      const seen = await watch(B, from, 1200);
+      check("a shove displaces its target", seen.moved > 1.2 && seen.staggered,
+        `the mark was carried ${seen.moved.toFixed(2)} m by one shove (push ${SHOVE.push} m) and staggered on the way`);
+      check("a shove can put a man in the fire", seen.burning,
+        `burning=${seen.burning} after being driven over the hazard line at 1.475 m`);
+      const kill = await until(() => A.state.kills.find((k) => k.victimId === B.state.playerId), "the burn death", 9000);
+      const feed = A.state.latest?.killFeed?.slice(-1)[0];
+      check("the fire kill is credited to the SHOVER, cause fire",
+        kill.cause === "fire" && kill.killerId === A.state.playerId && feed?.killer === A.state.playerId,
+        `kill: cause=${kill.cause}, killer=${JSON.stringify(kill.killerName)}; feed credits ${JSON.stringify(feed?.killerName)} (no blow was ever struck)`);
+      engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
+    }
+
+    // ---- a raised shield does not stop it ----
+    {
+      const { A, B } = await startDuel(engine, "huscarl");
+      await walkNear(engine, B, () => [0, -5]);
+      // Guard up and held: resent every 50 ms so the intent cannot lapse.
+      const holdBlock = setInterval(() => {
+        const b = myself(B);
+        if (b) engine.message(B.sid, { type: "input", data: {
+          moveX: 0, moveZ: 0, rotationY: b.rotation, sprint: false, attack: false,
+          heavyAttack: false, block: true, dodge: false, shove: false, attackDir: "right",
+        } });
+      }, 50);
+      await until(() => myself(B).state === "blocking", "the guard to rise", 3000);
+      const { from } = await throwShove(engine, A, B, [0, 1], 1.3);
+      await until(() => A.state.hits.some((h) => h.type === "shove" && h.targetId === B.state.playerId), "the shove to land", 3000);
+      clearInterval(holdBlock);
+      const seen = await watch(B, from, 1000);
+      check("a raised shield does not stop a shove", seen.moved > 1.2 && seen.staggered,
+        `a blocking huscarl was carried ${seen.moved.toFixed(2)} m and staggered — the guard-break niche`);
+      engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
+    }
+
+    // ---- a dodge beats it ----
+    {
+      const { A, B } = await startDuel(engine, "warden");
+      await walkNear(engine, B, () => [0, -5]);
+      await throwShove(engine, A, B, [0, 1], 1.3);
+      // Roll the moment the windup shows on the wire: the i-frames then cover
+      // the contact 0.30 s after the press.
+      await until(() => myself(A).state === "shoving", "the windup", 2000);
+      const b = myself(B);
+      engine.message(B.sid, { type: "input", data: {
+        moveX: 0, moveZ: -1, rotationY: b.rotation, sprint: false, attack: false,
+        heavyAttack: false, block: false, dodge: true, shove: false, attackDir: "right",
+      } });
+      const seen = await watch(B, { x: b.position.x, z: b.position.z }, 1200);
+      const shoved = A.state.hits.some((h) => h.type === "shove" && h.targetId === B.state.playerId);
+      check("a dodging man is not shoved", !shoved && !seen.staggered && myself(B).lastHitBy !== A.state.playerId,
+        `no shove contact reached him and he was never staggered (he rolled ${seen.moved.toFixed(2)} m under his own steam)`);
+      engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
+    }
+  } finally {
+    clearInterval(engine._tickInterval);
+  }
+  console.log("");
+}
+
 async function main() {
   console.log("[playtest] the weight numbers\n");
   checkWeightNumbers();
   console.log("");
+  await checkShoveClaims();
   const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
   console.log(`[playtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
@@ -318,6 +514,25 @@ async function main() {
   const a5 = await me(s3 + 1);
   await page.mouse.up({ button: "right" });
   check("right click blocks", a5.state === "blocking", `state=${a5.state}`);
+
+  // ---- 6b. the shove key ----
+  // The mechanics are proven on the engine above; this is only that the default
+  // desktop binding reaches the wire and the sim answers it. Wind first: the
+  // shove costs 25 and the tests above it have been spending.
+  await page.waitForFunction(() => {
+    const s = window.__probe.lastState;
+    if (!s) return false;
+    const m = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
+    return !!m && m.stamina > 60 && m.state !== "attacking";
+  }, null, { timeout: 20000 });
+  const b6b = await me();
+  const s3b = await seq();
+  await page.keyboard.press("KeyF");
+  const a6b = await me(s3b + 2);
+  const sawShove = await page.evaluate(() => window.__probe.sent.some((s) => s.d.shove === true));
+  check("F sends a shove and the sim answers it", sawShove && (a6b.state === "shoving" || a6b.stam < b6b.stam - 15),
+    `shove:true ${sawShove ? "reached the wire" : "never sent"}; stamina ${b6b.stam.toFixed(1)} -> ${a6b.stam.toFixed(1)}, state=${a6b.state}`);
+  await page.waitForTimeout(800);
 
   // ---- 7. mouse look ----
   const b6 = await me();

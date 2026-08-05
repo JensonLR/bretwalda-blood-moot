@@ -317,7 +317,7 @@ async function main() {
   // old zone ignored the bottom third and players read that as broken.
   // Run for both handednesses, because everything drawn over the fight has to
   // mirror and the pieces that do not are invisible until someone flips it.
-  const CLUSTER = ["Slash", "Heavy attack", "Block", "Dodge", "Power"];
+  const CLUSTER = ["Slash", "Heavy attack", "Block", "Dodge", "Power", "Shove"];
   const checkLookSideIsClear = async (hand) => {
     const dead = await page.evaluate(([cluster, mirrored]) => {
       const W = window.innerWidth, H = window.innerHeight;
@@ -695,6 +695,27 @@ async function main() {
     check("a tap with no flick still attacks", !!swing,
       `${swing ? `server swung "${swing.dir}" from a bare tap` : "no swing"}; ${
         shape.gap === null ? "no movement in the gesture, as intended" : `unwanted travel read at ${shape.gap}ms`}`);
+  }
+
+  // =====================================================================
+  // 5b. The shove button. One-shot like DODGE; the proof that the press
+  //     became the deed is the server's own answer — the state or the 25
+  //     stamina it costs — plus shove:true on the wire.
+  // =====================================================================
+  await readyToSwing();
+  {
+    const shoveBtn = page.getByLabel("Shove");
+    const sb = await shoveBtn.boundingBox();
+    const before = await me(await seq());
+    const mark = await now();
+    await hand.press(SWING, sb.x + sb.width / 2, sb.y + sb.height / 2);
+    await wait(80);
+    await hand.lift(SWING);
+    const after = await me((await seq()) + 2);
+    const sawShove = await page.evaluate((t) => window.__probe.sent.some((s) => s.t >= t && s.d.shove === true), mark);
+    check("the shove button reaches the server as a shove",
+      sawShove && (after.state === "shoving" || after.stam < before.stam - 15),
+      `shove:true ${sawShove ? "sent" : "never sent"}; stamina ${before.stam.toFixed(1)} -> ${after.stam.toFixed(1)}, state=${after.state}`);
   }
 
   // =====================================================================

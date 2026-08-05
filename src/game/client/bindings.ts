@@ -18,7 +18,7 @@
 export type ActionId =
   | "forward" | "back" | "left" | "right"
   | "sprint" | "dodge" | "crouch"
-  | "attack" | "heavy" | "block" | "ability";
+  | "attack" | "heavy" | "block" | "ability" | "shove";
 
 export interface ActionMeta {
   id: ActionId;
@@ -47,6 +47,7 @@ export const ACTIONS: readonly ActionMeta[] = Object.freeze([
   { id: "attack", label: "Attack", hint: "Swing" },
   { id: "heavy", label: "Heavy attack", hint: "A slower, harder blow" },
   { id: "block", label: "Block", hint: "Raise the shield" },
+  { id: "shove", label: "Shove", hint: "Two hands — breaks a guard, drives a man back" },
   { id: "ability", label: "Class deed", hint: "The warrior's own trick" },
 ]);
 
@@ -75,6 +76,8 @@ export const DEFAULT_BINDINGS: Bindings = Object.freeze({
   attack: Object.freeze(["Mouse0"]),
   heavy: Object.freeze(["KeyE", "KeyV"]),
   block: Object.freeze(["Mouse2"]),
+  // F sits under the index finger off WASD and nothing else claims it.
+  shove: Object.freeze(["KeyF"]),
   ability: Object.freeze(["KeyQ"]),
 }) as Bindings;
 

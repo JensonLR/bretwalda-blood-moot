@@ -97,7 +97,7 @@ const MAX_AI = 7;
 // Actions that fire on the press rather than while held. The server reads them
 // as plain booleans, so the single sample where one flips false -> true is the
 // only evidence that the press ever happened.
-const EDGE_ACTIONS = ["attack", "heavyAttack", "dodge", "ability", "block"] as const;
+const EDGE_ACTIONS = ["attack", "heavyAttack", "dodge", "ability", "block", "shove"] as const;
 
 // What a message costs is what decides how often continuous state goes out. A
 // frame on an already-open socket is a few hundred bytes, so the render loop's
@@ -1618,6 +1618,7 @@ export default function Page() {
               <CtrlRow k={labelForAction("heavy", " / ")} d="Heavy attack — breaks blocks" />
               <CtrlRow k={labelForAction("block", " / ")} d="Block (hold); perfect timing = parry" />
               <CtrlRow k={labelForAction("dodge", " / ")} d="Dodge roll — brief invincibility" />
+              <CtrlRow k={labelForAction("shove", " / ")} d="Shove — breaks a guard, drives a man back" />
               <CtrlRow k={labelForAction("sprint", " / ")} d="Sprint" />
               <CtrlRow k={labelForAction("crouch", " / ")} d="Crouch under a high blow" />
               <CtrlRow k={labelForAction("ability", " / ")} d="Class ability" />
@@ -1632,6 +1633,7 @@ export default function Page() {
               <CtrlRow k="SLASH / HEAVY" d="Attack buttons" />
               <CtrlRow k="BLOCK" d="Hold to block; catch the instant to parry" />
               <CtrlRow k="DODGE / RUN" d="Dodge roll / sprint" />
+              <CtrlRow k="SHOVE" d="Two hands — breaks a guard; by the fire, a kill" />
               <CtrlRow k="POWER" d="Class ability" />
             </Section>
 

@@ -173,7 +173,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
   // up your weapon" prompt.
   const pointerLockedRef = useRef(false);
 
-  const mobileFlags = useRef({ attack: false, heavy: false, block: false, dodge: false, ability: false, sprint: false });
+  const mobileFlags = useRef({ attack: false, heavy: false, block: false, dodge: false, ability: false, sprint: false, shove: false });
   const setFlag = useCallback((flag: keyof MobileFlags, value: boolean) => {
     mobileFlags.current[flag] = value;
   }, []);
@@ -709,6 +709,12 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         if (slot.prevState !== "dodging" && slot.prevState !== "rolling" && (p.state === "dodging" || p.state === "rolling")) {
           stage.audio.dodge({ position: { x: at.x, y: 0.9, z: at.z }, local: id === playerId });
         }
+        // The shove's voice fires on the state edge — the windup grunt IS the
+        // audible half of the tell, and the drive thump is scheduled inside the
+        // synth at the same offset the server resolves the contact.
+        if (slot.prevState !== "shoving" && p.state === "shoving") {
+          stage.audio.shove({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, shield: !!slot.rig.shield });
+        }
         if (!slot.prevAbility && p.abilityActive) {
           stage.audio.ability({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, warriorClass: p.warriorClass });
         }
@@ -717,16 +723,25 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         // Footfall on the gait's own cadence rather than the frame's, and on
         // the terrain the height field already describes — the bank is drier
         // than the ditch and the arena has both.
-        if (p.state === "walking" || p.state === "running" || p.state === "sprinting") {
+        //
+        // Gated on the wire VELOCITY, not on the locomotion state names: state
+        // is one channel carrying two facts (see the note in anim.ts) and a
+        // guarded or staggered man translating with it said "blocking", so his
+        // feet were silent while the animator now steps them. Same predicate as
+        // the animator's: any travel outside the states whose layers own the
+        // legs outright.
+        const stepSpeed = Math.hypot(p.velocity?.x || 0, p.velocity?.z || 0);
+        const stepping = stepSpeed > 1.0 && p.state !== "dead" && p.state !== "attacking" &&
+          p.state !== "dodging" && p.state !== "rolling" && p.state !== "ability" && p.state !== "shoving";
+        if (stepping) {
           slot.stepTick -= dt;
           if (slot.stepTick <= 0) {
-            const gait = p.state === "sprinting" ? 0.30 : p.state === "running" ? 0.40 : 0.54;
-            slot.stepTick = gait;
+            slot.stepTick = stepSpeed > 5.2 ? 0.30 : stepSpeed > 3.6 ? 0.40 : 0.54;
             stage.audio.footfall({
               position: { x: at.x, y: 0.1, z: at.z },
               local: id === playerId,
               ground: stage.world.heightAt(at.x, at.z),
-              weight: p.state === "sprinting" ? 1 : p.state === "running" ? 0.6 : 0.35,
+              weight: stepSpeed > 5.2 ? 1 : stepSpeed > 3.6 ? 0.6 : 0.35,
             });
           }
         } else {
@@ -941,7 +956,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
       // Consumed: the latch exists to survive one poll gap, not to stick.
       inp.tapped.clear();
       const mf = mobileFlags.current;
-      mf.heavy = false; mf.dodge = false; mf.ability = false;
+      mf.heavy = false; mf.dodge = false; mf.ability = false; mf.shove = false;
     }, 16);
 
     animRef.current = requestAnimationFrame(loop);

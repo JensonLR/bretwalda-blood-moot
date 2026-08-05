@@ -24,6 +24,8 @@ export interface MobileFlags {
   dodge: boolean;
   ability: boolean;
   sprint: boolean;
+  /** One-shot, like dodge: set on the press, cleared once sampled. */
+  shove: boolean;
 }
 
 export interface InputSources {
@@ -330,6 +332,7 @@ export function sampleInput(
       dodge: isMobile ? mobile.dodge : hit("dodge"),
       crouch: down("crouch"),
       ability: isMobile ? mobile.ability : hit("ability"),
+      shove: isMobile ? mobile.shove : hit("shove"),
       attackDir,
     },
   };

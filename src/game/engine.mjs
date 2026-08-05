@@ -405,6 +405,33 @@ export const SWING_TURN_PHASE = { windup: 1.0, contact: 0.25, recovery: 0.6 };
 //                              0.739 rad = 42.3 deg for the entire swing.
 // A committed blow can be led. It cannot be steered.
 
+// ---- the shove ----
+// The one act in the sim that moves a MAN rather than hurting him, and the
+// bonfire is why it exists: burn credit (BURN_CREDIT_WINDOW above) already pays
+// whoever last touched a man who cooks, so the moment a shove can set
+// lastHitBy, driving someone into the flames is a credited kill with no other
+// machinery. Its currency is position — zero damage, on purpose.
+//
+// The triangle it lives in: a shove beats a raised shield (the only guard-break
+// that is not a heavy), a dodge beats a shove (i-frames cover the contact), and
+// any blow beats a man stood there shoving air for 0.65 s. The windup is 0.30 s
+// — slower than every light except the berserker's, in a game that just made
+// windups the whole of readability — so it is answerable, and the turn cap
+// binds it like any committed attack.
+export const SHOVE = {
+  windup: 0.30,    // the tell. Two hands come back before they land.
+  recover: 0.35,   // the whiff cost, shield down the whole time
+  range: 1.7,      // centre-to-centre: BODY_MIN_SEP is 1.05, so it is a step
+                   // past contact, well inside every weapon's reach
+  arc: Math.PI * 0.30,  // narrower than any swing: hands, not steel
+  stamina: 25,     // more than a heavy (22): position is worth more than damage
+  push: 2.2,       // metres of ground the impulse buys — enough to carry a man
+                   // stood a body's width off the hazard line into the flames
+  stagger: 0.55,   // he lands unbalanced; not long enough to be a free blow
+                   // for anything slower than a runekeeper light
+  cooldown: 1.5,   // from press to press, so a wall of shoves is not a build
+};
+
 // ---- the clock ----
 // The simulation advances in fixed steps; the wall clock decides how many are
 // owed. See gameTick — this is where the movement-speed bug actually lived.
@@ -693,9 +720,13 @@ function makeEngine() {
       attackPhase: null, attackPhaseT: 0, swingT: 0, swingDuration: 0, swingHeavy: false,
       // Seconds of freeze left. Both fighters carry it after a landed blow.
       hitstop: 0,
-      // Server scratch, never serialised: the yaw the client last ASKED for, and
-      // the blow this swing will deliver when it reaches contact.
-      aimYaw: 0, pendingSwing: null,
+      // The shove's own clock, on the wire so a late joiner can phase it.
+      // Meaningful only while state === "shoving".
+      shoveTimer: 0,
+      // Server scratch, never serialised: the yaw the client last ASKED for,
+      // the blow this swing will deliver when it reaches contact, and the
+      // shove's pending contact and press-to-press cooldown.
+      aimYaw: 0, pendingSwing: null, shovePending: false, shoveCooldown: 0,
       abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
       kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "", lastHitAt: -999,
       comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
@@ -726,6 +757,8 @@ function makeEngine() {
     // pending blow would deliver it out of a spawn, at whoever was nearest.
     p.hitstop = 0; p.attackPhase = null; p.attackPhaseT = 0;
     p.swingT = 0; p.swingDuration = 0; p.swingHeavy = false; p.pendingSwing = null;
+    // Nor mid-shove, for the same reason the pending blow goes.
+    p.shoveTimer = 0; p.shovePending = false; p.shoveCooldown = 0;
   };
 
   const isTeamMode = (room) => room.mode === "war_band";
@@ -803,7 +836,7 @@ function makeEngine() {
   // twenty times a second of wire it does not deserve.
   const PRIVATE_FIELDS = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt",
     "aiSkill", "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName",
-    "aimYaw", "pendingSwing"];
+    "aimYaw", "pendingSwing", "shovePending", "shoveCooldown"];
 
   function serializeRoom(room) {
     const players = {};
@@ -1217,21 +1250,38 @@ function makeEngine() {
       return;
     }
 
-    if (input.block && player.state !== "attacking" && player.state !== "dodging") {
+    // The shove may be thrown FROM a raised guard — it is the shield man's own
+    // answer to a shield — so it is read before the block branch can re-assert
+    // the guard state over it.
+    if (input.shove && !isCommitted(player) && player.state !== "dodging" &&
+        player.shoveCooldown <= 0 && player.attackTimer <= 0 && player.stamina >= SHOVE.stamina) {
+      player.stamina -= SHOVE.stamina;
+      player.state = "shoving";
+      player.blockTimer = 0;
+      player.shoveTimer = SHOVE.windup + SHOVE.recover;
+      player.shoveCooldown = SHOVE.cooldown;
+      player.shovePending = true;
+      // The step INTO it, same argument as the swing lunge: weight moves
+      // forward before the hands land, and the body cannot steer meanwhile.
+      applyImpulse(player, Math.sin(player.rotation), Math.cos(player.rotation), 0.45, false);
+      return;
+    }
+
+    if (input.block && player.state !== "attacking" && player.state !== "dodging" && player.state !== "shoving") {
       player.state = "blocking"; player.blockDir = input.attackDir;
       player.blockTimer = player.blockTimer || 0.001;
     } else if (player.state === "blocking" && !input.block) {
       player.state = "idle"; player.blockTimer = 0;
     }
 
-    if (input.attack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.stamina >= 13) {
+    if (input.attack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 13) {
       player.stamina -= 13;
       if (player.comboTimer > 0) player.comboCount++; else player.comboCount = 1;
       player.comboTimer = COMBO_WINDOW;
       beginSwing(player, input.attackDir, stats.attackDamage, false);
     }
 
-    if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.stamina >= 22) {
+    if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 22) {
       player.stamina -= 22;
       player.comboCount = 0; player.comboTimer = 0;
       beginSwing(player, input.attackDir, stats.heavyDamage, true);
@@ -1240,8 +1290,8 @@ function makeEngine() {
     if (input.ability && player.abilityCooldown <= 0) activateAbility(room, player);
   }
 
-  /** Swinging. Committed by definition, and the only state the turn cap binds. */
-  const isCommitted = (player) => player.state === "attacking";
+  /** Mid-stroke or mid-shove: the body is spent, and the turn cap binds. */
+  const isCommitted = (player) => player.state === "attacking" || player.state === "shoving";
 
   /**
    * Start a stroke. Nothing is resolved here any more — the blow is parked on
@@ -1330,6 +1380,86 @@ function makeEngine() {
     const cap = SWING_TURN_RATE * (SWING_TURN_PHASE[phase] ?? 1) * dt;
     const off = wrapPi(player.aimYaw - player.rotation);
     player.rotation = wrapPi(player.rotation + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
+  }
+
+  /**
+   * One fixed step of one shove: the clock, the contact at the windup/recover
+   * boundary, and the same turn cap a swing carries. A stagger — being shoved
+   * yourself, or a parry landed a tick earlier — takes the state off him, and
+   * the pending contact is dropped with it here, exactly as a stagger drops a
+   * pending blow.
+   */
+  function advanceShove(room, player, dt) {
+    if (player.shoveCooldown > 0) player.shoveCooldown -= dt;
+    if (player.state !== "shoving") {
+      if (player.shoveTimer > 0 || player.shovePending) { player.shoveTimer = 0; player.shovePending = false; }
+      return;
+    }
+    player.shoveTimer -= dt;
+    // Contact, once, on the step that crosses out of the windup.
+    if (player.shovePending && player.shoveTimer <= SHOVE.recover) {
+      player.shovePending = false;
+      resolveShove(room, player);
+    }
+    if (player.shoveTimer <= 0) {
+      player.shoveTimer = 0;
+      player.state = "idle";
+      return;
+    }
+    // Committed like a swing: the body slews toward the asked-for yaw under the
+    // same cap, full in the windup, most of it gone once the hands are out.
+    const cap = SWING_TURN_RATE * (player.shoveTimer > SHOVE.recover ? 1.0 : 0.6) * dt;
+    const off = wrapPi(player.aimYaw - player.rotation);
+    player.rotation = wrapPi(player.rotation + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
+  }
+
+  /**
+   * The hands land. One man — the nearest in a short, narrow cone — takes an
+   * impulse and a stagger and NO damage: what a shove sells is where he ends up.
+   *
+   * A raised shield is not consulted, which is the niche: every other answer to
+   * a guard is a heavy. A dodge beats it — the roll's own i-frames cover the
+   * contact — and spawn invincibility holds, because it holds against blows.
+   *
+   * `lastHitBy`/`lastHitAt` are set even though no damage is, so the burn
+   * credit window runs: a man driven into the bonfire by these hands is this
+   * shover's kill when he cooks (see burnDeath).
+   */
+  function resolveShove(room, attacker) {
+    let best = null, bestDist = Infinity;
+    room.players.forEach((target) => {
+      if (target.id === attacker.id || target.state === "dead") return;
+      if (room.mode === "war_band" && attacker.team === target.team && attacker.team !== "none") return;
+      if (target.invincible || target.state === "dodging") return;
+      const dx = target.position.x - attacker.position.x;
+      const dz = target.position.z - attacker.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > SHOVE.range || dist >= bestDist) return;
+      if (Math.abs(wrapPi(Math.atan2(dx, dz) - attacker.rotation)) > SHOVE.arc) return;
+      best = target; bestDist = dist;
+    });
+    if (!best) return;
+
+    // Pushed along the line between the two bodies, not along the aim: hands on
+    // a chest send a man where the chest was going, and it is the line the
+    // shover actually chose by standing where he stood.
+    let nx = best.position.x - attacker.position.x;
+    let nz = best.position.z - attacker.position.z;
+    const len = Math.hypot(nx, nz);
+    if (len > 0.001) { nx /= len; nz /= len; }
+    else { nx = Math.sin(attacker.rotation); nz = Math.cos(attacker.rotation); }
+    // The push owns the body the way a roll does: stride is spent on it.
+    best.moveVel.x = 0; best.moveVel.z = 0;
+    applyImpulse(best, nx, nz, SHOVE.push, true);
+    best.state = "staggered";
+    best.staggerTimer = SHOVE.stagger;
+    best.blockTimer = 0;
+    // The credit trail, without a wound. This is the whole reason the fire pays
+    // the shover.
+    best.lastHitBy = attacker.id;
+    best.lastHitAt = room.matchTimer;
+    applyHitstop(attacker, best, HITSTOP.light);
+    broadcast(room, { type: "hit", data: { type: "shove", attackerId: attacker.id, targetId: best.id, damage: 0, hitstop: HITSTOP.light } });
   }
 
   function processAttack(room, attacker, baseDamage, isHeavy) {
@@ -1712,7 +1842,7 @@ function makeEngine() {
     processInput(room, bot, {
       moveX: 0, moveZ: 0, rotationY: bot.yaw, sprint: false,
       attack: false, heavyAttack: false, block: false, dodge: false,
-      crouch: false, ability: false, attackDir: "right",
+      crouch: false, ability: false, shove: false, attackDir: "right",
       ...deed,
     });
   }
@@ -1837,6 +1967,26 @@ function makeEngine() {
       botAct(room, bot, { ability: true, attackDir });
     }
 
+    // The shove, and ONLY as the fire play: a man stood between the bot and
+    // the bonfire, near enough to the flames that SHOVE.push carries him in,
+    // with the push line pointed at the hearth. Human targets only, for two
+    // reasons that agree: the moment this exists to produce is a player's
+    // panic, which a bot audience wastes — and bots hold each other outside
+    // BOT_FIRE_KEEPOUT, so a bot that could shove bots would be the one way
+    // the "bots never burn" guarantee (firetest) gets broken from the side.
+    // The chance is per-think and skill-scaled: a jarl takes the opening
+    // inside a second or so of it appearing, a recruit usually lets it pass.
+    if (!bot.isBlocking && !target.bot && bot.shoveCooldown <= 0 && bot.stamina > SHOVE.stamina + 15 &&
+        dist < SHOVE.range * 0.9 && !isCommitted(bot)) {
+      const tr = Math.hypot(target.position.x, target.position.z);
+      const fireward = tr > 0.01 ? (-target.position.x * nx - target.position.z * nz) / tr : 0;
+      if (fireward > 0.8 && tr < HAZARD_RADIUS + SHOVE.push * 0.9 &&
+          Math.random() < 0.04 + bot.aiSkill * 0.10) {
+        botAct(room, bot, { shove: true });
+        return;
+      }
+    }
+
     // Strike cadence, now measured against the bot's OWN stroke. A man caught in
     // recovery is punished on the spot rather than on the next beat — that is
     // what recovery is for, and a bot that could not use it would leave the whole
@@ -1902,7 +2052,7 @@ function makeEngine() {
     const stats = WARRIOR_STATS[player.warriorClass];
     // Committed: the body is spent on a swing, a roll or a stagger, and steers
     // for nobody — but it keeps the momentum it already had.
-    const committed = player.state === "attacking" || player.state === "dodging" || player.state === "staggered";
+    const committed = player.state === "attacking" || player.state === "dodging" || player.state === "staggered" || player.state === "shoving";
     const intent = currentIntent(player);
 
     let wantX = 0, wantZ = 0, sprinting = false;
@@ -2070,6 +2220,7 @@ function makeEngine() {
       if (player.bot) botThink(room, player, dt);
 
       advanceSwing(room, player, dt);
+      advanceShove(room, player, dt);
       if (player.blockTimer > 0) player.blockTimer += dt;
       if (player.dodgeTimer > 0) {
         player.dodgeTimer -= dt;
@@ -2089,7 +2240,7 @@ function makeEngine() {
       integrateMovement(player, dt);
 
       const stats = WARRIOR_STATS[player.warriorClass];
-      if (player.state !== "sprinting" && player.state !== "attacking") {
+      if (player.state !== "sprinting" && player.state !== "attacking" && player.state !== "shoving") {
         player.stamina = Math.min(player.maxStamina, player.stamina + stats.staminaRegen * dt);
       }
       if (player.stamina < 0) player.stamina = 0;

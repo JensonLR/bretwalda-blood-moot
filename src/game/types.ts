@@ -31,7 +31,7 @@ export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "tor
  * the body falls whole. Null on a man who is still standing.
  */
 export type DeathCause = "blow" | "fire";
-export type PlayerState = "idle" | "walking" | "running" | "sprinting" | "attacking" | "blocking" | "dodging" | "rolling" | "staggered" | "dead" | "ability";
+export type PlayerState = "idle" | "walking" | "running" | "sprinting" | "attacking" | "blocking" | "dodging" | "rolling" | "staggered" | "dead" | "ability" | "shoving";
 // "intermission" is the breath between rounds: everyone still dead where they
 // fell, the round result on screen, the next countdown already scheduled.
 export type MatchState = "lobby" | "countdown" | "fighting" | "last_stand" | "intermission" | "finished";
@@ -82,6 +82,8 @@ export interface PlayerInput {
   dodge: boolean;
   crouch: boolean;
   ability: boolean;
+  /** One-shot, like dodge: the press is the event. */
+  shove: boolean;
   attackDir: AttackDirection;
 }
 
@@ -220,6 +222,13 @@ export interface GamePlayer {
   /** This stroke is a heavy. Authoritative — do not infer it from `attackTimer`. */
   swingHeavy?: boolean;
   /**
+   * Seconds left of a shove — windup then recovery, `SHOVE.windup + SHOVE.recover`
+   * at the press. Only meaningful while `state === "shoving"`; 0 otherwise. The
+   * animator runs its own clock off the state edge, so this exists for late
+   * joiners and harnesses rather than for the pose.
+   */
+  shoveTimer?: number;
+  /**
    * Seconds of HITSTOP left on this man. Both fighters get it at contact and it
    * is the same value for both. While it is above zero the server advances
    * nothing about him — no swing clock, no stagger, no stamina, no travel — and
@@ -289,6 +298,31 @@ export const FIRE = {
   dpsInside: 22,
   /** Health per second for the tail after. */
   dpsAfter: 4,
+} as const;
+
+/**
+ * The shove, mirrored from `engine.mjs`, which is the authority — nothing here
+ * decides anything. Its currency is POSITION: no damage, an impulse and a brief
+ * stagger, and the burn-credit window runs from it, so driving a man into the
+ * bonfire with two hands is a credited kill. A raised shield does not stop it
+ * (the guard-break niche); a dodge does. The renderer needs `windup + recover`
+ * to phase the animation off the state edge.
+ */
+export const SHOVE = {
+  /** Seconds of readable tell before the hands land. */
+  windup: 0.3,
+  /** Seconds spent recovering after, shield up or not. */
+  recover: 0.35,
+  /** Centre-to-centre metres the hands can reach. */
+  range: 1.7,
+  /** Stamina at the press. */
+  stamina: 25,
+  /** Metres of ground the impulse carries the target. */
+  push: 2.2,
+  /** Seconds the target staggers. */
+  stagger: 0.55,
+  /** Seconds from one press to the next being heard. */
+  cooldown: 1.5,
 } as const;
 
 /**
