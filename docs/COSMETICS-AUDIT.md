@@ -328,12 +328,36 @@ with a proper three-point rig, and pass the player's own face seed.**
   narrower column with a visible notch where the jaw meets it. **FIX: carry the
   trapezius up and the mastoid down so the join is a curve, not a step.**
 
-At 400 px of head the eye reads as a dark almond with no sclera visible on the
-shadow side, and the iris is not separable from the pupil
-(`art/shots/audit/helm-cards.png`, panel 1). The geometry is there — globe,
-lids, iris, pupil — so this is a *value* problem, not a modelling one: the
-socket is deep enough that the key never reaches it. **FIX: lift the sclera's
-albedo and give the eye a dedicated fill, or shallow the orbit by 2–3 mm.**
+**(d) The head is one hue, and that is what "painted on" actually means.** The
+frame to look at is
+`art/shots/audit2/cards/beards-5._Ringed_Braid_120g_3_4.png` — 400 px of head,
+the arena's own light, nothing between the lens and the man. Five separate
+things are wrong in it and each has its own fix:
+
+- **Hair, beard and skin are the same colour.** The default hair and beard are
+  both `0x6b4a2a` and the skin sits within a few per cent of it at this
+  exposure, so the crop, the jaw and the cheek are one continuous tan mass and
+  the hairline does not exist. **FIX: the default hair must be at least 25 %
+  darker in value than the skin under it** — default to Raven Black, or
+  re-grade Oak Brown down — and give the beard a value break from the hair.
+- **Hair is knitted.** Both are `M.tinted("wool", …)` — hair at 20 repeats,
+  beard at 26 — and at this range the wool weave resolves as a knitted cap and
+  a knitted bib. **FIX: hair needs a directional fibre map with strand
+  anisotropy, not the wool tile at a higher repeat.**
+- **The face tones read as make-up.** The warm patches on the nose, ear and lip
+  land as discrete pink shapes with hard edges rather than as flushes.
+  **FIX: feather every face-tone patch to zero over at least 8 mm, and cut
+  their saturation by about half.**
+- **The brow reads as a painted slab** — a hard dark rectangle over each eye.
+- **The eye is a dark almond with no sclera on the shadow side**, and the iris
+  is not separable from the pupil (also `helm-cards.png`, panel 1). The
+  geometry is all there — globe, lids, iris, pupil — so this is a *value*
+  problem, not a modelling one: the socket is deep enough that the key never
+  reaches it. **FIX: lift the sclera's albedo and give the eye a dedicated
+  fill, or shallow the orbit by 2–3 mm.**
+
+Fix the hue separation first. It is one line of colour work and it does more
+for the "mannequin" read than the other four together.
 
 ## 3. Per slot
 
@@ -356,9 +380,9 @@ the ten rungs are one object with fittings bolted to it. The frames agree:
 | 4 | Shadow Hood | 120 | a cowl — the only different silhouette below Sutton Hoo | keep; **underpriced at 120** |
 | 5 | Ridge Helm | 190 | a ridge + a nape lip | **REBUILD** |
 | 6 | Spectacle Helm | 280 | brow plate + short cheeks | **REBUILD — it reads as a dark rectangle pasted over the eyes** |
-| 7 | Boar-Crest | 380 | a boar on the crown | REBUILD the crest scale |
+| 7 | Boar-Crest | 380 | a boar on the crown — **the only crest below Sutton Hoo that changes the outline** | **keep, and make it the model** |
 | 8 | Jarl's Crowned | 570 | a circlet, **and it loses the boar and the nape flange 6 has** | **REPRICE — 570 buys less geometry than 380** |
-| 9 | Wyrm-Crest | 950 | deep cheeks + a serpent that does not break the outline | **REBUILD or REPRICE to ~400** |
+| 9 | Wyrm-Crest | 950 | deep cheeks + a serpent whose arch is flattened to 6 mm at the crown | **REBUILD (see below) or REPRICE to ~400** |
 | 10 | Sutton Hoo | 2400 | mask, aventail, crest | keep — the only rung that reads |
 
 **The decisive frame is `art/shots/audit/helm-fight.png`** — all ten, one
@@ -428,7 +452,7 @@ worth its prices; today the 100 g option is the weakest thing in it.
 
 ### Beards (5)
 
-Full Beard (40 g) is properly built — five stations, a belly at −180 mm, a
+`art/shots/audit2/cards/beards-*_3_4.png`. Full Beard (40 g) is properly built — five stations, a belly at −180 mm, a
 parted moustache — and it is the best-value item in the shop. **Forked (80 g)**
 is two cones. **Ringed Braid (120 g)** is four stacked spheres and a ring, the
 same rosary trick as the hair. **REBUILD the Ringed Braid**; it is the most
@@ -487,11 +511,20 @@ is the most dishonest price in the shop. Also: "Bronze Scales" and "Crimson
 Warplate" name a material change a tint cannot deliver, and Bronze at 160 g
 comes back as gold sequins rather than as bronze.
 
+And the ladder is inverted at the top: **Bretwalda Gold at 510 gold
+(`finishes-7._Bretwalda_Gold_510g.png`) reads as a flat mustard knit, while
+Bronze Scales at 160 (`finishes-4._Bronze_Scales_160g.png`) reads as
+glittering metal.** The most expensive finish in the shop looks cheaper than
+one at a third the price.
+
 **REBUILD or CUT:** either give the finishes real substance changes (scale
 geometry for Bronze, a lacquered plate for Crimson, blued mail for Blackened)
 and make each one cover a surface every class actually has, or **rename them to
 what they are — dyes and metal polishes — and reprice the whole slot at
-20–60 gold.** Nothing in this slot should cost 510 while it is a colour.
+20–60 gold.** Nothing in this slot should cost 510 while it is a colour. The
+per-class evidence is being shot as `art/shots/finishcls/mat-finish-by-class.png`
+— Rough Iron against Bretwalda Gold on all four classes, same mark, same
+light. Read it before pricing anything in this slot.
 
 ### War Paint (4)
 
@@ -580,11 +613,19 @@ Shadow Hood 120 → 200, because it is the only bought silhouette below 2400.
 Every Armour Finish → 20–60 while it remains a tint. Hair and beard colours →
 10, or bundled.
 
-**REBUILD:** four distinct helmet bowls; the ridge comb at 35–45 mm; the
-spectacle brow plate; the braid (hair and beard) as a twisted section; the
-Warrior Crop's volume and hairline; the cloak as an asymmetric single-shoulder
-garment; the warden's lamellar as a mail byrnie; the trousers and leg wraps so
-they break the silhouette; the shield's dish; the sword's rest carry.
+**REBUILD:** four distinct helmet bowls; the wyrm's crest lift, monotonic in
+`v` the way the ridge's already is; the ridge comb at 35–45 mm; the spectacle
+brow plate; the braid (hair and beard) as a twisted section; the Warrior Crop's
+volume and hairline; the cloak as an asymmetric single-shoulder garment; the
+Gilded War Cloak's shoulders and hem; the warden's lamellar as a mail byrnie;
+the trousers and leg wraps so they break the silhouette; the shield's dish; the
+sword's rest carry.
+
+**The one rung that is right:** the Boar-Crest at 380 gold.
+`art/shots/sil/sil-helm.png` panel 7 is the only crest below Sutton Hoo that
+survives with the material off — 102 mm of animal along the crown, standing
+clear of the bowl. It is what every rung above it should have been, and it is
+cheaper than two helmets that read as less.
 
 ## 6. Two defects in the instrument, found while using it
 
