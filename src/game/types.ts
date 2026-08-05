@@ -266,6 +266,13 @@ export interface GamePlayer {
    * are in it NOW" moment belongs.
    */
   burnInside?: boolean;
+  /**
+   * The flourish this warrior last performed — his CHOSEN emote, kept on the
+   * record rather than only in the relay message so the end-of-match tableau
+   * can pose the victor with it. Null until he has ever emoted. Optional for
+   * the same reason the fire fields are: `shot/page.tsx` fabricates warriors.
+   */
+  emote?: EmoteId | null;
   // The killing blow, carried on the player rather than only in the kill
   // message, so a spectator or late joiner rebuilding from a snapshot still
   // sees the body the way everyone else does. Cleared on every road back to
@@ -324,6 +331,21 @@ export const SHOVE = {
   /** Seconds from one press to the next being heard. */
   cooldown: 1.5,
 } as const;
+
+/**
+ * The victory emotes, mirrored from `engine.mjs`, which is the authority —
+ * nothing here decides anything. Three flourishes: the weapon raised to the
+ * sky, the shield boss (or the chest, on the classes that carry no shield)
+ * beaten, and a taunt. They are relayed by the server, never trusted from a
+ * peer: the server validates the press (alive, not committed) and throttles it
+ * per player, so the id on the wire is always one of these three and never
+ * arrives faster than a human celebrating.
+ */
+export const EMOTES = ["raise", "boss", "taunt"] as const;
+export type EmoteId = (typeof EMOTES)[number];
+
+/** Seconds one performance takes on a client. The animator owns the clock. */
+export const EMOTE_SECONDS = 1.6;
 
 /**
  * The three phases of a stroke, as fractions of `WarriorStats.attackSpeed`.
@@ -488,6 +510,7 @@ export type WSMessageType =
   | "player_left"
   | "countdown"
   | "chat"
+  | "emote"
   | "kill_feed"
   | "last_stand"
   | "ability_used"

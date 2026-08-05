@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "perf": "node tools/perf.mjs",
     "playtest": "node tools/playtest.mjs",
+    "firetest": "node tools/firetest.mjs",
     "touchtest": "node tools/touchtest.mjs",
     "profiletest": "node tools/profiletest.mjs",
     "cheattest": "node tools/cheattest.mjs",

@@ -5,7 +5,7 @@
 // what and the order they run in.
 import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
-import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData } from "../types";
+import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId } from "../types";
 import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import {
@@ -23,9 +23,10 @@ import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/cam
 import { createHud3d, type Hud3D } from "./render/hud3d";
 import { createAudio, type AudioHandle } from "./render/audio";
 import {
-  createWarriorRig, createMotion, stepWarriorTransform, poseWarrior,
+  createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./render/anim";
+import { getBindings } from "./bindings";
 import { createSummary, type SummaryHandle } from "./render/summary";
 
 /**
@@ -62,6 +63,18 @@ interface GameCanvasProps {
    * keeps the build inside the mount task (see the note on the init effect).
    */
   onForge?: ForgeSink;
+  /**
+   * A bound emote key went down. The canvas only reports the press — page.tsx
+   * owns the transport, and the server owns whether anyone hears it.
+   */
+  onEmote?: (emote: EmoteId) => void;
+  /**
+   * Emote relays from the server, pushed by page.tsx and drained by the frame
+   * loop, which is the only thing that can reach the rigs. A ref'd array for
+   * the same reason roomState rides a ref: a flourish must not rebuild the
+   * animation frame callback.
+   */
+  emoteFeed?: { current: Array<{ playerId: string; emote: EmoteId }> };
 }
 
 /**
@@ -134,7 +147,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, emoteFeed }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -166,6 +179,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // rebuilds this callback every render must not tear the arena down and build
   // it again, which is what listing it in the effect's deps would do.
   useEffect(() => { onForgeRef.current = onForge; }, [onForge]);
+  // Same argument, for the emote press and the emote relay.
+  const onEmoteRef = useRef(onEmote);
+  useEffect(() => { onEmoteRef.current = onEmote; }, [onEmote]);
+  const emoteFeedRef = useRef(emoteFeed);
+  useEffect(() => { emoteFeedRef.current = emoteFeed; }, [emoteFeed]);
 
   const hitStopRef = useRef(0);
   const animRef = useRef(0);
@@ -463,7 +481,18 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       inp.keys.add(k);
       // Auto-repeat is a held key, not a fresh press; latching it would fire a
       // dodge every time the OS repeated the keystroke.
-      if (!e.repeat) inp.tapped.add(k);
+      if (!e.repeat) {
+        inp.tapped.add(k);
+        // Emotes are not part of the input message — the sim never reads them —
+        // so the press goes out on its own edge, here, where it also works in
+        // the intermission and over the summary, which the 60 Hz sampler
+        // (fighting states only) never covers.
+        const b = getBindings();
+        const em: EmoteId | null = b.emote1.includes(e.code) ? "raise"
+          : b.emote2.includes(e.code) ? "boss"
+          : b.emote3.includes(e.code) ? "taunt" : null;
+        if (em) onEmoteRef.current?.(em);
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => inp.keys.delete(e.key.toLowerCase());
     const onMouseDown = (e: MouseEvent) => {
@@ -591,6 +620,28 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         return slot;
       };
 
+      // Emote relays, drained on whichever path is posing bodies this frame.
+      // The trigger goes to the rig's motion — the performance is the
+      // animator's — and the voice fires here, beside it, so the flourish is
+      // never carried in sound alone or in picture alone.
+      const drainEmotes = () => {
+        const feed = emoteFeedRef.current?.current;
+        if (!feed || feed.length === 0) return;
+        for (const ev of feed.splice(0, feed.length)) {
+          const p = roomState.players[ev.playerId];
+          const slot = p ? ensureSlot(p) : warriorsRef.current.get(ev.playerId);
+          if (!slot) continue;
+          triggerEmote(slot.motion, ev.emote);
+          const at = slot.rig.group.position;
+          stage.audio.emote({
+            position: { x: at.x, y: 1.4, z: at.z },
+            local: ev.playerId === playerId,
+            emote: ev.emote,
+            shield: !!slot.rig.shield,
+          });
+        }
+      };
+
       // The end of the match: the arena stays up and render/summary.ts stages
       // the men who fought it — victor centre, the wall behind him, a duel's
       // corpse left where it fell. Held on the VERDICT rather than the room
@@ -602,6 +653,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         (roomState.state === "finished" || roomState.state === "lobby");
       if (isSummary) {
         for (const p of Object.values(roomState.players)) ensureSlot(p);
+        // A press from the summary surface plays on the staged tableau — the
+        // motion is shared, so the flourish lands on the man mid-portrait.
+        drainEmotes();
         // The portrait owns the whole frame: no floating names, no health
         // bars over men the match has already judged. Cleared on the way out
         // so the rematch gets its plates back without rebuilding one of them.
@@ -631,6 +685,22 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       const isFight = roomState.state === "fighting" || roomState.state === "last_stand" || roomState.state === "countdown";
       if (!isFight) {
         stage.rig.setMode("lobby");
+        // The round break keeps the bodies live rather than frozen mid-tick:
+        // the fallen stay down, the standing breathe, and a victory emote
+        // relayed during the break — which is where the touch surface offers
+        // it — plays on the man who pressed it. The wire is static here (the
+        // sim only broadcasts while fighting), so this is pure animation.
+        if (roomState.state === "intermission") {
+          drainEmotes();
+          for (const p of Object.values(roomState.players)) {
+            const slot = ensureSlot(p);
+            stepWarriorTransform(slot.rig, slot.motion, p, dt, ctx);
+            poseWarrior(slot.rig, slot.motion, p, dt, ctx, { groundAt: stage.world.heightAt });
+            slot.prevHp = p.health;
+            slot.prevState = p.state;
+            slot.prevPhase = p.attackPhase ?? null;
+          }
+        }
         stage.rig.update(dt, ctx);
         // vfx owns the bonfire and the torches now, so it runs on both early-out
         // paths as well: without this the moot's fires freeze mid-lick in the
@@ -690,6 +760,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           });
         },
       };
+
+      drainEmotes();
 
       const activeIds = new Set<string>();
       for (const id of Object.keys(players)) {

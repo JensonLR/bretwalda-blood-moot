@@ -18,7 +18,8 @@
 export type ActionId =
   | "forward" | "back" | "left" | "right"
   | "sprint" | "dodge" | "crouch"
-  | "attack" | "heavy" | "block" | "ability" | "shove";
+  | "attack" | "heavy" | "block" | "ability" | "shove"
+  | "emote1" | "emote2" | "emote3";
 
 export interface ActionMeta {
   id: ActionId;
@@ -49,6 +50,12 @@ export const ACTIONS: readonly ActionMeta[] = Object.freeze([
   { id: "block", label: "Block", hint: "Raise the shield" },
   { id: "shove", label: "Shove", hint: "Two hands — breaks a guard, drives a man back" },
   { id: "ability", label: "Class deed", hint: "The warrior's own trick" },
+  // The victory emotes. Keys are a desktop thing, but the actions are not
+  // desktopOnly: a phone performs the same three from the round-break and
+  // summary surfaces, so the badge would be a lie.
+  { id: "emote1", label: "Emote: raise the blade", hint: "Lift the weapon to the sky" },
+  { id: "emote2", label: "Emote: beat the boss", hint: "Hammer the shield boss — or the chest" },
+  { id: "emote3", label: "Emote: taunt", hint: "Jeer at the beaten" },
 ]);
 
 const ACTION_IDS: readonly ActionId[] = ACTIONS.map((a) => a.id);
@@ -79,6 +86,11 @@ export const DEFAULT_BINDINGS: Bindings = Object.freeze({
   // F sits under the index finger off WASD and nothing else claims it.
   shove: Object.freeze(["KeyF"]),
   ability: Object.freeze(["KeyQ"]),
+  // The number row is the emote shelf every other game trained: reachable
+  // without leaving WASD, and nothing else in the table claims a digit.
+  emote1: Object.freeze(["Digit1"]),
+  emote2: Object.freeze(["Digit2"]),
+  emote3: Object.freeze(["Digit3"]),
 }) as Bindings;
 
 /** Most a single action will hold. Two is the shipped shape; three leaves room. */

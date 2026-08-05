@@ -73,7 +73,7 @@
 
 import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
-import { WARRIOR_STATS, SWING_PHASES, SHOVE } from "../../types";
+import { WARRIOR_STATS, SWING_PHASES, SHOVE, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -334,6 +334,14 @@ export interface WarriorMotion {
   hitSide: number;
   /** Seconds spent in the current one-shot state (dodge, stagger, shout, death). */
   actT: number;
+  /**
+   * The emote being performed, or null. Client-side only — the server relays
+   * the press and keeps the chosen id; the performance itself is this clock.
+   * Set through `triggerEmote`, advanced and cleared by `poseWarrior`.
+   */
+  emote: EmoteId | null;
+  /** Seconds into the performance. 0..EMOTE_SECONDS. */
+  emoteT: number;
   /** 1 on the frame the server state changed, decaying; crossfades the pose. */
   blend: number;
   /** The state that blend is coming out of. */
@@ -416,6 +424,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
     swingPrev: 0, swingHold: 0, heavy: 0,
     flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", fall: -1,
+    emote: null, emoteT: 0,
     struckDead: false,
     wMove: 0, wBlock: 0, wAction: 0,
     vx: 0, vz: 0, ax: 0, az: 0, yawRate: 0,
@@ -2184,6 +2193,110 @@ function shoveLayer(ph: number, shielded: boolean, w: number): void {
   }
 }
 
+/**
+ * Start a victory flourish on this body. The caller (the orchestrator, off the
+ * server's relay; the summary stage, off the victor's chosen id) owns WHETHER;
+ * this module owns the performance. Re-triggering mid-performance restarts it,
+ * which is what a deliberate second press should do.
+ */
+export function triggerEmote(motion: WarriorMotion, emote: EmoteId): void {
+  motion.emote = emote;
+  motion.emoteT = 0;
+}
+
+/**
+ * The three victory emotes, on one clock (`ph` is 0..1 over EMOTE_SECONDS).
+ * Additive like every other layer, and gated by `poseWarrior` to bodies that
+ * are not spent — a swing, a roll or a stagger simply drops the flourish. Each
+ * one is authored to read at nameplate distance in under two seconds, because
+ * the audience is a phone across a group chat, not a cinematic.
+ */
+function emoteLayer(kind: EmoteId, ph: number, shielded: boolean): void {
+  // Eased in and out on its own envelope so the flourish enters and leaves the
+  // standing pose without a snap, whatever the body was doing either side.
+  const w = smooth(clamp01(ph / 0.14)) * smooth(clamp01((1 - ph) / 0.16));
+
+  if (kind === "raise") {
+    // The blade to the sky: a short coil, then the arm thrust straight up and
+    // held, eyes following it. The aim channel is what actually points the
+    // steel — the same solve a strike uses, so a spear and a seax both end
+    // vertical instead of sharing one wrist angle.
+    const up = easeOutCubic(clamp01((ph - 0.10) / 0.24)) * smooth(clamp01((0.95 - ph) / 0.18));
+    const coil = smooth(clamp01(ph / 0.12)) * (1 - easeOutCubic(clamp01((ph - 0.10) / 0.22)));
+    P.py += -0.035 * coil * w;
+    P.llb += 0.18 * coil * w;
+    P.lrb += 0.22 * coil * w;
+    P.crx += (0.10 * coil - 0.16 * up) * w;   // chest opens, back arches a touch
+    P.prx += -0.05 * up * w;
+    P.hrx += -0.34 * up * w;                  // eyes go up with the steel
+    P.arx += (0.25 * coil - 2.05 * up) * w;
+    P.arz += 0.24 * up * w;
+    P.arb += -0.08 * up * w;
+    // Straight up with a shade of forward, stated as a destination.
+    P.wa += 0.10 * up * w;
+    P.waw += up * w;
+    // The off arm drives down and back — the counterweight of a shout.
+    P.olx += 0.35 * up * w;
+    P.olb += -0.30 * up * w;
+    P.cloak += 0.30 * up * w;
+    return;
+  }
+
+  if (kind === "boss") {
+    // The boss beaten twice. The off arm presents the disc; the weapon hand
+    // cocks out and hammers across onto it, twice on one clock. The classes
+    // that carry no shield beat the chest with the same two strokes — same
+    // rhythm, nearer target — so the emote reads as one gesture roster-wide.
+    const present = smooth(clamp01(ph / 0.16)) * smooth(clamp01((1 - ph) / 0.16));
+    const p2 = clamp01((ph - 0.08) / 0.84);
+    const s = Math.sin(p2 * Math.PI * 4);
+    const lift = Math.max(0, s) * present;    // cocked out to the weapon side
+    const drive = Math.max(0, -s) * present;  // crossed onto the boss
+    P.wx += 0.85 * present * w;               // the blade is a mallet now, not a guard
+    P.crx += 0.09 * drive * w;
+    P.cry += (0.06 * lift - 0.08 * drive) * w;
+    P.hrx += 0.14 * drive * w;                // the nod lands with each knock
+    P.arx += (-0.55 - 0.20 * lift + 0.10 * drive) * w;
+    P.arz += (0.35 * lift - 0.60 * drive) * w;
+    P.arb += (-0.55 - 0.30 * lift) * w;
+    if (shielded) {
+      // The disc folded to the sternum and tipped flat to take the knocks.
+      P.olx += 0.40 * present * w;
+      P.olb += -1.15 * present * w;
+      P.olz += 0.25 * present * w;
+      P.sx += 0.18 * present * w;
+      P.sfz += 0.04 * present * w;
+    } else {
+      // No disc: the fist and haft land on his own chest.
+      P.olx += 0.20 * present * w;
+      P.olb += -0.60 * present * w;
+    }
+    P.cloak += 0.15 * drive * w;
+    return;
+  }
+
+  // "taunt" — chest open, arms flung wide, then a beckoning flick and a jeer
+  // of the head: COME ON THEN, readable from the far side of the ring.
+  const open = smooth(clamp01((ph - 0.05) / 0.20)) * smooth(clamp01((0.95 - ph) / 0.18));
+  const beck = ph > 0.42 && ph < 0.92
+    ? Math.pow(Math.max(0, Math.sin((ph - 0.42) / 0.5 * Math.PI * 2)), 2) : 0;
+  P.crx += -0.15 * open * w;
+  P.prx += -0.05 * open * w;
+  P.py += -0.02 * open * w;
+  P.hrx += (-0.24 * open + 0.20 * beck) * w;
+  P.hrz += 0.08 * Math.sin(ph * 15) * open * w;   // the jeering waggle
+  // Arms wide, palms up — the z terms mirror, same convention as the shove's
+  // two-palm drive, so both arms open outward rather than swinging together.
+  P.arx += -0.70 * open * w;
+  P.arz += 0.85 * open * w;
+  P.arb += (-0.30 - 0.55 * beck) * open * w;      // the flick is the elbow's
+  P.olx += -0.65 * open * w;
+  P.olz += -0.85 * open * w;
+  P.olb += -0.30 * open * w;
+  P.wx += 0.75 * open * w;                        // the blade lolls — no guard in this
+  P.cloak += 0.20 * open * w;
+}
+
 /** Struck. The body goes where it was hit, then argues its way back. */
 function flinchLayer(motion: WarriorMotion, w: number): void {
   const e = motion.flinch;
@@ -3211,6 +3324,9 @@ export function poseWarrior(
   motion.blend = Math.max(0, motion.blend - dt * (player.state === "attacking" ? 22 : 10));
 
   if (dead) {
+    // A man cut down mid-flourish stopped celebrating; nothing may resume it
+    // on the respawn.
+    motion.emote = null;
     // The cut goes in before the pose is built, so the collapse's first frame is
     // already the collapse of a body that is missing something.
     beginGore(rig, motion, player, hooks);
@@ -3291,6 +3407,20 @@ export function poseWarrior(
   if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, !!rig.shield, motion.wAction);
   if (motion.wBlock > 0.001) blockLayer(!!rig.shield, clamp01(player.blockTimer / 0.22), motion.wBlock);
   if (shoving) shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), !!rig.shield, smooth(clamp01(motion.actT / 0.06)));
+
+  // The emote rides on top of idle, walk and guard, and is simply dropped by
+  // anything that owns the body — a man who starts a swing mid-flourish is a
+  // man who stopped celebrating, and the layer must not fight the windup.
+  if (motion.emote) {
+    if (bodyOwned || staggered) {
+      motion.emote = null;
+    } else {
+      motion.emoteT += dt;
+      const ph = motion.emoteT / EMOTE_SECONDS;
+      if (ph >= 1) motion.emote = null;
+      else emoteLayer(motion.emote, ph, !!rig.shield);
+    }
+  }
 
   if (staggered) {
     // Elapsed over elapsed-plus-remaining is exact progress through a stagger

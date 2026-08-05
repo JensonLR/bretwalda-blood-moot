@@ -432,6 +432,20 @@ export const SHOVE = {
   cooldown: 1.5,   // from press to press, so a wall of shoves is not a build
 };
 
+// ---- emotes ----
+// Three flourishes and no more: raise the weapon, beat the shield boss, taunt.
+// They cost nothing and change nothing — no damage, no movement, no state the
+// sim acts on — which is exactly why the server still owns them: an emote
+// message a client can spam is a griefing tool, so every press is validated
+// (alive, not mid-swing or mid-shove, not staggered or rolling) and throttled
+// per player before anyone else hears it. The accepted id is kept on the
+// player as his CHOSEN emote, so the end-of-match tableau can pose the victor
+// with the flourish he actually used rather than a default.
+export const EMOTES = ["raise", "boss", "taunt"];
+// Wall-clock, not matchTimer: emotes are legal in the lobby, the intermission
+// and over the summary, where the fight clock does not advance.
+const EMOTE_COOLDOWN_MS = 2500;
+
 // ---- the clock ----
 // The simulation advances in fixed steps; the wall clock decides how many are
 // owed. See gameTick — this is where the movement-speed bug actually lived.
@@ -727,6 +741,9 @@ function makeEngine() {
       // the blow this swing will deliver when it reaches contact, and the
       // shove's pending contact and press-to-press cooldown.
       aimYaw: 0, pendingSwing: null, shovePending: false, shoveCooldown: 0,
+      // The flourish he last performed, kept so the summary can pose him with
+      // it. `emoteUntil` is the private throttle clock (epoch ms).
+      emote: null, emoteUntil: 0,
       abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
       kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "", lastHitAt: -999,
       comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
@@ -836,7 +853,7 @@ function makeEngine() {
   // twenty times a second of wire it does not deserve.
   const PRIVATE_FIELDS = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt",
     "aiSkill", "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName",
-    "aimYaw", "pendingSwing", "shovePending", "shoveCooldown"];
+    "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil"];
 
   function serializeRoom(room) {
     const players = {};
@@ -983,6 +1000,9 @@ function makeEngine() {
         player.inputAt = Date.now();
         processInput(room, player, data);
       });
+      // A victory flourish, relayed rather than trusted: the server validates
+      // and throttles, then everyone in the room hears the one broadcast.
+      case "emote": return withRoom(sid, (room, player) => handleEmote(room, player, data));
       case "leave": return disconnectSession(sid);
       case "ping": return sendSession(sid, { type: "pong" });
     }
@@ -1651,6 +1671,27 @@ function makeEngine() {
       hitZone: null, direction: null, heavy: false, cause: "fire",
     } });
     if (room.mode !== "solo") checkRoundEnd(room);
+  }
+
+  /**
+   * A flourish, asked for by its owner and heard by the room. Everything here
+   * is a refusal path: a dead man does not celebrate, a committed body is
+   * spent on the swing or the shove it is in, and a press inside the throttle
+   * is dropped silently — no error message, because the only sender who hits
+   * the throttle honestly is a double-tap, and the only one who hits it hard
+   * is a script. The room state is deliberately not checked: the lobby, the
+   * break and the summary are exactly where a flourish belongs.
+   */
+  function handleEmote(room, player, data) {
+    const emote = data.emote;
+    if (!EMOTES.includes(emote)) return;
+    if (player.state === "dead" || isCommitted(player)) return;
+    if (player.state === "dodging" || player.state === "staggered") return;
+    const now = Date.now();
+    if (now < (player.emoteUntil || 0)) return;
+    player.emoteUntil = now + EMOTE_COOLDOWN_MS;
+    player.emote = emote;
+    broadcast(room, { type: "emote", data: { playerId: player.id, emote } });
   }
 
   function activateAbility(room, player) {

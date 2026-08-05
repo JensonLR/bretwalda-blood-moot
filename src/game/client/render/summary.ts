@@ -19,9 +19,10 @@
 import * as THREE from "three";
 import type { GamePlayer, MatchEndData } from "../../types";
 import {
-  stepWarriorTransform, poseWarrior,
+  stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./anim";
+import type { EmoteId } from "../../types";
 import type { CameraRig, SummaryShot } from "./camera";
 import type { FrameContext } from "./quality";
 
@@ -91,6 +92,13 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   let cast: CastMember[] | null = null;
   let lights: THREE.Group | null = null;
   const hooks: AnimHooks = { groundAt: deps.groundAt };
+  // The victor performs his CHOSEN emote on the stage, on a loop slow enough
+  // to read as pride rather than a glitch. The id is the one the server kept
+  // on his record — the flourish he actually used — and a victor who never
+  // emoted stands still, which is its own kind of statement.
+  let victorId: string | null = null;
+  let victorEmote: EmoteId | null = null;
+  let emoteClock = 0;
 
   /** A copy deep enough that the sim's lobby reset cannot reach into it. */
   const freeze = (p: GamePlayer): GamePlayer => ({
@@ -167,6 +175,10 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       // best, with his shield-brothers nearest him in the wall.
       victor = here.find((p) => p.team === verdict.winnerTeam) ?? null;
     }
+    victorId = victor?.id ?? null;
+    victorEmote = victor?.emote ?? null;
+    // First performance shortly after the cut, once the lens has settled.
+    emoteClock = 1.1;
 
     // THE OWNER'S FAVOURITE: in a duel the loser lies where he fell. The gore
     // system already left the body — severed, smouldering, whatever the last
@@ -289,11 +301,24 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         stepWarriorTransform(body.rig, body.motion, member.player, dt, ctx);
         poseWarrior(body.rig, body.motion, member.player, dt, ctx, hooks);
       }
+      // The victor's flourish, looping. Silent on purpose — this module makes
+      // no sound (see the header); a deliberate press still voices through the
+      // orchestrator's relay path.
+      if (victorId && victorEmote) {
+        emoteClock -= dt;
+        if (emoteClock <= 0) {
+          emoteClock = 4.6;
+          const body = warriors.get(victorId);
+          if (body) triggerEmote(body.motion, victorEmote);
+        }
+      }
     },
 
     reset() {
       if (!cast && !lights) return;
       cast = null;
+      victorId = null;
+      victorEmote = null;
       if (lights) {
         deps.scene.remove(lights);
         lights.traverse((o) => {
