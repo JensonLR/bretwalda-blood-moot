@@ -75,6 +75,7 @@
 // materials.ts. Geometry and glyph textures are shared and refcounted.
 
 import * as THREE from "three";
+import { noteDrawnBody } from "./camera";
 import { LAYER_UNOCCLUDED, setLayerDeep, type FrameContext, type QualitySettings, type QualityTier } from "./quality";
 
 export interface Hud3D {
@@ -1006,6 +1007,10 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
   }
 
   function detach(id: string): void {
+    // The lock mark tracks the same object this plate does — see `drawnBodies`
+    // in ./camera. A man who leaves takes both with him, and the mark must not
+    // be left holding a rig that has gone out of the scene.
+    noteDrawnBody(id, null);
     const plate = plates.get(id);
     if (!plate) return;
     scene.remove(plate.group);
@@ -1068,6 +1073,12 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
 
   return {
     attach(id, name, parent, isLocal, headTop) {
+      // WHERE THIS MAN IS DRAWN, told to the lock mark. A nameplate and a lock
+      // mark are the same claim about the same object — "that man there" — and
+      // this is the one place in the client that is handed the rig group beside
+      // the id it belongs to. Registered before the early-out, so a re-attach
+      // after a rebuilt rig re-points the mark at the object that now exists.
+      noteDrawnBody(id, parent);
       if (plates.has(id)) return;
 
       const glyphs = acquireName(name, isLocal);

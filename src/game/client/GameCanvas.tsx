@@ -209,7 +209,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
     mobileFlags.current[flag] = value;
   }, []);
   const touch = useTouchControls(useCallback((deltaX: number) => {
-    if (stageRef.current) stageRef.current.rig.yaw += deltaX * 0.01;
+    // `look`, not `yaw +=`: a look the PLAYER asked for is offered to the lock
+    // before it lands, so it becomes the flick that takes the next man instead
+    // of a shove the lock spends the next three frames undoing. See the note on
+    // CameraRig.look and routeLook in input.ts.
+    if (stageRef.current) stageRef.current.rig.look(deltaX * 0.01);
   }, []));
 
   // ---------- stage init ----------
@@ -1071,7 +1075,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       // of with the framerate.
       const mouseDelta = (window as unknown as Record<string, { x: number; y: number }>).__bretwalda_mouse;
       if (!isMobile.current && mouseDelta) {
-        stage.rig.yaw += mouseDelta.x * 0.0048;
+        // Through `look` so desktop lock-on stops fighting the mouse: this used
+        // to be added to the yaw immediately before sampleInput ran the lock's
+        // spring, which then took most of it straight back out. The rig hands
+        // whatever the lock does not claim on to the yaw.
+        stage.rig.look(mouseDelta.x * 0.0048);
         mouseDelta.x = 0; mouseDelta.y = 0;
       }
 

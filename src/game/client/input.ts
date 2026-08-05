@@ -274,26 +274,90 @@ export function getServerLockSnapshot(): string { return "|0"; }
  *  whether bare glass is a camera drag or a target switch. */
 export function lockEngaged(): boolean { return lock.engaged; }
 
-/** What the reticle should be drawn on, or null. Read by render/camera.ts,
- *  which owns the projection because it owns the camera. */
-export function lockView(): { id: string; x: number; z: number; blend: number } | null {
-  return lock.id ? { id: lock.id, x: lock.x, z: lock.z, blend: lock.blend } : null;
+/**
+ * What the reticle should be drawn on, or null. Read by render/camera.ts,
+ * which owns the projection because it owns the camera.
+ *
+ * `x`/`z` are the WIRE position — the man as the server last described him. It
+ * is not where he is drawn: a remote body renders 1.5 packet intervals in the
+ * past (see REMOTE_DELAY_PACKETS in render/anim.ts), so at running speed the
+ * wire is a third of a metre ahead of the man on the screen. The camera
+ * projects the rig it can see and keeps these as the fallback for a man who has
+ * no rig yet. `switches` rides along so the mark can tell a pick the player
+ * made from one the scoring made for him, and animate the two differently.
+ */
+export function lockView(): { id: string; x: number; z: number; blend: number; switches: number } | null {
+  return lock.id ? { id: lock.id, x: lock.x, z: lock.z, blend: lock.blend, switches: lock.switches } : null;
 }
 
 /**
- * The reticle's DOM node, handed over by the HUD. The camera writes its
- * transform directly rather than through React: this moves every frame, and a
+ * The lock mark's DOM nodes, handed over by the HUD. The camera writes their
+ * transforms directly rather than through React: these move every frame, and a
  * frame-rate re-render of the interface is how a 120 Hz phone becomes a 40 Hz
  * one. Information about the lock still reaches React through `subscribeLock`,
  * which only fires when the man changes.
+ *
+ * Two nodes, because the mark has two anchors in the world — the sternum and
+ * the ground he is standing on — and a single wrapper could only carry one of
+ * them without the other drifting off him every time the distance scale is
+ * clamped. Each is placed in screen space by its own projection.
  */
 let reticleEl: HTMLElement | null = null;
+let footEl: HTMLElement | null = null;
 export function setLockReticle(el: HTMLElement | null): void { reticleEl = el; }
 export function lockReticle(): HTMLElement | null { return reticleEl; }
+export function setLockFootMark(el: HTMLElement | null): void { footEl = el; }
+export function lockFootMark(): HTMLElement | null { return footEl; }
 
 /** A flick on the button side asking for the next man that way. Recorded, not
  *  acted on: the handler has a pixel delta and no idea where anybody is. */
 export function requestTargetSwitch(dir: -1 | 1): void { lock.pending = dir; }
+
+/**
+ * Radians of asked-for look that count as a flick to the next man. The phone
+ * measures the same gesture in pixels (LOCK_FLICK_PX) because bare glass has no
+ * other unit; a mouse and a thumb arrive here already converted to a heading,
+ * so one threshold covers both — 64 px of thumb at the free-look gain is
+ * 0.64 rad, and this is that number.
+ */
+const LOCK_LOOK_SWITCH = 0.64;
+/** Banked look while the lock holds the yaw. Reset whenever it lets go, so an
+ *  old half-flick cannot combine with a new one minutes later. */
+let lookBank = 0;
+
+/**
+ * THE PLAYER'S OWN LOOK, ROUTED — sixth sighting of the overloaded channel.
+ *
+ * On a phone the touch handler below already separates the two intents in
+ * space: with a man held, bare glass switches targets and never touches the
+ * yaw. The desktop path never got that treatment. GameCanvas adds the mouse's
+ * dX straight onto `rig.yaw`, and with the lock on (`R`, opt-in) the spring in
+ * `updateLock` spends the next frames taking it back out again — the player
+ * pushes, the camera pushes back, and nothing he asked for happens. That is not
+ * a sensitivity problem and no amount of smoothing fixes it: it is one number
+ * carrying "where I want to look" and "where the lock says the fight is".
+ *
+ * So the rig hands every look the PLAYER asked for through here (the lock's own
+ * corrections go straight onto the yaw and are not offered), and this returns
+ * what is left of it after the lock has taken its share. At full lock that is
+ * nothing — and the travel is banked into exactly the flick the thumb makes on
+ * glass, so a firm mouse sweep takes the next man instead of being eaten.
+ */
+export function routeLook(dx: number): number {
+  if (!lock.engaged || lock.blend < 0.05) {
+    lookBank = 0;
+    return dx;
+  }
+  // Banked rather than thresholded per event, for the reason the touch handler
+  // banks: a slow sweep has to switch too, or the control silently does nothing.
+  if (dx * lookBank < 0) lookBank = 0;
+  lookBank += dx;
+  if (Math.abs(lookBank) >= LOCK_LOOK_SWITCH) {
+    requestTargetSwitch(lookBank > 0 ? 1 : -1);
+    lookBank = 0;
+  }
+  return dx * (1 - lock.blend);
+}
 
 function distTo(a: GamePlayer, b: GamePlayer): number {
   return Math.hypot(b.position.x - a.position.x, b.position.z - a.position.z);
