@@ -5,9 +5,14 @@
 // a menu two seconds later. This module keeps the arena on screen and restages
 // the men who fought it: the victor centre frame, lit and facing the lens; the
 // rest of the moot stood back up into a shield-wall line behind him; and in a
-// duel the loser is NOT stood up — his corpse lies exactly where the gore
-// system dropped it, and the victor is posed over it. The numbers are DOM and
-// live in page.tsx; everything in here is scene.
+// duel the loser is NOT stood up — his corpse keeps the pose the gore system
+// left it in, and the victor is posed over it. The numbers are DOM and live in
+// page.tsx; everything in here is scene.
+//
+// The duel tableau is composed AGAINST THE BONFIRE — see the block of
+// constants below. That is not decoration: the first version of this file was
+// signed off on a staged capture whose corpse happened to lie 8.7 m out, and
+// shipped a real-match frame that was aimed straight into the fire.
 //
 // Nothing in this file invents match state. The verdict is the server's
 // `match_end` payload passed down whole, and the bodies are the same rigs the
@@ -253,20 +258,17 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       at.x + leftX * 2.2 + camDir.x * 1.7, at.y + 3.0, at.z + leftZ * 2.2 + camDir.z * 1.7);
     key.target.position.copy(spill ? spill.clone().add(at).multiplyScalar(0.5) : at);
     g.add(key, key.target);
-    // RIM — cool, behind him and off the other shoulder, just above head height
-    // so the edge it draws runs down helm, shoulder and axe rather than lighting
-    // his heels.
-    // Nearly LEVEL with his chest, not above him. A rim hung high enough to
-    // look like a rim throws its cone onto the turf behind the men, and at the
-    // intensity an edge needs that lands as a blue spotlight puddle on the
-    // grass — which is worse than no rim at all, and is what the first two
-    // attempts at this produced. Level, the cone grazes the ground at a glancing
-    // angle and dies; what it lights is a man.
-    // And OFF THE OTHER SHOULDER from the key, three-quarters behind rather
-    // than square behind: a light directly at his back wraps the same thin
-    // edge onto both sides of him and reads as nothing at all on a 390-wide
-    // frame. From the far side it draws one long lit edge down the side of the
-    // man the key is not reaching, which is what separation actually is.
+    // RIM — cool, off the shoulder the key is not on, three-quarters behind
+    // him and LEVEL with his chest. Both halves of that were paid for in
+    // captures:
+    //   - Square behind him, the edge wraps equally onto both sides and reads
+    //     as nothing at all on a 390-wide frame. From the far side it draws one
+    //     long lit edge down the side the key never reaches, which is what
+    //     separation actually is.
+    //   - Hung above him — where a rim belongs on paper — its cone lands on the
+    //     turf behind the men, and at the intensity an edge needs that is a
+    //     blue spotlight puddle on the grass. Level, the cone grazes the ground
+    //     at a glancing angle and dies; what it lights is a man.
     const rim = new THREE.SpotLight(0x9ec6ff, 270, 9, 0.34, 0.5, 2);
     rim.position.set(
       at.x - camDir.x * 1.5 - leftX * 2.8, at.y + 1.05, at.z - camDir.z * 1.5 - leftZ * 2.8);
@@ -309,9 +311,11 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     // First performance shortly after the cut, once the lens has settled.
     emoteClock = 1.1;
 
-    // THE OWNER'S FAVOURITE: in a duel the loser lies where he fell. The gore
-    // system already left the body — severed, smouldering, whatever the last
-    // blow made of it — so the corpse is frozen as-is and never re-marked.
+    // THE OWNER'S FAVOURITE: in a duel the loser is not stood up, he is left
+    // dead in the picture. The gore system already made him what he is —
+    // severed, smouldering, whatever the last blow left — and none of that is
+    // touched here; the only thing this stage will move is the ground he lies
+    // on, and only when where he fell cannot be photographed at all.
     const loser = here.find((p) => victor && p.id !== victor.id) ?? null;
     const duel = here.length === 2 && victor !== null
       && loser !== null && loser.state === "dead";

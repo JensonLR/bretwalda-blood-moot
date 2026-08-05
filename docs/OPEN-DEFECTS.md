@@ -1004,3 +1004,38 @@ landed. **To close it**, extend `cameratest`'s readback — it already reaches
 into the rig from a live fight — to log `attackPhase`, `swingT` and the blade's
 world position over one stroke, and assert the blade crosses the target between
 `swingT` 0.40 and 0.55.
+
+---
+
+## A staged capture is not evidence for a stage the code aims
+
+**Closed, and worth keeping as a shape of mistake.** The end-of-match summary
+shipped verified. Two captures of it disagreed: `/shot?preset=summaryduel` was
+dusk blue and green with the loser's body full in frame, and the real driven
+match at 390x844 was drowned in amber with no body visible anywhere. Both were
+the same commit of the same file.
+
+**What it actually was.** `render/summary.ts` aims the duel lens off the corpse
+and chose its axis on the corpse's radius alone — past 5.2 m it stood the lens
+inside the tableau looking outward, and closer in it swung to a tangent. A duel
+decided AT the hearth takes the tangent, and a tangent through a corpse at the
+origin points the lens back through the bonfire. Measured on a real driven duel:
+aim point (-0.44, 0.55), r = 0.7 m, lens 4.3 m away. The frame was orange
+because it was a photograph of a fire. The staged preset never showed it because
+its corpse lies at 8.7 m and took the other branch.
+
+Two things followed from the same root. The corpse was invisible because it lay
+inside the burning log pile, and the anchor the tableau framed was `motion.rx/rz`
+— the smoothed, extrapolated body, 2.4–3.8 m from where the sim actually stopped
+him and drifting for seconds afterwards. There were no dismembered parts: the
+pale chunks in the shipped frame are the hearth stones.
+
+**The rule this leaves.** A composition that the code computes from match state
+can only be reviewed against match state. `tools/summaryreal.mjs` drives a
+genuine duel to its end at both viewports, kills the opponent two different ways
+(in the hearth, and out on open ground by afterburn), and prints
+`window.__summaryStage` — the aim the frame was taken with — beside every shot.
+Note its `--settle`: the camera push accumulates RENDERED dt, and on this box the
+summary runs at about three frames a second, so the default eleven-second wait
+photographs a lens a quarter of the way through its move. A settled frame costs
+two and a half minutes and is a different picture.
