@@ -328,6 +328,12 @@ async function lockAct(browser, url, check) {
   const ctx = await browser.newContext({ viewport: SCREEN, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
   await ctx.addInitScript(PROBE);
   const page = await ctx.newPage();
+  // This box shares a CPU with whatever else is being built or driven at the
+  // time — two runs in a row have been thrown away by a menu that took longer
+  // than Playwright's default thirty seconds to paint, which fails nothing
+  // except the clock. Every wait on this page gets the same minute and a half
+  // the clicks below already ask for.
+  page.setDefaultTimeout(90000);
   page.on("pageerror", (e) => console.log(`[page-error] ${e}`));
   await page.goto(`${url}/?quality=low`, { waitUntil: "domcontentloaded" });
 
@@ -659,45 +665,106 @@ async function lockAct(browser, url, check) {
      * parallax at a range of 14 m and got the sign backwards — which is the
      * geometry behaving, not the reticle misbehaving.
      */
-    const sampleReticle = async (tries) => {
+    /** Qualifying samples this wants before it stops looking, per hand. */
+    const NEED = 12;
+    /** And the least wall time it will spend collecting them, so "it slid as he
+     *  moved" is still a statement about a man who had time to move. */
+    const SPAN_MS = 1400;
+
+    /**
+     * One batch, collected IN THE PAGE, ON EVERY FRAME.
+     *
+     * This used to be 34 pokes 150 ms apart, and the gate below is narrow on
+     * purpose — the man close, square in front, the mark on the glass — so a
+     * poke landing inside it was luck. One run in three came back with ZERO
+     * qualifying samples and read as a failure of the reticle, which it never
+     * was: the warrior had died into an intermission and the pokes spent
+     * themselves on a corpse. Sampling from a rAF loop instead takes ~60
+     * readings a second rather than 6.7, and the caller keeps coming back for
+     * more batches — through a death and the next round if it has to — until it
+     * has the evidence or the budget is gone. NOTHING THE SAMPLE HAS TO SATISFY
+     * WAS LOOSENED. The same gate, an order of magnitude more chances at it.
+     */
+    const collectBatch = (ms, need) => page.evaluate(({ ms, need }) => new Promise((resolve) => {
+      const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
       const out = [];
-      let matched = 0;
-      for (let i = 0; i < tries; i++) {
-        const s0 = await page.evaluate(() => {
-          const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-          const el = document.querySelector("[data-lock-reticle]");
-          if (!el) return null;
+      let matched = 0, lit = 0, frames = 0, paint = "none";
+      const t0 = performance.now();
+      const tick = () => {
+        frames++;
+        const el = document.querySelector("[data-lock-reticle]");
+        const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
+        const f = window.__probe.frames[window.__probe.frames.length - 1];
+        if (el) {
           const r = el.getBoundingClientRect();
-          const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
-          const f = window.__probe.frames[window.__probe.frames.length - 1];
-          const foe = f && f.lock && f.foes[f.lock];
-          return {
-            x: r.left + r.width / 2, o: parseFloat(el.style.opacity || "0"),
-            sx: p.sx, dist: p.dist || 0, w: p.w,
-            off: foe && !foe.dead ? wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot) : null,
-            paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
-          };
-        });
-        // The DOM against the rig's own arithmetic. This is the half of the
-        // claim that has nothing to do with geometry: whatever the camera
-        // computed, the element has to actually be THERE.
-        if (s0 && s0.o > 0.5 && Math.abs(s0.x - s0.sx) < 2) matched++;
-        // The parallax sample only counts when the geometry it is a statement
-        // about actually holds: the man close, SQUARE IN FRONT of the warrior,
-        // and the reticle on the glass. Ungated, this measured a 506 px "shift"
-        // on a 390 px screen across two different moments of a three-man brawl
-        // — a number with no meaning that happened to have the right sign.
-        if (s0 && s0.o > 0.5 && s0.dist > 1.5 && s0.dist < 6
-          && s0.off !== null && Math.abs(s0.off) < 0.10
-          && s0.x > -40 && s0.x < s0.w + 40) out.push(s0);
-        await wait(150);
+          const o = parseFloat(el.style.opacity || "0");
+          const x = r.left + r.width / 2;
+          const foe = f && f.lock && f.foes[f.lock] ? f.foes[f.lock] : null;
+          const off = foe && !foe.dead ? wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot) : null;
+          // The DOM against the rig's own arithmetic. This is the half of the
+          // claim that has nothing to do with geometry: whatever the camera
+          // computed, the element has to actually be THERE.
+          if (o > 0.5) {
+            lit++;
+            if (Math.abs(x - p.sx) < 2) matched++;
+            paint = `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)}`
+              + ` viewW=${p.w} source=${p.source} lead=${Math.round(p.leadPx || 0)}px/${(p.leadM || 0).toFixed(2)}m`;
+          }
+          // The parallax sample only counts when the geometry it is a statement
+          // about actually holds: the man close, SQUARE IN FRONT of the warrior,
+          // and the mark on the glass. Ungated, this measured a 506 px "shift"
+          // on a 390 px screen across two different moments of a three-man brawl
+          // — a number with no meaning that happened to have the right sign.
+          if (o > 0.5 && p.dist > 1.5 && p.dist < 6
+            && off !== null && Math.abs(off) < 0.10
+            && x > -40 && x < p.w + 40) {
+            out.push({ x, source: p.source, lead: Math.abs(p.leadPx || 0), leadM: p.leadM || 0 });
+          }
+        }
+        const spent = performance.now() - t0;
+        if ((out.length >= need && spent > 1400) || spent > ms) resolve({ out, matched, lit, frames, paint });
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }), { ms, need });
+
+    /**
+     * Batches until the evidence is in or the budget is spent, waiting out a
+     * death and the round break behind it rather than grading them.
+     */
+    const sampleReticle = async (budgetMs) => {
+      const started = Date.now();
+      const xs = [];
+      let matched = 0, lit = 0, frames = 0, batches = 0, offWire = 0, paint = "none";
+      const leads = [];
+      while (Date.now() - started < budgetMs) {
+        await waitForAlive().catch(() => {});
+        await waitForLock().catch(() => {});
+        const left = budgetMs - (Date.now() - started);
+        if (left < 400) break;
+        const b = await collectBatch(Math.min(4500, left), Math.max(1, NEED - xs.length));
+        batches++;
+        matched += b.matched; lit += b.lit; frames += b.frames;
+        if (b.paint !== "none") paint = b.paint;
+        for (const s of b.out) {
+          xs.push(s.x);
+          leads.push(s.lead);
+          // Which position the mark was painted off: the rig the man is DRAWN
+          // on, or the wire that is ~83 ms ahead of him. See `drawnBodies` in
+          // render/camera.ts — this is the regression guard on the lead bug.
+          if (s.source !== "rig") offWire++;
+        }
+        if (xs.length >= NEED && Date.now() - started > SPAN_MS) break;
       }
-      const xs = out.map((s2) => s2.x).sort((a, b) => a - b);
+      const sorted = xs.slice().sort((a, b2) => a - b2);
+      const sortedLeads = leads.slice().sort((a, b2) => a - b2);
       return {
-        tries, seen: out.length, matched,
-        median: xs.length ? xs[Math.floor(xs.length / 2)] : 0,
-        travel: xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0,
-        paint: out.length ? out[out.length - 1].paint : "none",
+        seen: xs.length, matched, lit, frames, batches, offWire, paint,
+        seconds: (Date.now() - started) / 1000,
+        median: sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0,
+        travel: sorted.length > 1 ? sorted[sorted.length - 1] - sorted[0] : 0,
+        lead: sortedLeads.length ? sortedLeads[Math.floor(sortedLeads.length / 2)] : 0,
+        leadMax: sortedLeads.length ? sortedLeads[sortedLeads.length - 1] : 0,
       };
     };
 
@@ -713,23 +780,25 @@ async function lockAct(browser, url, check) {
     // shoulder, so the same man swings across the frame. Parallax through the
     // real camera matrix, driven by nothing but the store that flips
     // everything else.
-    await waitForAlive().catch(() => {});
-    await waitForLock().catch(() => {});
-    const overRight = await sampleReticle(34);
+    // No waits here any more: `sampleReticle` does its own, before every batch,
+    // so a death partway through is waited out rather than sampled through.
+    const overRight = await sampleReticle(40000);
     await flipHand("left");
-    await waitForAlive().catch(() => {});
-    await waitForLock().catch(() => {});
-    const overLeft = await sampleReticle(34);
+    const overLeft = await sampleReticle(40000);
     // Put it back, because the layout scan below runs right-handed first.
     await flipHand("right");
 
     const shift = overLeft.median - overRight.median;
+    const lead = Math.max(overRight.lead, overLeft.lead);
+    const leadMax = Math.max(overRight.leadMax, overLeft.leadMax);
     check("the lock is drawn on the man it is holding, through the real camera",
-      overRight.seen >= 4 && overLeft.seen >= 4
-      && overRight.matched >= 10 && overLeft.matched >= 10
+      overRight.seen >= 8 && overLeft.seen >= 8
+      && overRight.matched >= 40 && overLeft.matched >= 40
+      && overRight.matched >= overRight.lit - 3 && overLeft.matched >= overLeft.lit - 3
+      && overRight.offWire === 0 && overLeft.offWire === 0
       && overRight.median < W / 2 && overLeft.median > W / 2
       && shift > W * 0.12 && Math.max(overRight.travel, overLeft.travel) > 3,
-      `the element sat within 2px of the rig's own projected x on ${overRight.matched}+${overLeft.matched} of ${overRight.tries * 2} samples; measured only while the locked man was 1.5-6 m away and within 6\u00b0 of dead ahead — where the shoulder offset is the only term left — the reticle sat at median x=${Math.round(overRight.median)} over the RIGHT shoulder (${overRight.seen} such samples) and the one handedness switch moved the same man to x=${Math.round(overLeft.median)} (${overLeft.seen}) — a shift of ${Math.round(shift)}px, ${(shift / W * 100).toFixed(0)}% of a ${W}px screen, with nothing else changed; it slid up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
+      `the element sat within 2px of the rig's own projected x on ${overRight.matched}+${overLeft.matched} of the ${overRight.lit}+${overLeft.lit} frames it was lit for (sampled every frame across ${overRight.frames}+${overLeft.frames} frames, ${overRight.batches}+${overLeft.batches} passes, ${overRight.seconds.toFixed(1)}+${overLeft.seconds.toFixed(1)}s); every one of the ${overRight.seen + overLeft.seen} qualifying samples was painted off the rig the man is DRAWN on rather than the wire (${overRight.offWire + overLeft.offWire} off the wire), which sat a median ${Math.round(lead)}px and up to ${Math.round(leadMax)}px ahead of him; measured only while the locked man was 1.5-6 m from the CAMERA and within 6\u00b0 of dead ahead — where the shoulder offset is the only term left — the mark sat at median x=${Math.round(overRight.median)} over the RIGHT shoulder (${overRight.seen} such samples) and the one handedness switch moved the same man to x=${Math.round(overLeft.median)} (${overLeft.seen}) — a shift of ${Math.round(shift)}px, ${(shift / W * 100).toFixed(0)}% of a ${W}px screen, with nothing else changed; it slid up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
   }
 
   // ===================================================================
@@ -789,6 +858,9 @@ async function main() {
   const ctx = await browser.newContext({ viewport: SCREEN, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
   await ctx.addInitScript(PROBE);
   const page = await ctx.newPage();
+  // Same minute and a half act two gives itself, and for the same reason: a
+  // loaded box is not a defect in the control scheme. See the note there.
+  page.setDefaultTimeout(90000);
   page.on("pageerror", (e) => console.log(`[page-error] ${e}`));
 
   // Pinned low for the same reason playtest pins it: this box has no GPU and

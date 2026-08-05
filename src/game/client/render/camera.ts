@@ -414,8 +414,13 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     }
     const sx = (markPoint.x * 0.5 + 0.5) * viewW;
     const sy = (-markPoint.y * 0.5 + 0.5) * viewH;
+    // His feet, projected in their own right. Clamped rather than trusted: the
+    // chest can be in front of the eye plane while the feet are not — a man
+    // stood on top of the lens — and `project` divides by a w approaching zero,
+    // which is how the old reticle once landed 22589 px off centre. A ground
+    // mark a screen height off the bottom is off the bottom; that is enough.
     footPoint.project(camera);
-    const footY = (-footPoint.y * 0.5 + 0.5) * viewH;
+    const footY = Math.max(-viewH, Math.min(viewH * 2, (-footPoint.y * 0.5 + 0.5) * viewH));
 
     // What the wire would have painted this frame, kept only so the harness can
     // measure the lead the rig position removes. Nothing draws from it.
