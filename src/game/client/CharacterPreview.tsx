@@ -224,7 +224,7 @@ export default function CharacterPreview({
               key={l}
               onClick={() => chooseLens(l)}
               aria-pressed={lens === l}
-              className={`min-h-[2.25rem] flex-1 rounded-md border px-1 text-[8.5px] font-bold leading-tight tracking-[0.1em] transition ${
+              className={`min-h-[2.75rem] flex-1 rounded-md border px-1 text-[8.5px] font-bold leading-tight tracking-[0.1em] transition ${
                 lens === l
                   ? "border-amber-500/70 bg-amber-500/15 text-amber-200"
                   : "border-stone-100/10 bg-black/40 text-stone-400 hover:text-stone-200"
