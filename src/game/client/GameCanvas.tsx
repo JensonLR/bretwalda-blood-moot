@@ -602,6 +602,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         (roomState.state === "finished" || roomState.state === "lobby");
       if (isSummary) {
         for (const p of Object.values(roomState.players)) ensureSlot(p);
+        // The portrait owns the whole frame: no floating names, no health
+        // bars over men the match has already judged. Cleared on the way out
+        // so the rematch gets its plates back without rebuilding one of them.
+        stage.hud.setSuppressed(true);
         summaryRef.current ??= createSummary({
           scene: stage.scene,
           rig: stage.rig,
@@ -620,6 +624,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         return;
       }
       summaryRef.current?.reset();
+      stage.hud.setSuppressed(false);
 
       // Between matches the camera takes the slow establishing orbit and
       // nothing else runs — no input, no sim, no feedback.

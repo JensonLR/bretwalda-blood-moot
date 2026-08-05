@@ -85,6 +85,12 @@ export interface Hud3D {
    */
   attach(id: string, name: string, parent: THREE.Object3D, isLocal: boolean, headTop?: number): void;
   detach(id: string): void;
+  /**
+   * Stand every plate down without detaching it. The end-of-match tableau is a
+   * portrait and owns the whole frame; the plates come back the moment the
+   * caller stops asking, so a rematch costs nothing.
+   */
+  setSuppressed(on: boolean): void;
   setHealth(id: string, current: number, max: number): void;
   spawnDamageNumber(amount: number, at: { x: number; z: number }, big: boolean): void;
   update(dt: number, ctx: FrameContext): void;
@@ -948,6 +954,12 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
   const lastDmgAt = new THREE.Vector3(1e6, 0, 1e6);
   let lastDmgTime = -10;
   let clock = 0;
+  // The end-of-match tableau holds the frame. A staged portrait with eight
+  // green health bars floating over it is a fight again, so the summary asks
+  // for the plates to stand down rather than detaching them — the same men
+  // fight the rematch, and a detach here would cost every plate its glyphs
+  // and its bar just to get them rebuilt ten seconds later.
+  let suppressed = false;
 
   function acquireName(name: string, isLocal: boolean): Glyphs {
     const key = `${name}|${isLocal ? 1 : 0}`;
@@ -1155,6 +1167,10 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
 
     detach,
 
+    setSuppressed(on) {
+      suppressed = on;
+    },
+
     setHealth(id, current, max) {
       const plate = plates.get(id);
       if (!plate) return;
@@ -1287,6 +1303,11 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       // ---- plates: place, size, fade ----
       for (const plate of order) {
         plate.live = false;
+
+        if (suppressed) {
+          plate.group.visible = false;
+          continue;
+        }
 
         // A rig that left the scene without a detach must not keep a plate.
         if (!plate.parent.parent) {

@@ -194,13 +194,16 @@ async function until(cond, what, timeoutMs = 15000) {
 }
 
 function shoveSession(engine, name) {
-  const state = { latest: null, kills: [], hits: [], playerId: null, joinData: null };
+  const state = { latest: null, matchEnd: null, kills: [], hits: [], playerId: null, joinData: null };
   const sid = engine.connect((str) => {
     const m = JSON.parse(str);
     if (m.type === "join") { state.playerId = m.data.playerId; state.joinData = m.data; }
     // The mid-countdown ticks carry only the number; never let them clobber a
     // full snapshot.
-    if ((m.type === "game_state" || m.type === "lobby_update" || m.type === "countdown") && m.data.players) state.latest = m.data;
+    // round_end carries a full room snapshot too, and it is the one that says
+    // "finished" — the summary checks read the loser's corpse out of it.
+    if ((m.type === "game_state" || m.type === "lobby_update" || m.type === "countdown" || m.type === "round_end") && m.data.players) state.latest = m.data;
+    if (m.type === "match_end") state.matchEnd = m.data;
     if (m.type === "kill") state.kills.push(m.data);
     if (m.type === "hit") state.hits.push(m.data);
   });
@@ -363,7 +366,122 @@ async function checkShoveClaims() {
       engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
     }
   } finally {
-    clearInterval(engine._tickInterval);
+    // The engine singleton's tick is cleared by main() once EVERY engine-level
+    // suite is done — checkSummaryShapes shares the instance with this one.
+  }
+  console.log("");
+}
+
+/**
+ * The end of a match, in every room shape the summary stage has to survive.
+ *
+ * render/summary.ts stages whatever `match_end` and the final room snapshot
+ * say, so what is asserted here is exactly the contract that module reads: a
+ * duel's verdict names its man and the loser is still DEAD in the snapshot the
+ * stage freezes; a war band's verdict names a SIDE and no man (winnerId null
+ * is the shape that broke naive readers before — see roundScoreBy's history);
+ * a man who left before the end is in neither the results nor the room; the
+ * ten-second rollback really does stand every corpse up and clear every ready
+ * flag — which is both the reason the stage clones its records and the edge
+ * FIGHT AGAIN parks its intent on; and training never produces a verdict at
+ * all, so the summary never mounts over it.
+ */
+async function checkSummaryShapes() {
+  console.log("[playtest] the match's end, in every room shape the summary stages\n");
+  const engine = getEngine();
+
+  // The fire is the harness's executioner: no aim, no swing timing, and it
+  // kills the frailest class in 4.1 s flat. The classes that walk in are
+  // always runekeepers for that reason.
+  const intoTheFire = async (s) => {
+    await walkNear(engine, s, () => [0, 0], 1.15);
+    return until(() => myself(s)?.state === "dead", "the fire to take him", 15000);
+  };
+
+  // ---- the duel: a named victor, and a corpse that stays down ----
+  {
+    const { A, B } = await startDuel(engine, "runekeeper");
+    await intoTheFire(B);
+    const verdict = await until(() => A.state.matchEnd, "the duel's verdict", 8000);
+    check("a duel's verdict names the victor by id",
+      verdict.winnerKind === "player" && verdict.winnerId === A.state.playerId && verdict.winnerTeam === null,
+      `winnerKind=${verdict.winnerKind}, winnerId is ${verdict.winnerName}, both men in the results (${verdict.results.length})`);
+    const loser = A.state.latest?.players?.[B.state.playerId];
+    check("the loser is still DEAD in the snapshot the stage freezes",
+      A.state.latest?.state === "finished" && loser?.state === "dead",
+      `room=${A.state.latest?.state}, loser.state=${loser?.state} — the corpse the duel tableau is posed over`);
+    // The rollback is the threat the stage clones its records against.
+    const lobby = await until(() => A.state.latest?.state === "lobby" && A.state.latest, "the rollback to the lobby", 14000);
+    const men = Object.values(lobby.players);
+    check("the ten-second rollback stands the room up and clears every ready flag",
+      men.length === 2 && men.every((p) => p.state === "idle" && !p.ready),
+      `states [${men.map((p) => p.state)}], ready [${men.map((p) => !!p.ready)}] — FIGHT AGAIN parks its intent on this clearing`);
+    engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
+  }
+
+  // ---- the war band: the win belongs to a side, not a man ----
+  {
+    const A = shoveSession(engine, "RedMan");
+    engine.message(A.sid, { type: "create", data: { name: "RedMan", mode: "war_band", bestOf: 1 } });
+    await until(() => A.state.joinData, "host join");
+    const B = shoveSession(engine, "BlueMan");
+    engine.message(B.sid, { type: "join", data: { code: A.state.joinData.code } });
+    await until(() => B.state.joinData, "second join");
+    engine.message(A.sid, { type: "select_team", data: { team: "red" } });
+    engine.message(B.sid, { type: "select_team", data: { team: "blue" } });
+    engine.message(B.sid, { type: "select_class", data: { warriorClass: "runekeeper" } });
+    engine.message(A.sid, { type: "start", data: {} });
+    await until(() => A.state.latest?.state === "fighting" && myself(A) && myself(B), "the fight", 20000);
+    await sleep(2300);
+    await intoTheFire(B);
+    const verdict = await until(() => A.state.matchEnd, "the war band's verdict", 8000);
+    check("a war band's verdict names a SIDE and no man",
+      verdict.winnerKind === "team" && verdict.winnerId === null && verdict.winnerTeam === "red"
+        && verdict.roundScoreBy === "team"
+        && verdict.results.find((r) => r.id === A.state.playerId)?.isWinner === true,
+      `winnerKind=${verdict.winnerKind}, winnerId=${JSON.stringify(verdict.winnerId)}, winnerTeam=${verdict.winnerTeam} — the stage leads the wall with the side's best`);
+    engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
+  }
+
+  // ---- the moot, with a man gone before the end ----
+  {
+    const A = shoveSession(engine, "Host");
+    engine.message(A.sid, { type: "create", data: { name: "Host", mode: "blood_moot", bestOf: 1 } });
+    await until(() => A.state.joinData, "host join");
+    const B = shoveSession(engine, "Second");
+    engine.message(B.sid, { type: "join", data: { code: A.state.joinData.code } });
+    const C = shoveSession(engine, "Leaver");
+    engine.message(C.sid, { type: "join", data: { code: A.state.joinData.code } });
+    await until(() => B.state.joinData && C.state.joinData, "the moot to fill");
+    engine.message(B.sid, { type: "select_class", data: { warriorClass: "runekeeper" } });
+    engine.message(A.sid, { type: "start", data: {} });
+    await until(() => A.state.latest?.state === "fighting" && myself(A) && myself(B) && myself(C), "the fight", 20000);
+    await sleep(2300);
+    engine.message(C.sid, { type: "leave" });
+    await intoTheFire(B);
+    const verdict = await until(() => A.state.matchEnd, "the moot's verdict", 8000);
+    const ids = verdict.results.map((r) => r.id);
+    check("a man who left is in neither the results nor the room the stage reads",
+      verdict.winnerKind === "player" && verdict.winnerId === A.state.playerId
+        && ids.length === 2 && !ids.includes(C.state.playerId)
+        && !A.state.latest?.players?.[C.state.playerId],
+      `results [${verdict.results.map((r) => r.name).join(", ")}] — the stage stands up who is actually here, not who the table remembers`);
+    engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
+  }
+
+  // ---- training: no verdict, ever ----
+  {
+    const T = shoveSession(engine, "Trainee");
+    engine.message(T.sid, { type: "solo", data: { name: "Trainee", warriorClass: "runekeeper", botCount: 1, difficulty: "recruit" } });
+    await until(() => T.state.joinData, "the training ground");
+    await until(() => T.state.latest?.state === "fighting" && myself(T), "training to open", 20000);
+    await sleep(2300);
+    await intoTheFire(T);
+    await sleep(4000);
+    check("training has no verdict — a death there ends nobody's match",
+      !T.state.matchEnd && T.state.latest?.state === "fighting",
+      `after dying in the fire: match_end ${T.state.matchEnd ? "SENT" : "never sent"}, room still ${T.state.latest?.state}`);
+    engine.message(T.sid, { type: "leave" });
   }
   console.log("");
 }
@@ -372,7 +490,14 @@ async function main() {
   console.log("[playtest] the weight numbers\n");
   checkWeightNumbers();
   console.log("");
-  await checkShoveClaims();
+  try {
+    await checkShoveClaims();
+    await checkSummaryShapes();
+  } finally {
+    // One clear for every engine-level suite: they share the singleton, and a
+    // live tick interval would hold the process open after a failure.
+    clearInterval(getEngine()._tickInterval);
+  }
   const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
   console.log(`[playtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {

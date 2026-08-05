@@ -77,7 +77,11 @@ interface CastMember {
 // background as a backdrop instead of blowing out the frame. Everything stands
 // inside the arena's prop-free ring (CLEAR_RADIUS 6.2 in world.ts), so the
 // wall cannot be staged through a barrel however the match went.
-const VICTOR_MARK = { x: 0.35, z: 5.3 };
+// The victor's mark sits well proud of the line — at the lens's end mark he
+// stands a third again the wall's height in frame, which is what makes him
+// the victor before any text says so. 5.3 was authored first and the capture
+// read as one more man stood slightly out of rank.
+const VICTOR_MARK = { x: 0.35, z: 5.85 };
 const LINE_Z = 3.55;
 const LINE_SPACING = 1.12;
 /** Metres between the duel corpse and the man stood over it. */
@@ -119,17 +123,21 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
 
   /**
    * A warm key and a cool rim on the victor, over the arena's own dusk rig.
-   * Intensities sit an order below the hearth's (31–60) — the stage light has
-   * to read as emphasis inside the grade, not as a second sun.
+   * Sized against the hearth's own lights (31–60): with decay 2 the key lands
+   * on the man at about a fifth of what standing beside the fire reads as —
+   * enough to pick him out of the dusk, or out of open moonlight when a duel
+   * ended far from the hearth. The first pass authored these at 26/11 and the
+   * capture showed NOTHING — both sat entirely under the grade's ambience, and
+   * a stage light that cannot be seen in the frame is a comment, not a light.
    */
   function raiseLights(at: THREE.Vector3, camDir: THREE.Vector3): void {
     const g = new THREE.Group();
     const leftX = -camDir.z, leftZ = camDir.x;
-    const key = new THREE.SpotLight(0xffd9a0, 26, 15, 0.55, 0.55, 2);
+    const key = new THREE.SpotLight(0xffd9a0, 80, 15, 0.55, 0.55, 2);
     key.position.set(at.x + leftX * 2.4 - camDir.x * 1.4, at.y + 3.1, at.z + leftZ * 2.4 - camDir.z * 1.4);
     key.target.position.copy(at);
     g.add(key, key.target);
-    const rim = new THREE.PointLight(0x8fb4ff, 11, 9, 2);
+    const rim = new THREE.PointLight(0x8fb4ff, 30, 9, 2);
     rim.position.set(at.x + camDir.x * 1.9, at.y + 2.1, at.z + camDir.z * 1.9);
     g.add(rim);
     deps.scene.add(g);
@@ -143,7 +151,12 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     // Who remains: disconnected men have no record and no rig, and the stage
     // holds who is actually here rather than who the results table remembers.
     const here = Object.values(room.players).filter((p) => warriors.has(p.id));
-    const rank = new Map(verdict.results.map((r, i) => [r.id, i]));
+    // The results arrive in the room's JOIN order — the server never sorts
+    // them (page.tsx sorts its own copy for the ledger). Rank here has to
+    // mean merit, or "the side's best leads the wall" quietly becomes "the
+    // host leads the wall".
+    const rank = new Map(
+      [...verdict.results].sort((a, b) => b.score - a.score).map((r, i) => [r.id, i]));
     here.sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
 
     let victor: GamePlayer | null = null;
@@ -163,9 +176,18 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       && loser !== null && loser.state === "dead";
 
     if (duel && victor && loser) {
+      // The corpse anchor is the renderer's own idea of where the body lies —
+      // motion.rx/rz, NOT rig.group.position. The group is only moved by
+      // stepWarriorTransform, and a canvas mounted straight into a finished
+      // room (a /shot capture, a refresh mid-summary) builds the rig and
+      // stages in the same frame, before any step has run — its group is at
+      // the origin, and a shot aimed off it framed the bonfire with the whole
+      // tableau hidden inside the flames. motion is seeded from the wire
+      // position at creation and tracks the smoothed body ever after, so it is
+      // right on both the warm path and the cold one.
       const body = warriors.get(loser.id);
-      const cx = body ? body.rig.group.position.x : loser.position.x;
-      const cz = body ? body.rig.group.position.z : loser.position.z;
+      const cx = body ? body.motion.rx : loser.position.x;
+      const cz = body ? body.motion.rz : loser.position.z;
       const r = Math.hypot(cx, cz);
       // The lens axis, chosen so the shot can be taken anywhere the man fell:
       // far out, shoot from the middle of the arena looking outward (the
@@ -190,10 +212,14 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       deps.douse(victor.id);
 
       const gy = deps.groundAt(cx, cz);
-      const midX = cx - nx * 0.85, midZ = cz - nz * 0.85;
+      // The aim point leans toward the CORPSE, not the midpoint: on a phone
+      // the portrait crop is savage sideways, and the dead man — the owner's
+      // favourite part of this — was the thing it cropped first. The victor
+      // stands close enough behind him that he rides up-frame instead of out.
+      const midX = cx - nx * 0.55, midZ = cz - nz * 0.55;
       deps.rig.setSummaryShot({
-        from: [cx + nx * (dist + 1.9), gy + 1.95, cz + nz * (dist + 1.9)],
-        to: [cx + nx * dist, gy + 1.5, cz + nz * dist],
+        from: [cx + nx * (dist + 1.9), gy + 1.75, cz + nz * (dist + 1.9)],
+        to: [cx + nx * dist, gy + 1.35, cz + nz * dist],
         target: [midX, gy + 0.95, midZ],
         fov: 50, seconds: 8,
       });
@@ -211,7 +237,9 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         (a.team === verdict.winnerTeam ? 0 : 1) - (b.team === verdict.winnerTeam ? 0 : 1)
         || (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
     }
-    const lineZ = victor ? LINE_Z : VICTOR_MARK.z - 0.3;
+    // A draw's wall steps forward to meet the lens, but not onto the victor's
+    // own mark — eight abreast that close would crop at both edges.
+    const lineZ = victor ? LINE_Z : 5.0;
     // Symmetric offsets, filled centre-out so rank reads left-to-right-ish
     // from the middle of the wall.
     const offs = others.map((_, i) => (i - (others.length - 1) / 2) * LINE_SPACING)
