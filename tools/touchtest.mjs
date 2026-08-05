@@ -631,13 +631,17 @@ async function lockAct(browser, url, check) {
       let matched = 0;
       for (let i = 0; i < tries; i++) {
         const s0 = await page.evaluate(() => {
+          const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
           const el = document.querySelector("[data-lock-reticle]");
           if (!el) return null;
           const r = el.getBoundingClientRect();
           const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
+          const f = window.__probe.frames[window.__probe.frames.length - 1];
+          const foe = f && f.lock && f.foes[f.lock];
           return {
             x: r.left + r.width / 2, o: parseFloat(el.style.opacity || "0"),
             sx: p.sx, dist: p.dist || 0, w: p.w,
+            off: foe && !foe.dead ? wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot) : null,
             paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
           };
         });
@@ -645,7 +649,14 @@ async function lockAct(browser, url, check) {
         // claim that has nothing to do with geometry: whatever the camera
         // computed, the element has to actually be THERE.
         if (s0 && s0.o > 0.5 && Math.abs(s0.x - s0.sx) < 2) matched++;
-        if (s0 && s0.o > 0.5 && s0.dist < 6) out.push(s0);
+        // The parallax sample only counts when the geometry it is a statement
+        // about actually holds: the man close, SQUARE IN FRONT of the warrior,
+        // and the reticle on the glass. Ungated, this measured a 506 px "shift"
+        // on a 390 px screen across two different moments of a three-man brawl
+        // — a number with no meaning that happened to have the right sign.
+        if (s0 && s0.o > 0.5 && s0.dist > 1.5 && s0.dist < 6
+          && s0.off !== null && Math.abs(s0.off) < 0.10
+          && s0.x > -40 && s0.x < s0.w + 40) out.push(s0);
         await wait(150);
       }
       const xs = out.map((s2) => s2.x).sort((a, b) => a - b);
@@ -671,12 +682,12 @@ async function lockAct(browser, url, check) {
     // everything else.
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
-    const overRight = await sampleReticle(22);
+    const overRight = await sampleReticle(34);
     await page.getByLabel("Switch to left-handed controls").tap();
     await wait(600);
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
-    const overLeft = await sampleReticle(22);
+    const overLeft = await sampleReticle(34);
     // Put it back, because the layout scan below runs right-handed first.
     await page.getByLabel("Switch to right-handed controls").tap();
     await wait(500);
@@ -684,9 +695,10 @@ async function lockAct(browser, url, check) {
     const shift = overLeft.median - overRight.median;
     check("the lock is drawn on the man it is holding, through the real camera",
       overRight.seen >= 4 && overLeft.seen >= 4
-      && overRight.matched >= 8 && overLeft.matched >= 8
+      && overRight.matched >= 10 && overLeft.matched >= 10
+      && overRight.median < W / 2 && overLeft.median > W / 2
       && shift > W * 0.12 && Math.max(overRight.travel, overLeft.travel) > 3,
-      `the element sat within 2px of the rig's own projected x on ${overRight.matched}+${overLeft.matched} of ${overRight.tries * 2} samples; inside six metres, where the shoulder offset dominates, the reticle sat at median x=${Math.round(overRight.median)} over the RIGHT shoulder (${overRight.seen} samples) and the one handedness switch moved the same man to x=${Math.round(overLeft.median)} (${overLeft.seen}) — a shift of ${Math.round(shift)}px, ${(shift / W * 100).toFixed(0)}% of a ${W}px screen, with nothing else changed; it slid up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
+      `the element sat within 2px of the rig's own projected x on ${overRight.matched}+${overLeft.matched} of ${overRight.tries * 2} samples; measured only while the locked man was 1.5-6 m away and within 6\u00b0 of dead ahead — where the shoulder offset is the only term left — the reticle sat at median x=${Math.round(overRight.median)} over the RIGHT shoulder (${overRight.seen} such samples) and the one handedness switch moved the same man to x=${Math.round(overLeft.median)} (${overLeft.seen}) — a shift of ${Math.round(shift)}px, ${(shift / W * 100).toFixed(0)}% of a ${W}px screen, with nothing else changed; it slid up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
   }
 
   // ===================================================================
