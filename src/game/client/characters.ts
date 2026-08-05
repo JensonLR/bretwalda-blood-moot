@@ -950,6 +950,23 @@ function shapedGlow(mat: THREE.Material): THREE.Material {
  * geometry per material. A pauldron, its rim, its rivets and the mail under it
  * are four shapes and one draw call.
  */
+/**
+ * Materials that read a per-vertex colour, and therefore materials every
+ * geometry wearing them must carry one for.
+ *
+ * three only samples a colour attribute if the material says `vertexColors`, and
+ * a mesh with the flag set and no attribute renders black — so the flag and the
+ * attribute have to travel together. `Part.add` puts a white one on anything
+ * that arrives without, which makes the invariant impossible to lose at a call
+ * site: an ear, a lid or a lip band drops into the head's merge with a neutral
+ * colour and `Part.paint` overwrites the ones that want a field.
+ *
+ * It also keeps `mergeGeometries` working. That call refuses a list whose
+ * attribute sets disagree, and the fallback is one draw call per piece — so a
+ * single unpainted torus would quietly cost the head eight extra draws.
+ */
+const VERTEX_TINTED = new WeakSet<THREE.Material>();
+
 class Part {
   private slots = new Map<THREE.Material, THREE.BufferGeometry[]>();
 
@@ -958,9 +975,41 @@ class Part {
     // The emissive invariant is enforced here, and not at the call sites, because
     // the call sites are where it keeps being lost.
     const wear = shapedGlow(mat);
+    if (VERTEX_TINTED.has(wear) && !geo.getAttribute("color")) {
+      const n = geo.getAttribute("position").count;
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    }
     const list = this.slots.get(wear);
     if (list) list.push(geo);
     else this.slots.set(wear, [geo]);
+    return this;
+  }
+
+  /**
+   * Writes a colour field onto every geometry wearing one of `mats`.
+   *
+   * This is how the face gets its tonal map, and the reason it is a *field* and
+   * not a set of patches is written up over `faceComplexion`. Called after the
+   * pieces are in, so the positions handed to `f` are already in the part's own
+   * space and one function can serve the skull, the lids, the lips and the ears
+   * without any of them knowing where they sit.
+   */
+  paint(mats: readonly THREE.Material[], f: (x: number, y: number, z: number, out: THREE.Color) => void): this {
+    const c = new THREE.Color();
+    for (const mat of mats) {
+      const list = this.slots.get(shapedGlow(mat));
+      if (!list) continue;
+      for (const geo of list) {
+        const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+        const col = geo.getAttribute("color") as THREE.BufferAttribute;
+        if (!col) continue;
+        for (let i = 0; i < pos.count; i++) {
+          f(pos.getX(i), pos.getY(i), pos.getZ(i), c);
+          col.setXYZ(i, c.r, c.g, c.b);
+        }
+        col.needsUpdate = true;
+      }
+    }
     return this;
   }
 
@@ -1520,7 +1569,16 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // which is the right way round.
   const low = clamp01((-y - 0.05) / 0.85);
   const high = clamp01((y - 0.42) / 0.58);
-  const taper = 1 - 0.26 * low * low;
+  // The taper is what turns a vault into a face, and at 0.26·low² it was not
+  // doing it: measured off the field the chin came out 80% of the width of the
+  // parietal, so the head's outline ran temple-to-jaw as two near-vertical sides
+  // with a flat bottom — the box in `art/shots/wip/p5-*`. A man's menton is
+  // about a third of his head's breadth. 0.36 on a 1.55 power keeps the vault and
+  // the zygomatic where they were (the exponent holds `low` small at eye level)
+  // and takes the menton to 0.70, which the gonial bump then squares back up
+  // into a jaw *corner* instead of a jaw *side*. Further than this and the chin
+  // comes to a wedge — 0.44 was tried and the head read as a shield.
+  const taper = 1 - 0.36 * Math.pow(low, 1.55);
   const dome = 1 - 0.05 * high * high;
 
   let px = x * R.x * F.wide * taper * dome + drift;
@@ -1699,11 +1757,24 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
 
   // Mouth: a crease with a lip above and below it, and a shelf under the lower
   // lip so the chin is a separate mass rather than the bottom of the mouth.
+  // The mouth is the skull's now — `addMouth` used to lay four lifted bands over
+  // the top of these terms and they are what the bands were hiding. Every one of
+  // them has gained a `py` component for the reason the nose's did: this rig
+  // shades off surfaces that face up or down, so a lip is worth what its
+  // horizontal edges are worth and nothing at all for its projection. The two
+  // vermilions roll *toward* each other across the fissure, which is what turns
+  // a groove into a slot with an overhang above it.
   const mw = 0.28 * F.mouth;
-  pz -= 0.008 * bump(x - drift * 4, y - Y_LIP, 0, mw, 0.055, 1) * front;
-  pz += 0.006 * F.lip * bump(x - drift * 4, y - (Y_LIP + 0.058), 0, mw * 0.85, 0.060, 1) * front;
-  pz += 0.007 * F.lip * bump(x - drift * 4, y - (Y_LIP - 0.068), 0, mw * 0.80, 0.065, 1) * front;
-  pz -= 0.009 * bump(x, y - (Y_LIP - 0.150), 0, 0.20, 0.068, 1) * front;
+  const oral = bump(x - drift * 4, y - Y_LIP, 0, mw, 0.046, 1) * front;
+  pz -= 0.011 * oral;
+  py -= 0.0035 * oral;
+  const upperLip = bump(x - drift * 4, y - (Y_LIP + 0.055), 0, mw * 0.88, 0.055, 1) * front;
+  pz += 0.009 * F.lip * upperLip;
+  py -= 0.0030 * upperLip;
+  const lowerLip = bump(x - drift * 4, y - (Y_LIP - 0.070), 0, mw * 0.82, 0.062, 1) * front;
+  pz += 0.011 * F.lip * lowerLip;
+  py += 0.0026 * lowerLip;
+  pz -= 0.011 * bump(x, y - (Y_LIP - 0.150), 0, 0.20, 0.064, 1) * front;
   // Philtrum — three vertical millimetres that place the whole upper lip.
   pz -= 0.003 * bump(x - drift * 5, y - (Y_LIP + 0.14), 0, 0.035, 0.075, 1) * front;
 
@@ -1964,7 +2035,7 @@ function lidPatch(
   // with `skin` now carrying a tighter specular lobe, it took the key square on and
   // rendered as a pale crescent — an under-eye bag, which is the second-worst thing
   // you can give a warrior after a glowing sclera.
-  const rimDv = upper ? 0.135 : -0.082;
+  const rimDv = upper ? 0.115 : -0.072;
   const m = new THREE.Vector3();
   const rim = new THREE.Vector3();
   const n = new THREE.Vector3();
@@ -1986,11 +2057,21 @@ function lidPatch(
     // lid's far boundary was a straight arc while its near one was an almond, so
     // the whole lid rendered as a hard-edged trapezoid stuck over the eye. Dying
     // back toward both canthi is what makes it a fold.
+    // 0.145 rad of rim, not 0.22. At 0.22 the lid's far boundary was 42 mm
+    // across while the fissure it springs from is 21.6 — so the lid *widened*
+    // as it went back into the socket, and what that draws is a lozenge of skin
+    // twice the width of the eye with a hard edge all round it. Both frames of
+    // `art/shots/wip/p2-*` show it as the pale almond stuck over each eye that
+    // reads more strongly than the eye does. A lid converges on the canthi.
     const arch = 0.34 + 0.66 * Math.sqrt(Math.max(0, 1 - tt * tt));
-    dirOf(f.uE + tt * 0.22, f.vE + rimDv * arch, d);
+    dirOf(f.uE + tt * 0.145, f.vE + rimDv * arch, d);
     faceSurface(K, d, rim);
     faceNormal(K, d, n);
-    rim.addScaledVector(n, -0.0007);
+    // 1.8 mm under the skin, not 0.7. The rim strip `patch` closes this boundary
+    // with faces along the surface, so any of it left proud draws the lid's own
+    // outline in a plane that takes the key square on — and that outline is what
+    // survives at portrait range long after the fold has stopped reading.
+    rim.addScaledVector(n, -0.0018);
     const e = mix(s0, s1, s);
     const w = e * e * (3 - 2 * e);
     out.lerpVectors(m, rim, w);
@@ -2069,186 +2150,322 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
       }, true), M.dark, place.clone());
     }
 
-    // Lids. The upper one is the heavier fold and the one that throws the shadow,
-    // and it wears the *shade* tone rather than the base.
+    // Lids, and every one of them is in the *base* tone now.
     //
-    // That is not decoration either. An upper lid is a nearly horizontal surface at
-    // the bottom of an orbit: it is in the socket's own shadow, and it faces up, so
-    // with `skin` at roughness 0.5 it caught the 60° key square on and rendered as
-    // the brightest band on the whole face — a pale bar over the eye with the iris
-    // sitting under it, which is what the eye read as before this line changed. On
-    // the shade tone it is a lid.
+    // The upper lid used to wear `shade` on the argument that a lid at the bottom
+    // of an orbit is in the socket's own shadow, which is true — and the argument
+    // still cost the eye its read, because a lid in a different material from the
+    // skin round it draws a hard tonal step exactly where the fold's silhouette
+    // is. Two materials meeting on an open plane is a boundary; the eye reads a
+    // boundary as an edge of an object, and the object it read was a beige almond
+    // laid over the face. The value is still there — the complexion field digs
+    // the orbit 30% down and cuts the crease under the brow ridge on top of it —
+    // but now it arrives as a gradient with no boundary in it at all, and it
+    // carries across the lid, the socket and the cheek as one surface.
     const nu = Math.max(5, lod.shellU - 3);
-    p.add(lidPatch(K, f, true, nu, 2, 0.12, 1, 0.0013), M.shade, place.clone());
+    p.add(lidPatch(K, f, true, nu, 2, 0.12, 1, 0.0013), M.skin, place.clone());
     p.add(lidPatch(K, f, false, nu, 2, 0.1, 1, 0.0011), M.skin, place.clone());
     if (fine) {
-      // Lash line and lid margins: two narrow bands, the upper in hair and the
-      // lower in the warm tone a wet lid rim actually is.
+      // Lash line: one narrow band in hair, right on the margin. This is the only
+      // part of the lid that is allowed a material of its own, because a lash line
+      // IS a hard dark edge — it is the one boundary on the eye the eye expects.
       p.add(lidPatch(K, f, true, nu, 1, 0, 0.13, 0.0009), M.lash, place.clone());
-      p.add(lidPatch(K, f, false, nu, 1, 0, 0.11, 0.0008), M.warm, place.clone());
+      p.add(lidPatch(K, f, false, nu, 1, 0, 0.11, 0.0008), M.skin, place.clone());
     }
   }
 }
 
 /**
- * Lips and the line between them — four bands that carry the lower half of the
- * face, sat on the lip line the sculpt actually has (`Y_LIP`) rather than on the
- * 32 mm-too-high one they used to share with it.
+ * The mouth: one dark line, and nothing else.
  *
- * The bands are shaped, not rectangular: a lip that ends in a square corner reads
- * as a strip of tape, which is what the first version of this was. The vermilion
- * border thins toward the corners and the fissure runs a shade past it.
+ * It used to be four lifted bands — an upper lip, a lower lip, the fissure and a
+ * wedge at each corner — and every pass on it moved the same defect around. A
+ * band lying on the skin is a separate surface with a silhouette of its own, so
+ * however soft its tone and however buried its rim, it draws thin bright edges
+ * across the mouth: `art/shots/wip/p5-*` has five of them stacked, and the read
+ * is a wound rather than a mouth.
+ *
+ * The lips are geometry the *skull* carries. `faceSurface` already cuts the oral
+ * fissure, rolls a vermilion above and below it, and shelves the chin under the
+ * lower one — those terms were being buried under the bands that were supposed
+ * to be showing them — and at 44 rows on every tier they finally sample. The
+ * colour is the complexion field's `lip` channel, feathered over the whole mouth
+ * with no boundary anywhere in it.
+ *
+ * What is left is the one thing neither a displacement nor a tint can do at
+ * seventy pixels: the fissure itself, which is not a shadow but a *slot*, and
+ * which the eye needs as a hard dark line before it will read a mouth at all.
  */
 function addMouth(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMaterials): void {
-  // 0.26, not 0.31, and the bands below are thinner to match. A mouth 55 mm wide
-  // with 13 mm of vermilion on each lip is a woman in lipstick; a man's is about
-  // 48 by 9, and at this scale the difference between those two is the difference
-  // between a mouth and a stripe of paint.
-  const w = 0.26 * K.F.mouth;
-  const nu = Math.max(5, lod.shellU - 3);
-  // `bow` is the profile of a lip across its own width: full at the middle, gone
-  // at the corner. Applied to the band's half-height, so both edges taper.
-  const bow = (u: number, hi: number, lo: number): number => {
-    const t = 1 - Math.pow(clamp01(Math.abs(u) / w), 1.6);
-    return mix(lo, hi, t);
-  };
-  const band = (
-    mid: number, half: number, lift: number, thick: number, mat: THREE.Material, narrow = 1,
-  ) => {
-    p.add(headWear(K, {
-      u0: -w * narrow, u1: w * narrow,
-      v0: (u) => mid - bow(u, half, half * 0.12),
-      v1: (u) => mid + bow(u, half, half * 0.12),
-      nu, nv: 1, lift: () => lift, thick,
-    }), mat, place.clone());
-  };
-  const fis = lat(Y_LIP);
-  // Upper lip, lower lip, and the dark line of the oral fissure between them. The
-  // lower lip is the fuller of the two and stands further proud, which is what
-  // gives the shelf under it something to be a shelf of.
-  band(lat(Y_LIP + 0.048), 0.042, 0.0016, 0.0013, M.warm, 0.94);
-  band(lat(Y_LIP - 0.056), 0.048, 0.0020, 0.0015, M.warm);
-  band(fis, 0.010, 0.0013, 0.0007, M.dark, 0.96);
-  if (lod.trim) {
-    // Mouth corners, and they were a defect rather than a detail. Each was a
-    // literal rectangle in (u, v) — one quad, constant height, 7 mm by 6 mm, in
-    // the darkest material on the head — so the mouth rendered as a black
-    // letterbox with a square lobe on each end. Two of the three shapes making up
-    // the mouth had hard corners and the eye reads hard corners on a face as
-    // damage.
-    //
-    // A mouth corner is a wedge that closes to a point. This one pinches in both
-    // v bounds as it runs outboard, so it ends where the lips end instead of
-    // stopping dead.
-    for (const s of [-1, 1]) {
-      const u0 = w * 0.80;
-      const taper = (u: number) => 1 - Math.pow(clamp01((Math.abs(u) - u0) / (w * 0.26)), 0.85);
-      p.add(headWear(K, {
-        u0: s * u0, u1: s * (u0 + w * 0.26),
-        v0: (u) => fis - 0.019 * taper(u),
-        v1: (u) => fis + 0.017 * taper(u),
-        // The shade tone, not the dark one. A mouth corner is a fold of skin in
-        // its own shadow; in near-black at 22% of the mouth's width past the lips
-        // it reads as a barbed arrowhead on each end of a letterbox, which is
-        // what the render showed. Kept inside the lips now, so the lips bound the
-        // mouth and this only softens the ends of them.
-        nu: 3, nv: 1, lift: () => 0.0008, thick: 0.0005,
-      }), M.shade, place.clone());
-    }
-  }
+  const w = 0.25 * K.F.mouth;
+  const nu = Math.max(6, lod.shellU - 2);
+  // Pinched to nothing at both corners, so the line ends where the lips end
+  // instead of stopping dead — the square lobe on each end of the old letterbox.
+  const half = (u: number) => 0.0155 * Math.pow(1 - Math.pow(clamp01(Math.abs(u) / w), 1.7), 0.55);
+  p.add(headWear(K, {
+    u0: -w, u1: w,
+    v0: (u) => lat(Y_LIP) - half(u),
+    v1: (u) => lat(Y_LIP) + half(u),
+    nu, nv: 1,
+    // Sunk, not raised. A fissure is the one feature on a face that is *behind*
+    // the surface, and a dark strip standing proud of it catches the key on its
+    // own rim and renders as a bright bar — which is the black-line-with-a-white-
+    // edge in every portrait this build has taken.
+    lift: () => -0.0006, thick: 0.0006,
+  }), M.dark, place.clone());
 }
 
-/**
- * The tonal map of the face: six shaped patches lying half a millimetre off the
- * skin, in the shade and warm tones.
- *
- * This is the half of the fix that is not geometry, and the file needs it because
- * of what the arena's night rig is. Roughly 60% of the light landing on a
- * front-facing face there arrives either omnidirectionally (ambient 0.85,
- * hemisphere 0.62) or along the camera axis (`bounce`, 1.7, aimed at (0, −4, 9)),
- * and light along the view axis produces the same N·L on every surface facing the
- * viewer. A sculpt cannot beat that on its own: the head was one flat `skin`
- * material and it rendered as one flat value however deep the relief under it went.
- *
- * There were nine of these on the first attempt and they were a mistake. A flat
- * patch of a different tone on an open cheek does not read as shadow, it reads as
- * *pigment* — a bruise or a smear of dirt — because nothing about its shape agrees
- * with the light. A warm patch on the brow ridge went the same way for the same
- * reason: two salmon blobs on the forehead. What is left is the patches whose whole
- * boundary lands inside a crease the field already cuts — the orbital margin, the
- * infraorbital ridge, the subnasale undercut, the mentolabial sulcus, the crest of
- * the zygomatic arch — because a hard albedo edge that falls in a shadow line is
- * invisible, and the tone either side of it then reads as depth. That constraint is
- * what decides the numbers below, and it is why there is nothing on the temple,
- * nothing on the buccal hollow, nothing on the brow and nothing on the broad plane
- * of the cheek: those are open surfaces, and the form there has to come from the
- * geometry and the specular fall-off instead — see `skin`'s roughness.
- *
- * Both tones are ones the head already wears, so the whole tonal map is free: six
- * patches, no new material, no new draw call.
- */
-function addFaceTones(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMaterials): void {
-  const nu = Math.max(4, lod.shellU - 5);
-  const tone = (
-    mat: THREE.Material,
-    u0: number, u1: number,
-    v0: (u: number) => number, v1: (u: number) => number,
-    nv = 2,
-  ) => {
-    p.add(headWear(K, {
-      u0, u1, v0, v1, nu, nv,
-      // 0.5 mm proud and 0.25 mm thick, and the thickness is the number that
-      // matters. `patch` closes every boundary with a rim strip whose normal points
-      // *along* the skin rather than out of it, so a patch 0.6 mm thick draws its
-      // own outline in a surface that faces the key far more squarely than the
-      // cheek does — a hard bright line round the whole shape. That outline, not
-      // the tone inside it, is what read as a white sliver under the eye on the
-      // darker complexions. At a quarter of a millimetre the rim is under a pixel
-      // at any distance a player sees a face from.
-      lift: () => 0.0005, thick: 0.00025,
-    }), mat, place.clone());
-  };
-  // A lens between two latitudes, pinched to nothing at both ends of its arc, so
-  // the patch is an almond rather than a rectangle and its ends disappear.
-  const lens = (
-    mat: THREE.Material, uc: number, uw: number, yc: number, yh: number, nv = 2,
-  ) => tone(
-    mat, uc - uw, uc + uw,
-    (u) => lat(yc - yh * (1 - Math.pow(clamp01(Math.abs(u - uc) / uw), 1.7))),
-    (u) => lat(yc + yh * (1 - Math.pow(clamp01(Math.abs(u - uc) / uw), 1.7))),
-    nv,
-  );
+// ============================================================
+// Complexion — the tonal map and the war paint, as one field
+// ============================================================
+//
+// This replaces six lifted patches, and the change is architectural rather than
+// a retune, so it is worth stating what was wrong with the patches before it.
+//
+// A tone laid on the face as `headWear` geometry is a *sticker*. `patch` closes
+// every boundary with a rim strip, so the shape draws its own outline; the
+// boundary is a polygon edge, so it is hard however soft the intent; and the
+// piece stands half a millimetre off the skin, so at a three-quarter bearing its
+// corners are visible standing proud of the cheek. Three separate passes tried
+// to make that work by moving the boundaries into creases where a hard edge
+// could hide, and the frames kept coming back with the same words on them —
+// black eye, blusher, a healing cut, make-up. `art/shots/wip/p2-*` is the last
+// of them: a face carrying a dark almond over each eye, a maroon lens on the
+// upper lip, a pink one below it and a brown one under that, every one with
+// visible corners.
+//
+// The lever that was never used is the head's own vertices. The face is one
+// merged geometry cached per identity, so a colour attribute on it costs no draw
+// call, no material and no texture — and a *field* has no boundary at all. Every
+// term below is a gaussian, so the tone it lays down is feathered over
+// centimetres by construction and cannot draw an outline no matter how strong it
+// is. That is what lets it be strong enough to matter: the arena's night rig
+// puts most of its light either omnidirectionally or straight down the camera
+// axis, so the sculpt underneath cannot shade itself, and this is the half of
+// the face that does the shading.
+//
+// The war paint rides the same field, which fixes the audit's fourth finding
+// against the slot outright. Paint is now part of the skin rather than a lifted
+// shell, so it survives every helmet automatically — it is drawn wherever skin
+// is drawn, which under the Sutton Hoo mask is the jaw and the throat, and every
+// mark below deliberately runs down onto them.
 
-  for (const s of [-1, 1]) {
-    // The orbit in shadow, bounded above by the orbital margin crease and below by
-    // the infraorbital ridge. This is the most valuable of the six: a socket
-    // darker than the brow above it is most of what "a face" means at seventy
-    // pixels tall, and both its edges are in cut creases.
-    // Pulled in from 0.125 to 0.108 of half-height. At 0.125 its lower boundary
-    // ran past the infraorbital ridge onto the open plane of the cheek, where an
-    // albedo edge has nothing to hide in — so it drew a hard dark almond under
-    // each eye that reads as a black eye rather than as a socket.
-    lens(M.shade, s * 0.36, 0.28, Y_EYE - 0.016, 0.108, 3);
-  }
-  // The zygomatic band is gone, and this is the third and last time a tone has
-  // been tried on the open plane of the cheek. It was a narrow warm lens from the
-  // outer canthus back toward the ear, on the argument that its boundary sat in
-  // the crest the field cuts there. It does not: the crest is a *ridge*, not a
-  // crease, so the patch's edge lands on a surface that faces the key rather than
-  // away from it, and in `art/shots/v6/portrait.png` both cheeks carry a pink
-  // diagonal streak that reads as blusher on one complexion and as a healing cut
-  // on another. The rule the rest of this function is built on — an albedo edge
-  // is only invisible inside a shadow line — has no exception for narrow patches.
-  // The cheekbone's highlight is the form's: 13 mm out and 10 mm forward over a
-  // hollow is enough, and it costs nothing to be wrong about.
-  // Under the nose: the shadow the tip and the columella cast on the lip. Bounded
-  // above by the undercut the field cuts at subnasale.
-  lens(M.shade, 0, 0.145, Y_NOSE - 0.026, 0.028, 1);
-  if (lod.trim) {
-    // The shelf under the lower lip, in the sulcus the field already cuts there.
-    // Wide and shallow: at 0.20 by 0.038 it was an oval and read as a second chin.
-    lens(M.shade, 0, 0.27, Y_LIP - 0.15, 0.024, 1);
-  }
+/** How a mark is drawn: coverage in 0..1 at a point on the skull's own field. */
+type PaintMark = (ax: number, x: number, y: number, z: number, front: number) => number;
+
+/**
+ * Ragged-edged, and that is the whole difference between paint and a decal. A
+ * mark made with fingers or a thumb has an edge that wanders by a few
+ * millimetres; a mark made with a boolean has an edge that is exactly a curve,
+ * and at seventy pixels the eye reads the second one as a sticker. Every
+ * boundary below is broken by two cosines whose periods are coprime, so the
+ * wander never repeats within one mark.
+ */
+const jag = (t: number, a: number, f: number) => a * (Math.cos(t * f) + 0.55 * Math.cos(t * f * 2.37 + 1.7));
+
+const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
+  // BLOOD STRIPES — three raked bars down each cheek, wide at the cheekbone and
+  // dying below the jaw. They used to be three parallel verticals on ONE side of
+  // the face, running from the lip to above the brow: a bar code, and only on
+  // his left. Three fingers dragged down through blood is the thing this is
+  // meant to be, so the bars now converge slightly as they fall, taper at both
+  // ends, and carry past the mandible onto the throat — which is where they stay
+  // visible under a helmet with cheek guards, and under the mask.
+  stripes: {
+    color: 0x7c1d10,
+    mark: (ax, x, y, z, front) => {
+      let cover = 0;
+      for (let i = 0; i < 3; i++) {
+        // The rake: each bar leans out as it climbs, so the three fan open at the
+        // cheekbone the way a hand's fingers do.
+        const centre = 0.30 + i * 0.20 + (y - Y_EYE) * 0.20;
+        const half = 0.052 + 0.012 * smooth(Y_CHIN, Y_EYE, y) + jag(y * 21 + i * 3.1, 0.011, 1);
+        const across = 1 - smooth(half * 0.55, half, Math.abs(ax - centre));
+        const along = smooth(Y_CHIN - 0.30, Y_CHIN - 0.02, y) * (1 - smooth(Y_EYE + 0.02, Y_EYE + 0.20, y));
+        cover = Math.max(cover, across * along);
+      }
+      return cover * front;
+    },
+  },
+  // RAVEN CROSS — the pitch band across the eyes and the bar down the midline.
+  // Both were rectangles in (u, v). The band is now notched over the nose (paint
+  // does not bridge a dorsum in one stroke) and dies before the ear rather than
+  // stopping dead at a u limit, and the bar runs the full height of the face,
+  // over the ridge of the nose and down over the chin onto the throat, which is
+  // the part a mask leaves showing.
+  cross: {
+    color: 0x15192b,
+    mark: (ax, x, y, z, front) => {
+      const bandMid = Y_EYE + 0.045 - 0.055 * smooth(0.15, 0.95, ax);
+      const bandHalf = 0.150 * (1 - Math.pow(clamp01(ax / 1.02), 2.6)) + jag(ax * 17, 0.014, 1);
+      const band = 1 - smooth(bandHalf * 0.62, bandHalf, Math.abs(y - bandMid));
+      // The notch: the stroke lifts off the bridge of the nose, so the two halves
+      // read as two strokes of one hand rather than as a ruled line.
+      const notch = 1 - 0.55 * (1 - smooth(0.055, 0.135, ax)) * smooth(Y_NOSE, Y_EYE + 0.05, y);
+      const barHalf = 0.085 + 0.035 * smooth(Y_BROW, Y_CHIN, -y) + jag(y * 19, 0.012, 1);
+      const bar = (1 - smooth(barHalf * 0.60, barHalf, ax))
+        * smooth(-1.05, -0.86, y) * (1 - smooth(Y_BROW + 0.30, Y_BROW + 0.50, y));
+      return Math.max(band * notch, bar) * front;
+    },
+  },
+  // HALF-FACE SHADOW — one side of the head in soot, and the most expensive of
+  // the three, so it has to be the one that changes a man's read at fight
+  // distance. It does: half a head at a different value is legible at 34 px when
+  // nothing else on the face is. The boundary follows the midline of the *skull*
+  // rather than a plane, wanders by 8 mm, and carries over the jaw, round the
+  // ear and down the throat — a man who has painted half his face does not stop
+  // at his chin.
+  half: {
+    color: 0x18140f,
+    mark: (ax, x, y, z, front) => {
+      const edge = -0.02 + jag(y * 9 + z * 4, 0.075, 1);
+      const side = smooth(edge + 0.055, edge - 0.055, x);
+      // Behind the ear it wraps rather than ending: `front` would take the mark
+      // off the side of the head entirely, which is where half of it lives.
+      return side * clamp01(0.45 + 0.55 * front);
+    },
+  },
+};
+
+/**
+ * The complexion field: a per-vertex multiplier on the skin's albedo, carrying
+ * the form shadow, the flush, and whatever the warrior has painted on.
+ *
+ * Returns a closure because it is called once per vertex of the head — about
+ * two thousand of them — and everything that depends only on the skull and the
+ * loadout is hoisted out of that loop.
+ *
+ * `y0` is where the head's own origin sits in the part's space, so the same
+ * function can be handed the skull, a lid, a lip band, an ear or the throat
+ * shell and put all five on one continuous map.
+ */
+function faceComplexion(
+  K: Skull, y0: number, tone: SkinTone, paint: string,
+): (x: number, y: number, z: number, out: THREE.Color) => void {
+  const R = K.R;
+  const F = K.F;
+  const chosen = WAR_PAINT[paint];
+  // The paint's colour has to arrive as a *ratio*, because a vertex colour
+  // multiplies the albedo it lands on. Taken against this warrior's own
+  // complexion rather than against the canonical one: the head's geometry is
+  // cached per identity and the identity picks the tone, so the division can be
+  // exact and a stripe of blood comes out the same colour on all four skins.
+  const base = new THREE.Color(tone.base);
+  const p = chosen ? new THREE.Color(chosen.color) : null;
+  const pr = p ? p.r / Math.max(0.03, base.r) : 1;
+  const pg = p ? p.g / Math.max(0.03, base.g) : 1;
+  const pb = p ? p.b / Math.max(0.03, base.b) : 1;
+
+  return (px, py, pz, out) => {
+    // Back to the skull's own direction. The displacement never exceeds about a
+    // tenth of a radius, so normalising the scaled position recovers the sampling
+    // direction closely enough for a field this smooth — and it means a lid, a
+    // lip and an earlobe land on the same map as the skin they sit on without
+    // any of them having to know their own parameterisation.
+    let dx = px / R.x;
+    let dy = (py - y0) / R.y;
+    let dz = pz / R.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    dx /= len; dy /= len; dz /= len;
+    const ax = Math.abs(dx);
+    const front = clamp01(dz * 1.25);
+
+    // ---- the form shadow ----
+    //
+    // Every term is a place a head is dark because of its own shape, and the
+    // list is ordered by how much it is worth at seventy pixels. The first four
+    // are the ones that decide whether there is a face there at all.
+    let dim = 0;
+    // The orbit. A socket darker than the brow above it is most of what "a face"
+    // means at portrait size, and this is the term the patch version could never
+    // get right because its lower boundary had to stop inside a crease.
+    dim += 0.95 * bump(ax - 0.34, dy - (Y_EYE + 0.035), 0, 0.30, 0.135, 1) * front;
+    // The crease immediately under the brow ridge, which is what makes the ridge
+    // read as overhanging rather than as a band of colour.
+    dim += 0.55 * bump(ax - 0.34, dy - (Y_EYE + 0.115), 0, 0.26, 0.055, 1) * front;
+    // Beside the dorsum. The single most valuable term on the nose in this rig:
+    // the nose's own relief is a gradient in z, which a light rig with this much
+    // fill cannot see, and a shadow down each side of it is what makes the mass
+    // read as a nose from in front.
+    dim += 0.60 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.055, 0.185, 1) * front;
+    // Under the tip and the columella.
+    dim += 0.75 * bump(dx, dy - (Y_NOSE - 0.018), 0, 0.15, 0.045, 1) * front;
+    // Under the mandible, and this is the term that stops the head reading as
+    // proud of the neck. Everything below the jawline goes down; the jaw's own
+    // border gets a crease over the top of it so the edge has a line.
+    dim += 0.62 * smooth(Y_CHIN + 0.13, Y_CHIN - 0.16, dy);
+    dim += 0.45 * bump(ax - 0.44, dy - (Y_CHIN + 0.115), 0, 0.44, 0.070, 1) * front;
+    // The buccal hollow, under the cheekbone.
+    dim += 0.42 * bump(ax - 0.47, dy - (Y_LIP + 0.055), 0, 0.22, 0.185, 1) * front;
+    // The nasolabial fold — a soft diagonal, never a groove. See `faceSurface`.
+    dim += 0.26 * bump(ax - 0.30, dy - (Y_LIP + 0.125), 0, 0.15, 0.20, 1) * front;
+    // The shelf under the lower lip.
+    dim += 0.40 * bump(dx, dy - (Y_LIP - 0.140), 0, 0.24, 0.070, 1) * front;
+    // The oral fissure. Tight, and worth as much as the socket: a mouth is a
+    // slot, and a slot with no shadow in it is a scratch. Without this the
+    // mouth's whole read at portrait range was one dark line 1.5 mm wide, which
+    // is what `art/shots/wip/p6-*` shows — the lips are there in the sculpt and
+    // nothing was telling the eye where to look for them.
+    dim += 0.85 * bump(dx, dy - Y_LIP, 0, 0.26, 0.030, 1) * front;
+    // And the two corners, which is where a mouth is deepest and where the
+    // vermilion has already died away to nothing.
+    dim += 0.45 * bump(ax - 0.25, dy - (Y_LIP + 0.01), 0, 0.075, 0.055, 1) * front;
+    // The temple, and behind the ear. Both are off the front of the face, which
+    // is exactly why they are here: a head with no tone anywhere but its front
+    // reads as a mask laid on a ball, and these two are what give the three
+    // quarter bearing somewhere to turn.
+    dim += 0.38 * bump(ax - 0.86, dy - (Y_BROW + 0.10), dz - 0.22, 0.20, 0.26, 0.80);
+    dim += 0.40 * bump(ax - 0.90, dy - (Y_EYE - 0.06), dz + 0.28, 0.22, 0.40, 0.55);
+    // The nape, under the occiput. Free, and it stops the back of the head being
+    // the flattest surface on the warrior.
+    dim += 0.30 * bump(dx * 0.35, dy + 0.72, dz + 0.85, 1, 0.34, 0.55);
+    dim = clamp01(dim);
+
+    // ---- the flush ----
+    //
+    // Where blood sits close under the skin. Kept to half the strength of the
+    // shadow and off the open planes: warmth on a cheek is rouge, warmth on a
+    // nose tip and an earlobe is a man.
+    let warm = 0;
+    warm += 1.00 * bump(dx, dy - (Y_TIP - 0.045), 0, 0.135, 0.095, 1) * front;
+    warm += 0.60 * bump(ax - 0.145, dy - (Y_NOSE + 0.05), 0, 0.075, 0.075, 1) * front;
+    warm += 0.85 * bump(ax - 1.00, dy - (Y_EYE + Y_NOSE) * 0.5, dz + 0.12, 0.17, 0.30, 0.60);
+    warm += 0.45 * bump(ax - 0.54, dy - (Y_EYE - 0.135), 0, 0.24, 0.135, 1) * front * F.cheek;
+    warm += 0.35 * bump(dx, dy - Y_CHIN, 0, 0.24, 0.130, 1) * front;
+    warm = clamp01(warm);
+
+    // The vermilion, on its own channel because it is the one place on a face
+    // where the *hue* has to move much further than the value. It used to be two
+    // lenses of a separate material sitting on the lip bands, which is what drew
+    // the letterbox with a maroon lid over it and a pink one under; as a term in
+    // the field it is a soft oval that the lip geometry's own roll then lights.
+    // Bounded tightly in x by the mouth's own width so it cannot creep onto the
+    // cheek, and pinched at both corners the way a lip is.
+    const lipW = 0.30 * F.mouth;
+    const lipHalf = 0.090 * (1 - Math.pow(clamp01(ax / lipW), 2.2)) + 0.014;
+    const lip = clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(dy - (Y_LIP - 0.014))))
+      * (1 - smooth(lipW * 0.78, lipW, ax))) * front;
+
+    // Shadow goes cool as well as dark, which is what separates it from dirt;
+    // flush goes red without going bright, because the specular term does not
+    // scale with albedo and a lighter warm tone smears (see `skinWarm`).
+    let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.10 * lip);
+    let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.36 * lip);
+    let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.44 * lip);
+
+    if (chosen) {
+      const cover = clamp01(chosen.mark(ax, dx, dy, dz, front));
+      if (cover > 0) {
+        // Multiplied into the tone rather than replacing it, so the form shadow
+        // goes on reading *through* the paint — which is what stops a painted
+        // face flattening back into the mask this whole field exists to undo.
+        r = mix(r, r * pr, cover);
+        g = mix(g, g * pg, cover);
+        b = mix(b, b * pb, cover);
+      }
+    }
+    out.setRGB(r, g, b);
+  };
 }
 
 // ============================================================
@@ -4346,8 +4563,8 @@ export function buildCharacter(
   // life-sized and would be right if the field were isotropic. It is value noise
   // on a lattice, so what it actually draws is a REGULAR RECTILINEAR GRID, and a
   // grid at 4.4 mm on a face seen at 0.8 mm per pixel is five pixels a cell: big
-  // enough to be counted. Thirteen millimetres puts a cell at 1.6 mm, which is
-  // two pixels at portrait range and under one at every other range in the game,
+  // enough to be counted. An 8.5 mm tile puts a cell at 1.1 mm, which is under
+  // one and a half pixels at portrait range and well under one everywhere else,
   // so the lattice stops being a pattern and becomes the grain it was drawn to
   // be. The face is the only part of a warrior this has to be done for, because
   // it is the only part seen at 1220 px per metre.
@@ -4356,10 +4573,23 @@ export function buildCharacter(
   // same tile and had the same defect at half the density. They cost nothing:
   // the head is merged per material anyway and these replace the entries the
   // body's three were making in it.
-  const FACE_TILE = 0.013;
-  const faceTile = (color: number, roughness: number) =>
-    thrifty ? skin : M.tinted("skin", color, { roughness, tile: FACE_TILE });
-  const headSkin = faceTile(canon.base, 0.5);
+  const FACE_TILE = 0.0085;
+  const faceTile = (color: number, roughness: number) => {
+    if (thrifty) return skin;
+    const m = M.tinted("skin", color, { roughness, tile: FACE_TILE });
+    // The complexion field rides on these three and nothing else does, which is
+    // what makes it safe to turn the flag on in the library's own cache: only
+    // head geometry ever wears them, and `Part.add` guarantees every piece of it
+    // carries the attribute. Set once — the material is shared across every
+    // warrior on the field and `needsUpdate` on a live program is not free.
+    if (!VERTEX_TINTED.has(m)) {
+      VERTEX_TINTED.add(m);
+      m.vertexColors = true;
+      m.needsUpdate = true;
+    }
+    return m;
+  };
+  const headSkin = faceTile(canon.base, 0.62);
   const headShade = faceTile(canon.shade, 0.56);
   const headWarm = faceTile(canon.warm, 0.55);
 
@@ -4371,9 +4601,9 @@ export function buildCharacter(
     if (!thrifty) {
       reskin.set(skinDark, M.flesh(tone.shade));
       reskin.set(skinWarm, M.flesh(tone.warm));
-      reskin.set(headSkin, M.tinted("skin", tone.base, { roughness: 0.5, tile: FACE_TILE }));
-      reskin.set(headShade, M.tinted("skin", tone.shade, { roughness: 0.56, tile: FACE_TILE }));
-      reskin.set(headWarm, M.tinted("skin", tone.warm, { roughness: 0.55, tile: FACE_TILE }));
+      reskin.set(headSkin, faceTile(tone.base, 0.62));
+      reskin.set(headShade, faceTile(tone.shade, 0.56));
+      reskin.set(headWarm, faceTile(tone.warm, 0.55));
     }
   }
   // The white of the eye, and it is deliberately neither white nor fixed.
@@ -5427,12 +5657,12 @@ export function buildCharacter(
       }
     }
 
-    // Eyes, mouth, and the tonal map. These three are the whole defect list for
-    // the face, and they are built out of line so the read can be tuned without
-    // wading through kit.
+    // Eyes and mouth. The tonal map used to be a third call here and is now a
+    // field written onto every one of these vertices at the end of the build —
+    // see `faceComplexion`, and the note there for why six patches could not do
+    // the job however their boundaries were placed.
     addEyes(p, K, lod, place, faceMats);
     addMouth(p, K, lod, place, faceMats);
-    addFaceTones(p, K, lod, place, faceMats);
 
     // ---- the nostrils ----
     //
@@ -5486,13 +5716,28 @@ export function buildCharacter(
       // bright outline (see `patch`).
       const half = (u: number) => {
         const t = clamp01((Math.abs(u) - 0.10) / 0.52);
-        return 0.040 * (1 - 0.70 * Math.pow(t, 1.4)) * smooth(0, 0.16, t);
+        return 0.036 * (1 - 0.68 * Math.pow(t, 1.4)) * smooth(0, 0.16, t);
       };
+      // Twelve columns and two rows, and the lift dies at all four boundaries.
+      //
+      // At seven columns and one row this was a *ribbon* — two lines of vertices
+      // with a flat quad strip between them — so it could not follow the ridge it
+      // is supposed to lie on, and `patch` closed it with a rim strip standing
+      // 2.2 mm proud all the way round. What that draws is a flat slab with a
+      // bright outline, and at one row a column that lands where `half` is
+      // shrinking fastest inverts the quad: the notch out of the left brow in
+      // `art/shots/wip/p3-*` is one flipped face. Taking the lift to nothing on
+      // every boundary buries every rim strip in the skin, and what is left is
+      // hair growing out of a ridge instead of a decal parked over one.
       p.add(headWear(K, {
         u0: s * 0.09, u1: s * 0.62,
         v0: (u) => arc(u) - half(u),
         v1: (u) => arc(u) + half(u),
-        nu: 7, nv: 1, lift: (_u, v) => 0.0011 + 0.0011 * (1 - v), thick: 0.0009,
+        nu: 12, nv: 2,
+        lift: (u, v) => 0.0004 + 0.0016
+          * Math.sin(Math.PI * clamp01(v))
+          * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.09) / 0.53)),
+        thick: 0.0007,
       }), hair, place.clone());
     }
 
@@ -5688,47 +5933,15 @@ export function buildCharacter(
       }
     }
 
-    // ---- war paint, lying on the skin ----
-    // Latitudes rewritten with the rest of the face: at v = 0.08–0.2 the Raven
-    // Cross's bar was across the forehead rather than across the eyes, which is
-    // where a man paints it and the only place it means anything.
-    //
-    // Down from 2.2 mm of lift and 1.6 mm of thickness to 0.9 and 0.4, which is
-    // what `addFaceTones` already learned the hard way: `patch` closes a boundary
-    // with a rim strip whose normal points along the skin rather than out of it,
-    // so paint 1.6 mm thick draws its own outline in a surface facing the key far
-    // more squarely than the cheek does — a hard bright line round the whole
-    // shape, sub-pixel, and therefore stippling. Paint is pigment. It has no
-    // thickness worth seeing and it should not be given one.
-    if (ap.warPaint !== "none") {
-      const paint = M.standard(ap.warPaint === "cross" ? 0x1d2f52 : 0x6e1a11, 0.92);
-      if (ap.warPaint === "stripes") {
-        for (let i = 0; i < 3; i++) {
-          const u = -0.62 + i * 0.2;
-          p.add(headWear(K, {
-            u0: u - 0.045, u1: u + 0.045,
-            v0: () => lat(Y_LIP - 0.06), v1: () => lat(Y_BROW + 0.14),
-            nu: 1, nv: 4, lift: () => 0.0009, thick: 0.0004,
-          }), paint, place.clone());
-        }
-      } else if (ap.warPaint === "cross") {
-        p.add(headWear(K, {
-          u0: -0.075, u1: 0.075, v0: () => lat(Y_CHIN + 0.09), v1: () => lat(Y_BROW + 0.32),
-          nu: 1, nv: 5, lift: () => 0.0009, thick: 0.0004,
-        }), paint, place.clone());
-        p.add(headWear(K, {
-          u0: -0.62, u1: 0.62,
-          v0: () => lat(Y_EYE - 0.075), v1: () => lat(Y_EYE + 0.075),
-          nu: 5, nv: 1, lift: () => 0.0009, thick: 0.0004,
-        }), paint, place.clone());
-      } else {
-        p.add(headWear(K, {
-          u0: -1.45, u1: 0.02, v0: () => -0.9, v1: () => 0.9,
-          nu: Math.max(4, lod.shellU - 4), nv: lod.shellV,
-          lift: () => 0.0009, thick: 0.0004,
-        }), paint, place.clone());
-      }
-    }
+    // The war paint used to be here, as three shapes in `headWear` lying a
+    // millimetre off the skin. It is now part of the complexion field — see
+    // `WAR_PAINT` — and that is not a tidy-up. Paint on a lifted shell is
+    // deleted by every helmet that came after it: the audit's frame of the four
+    // paints under the Sutton Hoo mask shows four identical panels, so a player
+    // who owns Half-Face Shadow at 110 gold and the helm at 2400 owns nothing he
+    // can see. Paint written into the skin is drawn wherever skin is drawn, and
+    // each of the three marks now runs deliberately down onto the jaw and the
+    // throat, which is exactly what a mask leaves showing.
 
     // ---- helms ----
     //
@@ -7316,6 +7529,14 @@ export function buildCharacter(
         { y: skullY - R.y * 1.45, hw: R.x * 1.72, hd: R.z * 1.44 },
         { y: skullY - R.y * 2.40, hw: R.x * 2.02, hd: R.z * 1.58 },
       ], Math.max(10, lod.body - 4), { power: 2.2, wall: 0.014 }), robed ? cloakMat : hide);
+    }
+
+    // The complexion, written onto every piece of flesh on the head at once —
+    // skull, lids, lips, ears, the throat — so all of them land on one
+    // continuous map and no boundary between two of them can show as a step.
+    // Last, because it has to see everything that was added.
+    if (!thrifty) {
+      p.paint([headSkin, headShade, headWarm], faceComplexion(K, skullY, tone, ap.warPaint));
     }
     return p;
   }, headSig);
