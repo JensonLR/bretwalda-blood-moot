@@ -180,6 +180,17 @@ read as a failure of the reticle, which it never was.
 
 Frames land in `art/shots/lock/`.
 
+**`npm run lockshot` is the one that is for eyes.** touchtest's frames are taken
+at the end of a four-minute fight, best-effort, and the warrior is usually dead
+by then with nobody left to hold — three in a row came back with an empty field
+in them. `tools/lockshot.mjs` stands a fight up, waits until the mark is on a
+live man at a range worth photographing, HOLDS THE WIRE so the fight cannot move
+while the shutter is open, and takes both handednesses off that one frozen
+moment plus a close-up of each. It asserts nothing. It is how you find out
+whether the mark is any good to look at, which is not a question a harness can
+answer — and the first cut of this mark passed every assertion in touchtest
+while being, on the man, a pair of faint ticks you had to be told were there.
+
 ## Things that will go wrong
 
 - **The two thumbs will fight over the touch surface.** The current code tracks
@@ -323,9 +334,19 @@ only as the fallback for a man who has no rig yet, plus a readback of the lead
 it used to carry. touchtest asserts the source, not just the position.
 
 **It mirrors**, because it is projected through the real camera and the camera
-sits over the weapon shoulder. Measured across a single handedness switch with
-nothing else changed, and with the man held close and square where the shoulder
-offset is the only term left in the geometry: MEASURED_SHIFT
+sits over the weapon shoulder. That is asserted as the thing which is
+unconditionally true — the element sitting within 2 px of `lockPaint.sx`, which
+comes out of the real `camera.project()`, on every reading it is lit for — and
+the shoulder itself is measured in METRES in the warrior's own frame by
+`tools/cameratest.mjs`. touchtest also freezes the wire, switches the hand and
+reads the mark twice on a scene verified not to have moved (the man's drawn
+position within 3 cm), and prints the shift; it does not assert a floor on it,
+because the shift is genuinely ZERO for a man standing on the camera's optical
+axis. The rig looks 3.6 m ahead of the warrior: a man at that range does not
+move when the shoulder does, men either side of him move opposite ways, and the
+old test's median over a moving brawl was averaging all three regimes together
+— which is how one run reported a 228 px shift with the sign reversed and
+nobody noticed it meant nothing.
 
 **The whole top row mirrors too, not just the thumb cluster.** END and the mute
 toggle live under the timer on the movement side so they never sit in the
