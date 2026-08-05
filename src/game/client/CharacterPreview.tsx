@@ -14,10 +14,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { WarriorClass } from "../types";
 import { type Appearance, defaultAppearance } from "./characters";
-import {
-  createArmouryStage, SLOT_LENS,
-  type PreviewLens, type StageHandle,
-} from "./armouryStage";
+import { createArmouryStage, type StageHandle } from "./armouryStage";
+import { SLOT_LENS, type PreviewLens } from "./armouryThumbs";
 
 /** How many radians a full drag across the panel turns him. */
 const DRAG_TURN = 3.4;

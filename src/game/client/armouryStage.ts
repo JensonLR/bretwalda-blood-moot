@@ -41,6 +41,10 @@ import {
   resolveQuality, configureRenderer,
   type QualitySettings, type FrameContext,
 } from "./render/quality";
+import {
+  SLOT_LENS, takeThumbJob, returnThumbJob, publishThumb, setThumbForgeLive,
+  dropThumbCache, type PreviewLens,
+} from "./armouryThumbs";
 
 /** Accent colour per class — the same table `anim.ts` dresses a warrior from. */
 const CLASS_TUNIC: Record<string, number> = {
@@ -53,30 +57,6 @@ const CLASS_TUNIC: Record<string, number> = {
 // ---------------------------------------------------------------------------
 // Lenses
 // ---------------------------------------------------------------------------
-
-/**
- * How close the shop stands to the thing it is selling.
- *
- * The owner's screenshot cropped the warrior at the shins with his head near
- * the top edge, so the two things actually on sale — the helm and the face —
- * sat at the frame's weakest point. A crop is not decoration; it is which
- * item the screen is selling. So the lens is chosen per slot: a helm is a
- * portrait, a cloak is a whole figure, a finish is a bust because
- * `ap.armorColor` reaches the shoulders and a sliver of chest and nothing else.
- */
-export type PreviewLens = "face" | "bust" | "figure" | "fight";
-
-/** Which lens each armoury slot is sold through. */
-export const SLOT_LENS: Readonly<Record<string, PreviewLens>> = {
-  helm: "face",
-  hair: "face",
-  hairColor: "face",
-  beard: "face",
-  beardColor: "face",
-  warPaint: "face",
-  cloak: "figure",
-  armor: "bust",
-};
 
 /**
  * Default bearing per lens, in radians about the mannequin's own axis.
@@ -396,7 +376,7 @@ function disposeForge(): void {
   const f = FORGE;
   if (!f) return;
   FORGE = null;
-  THUMBS.clear();
+  dropThumbCache();
   f.sky.dispose();
   f.materials.dispose();
   f.textures.dispose();
@@ -487,8 +467,6 @@ export interface StageHandle {
   dispose(): void;
 }
 
-/** Live stage, for the thumbnail forge to borrow a frame from. */
-let ACTIVE: { forge: Forge; render(): void } | null = null;
 
 export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): StageHandle | null {
   const held = acquireForge();
@@ -637,7 +615,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   };
   raf = requestAnimationFrame(loop);
 
-  ACTIVE = { forge, render: renderOnce };
+  setThumbForgeLive(true);
 
   return {
     get ready() { return ready; },
@@ -662,7 +640,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     setTurn(radians) { turn = radians; },
     dispose() {
       cancelAnimationFrame(raf);
-      if (ACTIVE?.forge === forge) ACTIVE = null;
+      setThumbForgeLive(false);
       if (rig) { rig.dispose(); rig = null; }
       if (canvas.parentNode === mount) mount.removeChild(canvas);
       releaseForge();
@@ -699,54 +677,6 @@ function sameAppearance(a: Appearance, b: Appearance): boolean {
 /** Edge of a thumbnail in device pixels. 112 CSS px on a 2x phone is 224. */
 const THUMB_PX = 132;
 
-export interface ThumbSpec {
-  warriorClass: WarriorClass;
-  appearance: Appearance;
-  /** Which armoury slot this card belongs to — decides the crop. */
-  slot: string;
-  faceSeed: number;
-}
-
-interface ThumbJob {
-  key: string;
-  spec: ThumbSpec;
-}
-
-const THUMBS = new Map<string, string>();
-const QUEUE: ThumbJob[] = [];
-const PENDING = new Set<string>();
-const WATCHERS = new Set<(key: string, url: string) => void>();
-
-/** Stable cache key. Everything the picture depends on has to be in it. */
-export function thumbKey(spec: ThumbSpec): string {
-  const a = spec.appearance;
-  const lens = SLOT_LENS[spec.slot] ?? "face";
-  const kit = lens === "face"
-    ? [a.helm, a.hairStyle, a.hairColor, a.beardStyle, a.beardColor, a.warPaint]
-    : [a.helm, a.cloak, a.armorColor, a.hairStyle, a.beardStyle];
-  return [spec.warriorClass, spec.slot, spec.faceSeed, ...kit].join("|");
-}
-
-export function cachedThumb(key: string): string | null {
-  return THUMBS.get(key) ?? null;
-}
-
-export function requestThumb(spec: ThumbSpec): string | null {
-  const key = thumbKey(spec);
-  const hit = THUMBS.get(key);
-  if (hit) return hit;
-  if (!PENDING.has(key) && ACTIVE) {
-    PENDING.add(key);
-    QUEUE.push({ key, spec });
-  }
-  return null;
-}
-
-export function watchThumbs(fn: (key: string, url: string) => void): () => void {
-  WATCHERS.add(fn);
-  return () => { WATCHERS.delete(fn); };
-}
-
 let thumbCam: THREE.PerspectiveCamera | null = null;
 let thumbBuf: Uint8Array | null = null;
 let thumbCanvas: HTMLCanvasElement | null = null;
@@ -757,11 +687,11 @@ let thumbCanvas: HTMLCanvasElement | null = null;
  * visible hitch on the frame a player taps a tab.
  */
 function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
-  const job = QUEUE.shift();
+  const job = takeThumbJob();
   if (!job) return;
   const renderer = forge.renderer;
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  if (size.x < THUMB_PX || size.y < THUMB_PX) { QUEUE.unshift(job); return; }
+  if (size.x < THUMB_PX || size.y < THUMB_PX) { returnThumbJob(job); return; }
 
   if (!thumbCam) thumbCam = new THREE.PerspectiveCamera(24, 1, 0.05, 60);
   if (!thumbBuf) thumbBuf = new Uint8Array(THUMB_PX * THUMB_PX * 4);
@@ -849,50 +779,6 @@ function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
   if (!url || url.length < 64 || !url.startsWith("data:image/webp")) {
     url = thumbCanvas.toDataURL("image/png");
   }
-  THUMBS.set(job.key, url);
-  PENDING.delete(job.key);
-  WATCHERS.forEach((w) => w(job.key, url));
+  publishThumb(job.key, url);
 }
 
-/** Everything a card needs to ask for a picture of one option. */
-export function specForOption(
-  cls: WarriorClass, faceSeed: number, base: Appearance,
-  slot: string, value: string | number,
-): ThumbSpec {
-  const ap: Appearance = { ...base };
-  switch (slot) {
-    case "helm": ap.helm = String(value); break;
-    case "hair": ap.hairStyle = String(value); break;
-    case "hairColor": ap.hairColor = Number(value); break;
-    case "beard": ap.beardStyle = String(value); break;
-    case "beardColor": ap.beardColor = Number(value); break;
-    case "cloak": ap.cloak = String(value); break;
-    case "armor": ap.armorColor = Number(value); break;
-    case "warPaint": ap.warPaint = String(value); break;
-  }
-  // A hat cannot be photographed under a helmet, and a paint cannot be
-  // photographed under a mask — the audit's sharpest finding is that all four
-  // war paints are IDENTICAL under the Sutton Hoo helm. The card shows the
-  // thing it sells bare-headed; the mannequin behind it goes on wearing
-  // whatever the player has staged, which is where he finds that out.
-  if (slot === "hair" || slot === "hairColor" || slot === "warPaint") ap.helm = "none";
-  if (slot === "beard" || slot === "beardColor") {
-    if (ap.helm === "suttonhoo" || ap.helm === "hood") ap.helm = "none";
-  }
-  if (slot === "armor") ap.cloak = "none";
-  return { warriorClass: cls, appearance: ap, slot, faceSeed };
-}
-
-/** A stable small integer per profile, for `buildCharacter`'s face traits. */
-export function faceSeedFor(id: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0) % 4096;
-}
-
-export function armouryDefaults(cls: WarriorClass): Appearance {
-  return defaultAppearance(cls);
-}
