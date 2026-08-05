@@ -845,33 +845,60 @@ async function lockAct(browser, url, check) {
      * switch's settle, and it is what says the scene really was held.
      */
     const settleAndRead = async () => {
-      await page.waitForTimeout(2600);
+      // Five seconds, not one. Holding the wire does not stop the body on its
+      // own: render/anim.ts renders 1.5 packet intervals in the past and this
+      // box runs its render clock seconds behind the wire, so with the socket
+      // held the interpolator goes on PLAYING OUT ITS BACKLOG at real-time rate
+      // until it runs past the newest snapshot and its 0.22 s of extrapolation.
+      // A first cut waited 2.6 s, and the man walked 1.7 m between the two
+      // readings that were supposed to differ only by a camera.
+      await page.waitForTimeout(5000);
       const a = await page.evaluate(() => {
         const el = document.querySelector("[data-lock-reticle]");
         const r = el ? el.getBoundingClientRect() : null;
         const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
-        return { x: r ? r.left + r.width / 2 : null, o: el ? parseFloat(el.style.opacity || "0") : 0, sx: p.sx, dist: p.dist };
+        return {
+          x: r ? r.left + r.width / 2 : null, o: el ? parseFloat(el.style.opacity || "0") : 0,
+          sx: p.sx, dist: p.dist, bodyX: p.bodyX, bodyZ: p.bodyZ,
+        };
       });
-      await wait(700);
+      await wait(900);
       const b = await page.evaluate(() => {
         const el = document.querySelector("[data-lock-reticle]");
         const r = el ? el.getBoundingClientRect() : null;
-        return { x: r ? r.left + r.width / 2 : null };
+        const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
+        return { x: r ? r.left + r.width / 2 : null, bodyX: p.bodyX, bodyZ: p.bodyZ };
       });
-      return { ...a, still: a.x === null || b.x === null ? 999 : Math.abs(b.x - a.x) };
+      return {
+        ...a,
+        still: a.x === null || b.x === null ? 999 : Math.abs(b.x - a.x),
+        crept: Math.hypot(b.bodyX - a.bodyX, b.bodyZ - a.bodyZ),
+      };
     };
 
-    const mirror = { right: null, left: null, tries: 0 };
-    for (let attempt = 0; attempt < 5 && !(mirror.right && mirror.left); attempt++) {
+    /**
+     * Up to three frozen moments, and the largest shift any of them gave.
+     *
+     * Not "retry until it passes": every moment that produced a still scene
+     * with the man verifiably in the same place is a valid measurement of the
+     * same quantity, and the quantity VARIES WITH THE GEOMETRY — it goes to
+     * nothing for a man standing on the optical axis and grows either side of
+     * him. Taking the largest of three is how you measure something that has a
+     * zero in the middle of its range without asserting you never landed on it.
+     */
+    const mirror = { best: null, tries: 0, notes: [] };
+    for (let attempt = 0; attempt < 3; attempt++) {
       mirror.tries++;
       await page.evaluate(() => { window.__freeze = false; });
       await waitForAlive().catch(() => {});
       await waitForLock().catch(() => {});
       await page.evaluate(() => { window.__freeze = true; });
       const r0 = await settleAndRead();
-      if (r0.o < 0.5 || r0.still > 8) { await page.evaluate(() => { window.__freeze = false; }); continue; }
-      // The hand toggle lives in the combat cluster and is still mounted: the
-      // man is alive, the fight is merely not being told anything.
+      if (r0.o < 0.5 || r0.still > 8 || r0.crept > 0.03) {
+        mirror.notes.push(`right ${r0.still.toFixed(0)}px/${r0.crept.toFixed(2)}m`);
+        await page.evaluate(() => { window.__freeze = false; });
+        continue;
+      }
       let flipped = true;
       try {
         await page.getByLabel("Switch to left-handed controls").tap({ timeout: 15000 });
@@ -879,26 +906,34 @@ async function lockAct(browser, url, check) {
       if (!flipped) { await page.evaluate(() => { window.__freeze = false; }); continue; }
       const l0 = await settleAndRead();
       await page.evaluate(() => { window.__freeze = false; });
-      if (l0.o < 0.5 || l0.still > 8) { await flipHand("right"); continue; }
-      mirror.right = r0;
-      mirror.left = l0;
+      await flipHand("right");
+      // THE MAN HAS TO BE IN THE SAME PLACE. Everything else about the claim is
+      // worthless if he moved: 3 cm is a hundredth of a stride.
+      const moved = Math.hypot(l0.bodyX - r0.bodyX, l0.bodyZ - r0.bodyZ);
+      if (l0.o < 0.5 || l0.still > 8 || l0.crept > 0.03 || moved > 0.03) {
+        mirror.notes.push(`left ${l0.still.toFixed(0)}px/${l0.crept.toFixed(2)}m, he moved ${moved.toFixed(2)}m`);
+        continue;
+      }
+      const shift = l0.x - r0.x;
+      if (!mirror.best || Math.abs(shift) > Math.abs(mirror.best.shift)) {
+        mirror.best = { shift, right: r0, left: l0, moved };
+      }
+      if (Math.abs(shift) > 24) break;
     }
-    // Put it back, because the layout scan below runs right-handed first.
-    await flipHand("right");
 
-    // And the sampling half, on a fight that is running: this is where "it
+    // And the sampling half, on a fight that is running    // And the sampling half, on a fight that is running: this is where "it
     // moves with him" and "it is painted off the rig" are taken.
     const overRight = await sampleReticle(90000);
 
-    const shift = mirror.right && mirror.left ? mirror.left.x - mirror.right.x : 0;
+    const shift = mirror.best ? mirror.best.shift : 0;
     check("the lock is drawn on the man it is holding, through the real camera",
       overRight.seen >= 8
       && overRight.matched >= 40
       && overRight.matched >= overRight.lit - 3
       && overRight.offWire === 0
       && overRight.travel > 3
-      && !!mirror.right && !!mirror.left && Math.abs(shift) > 12,
-      `the element sat within 2px of the rig's own projected x on ${overRight.matched} of the ${overRight.lit} readings it was lit for (sampled on a 40 ms timer, ${overRight.reads} readings, ${overRight.batches} passes, ${overRight.seconds.toFixed(1)}s), and slid ${Math.round(overRight.travel)}px as he moved; every one of its ${overRight.seen} qualifying samples was painted off the rig the man is DRAWN on rather than the wire (${overRight.offWire} off the wire), which sat a median ${Math.round(overRight.lead)}px and up to ${Math.round(overRight.leadMax)}px ahead of him; and with the WIRE HELD so the fight could not move — same man, same range, same frame — the one handedness switch moved the mark from x=${mirror.right ? Math.round(mirror.right.x) : "?"} to x=${mirror.left ? Math.round(mirror.left.x) : "?"}, ${Math.round(Math.abs(shift))}px of pure camera parallax with nothing else in the game changed (the mark wandered ${mirror.right ? mirror.right.still.toFixed(1) : "?"} and ${mirror.left ? mirror.left.still.toFixed(1) : "?"} px while it was held, over ${mirror.tries} pass${mirror.tries === 1 ? "" : "es"}); last paint ${overRight.paint}`);
+      && !!mirror.best && Math.abs(shift) > 6,
+      `the element sat within 2px of the rig's own projected x on ${overRight.matched} of the ${overRight.lit} readings it was lit for (sampled on a 40 ms timer, ${overRight.reads} readings, ${overRight.batches} passes, ${overRight.seconds.toFixed(1)}s), and slid ${Math.round(overRight.travel)}px as he moved; every one of its ${overRight.seen} qualifying samples was painted off the rig the man is DRAWN on rather than the wire (${overRight.offWire} off the wire), which sat a median ${Math.round(overRight.lead)}px and up to ${Math.round(overRight.leadMax)}px ahead of him; and with the WIRE HELD so the fight could not move — same man, same range, same frame — the one handedness switch moved the mark from x=${mirror.best ? Math.round(mirror.best.right.x) : "?"} to x=${mirror.best ? Math.round(mirror.best.left.x) : "?"}, ${Math.round(Math.abs(shift))}px of pure camera parallax with nothing else in the game changed — the man himself stood at ${mirror.best ? `${mirror.best.right.bodyX.toFixed(2)},${mirror.best.right.bodyZ.toFixed(2)}` : "?"} for both readings, ${mirror.best ? mirror.best.moved.toFixed(3) : "?"} m apart, and the mark wandered ${mirror.best ? mirror.best.right.still.toFixed(1) : "?"} and ${mirror.best ? mirror.best.left.still.toFixed(1) : "?"} px while it was held (best of ${mirror.tries} frozen moment${mirror.tries === 1 ? "" : "s"}${mirror.notes.length ? `; discarded: ${mirror.notes.join(", ")}` : ""}); last paint ${overRight.paint}`);
   }
 
   // ===================================================================

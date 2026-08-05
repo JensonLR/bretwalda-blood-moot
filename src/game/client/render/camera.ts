@@ -133,13 +133,14 @@ const SPAWN_MIN_RADIUS = 0.35;
 /**
  * Sternum height on the man the lock is holding — where the jaws close.
  *
- * Measured off a capture rather than guessed: 1.45 put the mark on his throat
- * and 1.35 on his collarbone, because these men stand about 1.9 m and their
- * shoulder joint is at 1.52. This is mid-chest, which is where the eye reads a
- * man's mass and the one place on him nothing else is ever drawn — the plate
+ * Measured off captures rather than guessed, against a warden whose feet and
+ * head-top were both in frame: these men stand about 1.9 m, so his sternum is
+ * at 1.37 and his belt at 1.12, and the mark wants the soft ground between
+ * them. High enough not to read as a belt buckle, low enough not to crowd the
+ * throat, and on the one part of him nothing else is ever drawn — the nameplate
  * and the health bar are above his head, the ground mark is at his feet.
  */
-const LOCK_MARK_HEIGHT = 1.15;
+const LOCK_MARK_HEIGHT = 1.28;
 /** The mark is drawn at full size at this range and shrinks with distance, the
  *  same way a real sight would. Clamped so it never becomes a dot or shouts. */
 const LOCK_MARK_REF_DIST = 6.0;

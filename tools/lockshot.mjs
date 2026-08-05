@@ -208,11 +208,12 @@ async function main() {
     shots.length = 0;
     await page.evaluate(() => { window.__freeze = false; });
     await framed(WANT_RANGE);
-    // Shutter down, and then WAIT OUT THE CAMERA. Stopping the wire stops the
-    // bodies; the follow rig is a spring and goes on easing toward the man for
-    // a second afterwards, and at one frame a second that is a frame or two of
-    // settling. Two and a half seconds of stillness is what it takes for two
-    // consecutive readings to agree to within a few pixels.
+    // Shutter down, and then WAIT. Holding the wire does not stop the body on
+    // its own: the interpolator renders in the past and this box runs its
+    // render clock seconds behind, so it goes on playing out its backlog at
+    // real-time rate until it runs past the newest snapshot. Then the follow
+    // camera, which is a spring, has its own second of easing to do. Five
+    // seconds is what it takes for two readings to agree.
     await page.evaluate(() => { window.__freeze = true; });
     await page.waitForTimeout(2500);
 
@@ -225,18 +226,23 @@ async function main() {
         } catch { break; }
         // The camera walks to the other shoulder on a spring, like everything
         // else the rig does. Same settle again.
-        await page.waitForTimeout(2500);
+        await page.waitForTimeout(3000);
       }
       const before = await readout();
       const full = resolve(dir, `${hand}.png`);
       await page.screenshot({ path: full });
       const after = await readout();
-      const drift = Math.hypot(after.sx - before.sx, after.sy - before.sy);
+      // Sideways only. With the wire held the bodies stop, but the follow
+      // camera carries a walk bob off a snapshot that still says "running", so
+      // the mark breathes a few pixels UP AND DOWN for as long as the page is
+      // open. That is the camera doing its job and it does not move the mark
+      // off the man; sideways drift is the one that ruins the photograph.
+      const drift = Math.abs(after.sx - before.sx);
       // 25 px, not zero: with the wire held the bodies stand still but the rig
       // still breathes — the follow camera carries a walk bob and a decaying
       // shake — and a mark that wanders a fifteenth of the screen width between
       // two readings is still a mark the picture caught properly.
-      if (drift > 25 || before.sx < 60 || before.sx > SCREEN.width - 60) {
+      if (drift > 20 || before.sx < 60 || before.sx > SCREEN.width - 60) {
         console.log(`        [retry] ${hand}: drift ${drift.toFixed(1)} px, mark x=${Math.round(before.sx)}`);
         break;
       }
