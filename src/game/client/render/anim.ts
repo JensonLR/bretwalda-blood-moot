@@ -339,12 +339,10 @@ export interface WarriorMotion {
   netCount: number;
   /** The client's own render clock, seconds, advanced by dt. Never wall time. */
   netClock: number;
-  /** Measured packet period — a running mean, not a guess. See `ingestNet`. */
+  /** Measured packet period, phase-and-frequency locked to the wire. */
   netInterval: number;
-  /** Clock at which the newest packet was noticed, and the running-mean origin. */
+  /** Clock at which the newest packet was noticed. */
   netArrive: number;
-  netMeanT0: number;
-  netMeanK: number;
   /** Visual roll into the direction of travel. */
   leanX: number;
   /** Hit impulse, decays to zero; pushes the body away from its attacker. */
@@ -467,7 +465,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     rx: p.position.x, rz: p.position.z, yaw: p.rotation,
     net: Array.from({ length: SNAP_KEEP }, () => ({ t: 0, x: 0, z: 0, yaw: 0, yawRaw: 0 })),
     netHead: 0, netCount: 0, netClock: 0,
-    netInterval: NET_INTERVAL_GUESS, netArrive: 0, netMeanT0: 0, netMeanK: 0,
+    netInterval: NET_INTERVAL_GUESS, netArrive: 0,
     leanX: 0, recoil: 0, trailTick: 0,
     stride: hash01(p.id) * Math.PI * 2, land: 0, seed: hash01(p.id + "s") * 6.28,
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
@@ -1511,8 +1509,6 @@ const REMOTE_DELAY_PACKETS = 1.5;
 const NET_MAX_EXTRAPOLATE = 0.22;
 /** A single-packet jump further than this is a respawn, not a walk. */
 const NET_TELEPORT = 6;
-/** Packets folded into the period mean before it starts forgetting the old ones. */
-const NET_MEAN_WINDOW = 96;
 
 /** Ring accessor: k = 0 is the oldest live snapshot, k = netCount-1 the newest. */
 function snapAt(m: WarriorMotion, k: number): NetSnapshot {
@@ -1549,38 +1545,57 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
   if (newest) {
     const gap = now - m.netArrive;
     teleported = Math.hypot(x - newest.x, z - newest.z) > NET_TELEPORT;
-    if (teleported || gap <= 0 || gap > m.netInterval * 3) {
+    if (teleported || gap <= 0 || gap > m.netInterval * 8) {
       // A respawn, or a silence long enough that nothing in the buffer is worth
       // interpolating through. Drop it and start the timeline again; the sampler
       // clamps to the oldest snapshot while the buffer refills, so the body
       // appears at its new place at once instead of sliding across the arena.
       m.netCount = 0;
-      m.netMeanK = 0;
     } else {
-      if (m.netMeanK <= 0) { m.netMeanT0 = m.netArrive; m.netMeanK = 0; }
-      m.netMeanK++;
-      if (m.netMeanK > NET_MEAN_WINDOW) {
-        // Forget the oldest half so a server that changes cadence is still
-        // followed, without ever letting one late packet move the estimate far.
-        m.netMeanT0 += (now - m.netMeanT0) * 0.5;
-        m.netMeanK = Math.round(m.netMeanK * 0.5);
+      // THE GRID. Every snapshot is placed exactly one measured period after the
+      // one before it, so consecutive segments are exactly equal in length and
+      // the lerp across them is exactly even. The observed arrival is only ever
+      // used to CORRECT that grid, never to set it — arrival can only be known
+      // to a frame's precision, and believing a ±8 ms quantisation error would
+      // put that wobble straight back on the motion.
+      //
+      // Correcting it is a phase lock with a frequency term, and the frequency
+      // term is not optional. Phase alone locks happily onto a wrong period:
+      // the error stays inside the deadband and the grid drifts for ever. With
+      // it, a systematic error accumulates until it leaves the deadband, and
+      // each correction nudges the PERIOD as well as the phase, so the estimate
+      // walks onto the true wire rate and then stops moving altogether.
+      const prevT = snapAt(m, m.netCount - 1).t;
+      // A gap long enough to be more than one period is a dropped packet. It is
+      // given a whole number of slots, so the long move is spread over a
+      // correspondingly long segment and is drawn at the CORRECT speed — the
+      // motion stretches, it does not teleport and it does not sprint.
+      const slots = gap > m.netInterval * 1.6 + dtFrame
+        ? clamp(Math.round(gap / m.netInterval), 2, 8)
+        : 1;
+      t = prevT + m.netInterval * slots;
+      // WHAT THE ARRIVAL ACTUALLY TELLS US. Not an instant — a window. A packet
+      // is noticed on the first frame that runs after it lands, so all that is
+      // known is that it arrived somewhere in the last frame's worth of time.
+      // A plain symmetric deadband around `now` is therefore BIASED: the
+      // observation is always at or after the truth, never before, so the error
+      // it reports has a mean of half a frame and the period estimate creeps
+      // upward for ever on it. Comparing against the window instead of against
+      // its edge is unbiased, and once the grid is locked the stamp lands inside
+      // the window every time and the correction is exactly zero — which is what
+      // makes the segments exactly equal.
+      const lo = now - dtFrame;
+      const off = t < lo ? t - lo : t > now ? t - now : 0;
+      if (Math.abs(off) > 0.5) {
+        // The client clock and the wire have genuinely parted company; the
+        // arrival is the only truth left.
+        t = now;
+      } else if (off !== 0) {
+        t -= off * 0.25;
+        m.netInterval = clamp(m.netInterval - (off / slots) * 0.05, NET_INTERVAL_MIN, NET_INTERVAL_MAX);
       }
-      m.netInterval = clamp((now - m.netMeanT0) / m.netMeanK, NET_INTERVAL_MIN, NET_INTERVAL_MAX);
-
-      t = snapAt(m, m.netCount - 1).t + m.netInterval;
-      const err = now - t;
-      const mag = Math.abs(err);
-      // Beyond two-thirds of a period the wire really has slipped — a dropped or
-      // late packet — and the arrival is the truth. Inside a frame of the grid
-      // it is quantisation and is ignored outright. Between the two, ease.
-      const resync = Math.max(m.netInterval * 0.6, dtFrame * 1.5);
-      const dead = Math.max(dtFrame * 1.25, m.netInterval * 0.1);
-      if (mag > resync) t = now;
-      else if (mag > dead) t += (err - Math.sign(err) * dead) * 0.25;
     }
   }
-  if (!m.netCount) { m.netMeanT0 = now; m.netMeanK = 0; }
-
   m.netArrive = now;
   const slot = m.net[m.netHead];
   slot.t = t;

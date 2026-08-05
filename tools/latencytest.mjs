@@ -265,7 +265,7 @@ function traceWalk(anim, THREE, {
 
   // The server's own state, advanced on a fixed 50 ms step exactly as
   // engine.mjs does, and only COPIED to the client when a packet lands.
-  let simX = 0, simRot = 0, simT = 0, nextPacket = 0;
+  let simX = 0, simRot = 0, simT = 0, simStep = 0, nextPacket = 0;
   const wire = { position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: speed, y: 0, z: 0 }, id, warriorClass: "warden", state: "running" };
   const samples = [];
   const frames = Math.round(seconds * fps);
@@ -273,14 +273,22 @@ function traceWalk(anim, THREE, {
   let ji = 0;
 
   for (let f = 0; f < frames; f++) {
-    t += dt;
+    // The frame clock is INTEGER-DERIVED, not accumulated. `t += dt` drifts:
+    // six additions of 1/60 land at 0.09999999999999999, which is a hair short
+    // of the 0.1 s sim boundary, so the boundary slips a frame and the frame
+    // after it takes two sim steps. That fabricated a double-length move on a
+    // clean wire roughly twice per four seconds and charged the client for it.
+    // The client is still fed `dt` per frame exactly as a renderer would be —
+    // only the harness's own reckoning of where it is in the trace is exact.
+    t = (f + 1) / fps;
     // advance the authoritative sim in fixed 1/20 steps
-    while (simT + 0.05 <= t) { simT += 0.05; simX += speed * 0.05; simRot += turnRate * 0.05; }
+    const steps = Math.floor(t / 0.05 + 1e-9);
+    while (simStep < steps) { simStep++; simT = simStep * 0.05; simX = speed * simT; simRot = turnRate * simT; }
     // deliver a packet when one is due
     // Packets land on their own fixed grid, not on the frame that noticed them
     // — otherwise the harness itself beats against the frame clock and invents
     // a hitch the game does not have.
-    if (t * 1000 >= nextPacket) {
+    if (t * 1000 >= nextPacket - 1e-9) {
       nextPacket += jitter ? jitter[ji % jitter.length] : packetMs; ji++;
       wire.position = { x: simX, y: 0, z: 0 };
       wire.rotation = simRot;
