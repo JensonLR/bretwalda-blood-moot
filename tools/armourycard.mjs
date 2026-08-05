@@ -138,8 +138,13 @@ async function main() {
     // seven spinners on it and filed that as the design.
     await settle(page);
 
+    const tabs = await page.evaluate(() =>
+      [...document.querySelectorAll(".tab-item")].map((e) => e.textContent.trim()));
+    console.log(`[card] ${vp.tag} tabs: ${JSON.stringify(tabs)}`);
     if (TAB) {
-      await page.getByRole("button", { name: new RegExp(`^${TAB}$`) }).first().click();
+      const t = page.locator(".tab-item", { hasText: TAB }).first();
+      await t.scrollIntoViewIfNeeded();
+      await t.click();
       await settle(page);
     }
     if (ITEM) {

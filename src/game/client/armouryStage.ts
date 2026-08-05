@@ -96,7 +96,7 @@ const LENS: Record<Exclude<PreviewLens, "fight">, LensFrame> = {
   // Crown to the belt: the shoulders, which is the whole of what a finish paints.
   bust: { height: 1.05, aim: 0.80, fov: 28, rise: 0.0 },
   // Boots to a hand's width over the crest, and never cropped at the shins.
-  figure: { height: 2.10, aim: 0.50, fov: 34, rise: 0.0 },
+  figure: { height: 2.26, aim: 0.52, fov: 34, rise: 0.0 },
 };
 
 /**
@@ -356,6 +356,13 @@ function buildForge(): Forge | null {
     new THREE.MeshBasicMaterial({
       map: contactTex, transparent: true, opacity: 0.85,
       depthWrite: false, blending: THREE.MultiplyBlending,
+      // Not optional: three logs `MultiplyBlending requires
+      // material.premultipliedAlpha = true` and falls back to a blend function
+      // that is not a multiply at all, which the capture harness caught on the
+      // FULL KIT lens. With premultiplied alpha the multiply resolves to
+      // `dst * (1 - a)` — and the map is pure black with a radial alpha, so
+      // premultiplied and straight are the same bytes.
+      premultipliedAlpha: true,
     }),
   );
   contact.rotation.x = -Math.PI / 2;
