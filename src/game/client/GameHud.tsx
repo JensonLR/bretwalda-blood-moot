@@ -467,16 +467,31 @@ export default function GameHud({
             className="absolute left-0 top-0 z-10 pointer-events-none"
             style={{ opacity: 0, willChange: "transform, opacity" }}>
             <svg width="34" height="34" viewBox="-17 -17 34 34" className="block overflow-visible">
-              {/* Both jaws in one path, twice over: the shadow pass first at
-                  three times the width, then the ink. Round caps so the ends
-                  taper out of the frame rather than stopping dead. */}
+              {/* Both jaws in one path, twice over: the shadow pass first, wider
+                  by a stroke, then the ink over it.
+
+                  They are FILLED CRESCENTS, not stroked arcs — thickest at the
+                  middle and tapering to a point at each end, the way a mark
+                  scribed with a blade thins as it leaves the metal. A uniform
+                  stroke reads as a browser border; this reads as something made.
+                  Each jaw is two quadratics: out along the back at r=14.0, home
+                  along the belly at r=12.4, meeting at r=13.2 at ±38°.
+
+                  A capture set the numbers. The first cut was 54° of arc in bone
+                  at 0.72 over a 3px shadow at 0.45, and on the man it was a pair
+                  of faint ticks you had to be told were there — quiet is the
+                  brief, invisible is a bug. 76° of arc reads as a ring held open
+                  rather than as two marks, and it still puts a fifth of the ink
+                  on the glass that the old gunsight did. */}
               {[
-                { w: 3.0, c: "rgba(12,8,5,0.45)" },
-                { w: 1.25, c: "rgba(232,220,192,0.72)" },
+                { grow: 2.0, c: "rgba(10,7,4,0.55)" },
+                { grow: 0, c: "rgba(240,229,203,0.94)" },
               ].map((p, i) => (
                 <path key={i}
-                  d="M 11.58 -5.90 A 13 13 0 0 1 11.58 5.90 M -11.58 -5.90 A 13 13 0 0 0 -11.58 5.90"
-                  fill="none" stroke={p.c} strokeWidth={p.w} strokeLinecap="round" />
+                  d="M 10.40 -8.13 Q 17.60 0 10.40 8.13 Q 14.40 0 10.40 -8.13 Z
+                     M -10.40 -8.13 Q -17.60 0 -10.40 8.13 Q -14.40 0 -10.40 -8.13 Z"
+                  fill={p.c} stroke={p.grow ? p.c : "none"} strokeWidth={p.grow}
+                  strokeLinejoin="round" />
               ))}
             </svg>
           </div>
@@ -495,8 +510,8 @@ export default function GameHud({
             style={{ opacity: 0, willChange: "transform, opacity" }}>
             <svg width="46" height="14" viewBox="-23 -7 46 14" className="block overflow-visible">
               {[
-                { w: 2.6, c: "rgba(12,8,5,0.40)" },
-                { w: 1.05, c: "rgba(232,220,192,0.52)" },
+                { w: 3.0, c: "rgba(10,7,4,0.52)" },
+                { w: 1.25, c: "rgba(240,229,203,0.68)" },
               ].map((p, i) => (
                 <ellipse key={i} cx="0" cy="0" rx="19" ry="3.8"
                   fill="none" stroke={p.c} strokeWidth={p.w} />

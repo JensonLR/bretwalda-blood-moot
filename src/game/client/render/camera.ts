@@ -130,8 +130,16 @@ const SPAWN_MIN_RADIUS = 0.35;
 // scaled wrapper cannot carry both honestly: the jaws are placed on his chest
 // and the line on his feet, each by its own projection.
 
-/** Sternum height on the man the lock is holding — where the jaws close. */
-const LOCK_MARK_HEIGHT = 1.35;
+/**
+ * Sternum height on the man the lock is holding — where the jaws close.
+ *
+ * Measured off a capture rather than guessed: 1.45 put the mark on his throat
+ * and 1.35 on his collarbone, because these men stand about 1.9 m and their
+ * shoulder joint is at 1.52. This is mid-chest, which is where the eye reads a
+ * man's mass and the one place on him nothing else is ever drawn — the plate
+ * and the health bar are above his head, the ground mark is at his feet.
+ */
+const LOCK_MARK_HEIGHT = 1.15;
 /** The mark is drawn at full size at this range and shrinks with distance, the
  *  same way a real sight would. Clamped so it never becomes a dot or shouts. */
 const LOCK_MARK_REF_DIST = 6.0;
@@ -223,6 +231,8 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     sx: 0, sy: 0, footY: 0, ndcZ: 0, viewZ: 0, dist: 0, w: 0,
     source: "none" as "none" | "rig" | "wire",
     wireSx: 0, leadPx: 0, leadM: 0,
+    /** Both answers to "where is he", in world units, for the harnesses. */
+    bodyX: 0, bodyZ: 0, wireX: 0, wireZ: 0, bodies: 0,
   };
   /** Which man the mark is on, and how far into its one animation it is. */
   let markId: string | null = null;
@@ -428,6 +438,11 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     lockPaint.wireSx = (wirePoint.x * 0.5 + 0.5) * viewW;
     lockPaint.leadPx = lockPaint.wireSx - sx;
     lockPaint.leadM = Math.hypot(v.x - bodyPoint.x, v.z - bodyPoint.z);
+    lockPaint.bodyX = bodyPoint.x;
+    lockPaint.bodyZ = bodyPoint.z;
+    lockPaint.wireX = v.x;
+    lockPaint.wireZ = v.z;
+    lockPaint.bodies = drawnBodies.size;
     lockPaint.sx = sx;
     lockPaint.sy = sy;
     lockPaint.footY = footY;
@@ -631,6 +646,21 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
        */
       /** Where the lock reticle was last painted, and the numbers behind it. */
       get lockPaint() { return { ...lockPaint }; },
+      /**
+       * Every warrior the mark could be put on, and where his rig is standing.
+       * The one readback that can tell "the mark is on the wrong man" from "the
+       * mark is on the right man in the wrong place" — which are different bugs
+       * and cost an hour to tell apart without it.
+       */
+      get bodies() {
+        const out: { id: string; x: number; z: number; inScene: boolean }[] = [];
+        for (const [id, body] of drawnBodies) {
+          body.updateWorldMatrix(true, false);
+          bodyPoint.setFromMatrixPosition(body.matrixWorld);
+          out.push({ id, x: bodyPoint.x, z: bodyPoint.z, inScene: !!body.parent });
+        }
+        return out;
+      },
       get shoulder() {
         return (camera.position.x - focusX) * -Math.cos(yaw)
           + (camera.position.z - focusZ) * Math.sin(yaw);
