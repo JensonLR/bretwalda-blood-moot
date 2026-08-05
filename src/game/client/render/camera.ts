@@ -23,13 +23,34 @@ export type CameraMode =
    * character work could not be reviewed at all. This mode exists so a
    * capture can be aimed anywhere. Never selected during play.
    */
-  | "photo";
+  | "photo"
+  /**
+   * The end-of-match tableau: one slow push toward the victor, aimed by
+   * `render/summary.ts`. Deliberately not the lobby orbit — the summary is a
+   * staged picture of the men who fought, and an orbit walks the lens away
+   * from it.
+   */
+  | "summary";
 
 /** Where "photo" mode puts the camera and what it points at. */
 export interface PhotoFraming {
   position: [number, number, number];
   target: [number, number, number];
   fov?: number;
+}
+
+/**
+ * The summary's one move: a push from `from` to `to`, eyes on `target` the
+ * whole way. The rig owns the clock so the staging module cannot retime it
+ * mid-flight; re-aiming restarts the push, which is what a cut is.
+ */
+export interface SummaryShot {
+  from: [number, number, number];
+  to: [number, number, number];
+  target: [number, number, number];
+  fov?: number;
+  /** Seconds the push takes. The tail eases, so overshooting is impossible. */
+  seconds?: number;
 }
 
 export interface CameraRig {
@@ -39,6 +60,8 @@ export interface CameraRig {
   setMode(mode: CameraMode): void;
   /** Aims "photo" mode. Selecting the mode without this leaves the rig put. */
   setPhotoFraming(framing: PhotoFraming): void;
+  /** Aims "summary" mode and restarts its push from the top. */
+  setSummaryShot(shot: SummaryShot): void;
   /**
    * The heading the sim spawned this warrior on, for the rig to adopt the next
    * time a round hands it back to him. One-shot: consumed by the adoption, so
@@ -104,6 +127,9 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
 
   const orbitTarget = new THREE.Vector3();
   let photoFraming: PhotoFraming | null = null;
+  let summaryShot: SummaryShot | null = null;
+  /** Seconds into the summary push. */
+  let summaryT = 0;
   let mode: CameraMode = "follow";
   let yaw = Math.PI;
   let fov = FOV_BASE;
@@ -245,6 +271,11 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
       photoFraming = framing;
     },
 
+    setSummaryShot(shot) {
+      summaryShot = shot;
+      summaryT = 0;
+    },
+
     shake(intensity) {
       shakeAmount = Math.max(shakeAmount, intensity);
     },
@@ -263,6 +294,28 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
           camera.position.set(...photoFraming.position);
           camera.lookAt(...photoFraming.target);
           const want = photoFraming.fov ?? FOV_BASE;
+          if (camera.fov !== want) {
+            camera.fov = want;
+            camera.updateProjectionMatrix();
+          }
+        }
+        return;
+      }
+
+      if (mode === "summary") {
+        // One slow push, no shake, no bob: the fight is over and the frame is
+        // a portrait. Ease-out so the move dies rather than stopping — the
+        // last metres take most of the push, which reads as the lens settling
+        // on the victor instead of arriving at him.
+        if (summaryShot) {
+          summaryT += dt;
+          const k = Math.min(1, summaryT / (summaryShot.seconds ?? 8));
+          const e = 1 - Math.pow(1 - k, 3);
+          const [fx, fy, fz] = summaryShot.from;
+          const [tx, ty, tz] = summaryShot.to;
+          camera.position.set(fx + (tx - fx) * e, fy + (ty - fy) * e, fz + (tz - fz) * e);
+          camera.lookAt(...summaryShot.target);
+          const want = summaryShot.fov ?? FOV_BASE;
           if (camera.fov !== want) {
             camera.fov = want;
             camera.updateProjectionMatrix();

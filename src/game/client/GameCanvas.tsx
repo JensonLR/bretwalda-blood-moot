@@ -5,7 +5,7 @@
 // what and the order they run in.
 import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
-import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase } from "../types";
+import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData } from "../types";
 import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import {
@@ -26,6 +26,7 @@ import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior,
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./render/anim";
+import { createSummary, type SummaryHandle } from "./render/summary";
 
 /**
  * How far the build has got. `done` is the weight of the stages that have
@@ -47,6 +48,13 @@ interface GameCanvasProps {
   playerId: string;
   roomState: RoomState | null;
   onSendInput: (input: Record<string, unknown>) => void;
+  /**
+   * The server's `match_end` verdict, while the end-of-match summary should be
+   * on stage. Null the rest of the time — page.tsx clears it the moment a next
+   * match starts or the player walks away, and that clearing is what strikes
+   * the set.
+   */
+  matchEnd?: MatchEndData | null;
   /**
    * Called as each build stage lands, so whoever mounted this can hold a
    * loading screen in front of the canvas. Optional on purpose: /shot mounts
@@ -126,7 +134,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, onForge }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -142,6 +150,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
   // packet does not tear down and rebuild the animation frame callback.
   const roomStateRef = useRef<RoomState | null>(roomState);
   const sendInputRef = useRef(onSendInput);
+  // The verdict rides a ref for the same reason roomState does: the loop reads
+  // it, and a match ending must not rebuild the animation frame callback.
+  const matchEndRef = useRef<MatchEndData | null>(matchEnd ?? null);
+  const summaryRef = useRef<SummaryHandle | null>(null);
   // Initialised from the first render's prop rather than filled in by an
   // effect: the build reads it on mount, before any effect that assigns it
   // would have run, and a build that could not see its consumer would silently
@@ -149,6 +161,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
   const onForgeRef = useRef(onForge);
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
+  useEffect(() => { matchEndRef.current = matchEnd ?? null; }, [matchEnd]);
   // Held in a ref rather than read from the effect's closure: a parent that
   // rebuilds this callback every render must not tear the arena down and build
   // it again, which is what listing it in the effect's deps would do.
@@ -559,6 +572,55 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         return;
       }
 
+      // A warrior's client half, built on first sight. Shared by the fight
+      // loop and the summary path: a canvas that mounts straight into a
+      // finished room — the /shot harness stages exactly that — has never
+      // built a rig, and a summary with nobody on it is a landscape.
+      const ensureSlot = (p: GamePlayer): WarriorSlot => {
+        let slot = warriorsRef.current.get(p.id);
+        if (!slot) {
+          const rig = createWarriorRig(stage.scene, p, stage.materials, stage.quality);
+          stage.hud.attach(p.id, p.name, rig.group, p.id === playerId, rig.headTop);
+          slot = {
+            rig, motion: createMotion(p), prevHp: p.health, prevState: p.state,
+            dustTick: 0, stepTick: 0, prevAbility: p.abilityActive,
+            prevPhase: p.attackPhase ?? null,
+          };
+          warriorsRef.current.set(p.id, slot);
+        }
+        return slot;
+      };
+
+      // The end of the match: the arena stays up and render/summary.ts stages
+      // the men who fought it — victor centre, the wall behind him, a duel's
+      // corpse left where it fell. Held on the VERDICT rather than the room
+      // state because the server rolls the room back to "lobby" ten seconds
+      // in, and the picture must hold until the player actually leaves it; a
+      // "countdown" (next match starting under the summary) breaks it anyway.
+      const verdict = matchEndRef.current;
+      const isSummary = verdict !== null && roomState.mode !== "solo" &&
+        (roomState.state === "finished" || roomState.state === "lobby");
+      if (isSummary) {
+        for (const p of Object.values(roomState.players)) ensureSlot(p);
+        summaryRef.current ??= createSummary({
+          scene: stage.scene,
+          rig: stage.rig,
+          groundAt: stage.world.heightAt,
+          douse: (id) => {
+            stage.vfx.setBurning(id, false, 0, false);
+            stage.audio.setBurning(id, false, 0, false, { x: 0, y: 0, z: 0 });
+          },
+        });
+        summaryRef.current.update(dt, ctx, roomState, verdict, warriorsRef.current, playerId);
+        stage.rig.update(dt, ctx);
+        stage.vfx.update(dt, ctx);
+        stage.audio.update(dt, ctx);
+        stage.hud.update(dt, ctx);
+        stage.postfx.render(dt, ctx);
+        return;
+      }
+      summaryRef.current?.reset();
+
       // Between matches the camera takes the slow establishing orbit and
       // nothing else runs — no input, no sim, no feedback.
       const isFight = roomState.state === "fighting" || roomState.state === "last_stand" || roomState.state === "countdown";
@@ -629,17 +691,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, onForge }
         const p = players[id];
         activeIds.add(id);
 
-        let slot = warriorsRef.current.get(id);
-        if (!slot) {
-          const rig = createWarriorRig(stage.scene, p, stage.materials, stage.quality);
-          stage.hud.attach(id, p.name, rig.group, id === playerId, rig.headTop);
-          slot = {
-            rig, motion: createMotion(p), prevHp: p.health, prevState: p.state,
-            dustTick: 0, stepTick: 0, prevAbility: p.abilityActive,
-            prevPhase: p.attackPhase ?? null,
-          };
-          warriorsRef.current.set(id, slot);
-        }
+        const slot = ensureSlot(p);
 
         const attacker = p.lastHitBy ? players[p.lastHitBy] : undefined;
         stepWarriorTransform(slot.rig, slot.motion, p, dt, ctx, attacker);

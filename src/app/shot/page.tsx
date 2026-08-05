@@ -24,7 +24,7 @@
 // ============================================================
 import React, { useEffect, useMemo, useState } from "react";
 import GameCanvas from "@/game/client/GameCanvas";
-import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone } from "@/game/types";
+import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone, MatchEndData } from "@/game/types";
 import { WARRIOR_STATS } from "@/game/types";
 import { ARMOURY, defaultAppearance, HELM_VALUES, type Appearance } from "@/game/client/characters";
 
@@ -329,6 +329,14 @@ const PRESETS: Record<string, {
    * framing is not a constant and cannot be written as one.
    */
   card?: keyof typeof CARDS;
+  /**
+   * The room's state, for the two summary presets. "finished" plus a
+   * `matchEnd` puts the canvas on the end-of-match tableau path —
+   * render/summary.ts restages the men and aims its own camera, so a preset
+   * `framing` would be overridden and is not authored.
+   */
+  state?: "fighting" | "finished";
+  matchEnd?: MatchEndData;
 }> = {
   // Over-shoulder gameplay view, mid-swing against a blocking foe.
   // Offset from the origin because the bonfire stands there — framing a duel
@@ -626,6 +634,62 @@ const PRESETS: Record<string, {
       { id: "me", name: "Aethelred", cls: "huscarl", x: -7.0, z: 4.6, rot: 1.6, state: "running", hp: 0.38, burn: { timer: 2.3 } },
     ],
   },
+  // ---- The end-of-match summary, staged. ---------------------------------
+  //
+  // Both presets exist because the tableau is aimed by code, not by a framing
+  // constant: render/summary.ts reads the verdict, restages the men and hands
+  // the camera its push, and the only way to review any of that is to hand it
+  // a finished room. The corpse dies on the torso deliberately — a summary
+  // inherits the fight's gore rather than authoring any, so a staged
+  // severance here would photograph a blood path no match produces.
+  //
+  // The duel: the loser lies where he fell, the victor stood over him.
+  summaryduel: {
+    cam: Math.PI,
+    matchTimer: 141,
+    state: "finished",
+    settle: 40,
+    poses: [
+      { id: "me", name: "Aethelred", cls: "huscarl", x: -5.9, z: 6.4, rot: Math.PI, state: "dead", hp: 0, zone: "torso", dir: "overhead", heavy: true, killer: "foe" },
+      { id: "foe", name: "Uhtred", cls: "berserker", x: -7.6, z: 4.8, rot: 1.0, state: "idle", hp: 0.62 },
+    ],
+    matchEnd: {
+      winnerKind: "player", winnerId: "foe", winnerTeam: null, winnerName: "Uhtred",
+      bestOf: 3, roundsPlayed: 3, roundTarget: 2, roundWins: { foe: 2, me: 1 }, roundScoreBy: "player",
+      results: [
+        { id: "foe", name: "Uhtred", kills: 2, deaths: 1, damage: 341, score: 260, isWinner: true, xpEarned: 320, goldEarned: 90 },
+        { id: "me", name: "Aethelred", kills: 1, deaths: 2, damage: 264, score: 140, isWinner: false, xpEarned: 212, goldEarned: 25 },
+      ],
+    },
+  },
+  // The moot: victor centre, the fallen stood back up into the wall behind
+  // him — five dead men here, so the line is also the reassembly proof.
+  summarymoot: {
+    cam: Math.PI,
+    matchTimer: 200,
+    state: "finished",
+    settle: 40,
+    poses: [
+      { id: "b1", name: "Uhtred", cls: "huscarl", x: 4.1, z: 1.2, rot: 2.4, state: "idle", hp: 0.45 },
+      { id: "me", name: "Aethelred", cls: "warden", x: 2.5, z: -3.5, rot: 0.4, state: "dead", hp: 0, zone: "torso", dir: "right", killer: "b1" },
+      { id: "b2", name: "Beorn", cls: "berserker", x: -4.0, z: -1.0, rot: 1.0, state: "dead", hp: 0, zone: "torso", dir: "left", killer: "b1" },
+      { id: "b3", name: "Cynric", cls: "runekeeper", x: -2.0, z: 5.0, rot: 2.0, state: "dead", hp: 0, zone: "torso", dir: "right", killer: "b1" },
+      { id: "b4", name: "Leofric", cls: "warden", x: 6.0, z: 3.0, rot: 3.0, state: "dead", hp: 0, zone: "torso", dir: "stab", killer: "b1" },
+      { id: "b5", name: "Osric", cls: "huscarl", x: 0.5, z: -6.0, rot: 0.2, state: "dead", hp: 0, zone: "torso", dir: "right", killer: "b1" },
+    ],
+    matchEnd: {
+      winnerKind: "player", winnerId: "b1", winnerTeam: null, winnerName: "Uhtred",
+      bestOf: 3, roundsPlayed: 3, roundTarget: 2, roundWins: { b1: 2, me: 1 }, roundScoreBy: "player",
+      results: [
+        { id: "b1", name: "Uhtred", kills: 4, deaths: 1, damage: 512, score: 470, isWinner: true, xpEarned: 426, goldEarned: 120 },
+        { id: "me", name: "Aethelred", kills: 3, deaths: 2, damage: 388, score: 340, isWinner: false, xpEarned: 334, goldEarned: 55 },
+        { id: "b2", name: "Beorn", kills: 2, deaths: 2, damage: 301, score: 230, isWinner: false, xpEarned: 260, goldEarned: 40 },
+        { id: "b3", name: "Cynric", kills: 1, deaths: 2, damage: 204, score: 120, isWinner: false, xpEarned: 182, goldEarned: 25 },
+        { id: "b4", name: "Leofric", kills: 1, deaths: 3, damage: 166, score: 100, isWinner: false, xpEarned: 163, goldEarned: 25 },
+        { id: "b5", name: "Osric", kills: 0, deaths: 3, damage: 98, score: 40, isWinner: false, xpEarned: 99, goldEarned: 10 },
+      ],
+    },
+  },
   // Last-stand mood — judges the dramatic colour grade.
   laststand: {
     cam: Math.PI,
@@ -836,7 +900,7 @@ export default function ShotPage() {
     return {
       code: "PHOTO01",
       mode: "blood_moot",
-      state: "fighting",
+      state: preset.state ?? "fighting",
       arena: "saxon_village",
       players,
       hostId: "me",
@@ -926,7 +990,7 @@ export default function ShotPage() {
           nextjs-portal { display: none !important; }
         `}</style>
       )}
-      <GameCanvas playerId="me" roomState={roomState as never} onSendInput={() => {}} />
+      <GameCanvas playerId="me" roomState={roomState as never} onSendInput={() => {}} matchEnd={preset.matchEnd ?? null} />
       {preset.card && params.get("guides") === "1" && <Guides card={CARDS[preset.card]} />}
     </div>
   );

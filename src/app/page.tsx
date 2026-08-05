@@ -41,7 +41,7 @@ const KeyBindingsPanel = dynamic(
 );
 const CharacterPreview = dynamic(() => import("../game/client/CharacterPreview"), { ssr: false });
 
-type Screen = "landing" | "create" | "join" | "lobby" | "game" | "results" | "training" | "muster" | "profile" | "armoury";
+type Screen = "landing" | "create" | "join" | "lobby" | "game" | "training" | "muster" | "profile" | "armoury";
 
 type Difficulty = "recruit" | "warrior" | "jarl";
 
@@ -165,6 +165,12 @@ export default function Page() {
   // ends, so a join that lands mid-boot is held here and bound the moment
   // there is a profile to bind it to.
   const unboundRef = useRef<string | null>(null);
+  // FIGHT AGAIN, pressed before the server has rolled the room back to its
+  // lobby. The engine clears every ready flag when it does (engine.mjs,
+  // endMatch), so a "ready" sent early would be wiped — the intent is held
+  // here and honoured on the lobby_update that announces the rollback.
+  const rematchRef = useRef(false);
+  const [rematchWaiting, setRematchWaiting] = useState(false);
   // The sign-in, as a promise. Anything that must not guess where the gold
   // lives — a purchase, a payout — waits on this rather than reading a link
   // that has not been settled yet and writing to the wrong ledger.
@@ -431,6 +437,7 @@ export default function Page() {
         setRoomCode(d.code);
         setRoomState(d);
         setPayState("none");
+        setMatchResults(null);
         // Reserve this fight's pay before there is any. An unreserved payout
         // is paid to nobody, on purpose — every other phone in the lobby can
         // read this id off a room snapshot — so skipping it is silently
@@ -454,7 +461,16 @@ export default function Page() {
       }
       case "lobby_update": {
         setRoomState(msg.data as unknown as RoomState);
-        if ((msg.data as { state?: string })?.state === "lobby" && screenRef.current === "results") setScreen("lobby");
+        // The rematch loop: the room has rolled back to its lobby — ready
+        // flags freshly cleared — and this player already said "again" from
+        // the summary screen. Now the ready can actually stick.
+        if ((msg.data as { state?: string })?.state === "lobby" && rematchRef.current) {
+          rematchRef.current = false;
+          setRematchWaiting(false);
+          sendMsg("ready");
+          setMatchResults(null);
+          setScreen("lobby");
+        }
         break;
       }
       case "countdown": {
@@ -462,6 +478,11 @@ export default function Page() {
         if (d.players) setRoomState(d);
         else setRoomState((prev) => prev ? { ...prev, state: "countdown", countdown: (msg.data?.countdown as number) || 0 } : prev);
         setBusy(false);
+        // A new match is starting: strike the last one's summary set, or the
+        // canvas would stage a victory tableau over the opening bell.
+        setMatchResults(null);
+        rematchRef.current = false;
+        setRematchWaiting(false);
         setScreen("game");
         break;
       }
@@ -509,7 +530,9 @@ export default function Page() {
             });
           }).catch(() => setPayState("unpaid"));
         }
-        setTimeout(() => setScreen("results"), 2200);
+        // No screen change. The summary is not a menu — the canvas stays up,
+        // render/summary.ts stages the men who fought, and MatchSummary lays
+        // the numbers over them. The player leaves when he presses something.
         break;
       }
       case "error": {
@@ -527,7 +550,7 @@ export default function Page() {
         break;
       }
     }
-  }, [adoptServer, tallyLocally, showError, settled]);
+  }, [adoptServer, tallyLocally, showError, settled, sendMsg]);
 
   const ensureTransport = useCallback(async (): Promise<boolean> => {
     if (transportRef.current && transportRef.current.mode) return true;
@@ -859,7 +882,7 @@ export default function Page() {
   if (screen === "game") {
     return (
       <div className="fixed inset-0 bg-black">
-        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} onForge={setForge} />
+        <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} matchEnd={matchResults} onForge={setForge} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
@@ -893,12 +916,38 @@ export default function Page() {
             if a player cannot see where he stands in it, and the HUD proper
             only knows about this round. Sits below the health bar the HUD
             owns, and never takes a pointer event off the controls. */}
-        {roomState && roomState.mode !== "solo" && (roomState.bestOf ?? 1) > 1 && roomState.state !== "lobby" && (
+        {roomState && roomState.mode !== "solo" && (roomState.bestOf ?? 1) > 1 && roomState.state !== "lobby" && roomState.state !== "finished" && (
           <div className="pointer-events-none absolute left-1/2 top-[4.6rem] z-20 -translate-x-1/2">
             <RoundTally roomState={roomState} playerId={playerId} />
           </div>
         )}
         {roomState?.state === "intermission" && <RoundBreak roomState={roomState} playerId={playerId} />}
+        {/* The end of the match. The stage behind this is the summary — the
+            canvas is showing the victor and the wall, or the duel's corpse —
+            so this overlay is only the numbers and the two ways out, top and
+            bottom, with the picture left alone in between. It outlives the
+            server's rollback to "lobby" on purpose: the player leaves the
+            tableau when he presses something, not when a timer does. */}
+        {matchResults && roomState && roomState.mode !== "solo" &&
+          (roomState.state === "finished" || roomState.state === "lobby") && (
+          <MatchSummary
+            data={matchResults}
+            playerId={playerId}
+            payState={payState}
+            waiting={rematchWaiting}
+            onFightAgain={() => {
+              if (roomState.state === "lobby") {
+                if (!roomState.players[playerId]?.ready) sendMsg("ready");
+                setMatchResults(null);
+                setScreen("lobby");
+              } else {
+                rematchRef.current = true;
+                setRematchWaiting(true);
+              }
+            }}
+            onLeave={() => { leaveRoom(); setMatchResults(null); setScreen("landing"); }}
+          />
+        )}
         {/* Centred on a desktop; on a phone it moves to the movement thumb's
             corner and mirrors with the rest of the controls. Centred, it
             straddles the line the touch scheme splits the screen on and leaves
@@ -925,71 +974,6 @@ export default function Page() {
           </button>
         )}
       </div>
-    );
-  }
-
-  // ==================== RESULTS ====================
-  if (screen === "results" && matchResults) {
-    const mine = matchResults.results.find((r) => r.id === playerId);
-    return (
-      <MenuShell art="hall" notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
-        <ContentWrap>
-          <div className="card card-noble card-glow flex flex-col items-center gap-3 p-5 text-center sm:p-6">
-            <Trophy className="text-amber-400" size={40} />
-            <div className="label-overline">BATTLE COMPLETE</div>
-            <h1 className="font-display text-2xl text-amber-100 sm:text-4xl" style={{ textShadow: "0 0 30px rgba(255,180,60,0.4)" }}>
-              {matchResults.winnerKind === "none" || matchResults.winnerName === "Draw"
-                ? "BLOOD SPILT — A DRAW"
-                : `${matchResults.winnerName} PREVAILS`}
-            </h1>
-            {/* `isWinner` and not an id match: a war band is won by a side, and
-                every man on it won it. */}
-            {mine?.isWinner && (
-              <div className="font-display animate-pulse text-sm tracking-[0.35em] text-yellow-400">VICTORY IS YOURS</div>
-            )}
-            <div className="knot-band w-full max-w-xs" />
-            <MatchTally data={matchResults} playerId={playerId} />
-            {/* The pay is the server's to give. When it does not arrive the
-                honest thing is to say so on the screen that shows the number,
-                not to quietly print a total that includes it. */}
-            {payState === "unpaid" && (
-              <div className="text-[11px] leading-relaxed text-red-300/90">
-                This pay has not reached the war rolls — your hoard is unchanged.
-              </div>
-            )}
-            {payState === "asking" && (
-              <div className="animate-pulse text-[11px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2.5">
-            {[...matchResults.results].sort((a, b) => b.score - a.score).map((r, i) => (
-              <div key={r.id} className={`card flex items-center gap-3.5 px-4 py-3.5 ${
-                r.isWinner ? "!border-amber-500/70 !bg-amber-900/25" : r.id === playerId ? "!border-sky-600/60 !bg-sky-950/30" : ""
-              }`}>
-                <div className="font-display w-8 shrink-0 text-2xl text-stone-500">#{i + 1}</div>
-                <div className="min-w-0 flex-1">
-                  <div className={`flex items-center gap-2 font-bold ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
-                    <span className="truncate">{r.name}</span> {r.isWinner && <Crown size={14} className="shrink-0 text-amber-400" />}
-                  </div>
-                  <div className="mt-0.5 text-xs text-stone-400">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} damage</div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-sm font-bold text-amber-300">+{r.xpEarned} XP</div>
-                  <div className="mt-0.5 flex items-center justify-end gap-1 text-xs text-yellow-500"><Coins size={10} />+{r.goldEarned}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Both labels stay on one line at 390px: "BACK TO / LOBBY" over two
-              rows makes the pair look like different-sized buttons. */}
-          <div className="flex gap-3">
-            <button onClick={() => setScreen("lobby")} className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">BACK TO LOBBY</button>
-            <button onClick={() => { leaveRoom(); setScreen("landing"); }} data-snd="back" className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">LEAVE</button>
-          </div>
-        </ContentWrap>
-      </MenuShell>
     );
   }
 
@@ -2191,6 +2175,91 @@ function RoundBreak({ roomState, playerId }: { roomState: RoomState; playerId: s
         <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-stone-400">
           <Hourglass size={12} className="text-amber-400" />
           NEXT ROUND IN {left}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The end-of-match summary, over the staged tableau. Rocket League's trick,
+ * kept whole: the picture behind this is the GAME — the victor and the wall,
+ * or the duel's corpse — so this overlay owns only the top and bottom bands of
+ * the screen and leaves the middle to the stage. Designed at 390x844 first:
+ * the verdict up top, a compact ledger and the two ways out under the thumb.
+ */
+function MatchSummary({ data, playerId, payState, waiting, onFightAgain, onLeave }: {
+  data: MatchEndData;
+  playerId: string;
+  payState: "none" | "asking" | "paid" | "unpaid";
+  waiting: boolean;
+  onFightAgain: () => void;
+  onLeave: () => void;
+}) {
+  const mine = data.results.find((r) => r.id === playerId);
+  const rows = [...data.results].sort((a, b) => b.score - a.score);
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-7 sm:p-6">
+      <div className="animate-fadeIn flex flex-col items-center gap-1.5 text-center">
+        <div className="label-overline">BATTLE COMPLETE</div>
+        <h1 className="font-display text-2xl leading-tight text-amber-100 sm:text-4xl"
+          style={{ textShadow: "0 2px 24px rgba(0,0,0,0.85), 0 0 30px rgba(255,180,60,0.4)" }}>
+          {data.winnerKind === "none" || data.winnerName === "Draw"
+            ? "BLOOD SPILT — A DRAW"
+            : `${data.winnerName.toUpperCase()} PREVAILS`}
+        </h1>
+        {/* `isWinner` and not an id match: a war band is won by a side, and
+            every man on it won it. */}
+        {mine?.isWinner && (
+          <div className="font-display animate-pulse text-sm tracking-[0.35em] text-yellow-400"
+            style={{ textShadow: "0 2px 14px rgba(0,0,0,0.9)" }}>VICTORY IS YOURS</div>
+        )}
+        <MatchTally data={data} playerId={playerId} />
+      </div>
+
+      <div className="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-2">
+        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col gap-1 overflow-y-auto p-2 backdrop-blur">
+          {rows.map((r, i) => (
+            <div key={r.id} className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 ${
+              r.isWinner ? "bg-amber-900/30" : r.id === playerId ? "bg-sky-950/40" : ""
+            }`}>
+              <div className="font-display w-6 shrink-0 text-lg leading-none text-stone-500">#{i + 1}</div>
+              <div className="min-w-0 flex-1">
+                <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
+                  <span className="truncate">{r.name}</span>
+                  {r.isWinner && <Crown size={12} className="shrink-0 text-amber-400" />}
+                </div>
+                <div className="text-[10px] leading-tight text-stone-400">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>
+              </div>
+              <div className="shrink-0 text-right text-[11px] font-bold leading-tight">
+                <div className="text-amber-300">+{r.xpEarned} XP</div>
+                <div className="flex items-center justify-end gap-1 text-yellow-500"><Coins size={9} />+{r.goldEarned}</div>
+              </div>
+            </div>
+          ))}
+          {/* The pay is the server's to give. When it does not arrive the
+              honest thing is to say so on the screen that shows the number,
+              not to quietly print a total that includes it. */}
+          {payState === "unpaid" && (
+            <div className="px-2.5 py-1 text-[11px] leading-snug text-red-300/90">
+              This pay has not reached the war rolls — your hoard is unchanged.
+            </div>
+          )}
+          {payState === "asking" && (
+            <div className="animate-pulse px-2.5 py-1 text-[10px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
+          )}
+        </div>
+        <div className="flex gap-2.5">
+          <button onClick={onFightAgain} disabled={waiting} data-snd="confirm"
+            className="btn-primary min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">
+            {waiting
+              ? <span className="animate-pulse tracking-[0.14em]">MUSTERING…</span>
+              : <><Swords size={16} className="shrink-0" /> FIGHT AGAIN</>}
+          </button>
+          <button onClick={onLeave} data-snd="back"
+            className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-sm">
+            LEAVE
+          </button>
         </div>
       </div>
     </div>
