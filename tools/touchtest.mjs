@@ -21,7 +21,7 @@
 // ============================================================
 import { chromium } from "playwright";
 import { spawn } from "child_process";
-import { existsSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -651,6 +651,12 @@ async function lockAct(browser, url, check) {
     }
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
+    // A frame, because a reticle is a visual claim and the DOM scan above only
+    // proves it is not in the way. This is the picture the owner can look at.
+    const shot = resolve(ROOT, `art/shots/lock/${hnd}.png`);
+    mkdirSync(dirname(shot), { recursive: true });
+    await page.screenshot({ path: shot });
+    console.log(`  SHOT    ${shot}`);
     const dead = await scanLookSide(page, hnd === "left-handed");
     const cells = dead.worst.reduce((n, [, c]) => n + c, 0);
     check(`${hnd}, lock live: the reticle takes no bite out of the button side`, cells === 0,

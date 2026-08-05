@@ -74,6 +74,104 @@ overloaded.**
 attack, using the last direction or a default. A control scheme where the only
 way to attack is a gesture will lose players in the first ten seconds.
 
+---
+
+# Round two: the right thumb had two jobs as well
+
+The owner, having watched friends play: *"their biggest issue is the camera
+turning being the same hand that controls all of the attack, dodge & shove
+buttons etc. There must be a better solution like some form of tracking so all
+they have to do is move with the left stick & attack with the buttons on the
+right."*
+
+The fix above was right and it is still here. What it did not notice is that it
+moved the problem rather than removing it. **Free-look drag and every action
+button are the same thumb.** You cannot turn and attack at the same time.
+
+This is the same shape as everything above, and it has now appeared **five
+times**: *one channel carrying two orthogonal intents*. It is named in a comment
+at the head of the lock-on section in `input.ts`, with all five sightings listed,
+because it keeps being diagnosed as a sensitivity problem and it never is one.
+
+## The decision: soft lock-on
+
+The reference is For Honor, which the owner named himself. In a melee game the
+camera nearly always wants to point at the man trying to kill you, so **the game
+says so instead of making the player say so, sixty times a second, with the
+thumb it also needs for swinging.**
+
+- **Camera and facing track a target.** Nearest live enemy, scored as
+  `metres + 3.2 × radians off screen centre` — so a man 6 m dead ahead beats a
+  man 2 m away at 90°, because the one in front of you is the one you are
+  fighting.
+- **Left thumb moves, including around him.** Strafing and backpedalling now
+  circle the locked man instead of swinging the view off him. That is the whole
+  difference between a duel and two men shuffling past each other.
+- **Right thumb is buttons only.** Attack, heavy, block, dodge, shove.
+- **Bare glass on the button side keeps exactly one job**, and it is the only
+  one the lock cannot do for you: *which man*. A horizontal flick takes the next
+  target on that side, wrapping round. Travel is banked rather than
+  thresholded per event, so a slow drag switches too — a control that silently
+  does nothing is the complaint this whole scheme exists to answer.
+- **Nobody near: free-look drag comes back**, exactly as before, eased both
+  ways over ~0.25 s in and ~0.4 s out. Never snapped.
+- **Everything mirrors on the one `bretwalda.hand` store.** No fourth flag.
+- **Desktop is unchanged by default.** Lock-on is a profile-persisted binding
+  (`Lock on`, default `R`, desktop-only) and it is off until pressed.
+
+## The 8-man FFA, which is the hard case
+
+The duel is easy. Three men converging is where a lock either helps or starts
+arguing with the player, so:
+
+- **Hysteresis of 28%.** A challenger takes the lock only if he scores 28%
+  better than the man being held. Two men standing shoulder to shoulder cannot
+  trade the reticle between them at frame rate.
+- **A man the player picked with a flick is protected for 1.2 s** against the
+  automatic scoring, or the lock drags itself straight back to the nearest man
+  and the flick reads as broken.
+- **Range hysteresis:** acquire at 11 m, drop at 15 m. A flick can only take a
+  man inside *acquire* range, so a switch can never hand you somebody the lock
+  is about to let go of.
+- **The acquire cone opens to the full circle at arm's length.** It is 143°
+  either side out at 11 m and closes to nothing inside 3.6 m. The harness found
+  why: the lock's man died, two live recruits were standing at 1.4 m *behind*
+  where he had been, and the lock came up empty and handed the camera back. A
+  man close enough to hit you is the fight, whichever way he is standing.
+
+## It must not become an aimbot
+
+The weight pass caps a committed body at `SWING_TURN_RATE = 1.8 rad/s` so a blow
+cannot follow a man who dodges. **The lock obeys the same cap** — the client
+mirrors the constant so the *camera* is held with the body, or the player would
+watch his own blow miss a man who is dead centre of frame. For Honor works
+precisely because commitment survives the lock, and this is where that line is
+drawn. It is measured, not asserted: see the harness.
+
+## How it gets judged
+
+`npm run touchtest` now runs in **two acts**, because the two halves of the
+scheme want opposite rings. Act one is the empty ring the twenty original
+assertions need — an AI that kills the test warrior takes all of them with it.
+Act two musters **three recruits**, because the lock is entirely a claim about
+who else is standing there, and grades:
+
+- the lock holds facing on a *moving* man with no thumb on the glass at all;
+- a flick across the button side switches target;
+- a committed swing still cannot follow the man the lock was handed — measured
+  as the server's own rotation against the 1.8 cap, with the demand the lock was
+  making printed beside it;
+- the reticle is painted on the man it is holding, and moves with him;
+- the reticle and its tuition line take no bite out of the button side, for
+  **both** handednesses.
+
+Act two's warrior can and does die. Every assertion in it waits for a man on his
+feet and takes its verdict off the snapshot trail rather than off the state at
+the end of a settle — the first cut of the switch test watched a perfectly good
+switch happen and then failed it, because he was cut down 350 ms later.
+
+Frames land in `art/shots/lock/`.
+
 ## Things that will go wrong
 
 - **The two thumbs will fight over the touch surface.** The current code tracks
