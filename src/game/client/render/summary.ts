@@ -436,6 +436,10 @@ function reportBodies(
       foot, head,
       ndc: [+nx0.toFixed(3), +ny0.toFixed(3), +nx1.toFixed(3), +ny1.toFixed(3)],
       actT: +b.motion.actT.toFixed(2), fall: b.motion.fall,
+      // What he is PERFORMING, if anything. A corpse mid-flourish is the exact
+      // failure the standing rule exists to prevent, and it is a field rather
+      // than a screenshot argument.
+      emote: b.motion.emote ?? null,
     };
   });
 }
@@ -457,6 +461,8 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   let compose: ((band: SafeBand, from?: THREE.Vector3, seconds?: number) => AimState) | null = null;
   let aim: AimState | null = null;
   let reframeClock = REFRAME_EVERY;
+  /** Flourishes turned away because the man asking for one is lying dead. */
+  let refused = 0;
 
   /** A copy deep enough that the sim's lobby reset cannot reach into it. */
   const freeze = (p: GamePlayer): GamePlayer => ({
@@ -960,7 +966,16 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       // Before the stage exists nobody has been judged yet, and the fight's own
       // rule — the server refuses a dead man's emote — is the right one to fall
       // back to. After it, standing IS the permission.
-      return cast === null ? true : onFeet.has(id);
+      if (cast === null) return true;
+      if (onFeet.has(id)) return true;
+      // Counted, because a refusal is invisible: nothing happens, which is also
+      // what a broken relay looks like. `summaryflow` presses the row as a
+      // corpse and reads this to tell "vetoed" from "never arrived".
+      refused++;
+      if (typeof window !== "undefined") {
+        (window as unknown as Record<string, unknown>).__summaryEmoteRefused = refused;
+      }
+      return false;
     },
 
     reset() {

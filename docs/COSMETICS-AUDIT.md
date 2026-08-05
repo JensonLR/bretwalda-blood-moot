@@ -413,8 +413,12 @@ selling.
 
 ### Hair (4)
 
-Silhouette: `face-bare_front_0_.png`. Shaved (0 g) and Warrior Crop (0 g) are
-the same outline — see 2(c). **Long Mane (40 g)** is one swept shell with a
+Silhouette: `face-bare_front_0_.png`. Every face card in this audit wears the
+Warrior Crop — it is the base dress — and **the outline in that frame is a bare
+egg**: the crop is a 7 mm shell and contributes nothing a shaved head does not.
+The Shaved option was not shot on its own, and it does not need to be; the
+frame that matters is the one showing that the paid-for-nothing default is
+indistinguishable from it. See 2(c). **Long Mane (40 g)** is one swept shell with a
 hard edge and no volume break at the shoulder. **Braided War-locks (100 g)** is
 literally four spheres of falling radius per side with a brass ring under them
 (`ball(0.021 - i * 0.0026, 6)` × 4) — a string of beads, not a plait.

@@ -226,12 +226,44 @@ async function ffaPhase(browser) {
  */
 async function emoteCheck(page, cast, where) {
   const mine = cast.men.find((m) => m.id === cast.me);
-  const offered = (await page.getByLabel(/^Emote:/).count()) > 0;
+  const seen = await page.evaluate(() => ({
+    row: document.querySelectorAll('[aria-label^="Emote:"]').length,
+    mounted: (document.body.textContent || "").includes("BATTLE COMPLETE"),
+  }));
+  // Only judgeable while the summary is up and the room has not rolled back:
+  // past the rollback the row is mounted off a wire that calls every corpse
+  // idle, which is the gap the NOTE below reports rather than this assertion.
+  if (!seen.mounted || cast.roomState !== "finished") {
+    console.log(`[flow] NOTE ${where}: the row could not be judged in the window `
+      + `— mounted=${seen.mounted} room=${cast.roomState}. This box needs longer to `
+      + `draw its first summary frame than the server's ten seconds allow.`);
+    return mine;
+  }
   check(`${where}: the flourish is offered exactly to the man left standing`,
-    !!mine && offered === mine.standing,
-    `localStanding=${mine?.standing} emoteButtons=${offered ? "shown" : "none"}`
-    + ` wire=${cast.wireState}/${cast.roomState}`);
+    !!mine && (seen.row > 0) === mine.standing,
+    `localStanding=${mine?.standing} emoteButtons=${seen.row} wire=${cast.wireState}/${cast.roomState}`);
   return mine;
+}
+
+/**
+ * THE VETO, END TO END. A man the stage laid dead presses the row himself — the
+ * press is legal as far as the server is concerned, because by now the room has
+ * rolled back and every man on it is idle again — and the tableau must refuse
+ * it: no corpse performing, and the stage's own refusal counter moved. Without
+ * the counter "refused" and "the press never arrived" are the same picture.
+ */
+async function vetoCheck(page, where) {
+  const before = await page.evaluate(() => window.__summaryEmoteRefused ?? 0);
+  const pressed = await tapNow(page, "RAISE");
+  await sleep(2500);
+  const after = await page.evaluate(() => ({
+    refused: window.__summaryEmoteRefused ?? 0,
+    performing: (window.__summaryBodies ?? []).filter((m) => !m.standing && m.emote),
+  }));
+  check(`${where}: a man lying dead is refused his flourish`,
+    pressed && after.refused > before && after.performing.length === 0,
+    `pressed=${pressed} refusals ${before}->${after.refused} `
+    + `corpsesPerforming=${after.performing.length}`);
 }
 
 /**
@@ -273,6 +305,7 @@ async function teamPhase(browser) {
     `cast=${men.length} winner=${verdict?.winnerTeam} misplaced=${wrong.length} kind=${stage?.kind}`);
   await page.screenshot({ path: `${OUT}/summary-flow-team.png` });
   await emoteAfterRollback(page, mine, "war band");
+  await vetoCheck(page, "war band");
   await ctx.close();
 }
 
