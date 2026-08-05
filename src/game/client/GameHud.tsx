@@ -452,6 +452,7 @@ export default function GameHud({
           <div
             ref={setLockReticle}
             aria-hidden
+            data-lock-reticle=""
             className="absolute left-0 top-0 z-10 pointer-events-none"
             style={{ opacity: 0, willChange: "transform, opacity" }}>
             <div className="relative h-14 w-14">
