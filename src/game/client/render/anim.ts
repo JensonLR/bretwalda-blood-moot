@@ -1591,8 +1591,17 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
         // arrival is the only truth left.
         t = now;
       } else if (off !== 0) {
-        t -= off * 0.25;
-        m.netInterval = clamp(m.netInterval - (off / slots) * 0.05, NET_INTERVAL_MIN, NET_INTERVAL_MAX);
+        t -= off * 0.7;
+        // The period is only ever nudged by a SMALL residual. A large offset is
+        // a phase error — the grid was seeded a frame away from the wire's own
+        // — and correcting a phase error through the frequency is how a lock
+        // overshoots: the pull-in drags the period several percent off, the
+        // motion runs slow for a second, and it takes as long again to walk
+        // back. Big offsets are left to the phase term, which settles in three
+        // or four packets on its own.
+        if (Math.abs(off) < dtFrame * 0.6) {
+          m.netInterval = clamp(m.netInterval - (off / slots) * 0.006, NET_INTERVAL_MIN, NET_INTERVAL_MAX);
+        }
       }
     }
   }

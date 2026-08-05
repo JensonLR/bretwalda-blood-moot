@@ -252,6 +252,7 @@ async function loadAnim() {
 // on a chosen frame clock.
 function traceWalk(anim, THREE, {
   fps = 60, packetMs = 50, speed = 4.5, seconds = 4, local = true, jitter = null, turnRate = 0,
+  drop = null,
 }) {
   const dt = 1 / fps;
   const id = local ? "me" : "other";
@@ -289,10 +290,17 @@ function traceWalk(anim, THREE, {
     // — otherwise the harness itself beats against the frame clock and invents
     // a hitch the game does not have.
     if (t * 1000 >= nextPacket - 1e-9) {
-      nextPacket += jitter ? jitter[ji % jitter.length] : packetMs; ji++;
-      wire.position = { x: simX, y: 0, z: 0 };
-      wire.rotation = simRot;
-      wire.velocity = { x: speed, y: 0, z: 0 };
+      nextPacket += jitter ? jitter[ji % jitter.length] : packetMs;
+      // A DROPPED PACKET. The grid does not move — the server sent it, the wire
+      // ate it — so the client simply never sees that state and the packet after
+      // it carries two intervals of motion. This is the case the old smoothing
+      // could not tell apart from a teleport.
+      if (!(drop && drop(ji))) {
+        wire.position = { x: simX, y: 0, z: 0 };
+        wire.rotation = simRot;
+        wire.velocity = { x: speed, y: 0, z: 0 };
+      }
+      ji++;
     }
     Object.assign(player, wire);
     anim.stepWarriorTransform(rig, motion, player, dt, ctx, undefined);
@@ -342,6 +350,14 @@ async function runJudder({ jitterGaps = null } = {}) {
     ["remote player, 60 fps, clean 50ms wire", { fps: 60, local: false }],
     ["local player,  30 fps, clean 50ms wire", { fps: 30, local: true }],
     ["local player, 120 fps, clean 50ms wire", { fps: 120, local: true }],
+    // One packet in seven never arrives. The interval it belonged to has to be
+    // covered by the interval after it, at the right SPEED — a stretch, not a
+    // sprint and not a teleport.
+    ["remote player, 60 fps, 1-in-7 packet lost", { fps: 60, local: false, drop: (i) => i % 7 === 3 }],
+    ["local player,  60 fps, 1-in-7 packet lost", { fps: 60, local: true, drop: (i) => i % 7 === 3 }],
+    // Two in a row, so the buffer genuinely runs dry and the extrapolation cap
+    // is the thing being measured rather than the interpolation.
+    ["remote player, 60 fps, 2 in a row lost", { fps: 60, local: false, drop: (i) => i % 11 === 4 || i % 11 === 5 }],
   ];
   if (jitterGaps && jitterGaps.length > 10) cases.push(["local player,  60 fps, MEASURED jitter", { fps: 60, local: true, jitter: jitterGaps }]);
 
@@ -371,8 +387,70 @@ async function runJudder({ jitterGaps = null } = {}) {
   for (let i = 1; i < s.length; i++) steps.push(((s[i].x - s[i - 1].x) * 100).toFixed(2));
   log(`    ${steps.join("  ")}`);
   log(`    even motion at 4.5 u/s and 60 fps would be 7.50 cm every frame.`);
+
+  // -------------------------------------------------------------------------
+  // FRAMERATE INDEPENDENCE. The old smoothing converged a fixed fraction per
+  // FRAME, so the same wire drew a different path on a 120 Hz phone than on a
+  // 60 Hz one — the game's physics changed with the refresh rate, and most
+  // flagship phones are 120 Hz. The 60 fps frame times are a subset of the
+  // 120 fps ones, so the two traces can be compared point for point.
+  // -------------------------------------------------------------------------
   log("");
-  return { results, text: out.join("\n") };
+  log("  FRAMERATE INDEPENDENCE — same wire, same instants, different frame clocks:");
+  const fpsPairs = [[60, 120], [30, 60], [30, 120]];
+  const divergence = {};
+  for (const [a, b] of fpsPairs) {
+    const ra = traceWalk(anim, THREE, { fps: a, local: true, seconds: 4, turnRate: 3.0 });
+    const rb = traceWalk(anim, THREE, { fps: b, local: true, seconds: 4, turnRate: 3.0 });
+    const byT = new Map(rb.samples.map((s) => [Math.round(s.t * 1e6), s]));
+    const dx = [], dyaw = [];
+    for (const s of ra.samples) {
+      const o = byT.get(Math.round(s.t * 1e6));
+      if (!o) continue;
+      dx.push(s.x - o.x);
+      dyaw.push(s.yaw - o.yaw);
+    }
+    // Two DIFFERENT quantities, and only one of them is judder.
+    //
+    // A slower frame clock can only observe a packet arrival to its own
+    // precision, so a 30 Hz client places the wire's grid a few milliseconds
+    // differently from a 120 Hz one and renders at a constant small offset
+    // along the SAME path. That is a latency difference, not a physics
+    // difference, and it is unavoidable at any frame rate.
+    //
+    // What must not differ is the SHAPE — the residual once that constant
+    // offset is taken out. A shape difference means the frame rate changed how
+    // the body moves, which is the bug this file exists to catch.
+    const mean = dx.reduce((p, q) => p + q, 0) / (dx.length || 1);
+    const resid = stats(dx.map((v) => Math.abs(v - mean)));
+    const ds = stats(dx.map(Math.abs)), dr = stats(dyaw.map(Math.abs));
+    divergence[`${a}v${b}`] = resid;
+    log(`    ${String(a).padStart(3)} fps vs ${String(b).padStart(3)} fps   n=${String(ds ? ds.n : 0).padStart(4)}  offset=${(mean * 100).toFixed(2)}cm (${((mean / 4.5) * 1000).toFixed(1)}ms)  SHAPE residual p95=${resid ? (resid.p95 * 100).toFixed(2) : "n/a"}cm max=${resid ? (resid.max * 100).toFixed(2) : "n/a"}cm   |dyaw| max=${dr ? (dr.max * 1000).toFixed(1) : "n/a"}mrad`);
+  }
+
+  // -------------------------------------------------------------------------
+  // VERDICT. The bar the owner actually cares about, stated as numbers so no
+  // report can claim a pass the harness did not print.
+  // -------------------------------------------------------------------------
+  log("");
+  log("  VERDICT (ripple < 10% everywhere, framerate SHAPE residual < 2cm)");
+  const checks = [];
+  const check = (name, ok, detail) => { checks.push(ok); log(`    ${ok ? "PASS" : "FAIL"}  ${name.padEnd(46)} ${detail}`); };
+  for (const [name] of cases) {
+    check(`position ripple  ${name}`, results[name].ripple < 0.10, `${(results[name].ripple * 100).toFixed(1)}%`);
+  }
+  for (const [name] of cases) {
+    const r = results["rot:" + name];
+    check(`rotation ripple  ${name}`, Math.abs(r.yawRipple) < 0.10, `${(r.yawRipple * 100).toFixed(1)}%`);
+  }
+  for (const [k, ds] of Object.entries(divergence)) {
+    check(`framerate independence ${k}`, !!ds && ds.max < 0.02, ds ? `shape residual max ${(ds.max * 100).toFixed(2)}cm` : "no samples");
+  }
+  const passed = checks.filter(Boolean).length;
+  log("");
+  log(`  JUDDER VERDICT: ${passed}/${checks.length} checks pass — ${passed === checks.length ? "PASS" : "FAIL"}`);
+  log("");
+  return { results, divergence, pass: passed === checks.length, text: out.join("\n") };
 }
 
 // ---------------------------------------------------------------------------
