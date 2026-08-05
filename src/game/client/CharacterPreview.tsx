@@ -24,7 +24,7 @@ const LENS_LABEL: Record<PreviewLens, string> = {
   face: "PORTRAIT",
   bust: "SHOULDERS",
   figure: "FULL KIT",
-  fight: "AT FIGHT DISTANCE",
+  fight: "FIGHT RANGE",
 };
 
 /**

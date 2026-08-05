@@ -43,7 +43,7 @@ import {
 } from "./render/quality";
 import {
   SLOT_LENS, takeThumbJob, returnThumbJob, publishThumb, setThumbForgeLive,
-  dropThumbCache, type PreviewLens,
+  dropThumbCache, thumbsWaiting, type PreviewLens,
 } from "./armouryThumbs";
 
 /** Accent colour per class — the same table `anim.ts` dresses a warrior from. */
@@ -84,13 +84,19 @@ interface LensFrame {
   rise: number;
 }
 
+// `aim` is a fraction of the crown height, and the crown is ~1.78 m, so 0.91
+// is the bridge of the nose. Aiming AT the crown — which the first pass did —
+// puts the head in the bottom third of the frame with the sky above it, and
+// that is the owner's complaint about his own screenshot restated: the thing
+// being sold ends up at the frame's weakest point.
 const LENS: Record<Exclude<PreviewLens, "fight">, LensFrame> = {
-  // Crown to collarbone plus air. A helmet's crest has to have somewhere to be.
-  face: { height: 0.70, aim: 0.955, fov: 22, rise: 0.02 },
+  // Crown to collarbone. 0.56 m is a head and a hand's width of air over the
+  // crest, which is what a 950-gold serpent needs and no more.
+  face: { height: 0.56, aim: 0.908, fov: 22, rise: 0.0 },
   // Crown to the belt: the shoulders, which is the whole of what a finish paints.
-  bust: { height: 1.16, aim: 0.80, fov: 28, rise: 0.03 },
+  bust: { height: 1.05, aim: 0.80, fov: 28, rise: 0.0 },
   // Boots to a hand's width over the crest, and never cropped at the shins.
-  figure: { height: 2.28, aim: 0.50, fov: 34, rise: 0.00 },
+  figure: { height: 2.10, aim: 0.50, fov: 34, rise: 0.0 },
 };
 
 /**
@@ -127,7 +133,13 @@ function shopQuality(): QualitySettings {
     // and the subject is 400 px tall here rather than 34.
     textureSize: q.tier === "low" ? 256 : 512,
     envMapSize: q.tier === "low" ? 128 : 256,
-    shadowMapSize: q.tier === "low" ? 512 : 1024,
+    // 512 everywhere, and DOWN from the arena's 1024 on two tiers. The arena
+    // spends a shadow map on a 24 m cascade; this one covers a 40-degree cone
+    // with one man and a metre of ground in it, so 512 is finer per texel here
+    // than 2048 is there. Measured on the GPU-less capture box: the high tier
+    // at 1024 was re-rendering a megapixel of depth every frame to shade one
+    // pair of boots, and the shop drew at 0.5 fps because of it.
+    shadowMapSize: 512,
     // Nothing here instances, throws blood or needs a torch ring.
     particleScale: 0,
     moteCount: 0,
@@ -219,18 +231,22 @@ function raiseLights(q: QualitySettings): {
   //
   // KEY — warm, three-quarter front left, high, and IT CASTS. Everything that
   // makes a portrait sit on the ground is in that last clause.
-  const key = new THREE.SpotLight(0xffd2a0, 26, 12, 0.72, 0.62, 2);
+  // The cone is 0.52 rad — tight enough that its shadow frustum contains the
+  // man, the plinth and nothing else. A wide cone here is not a softer light,
+  // it is a coarser shadow: three sizes the shadow camera off the cone angle,
+  // so every degree of spread is texels spent on empty ground.
+  const key = new THREE.SpotLight(0xffd2a0, 26, 9, 0.52, 0.62, 2);
   key.position.set(-1.55, 2.55, 1.85);
   key.target.position.set(0, 1.05, 0);
   if (q.shadows) {
     key.castShadow = true;
-    const map = Math.max(512, Math.min(1024, q.shadowMapSize));
+    const map = Math.max(256, Math.min(1024, q.shadowMapSize));
     key.shadow.mapSize.set(map, map);
     key.shadow.camera.near = 0.5;
     // three overwrites a spot's shadow-camera far with `light.distance`, so the
     // normalised bias is derived against that rather than baked — the same
     // derivation summary.ts uses, at this rig's own subject distance.
-    const near = 0.5, far = 12, z = 3.0;
+    const near = 0.5, far = 9, z = 3.0;
     key.shadow.bias = -(0.010 * far * near) / ((far - near) * z * z);
     key.shadow.normalBias = 0.022;
     key.shadow.radius = q.softShadows ? 3 : 1;
@@ -507,6 +523,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     motion = createMotion(player);
     crown = built.headTop || 1.78;
     built.group.position.set(0, 0, 0);
+    armRig();
   }
 
   buildRig();
@@ -540,6 +557,24 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     camera.updateProjectionMatrix();
   }
 
+  /**
+   * Nothing in the fist, at a portrait crop.
+   *
+   * The warden's spear stands a metre over his head and crosses the whole
+   * frame diagonally; the huscarl's shield is 800 mm across and sits between
+   * the lens and his chest. At FULL KIT and at fight distance that is the man,
+   * and it belongs there. At a head crop it is a pole through the photograph
+   * of the thing being sold, and the first capture of this screen had a
+   * 2400-gold helmet competing with a stick.
+   */
+  function armRig(): void {
+    if (!rig) return;
+    const carried = lens === "figure" || lens === "fight";
+    rig.weapon.visible = carried;
+    if (rig.offhand) rig.offhand.visible = carried;
+    if (rig.shield) rig.shield.visible = carried;
+  }
+
   function applyLens(): void {
     const fight = lens === "fight";
     forge.sky.root.visible = fight;
@@ -553,6 +588,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     forge.key.intensity = fight ? 7 : 26;
     forge.rim.intensity = fight ? 26 : 62;
     forge.fill.intensity = fight ? 1.6 : 5.0;
+    armRig();
   }
   applyLens();
 
@@ -572,6 +608,18 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   let last = 0;
   let clock = 0;
   let sized = { w: 0, h: 0 };
+  /**
+   * Wall-clock time the player last touched the turntable.
+   *
+   * A shop mannequin taking a fifteen-second weight shift does not need a
+   * frame every 8 ms, and MOST PLAYERS ARE ON A PHONE — where every frame
+   * this panel draws is a frame of battery and heat spent on a menu. So the
+   * stage idles at 30 and runs flat out for a second after a drag, which is
+   * the only time anybody can see the difference. A 120 Hz phone dragging the
+   * turntable gets 120 Hz.
+   */
+  let lastTouch = -Infinity;
+  const IDLE_HZ = 30;
 
   function renderOnce(): void {
     renderer.render(scene, camera);
@@ -579,7 +627,13 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
 
   const loop = (t: number): void => {
     raf = requestAnimationFrame(loop);
-    const dt = last === 0 ? 0.016 : Math.min(0.05, (t - last) / 1000);
+    const since = t - last;
+    // Never skip the frame a thumbnail is waiting on: the cards fill in one a
+    // frame, and halving the frame rate would double how long a slot of ten
+    // takes to become a shop.
+    if (last !== 0 && since < 1000 / IDLE_HZ - 1
+        && t - lastTouch > 1000 && !thumbsWaiting()) return;
+    const dt = last === 0 ? 0.016 : Math.min(0.05, since / 1000);
     last = t;
     clock += dt;
     ctx.dt = dt; ctx.rawDt = dt; ctx.time = clock;
@@ -612,9 +666,14 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     renderer.setScissorTest(false);
     renderOnce();
     ready = true;
+    STATS.frames++;
+    STATS.worstFrameMs = Math.max(STATS.worstFrameMs, performance.now() - t);
+    if ((STATS.frames & 15) === 0) publishStats();
   };
   raf = requestAnimationFrame(loop);
 
+  STATS.tier = forge.quality.tier;
+  publishStats();
   setThumbForgeLive(true);
 
   return {
@@ -632,12 +691,13 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
       if (next === lens) return;
       const wasDefault = Math.abs(turn - LENS_BEARING[lens]) < 1e-4;
       lens = next;
+      lastTouch = performance.now();
       if (wasDefault) turn = LENS_BEARING[next];
       applyLens();
       frameCamera(sized.w || 1, sized.h || 1);
     },
-    turnBy(delta) { turn += delta; },
-    setTurn(radians) { turn = radians; },
+    turnBy(delta) { turn += delta; lastTouch = performance.now(); },
+    setTurn(radians) { turn = radians; lastTouch = performance.now(); },
     dispose() {
       cancelAnimationFrame(raf);
       setThumbForgeLive(false);
@@ -677,6 +737,32 @@ function sameAppearance(a: Appearance, b: Appearance): boolean {
 /** Edge of a thumbnail in device pixels. 112 CSS px on a 2x phone is 224. */
 const THUMB_PX = 132;
 
+/**
+ * What the stage is actually doing, on `window`, for the capture harness.
+ *
+ * `tools/armourycard.mjs` cannot photograph a WebGL panel to find out whether
+ * it is alive — a context without `preserveDrawingBuffer` reads back as an
+ * empty canvas however healthy it is, which is exactly the false negative the
+ * first run of that tool produced. So the stage says so itself, in numbers a
+ * harness can fail on: frames drawn, thumbnails taken, and how long the
+ * slowest one cost. Nothing in the game reads this.
+ */
+export interface StageStats {
+  frames: number;
+  thumbs: number;
+  /** Milliseconds spent in the slowest single thumbnail. */
+  worstThumbMs: number;
+  /** Milliseconds spent in the slowest single frame, thumbnails included. */
+  worstFrameMs: number;
+  tier: string;
+}
+const STATS: StageStats = { frames: 0, thumbs: 0, worstThumbMs: 0, worstFrameMs: 0, tier: "" };
+function publishStats(): void {
+  if (typeof window !== "undefined") {
+    (window as unknown as Record<string, unknown>).__armouryStats = STATS;
+  }
+}
+
 let thumbCam: THREE.PerspectiveCamera | null = null;
 let thumbBuf: Uint8Array | null = null;
 let thumbCanvas: HTMLCanvasElement | null = null;
@@ -689,6 +775,7 @@ let thumbCanvas: HTMLCanvasElement | null = null;
 function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
   const job = takeThumbJob();
   if (!job) return;
+  const t0 = performance.now();
   const renderer = forge.renderer;
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   if (size.x < THUMB_PX || size.y < THUMB_PX) { returnThumbJob(job); return; }
@@ -702,8 +789,14 @@ function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
 
   const ap = job.spec.appearance;
   const cls = job.spec.warriorClass;
+  // `medium`, not the tier. A card is 132 px square and a desktop's `high`
+  // build is the single most expensive thing this file does — ten of them at
+  // one a frame is what made the first capture of this screen come back with
+  // three cards filled in and seven spinners. `low` is refused because it
+  // drops the head to 14x10 sampling rows, and six of the eight slots in this
+  // shop sell something on a face.
   const built = buildCharacter(
-    cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, forge.materials, forge.quality.tier, job.spec.faceSeed,
+    cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, forge.materials, "medium", job.spec.faceSeed,
   );
   const subject = built.group;
   const lens = SLOT_LENS[job.spec.slot] ?? "face";
@@ -780,5 +873,7 @@ function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
     url = thumbCanvas.toDataURL("image/png");
   }
   publishThumb(job.key, url);
+  STATS.thumbs++;
+  STATS.worstThumbMs = Math.max(STATS.worstThumbMs, performance.now() - t0);
 }
 

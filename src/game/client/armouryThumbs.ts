@@ -128,6 +128,12 @@ export function watchThumbs(fn: (key: string, url: string) => void): () => void 
   return () => { WATCHERS.delete(fn); };
 }
 
+/** True while cards are still waiting on a picture. The stage's frame loop
+ *  refuses to idle down while this holds. */
+export function thumbsWaiting(): boolean {
+  return QUEUE.length > 0;
+}
+
 /** One job, for the stage's frame loop. Null when there is nothing to draw. */
 export function takeThumbJob(): ThumbJob | null {
   return QUEUE.shift() ?? null;

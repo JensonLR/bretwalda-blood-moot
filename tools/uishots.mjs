@@ -173,22 +173,58 @@ async function main() {
     await page.waitForTimeout(1500);
     await shot("training-setup");
 
-    // armoury, reached from the landing screen
+    // armoury, reached from the landing screen. The wait is long because the
+    // shop now renders with the GAME's renderer — a texture library, a PMREM
+    // bake and a warrior — and a shot taken before that lands photographs an
+    // empty frame and files it as a regression.
     await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(900);
     await page.getByRole("button", { name: /Armoury/ }).first().click();
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(7000);
     await shot("armoury");
+
+    // The cheap end of the ladder, against the expensive end below. 30 gold
+    // and 2400 gold have to be different pictures or the shop is not a ladder.
+    const cheap = page.getByRole("button", { name: /Iron Spangenhelm/ }).first();
+    if (await cheap.count()) {
+      await cheap.click();
+      await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
+      await page.waitForTimeout(2500);
+      await shot("armoury-cheap");
+    }
+
+    // The cloak tab: a different slot takes a different lens (a cloak is a
+    // whole figure, a helm is a portrait), so this is the frame that shows
+    // the crop is per slot rather than one framing for everything.
+    const cloakTab = page.getByRole("button", { name: /^CLOAKS$/ }).first();
+    if (await cloakTab.count()) {
+      await cloakTab.click();
+      await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
+      await page.waitForTimeout(3500);
+      await shot("armoury-cloaks");
+    }
+
+    // AT FIGHT DISTANCE. The audit's decisive finding is that seven helmets
+    // are the same 20 px grey dome at the range the game is played at; this
+    // is the control that lets a player see that before he spends.
+    const fight = page.getByRole("button", { name: /FIGHT RANGE/ }).first();
+    if (await fight.count()) {
+      await fight.click();
+      await page.waitForTimeout(2500);
+      await shot("armoury-fight");
+    }
 
     // ...and with a locked helm on the mannequin, which is the only state that
     // shows the price and the buy button the server now answers for.
+    const helmTab = page.getByRole("button", { name: /^HELMETS$/ }).first();
+    if (await helmTab.count()) { await helmTab.click(); await page.waitForTimeout(1500); }
     const helm = page.getByRole("button", { name: /Sutton Hoo/ }).first();
     if (await helm.count()) {
       await helm.click();
       // Back to the top: the mannequin and the price it is asking for are what
       // this shot is of, and tapping an item leaves the list scrolled to it.
       await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
-      await page.waitForTimeout(1200);
+      await page.waitForTimeout(3000);
       await shot("armoury-staged");
 
       // Ask to buy 2400 gold of helmet with nothing in the purse. The server
