@@ -361,11 +361,42 @@ the ten rungs are one object with fittings bolted to it. The frames agree:
 | 9 | Wyrm-Crest | 950 | deep cheeks + a serpent that does not break the outline | **REBUILD or REPRICE to ~400** |
 | 10 | Sutton Hoo | 2400 | mask, aventail, crest | keep — the only rung that reads |
 
-At fight distance (`art/shots/audit/cards/helmfight-*.png`) rungs 2, 3, 5 and 6
-are the same 20 px grey dome. Panel 5 is the Ridge Helm at 190 gold and there
-is no ridge in it. **The instruction for the art pass is not "add more
-fittings" — it is: differentiate the BOWL.** Four distinct bowls, each a
-different object from every bearing:
+**The decisive frame is `art/shots/audit/helm-fight.png`** — all ten, one
+light, one mark, at 1:1 play scale. Read across it and **three panels are
+different objects: 1 (skin), 4 (a dark cowl) and 10 (a pale face). The other
+seven — 30 gold through 950, 2110 gold of purchases — are the same 20 px grey
+dome.** Panel 5 is the Ridge Helm at 190 and there is no ridge in it; panels 7,
+8 and 9 differ from each other by a two-pixel smudge on the crown. Worth saying
+out loud, because it decides where the next pass spends its time: at that
+range the brightest thing on the warrior is **his leg wraps**, and the second
+is the shield. Nothing a player can buy for his head competes with a free pair
+of cream puttees.
+
+Two specific defects behind that, both checkable in the file:
+
+- **The Wyrm-Crest's arch is inverted, and it is the exact defect the Ridge
+  Helm's own comment says was fixed.** The ridge crest lifts
+  `0.005 + 0.030 * clamp01(v)^0.6` — monotonic, so the two patches meet at the
+  crown at full height, and its comment records that a *mid-slope* peak "lifted
+  the helmet's outline by 3 mm over a plain spangenhelm, which is a rung nobody
+  can see they bought". The wyrm crest, at five times the price, still lifts
+  `0.006 + 0.052 * sin(π · clamp01(v · 0.84 + 0.10))^0.55`. That argument
+  saturates at `v ≈ 1.07`, so the sine is **zero at the crown**: the serpent's
+  rise peaks low on the flank of the bowl and dies to 6 mm where the animal is
+  supposed to arch. The shop text promises "a serpent arched over the crown,
+  its head thrown out past the brow" and the geometry delivers a bulge on the
+  side of the cap. **FIX: make the wyrm's lift monotonic in `v` like the
+  ridge's, at 45–55 mm at the pole, and carry the head 40 mm past the brow
+  line so it breaks the outline from the front as well as the side.**
+- **At front-on, the 950-gold helm and the 2400-gold helm have the same
+  outline.** `art/shots/sil/cards/face-under_helm_front_0_.png` against
+  `face-under_mask_front_0_.png`: both are a smooth dome with a small apex nub
+  and a curtain falling to the shoulders. Only material and the mask separate
+  them, and material is the first thing dusk takes away.
+
+**The instruction for the art pass is not "add more fittings" — it is:
+differentiate the BOWL.** Four distinct bowls, each a different object from
+every bearing:
 
 1. **Spangenhelm** — four plates with the frame bands standing 8–10 mm proud,
    shallow dome, browband riveted.
@@ -414,12 +445,26 @@ honest ladder: **bundle colour with the style, or price colours at 10.**
 ### Cloaks (5)
 
 The slot with the largest silhouette change available to a player, and the one
-with a known defect (it gathers through the tunic). The Gilded War Cloak
-(400 g) was already read here as a lampshade — a rigid truncated cone, no fall,
-no gather, hem blowing to white under the fire key. **The structural finding
-is in §1: the cut is a symmetric cape and it should be an asymmetric
-single-shoulder cloak.** Do that once and all five options improve, because
-they are one geometry in five colours.
+with a known defect (it gathers through the tunic).
+
+**`art/shots/audit/cards/cloaks-5._Gilded_War_Cloak_400g_back.png` settles the
+Gilded War Cloak: it is a lampshade,** and more precisely than the earlier
+reading said. It is a truncated cone of constant taper; its hem is a straight
+horizontal circle at the knee; its top edge is a hard horizontal line standing
+*above* the shoulders with daylight between the cloth and the mail on both
+sides, so the garment hangs off nothing; the folds authored into `surf` do not
+survive as shading at this scale; and the colour is a saturated school-bus
+yellow whose knit tile reads as basketwork. **REBUILD before anything else in
+this slot: shoulders that carry the cloth, a hem that is not a circle, and a
+gold that is dirty rather than primary.** Compare the same panel's Traveller's
+Cloak (30 g) — the same cone in brown, which reads better only because brown
+hides more.
+
+**The structural finding is in §1: the cut is a symmetric cape and it should be
+an asymmetric single-shoulder cloak.** Do that once and all five options
+improve, because they are one geometry in five colours — which is also the
+pricing answer: 90 gold for a recolour of a 30-gold garment is only honest if
+the garment is good.
 
 ### Armour Finish (7) — up to 510 gold for a tint on two shoulders
 
@@ -461,13 +506,22 @@ survives the helmets that came after it.
 There is no lens in `/shot` that photographs a weapon alone, so these are the
 man holding it at kit and fight distance, in silhouette and in material.
 
-- **The sword reads as a cane** (`finishes-1._Rough_Iron_0g.png`). It hangs
-  from a slack arm at ~30° off vertical, and at that bearing the blade is a
-  dark line of even width with no guard, no pommel highlight and no point. The
-  geometry underneath is good — rhombic section, distal taper, lobed pommel —
-  and none of it survives the pose. **FIX in `anim.ts`, not in geometry: bring
-  the rest carry up so the blade is across the body or point-down-and-forward
-  with the guard silhouetted, and catch a specular line down the fuller.**
+- **The sword reads as a cane from in front and as a sword from behind.**
+  At −35° (`finishes-1._Rough_Iron_0g.png`) it hangs from a slack arm ~30° off
+  vertical and the blade is a dark line of even width with no guard, no pommel
+  highlight and no point; from 180°
+  (`cloaks-5._Gilded_War_Cloak_400g_back.png`) the same weapon reads correctly,
+  lobed pommel and all. So the geometry is fine and **the defect is the rest
+  carry plus the value**: at the bearings a player fights from, the blade is a
+  dark object against dark ground. **FIX in `anim.ts`: bring the carry up so
+  the guard is silhouetted against the tunic rather than against grass, and
+  raise the blade's specular so the fuller catches a line.**
+- **The Dane axe is the best weapon silhouette in the game and should be the
+  reference.** `art/shots/sil/cards/weapons-berserker_3_4.png` — the bearded
+  crescent on the long haft is unmistakable with the material off. The same
+  weapon at −90° (`weapons-berserker_profile.png`) is a bare stick, because
+  the head's wedge is 40 mm edge-on. That is acceptable for an axe; it is what
+  every other weapon should be measured against.
 - **The shield is the whole man.** At fight distance the huscarl reads as a
   shield with legs; the helmet he paid 950 gold for is 20 px behind it.
   Edge-on (`weapons-huscarl_profile.png`) the shield is a **flat plank with
@@ -492,20 +546,23 @@ man holding it at kit and fight distance, in silhouette and in material.
 3. **The armoury preview renders with no materials, no env map and a 1.1
    ambient.** `CharacterPreview.tsx`. This is the screen the owner judged, and
    it is showing worse than the game has.
-4. **Seven of ten helmets are one bowl**, and at fight distance four of them
-   are the same 20 px dome. `art/shots/audit/cards/helmfight-*.png`,
-   `art/shots/sil/cards/helm-*_3_4.png`.
+4. **Seven of ten helmets are one bowl, and at fight distance those seven —
+   2110 gold of the ladder — are the same 20 px grey dome.**
+   `art/shots/audit/helm-fight.png`. Includes the 950-gold Wyrm-Crest, whose
+   arch is mathematically flattened at the crown (see §3).
 5. **Armour Finish sells up to 510 gold of colour that two classes cannot
    wear.** `art/shots/audit2/cards/finishes-1._Rough_Iron_0g.png` vs
    `finishes-4._Bronze_Scales_160g.png`.
-6. **The sword reads as a cane and the shield as a plank.**
+6. **The Gilded War Cloak (400 g) is a lampshade.**
+   `art/shots/audit/cards/cloaks-5._Gilded_War_Cloak_400g_back.png`.
+7. **The sword reads as a cane and the shield as a plank.**
    `finishes-1._Rough_Iron_0g.png`, `weapons-huscarl_profile.png`.
-7. **Jarl's Crowned Helm (570 g) has less geometry than Boar-Crest (380 g).**
+8. **Jarl's Crowned Helm (570 g) has less geometry than Boar-Crest (380 g).**
    `HELM` table.
-8. **Braided War-locks (100 g) and Ringed Braid (120 g) are strings of
+9. **Braided War-locks (100 g) and Ringed Braid (120 g) are strings of
    spheres.** `characters.ts`, the `ball(...)` loops.
-9. **Two paid hair/beard colours are the same colour** (Greybeard, Snow White).
-10. **War paint dies under the shop's most expensive helmet.**
+10. **Two paid hair/beard colours are the same colour** (Greybeard, Snow White).
+11. **War paint dies under the shop's most expensive helmet.**
     `art/shots/sil/sil-warpaint.png` and the earlier `warpaint.png` reading.
 
 ## 5. Cut, reprice, rebuild — the list
