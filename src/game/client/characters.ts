@@ -1312,13 +1312,33 @@ interface Lod {
 // The cost is ~1000 vertices on **one** mesh per warrior — the head is a single
 // merged geometry, it is shared by loadout and seed, and it is the only part of a
 // warrior anybody looks at from a metre away. It is the cheapest fix in the file.
+//
+// THE ROW COUNT IS PINNED ACROSS THE TIERS, and that is the whole point of the
+// paragraph above rather than an oversight in it. `medium` used to give the head
+// 30×30 and `low` 14×10, both of them under the 44 rows this note exists to
+// establish — and `detectTier` puts **every phone** on `medium` or below. So the
+// face a modeller built has never once been rendered on the device most of this
+// game's players hold: they got the smooth ball with two dark patches, which is
+// exactly what the owner photographed and sent back.
+//
+// The head is therefore the one mesh whose tessellation is a *correctness*
+// number and not a quality one. It is bought back out of `body` and `limb`,
+// which are swept cylinders whose silhouettes are already round at eight sides —
+// a rib fewer on a thigh is invisible at any distance, a row fewer on a nose is
+// the nose. Measured per warrior, medium: head 961 → 1845 verts (+884), body and
+// limbs −612, net +272 on a figure that carries about 9k. Low pays +796 on the
+// head and gives back 430; the head is still a third of the budget it was on
+// `high` and it now has a brow, a socket and a nostril in it.
 const LOD: Record<CharacterDetail, Lod> = {
   high: { body: 18, limb: 12, headU: 40, headV: 44, shellU: 14, shellV: 8, trim: true, fingers: true },
-  medium: { body: 14, limb: 10, headU: 30, headV: 30, shellU: 10, shellV: 6, trim: true, fingers: true },
+  medium: { body: 12, limb: 8, headU: 40, headV: 44, shellU: 10, shellV: 6, trim: true, fingers: true },
   // Low drops ornament and tessellation. It does not drop a layer, a hem or a
   // class silhouette — those are art direction, and the bar says art direction
-  // survives the tier.
-  low: { body: 10, limb: 7, headU: 14, headV: 10, shellU: 7, shellV: 4, trim: false, fingers: false },
+  // survives the tier. It no longer drops the face either: 30×30 is under the
+  // Nyquist limit for the tightest creases, but it clears the brow, the socket,
+  // the orbital margin, the nasal dorsum, the lip line and the mandible edge,
+  // which is the difference between a head and an egg.
+  low: { body: 8, limb: 6, headU: 30, headV: 30, shellU: 7, shellV: 4, trim: false, fingers: false },
 };
 
 // ============================================================
@@ -4303,6 +4323,46 @@ export function buildCharacter(
   // It collapses into the base tone on low, because at that tessellation the parts
   // that wear it are two pixels each and a draw call is worth more than they are.
   const skinWarm = thrifty ? skin : M.flesh(canon.warm);
+
+  // ---- the head's own flesh, and why it is not the body's ----
+  //
+  // The face card resolves 1220 px per metre. A forearm is seen at a fifth of
+  // that and the head is the only part of a warrior anybody looks at from a
+  // metre away, so the two cannot share a texel density — and they were sharing
+  // one. `skin`'s crease field is drawn at `ridge` × 8 and × 16 with the tile
+  // laid down twice; `flesh()` takes the recipe's own default and lays it down
+  // ONCE. The head's UV is a full equirectangular wrap, so one tile spans the
+  // whole skull: that put roughly eleven crease cells across the visible front
+  // of the face at sixteen pixels each, and a value-noise ridge field is
+  // axis-aligned, so what came out was not skin texture — it was a **regular
+  // rectilinear grid of dark dashes ruled over the forehead, the cheek and the
+  // neck**. That grid is most of what "reads as a crude pale mask" is, and none
+  // of the sculpting under it could win against it.
+  //
+  // The lever is `tile` and not `repeat`: `skin` is one of the world-sized
+  // substances, projected from object space in metres, so a UV repeat is dropped
+  // on the floor before it reaches the shader (materials.ts, `WORLD_TILE`). At
+  // its 35 mm tile the ridge field's base octave lands at about 4.4 mm — which is
+  // life-sized and would be right if the field were isotropic. It is value noise
+  // on a lattice, so what it actually draws is a REGULAR RECTILINEAR GRID, and a
+  // grid at 4.4 mm on a face seen at 0.8 mm per pixel is five pixels a cell: big
+  // enough to be counted. Thirteen millimetres puts a cell at 1.6 mm, which is
+  // two pixels at portrait range and under one at every other range in the game,
+  // so the lattice stops being a pattern and becomes the grain it was drawn to
+  // be. The face is the only part of a warrior this has to be done for, because
+  // it is the only part seen at 1220 px per metre.
+  //
+  // Three materials rather than one because the shade and warm tones carry the
+  // same tile and had the same defect at half the density. They cost nothing:
+  // the head is merged per material anyway and these replace the entries the
+  // body's three were making in it.
+  const FACE_TILE = 0.013;
+  const faceTile = (color: number, roughness: number) =>
+    thrifty ? skin : M.tinted("skin", color, { roughness, tile: FACE_TILE });
+  const headSkin = faceTile(canon.base, 0.5);
+  const headShade = faceTile(canon.shade, 0.56);
+  const headWarm = faceTile(canon.warm, 0.55);
+
   const reskin = new Map<THREE.Material, THREE.Material>();
   if (tone !== canon) {
     reskin.set(skin, M.tinted("skin", tone.base, { roughness: 0.5, repeat: 2 }));
@@ -4311,6 +4371,9 @@ export function buildCharacter(
     if (!thrifty) {
       reskin.set(skinDark, M.flesh(tone.shade));
       reskin.set(skinWarm, M.flesh(tone.warm));
+      reskin.set(headSkin, M.tinted("skin", tone.base, { roughness: 0.5, tile: FACE_TILE }));
+      reskin.set(headShade, M.tinted("skin", tone.shade, { roughness: 0.56, tile: FACE_TILE }));
+      reskin.set(headWarm, M.tinted("skin", tone.warm, { roughness: 0.55, tile: FACE_TILE }));
     }
   }
   // The white of the eye, and it is deliberately neither white nor fixed.
@@ -5252,7 +5315,7 @@ export function buildCharacter(
   // sitting on that brow rather than on the average of all four classes.
   const K: Skull = { R, F: face };
   const faceMats: FaceMaterials = {
-    skin, shade: skinDark, warm: skinWarm, sclera, iris, dark, lash: hair,
+    skin: headSkin, shade: headShade, warm: headWarm, sclera, iris, dark, lash: hair,
   };
   const skullY = S.headY - S.neckTop;
   const style = helmStyle(ap.helm);
@@ -5262,7 +5325,7 @@ export function buildCharacter(
     const p = new Part();
     const place = xf(0, skullY, 0);
 
-    p.add(headGeometry(K, lod.headU, lod.headV), skin, place.clone());
+    p.add(headGeometry(K, lod.headU, lod.headV), headSkin, place.clone());
 
     // ---- the jaw / throat transition ----
     //
@@ -5293,7 +5356,7 @@ export function buildCharacter(
       { y: skullY - 0.105, hw: R.x * 0.60, hd: R.z * 0.57, z: -0.019 },
       { y: skullY - 0.160, hw: R.x * 0.60, hd: R.z * 0.57, z: -0.021 },
       { y: skullY - 0.230, hw: R.x * 0.62, hd: R.z * 0.58, z: -0.021 },
-    ], lod.limb, { capTop: true, capBottom: true }), skinDark);
+    ], lod.limb, { capTop: true, capBottom: true }), headShade);
 
     // Ears, set back where the jaw hinges rather than out on the cheek, with a
     // concha in the warm tone — an ear lit from behind is the reddest thing on a
@@ -5336,23 +5399,23 @@ export function buildCharacter(
       // hollow cannot out-shade its own rim on geometry alone — and because that
       // rim now stands 12 mm off the skull with a bowl behind it, which is a
       // crevice a screen-space AO pass can find on its own.
-      p.add(ball(0.0175, 9), skinDark, ear(-0.002, -0.002, -0.004, 0.22, 1.0, 1.55, 0.66));
+      p.add(ball(0.0175, 9), headShade, ear(-0.002, -0.002, -0.004, 0.22, 1.0, 1.55, 0.66));
       // Helix: 4.5 rad of rim, centred up-and-back and left open at the front
       // bottom where a real one runs down into the tragus instead of closing
       // into a ring. An ear's whole outline is this one curve.
       const arc = 4.9;
-      p.add(new THREE.TorusGeometry(0.0235, 0.0048, 5, 14, arc), skin,
+      p.add(new THREE.TorusGeometry(0.0235, 0.0048, 5, 14, arc), headSkin,
         new THREE.Matrix4()
           .makeTranslation(s * (R.x * 1.0), earY, -0.024)
           .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
           .multiply(xf(0, 0, 0.006, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2, 0.84, 1.34, 0.86)));
       // The lobe, warm because it is the thinnest flesh on the head and the
       // place a backlight actually passes through.
-      p.add(ball(0.0105, 7), skinWarm, ear(0.003, -0.028, 0.002, 0, 0.62, 0.95, 0.80));
+      p.add(ball(0.0105, 7), headWarm, ear(0.003, -0.028, 0.002, 0, 0.62, 0.95, 0.80));
       if (lod.trim) {
         // Antihelix — the second, shorter ridge inside the rim, and the thing
         // that stops the bowl reading as a thumbprint pressed into the skull.
-        p.add(new THREE.TorusGeometry(0.0105, 0.0033, 4, 9, 3.2), skin,
+        p.add(new THREE.TorusGeometry(0.0105, 0.0033, 4, 9, 3.2), headSkin,
           new THREE.Matrix4()
             .makeTranslation(s * (R.x * 1.015), earY + 0.001, -0.024)
             .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
@@ -5360,7 +5423,7 @@ export function buildCharacter(
         // Tragus: three millimetres of flap over the canal, and the one part of
         // an ear that faces forward — so it is the part a front fill finds, and
         // the part that tells the eye where the opening is.
-        p.add(ball(0.0062, 6), skin, ear(0.013, -0.008, 0.001, 0, 0.7, 1.2, 0.85));
+        p.add(ball(0.0062, 6), headSkin, ear(0.013, -0.008, 0.001, 0, 0.7, 1.2, 0.85));
       }
     }
 
