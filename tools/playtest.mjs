@@ -392,10 +392,28 @@ async function checkSummaryShapes() {
 
   // The fire is the harness's executioner: no aim, no swing timing, and it
   // kills the frailest class in 4.1 s flat. The classes that walk in are
-  // always runekeepers for that reason.
+  // always runekeepers for that reason. It has to be a KEEPER, not one walk to
+  // a mark: a stride's momentum (MOVE_STOP_TAU) carries the man through the
+  // hearth and out the far side, where the linger goes out and he stands at
+  // 2 m on 60 hp — so he is steered back at the middle until the fire has him.
   const intoTheFire = async (s) => {
-    await walkNear(engine, s, () => [0, 0], 1.15);
-    return until(() => myself(s)?.state === "dead", "the fire to take him", 15000);
+    const end = Date.now() + 45000;
+    while (Date.now() < end) {
+      const me = myself(s);
+      if (me?.state === "dead") return me;
+      if (me) {
+        const d = Math.hypot(me.position.x, me.position.z);
+        if (d >= 0.6) {
+          engine.message(s.sid, { type: "input", data: {
+            moveX: -me.position.x / d, moveZ: -me.position.z / d,
+            rotationY: Math.atan2(-me.position.x, -me.position.z), sprint: false,
+            attack: false, heavyAttack: false, block: false, dodge: false, shove: false, attackDir: "right",
+          } });
+        }
+      }
+      await sleep(50);
+    }
+    throw new Error("the fire never took him");
   };
 
   // ---- the duel: a named victor, and a corpse that stays down ----
