@@ -141,8 +141,12 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
 
   const orbitTarget = new THREE.Vector3();
   const markPoint = new THREE.Vector3();
-  let viewW = 1;
-  let viewH = 1;
+  // Seeded rather than left at 1: `setViewport` is called from the resize
+  // handler, so on a phone that never rotates it is never called at all, and a
+  // reticle projected against a 1×1 viewport is painted in the top-left corner
+  // of the screen and stays there. The harness caught it as "slid 1px".
+  let viewW = typeof window !== "undefined" ? window.innerWidth : 1;
+  let viewH = typeof window !== "undefined" ? window.innerHeight : 1;
   let photoFraming: PhotoFraming | null = null;
   let summaryShot: SummaryShot | null = null;
   /** Seconds into the summary push. */

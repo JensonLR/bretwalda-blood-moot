@@ -429,19 +429,32 @@ async function lockAct(browser, url, check) {
   {
     await waitForLock().catch(() => {});
     const before = await lockState();
+    const mark = await now();
     await glassDrag(92);
     await wait(600);
     const after = await lockState();
-    const settled = await page.evaluate(() => {
+    // The trace, because "now holding nobody" is a different bug from "never
+    // switched" and the verdict alone cannot tell them apart. Distances go with
+    // it: a lock that lets go is nearly always a lock that took a man too far
+    // away to keep.
+    const trace = await page.evaluate((t) => {
       const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-      const f = window.__probe.frames[window.__probe.frames.length - 1];
-      const foe = f && f.lock && f.foes[f.lock];
-      if (!foe) return null;
-      return Math.abs(wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot));
-    });
+      const rows = window.__probe.frames.filter((f) => f.t >= t);
+      const held = [];
+      for (const f of rows) if (!held.length || held[held.length - 1] !== (f.lock || "-")) held.push(f.lock || "-");
+      const last = rows[rows.length - 1];
+      const foes = last ? Object.entries(last.foes).filter(([, p]) => !p.dead)
+        .map(([id, p]) => `${id.slice(0, 8)}@${Math.hypot(p.x - last.x, p.z - last.z).toFixed(1)}m`) : [];
+      const foe = last && last.lock && last.foes[last.lock];
+      return {
+        held: held.map((h) => h.slice(0, 8)).join(" → "),
+        foes: foes.join(", "),
+        off: foe ? Math.abs(wrap(Math.atan2(foe.x - last.x, foe.z - last.z) - last.rot)) : null,
+      };
+    }, mark);
     check("a flick across the button side switches target",
       !!after.target && after.target !== before.target && after.switches > before.switches,
-      `held "${before.target ?? "nobody"}", flicked 92px right, now holding "${after.target ?? "nobody"}" (${after.switches - before.switches} switch); the camera came onto the new man to within ${settled === null ? "n/a" : (settled * 57.3).toFixed(1) + "°"}`);
+      `flicked 92px right: the lock went ${trace.held}; live foes now ${trace.foes || "none"}; the camera came onto the new man to within ${trace.off === null ? "n/a" : (trace.off * 57.3).toFixed(1) + "°"}`);
   }
 
   // ===================================================================
@@ -456,16 +469,52 @@ async function lockAct(browser, url, check) {
   {
     const CAP = 1.8;
     let best = null;
-    for (let attempt = 0; attempt < 5 && (!best || best.demand < 0.8); attempt++) {
+    const heavyBtn = page.getByLabel("Heavy attack");
+    const hb = await heavyBtn.boundingBox();
+    for (let attempt = 0; attempt < 8 && (!best || best.demand < 0.9); attempt++) {
+      if (!hb) break;
       await page.waitForFunction(() => {
         const s = window.__probe.lastState;
         if (!s) return false;
         const m = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
         return !!m && m.stamina > 60 && m.state !== "attacking" && m.state !== "staggered";
       }, null, { timeout: 25000 }).catch(() => {});
-      const heavyBtn = page.getByLabel("Heavy attack");
-      const hb = await heavyBtn.boundingBox();
-      if (!hb) break;
+
+      // THE GEOMETRY IS THE TEST. A blow that "cannot follow a man who dodges
+      // behind you" needs a man behind you, and three recruits walking in
+      // abreast are all in front — the first cut of this test measured a lock
+      // asking for 14° and proved nothing. So the manoeuvre is set up first:
+      // wait for a live foe genuinely off the current facing, and note which
+      // way round the screen he is, before a blow is thrown at all.
+      const spread = await page.evaluate(() => {
+        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+        const f = window.__probe.frames[window.__probe.frames.length - 1];
+        if (!f) return null;
+        let far = null;
+        for (const [id, p] of Object.entries(f.foes)) {
+          if (p.dead) continue;
+          const d = Math.hypot(p.x - f.x, p.z - f.z);
+          if (d > 11) continue; // outside acquire range: a flick cannot take him
+          const rel = wrap(Math.atan2(p.x - f.x, p.z - f.z) - f.rot);
+          if (!far || Math.abs(rel) > Math.abs(far.rel)) far = { id, rel, d };
+        }
+        return far;
+      });
+      // Screen-right is a NEGATIVE offset from the camera (see applySwitch in
+      // input.ts), so a man at rel<0 is taken by flicking the thumb right.
+      const flickDx = spread && spread.rel < 0 ? 190 : -190;
+      if (!spread || Math.abs(spread.rel) < 0.9) {
+        // Nobody usefully off-axis yet. Walk through the pack — the lock holds
+        // the man in front, so the other two are left behind you, which is the
+        // whole geometry this needs.
+        await hand.press(1, SCREEN.width * 0.23, SCREEN.height * 0.62);
+        await hand.move(1, SCREEN.width * 0.23, SCREEN.height * 0.62 - 62);
+        await wait(900);
+        await hand.lift(1);
+        await wait(400);
+        continue;
+      }
+
       const mark = await now();
       // HEAVY is a one-shot: press, lift, and the finger is off the button
       // before the swing is half wound up — so the glass drag that follows is
@@ -473,11 +522,10 @@ async function lockAct(browser, url, check) {
       await hand.press(SWING, hb.x + hb.width / 2, hb.y + hb.height / 2);
       await wait(70);
       await hand.lift(SWING);
-      // Two switches, the same way round, to drag the lock as far off the
-      // current facing as three men in a ring allow.
-      await glassDrag(150, 8);
-      await glassDrag(150, 8);
-      await wait(700);
+      // Hand the lock the man off to the side, mid-blow, twice over.
+      await glassDrag(flickDx, 8);
+      await glassDrag(flickDx, 8);
+      await wait(800);
 
       const m = await page.evaluate(([t, cap]) => {
         const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -486,14 +534,13 @@ async function lockAct(browser, url, check) {
         let turned = 0;
         for (let i = 1; i < rows.length; i++) turned += Math.abs(wrap(rows[i].rot - rows[i - 1].rot));
         const elapsed = (rows[rows.length - 1].t - rows[0].t) / 1000;
-        // What the lock was asking for at the start of the commitment, and what
-        // was still left of it at the end.
         const angleTo = (f) => {
           const foe = f.lock && f.foes[f.lock];
           return foe && !foe.dead ? Math.abs(wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot)) : null;
         };
-        // The demand is the largest offset the lock ever presented during the
-        // blow — the switch may land a frame or two into it.
+        // The demand is the largest gap the lock ever presented during the blow
+        // — how far it was asking the shoulders to come round. The switch may
+        // land a frame or two into the swing, so it is a max and not a first.
         let demand = 0;
         for (const f of rows) { const a = angleTo(f); if (a !== null) demand = Math.max(demand, a); }
         return {
@@ -510,7 +557,7 @@ async function lockAct(browser, url, check) {
     // measured between two socket messages arriving at a box with no GPU, and
     // bunched packets shorten the denominator. 30% covers that and still leaves
     // an uncapped lock — which would run at LOCK_MAX_RATE, 5.0 — nowhere to hide.
-    const ok = !!best && best.rate <= CAP * 1.3 && best.demand > 0.8;
+    const ok = !!best && best.rate <= CAP * 1.3 && best.demand > 0.9;
     check("a committed swing still cannot follow the man the lock was handed", ok,
       best
         ? `mid-blow the lock was asking for ${(best.demand * 57.3).toFixed(0)}° of turn; over ${best.frames} snapshots of "attacking" (${best.elapsed.toFixed(2)}s) the server turned him ${(best.turned * 57.3).toFixed(0)}° — ${best.rate.toFixed(2)} rad/s against the 1.8 cap (an uncapped lock runs at 5.0), leaving ${best.residual === null ? "n/a" : (best.residual * 57.3).toFixed(0) + "°"} still between them when the blow finished`

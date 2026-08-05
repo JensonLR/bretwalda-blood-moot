@@ -287,7 +287,7 @@ function liveEnemies(players: Record<string, GamePlayer>, localId: string): stri
  * lands on somebody rather than reading as a dead control.
  */
 function applySwitch(
-  yaw: number, players: Record<string, GamePlayer>, local: GamePlayer, localId: string,
+  players: Record<string, GamePlayer>, local: GamePlayer, localId: string,
 ): void {
   const dir = lock.pending;
   lock.pending = 0;
@@ -302,7 +302,15 @@ function applySwitch(
   let wrapRel = 0;
   for (const id of liveEnemies(players, localId)) {
     if (id === lock.id) continue;
-    if (distTo(local, players[id]) > LOCK_DROP_RANGE) continue;
+    // ACQUIRE range, not DROP range. A flick that could hand the lock a man at
+    // 14 m hands it a man who is dropped again the moment he takes two steps
+    // back — and with the camera now pointing his way, the man you were
+    // actually fighting can be outside the acquire cone, so the lock comes up
+    // empty and free-look returns mid-duel. The harness caught exactly that:
+    // "held bot_f3e6…, flicked, now holding nobody". Everything a flick can
+    // take is something the lock would have taken cold, with the 4 m between
+    // the two ranges left over as hysteresis.
+    if (distTo(local, players[id]) > LOCK_ACQUIRE_RANGE) continue;
     const rel = shortestAngle(from, bearingTo(local, players[id]));
     // Rightward flick wants rel < 0, leftward wants rel > 0.
     const onSide = dir > 0 ? rel < -0.05 : rel > 0.05;
@@ -338,7 +346,7 @@ function pickTarget(yaw: number, players: Record<string, GamePlayer>, local: Gam
   const keeps = held && held.state !== "dead" && distTo(local, held) <= LOCK_DROP_RANGE;
   if (!keeps && lock.id) { lock.id = null; lock.sticky = 0; }
 
-  applySwitch(yaw, players, local, localId);
+  applySwitch(players, local, localId);
   if (lock.id && lock.sticky > 0) return;
 
   let best: string | null = null;
