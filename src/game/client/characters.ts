@@ -2554,7 +2554,7 @@ function faceComplexion(
     // reads as a mask laid on a ball, and these two are what give the three
     // quarter bearing somewhere to turn.
     dim += 0.38 * bump(ax - 0.86, dy - (Y_BROW + 0.10), dz - 0.22, 0.20, 0.26, 0.80);
-    dim += 0.40 * bump(ax - 0.90, dy - (Y_EYE - 0.06), dz + 0.28, 0.22, 0.40, 0.55);
+    dim += 0.26 * bump(ax - 0.90, dy - (Y_EYE - 0.06), dz + 0.28, 0.22, 0.40, 0.55);
     // The nape, under the occiput. Free, and it stops the back of the head being
     // the flattest surface on the warrior.
     dim += 0.30 * bump(dx * 0.35, dy + 0.72, dz + 0.85, 1, 0.34, 0.55);
@@ -5797,7 +5797,13 @@ export function buildCharacter(
       // hollow cannot out-shade its own rim on geometry alone — and because that
       // rim now stands 12 mm off the skull with a bowl behind it, which is a
       // crevice a screen-space AO pass can find on its own.
-      p.add(ball(0.0175, 9), headShade, ear(-0.002, -0.002, -0.004, 0.22, 1.0, 1.55, 0.66));
+      // The bowl fills the rim now. At 0.66 of depth and 1.0 across it sat well
+      // inside the helix with the shade tone on it, and with the complexion field
+      // digging behind the ear on top of that what rendered was a bright ring
+      // round a dark hole — a bagel screwed to the skull, in every portrait this
+      // build has taken. An ear is a rim round a *hollow*, and a hollow needs a
+      // floor the light can reach or it is a hole.
+      p.add(ball(0.0175, 9), headShade, ear(-0.002, -0.002, 0.0015, 0.22, 1.14, 1.62, 0.86));
       // Helix: 4.5 rad of rim, centred up-and-back and left open at the front
       // bottom where a real one runs down into the tragus instead of closing
       // into a ring. An ear's whole outline is this one curve.
