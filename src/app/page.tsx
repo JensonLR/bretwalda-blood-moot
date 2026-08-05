@@ -1329,6 +1329,10 @@ export default function Page() {
                       {WARRIOR_INFO.find((w) => w.id === previewClass)?.name}
                     </span>
                   </div>
+                  {/* The plait. This screen is where a player decides to spend
+                      a month's gold, and it should look like the front of the
+                      game rather than like a settings panel. */}
+                  <div className="knot-band -mt-1 w-full" />
                   <CharacterPreview
                     warriorClass={previewClass}
                     appearance={shown}
@@ -1378,8 +1382,9 @@ export default function Page() {
                     key={opt.id}
                     opt={opt}
                     owned={isUnlocked(opt.id)}
-                    equipped={equippedValue(opt.slot) === opt.value && !staged[opt.slot]}
+                    equipped={equippedValue(opt.slot) === opt.value}
                     staged={staged[opt.slot]?.value === opt.value}
+                    slotStaged={!!staged[opt.slot]}
                     affordable={profile.gold >= opt.cost}
                     cls={previewClass}
                     faceSeed={faceSeed}
@@ -2574,10 +2579,19 @@ function costTier(cost: number): { ring: string; label: string; labelCls: string
 }
 
 function CosmeticCard({
-  opt, owned, equipped, staged, affordable, cls, faceSeed, base, onPick,
+  opt, owned, equipped, staged, slotStaged, affordable, cls, faceSeed, base, onPick,
 }: {
   opt: ArmouryOption;
-  owned: boolean; equipped: boolean; staged: boolean; affordable: boolean;
+  /** True of what the PROFILE wears, whatever is on the mannequin. A shop that
+   *  hides what you already own the moment you try something else on is a shop
+   *  you cannot back out of. */
+  equipped: boolean;
+  /** True of the option currently on the mannequin. */
+  staged: boolean;
+  /** True when ANY option in this slot is staged — so the equipped one can
+   *  keep its badge while losing the selection ring. */
+  slotStaged: boolean;
+  owned: boolean; affordable: boolean;
   cls: WarriorClass; faceSeed: number; base: Appearance;
   onPick: () => void;
 }) {
@@ -2591,9 +2605,9 @@ function CosmeticCard({
   return (
     <button
       onClick={onPick}
-      aria-pressed={equipped || staged}
+      aria-pressed={staged || (equipped && !slotStaged)}
       className={`card card-interactive flex flex-col overflow-hidden !p-0 text-left ${
-        equipped || staged ? "card-selected" : tier.ring
+        staged || (equipped && !slotStaged) ? "card-selected" : tier.ring
       } ${!owned && !affordable ? "opacity-65" : ""}`}
     >
       {/* THE PICTURE. Same materials, same lights, same environment map as the
@@ -2619,21 +2633,19 @@ function CosmeticCard({
             <span className="h-6 w-6 animate-pulse rounded-full bg-stone-100/10" />
           </div>
         )}
-        {equipped && (
+        {staged && !equipped ? (
+          <span className="absolute left-1 top-1 rounded bg-amber-400/30 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-amber-200">
+            ON HIM
+          </span>
+        ) : equipped ? (
           <span className="absolute left-1 top-1 rounded bg-amber-500/90 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-black">
             EQUIPPED
           </span>
-        )}
-        {!equipped && staged && (
-          <span className="absolute left-1 top-1 rounded bg-amber-400/25 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-amber-200">
-            ON HIM
-          </span>
-        )}
-        {owned && !equipped && !staged && (
+        ) : owned ? (
           <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-stone-300">
             OWNED
           </span>
-        )}
+        ) : null}
         {!owned && !affordable && (
           <span className="absolute right-1 top-1 rounded bg-black/75 p-1 text-stone-400">
             <Lock size={10} />
