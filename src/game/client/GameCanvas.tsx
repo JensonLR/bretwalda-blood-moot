@@ -624,10 +624,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       // The trigger goes to the rig's motion — the performance is the
       // animator's — and the voice fires here, beside it, so the flourish is
       // never carried in sound alone or in picture alone.
-      const drainEmotes = () => {
+      //
+      // `allowed` is the summary's veto and nothing else's: the stage lays most
+      // of the moot out dead, and the server cannot refuse those men — it has
+      // already rolled the room back to a lobby where everyone is idle again.
+      const drainEmotes = (allowed?: (id: string) => boolean) => {
         const feed = emoteFeedRef.current?.current;
         if (!feed || feed.length === 0) return;
         for (const ev of feed.splice(0, feed.length)) {
+          if (allowed && !allowed(ev.playerId)) continue;
           const p = roomState.players[ev.playerId];
           const slot = p ? ensureSlot(p) : warriorsRef.current.get(ev.playerId);
           if (!slot) continue;
@@ -653,9 +658,6 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         (roomState.state === "finished" || roomState.state === "lobby");
       if (isSummary) {
         for (const p of Object.values(roomState.players)) ensureSlot(p);
-        // A press from the summary surface plays on the staged tableau — the
-        // motion is shared, so the flourish lands on the man mid-portrait.
-        drainEmotes();
         // The portrait owns the whole frame: no floating names, no health
         // bars over men the match has already judged. Cleared on the way out
         // so the rematch gets its plates back without rebuilding one of them.
@@ -670,6 +672,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           },
         });
         summaryRef.current.update(dt, ctx, roomState, verdict, warriorsRef.current, playerId);
+        // A press from the summary surface plays on the staged tableau — the
+        // motion is shared, so the flourish lands on the man mid-portrait. It
+        // is drained AFTER the stage has been built, because who is standing is
+        // the stage's answer and it is what decides whose press is honoured.
+        drainEmotes((id) => summaryRef.current?.canPerform(id) ?? true);
         stage.rig.update(dt, ctx);
         stage.vfx.update(dt, ctx);
         stage.audio.update(dt, ctx);

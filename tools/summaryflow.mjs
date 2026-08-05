@@ -1,14 +1,26 @@
 #!/usr/bin/env node
-// Real-flow probe: a real HONOUR DUEL through the shipped page at 390x844.
-// Page A is the human on a phone; B is a wire-driven opponent who walks into
-// the bonfire. Verifies: the summary overlay mounts over the live canvas, the
-// verdict is legible, FIGHT AGAIN pressed EARLY parks through the ten-second
-// rollback and lands the player ready in the lobby.
+// Real-flow probe: real MATCHES through the shipped page at 390x844, of the
+// three shapes the end-of-match tableau has to compose.
+//
+//   duel    one man stands over one corpse, and the rematch flow works: the
+//           summary overlay mounts over the live canvas, the verdict is
+//           legible, FIGHT AGAIN pressed EARLY parks through the ten-second
+//           rollback and lands the player ready in the lobby.
+//   ffa     an eight-man BLOOD MOOT — EXACTLY THREE MEN STAND and the other
+//           five lie dead, the three are the ledger's own top three, nobody is
+//           behind the DOM panels, and the phone player (a corpse this round)
+//           is offered no flourish.
+//   team    a 2v2 WAR BAND — the winning SIDE stands whole, the losing side
+//           lies whole. A war band ranks bands, not men.
+//
+// Every one of them is fought: wire men walk into the bonfire and an AI does
+// the rest. Nothing here poses anybody.
 import { chromium } from "playwright";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { raiseMoot, driveIntoTheFire } from "./summarymoot.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -68,20 +80,118 @@ async function until(cond, what, timeoutMs = 15000) {
   }
 }
 
-// A wire opponent: plain WebSocket, same protocol the page speaks.
-function wireMan(name) {
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
-  const s = { ws, playerId: null, latest: null, code: null, open: false };
-  ws.addEventListener("open", () => { s.open = true; });
-  ws.addEventListener("message", (ev) => {
-    try {
-      const m = JSON.parse(ev.data);
-      if (m.type === "join") { s.playerId = m.data.playerId; s.code = m.data.code; }
-      if (m.data && m.data.players) s.latest = m.data;
-    } catch { }
+/** A fresh phone, tapped and named, on the landing screen. */
+async function phone(browser) {
+  const ctx = await browser.newContext({
+    viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   });
-  s.send = (type, data = {}) => ws.send(JSON.stringify({ type, data }));
-  return s;
+  await ctx.addInitScript(PROBE);
+  await ctx.addInitScript(() => {
+    try { window.localStorage.setItem("bretwalda_name", "Prober"); } catch { }
+    window.__summaryDiag = true;
+  });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => console.log(`[pageerror] ${e}`));
+  await page.goto(`http://127.0.0.1:${PORT}/?quality=low`, { waitUntil: "domcontentloaded" });
+  return { ctx, page };
+}
+
+/** The stage's own account of who it stood up, once it has settled. */
+async function tableau(page) {
+  await until(() => page.evaluate(() => (window.__summaryBodies ?? []).length > 0),
+    "the stage to report its cast", 20000);
+  return page.evaluate(() => ({
+    stage: window.__summaryStage ?? null,
+    men: window.__summaryBodies ?? [],
+    verdict: window.__probe?.matchEnd ?? null,
+    me: window.__probe?.playerId ?? null,
+  }));
+}
+
+/**
+ * AN EIGHT-MAN FREE-FOR-ALL. Six wire men burn, an AI kills the phone player,
+ * and the AI takes it — so the local man watches the summary from the ground,
+ * which is the case the emote row exists to get wrong.
+ */
+async function ffaPhase(browser) {
+  const { ctx, page } = await phone(browser);
+  const { wires } = await raiseMoot(page, "ffa", { port: PORT, until, sleep });
+  await sleep(2000);
+  const drive = driveIntoTheFire(wires);
+  await until(() => page.evaluate(() => window.__probe?.matchEnd || null),
+    "the eight-man match to end", 180000);
+  clearInterval(drive);
+  await sleep(3000);
+
+  const { stage, men, verdict, me } = await tableau(page);
+  const stood = men.filter((m) => m.standing);
+  const lying = men.filter((m) => !m.standing);
+  check("eight men fought, three stand and five lie",
+    men.length === 8 && stood.length === 3 && lying.length === 5,
+    `cast=${men.length} standing=${stood.length} dead=${lying.length} kind=${stage?.kind}`);
+  // Every man the stage did NOT honour has to be a corpse in the animator's
+  // eyes too, or he is a live man lying face-down — a different bug with the
+  // same silhouette.
+  check("every man off the podium is genuinely dead",
+    lying.every((m) => m.state === "dead"),
+    lying.map((m) => m.state).join(","));
+  // The picture and the numbers must name the same three men, or the podium
+  // is a second opinion about who won.
+  const top3 = [...(verdict?.results ?? [])].sort((a, b) => b.score - a.score).slice(0, 3);
+  const winnerUp = stood.some((m) => m.id === verdict?.winnerId);
+  check("the podium is the ledger's own top three, victor included",
+    winnerUp && top3.every((r) => stood.some((m) => m.id === r.id)),
+    `ledger=${top3.map((r) => r.name).join("/")} winnerStanding=${winnerUp}`);
+  // Nothing behind the ledger panel and nothing off the sides. `band` is the
+  // slot of glass the stage measured the DOM leaving free.
+  const band = stage?.band ?? [-1, 1];
+  const buried = men.filter((m) => m.ndc && m.ndc[1] < band[0] - 0.02);
+  const cropped = men.filter((m) => m.ndc && (m.ndc[0] < -1 || m.ndc[2] > 1));
+  check("every man is in the picture, none under the DOM panels",
+    buried.length === 0 && cropped.length === 0,
+    `band=[${band}] buried=${buried.length} cropped=${cropped.length}`);
+  await emoteCheck(page, men, me, "free-for-all");
+  await page.screenshot({ path: `${OUT}/summary-flow-ffa.png` });
+  await ctx.close();
+}
+
+/**
+ * THE DEAD DO NOT JEER, and the standing are not denied. Asserted as an IF AND
+ * ONLY IF, because both halves have been wrong in this codebase: the emote row
+ * keys off the wire's own "dead", and on a podium the wire and the tableau
+ * disagree in both directions — a man ranked second is a corpse on the wire
+ * and standing on the stage, and after the server rolls the room back to the
+ * lobby every corpse on screen is idle again.
+ */
+async function emoteCheck(page, men, me, where) {
+  const mine = men.find((m) => m.id === me);
+  const offered = (await page.getByLabel(/^Emote:/).count()) > 0;
+  check(`${where}: the flourish is offered exactly to the man left standing`,
+    !!mine && offered === mine.standing,
+    `localStanding=${mine?.standing} emoteButtons=${offered ? "shown" : "none"}`);
+}
+
+/** A 2v2 WAR BAND: the winning side stands whole, the losing side lies whole. */
+async function teamPhase(browser) {
+  const { ctx, page } = await phone(browser);
+  await raiseMoot(page, "team", { port: PORT, until, sleep });
+  await until(() => page.evaluate(() => window.__probe?.matchEnd || null),
+    "the war band to end", 150000);
+  await sleep(3000);
+
+  const { stage, men, verdict, me } = await tableau(page);
+  const teams = await page.evaluate(() => {
+    const p = window.__probe?.latest?.players ?? {};
+    return Object.fromEntries(Object.values(p).map((q) => [q.id, q.team]));
+  });
+  const wrong = men.filter((m) => m.standing !== (teams[m.id] === verdict?.winnerTeam));
+  check("the winning side stands whole and the losing side lies whole",
+    men.length === 4 && wrong.length === 0 && stage?.kind === "warband",
+    `cast=${men.length} winner=${verdict?.winnerTeam} misplaced=${wrong.length} kind=${stage?.kind}`);
+  await emoteCheck(page, men, me, "war band");
+  await page.screenshot({ path: `${OUT}/summary-flow-team.png` });
+  await ctx.close();
 }
 
 let browser = null;
@@ -100,52 +210,18 @@ async function main() {
     ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
     args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
   });
-  const ctx = await browser.newContext({
-    viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
-    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-  });
-  await ctx.addInitScript(PROBE);
-  await ctx.addInitScript(() => {
-    try { window.localStorage.setItem("bretwalda_name", "Prober"); } catch { }
-  });
-  const page = await ctx.newPage();
-  page.on("pageerror", (e) => console.log(`[pageerror] ${e}`));
-  await page.goto(`http://127.0.0.1:${PORT}/?quality=low`, { waitUntil: "domcontentloaded" });
+  // ---- the two podium shapes, each a real match of its own ----
+  await ffaPhase(browser);
+  await teamPhase(browser);
 
-  // ---- raise the duel through the shipped UI ----
-  await page.getByText("CREATE BATTLE", { exact: false }).first().click();
-  await page.getByText("HONOUR DUEL", { exact: false }).first().click();
-  // Best of ONE: a bo3 would need the opponent killed twice more, and the
-  // summary under test only rises at the MATCH's end.
-  await page.getByRole("button", { name: /^1\s*ROUND$/ }).click();
-  await page.getByText("CREATE ROOM", { exact: false }).first().click();
-  console.log("[flow] clicked CREATE ROOM");
-  const code = await until(() => page.evaluate(() => window.__probe?.joinData?.code || null), "the war code", 60000);
-  console.log(`[flow] room ${code}`);
-
-  const B = wireMan("Doomed");
-  await until(() => B.open, "the wire opponent's socket");
-  B.send("join", { code, name: "Doomed" });
-  await until(() => B.playerId, "the wire opponent to join");
-
-  await page.getByText("START", { exact: true }).first().click();
-  await until(() => page.evaluate(() => window.__probe?.latest?.state === "fighting"), "the fight", 30000);
+  // ---- and the duel, whose one-stands-one-lies tableau shipped already ----
+  const { ctx, page } = await phone(browser);
+  const { wires } = await raiseMoot(page, "duel", { port: PORT, until, sleep });
   console.log("[flow] fighting");
   await sleep(2500);
-
-  // ---- B walks into the bonfire and dies ----
-  const walker = setInterval(() => {
-    const me = B.latest?.players?.[B.playerId];
-    if (!me || me.state === "dead") return;
-    const d = Math.hypot(me.position.x, me.position.z);
-    if (d < 1.15) return;
-    B.send("input", {
-      moveX: -me.position.x / d, moveZ: -me.position.z / d,
-      rotationY: Math.atan2(-me.position.x, -me.position.z),
-      sprint: true, attack: false, heavyAttack: false, block: false, dodge: false, shove: false, attackDir: "right",
-    });
-  }, 50);
-  await until(() => B.latest?.players?.[B.playerId]?.state === "dead", "the fire to take him", 30000);
+  const B = wires[0];
+  const walker = driveIntoTheFire([B]);
+  await until(() => B.me()?.state === "dead", "the fire to take him", 30000);
   clearInterval(walker);
   console.log("[flow] the opponent is dead");
 
@@ -155,6 +231,15 @@ async function main() {
 
   // Let the stage build and the push start.
   await sleep(2000);
+  // The shape that already shipped, asserted so the podium work cannot quietly
+  // stand the duel's corpse back up.
+  const duelCast = await tableau(page);
+  check("a duel is one man standing over one corpse",
+    duelCast.men.length === 2
+    && duelCast.men.filter((m) => m.standing).length === 1
+    && duelCast.men.some((m) => !m.standing && m.state === "dead"),
+    `kind=${duelCast.stage?.kind} standing=${duelCast.men.filter((m) => m.standing).length}`);
+  await emoteCheck(page, duelCast.men, duelCast.me, "duel");
   const overlayUp = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
   const fightAgainUp = await page.getByText("FIGHT AGAIN", { exact: false }).first().isVisible().catch(() => false);
   const canvasUp = await page.evaluate(() => !!document.querySelector("canvas"));

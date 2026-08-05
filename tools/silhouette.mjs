@@ -69,9 +69,17 @@ const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
  * hangs).
  */
 const SHEETS = {
+  // Split in two rather than shot as one two-row sheet, because a sheet is
+  // atomic — the PNG is written after the last panel — and on a GPU-less box ten
+  // panels is an hour. The bearing that answers "are these the same helmet" is
+  // the three-quarter; the profile is where a crest and a nape guard live, and
+  // it is worth its own hour only once the first sheet has been read.
   helm: { file: "sil-helm.png", card: "facecard", slot: "helm", cols: 10,
-    title: "HELM · SILHOUETTE ONLY · three-quarter −35°, then profile −90°",
-    rows: [{ turn: QUARTER, tag: "3/4" }, { turn: -90, tag: "profile" }] },
+    title: "HELM · SILHOUETTE ONLY · three-quarter −35°",
+    rows: [{ turn: QUARTER, tag: "3/4" }] },
+  helmprofile: { file: "sil-helm-profile.png", card: "facecard", slot: "helm", cols: 10,
+    title: "HELM · SILHOUETTE ONLY · profile −90°, where a crest and a nape guard are",
+    rows: [{ turn: -90, tag: "profile" }] },
   helmfight: { file: "sil-helm-fight.png", card: "fightcard", slot: "helm", cols: 10,
     title: "HELM · SILHOUETTE ONLY · at fight distance, −35°", rows: [{ turn: QUARTER }] },
   hair: { file: "sil-hair.png", card: "facecard", slot: "hair", cols: 4,

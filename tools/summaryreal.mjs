@@ -13,16 +13,29 @@
 //
 //   node tools/summaryreal.mjs --death fire  --tag before
 //   node tools/summaryreal.mjs --death range --tag before
+//   node tools/summaryreal.mjs --shape ffa  --tag podium
+//   node tools/summaryreal.mjs --shape team --tag podium
 //
 // `fire` kills the opponent standing in the hearth (the corpse lies at the
 // bonfire — the shove-into-the-fire kill the game is designed around).
 // `range` burns him low, walks him clear and lets the afterburn take him out
 // on open ground. Both are genuine matches; nothing here poses anybody.
+//
+// `--shape` picks the SIZE of moot, which is what the podium rule keys off:
+//   duel  two men — one stands, one lies (the shape that already shipped).
+//   ffa   an eight-man BLOOD MOOT: the phone player and six wire men, plus one
+//         real AI who does the killing that fire does not. The phone player is
+//         killed by it on purpose — a summary where the local man is a CORPSE
+//         is the case the emote row has to get right, and it cannot be staged
+//         from the winner's seat.
+//   team  a 2v2 WAR BAND: the blue side walks into the fire, so the whole red
+//         side stands and the whole blue side lies.
 import { chromium } from "playwright";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { raiseMoot, driveIntoTheFire } from "./summarymoot.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const arg = (name, dflt) => {
@@ -32,6 +45,7 @@ const arg = (name, dflt) => {
 
 const PORT = parseInt(process.env.PORT || String(4020 + (process.pid % 40)), 10);
 const DEATH = arg("death", "fire");
+const SHAPE = arg("shape", "duel");
 const TAG = arg("tag", "now");
 const OUT = arg("out", "art/shots/real");
 // Wall-clock seconds to hold before the shutter. The push is eight seconds of
@@ -98,29 +112,6 @@ async function until(cond, what, timeoutMs = 20000) {
   }
 }
 
-function wireMan() {
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
-  const s = { ws, playerId: null, latest: null, open: false };
-  ws.addEventListener("open", () => { s.open = true; });
-  ws.addEventListener("message", (ev) => {
-    try {
-      const m = JSON.parse(ev.data);
-      if (m.type === "join") { s.playerId = m.data.playerId; }
-      if (m.data && m.data.players) s.latest = m.data;
-    } catch { }
-  });
-  s.send = (type, data = {}) => ws.send(JSON.stringify({ type, data }));
-  s.move = (dx, dz) => {
-    const d = Math.hypot(dx, dz) || 1;
-    s.send("input", {
-      moveX: dx / d, moveZ: dz / d, rotationY: Math.atan2(dx / d, dz / d),
-      sprint: true, attack: false, heavyAttack: false, block: false,
-      dodge: false, shove: false, attackDir: "right",
-    });
-  };
-  return s;
-}
-
 async function oneShot(shot) {
   const ctx = await browser.newContext({
     viewport: { width: shot.width, height: shot.height },
@@ -136,44 +127,47 @@ async function oneShot(shot) {
   page.on("pageerror", (e) => console.log(`[pageerror] ${e}`));
   await page.goto(`http://127.0.0.1:${PORT}/?quality=${QUALITY}`, { waitUntil: "domcontentloaded" });
 
-  await page.getByText("CREATE BATTLE", { exact: false }).first().click();
-  await page.getByText("HONOUR DUEL", { exact: false }).first().click();
-  await page.getByRole("button", { name: /^1\s*ROUND$/ }).click();
-  await page.getByText("CREATE ROOM", { exact: false }).first().click();
-  const code = await until(() => page.evaluate(() => window.__probe?.joinData?.code || null), "the war code", 60000);
-
-  const B = wireMan();
-  await until(() => B.open, "the wire opponent's socket");
-  B.send("join", { code, name: "Doomed" });
-  await until(() => B.playerId, "the wire opponent to join");
-  await page.getByText("START", { exact: true }).first().click();
-  await until(() => page.evaluate(() => window.__probe?.latest?.state === "fighting"), "the fight", 30000);
+  const { wires } = await raiseMoot(page, SHAPE, { port: PORT, until, sleep });
   await sleep(2500);
 
-  // ---- kill him for real ----
-  let fleeing = false;
-  let flee = { x: 1, z: 0 };
-  const drive = setInterval(() => {
-    const me = B.latest?.players?.[B.playerId];
-    if (!me || me.state === "dead") return;
-    const d = Math.hypot(me.position.x, me.position.z) || 1;
-    // Out of the fire with less afterburn left than health is survivable
-    // (BURN_DPS_AFTER 4 over BURN_LINGER 3.0 = 12 damage), so he goes back in
-    // and tries again rather than standing about cured.
-    if (fleeing && me.health > 0 && !me.burning) { fleeing = false; }
-    if (DEATH === "range" && !fleeing && me.health <= 12 && d < 2.2) {
-      fleeing = true;
-      // Out along the way he came in, which is open ground: the arena's props
-      // ring the edge and a corpse inside one is a different bug.
-      flee = { x: me.position.x / d, z: me.position.z / d };
-    }
-    if (fleeing) { B.move(flee.x, flee.z); return; }
-    if (d < 1.15) return;               // stood in the hearth, burning
-    B.move(-me.position.x / d, -me.position.z / d);
-  }, 50);
-  await until(() => B.latest?.players?.[B.playerId]?.state === "dead", "the fire to take him", 45000);
+  // ---- kill them for real ----
+  let corpse = { x: 0, z: 0 };
+  let drive;
+  if (SHAPE === "duel") {
+    const B = wires[0];
+    let fleeing = false;
+    let flee = { x: 1, z: 0 };
+    drive = setInterval(() => {
+      const me = B.me();
+      if (!me || me.state === "dead") return;
+      const d = Math.hypot(me.position.x, me.position.z) || 1;
+      // Out of the fire with less afterburn left than health is survivable
+      // (BURN_DPS_AFTER 4 over BURN_LINGER 3.0 = 12 damage), so he goes back in
+      // and tries again rather than standing about cured.
+      if (fleeing && me.health > 0 && !me.burning) { fleeing = false; }
+      if (DEATH === "range" && !fleeing && me.health <= 12 && d < 2.2) {
+        fleeing = true;
+        // Out along the way he came in, which is open ground: the arena's props
+        // ring the edge and a corpse inside one is a different bug.
+        flee = { x: me.position.x / d, z: me.position.z / d };
+      }
+      if (fleeing) { B.move(flee.x, flee.z); return; }
+      if (d < 1.15) return;               // stood in the hearth, burning
+      B.move(-me.position.x / d, -me.position.z / d);
+    }, 50);
+    await until(() => B.me()?.state === "dead", "the fire to take him", 45000);
+    corpse = B.me().position;
+  } else {
+    // Everyone the shape dooms walks into the hearth; the AI settle the rest.
+    // The war band has no wire men at all — it is the phone player and three
+    // AI, and he is meant to lose it.
+    const doomed = wires;
+    console.log(`[real]   doomed ${doomed.length} of ${wires.length} wire men`);
+    drive = driveIntoTheFire(doomed);
+    await until(() => page.evaluate(() => window.__probe?.matchEnd || null),
+      "the match to end", 150000);
+  }
   clearInterval(drive);
-  const corpse = B.latest.players[B.playerId].position;
   const corpseR = Math.hypot(corpse.x, corpse.z);
 
   await until(() => page.evaluate(() => window.__probe?.matchEnd || null), "the verdict", 12000);
@@ -182,7 +176,8 @@ async function oneShot(shot) {
   // how a composition nobody wanted got signed off.
   await sleep(SETTLE);
   mkdirSync(resolve(ROOT, OUT), { recursive: true });
-  const path = `${OUT}/summary-${DEATH}-${shot.name}-${TAG}.png`;
+  const stem = SHAPE === "duel" ? DEATH : SHAPE;
+  const path = `${OUT}/summary-${stem}-${shot.name}-${TAG}.png`;
   await page.screenshot({ path });
   const overlayUp = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
   const bodies = await page.evaluate(() => ({ cam: window.__summaryCam, men: window.__summaryBodies }));
@@ -197,12 +192,25 @@ async function oneShot(shot) {
     });
   });
   await sleep(600);
-  await page.screenshot({ path: `${OUT}/summary-${DEATH}-${shot.name}-${TAG}-clean.png` });
+  await page.screenshot({ path: `${OUT}/summary-${stem}-${shot.name}-${TAG}-clean.png` });
   const diag = await page.evaluate(() => window.__summaryStage ?? null);
   console.log(`[real] ${shot.name}: ${path}`);
-  console.log(`[real]   death=${DEATH} fell=(${corpse.x.toFixed(2)}, ${corpse.z.toFixed(2)}) r=${corpseR.toFixed(2)}m overlay=${overlayUp}`);
+  console.log(`[real]   shape=${SHAPE} death=${DEATH} fell=(${corpse.x.toFixed(2)}, ${corpse.z.toFixed(2)}) r=${corpseR.toFixed(2)}m overlay=${overlayUp}`);
   console.log(`[real]   stage=${JSON.stringify(diag)}`);
-  console.log(`[real]   bodies=${JSON.stringify(bodies)}`);
+  // WHERE EVERY MAN LANDED ON THE GLASS, against the band of it the DOM left
+  // free. `ndc` is his whole bounding box projected — a body below `band[0]`
+  // is behind the ledger panel, however correct his world position is.
+  const band = diag?.band ?? null;
+  for (const m of bodies.men ?? []) {
+    const under = band && m.ndc ? m.ndc[1] < band[0] - 0.02 : false;
+    const off = m.ndc ? (m.ndc[0] < -1 || m.ndc[2] > 1) : false;
+    console.log(`[real]   ${m.standing ? "STANDS" : "dead  "} ${m.id.slice(0, 6)} `
+      + `at=[${(m.at ?? []).map((v) => v.toFixed(2)).join(",")}] box=[${m.lo},${m.hi}] `
+      + `foot=[${m.foot}] head=[${m.head}] `
+      + `ndc=[${(m.ndc ?? []).join(", ")}]${under ? "  ** UNDER THE LEDGER **" : ""}`
+      + `${off ? "  ** CROPPED SIDEWAYS **" : ""}`);
+  }
+  console.log(`[real]   cam=${JSON.stringify(bodies.cam)}`);
   await ctx.close();
   return { corpseR, diag };
 }
@@ -226,7 +234,7 @@ async function main() {
     await oneShot(shot);
   }
   await browser.close();
-  console.log(`[real] done — death=${DEATH} tag=${TAG}`);
+  console.log(`[real] done — shape=${SHAPE} death=${DEATH} tag=${TAG}`);
 }
 
 main()
