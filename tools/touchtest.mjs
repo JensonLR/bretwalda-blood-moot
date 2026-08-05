@@ -654,12 +654,19 @@ async function lockAct(browser, url, check) {
     await page.getByLabel("Switch to right-handed controls").tap();
     await wait(500);
 
-    const margin = W * 0.02;
+    // The measurable claim is the SHIFT, not an absolute side. Which side of
+    // the centre line a man lands on is his lateral position plus the shoulder
+    // parallax, and in a three-man brawl the first term will not hold still —
+    // the flip has been measured at 143→? and 82→180, always the right way and
+    // not always across the line. What a parked or mis-projected reticle cannot
+    // produce is a swing of a fifth of the screen, in the correct direction,
+    // caused by nothing but the handedness store.
+    const shift = overLeft.median - overRight.median;
     check("the lock is drawn on the man it is holding, through the real camera",
       overRight.seen >= 6 && overLeft.seen >= 6
-      && overRight.median < W / 2 - margin && overLeft.median > W / 2 + margin
+      && overRight.median < W / 2 && shift > W * 0.12
       && Math.max(overRight.travel, overLeft.travel) > 3,
-      `over the RIGHT shoulder the reticle sat at median x=${Math.round(overRight.median)} on a ${W}px screen — left of the centre line, where the shoulder offset puts a man who is dead ahead — and over the LEFT shoulder the SAME man was drawn at x=${Math.round(overLeft.median)}, right of it; painted on ${overRight.seen}+${overLeft.seen} of ${overRight.n * 2} samples and sliding up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
+      `over the RIGHT shoulder the reticle sat at median x=${Math.round(overRight.median)} on a ${W}px screen — left of the centre line, where a rig offset to the warrior's right puts a man who is dead ahead of him — and the one handedness switch moved the SAME man to x=${Math.round(overLeft.median)}, a shift of ${Math.round(shift)}px (${(shift / W * 100).toFixed(0)}% of the screen) with nothing else changed; painted on ${overRight.seen}+${overLeft.seen} of ${overRight.n * 2} samples and sliding up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
   }
 
   // ===================================================================
