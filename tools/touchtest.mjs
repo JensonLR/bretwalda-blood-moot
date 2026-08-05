@@ -357,9 +357,49 @@ async function lockAct(browser, url, check) {
     switches: (window.__bretwaldaLock && window.__bretwaldaLock.switches) || 0,
     reason: (window.__bretwaldaLock && window.__bretwaldaLock.reason) || "?",
   }));
+  /**
+   * Three recruits at arm's length kill the test warrior, and a corpse holds no
+   * lock. That is not a defect in the scheme — it is the ring doing what a ring
+   * does — so every assertion below waits for a man who is on his feet before
+   * it measures anything, and retries rather than grading a death.
+   */
+  const waitForAlive = () => page.waitForFunction(() => {
+    const s = window.__probe.lastState;
+    if (!s || (s.state !== "fighting" && s.state !== "last_stand")) return false;
+    const m = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
+    return !!m && m.state !== "dead";
+  }, null, { timeout: 60000 });
   const waitForLock = () => page.waitForFunction(
     () => window.__bretwaldaLock && window.__bretwaldaLock.engaged && window.__bretwaldaLock.blend > 0.9,
     null, { timeout: 45000 });
+
+  /**
+   * The snapshot trail since `mark`: every man the lock held, in order, plus
+   * where everybody was standing at the end. "The lock let go" and "the lock
+   * never took hold" are different bugs and a verdict alone cannot tell them
+   * apart; `switchedTo` is the first NEW man it took, which is the one thing a
+   * later death cannot take back.
+   */
+  const readTrace = (mark) => page.evaluate((t) => {
+    const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+    const rows = window.__probe.frames.filter((f) => f.t >= t);
+    const held = [];
+    for (const f of rows) if (!held.length || held[held.length - 1] !== (f.lock || "-")) held.push(f.lock || "-");
+    const first = rows.length ? rows[0].lock : null;
+    const switchedTo = rows.map((f) => f.lock).find((l) => l && l !== first) || null;
+    const last = rows[rows.length - 1];
+    const foes = last ? Object.entries(last.foes).filter(([, p]) => !p.dead)
+      .map(([id, p]) => `${id.slice(0, 8)}@${Math.hypot(p.x - last.x, p.z - last.z).toFixed(1)}m`) : [];
+    // Where the camera ended up relative to whoever it is holding NOW.
+    const onNew = rows.filter((f) => f.lock === switchedTo && f.foes[f.lock] && !f.foes[f.lock].dead);
+    const f = onNew[onNew.length - 1];
+    return {
+      held: held.map((h) => h.slice(0, 8)).join(" → "),
+      switchedTo,
+      foes: foes.join(", "),
+      off: f ? Math.abs(wrap(Math.atan2(f.foes[f.lock].x - f.x, f.foes[f.lock].z - f.z) - f.rot)) : null,
+    };
+  }, mark);
 
   /** A drag on bare glass on the button side, in steps, as one burst. */
   const glassDrag = async (dx, steps = 6) => {
@@ -383,6 +423,7 @@ async function lockAct(browser, url, check) {
     // "held facing" on a man stood still has proved nothing, and a bot that has
     // not closed yet is stood still.
     for (let i = 0; i < 8; i++) {
+      await waitForAlive().catch(() => {});
       const mark = await now();
       await wait(1400);
       read = await page.evaluate((t) => {
@@ -428,34 +469,26 @@ async function lockAct(browser, url, check) {
   //    job left on bare glass — no drag, no held aim, no second thumb.
   // ===================================================================
   {
-    await waitForLock().catch(() => {});
-    const before = await lockState();
-    const mark = await now();
-    await glassDrag(92);
-    await wait(600);
-    const after = await lockState();
-    // The trace, because "now holding nobody" is a different bug from "never
-    // switched" and the verdict alone cannot tell them apart. Distances go with
-    // it: a lock that lets go is nearly always a lock that took a man too far
-    // away to keep.
-    const trace = await page.evaluate((t) => {
-      const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-      const rows = window.__probe.frames.filter((f) => f.t >= t);
-      const held = [];
-      for (const f of rows) if (!held.length || held[held.length - 1] !== (f.lock || "-")) held.push(f.lock || "-");
-      const last = rows[rows.length - 1];
-      const foes = last ? Object.entries(last.foes).filter(([, p]) => !p.dead)
-        .map(([id, p]) => `${id.slice(0, 8)}@${Math.hypot(p.x - last.x, p.z - last.z).toFixed(1)}m`) : [];
-      const foe = last && last.lock && last.foes[last.lock];
-      return {
-        held: held.map((h) => h.slice(0, 8)).join(" → "),
-        foes: foes.join(", "),
-        off: foe ? Math.abs(wrap(Math.atan2(foe.x - last.x, foe.z - last.z) - last.rot)) : null,
-      };
-    }, mark);
-    check("a flick across the button side switches target",
-      !!after.target && after.target !== before.target && after.switches > before.switches,
-      `flicked 92px right: the lock went ${trace.held}; live foes now ${trace.foes || "none"}; the camera came onto the new man to within ${trace.off === null ? "n/a" : (trace.off * 57.3).toFixed(1) + "°"}; lock says "${after.reason}"`);
+    let before = null, after = null, trace = null, ok = false;
+    for (let attempt = 0; attempt < 4 && !ok; attempt++) {
+      await waitForAlive().catch(() => {});
+      await waitForLock().catch(() => {});
+      before = await lockState();
+      const mark = await now();
+      await glassDrag(92);
+      // Short, because the verdict is taken off the SNAPSHOT TRAIL and not off
+      // the state at the end of a settle: the first cut of this test watched a
+      // perfectly good switch happen and then failed it, because the warrior
+      // was cut down 600 ms later and a corpse holds nobody.
+      await wait(350);
+      after = await lockState();
+      trace = await readTrace(mark);
+      ok = after.switches > before.switches
+        && !!trace.switchedTo && trace.switchedTo !== before.target;
+      if (!ok) await wait(600);
+    }
+    check("a flick across the button side switches target", ok,
+      `flicked 92px right: the lock went ${trace.held}; live foes ${trace.foes || "none"}; the camera came onto the new man to within ${trace.off === null ? "n/a" : (trace.off * 57.3).toFixed(1) + "\u00b0"}; lock says "${after.reason}"`);
   }
 
   // ===================================================================
@@ -474,6 +507,7 @@ async function lockAct(browser, url, check) {
     const hb = await heavyBtn.boundingBox();
     for (let attempt = 0; attempt < 8 && (!best || best.demand < 0.9); attempt++) {
       if (!hb) break;
+      await waitForAlive().catch(() => {});
       await page.waitForFunction(() => {
         const s = window.__probe.lastState;
         if (!s) return false;
@@ -575,6 +609,7 @@ async function lockAct(browser, url, check) {
   //    pointing that way; never carry information in one channel only.
   // ===================================================================
   {
+    await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
     const samples = [];
     for (let i = 0; i < 8; i++) {
@@ -614,6 +649,7 @@ async function lockAct(browser, url, check) {
       await page.getByLabel("Switch to left-handed controls").tap();
       await wait(400);
     }
+    await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
     const dead = await scanLookSide(page, hnd === "left-handed");
     const cells = dead.worst.reduce((n, [, c]) => n + c, 0);

@@ -158,7 +158,13 @@ async function runTick({ seconds = 12 } = {}) {
       const sim = h.lastMT - h.firstMT;
       if (wall > 1) drift = { wall, sim, ppm: ((sim - wall) / wall) * 1e6 };
     }
-    const s = { name, rooms, control: stats(ctl), broadcast: stats(gaps), drift, packets: handles.reduce((a, h) => a + h.rec.states, 0) };
+    // `rawGaps` as well as the summary: section 4 replays these arrival gaps
+    // through the interpolator, so the judder numbers are driven by a wire this
+    // box actually measured rather than by a clean synthetic 50 ms. ONE
+    // client's sequence, not the pooled one — a client sees its own socket's
+    // arrivals in order, and four rooms' gaps interleaved are not a wire
+    // anybody ever had.
+    const s = { name, rooms, control: stats(ctl), broadcast: stats(gaps), rawGaps: handles[0]?.rec.gaps ?? [], drift, packets: handles.reduce((a, h) => a + h.rec.states, 0) };
     scenarios.push(s);
     for (const h of handles) engine.disconnectSession(h.sid);
     await sleep(400);
@@ -359,7 +365,10 @@ async function runJudder({ jitterGaps = null } = {}) {
     // is the thing being measured rather than the interpolation.
     ["remote player, 60 fps, 2 in a row lost", { fps: 60, local: false, drop: (i) => i % 11 === 4 || i % 11 === 5 }],
   ];
-  if (jitterGaps && jitterGaps.length > 10) cases.push(["local player,  60 fps, MEASURED jitter", { fps: 60, local: true, jitter: jitterGaps }]);
+  if (jitterGaps && jitterGaps.length > 10) {
+    cases.push(["local player,  60 fps, MEASURED jitter", { fps: 60, local: true, jitter: jitterGaps }]);
+    cases.push(["remote player, 60 fps, MEASURED jitter", { fps: 60, local: false, jitter: jitterGaps }]);
+  }
 
   log("  POSITION (units/s; a warden walks 4.5)");
   const results = {};
@@ -484,7 +493,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   let gaps = null;
   if (CMD === "tick" || CMD === "all") {
     const t = await runTick({ seconds: parseInt(process.env.SECONDS || "12", 10) });
-    gaps = t.scenarios.find((s) => s.rooms === 4)?.broadcast ? null : null;
+    // The worst wire this box can produce: four concurrent matches with four
+    // CPU neighbours fighting the event loop, which is Render's shared-CPU tier
+    // in miniature. One client's arrival gaps, replayed frame for frame.
+    const worst = t.scenarios.find((s) => s.name.includes("neighbour")) ?? t.scenarios.find((s) => s.rooms === 4);
+    gaps = worst?.rawGaps?.length > 10 ? worst.rawGaps.slice(0, 240) : null;
   }
   if (CMD === "judder" || CMD === "all") await runJudder({ jitterGaps: gaps });
   process.exit(0);
