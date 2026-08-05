@@ -33,7 +33,7 @@ const LENS_LABEL: Record<PreviewLens, string> = {
  * this range; a shop that only shows the 400 px portrait is selling a lie, and
  * the caption has to say what the picture is of or it reads as a bug.
  */
-const FIGHT_NOTE = "Seven metres — the range you fight at, at this screen's own scale.";
+const FIGHT_NOTE = "SEVEN METRES — the range you fight at, at this screen's own scale";
 
 export default function CharacterPreview({
   warriorClass,

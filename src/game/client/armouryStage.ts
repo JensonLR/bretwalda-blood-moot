@@ -333,7 +333,10 @@ function buildForge(): Forge | null {
   arena.add(ground);
 
   const fireBits = buildFire(materials);
-  fireBits.group.position.set(2.9, 0, -2.6);
+  // Inside the fight lens's own frame, and behind him: at 7 m with the panel's
+  // crop the frame is about 3 m across at the subject, so a hearth any further
+  // out is a light source the player is told about and never sees.
+  fireBits.group.position.set(1.32, 0, -1.85);
   fireBits.group.visible = false;
   arena.add(fireBits.group);
 
@@ -512,6 +515,9 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   let loadout = initial;
   let turn = LENS_BEARING.face;
   let ready = false;
+  /** Panel size in CSS pixels, as of the last frame. Declared up here because
+   *  `buildRig` reframes off it and runs before the frame loop is set up. */
+  let sized = { w: 0, h: 0 };
 
   let rig: WarriorRig | null = null;
   let motion: WarriorMotion | null = null;
@@ -543,6 +549,11 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     crown = built.headTop || 1.78;
     built.group.position.set(0, 0, 0);
     armRig();
+    // Re-aimed here and not only on resize: every framing decision in this
+    // file is a fraction of the crown, and the berserker's crown is 90 mm
+    // above the runekeeper's. Without this the lens keeps the last man's
+    // height and the class picker crops one of the four at the eyebrows.
+    if (sized.w) frameCamera(sized.w, sized.h);
   }
 
   buildRig();
@@ -559,8 +570,14 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
       const screenH = Math.max(360, typeof window === "undefined" ? 844 : window.innerHeight);
       const slice = Math.min(1, h / screenH);
       camera.fov = (Math.atan(GAME_HALF_TAN * slice) * 360) / Math.PI;
-      camera.position.set(0, 1.62, FIGHT_DIST);
-      camera.lookAt(0, 1.06, 0);
+      // Over his head and looking DOWN, which is where the arena's own rig
+      // stands. Level at chest height the lens looks straight out at the dusk
+      // horizon: the first capture of this lens has the warrior as a black
+      // cut-out against a blown orange sky, which is a picture of the sky and
+      // not of the helmet. Pitched down, what is behind him is turf — which
+      // is also what is behind an enemy in a real fight.
+      camera.position.set(0, 2.30, FIGHT_DIST);
+      camera.lookAt(0, 0.92, 0);
     } else {
       const L = LENS[lens];
       camera.fov = L.fov;
@@ -633,7 +650,6 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   let raf = 0;
   let last = 0;
   let clock = 0;
-  let sized = { w: 0, h: 0 };
   /**
    * Wall-clock time the player last touched the turntable.
    *
