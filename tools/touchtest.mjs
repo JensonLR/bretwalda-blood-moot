@@ -72,7 +72,7 @@ function waitForServer(url, timeoutMs = 180000) {
 // intent rather than what the fight was actually fought with.
 const PROBE = () => {
   const w = window;
-  w.__probe = { sent: [], lastState: null, states: 0, opened: false, swings: [], wasAttacking: false, touch: [] };
+  w.__probe = { sent: [], lastState: null, states: 0, opened: false, swings: [], wasAttacking: false, shoves: 0, wasShoving: false, touch: [] };
 
   // What the page actually felt, timestamped on the page's own clock. A gesture
   // is a shape in time as much as in space — GameHud gives a flick 90 ms to read
@@ -117,6 +117,11 @@ const PROBE = () => {
             w.__probe.swings.push({ t: performance.now(), dir: mine.attackDir, rot: mine.rotation });
           }
           w.__probe.wasAttacking = attacking;
+          // The shove's whole life is 0.65 s and this box can sit on a socket
+          // message longer than that, so it is latched here — where every
+          // packet is eventually read — rather than raced for from a poll.
+          if (mine.state === "shoving" && !w.__probe.wasShoving) w.__probe.shoves++;
+          w.__probe.wasShoving = mine.state === "shoving";
         } catch { /* ignore */ }
       });
     }
@@ -706,16 +711,15 @@ async function main() {
   {
     const shoveBtn = page.getByLabel("Shove");
     const sb = await shoveBtn.boundingBox();
-    const before = await me(await seq());
     const mark = await now();
     await hand.press(SWING, sb.x + sb.width / 2, sb.y + sb.height / 2);
     await wait(80);
     await hand.lift(SWING);
-    const after = await me((await seq()) + 2);
+    const answered = await page.waitForFunction(() => (window.__probe.shoves || 0) > 0, null, { timeout: 6000 })
+      .then(() => true).catch(() => false);
     const sawShove = await page.evaluate((t) => window.__probe.sent.some((s) => s.t >= t && s.d.shove === true), mark);
-    check("the shove button reaches the server as a shove",
-      sawShove && (after.state === "shoving" || after.stam < before.stam - 15),
-      `shove:true ${sawShove ? "sent" : "never sent"}; stamina ${before.stam.toFixed(1)} -> ${after.stam.toFixed(1)}, state=${after.state}`);
+    check("the shove button reaches the server as a shove", sawShove && answered,
+      `shove:true ${sawShove ? "sent" : "never sent"}; the server ${answered ? "entered \"shoving\" on the wire" : "never entered \"shoving\""}`);
   }
 
   // =====================================================================
