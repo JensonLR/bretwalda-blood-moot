@@ -1596,29 +1596,57 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
       // given a whole number of slots, so the long move is spread over a
       // correspondingly long segment and is drawn at the CORRECT speed — the
       // motion stretches, it does not teleport and it does not sprint.
-      let slots = gap > m.netInterval * 1.6 + dtFrame
+      const byTiming = gap > m.netInterval * 1.6 + dtFrame
         ? clamp(Math.round(gap / m.netInterval), 2, 8)
         : 1;
-      // AND THE ARRIVAL IS NOT THE ONLY WITNESS. A broadcast whose wake slipped
-      // steps the simulation twice and ships both steps in ONE packet, and that
-      // packet arrives on time — its CONTENT jumped two intervals while its
-      // arrival gap says one. Timing alone is blind to it, and stamping it one
-      // slot along drives two intervals of walking through one interval of
-      // segment: the body sprints at 14 u/s for three frames and is yanked back
-      // on the next packet. That was the whole of the failure the measured-wire
-      // replay found, and on a loaded server it happens every ten packets or so.
+      let slots = byTiming;
+      // ARRIVAL TIMING IS THE WRONG WITNESS, AND IT IS WRONG IN BOTH DIRECTIONS.
       //
-      // The wire's own velocity is the second witness. How far the man moved,
-      // divided by how fast he says he is going, is how much TIME this packet
-      // is carrying. Only consulted when he is moving fast enough for the
-      // division to mean anything, and only believed when it claims half an
-      // interval more than the arrival did.
+      // The server does not broadcast on a clock; it broadcasts when its wake
+      // owes the simulation at least one whole TICK_MS step (engine.mjs:2203).
+      // So the amount of TIME a packet carries is always a whole number of sim
+      // steps, and the interval between ARRIVALS is the wake period — a
+      // different quantity, equal to the step only if the host holds 50.000 ms,
+      // which no shared-CPU host does. When the two differ:
+      //
+      //   wake period SHORT (say 49 ms). Every packet carries one 50 ms step,
+      //   so the wake creeps forward until one wake owes nothing, sends
+      //   nothing, and the packet after it arrives a double gap later still
+      //   carrying ONE step. Timing calls that two slots. The grid then spends
+      //   98 ms of segment on 50 ms of walking and the man is drawn at 2.29 u/s.
+      //
+      //   wake period LONG (say 51 ms). The slip accumulates the other way
+      //   until one wake owes TWO steps and ships both in one on-time packet.
+      //   Timing calls that one slot, drives 100 ms of walking through 50 ms of
+      //   segment, and the man is drawn at 9 u/s.
+      //
+      // Both are one packet in fifty and both are a whole frame of the man at
+      // half or double speed. Measured: a dead-constant 50.5 ms wake period —
+      // one part in a hundred off nominal, which is a QUIET box — rippled the
+      // local rig 26.1% (4.19..5.37 u/s) with every clean-wire case still at
+      // 0.0%. It was read as load noise for three waves because it only ever
+      // showed up against a real captured wire.
+      //
+      // The wire's own velocity is the witness that can tell the two apart: how
+      // far the man moved divided by how fast the server says he is going is
+      // the time the packet carries, directly, in seconds. `position` is
+      // integrated from `moveVel` and `velocity` is reported as the same
+      // quantity, so for a man simply running this is exact.
+      //
+      // It is bounded by timing to plus or minus one slot, and that bound is
+      // not ceremony. A knockback impulse moves the man by its own decaying
+      // integral rather than by `velocity * dt`, and a stride killed against
+      // the palisade spends ground the reported velocity no longer admits to;
+      // both make distance-over-speed overstate the time. Timing is a poor
+      // witness to WHICH step, but a sound one to roughly HOW MANY.
       const spd = Math.hypot(p.velocity?.x || 0, p.velocity?.z || 0);
       if (spd > 0.5) {
         const carried = Math.hypot(x - newest.x, z - newest.z) / spd;
-        if (carried > m.netInterval * (slots + 0.5)) {
-          slots = clamp(Math.round(carried / m.netInterval), slots + 1, 8);
-        }
+        slots = clamp(
+          clamp(Math.round(carried / m.netInterval), 1, 8),
+          Math.max(1, byTiming - 1),
+          byTiming + 1,
+        );
       }
       t = prevT + m.netInterval * slots;
       // WHAT THE ARRIVAL ACTUALLY TELLS US. Not an instant — a window. A packet
@@ -1640,8 +1668,20 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
       // lately; it decays back to nothing on a clean wire, where this widening
       // is exactly zero and the numbers above are unchanged.
       m.netJit = Math.max(m.netJit * 0.985, Math.min(Math.abs(now - t), m.netInterval));
+      // AND THE TOLERANCE HAS TO BE TWO-SIDED, for the same reason the slot
+      // count does. When the wake period runs SHORT the grid — which advances
+      // by content — legitimately runs ahead of the arrivals, by up to one
+      // whole step, right up until the skipped wake hands the time back. That
+      // is a sawtooth about zero, not a drift: over any fifty packets the two
+      // clocks advance by exactly the same amount, because the simulation
+      // cannot outrun the wall clock it is stepped against. Clamping the lead
+      // side hard at `now` re-imposed the wake period on the grid one packet at
+      // a time, and shortened the segment it did it on to 44 ms — which is the
+      // 5.09 u/s half of the same 26.1% ripple. A genuine parting of the ways
+      // is still caught below, half a second out.
       const lo = now - dtFrame - m.netJit;
-      const off = t < lo ? t - lo : t > now ? t - now : 0;
+      const hi = now + m.netJit;
+      const off = t < lo ? t - lo : t > hi ? t - hi : 0;
       if (Math.abs(off) > 0.5) {
         // The client clock and the wire have genuinely parted company; the
         // arrival is the only truth left.
