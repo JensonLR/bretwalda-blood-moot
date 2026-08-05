@@ -19,6 +19,7 @@ import { WARRIOR_STATS } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
+  getLockSnapshot, getServerLockSnapshot, setLockReticle, subscribeLock,
   type MobileFlags,
 } from "./input";
 import {
@@ -369,6 +370,14 @@ export default function GameHud({
   // touch zones and the buttons mirror as one thing.
   const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
 
+  // "<target id>|<switches>". It changes when the lock takes a different man,
+  // which is a handful of times a fight — not per frame. The reticle's POSITION
+  // never comes through here: render/camera.ts writes that onto the element's
+  // transform directly, because that does move every frame.
+  const lockSnap = useSyncExternalStore(subscribeLock, getLockSnapshot, getServerLockSnapshot);
+  const lockedOn = lockSnap.split("|")[0] !== "";
+  const hasSwitched = lockSnap.split("|")[1] !== "0";
+
   // What a tap would cut with right now. It is feedback, not state the sim
   // reads — input.ts holds the direction itself — but a player needs to be able
   // to see what his last flick armed without swinging to find out.
@@ -430,6 +439,58 @@ export default function GameHud({
 
       {isFighting && localPlayer && (
         <>
+          {/* THE LOCK, ON THE FRAME.
+              A camera that holds a man looks exactly like a player who happens
+              to be pointing that way, so the lock is never left to the camera
+              alone. This is drawn on the tracked man himself: ring, four ticks
+              and — while the lock is live — a pair of chevrons saying which way
+              the thumb goes to take the next one.
+              Position and opacity are written by render/camera.ts straight onto
+              this node every frame; React only decides that it exists.
+              pointer-events stays none so it never stands in front of the
+              free-look half or a button. */}
+          <div
+            ref={setLockReticle}
+            aria-hidden
+            className="absolute left-0 top-0 z-10 pointer-events-none"
+            style={{ opacity: 0, willChange: "transform, opacity" }}>
+            <div className="relative h-14 w-14">
+              <div className="absolute inset-0 rounded-full border-2 border-amber-300/85"
+                style={{ boxShadow: "0 0 10px rgba(0,0,0,0.85), inset 0 0 8px rgba(255,190,80,0.35)" }} />
+              {/* Four ticks, at the quarters. Shape, not colour: the ring alone
+                  reads as a health pip on a small screen. */}
+              {[
+                { top: -5, left: "50%", w: 2, h: 8, mx: -1 },
+                { top: "100%", left: "50%", w: 2, h: 8, mx: -1, my: -3 },
+                { left: -5, top: "50%", w: 8, h: 2, my: -1 },
+                { left: "100%", top: "50%", w: 8, h: 2, my: -1, mx: -3 },
+              ].map((t, i) => (
+                <div key={i} className="absolute bg-amber-200/90"
+                  style={{ top: t.top, left: t.left, width: t.w, height: t.h,
+                    marginLeft: t.mx ?? 0, marginTop: t.my ?? 0 }} />
+              ))}
+              {isMobile.current && (
+                <>
+                  <div className="absolute top-1/2 -left-5 -translate-y-1/2 border-y-[5px] border-r-[7px] border-y-transparent border-r-amber-200/70" />
+                  <div className="absolute top-1/2 -right-5 -translate-y-1/2 border-y-[5px] border-l-[7px] border-y-transparent border-l-amber-200/70" />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Discoverability for the switch, and it retires the moment the
+              player uses it. Pinned under the status bars — high on the screen,
+              clear of the thumbs and of everything the layout harness measures
+              down there. */}
+          {isMobile.current && lockedOn && !hasSwitched && (
+            <div className="absolute left-1/2 top-[86px] z-10 -translate-x-1/2 pointer-events-none animate-fadeIn">
+              <div className="whitespace-nowrap rounded-md bg-black/50 px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] text-amber-100/85"
+                style={{ textShadow: "0 1px 4px black" }}>
+                ◀ FLICK THE GLASS TO CHANGE FOE ▶
+              </div>
+            </div>
+          )}
+
           {/* Status HUD */}
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-[52vw] max-w-72">
             <div className="text-amber-100/95 text-[11px] font-bold tracking-[0.2em] font-display" style={{ textShadow: "0 1px 5px black" }}>{localPlayer.name}</div>
