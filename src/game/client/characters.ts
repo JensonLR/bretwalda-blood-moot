@@ -2392,11 +2392,17 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
       let cover = 0;
       for (let i = 0; i < 3; i++) {
         // The rake: each bar leans out as it climbs, so the three fan open at the
-        // cheekbone the way a hand's fingers do.
-        const centre = 0.30 + i * 0.20 + (y - Y_EYE) * 0.20;
-        const half = 0.052 + 0.012 * smooth(Y_CHIN, Y_EYE, y) + jag(y * 21 + i * 3.1, 0.011, 1);
-        const across = 1 - smooth(half * 0.55, half, Math.abs(ax - centre));
-        const along = smooth(Y_CHIN - 0.30, Y_CHIN - 0.02, y) * (1 - smooth(Y_EYE + 0.02, Y_EYE + 0.20, y));
+        // cheekbone the way a hand's fingers do. Started at 0.42 rather than 0.30
+        // so the inner bar lands on the cheek and not on the wing of the nose.
+        const centre = 0.42 + i * 0.21 + (y - Y_EYE) * 0.22;
+        const half = 0.055 + 0.013 * smooth(Y_CHIN, Y_EYE, y) + jag(y * 21 + i * 3.1, 0.011, 1);
+        // The transition band is a tenth of the bar's width, not half of it. At
+        // half the bars had no edge at all: three overlapping gaussians washed
+        // the whole cheek pink, which is a bruise. Paint drawn with a finger has
+        // a hard edge with a ragged line to it, and `jag` supplies the raggedness
+        // — the smoothstep only has to stop it aliasing.
+        const across = 1 - smooth(half * 0.88, half, Math.abs(ax - centre));
+        const along = smooth(Y_CHIN - 0.34, Y_CHIN - 0.10, y) * (1 - smooth(Y_EYE + 0.04, Y_EYE + 0.16, y));
         cover = Math.max(cover, across * along);
       }
       return cover * front;
@@ -2413,12 +2419,12 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
     mark: (ax, x, y, z, front) => {
       const bandMid = Y_EYE + 0.045 - 0.055 * smooth(0.15, 0.95, ax);
       const bandHalf = 0.150 * (1 - Math.pow(clamp01(ax / 1.02), 2.6)) + jag(ax * 17, 0.014, 1);
-      const band = 1 - smooth(bandHalf * 0.62, bandHalf, Math.abs(y - bandMid));
+      const band = 1 - smooth(bandHalf * 0.86, bandHalf, Math.abs(y - bandMid));
       // The notch: the stroke lifts off the bridge of the nose, so the two halves
       // read as two strokes of one hand rather than as a ruled line.
       const notch = 1 - 0.55 * (1 - smooth(0.055, 0.135, ax)) * smooth(Y_NOSE, Y_EYE + 0.05, y);
       const barHalf = 0.085 + 0.035 * smooth(Y_BROW, Y_CHIN, -y) + jag(y * 19, 0.012, 1);
-      const bar = (1 - smooth(barHalf * 0.60, barHalf, ax))
+      const bar = (1 - smooth(barHalf * 0.84, barHalf, ax))
         * smooth(-1.05, -0.86, y) * (1 - smooth(Y_BROW + 0.30, Y_BROW + 0.50, y));
       return Math.max(band * notch, bar) * front;
     },
@@ -2434,7 +2440,7 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
     color: 0x18140f,
     mark: (ax, x, y, z, front) => {
       const edge = -0.02 + jag(y * 9 + z * 4, 0.075, 1);
-      const side = smooth(edge + 0.055, edge - 0.055, x);
+      const side = smooth(edge + 0.022, edge - 0.022, x);
       // Behind the ear it wraps rather than ending: `front` would take the mark
       // off the side of the head entirely, which is where half of it lives.
       return side * clamp01(0.45 + 0.55 * front);
