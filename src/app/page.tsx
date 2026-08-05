@@ -13,8 +13,16 @@ import type {
 } from "../game/types";
 import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 import {
-  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, type Appearance,
+  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance,
+  type Appearance, type ArmouryOption,
 } from "../game/client/characters";
+// The registry only — a Map, a queue and a set of watchers, with every import
+// inside it erased at compile time. The renderer that fills it lives in
+// `armouryStage.ts` and arrives with the dynamically imported preview, so the
+// landing screen does not download a sky shader to draw an empty card frame.
+import {
+  requestThumb, watchThumbs, specForOption, faceSeedFor,
+} from "../game/client/armouryThumbs";
 import { Transport } from "../game/client/transport";
 import { getHandedness, getServerHandedness, subscribeHandedness } from "../game/client/input";
 import {
@@ -720,6 +728,17 @@ export default function Page() {
   }, [shareUrl]);
 
   // ---- armoury ----
+  /**
+   * The face the shop shows him.
+   *
+   * `buildCharacter` falls back to build order when it is handed no seed, and
+   * that resolved to 0 for every warrior the old preview ever drew — so the
+   * armoury showed every player on earth the same man. The recovery code is
+   * the only identifier a profile carries that survives a session; a name is
+   * editable and the wire's player id is minted fresh every time he connects.
+   */
+  const faceSeed = faceSeedFor(profile.recoveryCode || profile.name || "moot");
+
   const isUnlocked = useCallback((id: string) => profile.unlocked.includes(id), [profile.unlocked]);
   const equippedValue = useCallback((slot: string): string | number => {
     const ap = profile.appearance;
@@ -865,6 +884,29 @@ export default function Page() {
     if (reply.kind === "local") return "No war rolls are being kept today, so there is nothing to bring back.";
     return reply.message;
   }, [adoptServer, adoptBindings, say, settleLink]);
+
+  /**
+   * Hand the shop's GL context back before a match starts.
+   *
+   * `armouryStage.ts` keeps its forge alive for twenty seconds after the last
+   * preview unmounts, so stepping between the armoury and the class picker
+   * does not regenerate twenty PBR map sets. A match started inside that
+   * window would have TWO contexts up at once, each with its own texture
+   * library — 80 MB of maps against VISUAL-BAR §4's 40 MB budget, on the
+   * device that can least afford it. The one with the fight in it wins.
+   *
+   * Dynamically imported so the landing screen never downloads the module:
+   * by the time this fires the preview has already pulled it in, so the
+   * promise resolves out of the module cache on the same tick.
+   */
+  useEffect(() => {
+    if (screen !== "game") return;
+    let cancelled = false;
+    void import("../game/client/armouryStage")
+      .then((m) => { if (!cancelled) m.releaseArmouryStage(); })
+      .catch(() => { /* the shop was never opened this session */ });
+    return () => { cancelled = true; };
+  }, [screen]);
 
   const openArmoury = useCallback((from: Screen) => {
     setStaged({});
@@ -1231,10 +1273,28 @@ export default function Page() {
     );
   }
 
-  // ==================== ARMOURY (with live try-on mannequin) ====================
+  // ==================== THE ARMOURY ====================
+  //
+  // WHO OWNS THE SCREEN, at 390x844: THE MANNEQUIN DOES, and the cards scroll
+  // under him.
+  //
+  // The choice is forced — a 390-wide phone cannot give a 3D stage and a grid
+  // of ten cards both enough room to be any good — and it goes this way
+  // because of what the two things are FOR. The cards are a chooser: a player
+  // reads one for two seconds and taps it. The mannequin is the product. Every
+  // tap on a card is a question about the mannequin ("what does that look like
+  // on me"), and a layout that scrolls the answer off the top of the screen
+  // makes the player tap, scroll up, look, scroll down, tap — which is the
+  // shop the owner screenshotted. So the stage is sticky at the top of the
+  // scroll on a phone and pinned beside the list on a desktop, and the cards
+  // move under it. The staged bill goes to a fixed bar at the BOTTOM on a
+  // phone, because that is where a thumb is and 2400 gold should not be spent
+  // by reaching for the top of the screen.
   if (screen === "armoury") {
     const slot = ARMOURY[armouryTab];
     const cost = stagedCost();
+    const shown = previewAppearance();
+    const lensSlot = slot.slot;
     return (
       <MenuShell notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
         <ContentWrap wide>
@@ -1258,50 +1318,56 @@ export default function Page() {
             }
           />
 
-          <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
-            {/* ===== TRY-ON MANNEQUIN ===== */}
-            <div className="lg:w-[42%] lg:shrink-0">
-              <div className="card card-glow flex flex-col gap-3 p-4 lg:sticky lg:top-4">
-                <div className="section-title"><Eye size={12} className="shrink-0" /> PREVIEW — TRY IT ON</div>
-                <CharacterPreview warriorClass={previewClass} appearance={previewAppearance()} height={320} />
-                {/* class picker for the mannequin */}
-                <div className="grid grid-cols-4 gap-2">
-                  {WARRIOR_INFO.map((w) => (
-                    <button key={w.id} onClick={() => setPreviewClass(w.id)}
-                      className={`card card-interactive flex flex-col items-center justify-center gap-1 py-2 ${previewClass === w.id ? "card-selected" : ""}`}>
-                      <w.Icon size={15} className={previewClass === w.id ? "text-amber-300" : "text-stone-400"} />
-                      {/* Full name, not a 5-char slice: "HUSCA / WARDE / RUNEK / BERSE"
-                          read as truncation bugs, and the chip is wide enough for
-                          the longest of them at this size. */}
-                      <span className="text-[8px] font-bold leading-none tracking-wide text-stone-300">{w.name}</span>
-                    </button>
-                  ))}
-                </div>
-                {/* staged action bar */}
-                {hasChanges && (
-                  <div className="animate-fadeIn flex flex-col gap-2.5 border-t border-stone-100/10 pt-3.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[10px] tracking-widest text-stone-400">COST TO UNLOCK</div>
-                      <div className={`flex items-center gap-1.5 text-lg font-bold ${profile.gold >= cost ? "text-yellow-400" : "text-red-400"}`}>
-                        <Coins size={14} /> {cost}
-                      </div>
-                    </div>
-                    <div className="flex gap-2.5">
-                      <button onClick={() => { void applyStaged(); }} disabled={buying}
-                        className="btn-primary flex-1 !min-h-[3rem] !text-sm">
-                        {buying ? "ASKING THE ROLLS…" : <><Check size={15} /> EQUIP{cost > 0 ? " & BUY" : ""}</>}
-                      </button>
-                      <button onClick={clearStaged} aria-label="Discard try-on" className="btn-ghost !px-4">
-                        <ArrowLeft size={15} />
-                      </button>
-                    </div>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+            {/* ===== THE STAGE ===== */}
+            <div className="lg:w-[40%] lg:shrink-0">
+              <div className="sticky top-0 z-20 -mx-4 bg-black/85 px-4 pb-3 pt-2 backdrop-blur-sm sm:-mx-6 sm:px-6 lg:top-4 lg:mx-0 lg:rounded-xl lg:px-0 lg:pb-0 lg:backdrop-blur-none">
+                <div className="card card-glow flex flex-col gap-2.5 p-3 sm:p-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div className="section-title !mb-0"><Eye size={12} className="shrink-0" /> {slot.label.toUpperCase()}</div>
+                    <span className="shrink-0 text-[9px] font-bold tracking-[0.14em] text-stone-500">
+                      {WARRIOR_INFO.find((w) => w.id === previewClass)?.name}
+                    </span>
                   </div>
-                )}
+                  {/* The plait. This screen is where a player decides to spend
+                      a month's gold, and it should look like the front of the
+                      game rather than like a settings panel. */}
+                  <div className="knot-band -mt-1 w-full" />
+                  <CharacterPreview
+                    warriorClass={previewClass}
+                    appearance={shown}
+                    focusSlot={lensSlot}
+                    faceSeed={faceSeed}
+                    controls
+                    height="clamp(198px, 30vh, 330px)"
+                  />
+                  {/* class picker for the mannequin */}
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {WARRIOR_INFO.map((w) => (
+                      <button key={w.id} onClick={() => setPreviewClass(w.id)}
+                        aria-pressed={previewClass === w.id}
+                        className={`card card-interactive flex min-h-[2.75rem] flex-col items-center justify-center gap-0.5 py-1 ${previewClass === w.id ? "card-selected" : ""}`}>
+                        <w.Icon size={13} className={previewClass === w.id ? "text-amber-300" : "text-stone-400"} />
+                        <span className="text-[7.5px] font-bold leading-none tracking-wide text-stone-300">{w.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {/* The bill, beside the mannequin on a desktop. On a phone it
+                      is a fixed bar at the bottom instead — see below. */}
+                  {hasChanges && (
+                    <div className="hidden animate-fadeIn flex-col gap-2.5 border-t border-stone-100/10 pt-3 lg:flex">
+                      <StagedBill
+                        cost={cost} gold={profile.gold} buying={buying}
+                        onBuy={() => { void applyStaged(); }} onClear={clearStaged}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* ===== ITEMS ===== */}
-            <div className="flex min-w-0 flex-1 flex-col gap-4">
+            {/* ===== THE LADDER ===== */}
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
               <div className="tab-strip">
                 {ARMOURY.map((s, i) => (
                   <button key={s.slot} onClick={() => setArmouryTab(i)} className={`tab-item ${armouryTab === i ? "tab-item-active" : ""}`}>
@@ -1310,50 +1376,43 @@ export default function Page() {
                 ))}
               </div>
 
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                {slot.options.map((opt) => {
-                  const owned = isUnlocked(opt.id);
-                  const equipped = equippedValue(opt.slot) === opt.value && !staged[opt.slot];
-                  const stagedNow = staged[opt.slot]?.value === opt.value;
-                  const affordable = profile.gold >= opt.cost;
-                  return (
-                    <button key={opt.id} onClick={() => stageItem(opt)}
-                      className={`card card-interactive flex min-h-[4rem] items-center gap-3.5 p-3 text-left ${
-                        equipped || stagedNow ? "card-selected" : !owned && !affordable ? "opacity-70" : ""
-                      }`}>
-                      {typeof opt.value === "number" ? (
-                        <div className="h-10 w-10 shrink-0 rounded-full border-2 border-stone-500 shadow-inner"
-                          style={{ backgroundColor: `#${opt.value.toString(16).padStart(6, "0")}` }} />
-                      ) : (
-                        <div className="medallion !h-10 !w-10 shrink-0">
-                          {opt.slot === "helm" ? <Shield size={15} /> :
-                            opt.slot === "cloak" ? <Shirt size={15} /> :
-                            opt.slot === "warPaint" ? <Eye size={15} /> :
-                            opt.slot === "beard" ? <Ghost size={15} /> : <User size={15} />}
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        {/* Two lines, not one with an ellipsis: the most
-                            expensive helm in the game was rendering as
-                            "The Sutton Hoo H…". */}
-                        <div className="line-clamp-2 text-sm font-bold leading-snug text-stone-100">{opt.label}</div>
-                        <div className="mt-0.5 text-[10px] text-stone-400">
-                          {equipped ? "EQUIPPED" : stagedNow ? "ON MANNEQUIN — equip above" : owned ? "Owned — tap to preview" : opt.cost === 0 ? "Free" : `${opt.cost} gold`}
-                        </div>
-                      </div>
-                      {equipped ? <Check size={16} className="shrink-0 text-amber-400" /> :
-                        stagedNow ? <Eye size={15} className="shrink-0 text-amber-400" /> :
-                        !owned && (affordable ? <Coins size={14} className="shrink-0 text-yellow-500" /> : <Lock size={14} className="shrink-0 text-stone-500" />)}
-                    </button>
-                  );
-                })}
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
+                {slot.options.map((opt) => (
+                  <CosmeticCard
+                    key={opt.id}
+                    opt={opt}
+                    owned={isUnlocked(opt.id)}
+                    equipped={equippedValue(opt.slot) === opt.value}
+                    staged={staged[opt.slot]?.value === opt.value}
+                    slotStaged={!!staged[opt.slot]}
+                    affordable={profile.gold >= opt.cost}
+                    cls={previewClass}
+                    faceSeed={faceSeed}
+                    base={shown}
+                    onPick={() => stageItem(opt)}
+                  />
+                ))}
               </div>
+
+              <p className="text-center text-xs leading-relaxed text-stone-500">
+                Tapping an item dresses the man above. Nothing is charged until you
+                press EQUIP &amp; BUY — and the price is settled on the war rolls, not here.
+              </p>
+              {/* Room for the fixed bill on a phone, so the last row of cards
+                  is not permanently under it. */}
+              {hasChanges && <div className="h-28 lg:hidden" />}
             </div>
           </div>
-          <p className="text-center text-xs leading-relaxed text-stone-500">
-            Tapping items dresses the mannequin. Only press EQUIP &amp; BUY when you love the look — nothing is charged until then.
-          </p>
         </ContentWrap>
+
+        {hasChanges && (
+          <div className="animate-fadeIn fixed inset-x-0 bottom-0 z-30 border-t border-amber-900/40 bg-black/92 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">
+            <StagedBill
+              cost={cost} gold={profile.gold} buying={buying}
+              onBuy={() => { void applyStaged(); }} onClear={clearStaged}
+            />
+          </div>
+        )}
       </MenuShell>
     );
   }
@@ -2451,6 +2510,213 @@ function ProfStat({ Icon, val, label, cls }: { Icon: typeof Swords; val: number;
     <div className="card px-2 py-4 text-center">
       <div className={`text-xl font-bold ${cls} flex items-center justify-center gap-1.5`}><Icon size={15} />{val}</div>
       <div className="text-[10px] text-stone-400 mt-1 tracking-wide">{label}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The armoury's cards
+// ---------------------------------------------------------------------------
+
+/**
+ * A card's photograph of the thing it sells.
+ *
+ * Returns the data URL once the stage's forge has drawn it, and null until
+ * then. The subscription is one shared watcher per card — `requestThumb` is
+ * idempotent and cheap, so calling it on every render is correct and is what
+ * makes a card that was mounted before the GL context existed fill itself in
+ * when the context arrives.
+ */
+function useCosmeticThumb(spec: Parameters<typeof requestThumb>[0]): string | null {
+  // Every field the picture depends on, flattened so the effect can depend on
+  // a value rather than on an object `specForOption` mints fresh each render.
+  const a = spec.appearance;
+  const key = [
+    spec.warriorClass, spec.slot, spec.faceSeed,
+    a.helm, a.hairStyle, a.hairColor, a.beardStyle, a.beardColor,
+    a.cloak, a.armorColor, a.warPaint,
+  ].join("|");
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const ask = () => {
+      const got = requestThumb(spec);
+      if (got && alive) setUrl(got);
+      return got;
+    };
+    if (ask()) return () => { alive = false; };
+    // The forge publishes under its OWN cache key, which is deliberately
+    // narrower than this one — a cloak cannot change a portrait — so a card
+    // re-asks on every publish rather than matching keys. Ten cards times ten
+    // publishes is a hundred map lookups, once, per slot opened.
+    const stop = watchThumbs(() => { ask(); });
+    // And a poll, because the cards paint before the GL context exists: the
+    // preview is behind `next/dynamic`, so on the first frame of this screen
+    // there is no forge to queue against and nothing will ever publish.
+    const retry = setInterval(ask, 400);
+    return () => { alive = false; stop(); clearInterval(retry); };
+    // `spec` is `key` in object form; depending on both would rebuild the
+    // subscription on every render for no change in what is being asked for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return url;
+}
+
+/**
+ * How loud a card is, by what it costs.
+ *
+ * The owner's read: "nothing distinguishes a 30-gold item from a 2400-gold
+ * one." A ladder that all looks the same is not a ladder — and the top of this
+ * one is a single item at 2400 gold, which the pricing comment in `ARMOURY`
+ * calls "a season's goal rather than a purchase". It gets a setting to match.
+ */
+function costTier(cost: number): { ring: string; label: string; labelCls: string } {
+  if (cost === 0) return { ring: "border-stone-100/12", label: "FREE", labelCls: "text-stone-400" };
+  if (cost < 100) return { ring: "border-stone-100/15", label: "", labelCls: "" };
+  if (cost < 400) return { ring: "border-amber-800/50", label: "", labelCls: "" };
+  if (cost < 1000) return { ring: "border-amber-600/60", label: "WAR-GEAR", labelCls: "text-amber-500/90" };
+  return { ring: "border-yellow-500/70", label: "A JARL'S PRICE", labelCls: "text-yellow-400" };
+}
+
+function CosmeticCard({
+  opt, owned, equipped, staged, slotStaged, affordable, cls, faceSeed, base, onPick,
+}: {
+  opt: ArmouryOption;
+  /** True of what the PROFILE wears, whatever is on the mannequin. A shop that
+   *  hides what you already own the moment you try something else on is a shop
+   *  you cannot back out of. */
+  equipped: boolean;
+  /** True of the option currently on the mannequin. */
+  staged: boolean;
+  /** True when ANY option in this slot is staged — so the equipped one can
+   *  keep its badge while losing the selection ring. */
+  slotStaged: boolean;
+  owned: boolean; affordable: boolean;
+  cls: WarriorClass; faceSeed: number; base: Appearance;
+  onPick: () => void;
+}) {
+  const spec = specForOption(cls, faceSeed, base, opt.slot, opt.value);
+  const thumb = useCosmeticThumb(spec);
+  const tier = costTier(opt.cost);
+  const swatch = typeof opt.value === "number"
+    ? `#${opt.value.toString(16).padStart(6, "0")}`
+    : null;
+
+  // The card's own name, spelled out rather than left to be scraped off the
+  // badges and the price row. Two reasons, and the second one cost a gate:
+  //
+  //   - a screen reader reading "EQUIPPED Bare Head IN YOUR KIT" is reading a
+  //     layout, not an item;
+  //   - `tools/cheattest.mjs` finds the buy button with
+  //     `getByRole("button", { name: /EQUIP/ })`, and a card whose accessible
+  //     name began "EQUIPPED" matched it FIRST. The run clicked a helmet
+  //     instead of the till, no purchase was attempted, no refusal banner
+  //     appeared, and the assertion that the shop refuses a doctored purse
+  //     failed with `null`. The economy was never at risk — the row was
+  //     untouched — but the gate could not see that, which is the same thing.
+  //     "Worn" carries the meaning without carrying the substring.
+  const label = [
+    opt.label,
+    owned ? "in your kit" : opt.cost === 0 ? "free" : `${opt.cost} gold`,
+    equipped ? "worn now" : null,
+    staged ? "on the mannequin" : null,
+    !owned && !affordable ? "not enough gold" : null,
+  ].filter(Boolean).join(" — ");
+
+  return (
+    <button
+      onClick={onPick}
+      aria-label={label}
+      aria-pressed={staged || (equipped && !slotStaged)}
+      className={`card card-interactive flex flex-col overflow-hidden !p-0 text-left ${
+        staged || (equipped && !slotStaged) ? "card-selected" : tier.ring
+      } ${!owned && !affordable ? "opacity-65" : ""}`}
+    >
+      {/* THE PICTURE. Same materials, same lights, same environment map as the
+          mannequin — a card and the stage beside it disagreeing about what an
+          item looks like would be worse than a glyph. */}
+      <div
+        className="relative aspect-square w-full shrink-0 overflow-hidden"
+        style={{ background: "radial-gradient(80% 70% at 50% 82%, #1b1013 0%, #07070a 72%)" }}
+      >
+        {thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumb} alt="" className="h-full w-full object-cover" draggable={false} />
+        ) : swatch ? (
+          // A colour has no silhouette by construction — the audit says so of
+          // all twelve hair and beard colours — so its card is honestly a
+          // swatch while the head behind it renders.
+          <div className="flex h-full w-full items-center justify-center">
+            <span className="h-1/2 w-1/2 rounded-full border-2 border-stone-500/70 shadow-inner"
+              style={{ backgroundColor: swatch }} />
+          </div>
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <span className="h-6 w-6 animate-pulse rounded-full bg-stone-100/10" />
+          </div>
+        )}
+        {staged && !equipped ? (
+          <span className="absolute left-1 top-1 rounded bg-amber-400/30 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-amber-200">
+            ON HIM
+          </span>
+        ) : equipped ? (
+          <span className="absolute left-1 top-1 rounded bg-amber-500/90 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-black">
+            EQUIPPED
+          </span>
+        ) : owned ? (
+          <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-stone-300">
+            OWNED
+          </span>
+        ) : null}
+        {!owned && !affordable && (
+          <span className="absolute right-1 top-1 rounded bg-black/75 p-1 text-stone-400">
+            <Lock size={10} />
+          </span>
+        )}
+      </div>
+
+      {/* THE FACTS. Name, price, and what it is — a card that says only
+          "Owned — tap to preview" tells a player nothing he can spend on. */}
+      <div className="flex min-h-[4.25rem] flex-1 flex-col gap-1 p-2">
+        <div className="line-clamp-2 text-[11.5px] font-bold leading-tight text-stone-100">{opt.label}</div>
+        <div className="mt-auto flex items-center justify-between gap-1">
+          {owned ? (
+            <span className="text-[9.5px] font-bold tracking-[0.1em] text-emerald-400/90">IN YOUR KIT</span>
+          ) : (
+            <span className={`flex items-center gap-1 text-[11px] font-bold ${affordable ? "text-yellow-400" : "text-stone-500"}`}>
+              <Coins size={11} /> {opt.cost}
+            </span>
+          )}
+          {tier.label && !owned && (
+            <span className={`shrink-0 text-[7px] font-bold tracking-[0.12em] ${tier.labelCls}`}>{tier.label}</span>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/** The bill. One component, shown beside the stage on a desktop and in a
+ *  fixed bar under the thumb on a phone. */
+function StagedBill({ cost, gold, buying, onBuy, onClear }: {
+  cost: number; gold: number; buying: boolean; onBuy: () => void; onClear: () => void;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[10px] tracking-widest text-stone-400">COST TO UNLOCK</div>
+        <div className={`flex items-center gap-1.5 text-lg font-bold ${gold >= cost ? "text-yellow-400" : "text-red-400"}`}>
+          <Coins size={14} /> {cost}
+        </div>
+      </div>
+      <div className="flex gap-2.5">
+        <button onClick={onBuy} disabled={buying} className="btn-primary flex-1 !min-h-[3rem] !text-sm">
+          {buying ? "ASKING THE ROLLS…" : <><Check size={15} /> EQUIP{cost > 0 ? " & BUY" : ""}</>}
+        </button>
+        <button onClick={onClear} aria-label="Discard try-on" className="btn-ghost !px-4">
+          <ArrowLeft size={15} />
+        </button>
+      </div>
     </div>
   );
 }

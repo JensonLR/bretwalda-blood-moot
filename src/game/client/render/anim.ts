@@ -293,12 +293,74 @@ export interface WarriorRig {
   dispose(): void;
 }
 
+/**
+ * One authoritative state off the wire, stamped with the moment on the client's
+ * own render clock that it is treated as belonging to.
+ *
+ * `t` is NOT simply the frame the packet was noticed on. A 20 Hz wire sampled by
+ * a 60 Hz frame clock can only be observed to a frame's precision, and feeding
+ * that quantised arrival straight into the interpolator puts a ±8 ms wobble on
+ * every segment — which is judder again, just smaller. `t` is placed on a
+ * regular grid derived from the measured packet period and only pulled toward
+ * the observed arrival when it drifts further than a frame away. See `ingestNet`.
+ */
+export interface NetSnapshot {
+  /** Client render-clock seconds this state belongs to. */
+  t: number;
+  x: number;
+  z: number;
+  /**
+   * Yaw unwrapped to be continuous with the previous snapshot, so a plain
+   * linear lerp between two snapshots always takes the short way round and a
+   * man crossing ±π does not spin the long way.
+   */
+  yaw: number;
+  /** The raw wire rotation, kept only to spot a packet that repeats. */
+  yawRaw: number;
+}
+
 /** Per-warrior smoothing state — network and animation. Mutated here. */
 export interface WarriorMotion {
   /** Smoothed render position — the server position is never used directly. */
   rx: number;
   rz: number;
   yaw: number;
+
+  // ---- network ----
+  /**
+   * The last few authoritative states, oldest first, as a ring. Rendering reads
+   * BETWEEN two of these rather than chasing the newest one, which is the whole
+   * of the fix: a linear lerp between two known states over a known interval is
+   * even by construction, and no exponential chase ever is.
+   */
+  net: NetSnapshot[];
+  /** Ring write cursor and how many of `net` are live. */
+  netHead: number;
+  netCount: number;
+  /** The client's own render clock, seconds, advanced by dt. Never wall time. */
+  netClock: number;
+  /** Measured packet period, phase-and-frequency locked to the wire. */
+  netInterval: number;
+  /** Clock at which the newest packet was noticed. */
+  netArrive: number;
+  /** How late arrivals have been running lately. Widens the phase window. */
+  netJit: number;
+  /**
+   * Error smoothing. The zero-delay local rig extrapolates, and an
+   * extrapolation is a guess: when the next packet disagrees with it the
+   * difference has to go somewhere. Applied on the frame it appears it is a
+   * visible flick — on a loaded server the measured-wire replay found frames
+   * running at 19 u/s and frames running backwards. Carried here instead and
+   * bled off over about sixty milliseconds, it becomes a small speed offset
+   * nobody can see. `raw*` is the interpolator's own solution and its learned
+   * velocity, which is how the unexpected part of a step is told from the
+   * expected part; on a clean wire the unexpected part is zero every frame and
+   * this whole mechanism costs exactly nothing.
+   */
+  errX: number; errZ: number; errYaw: number;
+  rawX: number; rawZ: number; rawYaw: number;
+  rawVx: number; rawVz: number; rawVyaw: number;
+  rawPrimed: boolean;
   /** Visual roll into the direction of travel. */
   leanX: number;
   /** Hit impulse, decays to zero; pushes the body away from its attacker. */
@@ -419,6 +481,12 @@ export interface AnimHooks {
 export function createMotion(p: GamePlayer): WarriorMotion {
   return {
     rx: p.position.x, rz: p.position.z, yaw: p.rotation,
+    net: Array.from({ length: SNAP_KEEP }, () => ({ t: 0, x: 0, z: 0, yaw: 0, yawRaw: 0 })),
+    netHead: 0, netCount: 0, netClock: 0,
+    netInterval: NET_INTERVAL_GUESS, netArrive: 0, netJit: 0,
+    errX: 0, errZ: 0, errYaw: 0,
+    rawX: p.position.x, rawZ: p.position.z, rawYaw: p.rotation,
+    rawVx: 0, rawVz: 0, rawVyaw: 0, rawPrimed: false,
     leanX: 0, recoil: 0, trailTick: 0,
     stride: hash01(p.id) * Math.PI * 2, land: 0, seed: hash01(p.id + "s") * 6.28,
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
@@ -1397,12 +1465,395 @@ const STANCE: Record<WarriorClass, Stance> = {
 };
 
 // ---------------------------------------------------------------------------
-// Transform
+// Transform — snapshot interpolation
 // ---------------------------------------------------------------------------
+//
+// WHAT THIS REPLACED, AND WHY. The old smoothing was one line: lerp the render
+// position a fixed fraction of the way toward the newest packet every frame.
+// Two faults, both fatal to smooth motion:
+//
+//   1. The fraction was per FRAME, not per second. A 120 Hz phone converged
+//      twice as fast as a 60 Hz one, so the game's own physics changed with the
+//      refresh rate — and the better the hardware, the worse the judder.
+//   2. An exponential chase toward a target that only moves every 50 ms takes a
+//      geometrically shrinking step on each of the three frames inside a packet
+//      interval, then the next packet snaps the target forward and it starts
+//      over. At 4.5 u/s and 60 fps that is 4.13 / 11.48 / 6.89 cm per frame
+//      where every frame should be 7.50. No value of the constant fixes it; the
+//      shape is wrong.
+//
+// The replacement buffers the last few authoritative states with the time they
+// belong to and renders BETWEEN two of them. Linear interpolation between two
+// known states across a known interval is exactly even — that is the point —
+// and it is framerate-independent because the render time is a clock, not a
+// per-frame fraction.
+//
+// THE LOCAL PLAYER IS NOT GIVEN THE REMOTE TREATMENT. Holding your own warrior
+// 75 ms in the past to buy a smooth interpolation would make the controls feel
+// worse, which is the opposite of the job. The two honest options are
+// client-side prediction reconciled against the server, or a much shorter
+// delay. Prediction needs an input sequence number acked by the sim so the
+// client knows which of its own inputs the server has already folded in; that
+// is a wire change in `input.ts` and `engine.mjs`, neither of which this module
+// owns, and a half-built prediction that cannot reconcile is worse than none.
+// So the local rig runs at ZERO delay: it is rendered at the newest snapshot
+// carried forward along the segment velocity to the present instant. That is
+// the same even-steps arithmetic — extrapolating a constant velocity is linear
+// in time, and the next packet lands exactly where the extrapolation already
+// was, so there is no seam — at zero added latency, and it is never further
+// ahead of the server than one packet. THE COST: while the local warrior is
+// accelerating or being knocked about, the extrapolation is guessing, and it
+// can be up to a packet's worth of motion wrong for a moment. It corrects
+// continuously rather than snapping, because the correction rides in through
+// the newest snapshot, which is what the extrapolation is anchored on.
+
+/** How many authoritative states are kept per warrior. */
+const SNAP_KEEP = 4;
+/** Assumed wire period until the real one has been measured. 20 Hz. */
+const NET_INTERVAL_GUESS = 0.05;
+const NET_INTERVAL_MIN = 0.02;
+const NET_INTERVAL_MAX = 0.3;
+/**
+ * How far behind the newest packet a REMOTE body is rendered, in packet
+ * intervals. 1.5 is the standard choice and it is chosen, not tuned: the render
+ * time then sits between half and one and a half intervals behind the newest
+ * snapshot, so there is a packet on each side of it at all times — including
+ * the interval in which a packet went missing entirely.
+ */
+const REMOTE_DELAY_PACKETS = 1.5;
+/**
+ * The furthest the interpolator will carry a body past its newest snapshot when
+ * the buffer runs dry. A lost packet then STRETCHES the motion for a fifth of a
+ * second and stops, rather than either freezing on the spot or flying off down
+ * a stale velocity vector.
+ */
+const NET_MAX_EXTRAPOLATE = 0.22;
+/** A single-packet jump further than this is a respawn, not a walk. */
+const NET_TELEPORT = 6;
+/** How fast a carried error bleeds off, per second. ~60 ms to a twentieth. */
+const NET_ERR_RATE = 50;
+/** The most error the smoother will ever hold, in metres and radians. */
+const NET_ERR_MAX = 0.6;
+const NET_ERR_MAX_YAW = 0.8;
+
+/** Ring accessor: k = 0 is the oldest live snapshot, k = netCount-1 the newest. */
+function snapAt(m: WarriorMotion, k: number): NetSnapshot {
+  return m.net[(m.netHead - m.netCount + k + SNAP_KEEP * 2) % SNAP_KEEP];
+}
 
 /**
- * Moves the rig onto the server's position with dead reckoning, and applies the
- * hit-push impulse. Read `rig.group.position` after this and before poseWarrior.
+ * Notice a new authoritative state and stamp it.
+ *
+ * The wire carries no timestamp on a player record, so "is this a new packet"
+ * is answered the only way it can be: the state differs from the newest one
+ * held. A body that is genuinely motionless therefore stops producing
+ * snapshots, which is correct — there is nothing to interpolate — and the gap
+ * is picked up as a resync when it starts moving again.
+ *
+ * THE STAMP IS THE DELICATE PART. The observed arrival is quantised to the
+ * frame clock, so it is not used directly. The stamp is placed one measured
+ * period after the one before it, and the arrival is only allowed to correct
+ * that grid, never to set it. The result is exactly-even segments.
+ */
+function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
+  const x = p.position.x;
+  const z = p.position.z;
+  const rawYaw = p.rotation;
+  const newest = m.netCount ? snapAt(m, m.netCount - 1) : null;
+  if (newest && newest.x === x && newest.z === z && newest.yawRaw === rawYaw) return false;
+
+  const now = m.netClock;
+  // A seed, not an observation. All that is known of an arrival is that it fell
+  // somewhere in the last frame, so the middle of that window is the best guess
+  // the client has and it halves the phase error the lock has to pull in.
+  let t = now - dtFrame * 0.5;
+  let teleported = false;
+
+  if (newest) {
+    const gap = now - m.netArrive;
+    teleported = Math.hypot(x - newest.x, z - newest.z) > NET_TELEPORT;
+    if (teleported || gap <= 0 || gap > m.netInterval * 8) {
+      // A respawn, or a silence long enough that nothing in the buffer is worth
+      // interpolating through. Drop it and start the timeline again; the sampler
+      // clamps to the oldest snapshot while the buffer refills, so the body
+      // appears at its new place at once instead of sliding across the arena.
+      m.netCount = 0;
+    } else {
+      // THE GRID. Every snapshot is placed exactly one measured period after the
+      // one before it, so consecutive segments are exactly equal in length and
+      // the lerp across them is exactly even. The observed arrival is only ever
+      // used to CORRECT that grid, never to set it — arrival can only be known
+      // to a frame's precision, and believing a ±8 ms quantisation error would
+      // put that wobble straight back on the motion.
+      //
+      // Correcting it is a phase lock with a frequency term, and the frequency
+      // term is not optional. Phase alone would happily hold a wrong period for
+      // ever, re-centring the grid every packet and putting a step on the motion
+      // every time it did. With it, a systematic error walks the PERIOD onto the
+      // true wire rate and the corrections then stop happening at all.
+      const prevT = snapAt(m, m.netCount - 1).t;
+      // A gap long enough to be more than one period is a dropped packet. It is
+      // given a whole number of slots, so the long move is spread over a
+      // correspondingly long segment and is drawn at the CORRECT speed — the
+      // motion stretches, it does not teleport and it does not sprint.
+      const byTiming = gap > m.netInterval * 1.6 + dtFrame
+        ? clamp(Math.round(gap / m.netInterval), 2, 8)
+        : 1;
+      let slots = byTiming;
+      // ARRIVAL TIMING IS THE WRONG WITNESS, AND IT IS WRONG IN BOTH DIRECTIONS.
+      //
+      // The server does not broadcast on a clock; it broadcasts when its wake
+      // owes the simulation at least one whole TICK_MS step (engine.mjs:2203).
+      // So the amount of TIME a packet carries is always a whole number of sim
+      // steps, and the interval between ARRIVALS is the wake period — a
+      // different quantity, equal to the step only if the host holds 50.000 ms,
+      // which no shared-CPU host does. When the two differ:
+      //
+      //   wake period SHORT (say 49 ms). Every packet carries one 50 ms step,
+      //   so the wake creeps forward until one wake owes nothing, sends
+      //   nothing, and the packet after it arrives a double gap later still
+      //   carrying ONE step. Timing calls that two slots. The grid then spends
+      //   98 ms of segment on 50 ms of walking and the man is drawn at 2.29 u/s.
+      //
+      //   wake period LONG (say 51 ms). The slip accumulates the other way
+      //   until one wake owes TWO steps and ships both in one on-time packet.
+      //   Timing calls that one slot, drives 100 ms of walking through 50 ms of
+      //   segment, and the man is drawn at 9 u/s.
+      //
+      // Both are one packet in fifty and both are a whole frame of the man at
+      // half or double speed. Measured: a dead-constant 50.5 ms wake period —
+      // one part in a hundred off nominal, which is a QUIET box — rippled the
+      // local rig 26.1% (4.19..5.37 u/s) with every clean-wire case still at
+      // 0.0%. It was read as load noise for three waves because it only ever
+      // showed up against a real captured wire.
+      //
+      // The wire's own velocity is the witness that can tell the two apart: how
+      // far the man moved divided by how fast the server says he is going is
+      // the time the packet carries, directly, in seconds. `position` is
+      // integrated from `moveVel` and `velocity` is reported as the same
+      // quantity, so for a man simply running this is exact.
+      //
+      // It is bounded by timing to plus or minus one slot, and that bound is
+      // not ceremony. A knockback impulse moves the man by its own decaying
+      // integral rather than by `velocity * dt`, and a stride killed against
+      // the palisade spends ground the reported velocity no longer admits to;
+      // both make distance-over-speed overstate the time. Timing is a poor
+      // witness to WHICH step, but a sound one to roughly HOW MANY.
+      const spd = Math.hypot(p.velocity?.x || 0, p.velocity?.z || 0);
+      if (spd > 0.5) {
+        const carried = Math.hypot(x - newest.x, z - newest.z) / spd;
+        slots = clamp(
+          clamp(Math.round(carried / m.netInterval), 1, 8),
+          Math.max(1, byTiming - 1),
+          byTiming + 1,
+        );
+      }
+      t = prevT + m.netInterval * slots;
+      // WHAT THE ARRIVAL ACTUALLY TELLS US. Not an instant — a window. A packet
+      // is noticed on the first frame that runs after it lands, so all that is
+      // known is that it arrived somewhere in the last frame's worth of time.
+      // A plain symmetric deadband around `now` is therefore BIASED: the
+      // observation is always at or after the truth, never before, so the error
+      // it reports has a mean of half a frame and the period estimate creeps
+      // upward for ever on it. Comparing against the window instead of against
+      // its edge is unbiased, and once the grid is locked the stamp lands inside
+      // the window every time and the correction is exactly zero — which is what
+      // makes the segments exactly equal.
+      // AND WIDER THAN ONE FRAME WHEN THE WIRE IS ROUGH. Under load the
+      // engine's wake slips (measured: p95 53 ms, max 58 ms against a nominal
+      // 50), so an arrival is the send time plus a latency that VARIES. The
+      // grid must lock to the earliest arrivals — the ones that waited least —
+      // and simply tolerate the late ones, or every slipped wake yanks it and
+      // the yank is the judder. `netJit` is how late arrivals have been running
+      // lately; it decays back to nothing on a clean wire, where this widening
+      // is exactly zero and the numbers above are unchanged.
+      m.netJit = Math.max(m.netJit * 0.985, Math.min(Math.abs(now - t), m.netInterval));
+      // AND THE TOLERANCE HAS TO BE TWO-SIDED, for the same reason the slot
+      // count does. When the wake period runs SHORT the grid — which advances
+      // by content — legitimately runs ahead of the arrivals, by up to one
+      // whole step, right up until the skipped wake hands the time back. That
+      // is a sawtooth about zero, not a drift: over any fifty packets the two
+      // clocks advance by exactly the same amount, because the simulation
+      // cannot outrun the wall clock it is stepped against. Clamping the lead
+      // side hard at `now` re-imposed the wake period on the grid one packet at
+      // a time, and shortened the segment it did it on to 44 ms — which is the
+      // 5.09 u/s half of the same 26.1% ripple. A genuine parting of the ways
+      // is still caught below, half a second out.
+      const lo = now - dtFrame - m.netJit;
+      const hi = now + m.netJit;
+      const off = t < lo ? t - lo : t > hi ? t - hi : 0;
+      if (Math.abs(off) > 0.5) {
+        // The client clock and the wire have genuinely parted company; the
+        // arrival is the only truth left.
+        t = now;
+      } else if (off !== 0) {
+        t -= off * 0.7;
+        // The period is only ever nudged by a SMALL residual. A large offset is
+        // a phase error — the grid was seeded a frame away from the wire's own
+        // — and correcting a phase error through the frequency is how a lock
+        // overshoots: the pull-in drags the period several percent off, the
+        // motion runs slow for a second, and it takes as long again to walk
+        // back. Big offsets are left to the phase term, which settles in three
+        // or four packets on its own.
+        if (Math.abs(off) < dtFrame * 0.6) {
+          m.netInterval = clamp(m.netInterval - (off / slots) * 0.006, NET_INTERVAL_MIN, NET_INTERVAL_MAX);
+        }
+      }
+    }
+  }
+  m.netArrive = now;
+  const slot = m.net[m.netHead];
+  slot.t = t;
+  slot.x = x;
+  slot.z = z;
+  slot.yawRaw = rawYaw;
+  slot.yaw = m.netCount ? snapAt(m, m.netCount - 1).yaw + shortestAngle(snapAt(m, m.netCount - 1).yawRaw, rawYaw) : rawYaw;
+  m.netHead = (m.netHead + 1) % SNAP_KEEP;
+  m.netCount = Math.min(m.netCount + 1, SNAP_KEEP);
+
+  // The unwrapped yaw chain grows without bound on a man who keeps turning the
+  // same way. Rebase the whole buffer by whole turns — which preserves both the
+  // angles and the differences between them — so it never loses precision.
+  const head = snapAt(m, m.netCount - 1);
+  if (Math.abs(head.yaw) > 4096) {
+    const turns = Math.round(head.yaw / (Math.PI * 2)) * Math.PI * 2;
+    for (let k = 0; k < m.netCount; k++) snapAt(m, k).yaw -= turns;
+  }
+  return teleported;
+}
+
+/**
+ * Forget the wire. The body is wherever it is now, and nothing before this
+ * instant is evidence about where it is going.
+ *
+ * A caller that TELEPORTS a body — the summary stage carrying men to their
+ * marks — has to say so, because the interpolator's whole job is to disbelieve
+ * a position that disagrees with the recent past. `ingestNet` catches a jump of
+ * more than NET_TELEPORT on its own, but a shorter carry is indistinguishable
+ * from a sprint, and the summary is the case where that guess is worst: the
+ * staged player record is FROZEN, so exactly one snapshot ever lands at the
+ * mark, it sits in the buffer next to the man's death position, and the
+ * segment velocity between the two is the whole carry divided by one packet
+ * interval — three hundred units a second. The extrapolator then runs that for
+ * its full NET_MAX_EXTRAPOLATE and puts the man tens of metres off the mark,
+ * frequently behind the lens. Measured: two of three podium men at
+ * [7.32, 0, 19.08] and [-3.76, 0, 14.15] with the lens at z=14.49.
+ */
+export function cutNetHistory(m: WarriorMotion): void {
+  m.netCount = 0;
+  m.netHead = 0;
+  m.netArrive = 0;
+  m.netJit = 0;
+  m.errX = 0; m.errZ = 0; m.errYaw = 0;
+  m.rawVx = 0; m.rawVz = 0; m.rawVyaw = 0;
+  m.rawPrimed = false;
+}
+
+/**
+ * Place the body at render time `rt`. Between two snapshots this is a straight
+ * lerp by time — even steps, no chase, no framerate term anywhere. Past the
+ * newest it carries on down the last segment's velocity, capped.
+ */
+function sampleNet(m: WarriorMotion, rt: number, p: GamePlayer): void {
+  const n = m.netCount;
+  if (n === 0) {
+    m.rx = p.position.x;
+    m.rz = p.position.z;
+    m.yaw = p.rotation;
+    return;
+  }
+  const newest = snapAt(m, n - 1);
+  if (rt >= newest.t) {
+    // Buffer dry. The segment velocity is preferred over the wire's own
+    // `velocity` because it is the derivative of the very positions being
+    // interpolated, so the extrapolation continues the drawn line exactly.
+    let vx = p.velocity?.x || 0;
+    let vz = p.velocity?.z || 0;
+    let vy = 0;
+    if (n >= 2) {
+      const prev = snapAt(m, n - 2);
+      const span = newest.t - prev.t;
+      if (span > 1e-4) {
+        vx = (newest.x - prev.x) / span;
+        vz = (newest.z - prev.z) / span;
+        vy = (newest.yaw - prev.yaw) / span;
+      }
+    }
+    const ahead = Math.min(rt - newest.t, NET_MAX_EXTRAPOLATE);
+    m.rx = newest.x + vx * ahead;
+    m.rz = newest.z + vz * ahead;
+    m.yaw = newest.yaw + vy * ahead;
+    return;
+  }
+  const oldest = snapAt(m, 0);
+  if (rt <= oldest.t) {
+    m.rx = oldest.x;
+    m.rz = oldest.z;
+    m.yaw = oldest.yaw;
+    return;
+  }
+  for (let k = n - 1; k > 0; k--) {
+    const a = snapAt(m, k - 1);
+    if (rt < a.t) continue;
+    const b = snapAt(m, k);
+    const span = b.t - a.t;
+    const u = span > 1e-6 ? (rt - a.t) / span : 1;
+    m.rx = a.x + (b.x - a.x) * u;
+    m.rz = a.z + (b.z - a.z) * u;
+    m.yaw = a.yaw + (b.yaw - a.yaw) * u;
+    return;
+  }
+}
+
+/**
+ * Bleed off the disagreements rather than showing them.
+ *
+ * `sampleNet` gives the interpolator's best answer for this instant. Between
+ * packets on a clean wire that answer moves by exactly the same amount every
+ * frame, and everything below reduces to `m.rx = the answer` with no error to
+ * carry. It earns its keep on a wire that is NOT clean: when a packet lands and
+ * disagrees with what the extrapolation had guessed, the difference is taken
+ * into an offset instead of onto the screen, and the offset is bled off over
+ * about sixty milliseconds.
+ *
+ * The unexpected part of a step is what gets absorbed, not the whole step —
+ * otherwise the body would simply stop dead every time a packet arrived. The
+ * expected part is the interpolator's own learned velocity, which on constant
+ * motion is exact, so the residual is zero and nothing is smoothed at all.
+ *
+ * NOT applied to the knockback push: that is added to the rig AFTER this, and
+ * a shove that eased in over sixty milliseconds would not be a shove.
+ */
+function smoothNetError(m: WarriorMotion, dt: number, teleported: boolean): void {
+  if (teleported || !m.rawPrimed || dt <= 1e-4) {
+    m.errX = 0; m.errZ = 0; m.errYaw = 0;
+    m.rawVx = 0; m.rawVz = 0; m.rawVyaw = 0;
+    m.rawX = m.rx; m.rawZ = m.rz; m.rawYaw = m.yaw;
+    m.rawPrimed = true;
+    return;
+  }
+  const jx = m.rx - m.rawX - m.rawVx * dt;
+  const jz = m.rz - m.rawZ - m.rawVz * dt;
+  const jy = shortestAngle(m.rawYaw + m.rawVyaw * dt, m.yaw);
+  const kv = Math.min(1, dt * 18);
+  m.rawVx += ((m.rx - m.rawX) / dt - m.rawVx) * kv;
+  m.rawVz += ((m.rz - m.rawZ) / dt - m.rawVz) * kv;
+  m.rawVyaw += (shortestAngle(m.rawYaw, m.yaw) / dt - m.rawVyaw) * kv;
+  m.rawX = m.rx; m.rawZ = m.rz; m.rawYaw = m.yaw;
+
+  const keep = Math.exp(-dt * NET_ERR_RATE);
+  m.errX = clamp((m.errX - jx) * keep, -NET_ERR_MAX, NET_ERR_MAX);
+  m.errZ = clamp((m.errZ - jz) * keep, -NET_ERR_MAX, NET_ERR_MAX);
+  m.errYaw = clamp((m.errYaw - jy) * keep, -NET_ERR_MAX_YAW, NET_ERR_MAX_YAW);
+  m.rx += m.errX;
+  m.rz += m.errZ;
+  m.yaw += m.errYaw;
+}
+
+/**
+ * Moves the rig onto the server's position with snapshot interpolation, and
+ * applies the hit-push impulse. Read `rig.group.position` after this and before
+ * poseWarrior.
  */
 export function stepWarriorTransform(
   rig: WarriorRig,
@@ -1412,13 +1863,17 @@ export function stepWarriorTransform(
   ctx: FrameContext,
   attacker?: GamePlayer,
 ): void {
-  // Extrapolate an eighth of a second down the velocity vector so the body is
-  // where the packet says it will be, not where it last was.
-  const estX = player.position.x + (player.velocity?.x || 0) * 0.08;
-  const estZ = player.position.z + (player.velocity?.z || 0) * 0.08;
-  const posLerp = player.id === ctx.localId ? 0.4 : 0.24;
-  motion.rx += (estX - motion.rx) * posLerp;
-  motion.rz += (estZ - motion.rz) * posLerp;
+  // The client's own render clock. Everything below is timed off this and not
+  // off frame counts, which is what makes the motion identical at 30, 60 and
+  // 120 fps instead of converging twice as fast on the better phone.
+  motion.netClock += Math.max(0, dt);
+  const teleported = ingestNet(motion, player, dt > 1e-4 ? dt : 1 / 60);
+  // Local: zero delay, carried forward to the present instant. Remote: rendered
+  // 1.5 packet intervals back so there is always a snapshot on each side. See
+  // the section header for why the two are not the same problem.
+  const delay = player.id === ctx.localId ? 0 : REMOTE_DELAY_PACKETS * motion.netInterval;
+  sampleNet(motion, motion.netClock - delay, player);
+  smoothNetError(motion, dt, teleported);
 
   // The orchestrator raises recoil on the frame damage lands. A rise is the
   // only edge we get for "struck just now" — the wire has no hit event on the
@@ -1455,11 +1910,27 @@ export function stepWarriorTransform(
 
   rig.group.position.x = motion.rx + pushX;
   rig.group.position.z = motion.rz + pushZ;
-  motion.yaw += shortestAngle(motion.yaw, player.rotation) * Math.min(1, dt * 14);
+  // Yaw came off the same two snapshots, interpolated the short way round by
+  // `sampleNet`. It used to ease toward the raw wire rotation at `dt * 14`,
+  // which was framerate-correct but still an exponential chase after a target
+  // that only moves every 50 ms — 145.6% ripple and 53 ms behind. A camera turn
+  // is where a player sees this first.
   rig.group.rotation.y = motion.yaw;
 
   rig.blob.position.x = rig.group.position.x;
   rig.blob.position.z = rig.group.position.z;
+
+  // A respawn moves the body the width of the arena in one packet. The cloth
+  // below differentiates the render position to find out what it is being
+  // dragged through, so without this the teleport reads as a 200 u/s gust and
+  // the cloak snaps out flat. The rig is already at its new place; only the
+  // derivative history has to be told nothing happened.
+  if (teleported) {
+    motion.pxPrev = rig.group.position.x;
+    motion.pzPrev = rig.group.position.z;
+    motion.yawPrev = motion.yaw;
+    motion.vx = 0; motion.vz = 0; motion.ax = 0; motion.az = 0; motion.yawRate = 0;
+  }
 
   // What the cloth is being dragged through. Differentiated here rather than in
   // the pose because this is the only place that knows where the body finally

@@ -19,6 +19,7 @@ export type ActionId =
   | "forward" | "back" | "left" | "right"
   | "sprint" | "dodge" | "crouch"
   | "attack" | "heavy" | "block" | "ability" | "shove"
+  | "lockon"
   | "emote1" | "emote2" | "emote3";
 
 export interface ActionMeta {
@@ -50,6 +51,11 @@ export const ACTIONS: readonly ActionMeta[] = Object.freeze([
   { id: "block", label: "Block", hint: "Raise the shield" },
   { id: "shove", label: "Shove", hint: "Two hands — breaks a guard, drives a man back" },
   { id: "ability", label: "Class deed", hint: "The warrior's own trick" },
+  // Off until pressed: desktop mouse-look is unchanged by default and this is
+  // the door for anyone who wants the phone's camera. A toggle rather than a
+  // hold, because a lock you have to keep a finger on is a hand you cannot
+  // fight with — which is the whole problem it was built to answer.
+  { id: "lockon", label: "Lock on", hint: "Hold the camera on the nearest foe — off by default", desktopOnly: true },
   // The victory emotes. Keys are a desktop thing, but the actions are not
   // desktopOnly: a phone performs the same three from the round-break and
   // summary surfaces, so the badge would be a lie.
@@ -86,6 +92,9 @@ export const DEFAULT_BINDINGS: Bindings = Object.freeze({
   // F sits under the index finger off WASD and nothing else claims it.
   shove: Object.freeze(["KeyF"]),
   ability: Object.freeze(["KeyQ"]),
+  // R is free, sits under the index finger off WASD, and is where every game
+  // in the reference class already puts a lock.
+  lockon: Object.freeze(["KeyR"]),
   // The number row is the emote shelf every other game trained: reachable
   // without leaving WASD, and nothing else in the table claims a digit.
   emote1: Object.freeze(["Digit1"]),

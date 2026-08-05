@@ -21,7 +21,7 @@
 // ============================================================
 import { chromium } from "playwright";
 import { spawn } from "child_process";
-import { existsSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -72,7 +72,15 @@ function waitForServer(url, timeoutMs = 180000) {
 // intent rather than what the fight was actually fought with.
 const PROBE = () => {
   const w = window;
-  w.__probe = { sent: [], lastState: null, states: 0, opened: false, swings: [], wasAttacking: false, shoves: 0, wasShoving: false, touch: [] };
+  // `frames` is the addition the lock assertions needed: one row per snapshot,
+  // carrying the local warrior's facing AND where every live enemy was standing
+  // at that instant. A lock is a claim about the relationship between the two,
+  // and that relationship cannot be reconstructed from either alone after the
+  // fact — the men have moved by the time anything is read back.
+  w.__probe = {
+    sent: [], lastState: null, states: 0, opened: false, swings: [],
+    wasAttacking: false, shoves: 0, wasShoving: false, touch: [], frames: [],
+  };
 
   // What the page actually felt, timestamped on the page's own clock. A gesture
   // is a shape in time as much as in space — GameHud gives a flick 90 ms to read
@@ -122,6 +130,23 @@ const PROBE = () => {
           // packet is eventually read — rather than raced for from a poll.
           if (mine.state === "shoving" && !w.__probe.wasShoving) w.__probe.shoves++;
           w.__probe.wasShoving = mine.state === "shoving";
+
+          const foes = {};
+          for (const p of Object.values(m.data.players || {})) {
+            if (p.id === mine.id) continue;
+            foes[p.id] = { x: p.position.x, z: p.position.z, dead: p.state === "dead" };
+          }
+          if (w.__probe.frames.length > 900) w.__probe.frames.shift();
+          w.__probe.frames.push({
+            t: performance.now(),
+            rot: mine.rotation, state: mine.state,
+            x: mine.position.x, z: mine.position.z,
+            // Which man the client believes it is holding. The only thing in
+            // here that is not off the wire — the wire does not carry it —
+            // and nothing is asserted from it that the facing does not confirm.
+            lock: (w.__bretwaldaLock && w.__bretwaldaLock.target) || null,
+            foes,
+          });
         } catch { /* ignore */ }
       });
     }
@@ -143,6 +168,98 @@ function shortestAngle(from, to) {
   while (d > Math.PI) d -= Math.PI * 2;
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
+}
+
+/** The cluster a touch on the look side is allowed to land on. */
+const CLUSTER = ["Slash", "Heavy attack", "Block", "Dodge", "Power", "Shove"];
+
+/**
+ * Every point on the look side must reach either the canvas — where a drag
+ * becomes yaw or a target switch — or a control the player is deliberately
+ * pressing. Anything else standing there is a patch of screen where a thumb
+ * silently does nothing, which is the exact complaint the rebuild set out to
+ * answer: the old zone ignored the bottom third and players read that as broken.
+ *
+ * Module level rather than a closure, because it is now run in two acts: an
+ * empty ring, and a ring with the lock reticle drawn over the fight. A reticle
+ * that took a bite out of free-look would be invisible until someone dragged
+ * exactly where a man was standing.
+ */
+async function scanLookSide(page, mirrored) {
+  return page.evaluate(([cluster, flip]) => {
+    const W = window.innerWidth, H = window.innerHeight;
+    // input.ts splits the screen at MOVE_SIDE_FRACTION and swaps the sides for
+    // a left-handed player; everything on the look side of that line is the
+    // right thumb's unless something is standing on it.
+    const from = flip ? 0 : Math.ceil(W * 0.45);
+    const to = flip ? Math.floor(W * 0.55) : W;
+    const found = new Map();
+    let total = 0;
+    for (let y = 2; y < H; y += 5) {
+      for (let x = from; x < to; x += 5) {
+        total++;
+        const el = document.elementFromPoint(x, y);
+        if (el && el.tagName === "CANVAS") continue;
+        const btn = el && el.closest("button");
+        const label = btn && (btn.getAttribute("aria-label") || btn.textContent.trim());
+        if (label && cluster.some((c) => label.includes(c))) continue;
+        const what = label ? `the "${label}" button` : `<${el ? el.tagName.toLowerCase() : "nothing"}>`;
+        found.set(what, (found.get(what) || 0) + 1);
+      }
+    }
+    return { total, worst: [...found.entries()].sort((a, b) => b[1] - a[1]) };
+  }, [CLUSTER, mirrored]);
+}
+
+/**
+ * The readers every act shares: the warrior as the SERVER sees him, taken off
+ * a snapshot strictly newer than a given one. Same guard, and the same reason,
+ * as playtest documents: the post chain on a software rasteriser blocks the
+ * main thread for most of a second, so two reads taken a second apart can land
+ * on the same packet and report a displacement of exactly 0.00 — which reads as
+ * "the stick is dead" when it is only "the page has not had a moment".
+ */
+function probeReader(page) {
+  const me = async (afterSeq = -1) => page.evaluate(async (s) => {
+    const deadline = performance.now() + 15000;
+    while (window.__probe.states <= s && performance.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const st = window.__probe.lastState;
+    if (!st) return null;
+    const mine = Object.values(st.players).find((p) => !String(p.id).startsWith("bot_"));
+    return mine && {
+      x: mine.position.x, z: mine.position.z, hp: mine.health,
+      stam: mine.stamina, state: mine.state, rot: mine.rotation,
+      dir: mine.attackDir, seq: window.__probe.states,
+    };
+  }, afterSeq);
+  const seq = () => page.evaluate(() => window.__probe.states);
+  const wait = (ms) => page.waitForTimeout(ms);
+  const now = () => page.evaluate(() => performance.now());
+  /**
+   * A reading taken once the last input has had time to become fact: one 16 ms
+   * client sample, one 50 ms server tick, and the snapshot back. Reading the
+   * instant a drag stops catches the turn in flight and reports a fraction of
+   * it — which looks exactly like a control that half works.
+   */
+  const afterInput = async () => { await wait(200); return me(await seq()); };
+  /**
+   * A baseline taken once the server's copy of the man has stopped changing
+   * under its own steam: the stride left over from the last test, and the
+   * round's opening handover, are each worth a baseline of nonsense.
+   */
+  const settle = async (tries = 25) => {
+    let last = await me(await seq());
+    for (let i = 0; i < tries; i++) {
+      const next = await me(await seq());
+      if (Math.abs(shortestAngle(last.rot, next.rot)) < 0.005
+        && Math.hypot(next.x - last.x, next.z - last.z) < 0.05) return next;
+      last = next;
+    }
+    return last;
+  };
+  return { me, seq, wait, now, afterInput, settle };
 }
 
 /**
@@ -194,6 +311,456 @@ function buildIsStale(buildId) {
   return newest > statSync(buildId).mtimeMs;
 }
 
+/**
+ * ACT TWO — the ring with men in it.
+ *
+ * Everything above runs in an empty ring on purpose: the twenty assertions
+ * there are about a thumb, and an AI that kills the test warrior takes all of
+ * them with it. The lock is the opposite claim. It is entirely about who else
+ * is standing there, so it gets its own fight, its own page and its own
+ * localStorage — a second act rather than a second harness, because it is the
+ * same scheme and the two halves have to stay green together.
+ *
+ * Three recruits, which is the case that matters: the duel is easy and the
+ * FFA is where a lock either helps or starts arguing with the player.
+ */
+async function lockAct(browser, url, check) {
+  const ctx = await browser.newContext({ viewport: SCREEN, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
+  await ctx.addInitScript(PROBE);
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => console.log(`[page-error] ${e}`));
+  await page.goto(`${url}/?quality=low`, { waitUntil: "domcontentloaded" });
+
+  // Every step waits a minute rather than Playwright's default thirty seconds.
+  // This box shares a CPU with whatever else is being built at the time, and a
+  // menu that took 31 s to paint has failed nothing except the clock — it threw
+  // away a four-minute run twice before this was raised.
+  const CLICK = { timeout: 90000 };
+  const step = async (text) => {
+    const el = page.getByText(text, { exact: false }).first();
+    await el.waitFor({ state: "visible", ...CLICK });
+    await el.click(CLICK);
+  };
+  await step("Training");
+  await step("MUSTER THE TESTGROUNDS");
+  // Slow and forgiving. The warrior has to survive long enough to be measured,
+  // and a Jarl opens his head while the first assertion is still counting.
+  await step("RECRUIT");
+  const fewer = page.getByLabel("Fewer AI warriors");
+  for (let i = 0; i < 8 && await fewer.isEnabled().catch(() => false); i++) await fewer.click(CLICK);
+  const more = page.getByLabel("More AI warriors");
+  for (let i = 0; i < 3; i++) await more.click(CLICK);
+  await step("DRAW STEEL");
+  await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 });
+  console.log("\n[touchtest] act two: three recruits in the ring\n");
+
+  const { me, seq, wait, now } = probeReader(page);
+  const cdp = await ctx.newCDPSession(page);
+  const hand = makeHand(cdp);
+  const LOOK = 2, SWING = 3;
+  const lookHome = { x: SCREEN.width * 0.56, y: SCREEN.height * 0.42 };
+
+  const lockState = () => page.evaluate(() => ({
+    target: (window.__bretwaldaLock && window.__bretwaldaLock.target) || null,
+    engaged: !!(window.__bretwaldaLock && window.__bretwaldaLock.engaged),
+    blend: (window.__bretwaldaLock && window.__bretwaldaLock.blend) || 0,
+    switches: (window.__bretwaldaLock && window.__bretwaldaLock.switches) || 0,
+    reason: (window.__bretwaldaLock && window.__bretwaldaLock.reason) || "?",
+  }));
+  /**
+   * Three recruits at arm's length kill the test warrior, and a corpse holds no
+   * lock. That is not a defect in the scheme — it is the ring doing what a ring
+   * does — so every assertion below waits for a man who is on his feet before
+   * it measures anything, and retries rather than grading a death.
+   */
+  const waitForAlive = () => page.waitForFunction(() => {
+    const s = window.__probe.lastState;
+    if (!s || (s.state !== "fighting" && s.state !== "last_stand")) return false;
+    const m = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
+    return !!m && m.state !== "dead";
+  }, null, { timeout: 60000 });
+  const waitForLock = () => page.waitForFunction(
+    () => window.__bretwaldaLock && window.__bretwaldaLock.engaged && window.__bretwaldaLock.blend > 0.9,
+    null, { timeout: 45000 });
+
+  /**
+   * The snapshot trail since `mark`: every man the lock held, in order, plus
+   * where everybody was standing at the end. "The lock let go" and "the lock
+   * never took hold" are different bugs and a verdict alone cannot tell them
+   * apart; `switchedTo` is the first NEW man it took, which is the one thing a
+   * later death cannot take back.
+   */
+  const readTrace = (mark) => page.evaluate((t) => {
+    const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+    const rows = window.__probe.frames.filter((f) => f.t >= t);
+    const held = [];
+    for (const f of rows) if (!held.length || held[held.length - 1] !== (f.lock || "-")) held.push(f.lock || "-");
+    const first = rows.length ? rows[0].lock : null;
+    const switchedTo = rows.map((f) => f.lock).find((l) => l && l !== first) || null;
+    const last = rows[rows.length - 1];
+    const foes = last ? Object.entries(last.foes).filter(([, p]) => !p.dead)
+      .map(([id, p]) => `${id.slice(0, 8)}@${Math.hypot(p.x - last.x, p.z - last.z).toFixed(1)}m`) : [];
+    // Where the camera ended up relative to whoever it is holding NOW.
+    const onNew = rows.filter((f) => f.lock === switchedTo && f.foes[f.lock] && !f.foes[f.lock].dead);
+    const f = onNew[onNew.length - 1];
+    return {
+      held: held.map((h) => h.slice(0, 8)).join(" → "),
+      switchedTo,
+      foes: foes.join(", "),
+      off: f ? Math.abs(wrap(Math.atan2(f.foes[f.lock].x - f.x, f.foes[f.lock].z - f.z) - f.rot)) : null,
+    };
+  }, mark);
+
+  /**
+   * The handedness button lives in the combat cluster, and the cluster leaves
+   * the tree with the man when he dies — so a tap dispatched a moment after a
+   * recruit finished him lands on a button that has already detached. Wait for
+   * a warrior on his feet, then tap, then retry.
+   */
+  const flipHand = async (to) => {
+    const label = to === "left" ? "Switch to left-handed controls" : "Switch to right-handed controls";
+    for (let i = 0; i < 6; i++) {
+      await waitForAlive().catch(() => {});
+      const btn = page.getByLabel(label);
+      try {
+        await btn.waitFor({ state: "visible", timeout: 15000 });
+        await btn.tap({ timeout: 15000 });
+        await wait(500);
+        return true;
+      } catch { await wait(800); }
+    }
+    return false;
+  };
+
+  /** A drag on bare glass on the button side, in steps, as one burst. */
+  const glassDrag = async (dx, steps = 6) => {
+    await hand.press(LOOK, lookHome.x, lookHome.y);
+    const moves = [];
+    for (let i = 1; i <= steps; i++) moves.push(hand.move(LOOK, lookHome.x + (dx * i) / steps, lookHome.y));
+    await Promise.all(moves);
+    await hand.lift(LOOK);
+  };
+
+  await waitForLock().catch(() => {});
+
+  // ===================================================================
+  // A. The lock holds facing on a man who is moving, with NO thumb on
+  //    the button side at all. This is the whole promise: the player
+  //    stops having to say where to look.
+  // ===================================================================
+  {
+    let read = null;
+    // Held open until the locked man has actually gone somewhere. A lock that
+    // "held facing" on a man stood still has proved nothing, and a bot that has
+    // not closed yet is stood still.
+    for (let i = 0; i < 8; i++) {
+      await waitForAlive().catch(() => {});
+      const mark = await now();
+      // Long enough that even a box whose main thread is being fought over for
+      // most of a second still delivers the eight snapshots this needs.
+      await wait(2600);
+      read = await page.evaluate((t) => {
+        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+        // The first half-second is the ease-in, and a lock is allowed to be
+        // wrong while it is arriving. Rows within 350 ms of the lock changing
+        // man are dropped for the same reason.
+        const rows = window.__probe.frames.filter((f) => f.t >= t + 500);
+        let worst = 0, n = 0, yawTravel = 0, prevRot = null, prevLock = null, changedAt = -1e9;
+        let firstFoe = null, lastFoe = null, id = null;
+        for (const f of rows) {
+          if (f.lock !== prevLock) { changedAt = f.t; prevLock = f.lock; }
+          const foe = f.lock && f.foes[f.lock];
+          if (prevRot !== null) yawTravel += Math.abs(wrap(f.rot - prevRot));
+          prevRot = f.rot;
+          if (!foe || foe.dead) continue;
+          // A staggered or committed man is not free to turn; the cap, not the
+          // lock, is what decides his facing there, and it has its own test.
+          if (f.state === "staggered" || f.state === "attacking" || f.state === "shoving" || f.state === "dead") continue;
+          if (f.t - changedAt < 500) continue;
+          const off = Math.abs(wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot));
+          worst = Math.max(worst, off);
+          n++;
+          id = f.lock;
+          if (!firstFoe) firstFoe = { ...foe };
+          lastFoe = { ...foe };
+        }
+        const moved = firstFoe && lastFoe ? Math.hypot(lastFoe.x - firstFoe.x, lastFoe.z - firstFoe.z) : 0;
+        return { worst, n, yawTravel, moved, id };
+      }, mark);
+      if (read.n >= 8 && read.moved > 0.8) break;
+    }
+    check("the lock holds facing on a moving target with no thumb on the button side",
+      read && read.n >= 8 && read.moved > 0.8 && read.worst < 0.5 && read.yawTravel > 0.15,
+      read
+        ? `over ${read.n} snapshots the locked man travelled ${read.moved.toFixed(2)} units and the camera turned ${(read.yawTravel * 57.3).toFixed(0)}° to stay on him; worst facing error ${(read.worst * 57.3).toFixed(1)}° (a thumb was nowhere near the glass)`
+        : "no snapshots");
+  }
+
+  // ===================================================================
+  // B. A flick across the button side takes the next man. This is the
+  //    one decision the lock cannot make for you, and it is the only
+  //    job left on bare glass — no drag, no held aim, no second thumb.
+  // ===================================================================
+  {
+    let before = null, after = null, trace = null, ok = false;
+    for (let attempt = 0; attempt < 4 && !ok; attempt++) {
+      await waitForAlive().catch(() => {});
+      await waitForLock().catch(() => {});
+      before = await lockState();
+      const mark = await now();
+      await glassDrag(92);
+      // Short, because the verdict is taken off the SNAPSHOT TRAIL and not off
+      // the state at the end of a settle: the first cut of this test watched a
+      // perfectly good switch happen and then failed it, because the warrior
+      // was cut down 600 ms later and a corpse holds nobody.
+      await wait(350);
+      after = await lockState();
+      trace = await readTrace(mark);
+      ok = after.switches > before.switches
+        && !!trace.switchedTo && trace.switchedTo !== before.target;
+      if (!ok) await wait(600);
+    }
+    check("a flick across the button side switches target", ok,
+      `flicked 92px right: the lock went ${trace.held}; live foes ${trace.foes || "none"}; the camera came onto the new man to within ${trace.off === null ? "n/a" : (trace.off * 57.3).toFixed(1) + "\u00b0"}; lock says "${after.reason}"`);
+  }
+
+  // ===================================================================
+  // C. AND IT IS STILL NOT AN AIMBOT. The weight pass caps a committed
+  //    body at SWING_TURN_RATE = 1.8 rad/s so a blow cannot follow a man
+  //    who rolls behind you. A lock that turned the camera faster than
+  //    the shoulders would delete that, and For Honor works precisely
+  //    because it does not. Throw a heavy, then ask the lock — mid-blow
+  //    — for a man in a completely different direction, and measure what
+  //    the SERVER did with his facing.
+  // ===================================================================
+  {
+    const CAP = 1.8;
+    let best = null;
+    const heavyBtn = page.getByLabel("Heavy attack");
+    const hb = await heavyBtn.boundingBox();
+    const STICK = 1;
+    const stickHome = { x: SCREEN.width * 0.23, y: SCREEN.height * 0.62 };
+    // The cap is only PROVED by a blow that was asked for more than it. Either
+    // signal will do and both are the same statement: the bearing swept faster
+    // than the shoulders are allowed, or the lock was left holding a correction
+    // bigger than a swing could close.
+    const exercised = (m) => !!m && (m.demandRate > CAP || m.peakResidual > 0.9);
+    const better = (a, b) => !b || (a.demandRate + a.peakResidual) > (b.demandRate + b.peakResidual);
+    for (let attempt = 0; attempt < 8 && !exercised(best); attempt++) {
+      if (!hb) break;
+      await waitForAlive().catch(() => {});
+      await page.waitForFunction(() => {
+        const s = window.__probe.lastState;
+        if (!s) return false;
+        const m = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
+        return !!m && m.stamina > 60 && m.state !== "attacking" && m.state !== "staggered";
+      }, null, { timeout: 25000 }).catch(() => {});
+
+      // THE MANOEUVRE. Not a second man off to the side — three recruits walk
+      // in abreast and the first cut of this test spent eight attempts asking a
+      // lock that was only ever 11° out of line, which proves nothing either
+      // way. This is the For Honor case instead, and it needs nobody but the
+      // man you are already fighting: get inside his reach, throw a heavy, and
+      // STRAFE ROUND HIM while it is out. At a metre and a half the bearing to
+      // him sweeps faster than any shoulders can follow, so the lock asks for
+      // more than 1.8 rad/s as a matter of geometry rather than of luck.
+      await page.waitForFunction(() => {
+        const f = window.__probe.frames[window.__probe.frames.length - 1];
+        if (!f || !f.lock) return false;
+        const p = f.foes[f.lock];
+        // Inside two metres. The sweep goes as 1/range, so three metres is the
+        // difference between a demand of 1.2 rad/s and one of 3.5.
+        return !!p && !p.dead && Math.hypot(p.x - f.x, p.z - f.z) < 2.2;
+      }, null, { timeout: 20000 }).catch(() => {});
+
+      const mark = await now();
+      await hand.press(SWING, hb.x + hb.width / 2, hb.y + hb.height / 2);
+      await wait(60);
+      await hand.lift(SWING);
+      // Full lateral deflection, held through the blow. Which way round does
+      // not matter; that it is across his front and not at him does.
+      await hand.press(STICK, stickHome.x, stickHome.y);
+      await Promise.all([0.4, 0.75, 1].map((k) => hand.move(STICK, stickHome.x - 62 * k, stickHome.y)));
+      await wait(900);
+      await hand.lift(STICK);
+      await wait(250);
+
+      const m = await page.evaluate(([t, cap]) => {
+        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+        const rows = window.__probe.frames.filter((f) => f.t >= t && f.state === "attacking");
+        // Six snapshots and a third of a second, or it is not a measurement: a
+        // rate taken across four packets on a box with no GPU is mostly the
+        // jitter between them.
+        if (rows.length < 6 || rows[rows.length - 1].t - rows[0].t < 300) return null;
+        const bearing = (f) => {
+          const p = f.lock && f.foes[f.lock];
+          return p && !p.dead ? Math.atan2(p.x - f.x, p.z - f.z) : null;
+        };
+        let turned = 0;
+        for (let i = 1; i < rows.length; i++) turned += Math.abs(wrap(rows[i].rot - rows[i - 1].rot));
+        const elapsed = (rows[rows.length - 1].t - rows[0].t) / 1000;
+
+        // What the lock was ASKING for: how fast the direction to the man it
+        // holds was moving. Taken over three-snapshot windows so one late
+        // packet cannot invent a rate, and only across windows holding the
+        // SAME man — a switch is a jump, not a rate.
+        let demandRate = 0, bodyPeak = 0, peakResidual = 0;
+        for (const f of rows) {
+          const b = bearing(f);
+          if (b !== null) peakResidual = Math.max(peakResidual, Math.abs(wrap(b - f.rot)));
+        }
+        for (let i = 2; i < rows.length; i++) {
+          const a = rows[i - 2], c = rows[i];
+          if (a.lock !== c.lock || a.lock !== rows[i - 1].lock) continue;
+          const b0 = bearing(a), b1 = bearing(c);
+          if (b0 === null || b1 === null) continue;
+          const dt = (c.t - a.t) / 1000;
+          if (dt < 0.06) continue;
+          demandRate = Math.max(demandRate, Math.abs(wrap(b1 - b0)) / dt);
+          bodyPeak = Math.max(bodyPeak, Math.abs(wrap(c.rot - a.rot)) / dt);
+        }
+        const last = rows[rows.length - 1];
+        const lastB = bearing(last);
+        return {
+          turned, elapsed, demandRate, bodyPeak, peakResidual,
+          rate: turned / elapsed,
+          residual: lastB === null ? null : Math.abs(wrap(lastB - last.rot)),
+          allowed: cap * elapsed, frames: rows.length,
+        };
+      }, [mark, CAP]);
+      if (m && better(m, best)) best = m;
+    }
+
+    // Tolerance is on the CLOCK, not on the cap: the server integrates 1.8 rad/s
+    // on its own fixed step and is the authority, but the window here is
+    // measured between two socket messages arriving at a box with no GPU, and
+    // bunched packets shorten the denominator. 30% covers that and still leaves
+    // an uncapped lock — which would run at LOCK_MAX_RATE, 5.0 — nowhere to hide.
+    const ok = !!best && best.rate <= CAP * 1.3 && best.bodyPeak <= CAP * 1.3 && exercised(best);
+    check("a committed swing still cannot follow the man the lock was handed", ok,
+      best
+        ? `strafing round him mid-blow, the lock was left holding ${(best.peakResidual * 57.3).toFixed(0)}\u00b0 of correction and the direction to him swept at ${best.demandRate.toFixed(2)} rad/s — more than the shoulders are allowed — and over ${best.frames} snapshots of "attacking" (${best.elapsed.toFixed(2)}s) the server turned him ${(best.turned * 57.3).toFixed(0)}\u00b0, ${best.rate.toFixed(2)} rad/s mean and ${best.bodyPeak.toFixed(2)} rad/s peak against the 1.8 cap (an uncapped lock runs at 5.0), leaving ${best.residual === null ? "n/a" : (best.residual * 57.3).toFixed(0) + "\u00b0"} still between them when the blow finished`
+        : "the server never held \"attacking\" long enough to measure \u2014 no heavy survived to a sixth snapshot");
+  }
+
+  // ===================================================================
+  // D. The lock is on the frame, not only in the camera. A camera that
+  //    holds a man looks exactly like a player who happens to be
+  //    pointing that way; never carry information in one channel only.
+  // ===================================================================
+  {
+    const W = SCREEN.width;
+    /**
+     * Samples the reticle, keeping only the ones taken while the man it holds
+     * is CLOSE. The shoulder parallax goes as 1/range: at a metre and a half it
+     * is most of the half-frame and swamps everything else, and at fourteen
+     * metres it is four degrees and the man's own position decides which side
+     * of the middle he lands on. A previous cut of this test measured the
+     * parallax at a range of 14 m and got the sign backwards — which is the
+     * geometry behaving, not the reticle misbehaving.
+     */
+    const sampleReticle = async (tries) => {
+      const out = [];
+      let matched = 0;
+      for (let i = 0; i < tries; i++) {
+        const s0 = await page.evaluate(() => {
+          const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+          const el = document.querySelector("[data-lock-reticle]");
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
+          const f = window.__probe.frames[window.__probe.frames.length - 1];
+          const foe = f && f.lock && f.foes[f.lock];
+          return {
+            x: r.left + r.width / 2, o: parseFloat(el.style.opacity || "0"),
+            sx: p.sx, dist: p.dist || 0, w: p.w,
+            off: foe && !foe.dead ? wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot) : null,
+            paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
+          };
+        });
+        // The DOM against the rig's own arithmetic. This is the half of the
+        // claim that has nothing to do with geometry: whatever the camera
+        // computed, the element has to actually be THERE.
+        if (s0 && s0.o > 0.5 && Math.abs(s0.x - s0.sx) < 2) matched++;
+        // The parallax sample only counts when the geometry it is a statement
+        // about actually holds: the man close, SQUARE IN FRONT of the warrior,
+        // and the reticle on the glass. Ungated, this measured a 506 px "shift"
+        // on a 390 px screen across two different moments of a three-man brawl
+        // — a number with no meaning that happened to have the right sign.
+        if (s0 && s0.o > 0.5 && s0.dist > 1.5 && s0.dist < 6
+          && s0.off !== null && Math.abs(s0.off) < 0.10
+          && s0.x > -40 && s0.x < s0.w + 40) out.push(s0);
+        await wait(150);
+      }
+      const xs = out.map((s2) => s2.x).sort((a, b) => a - b);
+      return {
+        tries, seen: out.length, matched,
+        median: xs.length ? xs[Math.floor(xs.length / 2)] : 0,
+        travel: xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0,
+        paint: out.length ? out[out.length - 1].paint : "none",
+      };
+    };
+
+    // THE CLAIM IS THAT IT IS ON THE MAN, and the honest way to prove that is
+    // NOT that it sits near the middle of the screen. The lock holds him there
+    // — an earlier cut asked whether the reticle was on his side of the centre
+    // line and got "0 of 0 samples", because the facing error never once
+    // exceeded three degrees. A reticle painted at a fixed spot would pass that.
+    //
+    // What cannot be faked is the SHOULDER. The rig sits a metre to the
+    // warrior's right, so a man close in front of him is drawn well LEFT of
+    // centre — and the one handedness switch moves the camera to the other
+    // shoulder, so the same man swings across the frame. Parallax through the
+    // real camera matrix, driven by nothing but the store that flips
+    // everything else.
+    await waitForAlive().catch(() => {});
+    await waitForLock().catch(() => {});
+    const overRight = await sampleReticle(34);
+    await flipHand("left");
+    await waitForAlive().catch(() => {});
+    await waitForLock().catch(() => {});
+    const overLeft = await sampleReticle(34);
+    // Put it back, because the layout scan below runs right-handed first.
+    await flipHand("right");
+
+    const shift = overLeft.median - overRight.median;
+    check("the lock is drawn on the man it is holding, through the real camera",
+      overRight.seen >= 4 && overLeft.seen >= 4
+      && overRight.matched >= 10 && overLeft.matched >= 10
+      && overRight.median < W / 2 && overLeft.median > W / 2
+      && shift > W * 0.12 && Math.max(overRight.travel, overLeft.travel) > 3,
+      `the element sat within 2px of the rig's own projected x on ${overRight.matched}+${overLeft.matched} of ${overRight.tries * 2} samples; measured only while the locked man was 1.5-6 m away and within 6\u00b0 of dead ahead — where the shoulder offset is the only term left — the reticle sat at median x=${Math.round(overRight.median)} over the RIGHT shoulder (${overRight.seen} such samples) and the one handedness switch moved the same man to x=${Math.round(overLeft.median)} (${overLeft.seen}) — a shift of ${Math.round(shift)}px, ${(shift / W * 100).toFixed(0)}% of a ${W}px screen, with nothing else changed; it slid up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
+  }
+
+  // ===================================================================
+  // E/F. The layout, with the lock live. The reticle and its tuition
+  //      line are drawn over the fight, so they get the same measurement
+  //      the cluster does — for BOTH hands, because a thing that fails to
+  //      mirror lands in the half the cluster has just vacated.
+  // ===================================================================
+  for (const hnd of ["right-handed", "left-handed"]) {
+    if (hnd === "left-handed") await flipHand("left");
+    await waitForAlive().catch(() => {});
+    await waitForLock().catch(() => {});
+    // A frame, because a reticle is a visual claim and the DOM scan above only
+    // proves it is not in the way. This is the picture the owner can look at.
+    const shot = resolve(ROOT, `art/shots/lock/${hnd}.png`);
+    mkdirSync(dirname(shot), { recursive: true });
+    await page.screenshot({ path: shot });
+    console.log(`  SHOT    ${shot}`);
+    const dead = await scanLookSide(page, hnd === "left-handed");
+    const cells = dead.worst.reduce((n, [, c]) => n + c, 0);
+    check(`${hnd}, lock live: the reticle takes no bite out of the button side`, cells === 0,
+      cells === 0
+        ? `every one of ${dead.total} sampled points still reaches the canvas or a combat button with the reticle and its tuition line drawn`
+        : `${cells} of ${dead.total} points now reach neither: ${dead.worst.map(([w, c]) => `${w} (${c})`).join(", ")}`);
+  }
+
+  const end = await me(await seq());
+  console.log(`[touchtest] act two: warrior finished on ${end ? end.hp.toFixed(0) : "?"} hp, state=${end ? end.state : "?"}`);
+  await ctx.close();
+}
+
 async function main() {
   const buildId = resolve(ROOT, ".next/BUILD_ID");
   const useProd = existsSync(buildId);
@@ -243,60 +810,7 @@ async function main() {
   await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 });
   console.log("[touchtest] in a fight\n");
 
-  // Reads the warrior out of a snapshot STRICTLY NEWER than `afterSeq`. Same
-  // guard, and the same reason, as playtest documents: the post chain on a
-  // software rasteriser blocks the main thread for most of a second, so two
-  // reads taken a second apart can land on the same packet and report a
-  // displacement of exactly 0.00 — which reads as "the stick is dead" when it
-  // is only "the page has not had a moment to process a socket message". Every
-  // measurement below that spans an input takes the seq before it and reads
-  // past it after.
-  const me = async (afterSeq = -1) => page.evaluate(async (seq) => {
-    const deadline = performance.now() + 15000;
-    while (window.__probe.states <= seq && performance.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    const s = window.__probe.lastState;
-    if (!s) return null;
-    const mine = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
-    return mine && {
-      x: mine.position.x, z: mine.position.z, hp: mine.health,
-      stam: mine.stamina, state: mine.state, rot: mine.rotation,
-      dir: mine.attackDir, seq: window.__probe.states,
-    };
-  }, afterSeq);
-  const seq = () => page.evaluate(() => window.__probe.states);
-  const wait = (ms) => page.waitForTimeout(ms);
-  const now = () => page.evaluate(() => performance.now());
-
-  /**
-   * A reading taken once the last input has had time to become fact: one 16 ms
-   * client sample, one 50 ms server tick, and the snapshot back. Reading the
-   * instant a drag stops catches the turn in flight and reports a fraction of
-   * it — which looks exactly like a control that half works.
-   */
-  const afterInput = async () => { await wait(200); return me(await seq()); };
-
-  /**
-   * A baseline reading taken once the server's copy of the man has stopped
-   * changing under its own steam. Two things move him without a thumb: the
-   * stride left over from the last test, and the round's opening handover — a
-   * fresh round spawns him facing the middle of the ring and he keeps that
-   * facing until the first input packet replaces it with the camera's. Both are
-   * worth exactly one baseline of nonsense, and the second one is worth a clean
-   * 90° of it, which is indistinguishable from the camera-chase bug this whole
-   * harness exists to prove is gone.
-   */
-  const settle = async (tries = 25) => {
-    let last = await me(await seq());
-    for (let i = 0; i < tries; i++) {
-      const next = await me(await seq());
-      if (Math.abs(shortestAngle(last.rot, next.rot)) < 0.005
-        && Math.hypot(next.x - last.x, next.z - last.z) < 0.05) return next;
-      last = next;
-    }
-    return last;
-  };
+  const { me, seq, wait, now, afterInput, settle } = probeReader(page);
 
   // The mobile cluster only exists once the game believes it is on a phone, so
   // its absence is a failure of the whole run rather than of one assertion.
@@ -322,33 +836,10 @@ async function main() {
   // old zone ignored the bottom third and players read that as broken.
   // Run for both handednesses, because everything drawn over the fight has to
   // mirror and the pieces that do not are invisible until someone flips it.
-  const CLUSTER = ["Slash", "Heavy attack", "Block", "Dodge", "Power", "Shove"];
-  const checkLookSideIsClear = async (hand) => {
-    const dead = await page.evaluate(([cluster, mirrored]) => {
-      const W = window.innerWidth, H = window.innerHeight;
-      // input.ts splits the screen at MOVE_SIDE_FRACTION and swaps the sides
-      // for a left-handed player; everything on the look side of that line is
-      // free-look unless something is standing on it.
-      const from = mirrored ? 0 : Math.ceil(W * 0.45);
-      const to = mirrored ? Math.floor(W * 0.55) : W;
-      const found = new Map();
-      let total = 0;
-      for (let y = 2; y < H; y += 5) {
-        for (let x = from; x < to; x += 5) {
-          total++;
-          const el = document.elementFromPoint(x, y);
-          if (el && el.tagName === "CANVAS") continue;
-          const btn = el && el.closest("button");
-          const label = btn && (btn.getAttribute("aria-label") || btn.textContent.trim());
-          if (label && cluster.some((c) => label.includes(c))) continue;
-          const what = label ? `the "${label}" button` : `<${el ? el.tagName.toLowerCase() : "nothing"}>`;
-          found.set(what, (found.get(what) || 0) + 1);
-        }
-      }
-      return { total, worst: [...found.entries()].sort((a, b) => b[1] - a[1]) };
-    }, [CLUSTER, hand === "left-handed"]);
+  const checkLookSideIsClear = async (hand, note = "") => {
+    const dead = await scanLookSide(page, hand === "left-handed");
     const deadCells = dead.worst.reduce((n, [, c]) => n + c, 0);
-    check(`${hand}: no patch of the free-look side swallows a drag`, deadCells === 0,
+    check(`${hand}: no patch of the free-look side swallows a drag${note}`, deadCells === 0,
       deadCells === 0
         ? `every one of ${dead.total} sampled points on the look side reaches the canvas or a combat button`
         : `${deadCells} of ${dead.total} sampled points reach neither the canvas nor a combat button: ${
@@ -630,6 +1121,28 @@ async function main() {
       `yaw moved ${dyaw.toFixed(3)} rad (${(dyaw * 57.3).toFixed(1)}°) over a ${Math.round(SCREEN.width * 0.36)}px drag; free-look is 0.01 rad/px, so this is the whole drag and nothing else`);
     check("right-side drag never moves the warrior", dist < 0.25,
       `travelled ${dist.toFixed(3)} units while looking`);
+
+    // 2b. AND THE SAME DRAG IS WHY. With nobody in the ring the lock has
+    // nothing to hold, so the button side falls back to free-look exactly as it
+    // did before lock-on existed — which is what the 0.9 rad above proves. The
+    // lock's own state is read as well, because "free-look works" and "the lock
+    // is off" are two different claims and a lock that was quietly holding a
+    // corpse would satisfy only one of them.
+    const idle = await page.evaluate(() => {
+      const el = document.querySelector("[data-lock-reticle]");
+      return {
+        engaged: !!(window.__bretwaldaLock && window.__bretwaldaLock.engaged),
+        target: (window.__bretwaldaLock && window.__bretwaldaLock.target) || null,
+        blend: (window.__bretwaldaLock && window.__bretwaldaLock.blend) || 0,
+        reason: (window.__bretwaldaLock && window.__bretwaldaLock.reason) || "?",
+        // And the reticle is off with it. A lock mark left on the glass with
+        // nothing behind it is a worse lie than no mark at all.
+        reticle: el ? parseFloat(el.style.opacity || "0") : -1,
+      };
+    });
+    check("no enemy near: free-look comes back and the lock stays off",
+      !idle.engaged && idle.target === null && idle.blend < 0.02 && idle.reticle === 0 && dyaw > 0.5,
+      `lock engaged=${idle.engaged}, target=${idle.target ?? "nobody"} ("${idle.reason}"), blend=${idle.blend.toFixed(3)}, reticle opacity ${idle.reticle}; the drag above still turned the camera ${(dyaw * 57.3).toFixed(1)}°`);
   }
 
   // =====================================================================
@@ -859,7 +1372,10 @@ async function main() {
   }
 
   const end = await me();
-  console.log(`\n[touchtest] warrior finished on ${end.hp.toFixed(0)} hp, state=${end.state}`);
+  console.log(`\n[touchtest] act one: warrior finished on ${end.hp.toFixed(0)} hp, state=${end.state}`);
+  await ctx.close();
+
+  await lockAct(browser, `http://127.0.0.1:${PORT}`, check);
   await browser.close();
 
   const failed = results.filter((r) => !r.pass);

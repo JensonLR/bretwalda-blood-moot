@@ -19,6 +19,7 @@ import { WARRIOR_STATS } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
+  getLockSnapshot, getServerLockSnapshot, setLockReticle, subscribeLock,
   type MobileFlags,
 } from "./input";
 import {
@@ -369,6 +370,14 @@ export default function GameHud({
   // touch zones and the buttons mirror as one thing.
   const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
 
+  // "<target id>|<switches>". It changes when the lock takes a different man,
+  // which is a handful of times a fight — not per frame. The reticle's POSITION
+  // never comes through here: render/camera.ts writes that onto the element's
+  // transform directly, because that does move every frame.
+  const lockSnap = useSyncExternalStore(subscribeLock, getLockSnapshot, getServerLockSnapshot);
+  const lockedOn = lockSnap.split("|")[0] !== "";
+  const hasSwitched = lockSnap.split("|")[1] !== "0";
+
   // What a tap would cut with right now. It is feedback, not state the sim
   // reads — input.ts holds the direction itself — but a player needs to be able
   // to see what his last flick armed without swinging to find out.
@@ -430,6 +439,62 @@ export default function GameHud({
 
       {isFighting && localPlayer && (
         <>
+          {/* THE LOCK, ON THE FRAME.
+              A camera that holds a man looks exactly like a player who happens
+              to be pointing that way, so the lock is never left to the camera
+              alone. This is drawn on the tracked man himself: ring, four ticks
+              and — while the lock is live — a pair of chevrons saying which way
+              the thumb goes to take the next one.
+              Position and opacity are written by render/camera.ts straight onto
+              this node every frame; React only decides that it exists.
+              pointer-events stays none so it never stands in front of the
+              free-look half or a button. */}
+          <div
+            ref={setLockReticle}
+            aria-hidden
+            data-lock-reticle=""
+            className="absolute left-0 top-0 z-10 pointer-events-none"
+            style={{ opacity: 0, willChange: "transform, opacity" }}>
+            <div className="relative h-14 w-14">
+              <div className="absolute inset-0 rounded-full border-2 border-amber-300/85"
+                style={{ boxShadow: "0 0 10px rgba(0,0,0,0.85), inset 0 0 8px rgba(255,190,80,0.35)" }} />
+              {/* Four ticks, at the quarters. Shape, not colour: the ring alone
+                  reads as a health pip on a small screen. */}
+              {[
+                { top: -5, left: "50%", w: 2, h: 8, mx: -1 },
+                { top: "100%", left: "50%", w: 2, h: 8, mx: -1, my: -3 },
+                { left: -5, top: "50%", w: 8, h: 2, my: -1 },
+                { left: "100%", top: "50%", w: 8, h: 2, my: -1, mx: -3 },
+              ].map((t, i) => (
+                <div key={i} className="absolute bg-amber-200/90"
+                  style={{ top: t.top, left: t.left, width: t.w, height: t.h,
+                    marginLeft: t.mx ?? 0, marginTop: t.my ?? 0 }} />
+              ))}
+              {isMobile.current && (
+                <>
+                  <div className="absolute top-1/2 -left-5 -translate-y-1/2 border-y-[5px] border-r-[7px] border-y-transparent border-r-amber-200/70" />
+                  <div className="absolute top-1/2 -right-5 -translate-y-1/2 border-y-[5px] border-l-[7px] border-y-transparent border-l-amber-200/70" />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Discoverability for the switch, and it retires the moment the
+              player uses it. It sat at the top of the screen first, which the
+              layout harness passed and a capture did not: the kill feed is five
+              rows deep up there and had this line through the middle of it.
+              Stacked over the other tuition line instead, in the half of the
+              screen the harness measures for overlaps — so the next person to
+              move it gets told. */}
+          {isMobile.current && lockedOn && !hasSwitched && (
+            <div className="absolute bottom-[318px] left-1/2 z-10 -translate-x-1/2 pointer-events-none animate-fadeIn">
+              <div className="whitespace-nowrap rounded-md bg-black/50 px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] text-amber-100/85"
+                style={{ textShadow: "0 1px 4px black" }}>
+                ◀ FLICK THE GLASS TO CHANGE FOE ▶
+              </div>
+            </div>
+          )}
+
           {/* Status HUD */}
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-[52vw] max-w-72">
             <div className="text-amber-100/95 text-[11px] font-bold tracking-[0.2em] font-display" style={{ textShadow: "0 1px 5px black" }}>{localPlayer.name}</div>
@@ -447,8 +512,17 @@ export default function GameHud({
             </div>
           </div>
 
-          {/* Kill feed */}
-          <div className="absolute top-3 right-3 flex flex-col gap-1 pointer-events-none z-10">
+          {/* Kill feed. THE WHOLE TOP ROW MIRRORS, not just the thumb cluster.
+              END and the mute toggle live under the timer on the MOVEMENT side
+              (page.tsx) so they never sit in the free-look half — which means
+              that on a left-handed phone they cross to the right, straight
+              through five rows of kill feed. A capture caught it: "Leofric the
+              Young slew Wulfre—" with the END button parked on the rest of it.
+              The layout harness did not, because it measures overlaps in the
+              button half and this is the other half. So the feed and the timer
+              swap sides with everything else and each keeps the clearance it
+              was drawn with. */}
+          <div className={`absolute top-3 ${lefty ? "left-3" : "right-3"} flex flex-col gap-1 pointer-events-none z-10`}>
             {roomState.killFeed.slice(-5).map((k, i) => (
               <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
                 <span className="text-amber-300 font-bold">{k.killerName}</span>
@@ -458,8 +532,9 @@ export default function GameHud({
             ))}
           </div>
 
-          {/* Timer + alive */}
-          <div className="absolute top-3 left-3 pointer-events-none z-10">
+          {/* Timer + alive — the other half of the same mirror. END and mute
+              stack underneath this, so it has to be on the side they are. */}
+          <div className={`absolute top-3 ${lefty ? "right-3 items-end" : "left-3 items-start"} flex flex-col pointer-events-none z-10`}>
             <div className="text-amber-100 text-sm font-mono bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-md">
               {Math.floor((roomState?.matchTimer ?? 0) / 60)}:{String(Math.floor((roomState?.matchTimer ?? 0) % 60)).padStart(2, "0")}
             </div>
