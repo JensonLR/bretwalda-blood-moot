@@ -331,16 +331,26 @@ async function lockAct(browser, url, check) {
   page.on("pageerror", (e) => console.log(`[page-error] ${e}`));
   await page.goto(`${url}/?quality=low`, { waitUntil: "domcontentloaded" });
 
-  await page.getByText("Training", { exact: false }).first().click();
-  await page.getByText("MUSTER THE TESTGROUNDS", { exact: false }).first().click();
+  // Every step waits a minute rather than Playwright's default thirty seconds.
+  // This box shares a CPU with whatever else is being built at the time, and a
+  // menu that took 31 s to paint has failed nothing except the clock — it threw
+  // away a four-minute run twice before this was raised.
+  const CLICK = { timeout: 90000 };
+  const step = async (text) => {
+    const el = page.getByText(text, { exact: false }).first();
+    await el.waitFor({ state: "visible", ...CLICK });
+    await el.click(CLICK);
+  };
+  await step("Training");
+  await step("MUSTER THE TESTGROUNDS");
   // Slow and forgiving. The warrior has to survive long enough to be measured,
   // and a Jarl opens his head while the first assertion is still counting.
-  await page.getByText("RECRUIT", { exact: false }).first().click();
+  await step("RECRUIT");
   const fewer = page.getByLabel("Fewer AI warriors");
-  for (let i = 0; i < 8 && await fewer.isEnabled().catch(() => false); i++) await fewer.click();
+  for (let i = 0; i < 8 && await fewer.isEnabled().catch(() => false); i++) await fewer.click(CLICK);
   const more = page.getByLabel("More AI warriors");
-  for (let i = 0; i < 3; i++) await more.click();
-  await page.getByText("DRAW STEEL", { exact: false }).first().click();
+  for (let i = 0; i < 3; i++) await more.click(CLICK);
+  await step("DRAW STEEL");
   await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 });
   console.log("\n[touchtest] act two: three recruits in the ring\n");
 
