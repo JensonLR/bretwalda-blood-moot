@@ -429,6 +429,31 @@ async function runJudder({ jitterGaps = null } = {}) {
   }
 
   // -------------------------------------------------------------------------
+  // WHAT THE SMOOTHING COSTS IN LATENCY, which is the other half of the job.
+  //
+  // Measured against the CONTINUOUS truth — where the man really is at that
+  // instant — not against the server's 50 ms staircase, which is itself half an
+  // interval behind and would flatter every number here by 25 ms.
+  //
+  // A remote body is deliberately held 1.5 packet intervals back so it always
+  // has a snapshot on each side to interpolate between. The LOCAL rig is not:
+  // delaying your own warrior to buy smoothness is the opposite of what the
+  // owner asked for, so it is carried forward to the present instant instead.
+  // -------------------------------------------------------------------------
+  log("");
+  log("  LATENCY COST — render position against the true continuous position:");
+  const latency = {};
+  for (const fps of [30, 60, 120]) {
+    for (const local of [true, false]) {
+      const r = traceWalk(anim, THREE, { fps, local, seconds: 6 });
+      const lags = r.samples.filter((s) => s.t > 1).map((s) => ((4.5 * s.t - s.x) / 4.5) * 1000);
+      const ls = stats(lags);
+      latency[`${fps}:${local ? "local" : "remote"}`] = ls;
+      log(`    ${String(fps).padStart(3)} fps  ${local ? "LOCAL " : "remote"}   lag p50=${ls.p50.toFixed(1)}ms  p95=${ls.p95.toFixed(1)}ms  max=${ls.max.toFixed(1)}ms   (negative = drawn ahead of the truth)`);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // VERDICT. The bar the owner actually cares about, stated as numbers so no
   // report can claim a pass the harness did not print.
   // -------------------------------------------------------------------------
