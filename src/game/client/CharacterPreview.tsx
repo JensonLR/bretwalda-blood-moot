@@ -65,6 +65,16 @@ export default function CharacterPreview({
   const stageRef = useRef<StageHandle | null>(null);
   const [failed, setFailed] = useState(false);
   const [touched, setTouched] = useState(false);
+  /**
+   * False until the stage has put a frame on screen.
+   *
+   * Opening the armoury costs a GL context, twenty procedurally generated PBR
+   * map sets and a PMREM bake before anything can be drawn — the same work
+   * `GameCanvas` puts a progress bar in front of. Without a word on the panel
+   * that is a black rectangle for a beat, and a black rectangle is what the
+   * owner's screenshot was of.
+   */
+  const [lit, setLit] = useState(false);
 
   // Taken apart into its eight fields on purpose. `previewAppearance()` in
   // page.tsx builds a fresh object every render, so anything keyed on the
@@ -102,7 +112,10 @@ export default function CharacterPreview({
     });
     if (!stage) { setFailed(true); return; }
     stageRef.current = stage;
-    return () => { stage.dispose(); stageRef.current = null; };
+    const watch = setInterval(() => {
+      if (stage.ready) { setLit(true); clearInterval(watch); }
+    }, 120);
+    return () => { clearInterval(watch); stage.dispose(); stageRef.current = null; };
     // Built once. Every change below is pushed into the live stage rather than
     // remounting it — a remount is a texture library and a PMREM bake.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,8 +193,15 @@ export default function CharacterPreview({
           onPointerUp={onUp}
           onPointerCancel={onUp}
         />
+        {!lit && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="animate-pulse text-[9px] font-bold tracking-[0.22em] text-amber-200/60">
+              LIGHTING THE HALL…
+            </span>
+          </div>
+        )}
         {/* A drag hint that goes away the first time it is obeyed. */}
-        {controls && !touched && (
+        {controls && lit && !touched && (
           <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
             <span className="rounded-full bg-black/65 px-3 py-1 text-[9px] font-bold tracking-[0.18em] text-amber-200/85">
               DRAG TO TURN HIM
