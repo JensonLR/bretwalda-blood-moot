@@ -29,7 +29,7 @@ import {
 } from "./anim";
 import type { EmoteId } from "../../types";
 import type { CameraRig, SummaryShot } from "./camera";
-import type { FrameContext } from "./quality";
+import type { FrameContext, QualitySettings } from "./quality";
 
 /** The one slice of a warrior slot the stage needs. */
 export interface StagedBody {
@@ -123,6 +123,15 @@ const STAGE_BEARING = { x: 0.06, z: 0.998 };
  * has its last beat (`rest`) complete at 1.1; past that the pose is static.
  */
 const DEATH_SETTLED = 1.6;
+
+// ---- The key light's shadow, in the units three wants it in. -------------
+/** The key's reach. Also the far plane three forces on its shadow camera. */
+const KEY_RANGE = 17;
+const KEY_SHADOW_NEAR = 0.6;
+/** Light-to-subject distance the bias is tuned at: the key's own offset. */
+const KEY_SHADOW_REF = 3.4;
+/** Depth bias at that range, in metres, before normalisation. */
+const KEY_BIAS_METRES = 0.012;
 
 /**
  * What the stage decided, published for a capture harness. A summary frame is
@@ -275,17 +284,46 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
    * the field behind him. A phone crops in hard on this man; the numbers were
    * settled against the 390-wide frame, not the desktop one.
    */
-  function raiseLights(at: THREE.Vector3, camDir: THREE.Vector3, spill?: THREE.Vector3): void {
+  function raiseLights(
+    at: THREE.Vector3, camDir: THREE.Vector3, q: QualitySettings, spill?: THREE.Vector3,
+  ): void {
     const g = new THREE.Group();
     const leftX = -camDir.z, leftZ = camDir.x;
     // KEY — warm, three-quarter front left, high. Aimed between the victor and
     // the body at his feet when there is one, so the same light that models his
     // face is the light the corpse is read by: the fallen man is the point of
     // the picture and a stage that lit only the standing one would be lying.
-    const key = new THREE.SpotLight(0xffd2a0, 86, 17, 0.7, 0.62, 2);
+    const key = new THREE.SpotLight(0xffd2a0, 86, KEY_RANGE, 0.7, 0.62, 2);
     key.position.set(
       at.x + leftX * 2.2 + camDir.x * 1.7, at.y + 3.0, at.z + leftZ * 2.2 + camDir.z * 1.7);
     key.target.position.copy(spill ? spill.clone().add(at).multiplyScalar(0.5) : at);
+    // AND IT CASTS. The frame this stage replaced had no contact shadow under
+    // either man and nothing grounding them: captured at 1280x720 the victor's
+    // boots read as hovering a hand's width over the turf, because the arena's
+    // own dusk key throws nothing this soft light could stand in for. The rig
+    // was already a portrait rig in every other respect and this is the one
+    // thing that makes a portrait sit on the ground.
+    //
+    // Cheap where it is spent: the summary screen is not the fight, so this is
+    // one extra shadow pass over a 40° cone containing two men and a patch of
+    // turf, drawn on a screen with no gameplay behind it. Gated on the tier's
+    // own shadow switch, so a device that has refused shadows keeps refusing.
+    if (q.shadows) {
+      key.castShadow = true;
+      // Half the arena cascade and far finer per texel: a 40° frustum whose far
+      // plane is the light's own reach covers about 12 m at the men, so 1024
+      // lands near a centimetre per texel where the boots meet the ground.
+      const map = Math.max(512, Math.min(1024, q.shadowMapSize));
+      key.shadow.mapSize.set(map, map);
+      key.shadow.camera.near = KEY_SHADOW_NEAR;
+      // three overwrites a spot's shadow-camera far with `light.distance`, so
+      // the normalised bias is derived against that rather than baked — same
+      // derivation as the hearth beam's in lighting.ts.
+      const near = KEY_SHADOW_NEAR, far = KEY_RANGE, z = KEY_SHADOW_REF;
+      key.shadow.bias = -(KEY_BIAS_METRES * far * near) / ((far - near) * z * z);
+      key.shadow.normalBias = 0.03;
+      key.shadow.radius = q.softShadows ? 3 : 1;
+    }
     g.add(key, key.target);
     // RIM — cool, off the shoulder the key is not on, three-quarters behind
     // him and LEVEL with his chest. Both halves of that were paid for in
@@ -314,6 +352,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
 
   function buildStage(
     room: SummaryRoomView, verdict: MatchEndData, warriors: Map<string, StagedBody>,
+    q: QualitySettings,
   ): CastMember[] {
     const staged: CastMember[] = [];
     // Who remains: disconnected men have no record and no rig, and the stage
@@ -445,7 +484,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       };
       deps.rig.setSummaryShot(shot);
       raiseLights(
-        new THREE.Vector3(vx, gy + 1.1, vz), new THREE.Vector3(nx, 0, nz),
+        new THREE.Vector3(vx, gy + 1.1, vz), new THREE.Vector3(nx, 0, nz), q,
         new THREE.Vector3(cx, gy + 0.3, cz));
       publishDiag({
         kind: "duel", fell: [fellX, fellZ], fellR: r0, carried,
@@ -499,7 +538,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     });
     raiseLights(
       new THREE.Vector3(VICTOR_MARK.x, gy + 1.1, focusZ),
-      new THREE.Vector3(camEnd.x - VICTOR_MARK.x, 0, camEnd.z - focusZ).normalize(),
+      new THREE.Vector3(camEnd.x - VICTOR_MARK.x, 0, camEnd.z - focusZ).normalize(), q,
     );
     publishDiag({
       kind: victor ? "wall" : "draw", cast: staged.length,
@@ -512,7 +551,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   return {
     update(dt, ctx, room, verdict, warriors, localId) {
       void localId;
-      if (!cast) cast = buildStage(room, verdict, warriors);
+      if (!cast) cast = buildStage(room, verdict, warriors, ctx.quality);
       // The orchestrator normally stamps the mode per frame; on this path the
       // stage does, so nothing else has to know the summary exists.
       deps.rig.setMode("summary");
@@ -545,7 +584,12 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         deps.scene.remove(lights);
         lights.traverse((o) => {
           const l = o as THREE.Light;
-          if (l.isLight) l.dispose();
+          if (!l.isLight) return;
+          // The key owns a shadow map on any tier that allows one; a stage torn
+          // down between matches that only disposed the light would leak a
+          // depth target per match for as long as the tab is open.
+          (l as THREE.SpotLight).shadow?.dispose();
+          l.dispose();
         });
         lights = null;
       }
