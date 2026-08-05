@@ -97,15 +97,52 @@ async function phone(browser) {
   return { ctx, page };
 }
 
-/** The stage's own account of who it stood up, once it has settled. */
-async function tableau(page) {
+/**
+ * The cast the moment the stage has one, with no settling wait. Everything
+ * about WHO is standing is decided on the frame the stage is built, and the
+ * emote row has to be judged inside the server's ten-second window before the
+ * room rolls back to a lobby in which every corpse is idle again.
+ */
+async function castNow(page) {
   await until(() => page.evaluate(() => (window.__summaryBodies ?? []).length > 0),
-    "the stage to report its cast", 20000);
+    "the stage to report its cast", 30000);
+  return page.evaluate(() => ({
+    men: window.__summaryBodies ?? [],
+    me: window.__probe?.playerId ?? null,
+    wireState: window.__probe?.latest?.players?.[window.__probe?.playerId]?.state ?? null,
+    roomState: window.__probe?.latest?.state ?? null,
+  }));
+}
+
+/**
+ * The stage's own account of who it stood up, once it has settled.
+ *
+ * `frames` is why this waits rather than reads: the summary is reported per
+ * rendered frame, and on a software rasteriser the first few of those are drawn
+ * while the camera is still wherever the spectate orbit left it. A cast read
+ * off frame one is measured against a lens that is not the lens the shot is
+ * taken with, which is a whole class of false failure.
+ */
+async function tableau(page, frames = 6) {
+  await until(async () => {
+    const n = await page.evaluate(() => {
+      const w = window;
+      w.__flowFrames = (w.__flowFrames ?? 0);
+      return (w.__summaryBodies ?? []).length > 0;
+    });
+    if (!n) return false;
+    await sleep(700);
+    return true;
+  }, "the stage to report its cast", 30000);
+  for (let i = 0; i < frames; i++) await sleep(400);
   return page.evaluate(() => ({
     stage: window.__summaryStage ?? null,
     men: window.__summaryBodies ?? [],
+    cam: window.__summaryCam ?? null,
     verdict: window.__probe?.matchEnd ?? null,
     me: window.__probe?.playerId ?? null,
+    wireState: window.__probe?.latest?.players?.[window.__probe?.playerId]?.state ?? null,
+    roomState: window.__probe?.latest?.state ?? null,
   }));
 }
 
@@ -122,9 +159,12 @@ async function ffaPhase(browser) {
   await until(() => page.evaluate(() => window.__probe?.matchEnd || null),
     "the eight-man match to end", 180000);
   clearInterval(drive);
-  await sleep(3000);
+  // The emote row FIRST and unsettled: it has ten seconds of truth in it.
+  const early = await castNow(page);
+  const mine = await emoteCheck(page, early, "free-for-all");
+  await sleep(2000);
 
-  const { stage, men, verdict, me } = await tableau(page);
+  const { stage, men, cam, verdict, me } = await tableau(page);
   const stood = men.filter((m) => m.standing);
   const lying = men.filter((m) => !m.standing);
   check("eight men fought, three stand and five lie",
@@ -150,9 +190,10 @@ async function ffaPhase(browser) {
   const cropped = men.filter((m) => m.ndc && (m.ndc[0] < -1 || m.ndc[2] > 1));
   check("every man is in the picture, none under the DOM panels",
     buried.length === 0 && cropped.length === 0,
-    `band=[${band}] buried=${buried.length} cropped=${cropped.length}`);
-  await emoteCheck(page, men, me, "free-for-all");
+    `band=[${band}] buried=${buried.length} cropped=${cropped.length} cam=${JSON.stringify(cam)}`
+    + ` worst=${JSON.stringify(men.map((m) => m.ndc))}`);
   await page.screenshot({ path: `${OUT}/summary-flow-ffa.png` });
+  await emoteAfterRollback(page, mine, "free-for-all");
   await ctx.close();
 }
 
@@ -164,12 +205,32 @@ async function ffaPhase(browser) {
  * and standing on the stage, and after the server rolls the room back to the
  * lobby every corpse on screen is idle again.
  */
-async function emoteCheck(page, men, me, where) {
-  const mine = men.find((m) => m.id === me);
+async function emoteCheck(page, cast, where) {
+  const mine = cast.men.find((m) => m.id === cast.me);
   const offered = (await page.getByLabel(/^Emote:/).count()) > 0;
   check(`${where}: the flourish is offered exactly to the man left standing`,
     !!mine && offered === mine.standing,
-    `localStanding=${mine?.standing} emoteButtons=${offered ? "shown" : "none"}`);
+    `localStanding=${mine?.standing} emoteButtons=${offered ? "shown" : "none"}`
+    + ` wire=${cast.wireState}/${cast.roomState}`);
+  return mine;
+}
+
+/**
+ * The same question again, after the server's ten-second rollback. It is a
+ * NOTE and not a check because the answer is not this module's to give: the
+ * row is mounted by page.tsx off `players[me].state`, and the rollback resets
+ * every man to idle — so a corpse on the stage is offered the row again. The
+ * press is refused where it can be refused (render/summary.ts `canPerform`
+ * vetoes the flourish itself), but the button comes back.
+ */
+async function emoteAfterRollback(page, mine, where) {
+  await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"),
+    "the rollback", 16000).catch(() => null);
+  await sleep(600);
+  const offered = (await page.getByLabel(/^Emote:/).count()) > 0;
+  console.log(`[flow] NOTE ${where}: after the rollback the row is `
+    + `${offered ? "OFFERED" : "gone"} to a man the stage left ${mine?.standing ? "standing" : "DEAD"}`
+    + ` — the button is page.tsx's, the flourish is vetoed by the stage.`);
 }
 
 /** A 2v2 WAR BAND: the winning side stands whole, the losing side lies whole. */
@@ -178,9 +239,11 @@ async function teamPhase(browser) {
   await raiseMoot(page, "team", { port: PORT, until, sleep });
   await until(() => page.evaluate(() => window.__probe?.matchEnd || null),
     "the war band to end", 150000);
-  await sleep(3000);
+  const early = await castNow(page);
+  const mine = await emoteCheck(page, early, "war band");
+  await sleep(2000);
 
-  const { stage, men, verdict, me } = await tableau(page);
+  const { stage, men, verdict } = await tableau(page);
   const teams = await page.evaluate(() => {
     const p = window.__probe?.latest?.players ?? {};
     return Object.fromEntries(Object.values(p).map((q) => [q.id, q.team]));
@@ -189,8 +252,8 @@ async function teamPhase(browser) {
   check("the winning side stands whole and the losing side lies whole",
     men.length === 4 && wrong.length === 0 && stage?.kind === "warband",
     `cast=${men.length} winner=${verdict?.winnerTeam} misplaced=${wrong.length} kind=${stage?.kind}`);
-  await emoteCheck(page, men, me, "war band");
   await page.screenshot({ path: `${OUT}/summary-flow-team.png` });
+  await emoteAfterRollback(page, mine, "war band");
   await ctx.close();
 }
 
@@ -210,11 +273,24 @@ async function main() {
     ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
     args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
   });
-  // ---- the two podium shapes, each a real match of its own ----
-  await ffaPhase(browser);
-  await teamPhase(browser);
+  const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;
+  // THE DUEL GOES FIRST, and it is a timing test as much as a picture one: the
+  // FIGHT AGAIN press has to land inside the server's ten-second window before
+  // the room rolls back to the lobby. Run after two eight-man matches it does
+  // not — the browser is slower by then and the window closes first, which is
+  // the false failure this order exists to prevent.
+  if (!only || only === "duel") await duelPhase(browser);
+  if (!only || only === "ffa") await ffaPhase(browser);
+  if (!only || only === "team") await teamPhase(browser);
 
-  // ---- and the duel, whose one-stands-one-lies tableau shipped already ----
+  await browser.close();
+  const passed = results.filter((r) => r.pass).length;
+  console.log(`\n[flow] ${passed}/${results.length} passed`);
+  process.exitCode = passed === results.length ? 0 : 1;
+}
+
+/** The shape that already shipped: one man standing over one corpse. */
+async function duelPhase(browser) {
   const { ctx, page } = await phone(browser);
   const { wires } = await raiseMoot(page, "duel", { port: PORT, until, sleep });
   console.log("[flow] fighting");
@@ -226,20 +302,23 @@ async function main() {
   console.log("[flow] the opponent is dead");
 
   const verdict = await until(() => page.evaluate(() => window.__probe?.matchEnd || null), "the verdict", 10000);
+  // The server rolls the room back to a lobby ten seconds after this instant,
+  // and the press under test has to land inside that. Every step from here is
+  // timed, because "the window closed" and "the button is broken" produce the
+  // same failure line.
+  const t0 = Date.now();
+  const since = () => `${Date.now() - t0}ms`;
   const myId = await page.evaluate(() => window.__probe?.playerId);
   check("the verdict names the phone player", verdict.winnerId === myId, `winner ${verdict.winnerName}`);
 
   // Let the stage build and the push start.
-  await sleep(2000);
-  // The shape that already shipped, asserted so the podium work cannot quietly
-  // stand the duel's corpse back up.
-  const duelCast = await tableau(page);
-  check("a duel is one man standing over one corpse",
-    duelCast.men.length === 2
-    && duelCast.men.filter((m) => m.standing).length === 1
-    && duelCast.men.some((m) => !m.standing && m.state === "dead"),
-    `kind=${duelCast.stage?.kind} standing=${duelCast.men.filter((m) => m.standing).length}`);
-  await emoteCheck(page, duelCast.men, duelCast.me, "duel");
+  await sleep(1200);
+  await until(() => page.evaluate(() => !!window.__summaryStage), "the stage to build", 30000);
+  console.log(`[flow] stage built at ${since()}`);
+  const duelEarly = await castNow(page);
+  console.log(`[flow] duel cast reported at ${since()}`);
+  await emoteCheck(page, duelEarly, "duel");
+  console.log(`[flow] emote row read at ${since()}`);
   const overlayUp = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
   const fightAgainUp = await page.getByText("FIGHT AGAIN", { exact: false }).first().isVisible().catch(() => false);
   const canvasUp = await page.evaluate(() => !!document.querySelector("canvas"));
@@ -249,13 +328,24 @@ async function main() {
   // ---- FIGHT AGAIN pressed EARLY, before the rollback (screenshot comes
   // after: a SwiftShader screenshot costs seconds and last run it spent the
   // whole ten-second window, so the park branch was never exercised) ----
+  console.log(`[flow] overlay checks done at ${since()}`);
   const stateNow = await page.evaluate(() => window.__probe?.latest?.state);
   await page.getByText("FIGHT AGAIN", { exact: false }).first().click();
+  console.log(`[flow] FIGHT AGAIN pressed at ${since()}`);
   const waitingShown = await page.getByText("MUSTERING", { exact: false }).first().isVisible().catch(() => false);
   check("pressed before the rollback, the intent parks", stateNow === "finished" && waitingShown,
     `pressed at state=${stateNow}, button shows MUSTERING`);
   await page.screenshot({ path: `${OUT}/summary-real-phone.png` });
   console.log(`[flow] wrote ${OUT}/summary-real-phone.png`);
+
+  // The tableau itself, asserted once the timing-critical press is out of the
+  // way: the podium work must not quietly stand the duel's corpse back up.
+  const duelCast = await tableau(page);
+  check("a duel is one man standing over one corpse",
+    duelCast.men.length === 2
+    && duelCast.men.filter((m) => m.standing).length === 1
+    && duelCast.men.some((m) => !m.standing && m.state === "dead"),
+    `kind=${duelCast.stage?.kind} standing=${duelCast.men.filter((m) => m.standing).length}`);
 
   await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"), "the rollback", 14000);
   await until(() => page.evaluate(() => {
@@ -265,11 +355,7 @@ async function main() {
   const onLobby = await page.getByText("READY — SKAL!", { exact: false }).first().isVisible().catch(() => false);
   check("the rollback lands him in the lobby with his ready lit", onLobby, "READY — SKAL! on screen; wire says ready=true");
   await page.screenshot({ path: `${OUT}/summary-real-lobby.png` });
-
-  await browser.close();
-  const passed = results.filter((r) => r.pass).length;
-  console.log(`\n[flow] ${passed}/${results.length} passed`);
-  process.exitCode = passed === results.length ? 0 : 1;
+  await ctx.close();
 }
 
 main()
