@@ -505,7 +505,9 @@ async function lockAct(browser, url, check) {
     let best = null;
     const heavyBtn = page.getByLabel("Heavy attack");
     const hb = await heavyBtn.boundingBox();
-    for (let attempt = 0; attempt < 8 && (!best || best.demand < 0.9); attempt++) {
+    const STICK = 1;
+    const stickHome = { x: SCREEN.width * 0.23, y: SCREEN.height * 0.62 };
+    for (let attempt = 0; attempt < 7 && (!best || best.demandRate <= CAP); attempt++) {
       if (!hb) break;
       await waitForAlive().catch(() => {});
       await page.waitForFunction(() => {
@@ -515,80 +517,73 @@ async function lockAct(browser, url, check) {
         return !!m && m.stamina > 60 && m.state !== "attacking" && m.state !== "staggered";
       }, null, { timeout: 25000 }).catch(() => {});
 
-      // THE GEOMETRY IS THE TEST. A blow that "cannot follow a man who dodges
-      // behind you" needs a man behind you, and three recruits walking in
-      // abreast are all in front — the first cut of this test measured a lock
-      // asking for 14° and proved nothing. So the manoeuvre is set up first:
-      // wait for a live foe genuinely off the current facing, and note which
-      // way round the screen he is, before a blow is thrown at all.
-      const spread = await page.evaluate(() => {
-        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+      // THE MANOEUVRE. Not a second man off to the side — three recruits walk
+      // in abreast and the first cut of this test spent eight attempts asking a
+      // lock that was only ever 11° out of line, which proves nothing either
+      // way. This is the For Honor case instead, and it needs nobody but the
+      // man you are already fighting: get inside his reach, throw a heavy, and
+      // STRAFE ROUND HIM while it is out. At a metre and a half the bearing to
+      // him sweeps faster than any shoulders can follow, so the lock asks for
+      // more than 1.8 rad/s as a matter of geometry rather than of luck.
+      await page.waitForFunction(() => {
         const f = window.__probe.frames[window.__probe.frames.length - 1];
-        if (!f) return null;
-        let far = null;
-        for (const [id, p] of Object.entries(f.foes)) {
-          if (p.dead) continue;
-          const d = Math.hypot(p.x - f.x, p.z - f.z);
-          if (d > 11) continue; // outside acquire range: a flick cannot take him
-          const rel = wrap(Math.atan2(p.x - f.x, p.z - f.z) - f.rot);
-          if (!far || Math.abs(rel) > Math.abs(far.rel)) far = { id, rel, d };
-        }
-        return far;
-      });
-      // Screen-right is a NEGATIVE offset from the camera (see applySwitch in
-      // input.ts), so a man at rel<0 is taken by flicking the thumb right.
-      const flickDx = spread && spread.rel < 0 ? 190 : -190;
-      if (!spread || Math.abs(spread.rel) < 0.9) {
-        // Nobody usefully off-axis yet. Walk through the pack — the lock holds
-        // the man in front, so the other two are left behind you, which is the
-        // whole geometry this needs.
-        await hand.press(1, SCREEN.width * 0.23, SCREEN.height * 0.62);
-        await hand.move(1, SCREEN.width * 0.23, SCREEN.height * 0.62 - 62);
-        await wait(900);
-        await hand.lift(1);
-        await wait(400);
-        continue;
-      }
+        if (!f || !f.lock) return false;
+        const p = f.foes[f.lock];
+        return !!p && !p.dead && Math.hypot(p.x - f.x, p.z - f.z) < 3.0;
+      }, null, { timeout: 20000 }).catch(() => {});
 
       const mark = await now();
-      // HEAVY is a one-shot: press, lift, and the finger is off the button
-      // before the swing is half wound up — so the glass drag that follows is
-      // read as a target switch and not as the flick that aims a cut.
       await hand.press(SWING, hb.x + hb.width / 2, hb.y + hb.height / 2);
-      await wait(70);
+      await wait(60);
       await hand.lift(SWING);
-      // Hand the lock the man off to the side, mid-blow, twice over.
-      await glassDrag(flickDx, 8);
-      await glassDrag(flickDx, 8);
-      await wait(800);
+      // Full lateral deflection, held through the blow. Which way round does
+      // not matter; that it is across his front and not at him does.
+      await hand.press(STICK, stickHome.x, stickHome.y);
+      await Promise.all([0.4, 0.75, 1].map((k) => hand.move(STICK, stickHome.x - 62 * k, stickHome.y)));
+      await wait(900);
+      await hand.lift(STICK);
+      await wait(250);
 
       const m = await page.evaluate(([t, cap]) => {
         const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-        // Six snapshots and a third of a second, or it is not a measurement:
-        // a rate taken across four packets on a box with no GPU is mostly the
-        // jitter between them, and the first cut of this test reported 1.45
-        // rad/s off a 0.15 s window that proved nothing either way.
         const rows = window.__probe.frames.filter((f) => f.t >= t && f.state === "attacking");
+        // Six snapshots and a third of a second, or it is not a measurement: a
+        // rate taken across four packets on a box with no GPU is mostly the
+        // jitter between them.
         if (rows.length < 6 || rows[rows.length - 1].t - rows[0].t < 300) return null;
+        const bearing = (f) => {
+          const p = f.lock && f.foes[f.lock];
+          return p && !p.dead ? Math.atan2(p.x - f.x, p.z - f.z) : null;
+        };
         let turned = 0;
         for (let i = 1; i < rows.length; i++) turned += Math.abs(wrap(rows[i].rot - rows[i - 1].rot));
         const elapsed = (rows[rows.length - 1].t - rows[0].t) / 1000;
-        const angleTo = (f) => {
-          const foe = f.lock && f.foes[f.lock];
-          return foe && !foe.dead ? Math.abs(wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot)) : null;
-        };
-        // The demand is the largest gap the lock ever presented during the blow
-        // — how far it was asking the shoulders to come round. The switch may
-        // land a frame or two into the swing, so it is a max and not a first.
-        let demand = 0;
-        for (const f of rows) { const a = angleTo(f); if (a !== null) demand = Math.max(demand, a); }
+
+        // What the lock was ASKING for: how fast the direction to the man it
+        // holds was moving. Taken over three-snapshot windows so one late
+        // packet cannot invent a rate, and only across windows holding the
+        // SAME man — a switch is a jump, not a rate.
+        let demandRate = 0, bodyPeak = 0;
+        for (let i = 2; i < rows.length; i++) {
+          const a = rows[i - 2], c = rows[i];
+          if (a.lock !== c.lock || a.lock !== rows[i - 1].lock) continue;
+          const b0 = bearing(a), b1 = bearing(c);
+          if (b0 === null || b1 === null) continue;
+          const dt = (c.t - a.t) / 1000;
+          if (dt < 0.06) continue;
+          demandRate = Math.max(demandRate, Math.abs(wrap(b1 - b0)) / dt);
+          bodyPeak = Math.max(bodyPeak, Math.abs(wrap(c.rot - a.rot)) / dt);
+        }
+        const last = rows[rows.length - 1];
+        const lastB = bearing(last);
         return {
-          turned, elapsed, demand, residual: angleTo(rows[rows.length - 1]),
-          rate: elapsed > 0.05 ? turned / elapsed : 0,
+          turned, elapsed, demandRate, bodyPeak,
+          rate: turned / elapsed,
+          residual: lastB === null ? null : Math.abs(wrap(lastB - last.rot)),
           allowed: cap * elapsed, frames: rows.length,
         };
       }, [mark, CAP]);
-      if (m && (!best || m.demand > best.demand)) best = m;
+      if (m && (!best || m.demandRate > best.demandRate)) best = m;
     }
 
     // Tolerance is on the CLOCK, not on the cap: the server integrates 1.8 rad/s
@@ -596,11 +591,11 @@ async function lockAct(browser, url, check) {
     // measured between two socket messages arriving at a box with no GPU, and
     // bunched packets shorten the denominator. 30% covers that and still leaves
     // an uncapped lock — which would run at LOCK_MAX_RATE, 5.0 — nowhere to hide.
-    const ok = !!best && best.rate <= CAP * 1.3 && best.demand > 0.9;
+    const ok = !!best && best.rate <= CAP * 1.3 && best.demandRate > CAP;
     check("a committed swing still cannot follow the man the lock was handed", ok,
       best
-        ? `mid-blow the lock was asking for ${(best.demand * 57.3).toFixed(0)}° of turn; over ${best.frames} snapshots of "attacking" (${best.elapsed.toFixed(2)}s) the server turned him ${(best.turned * 57.3).toFixed(0)}° — ${best.rate.toFixed(2)} rad/s against the 1.8 cap (an uncapped lock runs at 5.0), leaving ${best.residual === null ? "n/a" : (best.residual * 57.3).toFixed(0) + "°"} still between them when the blow finished`
-        : "the server never entered \"attacking\" — no heavy was accepted, so nothing was measured");
+        ? `strafing round him mid-blow, the direction to the locked man swept at ${best.demandRate.toFixed(2)} rad/s — more than the shoulders are allowed — and over ${best.frames} snapshots of "attacking" (${best.elapsed.toFixed(2)}s) the server turned him ${(best.turned * 57.3).toFixed(0)}\u00b0, ${best.rate.toFixed(2)} rad/s mean and ${best.bodyPeak.toFixed(2)} rad/s peak against the 1.8 cap (an uncapped lock runs at 5.0), leaving ${best.residual === null ? "n/a" : (best.residual * 57.3).toFixed(0) + "\u00b0"} still between them when the blow finished`
+        : "the server never held \"attacking\" long enough to measure \u2014 no heavy survived to a sixth snapshot");
   }
 
   // ===================================================================
@@ -612,30 +607,45 @@ async function lockAct(browser, url, check) {
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
     const samples = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
       samples.push(await page.evaluate(() => {
+        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
         const el = document.querySelector("[data-lock-reticle]");
         if (!el) return null;
         const r = el.getBoundingClientRect();
         const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
+        const f = window.__probe.frames[window.__probe.frames.length - 1];
+        const foe = f && f.lock && f.foes[f.lock];
         return {
-          x: r.left + r.width / 2, y: r.top + r.height / 2,
-          o: parseFloat(el.style.opacity || "0"), w: window.innerWidth,
-          // The rig's own arithmetic, so a reticle in the wrong place says
-          // WHICH number was wrong rather than just that it was.
+          x: r.left + r.width / 2,
+          o: parseFloat(el.style.opacity || "0"),
+          // Where the man the lock holds actually is, relative to the facing.
+          // Screen-right is a NEGATIVE offset (see applySwitch in input.ts), so
+          // the reticle must sit right of centre exactly when this is negative.
+          off: foe && !foe.dead ? wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot) : null,
           paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
         };
       }));
-      await wait(220);
+      await wait(200);
     }
-    const seen = samples.filter((s) => s && s.o > 0.5);
     const W = SCREEN.width;
-    const offCentre = seen.length ? Math.max(...seen.map((s) => Math.abs(s.x - W / 2))) : W;
-    const travel = seen.length > 1
-      ? Math.max(...seen.map((s) => s.x)) - Math.min(...seen.map((s) => s.x)) : 0;
+    const seen = samples.filter((s) => s && s.o > 0.5);
+    // THE CLAIM IS THAT IT IS ON THE MAN, not that the man is near the middle.
+    // A reticle near the middle proves nothing — the lock puts him there — and
+    // a man who walks THROUGH you at a metre sweeps the frame faster than any
+    // camera should follow, which is correct behaviour that a centred-ness
+    // assertion fails. So the test is the side he is on: the reticle must be
+    // right of centre exactly when he is, on every sample where he is off the
+    // centre line at all. Parked, mirrored, or drawn on the wrong man, it fails.
+    const sided = seen.filter((s) => s.off !== null && Math.abs(s.off) > 0.05);
+    const agree = sided.filter((s) => Math.sign(s.x - W / 2) === Math.sign(-s.off));
+    const xs = seen.map((s) => s.x).sort((a, b) => a - b);
+    const median = xs.length ? xs[Math.floor(xs.length / 2)] : 0;
+    const travel = xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0;
+    const rate = sided.length ? agree.length / sided.length : 0;
     check("the lock is drawn on the man it is holding",
-      seen.length >= 5 && offCentre < W * 0.42 && travel > 3,
-      `the reticle was painted on ${seen.length} of ${samples.length} samples at opacity>0.5, never further than ${Math.round(offCentre)}px from the horizontal centre of a ${W}px screen (the over-the-shoulder rig alone puts a man at arm's length ~30% off), and slid ${Math.round(travel)}px across the glass as he moved; last paint ${seen.length ? seen[seen.length - 1].paint : "none"}`);
+      seen.length >= 8 && sided.length >= 5 && rate >= 0.8 && travel > 3,
+      `painted on ${seen.length} of ${samples.length} samples at opacity>0.5; on ${agree.length} of ${sided.length} of them the man was off the centre line and the reticle was on HIS side of it (${(rate * 100).toFixed(0)}%); it slid ${Math.round(travel)}px across a ${W}px screen as he moved, median x=${Math.round(median)}; last paint ${seen.length ? seen[seen.length - 1].paint : "none"}`);
   }
 
   // ===================================================================
