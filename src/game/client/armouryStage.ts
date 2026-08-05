@@ -39,7 +39,7 @@ import {
 } from "./render/anim";
 import {
   resolveQuality, configureRenderer,
-  type QualitySettings, type FrameContext, type QualityTier,
+  type QualitySettings, type FrameContext,
 } from "./render/quality";
 
 /** Accent colour per class — the same table `anim.ts` dresses a warrior from. */
@@ -491,8 +491,12 @@ export interface StageHandle {
 let ACTIVE: { forge: Forge; render(): void } | null = null;
 
 export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): StageHandle | null {
-  const forge = acquireForge();
-  if (!forge) return null;
+  const held = acquireForge();
+  if (!held) return null;
+  // Declared non-null rather than narrowed: the frame loop and the lens
+  // switch are hoisted function declarations, and TypeScript will not carry a
+  // narrowing into one.
+  const forge: Forge = held;
 
   const { renderer, scene } = forge;
   const canvas = renderer.domElement;
@@ -614,7 +618,6 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     if (rig && motion) {
       rig.group.rotation.y = turn;
       poseWarrior(rig, motion, player, dt, ctx);
-      forge.contact.position.set(0, 0.004, 0);
     }
     forge.sky.update(dt, ctx);
     if (lens === "fight") {
@@ -793,20 +796,16 @@ function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
   // A card is a card, not a diorama: no ground, no plinth, no sky behind the
   // item, so ten of them read as ten objects rather than as ten photographs of
   // the same field.
-  const hid: THREE.Object3D[] = [forge.arena, forge.plinth, forge.contact, forge.sky.root];
-  const wasVisible = hid.map((o) => o.visible);
-  hid.forEach((o) => { o.visible = false; });
-  const liveRig = forge.scene.getObjectByName("mannequinRoot");
+  // A card is a card, not a diorama. Everything in the scene that is not this
+  // one object and the lights on it goes dark for the duration — including the
+  // live mannequin, which `createWarriorRig` parents straight to the scene.
   const bg = forge.scene.background;
   forge.scene.background = null;
-  // Everything the live rig owns, hidden by walking the scene's top level: the
-  // mannequin is parented straight to the scene by `createWarriorRig`.
-  const others: THREE.Object3D[] = [];
-  forge.scene.children.forEach((c) => {
-    if (c === subject || c === forge.lights || hid.includes(c)) return;
-    if (c.visible) { others.push(c); c.visible = false; }
-  });
-  void liveRig;
+  const hidden: THREE.Object3D[] = [];
+  for (const c of forge.scene.children) {
+    if (c === subject || c === forge.lights) continue;
+    if (c.visible) { hidden.push(c); c.visible = false; }
+  }
 
   const pr = renderer.getPixelRatio();
   const css = THUMB_PX / pr;
@@ -824,9 +823,11 @@ function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
   renderer.setScissorTest(false);
   renderer.setClearColor(prevClear, prevAlpha);
   forge.scene.background = bg;
-  hid.forEach((o, i) => { o.visible = wasVisible[i]; });
-  others.forEach((o) => { o.visible = true; });
+  hidden.forEach((o) => { o.visible = true; });
   forge.scene.remove(subject);
+  // `characters.ts` shares merged geometry between builds and patches
+  // `dispose()` on every cached buffer to decrement its own refcount — so this
+  // walk is a RELEASE, not a free, and skipping it is the leak.
   built.reassemble();
   subject.traverse((o) => {
     const m = o as THREE.Mesh;
@@ -895,5 +896,3 @@ export function faceSeedFor(id: string): number {
 export function armouryDefaults(cls: WarriorClass): Appearance {
   return defaultAppearance(cls);
 }
-
-export type { QualityTier };

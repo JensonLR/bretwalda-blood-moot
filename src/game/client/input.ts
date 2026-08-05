@@ -183,8 +183,18 @@ const LOCK_CENTRE_WEIGHT = 3.2;
  * other and each of them momentarily "nearest".
  */
 const LOCK_HYSTERESIS = 0.72;
-/** How hard the camera pulls onto the bearing, per second. */
-const LOCK_STIFFNESS = 7.0;
+/**
+ * How hard the camera pulls onto the bearing, per second.
+ *
+ * A spring, so it carries a standing error of roughly (how fast the bearing is
+ * moving) / (this). At 7.0 that was fine at four metres and bad at one: the
+ * harness measured a man circling at arm's length sitting 34° off the middle of
+ * the screen, which is a man you are locked to and cannot see properly — the
+ * worst of both schemes. The rate CAP is what keeps the camera honest (and it
+ * is untouched); stiffness only decides how much lag is carried under it, so
+ * this can be raised without the lock ever becoming a snap.
+ */
+const LOCK_STIFFNESS = 12.0;
 /** Ceiling on the lock's turn rate when the body is free, rad/s. */
 const LOCK_MAX_RATE = 5.0;
 /**

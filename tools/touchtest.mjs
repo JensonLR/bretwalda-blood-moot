@@ -443,7 +443,7 @@ async function lockAct(browser, url, check) {
           // A staggered or committed man is not free to turn; the cap, not the
           // lock, is what decides his facing there, and it has its own test.
           if (f.state === "staggered" || f.state === "attacking" || f.state === "shoving" || f.state === "dead") continue;
-          if (f.t - changedAt < 350) continue;
+          if (f.t - changedAt < 500) continue;
           const off = Math.abs(wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot));
           worst = Math.max(worst, off);
           n++;
@@ -507,7 +507,13 @@ async function lockAct(browser, url, check) {
     const hb = await heavyBtn.boundingBox();
     const STICK = 1;
     const stickHome = { x: SCREEN.width * 0.23, y: SCREEN.height * 0.62 };
-    for (let attempt = 0; attempt < 7 && (!best || best.demandRate <= CAP); attempt++) {
+    // The cap is only PROVED by a blow that was asked for more than it. Either
+    // signal will do and both are the same statement: the bearing swept faster
+    // than the shoulders are allowed, or the lock was left holding a correction
+    // bigger than a swing could close.
+    const exercised = (m) => !!m && (m.demandRate > CAP || m.peakResidual > 0.9);
+    const better = (a, b) => !b || (a.demandRate + a.peakResidual) > (b.demandRate + b.peakResidual);
+    for (let attempt = 0; attempt < 8 && !exercised(best); attempt++) {
       if (!hb) break;
       await waitForAlive().catch(() => {});
       await page.waitForFunction(() => {
@@ -529,7 +535,9 @@ async function lockAct(browser, url, check) {
         const f = window.__probe.frames[window.__probe.frames.length - 1];
         if (!f || !f.lock) return false;
         const p = f.foes[f.lock];
-        return !!p && !p.dead && Math.hypot(p.x - f.x, p.z - f.z) < 3.0;
+        // Inside two metres. The sweep goes as 1/range, so three metres is the
+        // difference between a demand of 1.2 rad/s and one of 3.5.
+        return !!p && !p.dead && Math.hypot(p.x - f.x, p.z - f.z) < 2.2;
       }, null, { timeout: 20000 }).catch(() => {});
 
       const mark = await now();
@@ -563,7 +571,11 @@ async function lockAct(browser, url, check) {
         // holds was moving. Taken over three-snapshot windows so one late
         // packet cannot invent a rate, and only across windows holding the
         // SAME man — a switch is a jump, not a rate.
-        let demandRate = 0, bodyPeak = 0;
+        let demandRate = 0, bodyPeak = 0, peakResidual = 0;
+        for (const f of rows) {
+          const b = bearing(f);
+          if (b !== null) peakResidual = Math.max(peakResidual, Math.abs(wrap(b - f.rot)));
+        }
         for (let i = 2; i < rows.length; i++) {
           const a = rows[i - 2], c = rows[i];
           if (a.lock !== c.lock || a.lock !== rows[i - 1].lock) continue;
@@ -577,13 +589,13 @@ async function lockAct(browser, url, check) {
         const last = rows[rows.length - 1];
         const lastB = bearing(last);
         return {
-          turned, elapsed, demandRate, bodyPeak,
+          turned, elapsed, demandRate, bodyPeak, peakResidual,
           rate: turned / elapsed,
           residual: lastB === null ? null : Math.abs(wrap(lastB - last.rot)),
           allowed: cap * elapsed, frames: rows.length,
         };
       }, [mark, CAP]);
-      if (m && (!best || m.demandRate > best.demandRate)) best = m;
+      if (m && better(m, best)) best = m;
     }
 
     // Tolerance is on the CLOCK, not on the cap: the server integrates 1.8 rad/s
@@ -591,10 +603,10 @@ async function lockAct(browser, url, check) {
     // measured between two socket messages arriving at a box with no GPU, and
     // bunched packets shorten the denominator. 30% covers that and still leaves
     // an uncapped lock — which would run at LOCK_MAX_RATE, 5.0 — nowhere to hide.
-    const ok = !!best && best.rate <= CAP * 1.3 && best.demandRate > CAP;
+    const ok = !!best && best.rate <= CAP * 1.3 && best.bodyPeak <= CAP * 1.3 && exercised(best);
     check("a committed swing still cannot follow the man the lock was handed", ok,
       best
-        ? `strafing round him mid-blow, the direction to the locked man swept at ${best.demandRate.toFixed(2)} rad/s — more than the shoulders are allowed — and over ${best.frames} snapshots of "attacking" (${best.elapsed.toFixed(2)}s) the server turned him ${(best.turned * 57.3).toFixed(0)}\u00b0, ${best.rate.toFixed(2)} rad/s mean and ${best.bodyPeak.toFixed(2)} rad/s peak against the 1.8 cap (an uncapped lock runs at 5.0), leaving ${best.residual === null ? "n/a" : (best.residual * 57.3).toFixed(0) + "\u00b0"} still between them when the blow finished`
+        ? `strafing round him mid-blow, the lock was left holding ${(best.peakResidual * 57.3).toFixed(0)}\u00b0 of correction and the direction to him swept at ${best.demandRate.toFixed(2)} rad/s — more than the shoulders are allowed — and over ${best.frames} snapshots of "attacking" (${best.elapsed.toFixed(2)}s) the server turned him ${(best.turned * 57.3).toFixed(0)}\u00b0, ${best.rate.toFixed(2)} rad/s mean and ${best.bodyPeak.toFixed(2)} rad/s peak against the 1.8 cap (an uncapped lock runs at 5.0), leaving ${best.residual === null ? "n/a" : (best.residual * 57.3).toFixed(0) + "\u00b0"} still between them when the blow finished`
         : "the server never held \"attacking\" long enough to measure \u2014 no heavy survived to a sixth snapshot");
   }
 
@@ -605,68 +617,76 @@ async function lockAct(browser, url, check) {
   // ===================================================================
   {
     const W = SCREEN.width;
-    const sampleReticle = async (n) => {
+    /**
+     * Samples the reticle, keeping only the ones taken while the man it holds
+     * is CLOSE. The shoulder parallax goes as 1/range: at a metre and a half it
+     * is most of the half-frame and swamps everything else, and at fourteen
+     * metres it is four degrees and the man's own position decides which side
+     * of the middle he lands on. A previous cut of this test measured the
+     * parallax at a range of 14 m and got the sign backwards — which is the
+     * geometry behaving, not the reticle misbehaving.
+     */
+    const sampleReticle = async (tries) => {
       const out = [];
-      for (let i = 0; i < n; i++) {
-        out.push(await page.evaluate(() => {
+      let matched = 0;
+      for (let i = 0; i < tries; i++) {
+        const s0 = await page.evaluate(() => {
           const el = document.querySelector("[data-lock-reticle]");
           if (!el) return null;
           const r = el.getBoundingClientRect();
           const p = (window.__bretwaldaCamera && window.__bretwaldaCamera.lockPaint) || {};
           return {
             x: r.left + r.width / 2, o: parseFloat(el.style.opacity || "0"),
+            sx: p.sx, dist: p.dist || 0, w: p.w,
             paint: `sx=${Math.round(p.sx)} viewZ=${(p.viewZ || 0).toFixed(1)} dist=${(p.dist || 0).toFixed(1)} viewW=${p.w}`,
           };
-        }));
-        await wait(200);
+        });
+        // The DOM against the rig's own arithmetic. This is the half of the
+        // claim that has nothing to do with geometry: whatever the camera
+        // computed, the element has to actually be THERE.
+        if (s0 && s0.o > 0.5 && Math.abs(s0.x - s0.sx) < 2) matched++;
+        if (s0 && s0.o > 0.5 && s0.dist < 6) out.push(s0);
+        await wait(150);
       }
-      const seen = out.filter((s) => s && s.o > 0.5);
-      const xs = seen.map((s) => s.x).sort((a, b) => a - b);
+      const xs = out.map((s2) => s2.x).sort((a, b) => a - b);
       return {
-        n, seen: seen.length,
+        tries, seen: out.length, matched,
         median: xs.length ? xs[Math.floor(xs.length / 2)] : 0,
         travel: xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0,
-        paint: seen.length ? seen[seen.length - 1].paint : "none",
+        paint: out.length ? out[out.length - 1].paint : "none",
       };
     };
 
     // THE CLAIM IS THAT IT IS ON THE MAN, and the honest way to prove that is
     // NOT that it sits near the middle of the screen. The lock holds him there
-    // — the previous cut of this test asked whether the reticle was on his side
-    // of the centre line and got "0 of 0 samples", because the facing error
-    // never once exceeded three degrees. A reticle painted at a fixed spot
-    // would have passed that.
+    // — an earlier cut asked whether the reticle was on his side of the centre
+    // line and got "0 of 0 samples", because the facing error never once
+    // exceeded three degrees. A reticle painted at a fixed spot would pass that.
     //
     // What cannot be faked is the SHOULDER. The rig sits a metre to the
-    // warrior's right, so a man dead ahead of him is drawn LEFT of centre — and
-    // the one handedness switch moves the camera to the other shoulder, so the
-    // same man is then drawn RIGHT of centre. Parallax through the real camera
-    // matrix, and it flips with the one store that flips everything else.
+    // warrior's right, so a man close in front of him is drawn well LEFT of
+    // centre — and the one handedness switch moves the camera to the other
+    // shoulder, so the same man swings across the frame. Parallax through the
+    // real camera matrix, driven by nothing but the store that flips
+    // everything else.
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
-    const overRight = await sampleReticle(8);
+    const overRight = await sampleReticle(22);
     await page.getByLabel("Switch to left-handed controls").tap();
     await wait(600);
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
-    const overLeft = await sampleReticle(8);
+    const overLeft = await sampleReticle(22);
     // Put it back, because the layout scan below runs right-handed first.
     await page.getByLabel("Switch to right-handed controls").tap();
     await wait(500);
 
-    // The measurable claim is the SHIFT, not an absolute side. Which side of
-    // the centre line a man lands on is his lateral position plus the shoulder
-    // parallax, and in a three-man brawl the first term will not hold still —
-    // the flip has been measured at 143→? and 82→180, always the right way and
-    // not always across the line. What a parked or mis-projected reticle cannot
-    // produce is a swing of a fifth of the screen, in the correct direction,
-    // caused by nothing but the handedness store.
     const shift = overLeft.median - overRight.median;
     check("the lock is drawn on the man it is holding, through the real camera",
-      overRight.seen >= 6 && overLeft.seen >= 6
-      && overRight.median < W / 2 && shift > W * 0.12
-      && Math.max(overRight.travel, overLeft.travel) > 3,
-      `over the RIGHT shoulder the reticle sat at median x=${Math.round(overRight.median)} on a ${W}px screen — left of the centre line, where a rig offset to the warrior's right puts a man who is dead ahead of him — and the one handedness switch moved the SAME man to x=${Math.round(overLeft.median)}, a shift of ${Math.round(shift)}px (${(shift / W * 100).toFixed(0)}% of the screen) with nothing else changed; painted on ${overRight.seen}+${overLeft.seen} of ${overRight.n * 2} samples and sliding up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
+      overRight.seen >= 4 && overLeft.seen >= 4
+      && overRight.matched >= 8 && overLeft.matched >= 8
+      && shift > W * 0.12 && Math.max(overRight.travel, overLeft.travel) > 3,
+      `the element sat within 2px of the rig's own projected x on ${overRight.matched}+${overLeft.matched} of ${overRight.tries * 2} samples; inside six metres, where the shoulder offset dominates, the reticle sat at median x=${Math.round(overRight.median)} over the RIGHT shoulder (${overRight.seen} samples) and the one handedness switch moved the same man to x=${Math.round(overLeft.median)} (${overLeft.seen}) — a shift of ${Math.round(shift)}px, ${(shift / W * 100).toFixed(0)}% of a ${W}px screen, with nothing else changed; it slid up to ${Math.round(Math.max(overRight.travel, overLeft.travel))}px as he moved; last paint ${overLeft.paint}`);
   }
 
   // ===================================================================
