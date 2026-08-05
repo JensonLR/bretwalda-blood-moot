@@ -1537,7 +1537,10 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
   if (newest && newest.x === x && newest.z === z && newest.yawRaw === rawYaw) return false;
 
   const now = m.netClock;
-  let t = now;
+  // A seed, not an observation. All that is known of an arrival is that it fell
+  // somewhere in the last frame, so the middle of that window is the best guess
+  // the client has and it halves the phase error the lock has to pull in.
+  let t = now - dtFrame * 0.5;
   let teleported = false;
 
   if (newest) {
