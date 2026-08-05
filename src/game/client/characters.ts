@@ -97,9 +97,9 @@ export function defaultAppearance(cls: WarriorClass): Appearance {
   return {
     helm: cls === "runekeeper" ? "hood" : cls === "huscarl" ? "nasal" : "iron",
     hairStyle: "short",
-    hairColor: 0x6b4a2a,
+    hairColor: 0x4a3220,
     beardStyle: cls === "berserker" ? "full" : "short",
-    beardColor: 0x6b4a2a,
+    beardColor: 0x4a3220,
     cloak: cls === "berserker" ? "brown" : cls === "runekeeper" ? "blue" : "red",
     armorColor: 0x5f6b7a,
     warPaint: "none",
@@ -125,13 +125,37 @@ const RETIRED_ARMOUR: Record<number, number> = {
 };
 
 /**
+ * The same, for the hair and beard colour slots, which were re-graded in the
+ * cosmetics pass. `docs/COSMETICS-AUDIT.md` has the readings: the default Oak
+ * Brown sat within a few per cent of the skin's value at this exposure, so the
+ * crop, the jaw and the cheek rendered as one continuous tan mass and neither
+ * the hairline nor the beard's edge existed; Norse Gold and Fire Red came back
+ * as saturated yellow and pillar-box red, which is paint rather than hair; and
+ * Greybeard and Snow White were near enough indistinguishable that two paid
+ * options were selling the same thing.
+ *
+ * Nothing is cut and nothing changes price — a player who bought Fire Red still
+ * owns Fire Red, and this maps his stored hex onto the re-graded one so the
+ * armoury still shows the tile he paid for as equipped.
+ */
+const RETIRED_HAIR: Record<number, number> = {
+  0x6b4a2a: 0x4a3220, // Oak Brown, when it was the same value as the skin under it
+  0xb8a14e: 0x9c8a55, // Norse Gold, when it was yellow
+  0x8a3b22: 0x7a412c, // Fire Red, when it was pillar-box
+  0x9c9c9c: 0x8a8578, // Greybeard, when it was Snow White at 30 gold less
+};
+
+/**
  * Brings a stored appearance up to the current catalog. Call this on anything
  * that came out of localStorage or off the wire before showing it in the armoury;
  * it is a no-op for anything already current.
  */
 export function migrateAppearance(ap: Appearance): Appearance {
-  const armorColor = RETIRED_ARMOUR[ap.armorColor];
-  return armorColor === undefined ? ap : { ...ap, armorColor };
+  const armorColor = RETIRED_ARMOUR[ap.armorColor] ?? ap.armorColor;
+  const hairColor = RETIRED_HAIR[ap.hairColor] ?? ap.hairColor;
+  const beardColor = RETIRED_HAIR[ap.beardColor] ?? ap.beardColor;
+  if (armorColor === ap.armorColor && hairColor === ap.hairColor && beardColor === ap.beardColor) return ap;
+  return { ...ap, armorColor, hairColor, beardColor };
 }
 
 // ---------------- Armoury Catalog ----------------
@@ -192,11 +216,13 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
   {
     slot: "hairColor", label: "Hair Colour",
     options: [
-      { id: "hc_brown", label: "Oak Brown", cost: 0, slot: "hairColor", value: 0x6b4a2a },
+      // Re-graded, not repriced and not cut — see `RETIRED_HAIR` for the
+      // readings and for how a stored profile keeps the tile it paid for.
+      { id: "hc_brown", label: "Oak Brown", cost: 0, slot: "hairColor", value: 0x4a3220 },
       { id: "hc_black", label: "Raven Black", cost: 0, slot: "hairColor", value: 0x1c1712 },
-      { id: "hc_blond", label: "Norse Gold", cost: 40, slot: "hairColor", value: 0xb8a14e },
-      { id: "hc_red", label: "Fire Red", cost: 30, slot: "hairColor", value: 0x8a3b22 },
-      { id: "hc_grey", label: "Greybeard", cost: 30, slot: "hairColor", value: 0x9c9c9c },
+      { id: "hc_blond", label: "Norse Gold", cost: 40, slot: "hairColor", value: 0x9c8a55 },
+      { id: "hc_red", label: "Fire Red", cost: 30, slot: "hairColor", value: 0x7a412c },
+      { id: "hc_grey", label: "Greybeard", cost: 30, slot: "hairColor", value: 0x8a8578 },
       { id: "hc_snow", label: "Snow White", cost: 30, slot: "hairColor", value: 0xe8e4da },
     ],
   },
@@ -213,11 +239,11 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
   {
     slot: "beardColor", label: "Beard Colour",
     options: [
-      { id: "bc_brown", label: "Oak Brown", cost: 0, slot: "beardColor", value: 0x6b4a2a },
+      { id: "bc_brown", label: "Oak Brown", cost: 0, slot: "beardColor", value: 0x4a3220 },
       { id: "bc_black", label: "Raven Black", cost: 0, slot: "beardColor", value: 0x1c1712 },
-      { id: "bc_blond", label: "Norse Gold", cost: 40, slot: "beardColor", value: 0xb8a14e },
-      { id: "bc_red", label: "Fire Red", cost: 30, slot: "beardColor", value: 0x8a3b22 },
-      { id: "bc_grey", label: "Greybeard", cost: 30, slot: "beardColor", value: 0x9c9c9c },
+      { id: "bc_blond", label: "Norse Gold", cost: 40, slot: "beardColor", value: 0x9c8a55 },
+      { id: "bc_red", label: "Fire Red", cost: 30, slot: "beardColor", value: 0x7a412c },
+      { id: "bc_grey", label: "Greybeard", cost: 30, slot: "beardColor", value: 0x8a8578 },
       { id: "bc_snow", label: "Snow White", cost: 30, slot: "beardColor", value: 0xe8e4da },
     ],
   },
@@ -2215,6 +2241,95 @@ function addMouth(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMate
   }), M.dark, place.clone());
 }
 
+/**
+ * A plait — strands wound about a common path — and the reason it is a function
+ * rather than four more lines at each call site.
+ *
+ * `Braided War-locks` costs 100 gold and `Ringed Braid` costs 120, and both were
+ * built the same way: four spheres of falling radius stacked down the path with
+ * a brass ring under them. That is a rosary. It has no twist, no strands, and no
+ * silhouette a shaved head does not have — the audit lists both of them in its
+ * worst-first table for exactly that reason, and they are the two most expensive
+ * things in their slots.
+ *
+ * A plait is three strands crossing over one another, and what makes it read as
+ * one at any distance is the *chevron*: the strand boundaries run diagonally
+ * across the rope and alternate. So each strand is swept as its own tapering
+ * tube around a helix on the common path, and the helix is what draws the
+ * chevron for free. Three of them at a third of a turn apart interlock; the
+ * radius they orbit at is a shade under a strand radius so they touch rather
+ * than gap.
+ *
+ * `path` is sampled in t ∈ [0, 1] and returns a point in the part's own space.
+ * The frame is built off world up, which is right for everything this dresses —
+ * hair and beards hang — and avoids the twist a Frenet frame develops on a path
+ * with an inflection in it.
+ */
+function braid(
+  path: (t: number, out: THREE.Vector3) => void,
+  opts: {
+    strands?: number;
+    /** Full turns of the plait over the whole length. */
+    turns: number;
+    /** Half-width of the whole rope at t. */
+    radius: (t: number) => number;
+    rows: number;
+    ring: number;
+  },
+): THREE.BufferGeometry {
+  const n = opts.strands ?? 3;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const c = new THREE.Vector3();
+  const ahead = new THREE.Vector3();
+  const tan = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const P = new THREE.Vector3();
+  const stride = opts.ring + 1;
+
+  for (let k = 0; k < n; k++) {
+    const base = pos.length / 3;
+    for (let j = 0; j <= opts.rows; j++) {
+      const t = j / opts.rows;
+      path(t, c);
+      path(Math.min(1, t + 0.02), ahead);
+      tan.subVectors(ahead, c);
+      if (tan.lengthSq() < 1e-10) tan.set(0, -1, 0);
+      tan.normalize();
+      side.set(1, 0, 0).cross(tan);
+      if (side.lengthSq() < 1e-8) side.set(0, 0, 1).cross(tan);
+      side.normalize();
+      up.crossVectors(tan, side).normalize();
+      // The rope's half-width, split into how far a strand orbits and how fat it
+      // is. At n = 3 a strand sitting at 0.46 of the rope with a radius of 0.54
+      // of it just closes the gaps between its neighbours.
+      const R = opts.radius(t);
+      const orbit = R * 0.46;
+      const rS = R * 0.54;
+      const phase = (k / n + t * opts.turns) * Math.PI * 2;
+      const cx = Math.cos(phase) * orbit;
+      const cy = Math.sin(phase) * orbit;
+      for (let i = 0; i <= opts.ring; i++) {
+        const a = (i / opts.ring) * Math.PI * 2;
+        const dx = cx + Math.cos(a) * rS;
+        const dy = cy + Math.sin(a) * rS;
+        P.copy(c).addScaledVector(side, dx).addScaledVector(up, dy);
+        pos.push(P.x, P.y, P.z);
+        uv.push(i / opts.ring, t);
+      }
+    }
+    for (let j = 0; j < opts.rows; j++) {
+      for (let i = 0; i < opts.ring; i++) {
+        const a = base + j * stride + i;
+        idx.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+      }
+    }
+  }
+  return finish(pos, uv, idx);
+}
+
 // ============================================================
 // Complexion — the tonal map and the war paint, as one field
 // ============================================================
@@ -2341,16 +2456,34 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
  */
 function faceComplexion(
   K: Skull, y0: number, tone: SkinTone, paint: string,
+  whiskers: { color: number; full: boolean } | null,
 ): (x: number, y: number, z: number, out: THREE.Color) => void {
   const R = K.R;
   const F = K.F;
   const chosen = WAR_PAINT[paint];
+  // Stubble, and it is here rather than in the head build because stubble is not
+  // a garment. It used to be a lifted shell 1.2 mm off the skin with a ragged
+  // patch rim — a boundary between two materials, wool on flesh — and the audit
+  // and every frame since agree on what that draws: a dark trapezoid over the
+  // side of the face with a torn edge, which reads as mud rather than as a beard
+  // a day old. As a term in the complexion it has no boundary at all, it costs no
+  // geometry, and it survives every helmet in the shop for free.
+  //
+  // It runs under a full beard too, at half strength, because the thing a beard
+  // patch needs most is for its own rim to land on skin that is already going
+  // dark. That is what turns a hard material seam ringing the jaw into an edge.
+  const wb = whiskers ? new THREE.Color(whiskers.color) : null;
+  const base0 = new THREE.Color(tone.base);
+  const sr = wb ? wb.r / Math.max(0.03, base0.r) : 1;
+  const sg = wb ? wb.g / Math.max(0.03, base0.g) : 1;
+  const sb = wb ? wb.b / Math.max(0.03, base0.b) : 1;
+  const sAmt = whiskers ? (whiskers.full ? 0.42 : 0.80) : 0;
   // The paint's colour has to arrive as a *ratio*, because a vertex colour
   // multiplies the albedo it lands on. Taken against this warrior's own
   // complexion rather than against the canonical one: the head's geometry is
   // cached per identity and the identity picks the tone, so the division can be
   // exact and a stripe of blood comes out the same colour on all four skins.
-  const base = new THREE.Color(tone.base);
+  const base = base0;
   const p = chosen ? new THREE.Color(chosen.color) : null;
   const pr = p ? p.r / Math.max(0.03, base.r) : 1;
   const pg = p ? p.g / Math.max(0.03, base.g) : 1;
@@ -2452,6 +2585,29 @@ function faceComplexion(
     let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.10 * lip);
     let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.36 * lip);
     let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.44 * lip);
+
+    if (whiskers) {
+      // The beard line: the lip line at the midline, climbing to the sideburn at
+      // the ear, broken by three harmonics so the edge disagrees with itself the
+      // way a growing edge does. Bounded below at the throat, because whiskers
+      // stop somewhere and a man stubbled to his collarbone is a wolf.
+      const rise = smooth(0.50, 1.15, ax);
+      const top = mix(Y_LIP - 0.075, -0.13, rise)
+        + 0.055 * Math.cos(ax * 6.5) + 0.028 * Math.cos(ax * 11.3 + 1.9)
+        + 0.016 * Math.cos(dy * 23 + ax * 7);
+      let jaw = (1 - smooth(top - 0.07, top + 0.07, dy)) * smooth(-1.30, -1.12, dy);
+      // The moustache: above the lip, inside the philtrum's width, and parted at
+      // the midline the way one grows.
+      const mo = (1 - smooth(Y_LIP + 0.055, Y_LIP + 0.16, dy)) * smooth(Y_LIP + 0.02, Y_LIP + 0.09, dy)
+        * (1 - smooth(0.30, 0.40, ax)) * smooth(0.02, 0.075, ax);
+      jaw = clamp01(Math.max(jaw, mo) * clamp01(0.30 + 0.85 * front));
+      // Never over the lips themselves — a moustache grows above a mouth.
+      jaw *= 1 - 0.85 * lip;
+      const c = jaw * sAmt;
+      r = mix(r, r * sr, c);
+      g = mix(g, g * sg, c);
+      b = mix(b, b * sb, c);
+    }
 
     if (chosen) {
       const cover = clamp01(chosen.mark(ax, dx, dy, dz, front));
@@ -4635,13 +4791,19 @@ export function buildCharacter(
   // still resolvable and a warrior's crop reads as a knitted cap. At twenty the
   // individual yarns are about a millimetre and average out to fibre, which is what
   // hair does at any distance a player sees it from.
-  const hair = M.tinted("wool", ap.hairColor, { repeat: 20 });
+  // 48, not 20. `repeat` here is tiles across the *patch's own* 0..1 UV, and a
+  // crop's shell spans about 500 mm of skull — so twenty tiles put the wool
+  // weave at 25 mm, which resolves as knitting at every distance a head is seen
+  // from and is most of why every frame of this build reads the hair as a
+  // bathing cap. At 48 a yarn is about a millimetre and averages to fibre, which
+  // is what hair does. The brows ride the same material and want it finer still.
+  const hair = M.tinted("wool", ap.hairColor, { repeat: 48 });
   // 26, not 18. The beard patch is the largest single area of hair on the head
   // and at 18 repeats the wool tile's weave was resolving as a grid — the "flat
   // waffle panel" both panels named. It is the same tile as the hair; what makes
   // hair read as fibre rather than as knitting is only ever the density it is
   // tiled at, and a beard covers less skull than a crop does, so it needs more.
-  const beard = M.tinted("wool", ap.beardColor, { repeat: 26 });
+  const beard = M.tinted("wool", ap.beardColor, { repeat: 56 });
   // Fur goes the other way from hair: the wool tile's dye blotches are the one
   // thing in the library that reads as clumps of pelt, so this wants them large.
   // Six repeats over a shoulder ruff puts a clump every 40 mm, which is a fleece.
@@ -5742,38 +5904,118 @@ export function buildCharacter(
     }
 
     // ---- hair ----
+    //
+    // Three styles that a player can tell apart in the dark, which is what the
+    // slot has never had. The audit's frame of the base dress is a smooth egg —
+    // the crop was a 7 mm shell contributing nothing a shaved head does not —
+    // and the two paid options above it added a curtain and a string of beads.
+    //
+    // What separates them now is the OUTLINE, in this order: the crop breaks the
+    // skull's curve with fourteen locks and a ragged crown; the mane adds 150 mm
+    // of falling mass with a part down the middle; the war-locks add two plaits
+    // that hang clear of the head and swing wide of it. Each is a different
+    // shape at 34 px, which is the test the audit says nothing in this shop
+    // passes.
     if (ap.hairStyle !== "shaved") {
       const crop = ap.hairStyle === "short";
+      // The hairline. Three harmonics rather than two, and the third is above
+      // Nyquist for `nu` on purpose: a hairline is where hair thins out, not
+      // where it was cut, and a curve at one frequency is still a curve. The
+      // cos(2u) term is the temple recession — it is what puts the two points
+      // of an M over the brows.
+      // The hairline. Four harmonics, and the top two are deliberately above
+      // Nyquist for `nu`: a hairline is where hair thins out, not where it was
+      // cut, and the only honest way to say that with a patch boundary is to
+      // make the boundary disagree with itself. The cos(2u) term is the temple
+      // recession — it is what puts the two points of an M over the brows — and
+      // the amplitudes on the last two are 10 and 5 mm rather than 4 and 2,
+      // because at 4 mm the line rendered as an arc and an arc across a forehead
+      // is the brim of a cap.
+      const line = (u: number) => (crop ? 0.30 : 0.21)
+        + 0.235 * Math.cos(u) - 0.080 * Math.cos(u * 2)
+        + 0.080 * Math.cos(u * 5 + 1.1) + 0.042 * Math.cos(u * 9 - 0.7)
+        + 0.020 * Math.cos(u * 17 + 2.3);
+      // The shell. Under a helm it flattens to a liner's thickness — a helm
+      // flattens hair, and 24 mm of crown volume would push straight through a
+      // bowl that now sits on the skull.
+      // The shell's lift, held as a function because the locks ride on it. Thin
+      // at the hairline and thick at the crown — `patch` closes the v0 boundary
+      // with a rim strip whose height is the lift, so hair 8 mm proud where it
+      // starts rules a hard band across the forehead — and wandering in u, which
+      // is what breaks the outline. A shell whose lift depends only on v has a
+      // silhouette that is exactly the skull's curve scaled up, and that is the
+      // egg the audit photographed.
+      const mane = (u: number, v: number) => (helmed
+        ? 0.002 + 0.003 * clamp01(v / (Math.PI / 2))
+        // Flattened over the last 0.3 rad. Held at full height to the pole, 21 mm
+        // of hair on top of a skull that is already domed comes to a point, and
+        // the crop rendered as an acorn cap.
+        : 0.0028 + 0.017 * Math.pow(clamp01((v - line(u)) / (Math.PI / 2 - line(u))), 0.7)
+          * (1 - 0.34 * clamp01((v - 1.24) / 0.33))
+          * (1 + 0.20 * Math.cos(u * 7 + 0.4) + 0.14 * Math.cos(u * 13 - 1.2)
+             + 0.10 * Math.cos(v * 9 + u * 3)));
       p.add(headWear(K, {
         u0: 0, u1: Math.PI * 2, wrapU: true,
-        // High over the forehead, low at the nape, receding at the temples —
-        // and volume that builds toward the crown rather than at the hairline.
-        // A hairline is a ragged thing. The cos(5u) term is what stops it
-        // reading as a swim cap pulled on straight.
-        v0: (u) => (crop ? 0.30 : 0.22) + 0.24 * Math.cos(u) - 0.05 * Math.cos(u * 2) + 0.035 * Math.cos(u * 5 + 1.1),
-        v1: () => Math.PI / 2 - 0.02,
-        nu: Math.max(8, lod.shellU), nv: lod.shellV,
-        // Flattened under a helm, because a helm flattens hair. This is not a
-        // detail: the bowl has come down 8 mm to sit on the skull rather than
-        // hover over it, and loose hair at 20 mm of crown volume would push
-        // straight through it.
-        lift: (_u, v) => (helmed ? 0.002 + 0.003 * v : 0.006 + 0.014 * v),
-        thick: helmed ? 0.004 : 0.007,
+        v0: line, v1: () => Math.PI / 2 - 0.02,
+        nu: Math.max(16, lod.shellU + 6), nv: Math.max(5, lod.shellV),
+        lift: (u, s) => mane(u, mix(line(u), Math.PI / 2 - 0.02, s)),
+        thick: helmed ? 0.004 : 0.006,
       }), hair, place.clone());
       if (ap.hairStyle === "long") {
-        p.add(shell([
-          { y: skullY + 0.09, hw: R.x * 1.12, hd: R.z * 1.0, z: -0.022 },
-          { y: skullY - 0.05, hw: R.x * 1.24, hd: R.z * 0.86, z: -0.045 },
-          { y: skullY - 0.2, hw: R.x * 1.3, hd: R.z * 0.62, z: -0.06 },
-          { y: skullY - 0.3, hw: R.x * 1.18, hd: R.z * 0.48, z: -0.06 },
-        ], lod.limb, { power: 2.4, wall: 0.014 }), hair);
+        // The fall. Parted down the middle rather than swept as one curtain —
+        // the audit's reading of the hair-colour sheet is that the mane is "a
+        // flat curtain with a hard edge and no volume", and a curtain is exactly
+        // what one closed shell round the back of a head draws. Two masses with
+        // a valley between them read as hair from every bearing, and the valley
+        // is free: it is where the two shells stop.
+        for (const s of [-1, 1]) {
+          p.add(shell([
+            { y: skullY + 0.085, hw: R.x * 0.70, hd: R.z * 1.02, z: -0.030 },
+            { y: skullY - 0.045, hw: R.x * 0.86, hd: R.z * 0.92, z: -0.052 },
+            { y: skullY - 0.150, hw: R.x * 0.94, hd: R.z * 0.74, z: -0.062 },
+            { y: skullY - 0.245, hw: R.x * 0.88, hd: R.z * 0.58, z: -0.058 },
+            { y: skullY - 0.320, hw: R.x * 0.62, hd: R.z * 0.42, z: -0.048 },
+          ], Math.max(8, lod.limb), { power: 2.3, wall: 0.013 }), hair,
+            xf(s * R.x * 0.52, 0, 0, 0, 0, -s * 0.06));
+        }
+        if (lod.trim) {
+          // Six locks down the fall, three a side, so the mass has strands in it
+          // and its own edge is broken where it crosses the shoulder.
+          for (const s of [-1, 1]) {
+            for (let i = 0; i < 3; i++) {
+              const off = 0.30 + i * 0.34;
+              p.add(braid((t, out) => out.set(
+                s * (R.x * (0.60 + off * 0.55)) * (1 - 0.20 * t),
+                skullY + 0.03 - 0.34 * t,
+                -R.z * (0.55 + 0.25 * Math.sin(t * 2.1)) - 0.02 * t,
+              ), { strands: 2, turns: 0.35, rows: 7, ring: 5, radius: (t) => 0.016 * (1 - 0.55 * t * t) }),
+                hair);
+            }
+          }
+        }
       }
       if (ap.hairStyle === "braids") {
+        // BRAIDED WAR-LOCKS, 100 gold, and it was four spheres of falling radius
+        // per side with a brass ring under them — a rosary, and the weakest thing
+        // in the slot at the highest price in it. It is a real three-strand plait
+        // now: 320 mm of it, sprung from above the ear, swinging out clear of the
+        // jaw so it breaks the head's outline from in front as well as in
+        // profile, and bound at the tip.
         for (const s of [-1, 1]) {
-          for (let i = 0; i < 4; i++) {
-            p.add(ball(0.021 - i * 0.0026, 6), hair, xf(s * (R.x * 1.05 - i * 0.004), skullY - 0.01 - i * 0.048, -0.03 - i * 0.006, 0, 0, 0, 1, 1.15, 1));
-          }
-          p.add(ring(0.014, 0.004, 4, 8), brass, xf(s * R.x * 1.02, skullY - 0.19, -0.05, Math.PI / 2, 0, 0));
+          p.add(braid((t, out) => {
+            // Out and forward as it falls, so the plait hangs beside the jaw
+            // rather than down the neck — that swing is the whole silhouette.
+            const swing = Math.pow(t, 1.35);
+            out.set(
+              s * (R.x * 0.94 + 0.052 * swing),
+              skullY + R.y * 0.30 - 0.335 * t,
+              -R.z * 0.20 + 0.055 * swing,
+            );
+          }, { turns: 3.4, rows: Math.max(12, lod.limb * 2), ring: Math.max(5, lod.limb - 2),
+               radius: (t) => 0.0165 * (1 - 0.45 * t * t) }), hair);
+          p.add(ring(0.0105, 0.0034, 4, 9), brass,
+            xf(s * (R.x * 0.94 + 0.048), skullY + R.y * 0.30 - 0.318, -R.z * 0.20 + 0.050,
+              Math.PI / 2 - 0.28, 0, s * 0.16));
         }
       }
     }
@@ -5801,8 +6043,8 @@ export function buildCharacter(
     // whiskers growing out of the metal. What survives a mask is the *hang* —
     // beard coming out from under the chin below the mask's lower rim — which is
     // both the honest read and the one that costs nothing.
-    if (ap.beardStyle !== "none" && !(style.mask && ap.beardStyle === "short")) {
-      const full = ap.beardStyle !== "short";
+    if (ap.beardStyle !== "none" && ap.beardStyle !== "short") {
+      const full = true;
       // One patch, not two. The top edge climbs from the lip line at the midline
       // to the sideburn at the ear, which is where a beard's edge actually runs;
       // the separate moustache bar this replaces read as a strip of tape.
@@ -5918,18 +6160,48 @@ export function buildCharacter(
           { y: skullY - 0.302, hw: 0.014, hd: 0.013, z: 0.023 },
         ], lod.limb, { power: 2.15, capBottom: true }), beard);
       } else if (ap.beardStyle === "forked") {
+        // FORKED, 80 gold, and the audit's instruction was to check it against
+        // the profile card: "a fork that does not separate in profile is a beard
+        // with a notch." It did not. The two tines were 32 mm apart at the chin
+        // and leaned 0.18 rad, so from any bearing but dead ahead they occluded
+        // each other into one cone with a crease down it. They now spring from a
+        // common mass under the chin, part at 64 mm and swing 0.34 rad out and
+        // forward, so the gap between them is open air from every bearing —
+        // which is the whole thing a player is buying.
+        p.add(shell([
+          { y: skullY - 0.126, hw: 0.062, hd: 0.052, z: 0.038 },
+          { y: skullY - 0.166, hw: 0.066, hd: 0.054, z: 0.038 },
+          { y: skullY - 0.196, hw: 0.060, hd: 0.048, z: 0.036 },
+        ], lod.limb, { power: 2.15, capBottom: true }), beard);
         for (const s of [-1, 1]) {
           p.add(shell([
-            { y: skullY - 0.130, hw: 0.036, hd: 0.032, z: 0.040 },
-            { y: skullY - 0.220, hw: 0.03, hd: 0.026, z: 0.032 },
-            { y: skullY - 0.290, hw: 0.014, hd: 0.013, z: 0.022 },
-          ], 8, { capBottom: true }), beard, xf(s * 0.032, 0, 0, 0, 0, -s * 0.18));
+            { y: skullY - 0.170, hw: 0.036, hd: 0.034, z: 0.040 },
+            { y: skullY - 0.240, hw: 0.031, hd: 0.028, z: 0.036 },
+            { y: skullY - 0.300, hw: 0.020, hd: 0.018, z: 0.028 },
+            { y: skullY - 0.336, hw: 0.008, hd: 0.008, z: 0.020 },
+          ], Math.max(8, lod.limb), { power: 2.1, capBottom: true }), beard,
+            xf(s * 0.030, 0, 0.004, 0.10, 0, -s * 0.34));
         }
       } else if (ap.beardStyle === "braided") {
-        for (let i = 0; i < 4; i++) {
-          p.add(ball(0.03 - i * 0.004, 8), beard, xf(0, skullY - 0.132 - i * 0.052, 0.040 - i * 0.004, 0, 0, 0, 1, 1.1, 1));
+        // RINGED BRAID, 120 gold — the most expensive beard in the shop, and it
+        // was four stacked spheres of falling radius with a brass ring under
+        // them. The audit calls it a rosary and it is right. It is a real
+        // three-strand plait now, sprung out of a mass under the chin so the
+        // hair has somewhere to come from, bound twice down its length.
+        p.add(shell([
+          { y: skullY - 0.126, hw: 0.064, hd: 0.052, z: 0.038 },
+          { y: skullY - 0.172, hw: 0.058, hd: 0.048, z: 0.038 },
+          { y: skullY - 0.204, hw: 0.040, hd: 0.036, z: 0.036 },
+        ], lod.limb, { power: 2.15, capBottom: true }), beard);
+        p.add(braid((t, out) => out.set(
+          0, skullY - 0.196 - 0.150 * t, 0.036 - 0.010 * t * t,
+        ), { turns: 2.3, rows: Math.max(10, lod.limb * 2), ring: Math.max(5, lod.limb - 2),
+             radius: (t) => 0.0255 * (1 - 0.55 * t * t) }), beard);
+        for (let i = 0; i < 2; i++) {
+          const t = 0.14 + i * 0.74;
+          p.add(ring(0.0245 - i * 0.010, 0.0044, 4, 10), brass,
+            xf(0, skullY - 0.196 - 0.150 * t, 0.036 - 0.010 * t * t, Math.PI / 2, 0, 0));
         }
-        p.add(ring(0.021, 0.005, 4, 10), brass, xf(0, skullY - 0.265, 0.026, Math.PI / 2, 0, 0));
       }
     }
 
@@ -7536,7 +7808,11 @@ export function buildCharacter(
     // continuous map and no boundary between two of them can show as a step.
     // Last, because it has to see everything that was added.
     if (!thrifty) {
-      p.paint([headSkin, headShade, headWarm], faceComplexion(K, skullY, tone, ap.warPaint));
+      p.paint([headSkin, headShade, headWarm], faceComplexion(
+        K, skullY, tone, ap.warPaint,
+        ap.beardStyle === "none" ? null
+          : { color: ap.beardColor, full: ap.beardStyle !== "short" },
+      ));
     }
     return p;
   }, headSig);
