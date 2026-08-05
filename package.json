@@ -6,6 +6,7 @@
     "play": "node dev-server.mjs",
     "shots": "node tools/shoot.mjs",
     "uishots": "node tools/uishots.mjs",
+    "armoury": "node tools/armourycard.mjs",
     "build": "next build",
     "start": "node custom-server.mjs",
     "lint": "eslint .",

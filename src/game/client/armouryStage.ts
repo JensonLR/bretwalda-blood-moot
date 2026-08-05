@@ -702,7 +702,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
 
     // The thumbnail forge borrows the bottom-left corner of this same frame
     // before the mannequin is drawn over it — see `pumpThumbs`.
-    pumpThumbs(forge, camera);
+    pumpThumbs(forge);
 
     renderer.setViewport(0, 0, w, h);
     renderer.setScissorTest(false);
@@ -814,7 +814,7 @@ let thumbCanvas: HTMLCanvasElement | null = null;
  * a synchronous `readPixels`, and a slot of ten taken in one frame is a
  * visible hitch on the frame a player taps a tab.
  */
-function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
+function pumpThumbs(forge: Forge): void {
   const job = takeThumbJob();
   if (!job) return;
   const t0 = performance.now();
@@ -898,7 +898,6 @@ function pumpThumbs(forge: Forge, live: THREE.PerspectiveCamera): void {
     const m = o as THREE.Mesh;
     if (m.isMesh) m.geometry?.dispose();
   });
-  void live;
 
   // GL reads bottom-up; a canvas is top-down.
   const g2 = thumbCanvas.getContext("2d")!;

@@ -583,6 +583,17 @@ man holding it at kit and fight distance, in silhouette and in material.
 3. **The armoury preview renders with no materials, no env map and a 1.1
    ambient.** `CharacterPreview.tsx`. This is the screen the owner judged, and
    it is showing worse than the game has.
+   **DONE.** The rendering moved to `src/game/client/armouryStage.ts`: the real
+   texture and material libraries, the real sky and therefore the real PMREM,
+   `summary.ts`'s key/rim/fill with the key casting, ground and a contact
+   shadow, and the game's own `createWarriorRig`/`poseWarrior`. The mannequin
+   is built at `high` whatever the device tier is — see §2(a); there is one man
+   on this screen and six of the eight slots sell something on his face.
+   Frames: `art/ui/armdiag-{phone,desktop}.png`,
+   `armsutton-*`, `armcloak-*`, `armfight-*`. Re-shoot with
+   `npm run armoury -- --tab CLOAKS --lens "FIGHT RANGE"`, which prints the
+   stage's own frame/thumbnail counters — a WebGL panel cannot be judged alive
+   by photographing it.
 4. **Seven of ten helmets are one bowl, and at fight distance those seven —
    2110 gold of the ladder — are the same 20 px grey dome.**
    `art/shots/audit/helm-fight.png`. Includes the 950-gold Wyrm-Crest, whose
