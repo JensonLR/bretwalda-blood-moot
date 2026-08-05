@@ -480,11 +480,14 @@ export default function GameHud({
           </div>
 
           {/* Discoverability for the switch, and it retires the moment the
-              player uses it. Pinned under the status bars — high on the screen,
-              clear of the thumbs and of everything the layout harness measures
-              down there. */}
+              player uses it. It sat at the top of the screen first, which the
+              layout harness passed and a capture did not: the kill feed is five
+              rows deep up there and had this line through the middle of it.
+              Stacked over the other tuition line instead, in the half of the
+              screen the harness measures for overlaps — so the next person to
+              move it gets told. */}
           {isMobile.current && lockedOn && !hasSwitched && (
-            <div className="absolute left-1/2 top-[86px] z-10 -translate-x-1/2 pointer-events-none animate-fadeIn">
+            <div className="absolute bottom-[318px] left-1/2 z-10 -translate-x-1/2 pointer-events-none animate-fadeIn">
               <div className="whitespace-nowrap rounded-md bg-black/50 px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] text-amber-100/85"
                 style={{ textShadow: "0 1px 4px black" }}>
                 ◀ FLICK THE GLASS TO CHANGE FOE ▶
