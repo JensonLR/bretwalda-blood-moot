@@ -411,6 +411,27 @@ async function lockAct(browser, url, check) {
     };
   }, mark);
 
+  /**
+   * The handedness button lives in the combat cluster, and the cluster leaves
+   * the tree with the man when he dies — so a tap dispatched a moment after a
+   * recruit finished him lands on a button that has already detached. Wait for
+   * a warrior on his feet, then tap, then retry.
+   */
+  const flipHand = async (to) => {
+    const label = to === "left" ? "Switch to left-handed controls" : "Switch to right-handed controls";
+    for (let i = 0; i < 6; i++) {
+      await waitForAlive().catch(() => {});
+      const btn = page.getByLabel(label);
+      try {
+        await btn.waitFor({ state: "visible", timeout: 15000 });
+        await btn.tap({ timeout: 15000 });
+        await wait(500);
+        return true;
+      } catch { await wait(800); }
+    }
+    return false;
+  };
+
   /** A drag on bare glass on the button side, in steps, as one burst. */
   const glassDrag = async (dx, steps = 6) => {
     await hand.press(LOOK, lookHome.x, lookHome.y);
@@ -435,7 +456,9 @@ async function lockAct(browser, url, check) {
     for (let i = 0; i < 8; i++) {
       await waitForAlive().catch(() => {});
       const mark = await now();
-      await wait(1400);
+      // Long enough that even a box whose main thread is being fought over for
+      // most of a second still delivers the eight snapshots this needs.
+      await wait(2600);
       read = await page.evaluate((t) => {
         const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
         // The first half-second is the ease-in, and a lock is allowed to be
@@ -693,14 +716,12 @@ async function lockAct(browser, url, check) {
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
     const overRight = await sampleReticle(34);
-    await page.getByLabel("Switch to left-handed controls").tap();
-    await wait(600);
+    await flipHand("left");
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
     const overLeft = await sampleReticle(34);
     // Put it back, because the layout scan below runs right-handed first.
-    await page.getByLabel("Switch to right-handed controls").tap();
-    await wait(500);
+    await flipHand("right");
 
     const shift = overLeft.median - overRight.median;
     check("the lock is drawn on the man it is holding, through the real camera",
@@ -718,10 +739,7 @@ async function lockAct(browser, url, check) {
   //      mirror lands in the half the cluster has just vacated.
   // ===================================================================
   for (const hnd of ["right-handed", "left-handed"]) {
-    if (hnd === "left-handed") {
-      await page.getByLabel("Switch to left-handed controls").tap();
-      await wait(400);
-    }
+    if (hnd === "left-handed") await flipHand("left");
     await waitForAlive().catch(() => {});
     await waitForLock().catch(() => {});
     // A frame, because a reticle is a visual claim and the DOM scan above only
