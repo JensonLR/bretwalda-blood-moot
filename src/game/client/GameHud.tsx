@@ -512,8 +512,17 @@ export default function GameHud({
             </div>
           </div>
 
-          {/* Kill feed */}
-          <div className="absolute top-3 right-3 flex flex-col gap-1 pointer-events-none z-10">
+          {/* Kill feed. THE WHOLE TOP ROW MIRRORS, not just the thumb cluster.
+              END and the mute toggle live under the timer on the MOVEMENT side
+              (page.tsx) so they never sit in the free-look half — which means
+              that on a left-handed phone they cross to the right, straight
+              through five rows of kill feed. A capture caught it: "Leofric the
+              Young slew Wulfre—" with the END button parked on the rest of it.
+              The layout harness did not, because it measures overlaps in the
+              button half and this is the other half. So the feed and the timer
+              swap sides with everything else and each keeps the clearance it
+              was drawn with. */}
+          <div className={`absolute top-3 ${lefty ? "left-3" : "right-3"} flex flex-col gap-1 pointer-events-none z-10`}>
             {roomState.killFeed.slice(-5).map((k, i) => (
               <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
                 <span className="text-amber-300 font-bold">{k.killerName}</span>
@@ -523,8 +532,9 @@ export default function GameHud({
             ))}
           </div>
 
-          {/* Timer + alive */}
-          <div className="absolute top-3 left-3 pointer-events-none z-10">
+          {/* Timer + alive — the other half of the same mirror. END and mute
+              stack underneath this, so it has to be on the side they are. */}
+          <div className={`absolute top-3 ${lefty ? "right-3 items-end" : "left-3 items-start"} flex flex-col pointer-events-none z-10`}>
             <div className="text-amber-100 text-sm font-mono bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-md">
               {Math.floor((roomState?.matchTimer ?? 0) / 60)}:{String(Math.floor((roomState?.matchTimer ?? 0) % 60)).padStart(2, "0")}
             </div>
