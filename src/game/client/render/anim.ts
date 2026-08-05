@@ -1723,6 +1723,33 @@ function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
 }
 
 /**
+ * Forget the wire. The body is wherever it is now, and nothing before this
+ * instant is evidence about where it is going.
+ *
+ * A caller that TELEPORTS a body — the summary stage carrying men to their
+ * marks — has to say so, because the interpolator's whole job is to disbelieve
+ * a position that disagrees with the recent past. `ingestNet` catches a jump of
+ * more than NET_TELEPORT on its own, but a shorter carry is indistinguishable
+ * from a sprint, and the summary is the case where that guess is worst: the
+ * staged player record is FROZEN, so exactly one snapshot ever lands at the
+ * mark, it sits in the buffer next to the man's death position, and the
+ * segment velocity between the two is the whole carry divided by one packet
+ * interval — three hundred units a second. The extrapolator then runs that for
+ * its full NET_MAX_EXTRAPOLATE and puts the man tens of metres off the mark,
+ * frequently behind the lens. Measured: two of three podium men at
+ * [7.32, 0, 19.08] and [-3.76, 0, 14.15] with the lens at z=14.49.
+ */
+export function cutNetHistory(m: WarriorMotion): void {
+  m.netCount = 0;
+  m.netHead = 0;
+  m.netArrive = 0;
+  m.netJit = 0;
+  m.errX = 0; m.errZ = 0; m.errYaw = 0;
+  m.rawVx = 0; m.rawVz = 0; m.rawVyaw = 0;
+  m.rawPrimed = false;
+}
+
+/**
  * Place the body at render time `rt`. Between two snapshots this is a straight
  * lerp by time — even steps, no chase, no framerate term anywhere. Past the
  * newest it carries on down the last segment's velocity, capped.

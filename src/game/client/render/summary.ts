@@ -26,7 +26,7 @@
 import * as THREE from "three";
 import type { GamePlayer, MatchEndData } from "../../types";
 import {
-  stepWarriorTransform, poseWarrior, triggerEmote, carryGore,
+  stepWarriorTransform, poseWarrior, triggerEmote, carryGore, cutNetHistory,
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./anim";
 import type { EmoteId } from "../../types";
@@ -532,8 +532,16 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     deathZone: null, deathDir: null, deathHeavy: false, deathCause: null,
   });
 
-  /** Teleport is a cut: no glide to the mark, no cloth yank from the jump. */
+  /** Teleport is a cut: no glide to the mark, no cloth yank from the jump.
+   *
+   *  And no memory of the wire either — see `cutNetHistory`. Setting the render
+   *  position alone is not a teleport as far as the interpolator is concerned:
+   *  it still holds the man's death position, still treats the mark as one more
+   *  packet, and still draws the line between them at the speed that would have
+   *  covered it in a packet interval. The stage is a frozen world with exactly
+   *  one snapshot in it, so that guess is never corrected by a later packet. */
   const snap = (m: WarriorMotion, x: number, z: number, rot: number): void => {
+    cutNetHistory(m);
     m.rx = x; m.rz = z; m.yaw = rot;
     m.pxPrev = x; m.pzPrev = z; m.yawPrev = rot;
     m.vx = 0; m.vz = 0; m.ax = 0; m.az = 0; m.yawRate = 0;

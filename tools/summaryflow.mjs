@@ -210,6 +210,15 @@ async function ffaPhase(browser) {
   check("every man is in the picture, none under the DOM panels",
     buried.length === 0 && cropped.length === 0,
     `band=[${band}] buried=${buried.length} cropped=${cropped.length} cam=${JSON.stringify(cam)}`
+    + ` fitted=${stage?.fitted} lensZ=${stage?.lensZ} fov=${stage?.fov}`
+    // WHERE the offenders are, not just that they exist. An ndc of -78 is not
+    // a man 78 screens to the left: `project` divides by w, and for a point at
+    // or behind the eye plane w goes to zero and the coordinate explodes. So
+    // the standing/lying flag and the world position have to be printed beside
+    // it or the number is unreadable — the first three waves that saw this
+    // argued about the framing solver when the man was simply behind the lens.
+    + ` offenders=${JSON.stringify([...new Set([...buried, ...cropped])].map(
+      (m) => ({ standing: m.standing, at: m.at?.map((v) => +v.toFixed(2)), ndc: m.ndc })))}`
     + ` worst=${JSON.stringify(men.map((m) => m.ndc))}`);
   await page.screenshot({ path: `${OUT}/summary-flow-ffa.png` });
   await emoteAfterRollback(page, mine, "free-for-all");
