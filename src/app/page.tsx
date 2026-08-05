@@ -1335,14 +1335,14 @@ export default function Page() {
                     focusSlot={lensSlot}
                     faceSeed={faceSeed}
                     controls
-                    height="clamp(232px, 36vh, 340px)"
+                    height="clamp(214px, 32vh, 330px)"
                   />
                   {/* class picker for the mannequin */}
                   <div className="grid grid-cols-4 gap-1.5">
                     {WARRIOR_INFO.map((w) => (
                       <button key={w.id} onClick={() => setPreviewClass(w.id)}
                         aria-pressed={previewClass === w.id}
-                        className={`card card-interactive flex min-h-[2.5rem] flex-col items-center justify-center gap-0.5 py-1.5 ${previewClass === w.id ? "card-selected" : ""}`}>
+                        className={`card card-interactive flex min-h-[2.4rem] flex-col items-center justify-center gap-0.5 py-1 ${previewClass === w.id ? "card-selected" : ""}`}>
                         <w.Icon size={13} className={previewClass === w.id ? "text-amber-300" : "text-stone-400"} />
                         <span className="text-[7.5px] font-bold leading-none tracking-wide text-stone-300">{w.name}</span>
                       </button>

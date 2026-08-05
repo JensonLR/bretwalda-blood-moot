@@ -518,7 +518,19 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     // The seed goes in as the id's hash would: `createWarriorRig` interns
     // `player.id`, so the mannequin is stamped by giving it the player's own
     // id-shaped identity here instead.
-    const built = createWarriorRig(scene, { ...player, id: `mannequin#${loadout.faceSeed}` }, forge.materials, forge.quality);
+    // Built at `high` WHATEVER the device's tier is, and this is the audit's
+    // §2(a) finding acted on rather than repeated: `LOD.medium` samples the
+    // head at 30x30 and `LOD.low` at 14x10, both below the Nyquist limit the
+    // head's own comment in `characters.ts` was written to establish, so the
+    // face that was authored does not exist on a phone. In the ARENA that is a
+    // draw-call budget with eight men in it. Here there is ONE man, he is
+    // 400 px tall, and six of the eight slots in this shop sell something on
+    // his face. A shop that showed a phone player the 14-row head would be
+    // selling him a war paint he cannot see.
+    const built = createWarriorRig(
+      scene, { ...player, id: `mannequin#${loadout.faceSeed}` },
+      forge.materials, { ...forge.quality, tier: "high" },
+    );
     rig = built;
     motion = createMotion(player);
     crown = built.headTop || 1.78;
@@ -587,7 +599,14 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     // lit by the arena, so the key drops to a quarter and the fire takes over.
     forge.key.intensity = fight ? 7 : 26;
     forge.rim.intensity = fight ? 26 : 62;
-    forge.fill.intensity = fight ? 1.6 : 5.0;
+    // The fill is lifted at a head crop, and it is the eye that buys it.
+    // COSMETICS-AUDIT §2(d): "the eye is a dark almond with no sclera on the
+    // shadow side... the socket is deep enough that the key never reaches it",
+    // and it names a dedicated fill as one of the two fixes. This is that
+    // light — low, on the lens axis, at eye height, and weak enough that it
+    // reaches into an orbit without flattening what the key just modelled.
+    forge.fill.intensity = fight ? 1.6 : lens === "face" ? 9.5 : 5.5;
+    forge.fill.position.set(0.30, lens === "face" ? 1.63 : 1.55, lens === "face" ? 2.05 : 2.35);
     armRig();
   }
   applyLens();
