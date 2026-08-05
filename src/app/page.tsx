@@ -2602,9 +2602,31 @@ function CosmeticCard({
     ? `#${opt.value.toString(16).padStart(6, "0")}`
     : null;
 
+  // The card's own name, spelled out rather than left to be scraped off the
+  // badges and the price row. Two reasons, and the second one cost a gate:
+  //
+  //   - a screen reader reading "EQUIPPED Bare Head IN YOUR KIT" is reading a
+  //     layout, not an item;
+  //   - `tools/cheattest.mjs` finds the buy button with
+  //     `getByRole("button", { name: /EQUIP/ })`, and a card whose accessible
+  //     name began "EQUIPPED" matched it FIRST. The run clicked a helmet
+  //     instead of the till, no purchase was attempted, no refusal banner
+  //     appeared, and the assertion that the shop refuses a doctored purse
+  //     failed with `null`. The economy was never at risk — the row was
+  //     untouched — but the gate could not see that, which is the same thing.
+  //     "Worn" carries the meaning without carrying the substring.
+  const label = [
+    opt.label,
+    owned ? "in your kit" : opt.cost === 0 ? "free" : `${opt.cost} gold`,
+    equipped ? "worn now" : null,
+    staged ? "on the mannequin" : null,
+    !owned && !affordable ? "not enough gold" : null,
+  ].filter(Boolean).join(" — ");
+
   return (
     <button
       onClick={onPick}
+      aria-label={label}
       aria-pressed={staged || (equipped && !slotStaged)}
       className={`card card-interactive flex flex-col overflow-hidden !p-0 text-left ${
         staged || (equipped && !slotStaged) ? "card-selected" : tier.ring
