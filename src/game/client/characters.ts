@@ -2922,28 +2922,136 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
  */
 const EAR_ROOT = 0.93;
 const EAR_RAKE = 0.32;
-const EAR_HELIX_R = 0.0235;
-const EAR_HELIX_TUBE = 0.0048;
-/**
- * How far the helix is carried out of the skull, and it was 6 mm. Measured
- * against the skin beside it that is a standoff of **three millimetres** — the
- * organ was very nearly flush, which is precisely "an ear like a flat sticker",
- * and no landmark ratio in `headProbe` could ever have seen it because the ear
- * is not swept from the field the ratios are taken off.
- *
- * Two faults, and the second is the worse one. The root was pinned to `R.x`, the
- * skull's *nominal* half-breadth, while the skin beside it is `R.x · F.wide ·
- * taper` plus a zygomatic push — so on a wide seed the skin came out past the
- * root and the ear was partly buried in the head it is supposed to grow off. The
- * root is now taken off the skin itself (`earRootX`), and the lift is what a
- * man's helix actually stands proud by.
- */
-const EAR_HELIX_LIFT = 0.0155;
-const EAR_HELIX_KX = 0.84;
-const EAR_HELIX_KY = 1.34;
-const EAR_HELIX_KZ = 0.86;
 /** The latitude an ear hangs at: eye line down to the base of the nose. */
 const EAR_Y = (Y_EYE + Y_NOSE) * 0.5;
+
+// ============================================================
+// THE EAR, AUTHORED AS A SHELL
+//
+// Eight passes, and this organ has now been a sticker, a bagel and a torus with
+// daylight through it. The owner's note on the last one is the useful one and
+// it is objective rather than aesthetic: "you can see the palisade and the sky
+// through the hole in his ear". S6 passed at 12.7 mm the whole time, because all
+// S6 ever asked was whether the helix stood OFF the skull. It does. A ring
+// standing 13 mm off a skull is exactly what the assertion demanded and is also
+// exactly the defect.
+//
+// The build was `ball + torus + ball + torus + ball` — a SUM OF PRIMITIVES, which
+// is the identical failure this file already diagnosed for the head itself and
+// already fixed there: a sum has no outline, so nobody can say in advance what
+// its silhouette will be or whether it closes. Two things follow from it and both
+// are in the frame:
+//
+//   * the torus is a RING. Its hole is covered from dead ahead by the concha
+//     ball behind it, which is why the last pass's "put a floor in the ear's
+//     hollow" reads as fixed from one bearing and is not fixed at all. The floor
+//     is a separate convex bead sitting inside a rim it does not touch, so from
+//     every bearing off the axis the two part company and the gap between them
+//     is open to the sky.
+//   * the rim's own seat is a PLANE. Every primitive is placed at `earRootX`, a
+//     single half-breadth taken at ONE latitude, while the skull it lands on
+//     tapers. Measured on this build the skin at the lobe's latitude is about
+//     7 mm inside the skin at the ear's centre, so the bottom of the rim stands
+//     clear of the head it is supposed to be growing out of. That is the daylight,
+//     and it is under the front-bottom of the helix in the capture.
+//
+// So the auricle is now ONE closed surface. A radial sheet: an authored outline
+// in the ear's own plane, a cross-section from the rim in to a closed pole, and —
+// this is the part that kills the daylight by construction rather than by
+// tuning — the rim's depth is not authored at all. It is MEASURED, per angle,
+// off the skin the ear lands on, and then buried by `EAR_SEAT`. A boundary that
+// is inside the skull at every angle cannot have a gap under it.
+// ============================================================
+
+/**
+ * The auricle's outline, in metres from the ear's own centre, as a function of
+ * the angle round it: 0 is straight up, π/2 is toward the face, π is the lobe,
+ * 3π/2 is toward the back of the head. Eight control points, cosine-interpolated.
+ *
+ * 58 mm tall and 33 mm across, which is a man's — and, more to the point, taller
+ * than it is wide by 1.75, where the torus it replaces was 1.6 and read round.
+ */
+const EAR_OUTLINE = [
+  0.0310, // up — the helix apex
+  0.0290, // up-front
+  0.0150, // front — the margin in front of the tragus, and an ear is narrow here
+  0.0195, // front-down
+  0.0270, // down — the lobe
+  0.0245, // back-down
+  0.0180, // back
+  0.0265, // back-up, where the helix rolls over
+];
+
+/**
+ * How far inside the skin the auricle's rim is carried. Three millimetres is not
+ * a fudge factor, it is the assertion: `earSeat` in the silhouette gate measures
+ * the worst point of the rim against the skin under it and FAILS if any part of
+ * it is proud, because a rim proud of the skin has a gap under it and a gap under
+ * a rim is the sky.
+ */
+const EAR_SEAT = 0.0030;
+
+/**
+ * The cross-section, in metres of standoff FROM THE SKIN, from the closed pole
+ * at the centre out to the rim. `s` is the fraction of the way out.
+ *
+ * Read it as a section through an ear: a floor that clears the skull by a
+ * couple of millimetres, a wall climbing to the helix crest at 0.78, and an
+ * outer face falling back to land INSIDE the head. Every value is against the
+ * skin rather than against a plane, which is what makes the last row an
+ * assertion instead of a hope.
+ */
+const EAR_SECTION: Curve = [
+  [1.00, -EAR_SEAT], // the rim, buried
+  [0.90, -0.0005],
+  [0.78, 0.0160], //   HELIX CREST
+  [0.62, 0.0092], //   the inner wall of the rim, falling into the bowl
+  [0.44, 0.0030], //   the concha floor
+  [0.20, 0.0022], //   the deepest part of the bowl, over the canal
+  [0.00, 0.0030], //   the pole. Closed, and that is the whole point
+];
+
+/** And the section a LOBE has, which is not a rim round a bowl at all — it is
+ *  solid flesh, so it is one smooth bulge that lands on the skin like everything
+ *  else does. The two sections are crossfaded round the ear by `earHollow`. */
+const LOBE_SECTION: Curve = [
+  [1.00, -EAR_SEAT],
+  [0.86, 0.0030],
+  [0.55, 0.0092],
+  [0.22, 0.0086],
+  [0.00, 0.0070],
+];
+
+/** How much of the rim-and-hollow the section keeps, per angle round the ear:
+ *  1 at the top and back where the helix is, falling to nothing at the lobe. */
+const earHollow = (phi: number): number =>
+  1 - 0.90 * Math.pow(0.5 - 0.5 * Math.cos(phi), 2.5);
+
+/** Cosine interpolation round the outline table. Cosine and not linear because a
+ *  linear join between control points is a corner, and eight corners round an ear
+ *  is a stop sign. */
+function earRadius(phi: number): number {
+  const n = EAR_OUTLINE.length;
+  const f = ((phi / (Math.PI * 2)) * n + n) % n;
+  const i = Math.floor(f);
+  const t = f - i;
+  const w = 0.5 - 0.5 * Math.cos(t * Math.PI);
+  return mix(EAR_OUTLINE[i], EAR_OUTLINE[(i + 1) % n], w);
+}
+
+/**
+ * The antihelix and the tragus, as modulations on the section rather than as two
+ * more primitives. The antihelix is the second ridge inside the rim and runs
+ * round the back and top; the tragus is the one part of an ear that faces
+ * forward, so it is a local raise on the front margin over the canal.
+ */
+function earRelief(phi: number, s: number): number {
+  const anti = bump(s - 0.50, 0, 0, 0.13, 1, 1)
+    * clamp01(0.15 + 0.85 * (0.5 - 0.5 * Math.cos(phi - 0.6)));
+  const tragus = bump(s - 0.42, 0, 0, 0.16, 1, 1)
+    * bump(Math.sin(phi - Math.PI / 2), 0, 0, 0.34, 1, 1) * clamp01(Math.cos(phi - Math.PI / 2));
+  return 0.0042 * anti + 0.0050 * tragus;
+}
 
 /** Half-breadth of the SKIN at a latitude — what an ear has to grow out of. */
 function skullHalfWidth(K: Skull, fy: number): number {
@@ -2957,6 +3065,167 @@ function skullHalfWidth(K: Skull, fy: number): number {
     w = Math.max(w, Math.abs(p.x));
   }
   return w;
+}
+
+/**
+ * Half-breadth of the skin at one latitude AND one depth, which is what an ear's
+ * rim actually lands on. `skullHalfWidth` takes the maximum over the whole ring
+ * and therefore reports the widest point of the head at that height; the ear sits
+ * 24 mm behind centre and its lobe hangs 27 mm lower, and both of those are
+ * places where the head is narrower than its own maximum. Using the maximum is
+ * what put the bottom of the old rim outside the head.
+ */
+function skinAt(K: Skull, fy: number, tz: number): number {
+  const d = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const cv = Math.sqrt(Math.max(0, 1 - fy * fy));
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i <= 72; i++) {
+    const t = (i / 72) * Math.PI;
+    faceSurface(K, d.set(Math.sin(t) * cv, fy, Math.cos(t) * cv), p);
+    const e = Math.abs(p.z - tz);
+    if (e < bestD) { bestD = e; best = Math.abs(p.x); }
+  }
+  return best;
+}
+
+/** Where one ear vertex lands, in the ear's own frame plus the head-space
+ *  latitude and depth it sits at. Shared by the build and the gate, because a
+ *  measurement of a different ear from the one on the head is worth nothing. */
+interface EarPoint { ex: number; ey: number; ez: number; fy: number; tz: number; stand: number }
+
+/**
+ * The auricle's whole geometry, as numbers, in the ear's own frame.
+ *
+ * `ex` is toward the face, `ey` is up the ear, `ez` is out of the skull measured
+ * from the `earRootX` plane — which is exactly the head's own `|x|` offset,
+ * because the ear frame's rotation carries local z onto head x untouched.
+ */
+function earPoint(K: Skull, earRootX: number, phi: number, s: number): EarPoint {
+  const r = earRadius(phi) * s;
+  // The rake is applied here rather than as a matrix on the whole ear, so the
+  // latitude each vertex is seated against is the one it actually ends up at.
+  const c = Math.cos(EAR_RAKE), sn = Math.sin(EAR_RAKE);
+  const ax = r * Math.sin(phi), ay = r * Math.cos(phi);
+  const ex = ax * c - ay * sn;
+  const ey = ax * sn + ay * c;
+  // Head-space latitude and depth of this vertex. `EAR_Y` is a field-`y`, and the
+  // ear's own height above the centre converts through the skull's y radius.
+  const fy = clamp01((EAR_Y + ey / K.R.y + 1) * 0.5) * 2 - 1;
+  const tz = -0.024 - ex;
+  const h = earHollow(phi);
+  const stand = mix(curve(LOBE_SECTION, s), curve(EAR_SECTION, s), h) + earRelief(phi, s) * h;
+  return { ex, ey, ez: (skinAt(K, fy, tz) - earRootX) + stand, fy, tz, stand };
+}
+
+/** Angles round the outline and steps from the pole to the rim. 28 x 7 is 196
+ *  vertices an ear, against the 5 primitives it replaces which cost 210 between
+ *  them — so a shell that closes is CHEAPER than a sum of balls that does not. */
+const EAR_NA = 28;
+const EAR_NS = 7;
+
+/**
+ * The auricle as three watertight bands off one vertex grid, so the concha can
+ * carry the shade tone and the lobe the warm one without any of the three being
+ * a separate object with its own rim. `s` bands: [0, 0.55) is the bowl, the rest
+ * is the helix and its outer face; the lobe is taken by angle out of the outer
+ * band.
+ *
+ * Every band indexes the SAME positions, so the joins are exact by construction
+ * rather than by matching two tables. That is the whole reason this is one grid.
+ */
+function auricle(K: Skull, earRootX: number, side: number): {
+  skin: THREE.BufferGeometry; shade: THREE.BufferGeometry; warm: THREE.BufferGeometry;
+} {
+  const pos: number[] = [], uv: number[] = [];
+  for (let j = 0; j <= EAR_NS; j++) {
+    const s = j / EAR_NS;
+    for (let i = 0; i < EAR_NA; i++) {
+      const phi = (i / EAR_NA) * Math.PI * 2;
+      const p = earPoint(K, earRootX, phi, s);
+      // `-side * ex` for the reason the old build gave and which still holds: two
+      // ears are mirror images, a rotation cannot make one out of the other, and a
+      // negative scale turns the surface inside out. Flip the authored in-plane
+      // axis, and flip the winding below to match.
+      pos.push(-side * p.ex, p.ey, p.ez);
+      uv.push(i / EAR_NA, s);
+    }
+  }
+  const band = (lo: number, hi: number, keep: (phi: number) => boolean): number[] => {
+    const idx: number[] = [];
+    for (let j = 0; j < EAR_NS; j++) {
+      const s = (j + 0.5) / EAR_NS;
+      if (s < lo || s >= hi) continue;
+      for (let i = 0; i < EAR_NA; i++) {
+        const i1 = (i + 1) % EAR_NA;
+        if (!keep(((i + 0.5) / EAR_NA) * Math.PI * 2)) continue;
+        const a = j * EAR_NA + i, b = j * EAR_NA + i1;
+        const c = (j + 1) * EAR_NA + i, d = (j + 1) * EAR_NA + i1;
+        if (side > 0) idx.push(a, c, d, a, d, b);
+        else idx.push(a, d, c, a, b, d);
+      }
+    }
+    return idx;
+  };
+  const lobeAngle = (phi: number) => Math.cos(phi) < -0.45;
+  const make = (idx: number[]) => {
+    const g = finish(pos.slice(), uv.slice(), idx);
+    return g;
+  };
+  return {
+    // The bowl, in the shade tone: at 60 mm a hollow cannot out-shade its own rim
+    // on geometry alone, and this is the one place on a head where the tone is
+    // doing work the light cannot. It is a hollow now rather than a hole, so the
+    // tone is agreeing with the form instead of standing in for it.
+    shade: make(band(0, 0.55, () => true)),
+    warm: make(band(0.55, 1.01, lobeAngle)),
+    skin: make(band(0.55, 1.01, (phi) => !lobeAngle(phi))),
+  };
+}
+
+/** What the gate needs to know about the ear, off the same tables the mesh is
+ *  built from. See the S6 block in `tools/headmeasure.mjs`. */
+interface EarProbe {
+  /** Millimetres the helix crest stands clear of the skin beside it. */
+  standoff: number;
+  /** Millimetres the concha FLOOR stands clear of the skin. A floor behind the
+   *  skin is not a hollow, it is a hole with the skull showing through it. */
+  floor: number;
+  /** The worst point of the rim against the skin, in millimetres. POSITIVE IS
+   *  DAYLIGHT: a rim proud of the head has a gap under it. */
+  seat: number;
+  /** Crest minus floor: how deep the bowl actually is. A ring has no bowl. */
+  bowl: number;
+}
+
+function earProbe(K: Skull, earRootX: number): EarProbe {
+  // Deliberately NOT `p.stand`, even though the two are equal on this build.
+  // Reading the authored table back would make every assertion below a tautology
+  // that passes whatever the mesh does — which is precisely how S6 came to pass at
+  // 12.7 mm on an ear you could see the palisade through. So each vertex is taken
+  // at the position it is BUILT at, `earRootX + ez`, and compared against a fresh
+  // measurement of the skin at that vertex's own latitude and depth. Seat the ear
+  // on a plane again, as the five primitives did, and this reports the gap.
+  const clear = (p: EarPoint) => (earRootX + p.ez) - skinAt(K, p.fy, p.tz);
+  let standoff = -Infinity, floor = Infinity, seat = -Infinity;
+  for (let i = 0; i < EAR_NA * 2; i++) {
+    const phi = (i / (EAR_NA * 2)) * Math.PI * 2;
+    for (let j = 0; j <= EAR_NS * 2; j++) {
+      const c = clear(earPoint(K, earRootX, phi, j / (EAR_NS * 2)));
+      if (c > standoff) standoff = c;
+      // The aperture: everything inside the helix crest, which is what a camera
+      // looking down the ear's axis sees through the rim.
+      if (j <= EAR_NS * 1.2 && c < floor) floor = c;
+    }
+    const rim = clear(earPoint(K, earRootX, phi, 1));
+    if (rim > seat) seat = rim;
+  }
+  return {
+    standoff: standoff * 1000,
+    floor: floor * 1000,
+    seat: seat * 1000,
+    bowl: (standoff - floor) * 1000,
+  };
 }
 
 /**
@@ -3016,9 +3285,13 @@ export interface HeadSilhouette {
    * are published rather than the answer.
    */
   sections: Array<{ atY: number; z: number[] }>;
-  /** Ear: front, back, top, bottom and how far it stands off the skull, metres. */
-  earOut: number;
-  earDepth: number;
+  /**
+   * The ear, read off the same tables the mesh is built from. Four numbers and
+   * not one, because "the helix stands 12.7 mm off the skull" was TRUE of the
+   * torus with daylight through it — a standoff on its own cannot tell a shell
+   * from a ring, and that is the hole S6 let through for three passes.
+   */
+  ear: EarProbe;
 }
 
 export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette {
@@ -3097,10 +3370,6 @@ export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette 
     return p.y;
   };
 
-  // The ear. It is not swept from this field — it is five primitives placed at a
-  // fixed fraction of the skull's half-breadth — so "an ear like a flat sticker"
-  // becomes a number by comparing the two: where the helix's outer surface lands
-  // against where the skin under it lands, at the ear's own latitude.
   // Transverse sections. Bearing is swept on the sphere at a fixed latitude, so
   // the three samples sit at the same height as the midline one they are
   // compared to — a section, not a diagonal.
@@ -3116,15 +3385,14 @@ export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette 
   };
   const sections = SECTION_LATITUDES.map(sectionAt);
 
-  const skullHW = skullHalfWidth(K, EAR_Y);
-  const earOuter = skullHW * EAR_ROOT + (EAR_HELIX_LIFT + EAR_HELIX_TUBE * EAR_HELIX_KZ);
-
+  // The ear, off the same `earPoint` the mesh is built from and against the same
+  // `earRootX` the build seats it on — so the gate is measuring the organ that is
+  // actually on the head rather than a second one written for the gate.
   return {
     y: ys, z: zs, cy, cz, top, bot,
     browY: at(Y_BROW), tipY: at(Y_TIP), noseY: at(Y_NOSE), lipY: at(Y_LIP), chinY: at(Y_CHIN),
     jawHW, neckHW: S.neckHW, sections,
-    earOut: earOuter - skullHW,
-    earDepth: EAR_HELIX_R * 2 * EAR_HELIX_KY,
+    ear: earProbe(K, skullHalfWidth(K, EAR_Y) * EAR_ROOT),
   };
 }
 
@@ -4527,9 +4795,35 @@ function faceComplexion(
     // Shadow goes cool as well as dark, which is what separates it from dirt;
     // flush goes red without going bright, because the specular term does not
     // scale with albedo and a lighter warm tone smears (see `skinWarm`).
-    let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.10 * lip);
-    let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.36 * lip);
-    let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.44 * lip);
+    // ---- the mottle, which used to come off a lattice ----
+    //
+    // Skin is never one value, and flat skin colour is what reads as a mannequin.
+    // That variation used to arrive in the albedo map, and `FACE_TILE`'s note
+    // records what it actually drew at portrait range: a ruled square grid at the
+    // tile's own repeat, because a 256 texel map that small is read at mip 4.6 and
+    // has nothing left in it but one blob per tile. Taking the tile down to
+    // 2.2 mm puts that stamp under the resolving limit and takes the variation
+    // with it, so the variation comes back here.
+    //
+    // Three cosines on incommensurate periods, in the skull's own direction
+    // space. There is no lattice for a grid to be drawn on, the periods never
+    // come back into phase within one head, and the wavelengths — about 40, 25
+    // and 16 mm on this skull — are the scale blood and weathering actually vary
+    // at, which is far above any pixel grid at either framing. +/-4% on the
+    // albedo: enough that no two square centimetres of this face are the same
+    // value, small enough that it never competes with the form shadow above.
+    const mottle =
+      0.55 * Math.cos(dy * 6.1 + dx * 3.7)
+      + 0.30 * Math.cos(dx * 9.4 - dz * 5.3 + 1.7)
+      + 0.15 * Math.cos(dz * 14.9 + dy * 11.2 + 3.1);
+    const tint = 1 + 0.040 * mottle;
+    // Blood sits under the surface, so the darker half of the mottle goes red
+    // rather than grey — the same reason the tone's `warm` channel exists.
+    const flush = 0.028 * clamp01(-mottle);
+
+    let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.10 * lip) * (tint + flush);
+    let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.36 * lip) * tint;
+    let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.44 * lip) * (tint - flush * 0.6);
 
     if (whiskers) {
       // The beard line: the lip line at the midline, climbing to the sideburn at
@@ -7781,104 +8075,42 @@ export function buildCharacter(
       { y: skullY - 0.230, hw: R.x * 0.69, hd: R.z * 0.64, z: -0.021 },
     ], lod.limb, { capTop: true, capBottom: true }), headShade);
 
-    // Ears, set back where the jaw hinges rather than out on the cheek, with a
-    // concha in the warm tone — an ear lit from behind is the reddest thing on a
-    // head and the cheapest place to buy back the translucency skin has.
+    // ---- the ears ----
     //
-    // Down 22 mm and up in size. An ear runs from the eye line to the base of the
-    // nose, which the layout rewrite moved 27 and 32 mm respectively; left at
-    // `skullY - 0.004` they sat level with the brow, which is the one place on a
-    // head an ear never is.
-    // An ear is a rim round a hollow, and until this pass it was two scaled
-    // spheres — which at any bearing renders as a bean stuck to the skull, and
-    // which every panel read as "there is no ear". Four shapes fix that, and the
-    // order they matter in is: the **helix** (the rim, an open arc — an ear's
-    // whole outline is that one curve and it must not close at the bottom), the
-    // **concha** in the shade tone (a hollow, not a hole: the tone does the work
-    // the geometry cannot at 60 mm), the **antihelix** as a second, shorter arc
-    // inside it, and the **lobe**. The rim stands 13 mm off the skull with a bowl
-    // behind it, which is the crevice an SSAO pass can actually find — none of
-    // this is painted.
+    // ONE closed shell each, off `earPoint`, and the note above `EAR_OUTLINE`
+    // says why the five primitives that were here had to go: a ring with a bead
+    // behind it is not an ear from any bearing except the one it was checked at,
+    // and its rim was seated on a plane while the skull it lands on tapers, which
+    // is the daylight under the lobe in `headturn-profile_90_.png`.
+    //
+    // Set back where the jaw hinges rather than out on the cheek, and running
+    // from the eye line to the base of the nose — which is the latitude `EAR_Y`
+    // names and the one place a real ear is.
     const earY = skullY + EAR_Y * R.y - 0.004;
     // Off the SKIN, not off `R.x`. The nominal half-breadth is not where the
     // side of the head is once `F.wide`, the vault taper and the zygomatic have
     // had their say, and on a wide seed the difference buried the ear's root in
-    // the skull it grows out of.
+    // the skull it grows out of. Every vertex is then seated against the skin at
+    // its OWN latitude and depth, so the rim follows the head rather than a plane
+    // through one point of it.
     const earRootX = skullHalfWidth(K, EAR_Y) * EAR_ROOT;
     for (const s of [-1, 1]) {
-      // Ear space: +Y up the ear, +X toward the face, +Z out of the skull.
-      //
-      // The sign gymnastics are unavoidable and worth one sentence. Two ears are
-      // mirror images, a rotation cannot make one out of the other, and a
-      // negative scale would turn every surface inside out — the same trap
-      // `mirrorZ` exists for on the hands. So `s` flips the *authored* in-plane
-      // axis instead: `-s * ex` puts +X toward the face on both sides, and the
-      // rake follows it as `-s * roll`.
-      //
-      // Two corrections off the bare-head profile card, which is the first frame
-      // in this project's history to show an ear square on.
-      //
-      // It sat on `R.x * 1.0` — the skull's own half-breadth — so the whole organ
-      // was tangent to the surface rather than growing out of it, and what
-      // rendered was a rim standing clear of the head with daylight visible
-      // behind the bottom of it: a clip-on. 0.93 buries the medial third, which
-      // is where an ear's root actually is.
-      //
-      // And it had no rake. A real ear leans back about 18° from vertical — the
-      // lobe sits forward of the helix — and a ring with no rake at all reads as
-      // a flat plastic disc however well the concha inside it is modelled. The
-      // rake goes on the whole ear space, so helix, concha, antihelix, tragus and
-      // lobe all move together and their relationships are preserved.
-      const RAKE = EAR_RAKE;
-      const ear = (
-        ex: number, ey: number, ez: number, roll: number,
-        kx: number, ky: number, kz: number,
-      ) => new THREE.Matrix4()
+      // The ear frame carries local z straight onto head x, which is what lets
+      // `earPoint` author standoff in millimetres off the skin and have that mean
+      // the same thing here. The rake is inside `earPoint` rather than on this
+      // matrix, because each vertex has to know the latitude it ends up at in
+      // order to be seated against it.
+      const place3 = new THREE.Matrix4()
         .makeTranslation(s * earRootX, earY, -0.024)
-        .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
-        .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
-        .multiply(xf(-s * ex, ey, ez, 0, 0, -s * roll, kx, ky, kz));
-      // The concha, and it is built first because it is what the rest hangs on:
-      // a bowl whose inner half is buried in the skull, so the ear is *attached*
-      // rather than perched. In the form-shadow tone, because at 60 mm the
-      // hollow cannot out-shade its own rim on geometry alone — and because that
-      // rim now stands 12 mm off the skull with a bowl behind it, which is a
-      // crevice a screen-space AO pass can find on its own.
-      // The bowl fills the rim now. At 0.66 of depth and 1.0 across it sat well
-      // inside the helix with the shade tone on it, and with the complexion field
-      // digging behind the ear on top of that what rendered was a bright ring
-      // round a dark hole — a bagel screwed to the skull, in every portrait this
-      // build has taken. An ear is a rim round a *hollow*, and a hollow needs a
-      // floor the light can reach or it is a hole.
-      p.add(ball(0.0175, 9), headShade, ear(-0.002, -0.002, 0.0015, 0.22, 1.14, 1.62, 0.86));
-      // Helix: 4.5 rad of rim, centred up-and-back and left open at the front
-      // bottom where a real one runs down into the tragus instead of closing
-      // into a ring. An ear's whole outline is this one curve.
-      const arc = 4.9;
-      p.add(new THREE.TorusGeometry(EAR_HELIX_R, EAR_HELIX_TUBE, 5, 14, arc), headSkin,
-        new THREE.Matrix4()
-          .makeTranslation(s * earRootX, earY, -0.024)
-          .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
-          .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
-          .multiply(xf(0, 0, EAR_HELIX_LIFT, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2,
-            EAR_HELIX_KX, EAR_HELIX_KY, EAR_HELIX_KZ)));
-      // The lobe, warm because it is the thinnest flesh on the head and the
-      // place a backlight actually passes through.
-      p.add(ball(0.0105, 7), headWarm, ear(0.003, -0.028, 0.002, 0, 0.62, 0.95, 0.80));
-      if (lod.trim) {
-        // Antihelix — the second, shorter ridge inside the rim, and the thing
-        // that stops the bowl reading as a thumbprint pressed into the skull.
-        p.add(new THREE.TorusGeometry(0.0105, 0.0033, 4, 9, 3.2), headSkin,
-          new THREE.Matrix4()
-            .makeTranslation(s * (earRootX + R.x * 0.015), earY + 0.001, -0.024)
-            .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
-            .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
-            .multiply(xf(0, 0, 0, 0, 0, Math.PI / 2 - s * 0.9 - 1.6, 0.9, 1.2, 0.7)));
-        // Tragus: three millimetres of flap over the canal, and the one part of
-        // an ear that faces forward — so it is the part a front fill finds, and
-        // the part that tells the eye where the opening is.
-        p.add(ball(0.0062, 6), headSkin, ear(0.013, -0.008, 0.001, 0, 0.7, 1.2, 0.85));
-      }
+        .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2));
+      const A = auricle(K, earRootX, s);
+      p.add(A.skin, headSkin, place3);
+      // The bowl in the form-shadow tone and the lobe in the warm one: an ear lit
+      // from behind is the reddest thing on a head and the thinnest flesh on it,
+      // and the two bands share their vertices with the helix so neither is a
+      // separate object with a rim of its own to catch the light.
+      p.add(A.shade, headShade, place3);
+      p.add(A.warm, headWarm, place3);
     }
 
     // Eyes and mouth. The tonal map used to be a third call here and is now a

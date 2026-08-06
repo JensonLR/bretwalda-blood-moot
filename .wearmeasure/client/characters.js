@@ -135,22 +135,31 @@ export function migrateAppearance(ap) {
     return { ...ap, armorColor, hairColor, beardColor };
 }
 export const ARMOURY = [
-    // The helmet ladder is the game's progression, so it is priced against what a
-    // match actually pays and not against the tile next to it.
+    // WHAT A MATCH PAYS, MEASURED — and this note used to be wrong, said so itself,
+    // and was wrong for long enough that docs/COSMETICS-AUDIT.md flags it twice.
     //
-    // `endMatch` today grants `10 + 15·kills + 50·win`: a good match is four kills
-    // and a coin-flip on the win, so 90–120 gold in three or four minutes. The
-    // rounds work landing in parallel does not pay per round — gold is granted once
-    // at match end off accumulated totals — so a best-of-3 is one payout on maybe
-    // 2.2× the kills for 2.5× the wall clock. Call it 200–260 a match afterwards
-    // and roughly flat per minute, which is the assumption every number below rests
-    // on. If that changes, this row is the thing to re-check.
+    // It reasoned from "call it 200–260 a match", predicted off `endMatch`'s
+    // `10 + 15·kills + 50·win` and a guess at how a best-of-3 compounds. Measurement
+    // disproved it: **a winning best-of-3 pays 90–135 gold.** Gold is granted once
+    // at match end off accumulated totals, so three rounds are one payout and not
+    // three, which is most of where the doubled estimate came from. Every price in
+    // this table is now read against 90–135, and the note the old one carried —
+    // that this row is the thing to re-check when the economy moves — stands.
     //
-    // Against that: the mid rungs are one to three matches apart, which is what
-    // makes them worth buying on the way past. Sutton Hoo is deliberately not on
-    // that curve — 2400 is ten matches under the new economy and twenty under the
-    // old, an evening a week for a month, and it is the only thing in the shop
-    // priced as a season's goal rather than as a purchase.
+    // Against that anchor:
+    //
+    //   * The mid helm rungs are two to four matches apart, which is what makes
+    //     them worth buying on the way past.
+    //   * Sutton Hoo is deliberately not on that curve. 2400 is 18–25 winning
+    //     matches, an evening a week for a month, and it is the only thing in the
+    //     shop priced as a season's goal rather than as a purchase. The owner has
+    //     confirmed that number is right.
+    //   * A SLOT WHOSE PRODUCT IS A COLOUR IS PRICED AS A COLOUR. `npm run
+    //     cosmetictest` measures every option's shape with no materials, no light
+    //     and no pose, and Armour Finish, Hair Colour and Beard Colour come back at
+    //     0.00% in silhouette AND form on every rung — correctly, because a tint is
+    //     what they are. What is not correct is charging 510 gold for one. See the
+    //     notes on those three slots.
     {
         slot: "helm", label: "Helmets",
         options: [
@@ -181,46 +190,93 @@ export const ARMOURY = [
     },
     {
         slot: "hairColor", label: "Hair Colour",
+        // REPRICED TO WHAT A DYE IS WORTH. These six are literally hex values —
+        // `cosmetictest` reads every rung at 0.00% silhouette and 0.00% form and that
+        // is correct rather than a defect, because there is no geometry here to
+        // differ. What was not correct was the ladder: 30–40 gold a rung is a third
+        // of a winning best-of-3 for a number, and the same number again in the beard
+        // slot, so twelve SKUs of pure hex were carrying 210 gold. A dye is 10.
+        //
+        // Re-graded rather than cut — see `RETIRED_HAIR` for the readings and for how
+        // a stored profile keeps the tile it paid for. Nobody is stranded by the
+        // reprice either: ids are unchanged, so every profile that owns one still
+        // owns it, and a price only ever applies to a purchase not yet made.
         options: [
-            // Re-graded, not repriced and not cut — see `RETIRED_HAIR` for the
-            // readings and for how a stored profile keeps the tile it paid for.
             { id: "hc_brown", label: "Oak Brown", cost: 0, slot: "hairColor", value: 0x4a3220 },
             { id: "hc_black", label: "Raven Black", cost: 0, slot: "hairColor", value: 0x1c1712 },
-            { id: "hc_blond", label: "Norse Gold", cost: 40, slot: "hairColor", value: 0x9c8a55 },
-            { id: "hc_red", label: "Fire Red", cost: 30, slot: "hairColor", value: 0x7a412c },
-            { id: "hc_grey", label: "Greybeard", cost: 30, slot: "hairColor", value: 0x8a8578 },
-            { id: "hc_snow", label: "Snow White", cost: 30, slot: "hairColor", value: 0xe8e4da },
+            { id: "hc_blond", label: "Norse Gold", cost: 10, slot: "hairColor", value: 0x9c8a55 },
+            { id: "hc_red", label: "Fire Red", cost: 10, slot: "hairColor", value: 0x7a412c },
+            { id: "hc_grey", label: "Greybeard", cost: 10, slot: "hairColor", value: 0x8a8578 },
+            { id: "hc_snow", label: "Snow White", cost: 10, slot: "hairColor", value: 0xe8e4da },
         ],
     },
     {
         slot: "beard", label: "Beards",
+        // PRICES HELD. Full, Forked and Ringed Braid measured as one crescent — 0.57%
+        // and 0.87% of the subject at fight distance, both under the 1% a shape has
+        // to move to be seen in play — and they now differ in mass and in length: a
+        // wedge, a wedge with a notch cut out of it, and a rope reaching twice as far.
+        // The ladder buys more beard as well as more work, so 40/80/120 is honest.
+        //
+        // `beard_short` stays FREE and stays where it is in the ladder, but it is no
+        // longer the same object as Clean Shaven: it had no geometry at all, and now
+        // carries 9 mm of close crop. It is renamed for that, because "Stubble" names
+        // a shadow and this is a beard — the same rule the audit applies to "Bronze
+        // Scales". Id and value are unchanged, so nothing stored moves.
         options: [
             { id: "beard_none", label: "Clean Shaven", cost: 0, slot: "beard", value: "none" },
-            { id: "beard_short", label: "Stubble", cost: 0, slot: "beard", value: "short" },
-            { id: "beard_full", label: "Full Beard", cost: 40, slot: "beard", value: "full" },
-            { id: "beard_forked", label: "Forked Beard", cost: 80, slot: "beard", value: "forked" },
-            { id: "beard_braided", label: "Ringed Braid", cost: 120, slot: "beard", value: "braided" },
+            { id: "beard_short", label: "Close Crop", cost: 0, slot: "beard", value: "short" },
+            { id: "beard_full", label: "Full Beard", cost: 40, slot: "beard", value: "full",
+                desc: "Broad and short. It spreads past the jaw." },
+            { id: "beard_forked", label: "Forked Beard", cost: 80, slot: "beard", value: "forked",
+                desc: "Two tines swung apart, with daylight between them from every side." },
+            { id: "beard_braided", label: "Ringed Braid", cost: 120, slot: "beard", value: "braided",
+                desc: "One rope of a plait, bound in brass three times, to the chest." },
         ],
     },
     {
         slot: "beardColor", label: "Beard Colour",
+        // The same reprice, for the same reason, on the same six hex values — see the
+        // hair colour note above.
         options: [
             { id: "bc_brown", label: "Oak Brown", cost: 0, slot: "beardColor", value: 0x4a3220 },
             { id: "bc_black", label: "Raven Black", cost: 0, slot: "beardColor", value: 0x1c1712 },
-            { id: "bc_blond", label: "Norse Gold", cost: 40, slot: "beardColor", value: 0x9c8a55 },
-            { id: "bc_red", label: "Fire Red", cost: 30, slot: "beardColor", value: 0x7a412c },
-            { id: "bc_grey", label: "Greybeard", cost: 30, slot: "beardColor", value: 0x8a8578 },
-            { id: "bc_snow", label: "Snow White", cost: 30, slot: "beardColor", value: 0xe8e4da },
+            { id: "bc_blond", label: "Norse Gold", cost: 10, slot: "beardColor", value: 0x9c8a55 },
+            { id: "bc_red", label: "Fire Red", cost: 10, slot: "beardColor", value: 0x7a412c },
+            { id: "bc_grey", label: "Greybeard", cost: 10, slot: "beardColor", value: 0x8a8578 },
+            { id: "bc_snow", label: "Snow White", cost: 10, slot: "beardColor", value: 0xe8e4da },
         ],
     },
     {
         slot: "cloak", label: "Cloaks",
+        // PRICES HELD, AND THIS IS THE ONE SLOT WHERE THAT NEEDED ARGUING. Until this
+        // wave the four were pairwise 0.00% in silhouette and form from every lens
+        // and bearing — one mesh under four names, so 400 gold bought a recolour of a
+        // 30-gold garment and this was the worst value in the game.
+        //
+        // They are four cuts now, not four tints: see `CLOAK_CUTS`. Each differs from
+        // its neighbour in length, hem, wrap, flare, fold and fastening, and the
+        // ladder buys outline — which is the thing a cloak is uniquely able to sell,
+        // because at fight distance it is fifty pixels of a man where a helmet crest
+        // is two. So the prices stand as the owner set them, on the geometry rather
+        // than on the name:
+        //
+        //   30   a short shoulder cape to the hip, pinned with a bone pin
+        //   90   the full-length war cloak, knee, level hem, disc brooch
+        //   90   the same money for the opposite garment — longer, narrow, no flare,
+        //        cut to a point, on a penannular ring-and-pin
+        //   400  the largest garment in the game: a train, the widest wrap, seven
+        //        folds and a bossed gilt disc
         options: [
             { id: "cloak_none", label: "No Cloak", cost: 0, slot: "cloak", value: "none" },
-            { id: "cloak_brown", label: "Traveller's Cloak", cost: 30, slot: "cloak", value: "brown" },
-            { id: "cloak_red", label: "Blood Red Cloak", cost: 90, slot: "cloak", value: "red" },
-            { id: "cloak_blue", label: "Sea-Wolf Cloak", cost: 90, slot: "cloak", value: "blue" },
-            { id: "cloak_gold", label: "Gilded War Cloak", cost: 400, slot: "cloak", value: "gold" },
+            { id: "cloak_brown", label: "Traveller's Cloak", cost: 30, slot: "cloak", value: "brown",
+                desc: "A short cape off one shoulder, pinned with a bone pin." },
+            { id: "cloak_red", label: "Blood Red Cloak", cost: 90, slot: "cloak", value: "red",
+                desc: "Full length to the knee, hung from the shield shoulder on a disc brooch." },
+            { id: "cloak_blue", label: "Sea-Wolf Cloak", cost: 90, slot: "cloak", value: "blue",
+                desc: "Long and narrow, cut to a tail at the back, on a ring-and-pin." },
+            { id: "cloak_gold", label: "Gilded War Cloak", cost: 400, slot: "cloak", value: "gold",
+                desc: "A trained war cloak on a bossed gilt disc. It sweeps behind him." },
         ],
     },
     {
@@ -233,13 +289,38 @@ export const ARMOURY = [
             // cheapest finish in the catalog, and still unmistakably iron rather than
             // steel. (Stored profiles holding the old value will show no finish selected
             // until the player re-picks one; the warrior still builds correctly.)
+            //
+            // REPRICED FROM 1050 GOLD OF LADDER TO 250, BECAUSE IT IS A TINT AND THIS
+            // WAVE DID NOT MAKE IT ANYTHING ELSE. Three measurements, none of them an
+            // opinion:
+            //
+            //   * `cosmetictest` reads all six adjacent rungs at 0.00% silhouette and
+            //     0.00% form. `ap.armorColor` feeds exactly one thing — `M.armour(...)`,
+            //     the mail material — so there is no geometry in this slot to differ.
+            //   * The audit's frames say the tint lands on the two shoulders and a
+            //     sliver of chest, because the shield covers the rest of the torso at
+            //     every bearing a player fights from.
+            //   * Two of the four classes cannot wear it. The runekeeper's torso layer
+            //     is `robed ? buff : mail` — leather, not mail — and the berserker is
+            //     `bare` with no metal torso layer at all. 510 gold bought them nothing.
+            //
+            // Bretwalda Gold at 510 was 4–6 winning matches for a hex value that half
+            // the roster cannot see, which is the most dishonest price in the shop. The
+            // slot is a rack of DYES AND METAL POLISHES and is priced as one: 20 to 60,
+            // ordered by how exotic the dyestuff is rather than by how grand the name
+            // is. If somebody later gives these real substance — scale geometry for
+            // Bronze, a lacquered plate for Crimson, blued mail for Blackened — and
+            // puts it on a surface every class actually has, then the ladder can be
+            // re-argued upward with a frame behind it. Until then it costs what a
+            // colour costs. Ids are unchanged, so a profile that already paid 510 keeps
+            // what it bought.
             { id: "armor_iron", label: "Rough Iron", cost: 0, slot: "armor", value: 0x5f6b7a },
-            { id: "armor_steel", label: "Polished Steel", cost: 30, slot: "armor", value: 0x8a97a5 },
-            { id: "armor_dark", label: "Blackened Steel", cost: 130, slot: "armor", value: 0x2a2f38 },
-            { id: "armor_bronze", label: "Bronze Scales", cost: 160, slot: "armor", value: 0x8a6a3a },
-            { id: "armor_crimson", label: "Crimson Warplate", cost: 120, slot: "armor", value: 0x7a2f2a },
-            { id: "armor_seablue", label: "Sea Queen's Gift", cost: 100, slot: "armor", value: 0x2f4a6a },
-            { id: "armor_gold", label: "Bretwalda Gold", cost: 510, slot: "armor", value: 0x9a7a2a },
+            { id: "armor_steel", label: "Polished Steel", cost: 20, slot: "armor", value: 0x8a97a5 },
+            { id: "armor_dark", label: "Blackened Steel", cost: 40, slot: "armor", value: 0x2a2f38 },
+            { id: "armor_bronze", label: "Bronze Scales", cost: 50, slot: "armor", value: 0x8a6a3a },
+            { id: "armor_crimson", label: "Crimson Warplate", cost: 40, slot: "armor", value: 0x7a2f2a },
+            { id: "armor_seablue", label: "Sea Queen's Gift", cost: 40, slot: "armor", value: 0x2f4a6a },
+            { id: "armor_gold", label: "Bretwalda Gold", cost: 60, slot: "armor", value: 0x9a7a2a },
         ],
     },
     {
@@ -326,6 +407,53 @@ const SKIN_TONES = [
 ];
 const CLOAK_COLORS = {
     brown: 0x5a4030, red: 0x7a2020, blue: 0x24386a, gold: 0xa8842a, none: 0x5a4030,
+};
+const CLOAK_CUTS = {
+    // TRAVELLER'S CLOAK, 30 gold. A short shoulder cape that clears the hip so a
+    // man can walk in it. It is the cheap rung and it is allowed to be small — what
+    // it is not allowed to be is the 400-gold one in brown, which is what it was.
+    brown: {
+        a0: -0.62 * Math.PI, a1: 0.26 * Math.PI, drop: 0.56,
+        nape: 0.085, napePow: 1.35, lead: 0.048,
+        hem: (t) => 0.72 + 0.34 * Math.sin(Math.PI * Math.pow(t, 0.85)),
+        flareX: 0.062, flareZ: 0.072, grow: 0.45,
+        foldN: 5.0, foldA: 0.030, collar: 0.045, clasp: "pin",
+    },
+    // BLOOD RED CLOAK, 90 gold. The full-length war cloak: knee, level hem, a
+    // proper wrap round the body. This is the one the other three are read against.
+    red: {
+        a0: -0.68 * Math.PI, a1: 0.38 * Math.PI, drop: 1.02,
+        nape: 0.16, napePow: 1.15, lead: 0.055,
+        hem: (t) => 0.93 + 0.11 * Math.sin(Math.PI * t),
+        flareX: 0.135, flareZ: 0.155, grow: 0.60,
+        foldN: 5.5, foldA: 0.052, collar: 0.055, clasp: "disc",
+    },
+    // SEA-WOLF CLOAK, 90 gold — the same price as the Blood Red and therefore the
+    // pair that has to differ in something other than money. It is the OPPOSITE
+    // garment at the same cost: longer, narrower, no flare at all, and cut to a
+    // point at the back like a wolf's tail. In outline it is a column with a spike
+    // where the Blood Red is a bell with a level hem, so a player choosing between
+    // two 90-gold rungs is choosing a shape and not a swatch.
+    blue: {
+        a0: -0.56 * Math.PI, a1: 0.32 * Math.PI, drop: 1.24,
+        nape: 0.215, napePow: 1.6, lead: 0.030,
+        hem: (t) => 0.40 + 0.76 * Math.pow(Math.sin(Math.PI * t), 1.5),
+        flareX: 0.038, flareZ: 0.046, grow: 0.25,
+        foldN: 3.4, foldA: 0.064, collar: 0.038, clasp: "ringpin",
+    },
+    // GILDED WAR CLOAK, 400 gold. The audit's frame calls the old one a lampshade —
+    // a truncated cone with a horizontal circle for a hem, standing above the
+    // shoulders with daylight under it. It is now the largest garment in the game
+    // and the only one with a TRAIN: shortest at the chest, longest at the trailing
+    // corner, so it sweeps behind him. It wraps furthest round the chest, flares
+    // most, and carries seven folds against the Sea-Wolf's three.
+    gold: {
+        a0: -0.80 * Math.PI, a1: 0.40 * Math.PI, drop: 1.34,
+        nape: 0.125, napePow: 2.1, lead: 0.075,
+        hem: (t) => 0.56 + 0.34 * Math.pow(t, 1.5) + 0.26 * Math.sin(Math.PI * t),
+        flareX: 0.205, flareZ: 0.225, grow: 0.85,
+        foldN: 7.0, foldA: 0.056, collar: 0.070, clasp: "gilt",
+    },
 };
 /**
  * How many times a woven texture tiles across a garment, derived from how big the
@@ -1309,7 +1437,16 @@ const SAGITTAL = [
     [-0.606, 6], //   labrale inferius
     [-0.686, 3], //   mentolabial sulcus
     [-0.766, 1], //   POGONION
-    [-0.856, -8], //  gnathion
+    // THE MENTAL FOLD, and its absence is the third of the owner's notes on the
+    // mid-face. A man's chin is a BOX: pogonion carries forward, the front of the
+    // chin runs very nearly vertical for a centimetre below it, and then the
+    // underside turns away hard. Three rows straight from pogonion to gnathion draw
+    // that as one smooth arc — a rounded pebble with no bottom edge, which is what
+    // the profile card shows, and it leaves the jaw nothing to cast onto the
+    // throat. `-0.820` holds the front of the chin out; the drop to gnathion then
+    // happens over half the height it had, which is the corner.
+    [-0.820, 0], //   the chin's front face, still nearly vertical
+    [-0.856, -12], // gnathion — a turn now rather than a taper
     [-0.930, -34], // menton, turning back under the jaw
 ];
 /**
@@ -1389,6 +1526,42 @@ const PIN_W = [
  * a turn; it is not allowed to be a crease.
  */
 const massEnvelope = (bearing, w) => 1 - smooth(w * 0.45, w, bearing);
+/**
+ * The OTHER falloff, and the one the plateau above must never be used for.
+ *
+ * The plateau is right for the plate and wrong for everything narrow, and the
+ * eighth failure on this head is exactly that mistake: the profile pin's NARROW
+ * half — the tip standing over the subnasale, the vermilion over the fissure —
+ * was being delivered through `massEnvelope` too. A plateau has a flat top and a
+ * shoulder. On a mass 0.35 rad wide that puts a FLAT PANEL down the middle of the
+ * face out to 0.16 rad and then a shoulder, and because `PIN_W` widens as it
+ * descends (0.35 at the nose, 0.58 at the lip, 0.62 at the chin) the shoulder
+ * sweeps outward as it falls. That is, exactly, the owner's third note: "a
+ * hard-edged plane break creasing from inner brow to jaw at three-quarter". The
+ * crease is not a lighting artefact and not the plate's edge — it is this
+ * envelope's shoulder, drawn on the pin's own residual.
+ *
+ * The flat top is the other half of the same note. A nose whose last 12 mm of
+ * projection is held CONSTANT from the midline out to 0.16 rad is not a dorsum,
+ * it is a block with a nose-shaped plan — which is the "upturned pug with the
+ * subnasal mass pushed forward as one block", and it is also most of the 15–31 mm
+ * spread on `tipBreadth`, because the lobule's measured breadth was being set by
+ * where the plateau's shoulder happened to fall rather than by the nose.
+ *
+ * A raised cosine in bearing has neither. Its derivative is zero at the midline
+ * (so the ridge is round, not flat-topped) and zero again at `w` (so it lands on
+ * the skull with no shoulder at all), and it is C1 everywhere between. That is
+ * what a ridge on a face is. The earlier note above records a raised cosine being
+ * tried and rejected — that was on the PLATE, where a dome is genuinely wrong,
+ * because a maxilla IS flat across the front of the face. The two masses want
+ * different curves and now have them.
+ */
+const ridgeEnvelope = (bearing, w) => {
+    if (bearing >= w)
+        return 0;
+    const c = Math.cos((bearing / w) * Math.PI * 0.5);
+    return c * c;
+};
 /** Bearings, in radians off dead ahead, that `headSilhouette` cuts sections at. */
 const SECTION_BEARINGS = [0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90];
 /** And the latitudes: brow, cheekbone, mouth, chin. */
@@ -1717,7 +1890,19 @@ function faceSurfaceRaw(K, d, out) {
     // as much as in z so the nose has a *width* at its base and the alar crease
     // that separates wing from cheek has something to cut into.
     const wing = bump(ax - 0.135, y - (Y_NOSE + 0.045), 0, 0.075, 0.072, 1) * front;
-    pz += 0.009 * F.nostril * wing;
+    // NO `F.nostril` ON THE z PUSH, and this is `tipBreadth`'s unpinned parameter
+    // rather than a tuning error — which is what the 15–31 mm spread across eight
+    // seeds was telling us. The pin splits its residual by FREQUENCY IN LATITUDE:
+    // anything varying faster than sigma 0.14 goes out on the nose's narrow bearing
+    // and everything slower goes out on the plate's. This term's sigma in y is
+    // 0.072, half the split, so it lands squarely in the narrow band — and it sits
+    // 0.045 from the tip. A trait multiplying it by ±22% therefore moves the raw
+    // field under the tip, the pin subtracts whatever moved, and the narrow half
+    // changes by the same ±22% with the sign flipped. The seed was not making a
+    // wider nose, it was making a wider LOBULE by pushing on the pin from
+    // underneath. `F.nostril` keeps the lateral push, which is the width the trait
+    // is actually named for and which no pin owns.
+    pz += 0.009 * wing;
     px += sx * 0.010 * F.nostril * wing;
     pz -= 0.006 * bump(ax - 0.155, y - (Y_NOSE + 0.105), 0, 0.055, 0.062, 1) * front;
     // Under the tip: the columella and the two nostril openings. The undercut is
@@ -1798,9 +1983,31 @@ function faceSurfaceRaw(K, d, out) {
     const lowerLip = band(x - drift * 4, 0.62) * bump(0, y - (Y_LIP - 0.070), 0, 1, 0.066, 1) * front;
     pz += 0.0125 * F.lip * lowerLip;
     py += 0.0030 * lowerLip;
-    pz -= 0.011 * bump(x, y - (Y_LIP - 0.150), 0, 0.20, 0.064, 1) * front;
-    // Philtrum — three vertical millimetres that place the whole upper lip.
-    pz -= 0.003 * bump(x - drift * 5, y - (Y_LIP + 0.14), 0, 0.035, 0.075, 1) * front;
+    // The mentolabial sulcus, widened in y from 0.064 to 0.078 for the reason the
+    // nasion pinch was: at 44 rows the head samples about 0.061 of field-`y` per
+    // row down here, so a 0.064 sigma is one sample wide and the mesh renders about
+    // half of it. The shelf under the lower lip is the landmark that divides the
+    // lower third, and half a shelf is why the chin and the mouth read as one mass.
+    pz -= 0.013 * bump(x, y - (Y_LIP - 0.150), 0, 0.20, 0.078, 1) * front;
+    // ---- the philtrum, and it was below Nyquist in the axis nobody checked ----
+    //
+    // The LOD note above is about sampling in LATITUDE and every feature on this
+    // face has been widened to clear it. This one was 0.035 of sigma in **x**, and
+    // the head carries 40 columns — `2π/40 = 0.157` radians, which near the midline
+    // is 0.15 of the direction units this gaussian is written in. So the philtrum
+    // was four and a half times below Nyquist across, the mesh could not put a
+    // single vertex inside it, and the owner's "no philtrum" is not an aesthetic
+    // note at all: there was nothing there to see.
+    //
+    // 0.085 is the honest number rather than a generous one — half the column
+    // spacing, so the groove gets a vertex in it — and it is also anatomy: 0.085 of
+    // direction on an 83 mm half-breadth is a 7 mm sigma, a 14 mm philtrum, which
+    // is a man's. Deepened to 4.5 mm because a groove the mesh can now resolve is
+    // worth cutting properly, and flanked by its two crests: a philtrum is a groove
+    // BETWEEN two ridges, and without them it is a dent in a flat lip.
+    const philtrum = bump(x - drift * 5, y - (Y_LIP + 0.14), 0, 0.085, 0.075, 1) * front;
+    pz -= 0.0045 * philtrum;
+    pz += 0.0022 * bump(ax - 0.155, y - (Y_LIP + 0.13), 0, 0.075, 0.070, 1) * front;
     // Chin and jaw angle. The projection went from 16 mm to 26 mm, off the measured
     // sagittal profile rather than by eye: the midline used to run 90 mm of z at the
     // lip and 78 at the chin front — a face that recedes monotonically from the
@@ -1954,8 +2161,14 @@ function faceSurface(K, d, out) {
     if (narrow === 0 && broad === 0)
         return out;
     const bear = Math.atan2(Math.abs(d.x), d.z);
+    // Two masses, two curves. The broad half is the facial skeleton coming forward
+    // off the braincase and it goes out on the plate's plateau, because a maxilla
+    // is flat across the front of a face. The narrow half is the tip over the
+    // subnasale and the vermilion over the fissure, and it goes out on a raised
+    // cosine — see `ridgeEnvelope` for why the plateau on this one was the crease
+    // from inner brow to jaw and the pug nose in the same stroke.
     out.z += broad * massEnvelope(bear, curve(PLATE_W, y))
-        + narrow * massEnvelope(bear, curve(PIN_W, y));
+        + narrow * ridgeEnvelope(bear, curve(PIN_W, y));
     return out;
 }
 /**
@@ -2184,28 +2397,127 @@ export function headProbe(cls, seed) {
  */
 const EAR_ROOT = 0.93;
 const EAR_RAKE = 0.32;
-const EAR_HELIX_R = 0.0235;
-const EAR_HELIX_TUBE = 0.0048;
-/**
- * How far the helix is carried out of the skull, and it was 6 mm. Measured
- * against the skin beside it that is a standoff of **three millimetres** — the
- * organ was very nearly flush, which is precisely "an ear like a flat sticker",
- * and no landmark ratio in `headProbe` could ever have seen it because the ear
- * is not swept from the field the ratios are taken off.
- *
- * Two faults, and the second is the worse one. The root was pinned to `R.x`, the
- * skull's *nominal* half-breadth, while the skin beside it is `R.x · F.wide ·
- * taper` plus a zygomatic push — so on a wide seed the skin came out past the
- * root and the ear was partly buried in the head it is supposed to grow off. The
- * root is now taken off the skin itself (`earRootX`), and the lift is what a
- * man's helix actually stands proud by.
- */
-const EAR_HELIX_LIFT = 0.0155;
-const EAR_HELIX_KX = 0.84;
-const EAR_HELIX_KY = 1.34;
-const EAR_HELIX_KZ = 0.86;
 /** The latitude an ear hangs at: eye line down to the base of the nose. */
 const EAR_Y = (Y_EYE + Y_NOSE) * 0.5;
+// ============================================================
+// THE EAR, AUTHORED AS A SHELL
+//
+// Eight passes, and this organ has now been a sticker, a bagel and a torus with
+// daylight through it. The owner's note on the last one is the useful one and
+// it is objective rather than aesthetic: "you can see the palisade and the sky
+// through the hole in his ear". S6 passed at 12.7 mm the whole time, because all
+// S6 ever asked was whether the helix stood OFF the skull. It does. A ring
+// standing 13 mm off a skull is exactly what the assertion demanded and is also
+// exactly the defect.
+//
+// The build was `ball + torus + ball + torus + ball` — a SUM OF PRIMITIVES, which
+// is the identical failure this file already diagnosed for the head itself and
+// already fixed there: a sum has no outline, so nobody can say in advance what
+// its silhouette will be or whether it closes. Two things follow from it and both
+// are in the frame:
+//
+//   * the torus is a RING. Its hole is covered from dead ahead by the concha
+//     ball behind it, which is why the last pass's "put a floor in the ear's
+//     hollow" reads as fixed from one bearing and is not fixed at all. The floor
+//     is a separate convex bead sitting inside a rim it does not touch, so from
+//     every bearing off the axis the two part company and the gap between them
+//     is open to the sky.
+//   * the rim's own seat is a PLANE. Every primitive is placed at `earRootX`, a
+//     single half-breadth taken at ONE latitude, while the skull it lands on
+//     tapers. Measured on this build the skin at the lobe's latitude is about
+//     7 mm inside the skin at the ear's centre, so the bottom of the rim stands
+//     clear of the head it is supposed to be growing out of. That is the daylight,
+//     and it is under the front-bottom of the helix in the capture.
+//
+// So the auricle is now ONE closed surface. A radial sheet: an authored outline
+// in the ear's own plane, a cross-section from the rim in to a closed pole, and —
+// this is the part that kills the daylight by construction rather than by
+// tuning — the rim's depth is not authored at all. It is MEASURED, per angle,
+// off the skin the ear lands on, and then buried by `EAR_SEAT`. A boundary that
+// is inside the skull at every angle cannot have a gap under it.
+// ============================================================
+/**
+ * The auricle's outline, in metres from the ear's own centre, as a function of
+ * the angle round it: 0 is straight up, π/2 is toward the face, π is the lobe,
+ * 3π/2 is toward the back of the head. Eight control points, cosine-interpolated.
+ *
+ * 58 mm tall and 33 mm across, which is a man's — and, more to the point, taller
+ * than it is wide by 1.75, where the torus it replaces was 1.6 and read round.
+ */
+const EAR_OUTLINE = [
+    0.0310, // up — the helix apex
+    0.0290, // up-front
+    0.0150, // front — the margin in front of the tragus, and an ear is narrow here
+    0.0195, // front-down
+    0.0270, // down — the lobe
+    0.0245, // back-down
+    0.0180, // back
+    0.0265, // back-up, where the helix rolls over
+];
+/**
+ * How far inside the skin the auricle's rim is carried. Three millimetres is not
+ * a fudge factor, it is the assertion: `earSeat` in the silhouette gate measures
+ * the worst point of the rim against the skin under it and FAILS if any part of
+ * it is proud, because a rim proud of the skin has a gap under it and a gap under
+ * a rim is the sky.
+ */
+const EAR_SEAT = 0.0030;
+/**
+ * The cross-section, in metres of standoff FROM THE SKIN, from the closed pole
+ * at the centre out to the rim. `s` is the fraction of the way out.
+ *
+ * Read it as a section through an ear: a floor that clears the skull by a
+ * couple of millimetres, a wall climbing to the helix crest at 0.78, and an
+ * outer face falling back to land INSIDE the head. Every value is against the
+ * skin rather than against a plane, which is what makes the last row an
+ * assertion instead of a hope.
+ */
+const EAR_SECTION = [
+    [1.00, -EAR_SEAT], // the rim, buried
+    [0.90, -0.0005],
+    [0.78, 0.0160], //   HELIX CREST
+    [0.62, 0.0092], //   the inner wall of the rim, falling into the bowl
+    [0.44, 0.0030], //   the concha floor
+    [0.20, 0.0022], //   the deepest part of the bowl, over the canal
+    [0.00, 0.0030], //   the pole. Closed, and that is the whole point
+];
+/** And the section a LOBE has, which is not a rim round a bowl at all — it is
+ *  solid flesh, so it is one smooth bulge that lands on the skin like everything
+ *  else does. The two sections are crossfaded round the ear by `earHollow`. */
+const LOBE_SECTION = [
+    [1.00, -EAR_SEAT],
+    [0.86, 0.0030],
+    [0.55, 0.0092],
+    [0.22, 0.0086],
+    [0.00, 0.0070],
+];
+/** How much of the rim-and-hollow the section keeps, per angle round the ear:
+ *  1 at the top and back where the helix is, falling to nothing at the lobe. */
+const earHollow = (phi) => 1 - 0.90 * Math.pow(0.5 - 0.5 * Math.cos(phi), 2.5);
+/** Cosine interpolation round the outline table. Cosine and not linear because a
+ *  linear join between control points is a corner, and eight corners round an ear
+ *  is a stop sign. */
+function earRadius(phi) {
+    const n = EAR_OUTLINE.length;
+    const f = ((phi / (Math.PI * 2)) * n + n) % n;
+    const i = Math.floor(f);
+    const t = f - i;
+    const w = 0.5 - 0.5 * Math.cos(t * Math.PI);
+    return mix(EAR_OUTLINE[i], EAR_OUTLINE[(i + 1) % n], w);
+}
+/**
+ * The antihelix and the tragus, as modulations on the section rather than as two
+ * more primitives. The antihelix is the second ridge inside the rim and runs
+ * round the back and top; the tragus is the one part of an ear that faces
+ * forward, so it is a local raise on the front margin over the canal.
+ */
+function earRelief(phi, s) {
+    const anti = bump(s - 0.50, 0, 0, 0.13, 1, 1)
+        * clamp01(0.15 + 0.85 * (0.5 - 0.5 * Math.cos(phi - 0.6)));
+    const tragus = bump(s - 0.42, 0, 0, 0.16, 1, 1)
+        * bump(Math.sin(phi - Math.PI / 2), 0, 0, 0.34, 1, 1) * clamp01(Math.cos(phi - Math.PI / 2));
+    return 0.0042 * anti + 0.0050 * tragus;
+}
 /** Half-breadth of the SKIN at a latitude — what an ear has to grow out of. */
 function skullHalfWidth(K, fy) {
     const d = new THREE.Vector3();
@@ -2218,6 +2530,142 @@ function skullHalfWidth(K, fy) {
         w = Math.max(w, Math.abs(p.x));
     }
     return w;
+}
+/**
+ * Half-breadth of the skin at one latitude AND one depth, which is what an ear's
+ * rim actually lands on. `skullHalfWidth` takes the maximum over the whole ring
+ * and therefore reports the widest point of the head at that height; the ear sits
+ * 24 mm behind centre and its lobe hangs 27 mm lower, and both of those are
+ * places where the head is narrower than its own maximum. Using the maximum is
+ * what put the bottom of the old rim outside the head.
+ */
+function skinAt(K, fy, tz) {
+    const d = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const cv = Math.sqrt(Math.max(0, 1 - fy * fy));
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i <= 72; i++) {
+        const t = (i / 72) * Math.PI;
+        faceSurface(K, d.set(Math.sin(t) * cv, fy, Math.cos(t) * cv), p);
+        const e = Math.abs(p.z - tz);
+        if (e < bestD) {
+            bestD = e;
+            best = Math.abs(p.x);
+        }
+    }
+    return best;
+}
+/**
+ * The auricle's whole geometry, as numbers, in the ear's own frame.
+ *
+ * `ex` is toward the face, `ey` is up the ear, `ez` is out of the skull measured
+ * from the `earRootX` plane — which is exactly the head's own `|x|` offset,
+ * because the ear frame's rotation carries local z onto head x untouched.
+ */
+function earPoint(K, earRootX, phi, s) {
+    const r = earRadius(phi) * s;
+    // The rake is applied here rather than as a matrix on the whole ear, so the
+    // latitude each vertex is seated against is the one it actually ends up at.
+    const c = Math.cos(EAR_RAKE), sn = Math.sin(EAR_RAKE);
+    const ax = r * Math.sin(phi), ay = r * Math.cos(phi);
+    const ex = ax * c - ay * sn;
+    const ey = ax * sn + ay * c;
+    // Head-space latitude and depth of this vertex. `EAR_Y` is a field-`y`, and the
+    // ear's own height above the centre converts through the skull's y radius.
+    const fy = clamp01((EAR_Y + ey / K.R.y + 1) * 0.5) * 2 - 1;
+    const tz = -0.024 - ex;
+    const h = earHollow(phi);
+    const stand = mix(curve(LOBE_SECTION, s), curve(EAR_SECTION, s), h) + earRelief(phi, s) * h;
+    return { ex, ey, ez: (skinAt(K, fy, tz) - earRootX) + stand, fy, tz, stand };
+}
+/** Angles round the outline and steps from the pole to the rim. 28 x 7 is 196
+ *  vertices an ear, against the 5 primitives it replaces which cost 210 between
+ *  them — so a shell that closes is CHEAPER than a sum of balls that does not. */
+const EAR_NA = 28;
+const EAR_NS = 7;
+/**
+ * The auricle as three watertight bands off one vertex grid, so the concha can
+ * carry the shade tone and the lobe the warm one without any of the three being
+ * a separate object with its own rim. `s` bands: [0, 0.55) is the bowl, the rest
+ * is the helix and its outer face; the lobe is taken by angle out of the outer
+ * band.
+ *
+ * Every band indexes the SAME positions, so the joins are exact by construction
+ * rather than by matching two tables. That is the whole reason this is one grid.
+ */
+function auricle(K, earRootX, side) {
+    const pos = [], uv = [];
+    for (let j = 0; j <= EAR_NS; j++) {
+        const s = j / EAR_NS;
+        for (let i = 0; i < EAR_NA; i++) {
+            const phi = (i / EAR_NA) * Math.PI * 2;
+            const p = earPoint(K, earRootX, phi, s);
+            // `-side * ex` for the reason the old build gave and which still holds: two
+            // ears are mirror images, a rotation cannot make one out of the other, and a
+            // negative scale turns the surface inside out. Flip the authored in-plane
+            // axis, and flip the winding below to match.
+            pos.push(-side * p.ex, p.ey, p.ez);
+            uv.push(i / EAR_NA, s);
+        }
+    }
+    const band = (lo, hi, keep) => {
+        const idx = [];
+        for (let j = 0; j < EAR_NS; j++) {
+            const s = (j + 0.5) / EAR_NS;
+            if (s < lo || s >= hi)
+                continue;
+            for (let i = 0; i < EAR_NA; i++) {
+                const i1 = (i + 1) % EAR_NA;
+                if (!keep(((i + 0.5) / EAR_NA) * Math.PI * 2))
+                    continue;
+                const a = j * EAR_NA + i, b = j * EAR_NA + i1;
+                const c = (j + 1) * EAR_NA + i, d = (j + 1) * EAR_NA + i1;
+                if (side > 0)
+                    idx.push(a, c, d, a, d, b);
+                else
+                    idx.push(a, d, c, a, b, d);
+            }
+        }
+        return idx;
+    };
+    const lobeAngle = (phi) => Math.cos(phi) < -0.45;
+    const make = (idx) => {
+        const g = finish(pos.slice(), uv.slice(), idx);
+        return g;
+    };
+    return {
+        // The bowl, in the shade tone: at 60 mm a hollow cannot out-shade its own rim
+        // on geometry alone, and this is the one place on a head where the tone is
+        // doing work the light cannot. It is a hollow now rather than a hole, so the
+        // tone is agreeing with the form instead of standing in for it.
+        shade: make(band(0, 0.55, () => true)),
+        warm: make(band(0.55, 1.01, lobeAngle)),
+        skin: make(band(0.55, 1.01, (phi) => !lobeAngle(phi))),
+    };
+}
+function earProbe(K, earRootX) {
+    let standoff = -Infinity, floor = Infinity, seat = -Infinity;
+    for (let i = 0; i < EAR_NA * 2; i++) {
+        const phi = (i / (EAR_NA * 2)) * Math.PI * 2;
+        for (let j = 0; j <= EAR_NS * 2; j++) {
+            const s = j / (EAR_NS * 2);
+            const st = earPoint(K, earRootX, phi, s).stand;
+            if (st > standoff)
+                standoff = st;
+            // The aperture: everything inside the helix crest, which is what a camera
+            // looking down the ear's axis sees through the rim.
+            if (s <= 0.60 && st < floor)
+                floor = st;
+        }
+        if (earPoint(K, earRootX, phi, 1).stand > seat)
+            seat = earPoint(K, earRootX, phi, 1).stand;
+    }
+    return {
+        standoff: standoff * 1000,
+        floor: floor * 1000,
+        seat: seat * 1000,
+        bowl: (standoff - floor) * 1000,
+    };
 }
 export function headSilhouette(cls, seed) {
     const S = skeleton(BUILD[cls]);
@@ -2302,10 +2750,6 @@ export function headSilhouette(cls, seed) {
         faceSurface(K, d.set(0, fy, c), p);
         return p.y;
     };
-    // The ear. It is not swept from this field — it is five primitives placed at a
-    // fixed fraction of the skull's half-breadth — so "an ear like a flat sticker"
-    // becomes a number by comparing the two: where the helix's outer surface lands
-    // against where the skin under it lands, at the ear's own latitude.
     // Transverse sections. Bearing is swept on the sphere at a fixed latitude, so
     // the three samples sit at the same height as the midline one they are
     // compared to — a section, not a diagonal.
@@ -2320,14 +2764,14 @@ export function headSilhouette(cls, seed) {
         };
     };
     const sections = SECTION_LATITUDES.map(sectionAt);
-    const skullHW = skullHalfWidth(K, EAR_Y);
-    const earOuter = skullHW * EAR_ROOT + (EAR_HELIX_LIFT + EAR_HELIX_TUBE * EAR_HELIX_KZ);
+    // The ear, off the same `earPoint` the mesh is built from and against the same
+    // `earRootX` the build seats it on — so the gate is measuring the organ that is
+    // actually on the head rather than a second one written for the gate.
     return {
         y: ys, z: zs, cy, cz, top, bot,
         browY: at(Y_BROW), tipY: at(Y_TIP), noseY: at(Y_NOSE), lipY: at(Y_LIP), chinY: at(Y_CHIN),
         jawHW, neckHW: S.neckHW, sections,
-        earOut: earOuter - skullHW,
-        earDepth: EAR_HELIX_R * 2 * EAR_HELIX_KY,
+        ear: earProbe(K, skullHalfWidth(K, EAR_Y) * EAR_ROOT),
     };
 }
 const _d = new THREE.Vector3();
@@ -3458,9 +3902,33 @@ function faceComplexion(K, y0, tone, paint, whiskers) {
         // Shadow goes cool as well as dark, which is what separates it from dirt;
         // flush goes red without going bright, because the specular term does not
         // scale with albedo and a lighter warm tone smears (see `skinWarm`).
-        let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.10 * lip);
-        let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.36 * lip);
-        let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.44 * lip);
+        // ---- the mottle, which used to come off a lattice ----
+        //
+        // Skin is never one value, and flat skin colour is what reads as a mannequin.
+        // That variation used to arrive in the albedo map, and `FACE_TILE`'s note
+        // records what it actually drew at portrait range: a ruled square grid at the
+        // tile's own repeat, because a 256 texel map that small is read at mip 4.6 and
+        // has nothing left in it but one blob per tile. Taking the tile down to
+        // 2.2 mm puts that stamp under the resolving limit and takes the variation
+        // with it, so the variation comes back here.
+        //
+        // Three cosines on incommensurate periods, in the skull's own direction
+        // space. There is no lattice for a grid to be drawn on, the periods never
+        // come back into phase within one head, and the wavelengths — about 40, 25
+        // and 16 mm on this skull — are the scale blood and weathering actually vary
+        // at, which is far above any pixel grid at either framing. +/-4% on the
+        // albedo: enough that no two square centimetres of this face are the same
+        // value, small enough that it never competes with the form shadow above.
+        const mottle = 0.55 * Math.cos(dy * 6.1 + dx * 3.7)
+            + 0.30 * Math.cos(dx * 9.4 - dz * 5.3 + 1.7)
+            + 0.15 * Math.cos(dz * 14.9 + dy * 11.2 + 3.1);
+        const tint = 1 + 0.040 * mottle;
+        // Blood sits under the surface, so the darker half of the mottle goes red
+        // rather than grey — the same reason the tone's `warm` channel exists.
+        const flush = 0.028 * clamp01(-mottle);
+        let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.10 * lip) * (tint + flush);
+        let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.36 * lip) * tint;
+        let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.44 * lip) * (tint - flush * 0.6);
         if (whiskers) {
             // The beard line: the lip line at the midline, climbing to the sideburn at
             // the ear, broken by three harmonics so the edge disagrees with itself the
@@ -5272,7 +5740,39 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
     // same tile and had the same defect at half the density. They cost nothing:
     // the head is merged per material anyway and these replace the entries the
     // body's three were making in it.
-    const FACE_TILE = 0.0085;
+    // 2.2 mm, not 8.5, and this time it is measured on the frame rather than
+    // predicted off the recipe.
+    //
+    // The 8.5 mm above was chosen by reading `buildSkin` and multiplying: the ridge
+    // field's base octave lands at 1.1 mm, which is under a pixel, therefore grain.
+    // The frame disagrees. An FFT of an 80x80 patch of the vault on
+    // `art/shots/judge/cards/headturn-profile_90_.png` returns ONE sharp peak, at a
+    // period of 5.7 px in x with almost no y component — a ruled square lattice,
+    // and at that card's 1.22 px/mm that is a 4.7 mm cell. Nothing in the recipe is
+    // 4.7 mm. 8.5 / 4.7 is 1.8, and that is the giveaway: what is being drawn is
+    // not any octave of the noise, it is THE TILE ITSELF. A 256 texel map at a
+    // 8.5 mm tile is 0.033 mm a texel, which at portrait range is twenty-five
+    // texels to a pixel — mip level 4.6, an effective 10x10 map. Every octave the
+    // recipe was reasoned about has been filtered away by then, and all that is
+    // left is a single blob per tile, stamped every 8.5 mm. That is the owner's
+    // woven cross-hatch, and it is why 35 mm also read as a grid and merely as a
+    // coarser one: pushing content under a pixel does not delete it, it hands it to
+    // the tile repeat. This file has already found the same failure twice on the
+    // ground — see `grit` in textures.ts, "sub-texel content there is not dither,
+    // it is crawl".
+    //
+    // The head's own Nyquist note is the rule to settle it with, applied to the
+    // thing actually being drawn: the repeat has to be under the resolving limit,
+    // not the octave. At 2.2 mm the stamp lands at 1.2 mm, which is 1.5 px at the
+    // portrait framing and well under one at fight range, so the lattice stops
+    // being a pattern the eye can count.
+    //
+    // What that costs is the low-frequency variation that stops skin reading as a
+    // mannequin, because a 2.2 mm tile has none left. It is bought back below, in
+    // `faceComplexion`, which is the right home for it anyway: it is written in the
+    // skull's own direction space, it is on no lattice at all, and it is already
+    // where every other thing that varies across a face lives.
+    const FACE_TILE = 0.0022;
     const faceTile = (color, roughness) => {
         if (thrifty)
             return skin;
@@ -5891,10 +6391,51 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
         }
         // Cloak clasp. Built here rather than on the cloak pivot because a brooch is
         // pinned to the shoulder and does not swing with the hem — and because a
-        // mesh of its own would be a whole draw call for two shapes.
+        // mesh of its own would be a whole draw call for a few shapes.
+        //
+        // HOW IT IS PINNED IS PART OF WHAT IS BEING SOLD. The audit's instruction for
+        // this slot names the pinning alongside the length, the hem and the drape,
+        // and the clasp is the one piece of it that lands at portrait range where the
+        // cloak is bought: the crown-to-sternum card does not contain a hem. So the
+        // four cuts carry four fasteners — a bone pin, a disc brooch, an Irish-style
+        // ring-and-pin, and a gilt disc with a boss — and the cut table names which.
         if (ap.cloak !== "none") {
-            p.add(ball(0.021, 10), brass, xf(-S.shoulderX * 0.72, S.shoulderY + 0.03, S.chestHD + 0.058, 0, 0, 0, 1, 1, 0.55));
-            p.add(ring(0.026, 0.006, 5, 12), brass, xf(-S.shoulderX * 0.72, S.shoulderY + 0.03, S.chestHD + 0.053, 0.35, 0, 0));
+            const cx = -S.shoulderX * 0.72;
+            const cy = S.shoulderY + 0.03;
+            const cz = S.chestHD + 0.058;
+            const clasp = (CLOAK_CUTS[ap.cloak] ?? CLOAK_CUTS.brown).clasp;
+            if (clasp === "pin") {
+                // 30 gold fastens with what a traveller has: a turned bone pin through
+                // two folds of wool, with the head standing proud and the shank raking
+                // down across the shoulder.
+                p.add(shell([
+                    { y: -0.030, hw: 0.0035, hd: 0.0035 },
+                    { y: 0.014, hw: 0.0055, hd: 0.0055 },
+                    { y: 0.024, hw: 0.0038, hd: 0.0038 },
+                ], 7, { capTop: true, capBottom: true }), hide, xf(cx, cy, cz - 0.004, 0.45, 0, -0.5));
+                p.add(ball(0.0085, 8), hide, xf(cx + 0.012, cy + 0.023, cz - 0.002, 0, 0, 0, 1, 1, 0.7));
+            }
+            else if (clasp === "disc") {
+                p.add(ball(0.021, 10), brass, xf(cx, cy, cz, 0, 0, 0, 1, 1, 0.55));
+                p.add(ring(0.026, 0.006, 5, 12), brass, xf(cx, cy, cz - 0.005, 0.35, 0, 0));
+            }
+            else if (clasp === "ringpin") {
+                // A penannular: an open ring with a long pin laid across it, which is a
+                // taller, thinner object than a disc and reads as a different fastening
+                // rather than as the same brooch in another metal.
+                p.add(ring(0.030, 0.0055, 5, 14), brass, xf(cx, cy + 0.004, cz - 0.004, 0.35, 0, 0, 1, 1, 1));
+                p.add(shell([
+                    { y: -0.046, hw: 0.0028, hd: 0.0028 },
+                    { y: 0.030, hw: 0.0052, hd: 0.0052 },
+                ], 6, { capTop: true, capBottom: true }), brass, xf(cx, cy + 0.004, cz + 0.003, 0.3, 0, -0.62));
+            }
+            else {
+                // 400 gold: a gilt disc, bossed, on a raised collet. The largest fitting
+                // on the man's chest and the only one with a shadow under its rim.
+                p.add(ring(0.036, 0.0075, 5, 16), gilt, xf(cx, cy, cz - 0.006, 0.35, 0, 0));
+                p.add(ball(0.030, 12), gilt, xf(cx, cy, cz - 0.004, 0, 0, 0, 1, 1, 0.40));
+                p.add(ball(0.011, 8), gilt, xf(cx, cy, cz + 0.008, 0, 0, 0, 1, 1, 0.8));
+            }
         }
         // ---- the neck ----
         //
@@ -6244,98 +6785,42 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
             { y: skullY - 0.160, hw: R.x * 0.65, hd: R.z * 0.61, z: -0.021 },
             { y: skullY - 0.230, hw: R.x * 0.69, hd: R.z * 0.64, z: -0.021 },
         ], lod.limb, { capTop: true, capBottom: true }), headShade);
-        // Ears, set back where the jaw hinges rather than out on the cheek, with a
-        // concha in the warm tone — an ear lit from behind is the reddest thing on a
-        // head and the cheapest place to buy back the translucency skin has.
+        // ---- the ears ----
         //
-        // Down 22 mm and up in size. An ear runs from the eye line to the base of the
-        // nose, which the layout rewrite moved 27 and 32 mm respectively; left at
-        // `skullY - 0.004` they sat level with the brow, which is the one place on a
-        // head an ear never is.
-        // An ear is a rim round a hollow, and until this pass it was two scaled
-        // spheres — which at any bearing renders as a bean stuck to the skull, and
-        // which every panel read as "there is no ear". Four shapes fix that, and the
-        // order they matter in is: the **helix** (the rim, an open arc — an ear's
-        // whole outline is that one curve and it must not close at the bottom), the
-        // **concha** in the shade tone (a hollow, not a hole: the tone does the work
-        // the geometry cannot at 60 mm), the **antihelix** as a second, shorter arc
-        // inside it, and the **lobe**. The rim stands 13 mm off the skull with a bowl
-        // behind it, which is the crevice an SSAO pass can actually find — none of
-        // this is painted.
+        // ONE closed shell each, off `earPoint`, and the note above `EAR_OUTLINE`
+        // says why the five primitives that were here had to go: a ring with a bead
+        // behind it is not an ear from any bearing except the one it was checked at,
+        // and its rim was seated on a plane while the skull it lands on tapers, which
+        // is the daylight under the lobe in `headturn-profile_90_.png`.
+        //
+        // Set back where the jaw hinges rather than out on the cheek, and running
+        // from the eye line to the base of the nose — which is the latitude `EAR_Y`
+        // names and the one place a real ear is.
         const earY = skullY + EAR_Y * R.y - 0.004;
         // Off the SKIN, not off `R.x`. The nominal half-breadth is not where the
         // side of the head is once `F.wide`, the vault taper and the zygomatic have
         // had their say, and on a wide seed the difference buried the ear's root in
-        // the skull it grows out of.
+        // the skull it grows out of. Every vertex is then seated against the skin at
+        // its OWN latitude and depth, so the rim follows the head rather than a plane
+        // through one point of it.
         const earRootX = skullHalfWidth(K, EAR_Y) * EAR_ROOT;
         for (const s of [-1, 1]) {
-            // Ear space: +Y up the ear, +X toward the face, +Z out of the skull.
-            //
-            // The sign gymnastics are unavoidable and worth one sentence. Two ears are
-            // mirror images, a rotation cannot make one out of the other, and a
-            // negative scale would turn every surface inside out — the same trap
-            // `mirrorZ` exists for on the hands. So `s` flips the *authored* in-plane
-            // axis instead: `-s * ex` puts +X toward the face on both sides, and the
-            // rake follows it as `-s * roll`.
-            //
-            // Two corrections off the bare-head profile card, which is the first frame
-            // in this project's history to show an ear square on.
-            //
-            // It sat on `R.x * 1.0` — the skull's own half-breadth — so the whole organ
-            // was tangent to the surface rather than growing out of it, and what
-            // rendered was a rim standing clear of the head with daylight visible
-            // behind the bottom of it: a clip-on. 0.93 buries the medial third, which
-            // is where an ear's root actually is.
-            //
-            // And it had no rake. A real ear leans back about 18° from vertical — the
-            // lobe sits forward of the helix — and a ring with no rake at all reads as
-            // a flat plastic disc however well the concha inside it is modelled. The
-            // rake goes on the whole ear space, so helix, concha, antihelix, tragus and
-            // lobe all move together and their relationships are preserved.
-            const RAKE = EAR_RAKE;
-            const ear = (ex, ey, ez, roll, kx, ky, kz) => new THREE.Matrix4()
+            // The ear frame carries local z straight onto head x, which is what lets
+            // `earPoint` author standoff in millimetres off the skin and have that mean
+            // the same thing here. The rake is inside `earPoint` rather than on this
+            // matrix, because each vertex has to know the latitude it ends up at in
+            // order to be seated against it.
+            const place3 = new THREE.Matrix4()
                 .makeTranslation(s * earRootX, earY, -0.024)
-                .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
-                .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
-                .multiply(xf(-s * ex, ey, ez, 0, 0, -s * roll, kx, ky, kz));
-            // The concha, and it is built first because it is what the rest hangs on:
-            // a bowl whose inner half is buried in the skull, so the ear is *attached*
-            // rather than perched. In the form-shadow tone, because at 60 mm the
-            // hollow cannot out-shade its own rim on geometry alone — and because that
-            // rim now stands 12 mm off the skull with a bowl behind it, which is a
-            // crevice a screen-space AO pass can find on its own.
-            // The bowl fills the rim now. At 0.66 of depth and 1.0 across it sat well
-            // inside the helix with the shade tone on it, and with the complexion field
-            // digging behind the ear on top of that what rendered was a bright ring
-            // round a dark hole — a bagel screwed to the skull, in every portrait this
-            // build has taken. An ear is a rim round a *hollow*, and a hollow needs a
-            // floor the light can reach or it is a hole.
-            p.add(ball(0.0175, 9), headShade, ear(-0.002, -0.002, 0.0015, 0.22, 1.14, 1.62, 0.86));
-            // Helix: 4.5 rad of rim, centred up-and-back and left open at the front
-            // bottom where a real one runs down into the tragus instead of closing
-            // into a ring. An ear's whole outline is this one curve.
-            const arc = 4.9;
-            p.add(new THREE.TorusGeometry(EAR_HELIX_R, EAR_HELIX_TUBE, 5, 14, arc), headSkin, new THREE.Matrix4()
-                .makeTranslation(s * earRootX, earY, -0.024)
-                .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
-                .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
-                .multiply(xf(0, 0, EAR_HELIX_LIFT, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2, EAR_HELIX_KX, EAR_HELIX_KY, EAR_HELIX_KZ)));
-            // The lobe, warm because it is the thinnest flesh on the head and the
-            // place a backlight actually passes through.
-            p.add(ball(0.0105, 7), headWarm, ear(0.003, -0.028, 0.002, 0, 0.62, 0.95, 0.80));
-            if (lod.trim) {
-                // Antihelix — the second, shorter ridge inside the rim, and the thing
-                // that stops the bowl reading as a thumbprint pressed into the skull.
-                p.add(new THREE.TorusGeometry(0.0105, 0.0033, 4, 9, 3.2), headSkin, new THREE.Matrix4()
-                    .makeTranslation(s * (earRootX + R.x * 0.015), earY + 0.001, -0.024)
-                    .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
-                    .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
-                    .multiply(xf(0, 0, 0, 0, 0, Math.PI / 2 - s * 0.9 - 1.6, 0.9, 1.2, 0.7)));
-                // Tragus: three millimetres of flap over the canal, and the one part of
-                // an ear that faces forward — so it is the part a front fill finds, and
-                // the part that tells the eye where the opening is.
-                p.add(ball(0.0062, 6), headSkin, ear(0.013, -0.008, 0.001, 0, 0.7, 1.2, 0.85));
-            }
+                .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2));
+            const A = auricle(K, earRootX, s);
+            p.add(A.skin, headSkin, place3);
+            // The bowl in the form-shadow tone and the lobe in the warm one: an ear lit
+            // from behind is the reddest thing on a head and the thinnest flesh on it,
+            // and the two bands share their vertices with the helix so neither is a
+            // separate object with a rim of its own to catch the light.
+            p.add(A.shade, headShade, place3);
+            p.add(A.warm, headWarm, place3);
         }
         // Eyes and mouth. The tonal map used to be a third call here and is now a
         // field written onto every one of these vertices at the end of the build —
@@ -6569,8 +7054,24 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
         // whiskers growing out of the metal. What survives a mask is the *hang* —
         // beard coming out from under the chin below the mask's lower rim — which is
         // both the honest read and the one that costs nothing.
-        if (ap.beardStyle !== "none" && ap.beardStyle !== "short") {
-            const full = true;
+        //
+        // STUBBLE WAS CLEAN SHAVEN. `npm run cosmetictest` put the two options
+        // against each other with the material taken away and got **0.00% in
+        // silhouette and 0.00% in form, from every lens and every bearing** — the
+        // shop's two free beard rungs were one object with two names. The cause was
+        // in the line below: the whole block was gated `!== "short"`, so the `full ?
+        // ... : ...` branches written for stubble were dead code that had never been
+        // reached. The tone in the complexion field is still there and still does the
+        // work at portrait range; what was missing was any mass at all.
+        //
+        // It is now built, at 9 mm of lift against a full beard's 18 — a close-cropped
+        // beard rather than a shadow, which is what a free rung above Clean Shaven has
+        // to be to exist. The 4.5 mm shell the note above condemns failed because its
+        // TOP EDGE buried the mouth, not because it had thickness; `cheek(u)` starts
+        // below the lower lip now, so the philtrum, the lip and the nasolabial fold
+        // are all still skin.
+        if (ap.beardStyle !== "none") {
+            const full = ap.beardStyle !== "short";
             // One patch, not two. The top edge climbs from the lip line at the midline
             // to the sideburn at the ear, which is where a beard's edge actually runs;
             // the separate moustache bar this replaces read as a strip of tape.
@@ -6640,12 +7141,19 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                     // is inside the skin and cannot be seen at all.
                     lift: (_u, s) => (full
                         ? 0.002 + 0.016 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.55)), 1.15)
-                        : 0.0004 + 0.0012 * Math.sin(Math.PI * clamp01(s))),
-                    thick: full ? 0.005 : 0.0007,
+                        // A close crop: 9 mm at the jaw, dying to nothing at both boundaries
+                        // for the same reason the full beard's does — a rim strip at full lift
+                        // draws its own outline as a bright band. Half a full beard's mass and
+                        // no hang, which is the difference a player is looking at.
+                        : 0.0012 + 0.0078 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.6)), 1.1)),
+                    thick: full ? 0.005 : 0.0028,
                 }), beard, place.clone());
                 // Philtrum gap: a real moustache parts under the nose. Two short patches
-                // rather than one bar is what sells it.
-                if (full) {
+                // rather than one bar is what sells it. The close crop gets one too, at
+                // 60% of the swell — a man who has stopped shaving has stopped shaving his
+                // lip as well, and without it the crop read as a chinstrap.
+                {
+                    const mo = full ? 1 : 0.6;
                     // Each half is a hump, not a slab. As a rectangle in (u, v) at a flat
                     // 8 mm of lift with a 6 mm rim, these rendered as two hard blocks floating
                     // over the mouth with daylight round them — the same failure as the mouth
@@ -6653,7 +7161,7 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                     // nothing on all four boundaries buries every rim strip in the skin, and
                     // what is left is a moustache that grows out of the lip and thins toward
                     // the corner.
-                    const swell = (u, v) => 0.0010 + 0.0052 * Math.sin(Math.PI * clamp01(v))
+                    const swell = (u, v) => 0.0010 + 0.0052 * mo * Math.sin(Math.PI * clamp01(v))
                         * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.035) / 0.345));
                     // A leaf, not a rectangle. Both v bounds converge at both ends of u, so
                     // the half pinches shut against the philtrum on one side and against the
@@ -6680,6 +7188,29 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
             // dropped 30 mm: the menton is at −145 mm and these used to start at −100,
             // i.e. inside the chin, so a "full" beard's hang emerged from the middle of
             // the jaw rather than from under it.
+            //
+            // THE THREE PAID BEARDS WERE ONE CRESCENT, AND THE MEASUREMENT SAYS SO.
+            // `npm run cosmetictest` reads the ladder with the material off:
+            // Full -> Forked scored **0.57%** of the subject at fight distance and
+            // Forked -> Ringed Braid **0.87%**, both under the 1% a shape has to move
+            // to be a shape a player can see in play. They were three variations on one
+            // mass hung in the same place at the same length, and once colour is gone
+            // that is one beard sold three times for 240 gold.
+            //
+            // The axis they now differ on is the one that survives 7.9 mm to a pixel:
+            // MASS and LENGTH, in that order.
+            //
+            //   Full    broadest and shortest — 172 mm across, ending 150 mm below the
+            //           chin. A bush.
+            //   Forked  a narrower root and two tines that swing 0.46 rad apart and
+            //           reach 230 mm below the chin, so the fork is open air from every
+            //           bearing and the outline has a notch cut out of the bottom of it.
+            //   Ringed  the narrowest and by far the longest — a single 50 mm rope
+            //           reaching 295 mm below the chin with three bindings down it. In
+            //           outline it is a line where Full is a wedge.
+            //
+            // A player who buys the next rung up gets a different silhouette, not a
+            // different tint, and the price ladder now buys length as well as work.
             if (ap.beardStyle === "full") {
                 // Three lobes, not one cone. One swept shell under a jaw is a single
                 // smooth mass with a smooth outline, and at portrait range that is a
@@ -6698,12 +7229,17 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                 // shell below is: the same mass again at 3 mm less radius and a slight
                 // lean, so the two outlines disagree down the length of the beard and
                 // the edge is broken without the mass being.
+                // WIDE AND SHORT. The belly went from 68 mm of half-width to 86 and the
+                // tip came up 20 mm, so the mass is a wedge that spreads past the jaw
+                // rather than a cone that follows it down. That is what separates it from
+                // the two beards above it in the ladder: they are both narrower than the
+                // jaw and both longer.
                 const belly = (k, lean) => p.add(shell([
-                    { y: skullY - 0.122, hw: 0.062 * k, hd: 0.052 * k, z: 0.038 },
-                    { y: skullY - 0.178, hw: 0.068 * k, hd: 0.056 * k, z: 0.038 },
-                    { y: skullY - 0.232, hw: 0.055 * k, hd: 0.046 * k, z: 0.034 },
-                    { y: skullY - 0.280, hw: 0.033 * k, hd: 0.029 * k, z: 0.028 },
-                    { y: skullY - 0.308, hw: 0.012 * k, hd: 0.011 * k, z: 0.023 },
+                    { y: skullY - 0.122, hw: 0.070 * k, hd: 0.056 * k, z: 0.038 },
+                    { y: skullY - 0.176, hw: 0.086 * k, hd: 0.066 * k, z: 0.040 },
+                    { y: skullY - 0.226, hw: 0.078 * k, hd: 0.060 * k, z: 0.036 },
+                    { y: skullY - 0.268, hw: 0.050 * k, hd: 0.041 * k, z: 0.030 },
+                    { y: skullY - 0.294, hw: 0.017 * k, hd: 0.015 * k, z: 0.024 },
                 ], Math.max(8, lod.limb), { power: 2.15, capTop: true, capBottom: true }), beard, xf(0, 0, 0, 0, 0, lean));
                 belly(1, 0);
                 if (lod.trim)
@@ -6715,21 +7251,27 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                 // with a notch." It did not. The two tines were 32 mm apart at the chin
                 // and leaned 0.18 rad, so from any bearing but dead ahead they occluded
                 // each other into one cone with a crease down it. They now spring from a
-                // common mass under the chin, part at 64 mm and swing 0.34 rad out and
-                // forward, so the gap between them is open air from every bearing —
-                // which is the whole thing a player is buying.
+                // common mass under the chin, part and swing out and forward, so the gap
+                // between them is open air from every bearing — which is the whole thing
+                // a player is buying.
+                // The root is now NARROWER than the Full Beard's belly rather than the
+                // same shell, and it stops 30 mm higher, so the fork starts on the jaw
+                // instead of below a bush. The tines are longer, thicker at the root and
+                // swung 0.46 rad apart: at fight distance the gap between them is 40 mm,
+                // which is five pixels of daylight bitten out of the bottom of the
+                // outline, and a notch of five pixels is a shape. At 0.34 rad it was two.
                 p.add(shell([
-                    { y: skullY - 0.126, hw: 0.062, hd: 0.052, z: 0.038 },
-                    { y: skullY - 0.166, hw: 0.066, hd: 0.054, z: 0.038 },
-                    { y: skullY - 0.196, hw: 0.060, hd: 0.048, z: 0.036 },
+                    { y: skullY - 0.126, hw: 0.058, hd: 0.049, z: 0.038 },
+                    { y: skullY - 0.160, hw: 0.060, hd: 0.050, z: 0.038 },
+                    { y: skullY - 0.186, hw: 0.050, hd: 0.042, z: 0.036 },
                 ], lod.limb, { power: 2.15, capBottom: true }), beard);
                 for (const s of [-1, 1]) {
                     p.add(shell([
-                        { y: skullY - 0.170, hw: 0.036, hd: 0.034, z: 0.040 },
-                        { y: skullY - 0.240, hw: 0.031, hd: 0.028, z: 0.036 },
-                        { y: skullY - 0.300, hw: 0.020, hd: 0.018, z: 0.028 },
-                        { y: skullY - 0.336, hw: 0.008, hd: 0.008, z: 0.020 },
-                    ], Math.max(8, lod.limb), { power: 2.1, capBottom: true }), beard, xf(s * 0.030, 0, 0.004, 0.10, 0, -s * 0.34));
+                        { y: skullY - 0.158, hw: 0.042, hd: 0.038, z: 0.040 },
+                        { y: skullY - 0.244, hw: 0.037, hd: 0.032, z: 0.036 },
+                        { y: skullY - 0.322, hw: 0.024, hd: 0.021, z: 0.028 },
+                        { y: skullY - 0.376, hw: 0.009, hd: 0.009, z: 0.020 },
+                    ], Math.max(8, lod.limb), { power: 2.1, capBottom: true }), beard, xf(s * 0.026, 0, 0.004, 0.10, 0, -s * 0.46));
                 }
             }
             else if (ap.beardStyle === "braided") {
@@ -6737,17 +7279,39 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                 // was four stacked spheres of falling radius with a brass ring under
                 // them. The audit calls it a rosary and it is right. It is a real
                 // three-strand plait now, sprung out of a mass under the chin so the
-                // hair has somewhere to come from, bound twice down its length.
+                // hair has somewhere to come from, bound down its length.
+                //
+                // THE PLAIT IS NOW THE LONGEST AND NARROWEST BEARD IN THE SHOP, and that
+                // is what the top rung buys. It falls 295 mm below the chin against the
+                // Full Beard's 150, and the root that feeds it is gathered to 34 mm — so
+                // the outline is a rope where Full is a wedge and Forked is a wedge with a
+                // notch. Two turns fewer over half again the length is a coarser plait,
+                // which is the only way three strands read as three strands at 7.9 mm to a
+                // pixel; a tight plait is a cylinder at any distance a match is fought at.
+                //
+                // THREE RINGS, NOT TWO, AND THEY STAND PROUD. The audit's complaint was
+                // that the old rings read "as a string of spheres". A ring reads as a ring
+                // when it is WIDER THAN THE ROPE IT BINDS and casts a step in the outline:
+                // each is 4-5 mm outside the plait's own half-width at the station it sits
+                // on, so the silhouette pinches at the binding and swells between them.
+                // Inside the rope they were invisible and the plait was a cone.
+                const bPath = (t, out) => out.set(0, skullY - 0.186 - 0.254 * t, 0.036 - 0.013 * t * t);
+                const bRad = (t) => 0.0250 * (1 - 0.42 * t * t);
                 p.add(shell([
-                    { y: skullY - 0.126, hw: 0.064, hd: 0.052, z: 0.038 },
-                    { y: skullY - 0.172, hw: 0.058, hd: 0.048, z: 0.038 },
-                    { y: skullY - 0.204, hw: 0.040, hd: 0.036, z: 0.036 },
+                    { y: skullY - 0.126, hw: 0.056, hd: 0.048, z: 0.038 },
+                    { y: skullY - 0.160, hw: 0.048, hd: 0.042, z: 0.038 },
+                    { y: skullY - 0.190, hw: 0.034, hd: 0.031, z: 0.036 },
                 ], lod.limb, { power: 2.15, capBottom: true }), beard);
-                p.add(braid((t, out) => out.set(0, skullY - 0.196 - 0.150 * t, 0.036 - 0.010 * t * t), { turns: 2.3, rows: Math.max(10, lod.limb * 2), ring: Math.max(5, lod.limb - 2),
-                    radius: (t) => 0.0255 * (1 - 0.55 * t * t) }), beard);
-                for (let i = 0; i < 2; i++) {
-                    const t = 0.14 + i * 0.74;
-                    p.add(ring(0.0245 - i * 0.010, 0.0044, 4, 10), brass, xf(0, skullY - 0.196 - 0.150 * t, 0.036 - 0.010 * t * t, Math.PI / 2, 0, 0));
+                p.add(braid(bPath, {
+                    turns: 3.4, rows: Math.max(14, lod.limb * 3), ring: Math.max(5, lod.limb - 2),
+                    radius: bRad,
+                }), beard);
+                {
+                    const at = new THREE.Vector3();
+                    for (const t of [0.06, 0.50, 0.94]) {
+                        bPath(t, at);
+                        p.add(ring(bRad(t) + 0.0048, 0.0050, 4, 12), brass, xf(at.x, at.y, at.z, Math.PI / 2, 0, 0));
+                    }
                 }
             }
         }
@@ -8580,51 +9144,74 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
         return p;
     }, headSig);
     // ==========================================================
-    // CLOAK — hung from a yoke behind the shoulders
+    // CLOAK — hung from ONE shoulder, pinned there, thrown clear of the sword arm
     // ==========================================================
+    //
+    // The shape is `CLOAK_CUTS`; read the note above that table for why there is a
+    // table at all. What is here is the sweep it drives, and two facts about the
+    // frame it is swept in:
+    //
+    //   * The pivot sits behind the spine at shoulder height. Azimuth 0 is the
+    //     spine, NEGATIVE azimuth is the pinned side — which is the side the brooch
+    //     has always been on (`-S.shoulderX * 0.72`) and the side the shield is
+    //     carried on — and POSITIVE azimuth runs toward the sword arm, which is
+    //     `armPivots[0]` at `+S.shoulderX`.
+    //   * Every cut stops at `a1 <= 0.40π`, against the old sheet's 0.56π. The
+    //     weapon side is therefore strictly clearer of cloth than it was, which is
+    //     the half of "asymmetric" that a player feels rather than sees.
     let cloak;
     if (ap.cloak !== "none") {
         const pivot = new THREE.Group();
         pivot.name = `${RIG_TAG}cloak`;
-        pivot.position.set(0, S.shoulderY + 0.035, -0.02);
+        pivot.position.set(0, S.shoulderY + 0.030, -0.02);
         root.add(pivot);
         cloak = pivot;
-        const drop = heavy ? 0.95 : robed ? 1.24 : 1.06;
-        const spread = 0.56 * Math.PI;
+        const cut = CLOAK_CUTS[ap.cloak] ?? CLOAK_CUTS.brown;
+        // The class scale, kept off the cut so a Sea-Wolf is the same garment on all
+        // four men: a huscarl's mail skirt already reaches his thigh and a cloak over
+        // it has to stop shorter, a runekeeper is robed and wears everything longer.
+        const drop = cut.drop * (heavy ? 0.90 : robed ? 1.17 : 1.0);
         // Elliptical, not circular: a body is wider than it is deep, and a cloak cut
         // on a circle either cuts through the shoulders or stands 130 mm off the
-        // spine. The flare is modest and the folds carry the drape — at +0.26 of
-        // flare with a shallow ripple this was a stiff sail.
+        // spine.
         const topX = S.chestHW + 0.055;
         const topZ = S.chestHD + 0.05;
-        const hemX = topX + 0.135;
-        const hemZ = topZ + 0.155;
+        const hemX = topX + cut.flareX;
+        const hemZ = topZ + cut.flareZ;
         emit("cloak", pivot, () => {
             const p = new Part();
             const surf = (u, v, inset, out) => {
-                const a = mix(-spread, spread, u);
+                const a = mix(cut.a0, cut.a1, u);
                 // Folds push *out* and never in. A cosine about zero spends half its
                 // amplitude cutting inside the base ellipse, and the base ellipse is
                 // only ~60 mm clear of the tunic's flared hem — so a trough put the
                 // cloak inside the garment under it and the tunic came through as an
                 // olive wedge in `probe/duel.png`. Cloth draped over a body is
                 // displaced away from it by definition; there is nothing for a fold to
-                // displace into. 52 mm peak at the hem rather than the old 30, because
-                // the folds were sized when this was a rigid plate on a hinge where
-                // depth only read as corrugation — now that the hem actually swings,
-                // they are the thing that says "cloth", and 30 mm was below what the
-                // shading resolves at lineup distance.
-                const fold = (0.5 - 0.5 * Math.cos(a * 5.5)) * 0.052 * v * v
-                    + (0.5 - 0.5 * Math.cos(a * 11)) * 0.016 * v;
-                const grow = v * v * 0.6 + v * 0.4;
+                // displace into. The depth is per cut now: the Sea-Wolf carries 64 mm in
+                // three folds and the Traveller's 30 mm in five, because how coarsely a
+                // garment gathers is one of the few things about cloth that survives to
+                // fight distance.
+                const fold = (0.5 - 0.5 * Math.cos(a * cut.foldN)) * cut.foldA * v * v
+                    + (0.5 - 0.5 * Math.cos(a * cut.foldN * 2)) * cut.foldA * 0.3 * v;
+                const grow = v * v * cut.grow + v * (1 - cut.grow);
                 const rx = mix(topX, hemX, grow) + fold - inset;
                 const rz = mix(topZ, hemZ, grow) + fold - inset;
-                // The hem hangs lower at the back than at the leading edges.
-                const y = -drop * v * (1 - 0.12 * Math.abs(a / spread));
+                // THE TOP EDGE IS A DIAGONAL, and this is the whole asymmetry. The cloth
+                // is carried at the brooch on the pinned side; across the back there is
+                // nothing holding it up, so the edge falls away toward the trailing
+                // corner. `lead` pulls the front corner down onto the chest, which is
+                // what a garment pinned at a shoulder actually does and what the old
+                // horizontal top edge — a hard line standing ABOVE both shoulders with
+                // daylight under it, in the audit's own frame — could not do.
+                const t = u;
+                const yTop = -cut.nape * Math.pow(t, cut.napePow)
+                    - cut.lead * Math.pow(1 - t, 3);
+                const y = yTop - drop * cut.hem(t) * v;
                 out.set(Math.sin(a) * rx, y, -Math.cos(a) * rz);
             };
             p.add(patch({
-                nu: Math.max(9, lod.shellU), nv: Math.max(6, lod.shellV + 2),
+                nu: Math.max(11, lod.shellU + 2), nv: Math.max(6, lod.shellV + 2),
                 outer: (u, v, out) => surf(u, v, 0, out),
                 // The lining is cut short in v as well as inset, so the hem is a *fold*
                 // rather than a 14 mm strip lying flat and facing straight down.
@@ -8639,17 +9226,19 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                 // shaded curvature and is also what a hemmed edge of wool does.
                 inner: (u, v, out) => surf(u, v * (1 - 0.018), 0.014, out),
             }), cloakMat);
-            // Rolled collar along the top edge, following the cloak's own arc rather
-            // than ringing the whole chest — the flat disc this replaces read as a
-            // plank laid across the shoulders.
+            // Rolled border along the top edge, following the cloak's own diagonal
+            // rather than ringing the chest — the flat disc this replaced read as a
+            // plank laid across the shoulders. Its depth is per cut: the Gilded War
+            // Cloak's is a 70 mm braided band and the Sea-Wolf's is a 38 mm rolled
+            // selvedge, and on a diagonal edge that band is itself a line of outline.
             p.add(patch({
-                nu: Math.max(9, lod.shellU), nv: 1,
-                outer: (u, v, out) => surf(u, v * 0.05, -0.013, out),
-                inner: (u, v, out) => surf(u, v * 0.05, 0.015, out),
+                nu: Math.max(11, lod.shellU + 2), nv: 1,
+                outer: (u, v, out) => surf(u, v * cut.collar, -0.013, out),
+                inner: (u, v, out) => surf(u, v * cut.collar, 0.015, out),
             }), cloakMat);
             if (lod.trim) {
                 p.add(patch({
-                    nu: Math.max(9, lod.shellU), nv: 1,
+                    nu: Math.max(11, lod.shellU + 2), nv: 1,
                     outer: (u, v, out) => surf(u, mix(0.93, 1.0, v), -0.004, out),
                     inner: (u, v, out) => surf(u, mix(0.93, 1.0, v), 0.018, out),
                 }), ap.cloak === "gold" ? brass : hide);

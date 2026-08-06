@@ -251,7 +251,27 @@ function silMetrics(sil) {
     gonialTurnDeg: gonialTurn,
     gonialOverArc,
     neckOverJaw: sil.neckHW / sil.jawHW,
-    earStandoff: mmOf(sil.earOut),
+    // ---- S6 · the ear, and why one number was not enough ----
+    //
+    // `earStandoff` alone passed at 12.7 mm on the build the owner photographed a
+    // TORUS WITH DAYLIGHT THROUGH IT on. That is not a slack tolerance either —
+    // it is the same class of failure S1 exists for. "The helix stands 12.7 mm off
+    // the skull" is equally true of an ear and of a curtain ring nailed to a head,
+    // because a standoff is a property of ONE curve and an ear is a shell.
+    //
+    // Three more, and between them nothing can pass that a camera can see through:
+    //   the FLOOR of the concha has to stand out of the skin, or the bowl is a
+    //   hole with the skull behind it;
+    //   the BOWL — crest minus floor — has to be a real depth, or the shell is
+    //   flat and the standoff was bought with a sticker held further out;
+    //   the SEAT — the worst point of the rim against the skin under it — has to
+    //   be NEGATIVE. That is the one that catches the frame. A rim proud of the
+    //   head has a gap under it, and a gap under a rim on the side of a head at
+    //   the profile bearing is the sky.
+    earStandoff: sil.ear.standoff,
+    earFloor: sil.ear.floor,
+    earBowl: sil.ear.bowl,
+    earSeat: sil.ear.seat,
   };
 }
 
@@ -302,7 +322,13 @@ const ASSERTS = [
   ["cheekPlane", 6, 26,
     "S7 · the same across the cheekbone, started OUTSIDE the nose at 0.30 rad. This is the plane that takes the key, and the one the domino mask was drawn on"],
   ["earStandoff", 11, 26,
-    "S6 · mm the helix stands clear of the skin beside it. Under 11 the ear is a sticker with no shadow under it"],
+    "S6 · mm the helix CREST stands clear of the skin beside it. Under 11 the ear is a sticker with no shadow under it"],
+  ["earFloor", 0.8, 7,
+    "S6 · mm the concha FLOOR stands clear of the skin. At or under zero the bowl is behind the skull and the ear is a ring with a hole in it, which is what 12.7 mm of standoff passed with"],
+  ["earBowl", 9, 22,
+    "S6 · mm of actual bowl — crest minus floor. A flat sticker held a long way off the head scores well on standoff alone and nothing here"],
+  ["earSeat", -9, -0.5,
+    "S6 · mm the WORST point of the rim stands against the skin under it. POSITIVE IS DAYLIGHT: a rim proud of the head has a gap under it. This is the assertion the frame the owner looked at fails"],
 ];
 
 const sils = [];
