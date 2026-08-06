@@ -19,6 +19,8 @@
     "profiletest": "node tools/profiletest.mjs",
     "cheattest": "node tools/cheattest.mjs",
     "soundtest": "node tools/soundtest.mjs",
+    "cosmetictest": "node tools/cosmetictest.mjs",
+    "wearmeasure": "node tools/wearmeasure.mjs",
     "phonesound": "node tools/phonesound.mjs",
     "summaryflow": "node tools/summaryflow.mjs"
   },
