@@ -1714,21 +1714,29 @@ function curve(c: Curve, y: number): number {
  * away in — see the gonial mass below.
  */
 const SAGITTAL: Curve = [
-  [0.780, -30], //  vault, where the forehead gives way to the frontal curve
-  [0.560, -19], //  upper forehead
-  [0.380, -11], //  mid-forehead — a man's leans back about 12° over its height
-  [0.290, -4], //   supraciliary
+  // The forehead rows are measured against what the VAULT already does, and the
+  // first cut of them was not. -30 mm at y = 0.78 sounds like a receding
+  // forehead and is in fact 25 mm in FRONT of where the ellipsoid puts that
+  // latitude, so the pin was inflating the frontal bone — the bulge over the
+  // brow in art/shots/fix3/head-turn.png, and half of the balloon read. A vault
+  // turns over hard: by three quarters of the way up it has given back most of
+  // its depth. The pin's window is also shut earlier now, so above the forehead
+  // the profile is the vault's own and nothing is pinning it at all.
+  [0.640, -40], //  frontal eminence, where the pin has already faded out
+  [0.470, -24], //  upper forehead
+  [0.330, -11], //  mid-forehead — a man's leans back about 12° over its height
+  [0.250, -4], //   supraciliary
   [0.219, 0], //    GLABELLA — the datum every other row is measured from
   [0.144, -5], //   nasion, the notch that makes the nose a separate mass
-  [0.010, 13], //   rhinion, the top of the dorsum's run
-  [-0.231, 28], //  PRONASALE — the frontmost point of the face
-  [-0.276, 20], //  columella
+  [0.010, 9], //    rhinion, the top of the dorsum's run
+  [-0.231, 25], //  PRONASALE — the frontmost point of the face
+  [-0.276, 16], //  columella
   [-0.323, 3], //   subnasale
-  [-0.481, 12], //  labrale superius
-  [-0.536, 6], //   stomion — the OPENING, and it sits behind both vermilions
-  [-0.606, 8], //   labrale inferius
+  [-0.481, 9], //   labrale superius
+  [-0.536, 4], //   stomion — the OPENING, and it sits behind both vermilions
+  [-0.606, 6], //   labrale inferius
   [-0.686, 3], //   mentolabial sulcus
-  [-0.766, 3], //   POGONION
+  [-0.766, 1], //   POGONION
   [-0.856, -8], //  gnathion
   [-0.930, -34], // menton, turning back under the jaw
 ];
@@ -1771,8 +1779,8 @@ const PLATE_W: Curve = [
   [0.640, 1.05],
   [0.219, 1.20],
   [-0.116, 1.30], // widest at the cheekbone
-  [-0.323, 1.30],
-  [-0.536, 1.26],
+  [-0.323, 1.45],
+  [-0.536, 1.58],
   [-0.766, 0.86],
   [-0.960, 0.62],
 ];
@@ -1782,7 +1790,7 @@ const PIN_W: Curve = [
   [0.640, 0.95],
   [0.219, 0.80],
   [0.100, 0.52],
-  [-0.231, 0.42], // the nose, and this row is why a pin cannot make a snout
+  [-0.231, 0.35], // the nose, and this row is why a pin cannot make a snout
   [-0.323, 0.40],
   [-0.536, 0.58],
   [-0.766, 0.62],
@@ -1852,7 +1860,7 @@ function pinTable(K: Skull): Float64Array {
     const want = datum + (curve(SAGITTAL, y) + jit) * 0.001;
     // Faded to nothing over the vault and under the jaw, so the pin owns the
     // face and nothing else.
-    const win = smooth(0.86, 0.70, y) * smooth(-0.985, -0.90, y);
+    const win = smooth(0.68, 0.46, y) * smooth(-0.985, -0.90, y);
     t[i] = (want - raw(y)) * win;
   }
 
@@ -1878,7 +1886,14 @@ function pinTable(K: Skull): Float64Array {
   // the table separates the two, exactly, and by construction they still sum to
   // the authored profile on the midline. The broad half goes out at the plate's
   // own bearing and the narrow half at the nose's.
-  const sigma = 0.20 * (PIN_N - 1) * 0.5; // in table rows
+  // 0.14 and not 0.20, and the cut is a real trade rather than a taste. Wider,
+  // and the nose's own projection lands in the SLOW band and goes out at the
+  // plate's bearing, which measures on the tape as a 31 mm lobule — a face with
+  // its nose smeared across it. Narrower, and the facial skeleton's forward
+  // carry starts arriving on the nose's bearing, which is the keel. 0.14 puts
+  // the split at about a third of the face's height, which is the scale that
+  // actually separates "the whole maxilla" from "the tip".
+  const sigma = 0.14 * (PIN_N - 1) * 0.5; // in table rows
   const rad = Math.ceil(sigma * 3);
   const w: number[] = [];
   for (let k = -rad; k <= rad; k++) w.push(Math.exp((-k * k) / (2 * sigma * sigma)));
@@ -2120,7 +2135,7 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // downhill into it and the underside falls away. This is the edge that catches
   // the key — but it is a bulb on a man and a beak on a bird, and the difference
   // between the two is entirely how wide the gaussian is.
-  const tip = bump(x - drift * 2, y - Y_TIP, 0, 0.245, 0.090, 1) * front;
+  const tip = bump(x - drift * 2, y - Y_TIP, 0, 0.200, 0.090, 1) * front;
   pz += 0.006 * tip;
   py += 0.0026 * tip;
   // The bridge, carried up between the brows — this is what stops the nose
@@ -4138,15 +4153,27 @@ function faceComplexion(
     // shadow beside the dorsum is not 45 mm tall, which runs it from the eye to
     // the mouth. Both tightened onto the features they are named for. Amplitudes
     // are untouched: the socket has to stay dark, and it does.
-    dim += 0.95 * bump(ax - 0.34, dy - (Y_EYE + 0.035), 0, 0.22, 0.115, 1) * front;
+    // AND IT IS STILL THE MASK. The previous pass tightened these and wrote the
+    // shadow field off as disproven; the geometry rewrite this pass then removed
+    // the face block's hard brow step and the mask DID NOT MOVE, which leaves
+    // this sum as the only remaining candidate and rules out the third
+    // hypothesis (the arena rig's terminator) along with it — a light does not
+    // survive its own geometry being replaced.
+    //
+    // The arithmetic is the giveaway. This one term is 0.22 of direction space
+    // in x, which is +/-42 mm: two of them, one per eye, overlapping across the
+    // midline and reaching the temples. That is a domino mask drawn by a single
+    // line, before the paranasal, the under-brow crease and the buccal are added
+    // on top of it. An orbit is 30 mm across.
+    dim += 0.72 * bump(ax - 0.34, dy - (Y_EYE + 0.035), 0, 0.150, 0.105, 1) * front;
     // The crease immediately under the brow ridge, which is what makes the ridge
     // read as overhanging rather than as a band of colour.
-    dim += 0.55 * bump(ax - 0.34, dy - (Y_EYE + 0.115), 0, 0.26, 0.055, 1) * front;
+    dim += 0.42 * bump(ax - 0.34, dy - (Y_EYE + 0.115), 0, 0.20, 0.050, 1) * front;
     // Beside the dorsum. The single most valuable term on the nose in this rig:
     // the nose's own relief is a gradient in z, which a light rig with this much
     // fill cannot see, and a shadow down each side of it is what makes the mass
     // read as a nose from in front.
-    dim += 0.60 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.055, 0.115, 1) * front;
+    dim += 0.42 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.050, 0.100, 1) * front;
     // Under the tip and the columella.
     dim += 0.75 * bump(dx, dy - (Y_NOSE - 0.018), 0, 0.15, 0.045, 1) * front;
     // Under the mandible, and this is the term that stops the head reading as
@@ -4194,7 +4221,12 @@ function faceComplexion(
     // adds. Under 0.7 this is exactly what it was; above it the sum approaches 1
     // asymptotically instead of hitting it, so an overlap of three justified
     // shadows deepens a crease rather than painting a plateau.
-    dim = dim <= 0.7 ? dim : 0.7 + 0.3 * (1 - Math.exp(-(dim - 0.7) * 1.6));
+    // The knee comes down from 0.7 to 0.52. It is a cap on the SUM, so its value
+    // is the darkest tone anywhere on the face, and 0.7 of a 30/37/42 per cent
+    // cut is very dark indeed to be reached over an area rather than in a crease.
+    // With the relief rebuilt the paint has less to do: the socket is a real
+    // socket now and can be found by the light instead of drawn.
+    dim = dim <= 0.52 ? dim : 0.52 + 0.26 * (1 - Math.exp(-(dim - 0.52) * 1.6));
 
     // ---- the flush ----
     //
