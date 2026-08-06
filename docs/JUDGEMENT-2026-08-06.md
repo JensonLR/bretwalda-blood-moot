@@ -195,8 +195,8 @@ for acting on it.
 ## 5. The gate — every final line
 
 ```
-npm run build            ✓ Compiled successfully in 6.9s
-                         ✓ Generating static pages using 3 workers (5/5)        exit=0
+npm run build            ✓ Compiled successfully in 6.5s
+                         ✓ Generating static pages using 3 workers (5/5) in 304ms   exit=0
 npx tsc --noEmit         exit=0
 npm run lint             ✖ 11 problems (9 errors, 2 warnings)   (pre-existing in src/, cap 12)
 npm run playtest         [playtest] 34/34 controls working                       exit=0
