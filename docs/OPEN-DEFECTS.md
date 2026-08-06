@@ -10,60 +10,162 @@ Current reference: **`art/shots/v12/`**. A/B against `v11/`.
 
 ---
 
-## The head is measured now, and it is still not a man
+## The head, pass eight: the ear, the crease and the grid are closed; the mass is not
 
-**Read this before touching the face.** Seven passes have now gone at this head.
-The first six each fixed their list of notes and shipped a different broken
-object, and the sixth built an anthropometric tape measure whose numbers all came
-back near life while the face got worse. This pass changed the method rather than
-the parameters, and the honest verdict is: **the measurable faults are fixed and
-the object still does not read as a man at 400 px.** Do not score it a pass.
+**Read this before touching the face.** Eight passes now. The method that finally
+holds is from the seventh and must not be lost: the profile is AUTHORED as an
+outline (`SAGITTAL`) and the midline is PINNED to it, and the gate asserts on the
+SILHOUETTE rather than on ratios between landmarks. Do not go back to tuning
+gaussians against a list of adjectives.
 
-**What is fixed, and proven by `node tools/headmeasure.mjs`.** The gate now
-asserts on the profile OUTLINE rather than on ratios between landmarks
-(`headSilhouette` in `characters.ts`, the S1–S7 block in `headmeasure.mjs`). All
-twelve assertions pass across 24 heads, from six failing at the start:
+This pass took the owner's three notes off `art/shots/judge/cards/`. Two are
+closed with a frame behind them, one is half closed, and the honest verdict on
+the remaining half is at the bottom.
 
-| | | was | now |
-|---|---|---|---|
-| S1 | nose leads the whole lip band | 7.2 mm | 10.2 mm |
-| S2 | lips behind the nose-to-pogonion chord | **+6.9 mm (a muzzle)** | −3.7 to −1.8 mm |
-| S3 | pogonion against the brow vertical | **15.1 mm behind** | 2–4 mm in front |
-| S4 | turn through the gonial corner | **11.5° (a circle)** | 46–53° |
-| S5 | neck over bigonial breadth | **0.76** | 1.03–1.10 |
-| S6 | ear standoff from the skin | **2.2 mm (a sticker)** | 12.7–13.5 mm |
-| S7 | transverse fall across the maxilla | — | 19–22 mm |
+### 1. CLOSED — the ear was a torus with daylight through it
 
-**What is still wrong, in the frame** (`art/shots/fix5/head-turn.png`, A/B
-against `fix1/`):
+The build was `ball + torus + ball + torus + ball`. A sum of primitives has no
+outline, which is the identical failure this file already diagnosed and fixed for
+the head itself, and two things followed from it: the ring's hole is only covered
+from the one bearing it was checked at, and every primitive was seated at a
+single half-breadth taken at ONE latitude while the skull it lands on tapers — so
+the bottom of the rim stood outside the head and the sky came through under it.
 
-1. **The cranium still dominates.** `craniumShare` measures 0.35, which is canon,
-   and the read is still a large smooth balloon with a small face on its
-   front-lower quarter. The number is not wrong; it is not the number that
-   carries this read. Whatever measures it is not `craniumShare` — probably the
-   vault's total *area* of unbroken curvature against the face's, which nothing
-   in the gate touches.
-2. **The face is narrow from the front** and the nose reads as a wedge down it.
-   S7 catches the gross case (it fired at 50 mm on the first profile pin) but its
-   ceiling is 24 mm, and 15.7 mm of that is the head's own elliptical section —
-   `95.8 × (cos 0.15 − cos 0.60)` — so it has about 8 mm of authority. A real
-   maxilla is flatter across the front than the ellipsoid it is built on, and
-   nothing here makes it so.
-3. **The eyes read as two dark holes** with the brows as painted slashes.
-4. `tipBreadth`, `chinBeyondNasion` and `jawOverCheek` sit 1–4% outside legacy
-   tolerances written for the old geometry. `jawOverCheek` and `neckOverHead` are
-   in direct conflict with S5 given a bizygomatic breadth that is 22% over life
-   by art direction; one of the three has to give and it should be decided
-   deliberately rather than by whoever tunes last.
+Now ONE closed radial shell per ear (`EAR_OUTLINE`, `EAR_SECTION`, `earPoint`,
+`auricle`), 58 x 33 mm, with a helix crest, an antihelix, a tragus and a concha
+floor that is closed at the back — and with the rim's depth **measured** per angle
+off the skin it lands on rather than authored, then buried by `EAR_SEAT`.
 
-**What the next pass should NOT do.** Not a parameter sweep. The profile is now
-authored as a table (`SAGITTAL`) and pinned, so moving a number there moves
-exactly one thing — that part is safe. The unsolved part is the cranium-to-face
-mass relationship and the flatness of the facial plane, and both are structural.
-The honest options are (a) build the vault and the facial skeleton as separate
-masses that meet at a rim, or (b) take the owner's third option and commit to a
-stylised head with three confident planes, which at 40 px in play and 300–400 px
-in the shop is very likely the better trade.
+**S6 was the other half of this defect and is the more important fix.** It was one
+number, `earStandoff`, and it passed at 12.7 mm on the torus — because a standoff
+is a property of one curve and cannot tell a shell from a curtain ring nailed to a
+head. It is now four numbers, and the one that bites is `earSeat`: the worst point
+of the rim against the skin under it, which must be NEGATIVE. Proof that it bites
+rather than merely being present — re-seating the rim on a plane, as the five
+primitives did, and running the gate:
+
+```
+  earSeat                 13.364    14.699    16.254  -9.000..-0.500   FAIL
+[head] FINAL: 6 ratios outside tolerance · 1 of 15 SILHOUETTE assertions FAILED
+```
+
+### 2. CLOSED — the mid-face plane break, and it was an envelope
+
+"A hard-edged plane break creasing from inner brow to jaw at three-quarter, and
+the nose reads as an upturned pug with the subnasal mass pushed forward as one
+block."
+
+Both halves are one line. The pin splits its residual into a broad half (the
+facial skeleton coming forward off the braincase) and a narrow half (the tip over
+the subnasale, the vermilion over the fissure), and **both were being delivered
+through `massEnvelope`** — a plateau with a shoulder. That is correct for the
+plate, because a maxilla is genuinely flat across the front of a face. On the
+narrow half it puts a flat panel down the middle of the face out to 0.16 rad and
+then a shoulder, and since `PIN_W` widens as it descends (0.35 at the nose, 0.58
+at the lip, 0.62 at the chin) the shoulder sweeps outward as it falls. Inner brow
+to jaw. The flat top is the pug.
+
+`ridgeEnvelope` — a raised cosine, zero derivative at the midline and zero again
+at the edge — replaces it on the narrow half only. The midline profile is
+untouched (the envelope is 1 at bearing zero), so every S1/S2/S3 assertion holds.
+
+Two more things the frame said were missing and the arithmetic agreed with:
+- **the philtrum was below Nyquist ACROSS.** 0.035 of sigma in x against 40
+  columns, which is 0.157 rad — four and a half times under. There was nothing
+  there to see. 0.085 now, which is half the column spacing and also a 14 mm
+  philtrum, with its two crests.
+- **no mental fold.** Three rows straight from pogonion to gnathion is an arc.
+  `SAGITTAL` gains a row at −0.820 holding the chin's front face out, so the drop
+  to gnathion is a corner. `gonialOverArc` 4.77 -> 6.42.
+
+### 3. HALF CLOSED — the cranial vault
+
+"An unbroken egg. Enormous, smooth, featureless at 180 degrees, with a small face
+crammed into its lower front quarter."
+
+What the vault now has, and the 180° and 90° panels of `art/shots/judge9/` show
+all three: an **occipital curve** (the inion as a distinct mass with the nuchal
+plane hollowed under it, and a lambdoid flattening above, so the back reads as two
+planes meeting at a landmark instead of one arc), a **temporal fossa** — a broad
+6 mm plane from the lateral orbit back to the ear with a superior temporal line
+above it, where what was there before was a 2.5 mm thumbprint — and a **brow that
+casts**.
+
+The brow is worth a paragraph because the obvious fix is wrong and costs an hour.
+Raising the ridge's crest to steepen its underside takes the shop from 10/10
+helmets seated to **2/10**: every helm in the game seats its bowl on that exact
+band and `wearmeasure` puts the clearance under a millimetre. The overhang is the
+same angle whether you lift the ridge or drop the skin under it, and only one of
+those grows the head into the bowl sitting on it. So the crest keeps its 9 mm and
+the orbital margin below now cuts 9 mm instead of 4.
+
+**What is NOT closed: the mass relationship.** The face is still a small panel on
+a large smooth dome, and this is the same item the seventh pass logged and could
+not measure. `craniumShare` is 0.338 against a canon 0.35, `breadthOverHeight`
+0.703 against a life 0.67, `lengthOverHeight` 0.843 against 0.845. Every number
+says the proportions are right and the read says they are not, which means the
+quantity that carries this read is still not in the gate. The most likely
+candidate, unmeasured: the **features'** share of the face, not the face's share
+of the head — the eyes, nose and mouth occupy a narrow central column with very
+large empty cheek and temple either side of it.
+
+**What the next pass should do about it.** Take the owner's explicit offer and
+commit to the stylised head rather than to realism: the face's job is the armoury
+portrait at 300–400 px where a player spends 2400 gold, and at fight distance the
+judge already found "no defect, no character" in a 30 px blob. The vault work
+above is that choice being made — confident planes with landmarks between them —
+and the next lever is the same one applied to the face: fewer, larger, more
+certain features. **Do not** do a parameter sweep, and do not reach for the nose.
+
+### The tape measure itself was wrong twice, and both are fixed
+
+Worth its own heading because two of the six out-of-tolerance ratios were the
+INSTRUMENT and no amount of sculpting would ever have closed them.
+
+- **`noseProjection` (+0.43) and `chinBeyondNasion` (+0.93) were measured against
+  the middle of the man's forehead.** The nasion is found by sweeping for the
+  deepest point of the nasal root, and the band ran to `Y_BROW + 0.10` — a tenth
+  of the field ABOVE the glabella. A nasion is by definition below it. On a
+  forehead that correctly rakes back 12°, the deepest point in that band is the
+  frontal bone at y = 0.319, where `SAGITTAL` reads −10.7 mm against the nasion
+  row's −5. Bounded at the glabella, and `nasionFromCrown` is now published beside
+  it so a probe that wanders onto the forehead says so.
+- **`tipBreadth` (+4.05, 15–31 mm across seeds) was `F.asym` doubled.** The owner
+  called it an unpinned parameter and was right that it was not a tuning error,
+  but the parameter is not on the nose. `tipHalf` swept ONE side and doubled
+  `|p.x|`, on a face whose midline is deliberately drifted up to 2.2 mm sideways
+  ("a symmetric face is a mask") — so 2 x 2 x 2.2 = 8.8 mm of the 12 mm spread was
+  the drift. Bisecting every trait confirms it: forcing `span(seed, 18, …)` alone
+  to zero drops the spread from 11.9 mm to 3.9, and no other trait moves it by
+  more than 1.4. A nose displaced sideways is not a wider nose. Measured between
+  the two sides, and with the ridge narrowed now that the plateau no longer has to
+  be hidden: **18.6–23.2 mm**, a bulb.
+
+Ratios outside tolerance: **6 -> 3**. The three that remain are `jawOverCheek`
+(0.006), `neckOverJaw` (0.003) and `neckOverHead` (0.026), and the last two
+measure a throat the huscarl's `gorget: 1.0` covers completely on the class every
+sheet is shot on. They are not worth chasing; they are worth **deleting or
+re-siting**, and that is the next honest change to this file.
+
+### The skin was a woven cross-hatch, and it was the tile repeat
+
+`FACE_TILE` was 8.5 mm, chosen by reading the recipe: the ridge field's base
+octave lands at 1.1 mm, under a pixel, therefore grain. The frame disagreed. An
+FFT of an 80x80 patch of the vault returns ONE sharp peak at 5.7 px with almost no
+y component — a ruled square lattice, 4.7 mm at that card's 1.22 px/mm. Nothing in
+the recipe is 4.7 mm. 8.5 / 4.7 is 1.8, and that is the tell: a 256-texel map at a
+8.5 mm tile is 25 texels to a pixel, mip 4.6, an effective 10x10 map — every
+octave the recipe was reasoned about is filtered away and all that is left is one
+blob per tile, stamped every 8.5 mm.
+
+**Pushing content under a pixel does not delete it, it hands it to the tile
+repeat.** This file had already found the same thing twice on the ground (`grit`
+in textures.ts: "sub-texel content there is not dither, it is crawl"). 2.2 mm puts
+the stamp at 1.2 mm, 1.5 px at portrait. The variation it cost is bought back in
+`faceComplexion` as three cosines on incommensurate periods in the skull's own
+direction space — no lattice, wavelengths 16–40 mm. Measured on the new card, the
+5.7 px peak is gone and the strongest remaining periodic content is at 26.7 px
+with 5.5x less magnitude, which is the mottle.
 
 ---
 
