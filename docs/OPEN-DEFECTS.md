@@ -1046,3 +1046,48 @@ Note its `--settle`: the camera push accumulates RENDERED dt, and on this box th
 summary runs at about three frames a second, so the default eleven-second wait
 photographs a lens a quarter of the way through its move. A settled frame costs
 two and a half minutes and is a different picture.
+
+---
+
+## The face is not a caricature any more, and it is not right yet
+
+**Open.** The owner's five notes on the armoury card — beak, receding chin, long
+skull, thin neck, scored mouth and beady eye — are all measurable and all fixed.
+`tools/headmeasure.mjs` is the instrument; run it before and after touching
+anything in `faceSurface`, `skeleton` or `faceComplexion`.
+
+    measure              before    after     life / target
+    lengthOverHeight     0.944     0.827     0.845     note 3, the long skull
+    noseBeyondChin       51.7      29.1      ~24 mm    note 1, the beak
+    noseProjection       28.0      29.7      25-30 mm
+    chinBeyondNasion     -         +0.6      0 mm      note 2, the facial angle
+    jawOverCheek         0.93      0.85      0.84-0.90
+    neckOverJaw          0.74      0.89      ~1.05     note 4
+    eye aperture / head  0.080     0.093     0.129     note 5
+
+**What is still wrong, stated so the next pass does not have to rediscover it.**
+The bare-head front card (`npm run shots -- headturn`) shows a broad dark form
+over the mid-face with a hard upper edge along the brow — a domino mask. Half of
+it was the shadow field summing four justified terms to a clamped 1.0 and that
+half is fixed. The other half is **not the paint**: rendering the same frame with
+`dim` forced to zero moves 31,721 pixels and the form is still there. It is the
+maxillary face block's own lateral falloff. The block is
+`bump(x, 0, 0, 1.00, 1, 1)` — near-constant across the whole head in x — gated
+by `front = clamp01(z * 1.15)`, so what shapes it laterally is a linear ramp in
+z rather than any facial landmark, and the surface it leaves turns away from a
+key at 60 degrees along a line that has nothing to do with a cheekbone. Give the
+block an x profile that belongs to a maxilla and the mask should go with it.
+
+**Two method notes, both of which cost capture rounds here.**
+
+1. *Do not A/B two 700x860 renders by eye.* Twice in this pass two frames were
+   read as identical when a pixel diff put 5.3% of the frame between them, and
+   once a frame was read as fresh when it was the previous run's file — the
+   `until [ -f ... ]` wait returned instantly because the path already existed.
+   Diff the pixels, and check the mtime against the build's.
+
+2. *A metric can pass while the thing it names fails.* `craniumShare` scored 0.34
+   against a canonical 0.35 for a head that reads as an egg, because it measures
+   the cranium's share of the head's HEIGHT and note 3 is about its share of the
+   head's MASS. The number was right and useless. The turntable card is what
+   caught it.
