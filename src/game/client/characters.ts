@@ -8284,11 +8284,23 @@ export function buildCharacter(
         // a rivet plate on the brow. Conformed to the skull like the band it sits
         // on, 4 mm further out than the band so the two still read as two pieces,
         // it cannot leave the surface at any yaw.
+        // Shaped and seated, because a rivet plate is a lozenge and this was a
+        // rectangle at a flat 26 mm. `helmFitProbe` measured a third of it turned
+        // inside out over the glabella — the highest-curvature point on the whole
+        // head — and in the cards it read as a dark angular wedge standing off the
+        // brow beside the band. It now tucks its corners in at both ends, so the
+        // outline is a leaf rather than a card, and stands 19 to 22 mm: the band
+        // it is riveted through is at 17 to 24, so the plate reads as a second
+        // thickness on the band instead of as a third object floating past it.
+        const npT = (u: number) => clamp01(Math.abs(u) / 0.135);
         p.add(helmWear(K, {
           tag: "nasal plate",
-          u0: -0.13, u1: 0.13,
-          v0: () => bandLo - 0.01, v1: () => bandHi - 0.015,
-          nu: 3, nv: 1, lift: () => 0.026, thick: 0.006,
+          u0: -0.135, u1: 0.135,
+          v0: (u) => bandLo - 0.010 + 0.055 * Math.pow(npT(u), 2.0),
+          v1: (u) => bandHi - 0.015 - 0.075 * Math.pow(npT(u), 1.7),
+          nu: 5, nv: 2,
+          lift: (u, v) => 0.019 + 0.003 * v * (1 - npT(u)),
+          thick: 0.006,
         }), capMetal, place.clone());
       }
       if (style.brows) {
@@ -8357,16 +8369,24 @@ export function buildCharacter(
         // ear and rides the hinge. And a plate hinged off a band stands furthest
         // out at its top rim and lies closest at its free edge, which is what
         // turns a floating rectangle into something worn.
+        // The leading edge is raked, not vertical, and the plate starts outboard
+        // of the eye. At `u0 = 0.42` it began under the inner half of the eye and
+        // ran straight down from the band, which draws a hard vertical line down
+        // the middle of the cheek — the same fault as the hem, on the other axis,
+        // and the reason the contact sheet kept reading this plate as pasted on.
+        // A hinged cheek plate is cut back at the front so the wearer can see and
+        // shout past it; the top corner behind the eye is the last thing on it.
+        const shortIn = 0.52, shortOut = 1.10;
+        const st = (u: number) => clamp01((Math.abs(u) - shortIn) / (shortOut - shortIn));
+        const hem = (u: number) =>
+          lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.20, 1, st(u)), 1.5);
+        const top = (u: number) => bandLo + 0.02 - 0.055 * Math.pow(1 - st(u), 1.5);
         for (const s of [-1, 1]) {
-          const hem = (u: number) => {
-            const t = clamp01((Math.abs(u) - 0.42) / 0.60);
-            return lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.42, 1, t), 1.5);
-          };
           p.add(helmWear(K, {
             tag: "cheek (short)",
-            ...sideArc(s, 0.42, 1.02),
-            v0: hem, v1: () => bandLo + 0.02,
-            nu: 6, nv: 4,
+            ...sideArc(s, shortIn, shortOut),
+            v0: hem, v1: top,
+            nu: 8, nv: 4,
             lift: (_u, v) => 0.014 + 0.010 * v,
             thick: 0.008,
           }), capMetal, place.clone());
@@ -8550,14 +8570,41 @@ export function buildCharacter(
         }
       }
       if (style.crown === "circlet") {
-        // Gilded circlet, sized to sit on the bowl rather than to hover round it.
-        const cr = R.x + 0.023;
-        const cz = (R.z + 0.023) / cr;
+        // THE JARL'S CROWN, and the audit's ruling on it was a pricing one with a
+        // geometry cause: "570 buys less geometry than 380" — it lost the boar and
+        // the nape flange the Boar-Crest has, and gained a hoop with six 42 mm
+        // pins on it. Six pins on a hoop is a tiara. This is a crown.
+        //
+        // Three things changed and the first two are in `HELM`: the bowl is the
+        // `tall` profile, which is 20 mm of outline the 380 does not have, and the
+        // nape flange is back. What is left here is the hoop itself.
+        //
+        // Alternating points, four tall and four short, each a tapered leaf
+        // leaning out over the band. Alternation is what reads as a crown rather
+        // than as a fence at any distance: a ring of identical pins is one
+        // frequency and the eye resolves it as a texture, while a big-small-big
+        // rhythm survives all the way down to the four pixels a fight-distance
+        // capture gives it. The tall ones are 62 mm, which is the first thing on
+        // this helmet to break its own outline from the front.
+        const cr = R.x + 0.024;
+        const cz = (R.z + 0.024) / cr;
         const cy = skullY + R.y * 0.34;
-        p.add(ring(cr, 0.01, 5, 18), brass, xf(0, cy, 0, Math.PI / 2, 0, 0, 1, 1, cz));
-        for (let i = 0; i < 6; i++) {
-          const a = (i / 6) * Math.PI * 2 + 0.3;
-          p.add(rod(0.002, 0.01, 0.042, 4), brass, xf(Math.sin(a) * cr * 0.95, cy + 0.026, Math.cos(a) * cr * cz * 0.95, 0.2 * Math.cos(a), 0, -0.2 * Math.sin(a)));
+        p.add(ring(cr, 0.013, 5, 20), brass, xf(0, cy, 0, Math.PI / 2, 0, 0, 1, 1, cz));
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + 0.22;
+          const tall = i % 2 === 0;
+          const len = tall ? 0.062 : 0.032;
+          const sx = Math.sin(a), sz = Math.cos(a);
+          p.add(rod(0.0012, tall ? 0.0105 : 0.0080, len, 5), brass,
+            xf(sx * cr * 0.96, cy + 0.008 + len * 0.5, sz * cr * cz * 0.96,
+              0.17 * sz, 0, -0.17 * sx));
+          // A stud at the foot of each tall point, where the leaf is riveted
+          // through the hoop. Three solids a crown, which is what the boar and
+          // the wyrm's head each cost, and this rung is dearer than both.
+          if (lod.trim && tall) {
+            p.add(ball(0.0042, 6), garnet,
+              xf(sx * cr * 1.02, cy + 0.002, sz * cr * cz * 1.02));
+          }
         }
       }
       if (style.crown === "ridge") {
