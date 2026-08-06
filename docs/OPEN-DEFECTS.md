@@ -103,9 +103,18 @@ Diagnosed this pass; only the first is fixed.
    [−0.84, −0.04] — about 8 mm of daylight down the back of the head, widening as
    the hair fell, with only 11 mm of overlap at the crown (inside the wall
    thickness). Offset now 0.30 with every station widened; the halves overlap by
-   40 mm at the fall. Needs a capture at `--turn 180` to close.
+   40 mm at the fall. **Verified** in `art/shots/fix5/hair.png`, back row: no
+   daylight through the mass, one volume with a crease down it.
+   **Still wrong, and it is a different fault:** the mane reads as a boxy
+   rectangular curtain with a hard vertical seam and a flat bottom edge. The
+   audit's original complaint — "a flat curtain with a hard edge and no volume" —
+   is only half answered. The six locks that were meant to break the edge are
+   inside `lod.trim` and are not doing it. Hair needs a broken lower edge and a
+   silhouette that is not a box before this slot is worth 40 gold.
 2. **OPEN — all four hairstyles are pixel-identical under the Sutton Hoo mask.**
-   NOT yet explained. Read the code and the four branches *are* distinct under a
+   Narrowed this pass: the same four styles are plainly *distinct* from behind in
+   `art/shots/fix5/hair.png`, so the fault is specific to the masked row and not
+   to the styles. NOT yet explained. Read the code and the four branches *are* distinct under a
    helm: `helmed` only flattens the scalp shell's lift, and the `long` fall and
    the `braids` plaits are added with no `helmed` guard at all. So either the
    mask's own geometry occludes them at the capture bearing, or the facecard's
