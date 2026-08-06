@@ -8455,8 +8455,8 @@ export function buildCharacter(
             // for the same reason the full beard's does — a rim strip at full lift
             // draws its own outline as a bright band. Half a full beard's mass and
             // no hang, which is the difference a player is looking at.
-            : 0.0012 + 0.0078 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.6)), 1.1)),
-          thick: full ? 0.005 : 0.0028,
+            : 0.0014 + 0.0096 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.6)), 1.1)),
+          thick: full ? 0.005 : 0.0032,
         }), beard, place.clone());
         // Philtrum gap: a real moustache parts under the nose. Two short patches
         // rather than one bar is what sells it. The close crop gets one too, at
@@ -8548,8 +8548,8 @@ export function buildCharacter(
         // jaw and both longer.
         const belly = (k: number, lean: number) => p.add(shell([
           { y: skullY - 0.122, hw: 0.070 * k, hd: 0.056 * k, z: 0.038 },
-          { y: skullY - 0.176, hw: 0.086 * k, hd: 0.066 * k, z: 0.040 },
-          { y: skullY - 0.226, hw: 0.078 * k, hd: 0.060 * k, z: 0.036 },
+          { y: skullY - 0.176, hw: 0.093 * k, hd: 0.070 * k, z: 0.040 },
+          { y: skullY - 0.226, hw: 0.084 * k, hd: 0.064 * k, z: 0.036 },
           { y: skullY - 0.268, hw: 0.050 * k, hd: 0.041 * k, z: 0.030 },
           { y: skullY - 0.294, hw: 0.017 * k, hd: 0.015 * k, z: 0.024 },
         ], Math.max(8, lod.limb), { power: 2.15, capTop: true, capBottom: true }), beard,
@@ -8606,8 +8606,19 @@ export function buildCharacter(
         // each is 4-5 mm outside the plait's own half-width at the station it sits
         // on, so the silhouette pinches at the binding and swells between them.
         // Inside the rope they were invisible and the plait was a cone.
+        // IT HAS TO LIE ON THE CHEST, NOT INSIDE IT. Lengthening this plait bought
+        // nothing at all the first time it was tried — the measurement did not move
+        // by a hundredth of a per cent — and the reason is worth writing down,
+        // because it applies to any long beard anybody adds after this. The path
+        // hung STRAIGHT DOWN at z = 0.036 in the head's frame, while the torso's
+        // front surface is at z = 0.104 and the mail over it is further out again.
+        // So everything below the collarbone was inside the man: drawn, and then
+        // thrown away by the depth buffer. A beard that reaches the chest rests ON
+        // the chest, so the path swings forward as it falls and finishes 136 mm
+        // proud of the head's centre, which clears the mail with the plait's own
+        // radius to spare.
         const bPath = (t: number, out: THREE.Vector3) => out.set(
-          0, skullY - 0.186 - 0.254 * t, 0.036 - 0.013 * t * t,
+          0, skullY - 0.186 - 0.272 * t, 0.036 + 0.100 * Math.pow(t, 1.15),
         );
         const bRad = (t: number) => 0.0250 * (1 - 0.42 * t * t);
         p.add(shell([
@@ -8621,7 +8632,7 @@ export function buildCharacter(
         }), beard);
         {
           const at = new THREE.Vector3();
-          for (const t of [0.06, 0.50, 0.94]) {
+          for (const t of [0.05, 0.37, 0.69, 0.97]) {
             bPath(t, at);
             p.add(ring(bRad(t) + 0.0048, 0.0050, 4, 12), brass,
               xf(at.x, at.y, at.z, Math.PI / 2, 0, 0));
