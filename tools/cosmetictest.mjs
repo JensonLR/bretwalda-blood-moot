@@ -839,7 +839,32 @@ check("every cosmetic is still on the head after it comes off", lostOnCut.length
 // 4. THE RENDER — the only instrument that can see war paint
 // ============================================================
 const FRAME_MS = 50;
+/**
+ * The fixed world: a fixed clock AND a fixed die.
+ *
+ * The clock is shoot.mjs's, for the reason recorded there and in
+ * docs/COSMETICS-AUDIT.md — idle sway made two panels of the same helmet differ
+ * by more than two different helmets do.
+ *
+ * The die is this file's, and it is what turns a picture into a measurement.
+ * `vfx.ts` rolls its embers and sparks off `Math.random`, so two captures of ONE
+ * subject are not the same picture: measured on this box, the mean per-pixel
+ * difference between a face card and an identical face card was 0.1387%, which
+ * is larger than the difference a war paint makes and would have set the bar
+ * above every real finding. shoot.mjs's own note that the same subject twice
+ * differs only in "a few thousandths of a code value" is a difference of MEANS
+ * and hides this: the embers move, so the mean stays put while the pixels do
+ * not. Seeding `Math.random` before a line of app code runs makes the sparks
+ * land in the same places in every panel, and then a pixel that changed is a
+ * cosmetic that changed. The floor is measured after this, not assumed.
+ */
 function installVirtualClock(stepMs) {
+  // xorshift32. Not for cryptography and not for statistics — for repeatability.
+  let seed = 0x2545f491;
+  Math.random = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    return (seed >>> 0) / 4294967296;
+  };
   const realRaf = window.requestAnimationFrame.bind(window);
   let vnow = 0, queue = [], scheduled = false, nextId = 1;
   const cancelled = new Set();
@@ -952,16 +977,50 @@ async function renderPass() {
     return { w: px.w, h: px.h, data: Uint8ClampedArray.from(px.data) };
   }
 
-  /** Mean absolute RGB difference over the frame, as a percentage of full scale. */
-  function pixDiff(a, b) {
-    let sum = 0, n = 0, worst = 0;
+  /**
+   * The colour comparison, as three numbers.
+   *
+   *   MEAN%  mean absolute RGB difference over the whole frame, as a share of
+   *          full scale. Sensitive, and easy to dilute: a stripe painted on a
+   *          face is a large change over a small part of a frame.
+   *   AREA%  the number that gates. Pixels that moved by more than a JND,
+   *          counted, and divided BY THE SUBJECT'S OWN AREA rather than by the
+   *          frame — so it means the same thing the SIL and FORM columns mean
+   *          and is held to the same 1% bar. Dividing by the frame would make
+   *          the bar at fight distance require repainting a man who is 1% of it.
+   *   WORST% the largest single-pixel move, which is what tells a reader whether
+   *          a small AREA% is a fine detail or a rounding error.
+   *
+   * A JND is taken as 2 of 255. Below that two 8-bit values are the same value
+   * to an eye, and above it the pixel has changed for a reason.
+   */
+  const JND8 = 2;
+  function pixDiff(a, b, subjectPx) {
+    let sum = 0, n = 0, worst = 0, moved = 0;
     for (let i = 0; i < a.data.length; i += 4) {
       const d = (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2])) / 3;
       sum += d; n++;
       if (d > worst) worst = d;
+      if (d > JND8) moved++;
     }
-    return { mean: (100 * sum) / (n * 255), worst: (100 * worst) / 255 };
+    return { mean: (100 * sum) / (n * 255), worst: (100 * worst) / 255, area: (100 * moved) / (subjectPx || n) };
   }
+
+  /**
+   * How many pixels of the capture the warrior himself occupies, taken off the
+   * rasteriser at the same lens and halved to the capture's own scale. It is the
+   * denominator that makes a colour reading comparable with a shape reading.
+   */
+  const subjectPxFor = (lname, turn) => {
+    const lens = LENS[lname];
+    const r = raster(staged({}, turn).group, lens, turn);
+    // rasterScale is twice shotScale on both lenses by construction; the ratio is
+    // asserted rather than assumed, because a change to either would silently
+    // rescale every AREA% in the table.
+    const ratio = (lens.rasterScale / lens.shotScale) ** 2;
+    if (Math.abs(ratio - 4) > 1e-9) die(`lens ${lname}: raster is ${lens.rasterScale} and shot is ${lens.shotScale}; the AREA denominator assumes exactly 2x`);
+    return r.area / ratio;
+  };
 
   console.log("\n[cos] === 4. RENDERED PIXELS ===\n");
   // THE NOISE FLOOR, measured rather than assumed. `vfx.ts` rolls its embers off
@@ -969,13 +1028,21 @@ async function renderPass() {
   // measured mean luma 67.6705 against 67.6679 on the same subject. Every bar
   // below is a multiple of what this actually reads on the day, so the threshold
   // comes off the instrument rather than out of a guess.
+  const SUBJ = { portrait: subjectPxFor("portrait", 0), fight: subjectPxFor("fight", 180) };
   const n1 = await capture(LENS.portrait, 0, { warPaint: "wp_none" }, { warPaint: "none" });
   const n2 = await capture(LENS.portrait, 0, { warPaint: "wp_none" }, { warPaint: "none" });
-  const floor = pixDiff(n1, n2);
-  const PIX_BAR = Math.max(0.02, floor.mean * 8);
-  check("the render instrument is repeatable", floor.mean < 0.02,
-    `same subject twice: mean ${floor.mean.toFixed(4)}% — bar for a real difference is 8x that, ${PIX_BAR.toFixed(3)}%`);
-  TABLE.notes.push(`render noise floor ${floor.mean.toFixed(4)}%, PIX bar ${PIX_BAR.toFixed(3)}% (8x the floor)`);
+  const floor = pixDiff(n1, n2, SUBJ.portrait);
+  // With the clock and the die both fixed, two captures of one subject are the
+  // SAME BYTES — measured, not hoped for. That is what makes a 1% bar mean
+  // anything: there is no noise underneath it to be confused with a cosmetic.
+  // If this ever stops reading zero, something in the renderer has become
+  // time- or entropy-dependent in a way no measurement here can see past, and
+  // that is worth failing the run over rather than papering with a wider bar.
+  check("two captures of one subject are byte-identical", floor.mean === 0 && floor.area === 0,
+    `same subject twice: mean ${floor.mean.toFixed(4)}%, area ${floor.area.toFixed(4)}%, worst pixel ${floor.worst.toFixed(2)}%`);
+  TABLE.notes.push(`render noise floor: mean ${floor.mean.toFixed(4)}%, area ${floor.area.toFixed(4)}% — the fixed clock and the seeded die make two captures of one subject identical`);
+  note(`subject occupies ${Math.round(SUBJ.portrait)} px of the portrait capture and ${Math.round(SUBJ.fight)} px of the fight capture`);
+  note(`AREA% is measured against those, so it is on the same scale as SIL% and FORM% and takes the same ${DIFFERS_PCT}% bar`);
 
   // ------------------------------------------------------------
   // THE CAPTURE PLAN, DERIVED RATHER THAN LISTED.
@@ -1026,8 +1093,8 @@ async function renderPass() {
   console.log(`[cos] plan: ${budget} captures at ~40 s each on this box ≈ ${Math.round((budget * 40) / 60)} min`);
 
   console.log("");
-  console.log("  slot         pair                                        lens      PIX%    worst%  verdict");
-  console.log("  ------------------------------------------------------------------------------------------");
+  console.log("  slot         pair                                        lens      MEAN%   AREA%   worst%  verdict");
+  console.log("  --------------------------------------------------------------------------------------------------");
   const flatPairs = [];
   // Ordered by lens, so the browser switches viewport once rather than per slot.
   const planned = [...plan].sort((a, b) => a[1].lenses[0].localeCompare(b[1].lenses[0]));
@@ -1048,20 +1115,20 @@ async function renderPass() {
           typeof o.value === "string" ? { [name]: o.value } : null) });
       }
       for (let i = 0; i + 1 < shots.length; i++) {
-        const d = pixDiff(shots[i].img, shots[i + 1].img);
-        const v = d.mean < PIX_BAR ? "IDENTICAL" : "DIFFERS";
+        const d = pixDiff(shots[i].img, shots[i + 1].img, SUBJ[lname]);
+        const v = d.area < IDENTICAL_PCT ? "IDENTICAL" : d.area < DIFFERS_PCT ? "FAINT" : "DIFFERS";
         const label = `${shots[i].o.label} -> ${shots[i + 1].o.label}`;
-        console.log(`  ${name.padEnd(11)}  ${label.slice(0, 42).padEnd(42)}  ${lname.padEnd(8)}  ${d.mean.toFixed(3).padStart(6)}  ${d.worst.toFixed(1).padStart(6)}  ${v}`);
+        console.log(`  ${name.padEnd(11)}  ${label.slice(0, 42).padEnd(42)}  ${lname.padEnd(8)}  ${d.mean.toFixed(3).padStart(6)}  ${d.area.toFixed(2).padStart(6)}  ${d.worst.toFixed(1).padStart(6)}  ${v}`);
         const row = TABLE.pairs.find((r) => r.slot === name && r.label === label);
-        if (row) (row.pix ??= {})[lname] = d.mean;
-        else TABLE.pairs.push({ slot: name, label, cost: shots[i + 1].o.cost, lens: {}, pix: { [lname]: d.mean } });
-        if (v === "IDENTICAL") flatPairs.push(`${name}: ${label} — ${d.mean.toFixed(3)}% at ${lname}, and the shape instrument already reported it flat`);
+        if (row) (row.pix ??= {})[lname] = d;
+        else TABLE.pairs.push({ slot: name, label, cost: shots[i + 1].o.cost, lens: {}, pix: { [lname]: d } });
+        if (v !== "DIFFERS") flatPairs.push(`${name}: ${label} — ${d.area.toFixed(2)}% of the subject moved at ${lname} (${v}), and the shape instrument already reported it flat`);
       }
     }
   }
   console.log("");
   check("every pair the shape instrument could not separate is separated by the renderer",
-    flatPairs.length === 0, flatPairs.length ? `${flatPairs.length} pairs are one picture` : `all above ${PIX_BAR.toFixed(3)}%`);
+    flatPairs.length === 0, flatPairs.length ? `${flatPairs.length} pairs the renderer cannot separate either` : `all above ${DIFFERS_PCT}% of the subject`);
   for (const f of flatPairs) note(`FLAT       ${f}`);
 
   // ------------------------------------------------------------
@@ -1075,20 +1142,20 @@ async function renderPass() {
   console.log("\n[cos] === 4b. WAR PAINT UNDER THE HELMETS THAT CAME AFTER IT ===\n");
   const paints = slotOf("warPaint").options;
   const wearHelms = ALL ? helms : helms.filter((h) => ["none", "spectacle", "suttonhoo"].includes(h.value));
-  console.log("  under helm     face covered  pair                                   PIX%    verdict");
-  console.log("  --------------------------------------------------------------------------------------");
+  console.log("  under helm     face covered  pair                                   MEAN%   AREA%   verdict");
+  console.log("  ----------------------------------------------------------------------------------------------");
   const paintFlat = [], paintGarbled = [];
   for (const helm of wearHelms) {
     const cover = TABLE.companions.find((c) => c.kind === "face-coverage" && c.helm === helm.label)?.cover ?? 0;
     const shots = [];
     for (const p of paints) shots.push({ p, img: await capture(LENS.portrait, 0, { warPaint: p.id, helm: helm.id }, { warPaint: p.value, helm: helm.value }) });
     for (let i = 0; i + 1 < shots.length; i++) {
-      const d = pixDiff(shots[i].img, shots[i + 1].img);
-      const v = d.mean < PIX_BAR ? "IDENTICAL" : "DIFFERS";
+      const d = pixDiff(shots[i].img, shots[i + 1].img, SUBJ.portrait);
+      const v = d.area < IDENTICAL_PCT ? "IDENTICAL" : d.area < DIFFERS_PCT ? "FAINT" : "DIFFERS";
       const label = `${shots[i].p.label} -> ${shots[i + 1].p.label}`;
-      console.log(`  ${helm.label.slice(0, 13).padEnd(13)}  ${cover.toFixed(0).padStart(11)}%  ${label.slice(0, 37).padEnd(37)}  ${d.mean.toFixed(3).padStart(6)}  ${v}`);
-      TABLE.companions.push({ kind: "paint-under-helm", helm: helm.label, option: label, pix: d.mean, cover, verdict: v });
-      if (v === "IDENTICAL") {
+      console.log(`  ${helm.label.slice(0, 13).padEnd(13)}  ${cover.toFixed(0).padStart(11)}%  ${label.slice(0, 37).padEnd(37)}  ${d.mean.toFixed(3).padStart(6)}  ${d.area.toFixed(2).padStart(6)}  ${v}`);
+      TABLE.companions.push({ kind: "paint-under-helm", helm: helm.label, option: label, pix: d.mean, area: d.area, cover, verdict: v });
+      if (v !== "DIFFERS") {
         // 90% is the line, and it is where it is because the shop has exactly
         // one helm past it: the Sutton Hoo mask, at 100%, which is "a face with
         // no man in it". Everything else in the shop leaves more than half the
@@ -1100,7 +1167,7 @@ async function renderPass() {
   }
   console.log("");
   check("war paint reads on any face that is not behind a mask", paintGarbled.length === 0,
-    paintGarbled.length ? `${paintGarbled.length} pairs flat on an exposed face` : `every pair above ${PIX_BAR.toFixed(3)}% wherever the face is open`);
+    paintGarbled.length ? `${paintGarbled.length} pairs flat on an exposed face` : `every pair moves more than ${DIFFERS_PCT}% of the subject wherever the face is open`);
   for (const p of paintGarbled) note(`FLAT       ${p}`);
   if (paintFlat.length) {
     note("correctly hidden by a mask — this is a SHOP finding, not a render defect:");
@@ -1147,7 +1214,7 @@ const cell = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(2)}%`)
 const mdRow = (r) => {
   const p = r.lens?.portrait, f = r.lens?.fight;
   const de = r.deltaE !== undefined ? r.deltaE.toFixed(1) : "—";
-  const pix = r.pix ? Object.entries(r.pix).map(([k, v]) => `${v.toFixed(3)} (${k})`).join("<br>") : "—";
+  const pix = r.pix ? Object.entries(r.pix).map(([k, v]) => `${v.area.toFixed(2)}% of subject, mean ${v.mean.toFixed(3)}% (${k})`).join("<br>") : "—";
   const verdict = r.verdict
     ?? (r.deltaE !== undefined ? (r.deltaE < JND ? "**SAME COLOUR**" : r.deltaE < LADDER_DE ? "NEAR" : "DIFFERS") : "—");
   return `| ${r.slot} | ${r.label} | ${r.cost}g | ${cell(p?.sil)} | ${cell(p?.form)} | ${cell(f?.sil)} | ${cell(f?.form)} | ${de} | ${pix} | ${verdict === "IDENTICAL" ? "**IDENTICAL**" : verdict} |`;
@@ -1174,7 +1241,7 @@ const md = [
   "| **SIL%** | symmetric difference of two coverage masks over their union, materials and light and pose taken away entirely — the outline, and only the outline | the two options have the same outline from that lens |",
   "| **FORM%** | share of the overlap where the nearest surface moved more than 2 mm | the two options are the same surface inside that outline |",
   "| **ΔE** | CIELAB ΔE76 between the two catalogue swatches | the two rungs are literally the same colour |",
-  "| **PIX%** | mean per-pixel difference in the real renderer, fixed rig, fixed light, fixed virtual clock | the renderer draws the same picture for both |",
+  "| **PIX%** | pixels the real renderer moved by more than a just-noticeable 2/255, as a share of the subject's own area, on a fixed rig, a fixed light, a fixed virtual clock and a **seeded die** — two captures of one subject are byte-identical | the renderer draws the same picture for both |",
   "",
   `Verdicts are taken on the option's **own best lens and bearing** — a cloak is not in a crown-to-sternum portrait and`,
   `judging it there would report a defect the lens invented. IDENTICAL is below ${IDENTICAL_PCT}% (one object with two`,
@@ -1225,9 +1292,9 @@ const md = [
     "free instrument and the renderer is the only thing that can see it at all. A pair that is one picture behind a helm",
     "covering more than 90% of the face is the mask doing its job — and a shop problem, not a render one.",
     "",
-    "| helm | face covered | pair | PIX% | verdict |",
-    "|---|---|---|---|---|",
-    ...paintRows.map((c) => `| ${c.helm} | ${c.cover.toFixed(0)}% | ${c.option} | ${c.pix.toFixed(3)}% | ${c.verdict === "IDENTICAL" ? "**IDENTICAL**" : c.verdict} |`),
+    "| helm | face covered | pair | AREA% of subject | mean% of frame | verdict |",
+    "|---|---|---|---|---|---|",
+    ...paintRows.map((c) => `| ${c.helm} | ${c.cover.toFixed(0)}% | ${c.option} | ${c.area.toFixed(2)}% | ${c.pix.toFixed(3)}% | ${c.verdict === "IDENTICAL" ? "**IDENTICAL**" : c.verdict} |`),
     "",
   ] : []),
   "## Cosmetics on a severed head",
