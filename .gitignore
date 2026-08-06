@@ -38,3 +38,11 @@ art/ui/
 # Transpiled output the cosmetic harness emits so it can import the
 # renderer outside a browser. Regenerated on every run.
 .cosmetictest/
+
+# Transpiler scratch from the head/wear tape measures. tools/headmeasure.mjs
+# and tools/wearmeasure.mjs emit into the repo on purpose (they need node to
+# resolve `three` from the repo`s own node_modules) and clean up after
+# themselves; a killed run leaves them behind and a `git add -A` swept them in.
+.tb/
+.headmeasure/
+.wearmeasure/
