@@ -2018,9 +2018,79 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   return out.set(px, py, pz);
 }
 
-/** Outward normal of the head at a direction — close enough to hang kit on. */
+/**
+ * Outward normal of the *undisplaced ellipsoid* at a direction.
+ *
+ * This is exact for the ellipsoid and it is wrong for the head, because the head
+ * is the ellipsoid plus a displacement field the size of a face. Keep using it
+ * where a stable, smooth, slowly-varying axis is what is wanted — `eyeFrame`
+ * builds an orbit frame off it and wants the socket's broad direction, not the
+ * local wrinkle. Do NOT use it to stand a worn shell off the skin: see
+ * `faceNormalTrue` and `wearNormalProbe`.
+ */
 function faceNormal(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
   return out.set(d.x / K.R.x, d.y / K.R.y, d.z / K.R.z).normalize();
+}
+
+const _tn0 = new THREE.Vector3();
+const _tnu = new THREE.Vector3();
+const _tnv = new THREE.Vector3();
+const _tnd = new THREE.Vector3();
+const _tta = new THREE.Vector3();
+const _ttb = new THREE.Vector3();
+
+/**
+ * Outward normal of the head as it is ACTUALLY BUILT — central differences on
+ * `faceSurface` in the same (u, v) the surface is parameterised by.
+ *
+ * The thing this fixes is worth stating plainly, because it is four broken
+ * helmets. `headWear` stands every worn shell off the skull by moving a point
+ * on the skin along a normal. It was using the ellipsoid's normal, which the
+ * face block, the brow, the gonial bump and the nose have all moved away from —
+ * `wearNormalProbe` measures the gap at 11.4 deg mean and 71.6 deg worst over
+ * the band a helm rim sits on. Two failures follow from that:
+ *
+ *   - a shell asked for `lift` of clearance gets `lift * cos(theta)`. At 71.6
+ *     deg, 6 mm of lift becomes 1.9, and the shell's inner wall is inside the
+ *     head.
+ *   - theta swings hard across the face block's edge, so adjacent points of one
+ *     shell go in diverging directions. That is a shear. It is why the Spectacle,
+ *     Boar-Crest, Jarl's Crowned and Wyrm-Crest helms each show a hard-edged
+ *     rectangular slab of metal with skin punching through it, and why the
+ *     Shadow Hood cuts a flat plane through the skull on the armoury card.
+ *
+ * The step is in parameter space, not world space, and it is deliberately not
+ * tiny: at 1e-3 of a radian the difference is dominated by the field's real
+ * curvature rather than by float cancellation on a 0.1 m head. Central rather
+ * than forward differences because the field is not symmetric about a sample
+ * and a forward difference biases every normal one half-step toward +u/+v —
+ * which on the midline is a systematic lean toward one ear.
+ *
+ * Near the poles `cos(v)` collapses and the u-tangent goes to nothing; there the
+ * ellipsoid normal is both correct and stable, so fall back to it rather than
+ * normalising noise. The crown and the underside of the jaw are exactly where
+ * nothing subtle is worn.
+ */
+function faceNormalTrue(K: Skull, u: number, v: number, out: THREE.Vector3): THREE.Vector3 {
+  const h = 1e-3;
+  // d(surface)/du, centred.
+  faceSurface(K, dirOf(u + h, v, _tnd), _tn0);
+  faceSurface(K, dirOf(u - h, v, _tnd), _tnu);
+  _tta.subVectors(_tn0, _tnu);
+  // d(surface)/dv, centred.
+  faceSurface(K, dirOf(u, v + h, _tnd), _tn0);
+  faceSurface(K, dirOf(u, v - h, _tnd), _tnv);
+  _ttb.subVectors(_tn0, _tnv);
+
+  out.crossVectors(_ttb, _tta);
+  // Degenerate at the poles, and anywhere the field folds. The ellipsoid normal
+  // is the honest answer there.
+  if (out.lengthSq() < 1e-16) return faceNormal(K, dirOf(u, v, _tnd), out);
+  out.normalize();
+  // The cross product's sign follows the parameterisation, which flips across
+  // the equator. Anchor it to the one direction that is unambiguously outward.
+  if (out.dot(faceNormal(K, dirOf(u, v, _tnd), _tnu)) < 0) out.negate();
+  return out;
 }
 
 /**
@@ -2331,7 +2401,10 @@ function headWear(
     const v = mix(opts.v0(u), opts.v1(u), s);
     dirOf(u, v, _d);
     faceSurface(K, _d, out);
-    faceNormal(K, _d, _n);
+    // The normal of the head as built, not of the ellipsoid it started as. Using
+    // the latter here is what sheared four helms through the face — see
+    // `faceNormalTrue` and `wearNormalProbe` for the measurement.
+    faceNormalTrue(K, u, v, _n);
     out.addScaledVector(_n, offset);
   };
   return patch({
@@ -6822,7 +6895,11 @@ export function buildCharacter(
       const onFace = (u: number, v: number, off: number): THREE.Vector3 => {
         dirOf(u, v, _d);
         faceSurface(K, _d, _fp);
-        faceNormal(K, _d, _n);
+        // Follows `headWear` onto the true normal, and it has to: the comment
+        // above is the contract, and a fitting standing off in a different
+        // direction from the sheet it is riveted to is a boar's snout floating
+        // beside its own helm.
+        faceNormalTrue(K, u, v, _n);
         return _fp.addScaledVector(_n, off);
       };
       // Spangenhelm bowl. The dome term is what gives the huscarl a deep round
