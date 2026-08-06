@@ -169,22 +169,31 @@ export interface ArmouryOption {
 }
 
 export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOption[] }> = [
-  // The helmet ladder is the game's progression, so it is priced against what a
-  // match actually pays and not against the tile next to it.
+  // WHAT A MATCH PAYS, MEASURED — and this note used to be wrong, said so itself,
+  // and was wrong for long enough that docs/COSMETICS-AUDIT.md flags it twice.
   //
-  // `endMatch` today grants `10 + 15·kills + 50·win`: a good match is four kills
-  // and a coin-flip on the win, so 90–120 gold in three or four minutes. The
-  // rounds work landing in parallel does not pay per round — gold is granted once
-  // at match end off accumulated totals — so a best-of-3 is one payout on maybe
-  // 2.2× the kills for 2.5× the wall clock. Call it 200–260 a match afterwards
-  // and roughly flat per minute, which is the assumption every number below rests
-  // on. If that changes, this row is the thing to re-check.
+  // It reasoned from "call it 200–260 a match", predicted off `endMatch`'s
+  // `10 + 15·kills + 50·win` and a guess at how a best-of-3 compounds. Measurement
+  // disproved it: **a winning best-of-3 pays 90–135 gold.** Gold is granted once
+  // at match end off accumulated totals, so three rounds are one payout and not
+  // three, which is most of where the doubled estimate came from. Every price in
+  // this table is now read against 90–135, and the note the old one carried —
+  // that this row is the thing to re-check when the economy moves — stands.
   //
-  // Against that: the mid rungs are one to three matches apart, which is what
-  // makes them worth buying on the way past. Sutton Hoo is deliberately not on
-  // that curve — 2400 is ten matches under the new economy and twenty under the
-  // old, an evening a week for a month, and it is the only thing in the shop
-  // priced as a season's goal rather than as a purchase.
+  // Against that anchor:
+  //
+  //   * The mid helm rungs are two to four matches apart, which is what makes
+  //     them worth buying on the way past.
+  //   * Sutton Hoo is deliberately not on that curve. 2400 is 18–25 winning
+  //     matches, an evening a week for a month, and it is the only thing in the
+  //     shop priced as a season's goal rather than as a purchase. The owner has
+  //     confirmed that number is right.
+  //   * A SLOT WHOSE PRODUCT IS A COLOUR IS PRICED AS A COLOUR. `npm run
+  //     cosmetictest` measures every option's shape with no materials, no light
+  //     and no pose, and Armour Finish, Hair Colour and Beard Colour come back at
+  //     0.00% in silhouette AND form on every rung — correctly, because a tint is
+  //     what they are. What is not correct is charging 510 gold for one. See the
+  //     notes on those three slots.
   {
     slot: "helm", label: "Helmets",
     options: [
@@ -215,46 +224,93 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
   },
   {
     slot: "hairColor", label: "Hair Colour",
+    // REPRICED TO WHAT A DYE IS WORTH. These six are literally hex values —
+    // `cosmetictest` reads every rung at 0.00% silhouette and 0.00% form and that
+    // is correct rather than a defect, because there is no geometry here to
+    // differ. What was not correct was the ladder: 30–40 gold a rung is a third
+    // of a winning best-of-3 for a number, and the same number again in the beard
+    // slot, so twelve SKUs of pure hex were carrying 210 gold. A dye is 10.
+    //
+    // Re-graded rather than cut — see `RETIRED_HAIR` for the readings and for how
+    // a stored profile keeps the tile it paid for. Nobody is stranded by the
+    // reprice either: ids are unchanged, so every profile that owns one still
+    // owns it, and a price only ever applies to a purchase not yet made.
     options: [
-      // Re-graded, not repriced and not cut — see `RETIRED_HAIR` for the
-      // readings and for how a stored profile keeps the tile it paid for.
       { id: "hc_brown", label: "Oak Brown", cost: 0, slot: "hairColor", value: 0x4a3220 },
       { id: "hc_black", label: "Raven Black", cost: 0, slot: "hairColor", value: 0x1c1712 },
-      { id: "hc_blond", label: "Norse Gold", cost: 40, slot: "hairColor", value: 0x9c8a55 },
-      { id: "hc_red", label: "Fire Red", cost: 30, slot: "hairColor", value: 0x7a412c },
-      { id: "hc_grey", label: "Greybeard", cost: 30, slot: "hairColor", value: 0x8a8578 },
-      { id: "hc_snow", label: "Snow White", cost: 30, slot: "hairColor", value: 0xe8e4da },
+      { id: "hc_blond", label: "Norse Gold", cost: 10, slot: "hairColor", value: 0x9c8a55 },
+      { id: "hc_red", label: "Fire Red", cost: 10, slot: "hairColor", value: 0x7a412c },
+      { id: "hc_grey", label: "Greybeard", cost: 10, slot: "hairColor", value: 0x8a8578 },
+      { id: "hc_snow", label: "Snow White", cost: 10, slot: "hairColor", value: 0xe8e4da },
     ],
   },
   {
     slot: "beard", label: "Beards",
+    // PRICES HELD. Full, Forked and Ringed Braid measured as one crescent — 0.57%
+    // and 0.87% of the subject at fight distance, both under the 1% a shape has
+    // to move to be seen in play — and they now differ in mass and in length: a
+    // wedge, a wedge with a notch cut out of it, and a rope reaching twice as far.
+    // The ladder buys more beard as well as more work, so 40/80/120 is honest.
+    //
+    // `beard_short` stays FREE and stays where it is in the ladder, but it is no
+    // longer the same object as Clean Shaven: it had no geometry at all, and now
+    // carries 9 mm of close crop. It is renamed for that, because "Stubble" names
+    // a shadow and this is a beard — the same rule the audit applies to "Bronze
+    // Scales". Id and value are unchanged, so nothing stored moves.
     options: [
       { id: "beard_none", label: "Clean Shaven", cost: 0, slot: "beard", value: "none" },
-      { id: "beard_short", label: "Stubble", cost: 0, slot: "beard", value: "short" },
-      { id: "beard_full", label: "Full Beard", cost: 40, slot: "beard", value: "full" },
-      { id: "beard_forked", label: "Forked Beard", cost: 80, slot: "beard", value: "forked" },
-      { id: "beard_braided", label: "Ringed Braid", cost: 120, slot: "beard", value: "braided" },
+      { id: "beard_short", label: "Close Crop", cost: 0, slot: "beard", value: "short" },
+      { id: "beard_full", label: "Full Beard", cost: 40, slot: "beard", value: "full",
+        desc: "Broad and short. It spreads past the jaw." },
+      { id: "beard_forked", label: "Forked Beard", cost: 80, slot: "beard", value: "forked",
+        desc: "Two tines swung apart, with daylight between them from every side." },
+      { id: "beard_braided", label: "Ringed Braid", cost: 120, slot: "beard", value: "braided",
+        desc: "One rope of a plait, bound in brass three times, to the chest." },
     ],
   },
   {
     slot: "beardColor", label: "Beard Colour",
+    // The same reprice, for the same reason, on the same six hex values — see the
+    // hair colour note above.
     options: [
       { id: "bc_brown", label: "Oak Brown", cost: 0, slot: "beardColor", value: 0x4a3220 },
       { id: "bc_black", label: "Raven Black", cost: 0, slot: "beardColor", value: 0x1c1712 },
-      { id: "bc_blond", label: "Norse Gold", cost: 40, slot: "beardColor", value: 0x9c8a55 },
-      { id: "bc_red", label: "Fire Red", cost: 30, slot: "beardColor", value: 0x7a412c },
-      { id: "bc_grey", label: "Greybeard", cost: 30, slot: "beardColor", value: 0x8a8578 },
-      { id: "bc_snow", label: "Snow White", cost: 30, slot: "beardColor", value: 0xe8e4da },
+      { id: "bc_blond", label: "Norse Gold", cost: 10, slot: "beardColor", value: 0x9c8a55 },
+      { id: "bc_red", label: "Fire Red", cost: 10, slot: "beardColor", value: 0x7a412c },
+      { id: "bc_grey", label: "Greybeard", cost: 10, slot: "beardColor", value: 0x8a8578 },
+      { id: "bc_snow", label: "Snow White", cost: 10, slot: "beardColor", value: 0xe8e4da },
     ],
   },
   {
     slot: "cloak", label: "Cloaks",
+    // PRICES HELD, AND THIS IS THE ONE SLOT WHERE THAT NEEDED ARGUING. Until this
+    // wave the four were pairwise 0.00% in silhouette and form from every lens
+    // and bearing — one mesh under four names, so 400 gold bought a recolour of a
+    // 30-gold garment and this was the worst value in the game.
+    //
+    // They are four cuts now, not four tints: see `CLOAK_CUTS`. Each differs from
+    // its neighbour in length, hem, wrap, flare, fold and fastening, and the
+    // ladder buys outline — which is the thing a cloak is uniquely able to sell,
+    // because at fight distance it is fifty pixels of a man where a helmet crest
+    // is two. So the prices stand as the owner set them, on the geometry rather
+    // than on the name:
+    //
+    //   30   a short shoulder cape to the hip, pinned with a bone pin
+    //   90   the full-length war cloak, knee, level hem, disc brooch
+    //   90   the same money for the opposite garment — longer, narrow, no flare,
+    //        cut to a point, on a penannular ring-and-pin
+    //   400  the largest garment in the game: a train, the widest wrap, seven
+    //        folds and a bossed gilt disc
     options: [
       { id: "cloak_none", label: "No Cloak", cost: 0, slot: "cloak", value: "none" },
-      { id: "cloak_brown", label: "Traveller's Cloak", cost: 30, slot: "cloak", value: "brown" },
-      { id: "cloak_red", label: "Blood Red Cloak", cost: 90, slot: "cloak", value: "red" },
-      { id: "cloak_blue", label: "Sea-Wolf Cloak", cost: 90, slot: "cloak", value: "blue" },
-      { id: "cloak_gold", label: "Gilded War Cloak", cost: 400, slot: "cloak", value: "gold" },
+      { id: "cloak_brown", label: "Traveller's Cloak", cost: 30, slot: "cloak", value: "brown",
+        desc: "A short cape off one shoulder, pinned with a bone pin." },
+      { id: "cloak_red", label: "Blood Red Cloak", cost: 90, slot: "cloak", value: "red",
+        desc: "Full length to the knee, hung from the shield shoulder on a disc brooch." },
+      { id: "cloak_blue", label: "Sea-Wolf Cloak", cost: 90, slot: "cloak", value: "blue",
+        desc: "Long and narrow, cut to a tail at the back, on a ring-and-pin." },
+      { id: "cloak_gold", label: "Gilded War Cloak", cost: 400, slot: "cloak", value: "gold",
+        desc: "A trained war cloak on a bossed gilt disc. It sweeps behind him." },
     ],
   },
   {
@@ -267,13 +323,38 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       // cheapest finish in the catalog, and still unmistakably iron rather than
       // steel. (Stored profiles holding the old value will show no finish selected
       // until the player re-picks one; the warrior still builds correctly.)
+      //
+      // REPRICED FROM 1050 GOLD OF LADDER TO 250, BECAUSE IT IS A TINT AND THIS
+      // WAVE DID NOT MAKE IT ANYTHING ELSE. Three measurements, none of them an
+      // opinion:
+      //
+      //   * `cosmetictest` reads all six adjacent rungs at 0.00% silhouette and
+      //     0.00% form. `ap.armorColor` feeds exactly one thing — `M.armour(...)`,
+      //     the mail material — so there is no geometry in this slot to differ.
+      //   * The audit's frames say the tint lands on the two shoulders and a
+      //     sliver of chest, because the shield covers the rest of the torso at
+      //     every bearing a player fights from.
+      //   * Two of the four classes cannot wear it. The runekeeper's torso layer
+      //     is `robed ? buff : mail` — leather, not mail — and the berserker is
+      //     `bare` with no metal torso layer at all. 510 gold bought them nothing.
+      //
+      // Bretwalda Gold at 510 was 4–6 winning matches for a hex value that half
+      // the roster cannot see, which is the most dishonest price in the shop. The
+      // slot is a rack of DYES AND METAL POLISHES and is priced as one: 20 to 60,
+      // ordered by how exotic the dyestuff is rather than by how grand the name
+      // is. If somebody later gives these real substance — scale geometry for
+      // Bronze, a lacquered plate for Crimson, blued mail for Blackened — and
+      // puts it on a surface every class actually has, then the ladder can be
+      // re-argued upward with a frame behind it. Until then it costs what a
+      // colour costs. Ids are unchanged, so a profile that already paid 510 keeps
+      // what it bought.
       { id: "armor_iron", label: "Rough Iron", cost: 0, slot: "armor", value: 0x5f6b7a },
-      { id: "armor_steel", label: "Polished Steel", cost: 30, slot: "armor", value: 0x8a97a5 },
-      { id: "armor_dark", label: "Blackened Steel", cost: 130, slot: "armor", value: 0x2a2f38 },
-      { id: "armor_bronze", label: "Bronze Scales", cost: 160, slot: "armor", value: 0x8a6a3a },
-      { id: "armor_crimson", label: "Crimson Warplate", cost: 120, slot: "armor", value: 0x7a2f2a },
-      { id: "armor_seablue", label: "Sea Queen's Gift", cost: 100, slot: "armor", value: 0x2f4a6a },
-      { id: "armor_gold", label: "Bretwalda Gold", cost: 510, slot: "armor", value: 0x9a7a2a },
+      { id: "armor_steel", label: "Polished Steel", cost: 20, slot: "armor", value: 0x8a97a5 },
+      { id: "armor_dark", label: "Blackened Steel", cost: 40, slot: "armor", value: 0x2a2f38 },
+      { id: "armor_bronze", label: "Bronze Scales", cost: 50, slot: "armor", value: 0x8a6a3a },
+      { id: "armor_crimson", label: "Crimson Warplate", cost: 40, slot: "armor", value: 0x7a2f2a },
+      { id: "armor_seablue", label: "Sea Queen's Gift", cost: 40, slot: "armor", value: 0x2f4a6a },
+      { id: "armor_gold", label: "Bretwalda Gold", cost: 60, slot: "armor", value: 0x9a7a2a },
     ],
   },
   {
@@ -6593,7 +6674,39 @@ export function buildCharacter(
   // same tile and had the same defect at half the density. They cost nothing:
   // the head is merged per material anyway and these replace the entries the
   // body's three were making in it.
-  const FACE_TILE = 0.0085;
+  // 2.2 mm, not 8.5, and this time it is measured on the frame rather than
+  // predicted off the recipe.
+  //
+  // The 8.5 mm above was chosen by reading `buildSkin` and multiplying: the ridge
+  // field's base octave lands at 1.1 mm, which is under a pixel, therefore grain.
+  // The frame disagrees. An FFT of an 80x80 patch of the vault on
+  // `art/shots/judge/cards/headturn-profile_90_.png` returns ONE sharp peak, at a
+  // period of 5.7 px in x with almost no y component — a ruled square lattice,
+  // and at that card's 1.22 px/mm that is a 4.7 mm cell. Nothing in the recipe is
+  // 4.7 mm. 8.5 / 4.7 is 1.8, and that is the giveaway: what is being drawn is
+  // not any octave of the noise, it is THE TILE ITSELF. A 256 texel map at a
+  // 8.5 mm tile is 0.033 mm a texel, which at portrait range is twenty-five
+  // texels to a pixel — mip level 4.6, an effective 10x10 map. Every octave the
+  // recipe was reasoned about has been filtered away by then, and all that is
+  // left is a single blob per tile, stamped every 8.5 mm. That is the owner's
+  // woven cross-hatch, and it is why 35 mm also read as a grid and merely as a
+  // coarser one: pushing content under a pixel does not delete it, it hands it to
+  // the tile repeat. This file has already found the same failure twice on the
+  // ground — see `grit` in textures.ts, "sub-texel content there is not dither,
+  // it is crawl".
+  //
+  // The head's own Nyquist note is the rule to settle it with, applied to the
+  // thing actually being drawn: the repeat has to be under the resolving limit,
+  // not the octave. At 2.2 mm the stamp lands at 1.2 mm, which is 1.5 px at the
+  // portrait framing and well under one at fight range, so the lattice stops
+  // being a pattern the eye can count.
+  //
+  // What that costs is the low-frequency variation that stops skin reading as a
+  // mannequin, because a 2.2 mm tile has none left. It is bought back below, in
+  // `faceComplexion`, which is the right home for it anyway: it is written in the
+  // skull's own direction space, it is on no lattice at all, and it is already
+  // where every other thing that varies across a face lives.
+  const FACE_TILE = 0.0022;
   const faceTile = (color: number, roughness: number) => {
     if (thrifty) return skin;
     const m = M.tinted("skin", color, { roughness, tile: FACE_TILE });
