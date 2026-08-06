@@ -2969,6 +2969,47 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
     }
   }
   const tipWide = tipR > tipL ? tipR - tipL : 0;
+  //
+  // ---- THE MEASUREMENT THREE PASSES HAVE BEEN MISSING ----
+  //
+  // "The cranium dominates and the face is a small panel on its front-lower
+  // quarter" has now been logged by three separate judgements while every ratio
+  // above says the proportions are canon: `craniumShare` 0.338 against 0.35,
+  // `breadthOverHeight` 0.703 against a life 0.67. Both are true and neither is
+  // the thing being looked at, because both measure the HEAD and the complaint is
+  // about the FACE — specifically about how much of the head's breadth the face
+  // occupies before the surface turns away toward the ear.
+  //
+  // So: at the eye line, find the bearing at which the surface has fallen 15 mm
+  // behind the CHEEK — where a viewer stops reading "face" and starts reading
+  // "side of head". Against the head's full breadth at the same latitude, life is
+  // about 0.72: a man's face fills most of the front of his skull.
+  //
+  // THE DATUM IS AT BEARING 0.30, NOT AT THE MIDLINE, and the first cut of this
+  // took it at the midline and reported 0.116 — a face a ninth of the head's
+  // breadth, which would have sent the next pass off to widen a face that is not
+  // narrow. `headSilhouette`'s own S7 note says exactly why and this file made the
+  // mistake anyway: at the eye line the midline is the NOSE, so a fall measured
+  // from bearing zero is the nose's own falloff and says nothing about the cheek.
+  // 0.30 rad is outside the alar crease, which is where `cheekPlane` starts for
+  // the same reason.
+  //
+  // Reported rather than acted on this pass. It is the instrument the next one
+  // needs; it is not a licence to tune against it without looking.
+  let faceHalf = 0, headHalfAtEye = 0;
+  {
+    const fy = Y_EYE;
+    const cv = Math.sqrt(Math.max(0, 1 - fy * fy));
+    faceSurface(K, d.set(Math.sin(0.30) * cv, fy, Math.cos(0.30) * cv), p);
+    const cheekZ = p.z;
+    for (let i = 0; i <= 300; i++) {
+      const t = (i / 300) * Math.PI;
+      faceSurface(K, d.set(Math.sin(t) * cv, fy, Math.cos(t) * cv), p);
+      headHalfAtEye = Math.max(headHalfAtEye, Math.abs(p.x));
+      if (t >= 0.30 && t < Math.PI / 2 && p.z >= cheekZ - 0.015) faceHalf = Math.max(faceHalf, Math.abs(p.x));
+    }
+  }
+
   const sub = front(Y_NOSE);
   const lip = front(Y_LIP);
   const pog = front(Y_CHIN);
@@ -3013,6 +3054,10 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
     /** Chin against the lip above it. A man's pogonion is at or in front of it. */
     chinBeyondLip: (pog.z - lip.z) * mm,
     chinBeyondGlabella: (pog.z - glab.z) * mm,
+    /** Breadth of the FACE PANEL at the eye line — where the surface has fallen
+     *  15 mm behind the frontmost point — over the head's own breadth there. */
+    facePanel: faceHalf / Math.max(1e-6, headHalfAtEye),
+    facePanelBreadth: faceHalf * 2 * mm,
     jawBreadth: jawW * 2 * mm,
     cheekBreadth: cheekW * 2 * mm,
     jawOverCheek: jawW / cheekW,

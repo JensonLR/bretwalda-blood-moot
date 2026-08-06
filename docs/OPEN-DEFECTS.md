@@ -7,6 +7,9 @@ change is made.
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 Current reference: **`art/shots/v12/`**. A/B against `v11/`.
+The head's own turntable: **`art/shots/judge9c/`** (portrait) and
+`art/shots/judge9b/head-turn-fight.png` (fight range). A/B against
+`art/shots/judge/`, which is the capture the owner's three notes came off.
 
 ---
 
@@ -99,15 +102,45 @@ same angle whether you lift the ridge or drop the skin under it, and only one of
 those grows the head into the bowl sitting on it. So the crest keeps its 9 mm and
 the orbital margin below now cuts 9 mm instead of 4.
 
-**What is NOT closed: the mass relationship.** The face is still a small panel on
-a large smooth dome, and this is the same item the seventh pass logged and could
-not measure. `craniumShare` is 0.338 against a canon 0.35, `breadthOverHeight`
-0.703 against a life 0.67, `lengthOverHeight` 0.843 against 0.845. Every number
-says the proportions are right and the read says they are not, which means the
-quantity that carries this read is still not in the gate. The most likely
-candidate, unmeasured: the **features'** share of the face, not the face's share
-of the head — the eyes, nose and mouth occupy a narrow central column with very
-large empty cheek and temple either side of it.
+**What is NOT closed: the mass relationship.** Front-on
+(`art/shots/judge9c/cards/headturn-front_0_.png`) is still the weakest bearing by
+a distance and the read is unchanged: a small face on a large smooth dome. This
+is the same item the seventh pass logged and could not measure.
+
+**A new measurement, and it DISPROVES the standing theory.** `facePanel` asks how
+much of the head's breadth the face occupies at the eye line — swept from outside
+the nose at bearing 0.30 out to where the surface has fallen 15 mm behind the
+cheek, which is where a viewer stops reading "face" and starts reading "side of
+head". The theory for three passes has been that the face is narrow. **It is
+not:** 139–164 mm of panel on a 176–206 mm head, 0.76–0.83 against a life 0.72.
+The face is if anything slightly broader than life.
+
+So the read is real and it is not breadth, and it is not `craniumShare` (0.338
+against a canon 0.35), `breadthOverHeight` (0.703 against a life 0.67) or
+`lengthOverHeight` (0.843 against 0.845) either. All four now measured, all four
+at or better than life. Whatever carries this read is something else, and the next
+pass should stop reaching for the proportions.
+
+*(A warning for whoever writes the next probe: the first cut of `facePanel` took
+its datum at the midline and reported 0.116 — a face a ninth of the head's
+breadth — which would have sent this straight back to widening a face that is not
+narrow. At the eye line the MIDLINE IS THE NOSE, so a fall measured from bearing
+zero is the nose's own falloff. `headSilhouette`'s S7 note says exactly this and
+it got made anyway.)*
+
+**The two candidates left, in order.** Neither is measured:
+1. **The features' share of the face, rather than the face's share of the head.**
+   The eyes, nose and mouth occupy a vertical band from `Y_EYE` to `Y_LIP` — about
+   a fifth of the head's height — with large unbroken cheek, temple and forehead
+   around it. Larger, fewer, more certain features is the stylised answer and it
+   costs nothing in geometry.
+2. **The complexion is narrowing what the geometry made broad.** The panel is
+   151 mm and the LIT part of it front-on is far less than that. This file has
+   already caught the same field painting the face narrow once ("the silhouette
+   measures 190 mm at the cheekbone against 163 at the jaw, which is a broad face.
+   It was being *painted* narrow") and halved the buccal terms for it. Measure the
+   luma across the face at the eye line on the front card before touching any
+   geometry.
 
 **What the next pass should do about it.** Take the owner's explicit offer and
 commit to the stylised head rather than to realism: the face's job is the armoury
@@ -116,6 +149,26 @@ judge already found "no defect, no character" in a 30 px blob. The vault work
 above is that choice being made — confident planes with landmarks between them —
 and the next lever is the same one applied to the face: fewer, larger, more
 certain features. **Do not** do a parameter sweep, and do not reach for the nose.
+
+### Two new defects on the ear, logged rather than chased
+
+Both are on the shell this pass built and both are visible in
+`art/shots/judge9c/cards/headturn-profile_90_.png` at 7x.
+
+1. **A violet rim down the inner wall of the helix.** 69 pixels, mean RGB
+   (153, 85, 100) against skin at (202, 113, 68) nearby — much more blue at
+   similar red, which is the night sky. The inner wall of the rim is the one
+   steeply up-and-outward-facing surface on the head, so it takes the arena's cool
+   hemisphere and environment square on over a warm albedo. It is not the shade
+   tone (0x9b7456 is brown) and it is not the complexion's flush (which removes
+   blue). Left alone deliberately: it is an interaction with the arena rig and the
+   environment intensity, not with the head, and this wave owns the head.
+2. **The bowl is faintly faceted.** Fixed once already this pass — seven radial
+   rings put the helix crest at 0.78 between samples at 0.714 and 0.857, so the
+   rim was a chord across its own peak and the facets read as a spider of radial
+   creases. Nine rings land on 0.222 / 0.444 / 0.778 against control points at
+   0.20 / 0.44 / 0.78. What is left is mild and is the angular count (28), not the
+   radial one.
 
 ### The tape measure itself was wrong twice, and both are fixed
 
