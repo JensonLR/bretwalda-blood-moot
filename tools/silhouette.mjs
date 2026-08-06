@@ -76,12 +76,17 @@ const SHEETS = {
   // it is worth its own hour only once the first sheet has been read.
   helm: { file: "sil-helm.png", card: "facecard", slot: "helm", cols: 10,
     title: "HELM · SILHOUETTE ONLY · three-quarter −35°",
-    rows: [{ turn: QUARTER, tag: "3/4" }] },
+    rows: [{ turn: QUARTER, tag: "3/4" }], ladder: 4 },
   helmprofile: { file: "sil-helm-profile.png", card: "facecard", slot: "helm", cols: 10,
     title: "HELM · SILHOUETTE ONLY · profile −90°, where a crest and a nape guard are",
-    rows: [{ turn: -90, tag: "profile" }] },
+    rows: [{ turn: -90, tag: "profile" }], ladder: 4 },
   helmfight: { file: "sil-helm-fight.png", card: "fightcard", slot: "helm", cols: 10,
-    title: "HELM · SILHOUETTE ONLY · at fight distance, −35°", rows: [{ turn: QUARTER }] },
+    title: "HELM · SILHOUETTE ONLY · at fight distance, −35°", rows: [{ turn: QUARTER }],
+    // Fight distance is 6.8 m and a head is ~20 px there, so the same shape
+    // difference is worth a fraction of the pixels it is worth on a face card.
+    // 1.5% of the union is about 12 px of outline at this scale, which is the
+    // smallest change anybody has ever noticed in a brawl.
+    ladder: 1.5 },
   hair: { file: "sil-hair.png", card: "facecard", slot: "hair", cols: 4,
     title: "HAIR · SILHOUETTE ONLY · three-quarter and from behind",
     rows: [{ turn: QUARTER, tag: "3/4" }, { turn: 180, tag: "back" }] },
@@ -100,6 +105,24 @@ const SHEETS = {
 };
 
 /**
+ * THE LADDER TEST — `ladder` above, in per-cent.
+ *
+ * `docs/COSMETICS-AUDIT.md` names this as the cheapest real gate the harness was
+ * missing: "render each sheet and assert that adjacent panels differ by more
+ * than N% of pixels. Long Mane vs Warrior Crop under the mask would score zero
+ * and the harness would have said so without anyone looking."
+ *
+ * The metric is the Jaccard distance of the ink — the pixels the two outlines
+ * disagree about, over the pixels either of them covers. It is the right measure
+ * for a shape rather than for an image: it does not care how big the man is in
+ * frame, only how much of his outline moved, and it is 0 for two identical
+ * silhouettes however dark or bright the capture was.
+ *
+ * It is run on ADJACENT rungs specifically, because that is the purchase a
+ * player actually makes. Nobody buys the 950 instead of the 30; he buys the next
+ * one up, and the question the shop has to answer is whether that next one looks
+ * like anything.
+ *
  * Weapons. There is no lens in /shot that photographs a weapon on its own, and
  * this tool may not add one — so the honest capture is the man holding it, from
  * the bearing where the weapon is not inside his own body. Every class, both
@@ -348,6 +371,50 @@ async function main() {
       const stem = `${name}-${s.label.replace(/[^\w.-]+/g, "_")}`;
       const { b64, bad } = await capture(spec.card, s.query, resolve(cardDir, `${stem}.png`));
       panels.push({ label: s.label, b64, bad });
+    }
+
+    // ---- the ladder test ----
+    if (spec.ladder) {
+      const cmp = await (await ctxFor(spec.card)).newPage();
+      const diffs = await cmp.evaluate(async (cards) => {
+        const inkOf = async (b64) => {
+          const img = new Image();
+          await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = "data:image/png;base64," + b64; });
+          const c = document.createElement("canvas");
+          c.width = img.width; c.height = img.height;
+          const x = c.getContext("2d");
+          x.drawImage(img, 0, 0);
+          const d = x.getImageData(0, 0, c.width, c.height).data;
+          const bits = new Uint8Array(c.width * c.height);
+          for (let i = 0, k = 0; i < d.length; i += 4, k++) bits[k] = d[i] < 128 ? 1 : 0;
+          return bits;
+        };
+        const masks = [];
+        for (const c of cards) masks.push(await inkOf(c.b64));
+        const out = [];
+        for (let i = 1; i < masks.length; i++) {
+          const a = masks[i - 1], b = masks[i];
+          let xor = 0, or = 0;
+          for (let k = 0; k < a.length; k++) {
+            if (a[k] | b[k]) { or++; if (a[k] !== b[k]) xor++; }
+          }
+          out.push(or ? xor / or : 0);
+        }
+        return out;
+      }, panels.map((p) => ({ b64: p.b64 })));
+      await cmp.close();
+      console.log(`[sil] ladder ${name}: adjacent-rung outline difference, bar ${spec.ladder}%`);
+      for (let i = 0; i < diffs.length; i++) {
+        const pct = diffs[i] * 100;
+        const ok = pct >= spec.ladder;
+        console.log(`[sil]   ${String(i + 1).padStart(2)} -> ${String(i + 2).padStart(2)}  ` +
+          `${pct.toFixed(1).padStart(5)}%  ${ok ? "" : "<-- SAME SHAPE"}  ` +
+          `${panels[i].label.split(" · ")[0]} / ${panels[i + 1].label.split(" · ")[0]}`);
+        if (!ok) {
+          report.push({ file: `${name}:${i + 1}->${i + 2}`, query: "", card: spec.card, ink: 0,
+            errors: [`adjacent rungs differ by only ${pct.toFixed(1)}% of outline (bar ${spec.ladder}%)`] });
+        }
+      }
     }
 
     const page = await (await ctxFor(spec.card)).newPage();
