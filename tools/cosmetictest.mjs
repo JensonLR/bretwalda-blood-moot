@@ -892,6 +892,7 @@ async function renderPass() {
   // GL context, the compiled shaders and the procedural textures. A fresh
   // context per capture cost 15 s of the 50 s each.
   const pages = new Map();
+  let live = null;
   const pageFor = async (lens) => {
     const key = lens.card;
     if (!pages.has(key)) {
@@ -902,6 +903,16 @@ async function renderPass() {
       await ctx.addInitScript(installVirtualClock, FRAME_MS);
       pages.set(key, await ctx.newPage());
     }
+    // ONLY ONE SCENE MAY BE ALIVE AT A TIME. A settled `/shot` page does not
+    // stop: its rAF loop keeps rendering after `__shotReady`, and on a box with
+    // no GPU that is a whole SwiftShader render competing for the same cores as
+    // the capture you are waiting for. Measured: with an idle face card left
+    // open, the first fight-card capture took 217 s against the 40 s it takes on
+    // its own. So the outgoing page is parked on about:blank before the incoming
+    // one is used. Reusing pages is still worth it — the context, the compiled
+    // shaders and the browser process are what cost 15 s of a cold capture.
+    if (live && live !== key) await pages.get(live).goto("about:blank", { timeout: 60000 }).catch(() => {});
+    live = key;
     return pages.get(key);
   };
 
@@ -1018,7 +1029,9 @@ async function renderPass() {
   console.log("  slot         pair                                        lens      PIX%    worst%  verdict");
   console.log("  ------------------------------------------------------------------------------------------");
   const flatPairs = [];
-  for (const [name, spec] of plan) {
+  // Ordered by lens, so the browser switches viewport once rather than per slot.
+  const planned = [...plan].sort((a, b) => a[1].lenses[0].localeCompare(b[1].lenses[0]));
+  for (const [name, spec] of planned) {
     const sl = slotOf(name);
     const field = SLOT_FIELD[name];
     const stage = STAGE[name] ?? { dress: {}, turns: [QUARTER] };
