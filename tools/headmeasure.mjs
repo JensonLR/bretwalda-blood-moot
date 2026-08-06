@@ -183,13 +183,17 @@ function silMetrics(sil) {
   // couple of millimetres; on a snout they cross it. Measured over every outline
   // sample between the two, so it is the CURVE that is tested, not a point.
   const pog = foremostIn(sil, sil.chinY - H * 0.06, sil.chinY + H * 0.06);
-  let lipBeyondE = -Infinity;
+  let lipBeyondE = -Infinity, lipBeyondEAt = 0;
   for (let i = 0; i < n; i++) {
     const y = sil.y[i];
-    if (y > nose.y || y < pog.y) continue;
+    // The LIP block only — subnasale down to pogonion. Scanning the whole chord
+    // instead lets the two endpoints in, where the distance is zero by
+    // construction, and the assertion then reports 0.000 on a face whose lips are
+    // 4 mm clear and cannot tell that from a face whose lips are on the line.
+    if (y > sil.noseY || y < pog.y + H * 0.07) continue;
     const t = (y - nose.y) / (pog.y - nose.y || 1e-9);
     const zLine = nose.z + (pog.z - nose.z) * t;
-    lipBeyondE = Math.max(lipBeyondE, sil.z[i] - zLine);
+    if (sil.z[i] - zLine > lipBeyondE) { lipBeyondE = sil.z[i] - zLine; lipBeyondEAt = y; }
   }
 
   // ---- S3 · the facial angle, as a vertical and not as a ratio ----
@@ -220,6 +224,7 @@ function silMetrics(sil) {
     frontFromCrown,
     noseLead,
     lipBeyondEline: mmOf(lipBeyondE),
+    lipBeyondElineAt: (sil.top - lipBeyondEAt) / H,
     chinBehindBrow,
     gonialTurnDeg: gonialTurn,
     gonialOverArc,
@@ -256,7 +261,9 @@ const ASSERTS = [
     "S1 · mm the nose tip stands in front of the whole lip band. NEGATIVE IS A MUZZLE — the lips are the frontmost point of the face"],
   ["frontFromCrown", 0.42, 0.62,
     "S1 · where the frontmost point of the face sits, as a fraction of head height below the crown. The nose lives here; the mouth is at 0.68+"],
-  ["lipBeyondEline", -14, 0.5,
+  ["lipBeyondElineAt", 0.60, 0.86,
+    "S2 · where along the head that worst point sits. If it is not in the lip block the assertion is measuring something else"],
+  ["lipBeyondEline", -14, -0.8,
     "S2 · mm the lips stand in FRONT of the nose-to-pogonion chord. Life is -2 to -4. Positive is a snout; past -14 is a lipless slot"],
   ["chinBehindBrow", -16, 7,
     "S3 · mm pogonion sits behind a vertical dropped from the brow. Past +7 is a receding chin however big the chin bump is"],

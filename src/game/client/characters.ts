@@ -307,6 +307,27 @@ export function freeCosmeticIds(): string[] {
 export interface HelmStyle {
   /** A metal cap: bowl, brow band, ribs. False for the bare head and the hood. */
   cap: boolean;
+  /**
+   * THE SHAPE OF THE BOWL, and it is the axis the ladder was missing.
+   *
+   * `docs/COSMETICS-AUDIT.md` §3 proved that seven of the ten rungs — 30 gold
+   * through 950, 2110 gold of purchases — were ONE object with fittings bolted
+   * to it, and that at fight distance they read as the same 20 px grey dome.
+   * That is not a fittings problem; a boss on a crown is four pixels. A price
+   * ladder has to be a ladder of SILHOUETTES, so the profile of the cap itself
+   * changes between rungs:
+   *
+   *   `shallow` a low four-plate spangenhelm, the base of the range
+   *   `cone`    one-piece and drawn to a definite apex — the tallest outline
+   *             in the shop under the crested rungs, and no ribs, because a
+   *             raised cap has no plate joins to rivet a strip over
+   *   `round`   the deep Vendel bowl the face furniture hangs off
+   *   `tall`    a high domed cap with a straight flank, for the noble rungs
+   *
+   * `art/shots/sil/sil-helm.png` is the test and the only one that counts:
+   * with the material off, adjacent panels have to be different shapes.
+   */
+  bowl: "shallow" | "cone" | "round" | "tall";
   /** The plain bar down the nose. A helm with a face piece of its own says no. */
   nasal: boolean;
   /** Spectacle plate: brows in metal with the sockets shadowed under them. */
@@ -323,7 +344,7 @@ export interface HelmStyle {
 }
 
 const BARE_HEAD: HelmStyle = {
-  cap: false, nasal: false, brows: false,
+  cap: false, bowl: "round", nasal: false, brows: false,
   cheek: "none", nape: "none", crown: "none", mask: false, noble: false,
 };
 
@@ -334,15 +355,23 @@ const BARE_HEAD: HelmStyle = {
 export const HELM: Readonly<Record<string, HelmStyle>> = {
   none: BARE_HEAD,
   hood: BARE_HEAD,
-  iron: { ...BARE_HEAD, cap: true },
-  nasal: { ...BARE_HEAD, cap: true, nasal: true },
-  ridge: { ...BARE_HEAD, cap: true, nasal: true, crown: "ridge", nape: "flange" },
-  spectacle: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "short" },
-  boar: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "short", crown: "boar", nape: "flange" },
-  crowned: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "short", crown: "circlet" },
-  wyrm: { ...BARE_HEAD, cap: true, nasal: true, brows: true, cheek: "deep", crown: "wyrm", nape: "guard" },
+  // 30 g. The base of the range and the one bowl that stays low: four plates,
+  // the frame bands standing proud of them, nothing else.
+  iron: { ...BARE_HEAD, cap: true, bowl: "shallow" },
+  // 110 g. Raised from one sheet, so it has no plate joins and therefore no
+  // ribs, and it comes to a point — the tallest bare outline in the shop.
+  nasal: { ...BARE_HEAD, cap: true, bowl: "cone", nasal: true },
+  // 190 g. A round bowl broken fore-and-aft by a comb. The comb IS the rung.
+  ridge: { ...BARE_HEAD, cap: true, bowl: "round", nasal: true, crown: "ridge", nape: "flange" },
+  spectacle: { ...BARE_HEAD, cap: true, bowl: "round", nasal: true, brows: true, cheek: "short" },
+  boar: { ...BARE_HEAD, cap: true, bowl: "round", nasal: true, brows: true, cheek: "short", crown: "boar", nape: "flange" },
+  // 570 g, and the audit's ruling was that it bought LESS geometry than the
+  // 380 — it lost the boar and the nape flange and gained a circlet. It now
+  // has the tall noble bowl, the flange back, and a circlet with real points.
+  crowned: { ...BARE_HEAD, cap: true, bowl: "tall", nasal: true, brows: true, cheek: "short", crown: "circlet", nape: "flange" },
+  wyrm: { ...BARE_HEAD, cap: true, bowl: "tall", nasal: true, brows: true, cheek: "deep", crown: "wyrm", nape: "guard" },
   suttonhoo: {
-    cap: true, nasal: false, brows: false,
+    cap: true, bowl: "round", nasal: false, brows: false,
     cheek: "deep", nape: "guard", crown: "sutton", mask: true, noble: true,
   },
 };
@@ -1251,8 +1280,18 @@ function skeleton(b: BuildTrait): Skeleton {
     // The shape is unchanged and still right: deeper than it is wide, because
     // throat to nape carries the airway, the spine and the cervical curve while
     // side to side is two strap muscles.
-    neckHW: 0.0705 * s * mix(1, w, 0.6),
-    neckHD: 0.076 * s * mix(1, w, 0.6),
+    // Note 4, and the silhouette gate's S5: the neck must be at least as broad as
+    // the jaw directly above it, because that is the comparison a viewer actually
+    // makes. Measured at 0.0705 it ran 0.86 of the bigonial breadth and the head
+    // sat on a stalk. This is +10%, and it costs nothing anywhere else — the
+    // trapezius flare below comes down to compensate so the shoulders do not grow.
+    // The bulk sensitivity comes down from 0.6 to 0.15 as well as the base going
+    // up. A 0.6 coefficient spread the neck over 136-176 mm across the roster
+    // while the jaw above it only moved 150-169, so the lean classes were failing
+    // S5 on class bulk alone — a runekeeper's head sat on a stalk and a
+    // berserker's did not, which is not art direction, it is an uncontrolled term.
+    neckHW: 0.0796 * s * mix(1, w, 0.10),
+    neckHD: 0.0845 * s * mix(1, w, 0.10),
     // THE proportion defect, and the one that made the figure read at 8.5–9
     // heads while its own skeleton computed 7.5.
     //
@@ -1537,13 +1576,18 @@ interface FaceTraits {
 function faceTraits(raw: number): FaceTraits {
   const seed = Number.isInteger(raw) ? Math.abs(raw) : Math.abs(Math.round(raw * 4096));
   return {
-    wide: 1 + span(seed, 1, 0.045),
+    // Halved, and the reason is S5 rather than the face. The neck is a per-class
+    // dimension and the jaw is a per-seed one, so every per-cent of spread on the
+    // skull's width lands directly on `neckOverJaw` as a head that might or might
+    // not sit on a stalk. +/-2% is still legible in a portrait; the identity was
+    // never carried here anyway (see the note below).
+    wide: 1 + span(seed, 1, 0.012),
     deep: 1 + span(seed, 2, 0.04),
     // ±5% on the head's height is ±13 mm, and against a fixed stature that swung
     // the figure from 6.99 heads to 7.63 across eight seeds — one man in eight
     // was a bobble and one was a pinhead, on a roster where four of them stand in
     // a row. ±3% holds the whole set inside the heroic band.
-    tall: 1 + span(seed, 3, 0.03),
+    tall: 1 + span(seed, 3, 0.024),
     // ---- and here is the caricature ----
     //
     // Everything below moves a piece of *bone*, and the spans were written as if
@@ -1681,10 +1725,10 @@ const SAGITTAL: Curve = [
   [-0.276, 20], //  columella
   [-0.323, 3], //   subnasale
   [-0.481, 12], //  labrale superius
-  [-0.536, 9], //   stomion
+  [-0.536, 6], //   stomion — the OPENING, and it sits behind both vermilions
   [-0.606, 8], //   labrale inferius
   [-0.686, 3], //   mentolabial sulcus
-  [-0.766, 2], //   POGONION
+  [-0.766, 3], //   POGONION
   [-0.856, -8], //  gnathion
   [-0.930, -34], // menton, turning back under the jaw
 ];
@@ -1738,7 +1782,7 @@ const PIN_W: Curve = [
   [0.640, 0.85],
   [0.219, 0.72],
   [0.100, 0.44],
-  [-0.231, 0.26], // the nose, and this row is why a pin cannot make a snout
+  [-0.231, 0.38], // the nose, and this row is why a pin cannot make a snout
   [-0.323, 0.34],
   [-0.536, 0.52],
   [-0.766, 0.55],
@@ -2001,16 +2045,29 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   //   * the lift under the tip comes down with it, so the dorsum still runs
   //     downhill into an edge the key can find without that edge being a spike.
   const run = smooth(Y_NOSE - 0.075, Y_NOSE + 0.035, y) * (1 - smooth(Y_BROW - 0.06, Y_BROW + 0.12, y));
-  const ridge = bump(x - drift * 6, 0, 0, 0.132, 1, 1);
-  const proj = mix(0.010, 0.018, smooth(Y_BROW, Y_TIP, y)) * F.nose;
+  // 0.19 and not 0.132. A dorsum a seventh of the head's width is a blade, and
+  // once the pin owns the projection the narrow one shows up directly on
+  // `tipBreadth`: the pin's envelope is wider than the ridge it is correcting, so
+  // the tip keeps its height over a bearing the ridge has already given up, and
+  // the lobule measures single digits. A man's is a bulb.
+  const ridge = bump(x - drift * 2, 0, 0, 0.168, 1, 1);
+  // No `F.nose` here, and none on the tip below. The pin owns this landmark's
+  // PROJECTION — that is the whole point of an authored profile — so a second
+  // multiplier on the raw term does not change where the tip ends up, it only
+  // changes how much residual the pin has left to deliver, and the residual is
+  // what sets how WIDE the tip is. Measured, that was the entire 8-to-24 mm
+  // spread on `tipBreadth`: one seed got a bulb and the next got a point, from a
+  // trait that was no longer moving the thing it was named for. The nose's
+  // identity is `pNose` on the table, plus the nostril width below.
+  const proj = mix(0.010, 0.018, smooth(Y_BROW, Y_TIP, y));
   pz += proj * ridge * run * front;
   // The tip proper: a short swell at Y_TIP that carries the nose's last few
   // millimetres forward *and lifts the skin above it*, so the dorsum runs
   // downhill into it and the underside falls away. This is the edge that catches
   // the key — but it is a bulb on a man and a beak on a bird, and the difference
   // between the two is entirely how wide the gaussian is.
-  const tip = bump(x - drift * 5, y - Y_TIP, 0, 0.160, 0.082, 1) * front;
-  pz += 0.006 * F.nose * tip;
+  const tip = bump(x - drift * 2, y - Y_TIP, 0, 0.245, 0.090, 1) * front;
+  pz += 0.006 * tip;
   py += 0.0026 * tip;
   // The bridge, carried up between the brows — this is what stops the nose
   // reading as a lump stuck onto a flat plane — and the nasion pinch above it,
@@ -2174,8 +2231,18 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // `gonialOverArc` compares that to the median turn over the same arc, so a
   // uniformly-curved egg scores 1.0 however big it is.
   const gonion = bump(ax - 0.68, y - Y_GONION, z, 0.26, 0.17, 0.95);
-  px += sx * 0.013 * F.jaw * gonion;
-  px += sx * 0.007 * F.jaw * bump(ax - 0.70, y - (Y_GONION + 0.20), z + 0.25, 0.22, 0.20, 0.85);
+  px += sx * 0.0095 * F.jaw * gonion;
+  px += sx * 0.004 * F.jaw * bump(ax - 0.70, y - (Y_GONION + 0.20), z + 0.25, 0.22, 0.20, 0.85);
+  // And the bigonial breadth comes in. It measured 160 mm under a 155 mm neck,
+  // which is S5's failure and note 4's: a jaw wider than the column under it
+  // reads as a head balanced on a stalk however thick the neck is made. The
+  // corner survives it, because the corner is the ramus mass above, not this.
+  //
+  // And it is done by taking the FLARE off rather than by cutting a groove: a
+  // dedicated narrowing term at the gonial band overshot by 2.5x whatever it was
+  // set to, because it lands on top of the vault taper that is already pulling
+  // there. Two terms narrowing the same band is how a strong jaw became a wedge
+  // measuring 0.73 of the cheekbone.
   // The angle itself: tight in y and set behind the ear's own bearing, dropped
   // and pulled back so the outline has somewhere to turn.
   const angle = bump(ax - 0.62, y - (Y_GONION - 0.055), z + 0.30, 0.30, 0.105, 0.55);
@@ -2208,6 +2275,32 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // helm bowl swept through this field sits better on a round vault than on a
   // long one.
   pz += 0.020 * bump(x, y - 0.02, z + 0.92, 1, 0.4, 0.32);
+
+  // ---- under the ear, where there is no skull ----
+  //
+  // This is why a gonial angle could not be built. The silhouette gate measures
+  // the turn along the mandible and scored 12° — a circle — however hard the jaw
+  // was flared, and the reason is geometric rather than a matter of amount: an
+  // orthographic profile outline is the FURTHEST point at each bearing, and the
+  // ellipsoid's own lower-rear quadrant was further out than any jaw put on it.
+  // The gonion never reached the silhouette, so nothing done to it could show.
+  // Six passes of "push the jaw harder" were pushing a mass that was interior to
+  // the outline the whole time, which is also why every one of them widened the
+  // head from the front and changed nothing in profile.
+  //
+  // And the ellipsoid was wrong there anyway. Below and behind the ear a man has
+  // no skull: he has the mastoid, then the sternocleidomastoid, then neck. The
+  // ball that was there is the reason the back panel of the owner's capture is a
+  // featureless egg. Taking it in hands the outline to the mandible, which is the
+  // only structure that should be drawing it.
+  //
+  // Gated on bearing behind the ear and on latitude below it, and both gates are
+  // smoothsteps over a wide span, because this runs right through where a helm's
+  // nape flange and a hood's rim are swept — a step here would print itself on
+  // both of them.
+  const nuchal = smooth(1.55, 2.45, bearing) * smooth(-0.24, -0.62, y) * (1 - smooth(-0.80, -0.95, y));
+  pz += 0.021 * nuchal;
+  px -= sx * 0.010 * nuchal * smooth(0.25, 0.85, ax);
 
   return out.set(px, py, pz);
 }
@@ -2488,10 +2581,40 @@ const EAR_ROOT = 0.93;
 const EAR_RAKE = 0.32;
 const EAR_HELIX_R = 0.0235;
 const EAR_HELIX_TUBE = 0.0048;
-const EAR_HELIX_LIFT = 0.006;
+/**
+ * How far the helix is carried out of the skull, and it was 6 mm. Measured
+ * against the skin beside it that is a standoff of **three millimetres** — the
+ * organ was very nearly flush, which is precisely "an ear like a flat sticker",
+ * and no landmark ratio in `headProbe` could ever have seen it because the ear
+ * is not swept from the field the ratios are taken off.
+ *
+ * Two faults, and the second is the worse one. The root was pinned to `R.x`, the
+ * skull's *nominal* half-breadth, while the skin beside it is `R.x · F.wide ·
+ * taper` plus a zygomatic push — so on a wide seed the skin came out past the
+ * root and the ear was partly buried in the head it is supposed to grow off. The
+ * root is now taken off the skin itself (`earRootX`), and the lift is what a
+ * man's helix actually stands proud by.
+ */
+const EAR_HELIX_LIFT = 0.0155;
 const EAR_HELIX_KX = 0.84;
 const EAR_HELIX_KY = 1.34;
 const EAR_HELIX_KZ = 0.86;
+/** The latitude an ear hangs at: eye line down to the base of the nose. */
+const EAR_Y = (Y_EYE + Y_NOSE) * 0.5;
+
+/** Half-breadth of the SKIN at a latitude — what an ear has to grow out of. */
+function skullHalfWidth(K: Skull, fy: number): number {
+  const d = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const cv = Math.sqrt(Math.max(0, 1 - fy * fy));
+  let w = 0;
+  for (let i = 0; i <= 96; i++) {
+    const t = (i / 96) * Math.PI;
+    faceSurface(K, d.set(Math.sin(t) * cv, fy, Math.cos(t) * cv), p);
+    w = Math.max(w, Math.abs(p.x));
+  }
+  return w;
+}
 
 /**
  * THE PROFILE OUTLINE, and the reason it exists is written in the sixth failure.
@@ -2616,17 +2739,8 @@ export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette 
   // fixed fraction of the skull's half-breadth — so "an ear like a flat sticker"
   // becomes a number by comparing the two: where the helix's outer surface lands
   // against where the skin under it lands, at the ear's own latitude.
-  const earFy = (Y_EYE + Y_NOSE) * 0.5;
-  let skullHW = 0;
-  {
-    const cv = Math.sqrt(Math.max(0, 1 - earFy * earFy));
-    for (let i = 0; i <= 180; i++) {
-      const t = (i / 180) * Math.PI;
-      faceSurface(K, d.set(Math.sin(t) * cv, earFy, Math.cos(t) * cv), p);
-      skullHW = Math.max(skullHW, Math.abs(p.x));
-    }
-  }
-  const earOuter = K.R.x * EAR_ROOT + (EAR_HELIX_LIFT + EAR_HELIX_TUBE * EAR_HELIX_KZ);
+  const skullHW = skullHalfWidth(K, EAR_Y);
+  const earOuter = skullHW * EAR_ROOT + (EAR_HELIX_LIFT + EAR_HELIX_TUBE * EAR_HELIX_KZ);
 
   return {
     y: ys, z: zs, cy, cz, top, bot,
@@ -2838,6 +2952,9 @@ export interface ShellFit {
   punchMm: number;
   /** Deepest the SKIN gets outside the shell's outer wall — face through metal. */
   throughMm: number;
+  /** Where that happens, in the head's own (u, v). NaN if there is none. */
+  throughU: number;
+  throughV: number;
   /**
    * The largest standoff the shell ASKS FOR, in mm — the lift itself.
    *
@@ -2849,6 +2966,9 @@ export interface ShellFit {
   standoffMm: number;
   /** Fraction of samples where the offset has turned the sheet inside out. */
   foldFrac: number;
+  /** Where the worst of it is, in the head's own (u, v). NaN if it is clean. */
+  foldU: number;
+  foldV: number;
 }
 
 export interface HelmFit {
@@ -2907,9 +3027,19 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   const ntrue = new THREE.Vector3();
   const dd = new THREE.Vector3();
 
+  // Sampled the way the shell was built: on the low-passed form if it is a helm
+  // piece, on the skin if it is hair or a beard. Measuring a form-swept shell
+  // against the skin's own normals would report folds that are not in the metal
+  // — and, worse, would miss the ones that are.
+  const F = helmForm(K);
   const at = (o: WornShellSpec, t: number, s: number, drop: number, out: THREE.Vector3) => {
     const u = mix(o.u0, o.u1, t);
     const v = mix(o.v0(u), o.v1(u), s);
+    if (o.form) {
+      formSurface(F, u, v, out);
+      if (drop !== 0) out.addScaledVector(formNormal(F, u, v, ntrue), drop);
+      return out;
+    }
     faceSurface(K, dirOf(u, v, dd), out);
     if (drop !== 0) {
       faceNormalTrue(K, u, v, ntrue);
@@ -2929,6 +3059,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     const NV = Math.max(8, o.nv * 3);
     const ht = 0.25 / NU, hs = 0.25 / NV;
     let punch = 0, through = 0, standoff = 0;
+    let tu2 = NaN, tv2 = NaN;
     // The fold verdict is deferred, because it needs a scale. Every patch on a
     // sphere has samples where its own parameterisation collapses — at a pole
     // the u-tangent goes to nothing — and there the cross product is the
@@ -2939,6 +3070,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     // under 2% of this shell's largest is discarded before the tally.
     const dots: number[] = [];
     const areas: number[] = [];
+    const uvs: number[] = [];
     let areaMax = 0;
     for (let i = 0; i <= NU; i++) {
       for (let j = 0; j <= NV; j++) {
@@ -2950,7 +3082,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         const cIn = skinClearance(tab, pIn);
         const cOut = skinClearance(tab, pOut);
         if (-cIn > punch) punch = -cIn;
-        if (-cOut > through) through = -cOut;
+        if (-cOut > through) { through = -cOut; tu2 = u; tv2 = mix(o.v0(u), o.v1(u), s); }
         if (lift > standoff) standoff = lift;
         // Orientation of the offset sheet against orientation of the skin under
         // it, both from the same two forward differences.
@@ -2966,21 +3098,31 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         const area = nSkin.length();
         if (area > areaMax) areaMax = area;
         areas.push(area);
+        uvs.push(u, mix(o.v0(u), o.v1(u), s));
         dots.push(nOff.dot(nSkin));
       }
     }
-    let folds = 0, n = 0;
+    let folds = 0, n = 0, worst = 0, fu = NaN, fv = NaN;
     for (let i = 0; i < dots.length; i++) {
       if (areas[i] < areaMax * 0.02) continue;
       n++;
-      if (dots[i] < 0) folds++;
+      if (dots[i] >= 0) continue;
+      folds++;
+      // The deepest inversion, not the first: an edge sample that grazes zero is
+      // a rounding call, and the middle of a folded region is where to look.
+      const depth = -dots[i] / Math.max(1e-30, areas[i]);
+      if (depth > worst) { worst = depth; fu = uvs[i * 2]; fv = uvs[i * 2 + 1]; }
     }
     shells.push({
       tag: o.tag,
       punchMm: punch * 1000,
       throughMm: through * 1000,
+      throughU: tu2,
+      throughV: tv2,
       standoffMm: standoff * 1000,
       foldFrac: folds / Math.max(1, n),
+      foldU: fu,
+      foldV: fv,
     });
   }
   return { helm, cls, seed, shells };
@@ -3048,6 +3190,8 @@ export interface WornShellSpec {
   nu: number; nv: number; wrapU?: boolean;
   lift(u: number, v: number): number;
   thick: number;
+  /** Set by `helmWear`: this shell rides the form, not the skin. */
+  form?: boolean;
 }
 
 /**
@@ -3073,6 +3217,198 @@ function headWear(K: Skull, opts: WornShellSpec): THREE.BufferGeometry {
     // the latter here is what sheared four helms through the face — see
     // `faceNormalTrue` and `wearNormalProbe` for the measurement.
     faceNormalTrue(K, u, v, _n);
+    out.addScaledVector(_n, offset);
+  };
+  return patch({
+    nu: opts.nu,
+    nv: opts.nv,
+    wrapU: opts.wrapU,
+    outer: (t, s, out) => surf(t, s, opts.lift(mix(opts.u0, opts.u1, t), s), out),
+    inner: (t, s, out) => surf(t, s, opts.lift(mix(opts.u0, opts.u1, t), s) - opts.thick, out),
+  });
+}
+
+// ============================================================
+// THE FORM — what a helm is actually beaten over
+// ============================================================
+//
+// A helmet is not shrink-wrap. It is raised over a block, and the block is the
+// shape of a skull, not the shape of a face: a smith does not planish a hollow
+// for a nasolabial fold. Every helm shell used to be swept on `faceSurface`
+// itself, which carries the brow ridge, the glabella, the zygomatic crest and
+// the alar crease — features 10 to 20 mm across — and THAT is the arithmetic
+// behind "slabs with skin punching through".
+//
+// The mechanism, stated once because it is the whole of this pass: offsetting a
+// surface along its own normal by more than its radius of curvature turns the
+// surface INSIDE OUT. Past that distance the offset self-intersects; its facets
+// face backwards, backface culling removes them, and what the player sees
+// through the hole is the head. The brow ridge has a radius of curvature of
+// about 15 mm. The spectacle plate stands off it by 18 and the nasal's rivet
+// plate by 26. Neither of them could ever have worked, at any lift direction,
+// because the fault is not in the direction — `faceNormalTrue` fixed that and
+// four helmets stayed broken. `helmFitProbe` counts the inverted share: 32% of
+// the nasal plate, 17% of the brow plate, 6-11% of both cheek guards.
+//
+// So the shells come off a low-passed copy of the head. The features go; the
+// skull, the class's dome, the per-warrior breadth and the jaw's sweep all stay,
+// because those are 60-to-200 mm shapes and the filter is a 12 mm one. Nothing
+// on the form has a radius of curvature under about 45 mm, so a 30 mm standoff
+// cannot fold it.
+//
+// The Sutton Hoo mask has done exactly this since it was built — it is the one
+// piece the audit passes — and this generalises its `shell` to the whole helm
+// tier rather than leaving it as the expensive helmet's private trick.
+//
+// COST. Blurring per vertex is what the mask does and it costs 17 field samples
+// a point; over a bowl, a band, four ribs and two guards that is a helmet an
+// order of magnitude dearer than the head under it, on a game whose floor is a
+// mid-range phone. So the filter runs ONCE per skull, on a grid, and the shells
+// read it: 2701 field samples and a few binomial passes, against ~1200 for the
+// head itself. The grid is coarse on purpose — it is a low-pass, and a low-pass
+// reconstructed bilinearly at 0.09 rad is accurate to about a tenth of a
+// millimetre on a shape whose smallest feature is 45 mm.
+
+interface HelmForm {
+  nu: number;
+  nv: number;
+  /** (nu+1) x (nv+1) x 3, u wrapping with a duplicated seam column. */
+  pos: Float64Array;
+  nrm: Float64Array;
+}
+
+const _formCache = new WeakMap<Skull, HelmForm>();
+
+/**
+ * The low-passed head, tabulated and cached per skull.
+ *
+ * Smoothed in table space rather than by a per-sample kernel, which is the same
+ * filter for a hundredth of the field evaluations: four passes of a binomial
+ * [1 2 1] over a 0.087 rad grid is a gaussian of sigma 0.12 rad, about 11 mm on
+ * this head. Wrapping in u because the head is closed round; clamped in v
+ * because it is not closed over the poles, and a pole row averaged with its
+ * antipode would pull the crown into the chin.
+ */
+function helmForm(K: Skull): HelmForm {
+  const hit = _formCache.get(K);
+  if (hit) return hit;
+  const nu = 72, nv = 36;
+  const w = nu + 1, h = nv + 1;
+  const pos = new Float64Array(w * h * 3);
+  const d = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  for (let j = 0; j < h; j++) {
+    const v = -Math.PI / 2 + (j / nv) * Math.PI;
+    for (let i = 0; i < w; i++) {
+      const u = (i / nu) * Math.PI * 2;
+      faceSurface(K, dirOf(u, v, d), p);
+      const k = (j * w + i) * 3;
+      pos[k] = p.x; pos[k + 1] = p.y; pos[k + 2] = p.z;
+    }
+  }
+  const tmp = new Float64Array(pos.length);
+  for (let pass = 0; pass < 4; pass++) {
+    // u, wrapping. Column nu is the duplicate of column 0 and is rewritten from
+    // it afterwards rather than filtered, so the seam cannot drift.
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < nu; i++) {
+        const a = ((i - 1 + nu) % nu), b = ((i + 1) % nu);
+        for (let c = 0; c < 3; c++) {
+          tmp[(j * w + i) * 3 + c] =
+            0.25 * pos[(j * w + a) * 3 + c] + 0.5 * pos[(j * w + i) * 3 + c] + 0.25 * pos[(j * w + b) * 3 + c];
+        }
+      }
+      for (let c = 0; c < 3; c++) tmp[(j * w + nu) * 3 + c] = tmp[(j * w) * 3 + c];
+    }
+    // v, clamped.
+    for (let i = 0; i < w; i++) {
+      for (let j = 0; j < h; j++) {
+        const a = Math.max(0, j - 1), b = Math.min(nv, j + 1);
+        for (let c = 0; c < 3; c++) {
+          pos[(j * w + i) * 3 + c] =
+            0.25 * tmp[(a * w + i) * 3 + c] + 0.5 * tmp[(j * w + i) * 3 + c] + 0.25 * tmp[(b * w + i) * 3 + c];
+        }
+      }
+    }
+  }
+  // Normals off the smoothed table, central in u and one-sided at the poles.
+  const nrm = new Float64Array(pos.length);
+  const tu = new THREE.Vector3();
+  const tv = new THREE.Vector3();
+  const nn = new THREE.Vector3();
+  const rd = new THREE.Vector3();
+  const get = (i: number, j: number, out: THREE.Vector3) => {
+    const k = (j * w + (i % nu)) * 3;
+    return out.set(pos[k], pos[k + 1], pos[k + 2]);
+  };
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const im = (i - 1 + nu) % nu, ip = (i + 1) % nu;
+      tu.subVectors(get(ip, j, a), get(im, j, b));
+      const jm = Math.max(0, j - 1), jp = Math.min(nv, j + 1);
+      tv.subVectors(get(i % nu, jp, a), get(i % nu, jm, b));
+      nn.crossVectors(tv, tu);
+      const u = (i / nu) * Math.PI * 2;
+      const v = -Math.PI / 2 + (j / nv) * Math.PI;
+      if (nn.lengthSq() < 1e-18) faceNormal(K, dirOf(u, v, rd), nn);
+      else {
+        nn.normalize();
+        if (nn.dot(faceNormal(K, dirOf(u, v, rd), a)) < 0) nn.negate();
+      }
+      const k = (j * w + i) * 3;
+      nrm[k] = nn.x; nrm[k + 1] = nn.y; nrm[k + 2] = nn.z;
+    }
+  }
+  const form: HelmForm = { nu, nv, pos, nrm };
+  _formCache.set(K, form);
+  return form;
+}
+
+/** Bilinear read of one of the form's two tables. */
+function formRead(F: HelmForm, tab: Float64Array, u: number, v: number, out: THREE.Vector3): THREE.Vector3 {
+  const w = F.nu + 1;
+  let fu = (u / (Math.PI * 2)) * F.nu;
+  fu = ((fu % F.nu) + F.nu) % F.nu;
+  const fv = Math.min(F.nv, Math.max(0, ((v + Math.PI / 2) / Math.PI) * F.nv));
+  const i = Math.min(F.nu - 1, Math.floor(fu));
+  const j = Math.min(F.nv - 1, Math.floor(fv));
+  const s = fu - i, t = fv - j;
+  const k00 = (j * w + i) * 3, k10 = k00 + 3;
+  const k01 = ((j + 1) * w + i) * 3, k11 = k01 + 3;
+  out.set(
+    (tab[k00] * (1 - s) + tab[k10] * s) * (1 - t) + (tab[k01] * (1 - s) + tab[k11] * s) * t,
+    (tab[k00 + 1] * (1 - s) + tab[k10 + 1] * s) * (1 - t) + (tab[k01 + 1] * (1 - s) + tab[k11 + 1] * s) * t,
+    (tab[k00 + 2] * (1 - s) + tab[k10 + 2] * s) * (1 - t) + (tab[k01 + 2] * (1 - s) + tab[k11 + 2] * s) * t,
+  );
+  return out;
+}
+
+/** A point on the form. */
+function formSurface(F: HelmForm, u: number, v: number, out: THREE.Vector3): THREE.Vector3 {
+  return formRead(F, F.pos, u, v, out);
+}
+
+/** The form's outward normal — interpolated, then renormalised. */
+function formNormal(F: HelmForm, u: number, v: number, out: THREE.Vector3): THREE.Vector3 {
+  formRead(F, F.nrm, u, v, out);
+  return out.lengthSq() < 1e-12 ? out.set(0, 1, 0) : out.normalize();
+}
+
+/**
+ * `headWear`, but swept on the form instead of on the skin — the sampler every
+ * piece of a helmet uses. See the block above for why the two are different
+ * functions and not a flag.
+ */
+function helmWear(K: Skull, opts: WornShellSpec): THREE.BufferGeometry {
+  if (_wearSpy) _wearSpy.push({ ...opts, form: true });
+  const F = helmForm(K);
+  const surf = (t: number, s: number, offset: number, out: THREE.Vector3) => {
+    const u = mix(opts.u0, opts.u1, t);
+    const v = mix(opts.v0(u), opts.v1(u), s);
+    formSurface(F, u, v, out);
+    formNormal(F, u, v, _n);
     out.addScaledVector(_n, offset);
   };
   return patch({
@@ -6643,15 +6979,18 @@ export function buildCharacter(
     // under a 178 mm jaw, and that 0.56 ratio is what note 4 is looking at. On a
     // man the taper from the base to the thyroid is about 0.88; the dramatic
     // narrowing is the trapezius flare below, which the lower stations already do.
-    const TOP_W = 0.88;
-    const TOP_D = 0.90;
+    // And the top of the sweep is the band a viewer sees, so it is the band the
+    // ratio has to hold at. 0.88 of an already-thin section put the *visible*
+    // throat at 0.79 of the jaw however healthy the section's own number was.
+    const TOP_W = 0.95;
+    const TOP_D = 0.94;
     p.add(shell([
       { y: S.neckTop + 0.095, hw: nHW * TOP_W, hd: nHD * TOP_D, z: -0.024 },
       { y: S.neckTop + 0.020, hw: nHW * 0.88, hd: nHD * 0.91, z: -0.017 },
       { y: S.neckRoot - 0.048, hw: nHW, hd: nHD, z: -0.007 },
-      { y: S.neckBase + 0.070, hw: nHW * 1.20, hd: nHD * 1.08, z: 0 },
-      { y: S.neckBase + 0.010, hw: nHW * 1.62, hd: nHD * 1.22, z: 0 },
-      { y: S.neckBase - 0.055, hw: nHW * 2.10, hd: nHD * 1.30, z: 0 },
+      { y: S.neckBase + 0.070, hw: nHW * 1.13, hd: nHD * 1.04, z: 0 },
+      { y: S.neckBase + 0.010, hw: nHW * 1.50, hd: nHD * 1.16, z: 0 },
+      { y: S.neckBase - 0.055, hw: nHW * 1.93, hd: nHD * 1.23, z: 0 },
     ], lod.limb, { capTop: true }), skinDark);
 
     // Sternocleidomastoid. Two straps from the mastoid to the sternal notch, and
@@ -6985,7 +7324,12 @@ export function buildCharacter(
     // inside it, and the **lobe**. The rim stands 13 mm off the skull with a bowl
     // behind it, which is the crevice an SSAO pass can actually find — none of
     // this is painted.
-    const earY = skullY + (Y_EYE + Y_NOSE) * 0.5 * R.y - 0.004;
+    const earY = skullY + EAR_Y * R.y - 0.004;
+    // Off the SKIN, not off `R.x`. The nominal half-breadth is not where the
+    // side of the head is once `F.wide`, the vault taper and the zygomatic have
+    // had their say, and on a wide seed the difference buried the ear's root in
+    // the skull it grows out of.
+    const earRootX = skullHalfWidth(K, EAR_Y) * EAR_ROOT;
     for (const s of [-1, 1]) {
       // Ear space: +Y up the ear, +X toward the face, +Z out of the skull.
       //
@@ -7015,7 +7359,7 @@ export function buildCharacter(
         ex: number, ey: number, ez: number, roll: number,
         kx: number, ky: number, kz: number,
       ) => new THREE.Matrix4()
-        .makeTranslation(s * (R.x * EAR_ROOT), earY, -0.024)
+        .makeTranslation(s * earRootX, earY, -0.024)
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
         .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
         .multiply(xf(-s * ex, ey, ez, 0, 0, -s * roll, kx, ky, kz));
@@ -7038,7 +7382,7 @@ export function buildCharacter(
       const arc = 4.9;
       p.add(new THREE.TorusGeometry(EAR_HELIX_R, EAR_HELIX_TUBE, 5, 14, arc), headSkin,
         new THREE.Matrix4()
-          .makeTranslation(s * (R.x * EAR_ROOT), earY, -0.024)
+          .makeTranslation(s * earRootX, earY, -0.024)
           .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
           .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
           .multiply(xf(0, 0, EAR_HELIX_LIFT, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2,
@@ -7051,7 +7395,7 @@ export function buildCharacter(
         // that stops the bowl reading as a thumbprint pressed into the skull.
         p.add(new THREE.TorusGeometry(0.0105, 0.0033, 4, 9, 3.2), headSkin,
           new THREE.Matrix4()
-            .makeTranslation(s * (R.x * 0.945), earY + 0.001, -0.024)
+            .makeTranslation(s * (earRootX + R.x * 0.015), earY + 0.001, -0.024)
             .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
             .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
             .multiply(xf(0, 0, 0, 0, 0, Math.PI / 2 - s * 0.9 - 1.6, 0.9, 1.2, 0.7)));
@@ -7561,32 +7905,127 @@ export function buildCharacter(
       // supposed to be riveted to. The vector is reused; consume it before the
       // next call.
       const _fp = new THREE.Vector3();
-      const onFace = (u: number, v: number, off: number): THREE.Vector3 => {
-        dirOf(u, v, _d);
-        faceSurface(K, _d, _fp);
-        // Follows `headWear` onto the true normal, and it has to: the comment
-        // above is the contract, and a fitting standing off in a different
-        // direction from the sheet it is riveted to is a boar's snout floating
-        // beside its own helm.
-        faceNormalTrue(K, u, v, _n);
-        return _fp.addScaledVector(_n, off);
+      const _form = helmForm(K);
+      const onForm = (u: number, v: number, off: number): THREE.Vector3 => {
+        formSurface(_form, u, v, _fp);
+        // On the FORM, and off its normal, because that is what the shells
+        // around it ride — see the block above `helmWear`. A fitting sampled off
+        // the skin while the plate it is riveted to is sampled off the form sits
+        // wherever the two disagree, which over the brow ridge is 16 mm of float.
+        return _fp.addScaledVector(formNormal(_form, u, v, _n), off);
       };
-      // Spangenhelm bowl. The dome term is what gives the huscarl a deep round
-      // helm and the berserker a low skull-cap out of the same six lines.
-      // Kept inside a liner's thickness of the skull even at its most domed: the
-      // bowl's *inner* surface is `lift - thick`, and a helm parked more than
-      // about 15 mm off the head reads as parked rather than worn. The class
-      // spread lives in where the band sits and what stands on the crown, not in
-      // how far the iron floats.
-      const crest = 0.014 + 0.008 * B.bowl;
-      p.add(headWear(K, {
+      // THE BOWL, and its profile is a rung of the ladder rather than a constant.
+      //
+      // It used to be one curve — `mix(0.013, 0.014 + 0.008 · B.bowl, v²)` — for
+      // every metal helm in the shop, so seven rungs differed only in what was
+      // bolted to the same dome. The audit measured what that buys at play
+      // distance: "panels 7, 8 and 9 differ from each other by a two-pixel smudge
+      // on the crown". A crest is four pixels. A profile is the whole outline.
+      //
+      // Three numbers per rung: where the iron starts at the band (`seat`), how
+      // much it rises to the crown (`rise`), and how that rise is distributed
+      // (`taper`). A low exponent puts the height on the flank and gives a
+      // straight-sided cone; a high one keeps the flank close to the skull and
+      // domes only at the top.
+      //
+      // `seat` is 17 mm and not 13, on every profile, and that is a fix rather
+      // than a style: `helmFitProbe` measured the skin standing 15.7 mm proud of
+      // the form at the brow ridge on seed 7932, so at 13 mm the bowl's own rim
+      // had 2.7 mm of forehead through it. A helm is worn over 8-12 mm of liner
+      // and the brow ridge is under the rim; 17 clears it on every seed measured.
+      //
+      // The class term stays on all four, because a huscarl's helm is a bigger
+      // object than a berserker's whatever shape it is.
+      const bowlProfile = {
+        //          seat   rise to the crown        taper
+        shallow: [0.017, 0.004 + 0.003 * B.bowl, 1.70],
+        cone:    [0.017, 0.030 + 0.008 * B.bowl, 1.15],
+        round:   [0.017, 0.012 + 0.008 * B.bowl, 2.10],
+        tall:    [0.017, 0.030 + 0.008 * B.bowl, 2.70],
+      }[style.bowl];
+      const [bowlSeat, bowlRise, bowlTaper] = bowlProfile;
+      const crest = bowlSeat + bowlRise;
+      const bowlLift = (v: number) => bowlSeat + bowlRise * Math.pow(clamp01(v), bowlTaper);
+      p.add(helmWear(K, {
         tag: "bowl",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: () => bandLo + 0.015, v1: () => Math.PI / 2 - 0.02,
-        nu: Math.max(10, lod.shellU + 2), nv: lod.shellV,
-        lift: (_u, v) => mix(0.013, crest, v * v),
+        nu: Math.max(10, lod.shellU + 2), nv: Math.max(lod.shellV, style.bowl === "cone" ? 6 : 4),
+        lift: (_u, v) => bowlLift(v),
         thick: 0.007,
       }), capMetal, place.clone());
+      // ---- a comb along the midline ----
+      //
+      // The ridge helm's crest and the wyrm's were both two `headWear` strips
+      // meeting at the crown, with the height carried by a `sqrt(1 - x²)` section
+      // across a fixed span of AZIMUTH. That construction has a defect the fit
+      // probe now names out loud: azimuthal width collapses to nothing at the
+      // pole, so a strip 11 mm across at the brow is 0 mm across at the crown
+      // while still carrying its full height. It is not a comb, it is a needle —
+      // `helmFitProbe` measured a quarter of the wyrm's crest turned inside out —
+      // and the contact sheet had already called both of them "bright bent wire
+      // arcing off the skull" without knowing why.
+      //
+      // A comb is a half-tube of constant width lying along the midline, so it is
+      // swept in the sagittal plane instead. `theta` runs from the nape, over the
+      // crown, to the brow; the section is a half-ellipse standing on the bowl;
+      // and the width is whatever the author asks for in millimetres at every
+      // point along it, the crown included.
+      const combPath = (theta: number, out: THREE.Vector3, nrm: THREE.Vector3) => {
+        const u = theta >= 0 ? 0 : Math.PI;
+        const v = Math.PI / 2 - Math.abs(theta);
+        formSurface(_form, u, v, out);
+        formNormal(_form, u, v, nrm);
+        return out;
+      };
+      // The bowl's own lift under a point on that path, so a comb sits ON the cap
+      // however this rung's profile is drawn.
+      const bowlV0 = bandLo + 0.015;
+      const bowlV1 = Math.PI / 2 - 0.02;
+      const bowlUnder = (theta: number) =>
+        bowlLift(clamp01(((Math.PI / 2 - Math.abs(theta)) - bowlV0) / (bowlV1 - bowlV0)));
+      const _cb = new THREE.Vector3();
+      const _cn = new THREE.Vector3();
+      const _cb2 = new THREE.Vector3();
+      const _cn2 = new THREE.Vector3();
+      const _ct = new THREE.Vector3();
+      const _cx = new THREE.Vector3();
+      const comb = (
+        t0: number, t1: number,
+        rise: (t: number) => number,
+        half: (t: number) => number,
+        gauge: number,
+      ): THREE.BufferGeometry => {
+        const surf = (t: number, sec: number, shrink: number, out: THREE.Vector3) => {
+          const th = mix(t0, t1, t);
+          combPath(th, _cb, _cn);
+          // The path's own tangent, so the section stands square to the comb
+          // rather than square to the head — over the crown those differ by 90°.
+          combPath(th + 0.012, _cb2, _cn2);
+          _ct.subVectors(_cb2, _cb).normalize();
+          _cx.crossVectors(_cn, _ct).normalize();
+          const a = Math.PI * (sec - 0.5);
+          const h = Math.max(0, rise(t) - shrink);
+          const w = Math.max(0.0008, half(t) - shrink);
+          return out.copy(_cb)
+            .addScaledVector(_cn, bowlUnder(th) + h * Math.cos(a))
+            .addScaledVector(_cx, w * Math.sin(a));
+        };
+        return patch({
+          nu: Math.max(14, lod.shellU + 4), nv: lod.trim ? 6 : 4,
+          outer: (t, sec, out) => surf(t, sec, 0, out),
+          inner: (t, sec, out) => surf(t, sec, gauge, out),
+        });
+      };
+      if (style.bowl === "cone") {
+        // The apex. A raised conical cap does not stop at a rounded pole — it
+        // comes to a definite point with a small finial on it, and that point is
+        // what makes this rung readable as a different object from the spangenhelm
+        // below it at any distance the game is played at.
+        const apex = onForm(0, Math.PI / 2, crest + 0.004);
+        p.add(rod(0.0022, 0.0105, 0.030, 6), capMetal, xf(0, skullY + apex.y + 0.013, apex.z));
+        if (lod.trim) p.add(ball(0.0055, 6), trimMetal, xf(0, skullY + apex.y + 0.030, apex.z));
+      }
       // Brow band, sized off the bowl rather than off the skull. Its lower edge
       // stands 8 mm further out than its top, so the rim is a brim that overhangs
       // the forehead instead of a hoop lying flat on it — 8 mm of overhang under a
@@ -7605,16 +8044,25 @@ export function buildCharacter(
       // liner everywhere, and the 7 mm of flare from top rim to bottom is still a
       // brim that overhangs the forehead and throws the shadow line the whole face
       // composition hangs off.
-      p.add(headWear(K, {
+      p.add(helmWear(K, {
         tag: "band",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: () => bandLo, v1: () => bandHi,
         nu: Math.max(10, lod.shellU + 2), nv: 1,
-        lift: (_u, v) => 0.013 + 0.007 * (1 - v),
+        // Seated at the bowl's own 17 mm for the same measured reason, with the
+        // 7 mm of flare from top rim to bottom kept: that overhang is the shadow
+        // line across the brow the whole face composition hangs off.
+        lift: (_u, v) => bowlSeat + 0.007 * (1 - v),
         thick: 0.008,
       }), capMetal, place.clone());
-      if (lod.trim) {
+      if (lod.trim && style.bowl !== "cone") {
         // The bowl's spangen — the strips the cap's plates are riveted along.
+        //
+        // Not on the conical cap, and that is the point of it: a spangenhelm is
+        // four plates held in a frame and a raised helm is one sheet, so a rib on
+        // it is a strip over a join that is not there. Taking them off is half of
+        // what makes the 110-gold rung a different object rather than the 30-gold
+        // one with a bar down the nose.
         //
         // They ran `bandHi − 0.02` to `π/2 − 0.05` at a constant 5 mm lift, and
         // both ends of that are wrong in the same way: a rib is a *join*, and a
@@ -7635,7 +8083,7 @@ export function buildCharacter(
         const ribLo = bandLo + 0.004;
         for (let i = 0; i < 4; i++) {
           const a = Math.PI / 4 + (i / 4) * Math.PI * 2;
-          p.add(headWear(K, {
+          p.add(helmWear(K, {
             tag: "rib",
             u0: a - 0.05, u1: a + 0.05,
             v0: () => ribLo, v1: () => ribTop,
@@ -7654,8 +8102,15 @@ export function buildCharacter(
             // birdcage over the head rather than a cap on it. It is the single
             // loudest part of the owner's "the helms hover" — visible in
             // `art/ui/armourycard-desktop.png` on every rung of the ladder.
+            // 9 mm proud at the band on the spangenhelm and 6 elsewhere. The
+            // audit's brief for the 30-gold rung is "four plates with the frame
+            // bands standing 8-10 mm proud", and on the one helmet whose whole
+            // product is its frame the ribs have to be legible against the plates;
+            // above it they are a construction detail on a cap whose rung is
+            // something else, and 6 mm is the thickness of the strip.
             lift: (_u, s) =>
-              0.013 + (crest - 0.013) * s * s + 0.006 * (1 - Math.pow(clamp01(s), 2.2)),
+              bowlLift(s) + (style.bowl === "shallow" ? 0.009 : 0.006)
+                * (1 - Math.pow(clamp01(s), 2.2)),
             thick: 0.004,
           }), trimMetal, place.clone());
         }
@@ -7727,7 +8182,7 @@ export function buildCharacter(
         // a rivet plate on the brow. Conformed to the skull like the band it sits
         // on, 4 mm further out than the band so the two still read as two pieces,
         // it cannot leave the surface at any yaw.
-        p.add(headWear(K, {
+        p.add(helmWear(K, {
           tag: "nasal plate",
           u0: -0.13, u1: 0.13,
           v0: () => bandLo - 0.01, v1: () => bandHi - 0.015,
@@ -7739,7 +8194,7 @@ export function buildCharacter(
         // proud of the face so the sockets stay in shadow behind it — and now sits
         // on the brow rather than 30 mm above it.
         for (const s of [-1, 1]) {
-          p.add(headWear(K, {
+          p.add(helmWear(K, {
             tag: "brow plate",
             u0: s * 0.1, u1: s * 0.66,
             v0: () => lat(Y_EYE + 0.115), v1: () => lat(Y_BROW + 0.07),
@@ -7769,7 +8224,7 @@ export function buildCharacter(
             const t = clamp01((Math.abs(u) - 0.42) / 0.60);
             return lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.42, 1, t), 1.5);
           };
-          p.add(headWear(K, {
+          p.add(helmWear(K, {
             tag: "cheek (short)",
             ...sideArc(s, 0.42, 1.02),
             v0: hem, v1: () => bandLo + 0.02,
@@ -7821,7 +8276,7 @@ export function buildCharacter(
         // where the fall's edge actually is at throat height.
         const guardIn = style.mask ? 0.78 : 0.50;
         for (const s of [-1, 1]) {
-          p.add(headWear(K, {
+          p.add(helmWear(K, {
             tag: "cheek (deep)",
             ...sideArc(s, guardIn, style.mask ? 1.62 : 1.45),
             v0: () => lat(Y_CHIN + 0.05), v1: () => bandLo + 0.01,
@@ -7937,39 +8392,25 @@ export function buildCharacter(
         }
       }
       if (style.crown === "ridge") {
-        // A welded ridge from brow to nape. Two patches and not one, because a
-        // strip at u = 0 and a strip at u = π both converge on the crown pole and
-        // meet there — the trick the warden's comb already uses. Lower and longer
-        // than that comb: it starts on the brow band rather than above it and runs
-        // all the way down the back of the bowl, so what changes in the outline is
-        // the *profile* of the helmet rather than its height. From the front it is
-        // still a nasal helm, which is the point at this price.
-        // Rounded in section, and 66 mm of arc rather than 48. The contact sheet
-        // read this crest and the wyrm's as "bright bent wire arcing off the
-        // skull" — the same antenna the Sutton Hoo crest was taken off, surviving
-        // on two cheaper rungs. It is the same cause both times: a strip one span
-        // wide, lifted, is closed by two rim strips whose normals point along the
-        // sheet, so each side of it draws a hard bright line and what the eye gets
-        // is two wires with a dark gap between them. A semicircular section merges
-        // into the bowl at both edges and rolls one highlight instead.
-        const ridgeHalf = 0.066;
-        const section = (du: number) =>
-          Math.sqrt(Math.max(0, 1 - Math.pow(clamp01(Math.abs(du) / ridgeHalf), 2)));
-        for (const u of [0, Math.PI]) {
-          p.add(headWear(K, {
-            tag: "ridge crest",
-            u0: u - ridgeHalf, u1: u + ridgeHalf,
-            v0: () => (u === 0 ? bandLo : bandLo - 0.26), v1: () => Math.PI / 2 - 0.02,
-            nu: 5, nv: 4,
-            // Rises all the way to the crown rather than peaking mid-slope the
-            // way the warden's comb does. Measured on the built head: peaked in
-            // the middle it lifted the helmet's outline by 3 mm over a plain
-            // spangenhelm, which is a rung nobody can see they bought. Monotonic
-            // it is 30 mm, and the two patches meet at the pole at full height.
-            lift: (x, v) => 0.014 + (0.005 + 0.030 * Math.pow(clamp01(v), 0.6)) * section(x - u),
-            thick: 0.008,
-          }), trimMetal, place.clone());
-        }
+        // THE RIDGE HELM'S COMB, and it is the entire rung at 190 gold.
+        //
+        // The audit's ruling: "Panel 5 is the Ridge Helm at 190 and there is no
+        // ridge in it", and the prescription with it — a fore-and-aft comb
+        // standing 35 to 45 mm above the crown FOR ITS WHOLE LENGTH, so that it
+        // is five pixels of broken outline at fight distance instead of a two
+        // pixel smudge. The old crest could not do that at any height, because
+        // its width went to zero exactly where the height was needed.
+        //
+        // 40 mm proud and 24 mm across, held flat from the nape to the brow and
+        // rolled off only in the last tenth at each end. From the side it breaks
+        // the outline along the whole cap; head-on it is a 24 mm bar standing
+        // above the dome; from behind it runs down the occiput. Three bearings,
+        // one object, and nothing else in the shop under 380 gold has that.
+        const flat = (t: number) => smooth(0, 0.11, t) * smooth(0, 0.11, 1 - t);
+        p.add(comb(-1.30, 1.24,
+          (t) => 0.040 * mix(0.18, 1, flat(t)),
+          (t) => 0.012 * mix(0.45, 1, flat(t)),
+          0.006), trimMetal, place.clone());
       }
       if (style.crown === "boar") {
         // Benty Grange: a boar standing the length of the crown. This is the one
@@ -8012,7 +8453,7 @@ export function buildCharacter(
         const wSection = (du: number) =>
           Math.sqrt(Math.max(0, 1 - Math.pow(clamp01(Math.abs(du) / wyrmHalf), 2)));
         for (const u of [0, Math.PI]) {
-          p.add(headWear(K, {
+          p.add(helmWear(K, {
             tag: "wyrm crest",
             u0: u - wyrmHalf, u1: u + wyrmHalf,
             v0: () => (u === 0 ? bandLo - 0.04 : bandLo - 0.24), v1: () => Math.PI / 2 - 0.02,
@@ -8026,7 +8467,7 @@ export function buildCharacter(
         // two horns: at the distance this is read from, a snout that clears the
         // brow line is the whole shape and anything finer is spent on nothing.
         const hv = bandLo - 0.10;
-        const hd = onFace(0, hv, 0.052);
+        const hd = onForm(0, hv, 0.052);
         const hx = hd.x; const hy = skullY + hd.y; const hz = hd.z;
         p.add(ball(0.019, 7), trimMetal, xf(hx, hy, hz, 0.35, 0, 0, 0.75, 0.80, 1.30));
         p.add(ball(0.011, 6), trimMetal, xf(hx, hy - 0.016, hz + 0.020, 0.55, 0, 0, 0.60, 0.55, 1.25));
@@ -8835,10 +9276,12 @@ export function buildCharacter(
         const bowlLo = bandLo + 0.015;
         // The bowl's own surface under the crest, so the ridge sits *on* the cap
         // however domed this warrior's cap is.
-        const bowlAt = (v: number) => {
-          const t = clamp01((v - bowlLo) / (crownTop - bowlLo));
-          return mix(0.013, crest, t * t);
-        };
+        // Written through the bowl's own lift function rather than repeating its
+        // curve, which is how this crest came to be riding a formula the bowl had
+        // stopped using: the profile is a rung of the ladder now and every rung
+        // has a different one.
+        const bowlAt = (v: number) =>
+          bowlLift(clamp01((v - bowlLo) / (crownTop - bowlLo)));
         // 13 mm proud along the slopes, easing to nothing at the nape and holding
         // most of its height at the brow, where the nose piece takes over from it.
         //
@@ -8867,7 +9310,8 @@ export function buildCharacter(
         for (const u of [0, Math.PI]) {
           const front = u === 0;
           const v0 = front ? bandLo : bandLo - 0.44;
-          p.add(headWear(K, {
+          p.add(helmWear(K, {
+            tag: "sutton crest",
             u0: u - crestHalf, u1: u + crestHalf,
             v0: () => v0, v1: () => crownTop,
             nu: 6, nv: Math.max(5, lod.shellV + 1),
@@ -8886,7 +9330,7 @@ export function buildCharacter(
           // garnet finial on its tip" as one object, and the tip is half of it.
           for (let i = 0; i < 5; i++) {
             const v = mix(bandHi, crownTop - 0.24, i / 4);
-            const q = onFace(0, v, crestLift(0, v, true) + 0.0030);
+            const q = onForm(0, v, crestLift(0, v, true) + 0.0030);
             p.add(ball(0.0040, 10), garnet, xf(q.x, skullY + q.y, q.z, 0, 0, 0, 0.80, 1, 0.85));
           }
           // THE TERMINALS. "Both ends are cut flat; there are no dragon-head
@@ -8902,15 +9346,15 @@ export function buildCharacter(
             { u: Math.PI, v: bandLo - 0.395, tilt: -0.75, front: false },
           ]) {
             const base = crestLift(0, end.v, end.front);
-            const q = onFace(end.u, end.v, base + 0.0030);
+            const q = onForm(end.u, end.v, base + 0.0030);
             const sgn = end.front ? 1 : -1;
             p.add(ball(0.0102, 8), gilt,
               xf(q.x, skullY + q.y, q.z, end.tilt, 0, 0, 0.72, 0.80, 1.30));
-            const s2 = onFace(end.u, end.v - sgn * 0.052, base + 0.0018);
+            const s2 = onForm(end.u, end.v - sgn * 0.052, base + 0.0018);
             p.add(ball(0.0058, 7), gilt,
               xf(s2.x, skullY + s2.y, s2.z, end.tilt, 0, 0, 0.60, 0.62, 1.15));
             for (const t of [-1, 1]) {
-              const e = onFace(end.u + t * 0.052, end.v - sgn * 0.012, base + 0.0072);
+              const e = onForm(end.u + t * 0.052, end.v - sgn * 0.012, base + 0.0072);
               p.add(ball(0.0026, 8), garnet, xf(e.x, skullY + e.y, e.z));
             }
           }
@@ -9074,7 +9518,7 @@ export function buildCharacter(
       // above the brow at dead ahead, falls away past the cheek at the sides and
       // hangs longest at the nape, and the front of it is lifted furthest so the
       // brim overhangs the face it is supposed to be shading.
-      p.add(headWear(K, {
+      p.add(helmWear(K, {
         tag: "hood",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         // The opening runs higher across the front — 0.50 rad rather than 0.42,
@@ -9102,7 +9546,7 @@ export function buildCharacter(
       // Shadow gore: a dark inner course set well inside the cloth, so what you
       // see through the opening is a lined cavity rather than the sky behind it.
       // Cheaper and more reliable than asking a shadow map to resolve 30 mm.
-      p.add(headWear(K, {
+      p.add(helmWear(K, {
         tag: "hood mantle",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: (u) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2),
