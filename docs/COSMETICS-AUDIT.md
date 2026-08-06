@@ -649,3 +649,99 @@ cheaper than two helmets that read as less.
   distance is ~200 px of a 700 px frame and a weapon cannot be judged alone at
   all. Add a `weaponcard` — 0.35 m of frame at the fist, and a stage that
   builds `buildWeaponForClass` on an empty mark.
+
+---
+
+# Gate pass on the unmerged wave — 2026-08-06
+
+The first time this branch has been gated. A container killed the ship phase of
+the wave four times; what follows is what a first look at it found. **The wave
+was held, not merged.** The reasons are below, and every one of them has a
+frame behind it.
+
+Captures: `art/shots/fix1/` (`helm-cards.png`, `head-turn.png`, `hair.png`,
+`beards.png`, `warpaint.png`, and `cards/` per item), `art/ui/armourycard-{phone,desktop}.png`,
+`art/shots/lock/{right,left}-handed{,-close}.png`.
+
+## What this wave CLOSED
+
+- **The reticle reads the drawn man, not the wire.** Proven twice, two ways.
+  `touchtest`: every one of 31 qualifying samples painted off the rig, 0 off the
+  wire, while the wire sat a median 153 px and up to 227 px ahead of him.
+  `lockshot`: right-handed −7 px / 0.63 m, left-handed −43 px / 1.53 m of lead
+  *avoided*. This is the wave's one unambiguous success.
+- **The mark is quiet enough to live on the glass.** Two hairline brackets on
+  the chest and a thin ground ellipse — no glow, no fill. It reads at 390x844 in
+  both hands and takes no bite out of the button side (7267 sampled points, both
+  handednesses).
+- **The Shadow Hood no longer shears through the skull.** Closed in this gate
+  pass, not by the wave — see below.
+- **`profiletest` against a real database is 68/68, not 22/22.** The 22 that
+  earlier reports quoted is the no-database subset. The mute column, the
+  bindings and the recovery path are all now actually exercised.
+
+## What this wave BROKE, and it is the reason for the hold
+
+The head rebuild added a face block — a large forward displacement carrying the
+maxilla and mandible. Nothing that is *worn* was taught about it. `headWear`
+stands every shell (hair, beard, war paint, helm bowl, hood) off the skin along
+`faceNormal`, which is the normal of the **undisplaced ellipsoid**.
+
+`tools/wearmeasure.mjs` (new) measures the error over 32 heads:
+
+    whole head   mean    11.4 deg
+    whole head   worst   90.0 deg
+    helm band    mean    11.8 deg
+    helm band    worst   71.6 deg
+    a 6.0 mm lift clears 0.00 mm at the worst point
+
+`faceNormalTrue` fixes the direction and every worn item moved for it (panel
+pixel-diff, before vs after: Hood 3.5%, Spectacle 4.0%, Boar 4.0%, Jarl 3.8%,
+Wyrm 6.6%, Sutton Hoo 3.1%, bare head 0.18%). **It fixed the Shadow Hood and it
+did not fix helms 6–9.**
+
+**Still open, and precisely located.** On Spectacle (280 g), Boar-Crest (380 g),
+Jarl's Crowned (570 g) and Wyrm-Crest (950 g) the cheek guard is a slab with
+razor-straight edges standing proud of the face, with skin punching back through
+it — `art/shots/fix1/cards/helmcards-7._Boar-Crest_Helm_380g.png`. The edges are
+straight because the patch's domain is a **rectangle in (u, v)** and its outline
+is never shaped; the slab floats because the standoff is tens of millimetres.
+The Sutton Hoo mask is the one that works and it is the template: it shapes its
+lower edge with `maskBot(u)` and it was re-tuned from 29/22.5 mm down to
+20.5/15. Do the same for the four guards. **2110 gold of the ladder is currently
+broken geometry.**
+
+## What has still never been good enough
+
+- **Hair — captured for the first time, and it fails.** `hair.png`. From behind,
+  Long Mane (40 g) is **two detached brown slabs with a gap between them** — not
+  hair, broken geometry. Warrior Crop and Braided War-locks are the same cap plus
+  a string. **Under the Sutton Hoo mask all four are pixel-identical**, so 100 g
+  of Braided War-locks buys exactly what Shaved buys.
+- **Beards — three of five are one shape.** `beards.png`. Full (40 g), Forked
+  (80 g) and Ringed Braid (120 g) are the same dark crescent at three-quarter.
+  All three are a hard-edged solid shell clamped on the jaw like a chinstrap,
+  leaving bare skin at the chin — hair does not grow out of skin anywhere here.
+- **War paint — reads bare, dies under the mask.** `warpaint.png`. The four are
+  genuinely distinguishable bare-headed (Half-Face Shadow is the strongest), and
+  **all four are pixel-identical under the Sutton Hoo mask**. Audit finding 11
+  is confirmed, not closed.
+- **The face is not a man.** See `docs/OPEN-DEFECTS.md`. The nose still leads the
+  profile, the chin still recedes behind the lip, the neck is still narrower than
+  the jaw with a hard step at the collar, the ear is still a flat oval decal, and
+  the domino mask over the mid-face is still there. Character Craft is a 4.
+
+## The instrument gained one, and it still has a hole
+
+`tools/wearmeasure.mjs` joins `headmeasure.mjs`. What is still missing is the
+thing that would have caught all of the above automatically: **no harness
+renders a cosmetic and asserts anything about it.** Twelve sheets are defined in
+`tools/shoot.mjs` (`hair`, `hairfight`, `hairtone`, `beards`, `beardfight`,
+`beardtone`, `cloaks`, `cloakfight`, `finishes`, `finishfight`, `warpaint`,
+`warpaintfight`) and before this pass **not one had ever been run** — only the
+helm and head sheets existed on disk. Cloaks (5), Armour Finish (7) and both
+colour ladders (12) remain uncaptured to this hour.
+
+The cheapest real gate: render each sheet and assert that adjacent panels differ
+by more than N% of pixels. Long Mane vs Warrior Crop under the mask would score
+zero and the harness would have said so without anyone looking.

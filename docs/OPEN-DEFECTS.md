@@ -1105,3 +1105,71 @@ simply too much once the face beneath it stopped receding.
    the cranium's share of the head's HEIGHT and note 3 is about its share of the
    head's MASS. The number was right and useless. The turntable card is what
    caught it.
+
+---
+
+## Four helms are broken geometry, and the lift direction was only half of it
+
+**Half closed, half open.** Found gating the unmerged wave on 2026-08-06.
+
+**The half that closed.** `headWear` stood every worn shell off the skin along
+`faceNormal` — the normal of the *undisplaced* ellipsoid. The head stopped being
+an ellipsoid when the face block went on. `tools/wearmeasure.mjs` measures the
+resulting error over 32 heads at 11.4 deg mean, 71.6 deg worst over the band a
+helm rim sits on; at the worst point a 6 mm lift clears 0.00 mm. `faceNormalTrue`
+central-differences `faceSurface` instead. That **fixed the Shadow Hood**, which
+had been cutting a flat plane through the skull.
+
+**The half that is open.** It did NOT fix the Spectacle (280 g), Boar-Crest
+(380 g), Jarl's Crowned (570 g) or Wyrm-Crest (950 g) cheek guards, which still
+render as a slab with razor-straight edges standing proud of the face with skin
+punching back through it. Frame:
+`art/shots/fix1/cards/helmcards-7._Boar-Crest_Helm_380g.png`.
+
+**What it is instead, read off that frame.** The guard's boundary is a
+*rectangle in (u, v)* — its edges are straight lines in parameter space, which is
+why they project as a hard-edged quad rather than as the outline of a piece of
+beaten iron. And the standoff is large enough that the plate has left the face
+altogether, so the head pokes through wherever the head's curvature exceeds the
+plate's.
+
+**The template is already in the file.** The Sutton Hoo mask is the one helm of
+the ten that reads correctly, and it is the only one that (a) shapes its lower
+edge as a function of azimuth — `maskBot(u)`, mixing `chinV` to `jawV` on a 1.55
+power — and (b) had its standoff cut to 20.5 mm at the chin and 15 at the brow.
+Give the four guards both.
+
+**A hypothesis NOT yet tested, written down so it is not re-derived.** The blur
+shell that builds the Sutton Hoo mask still averages `faceNormal` over its
+kernel rather than `faceNormalTrue`. That was left alone deliberately — it is
+the one helm that works and a blurred normal is arguably what it wants — but if
+the four guards share that path, it is the first thing to check.
+
+**Method note that held up.** Do not A/B two helm sheets by eye; the earlier
+note in this file is right. The per-panel pixel diff is what proved the fix
+touched every worn item (Hood 3.5%, Spectacle 4.0%, Boar 4.0%, Jarl 3.8%, Wyrm
+6.6%, Sutton Hoo 3.1%) while the bare head moved 0.18% — which is also what
+proved the *face itself* was untouched by it.
+
+---
+
+## Long Mane is two detached slabs, and no harness would have noticed
+
+**Open.** `art/shots/fix1/hair.png`, row 2 (`back`). The 40-gold Long Mane, seen
+from behind, is two separate brown slabs with a gap between them hanging over
+the shoulders. It does not read as hair; it reads as broken geometry. This is the
+**first time hair has ever been captured** — `tools/shoot.mjs` has defined a
+`hair` sheet for some time and nothing had ever run it.
+
+Two more from the same sheet, both of which cost real money in the shop:
+
+- **All four hairstyles are pixel-identical under the Sutton Hoo mask.** 100 g
+  of Braided War-locks buys what Shaved buys.
+- **All four war paints are pixel-identical under the same mask**
+  (`warpaint.png`, row 2). They are genuinely distinguishable bare-headed.
+
+**The gate that would have caught all of it** does not exist: no harness renders
+a cosmetic and asserts anything about it. Twelve sheets are defined in
+`tools/shoot.mjs` and Cloaks (5), Armour Finish (7) and both colour ladders (12)
+have still never been rendered at all. Assert that adjacent panels differ by more
+than N% of pixels and every finding above falls out without a human looking.
