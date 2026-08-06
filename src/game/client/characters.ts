@@ -2277,24 +2277,28 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // the skin immediately below it is what turns 20 mm of projection into an
   // overhang with a lit top and a dark underside.
   //
-  // AND IT HAS TO CAST, which is the third of the owner's three vault notes and
-  // the cheapest of them. The ridge was 24 mm of projection with 9 mm of lift, and
-  // at that ratio its underside stands at about 57° — the number the paragraph
-  // above quotes. 57° is a slope, not an overhang, and against a key at 60° a
-  // slope returns light. The lift goes to 14 mm and the ridge's own gaussian is
-  // tightened in y from 0.105 to 0.092, which together put the underside past
-  // vertical over the socket: the crest is lit, the skin under it is not, and the
-  // boundary between them is a line rather than a gradient. Tightening rather
-  // than deepening matters — 0.092 is still above the 0.069 the mesh samples at,
-  // so this is not being bought below Nyquist, and a DEEPER ridge on the same
-  // falloff would only have made the forehead balloon again.
+  // AND IT HAS TO CAST, which is the third of the owner's three vault notes.
+  // 57° is a slope, not an overhang, and against a key at 60° a slope returns
+  // light. But the ridge's crest CANNOT be the lever, and that is worth writing
+  // down because it cost an hour to find: every helm in the shop seats its bowl
+  // on this exact band, and `wearmeasure` puts the clearance there at well under
+  // a millimetre. Measured, lifting the crest from 9 mm to 12 takes the shop from
+  // 10/10 helmets seated to 2/10 — the same skin-through-bowl failure four
+  // helmets were rebuilt to fix. A 7 mm wing on the outer brow does it on its own
+  // at any amount tried.
+  //
+  // So the overhang is bought by CUTTING UNDER the ridge instead of by growing
+  // it. The angle of the underside is the same quantity either way — it is the
+  // difference in height across the margin — and a negative displacement under a
+  // brow band gives a helm clearance rather than taking it. The crest keeps its
+  // 24 mm of projection and its 9 mm of lift; what changes is the gaussian's
+  // width, tightened from 0.105 to 0.092 so the fall is over a shorter run, and
+  // the orbital margin below, which now cuts twice as deep in y. 0.092 is still
+  // above the 0.069 of field-`y` the mesh samples at, so none of this is bought
+  // below Nyquist.
   const brow = bump(ax - 0.34, y - Y_BROW, 0, 0.30, 0.092, 1) * front;
   pz += 0.024 * F.brow * brow;
-  py += 0.014 * F.brow * brow;
-  // The lateral third of the ridge, over the outer orbit, which is what carries
-  // the shadow round toward the temple and stops the brow reading as a bar that
-  // stops. It is also the corner the new temporal fossa turns behind.
-  pz += 0.007 * F.brow * bump(ax - 0.56, y - (Y_BROW - 0.03), 0, 0.17, 0.090, 1) * front;
+  py += 0.009 * F.brow * brow;
   pz += 0.009 * F.brow * bump(x, y - (Y_BROW - 0.02), 0, 0.12, 0.10, 1) * front;
   // Frontal eminences: the two low mounds either side of the midline that give a
   // forehead any form at all. There is a real forehead to put them on now — the
@@ -2320,9 +2324,16 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // colour. Cut deeper and tighter this pass, and given a `py` component of its
   // own: at 6 mm of pure z it still resolved as tone rather than as an edge, and
   // an eye with no hard line over it is the almond patch both panels described.
-  const margin = bump(ax - 0.36, y - (Y_EYE + 0.112), 0, 0.21, 0.055, 1) * front;
+  // The `py` cut is 9 mm, not 4, and it is where the brow's overhang is actually
+  // bought — see the ridge above for why the crest could not be raised to buy it.
+  // Dropping the skin under a ridge and lifting the ridge produce the same angle
+  // on the underside; only one of them grows the head into the helm bowl sitting
+  // on it. Widened in y to 0.068 at the same time, because at 0.055 this was
+  // under the 0.069 the mesh samples at and the frame was getting about half of
+  // whatever was asked for — the same arithmetic as the philtrum's.
+  const margin = bump(ax - 0.36, y - (Y_EYE + 0.112), 0, 0.21, 0.068, 1) * front;
   pz -= 0.008 * margin;
-  py -= 0.004 * margin;
+  py -= 0.009 * margin;
   // Infraorbital ridge, closing the socket below and catching a little light.
   pz += 0.005 * bump(ax - 0.37, y - (Y_EYE - 0.145), 0, 0.22, 0.075, 1) * front;
 
