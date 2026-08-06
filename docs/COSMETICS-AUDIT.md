@@ -898,3 +898,149 @@ Fit, all ten rungs on 4 classes × 2 seeds = 80 builds:
 - **Hair, beards, war paint, cloaks and the armour finishes are untouched.** The
   ladder gate is built and only the three helm sheets declare a bar; wiring the
   other slots to it is the cheapest next pass in this file.
+
+---
+
+# The cloak and beard wave — 2026-08-06
+
+Scope: the cloak slot, the beard slot, and the prices of everything that is
+still a colour after this pass. The helmets are the wave above. The face, the
+head and the ear are somebody else's pass and are untouched here.
+
+**This is the first wave in this file whose findings were not found by eye.**
+`npm run cosmetictest` existed before it started and had already failed on
+exactly these three things, and the same command is what says they are fixed.
+Nothing below is an impression.
+
+## What the instrument said, before
+
+    15/18 checks passed
+
+    FAIL  no two options in a shape slot are the same object, adjacent or not — 7 twins
+    FAIL  no two adjacent shape options are the same object (20 pairs) — 4 identical
+    FAIL  every shape pair that reads at portrait still reads at fight distance — 6/20 below 1%
+
+Three assertions, and between them one sentence: **four cloaks were one cloak,
+two beards were one beard, and three more beards did not read in play.**
+
+| pair | before | what it was |
+|---|---|---|
+| Traveller's 30g → Blood Red 90g | **0.00%** | one mesh |
+| Blood Red 90g → Sea-Wolf 90g | **0.00%** | one mesh |
+| Sea-Wolf 90g → Gilded War 400g | **0.00%** | one mesh |
+| Clean Shaven 0g → Stubble 0g | **0.00%** | one mesh |
+| Full 40g → Forked 80g | 0.57% at fight | under the bar |
+| Forked 80g → Ringed Braid 120g | 0.87% at fight | under the bar |
+
+0.00% is not "similar". It is silhouette AND form agreeing to the last pixel
+from every lens and every bearing, on a rasteriser that reports 0.00% for a
+subject against itself and 20.6% for a bare head against a 30-gold helm.
+
+## The cloak: the clasp and the cloth had never agreed
+
+The structural finding is §1's and it was right. The sheet spanned **±0.56π
+symmetrically about the spine** — a cape over both shoulders, a Roman
+paludamentum — while the brooch was pinned to one shoulder at
+`-S.shoulderX * 0.72`. Two garments in one object, and neither of them Saxon.
+
+Every cut is asymmetric now (`CLOAK_CUTS` in `characters.ts`):
+
+- It comes over the **pinned shoulder** — negative azimuth, which is where the
+  brooch already sat and which is the shield side, `armPivots[1]`.
+- It crosses the back on a **falling top edge**, because across the back there
+  is nothing holding it up. The old top edge was a hard horizontal line standing
+  *above* both shoulders with daylight under it, which is the audit's own
+  reading of the Gilded War Cloak and was true of all four.
+- It stops at `a1 ≤ 0.40π` against the old 0.56π, so the **sword arm is
+  strictly clearer of cloth than it was**. `armPivots[0]` is the weapon arm and
+  `anim.ts` hangs the weapon on it; that is checked, not assumed.
+
+Then four names got four garments. They differ in what survives 7.9 mm to a
+pixel — **length, hem, wrap, flare, fold count and fastening** — and colour is
+now the last item on that list instead of the only one:
+
+| | length | hem | wrap | flare | folds | pinned with |
+|---|---|---|---|---|---|---|
+| Traveller's 30g | hip | shallow arc | narrowest | 62 mm | 5 | a bone pin |
+| Blood Red 90g | knee | level | full | 135 mm | 5.5 | a disc brooch |
+| Sea-Wolf 90g | mid-calf | a deep point | narrow | 38 mm | 3.4 | a ring-and-pin |
+| Gilded War 400g | ankle, **trained** | longest at the trailing corner | widest | 205 mm | 7 | a bossed gilt disc |
+
+The two 90-gold rungs are deliberately opposite garments at one price: a bell
+with a level hem against a column with a tail. A player choosing between them is
+choosing a shape.
+
+## The beards: three of them were hanging inside the man
+
+The three paid beards were rebuilt for mass and length — a wedge, a wedge with a
+notch cut out of the bottom of it, and a rope reaching twice as far. That got
+Full → Forked from 0.57% to 1.47% and stopped there, and **Forked → Ringed
+Braid would not move off 1.00% however much plait was added to it.** Adding
+48 mm of beard changed the measurement by zero.
+
+The reason is the wave's most useful finding and it is not about beards:
+
+> Every hanging mass fell straight down at **z = 0.024–0.040** in the head's
+> frame. The torso's front surface is at **z = 0.104**, and the mail over it is
+> further out again. **The bottom third of every paid beard in the shop was
+> inside the body**, drawn and then thrown away by the depth buffer.
+
+So what the eye and the instrument were both comparing was only the part of each
+beard that cleared the collarbone, which is the part all three have in common.
+That is most of why three beards measured as one crescent, and no amount of
+sculpting below the chin could ever have shown. Every station now carries
+forward as it falls: a beard that reaches the chest rests **on** it.
+
+`Stubble` was a separate fault with the same shape. The whole beard block was
+gated `ap.beardStyle !== "short"`, so the `full ? … : …` branches written for
+stubble were **dead code that had never once been reached** — the option had no
+geometry at all and the note above it describing a 1.2 mm shell described
+something that did not exist. It is built now at 11 mm, and renamed **Close
+Crop**, because "Stubble" names a shadow and this is a beard. Id, value and its
+free price are unchanged, so nothing stored moves.
+
+## Prices
+
+The rule applied: **where this wave made an item genuinely distinct, its price
+stands; where an item is still a colour, it is priced as a colour.**
+
+**HELD — cloaks 30/90/90/400 and beards 40/80/120.** They are four cuts and
+three masses now, and the ladder buys outline. The Gilded War Cloak keeps 400
+because it is the largest garment in the game and the biggest silhouette change
+a player can buy below the Sutton Hoo helm — which is the one thing a cloak can
+do that a helmet cannot, at a range where a helmet crest is two pixels and a
+cloak is fifty.
+
+**REPRICED — Armour Finish, 1050 gold of ladder down to 250.** Three
+measurements, no opinion: every adjacent rung reads 0.00% silhouette and 0.00%
+form; `ap.armorColor` feeds exactly one thing, `M.armour(...)`; and two of the
+four classes have no mail torso layer to tint at all, because the runekeeper's
+is `robed ? buff : mail` and the berserker's is `bare`. Bretwalda Gold at 510
+was four to six winning matches for a hex value half the roster cannot see. The
+slot is a rack of dyes and polishes and is now priced as one, 20–60. If somebody
+later gives them real substance on a surface every class has, the ladder can be
+re-argued upward with a frame behind it.
+
+**REPRICED — hair and beard colour, 30–40 a rung down to 10.** Twelve SKUs of
+pure hex were carrying 210 gold. §5 asked for exactly this.
+
+Ids are unchanged throughout, so **no profile is stranded and nobody loses what
+they already bought** — a price only ever applies to a purchase not yet made.
+
+**Also fixed: the stale pricing comment above `ARMOURY`**, which this file flags
+twice. It still reasoned from "call it 200–260 a match"; measurement says a
+winning best-of-3 pays 90–135, and every price is now read against that.
+
+## What this wave did NOT close
+
+- **War paint still dies under the Sutton Hoo mask.** The gate reports it
+  correctly as a shop finding rather than a render defect — 110 gold of
+  Half-Face Shadow under 2400 gold of helm — and the fix §3 names is to build
+  the paint into the skin where a helm leaves it showing. That is complexion
+  field work and belongs to the head owner.
+- **The Shadow Hood is still underpriced at 120**, and the helm wave's note that
+  §5's reprice list is stale where it says "until" still stands.
+- **Hair (4) and the Warrior Crop's volume are untouched.** The crop is still a
+  7 mm shell and `Warrior Crop under every helm` still reads 0.00–0.06%: a free
+  hairstyle that vanishes under a bowl. Reported by the gate, not gated, because
+  nobody paid for it — but it is the cheapest remaining thing in this file.
