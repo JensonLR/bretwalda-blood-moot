@@ -146,7 +146,7 @@
 // ============================================================
 import { chromium } from "playwright";
 import { spawn, spawnSync } from "child_process";
-import { rmSync, mkdirSync, existsSync, readdirSync, writeFileSync } from "fs";
+import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 
@@ -437,8 +437,42 @@ const STAGE = {
   warPaint: { dress: {}, turns: [0] },
 };
 
+/**
+ * THE AUDIT DRESS — what the warrior wears in the seven slots he is not being
+ * tested in, read out of `/shot` rather than chosen here.
+ *
+ * This is not fussiness. `defaultAppearance("huscarl")` puts a NASAL HELM and a
+ * RED CLOAK on him; `/shot`'s parametric presets stage `AUDIT_DRESS`, which is
+ * deliberately bare-headed and cloakless because "a helmet in the base dress
+ * would eat the hair sheet and the war paint sheet both". The first cut of this
+ * file used `defaultAppearance` for the geometry pass and `/shot` for the render
+ * pass, so the two instruments were measuring two different men — and the hair
+ * ladder came out flat for the entirely uninteresting reason that it was being
+ * swept underneath a helmet.
+ *
+ * So it is parsed from the page's own `DRESS_IDS`, and a parse that fails stops
+ * the run. A copy of the ids here would be a fourth place the same list lives.
+ */
+function auditDress() {
+  const src = readFileSync(resolve(ROOT, "src/app/shot/page.tsx"), "utf8");
+  const m = src.match(/const DRESS_IDS: Record<string, string> = \{([\s\S]*?)\}/);
+  if (!m) die("cannot find DRESS_IDS in src/app/shot/page.tsx — the audit dress has moved and this harness would silently stage a different warrior than /shot does");
+  const ap = {};
+  const ids = {};
+  for (const [, slotName, id] of m[1].matchAll(/(\w+):\s*"([^"]+)"/g)) {
+    const opt = slotOf(slotName)?.options.find((o) => o.id === id);
+    if (!opt) die(`the audit dress names ${slotName}="${id}", which is not in the armoury`);
+    ap[SLOT_FIELD[slotName]] = opt.value;
+    ids[slotName] = id;
+  }
+  const missing = Object.keys(SLOT_FIELD).filter((k) => !(k in ids));
+  if (missing.length) die(`the audit dress does not name ${missing.join(", ")} — /shot would stage a class default there and this harness would not`);
+  return { ap, ids };
+}
+const DRESS = auditDress();
+
 const build = (extra) => {
-  const ap = { ...defaultAppearance(RIG.cls), ...extra };
+  const ap = { ...defaultAppearance(RIG.cls), ...DRESS.ap, ...extra };
   const c = buildCharacter(RIG.cls, ap, RIG.accents, undefined, RIG.detail, RIG.seed);
   return c;
 };
@@ -523,6 +557,7 @@ console.log("\n[cos] === 0. CALIBRATION ===\n");
   check("every armoury slot can be driven by this harness",
     unmapped.length === 0, unmapped.length ? `cannot drive: ${unmapped.join(", ")}` : `${ARMOURY.length} slots, ${OPTION_COUNT} options`);
   note(`rig: ${RIG.cls}, face seed ${RIG.seed}, detail ${RIG.detail}, bind pose, no light, no materials`);
+  note(`audit dress, read from /shot's own DRESS_IDS: ${Object.entries(DRESS.ids).map(([k, v]) => `${k}=${v}`).join(" ")}`);
   note(`portrait raster ${Math.round(LENS.portrait.w * LENS.portrait.rasterScale)}×${Math.round(LENS.portrait.h * LENS.portrait.rasterScale)}, ` +
     `fight raster ${Math.round(LENS.fight.w * LENS.fight.rasterScale)}×${Math.round(LENS.fight.h * LENS.fight.rasterScale)}`);
 }
@@ -988,6 +1023,11 @@ async function renderPass() {
    *          frame — so it means the same thing the SIL and FORM columns mean
    *          and is held to the same 1% bar. Dividing by the frame would make
    *          the bar at fight distance require repainting a man who is 1% of it.
+   *          IT CAN EXCEED 100%, and that is information rather than an error: a
+   *          cosmetic moves pixels the warrior does not occupy. A gilded cloak
+   *          throws light onto the turf and through the bloom, and it also hangs
+   *          outside the bare-body mask the denominator is taken from. A reading
+   *          over 100% says the change is bigger than the man.
    *   WORST% the largest single-pixel move, which is what tells a reader whether
    *          a small AREA% is a fine detail or a rounding error.
    *
@@ -1029,8 +1069,8 @@ async function renderPass() {
   // below is a multiple of what this actually reads on the day, so the threshold
   // comes off the instrument rather than out of a guess.
   const SUBJ = { portrait: subjectPxFor("portrait", 0), fight: subjectPxFor("fight", 180) };
-  const n1 = await capture(LENS.portrait, 0, { warPaint: "wp_none" }, { warPaint: "none" });
-  const n2 = await capture(LENS.portrait, 0, { warPaint: "wp_none" }, { warPaint: "none" });
+  const n1 = await capture(LENS.portrait, 0, { ...DRESS.ids }, { warPaint: "none" });
+  const n2 = await capture(LENS.portrait, 0, { ...DRESS.ids }, { warPaint: "none" });
   const floor = pixDiff(n1, n2, SUBJ.portrait);
   // With the clock and the die both fixed, two captures of one subject are the
   // SAME BYTES — measured, not hoped for. That is what makes a 1% bar mean
@@ -1103,10 +1143,13 @@ async function renderPass() {
     const field = SLOT_FIELD[name];
     const stage = STAGE[name] ?? { dress: {}, turns: [QUARTER] };
     const turn = stage.turns[0];
-    const dressIds = Object.fromEntries(Object.entries(stage.dress).map(([f, v]) => {
+    // The full audit dress goes over on the query string rather than being left
+    // to the page's own base, so the warrior the renderer builds is the warrior
+    // the rasteriser built, slot for slot, and neither can drift from the other.
+    const dressIds = { ...DRESS.ids, ...Object.fromEntries(Object.entries(stage.dress).map(([f, v]) => {
       const sn = Object.keys(SLOT_FIELD).find((k) => SLOT_FIELD[k] === f);
       return [sn, slotOf(sn).options.find((o) => o.value === v).id];
-    }));
+    })) };
     for (const lname of spec.lenses) {
       const lens = LENS[lname];
       const shots = [];
@@ -1148,7 +1191,7 @@ async function renderPass() {
   for (const helm of wearHelms) {
     const cover = TABLE.companions.find((c) => c.kind === "face-coverage" && c.helm === helm.label)?.cover ?? 0;
     const shots = [];
-    for (const p of paints) shots.push({ p, img: await capture(LENS.portrait, 0, { warPaint: p.id, helm: helm.id }, { warPaint: p.value, helm: helm.value }) });
+    for (const p of paints) shots.push({ p, img: await capture(LENS.portrait, 0, { ...DRESS.ids, warPaint: p.id, helm: helm.id }, { warPaint: p.value, helm: helm.value }) });
     for (let i = 0; i + 1 < shots.length; i++) {
       const d = pixDiff(shots[i].img, shots[i + 1].img, SUBJ.portrait);
       const v = d.area < IDENTICAL_PCT ? "IDENTICAL" : d.area < DIFFERS_PCT ? "FAINT" : "DIFFERS";
@@ -1242,6 +1285,10 @@ const md = [
   "| **FORM%** | share of the overlap where the nearest surface moved more than 2 mm | the two options are the same surface inside that outline |",
   "| **ΔE** | CIELAB ΔE76 between the two catalogue swatches | the two rungs are literally the same colour |",
   "| **PIX%** | pixels the real renderer moved by more than a just-noticeable 2/255, as a share of the subject's own area, on a fixed rig, a fixed light, a fixed virtual clock and a **seeded die** — two captures of one subject are byte-identical | the renderer draws the same picture for both |",
+  "",
+  "**AREA% can exceed 100%.** The denominator is the warrior's own pixels; a cosmetic can move more than that, because a",
+  "gilded cloak lights the turf beside it and hangs outside the bare-body mask the denominator is measured from. A reading",
+  "over 100% means the change is bigger than the man.",
   "",
   `Verdicts are taken on the option's **own best lens and bearing** — a cloak is not in a crown-to-sternum portrait and`,
   `judging it there would report a defect the lens invented. IDENTICAL is below ${IDENTICAL_PCT}% (one object with two`,
