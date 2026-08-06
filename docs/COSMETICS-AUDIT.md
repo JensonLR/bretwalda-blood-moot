@@ -745,3 +745,133 @@ colour ladders (12) remain uncaptured to this hour.
 The cheapest real gate: render each sheet and assert that adjacent panels differ
 by more than N% of pixels. Long Mane vs Warrior Crop under the mask would score
 zero and the harness would have said so without anyone looking.
+
+---
+
+# The helm wave — 2026-08-06
+
+Scope: the helmet slot only. The face, the hair and the beards are somebody
+else's pass and are untouched here.
+
+## The fault was never the lift direction
+
+The wave before this one diagnosed the four broken helms as a lift-direction
+error, built `faceNormalTrue` to fix it, and **the four stayed broken**. That is
+recorded above as an open item and it was the right place to start, because the
+reason is arithmetic and it is worth stating once:
+
+> Offsetting a surface along its own normal by more than its radius of curvature
+> **turns the surface inside out**. Past that distance the offset self-intersects,
+> its facets face backwards, backface culling removes them, and what the player
+> sees through the hole is the head.
+
+The brow ridge has a radius of curvature of about 15 mm. The spectacle plate
+stood off it by 18 and the nasal's rivet plate by 26. **Neither could ever have
+worked, at any lift direction.** No amount of correcting *where* the metal was
+pushed could help, because the fault was *how far*.
+
+## The instrument first, because the last four passes argued from opinion
+
+`tools/wearmeasure.mjs` used to measure the angle between `faceNormal` and the
+true normal. That number is a property of the HEAD — 11.4° mean whatever the
+helmets do — so it could name the bug and could never hold a helmet. It is kept,
+demoted to a diagnosis, and the gate is now `helmFitProbe`.
+
+`headWear`/`helmWear` record the spec of every shell they are asked for.
+`helmFitProbe` builds each helmet through the real `buildCharacter` on real
+heads and walks those specs for four numbers per shell:
+
+| | what it is | bar |
+|---|---|---|
+| **fold** | share of the sheet turned inside out | 0% |
+| **thru** | how far the skin gets outside the metal | 0.5 mm |
+| **seat** | the *smallest* standoff — where the plate lands | 28 mm |
+| **float** | the *largest* standoff, face furniture only | 34 mm |
+
+Nothing in it mirrors a helmet definition. It reads the arguments the build
+actually passes, so it cannot drift the way the lineup sheet did.
+
+**It reproduced this document's own ruling with no opinion in it.** Baseline:
+nasal plate 32% inverted, brow plate 17%, both cheek guards 6–11%, and the one
+deep guard that measured clean was the Sutton Hoo's — which is exactly the panel
+§3 passes and names as the template.
+
+`tools/silhouette.mjs` gained the second gate this file asked for by name: every
+adjacent pair of panels on a helm sheet is compared as a Jaccard distance of the
+ink, and a pair under the bar fails the run.
+
+## What changed in the geometry
+
+1. **The helm tier is beaten over a FORM.** Every helm shell now rides a
+   low-passed copy of the head instead of the skin itself. The features go; the
+   skull, the class's dome, the per-warrior breadth and the jaw all stay, because
+   those are 60–200 mm shapes and the filter is an 11 mm one. Nothing on the form
+   has a radius of curvature under about 45 mm, so a 30 mm standoff cannot fold
+   it. The Sutton Hoo mask has done this since it was built and is the one piece
+   §3 passes; this generalises its trick to the tier. The filter runs once per
+   skull on a grid — 2701 field samples against the head's own 1200 — rather than
+   17 per vertex the way the mask does it.
+2. **Four bowl profiles**, which is the axis the ladder did not have. `shallow`
+   for the spangenhelm, `cone` for the nasal helm (one piece, so no ribs, and a
+   finial), `round` for the Vendel bowls, `tall` for the noble rungs.
+3. **Both crests were needles.** Each was a strip spanning a fixed span of
+   AZIMUTH, and azimuthal width collapses to nothing at the pole — so an 11 mm
+   comb at the brow was 0 mm across at the crown while still carrying its full
+   height. A quarter of the wyrm's measured inverted. Both are swept in the
+   sagittal plane now as half-tubes of constant width: the ridge helm gets the
+   40 mm comb §3 asks for along its whole length, and the wyrm gets 52 mm at the
+   crown, monotonic from both ends, with its head thrown 30 mm past the brow.
+4. **The plates are cut, not clipped.** The spectacle plate is an arch over each
+   eye feathered into the band and the nasal; the nasal's rivet plate is a
+   lozenge at 19–22 mm; both cheek guards are cut to the jaw the way `maskBot(u)`
+   cuts the mask.
+5. **Both cheek guards covered the far eye**, because they began at 0.42 and 0.50
+   rad and the outer canthus is at 0.53. That, and not the standoff, is most of
+   what "a slab across the face" was. They start at 0.56 now and their top edge
+   is cut away below the eye line at the front.
+6. **The Jarl's Crown**, whose finding was a pricing one with a geometry cause:
+   the tall bowl, the nape flange back, and eight alternating leaves in place of
+   six identical pins.
+7. **The boar is seated on the bowl**, not at a height above the skull. The new
+   ladder test caught this within a minute of existing: the deeper `round` bowl
+   swallowed the animal and 6→7 fell to 0.8%.
+
+## The numbers
+
+Adjacent-rung outline difference, three-quarter −35°, silhouette only:
+
+| rungs | before | after |
+|---|---|---|
+| Iron 30 → Nasal 110 | **0.0%** | 4.2% |
+| Nasal 110 → Hood 120 | 6.6% | 5.9% |
+| Hood 120 → Ridge 190 | 6.4% | 7.5% |
+| Ridge 190 → Spectacle 280 | 2.8% | 4.7% |
+| Wyrm 950 → Sutton Hoo 2400 | 5.8% | 8.7% |
+
+`0.0%` between the 30-gold helm and the 110-gold helm is this document's finding
+stated as a measurement: two helmets with the same outline, 80 gold apart.
+
+Fit, all ten rungs on 4 classes × 2 seeds = 80 builds:
+
+    [wear] helm         shells  fold%   thru mm   seat mm  float mm
+    [wear] iron            6     0.0      0.0      24.4      24.0
+    [wear] nasal           3     0.0      0.0      19.0      24.0
+    [wear] ridge           7     0.0      0.0      23.0      24.0
+    [wear] spectacle      11     0.0      0.0      23.0      25.0
+    [wear] boar           11     0.0      0.0      23.0      25.0
+    [wear] crowned        11     0.0      0.0      23.0      25.0
+    [wear] wyrm           11     0.0      0.0      23.0      29.0
+    [wear] suttonhoo      10     0.0      0.0      27.0      31.0
+    [wear] PASS: 10/10 helmets seated
+
+## What this wave did NOT close
+
+- **The pricing rulings in §5 are geometry now, not prices.** The Nasal Helm has
+  a bowl of its own, the Jarl's Crown has more geometry than the Boar-Crest, and
+  the Wyrm-Crest's serpent breaks the outline — so the reprice list is stale
+  where it says "until". Nobody has re-argued the numbers themselves.
+- **The Shadow Hood is still underpriced at 120** and still the only bought
+  silhouette under the top rung that costs nothing to make.
+- **Hair, beards, war paint, cloaks and the armour finishes are untouched.** The
+  ladder gate is built and only the three helm sheets declare a bar; wiring the
+  other slots to it is the cheapest next pass in this file.
