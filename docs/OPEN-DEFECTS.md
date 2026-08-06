@@ -885,19 +885,26 @@ window hook through the real app records **zero** progress events while the
 build runs perfectly. Read `__forgeStages` instead. This cost a verify pass a
 false FAIL.
 
-## Bindings live in localStorage only — the profile column was never added
+## Resolved — bindings reached the profile after all
 
-`docs/KEYBINDS.md` asked for bindings to persist to the **profile**, so they
-follow a player to a new device through the four-word recovery code. They do
-not. `bretwalda.bindings` in localStorage is the whole of it, which means a
-remap is lost on a new device, a new browser, or a site-data clear.
+This entry read "the profile column was never added". It was added. Corrected
+here rather than deleted, because it was carried as open long enough to be
+planned around, and the next reader should know why it is gone.
 
-The client half is already built and waiting: `setBindingsPersister(fn)` and
-`hydrateBindings(profile.bindings)` are exported from
-`src/game/client/bindings.ts` and nothing calls either. What is missing is
-server-side and untouched — a `bindings jsonb` column on the profile row and a
-`bindings?` field accepted by `/api/profile/equip`. Until then the fallback is
-the only path, exactly as the profile layer's own no-database fallback works.
+The column is `players.bindings`, `jsonb`, in `src/db/schema.ts` — nullable on
+purpose, and the comment beside it is worth reading: the null means "this
+player has never saved bindings", which is what tells the client to carry the
+ones already on his device *up* to the server rather than be handed defaults
+and lose a remap made before the column existed. The write is `syncBindings()`
+at `src/app/profileLink.ts:328`, POSTing to `/api/profile/equip`; the
+validation is `bad_bindings` at `src/db/api.ts:30` ("Those key bindings were
+not written by this game"); the boot hydration sits beside the mute's.
+
+**What is still unproven is the same thing that is unproven about the mute**,
+and for the same reason: `npm run profiletest` skips its whole database half
+without `PROFILE_TEST_DB`. The column exists and the path is wired; no test has
+watched a remap survive a recovery onto a second device. Close that with the
+same run that closes the mute.
 
 ## A server-rendered binding cap is a hydration mismatch waiting to happen
 
