@@ -8384,6 +8384,25 @@ export function buildCharacter(
           }), trimMetal, place.clone());
         }
       }
+      // WHERE A CHEEK GUARD STOPS AT THE FRONT, and it is one number and one
+      // curve shared by both guards because both got it wrong the same way.
+      //
+      // `eyeFrame` sites each eye at azimuth `0.355 · F.eyeU` and the aperture is
+      // 0.17 rad either side of that, so the outer canthus is at about 0.53 rad.
+      // The short guard began at 0.42 and the deep one at 0.50 — INSIDE the eye —
+      // and both ran straight up to the brow band, so each plate covered the far
+      // eye entirely. On the contact sheet that draws as a slab of metal across
+      // the middle of the face with the socket gone behind it, which is most of
+      // what "a rectangle standing proud of the skull" was describing. A helmet
+      // that covers the eye is not a helmet, whatever its edges do.
+      //
+      // 0.56 rad clears the canthus by 15 mm. And the top edge is cut away at the
+      // front: it starts below the eye line, curves up, and reaches the band by
+      // the time it is behind the socket — which is what a hinged cheek piece
+      // actually looks like on the finds, and what leaves a man something to see
+      // and shout through.
+      const cheekTop = (t: number) =>
+        mix(lat(Y_EYE - 0.045), bandLo + 0.015, Math.pow(smooth(0, 0.62, t), 0.85));
       if (style.cheek === "short") {
         // Cheek guards, hinged off the band. They run from the band down past the
         // cheekbone to the jaw, and they stop short of the mouth: the whole point of
@@ -8408,11 +8427,11 @@ export function buildCharacter(
         // and the reason the contact sheet kept reading this plate as pasted on.
         // A hinged cheek plate is cut back at the front so the wearer can see and
         // shout past it; the top corner behind the eye is the last thing on it.
-        const shortIn = 0.52, shortOut = 1.10;
+        const shortIn = 0.56, shortOut = 1.10;
         const st = (u: number) => clamp01((Math.abs(u) - shortIn) / (shortOut - shortIn));
         const hem = (u: number) =>
           lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.20, 1, st(u)), 1.5);
-        const top = (u: number) => bandLo + 0.02 - 0.055 * Math.pow(1 - st(u), 1.5);
+        const top = (u: number) => cheekTop(st(u));
         for (const s of [-1, 1]) {
           p.add(helmWear(K, {
             tag: "cheek (short)",
@@ -8464,7 +8483,7 @@ export function buildCharacter(
         // you look. `profile_90_` shows the result as a brown column of bare neck
         // between them from the ear down. 1.62 carries the plate past the ear to
         // where the fall's edge actually is at throat height.
-        const guardIn = style.mask ? 0.78 : 0.50;
+        const guardIn = style.mask ? 0.78 : 0.56;
         const guardOut = style.mask ? 1.62 : 1.45;
         // THE OUTLINE, and this is the audit's ruling in one function: "their
         // cheek guards are A RECTANGLE IN (u, v) standing tens of millimetres
@@ -8484,9 +8503,12 @@ export function buildCharacter(
         };
         // And the top edge dips forward of the hinge, so the plate does not
         // present a straight horizontal rim across the temple either.
+        // Over a MASK there is no eye to clear — the mask has its own openings and
+        // the guard is meant to lap it — so that case keeps the band-height rim it
+        // was tuned with. Over an open helm the guard is cut for the socket.
         const deepTop = (u: number) => {
           const t = clamp01((Math.abs(u) - guardIn) / (guardOut - guardIn));
-          return bandLo + 0.01 - 0.045 * Math.pow(1 - t, 1.6);
+          return style.mask ? bandLo + 0.01 - 0.045 * Math.pow(1 - t, 1.6) : cheekTop(t);
         };
         for (const s of [-1, 1]) {
           p.add(helmWear(K, {
