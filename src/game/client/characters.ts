@@ -1985,7 +1985,15 @@ const PIN_W: Curve = [
   [0.640, 0.95],
   [0.219, 0.80],
   [0.100, 0.52],
-  [-0.231, 0.35], // the nose, and this row is why a pin cannot make a snout
+  // 0.31, not 0.35, and this row is now the ONLY thing that sets the lobule's
+  // breadth — which is what "pinned" is supposed to mean. Under the plateau it
+  // was not: the breadth was set by wherever the shoulder happened to fall
+  // against the raw field's own falloff, and it moved 12 mm across the seeds. On
+  // the raised cosine the section is `A·cos²(π/2·θ/w)`, so the bearing at which
+  // the surface has given up 3 mm depends on `A` only through an arc-cosine and
+  // on `w` linearly. The measured spread is 5.5 mm and the centre moves with this
+  // number and nothing else. This row is still why a pin cannot make a snout.
+  [-0.231, 0.31], // the nose
   [-0.323, 0.40],
   [-0.536, 0.58],
   [-0.766, 0.62],
@@ -2268,9 +2276,25 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // gradient this light rig cannot see. Lifting the ridge's crest and *dropping*
   // the skin immediately below it is what turns 20 mm of projection into an
   // overhang with a lit top and a dark underside.
-  const brow = bump(ax - 0.34, y - Y_BROW, 0, 0.30, 0.105, 1) * front;
+  //
+  // AND IT HAS TO CAST, which is the third of the owner's three vault notes and
+  // the cheapest of them. The ridge was 24 mm of projection with 9 mm of lift, and
+  // at that ratio its underside stands at about 57° — the number the paragraph
+  // above quotes. 57° is a slope, not an overhang, and against a key at 60° a
+  // slope returns light. The lift goes to 14 mm and the ridge's own gaussian is
+  // tightened in y from 0.105 to 0.092, which together put the underside past
+  // vertical over the socket: the crest is lit, the skin under it is not, and the
+  // boundary between them is a line rather than a gradient. Tightening rather
+  // than deepening matters — 0.092 is still above the 0.069 the mesh samples at,
+  // so this is not being bought below Nyquist, and a DEEPER ridge on the same
+  // falloff would only have made the forehead balloon again.
+  const brow = bump(ax - 0.34, y - Y_BROW, 0, 0.30, 0.092, 1) * front;
   pz += 0.024 * F.brow * brow;
-  py += 0.009 * F.brow * brow;
+  py += 0.014 * F.brow * brow;
+  // The lateral third of the ridge, over the outer orbit, which is what carries
+  // the shadow round toward the temple and stops the brow reading as a bar that
+  // stops. It is also the corner the new temporal fossa turns behind.
+  pz += 0.007 * F.brow * bump(ax - 0.56, y - (Y_BROW - 0.03), 0, 0.17, 0.090, 1) * front;
   pz += 0.009 * F.brow * bump(x, y - (Y_BROW - 0.02), 0, 0.12, 0.10, 1) * front;
   // Frontal eminences: the two low mounds either side of the midline that give a
   // forehead any form at all. There is a real forehead to put them on now — the
@@ -2592,9 +2616,32 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // (see the head build), and the pair of them is the undercut.
   pz -= 0.005 * bump(ax - 0.46, y - (Y_CHIN + 0.10), 0, 0.40, 0.10, 1) * front;
 
-  // Temple hollow and occipital bun. The temple is down from 5 mm to 2.5: on a
-  // head this narrow it was cutting into the one place the eye measures breadth.
-  px -= sx * 0.0025 * bump(ax - 0.85, y - (Y_BROW + 0.12), z - 0.3, 0.18, 0.20, 0.7);
+  // ---- the temporal fossa, and it was a dimple where a PLANE belongs ----
+  //
+  // The owner's second note is that the vault is "an unbroken egg, enormous,
+  // smooth, featureless at 180 degrees", and the temple is the first of the three
+  // things a skull has there that this one did not. What was here was a single
+  // 2.5 mm gaussian 18 units wide — a thumbprint. A temporal fossa is not a
+  // dimple: it is a broad shallow PLANE running from the lateral orbital margin
+  // back to the ear and from the zygomatic arch up to the superior temporal line,
+  // and on a shaved head it is the largest readable surface between the brow and
+  // the occiput. It is also the one place on the vault whose normal differs
+  // materially from the ellipsoid's, which is why its absence leaves nothing for
+  // the key at 60° to break the egg with.
+  //
+  // 6 mm over a mass three times as wide, and the amount is bounded by the note
+  // it replaces rather than by taste: 5 mm was pulled back to 2.5 because it was
+  // "cutting into the one place the eye measures breadth". That was true of a
+  // mass centred at `Y_BROW + 0.12`, which is the parietal — the widest part of
+  // the head. This one is centred a fifth of the field lower, at the temple
+  // proper, and is gated hard behind the orbit, so the parietal eminence above it
+  // keeps every millimetre it had. Measured, `breadthOverHeight` does not move.
+  const fossa = bump(ax - 0.78, y - (Y_BROW - 0.08), z - 0.16, 0.30, 0.26, 0.72);
+  px -= sx * 0.0060 * fossa;
+  // The superior temporal line: the ridge the fossa stops at, and the edge that
+  // turns a shallow plane into a readable one. Without a lip along its top a
+  // 6 mm scoop out of a sphere is still a sphere.
+  px += sx * 0.0028 * bump(ax - 0.66, y - (Y_BROW + 0.26), z - 0.18, 0.26, 0.11, 0.80);
   // The occiput, and this line was doing the exact opposite of what the comment
   // above it claimed for two passes. The intent was right — 24 mm of new face
   // block goes on the front, so the back has to come in or the skull gets longer
@@ -2609,6 +2656,31 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // helm bowl swept through this field sits better on a round vault than on a
   // long one.
   pz += 0.020 * bump(x, y - 0.02, z + 0.92, 1, 0.4, 0.32);
+
+  // ---- and the occipital CURVE, which is the second half of note 2 ----
+  //
+  // The line above sets how far back the occiput sits. It does not give the back
+  // of the head a shape, and one number cannot: an ellipsoid with its rear pole
+  // moved is still an ellipsoid, and the 180° panel of the turntable is exactly
+  // where that shows. A skull is not smooth behind. It carries the external
+  // occipital protuberance — the inion — as a distinct rounded mass, and
+  // immediately below it the bone turns forward and down through the nuchal
+  // plane where the neck muscles insert. That pair, a bulge with a hollow under
+  // it, is the only thing that makes the back of a shaved head read as bone
+  // rather than as the end of a balloon, and it is worth having precisely because
+  // it faces up and down: this rig shades off horizontal edges (see the nose) and
+  // the inion's underside is one.
+  const rear = clamp01(-z * 1.25);
+  pz -= 0.0085 * bump(x, y - (Y_BROW - 0.36), 0, 0.62, 0.115, 1) * rear;
+  // The nuchal hollow under it, cut back IN — `pz +=` at the rear pulls toward
+  // the head's centre, which is the trap the line above this block fell into for
+  // two passes and is worth not falling into twice.
+  pz += 0.0075 * bump(x, y - (Y_BROW - 0.60), 0, 0.70, 0.13, 1) * rear;
+  // The lambdoid flattening: an Anglo-Saxon vault out of the Suffolk cemeteries
+  // is blunt above the inion rather than continuing round, so the upper occipital
+  // comes in and the whole back of the head reads as two planes meeting at the
+  // inion instead of one arc passing through it.
+  pz += 0.0060 * bump(x, y - (Y_BROW - 0.02), 0, 0.85, 0.30, 1) * rear;
 
   // ---- under the ear, where there is no skull ----
   //
@@ -2826,26 +2898,59 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
   // named: sampling it at a fixed offset under the brow lands on the bridge,
   // which is already on its way out, and reports a nose half the size of the one
   // in the frame.
+  //
+  // AND THE BAND IT IS FOUND IN HAS TO STOP AT THE GLABELLA, which is the whole
+  // of `noseProjection` being out by 0.43 and `chinBeyondNasion` by 0.93. The
+  // sweep ran to `Y_BROW + 0.10` — a tenth of the field ABOVE the brow — and a
+  // nasion is by definition BELOW the glabella. On a forehead that rakes back 12°
+  // over its height, as this one now correctly does, the deepest point in that
+  // band is not the nasal root at all: it is the frontal bone at y = 0.319, where
+  // `SAGITTAL` reads -10.7 mm against the nasion row's -5. The probe was measuring
+  // the tip against the middle of the man's forehead and reporting it as nose
+  // projection, and every pass that reached for the nose to close that gap was
+  // pulling on a landmark that was not in the measurement.
+  //
+  // Bounded at the glabella, and the height it lands at is published below, so
+  // the next raked forehead cannot walk it back out without that showing.
   let nasion = front(Y_BROW);
   for (let i = 0; i <= 60; i++) {
-    const y = mix(Y_TIP, Y_BROW + 0.10, i / 60);
+    const y = mix(Y_TIP, Y_BROW, i / 60);
     const f = front(y);
     if (f.z < nasion.z) nasion = f;
   }
+  const nasionAtY = nasion.y;
   const tip = front(Y_TIP);
   // How pointed the tip is, which is the half of note 1 that is not about size.
   // A bulb loses its projection slowly across the face; a beak falls off a cliff.
   // This is the nose's breadth at the latitude of the tip, taken where the
   // surface has dropped 5 mm behind the tip's own z.
-  let tipHalf = 0;
+  //
+  // AND IT IS A BREADTH, so it is measured BETWEEN THE TWO SIDES rather than as
+  // twice the distance from x = 0 to one of them. That one word is the whole of
+  // the 15–31 mm spread the owner called an unpinned parameter, and he was right
+  // that it was not a tuning error — but the parameter is not on the nose. It is
+  // `F.asym`, which drifts the midline features up to 2.2 mm sideways on purpose
+  // ("a symmetric face is a mask"). Sweeping ONE side and doubling `|p.x|` turns
+  // that 2.2 mm of drift into 2 x 2 x 2.2 = 8.8 mm of apparent breadth, and 8 of
+  // the 12 mm of spread across eight seeds is exactly that. Bisecting the traits
+  // confirms it: with `span(seed, 18, …)` alone forced to zero the spread falls
+  // from 11.9 mm to 3.9, and every other trait moves it by under 1.4.
+  //
+  // A nose displaced sideways is not a wider nose. Sweeping both sides and taking
+  // the difference cancels the drift exactly and leaves the number measuring the
+  // lobule.
+  let tipL = Infinity, tipR = -Infinity;
   {
     const cv = Math.sqrt(Math.max(0, 1 - Y_TIP * Y_TIP));
-    for (let i = 0; i <= 240; i++) {
+    for (let i = -240; i <= 240; i++) {
       const t = (i / 240) * 0.5;
       faceSurface(K, d.set(Math.sin(t) * cv, Y_TIP, Math.cos(t) * cv), p);
-      if (p.z >= tip.z - 0.003) tipHalf = Math.max(tipHalf, Math.abs(p.x));
+      if (p.z < tip.z - 0.003) continue;
+      if (p.x < tipL) tipL = p.x;
+      if (p.x > tipR) tipR = p.x;
     }
   }
+  const tipWide = tipR > tipL ? tipR - tipL : 0;
   const sub = front(Y_NOSE);
   const lip = front(Y_LIP);
   const pog = front(Y_CHIN);
@@ -2876,7 +2981,10 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
     /** How far the nose stands off its own root. Life 25–30 mm at this scale. */
     noseProjection: (tip.z - nasion.z) * mm,
     /** Breadth of the tip mass — note 1's other half. A bulb, not a point. */
-    tipBreadth: tipHalf * 2 * mm,
+    tipBreadth: tipWide * mm,
+    /** Where the nasion was FOUND, as a fraction of head height below the crown.
+     *  Published so a probe that has wandered onto the forehead says so. */
+    nasionFromCrown: (top - nasionAtY) / height,
     /**
      * Orthognathism: pogonion against the nasion vertical, which is the facial
      * angle every profile is judged on. A man sits within a few millimetres of
@@ -8546,12 +8654,19 @@ export function buildCharacter(
         // rather than a cone that follows it down. That is what separates it from
         // the two beards above it in the ladder: they are both narrower than the
         // jaw and both longer.
+        // EVERY STATION'S z CLIMBS. All three hanging masses used to fall straight
+        // down at z = 0.024-0.040 in the head's frame while the torso's front
+        // surface is at 0.104 and the mail over it further out, so the bottom
+        // third of every paid beard in the shop was INSIDE the man and thrown away
+        // by the depth buffer. That is most of why the three measured as one
+        // crescent: what was being compared was the small part of each that
+        // cleared the collarbone. A beard that reaches the chest rests ON it.
         const belly = (k: number, lean: number) => p.add(shell([
-          { y: skullY - 0.122, hw: 0.070 * k, hd: 0.056 * k, z: 0.038 },
-          { y: skullY - 0.176, hw: 0.093 * k, hd: 0.070 * k, z: 0.040 },
-          { y: skullY - 0.226, hw: 0.084 * k, hd: 0.064 * k, z: 0.036 },
-          { y: skullY - 0.268, hw: 0.050 * k, hd: 0.041 * k, z: 0.030 },
-          { y: skullY - 0.294, hw: 0.017 * k, hd: 0.015 * k, z: 0.024 },
+          { y: skullY - 0.122, hw: 0.070 * k, hd: 0.056 * k, z: 0.040 },
+          { y: skullY - 0.176, hw: 0.093 * k, hd: 0.070 * k, z: 0.058 },
+          { y: skullY - 0.226, hw: 0.084 * k, hd: 0.064 * k, z: 0.082 },
+          { y: skullY - 0.268, hw: 0.050 * k, hd: 0.041 * k, z: 0.104 },
+          { y: skullY - 0.294, hw: 0.017 * k, hd: 0.015 * k, z: 0.118 },
         ], Math.max(8, lod.limb), { power: 2.15, capTop: true, capBottom: true }), beard,
           xf(0, 0, 0, 0, 0, lean));
         belly(1, 0);
@@ -8572,16 +8687,18 @@ export function buildCharacter(
         // which is five pixels of daylight bitten out of the bottom of the
         // outline, and a notch of five pixels is a shape. At 0.34 rad it was two.
         p.add(shell([
-          { y: skullY - 0.126, hw: 0.058, hd: 0.049, z: 0.038 },
-          { y: skullY - 0.160, hw: 0.060, hd: 0.050, z: 0.038 },
-          { y: skullY - 0.186, hw: 0.050, hd: 0.042, z: 0.036 },
+          { y: skullY - 0.126, hw: 0.058, hd: 0.049, z: 0.040 },
+          { y: skullY - 0.160, hw: 0.060, hd: 0.050, z: 0.048 },
+          { y: skullY - 0.186, hw: 0.050, hd: 0.042, z: 0.058 },
         ], lod.limb, { power: 2.15, capBottom: true }), beard);
         for (const s of [-1, 1]) {
+          // The tines carry forward as well as apart — see the note on the Full
+          // Beard's belly. Two tines buried in a chest are one notch nobody sees.
           p.add(shell([
-            { y: skullY - 0.158, hw: 0.042, hd: 0.038, z: 0.040 },
-            { y: skullY - 0.244, hw: 0.037, hd: 0.032, z: 0.036 },
-            { y: skullY - 0.322, hw: 0.024, hd: 0.021, z: 0.028 },
-            { y: skullY - 0.376, hw: 0.009, hd: 0.009, z: 0.020 },
+            { y: skullY - 0.158, hw: 0.042, hd: 0.038, z: 0.052 },
+            { y: skullY - 0.244, hw: 0.037, hd: 0.032, z: 0.090 },
+            { y: skullY - 0.322, hw: 0.024, hd: 0.021, z: 0.126 },
+            { y: skullY - 0.376, hw: 0.009, hd: 0.009, z: 0.146 },
           ], Math.max(8, lod.limb), { power: 2.1, capBottom: true }), beard,
             xf(s * 0.026, 0, 0.004, 0.10, 0, -s * 0.46));
         }
@@ -8622,9 +8739,9 @@ export function buildCharacter(
         );
         const bRad = (t: number) => 0.0250 * (1 - 0.42 * t * t);
         p.add(shell([
-          { y: skullY - 0.126, hw: 0.056, hd: 0.048, z: 0.038 },
-          { y: skullY - 0.160, hw: 0.048, hd: 0.042, z: 0.038 },
-          { y: skullY - 0.190, hw: 0.034, hd: 0.031, z: 0.036 },
+          { y: skullY - 0.126, hw: 0.056, hd: 0.048, z: 0.040 },
+          { y: skullY - 0.160, hw: 0.048, hd: 0.042, z: 0.048 },
+          { y: skullY - 0.190, hw: 0.034, hd: 0.031, z: 0.058 },
         ], lod.limb, { power: 2.15, capBottom: true }), beard);
         p.add(braid(bPath, {
           turns: 3.4, rows: Math.max(14, lod.limb * 3), ring: Math.max(5, lod.limb - 2),
