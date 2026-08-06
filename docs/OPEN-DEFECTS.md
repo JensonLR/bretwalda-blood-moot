@@ -290,6 +290,37 @@ is being charged 120 gold for a beard he cannot tell from the 40-gold one.
 
 ---
 
+## Two of the gates are not deterministic, and one of them was believed
+
+`dd7821f` recorded touchtest failing once in three runs at 160 deg of facing
+error and called it "a gate that fails a third of the time is not a gate". The
+same is now recorded for **playtest**, which is the larger of the two and had not
+been suspected.
+
+On this wave's final tree, unchanged between runs:
+
+```
+run 1   [playtest] 33/34 controls working
+        BROKEN: turning is reduced to the stated cap while committed
+run 2   [playtest] 33/34 controls working      (reproduced)
+run 3   [playtest] 34/34 controls working
+```
+
+The failing assertion reports `the client asked for 0.00 rad of turn and the body
+delivered 0.00 rad` — the harness's own mouse sweep did not register during the
+swing, not a turn cap that failed to apply. Nothing in the input path changed this
+wave (`git diff --stat 39cbad3..HEAD` is characters.ts, headmeasure.mjs, docs and
+.gitignore), so it cannot be geometry.
+
+**Why this matters more than the flake.** Two runs agreeing is what a person uses
+to decide something is real, and here two runs agreed on a false positive. Any
+verdict on this branch that rests on a single playtest or touchtest run is worth
+less than it looks. Both harnesses need their input synthesis made deterministic —
+wait on the client having *received* the pointer delta before sampling, rather
+than on a wall-clock timer — before either is trusted to gate a release.
+
+---
+
 ## The mute on the war rolls has never met a database
 
 **What is proven.** The mute is remembered on the device — `phonesound` taps the
