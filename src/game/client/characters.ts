@@ -3248,7 +3248,14 @@ function earPoint(K: Skull, earRootX: number, phi: number, s: number): EarPoint 
  *  vertices an ear, against the 5 primitives it replaces which cost 210 between
  *  them — so a shell that closes is CHEAPER than a sum of balls that does not. */
 const EAR_NA = 28;
-const EAR_NS = 7;
+// NINE radial steps, not seven, and the number is chosen to LAND ON the section's
+// control points rather than to be smoother in general. At seven, `s` samples at
+// 0.571 and 0.714 and the helix crest sits at 0.78 — between two rings — so the
+// rim was reconstructed as a chord across its own peak and the facets read as a
+// spider of radial creases in the bowl on the first capture of this shell. At
+// nine the rings land at 0.222, 0.444 and 0.778 against control points at 0.20,
+// 0.44 and 0.78: the crest, the floor and the canal each get a ring on them.
+const EAR_NS = 9;
 
 /**
  * The auricle as three watertight bands off one vertex grid, so the concha can
@@ -4850,9 +4857,23 @@ function faceComplexion(
     // the nose's own relief is a gradient in z, which a light rig with this much
     // fill cannot see, and a shadow down each side of it is what makes the mass
     // read as a nose from in front.
-    dim += 0.42 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.050, 0.100, 1) * front;
+    //
+    // 0.30, down from 0.42, and the one below from 0.75 to 0.58 with its width
+    // halved. Both are the same correction and it is the correction this whole
+    // field's history is about: a tone that stands in for a form has to come off
+    // when the form arrives. It has now. The pin's narrow half goes out on a
+    // raised cosine instead of a plateau, so the dorsum is a rounded ridge with a
+    // gradient of its own rather than a flat panel; the philtrum is above Nyquist
+    // for the first time; the alar creases and the columella undercut are all
+    // being resolved. Front-on in `art/shots/judge9b/cards/headturn-front_0_.png`
+    // the three terms still SUM into one dark column from the brow to the mouth —
+    // a painted wedge down the middle of the face, which is the same failure as
+    // the domino mask one feature further in. The 0.15 under the tip is +/-28 mm,
+    // wider than the base of the nose it is meant to be under, which is what
+    // carried it down onto the lip.
+    dim += 0.30 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.050, 0.100, 1) * front;
     // Under the tip and the columella.
-    dim += 0.75 * bump(dx, dy - (Y_NOSE - 0.018), 0, 0.15, 0.045, 1) * front;
+    dim += 0.58 * bump(dx, dy - (Y_NOSE - 0.018), 0, 0.085, 0.045, 1) * front;
     // Under the mandible, and this is the term that stops the head reading as
     // proud of the neck. Everything below the jawline goes down; the jaw's own
     // border gets a crease over the top of it so the edge has a line.
