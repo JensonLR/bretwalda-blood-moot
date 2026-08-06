@@ -408,7 +408,7 @@ const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak",
 // A misspelled preset used to fall through to "no presets named" and quietly
 // shoot the whole default set — twenty minutes of the wrong pictures. Name
 // which words are flag values so anything left over can be called out.
-const VALUE_FLAGS = new Set(["out", "w", "h", "port", "settle", ...SLOT_FLAGS]);
+const VALUE_FLAGS = new Set(["out", "w", "h", "port", "settle", "quality", ...SLOT_FLAGS]);
 const eaten = new Set();
 argv.forEach((a, i) => {
   if (!a.startsWith("--")) return;
@@ -630,8 +630,14 @@ async function main() {
     // captures that instead. On a gore preset it is the respawn check: a body
     // that came apart has to go back together, and this is the only way to look
     // at the result rather than argue about it.
+    // `--quality low|medium|high` pins the tier the page resolves, so one head
+    // can be photographed at the tier a phone actually gets AND at the tier a
+    // desktop gets. Without it a capture is always whatever `detectTier` makes
+    // of a headless box, and docs/PLATFORMS.md wants a frame from each.
+    const quality = flag("quality", null);
     const url = `${ORIGIN}/shot?${query}&clean=${CLEAN}`
       + (settle ? `&settle=${settle}` : "")
+      + (quality ? `&quality=${quality}` : "")
       + (has("revive") ? "&revive=1" : "");
     console.log(`[shoot] ${key} -> ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 300000 });
