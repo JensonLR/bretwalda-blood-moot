@@ -838,18 +838,41 @@ ink, and a pair under the bar fails the run.
 
 ## The numbers
 
-Adjacent-rung outline difference, three-quarter −35°, silhouette only:
+Adjacent-rung outline difference, three-quarter −35°, silhouette only, measured
+over the helmet — the top 40% of the frame taken down from the higher of the two
+apexes. **The window is not a convenience.** Every panel is the same man in the
+same mail at the same mark with only his head changed, so counting his shoulders
+puts a large constant in the denominator and nothing in the numerator, and the
+same change of shape then scores differently depending on how much torso the
+lens included. Whole-frame, this instrument read the Spectacle against the
+Boar-Crest at 1.7% while one of them has a boar standing on its crown.
 
 | rungs | before | after |
 |---|---|---|
-| Iron 30 → Nasal 110 | **0.0%** | 4.2% |
-| Nasal 110 → Hood 120 | 6.6% | 5.9% |
-| Hood 120 → Ridge 190 | 6.4% | 7.5% |
-| Ridge 190 → Spectacle 280 | 2.8% | 4.7% |
-| Wyrm 950 → Sutton Hoo 2400 | 5.8% | 8.7% |
+| Bare 0 → Iron 30 | 8.3% | 8.2% |
+| **Iron 30 → Nasal 110** | **0.0%** | **13.2%** |
+| Nasal 110 → Hood 120 | 11.4% | 10.7% |
+| Hood 120 → Ridge 190 | 10.7% | 14.0% |
+| Ridge 190 → Spectacle 280 | 8.0% | 12.6% |
+| Spectacle 280 → Boar 380 | 4.2% | 5.1% |
+| Boar 380 → Crowned 570 | 5.1% | 6.2% |
+| Crowned 570 → Wyrm 950 | 15.4% | 15.4% |
+| Wyrm 950 → Sutton Hoo 2400 | 11.7% | 18.7% |
 
-`0.0%` between the 30-gold helm and the 110-gold helm is this document's finding
-stated as a measurement: two helmets with the same outline, 80 gold apart.
+**`0.0%` between the 30-gold helm and the 110-gold helm is this document's
+finding stated as a measurement**: two helmets with the same outline, 80 gold
+apart, and the one thing on this table nobody can argue with. The rest is a
+smaller and more honest story than the whole-frame numbers made it look — four
+pairs improve substantially, one holds exactly, and two barely move.
+
+**The two that barely move are the ones to send back next.** Spectacle → Boar at
+5.1% and Boar → Crowned at 6.2% are the tightest steps in the ladder and both
+sit in the middle of the price range, where a player is most likely to be
+choosing between them. They pass a 4% bar; they do not pass a look.
+
+At fight distance (6.8 m, ~35 px of head, window 16%): 16.4 / 7.6 / 15.9 / 17.6
+/ 11.2 / 5.7 / 4.1 / 13.9 / 14.8 — every rung over the bar, and the same two
+pairs at the bottom of it.
 
 Fit, all ten rungs on 4 classes × 2 seeds = 80 builds:
 
