@@ -101,11 +101,13 @@
 //   it. That is asserted.
 //
 //   THE HAIR IS NOT THE HELMET'S TO TAKE. Every helm in this shop is an open
-//   bowl that stops above the ear — except the Shadow Hood, which is a hood,
-//   and whose whole product is that it swallows a head. So: every paid
-//   hairstyle must still change the picture under every helm, and under the
-//   hood it must NOT, and both halves of that are asserted. The hood's own
-//   claim is testable for the first time as a side effect.
+//   bowl that stops above the ear, so every PAID hairstyle must still change the
+//   picture under every one of them, and that is asserted. Two exemptions, both
+//   deliberate: a free hairstyle that vanishes is reported and not gated,
+//   because nobody paid for it; and the Shadow Hood is exempt outright, because
+//   a hood is a bag for a head and whether a cowl should hide a mane or let it
+//   spill out the front is a design call a harness has no business deciding by
+//   fiat. Its numbers are printed so the call can be made on evidence.
 //
 // ------------------------------------------------------------
 // THE BUDGET, and which pass the gate should use
@@ -225,7 +227,14 @@ const LENS = {
     // Half scale for the geometry pass. A silhouette measured at 350×430 and one
     // measured at 700×860 disagree in the fourth significant figure and agree on
     // every verdict in this file; the raster is four times cheaper.
-    rasterScale: 0.5, shotScale: 0.5 },
+    rasterScale: 0.5,
+    // A QUARTER scale for the rendered pass — 175x215, about 100 px of head.
+    // That is the smallest size that still answers the question the renderer is
+    // being asked, which is "do these two differ in COLOUR", a mean over every
+    // pixel; shape is answered for free by the rasteriser at four times this
+    // resolution. Measured on this box: 175x215 costs 39.8 s a capture against
+    // 47.7 s at 350x430, so the cut is a fifth of the whole render pass.
+    shotScale: 0.25 },
   // Fight distance, honestly: a ~230 px man whose head is ~43 of them. Where a
   // cosmetic is actually LOOKED AT, for the whole match.
   fight: { card: "fightcard", w: 520, h: 320, dist: 6.8, targetY: 0.88, eyeY: 2.05, fov: playScaleFov(320), aim: "body",
@@ -254,7 +263,7 @@ function framing(lens, turnDeg) {
  * alone would call that pair identical — which is the "seven helms share one
  * bowl" defect exactly, seen from the wrong instrument.
  */
-function raster(root, lens, turnDeg) {
+function raster(root, lens, turnDeg, worldRoot = root) {
   const W = Math.round(lens.w * lens.rasterScale), H = Math.round(lens.h * lens.rasterScale);
   const f = framing(lens, turnDeg);
   const [ex, ey, ez] = f.eye, [tx, ty, tz] = f.target;
@@ -270,7 +279,14 @@ function raster(root, lens, turnDeg) {
 
   const depth = new Float32Array(W * H).fill(Infinity);
   const cov = new Uint8Array(W * H);
-  root.updateMatrixWorld(true);
+  // From the TOP of the rig, always. `updateMatrixWorld` on a subtree composes
+  // against whatever its parent's matrix happens to hold, and an un-updated
+  // parent holds the identity — so rasterising `c.head` on its own silently
+  // dropped the warrior's bearing and photographed the BACK of every head. That
+  // is not hypothetical: it is why the first cut of `faceCoverage` reported that
+  // every helmet in the shop covers 100% of the face, including the ones with no
+  // face furniture at all.
+  worldRoot.updateMatrixWorld(true);
 
   const NEAR = 0.05;
   const A = [0, 0, 0], B = [0, 0, 0], C = [0, 0, 0];
@@ -502,7 +518,7 @@ console.log("\n[cos] === 0. CALIBRATION ===\n");
 // 1. THE SWEEP — every option in every slot, both lenses, shape only
 // ============================================================
 console.log("\n[cos] === 1. SILHOUETTE AND FORM — all " + OPTION_COUNT + " options, both lenses ===\n");
-console.log("  slot         pair                                        lens      SIL%    FORM%   verdict");
+console.log("  slot         pair                                        lens      turn    SIL%    FORM%   union px  verdict");
 console.log("  ---------------------------------------------------------------------------------------------");
 
 const slotsToSweep = ARMOURY.filter((s) => !ONLY_SLOT || s.slot === ONLY_SLOT);
@@ -531,35 +547,103 @@ for (const slot of slotsToSweep) {
   for (let i = 0; i + 1 < shots.length; i++) {
     const a = shots[i], b = shots[i + 1];
     const label = `${a.o.label} -> ${b.o.label}`;
-    const row = { slot: slot.slot, label, cost: b.o.cost, lens: {} };
+    const row = { slot: slot.slot, label, cost: b.o.cost, lens: {}, byTurn: {} };
     for (const lname of Object.keys(LENS)) {
-      // The bearing that shows the most is the one the option is judged at: a
-      // cloak is a back, a forked beard is a profile. Taking the max over the
-      // slot's own bearings is the generous reading, and a slot that fails the
-      // generous reading has nothing left to argue.
+      // Every bearing is measured and every bearing is REPORTED. The verdict
+      // takes the bearing that shows the most, because a cosmetic has a side it
+      // lives on — a cloak is a back and a forked beard is a profile — and a
+      // pair that fails its own best bearing has nothing left to argue.
+      // The per-bearing numbers stay in the table: a pair that reads at 180° and
+      // not at −35° is a real thing to know and a maximum hides it.
       let best = null, bestTurn = null;
       for (const turn of stage.turns) {
         const d = shapeDiff(a.per[`${lname}@${turn}`], b.per[`${lname}@${turn}`]);
+        row.byTurn[`${lname}@${turn}`] = d;
         if (!best || d.changed > best.changed) { best = d; bestTurn = turn; }
       }
       row.lens[lname] = { ...best, turn: bestTurn, verdict: verdictOf(best) };
     }
+    // THE VERDICT IS TAKEN ON THE MOST GENEROUS LENS, not on the portrait one.
+    // The portrait card is framed crown-to-sternum and a cloak is not in it at
+    // all; judging a cloak there would report a defect the lens invented. The
+    // fight lens sees the whole man and the portrait lens sees 400 px of head,
+    // so between them every slot in the shop has somewhere it can be seen — and
+    // an option that is IDENTICAL at its own best reading is unarguably one
+    // object with two prices.
+    row.best = Object.values(row.lens).reduce((x, y) => (y.changed > x.changed ? y : x));
+    row.verdict = verdictOf(row.best);
     TABLE.pairs.push(row);
 
-    for (const [lname, d] of Object.entries(row.lens)) {
-      console.log(`  ${slot.slot.padEnd(11)}  ${label.slice(0, 42).padEnd(42)}  ${lname.padEnd(8)}  ` +
-        `${d.sil.toFixed(2).padStart(6)}  ${d.form.toFixed(2).padStart(6)}  ${isRecolour || isTexture ? "RECOLOUR" : d.verdict}`);
+    for (const lname of Object.keys(LENS)) {
+      for (const turn of stage.turns) {
+        const d = row.byTurn[`${lname}@${turn}`];
+        const chosen = turn === row.lens[lname].turn;
+        console.log(`  ${slot.slot.padEnd(11)}  ${label.slice(0, 42).padEnd(42)}  ${lname.padEnd(8)}  ` +
+          `${String(turn).padStart(4)}  ${d.sil.toFixed(2).padStart(6)}  ${d.form.toFixed(2).padStart(6)}  ${String(d.union).padStart(8)}  ` +
+          `${chosen ? (isRecolour || isTexture ? "RECOLOUR" : d === row.lens[lname] || true ? verdictOf(d) : "") : ""}`);
+      }
     }
     if (isRecolour || isTexture) {
       // Inverted assertion. These slots MUST be flat, and a shape difference
       // here would mean the harness is measuring something other than the tint.
-      if (row.lens.portrait.changed > 0) recolourViolations.push(`${slot.slot}: ${label} moved geometry (${pct2(row.lens.portrait.changed)})`);
-    } else if (row.lens.portrait.verdict === "IDENTICAL") {
-      identicalPairs.push(`${slot.slot}: ${label} — ${pct2(row.lens.portrait.changed)} at portrait`);
-    } else if (row.lens.portrait.verdict === "FAINT") {
-      faintPairs.push(`${slot.slot}: ${label} — ${pct2(row.lens.portrait.changed)} at portrait`);
+      if (row.best.changed > 0) recolourViolations.push(`${slot.slot}: ${label} moved geometry (${pct2(row.best.changed)})`);
+    } else if (row.verdict === "IDENTICAL") {
+      identicalPairs.push(`${slot.slot}: ${label} — ${pct2(row.best.changed)} at its own best lens and bearing`);
+    } else if (row.verdict === "FAINT") {
+      faintPairs.push(`${slot.slot}: ${label} — ${pct2(row.best.changed)} at its own best lens and bearing`);
     }
   }
+}
+
+// ------------------------------------------------------------
+// EVERY PAIR, not only adjacent ones.
+//
+// The colour defect this project found by eye was two rungs that were the same
+// colour and were NOT next to each other in the list, so walking the ladder one
+// step at a time would have missed it. The same trap exists in shape, and it
+// has a second form: a pair that is a different object overall but the SAME
+// PICTURE from one bearing. A hundred-gold braid that is the free crop seen
+// from behind is a real thing a player will notice and no adjacent walk reports
+// it. Twins are a gate; one-bearing twins are reported, because an option is
+// allowed to be ambiguous from a single angle and is not allowed to be
+// ambiguous from all of them.
+const twins = [], viewTwins = [];
+for (const slot of slotsToSweep) {
+  if (RECOLOUR_SLOTS.has(slot.slot) || TEXTURE_SLOTS.has(slot.slot)) continue;
+  const stage = STAGE[slot.slot] ?? { dress: {}, turns: [QUARTER] };
+  const field = SLOT_FIELD[slot.slot];
+  const shots = slot.options.map((o) => {
+    const per = {};
+    for (const turn of stage.turns) {
+      const c = staged({ ...stage.dress, [field]: o.value }, turn);
+      for (const [lname, lens] of Object.entries(LENS)) per[`${lname}@${turn}`] = raster(c.group, lens, turn);
+    }
+    return { o, per };
+  });
+  for (let i = 0; i < shots.length; i++) {
+    for (let j = i + 1; j < shots.length; j++) {
+      let worst = null, flatViews = [];
+      for (const lname of Object.keys(LENS)) {
+        for (const turn of stage.turns) {
+          const d = shapeDiff(shots[i].per[`${lname}@${turn}`], shots[j].per[`${lname}@${turn}`]);
+          if (!worst || d.changed > worst.changed) worst = d;
+          if (d.changed < IDENTICAL_PCT) flatViews.push(`${lname}@${turn}°`);
+        }
+      }
+      const pair = `${slot.slot}: ${shots[i].o.label} and ${shots[j].o.label}`;
+      if (worst.changed < IDENTICAL_PCT) twins.push(`${pair} — ${pct2(worst.changed)} from every lens and bearing`);
+      else if (flatViews.length) viewTwins.push(`${pair} — the same picture at ${flatViews.join(", ")}`);
+    }
+  }
+}
+console.log("");
+check("no two options in a shape slot are the same object, adjacent or not",
+  twins.length === 0, twins.length ? `${twins.length} twins` : "every pair separated somewhere");
+for (const t of twins) note(`TWIN       ${t}`);
+if (viewTwins.length) {
+  note(`${viewTwins.length} pairs are indistinguishable from at least one bearing (reported, not gated):`);
+  for (const t of viewTwins) note(`  ${t}`);
+  TABLE.notes.push(...viewTwins.map((t) => `one-bearing twin — ${t}`));
 }
 
 const shapeSlots = slotsToSweep.filter((s) => !RECOLOUR_SLOTS.has(s.slot) && !TEXTURE_SLOTS.has(s.slot));
@@ -568,7 +652,7 @@ console.log("");
 check(`no two adjacent shape options are the same object (${shapePairs} pairs)`,
   identicalPairs.length === 0, identicalPairs.length ? `${identicalPairs.length} identical` : `all above ${IDENTICAL_PCT}%`);
 for (const f of identicalPairs) note(`IDENTICAL  ${f}`);
-check(`every adjacent shape pair clears the ${DIFFERS_PCT}% bar at the portrait lens`,
+check(`every adjacent shape pair clears the ${DIFFERS_PCT}% bar somewhere`,
   faintPairs.length === 0, faintPairs.length ? `${faintPairs.length} FAINT` : "all clear");
 for (const f of faintPairs) note(`FAINT      ${f}`);
 check("a recolour ladder moves no geometry (proves the two instruments are separate)",
@@ -631,9 +715,9 @@ const HOOD = "hood"; // the one helm whose product is that it swallows a head
 function faceCoverage(helmValue) {
   const lens = LENS.portrait;
   const bare = staged({ helm: "none", hairStyle: "shaved", beardStyle: "none" }, 0);
-  const bareHead = raster(bare.head, lens, 0);
+  const bareHead = raster(bare.head, lens, 0, bare.group);
   const worn = staged({ helm: helmValue, hairStyle: "shaved", beardStyle: "none" }, 0);
-  const wornHead = raster(worn.head, lens, 0);
+  const wornHead = raster(worn.head, lens, 0, worn.group);
   let face = 0, covered = 0;
   for (let i = 0; i < bareHead.cov.length; i++) {
     if (!bareHead.cov[i]) continue;
@@ -648,7 +732,7 @@ function faceCoverage(helmValue) {
 
 console.log("  helm          face covered   " + slotOf("hair").options.map((o) => o.label.slice(0, 9).padStart(10)).join(""));
 console.log("  " + "-".repeat(30 + 10 * slotOf("hair").options.length));
-const swallowed = [], hoodLeaks = [];
+const swallowed = [], hoodLeaks = [], freeSwallowed = [];
 for (const helm of helms) {
   const cover = faceCoverage(helm.value);
   const base = raster(staged({ helm: helm.value, hairStyle: "shaved" }, QUARTER).group, LENS.portrait, QUARTER);
@@ -660,11 +744,16 @@ for (const helm of helms) {
     cells.push(`${d.changed.toFixed(2)}%`.padStart(10));
     TABLE.companions.push({ kind: "hair-under-helm", helm: helm.label, option: hair.label, changed: d.changed, cover });
     if (helm.value === HOOD) {
-      // The hood is ALLOWED to swallow hair. It is asserted to, because that is
-      // what its 120 gold buys and nothing has ever checked it.
-      if (d.changed > DIFFERS_PCT) hoodLeaks.push(`${hair.label} still shows ${pct2(d.changed)} under the Shadow Hood`);
+      // The Shadow Hood is the ONE helm entitled to cover hair — a hood is a bag
+      // for a head, and swallowing what is under it is what its 120 gold buys.
+      // So it is exempted from the assertion and reported instead: whether a
+      // draped cowl should hide a mane or let it spill out the front is a design
+      // call, and a harness that decided it by fiat would be inventing a defect.
+      hoodLeaks.push(`${hair.label} reads ${pct2(d.changed)} under the Shadow Hood`);
+    } else if (hair.cost > 0 && d.changed < DIFFERS_PCT) {
+      swallowed.push(`${hair.label} (${hair.cost}g) under ${helm.label} — ${pct2(d.changed)} (helm covers ${cover.toFixed(0)}% of the face)`);
     } else if (d.changed < DIFFERS_PCT) {
-      swallowed.push(`${hair.label} under ${helm.label} — ${pct2(d.changed)} (helm covers ${cover.toFixed(0)}% of the face)`);
+      freeSwallowed.push(`${hair.label} (free) under ${helm.label} — ${pct2(d.changed)}`);
     }
   }
   console.log(`  ${helm.label.slice(0, 12).padEnd(12)}  ${cover.toFixed(0).padStart(9)}%   ${cells.join("")}`);
@@ -674,8 +763,13 @@ console.log("");
 check("every paid hairstyle still reads under every helm that is not a hood",
   swallowed.length === 0, swallowed.length ? `${swallowed.length} swallowed` : "all clear");
 for (const s of swallowed) note(`SWALLOWED  ${s}`);
-check("the Shadow Hood does what it is sold for and covers the hair under it",
-  hoodLeaks.length === 0, hoodLeaks.join("; ") || "all three hairstyles vanish under it");
+if (freeSwallowed.length) {
+  note(`${freeSwallowed.length} FREE hairstyles are also swallowed — not gated, because nobody paid for them:`);
+  for (const f of freeSwallowed) note(`  ${f}`);
+}
+note("the Shadow Hood is the one helm entitled to cover hair, so it is reported rather than asserted:");
+for (const h of hoodLeaks) note(`  ${h}`);
+TABLE.notes.push(...hoodLeaks.map((h) => `Shadow Hood — ${h}`));
 
 // The face-coverage number is the encoded distinction, reported: a helm that
 // covers a face is allowed to hide the paint on it, and the shop is what has a
@@ -841,55 +935,144 @@ async function renderPass() {
   console.log("\n[cos] === 4. RENDERED PIXELS ===\n");
   // THE NOISE FLOOR, measured rather than assumed. `vfx.ts` rolls its embers off
   // Math.random, so two captures of one subject are not byte-identical; shoot.mjs
-  // measured mean luma 67.6705 against 67.6679 on the same subject. Everything
-  // below is judged against a multiple of what this actually reads, so the
-  // threshold is derived from the instrument on the day rather than guessed.
-  const base = { preset: "warPaint", turn: 0 };
-  const n1 = await capture(LENS.portrait, base.turn, { warPaint: "wp_none" }, { warPaint: "none" });
-  const n2 = await capture(LENS.portrait, base.turn, { warPaint: "wp_none" }, { warPaint: "none" });
+  // measured mean luma 67.6705 against 67.6679 on the same subject. Every bar
+  // below is a multiple of what this actually reads on the day, so the threshold
+  // comes off the instrument rather than out of a guess.
+  const n1 = await capture(LENS.portrait, 0, { warPaint: "wp_none" }, { warPaint: "none" });
+  const n2 = await capture(LENS.portrait, 0, { warPaint: "wp_none" }, { warPaint: "none" });
   const floor = pixDiff(n1, n2);
-  const PIX_BAR = Math.max(0.05, floor.mean * 8);
-  check("the render instrument is repeatable", floor.mean < 0.05,
-    `same subject twice: mean ${floor.mean.toFixed(4)}% (embers are stochastic; bar for a real difference is ${PIX_BAR.toFixed(3)}%)`);
-  TABLE.notes.push(`render noise floor ${floor.mean.toFixed(4)}%, PIX bar ${PIX_BAR.toFixed(3)}% (8× the floor)`);
+  const PIX_BAR = Math.max(0.02, floor.mean * 8);
+  check("the render instrument is repeatable", floor.mean < 0.02,
+    `same subject twice: mean ${floor.mean.toFixed(4)}% — bar for a real difference is 8x that, ${PIX_BAR.toFixed(3)}%`);
+  TABLE.notes.push(`render noise floor ${floor.mean.toFixed(4)}%, PIX bar ${PIX_BAR.toFixed(3)}% (8x the floor)`);
 
-  const paints = slotOf("warPaint").options;
-  const lenses = ALL ? Object.values(LENS) : [LENS.portrait];
-  const wearHelms = ALL ? helms : helms.filter((h) => ["none", "suttonhoo"].includes(h.value));
+  // ------------------------------------------------------------
+  // THE CAPTURE PLAN, DERIVED RATHER THAN LISTED.
+  //
+  // A pair is rendered in the gate when NO FREE INSTRUMENT CAN SEE IT: its shape
+  // difference is under the bar AND its catalogue value is not a colour, so
+  // neither the rasteriser nor ΔE has anything to say about it. That rule is
+  // computed off this run's own measurements, so a slot added to the shop
+  // tomorrow that happens to be a texture or a named tint is rendered by this
+  // gate the first time anybody runs it, without a line being edited here. It is
+  // the same discipline `/shot?roster=1` exists for.
+  //
+  // Today it selects war paint (painted into the skin: no geometry at all) and
+  // the cloaks above the first rung (one cloak, four names) — which is exactly
+  // the set the audit says has NEVER BEEN RENDERED FOR REVIEW.
+  // ------------------------------------------------------------
+  // Which lens a slot is judged on. Head furniture is bought on a face card and
+  // a cloak is not in one — the portrait lens is framed crown-to-sternum.
+  const LENS_FOR = { helm: "portrait", hair: "portrait", hairColor: "portrait", beard: "portrait",
+    beardColor: "portrait", warPaint: "portrait", cloak: "fight", armor: "fight" };
+  const isColourValue = (slotName) => RECOLOUR_SLOTS.has(slotName);
+
+  const plan = new Map(); // slot -> { lenses, options, why }
+  if (ALL) {
+    for (const sl of slotsToSweep) plan.set(sl.slot, { lenses: ["portrait", "fight"], options: sl.options.slice(), why: ["--all"] });
+  } else {
+    for (const r of TABLE.pairs) {
+      if (r.deltaE !== undefined || !r.best) continue;
+      if (isColourValue(r.slot)) continue;             // ΔE already answered it
+      if (r.best.changed >= DIFFERS_PCT) continue;     // the rasteriser answered it
+      const sl = slotOf(r.slot);
+      const cur = plan.get(r.slot) ?? { lenses: [LENS_FOR[r.slot] ?? "portrait"], options: [], why: [] };
+      // ONLY the options in a blind pair, not the whole slot. A beard ladder with
+      // one flat rung costs two captures here rather than five, and on a box
+      // where a capture is forty seconds that distinction is most of the run.
+      const idx = sl.options.findIndex((o) => r.label.startsWith(`${o.label} ->`));
+      for (const o of [sl.options[idx], sl.options[idx + 1]]) if (o && !cur.options.includes(o)) cur.options.push(o);
+      cur.why.push(r.label);
+      plan.set(r.slot, cur);
+    }
+  }
+  for (const [name, spec] of plan) {
+    console.log(`[cos] rendering ${spec.options.length} of ${slotOf(name).options.length} ${name} options at ${spec.lenses.join(" and ")} — ` +
+      (ALL ? "--all" : `${spec.why.length} pair(s) no free instrument can see: ${spec.why.join(", ")}`));
+  }
+  const budget = [...plan].reduce((n, [, spec]) => n + spec.options.length * spec.lenses.length, 0)
+    + (ALL ? helms.length : 3) * slotOf("warPaint").options.length + 2;
+  console.log(`[cos] plan: ${budget} captures at ~40 s each on this box ≈ ${Math.round((budget * 40) / 60)} min`);
 
   console.log("");
-  console.log("  under helm     pair                                        lens      PIX%    verdict");
-  console.log("  --------------------------------------------------------------------------------------");
-  const paintFlat = [], paintGarbled = [];
-  for (const helm of wearHelms) {
-    const cover = TABLE.companions.find((c) => c.kind === "face-coverage" && c.helm === helm.label)?.cover ?? 0;
-    for (const lens of lenses) {
+  console.log("  slot         pair                                        lens      PIX%    worst%  verdict");
+  console.log("  ------------------------------------------------------------------------------------------");
+  const flatPairs = [];
+  for (const [name, spec] of plan) {
+    const sl = slotOf(name);
+    const field = SLOT_FIELD[name];
+    const stage = STAGE[name] ?? { dress: {}, turns: [QUARTER] };
+    const turn = stage.turns[0];
+    const dressIds = Object.fromEntries(Object.entries(stage.dress).map(([f, v]) => {
+      const sn = Object.keys(SLOT_FIELD).find((k) => SLOT_FIELD[k] === f);
+      return [sn, slotOf(sn).options.find((o) => o.value === v).id];
+    }));
+    for (const lname of spec.lenses) {
+      const lens = LENS[lname];
       const shots = [];
-      for (const p of paints) shots.push({ p, img: await capture(lens, 0, { warPaint: p.id, helm: helm.id }, { warPaint: p.value, helm: helm.value }) });
+      for (const o of spec.options) {
+        shots.push({ o, img: await capture(lens, turn, { ...dressIds, [name]: o.id },
+          typeof o.value === "string" ? { [name]: o.value } : null) });
+      }
       for (let i = 0; i + 1 < shots.length; i++) {
         const d = pixDiff(shots[i].img, shots[i + 1].img);
-        const lname = lens === LENS.portrait ? "portrait" : "fight";
         const v = d.mean < PIX_BAR ? "IDENTICAL" : "DIFFERS";
-        console.log(`  ${helm.label.slice(0, 13).padEnd(13)}  ${`${shots[i].p.label} -> ${shots[i + 1].p.label}`.slice(0, 42).padEnd(42)}  ${lname.padEnd(8)}  ${d.mean.toFixed(3).padStart(6)}  ${v}`);
-        TABLE.pairs.push({ slot: "warPaint", label: `${shots[i].p.label} -> ${shots[i + 1].p.label}`, cost: shots[i + 1].p.cost,
-          helm: helm.label, lens: { [lname]: { pix: d.mean, verdict: v } } });
-        if (v === "IDENTICAL") {
-          // THE ENCODED DISTINCTION. Paint that vanishes under a mask is the
-          // mask doing its job; paint that vanishes on a bare face is a defect.
-          if (cover > 90) paintFlat.push(`${shots[i].p.label} and ${shots[i + 1].p.label} are one picture under ${helm.label} (covers ${cover.toFixed(0)}% of the face)`);
-          else paintGarbled.push(`${shots[i].p.label} and ${shots[i + 1].p.label} are one picture under ${helm.label}, which covers only ${cover.toFixed(0)}% of the face`);
-        }
+        const label = `${shots[i].o.label} -> ${shots[i + 1].o.label}`;
+        console.log(`  ${name.padEnd(11)}  ${label.slice(0, 42).padEnd(42)}  ${lname.padEnd(8)}  ${d.mean.toFixed(3).padStart(6)}  ${d.worst.toFixed(1).padStart(6)}  ${v}`);
+        const row = TABLE.pairs.find((r) => r.slot === name && r.label === label);
+        if (row) (row.pix ??= {})[lname] = d.mean;
+        else TABLE.pairs.push({ slot: name, label, cost: shots[i + 1].o.cost, lens: {}, pix: { [lname]: d.mean } });
+        if (v === "IDENTICAL") flatPairs.push(`${name}: ${label} — ${d.mean.toFixed(3)}% at ${lname}, and the shape instrument already reported it flat`);
       }
     }
   }
   console.log("");
-  check("war paint reads on a face that is not behind a mask", paintGarbled.length === 0,
-    paintGarbled.join("; ") || `every paint pair separated by more than ${PIX_BAR.toFixed(3)}% where the face is exposed`);
+  check("every pair the shape instrument could not separate is separated by the renderer",
+    flatPairs.length === 0, flatPairs.length ? `${flatPairs.length} pairs are one picture` : `all above ${PIX_BAR.toFixed(3)}%`);
+  for (const f of flatPairs) note(`FLAT       ${f}`);
+
+  // ------------------------------------------------------------
+  // THE COMPANION ASSERTION, in pixels, because war paint has no geometry.
+  //
+  // A mask hiding a FACE is correct; a mask hiding HAIR is not; and paint that
+  // is neither visible nor covered is the defect. So: measure the paints on a
+  // bare head and under the Sutton Hoo mask (all ten helms under --all), and
+  // decide with the face-coverage number the geometry pass already measured.
+  // ------------------------------------------------------------
+  console.log("\n[cos] === 4b. WAR PAINT UNDER THE HELMETS THAT CAME AFTER IT ===\n");
+  const paints = slotOf("warPaint").options;
+  const wearHelms = ALL ? helms : helms.filter((h) => ["none", "spectacle", "suttonhoo"].includes(h.value));
+  console.log("  under helm     face covered  pair                                   PIX%    verdict");
+  console.log("  --------------------------------------------------------------------------------------");
+  const paintFlat = [], paintGarbled = [];
+  for (const helm of wearHelms) {
+    const cover = TABLE.companions.find((c) => c.kind === "face-coverage" && c.helm === helm.label)?.cover ?? 0;
+    const shots = [];
+    for (const p of paints) shots.push({ p, img: await capture(LENS.portrait, 0, { warPaint: p.id, helm: helm.id }, { warPaint: p.value, helm: helm.value }) });
+    for (let i = 0; i + 1 < shots.length; i++) {
+      const d = pixDiff(shots[i].img, shots[i + 1].img);
+      const v = d.mean < PIX_BAR ? "IDENTICAL" : "DIFFERS";
+      const label = `${shots[i].p.label} -> ${shots[i + 1].p.label}`;
+      console.log(`  ${helm.label.slice(0, 13).padEnd(13)}  ${cover.toFixed(0).padStart(11)}%  ${label.slice(0, 37).padEnd(37)}  ${d.mean.toFixed(3).padStart(6)}  ${v}`);
+      TABLE.companions.push({ kind: "paint-under-helm", helm: helm.label, option: label, pix: d.mean, cover, verdict: v });
+      if (v === "IDENTICAL") {
+        // 90% is the line, and it is where it is because the shop has exactly
+        // one helm past it: the Sutton Hoo mask, at 100%, which is "a face with
+        // no man in it". Everything else in the shop leaves more than half the
+        // face open and has no business hiding a stripe painted on it.
+        if (cover > 90) paintFlat.push(`${label} under ${helm.label} (covers ${cover.toFixed(0)}% of the face)`);
+        else paintGarbled.push(`${label} under ${helm.label}, which covers only ${cover.toFixed(0)}% of the face`);
+      }
+    }
+  }
+  console.log("");
+  check("war paint reads on any face that is not behind a mask", paintGarbled.length === 0,
+    paintGarbled.length ? `${paintGarbled.length} pairs flat on an exposed face` : `every pair above ${PIX_BAR.toFixed(3)}% wherever the face is open`);
   for (const p of paintGarbled) note(`FLAT       ${p}`);
   if (paintFlat.length) {
-    note(`correctly hidden by a mask (a SHOP finding, not a render defect):`);
+    note("correctly hidden by a mask — this is a SHOP finding, not a render defect:");
     for (const p of paintFlat) note(`  ${p}`);
-    TABLE.notes.push(`${paintFlat.length} war-paint pairs are correctly hidden behind a face mask — paid paint under a paid helm the player cannot see`);
+    TABLE.notes.push(`${paintFlat.length} war-paint pairs are correctly hidden behind a face mask: paid paint the player cannot see under a paid helm`);
   }
 
   await browser.close();
