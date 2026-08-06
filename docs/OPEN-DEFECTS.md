@@ -10,6 +10,122 @@ Current reference: **`art/shots/v12/`**. A/B against `v11/`.
 
 ---
 
+## The head is measured now, and it is still not a man
+
+**Read this before touching the face.** Seven passes have now gone at this head.
+The first six each fixed their list of notes and shipped a different broken
+object, and the sixth built an anthropometric tape measure whose numbers all came
+back near life while the face got worse. This pass changed the method rather than
+the parameters, and the honest verdict is: **the measurable faults are fixed and
+the object still does not read as a man at 400 px.** Do not score it a pass.
+
+**What is fixed, and proven by `node tools/headmeasure.mjs`.** The gate now
+asserts on the profile OUTLINE rather than on ratios between landmarks
+(`headSilhouette` in `characters.ts`, the S1–S7 block in `headmeasure.mjs`). All
+twelve assertions pass across 24 heads, from six failing at the start:
+
+| | | was | now |
+|---|---|---|---|
+| S1 | nose leads the whole lip band | 7.2 mm | 10.2 mm |
+| S2 | lips behind the nose-to-pogonion chord | **+6.9 mm (a muzzle)** | −3.7 to −1.8 mm |
+| S3 | pogonion against the brow vertical | **15.1 mm behind** | 2–4 mm in front |
+| S4 | turn through the gonial corner | **11.5° (a circle)** | 46–53° |
+| S5 | neck over bigonial breadth | **0.76** | 1.03–1.10 |
+| S6 | ear standoff from the skin | **2.2 mm (a sticker)** | 12.7–13.5 mm |
+| S7 | transverse fall across the maxilla | — | 19–22 mm |
+
+**What is still wrong, in the frame** (`art/shots/fix5/head-turn.png`, A/B
+against `fix1/`):
+
+1. **The cranium still dominates.** `craniumShare` measures 0.35, which is canon,
+   and the read is still a large smooth balloon with a small face on its
+   front-lower quarter. The number is not wrong; it is not the number that
+   carries this read. Whatever measures it is not `craniumShare` — probably the
+   vault's total *area* of unbroken curvature against the face's, which nothing
+   in the gate touches.
+2. **The face is narrow from the front** and the nose reads as a wedge down it.
+   S7 catches the gross case (it fired at 50 mm on the first profile pin) but its
+   ceiling is 24 mm, and 15.7 mm of that is the head's own elliptical section —
+   `95.8 × (cos 0.15 − cos 0.60)` — so it has about 8 mm of authority. A real
+   maxilla is flatter across the front than the ellipsoid it is built on, and
+   nothing here makes it so.
+3. **The eyes read as two dark holes** with the brows as painted slashes.
+4. `tipBreadth`, `chinBeyondNasion` and `jawOverCheek` sit 1–4% outside legacy
+   tolerances written for the old geometry. `jawOverCheek` and `neckOverHead` are
+   in direct conflict with S5 given a bizygomatic breadth that is 22% over life
+   by art direction; one of the three has to give and it should be decided
+   deliberately rather than by whoever tunes last.
+
+**What the next pass should NOT do.** Not a parameter sweep. The profile is now
+authored as a table (`SAGITTAL`) and pinned, so moving a number there moves
+exactly one thing — that part is safe. The unsolved part is the cranium-to-face
+mass relationship and the flatness of the facial plane, and both are structural.
+The honest options are (a) build the vault and the facial skeleton as separate
+masses that meet at a rim, or (b) take the owner's third option and commit to a
+stylised head with three confident planes, which at 40 px in play and 300–400 px
+in the shop is very likely the better trade.
+
+---
+
+## The domino mask was the complexion sum, and all three hypotheses are now closed
+
+Kept as a record because it cost three passes.
+
+- **Hypothesis 1, the shadow field.** Marked disproven by an earlier pass. It was
+  *correct* and the pass that raised it only half-acted on it.
+- **Hypothesis 2, the face block's lateral falloff.** Genuinely disproven — the
+  frame moved 3.4% of its pixels and the mask stayed.
+- **Hypothesis 3, the arena night rig's brow terminator.** Now also disproven,
+  and by a stronger argument than a capture: this pass DELETED the face block,
+  including the `smooth(Y_BROW - 0.05, ...)` step that put a hard edge exactly
+  along the brow, and the mask did not move. A light does not survive its own
+  geometry being replaced.
+
+The cause is the sum in `faceComplexion`. The orbit term alone ran 0.22 of
+direction space in x — ±42 mm — so two of them, one per eye, overlapped across
+the midline and reached both temples: a domino mask drawn by one line, before the
+paranasal, the under-brow crease and the buccal hollow were summed on top. The
+knee capping the sum sat at 0.7, making the darkest tone reachable over an *area*
+0.7 of a 30/37/42% cut. Orbit tightened to 0.150 and dropped to 0.72, paranasal
+to 0.42, knee to 0.52. `art/shots/fix5/head-turn.png` front panel: the bat is
+gone. **What is left** is a soft band under the brow that reads as form, and the
+entry stays open only until a critic panel confirms that from a fresh capture.
+
+---
+
+## The hair and beard shop still sells differences that do not exist
+
+Diagnosed this pass; only the first is fixed.
+
+1. **FIXED — the long mane was two detached slabs from behind.** Arithmetic, not
+   rendering: each half sat `R.x · 0.44` off the midline with a half-width of
+   `R.x · 0.40` at its lowest station, so the two spans were [0.04, 0.84] and
+   [−0.84, −0.04] — about 8 mm of daylight down the back of the head, widening as
+   the hair fell, with only 11 mm of overlap at the crown (inside the wall
+   thickness). Offset now 0.30 with every station widened; the halves overlap by
+   40 mm at the fall. Needs a capture at `--turn 180` to close.
+2. **OPEN — all four hairstyles are pixel-identical under the Sutton Hoo mask.**
+   NOT yet explained. Read the code and the four branches *are* distinct under a
+   helm: `helmed` only flattens the scalp shell's lift, and the `long` fall and
+   the `braids` plaits are added with no `helmed` guard at all. So either the
+   mask's own geometry occludes them at the capture bearing, or the facecard's
+   dress is not passing `hairStyle` through when `helm_suttonhoo` is set. Check
+   the second first — it is a one-line bug and it would explain the war paints
+   too.
+3. **OPEN — beards 3/4/5 (40/80/120 gold) read as one crescent.** Also not
+   explained by the code, which builds three genuinely different masses (a belly
+   plus an offset copy; two tines parting at 64 mm; a three-strand plait with two
+   brass rings). Every one of them shares the same chin mass from
+   `skullY − 0.126` to `−0.20` and differs only *below* that. The neck was
+   widened 10% this pass, so check first whether the throat now occludes the
+   hanging part at the capture bearing — that would make all three read as the
+   shared crescent and nothing else.
+
+Both open items are worth more to a player than anything left on the head: a man
+is being charged 120 gold for a beard he cannot tell from the 40-gold one.
+
+---
+
 ## The mute on the war rolls has never met a database
 
 **What is proven.** The mute is remembered on the device — `phonesound` taps the

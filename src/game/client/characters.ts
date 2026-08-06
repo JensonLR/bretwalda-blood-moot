@@ -7701,15 +7701,30 @@ export function buildCharacter(
         // what one closed shell round the back of a head draws. Two masses with
         // a valley between them read as hair from every bearing, and the valley
         // is free: it is where the two shells stop.
+        // THE MANE IS TWO DETACHED SLABS FROM BEHIND, and it is arithmetic
+        // rather than a rendering fault. Each half was offset `R.x * 0.44` off
+        // the midline with a half-width of `R.x * 0.40` at its lowest station,
+        // so the two spans were [0.04, 0.84] and [-0.84, -0.04] of `R.x` — a
+        // GAP of 0.08 R.x, about 8 mm of daylight down the middle of the back
+        // of the head, widening as the hair falls. At the top station the
+        // overlap was 11 mm, which is inside the wall thickness. The part was
+        // meant to be a valley between two masses and was in fact a hole
+        // between two curtains.
+        //
+        // The offset comes in to 0.30 and every station widens. The two halves
+        // now overlap by 40 mm at the fall and 30 mm at the crown, so they are
+        // one mass with a crease down it — which is what a centre part is — and
+        // the valley survives because it is where the two crowns meet, not
+        // where the geometry stops.
         for (const s of [-1, 1]) {
           p.add(shell([
-            { y: skullY + 0.012, hw: R.x * 0.50, hd: R.z * 0.86, z: -0.040 },
-            { y: skullY - 0.070, hw: R.x * 0.62, hd: R.z * 0.80, z: -0.056 },
-            { y: skullY - 0.160, hw: R.x * 0.68, hd: R.z * 0.66, z: -0.062 },
-            { y: skullY - 0.250, hw: R.x * 0.62, hd: R.z * 0.52, z: -0.058 },
-            { y: skullY - 0.322, hw: R.x * 0.40, hd: R.z * 0.36, z: -0.048 },
+            { y: skullY + 0.012, hw: R.x * 0.60, hd: R.z * 0.86, z: -0.040 },
+            { y: skullY - 0.070, hw: R.x * 0.72, hd: R.z * 0.80, z: -0.056 },
+            { y: skullY - 0.160, hw: R.x * 0.78, hd: R.z * 0.66, z: -0.062 },
+            { y: skullY - 0.250, hw: R.x * 0.72, hd: R.z * 0.52, z: -0.058 },
+            { y: skullY - 0.322, hw: R.x * 0.50, hd: R.z * 0.36, z: -0.048 },
           ], Math.max(9, lod.limb + 1), { power: 2.0, wall: 0.013 }), hair,
-            xf(s * R.x * 0.44, 0, 0, 0, 0, -s * 0.05));
+            xf(s * R.x * 0.30, 0, 0, 0, 0, -s * 0.05));
         }
         if (lod.trim) {
           // Six locks down the fall, three a side, so the mass has strands in it
