@@ -1886,14 +1886,30 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // with skin either side of it. The complexion field's `lip` channel is already
   // laid over exactly this band, so the tone and the form now agree instead of
   // the tone doing the whole job on a flat surface.
+  //
+  // A vermilion is a BAND, not a mound, and that distinction is the whole of the
+  // pucker in the profile card. Both lips were plain gaussians on the midline
+  // with a 25 mm sigma, so each one was fullest dead centre and fell away
+  // continuously to the corners — which is a pout, and rolling them further out
+  // to answer "the mouth is a thin scored line" only made the pout bigger. What a
+  // mouth actually is at this scale is a strip of near-constant thickness that
+  // ends, fairly abruptly, at the commissures.
+  //
+  // So the x profile is a plateau: wide in the gaussian, then cut by a soft
+  // shoulder just inside the mouth's own width. Same mass, same projection at the
+  // centre, but it is carried right out to the corners instead of being piled up
+  // in the middle — which is what puts a horizontal edge under the nose rather
+  // than a beak under it.
   const mw = 0.28 * F.mouth;
-  const oral = bump(x - drift * 4, y - Y_LIP, 0, mw, 0.046, 1) * front;
+  const band = (u: number, k: number) =>
+    bump(u, 0, 0, mw * 1.9, 1, 1) * (1 - smooth(mw * k, mw * (k + 0.30), Math.abs(u)));
+  const oral = band(x - drift * 4, 0.80) * bump(0, y - Y_LIP, 0, 1, 0.046, 1) * front;
   pz -= 0.008 * oral;
   py -= 0.0035 * oral;
-  const upperLip = bump(x - drift * 4, y - (Y_LIP + 0.055), 0, mw * 0.88, 0.058, 1) * front;
+  const upperLip = band(x - drift * 4, 0.68) * bump(0, y - (Y_LIP + 0.055), 0, 1, 0.058, 1) * front;
   pz += 0.0105 * F.lip * upperLip;
   py -= 0.0032 * upperLip;
-  const lowerLip = bump(x - drift * 4, y - (Y_LIP - 0.070), 0, mw * 0.82, 0.066, 1) * front;
+  const lowerLip = band(x - drift * 4, 0.62) * bump(0, y - (Y_LIP - 0.070), 0, 1, 0.066, 1) * front;
   pz += 0.0125 * F.lip * lowerLip;
   py += 0.0030 * lowerLip;
   pz -= 0.011 * bump(x, y - (Y_LIP - 0.150), 0, 0.20, 0.064, 1) * front;
@@ -6090,12 +6106,29 @@ export function buildCharacter(
       // `mirrorZ` exists for on the hands. So `s` flips the *authored* in-plane
       // axis instead: `-s * ex` puts +X toward the face on both sides, and the
       // rake follows it as `-s * roll`.
+      //
+      // Two corrections off the bare-head profile card, which is the first frame
+      // in this project's history to show an ear square on.
+      //
+      // It sat on `R.x * 1.0` — the skull's own half-breadth — so the whole organ
+      // was tangent to the surface rather than growing out of it, and what
+      // rendered was a rim standing clear of the head with daylight visible
+      // behind the bottom of it: a clip-on. 0.93 buries the medial third, which
+      // is where an ear's root actually is.
+      //
+      // And it had no rake. A real ear leans back about 18° from vertical — the
+      // lobe sits forward of the helix — and a ring with no rake at all reads as
+      // a flat plastic disc however well the concha inside it is modelled. The
+      // rake goes on the whole ear space, so helix, concha, antihelix, tragus and
+      // lobe all move together and their relationships are preserved.
+      const RAKE = 0.32;
       const ear = (
         ex: number, ey: number, ez: number, roll: number,
         kx: number, ky: number, kz: number,
       ) => new THREE.Matrix4()
-        .makeTranslation(s * (R.x * 1.0), earY, -0.024)
+        .makeTranslation(s * (R.x * 0.93), earY, -0.024)
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
+        .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
         .multiply(xf(-s * ex, ey, ez, 0, 0, -s * roll, kx, ky, kz));
       // The concha, and it is built first because it is what the rest hangs on:
       // a bowl whose inner half is buried in the skull, so the ear is *attached*
@@ -6116,8 +6149,9 @@ export function buildCharacter(
       const arc = 4.9;
       p.add(new THREE.TorusGeometry(0.0235, 0.0048, 5, 14, arc), headSkin,
         new THREE.Matrix4()
-          .makeTranslation(s * (R.x * 1.0), earY, -0.024)
+          .makeTranslation(s * (R.x * 0.93), earY, -0.024)
           .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
+          .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
           .multiply(xf(0, 0, 0.006, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2, 0.84, 1.34, 0.86)));
       // The lobe, warm because it is the thinnest flesh on the head and the
       // place a backlight actually passes through.
@@ -6127,8 +6161,9 @@ export function buildCharacter(
         // that stops the bowl reading as a thumbprint pressed into the skull.
         p.add(new THREE.TorusGeometry(0.0105, 0.0033, 4, 9, 3.2), headSkin,
           new THREE.Matrix4()
-            .makeTranslation(s * (R.x * 1.015), earY + 0.001, -0.024)
+            .makeTranslation(s * (R.x * 0.945), earY + 0.001, -0.024)
             .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
+            .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
             .multiply(xf(0, 0, 0, 0, 0, Math.PI / 2 - s * 0.9 - 1.6, 0.9, 1.2, 0.7)));
         // Tragus: three millimetres of flap over the canal, and the one part of
         // an ear that faces forward — so it is the part a front fill finds, and
