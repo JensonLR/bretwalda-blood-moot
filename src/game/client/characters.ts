@@ -8668,12 +8668,17 @@ export function buildCharacter(
         // 380 gold has to buy at a tier where the neighbours differ by a bar and a
         // plate. It is bronze rather than steel because a figure is cast and a
         // helmet is beaten, and the two substances say so.
-        // Sunk into the bowl rather than perched on it: at 46 mm the belly cleared
-        // the dome and the animal read as parked above the helmet, which is the
-        // same defect this file logs against the helm itself two hundred lines up.
-        const by = skullY + R.y + 0.030;
-        p.add(ball(0.030, 8), brass, xf(0, by, -0.006, 0, 0, 0, 0.50, 0.62, 1.70));
-        p.add(ball(0.018, 7), brass, xf(0, by - 0.006, 0.062, -0.20, 0, 0, 0.62, 0.72, 1.15));
+        // Sunk into the bowl rather than perched on it — but sunk into THIS bowl.
+        // It stood at `skullY + R.y + 0.030`, which is a height above the SKULL,
+        // and the bowls now differ by 20 mm between rungs; on the `round` profile
+        // that put the animal's belly inside the cap and the ladder test caught it
+        // immediately, at 0.8% of outline between the 280 and the 380. Measured
+        // off the bowl's own crown it keeps the 14 mm of sink that stops it
+        // reading as parked, on every rung and every class.
+        const boarSeat = onForm(0, Math.PI / 2, crest + 0.014);
+        const by = skullY + boarSeat.y;
+        p.add(ball(0.032, 8), brass, xf(0, by, -0.006, 0, 0, 0, 0.50, 0.62, 1.75));
+        p.add(ball(0.019, 7), brass, xf(0, by - 0.006, 0.066, -0.20, 0, 0, 0.62, 0.72, 1.15));
         // The dorsal ridge, in the helmet's bright metal so the animal's back
         // catches the key and its flank does not — a bronze lump on a bronze
         // helmet is a lump, and the ridge is what makes it read as a spine.
