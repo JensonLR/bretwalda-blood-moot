@@ -2599,20 +2599,24 @@ function skinClearance(tab: SkinRadii, p: THREE.Vector3): number {
   return len - tab.r[ei * tab.na + ai];
 }
 
+/** What one worn shell measured, in millimetres. */
+export interface ShellFit {
+  tag: string;
+  /** Deepest the shell's INNER wall gets inside the skin. 0 is seated. */
+  punchMm: number;
+  /** Deepest the SKIN gets outside the shell's outer wall — face through metal. */
+  throughMm: number;
+  /** Furthest the shell's outer wall stands off the skin. */
+  standoffMm: number;
+  /** Fraction of samples where the offset has turned the sheet inside out. */
+  foldFrac: number;
+}
+
 export interface HelmFit {
   helm: string;
   cls: string;
   seed: number;
-  /** Deepest any shell's INNER wall gets inside the skin, mm. 0 is seated. */
-  punchMm: number;
-  punchTag: string;
-  /** Furthest any shell's OUTER wall stands off the skin, mm. */
-  standoffMm: number;
-  standoffTag: string;
-  /** Fraction of samples where the offset has turned the sheet inside out. */
-  foldFrac: number;
-  foldTag: string;
-  shells: number;
+  shells: ShellFit[];
 }
 
 /**
@@ -2620,8 +2624,19 @@ export interface HelmFit {
  *
  * Builds the character — the real `buildCharacter`, the real materials fallback,
  * the real per-seed face — with the spy open, then walks every shell the helm
- * code asked for and reports the three numbers above. `tools/wearmeasure.mjs`
- * turns them into a pass or a fail.
+ * code asked for. `tools/wearmeasure.mjs` holds the bars; this only reports, so
+ * that a bar can be argued with without recompiling the game.
+ *
+ * THE FOLD TEST is the one that matters and it is worth being exact about,
+ * because it is the fault behind four helmets. A sheet offset along its normal
+ * by more than the surface's radius of curvature turns inside out — the metal
+ * crosses itself, its facets face backwards, and the skin the fold uncovers is
+ * nowhere near the (u, v) the sheet was drawn at. That is what draws as a slab
+ * with a face punching through it. It is detected by comparing the offset
+ * sheet's own orientation with the un-offset sheet's at the same parameters:
+ * same winding, same two tangents, so any sign flip between them is the fold and
+ * nothing else. Comparing against an *outward* normal instead would only measure
+ * how the patch happens to be wound.
  */
 export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): HelmFit {
   const spy: WornShellSpec[] = [];
@@ -2633,24 +2648,23 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   } finally {
     _wearSpy = prev;
   }
-  // The same skull `buildCharacter` just used. `identity` is the seed it was
-  // handed, and stature does not touch `headR`'s ratios — it scales the skeleton
-  // the head is measured in, so the skull is rebuilt the same way here.
+  // The same skull `buildCharacter` just used: `identity` is the seed it was
+  // handed, and the stature step it quantises to scales the skeleton the head is
+  // measured in, so the skull has to be rebuilt through the same two lines.
   const step = Math.round(hash(seed, 31) * 2) - 1;
   const B = BUILD[cls] ?? BUILD.warden;
   const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
   const K: Skull = { R: S.headR, F: faceTraits(seed) };
   const tab = skinRadii(K);
 
-  const mm = 1000;
-  let punch = 0, punchTag = "-";
-  let standoff = 0, standoffTag = "-";
-  let folds = 0, samples = 0, foldTag = "-";
   const pOut = new THREE.Vector3();
   const pIn = new THREE.Vector3();
-  const pdu = new THREE.Vector3();
-  const pdv = new THREE.Vector3();
-  const nq = new THREE.Vector3();
+  const a1 = new THREE.Vector3();
+  const a2 = new THREE.Vector3();
+  const b1 = new THREE.Vector3();
+  const b2 = new THREE.Vector3();
+  const nOff = new THREE.Vector3();
+  const nSkin = new THREE.Vector3();
   const ntrue = new THREE.Vector3();
   const dd = new THREE.Vector3();
 
@@ -2658,64 +2672,60 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     const u = mix(o.u0, o.u1, t);
     const v = mix(o.v0(u), o.v1(u), s);
     faceSurface(K, dirOf(u, v, dd), out);
-    faceNormalTrue(K, u, v, ntrue);
-    out.addScaledVector(ntrue, o.lift(u, s) - drop);
+    if (drop !== 0) {
+      faceNormalTrue(K, u, v, ntrue);
+      out.addScaledVector(ntrue, drop);
+    }
     return out;
   };
 
-  let tagged = 0;
+  const shells: ShellFit[] = [];
   for (const o of spy) {
-    const tag = o.tag;
     // Untagged shells are hair, beard and war paint — a different owner's
     // geometry and a different owner's gate. This one holds helmets.
-    if (!tag) continue;
-    tagged++;
+    if (!o.tag) continue;
     // Denser than the shell is tessellated, because a fold can open between two
     // of its own spans and still be a hole in the metal on screen.
     const NU = Math.max(12, o.nu * 3);
     const NV = Math.max(8, o.nv * 3);
+    const ht = 0.25 / NU, hs = 0.25 / NV;
+    let punch = 0, through = 0, standoff = 0, folds = 0, n = 0;
     for (let i = 0; i <= NU; i++) {
       for (let j = 0; j <= NV; j++) {
         const t = i / NU, s = j / NV;
-        at(o, t, s, o.thick, pIn);
-        at(o, t, s, 0, pOut);
+        const u = mix(o.u0, o.u1, t);
+        const lift = o.lift(u, s);
+        at(o, t, s, lift - o.thick, pIn);
+        at(o, t, s, lift, pOut);
         const cIn = skinClearance(tab, pIn);
         const cOut = skinClearance(tab, pOut);
-        if (-cIn > punch) { punch = -cIn; punchTag = tag; }
-        if (cOut > standoff) { standoff = cOut; standoffTag = tag; }
-        // Has the offset turned the sheet inside out? Compare the offset
-        // surface's own normal with the skin's at the same point. A sheet lifted
-        // further than the surface's radius of curvature flips, and a flipped
-        // sheet is a hole.
-        const ht = 1 / (NU * 4), hs = 1 / (NV * 4);
-        at(o, Math.min(1, t + ht), s, 0, pdu).sub(pOut);
-        at(o, t, Math.min(1, s + hs), 0, pdv).sub(pOut);
-        nq.crossVectors(pdv, pdu);
-        samples++;
-        if (nq.lengthSq() > 1e-20) {
-          nq.normalize();
-          const u = mix(o.u0, o.u1, t);
-          const v = mix(o.v0(u), o.v1(u), s);
-          faceNormalTrue(K, u, v, ntrue);
-          if (Math.abs(nq.dot(ntrue)) > 1e-3 && nq.dot(ntrue) < 0) {
-            folds++;
-            if (foldTag === "-") foldTag = tag;
-          }
-        }
+        if (-cIn > punch) punch = -cIn;
+        if (-cOut > through) through = -cOut;
+        if (cOut > standoff) standoff = cOut;
+        // Orientation of the offset sheet against orientation of the skin under
+        // it, both from the same two forward differences.
+        const t2 = Math.min(1, t + ht), s2 = Math.min(1, s + hs);
+        const u2 = mix(o.u0, o.u1, t2);
+        a1.copy(at(o, t2, s, o.lift(u2, s), b1)).sub(pOut);
+        a2.copy(at(o, t, s2, o.lift(u, s2), b2)).sub(pOut);
+        nOff.crossVectors(a2, a1);
+        at(o, t, s, 0, pIn);
+        a1.copy(at(o, t2, s, 0, b1)).sub(pIn);
+        a2.copy(at(o, t, s2, 0, b2)).sub(pIn);
+        nSkin.crossVectors(a2, a1);
+        n++;
+        if (nOff.lengthSq() > 1e-24 && nSkin.lengthSq() > 1e-24 && nOff.dot(nSkin) < 0) folds++;
       }
     }
+    shells.push({
+      tag: o.tag,
+      punchMm: punch * 1000,
+      throughMm: through * 1000,
+      standoffMm: standoff * 1000,
+      foldFrac: folds / Math.max(1, n),
+    });
   }
-
-  return {
-    helm, cls, seed,
-    punchMm: punch * mm,
-    punchTag,
-    standoffMm: standoff * mm,
-    standoffTag,
-    foldFrac: folds / Math.max(1, samples),
-    foldTag,
-    shells: tagged,
-  };
+  return { helm, cls, seed, shells };
 }
 
 function headGeometry(K: Skull, nu: number, nv: number): THREE.BufferGeometry {
