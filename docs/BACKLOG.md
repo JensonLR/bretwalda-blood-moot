@@ -211,6 +211,12 @@ Also fix the `menu` scene's zero-frame capture, and get the matrix onto
 hardware with a GPU or state plainly on every row that SwiftShader's `jsP50` is
 not a phone's `jsP50`.
 
+**Fold in the one measurement that would end the platform argument.**
+`docs/PLATFORMS.md` names it and it is almost free: a single anonymous count of
+viewport class and pointer type at first load. Every brief in this repo has
+asserted a platform majority nobody has counted; one number replaces the whole
+argument, and it belongs in the wave that is already building instruments.
+
 **This is the same failure mode `VISUAL-BAR.md` records twice: evidence that
 cannot support the question is worse than no evidence.** Fix the instrument
 before trusting the reading.
@@ -463,8 +469,12 @@ were later contradicted. The ship phase is the work.
 
 ### 3. Fix the frame-cost harness, then cut draw calls.
 
-**Why third:** most players are on a phone, and the two performance findings
-that are actually open are a phone's two problems — 1308–1461 draws at the
+**Why third:** the owner reported lag on **desktop and mobile both**, and
+`docs/PLATFORMS.md` forbids this file asserting a platform majority nobody has
+measured — the earlier draft of this paragraph said "most players are on a
+phone" and that is exactly the unmeasured prior the correction is about. Draw
+calls are a frame-rate problem on every platform. The two performance findings
+that are actually open are — 1308–1461 draws at the
 tiers above `low`, and 785–982 kB per frame driving up to 75 GCs a minute. But
 `ablationRows` is **empty**. Not partial: empty. Nothing in this repo can say
 which effect costs what, so a performance wave started today is eleven guesses
@@ -477,8 +487,8 @@ Fix the instrument (one wave), then spend the wave the instrument earns.
 of work and it just got much cheaper — the seam everyone believed was lost is
 in the tree. It is genuinely the strongest fourth item. But it *adds* to the
 per-frame budget, and adding surface to a renderer that has no cost attribution
-is how a phone-first game stops running on phones. The map is better work after
-the numbers, not before them.
+is how a game stops running on the weaker half of its audience, whichever half
+that turns out to be. The map is better work after the numbers, not before them.
 
 **Argued against rating and Hearths (wave F):** retention is the monetisation
 problem and these are the retention features. But they are worth building for
