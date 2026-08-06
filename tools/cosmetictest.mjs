@@ -47,7 +47,20 @@
 //
 //      This is what "render flat, material off" means here, and it is stronger
 //      than turning materials off in the renderer would be: there are no
-//      materials in it at all. There is also no light, no bonfire, no ember
+//      materials in it at all.
+//
+//      `tools/silhouette.mjs` already does material-off IN THE RENDERER, by
+//      hooking every fragment shader before the app boots, and it is the better
+//      picture — it is what a human should look at. It is not the right
+//      instrument for a sweep: it is a capture per panel, ~40 s each on this
+//      box, and this file needs 47 options × 2 lenses × 2 bearings = 188 of
+//      them. That is two hours against fifteen seconds. The two agree where
+//      they overlap, which is the helm ladder: both rank the nine adjacent
+//      helm pairs in the same order and both put Boar-Crest -> Jarl's Crowned
+//      at the bottom of it (docs/COSMETICS-AUDIT.md records 4.1% for that pair
+//      against a 16% window; this file reads 1.74% against the whole subject).
+//      Different denominators, same finding — which is the check on a new
+//      instrument that matters. There is also no light, no bonfire, no ember
 //      noise and no idle sway — the pose is the bind pose, which is the same
 //      pose in every panel by construction rather than by a virtual clock. It
 //      costs about 200 ms per option instead of about 50 s.
@@ -799,18 +812,25 @@ for (const [slotName, opts] of [["helm", helms], ["hair", slotOf("hair").options
     return { o, mask: raster(sev.part, LENS.portrait, QUARTER) };
   });
   const missing = shots.filter((s) => !s.mask || s.mask.area === 0);
-  let flat = 0;
+  const flat = [];
   for (let i = 0; i + 1 < shots.length; i++) {
     if (!shots[i].mask || !shots[i + 1].mask) continue;
+    const label = `${shots[i].o.label} -> ${shots[i + 1].o.label}`;
     const d = shapeDiff(shots[i].mask, shots[i + 1].mask);
-    if (d.changed < IDENTICAL_PCT) flat++;
-    TABLE.companions.push({ kind: "severed", slot: slotName, option: `${shots[i].o.label} -> ${shots[i + 1].o.label}`, changed: d.changed });
+    // Only a pair that reads on the ATTACHED head and stops reading on the
+    // severed one is a defect of the cut. A pair the shape instrument already
+    // called flat on a living man is that pair's own problem and is reported in
+    // section 1; counting it twice here would put a beard's fault on the axe.
+    const onBody = TABLE.pairs.find((r) => r.slot === slotName && r.label === label);
+    if (d.changed < IDENTICAL_PCT && onBody && onBody.best.changed >= IDENTICAL_PCT) flat.push(label);
+    TABLE.companions.push({ kind: "severed", slot: slotName, option: label, changed: d.changed });
   }
   const area = shots.find((s) => s.mask)?.mask.area ?? 0;
   console.log(`  ${slotName.padEnd(8)} ${opts.length} options on a severed head — ` +
-    `${missing.length ? `${missing.length} SEVERED NOTHING` : `${area} px of head`}, ${flat} adjacent pairs identical`);
+    `${missing.length ? `${missing.length} SEVERED NOTHING` : `${area} px of head`}, ` +
+    `${flat.length} pairs lost to the cut`);
   if (missing.length) lostOnCut.push(`${slotName}: ${missing.map((m) => m.o.label).join(", ")} vanished with the cut`);
-  if (flat) lostOnCut.push(`${slotName}: ${flat} adjacent pairs are the same object once the head is off`);
+  for (const f of flat) lostOnCut.push(`${slotName}: ${f} reads on a living man and not on a severed head`);
 }
 console.log("");
 check("every cosmetic is still on the head after it comes off", lostOnCut.length === 0, lostOnCut.join("; ") || "helm, hair and beard all ride the severed head");

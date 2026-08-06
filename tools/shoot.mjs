@@ -118,6 +118,21 @@ const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "suttonho
 // The whole audit is ~100 captures, which on a GPU-less box is about two hours.
 // Each sheet is nameable on its own so it can be run a slot at a time, and that
 // is the intended way to work through it.
+//
+// 5. THESE SHEETS DO NOT ASSERT ANYTHING, AND THAT IS NOT THEIR JOB. A sheet is
+//    for a human to look at. Until `tools/cosmetictest.mjs` was written no
+//    harness in this project had ever rendered a cosmetic and asserted anything
+//    about it, so every defect the audit lists — seven helms sharing a bowl,
+//    four war paints identical under the mask, two paid colours that were the
+//    same colour — was found by eye, months late. Run
+//
+//        npm run cosmetictest
+//
+//    before you run these sheets. It measures all 47 options at both lenses in
+//    about fifteen seconds of arithmetic plus a handful of captures, writes
+//    docs/COSMETICS-SWEEP.md, and tells you which panels are worth your eyes.
+//    The sheets are then for judging what it cannot: whether the thing is any
+//    good.
 // ============================================================
 
 // -35°, not 0 and not +35. Three-quarter because head-on is precisely the
