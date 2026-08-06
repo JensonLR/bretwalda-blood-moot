@@ -987,7 +987,26 @@ async function renderPass() {
   };
 
   let captures = 0;
+  // Pages that have already rendered one frame and had it thrown away. See
+  // `capture` — the first capture through a fresh page is not comparable with
+  // the ones after it.
+  const warmed = new Set();
   async function capture(lens, turn, dress, expect) {
+    // THE FIRST CAPTURE THROUGH A PAGE IS DISCARDED, and this is not
+    // superstition: with the clock fixed and the die seeded, two captures of one
+    // subject came back byte-identical on one run and 0.74% apart on the next,
+    // and the difference was that the pair had moved to the front of the queue.
+    // A cold page pays for a cold route compile and a first pass of procedural
+    // texture generation, and neither of those is on the virtual clock — so
+    // whether a texture is ready by frame 12 is a race the harness cannot see
+    // and must not measure across. One throwaway frame per page settles it, and
+    // the repeatability check that runs immediately afterwards is what proves
+    // it settled rather than assuming so.
+    if (!warmed.has(lens.card)) {
+      warmed.add(lens.card);
+      console.log(`[cos] warming ${lens.card} (one capture, discarded)`);
+      await capture(lens, turn, dress, null);
+    }
     const page = await pageFor(lens);
     const q = [`preset=${lens.card}`, `turn=${turn}`, ...Object.entries(dress).map(([s, id]) => `${s}=${id}`),
       `clean=1`, `settle=${SETTLE}`].join("&");
@@ -1005,7 +1024,7 @@ async function renderPass() {
       if (String(staged2.subject?.[k]) !== String(v)) die(`asked for ${k}=${v}, got ${k}=${staged2.subject?.[k]}`);
     }
     const buf = await page.screenshot({ timeout: 300000 });
-    captures++;
+    captures++;   // warm-ups included: this number is what the run actually cost
     // Pixels, off the PNG, in the page that already has a canvas: no image
     // library and nothing to install.
     const px = await page.evaluate(async (b64) => {
