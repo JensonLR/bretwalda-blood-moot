@@ -1853,6 +1853,127 @@ function faceNormal(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vecto
   return out.set(d.x / K.R.x, d.y / K.R.y, d.z / K.R.z).normalize();
 }
 
+/**
+ * The tape measure. Reads the actual displacement field back as anthropometry,
+ * in millimetres, so a head can be judged as a head instead of as a list of
+ * gaussian coefficients.
+ *
+ * This exists because of the failure written up in `docs/SUTTON-HOO.md`, which
+ * has now happened five times on this file: a note-by-note correction pass fixes
+ * every item on its list and breaks the object, because nobody ever checked the
+ * ratios the eye actually reads. "The nose is too big" is not a number. Nose
+ * projection past pogonion *is* a number, life is about 20 mm, and this build
+ * was shipping 42 — which is the beak, stated in a form that can be argued with.
+ *
+ * The `life` column in `tools/headmeasure.mjs` is Farkas' adult male series
+ * (head height menton–vertex 232 mm, head length glabella–opisthocranion 196,
+ * head breadth 155, neck breadth 111) rescaled to this game's 269 mm head, so
+ * the comparison is of *proportion* and not of size — this warrior is
+ * deliberately drawn at a heroic 7.3 heads and slightly broad in the vault.
+ */
+export interface HeadProbe { [k: string]: number }
+
+export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
+  const S = skeleton(BUILD[cls]);
+  const K: Skull = { R: S.headR, F: faceTraits(seed) };
+  const p = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const mm = 1000;
+
+  // Front midline: the sagittal profile every one of the owner's five notes is
+  // about. `y` is the surface field's own latitude sine.
+  const front = (y: number) => {
+    const c = Math.sqrt(Math.max(0, 1 - y * y));
+    faceSurface(K, d.set(0, y, c), p);
+    return { y: p.y, z: p.z };
+  };
+  const back = (y: number) => {
+    const c = Math.sqrt(Math.max(0, 1 - y * y));
+    faceSurface(K, d.set(0, y, -c), p);
+    return { y: p.y, z: p.z };
+  };
+
+  // Extremes, swept rather than assumed — the field's maxima do not sit on the
+  // landmarks that generate them once the taper and the eminences are on.
+  let top = -9, bot = 9, wide = 0, wideY = 0, fore = -9, aft = 9;
+  let jawW = 0, cheekW = 0;
+  for (let j = 0; j <= 160; j++) {
+    const v = (j / 160) * Math.PI - Math.PI / 2;
+    for (let i = 0; i < 200; i++) {
+      const u = (i / 200) * Math.PI * 2;
+      faceSurface(K, dirOf(u, v, d), p);
+      if (p.y > top) top = p.y;
+      if (p.y < bot) bot = p.y;
+      if (p.z > fore) fore = p.z;
+      if (p.z < aft) aft = p.z;
+      const ax = Math.abs(p.x);
+      if (ax > wide) { wide = ax; wideY = p.y; }
+      // Bigonial and bizygomatic are *facial* breadths, so they are taken across
+      // the front half only. Swept over the whole sphere they pick up the
+      // parietal behind the ear instead and report a head that never narrows,
+      // which is a measurement of nothing.
+      if (d.z <= 0) continue;
+      const fy = Math.sin(v);
+      if (Math.abs(fy - Y_GONION) < 0.03 && ax > jawW) jawW = ax;
+      if (Math.abs(fy - (Y_EYE - 0.10)) < 0.03 && ax > cheekW) cheekW = ax;
+    }
+  }
+
+  const glab = front(Y_BROW);
+  const nasion = front(Y_BROW - 0.05);
+  const tip = front(Y_TIP);
+  const sub = front(Y_NOSE);
+  const lip = front(Y_LIP);
+  const pog = front(Y_CHIN);
+  const occ = back(0.02);
+  const height = top - bot;
+
+  // The neck, which is head geometry as far as a viewer is concerned: a head is
+  // read against the column under it, and note 4 is about that ratio and not
+  // about the neck on its own.
+  const menton = S.headY + bot;
+  const visibleNeck = menton - S.shoulderY;
+
+  return {
+    headHeight: height * mm,
+    headBreadth: wide * 2 * mm,
+    headLength: (glab.z - occ.z) * mm,
+    headDepthTotal: (fore - aft) * mm,
+    breadthOverHeight: (wide * 2) / height,
+    lengthOverHeight: (glab.z - occ.z) / height,
+    /** Crown down to the brow ridge — the cranial share of the head. Life 0.35. */
+    craniumShare: (top - glab.y) / height,
+    /** Brow to subnasale, and subnasale to menton: the lower two thirds. */
+    midThird: (glab.y - sub.y) / height,
+    lowerThird: (sub.y - bot) / height,
+    /** THE beak number. Life is 18–22 mm on an adult male. */
+    noseBeyondChin: (tip.z - pog.z) * mm,
+    noseBeyondLip: (tip.z - lip.z) * mm,
+    /** How far the nose stands off the face plane it grows from. Life ~24 mm. */
+    noseProjection: (tip.z - nasion.z) * mm,
+    /** Chin against the lip above it. A man's pogonion is at or in front of it. */
+    chinBeyondLip: (pog.z - lip.z) * mm,
+    chinBeyondGlabella: (pog.z - glab.z) * mm,
+    jawBreadth: jawW * 2 * mm,
+    cheekBreadth: cheekW * 2 * mm,
+    jawOverCheek: jawW / cheekW,
+    wideAt: (top - wideY) / height,
+    neckBreadth: S.neckHW * 2 * mm,
+    neckDepth: S.neckHD * 2 * mm,
+    neckOverHead: (S.neckHW * 2) / (wide * 2),
+    /**
+     * The number note 4 is actually about. A viewer does not compare the neck to
+     * the skull's widest point, which is hidden behind the ear and under a helm —
+     * he compares it to the jaw directly above it. In life the two are within a
+     * few per cent of each other and on a fighter the neck wins.
+     */
+    neckOverJaw: (S.neckHW * 2) / (jawW * 2),
+    visibleNeck: visibleNeck * mm,
+    neckOverHeadHeight: visibleNeck / height,
+    headCount: S.crown / height,
+  };
+}
+
 const _d = new THREE.Vector3();
 const _n = new THREE.Vector3();
 
