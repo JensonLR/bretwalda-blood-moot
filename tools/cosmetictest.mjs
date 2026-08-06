@@ -174,8 +174,14 @@ const SETTLE = parseInt(flag("settle", "12"), 10);
 
 const results = [];
 let failed = 0;
-function check(name, pass, detail) {
-  results.push({ name, pass, detail });
+/**
+ * One assertion. `items` is the list of things that actually failed, and it is a
+ * parameter rather than a print because docs/COSMETICS-SWEEP.md is the
+ * deliverable: a table that says "4 identical" and makes the reader go and find
+ * which four is a table that will not be read twice.
+ */
+function check(name, pass, detail, items = []) {
+  results.push({ name, pass, detail, items });
   if (!pass) failed++;
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 }
@@ -686,7 +692,7 @@ for (const slot of slotsToSweep) {
 }
 console.log("");
 check("no two options in a shape slot are the same object, adjacent or not",
-  twins.length === 0, twins.length ? `${twins.length} twins` : "every pair separated somewhere");
+  twins.length === 0, twins.length ? `${twins.length} twins` : "every pair separated somewhere", twins);
 for (const t of twins) note(`TWIN       ${t}`);
 if (viewTwins.length) {
   note(`${viewTwins.length} pairs are indistinguishable from at least one bearing (reported, not gated):`);
@@ -698,13 +704,13 @@ const shapeSlots = slotsToSweep.filter((s) => !RECOLOUR_SLOTS.has(s.slot) && !TE
 const shapePairs = shapeSlots.reduce((n, s) => n + s.options.length - 1, 0);
 console.log("");
 check(`no two adjacent shape options are the same object (${shapePairs} pairs)`,
-  identicalPairs.length === 0, identicalPairs.length ? `${identicalPairs.length} identical` : `all above ${IDENTICAL_PCT}%`);
+  identicalPairs.length === 0, identicalPairs.length ? `${identicalPairs.length} identical` : `all above ${IDENTICAL_PCT}%`, identicalPairs);
 for (const f of identicalPairs) note(`IDENTICAL  ${f}`);
 check(`every adjacent shape pair clears the ${DIFFERS_PCT}% bar somewhere`,
-  faintPairs.length === 0, faintPairs.length ? `${faintPairs.length} FAINT` : "all clear");
+  faintPairs.length === 0, faintPairs.length ? `${faintPairs.length} FAINT` : "all clear", faintPairs);
 for (const f of faintPairs) note(`FAINT      ${f}`);
 check("a recolour ladder moves no geometry (proves the two instruments are separate)",
-  recolourViolations.length === 0, recolourViolations.join("; ") || "hairColor, beardColor, armor, warPaint all flat");
+  recolourViolations.length === 0, recolourViolations.length ? `${recolourViolations.length} moved` : "hairColor, beardColor, armor, warPaint all flat", recolourViolations);
 
 // How much of each option survives to fight distance. This is the column the
 // art wave is briefed on: a cosmetic nobody can see in play is not a cosmetic.
@@ -712,7 +718,8 @@ const inPlay = TABLE.pairs.filter((r) => !RECOLOUR_SLOTS.has(r.slot) && !TEXTURE
 const invisible = inPlay.filter((r) => r.lens.fight.verdict !== "DIFFERS");
 check(`every shape pair that reads at portrait still reads at fight distance`,
   invisible.length === 0,
-  `${invisible.length}/${inPlay.length} pairs below ${DIFFERS_PCT}% on a ${Math.round(LENS.fight.w * LENS.fight.rasterScale)}×${Math.round(LENS.fight.h * LENS.fight.rasterScale)} play frame`);
+  `${invisible.length}/${inPlay.length} pairs below ${DIFFERS_PCT}% on a ${Math.round(LENS.fight.w * LENS.fight.rasterScale)}×${Math.round(LENS.fight.h * LENS.fight.rasterScale)} play frame`,
+  invisible.map((r) => `${r.slot}: ${r.label} (${r.cost}g) — ${pct2(r.lens.fight.changed)} at fight distance`));
 for (const r of invisible) note(`IN PLAY    ${r.slot}: ${r.label} — ${pct2(r.lens.fight.changed)} at fight distance`);
 
 // ============================================================
@@ -744,8 +751,10 @@ for (const slot of slotsToSweep.filter((s) => RECOLOUR_SLOTS.has(s.slot))) {
   }
 }
 console.log("");
-check("no two options in a colour ladder are the same colour", sameColour.length === 0, sameColour.join("; ") || `all ${RECOLOUR_SLOTS.size} ladders separated by more than ΔE ${JND}`);
-check(`every paid colour rung clears ΔE ${LADDER_DE} against the rung below it`, dullRungs.length === 0, dullRungs.join("; ") || "all clear");
+check("no two options in a colour ladder are the same colour", sameColour.length === 0,
+  sameColour.length ? `${sameColour.length} pairs` : `all ${RECOLOUR_SLOTS.size} ladders separated by more than ΔE ${JND}`, sameColour);
+check(`every paid colour rung clears ΔE ${LADDER_DE} against the rung below it`, dullRungs.length === 0,
+  dullRungs.length ? `${dullRungs.length} rungs` : "all clear", dullRungs);
 
 // ============================================================
 // 3. COMPANIONS — does an option survive the kit that came after it?
@@ -809,7 +818,7 @@ for (const helm of helms) {
 }
 console.log("");
 check("every paid hairstyle still reads under every helm that is not a hood",
-  swallowed.length === 0, swallowed.length ? `${swallowed.length} swallowed` : "all clear");
+  swallowed.length === 0, swallowed.length ? `${swallowed.length} swallowed` : "all clear", swallowed);
 for (const s of swallowed) note(`SWALLOWED  ${s}`);
 if (freeSwallowed.length) {
   note(`${freeSwallowed.length} FREE hairstyles are also swallowed — not gated, because nobody paid for them:`);
@@ -868,7 +877,8 @@ for (const [slotName, opts] of [["helm", helms], ["hair", slotOf("hair").options
   for (const f of flat) lostOnCut.push(`${slotName}: ${f} reads on a living man and not on a severed head`);
 }
 console.log("");
-check("every cosmetic is still on the head after it comes off", lostOnCut.length === 0, lostOnCut.join("; ") || "helm, hair and beard all ride the severed head");
+check("every cosmetic is still on the head after it comes off", lostOnCut.length === 0,
+  lostOnCut.length ? `${lostOnCut.length} lost` : "helm, hair and beard all ride the severed head", lostOnCut);
 
 // ============================================================
 // 4. THE RENDER — the only instrument that can see war paint
@@ -1171,7 +1181,7 @@ async function renderPass() {
   }
   console.log("");
   check("every pair the shape instrument could not separate is separated by the renderer",
-    flatPairs.length === 0, flatPairs.length ? `${flatPairs.length} pairs the renderer cannot separate either` : `all above ${DIFFERS_PCT}% of the subject`);
+    flatPairs.length === 0, flatPairs.length ? `${flatPairs.length} pairs the renderer cannot separate either` : `all above ${DIFFERS_PCT}% of the subject`, flatPairs);
   for (const f of flatPairs) note(`FLAT       ${f}`);
 
   // ------------------------------------------------------------
@@ -1210,7 +1220,7 @@ async function renderPass() {
   }
   console.log("");
   check("war paint reads on any face that is not behind a mask", paintGarbled.length === 0,
-    paintGarbled.length ? `${paintGarbled.length} pairs flat on an exposed face` : `every pair moves more than ${DIFFERS_PCT}% of the subject wherever the face is open`);
+    paintGarbled.length ? `${paintGarbled.length} pairs flat on an exposed face` : `every pair moves more than ${DIFFERS_PCT}% of the subject wherever the face is open`, paintGarbled);
   for (const p of paintGarbled) note(`FLAT       ${p}`);
   if (paintFlat.length) {
     note("correctly hidden by a mask — this is a SHOP finding, not a render defect:");
@@ -1354,7 +1364,10 @@ const md = [
   "",
   "## What this run found",
   "",
-  ...results.filter((r) => !r.pass).map((r) => `- **FAILED** — ${r.name}: ${r.detail ?? ""}`),
+  ...results.filter((r) => !r.pass).flatMap((r) => [
+    `- **FAILED** — ${r.name}: ${r.detail ?? ""}`,
+    ...(r.items ?? []).map((i) => `  - ${i}`),
+  ]),
   ...(results.every((r) => r.pass) ? ["- every assertion held."] : []),
   "",
   "## Notes from this run",
