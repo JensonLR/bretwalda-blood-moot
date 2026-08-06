@@ -2964,6 +2964,15 @@ export interface ShellFit {
    * reads as worn is the number the author wrote, and this is that number.
    */
   standoffMm: number;
+  /**
+   * The SMALLEST standoff the shell asks for — where it lands on the head.
+   *
+   * A shell whose minimum is large is not worn, it is parked: there is no point
+   * on it within a liner's thickness of the skull. That is the owner's "the
+   * helms hover", and it is a different fault from a crown that stands proud,
+   * which is silhouette and is what a player is buying.
+   */
+  minLiftMm: number;
   /** Fraction of samples where the offset has turned the sheet inside out. */
   foldFrac: number;
   /** Where the worst of it is, in the head's own (u, v). NaN if it is clean. */
@@ -3058,7 +3067,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     const NU = Math.max(12, o.nu * 3);
     const NV = Math.max(8, o.nv * 3);
     const ht = 0.25 / NU, hs = 0.25 / NV;
-    let punch = 0, through = 0, standoff = 0;
+    let punch = 0, through = 0, standoff = 0, minLift = Infinity;
     let tu2 = NaN, tv2 = NaN;
     // The fold verdict is deferred, because it needs a scale. Every patch on a
     // sphere has samples where its own parameterisation collapses — at a pole
@@ -3084,6 +3093,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         if (-cIn > punch) punch = -cIn;
         if (-cOut > through) { through = -cOut; tu2 = u; tv2 = mix(o.v0(u), o.v1(u), s); }
         if (lift > standoff) standoff = lift;
+        if (lift < minLift) minLift = lift;
         // Orientation of the offset sheet against orientation of the skin under
         // it, both from the same two forward differences.
         const t2 = Math.min(1, t + ht), s2 = Math.min(1, s + hs);
@@ -3120,6 +3130,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       throughU: tu2,
       throughV: tv2,
       standoffMm: standoff * 1000,
+      minLiftMm: (Number.isFinite(minLift) ? minLift : 0) * 1000,
       foldFrac: folds / Math.max(1, n),
       foldU: fu,
       foldV: fv,
@@ -8190,15 +8201,51 @@ export function buildCharacter(
         }), capMetal, place.clone());
       }
       if (style.brows) {
-        // Spectacle plate: brows in iron with the eye holes cut under them. Sits
-        // proud of the face so the sockets stay in shadow behind it — and now sits
-        // on the brow rather than 30 mm above it.
+        // THE SPECTACLE PLATE, and this is the "dark rectangle pasted over the
+        // eyes" the audit sends back at 280 gold.
+        //
+        // It was `u0: 0.1, u1: 0.66, v0: lat(Y_EYE + 0.115), v1: lat(Y_BROW +
+        // 0.07), lift: 0.018` — four constants. A rectangle in (u, v) at a
+        // constant standoff is not a brow guard; it is a billboard, and it reads
+        // as one because its edges are straight lines at 90° to each other on a
+        // face that has no straight lines anywhere.
+        //
+        // What the object is: the two brow plates of a Vendel spectacle guard, cut
+        // as an ARCH over each eye. So the lower edge is an arc — highest over the
+        // pupil, dropping at both ends to the nasal and to the temple, which is
+        // what leaves an eye opening under it rather than a hem. The upper edge
+        // follows the brow line and turns down at the temple where the plate
+        // finishes on the band. And the standoff rolls off to nothing at both
+        // ends, so the plate GROWS OUT of the band and the nasal instead of
+        // starting in mid-air 18 mm off the face at a hard vertical cut.
+        //
+        // Sizes are the finds': about 60 mm of arc per eye, 16 mm of plate over
+        // the pupil widening to 26 at the temple, standing 16 mm proud at the
+        // brow. `helmFitProbe` measured the old constant-lift version 17% turned
+        // inside out over the brow ridge; on the form, arched, it measures zero.
+        const bIn = 0.13, bOut = 0.70;
+        // 0 at the nasal end, 1 at the temple.
+        const bt = (u: number) => clamp01((Math.abs(u) - bIn) / (bOut - bIn));
+        // The arch: the eye opening's top edge. `sin` rather than a smoothstep
+        // because an arch is a single curve with no flat in it — a flat is what
+        // makes a hem read as a shelf.
+        const browLo = (u: number) =>
+          lat(Y_EYE + 0.055) + 0.150 * Math.pow(Math.sin(Math.PI * bt(u)), 0.85);
+        const browHi = (u: number) =>
+          lat(Y_BROW + 0.085) - 0.075 * Math.pow(bt(u), 2.2);
         for (const s of [-1, 1]) {
           p.add(helmWear(K, {
             tag: "brow plate",
-            u0: s * 0.1, u1: s * 0.66,
-            v0: () => lat(Y_EYE + 0.115), v1: () => lat(Y_BROW + 0.07),
-            nu: 4, nv: 2, lift: () => 0.018, thick: 0.008,
+            ...sideArc(s, bIn, bOut),
+            v0: browLo, v1: browHi,
+            nu: 7, nv: 3,
+            // Proud over the eye, feathered into the band and the nasal at both
+            // ends. The `v` term stands the top rim out further than the free
+            // edge, which is what a plate riveted along its top does.
+            lift: (u, v) =>
+              (0.010 + 0.007 * v) * mix(0.35, 1, Math.sin(Math.PI * bt(u)))
+              + 0.008,
+            thick: 0.007,
           }), trimMetal, place.clone());
         }
       }
@@ -8275,12 +8322,35 @@ export function buildCharacter(
         // between them from the ear down. 1.62 carries the plate past the ear to
         // where the fall's edge actually is at throat height.
         const guardIn = style.mask ? 0.78 : 0.50;
+        const guardOut = style.mask ? 1.62 : 1.45;
+        // THE OUTLINE, and this is the audit's ruling in one function: "their
+        // cheek guards are A RECTANGLE IN (u, v) standing tens of millimetres
+        // proud of the skull. A rectangle in parameter space is not a cheek
+        // guard; it is a billboard."
+        //
+        // A hinged cheek plate is cut to the face it covers. It is DEEPEST at the
+        // front, where it comes down the jaw beside the mouth; it sweeps UP behind
+        // that so it clears the mandible's angle and rides on its hinge; and it
+        // finishes short at the back where the nape fall laps over it. So the hem
+        // is a curve in u, not a latitude — the same construction the Sutton Hoo
+        // mask's `maskBot(u)` uses, which is the one piece in the tier the audit
+        // passes and the template it names.
+        const deepHem = (u: number) => {
+          const t = clamp01((Math.abs(u) - guardIn) / (guardOut - guardIn));
+          return lat(Y_CHIN + 0.05) + 0.34 * Math.pow(smooth(0.30, 1, t), 1.35);
+        };
+        // And the top edge dips forward of the hinge, so the plate does not
+        // present a straight horizontal rim across the temple either.
+        const deepTop = (u: number) => {
+          const t = clamp01((Math.abs(u) - guardIn) / (guardOut - guardIn));
+          return bandLo + 0.01 - 0.045 * Math.pow(1 - t, 1.6);
+        };
         for (const s of [-1, 1]) {
           p.add(helmWear(K, {
             tag: "cheek (deep)",
-            ...sideArc(s, guardIn, style.mask ? 1.62 : 1.45),
-            v0: () => lat(Y_CHIN + 0.05), v1: () => bandLo + 0.01,
-            nu: style.mask ? 10 : 6, nv: style.mask ? 6 : 4,
+            ...sideArc(s, guardIn, guardOut),
+            v0: deepHem, v1: deepTop,
+            nu: style.mask ? 10 : 8, nv: style.mask ? 6 : 5,
             // The flare down the guard's height is the other half of the brown
             // gap, and it only matters over a mask. `v` is 0 at the floor, so
             // 0.027 + 0.011 stands the guard's bottom edge 38 mm out while the
@@ -8290,7 +8360,15 @@ export function buildCharacter(
             // a jaw under there and the plate has to clear it. Over a mask there
             // is a plate under there, and 31 mm keeps the guard outboard by the
             // 6 mm that says "hinged" without opening a sightline into the head.
-            lift: (_u, v) => (style.mask ? 0.027 + 0.004 * (1 - v) : 0.027 + 0.011 * (1 - v)),
+            // Over a MASK the pair 27/31 mm stays exactly as it was tuned: there
+            // is a formed plate under this guard, not a face, and the 6 mm of
+            // difference between them is the whole cue that says hinged. Over an
+            // OPEN helm it was 27 rising to 38, and 38 mm of air under a plate
+            // whose job is to cover a jaw is the "floating slab" — `helmFitProbe`
+            // now fails it. 23 to 29 lands the plate on the mandible with a mail
+            // gap under it, which is what the finds show and what the short guard
+            // beside it already does.
+            lift: (_u, v) => (style.mask ? 0.027 + 0.004 * (1 - v) : 0.023 + 0.006 * (1 - v)),
             thick: 0.008,
           }), capMetal, place.clone());
         }
@@ -8439,43 +8517,48 @@ export function buildCharacter(
         }
       }
       if (style.crown === "wyrm") {
-        // A serpent arched over the crown with its head thrown out past the brow.
-        // The tier under Sutton Hoo, and it has to be a big silhouette rather than
-        // a rich one — the palette stays iron and steel, because tinned silver,
-        // gilt and garnet are the thing 2400 gold is actually buying and handing
-        // any of it out at 950 is how the top of a ladder stops being the top.
-        // A serpent has a body, and this one had a section 8 mm across carrying
-        // 56 mm of rise — which is not a snake, it is a wire, and the contact
-        // sheet named it as one. Same fix as the ridge helm's crest, and it earns
-        // more here: a round back is what makes the arch read as an animal rather
-        // than as a strap over the cap.
-        const wyrmHalf = 0.062;
-        const wSection = (du: number) =>
-          Math.sqrt(Math.max(0, 1 - Math.pow(clamp01(Math.abs(du) / wyrmHalf), 2)));
-        for (const u of [0, Math.PI]) {
-          p.add(helmWear(K, {
-            tag: "wyrm crest",
-            u0: u - wyrmHalf, u1: u + wyrmHalf,
-            v0: () => (u === 0 ? bandLo - 0.04 : bandLo - 0.24), v1: () => Math.PI / 2 - 0.02,
-            nu: 5, nv: 5,
-            lift: (x, v) =>
-              0.014 + (0.006 + 0.052 * Math.pow(Math.sin(Math.PI * clamp01(v * 0.84 + 0.10)), 0.55)) * wSection(x - u),
-            thick: 0.009,
-          }), trimMetal, place.clone());
-        }
-        // The head, on the brow, looking out along its own body. Three solids and
-        // two horns: at the distance this is read from, a snout that clears the
-        // brow line is the whole shape and anything finer is spent on nothing.
-        const hv = bandLo - 0.10;
-        const hd = onForm(0, hv, 0.052);
-        const hx = hd.x; const hy = skullY + hd.y; const hz = hd.z;
-        p.add(ball(0.019, 7), trimMetal, xf(hx, hy, hz, 0.35, 0, 0, 0.75, 0.80, 1.30));
-        p.add(ball(0.011, 6), trimMetal, xf(hx, hy - 0.016, hz + 0.020, 0.55, 0, 0, 0.60, 0.55, 1.25));
+        // A SERPENT ARCHED OVER THE CROWN, with its head thrown out past the brow.
+        //
+        // Two rulings from `docs/COSMETICS-AUDIT.md` 3, and both are arithmetic
+        // rather than taste. First: the old lift was
+        // `0.006 + 0.052 * sin(pi * clamp01(v * 0.84 + 0.10))^0.55`, whose
+        // argument saturates at v ~ 1.07 — so the sine is ZERO at the crown and
+        // the animal's rise peaked low on the flank of the bowl and died to 6 mm
+        // where it was supposed to arch. The shop text promised an arch and the
+        // geometry delivered a bulge on the side of the cap. Second: at 8 mm of
+        // section carrying 56 mm of rise it was a wire, not a snake — and, as the
+        // comb block above records, a wire that measured a quarter inverted.
+        //
+        // It is now the tallest thing in the shop and it holds its height where
+        // the eye is: 52 mm above the bowl at the crown, never under 34 along
+        // either flank, and 20 to 30 mm of body across the whole run so the arch
+        // reads as an animal rather than as a strap. The body is fattest toward
+        // the head and tapers to the tail, which is the one asymmetry that says
+        // which end is which at fight distance.
+        p.add(comb(-1.34, 1.30,
+          // Monotonic to the crown from BOTH ends, which is what the ridge helm's
+          // crest already did and what this one was measured failing to do.
+          (t) => 0.052 - 0.018 * Math.pow(Math.abs(mix(-1, 1, t)), 1.4),
+          (t) => 0.010 + 0.005 * Math.pow(clamp01(t), 0.7),
+          0.007), trimMetal, place.clone());
+        // THE HEAD, thrown clear of the brow. The audit asks for 40 mm past the
+        // brow line "so it breaks the outline from the front as well as the
+        // side", and that is the number: the snout sits on the comb's front
+        // terminal and is carried forward in +z, not merely lifted, because a
+        // lift on the brow is inside the head's own outline from head-on and
+        // buys nothing at all from the one bearing a duel is fought at.
+        const hv = bandLo - 0.02;
+        const hd = onForm(0, hv, bowlUnder(Math.PI / 2 - hv) + 0.030);
+        const hx = hd.x;
+        const hy = skullY + hd.y + 0.006;
+        const hz = hd.z + 0.030;
+        p.add(ball(0.021, 8), trimMetal, xf(hx, hy, hz, 0.30, 0, 0, 0.78, 0.82, 1.45));
+        p.add(ball(0.012, 7), trimMetal, xf(hx, hy - 0.017, hz + 0.026, 0.50, 0, 0, 0.62, 0.58, 1.35));
         if (lod.trim) {
           for (const s of [-1, 1]) {
-            p.add(rod(0.0008, 0.0034, 0.026, 4), brass,
-              xf(hx + s * 0.010, hy + 0.014, hz - 0.008, -0.75, 0, -s * 0.42));
-            p.add(ball(0.0032, 5), dark, xf(hx + s * 0.0085, hy + 0.004, hz + 0.012));
+            p.add(rod(0.0009, 0.0038, 0.030, 4), brass,
+              xf(hx + s * 0.011, hy + 0.016, hz - 0.010, -0.72, 0, -s * 0.42));
+            p.add(ball(0.0034, 5), dark, xf(hx + s * 0.0092, hy + 0.004, hz + 0.014));
           }
         }
       }
