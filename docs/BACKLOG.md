@@ -95,12 +95,19 @@ and because it is the screen he judged; the rest is argued.
 
 The frame being right is the milestone. A merge is not.
 
-**A0. The head correction.** *IN FLIGHT — another owner is in `characters.ts`
-right now.* Commits `2bfff54` through `a0ed670`: face as a field rather than a
-face with stickers on it, hair and beards that differ in silhouette, helms
-seated on the skull with hair out from under them, war paint with an edge, the
-ear's hollow floored, the jaws on the chest. **Unverified.** Do not open
-`characters.ts` behind this.
+**A0. The head correction.** *LANDED on `main` — 6 Aug 2026, 76 commits,
+`2bfff54` through `60fbeae`.* Face as a field rather than a face with stickers
+on it, hair and beards that differ in silhouette, helms seated on the skull with
+hair out from under them, war paint with an edge, the ear rebuilt as a closed
+shell, the profile authored as an outline and the gate moved onto the
+silhouette, the woven cross-hatch traced to the tile repeat and removed, the
+quiet lock mark, `wearmeasure`, `headmeasure` and `cosmetictest`.
+
+**It did NOT reach the bar and it shipped anyway**, on the ground that nothing
+on it is a regression against what live players had — see the land judgement at
+the top of `OPEN-DEFECTS.md`, which carries the A/B frames from both trees at
+all three tiers and names seven faults that shipped. The next head wave starts
+from that list. **The head is no longer a merge blocker; it is a wave.**
 
 **A1. THE BODY — the default kit reads Roman.** *NOT STARTED. Outranks every
 individual cosmetic in the shop* (`COSMETICS-AUDIT.md` §4.1), and it is the
@@ -419,6 +426,16 @@ owner's bar is a visual one. But it competes with nothing — it does not touch
 `characters.ts`, the renderer, or the harness, so it runs *beside* wave A
 rather than after it. There is no version of this project where doing it later
 is cheaper, and there is a version where doing it later is catastrophic.
+
+### 0. Make the two flaky gates deterministic. *NEW, and it is now first.*
+
+**Why it displaced everything:** `touchtest` and `playtest` each fail about one
+run in three, on their own input synthesis rather than on the game. A gate that
+fails a third of the time cannot certify a release, and the land judgement of
+6 Aug had to reason around both of them. Both harnesses sample after a
+wall-clock delay; both must instead wait on the client having *received* the
+pointer delta. Ten consecutive green runs each before either is called done.
+One wave. Everything below is worth less until this is true.
 
 ### 2. Ship the wave to `main`, verified.
 

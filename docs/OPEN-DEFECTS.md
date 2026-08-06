@@ -11,6 +11,143 @@ The head's own turntable: **`art/shots/judge9c/`** (portrait) and
 `art/shots/judge9b/head-turn-fight.png` (fight range). A/B against
 `art/shots/judge/`, which is the capture the owner's three notes came off.
 
+**The A/B against what is LIVE**, taken for the land judgement below and the
+only capture set in this file shot from two trees with one instrument:
+
+```
+art/shots/judgeA-high/  art/shots/judgeA-med/  art/shots/judgeA-low/   origin/main cfb49fc  (LIVE)
+art/shots/judgeB-high/  art/shots/judgeB-med/  art/shots/judgeB-low/   this branch 60fbeae
+```
+
+Regenerate with `node tools/shoot.mjs headturn headturnfight --quality
+{low,medium,high} --out <dir>`, one tier at a time, from a production build.
+`--quality` is what makes a two-viewport judgement possible at all: sheets use
+the card's own fixed lens so `--w/--h` never reaches them, and `detectTier()` on
+a headless box always answers the same thing. **desktop = `high`, mainstream
+phone = `medium`, weak phone = `low`** (`render/quality.ts:204`).
+
+---
+
+## THE LAND JUDGEMENT — 6 Aug 2026 — SHIPPED, and what shipped broken
+
+76 commits went to `main` at this tip. The test applied was **not** "does the
+head reach 8" — two judgements have already held this branch on that bar and
+between them kept the reticle, the helm seating, the cosmetic harness, the sweep
+table and the platform correction off the live game for two days. The test
+applied was **is anything here a regression against what live players have
+today**, measured from frames of both trees.
+
+**Nothing was.** Everything below is a fault that SHIPPED. It is here so the next
+wave inherits a list instead of rediscovering it.
+
+### What the head A/B actually shows, by tier
+
+| bearing | live `cfb49fc` | branch `60fbeae` | verdict |
+|---|---|---|---|
+| profile, desktop | no nose — a pug bump on an egg; ear is a **torus with daylight through the middle**; chin runs straight from lip into the throat | nasal bridge and dorsum, a mental fold, a gonial corner, an ear that is a closed shell with helix, concha and lobe | branch |
+| three-quarter, desktop | a hard faceted **plane break** creasing inner brow to jaw | no crease | branch |
+| back 180°, desktop | one unbroken egg | inion, nuchal hollow, lambdoid flattening, temporal plane | branch |
+| front, desktop | painted slash brows and two dark slots on a smooth ball | brow that casts, orbits, nose with a tip, vermilion, chin | branch |
+| **skin, every bearing, every tier** | a ruled square lattice of identical stamps — the woven cross-hatch. Forehead patch, band-passed 3–12 px: lattice peak **18.20x** the band mean | soft incommensurate mottle: **7.91x** at `high`, **11.84x** at `low` | branch |
+| **fight distance, every tier** | ~35 px of pale blob | ~35 px of pale blob | **no difference either way** |
+
+The fight-distance row is the one that decides "regression": the lens a player
+spends the match behind cannot tell these two heads apart, so nothing a live
+player does today got worse. The shop lens is where the branch's gain is, and it
+is the lens 2400 gold is spent through.
+
+### FAULT 1 — the phone floor under-samples a face that now has content
+
+**Ships. Measured. Worst thing on this list.**
+
+`art/shots/judgeB-low/cards/headturn-front_0_.png` against
+`art/shots/judgeA-low/cards/headturn-front_0_.png`. At `low` the branch's nose,
+philtrum and chin read front-on as **one continuous keel** from brow to below the
+jaw, with the mandible closing to a V. Live's front-on at the same tier is a
+featureless egg with painted brows. Both fail axis 5; the branch fails it
+differently, and a keel is a louder failure than a blank.
+
+The cause is arithmetic and it is in the file already. `LOD.low` is
+`headU: 30, headV: 30` (`characters.ts:1655`) — raised from live's **14×10**, so
+this branch is a large improvement at this tier and still under Nyquist for the
+tightest creases, which the comment above the table admits in as many words. The
+mesh can see the brow, the socket and the dorsum; it cannot see the alar crease
+or the columella undercut that give the nose sides, so the sides vanish and what
+is left is the midline.
+
+**Do not fix this by flattening the nose.** The two honest fixes are (a) take
+`low` to the same 40×44 the other two tiers carry — the head is one merged
+geometry per warrior and the note at `characters.ts:1630` already argues this is
+a correctness number, not a quality one — and measure the cost at the tier, or
+(b) widen the alar and columella terms at `low` only, the same way the philtrum
+was widened to clear its own sampling limit. (a) first; it is one number.
+
+**It is not a regression:** a `low` device is a weak phone (`cores <= 4 ||
+memoryGb <= 4 || minDimension <= 320`), a mainstream phone gets `medium`, and
+`medium` on this branch carries the full 40×44 head where live gives it 30×30.
+
+### FAULT 2 — the mass relation is still open, and it is still unmeasured
+
+Unchanged from the entry below: front-on is the weakest bearing at every tier and
+the read is "a small face on a large smooth dome". Four proportions have now been
+measured and all four are at or better than life (`facePanel` 0.795 against 0.72,
+`craniumShare` 0.342, `breadthOverHeight` 0.703, `lengthOverHeight` 0.843), so
+**stop reaching for the proportions**. The two candidates in order are the
+features' share of the face and the complexion narrowing what geometry made
+broad. Neither is measured.
+
+### FAULT 3 — three ratios still outside tolerance, and two of them measure a covered throat
+
+`node tools/headmeasure.mjs` → `3 ratios outside tolerance · 0 of 15 SILHOUETTE
+assertions FAILED` (was 6 and 0 of 12 at the last judgement).
+
+```
+jawOverCheek     0.774 0.788 0.807   0.860±0.080   OUT by 0.006
+neckOverHead     0.824 0.843 0.866   0.750±0.090   OUT by 0.026
+neckOverJaw      1.039 1.087 1.123   1.000±0.120   OUT by 0.003
+```
+
+`neckOverHead` and `neckOverJaw` are asserted on a huscarl whose `CLASS.gorget`
+is `1.0` — the throat is a leather collar from jaw to yoke and no skin neck is
+visible on the class every head sheet is shot on. **Retire them or re-site them
+on a `gorget: 0.0` class** (runekeeper or berserker). `jawOverCheek` is rounding
+against a bizygomatic that is 22% over life by art direction; rewrite the
+tolerance or delete it. Nothing here is worth sculpting for.
+
+### FAULT 4 — the phone lost the flick chevrons with the gunsight
+
+The old lock reticle drew a pair of chevrons on mobile only, saying which way the
+thumb goes to take the next man. The quiet mark that replaced it does not
+(`GameHud.tsx`, the `isMobile.current && (...)` block is gone). The gesture still
+works and `touchtest` still proves it; what went is the affordance that told a
+new player it exists. Small, real, and cheapest to fix in the tutorial line
+rather than by putting ink back on the glass.
+
+### FAULT 5 — two gates are not deterministic, and one of them was believed
+
+Carried forward and **still open** — see the entry further down. `touchtest` fails
+about one run in three at 160° of facing error; `playtest` fails about one run in
+three on a mouse sweep its own harness did not register. Two runs agreeing is what
+a person uses to decide something is real, and here two runs agreed on a false
+positive. Both need their input synthesis to wait on the client having *received*
+the pointer delta rather than on a wall clock. **This is the top item of the next
+wave** and it is the only thing on this list that makes a verdict untrustworthy
+rather than a picture ugly.
+
+### FAULT 6 — the shop still sells four cloaks that are one mesh, at portrait
+
+`npm run cosmetictest` is **18/18** and the three 0.00% shop pairs are closed at
+fight distance. What is not closed is the price ladder itself: the geometry now
+differs, but `COSMETICS-AUDIT.md §5`'s cut/reprice list has still not been acted
+on, and all four war paints remain byte-identical under the Sutton Hoo mask (a
+110g paint invisible under a 2400g helm). Correct behaviour from the mask; a shop
+problem at the till.
+
+### FAULT 7 — two unexplained console errors on the phone armoury load
+
+`net::ERR_CONNECTION_RESET` and a `404`, reproduced on both `armourycard.mjs` and
+a bare probe at 390×844. Named twice now and diagnosed never.
+
 ---
 
 ## The head, pass eight: the ear, the crease and the grid are closed; the mass is not
