@@ -2245,6 +2245,166 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
   };
 }
 
+/**
+ * The ear, in numbers rather than in the build, because the gate has to be able
+ * to measure it. It is the one facial feature that is not swept from
+ * `faceSurface` — it is a rim, a bowl and a lobe placed at a fraction of the
+ * skull's half-breadth — so nothing in `headProbe` could ever see it, and the
+ * owner's note ("an ear like a flat sticker") is a defect no landmark ratio was
+ * ever going to catch.
+ *
+ * `EAR_ROOT` buries the medial third; the helix then has to climb back out past
+ * the skin. What it stands clear by is `headSilhouette().earOut`, and on a man
+ * that is 14–20 mm at the rim — enough that the ear casts onto the skull behind
+ * it, which is the only reason an ear reads at all in a side light.
+ */
+const EAR_ROOT = 0.93;
+const EAR_RAKE = 0.32;
+const EAR_HELIX_R = 0.0235;
+const EAR_HELIX_TUBE = 0.0048;
+const EAR_HELIX_LIFT = 0.006;
+const EAR_HELIX_KX = 0.84;
+const EAR_HELIX_KY = 1.34;
+const EAR_HELIX_KZ = 0.86;
+
+/**
+ * THE PROFILE OUTLINE, and the reason it exists is written in the sixth failure.
+ *
+ * `headProbe` above measures landmark-to-landmark ratios, and every one of them
+ * came back inside its Farkas tolerance on the pass that shipped a muzzle. That
+ * is not a bug in the tolerances. It is that a ratio between two named points
+ * cannot see the shape of the line between them: "the nose tip is 24 mm in front
+ * of pogonion" is equally true of a face and of a snout, because the lips are not
+ * one of the two points and the lips are what was wrong.
+ *
+ * So this returns no ratios at all. It returns the **silhouette** — the outline
+ * of the head as a side-on camera projects it — as a closed polygon, and lets
+ * `tools/headmeasure.mjs` assert on the shape of the curve. A head is star-shaped
+ * about its own centre at every bearing that matters, so the outline is swept
+ * radially: for each angle off the head's centre in the sagittal plane, the
+ * furthest surface point at that bearing. That keeps the concavities a convex
+ * hull would erase — the nasion notch and the mentolabial sulcus are both real
+ * parts of the read — while still being a single-valued curve the gate can walk.
+ *
+ * `theta` is measured from the crown (+y) toward the face (+z): 0 is straight up,
+ * π/2 is dead ahead, π is the menton, −π/2 is the occiput. The mandible therefore
+ * lives in θ ∈ (π, 3π/2), which is where the gonial corner is looked for.
+ */
+export interface HeadSilhouette {
+  /** Closed sagittal outline, `n` samples: `y[i]`, `z[i]` in metres, head-origin. */
+  y: number[];
+  z: number[];
+  /** Centre the sweep was taken about. */
+  cy: number;
+  cz: number;
+  /** Crown and menton in the same space, so heights can be read as fractions. */
+  top: number;
+  bot: number;
+  /** Field-`y` of the named landmarks, and the height each one landed at. */
+  browY: number; tipY: number; noseY: number; lipY: number; chinY: number;
+  /** Bigonial half-breadth across the front half, and the neck under it. */
+  jawHW: number;
+  neckHW: number;
+  /** Ear: front, back, top, bottom and how far it stands off the skull, metres. */
+  earOut: number;
+  earDepth: number;
+}
+
+export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette {
+  const S = skeleton(BUILD[cls]);
+  const K: Skull = { R: S.headR, F: faceTraits(seed) };
+  const p = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const N = 720;
+
+  // One sweep, kept, because the radial centre has to be the head's own — the
+  // face block moves it forward by a real amount — and re-evaluating a field this
+  // size twice for 32 heads is a gate nobody will run.
+  let top = -9, bot = 9, fore = -9, aft = 9, jawHW = 0;
+  const NV = 180, NU = 220;
+  const sy = new Float64Array((NV + 1) * NU), sz = new Float64Array((NV + 1) * NU);
+  let m = 0;
+  for (let j = 0; j <= NV; j++) {
+    const v = (j / NV) * Math.PI - Math.PI / 2;
+    const fy = Math.sin(v);
+    for (let i = 0; i < NU; i++) {
+      const u = (i / NU) * Math.PI * 2;
+      faceSurface(K, dirOf(u, v, d), p);
+      sy[m] = p.y; sz[m] = p.z; m++;
+      if (p.y > top) top = p.y;
+      if (p.y < bot) bot = p.y;
+      if (p.z > fore) fore = p.z;
+      if (p.z < aft) aft = p.z;
+      if (d.z > 0 && Math.abs(fy - Y_GONION) < 0.03) jawHW = Math.max(jawHW, Math.abs(p.x));
+    }
+  }
+  const cy = (top + bot) * 0.5;
+  const cz = (fore + aft) * 0.5;
+
+  // The outline itself. Every surface sample is dropped into the angular bin it
+  // falls in and keeps the furthest radius, which is exactly what a silhouette
+  // is. Taken off the whole sphere rather than off the midline, because the
+  // frontmost point of a lip or a cheek need not sit on x = 0 and the camera does
+  // not care whether it does.
+  const rad = new Float64Array(N).fill(-1);
+  for (let q = 0; q < m; q++) {
+    const dy = sy[q] - cy, dz = sz[q] - cz;
+    const r = Math.sqrt(dy * dy + dz * dz);
+    let t = Math.atan2(dz, dy);
+    if (t < 0) t += Math.PI * 2;
+    const k = Math.round((t / (Math.PI * 2)) * N) % N;
+    if (r > rad[k]) rad[k] = r;
+  }
+  // A bin can come up empty at the poles where the sampling grid crowds; fill it
+  // from its neighbours rather than leaving a spike the turn test would read as a
+  // gonial angle.
+  for (let k = 0; k < N; k++) {
+    if (rad[k] >= 0) continue;
+    let a = k, b = k;
+    while (rad[(a + N - 1) % N] < 0) a--;
+    while (rad[(b + 1) % N] < 0) b++;
+    const ra = rad[((a - 1) % N + N) % N], rb = rad[(b + 1) % N];
+    rad[k] = mix(ra, rb, (k - a + 1) / (b - a + 2));
+  }
+
+  const ys: number[] = [], zs: number[] = [];
+  for (let k = 0; k < N; k++) {
+    const t = (k / N) * Math.PI * 2;
+    ys.push(cy + rad[k] * Math.cos(t));
+    zs.push(cz + rad[k] * Math.sin(t));
+  }
+
+  const at = (fy: number) => {
+    const c = Math.sqrt(Math.max(0, 1 - fy * fy));
+    faceSurface(K, d.set(0, fy, c), p);
+    return p.y;
+  };
+
+  // The ear. It is not swept from this field — it is five primitives placed at a
+  // fixed fraction of the skull's half-breadth — so "an ear like a flat sticker"
+  // becomes a number by comparing the two: where the helix's outer surface lands
+  // against where the skin under it lands, at the ear's own latitude.
+  const earFy = (Y_EYE + Y_NOSE) * 0.5;
+  let skullHW = 0;
+  {
+    const cv = Math.sqrt(Math.max(0, 1 - earFy * earFy));
+    for (let i = 0; i <= 180; i++) {
+      const t = (i / 180) * Math.PI;
+      faceSurface(K, d.set(Math.sin(t) * cv, earFy, Math.cos(t) * cv), p);
+      skullHW = Math.max(skullHW, Math.abs(p.x));
+    }
+  }
+  const earOuter = K.R.x * EAR_ROOT + (EAR_HELIX_LIFT + EAR_HELIX_TUBE * EAR_HELIX_KZ);
+
+  return {
+    y: ys, z: zs, cy, cz, top, bot,
+    browY: at(Y_BROW), tipY: at(Y_TIP), noseY: at(Y_NOSE), lipY: at(Y_LIP), chinY: at(Y_CHIN),
+    jawHW, neckHW: S.neckHW,
+    earOut: earOuter - skullHW,
+    earDepth: EAR_HELIX_R * 2 * EAR_HELIX_KY,
+  };
+}
+
 const _d = new THREE.Vector3();
 const _n = new THREE.Vector3();
 
@@ -2342,6 +2502,222 @@ export function wearNormalProbe(cls: WarriorClass, seed: number): WearProbe {
   };
 }
 
+// ============================================================
+// HELM FIT — the gate that replaces looking at it
+// ============================================================
+//
+// `wearNormalProbe` above measures the *direction* a shell is lifted in. It was
+// enough to find the bug and it is not enough to hold a helmet, because the two
+// faults an armoury card actually shows are about the *distance*:
+//
+//   - a shell whose inner wall ends up inside the skin, which draws as a face
+//     punching through metal. `docs/COSMETICS-AUDIT.md` records 2110 gold of the
+//     ladder failing this way.
+//   - a shell standing so far off the skull that it reads as parked above the
+//     head rather than worn on it. That is the owner's "the helms hover".
+//
+// Both are numbers, so both can fail a test instead of needing an eye.
+//
+// THE HEAD IS STAR-SHAPED ABOUT THE SKULL CENTRE. That is the one assumption
+// here and it is worth stating, because everything below rests on it: the face
+// field is an ellipsoid plus bumps that never fold a ray back on itself, so
+// "how far out is the skin in direction d" has exactly one answer and a radial
+// table can hold it. A nose is a bump on a sphere, not an overhang.
+//
+// Given that table, a shell point is inside the skin iff its own radius is less
+// than the skin's radius in its own direction — and, crucially, that catches
+// what a local normal check cannot: a shell offset further than the surface's
+// radius of curvature turns itself inside out, and the skin the fold exposes is
+// nowhere near the (u, v) the shell was drawn at. That inversion is what makes
+// the four broken guards break.
+
+/** Azimuth/elevation bins of the skin's radius, for the star-shaped test above. */
+interface SkinRadii {
+  na: number; ne: number;
+  r: Float64Array;
+}
+
+const _sr = new THREE.Vector3();
+
+/**
+ * Tabulate the skin's radius from the skull centre over direction.
+ *
+ * Sampled twice as finely in (u, v) as the table is in (az, el) and reduced with
+ * `max`, because a bin that took the *last* sample to land in it would step down
+ * over the nose and report air as skin — and a clearance test that under-reads
+ * the skin passes exactly the shells it exists to fail.
+ */
+function skinRadii(K: Skull, na = 192, ne = 96): SkinRadii {
+  const r = new Float64Array(na * ne);
+  const d = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const su = na * 2, sv = ne * 2;
+  for (let j = 0; j <= sv; j++) {
+    const v = -Math.PI / 2 + (j / sv) * Math.PI;
+    for (let i = 0; i < su; i++) {
+      const u = (i / su) * Math.PI * 2;
+      faceSurface(K, dirOf(u, v, d), p);
+      const len = p.length();
+      if (len < 1e-6) continue;
+      const az = Math.atan2(p.x, p.z);
+      const el = Math.asin(Math.min(1, Math.max(-1, p.y / len)));
+      const ai = Math.min(na - 1, Math.max(0, Math.floor(((az + Math.PI) / (Math.PI * 2)) * na)));
+      const ei = Math.min(ne - 1, Math.max(0, Math.floor(((el + Math.PI / 2) / Math.PI) * ne)));
+      const k = ei * na + ai;
+      if (len > r[k]) r[k] = len;
+    }
+  }
+  // Any bin the sweep missed — they exist at the poles, where the (u, v) grid
+  // crowds — borrows its neighbour rather than reading zero, which would call
+  // the whole skull hollow and pass everything.
+  for (let ei = 0; ei < ne; ei++) {
+    for (let ai = 0; ai < na; ai++) {
+      const k = ei * na + ai;
+      if (r[k] > 0) continue;
+      let best = 0;
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const e2 = ei + dj, a2 = (ai + di + na) % na;
+          if (e2 < 0 || e2 >= ne) continue;
+          best = Math.max(best, r[e2 * na + a2]);
+        }
+      }
+      r[k] = best;
+    }
+  }
+  return { na, ne, r };
+}
+
+/** How far outside the skin a point is, in metres. Negative is inside it. */
+function skinClearance(tab: SkinRadii, p: THREE.Vector3): number {
+  const len = p.length();
+  if (len < 1e-6) return -len;
+  const az = Math.atan2(p.x, p.z);
+  const el = Math.asin(Math.min(1, Math.max(-1, p.y / len)));
+  const ai = Math.min(tab.na - 1, Math.max(0, Math.floor(((az + Math.PI) / (Math.PI * 2)) * tab.na)));
+  const ei = Math.min(tab.ne - 1, Math.max(0, Math.floor(((el + Math.PI / 2) / Math.PI) * tab.ne)));
+  return len - tab.r[ei * tab.na + ai];
+}
+
+export interface HelmFit {
+  helm: string;
+  cls: string;
+  seed: number;
+  /** Deepest any shell's INNER wall gets inside the skin, mm. 0 is seated. */
+  punchMm: number;
+  punchTag: string;
+  /** Furthest any shell's OUTER wall stands off the skin, mm. */
+  standoffMm: number;
+  standoffTag: string;
+  /** Fraction of samples where the offset has turned the sheet inside out. */
+  foldFrac: number;
+  foldTag: string;
+  shells: number;
+}
+
+/**
+ * Measure how a helmet actually sits on a head it is actually built on.
+ *
+ * Builds the character — the real `buildCharacter`, the real materials fallback,
+ * the real per-seed face — with the spy open, then walks every shell the helm
+ * code asked for and reports the three numbers above. `tools/wearmeasure.mjs`
+ * turns them into a pass or a fail.
+ */
+export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): HelmFit {
+  const spy: WornShellSpec[] = [];
+  const prev = _wearSpy;
+  _wearSpy = spy;
+  try {
+    const ap = { ...defaultAppearance(cls), helm };
+    buildCharacter(cls, ap, 0x8a6b3f, undefined, "high", seed);
+  } finally {
+    _wearSpy = prev;
+  }
+  // The same skull `buildCharacter` just used. `identity` is the seed it was
+  // handed, and stature does not touch `headR`'s ratios — it scales the skeleton
+  // the head is measured in, so the skull is rebuilt the same way here.
+  const step = Math.round(hash(seed, 31) * 2) - 1;
+  const B = BUILD[cls] ?? BUILD.warden;
+  const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
+  const K: Skull = { R: S.headR, F: faceTraits(seed) };
+  const tab = skinRadii(K);
+
+  const mm = 1000;
+  let punch = 0, punchTag = "-";
+  let standoff = 0, standoffTag = "-";
+  let folds = 0, samples = 0, foldTag = "-";
+  const pOut = new THREE.Vector3();
+  const pIn = new THREE.Vector3();
+  const pdu = new THREE.Vector3();
+  const pdv = new THREE.Vector3();
+  const nq = new THREE.Vector3();
+  const ntrue = new THREE.Vector3();
+  const dd = new THREE.Vector3();
+
+  const at = (o: WornShellSpec, t: number, s: number, drop: number, out: THREE.Vector3) => {
+    const u = mix(o.u0, o.u1, t);
+    const v = mix(o.v0(u), o.v1(u), s);
+    faceSurface(K, dirOf(u, v, dd), out);
+    faceNormalTrue(K, u, v, ntrue);
+    out.addScaledVector(ntrue, o.lift(u, s) - drop);
+    return out;
+  };
+
+  let tagged = 0;
+  for (const o of spy) {
+    const tag = o.tag;
+    // Untagged shells are hair, beard and war paint — a different owner's
+    // geometry and a different owner's gate. This one holds helmets.
+    if (!tag) continue;
+    tagged++;
+    // Denser than the shell is tessellated, because a fold can open between two
+    // of its own spans and still be a hole in the metal on screen.
+    const NU = Math.max(12, o.nu * 3);
+    const NV = Math.max(8, o.nv * 3);
+    for (let i = 0; i <= NU; i++) {
+      for (let j = 0; j <= NV; j++) {
+        const t = i / NU, s = j / NV;
+        at(o, t, s, o.thick, pIn);
+        at(o, t, s, 0, pOut);
+        const cIn = skinClearance(tab, pIn);
+        const cOut = skinClearance(tab, pOut);
+        if (-cIn > punch) { punch = -cIn; punchTag = tag; }
+        if (cOut > standoff) { standoff = cOut; standoffTag = tag; }
+        // Has the offset turned the sheet inside out? Compare the offset
+        // surface's own normal with the skin's at the same point. A sheet lifted
+        // further than the surface's radius of curvature flips, and a flipped
+        // sheet is a hole.
+        const ht = 1 / (NU * 4), hs = 1 / (NV * 4);
+        at(o, Math.min(1, t + ht), s, 0, pdu).sub(pOut);
+        at(o, t, Math.min(1, s + hs), 0, pdv).sub(pOut);
+        nq.crossVectors(pdv, pdu);
+        samples++;
+        if (nq.lengthSq() > 1e-20) {
+          nq.normalize();
+          const u = mix(o.u0, o.u1, t);
+          const v = mix(o.v0(u), o.v1(u), s);
+          faceNormalTrue(K, u, v, ntrue);
+          if (Math.abs(nq.dot(ntrue)) > 1e-3 && nq.dot(ntrue) < 0) {
+            folds++;
+            if (foldTag === "-") foldTag = tag;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    helm, cls, seed,
+    punchMm: punch * mm,
+    punchTag,
+    standoffMm: standoff * mm,
+    standoffTag,
+    foldFrac: folds / Math.max(1, samples),
+    foldTag,
+    shells: tagged,
+  };
+}
+
 function headGeometry(K: Skull, nu: number, nv: number): THREE.BufferGeometry {
   const pos: number[] = [];
   const uv: number[] = [];
@@ -2382,20 +2758,44 @@ function headGeometry(K: Skull, nu: number, nv: number): THREE.BufferGeometry {
 }
 
 /**
+ * The spec of one worn shell, in the form `headWear` is asked for it.
+ *
+ * Named as a type of its own for one reason: `helmFitProbe` has to be able to
+ * measure the shells a helmet is ACTUALLY built from rather than a copy of them
+ * kept in a tool. `tools/shoot.mjs` carries the story of the last instrument
+ * that mirrored this file — a helmet ladder duplicated into a harness, which
+ * then agreed with itself and passed a helm nobody could tell apart. A gate that
+ * reads the real call arguments cannot drift from the build, because it *is* the
+ * build.
+ */
+export interface WornShellSpec {
+  /**
+   * What this shell is, for a failure message. Optional because the head wears
+   * hair, beards and paint too and those are somebody else's shells; the helm
+   * code tags every piece it builds, and an untagged shell measures as `?`.
+   */
+  tag?: string;
+  u0: number; u1: number;
+  v0: (u: number) => number; v1: (u: number) => number;
+  nu: number; nv: number; wrapU?: boolean;
+  lift(u: number, v: number): number;
+  thick: number;
+}
+
+/**
+ * When non-null, every `headWear` call records its spec here. Set and cleared by
+ * `helmFitProbe` and by nothing else — it is a measuring tap on the build, not a
+ * feature of it, and the build behaves identically whether or not it is open.
+ */
+let _wearSpy: WornShellSpec[] | null = null;
+
+/**
  * Anything worn on the head: hair, beard, war paint, a helm bowl, a hood. `lift`
  * is how far proud of the skin it stands, so a helm can sit over hair that sits
  * over the skull without any of the three intersecting.
  */
-function headWear(
-  K: Skull,
-  opts: {
-    u0: number; u1: number;
-    v0: (u: number) => number; v1: (u: number) => number;
-    nu: number; nv: number; wrapU?: boolean;
-    lift(u: number, v: number): number;
-    thick: number;
-  },
-): THREE.BufferGeometry {
+function headWear(K: Skull, opts: WornShellSpec): THREE.BufferGeometry {
+  if (_wearSpy) _wearSpy.push(opts);
   const surf = (t: number, s: number, offset: number, out: THREE.Vector3) => {
     const u = mix(opts.u0, opts.u1, t);
     const v = mix(opts.v0(u), opts.v1(u), s);
@@ -6342,12 +6742,12 @@ export function buildCharacter(
       // a flat plastic disc however well the concha inside it is modelled. The
       // rake goes on the whole ear space, so helix, concha, antihelix, tragus and
       // lobe all move together and their relationships are preserved.
-      const RAKE = 0.32;
+      const RAKE = EAR_RAKE;
       const ear = (
         ex: number, ey: number, ez: number, roll: number,
         kx: number, ky: number, kz: number,
       ) => new THREE.Matrix4()
-        .makeTranslation(s * (R.x * 0.93), earY, -0.024)
+        .makeTranslation(s * (R.x * EAR_ROOT), earY, -0.024)
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
         .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
         .multiply(xf(-s * ex, ey, ez, 0, 0, -s * roll, kx, ky, kz));
@@ -6368,12 +6768,13 @@ export function buildCharacter(
       // bottom where a real one runs down into the tragus instead of closing
       // into a ring. An ear's whole outline is this one curve.
       const arc = 4.9;
-      p.add(new THREE.TorusGeometry(0.0235, 0.0048, 5, 14, arc), headSkin,
+      p.add(new THREE.TorusGeometry(EAR_HELIX_R, EAR_HELIX_TUBE, 5, 14, arc), headSkin,
         new THREE.Matrix4()
-          .makeTranslation(s * (R.x * 0.93), earY, -0.024)
+          .makeTranslation(s * (R.x * EAR_ROOT), earY, -0.024)
           .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2))
           .multiply(new THREE.Matrix4().makeRotationZ(RAKE))
-          .multiply(xf(0, 0, 0.006, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2, 0.84, 1.34, 0.86)));
+          .multiply(xf(0, 0, EAR_HELIX_LIFT, 0, 0, Math.PI / 2 - s * 0.85 - arc / 2,
+            EAR_HELIX_KX, EAR_HELIX_KY, EAR_HELIX_KZ)));
       // The lobe, warm because it is the thinnest flesh on the head and the
       // place a backlight actually passes through.
       p.add(ball(0.0105, 7), headWarm, ear(0.003, -0.028, 0.002, 0, 0.62, 0.95, 0.80));
@@ -6911,6 +7312,7 @@ export function buildCharacter(
       // how far the iron floats.
       const crest = 0.014 + 0.008 * B.bowl;
       p.add(headWear(K, {
+        tag: "bowl",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: () => bandLo + 0.015, v1: () => Math.PI / 2 - 0.02,
         nu: Math.max(10, lod.shellU + 2), nv: lod.shellV,
@@ -6936,6 +7338,7 @@ export function buildCharacter(
       // brim that overhangs the forehead and throws the shadow line the whole face
       // composition hangs off.
       p.add(headWear(K, {
+        tag: "band",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: () => bandLo, v1: () => bandHi,
         nu: Math.max(10, lod.shellU + 2), nv: 1,
@@ -6965,6 +7368,7 @@ export function buildCharacter(
         for (let i = 0; i < 4; i++) {
           const a = Math.PI / 4 + (i / 4) * Math.PI * 2;
           p.add(headWear(K, {
+            tag: "rib",
             u0: a - 0.05, u1: a + 0.05,
             v0: () => ribLo, v1: () => ribTop,
             nu: 1, nv: 5,
@@ -7056,6 +7460,7 @@ export function buildCharacter(
         // on, 4 mm further out than the band so the two still read as two pieces,
         // it cannot leave the surface at any yaw.
         p.add(headWear(K, {
+          tag: "nasal plate",
           u0: -0.13, u1: 0.13,
           v0: () => bandLo - 0.01, v1: () => bandHi - 0.015,
           nu: 3, nv: 1, lift: () => 0.026, thick: 0.006,
@@ -7067,6 +7472,7 @@ export function buildCharacter(
         // on the brow rather than 30 mm above it.
         for (const s of [-1, 1]) {
           p.add(headWear(K, {
+            tag: "brow plate",
             u0: s * 0.1, u1: s * 0.66,
             v0: () => lat(Y_EYE + 0.115), v1: () => lat(Y_BROW + 0.07),
             nu: 4, nv: 2, lift: () => 0.018, thick: 0.008,
@@ -7096,6 +7502,7 @@ export function buildCharacter(
             return lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.42, 1, t), 1.5);
           };
           p.add(headWear(K, {
+            tag: "cheek (short)",
             ...sideArc(s, 0.42, 1.02),
             v0: hem, v1: () => bandLo + 0.02,
             nu: 6, nv: 4,
@@ -7147,6 +7554,7 @@ export function buildCharacter(
         const guardIn = style.mask ? 0.78 : 0.50;
         for (const s of [-1, 1]) {
           p.add(headWear(K, {
+            tag: "cheek (deep)",
             ...sideArc(s, guardIn, style.mask ? 1.62 : 1.45),
             v0: () => lat(Y_CHIN + 0.05), v1: () => bandLo + 0.01,
             nu: style.mask ? 10 : 6, nv: style.mask ? 6 : 4,
@@ -7281,6 +7689,7 @@ export function buildCharacter(
           Math.sqrt(Math.max(0, 1 - Math.pow(clamp01(Math.abs(du) / ridgeHalf), 2)));
         for (const u of [0, Math.PI]) {
           p.add(headWear(K, {
+            tag: "ridge crest",
             u0: u - ridgeHalf, u1: u + ridgeHalf,
             v0: () => (u === 0 ? bandLo : bandLo - 0.26), v1: () => Math.PI / 2 - 0.02,
             nu: 5, nv: 4,
@@ -7336,6 +7745,7 @@ export function buildCharacter(
           Math.sqrt(Math.max(0, 1 - Math.pow(clamp01(Math.abs(du) / wyrmHalf), 2)));
         for (const u of [0, Math.PI]) {
           p.add(headWear(K, {
+            tag: "wyrm crest",
             u0: u - wyrmHalf, u1: u + wyrmHalf,
             v0: () => (u === 0 ? bandLo - 0.04 : bandLo - 0.24), v1: () => Math.PI / 2 - 0.02,
             nu: 5, nv: 5,
@@ -8397,6 +8807,7 @@ export function buildCharacter(
       // hangs longest at the nape, and the front of it is lifted furthest so the
       // brim overhangs the face it is supposed to be shading.
       p.add(headWear(K, {
+        tag: "hood",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         // The opening runs higher across the front — 0.50 rad rather than 0.42,
         // which is 12 mm further up the forehead — so there is a face under the
@@ -8424,6 +8835,7 @@ export function buildCharacter(
       // see through the opening is a lined cavity rather than the sky behind it.
       // Cheaper and more reliable than asking a shadow map to resolve 30 mm.
       p.add(headWear(K, {
+        tag: "hood mantle",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: (u) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2),
         v1: () => 0.9,
