@@ -2183,6 +2183,95 @@ function dirOf(u: number, v: number, out: THREE.Vector3): THREE.Vector3 {
   return out.set(Math.sin(u) * cv, Math.sin(v), Math.cos(u) * cv);
 }
 
+/**
+ * The second tape measure, and it measures the thing that seats a helm.
+ *
+ * `headWear` lifts every worn shell — hair, beard, war paint, helm bowl, hood —
+ * off the skull along `faceNormal`, and `faceNormal` is the normal of the
+ * *undisplaced ellipsoid*: `d/R` normalised. It knows nothing about the
+ * displacement field. On a plain ellipsoid that is exact and this was free. It
+ * stopped being free the moment the face block, the brow, the gonial bump and
+ * the nose went on, because a displaced surface has a different normal, and the
+ * angle between the two is the error in every lift direction on the head.
+ *
+ * Two consequences, and both are visible on the armoury cards:
+ *
+ *   - a shell asked to stand `lift` proud of the skin only clears it by
+ *     `lift · cos θ`. Where θ is large the shell is asked for 6 mm and gets 3,
+ *     and any thickness at all puts its inner wall *inside* the skin.
+ *   - θ varies fast across the face block's edge, so neighbouring points on a
+ *     shell are pushed in diverging directions. That is a shear, not an offset,
+ *     and it is what cuts the hood through the skull.
+ *
+ * This reports the angle over the region wear actually covers, so the fix can be
+ * argued with instead of guessed at. It renders nothing; the picture is still
+ * the judge.
+ */
+export interface WearProbe { [k: string]: number }
+
+export function wearNormalProbe(cls: WarriorClass, seed: number): WearProbe {
+  const S = skeleton(BUILD[cls]);
+  const K: Skull = { R: S.headR, F: faceTraits(seed) };
+  const d = new THREE.Vector3();
+  const p0 = new THREE.Vector3();
+  const pu = new THREE.Vector3();
+  const pv = new THREE.Vector3();
+  const na = new THREE.Vector3();
+  const tu = new THREE.Vector3();
+  const tv = new THREE.Vector3();
+  const nt = new THREE.Vector3();
+  const h = 1e-3;
+  const deg = 180 / Math.PI;
+
+  let maxAll = 0, maxAllU = 0, maxAllV = 0;
+  let sumAll = 0, nAll = 0;
+  // The helm band: the strip a bowl's rim actually sits on, brow to above the
+  // ear. `lat` maps the field's own latitude sine, same as `eyeFrame` uses.
+  let maxBand = 0, sumBand = 0, nBand = 0;
+  let worstClear = 1;
+
+  for (let j = 0; j <= 96; j++) {
+    const v = -Math.PI / 2 + (j / 96) * Math.PI;
+    for (let i = 0; i < 128; i++) {
+      const u = (i / 128) * Math.PI * 2;
+      faceSurface(K, dirOf(u, v, d), p0);
+      faceSurface(K, dirOf(u + h, v, d), pu);
+      faceSurface(K, dirOf(u, v + h, d), pv);
+      tu.subVectors(pu, p0);
+      tv.subVectors(pv, p0);
+      nt.crossVectors(tv, tu);
+      if (nt.lengthSq() < 1e-18) continue;
+      nt.normalize();
+      faceNormal(K, dirOf(u, v, d), na);
+      // The patch winding can hand back the inward normal; the angle we want is
+      // between the two outward directions.
+      if (nt.dot(na) < 0) nt.negate();
+      const ang = Math.acos(Math.min(1, Math.max(-1, nt.dot(na)))) * deg;
+      sumAll += ang; nAll++;
+      if (ang > maxAll) { maxAll = ang; maxAllU = u; maxAllV = v; }
+      const clear = Math.cos(ang / deg);
+      if (clear < worstClear) worstClear = clear;
+      // brow to crown-of-ear, all the way round: where a bowl or a hood lives.
+      if (v > lat(-0.10) && v < lat(0.72)) {
+        sumBand += ang; nBand++;
+        if (ang > maxBand) maxBand = ang;
+      }
+    }
+  }
+
+  return {
+    maxAngleDeg: maxAll,
+    meanAngleDeg: sumAll / Math.max(1, nAll),
+    maxAngleU: maxAllU,
+    maxAngleV: maxAllV,
+    helmBandMaxDeg: maxBand,
+    helmBandMeanDeg: sumBand / Math.max(1, nBand),
+    // What a 6 mm lift actually clears by, at the worst point on the head.
+    worstClearanceFrac: worstClear,
+    worstLiftOf6mm: 6 * worstClear,
+  };
+}
+
 function headGeometry(K: Skull, nu: number, nv: number): THREE.BufferGeometry {
   const pos: number[] = [];
   const uv: number[] = [];
