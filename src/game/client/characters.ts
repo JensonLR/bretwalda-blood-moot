@@ -1232,13 +1232,27 @@ function skeleton(b: BuildTrait): Skeleton {
     // quarter, against a bare-necked life value of 0.38.
     neckRoot: 1.648 * s,
     neckBase: 1.50 * s,
-    // 124 mm across, 136 mm front to back, tapering to 100 mm across where it goes
-    // up under the jaw. The 126 mm *circle* it replaces was the wrong shape in both
-    // axes: too round to let the mandible overhang it, and — because it held that
-    // width all the way to the chin — too wide under the jaw, which is where a neck
-    // is narrowest and where being narrow is what makes the head above it read big.
-    neckHW: 0.064 * s * mix(1, w, 0.6),
-    neckHD: 0.070 * s * mix(1, w, 0.6),
+    // 141 mm across, 152 mm front to back, and the section is the whole of note 4.
+    //
+    // The note reads "the neck is too long AND too thin", and the measurement says
+    // it is one fault and not two. Menton to the shoulder joint is 134 mm against
+    // a head 271 tall — 0.49, where life is 0.63. This neck is already a fifth
+    // SHORTER than a man's. Taking more length out of it, which is what the note
+    // asks for read literally, is the sixth overshoot in this file's history and
+    // would have put the chin on the collarbone.
+    //
+    // What it is, is thin. Breadth against the jaw immediately above it measured
+    // 0.74 where life is about 1.05 and a fighter is higher — and a column that
+    // narrow reads long whatever its actual length, which is why two separate
+    // observations came out of one defect. 141 mm across and 152 deep puts it at
+    // 0.88 of the bigonial breadth (itself coming down this pass) and about 46 cm
+    // round, which is a man who fights for a living.
+    //
+    // The shape is unchanged and still right: deeper than it is wide, because
+    // throat to nape carries the airway, the spine and the cervical curve while
+    // side to side is two strap muscles.
+    neckHW: 0.0705 * s * mix(1, w, 0.6),
+    neckHD: 0.076 * s * mix(1, w, 0.6),
     // THE proportion defect, and the one that made the figure read at 8.5–9
     // heads while its own skeleton computed 7.5.
     //
@@ -1510,18 +1524,39 @@ interface FaceTraits {
 function faceTraits(raw: number): FaceTraits {
   const seed = Number.isInteger(raw) ? Math.abs(raw) : Math.abs(Math.round(raw * 4096));
   return {
-    wide: 1 + span(seed, 1, 0.055),
-    deep: 1 + span(seed, 2, 0.05),
-    tall: 1 + span(seed, 3, 0.05),
-    brow: 1 + span(seed, 4, 0.55),
-    deepSet: 1 + span(seed, 5, 0.35),
-    nose: 1 + span(seed, 6, 0.4),
-    bridge: 1 + span(seed, 7, 0.5),
-    nostril: 1 + span(seed, 8, 0.35),
-    cheek: 1 + span(seed, 9, 0.5),
-    gaunt: 1 + span(seed, 10, 0.6),
-    jaw: 1 + span(seed, 11, 0.45),
-    chin: 1 + span(seed, 12, 0.5),
+    wide: 1 + span(seed, 1, 0.045),
+    deep: 1 + span(seed, 2, 0.04),
+    // ±5% on the head's height is ±13 mm, and against a fixed stature that swung
+    // the figure from 6.99 heads to 7.63 across eight seeds — one man in eight
+    // was a bobble and one was a pinhead, on a roster where four of them stand in
+    // a row. ±3% holds the whole set inside the heroic band.
+    tall: 1 + span(seed, 3, 0.03),
+    // ---- and here is the caricature ----
+    //
+    // Everything below moves a piece of *bone*, and the spans were written as if
+    // they moved a preset. ±55% on a brow ridge, ±40% on a nose and ±50% on a
+    // chin do not produce a different man, they produce a different species: the
+    // seeds compound, so the warrior who draws a high nose and a low chin gets
+    // the tip 73 mm in front of pogonion where life is 20, and that is the
+    // storybook witch in the owner's capture. Measured across the roster, the
+    // beak metric ranged 31 → 73 mm — a 2.4× spread on the single feature the eye
+    // lands on first.
+    //
+    // The identity variation does not live here and never did. It lives in the
+    // complexion, the iris, the eye aperture, the mouth width, the asymmetry and
+    // the kit — all of which are free, because none of them can make a face
+    // inhuman. What these do is stop four men being one casting; ±20% on a 5 mm
+    // landmark is a millimetre, which is legible in a portrait and invisible as a
+    // deformity. That is the whole job.
+    brow: 1 + span(seed, 4, 0.30),
+    deepSet: 1 + span(seed, 5, 0.25),
+    nose: 1 + span(seed, 6, 0.16),
+    bridge: 1 + span(seed, 7, 0.25),
+    nostril: 1 + span(seed, 8, 0.22),
+    cheek: 1 + span(seed, 9, 0.28),
+    gaunt: 1 + span(seed, 10, 0.32),
+    jaw: 1 + span(seed, 11, 0.20),
+    chin: 1 + span(seed, 12, 0.20),
     eyeU: 1 + span(seed, 13, 0.09),
     eyeV: span(seed, 14, 0.035),
     eyeOpen: 1 + span(seed, 15, 0.2),
@@ -1643,7 +1678,16 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // hard horizontal crease under the mouth, which is what the first cut of this
   // rendered. A mandible carries its projection at the *symphysis* and gives it
   // up toward the angle, so this is a third the width and rides on a longer ramp.
-  pz += 0.016 * front * bump(x, 0, 0, 0.40, 1, 1) * smooth(Y_LIP + 0.14, Y_CHIN - 0.02, y);
+  //
+  // 16 mm was not enough of it, and note 2 — "the chin recedes behind the nose"
+  // — is this term. Measured: pogonion sat 4.4 mm *behind* the lip line on the
+  // mean seed and 15.7 mm behind it on the worst, so the profile fell away
+  // continuously from the mouth down while a 52 mm nose stood out over the top
+  // of it. That silhouette is a witch's, and no amount of chin bump fixes it,
+  // because the bump is riding on a jaw that is itself set back. 25 mm carries
+  // the whole symphysis forward and takes pogonion to roughly the lip's own
+  // vertical, which is where a man's is.
+  pz += 0.025 * front * bump(x, 0, 0, 0.40, 1, 1) * smooth(Y_LIP + 0.14, Y_CHIN - 0.02, y);
 
   // Parietal eminence: a skull is widest just above and behind the ear and rolls
   // over from there, rather than being a ball of one radius. Without it the only
@@ -1715,16 +1759,38 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // between them. So the dorsum now rises in **y** as well as z as it descends
   // to the tip, the tip overhangs, and the undersurface is cut hard back and up.
   // The projection is smaller than it was and reads several times as strongly.
+  //
+  // THE BEAK — note 1, and the sixth time this file has produced one. The
+  // paragraph above is correct and was acted on correctly; what nobody did was
+  // measure the result against the face it grows out of. `headProbe` puts the
+  // tip 51.7 mm in front of pogonion on the mean seed and 73.2 on the worst,
+  // where life is 18–22. It also puts the tip only 28 mm off the nasion — which
+  // is *right*. So the nose was never over-projecting on its own: it was
+  // over-projecting against a lower face that had fallen 24 mm behind it, and
+  // every previous pass that reached for the nose was pulling on the wrong end
+  // of the same measurement. Most of the 30 mm this note is about goes back on
+  // the chin above (the mandibular block); what comes off here is the rest.
+  //
+  // Three numbers change, and only one of them is the size:
+  //   * the dorsum's run tops out at 18 mm instead of 30 — a straight strong
+  //     nose, not a prow;
+  //   * the tip's own swell is halved and its gaussian widened by a third in
+  //     both axes, because a 85 mm-wide bump on a 190 mm face is a *point*, and
+  //     the point is what made ten thumbnails read as a storybook witch;
+  //   * the lift under the tip comes down with it, so the dorsum still runs
+  //     downhill into an edge the key can find without that edge being a spike.
   const run = smooth(Y_NOSE - 0.075, Y_NOSE + 0.035, y) * (1 - smooth(Y_BROW - 0.06, Y_BROW + 0.12, y));
-  const ridge = bump(x - drift * 6, 0, 0, 0.105, 1, 1);
-  const proj = mix(0.010, 0.030, smooth(Y_BROW, Y_TIP, y)) * F.nose;
+  const ridge = bump(x - drift * 6, 0, 0, 0.132, 1, 1);
+  const proj = mix(0.010, 0.018, smooth(Y_BROW, Y_TIP, y)) * F.nose;
   pz += proj * ridge * run * front;
-  // The tip proper: a short, hard swell at Y_TIP that carries the nose's last
-  // 8 mm forward *and lifts the skin above it*, so the dorsum runs downhill into
-  // it and the underside falls away. This is the edge that catches the key.
-  const tip = bump(x - drift * 5, y - Y_TIP, 0, 0.085, 0.068, 1) * front;
-  pz += 0.009 * F.nose * tip;
-  py += 0.004 * tip;
+  // The tip proper: a short swell at Y_TIP that carries the nose's last few
+  // millimetres forward *and lifts the skin above it*, so the dorsum runs
+  // downhill into it and the underside falls away. This is the edge that catches
+  // the key — but it is a bulb on a man and a beak on a bird, and the difference
+  // between the two is entirely how wide the gaussian is.
+  const tip = bump(x - drift * 5, y - Y_TIP, 0, 0.160, 0.082, 1) * front;
+  pz += 0.006 * F.nose * tip;
+  py += 0.0026 * tip;
   // The bridge, carried up between the brows — this is what stops the nose
   // reading as a lump stuck onto a flat plane — and the nasion pinch above it,
   // which is the notch that separates nose from forehead.
@@ -1825,9 +1891,20 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // gaussian is a swell — it widened the whole side of the head and left the
   // outline the unbroken arc from temple to chin that reads as an egg. The ramus
   // term above it gives the corner something to be the bottom of.
+  //
+  // The flare comes down from 26 mm to 17 this pass, and that is not a retreat
+  // from "broad jaw" — it is what makes the jaw read broad. Measured, the
+  // bigonial breadth was 178 mm against a 196 mm head: 0.91, where life is 0.68
+  // and a deliberately blunt Saxon fighter wants about 0.80. A mandible as wide
+  // as the skull above it is not a strong jaw, it is a *flat lower face*, and
+  // with pogonion sitting behind the lip line — see the face block — the pair of
+  // them is the goblin in note 1. At 17 mm the corner is still there (the
+  // gaussian's y is unchanged, and the corner is the tight sigma, not the
+  // amplitude), the breadth lands near 160, and the neck below has something it
+  // can plausibly be as thick as.
   const gonion = bump(ax - 0.68, y - Y_GONION, z, 0.26, 0.17, 0.95);
-  px += sx * 0.026 * F.jaw * gonion;
-  px += sx * 0.011 * F.jaw * bump(ax - 0.70, y - (Y_GONION + 0.20), z + 0.25, 0.22, 0.20, 0.85);
+  px += sx * 0.017 * F.jaw * gonion;
+  px += sx * 0.009 * F.jaw * bump(ax - 0.70, y - (Y_GONION + 0.20), z + 0.25, 0.22, 0.20, 0.85);
   // Mandible edge: a crease above the jawline so the jaw casts its own shadow
   // onto the neck instead of melting into it. Deepened to 5 mm and run further
   // back toward the gonion — it is working with a real throat mass underneath
@@ -1837,13 +1914,20 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // Temple hollow and occipital bun. The temple is down from 5 mm to 2.5: on a
   // head this narrow it was cutting into the one place the eye measures breadth.
   px -= sx * 0.0025 * bump(ax - 0.85, y - (Y_BROW + 0.12), z - 0.3, 0.18, 0.20, 0.7);
-  // The occiput comes in as the face block goes out, and that is deliberate
-  // book-keeping rather than a taste call: the head measured 262 mm deep against
-  // 265 tall before this pass, which is already a long skull, and 24 mm of new
-  // face in front of it would have made a horse of it. Flatter behind, fuller in
-  // front, same overall length — and the helm bowl follows, because it is swept
-  // through this same field.
-  pz -= 0.016 * bump(x, y - 0.02, z + 0.92, 1, 0.4, 0.32);
+  // The occiput, and this line was doing the exact opposite of what the comment
+  // above it claimed for two passes. The intent was right — 24 mm of new face
+  // block goes on the front, so the back has to come in or the skull gets longer
+  // — but at the back of the head `pz` is *negative*, and subtracting from it
+  // pushes the occiput further back. The head therefore grew 24 mm in front and
+  // another 15 behind, and `headProbe` measures the result at 0.944 of glabella-
+  // to-occiput over head height against a life 0.845. That is the egg in note 3,
+  // and it is one character.
+  //
+  // `+=` pulls the back in, which is also the right shape on its own terms: the
+  // Anglo-Saxon skulls out of the Suffolk cemeteries are blunt behind, and a
+  // helm bowl swept through this field sits better on a round vault than on a
+  // long one.
+  pz += 0.020 * bump(x, y - 0.02, z + 0.92, 1, 0.4, 0.32);
 
   return out.set(px, py, pz);
 }
@@ -1920,8 +2004,30 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
   }
 
   const glab = front(Y_BROW);
-  const nasion = front(Y_BROW - 0.05);
+  // The nasion is the deepest point of the nasal root, so it is found rather than
+  // named: sampling it at a fixed offset under the brow lands on the bridge,
+  // which is already on its way out, and reports a nose half the size of the one
+  // in the frame.
+  let nasion = front(Y_BROW);
+  for (let i = 0; i <= 60; i++) {
+    const y = mix(Y_TIP, Y_BROW + 0.10, i / 60);
+    const f = front(y);
+    if (f.z < nasion.z) nasion = f;
+  }
   const tip = front(Y_TIP);
+  // How pointed the tip is, which is the half of note 1 that is not about size.
+  // A bulb loses its projection slowly across the face; a beak falls off a cliff.
+  // This is the nose's breadth at the latitude of the tip, taken where the
+  // surface has dropped 5 mm behind the tip's own z.
+  let tipHalf = 0;
+  {
+    const cv = Math.sqrt(Math.max(0, 1 - Y_TIP * Y_TIP));
+    for (let i = 0; i <= 240; i++) {
+      const t = (i / 240) * 0.5;
+      faceSurface(K, d.set(Math.sin(t) * cv, Y_TIP, Math.cos(t) * cv), p);
+      if (p.z >= tip.z - 0.003) tipHalf = Math.max(tipHalf, Math.abs(p.x));
+    }
+  }
   const sub = front(Y_NOSE);
   const lip = front(Y_LIP);
   const pog = front(Y_CHIN);
@@ -1949,8 +2055,17 @@ export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
     /** THE beak number. Life is 18–22 mm on an adult male. */
     noseBeyondChin: (tip.z - pog.z) * mm,
     noseBeyondLip: (tip.z - lip.z) * mm,
-    /** How far the nose stands off the face plane it grows from. Life ~24 mm. */
+    /** How far the nose stands off its own root. Life 25–30 mm at this scale. */
     noseProjection: (tip.z - nasion.z) * mm,
+    /** Breadth of the tip mass — note 1's other half. A bulb, not a point. */
+    tipBreadth: tipHalf * 2 * mm,
+    /**
+     * Orthognathism: pogonion against the nasion vertical, which is the facial
+     * angle every profile is judged on. A man sits within a few millimetres of
+     * zero. Deeply negative is a receding chin no matter what the chin bump does,
+     * because the whole mandible is set back behind the face.
+     */
+    chinBeyondNasion: (pog.z - nasion.z) * mm,
     /** Chin against the lip above it. A man's pogonion is at or in front of it. */
     chinBeyondLip: (pog.z - lip.z) * mm,
     chinBeyondGlabella: (pog.z - glab.z) * mm,
@@ -5559,8 +5674,15 @@ export function buildCharacter(
     const nHD = S.neckHD;
     // The taper at the top, shared with the strap sampler below so the muscles are
     // laid on the section they belong to and not on an average of it.
-    const TOP_W = 0.78;
-    const TOP_D = 0.82;
+    //
+    // 0.78 was too much of one. The bare throat a viewer actually sees is the band
+    // between the mandible's lower border and the collar, which is the *top* of
+    // this sweep — so 0.78 of an already-thin section was rendering 100 mm of neck
+    // under a 178 mm jaw, and that 0.56 ratio is what note 4 is looking at. On a
+    // man the taper from the base to the thyroid is about 0.88; the dramatic
+    // narrowing is the trapezius flare below, which the lower stations already do.
+    const TOP_W = 0.88;
+    const TOP_D = 0.90;
     p.add(shell([
       { y: S.neckTop + 0.095, hw: nHW * TOP_W, hd: nHD * TOP_D, z: -0.024 },
       { y: S.neckTop + 0.020, hw: nHW * 0.88, hd: nHD * 0.91, z: -0.017 },
@@ -5870,11 +5992,17 @@ export function buildCharacter(
     // The 0.60 band is bounded above by a full beard: the beard patch's lower rim
     // lands at 50 mm off the midline and this must stay inside it, or the throat
     // surfaces through the whiskers in a thin sliver.
+    // The lower two stations have come out with the neck section (see `neckHW`):
+    // they used to finish at 59 mm half-width over a throat whose top ring is now
+    // 62, which would have put a waist in the one place a warrior must not have
+    // one. They stay well inside the jaw above — which is the property that earns
+    // the overhang — and now hand off to the neck instead of pinching in front
+    // of it.
     p.add(shell([
-      { y: skullY - 0.048, hw: R.x * 0.66, hd: R.z * 0.62, z: -0.013 },
-      { y: skullY - 0.105, hw: R.x * 0.60, hd: R.z * 0.57, z: -0.019 },
-      { y: skullY - 0.160, hw: R.x * 0.60, hd: R.z * 0.57, z: -0.021 },
-      { y: skullY - 0.230, hw: R.x * 0.62, hd: R.z * 0.58, z: -0.021 },
+      { y: skullY - 0.048, hw: R.x * 0.68, hd: R.z * 0.64, z: -0.013 },
+      { y: skullY - 0.105, hw: R.x * 0.63, hd: R.z * 0.59, z: -0.019 },
+      { y: skullY - 0.160, hw: R.x * 0.65, hd: R.z * 0.61, z: -0.021 },
+      { y: skullY - 0.230, hw: R.x * 0.69, hd: R.z * 0.64, z: -0.021 },
     ], lod.limb, { capTop: true, capBottom: true }), headShade);
 
     // Ears, set back where the jaw hinges rather than out on the cheek, with a

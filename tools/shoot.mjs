@@ -167,6 +167,47 @@ const SHEETS = {
       turn: s.turn,
     })),
   },
+  // The head with nothing on it, turned. Every other sheet here photographs a
+  // *product* — a helm, a beard, a colour — and judges the head by implication,
+  // which is how five passes in a row corrected a list of features on an object
+  // nobody had looked at square. `docs/SUTTON-HOO.md` is about this exact
+  // failure.
+  //
+  // Profile is the panel that earns it. A beak, a receding chin and a long skull
+  // are all *silhouette* faults and all three are nearly invisible at the
+  // three-quarter bearing every other sheet uses; the owner's five notes came off
+  // a capture where the profile was the one thing on screen. Front-on is where
+  // the breadth of the jaw against the cheekbone and the neck against both of
+  // them can be read, and 180° is the only check on the cranial length now that
+  // the occiput has moved.
+  headturn: {
+    file: "head-turn.png", card: "facecard", cols: 4,
+    title: "THE HEAD ITSELF · bare · the rig is fixed and the man turns · profile is the honest panel",
+    shots: [
+      { label: "front 0°", turn: 0 },
+      { label: "three-quarter −35°", turn: QUARTER },
+      { label: "profile −90°", turn: -90 },
+      { label: "back 180°", turn: 180 },
+    ].map((s) => ({
+      label: s.label,
+      dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+      turn: s.turn,
+    })),
+  },
+  headturnfight: {
+    file: "head-turn-fight.png", card: "fightcard", cols: 4,
+    title: "THE HEAD ITSELF · at fight distance · the lens the player actually spends the match behind",
+    shots: [
+      { label: "front 0°", turn: 0 },
+      { label: "three-quarter −35°", turn: QUARTER },
+      { label: "profile −90°", turn: -90 },
+      { label: "back 180°", turn: 180 },
+    ].map((s) => ({
+      label: s.label,
+      dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+      turn: s.turn,
+    })),
+  },
   // ---- hair (4) ----
   // Three rows because a hairstyle has three separate ways to fail: it can be
   // dull from the front, it can be nothing from behind (which is where a braid
