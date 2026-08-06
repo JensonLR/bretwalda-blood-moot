@@ -1512,6 +1512,19 @@ interface FaceTraits {
   mouth: number; lip: number;
   /** Lateral drift on the midline features, in metres. A symmetric face is a mask. */
   asym: number;
+  /**
+   * The seed's ENTIRE authority over the sagittal profile, in millimetres on the
+   * three landmarks the eye judges a head by from the side.
+   *
+   * This is the constraint the owner's brief asked for, and it is the reason a
+   * seventh tuning pass is not needed: the profile can no longer be deformed,
+   * only nudged. `nose: 1 + span(seed, 6, 0.16)` used to multiply a gaussian that
+   * sat on top of four other gaussians, so a warrior who drew a high nose and a
+   * set-back chin got the tip 73 mm in front of pogonion where life is 20. Two
+   * millimetres on a table row cannot compound into anything, because the table
+   * IS the outline — there is nothing underneath it to compound with.
+   */
+  pNose: number; pLip: number; pChin: number;
   tone: number; iris: number;
 }
 
@@ -1563,6 +1576,9 @@ function faceTraits(raw: number): FaceTraits {
     mouth: 1 + span(seed, 16, 0.16),
     lip: 1 + span(seed, 17, 0.45),
     asym: span(seed, 18, 0.0022),
+    pNose: span(seed, 21, 2.0),
+    pLip: span(seed, 22, 1.2),
+    pChin: span(seed, 23, 1.5),
     tone: stratify(seed, 19, SKIN_TONES.length),
     iris: stratify(seed, 20, IRIS_COLORS.length),
   };
@@ -1574,7 +1590,214 @@ function faceTraits(raw: number): FaceTraits {
  * the *same* field, and threading two arguments through every one of those calls
  * is how a helm ends up fitting a face it was not cut for.
  */
-interface Skull { R: { x: number; y: number; z: number }; F: FaceTraits }
+interface Skull {
+  R: { x: number; y: number; z: number };
+  F: FaceTraits;
+  /**
+   * The profile pin's lookup table, built on first use and then shared by every
+   * one of the tens of thousands of samples that follow. See `pinTable`.
+   */
+  pin?: Float64Array;
+}
+
+// ============================================================
+// THE PROFILE, AUTHORED AS AN OUTLINE
+//
+// Six passes have now failed on this head, and the previous one is the useful
+// one: it built an anthropometric tape measure, every number came back near
+// life, and the object got worse. That is not a slack tolerance. It is that a
+// face was being made out of a sum of gaussians on a sphere, and a sum has no
+// silhouette — you cannot ask it where its frontmost point is, so every pass
+// pulled on one term, moved three others it did not intend, and satisfied its
+// list while the outline drifted somewhere new.
+//
+// So the outline is no longer an emergent property. It is written down.
+//
+//   `SAGITTAL` is the profile of the face, landmark by landmark, in millimetres
+//   in front of the glabella vertical. It is the curve a side-on camera draws,
+//   and `faceSurface` PINS the midline to it: whatever the feature terms below
+//   happen to sum to, a correction carries the midline onto this curve exactly.
+//
+// That inverts the failure. The nose is the frontmost point because the table
+// says so and not because six bumps happened to add up that way; the lips sit
+// behind the nose-to-chin chord because the table puts them there; and a seed
+// can no longer make a beak, because the seed's variation is applied to the
+// TABLE, inside a band of a millimetre or two, rather than to the amplitude of
+// a gaussian where ±20% compounds with four others into a different species.
+//
+// What the feature terms still do — and it is most of the work — is the LOCAL
+// relief and the lateral shape: the overhang under the brow, the alar creases,
+// the width of a lip, the box of a chin, the socket the light falls into. None
+// of that is on the midline, so none of it is cancelled. The pin only owns the
+// one thing the eye judges a head by from the side, and that is the one thing
+// six passes could not hold.
+//
+// Read crown-first. `y` is the field's own latitude sine.
+// ============================================================
+
+type Curve = ReadonlyArray<readonly [number, number]>;
+
+/**
+ * A C1 curve through control points, crown-first. Smoothstep between rows rather
+ * than linear, because a linear join is a crease in the surface and a crease
+ * across the face reads as the hard-edged plate this rewrite exists to delete.
+ */
+function curve(c: Curve, y: number): number {
+  if (y >= c[0][0]) return c[0][1];
+  for (let i = 1; i < c.length; i++) {
+    if (y < c[i][0]) continue;
+    const t = smooth(c[i - 1][0], c[i][0], y);
+    return mix(c[i - 1][1], c[i][1], t);
+  }
+  return c[c.length - 1][1];
+}
+
+/**
+ * The sagittal profile: millimetres in front of the glabella vertical.
+ *
+ * Every one of the silhouette gate's assertions is a property of THIS TABLE, and
+ * that is the point — they can be checked by reading rather than by rendering:
+ *
+ *   the frontmost row is the PRONASALE, and it leads the whole lip block by
+ *   16 mm, so the frontmost point of the face is the nose (S1);
+ *   the three lip rows all sit 2–5 mm behind the chord from pronasale to
+ *   pogonion, which is where a man's lips sit against Ricketts' E-line (S2);
+ *   pogonion is 2 mm IN FRONT of the glabella vertical, so the chin cannot
+ *   recede behind the brow (S3).
+ *
+ * The gnathion and menton rows run back under the jaw rather than continuing
+ * forward, which is what gives the underside of the mandible a direction to turn
+ * away in — see the gonial mass below.
+ */
+const SAGITTAL: Curve = [
+  [0.780, -30], //  vault, where the forehead gives way to the frontal curve
+  [0.560, -19], //  upper forehead
+  [0.380, -11], //  mid-forehead — a man's leans back about 12° over its height
+  [0.290, -4], //   supraciliary
+  [0.219, 0], //    GLABELLA — the datum every other row is measured from
+  [0.144, -5], //   nasion, the notch that makes the nose a separate mass
+  [0.010, 13], //   rhinion, the top of the dorsum's run
+  [-0.231, 28], //  PRONASALE — the frontmost point of the face
+  [-0.276, 20], //  columella
+  [-0.323, 3], //   subnasale
+  [-0.481, 12], //  labrale superius
+  [-0.536, 9], //   stomion
+  [-0.606, 8], //   labrale inferius
+  [-0.686, 3], //   mentolabial sulcus
+  [-0.766, 2], //   POGONION
+  [-0.856, -8], //  gnathion
+  [-0.930, -34], // menton, turning back under the jaw
+];
+
+/**
+ * The facial plate: the maxilla, the zygomatic body and the body of the mandible
+ * carried forward off the braincase as ONE broad mass, in millimetres.
+ *
+ * This replaces two terms that between them are the whole of the "dark domino
+ * mask over the mid-face with a hard edge along the brow". The old block was
+ * gated vertically by `smooth(Y_BROW - 0.05, Y_LIP, y)` — a ramp that starts AT
+ * the brow, so the top of a 19 mm slab landed on the brow line as a step — and
+ * laterally by a plateau with a shoulder, which put a second hard edge down each
+ * cheek. A slab with a step along its top and a shoulder down each side is a
+ * mask; it did not need a lighting bug to look like one.
+ *
+ * A maxilla has no edges. So this one starts as nothing halfway up the forehead
+ * and arrives smoothly, and its lateral falloff is a raised cosine in BEARING
+ * (see `massEnvelope`) which is C1 at both ends and has no shoulder anywhere.
+ *
+ * Its exact midline values do not matter much, because the pin overwrites the
+ * midline. What it owns is the face OFF the midline — the plane the cheek
+ * presents to the key — which is what the mask was.
+ */
+const PLATE: Curve = [
+  [0.640, 0],
+  [0.320, 2],
+  [0.219, 4], //   brow
+  [-0.116, 11], // orbit floor
+  [-0.323, 17], // subnasale
+  [-0.536, 18], // lip line
+  [-0.746, 15], // chin
+  [-0.876, 6],
+  [-0.960, 0],
+];
+
+/** How wide the plate is, in radians of bearing off dead ahead. A mandible is
+ *  narrower than a maxilla, which is what turns a head from a box into a face. */
+const PLATE_W: Curve = [
+  [0.640, 1.00],
+  [0.219, 1.12],
+  [-0.116, 1.18], // widest at the cheekbone
+  [-0.323, 1.06],
+  [-0.536, 0.92],
+  [-0.766, 0.74],
+  [-0.960, 0.58],
+];
+
+/** How wide the midline relief is. A nose is narrow; a chin is not. */
+const PIN_W: Curve = [
+  [0.640, 0.85],
+  [0.219, 0.72],
+  [0.100, 0.44],
+  [-0.231, 0.26], // the nose, and this row is why a pin cannot make a snout
+  [-0.323, 0.34],
+  [-0.536, 0.52],
+  [-0.766, 0.55],
+  [-0.960, 0.60],
+];
+
+/**
+ * A mass's lateral falloff, as a function of BEARING off dead ahead — 0 straight
+ * forward, π/2 at the ear, π at the occiput.
+ *
+ * Bearing and not `z`, for the reason the previous pass found and then only half
+ * acted on: `z` on a sphere falls with latitude as well as with bearing, so any
+ * gate written on `z` silently doubles as a vertical profile and shapes the mass
+ * in an axis nobody intended. Bearing knows nothing about latitude.
+ *
+ * And a raised cosine, not a smoothstep between two named edges: it is C1 at
+ * both ends with no shoulder to catch a light. Every hard edge this face has
+ * ever grown was a mass boundary somebody put an inflection in.
+ */
+const massEnvelope = (bearing: number, w: number): number =>
+  bearing >= w ? 0 : 0.5 + 0.5 * Math.cos((Math.PI * bearing) / w);
+
+/** How many rows the pin table carries, over field `y` in [-1, 1]. */
+const PIN_N = 193;
+
+/**
+ * Build the pin: for each latitude, how far the midline has to move to land on
+ * `SAGITTAL`. Evaluated against `faceSurfaceRaw` — the field WITHOUT the pin —
+ * so there is no recursion, and cached on the skull because a head is sampled
+ * tens of thousands of times and this costs a few hundred.
+ */
+function pinTable(K: Skull): Float64Array {
+  const t = new Float64Array(PIN_N);
+  const d = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const raw = (y: number) => {
+    const c = Math.sqrt(Math.max(0, 1 - y * y));
+    faceSurfaceRaw(K, d.set(0, y, c), p);
+    return p.z;
+  };
+  const datum = raw(Y_BROW);
+  const J = K.F;
+  for (let i = 0; i < PIN_N; i++) {
+    const y = -1 + (2 * i) / (PIN_N - 1);
+    // The seed's whole authority over the profile, and it is two millimetres.
+    // It used to be ±16% on a nose gaussian and ±20% on a chin, which compounded
+    // across seeds into a 2.4× spread on the one feature the eye lands on first.
+    const jit =
+      J.pNose * bump(y - Y_TIP, 0, 0, 0.20, 1, 1) +
+      J.pLip * bump(y - Y_LIP, 0, 0, 0.13, 1, 1) +
+      J.pChin * bump(y - Y_CHIN, 0, 0, 0.14, 1, 1);
+    const want = datum + (curve(SAGITTAL, y) + jit) * 0.001;
+    // Faded to nothing over the vault and under the jaw, so the pin owns the
+    // face and nothing else.
+    const win = smooth(0.86, 0.70, y) * smooth(-0.985, -0.90, y);
+    t[i] = (want - raw(y)) * win;
+  }
+  return t;
+}
 
 /**
  * Maps a unit direction onto a human skull, in metres, centred on the head's own
@@ -1608,7 +1831,7 @@ interface Skull { R: { x: number; y: number; z: number }; F: FaceTraits }
  * sits on the skull it belongs to and war paint lies on the cheek rather than
  * hovering in front of it.
  */
-function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
   const R = K.R;
   const F = K.F;
   const x = d.x;
@@ -1656,86 +1879,29 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   let py = y * R.y * F.tall - MANDIBLE * Math.pow(clamp01((-y - 0.22) / 0.78), 1.3);
   let pz = z * R.z * F.deep * (1 - 0.1 * low * low) * (1 - 0.09 * high * high);
 
-  // ---- the facial block ----
+  // ---- the facial mass ----
   //
-  // The one term that was missing, and it is why five panels called this a
-  // painted decal on an egg. Measured off the built mesh, taking the brow as
-  // zero, the sagittal profile ran: nose tip **+7.7 mm**, subnasale −27.7, lip
-  // line −29.9, chin −42.1. A man's runs roughly +22, −5, −4, −4. So it was not
-  // that the nose was too small — every landmark below the brow was retreating
-  // with the ellipsoid, because a sphere's `cos(v)` has already given up 40% of
-  // its depth by the time it reaches the chin. Twenty separate feature bumps
-  // were being modelled onto a lower face that was falling away underneath all
-  // of them, which is precisely the shape of an egg with a face drawn on it, and
-  // it is also the "muzzle" read: with the chin 50 mm behind the nose, the nose
-  // and moustache are the only things out in front and they read as a snout.
+  // ONE broad mass, not two slabs, and it is not what carries the profile any
+  // more. The profile is `SAGITTAL` and the pin puts the midline on it; what
+  // this owns is the face OFF the midline — the plane a cheek presents to the
+  // key, and the bearing at which that plane turns away toward the ear.
   //
-  // A skull is a braincase with a *face block* hung on the front of it — maxilla
-  // and mandible standing proud of the cranial sphere — so that is what this is:
-  // one broad forward push that is nothing at the brow and full below the lip
-  // line. It carries every landmark under it, which is why the feature terms
-  // below did not have to change much. `front` and the lateral falloff keep it
-  // off the ears and the back of the skull.
-  // Two parts, because the face block is two bones. The maxillary half is done
-  // by the lip line; the mandible goes on projecting below it, and without the
-  // second term the chin still measured 27–42 mm behind the brow across every
-  // seed — a receding jaw, which is the one facial fault a warrior cannot have.
+  // The two terms it replaces are, between them, the whole of the dark domino
+  // mask on the bare-head front card. The maxillary half was gated vertically by
+  // `smooth(Y_BROW - 0.05, Y_LIP, y)`, a ramp whose top edge is the brow line —
+  // so a 19 mm slab arrived as a STEP along the brow, which is exactly where the
+  // owner reports the mask's hard edge. Laterally it was a plateau cut by a
+  // shoulder at `ax / h`, which put a second hard edge down each cheek. The
+  // mandibular half then added a third boundary under the mouth. Three creases
+  // bounding the mid-face is a mask by construction; it never needed a lighting
+  // bug to look like one, and the two hypotheses in `docs/OPEN-DEFECTS.md` were
+  // both testing the light instead of the geometry that made the edge.
   //
-  // The block's LATERAL profile. This was changed to chase the dark mask on the
-  // bare-head front card and IT IS NOT THE MASK — the frame moved 3.4% of its
-  // pixels and the mask is exactly where it was. That is recorded here rather
-  // than quietly deleted, because the next person to look at this face will form
-  // the same hypothesis and can now skip it. See `docs/OPEN-DEFECTS.md` for what
-  // the mask actually appears to be.
-  //
-  // The change stays on its own merits, which are independent of the mask and
-  // are measurable: it removes a real coupling bug. `bump(x, 0, 0, 1.00, 1, 1)` is
-  // near-constant across the whole head, so
-  // nothing in x was shaping this at all: what shaped it was `front`, a linear
-  // ramp in z. On the sphere at eye level that ramp runs from full at |x| = 0.49
-  // out to nothing at |x| = 1.0, which is half the width of the face turning
-  // gradually away — a cone, and under a key at 60 degrees a cone flank facing
-  // sideways goes dark over its whole length. That broad even turn is the mask.
-  //
-  // A maxilla is not a cone. It is a plate: flat across the front of the face and
-  // ending at the zygomatic, where the cheek turns back toward the ear over a
-  // short distance. So the profile is now a plateau out to |x| = 0.58 with its
-  // shoulder landing on the cheekbone, and the z gate is only there to keep the
-  // block off the back of the skull rather than to do the shaping. The face front
-  // becomes a plane that takes the key evenly, and the turn to the side of the
-  // head becomes an edge the eye can read as a cheekbone instead of a gradient it
-  // reads as a shadow.
-  // The gate is on AZIMUTH, not on z, and that distinction is the whole of it.
-  // `z` on a sphere falls with latitude as well as with bearing — it is 0.98 at
-  // the brow and 0.60 at the chin — so any z gate silently doubles as a vertical
-  // profile, which is how the old one came to be shaping the block in two axes
-  // it was never meant to touch. `ax / h` is the sine of the bearing off dead
-  // ahead and knows nothing about latitude, so the plate is flat across the face
-  // at every height and turns at the same bearing all the way down it.
-  //
-  // The vertical profile is then said out loud instead of being a side effect:
-  // full at the lip line, 68% at the chin, which is where the old accident
-  // happened to leave it. The sagittal midline therefore does not move — checked
-  // on the tape measure, chinBeyondNasion holds — and what changes is only the
-  // shape of the face's flank, which is the thing that was wrong.
-  const h = Math.max(1e-6, Math.sqrt(x * x + z * z));
-  const plate = clamp01(z * 3) * (1 - smooth(0.55, 0.95, ax / h));
-  pz += 0.019 * plate * smooth(Y_BROW - 0.05, Y_LIP, y) * (1 - 0.32 * smooth(Y_LIP, Y_CHIN, y));
-  // The mandibular half is narrow on purpose. Given the same width as the
-  // maxilla it lands as a plate from gonion to gonion — a lantern jaw with a
-  // hard horizontal crease under the mouth, which is what the first cut of this
-  // rendered. A mandible carries its projection at the *symphysis* and gives it
-  // up toward the angle, so this is a third the width and rides on a longer ramp.
-  //
-  // 16 mm was not enough of it, and note 2 — "the chin recedes behind the nose"
-  // — is this term. Measured: pogonion sat 4.4 mm *behind* the lip line on the
-  // mean seed and 15.7 mm behind it on the worst, so the profile fell away
-  // continuously from the mouth down while a 52 mm nose stood out over the top
-  // of it. That silhouette is a witch's, and no amount of chin bump fixes it,
-  // because the bump is riding on a jaw that is itself set back. 25 mm carries
-  // the whole symphysis forward and takes pogonion to roughly the lip's own
-  // vertical, which is where a man's is.
-  pz += 0.025 * front * bump(x, 0, 0, 0.40, 1, 1) * smooth(Y_LIP + 0.14, Y_CHIN - 0.02, y);
+  // A maxilla has no edges. So this one starts as nothing halfway up the
+  // forehead, arrives over the whole height of the face, and falls off laterally
+  // as a raised cosine in bearing — C1 at both ends, no shoulder, no step.
+  const bearing = Math.atan2(ax, z);
+  pz += 0.001 * curve(PLATE, y) * massEnvelope(bearing, curve(PLATE_W, y));
 
   // Parietal eminence: a skull is widest just above and behind the ear and rolls
   // over from there, rather than being a ball of one radius. Without it the only
@@ -1988,9 +2154,37 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // gaussian's y is unchanged, and the corner is the tight sigma, not the
   // amplitude), the breadth lands near 160, and the neck below has something it
   // can plausibly be as thick as.
+  //
+  // AND IT WAS PUSHING IN THE ONE AXIS A PROFILE CANNOT SEE. Every term here was
+  // `px +=` — lateral flare — and the owner's note is that in the profile panel
+  // "the jaw curves into the neck with no gonial angle". It always would: a
+  // lateral push does not move a single point of the side-on silhouette, which is
+  // drawn in y and z. Sixty millimetres of flare and the profile outline is still
+  // the ellipsoid's own arc from temple to chin, which is the egg.
+  //
+  // A gonial angle in a PROFILE is the corner between two directions: the
+  // inferior border of the mandible running back from the menton, and the
+  // posterior border of the ramus running up to the ear. So the mass that makes
+  // it has to move in y and z — down and back at the angle, and up the back of
+  // the ramus above it. The lateral flare stays, because that is what the FRONT
+  // view reads as a broad jaw, but it is no longer pretending to be the corner.
+  //
+  // The silhouette gate measures the result directly: `gonialTurnDeg` is how far
+  // the outline turns through at its sharpest point along the mandible, and
+  // `gonialOverArc` compares that to the median turn over the same arc, so a
+  // uniformly-curved egg scores 1.0 however big it is.
   const gonion = bump(ax - 0.68, y - Y_GONION, z, 0.26, 0.17, 0.95);
-  px += sx * 0.017 * F.jaw * gonion;
-  px += sx * 0.009 * F.jaw * bump(ax - 0.70, y - (Y_GONION + 0.20), z + 0.25, 0.22, 0.20, 0.85);
+  px += sx * 0.013 * F.jaw * gonion;
+  px += sx * 0.007 * F.jaw * bump(ax - 0.70, y - (Y_GONION + 0.20), z + 0.25, 0.22, 0.20, 0.85);
+  // The angle itself: tight in y and set behind the ear's own bearing, dropped
+  // and pulled back so the outline has somewhere to turn.
+  const angle = bump(ax - 0.62, y - (Y_GONION - 0.055), z + 0.30, 0.30, 0.105, 0.55);
+  py -= 0.0125 * F.jaw * angle;
+  pz -= 0.0060 * F.jaw * angle;
+  // The posterior border of the ramus, climbing from the angle to the condyle.
+  // This is the second of the two directions; without it the drop above is a
+  // notch rather than a corner.
+  pz -= 0.0055 * bump(ax - 0.66, y - (Y_GONION + 0.28), z + 0.62, 0.30, 0.20, 0.42);
   // Mandible edge: a crease above the jawline so the jaw casts its own shadow
   // onto the neck instead of melting into it. Deepened to 5 mm and run further
   // back toward the gonion — it is working with a real throat mass underneath
@@ -2016,6 +2210,38 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   pz += 0.020 * bump(x, y - 0.02, z + 0.92, 1, 0.4, 0.32);
 
   return out.set(px, py, pz);
+}
+
+/**
+ * The head, with its profile pinned to `SAGITTAL`.
+ *
+ * Everything above is relief — real, and most of what makes a face read — but it
+ * is a sum, and a sum has no silhouette you can name in advance. This adds the
+ * one correction that carries the midline onto the authored curve, so the shape
+ * of the profile is a thing that was decided rather than a thing that happened.
+ *
+ * The correction is small (the plate and the feature terms already do most of
+ * the work), it is smooth in y because the table it chases is C1, and it falls
+ * off in bearing as a raised cosine whose width is authored per latitude — 0.26
+ * radians at the nose, twice that at the chin. That last row is why a pin cannot
+ * turn into a snout: the residual at the nose is delivered over a bearing a nose
+ * is actually wide, and the residual at the lip over a bearing a mouth is.
+ *
+ * Sampling the table rather than solving it per-call is what makes this free:
+ * one head is 193 evaluations of the raw field and then tens of thousands of
+ * lookups.
+ */
+function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  faceSurfaceRaw(K, d, out);
+  const pin = (K.pin ??= pinTable(K));
+  const y = d.y;
+  const f = clamp01((y + 1) * 0.5) * (PIN_N - 1);
+  const i = Math.min(PIN_N - 2, Math.floor(f));
+  const c = mix(pin[i], pin[i + 1], f - i);
+  if (c === 0) return out;
+  const ax = Math.abs(d.x);
+  out.z += c * massEnvelope(Math.atan2(ax, d.z), curve(PIN_W, y));
+  return out;
 }
 
 /**
@@ -2315,13 +2541,19 @@ export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette 
   const K: Skull = { R: S.headR, F: faceTraits(seed) };
   const p = new THREE.Vector3();
   const d = new THREE.Vector3();
-  const N = 720;
+  // 360 bins of one degree, filled from a sweep that is DEEP in latitude and
+  // shallow in bearing. That ratio is the whole of it: a bin's occupancy is set
+  // by the latitude step, because latitude is what walks the outline, and the
+  // first cut of this ran 180 latitudes into 720 bins — three quarters of them
+  // empty, interpolated across, and the joins between the interpolated runs
+  // read as 150-degree cusps that the gonial-corner test scored as jaws.
+  const N = 360;
 
   // One sweep, kept, because the radial centre has to be the head's own — the
   // face block moves it forward by a real amount — and re-evaluating a field this
   // size twice for 32 heads is a gate nobody will run.
   let top = -9, bot = 9, fore = -9, aft = 9, jawHW = 0;
-  const NV = 180, NU = 220;
+  const NV = 1100, NU = 72;
   const sy = new Float64Array((NV + 1) * NU), sz = new Float64Array((NV + 1) * NU);
   let m = 0;
   for (let j = 0; j <= NV; j++) {
@@ -2606,7 +2838,14 @@ export interface ShellFit {
   punchMm: number;
   /** Deepest the SKIN gets outside the shell's outer wall — face through metal. */
   throughMm: number;
-  /** Furthest the shell's outer wall stands off the skin. */
+  /**
+   * The largest standoff the shell ASKS FOR, in mm — the lift itself.
+   *
+   * Not the radial gap to the skin under it, which over-reads by design: a brow
+   * band is supposed to overhang a forehead that curves away, and a plate hinged
+   * past the jaw is supposed to have air behind it. What decides whether a helm
+   * reads as worn is the number the author wrote, and this is that number.
+   */
   standoffMm: number;
   /** Fraction of samples where the offset has turned the sheet inside out. */
   foldFrac: number;
@@ -2689,7 +2928,18 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     const NU = Math.max(12, o.nu * 3);
     const NV = Math.max(8, o.nv * 3);
     const ht = 0.25 / NU, hs = 0.25 / NV;
-    let punch = 0, through = 0, standoff = 0, folds = 0, n = 0;
+    let punch = 0, through = 0, standoff = 0;
+    // The fold verdict is deferred, because it needs a scale. Every patch on a
+    // sphere has samples where its own parameterisation collapses — at a pole
+    // the u-tangent goes to nothing — and there the cross product is the
+    // direction of the rounding error, so it flips sign at random. Those samples
+    // are not folded metal; they are a coordinate singularity, and counting them
+    // put a permanent 0.1-1% on the bowl and the band that no helmet could ever
+    // clear. So the skin's own area element is measured alongside, and anything
+    // under 2% of this shell's largest is discarded before the tally.
+    const dots: number[] = [];
+    const areas: number[] = [];
+    let areaMax = 0;
     for (let i = 0; i <= NU; i++) {
       for (let j = 0; j <= NV; j++) {
         const t = i / NU, s = j / NV;
@@ -2701,7 +2951,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         const cOut = skinClearance(tab, pOut);
         if (-cIn > punch) punch = -cIn;
         if (-cOut > through) through = -cOut;
-        if (cOut > standoff) standoff = cOut;
+        if (lift > standoff) standoff = lift;
         // Orientation of the offset sheet against orientation of the skin under
         // it, both from the same two forward differences.
         const t2 = Math.min(1, t + ht), s2 = Math.min(1, s + hs);
@@ -2713,9 +2963,17 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         a1.copy(at(o, t2, s, 0, b1)).sub(pIn);
         a2.copy(at(o, t, s2, 0, b2)).sub(pIn);
         nSkin.crossVectors(a2, a1);
-        n++;
-        if (nOff.lengthSq() > 1e-24 && nSkin.lengthSq() > 1e-24 && nOff.dot(nSkin) < 0) folds++;
+        const area = nSkin.length();
+        if (area > areaMax) areaMax = area;
+        areas.push(area);
+        dots.push(nOff.dot(nSkin));
       }
+    }
+    let folds = 0, n = 0;
+    for (let i = 0; i < dots.length; i++) {
+      if (areas[i] < areaMax * 0.02) continue;
+      n++;
+      if (dots[i] < 0) folds++;
     }
     shells.push({
       tag: o.tag,
