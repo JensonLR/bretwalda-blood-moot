@@ -2815,7 +2815,22 @@ function faceComplexion(
     // The orbit. A socket darker than the brow above it is most of what "a face"
     // means at portrait size, and this is the term the patch version could never
     // get right because its lower boundary had to stop inside a crease.
-    dim += 0.95 * bump(ax - 0.34, dy - (Y_EYE + 0.035), 0, 0.30, 0.135, 1) * front;
+    //
+    // THE MASK. These terms are each individually right and they SUM, and the sum
+    // was flat-lining. Measured off the field at the mid-cheek: orbit 0.6 +
+    // paranasal 0.4 + buccal 0.15 = 1.15, clamped to 1, which is the full
+    // 30/37/42 per cent out of the three channels — over an area running from
+    // temple to temple and from the brow to the mouth. The bare-head front card
+    // renders that as a dark bat across the middle of the face with a hard edge
+    // along the brow, and it is most of what makes the man read as a goblin: not
+    // one feature, a shadow the shape of a domino mask.
+    //
+    // The two spreading offenders are here. An orbit is not 29 mm of sigma wide —
+    // that reaches the midline on one side and the temple on the other — and the
+    // shadow beside the dorsum is not 45 mm tall, which runs it from the eye to
+    // the mouth. Both tightened onto the features they are named for. Amplitudes
+    // are untouched: the socket has to stay dark, and it does.
+    dim += 0.95 * bump(ax - 0.34, dy - (Y_EYE + 0.035), 0, 0.22, 0.115, 1) * front;
     // The crease immediately under the brow ridge, which is what makes the ridge
     // read as overhanging rather than as a band of colour.
     dim += 0.55 * bump(ax - 0.34, dy - (Y_EYE + 0.115), 0, 0.26, 0.055, 1) * front;
@@ -2823,7 +2838,7 @@ function faceComplexion(
     // the nose's own relief is a gradient in z, which a light rig with this much
     // fill cannot see, and a shadow down each side of it is what makes the mass
     // read as a nose from in front.
-    dim += 0.60 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.055, 0.185, 1) * front;
+    dim += 0.60 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.055, 0.115, 1) * front;
     // Under the tip and the columella.
     dim += 0.75 * bump(dx, dy - (Y_NOSE - 0.018), 0, 0.15, 0.045, 1) * front;
     // Under the mandible, and this is the term that stops the head reading as
@@ -2867,7 +2882,11 @@ function faceComplexion(
     // The nape, under the occiput. Free, and it stops the back of the head being
     // the flattest surface on the warrior.
     dim += 0.30 * bump(dx * 0.35, dy + 0.72, dz + 0.85, 1, 0.34, 0.55);
-    dim = clamp01(dim);
+    // And a knee rather than a cliff, as insurance against the next term somebody
+    // adds. Under 0.7 this is exactly what it was; above it the sum approaches 1
+    // asymptotically instead of hitting it, so an overlap of three justified
+    // shadows deepens a crease rather than painting a plateau.
+    dim = dim <= 0.7 ? dim : 0.7 + 0.3 * (1 - Math.exp(-(dim - 0.7) * 1.6));
 
     // ---- the flush ----
     //
