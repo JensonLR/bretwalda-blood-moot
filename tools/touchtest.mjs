@@ -693,11 +693,36 @@ async function lockAct(browser, url, check) {
      * parallax at a range of 14 m and got the sign backwards — which is the
      * geometry behaving, not the reticle misbehaving.
      */
-    /** Qualifying samples this wants before it stops looking, per hand. */
-    const NEED = 12;
+    /**
+     * Qualifying samples this wants before it stops looking, per hand.
+     *
+     * THESE TWO NUMBERS ARE PAIRED WITH THE ASSERTION BELOW AND MUST STAY THAT
+     * WAY. The check wants `matched >= 40` — forty readings on which the element
+     * sat within 2 px of the rig's own projected x — and it wants the mark to
+     * have slid more than 3 px while it looked.
+     *
+     * At 12 and 1400 it could not deliver either, and the failure was silent in
+     * the worst way: the sampler stops the moment it has NEED qualifying samples
+     * AND SPAN_MS has passed, so on a healthy run it quit after 1.4 s with about
+     * 25 matched readings and the assertion failed on a count. A 40 ms tick over
+     * 1400 ms is 35 reads at the absolute most, so `matched >= 40` was
+     * ARITHMETICALLY UNREACHABLE inside one batch. It could only ever pass when
+     * collection went badly enough to force a second and third batch — the test
+     * passed when the thing it measures behaved worse. That is why one report
+     * has it at 27/27 and the next at 26/27 with nothing changed between them.
+     *
+     * Raised to cover the assertion with margin rather than lowering the
+     * assertion to meet the sampler. `xs`, `matched` and the travel span all
+     * accumulate ACROSS batches, and the outer budget is still 90 s, so a fight
+     * that will not hold a lock for three seconds at a stretch still gets there
+     * in pieces.
+     */
+    const NEED = 40;
     /** And the least wall time it will spend collecting them, so "it slid as he
-     *  moved" is still a statement about a man who had time to move. */
-    const SPAN_MS = 1400;
+     *  moved" is still a statement about a man who had time to move. At 1.4 s a
+     *  man walking 4.5 u/s across the lens could be measured as having stood
+     *  still, which is the other half of what failed here. */
+    const SPAN_MS = 3200;
 
     /**
      * One batch, collected IN THE PAGE, on a 40 ms timer.
