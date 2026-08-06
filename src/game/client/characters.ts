@@ -1680,7 +1680,47 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // by the lip line; the mandible goes on projecting below it, and without the
   // second term the chin still measured 27–42 mm behind the brow across every
   // seed — a receding jaw, which is the one facial fault a warrior cannot have.
-  pz += 0.019 * front * bump(x, 0, 0, 1.00, 1, 1) * smooth(Y_BROW - 0.05, Y_LIP, y);
+  //
+  // The block's LATERAL profile. This was changed to chase the dark mask on the
+  // bare-head front card and IT IS NOT THE MASK — the frame moved 3.4% of its
+  // pixels and the mask is exactly where it was. That is recorded here rather
+  // than quietly deleted, because the next person to look at this face will form
+  // the same hypothesis and can now skip it. See `docs/OPEN-DEFECTS.md` for what
+  // the mask actually appears to be.
+  //
+  // The change stays on its own merits, which are independent of the mask and
+  // are measurable: it removes a real coupling bug. `bump(x, 0, 0, 1.00, 1, 1)` is
+  // near-constant across the whole head, so
+  // nothing in x was shaping this at all: what shaped it was `front`, a linear
+  // ramp in z. On the sphere at eye level that ramp runs from full at |x| = 0.49
+  // out to nothing at |x| = 1.0, which is half the width of the face turning
+  // gradually away — a cone, and under a key at 60 degrees a cone flank facing
+  // sideways goes dark over its whole length. That broad even turn is the mask.
+  //
+  // A maxilla is not a cone. It is a plate: flat across the front of the face and
+  // ending at the zygomatic, where the cheek turns back toward the ear over a
+  // short distance. So the profile is now a plateau out to |x| = 0.58 with its
+  // shoulder landing on the cheekbone, and the z gate is only there to keep the
+  // block off the back of the skull rather than to do the shaping. The face front
+  // becomes a plane that takes the key evenly, and the turn to the side of the
+  // head becomes an edge the eye can read as a cheekbone instead of a gradient it
+  // reads as a shadow.
+  // The gate is on AZIMUTH, not on z, and that distinction is the whole of it.
+  // `z` on a sphere falls with latitude as well as with bearing — it is 0.98 at
+  // the brow and 0.60 at the chin — so any z gate silently doubles as a vertical
+  // profile, which is how the old one came to be shaping the block in two axes
+  // it was never meant to touch. `ax / h` is the sine of the bearing off dead
+  // ahead and knows nothing about latitude, so the plate is flat across the face
+  // at every height and turns at the same bearing all the way down it.
+  //
+  // The vertical profile is then said out loud instead of being a side effect:
+  // full at the lip line, 68% at the chin, which is where the old accident
+  // happened to leave it. The sagittal midline therefore does not move — checked
+  // on the tape measure, chinBeyondNasion holds — and what changes is only the
+  // shape of the face's flank, which is the thing that was wrong.
+  const h = Math.max(1e-6, Math.sqrt(x * x + z * z));
+  const plate = clamp01(z * 3) * (1 - smooth(0.55, 0.95, ax / h));
+  pz += 0.019 * plate * smooth(Y_BROW - 0.05, Y_LIP, y) * (1 - 0.32 * smooth(Y_LIP, Y_CHIN, y));
   // The mandibular half is narrow on purpose. Given the same width as the
   // maxilla it lands as a plate from gonion to gonion — a lantern jaw with a
   // hard horizontal crease under the mouth, which is what the first cut of this

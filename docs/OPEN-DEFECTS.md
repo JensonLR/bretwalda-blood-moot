@@ -1070,13 +1070,27 @@ The bare-head front card (`npm run shots -- headturn`) shows a broad dark form
 over the mid-face with a hard upper edge along the brow — a domino mask. Half of
 it was the shadow field summing four justified terms to a clamped 1.0 and that
 half is fixed. The other half is **not the paint**: rendering the same frame with
-`dim` forced to zero moves 31,721 pixels and the form is still there. It is the
-maxillary face block's own lateral falloff. The block is
-`bump(x, 0, 0, 1.00, 1, 1)` — near-constant across the whole head in x — gated
-by `front = clamp01(z * 1.15)`, so what shapes it laterally is a linear ramp in
-z rather than any facial landmark, and the surface it leaves turns away from a
-key at 60 degrees along a line that has nothing to do with a cheekbone. Give the
-block an x profile that belongs to a maxilla and the mask should go with it.
+`dim` forced to zero moves 31,721 pixels and the form is still there.
+
+**Two hypotheses have been tested and both are wrong.** Write them down so the
+next pass does not spend a capture round each on them:
+
+1. *The shadow field.* Disproven by the `dim = 0` render above.
+2. *The maxillary face block's lateral falloff.* The block was gated by
+   `front = clamp01(z * 1.15)`, and `z` on a sphere falls with latitude as well
+   as bearing, so one gate was shaping the block in two axes. That is a real bug
+   and it is fixed — the gate is now on azimuth (`ax / h`) with the vertical
+   profile stated separately — but it is **not the mask**. The fix moved 3.4% of
+   the frame and the dark form is unchanged.
+
+**What it looks like instead.** A hard terminator at the brow ridge under the
+arena's night key at 60 degrees elevation, with too little fill under it at this
+framing. Two things point that way: the edge is crisp and follows the ridge
+exactly, and the SAME head under the armoury stage's own lighting shows no mask
+at all (`art/ui/armourycard-desktop.png`). If that is right then the fix is in
+the rig or in the brow's 24 mm over a 13 mm falloff, not in the complexion field
+and not in the skull's plan — and it is worth checking whether a 24 mm ridge is
+simply too much once the face beneath it stopped receding.
 
 **Two method notes, both of which cost capture rounds here.**
 
