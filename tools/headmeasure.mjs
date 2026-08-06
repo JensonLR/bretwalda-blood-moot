@@ -71,7 +71,7 @@ const TARGETS = [
   ["noseProjection", 29, 8, "tip off the NASION (found, not assumed). Under 20 is a flat nose"],
   ["tipBreadth", 20, 7, "NOTE 1 — the lobule: breadth within 3 mm of the tip's own projection. A man's is a bulb ~18–24 mm; single digits are a beak"],
   ["chinBeyondNasion", 0, 9, "NOTE 2 — the facial angle. Deeply negative is a set-back mandible"],
-  ["chinBeyondLip", 1, 7, "NOTE 2 — negative is a receding chin. A fighter sits at 0 to +6"],
+  ["chinBeyondLip", -3, 6, "in a male profile pogonion sits 2-3 mm BEHIND the lips — the recession note is chinBeyondNasion, not this"],
   ["jawBreadth", null, null, "mm, bigonial"],
   ["cheekBreadth", null, null, "mm, bizygomatic"],
   ["jawOverCheek", 0.86, 0.08, "bigonial / bizygomatic across the FRONT half. Life 0.77; a fighter 0.84–0.90"],

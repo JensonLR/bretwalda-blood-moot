@@ -1629,7 +1629,15 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // of the skull. At 0.05 the vault stays broad and the *jaw* does the tapering,
   // which is the right way round.
   const low = clamp01((-y - 0.05) / 0.85);
-  const high = clamp01((y - 0.42) / 0.58);
+  // The vault's own taper, and 0.42 was far too late an onset for far too little
+  // of it. Above the parietal eminence a skull rolls over and comes IN; at
+  // 5% starting at y = 0.42 it held 96% of its full breadth to within 40 mm of
+  // the crown, which is a barrel, and the bare-head card shows it as a balloon
+  // sitting over a face. The onset comes down to the parietal itself and the
+  // amount goes to 13%, which puts the crown at 167 mm against 190 at the
+  // cheekbone — a dome. It does not touch `breadthOverHeight`, because the head
+  // is widest well below this.
+  const high = clamp01((y - 0.28) / 0.72);
   // The taper is what turns a vault into a face, and at 0.26·low² it was not
   // doing it: measured off the field the chin came out 80% of the width of the
   // parietal, so the head's outline ran temple-to-jaw as two near-vertical sides
@@ -1640,7 +1648,7 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // into a jaw *corner* instead of a jaw *side*. Further than this and the chin
   // comes to a wedge — 0.44 was tried and the head read as a shield.
   const taper = 1 - 0.36 * Math.pow(low, 1.55);
-  const dome = 1 - 0.05 * high * high;
+  const dome = 1 - 0.13 * high * high;
 
   let px = x * R.x * F.wide * taper * dome + drift;
   // The face hangs off the braincase. Everything below the cheekbone gets pulled
@@ -1718,6 +1726,13 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // forehead any form at all. There is a real forehead to put them on now — the
   // brow used to be 34 mm above centre with the hairline 15 mm above that.
   pz += 0.004 * bump(ax - 0.24, y - (Y_BROW + 0.20), 0, 0.22, 0.15, 1) * front;
+  // And the rake. A man's forehead leans back about 12° from the brow to the
+  // hairline; this one rose dead vertical out of a 24 mm brow ridge and then
+  // turned over into the vault all at once, which is the single reason the
+  // profile card reads as a balloon with a face stuck on the front of it. 9 mm
+  // over the forehead's height is that 12°, and it costs nothing anywhere else
+  // because it is gone by the brow and gone again by the crown.
+  pz -= 0.009 * front * smooth(Y_BROW + 0.06, Y_BROW + 0.42, y) * (1 - smooth(0.72, 0.95, y));
 
   // Eye sockets, set under it. Deeper than life on purpose: the socket's whole
   // job is to hold shade under a helmet brim, and the sclera below has to sit in
@@ -1828,8 +1843,8 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // and the 13 mm lateral push is also 26 mm of the head's apparent width, put
   // where a viewer reads breadth from.
   const zygo = bump(ax - 0.55, y - (Y_EYE - 0.10), 0, 0.22, 0.17, 1) * front;
-  px += sx * 0.016 * F.cheek * zygo;
-  pz += 0.012 * F.cheek * zygo;
+  px += sx * 0.021 * F.cheek * zygo;
+  pz += 0.013 * F.cheek * zygo;
   // The zygomatic arch: the bar of bone that runs from the cheekbone back to the
   // ear at eye level. Not `front`-masked, because it is the one facial landmark
   // that lives on the *side* of the head — which is exactly why it is worth
@@ -1837,15 +1852,20 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // to read across the temple. Under it the buccal hollow already dips, so the
   // pair reads as bone over a hollow rather than as a bulge.
   px += sx * 0.007 * F.cheek * bump(ax - 0.76, y - (Y_EYE - 0.05), z - 0.30, 0.22, 0.11, 0.62);
+  // The hollow itself comes down with the tone that was doubling it. A man who
+  // fights for a living carries muscle over this — masseter and buccal fat — and
+  // at 8 mm of lateral scoop plus 9 of depth, under a 0.42 shadow, the frame was
+  // showing a starved wedge. Half the scoop, and the cheekbone above goes out to
+  // meet it so the pair still reads as bone over a hollow.
   const hollow = bump(ax - 0.46, y - (Y_LIP + 0.03), 0, 0.20, 0.16, 1) * front;
-  px -= sx * 0.008 * F.gaunt * hollow;
-  pz -= 0.009 * F.gaunt * hollow;
+  px -= sx * 0.0045 * F.gaunt * hollow;
+  pz -= 0.005 * F.gaunt * hollow;
   // Nasolabial fold: from beside the nostril down past the mouth corner.
   // Widened from 0.075 to 0.13 across. A narrow groove cut into the raised face
   // block below reads as the *outline of a muzzle* rather than as a fold of
   // skin: two hard verticals bounding the mouth, which is the read the panels
   // logged at the 3/4 bearing. A nasolabial fold is a soft diagonal.
-  pz -= 0.004 * bump(ax - 0.30, y - (Y_LIP + 0.12), 0, 0.13, 0.19, 1) * front;
+  pz -= 0.0025 * bump(ax - 0.30, y - (Y_LIP + 0.12), 0, 0.13, 0.19, 1) * front;
 
   // Mouth: a crease with a lip above and below it, and a shelf under the lower
   // lip so the chin is a separate mass rather than the bottom of the mouth.
@@ -1856,16 +1876,26 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // horizontal edges are worth and nothing at all for its projection. The two
   // vermilions roll *toward* each other across the fissure, which is what turns
   // a groove into a slot with an overhang above it.
+  //
+  // Note 5's other half — "a thin scored line rather than lips". The fissure was
+  // cut 11 mm deep between two vermilions standing 9 and 11 mm proud, so the
+  // groove was as big a feature as the lips it separated, and at seventy pixels
+  // a groove reads and a 9 mm roll does not. That is a scored line by
+  // construction. The groove comes back to 8 mm and the two rolls go out to 12
+  // and 14, which is a mouth with mass either side of a seam rather than a seam
+  // with skin either side of it. The complexion field's `lip` channel is already
+  // laid over exactly this band, so the tone and the form now agree instead of
+  // the tone doing the whole job on a flat surface.
   const mw = 0.28 * F.mouth;
   const oral = bump(x - drift * 4, y - Y_LIP, 0, mw, 0.046, 1) * front;
-  pz -= 0.011 * oral;
+  pz -= 0.008 * oral;
   py -= 0.0035 * oral;
-  const upperLip = bump(x - drift * 4, y - (Y_LIP + 0.055), 0, mw * 0.88, 0.055, 1) * front;
-  pz += 0.009 * F.lip * upperLip;
-  py -= 0.0030 * upperLip;
-  const lowerLip = bump(x - drift * 4, y - (Y_LIP - 0.070), 0, mw * 0.82, 0.062, 1) * front;
-  pz += 0.011 * F.lip * lowerLip;
-  py += 0.0026 * lowerLip;
+  const upperLip = bump(x - drift * 4, y - (Y_LIP + 0.055), 0, mw * 0.88, 0.058, 1) * front;
+  pz += 0.0105 * F.lip * upperLip;
+  py -= 0.0032 * upperLip;
+  const lowerLip = bump(x - drift * 4, y - (Y_LIP - 0.070), 0, mw * 0.82, 0.066, 1) * front;
+  pz += 0.0125 * F.lip * lowerLip;
+  py += 0.0030 * lowerLip;
   pz -= 0.011 * bump(x, y - (Y_LIP - 0.150), 0, 0.20, 0.064, 1) * front;
   // Philtrum — three vertical millimetres that place the whole upper lip.
   pz -= 0.003 * bump(x - drift * 5, y - (Y_LIP + 0.14), 0, 0.035, 0.075, 1) * front;
@@ -1879,7 +1909,7 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // jaw — this is the one place where adding depth also makes the lower face read
   // *shorter*, because it gives the eye a second landmark to divide it at.
   const chin = bump(x, y - Y_CHIN, 0, 0.27, 0.155, 1) * front;
-  pz += 0.032 * F.chin * chin;
+  pz += 0.035 * F.chin * chin;
   py -= 0.004 * chin;
   // Mental tubercles: the two low mounds either side of the midline that make a
   // man's chin a *box* rather than the bottom of a curve. They are the last
@@ -2180,7 +2210,9 @@ function headWear(
 // turns and the whole point is that the gaze survives the turn.
 
 /**
- * Radius of the eyeball, in metres. Human, and it does not scale with build.
+ * Radius of the eyeball, in metres. It does not scale with *build* — a huscarl
+ * and a runekeeper have the same eyes — but it does scale with the head, and
+ * that is the correction this pass makes.
  *
  * It is also a hard ceiling on `EyeFrame.wA`, and that is worth stating because
  * breaking it costs an afternoon. Every part of the eye is placed by solving
@@ -2188,11 +2220,20 @@ function headWear(
  * makes the term negative, `globePatch` clamps it to nothing, and the sclera and
  * both lids collapse to a flat sliver at each canthus — which renders as a pale
  * grey wedge beside the eye. A man's palpebral fissure measures 28–30 mm *across
- * the skin*, but the aperture is an arc on a 24 mm ball: the chord can never be
- * wider than the ball. 24.4 mm across is at the large end of human, which buys the
- * widest aperture the solve will take.
+ * the skin*, but the aperture is an arc on the ball: the chord can never be
+ * wider than the ball.
+ *
+ * 24.4 mm was life, and life is the wrong number here, which is note 5's "the
+ * eye is small and beady inside its new socket". This head is not life-sized: it
+ * is 269 mm menton to vertex where a man's is 232, because the figure is drawn
+ * at a heroic 7.3 heads. Every other feature on it was scaled by that 1.16 and
+ * the eyeball was left at anatomical size, so the aperture fell from a life
+ * 0.129 of head height to 0.080 — which is precisely a doll's eye, and no amount
+ * of socket depth fixes it because the socket is the thing making it look small.
+ * 28.4 mm is 24.4 taken up with the rest of the skull. The lids, the sclera, the
+ * iris and the lash line are all solved off this radius, so they follow.
  */
-const GLOBE = 0.0122;
+const GLOBE = 0.0142;
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -2237,14 +2278,18 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // the moment the head turns. The canthal tilt carries the side instead. (It is
   // also nothing to do with the module's `lat()` landmark helper.)
   //
-  // The palpebral fissure, and it was built too small to read: 19.6 × 9.6 mm on a
-  // head 260 mm tall is a doll's eye. 21.6 × 11.2 is as far as it goes — see
-  // `GLOBE` for why the width cannot simply be set to the 28 mm a tape measure
-  // finds on a face. `hA` scales with `eyeOpen`, so a narrow-eyed warrior reads as
-  // squinting rather than as small-eyed.
+  // The palpebral fissure. 21.6 × 11.2 mm was already the ceiling the old globe
+  // would take, and it was still a doll's eye — the ceiling was the problem, not
+  // the setting. With the globe scaled to the head (see `GLOBE`) the same solve
+  // now allows 25.2 × 13.0, which puts the aperture at 0.093 of head height
+  // against a life 0.129 measured across the skin. It is still under life and
+  // that is deliberate: this is the *chord*, and a real fissure's outer
+  // measurement runs over the curve of the lids and past the medial canthal fold.
+  // `hA` scales with `eyeOpen`, so a narrow-eyed warrior reads as squinting
+  // rather than as small-eyed.
   return {
     c, lat: base, up, fwd,
-    wA: 0.0108, hA: 0.0056 * K.F.eyeOpen, tilt: side * 0.0016,
+    wA: 0.0126, hA: 0.0065 * K.F.eyeOpen, tilt: side * 0.0019,
     uE, vE,
   };
 }
@@ -2770,10 +2815,22 @@ function faceComplexion(
     // border gets a crease over the top of it so the edge has a line.
     dim += 0.62 * smooth(Y_CHIN + 0.13, Y_CHIN - 0.16, dy);
     dim += 0.45 * bump(ax - 0.44, dy - (Y_CHIN + 0.115), 0, 0.44, 0.070, 1) * front;
-    // The buccal hollow, under the cheekbone.
-    dim += 0.42 * bump(ax - 0.47, dy - (Y_LIP + 0.055), 0, 0.22, 0.185, 1) * front;
-    // The nasolabial fold — a soft diagonal, never a groove. See `faceSurface`.
-    dim += 0.26 * bump(ax - 0.30, dy - (Y_LIP + 0.125), 0, 0.15, 0.20, 1) * front;
+    // The buccal hollow, under the cheekbone, and the nasolabial fold beside it.
+    //
+    // These two are adjacent, they are both enormous — 0.22 x 0.185 and
+    // 0.15 x 0.20 of direction space — and they SUM. Over most of the mid-face
+    // the pair reached 0.68 of a `dim` that takes 30/37/42 per cent out of the
+    // three channels, so what rendered front-on was a pale vertical strip about
+    // 110 mm wide with a dark triangle down each side of it. That strip is the
+    // "egg on a stalk" in note 3, and it is not the skull's shape at all: the
+    // silhouette measures 190 mm at the cheekbone against 163 at the jaw, which
+    // is a broad face. It was being *painted* narrow.
+    //
+    // Halved, and the buccal one tightened in y so it sits under the zygomatic
+    // arch instead of washing down the whole cheek. A hollow is a shape the
+    // light finds; at this strength it was a shape the light was replaced by.
+    dim += 0.21 * bump(ax - 0.47, dy - (Y_LIP + 0.055), 0, 0.22, 0.145, 1) * front;
+    dim += 0.13 * bump(ax - 0.30, dy - (Y_LIP + 0.125), 0, 0.15, 0.20, 1) * front;
     // The shelf under the lower lip.
     dim += 0.40 * bump(dx, dy - (Y_LIP - 0.140), 0, 0.24, 0.070, 1) * front;
     // The oral fissure. Tight, and worth as much as the socket: a mouth is a
