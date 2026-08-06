@@ -2374,7 +2374,14 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // `tipBreadth`: the pin's envelope is wider than the ridge it is correcting, so
   // the tip keeps its height over a bearing the ridge has already given up, and
   // the lobule measures single digits. A man's is a bulb.
-  const ridge = bump(x - drift * 2, 0, 0, 0.168, 1, 1);
+  // 0.148, back down from 0.19 — and the note above is still right about WHY it
+  // went to 0.19, which was that under the plateau envelope a narrow ridge left
+  // the pin holding the tip's height over a bearing the ridge had given up, and
+  // the lobule measured single digits. That failure mode is gone with the
+  // plateau: on a raised cosine the pin's own delivery is round, so the ridge no
+  // longer has to be wide enough to hide a shoulder. Measured across 32 heads the
+  // pair below take `tipBreadth` from 22.3–28.5 to 18.6–23.2, which is a bulb.
+  const ridge = bump(x - drift * 2, 0, 0, 0.148, 1, 1);
   // No `F.nose` here, and none on the tip below. The pin owns this landmark's
   // PROJECTION — that is the whole point of an authored profile — so a second
   // multiplier on the raw term does not change where the tip ends up, it only
@@ -2390,7 +2397,7 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
   // downhill into it and the underside falls away. This is the edge that catches
   // the key — but it is a bulb on a man and a beak on a bird, and the difference
   // between the two is entirely how wide the gaussian is.
-  const tip = bump(x - drift * 2, y - Y_TIP, 0, 0.200, 0.090, 1) * front;
+  const tip = bump(x - drift * 2, y - Y_TIP, 0, 0.168, 0.090, 1) * front;
   pz += 0.006 * tip;
   py += 0.0026 * tip;
   // The bridge, carried up between the brows — this is what stops the nose
@@ -8695,12 +8702,12 @@ export function buildCharacter(
           // The tines carry forward as well as apart — see the note on the Full
           // Beard's belly. Two tines buried in a chest are one notch nobody sees.
           p.add(shell([
-            { y: skullY - 0.158, hw: 0.042, hd: 0.038, z: 0.052 },
-            { y: skullY - 0.244, hw: 0.037, hd: 0.032, z: 0.090 },
-            { y: skullY - 0.322, hw: 0.024, hd: 0.021, z: 0.126 },
-            { y: skullY - 0.376, hw: 0.009, hd: 0.009, z: 0.146 },
+            { y: skullY - 0.158, hw: 0.053, hd: 0.046, z: 0.052 },
+            { y: skullY - 0.244, hw: 0.047, hd: 0.040, z: 0.090 },
+            { y: skullY - 0.322, hw: 0.031, hd: 0.027, z: 0.126 },
+            { y: skullY - 0.376, hw: 0.012, hd: 0.011, z: 0.146 },
           ], Math.max(8, lod.limb), { power: 2.1, capBottom: true }), beard,
-            xf(s * 0.026, 0, 0.004, 0.10, 0, -s * 0.46));
+            xf(s * 0.028, 0, 0.004, 0.10, 0, -s * 0.56));
         }
       } else if (ap.beardStyle === "braided") {
         // RINGED BRAID, 120 gold — the most expensive beard in the shop, and it
@@ -8737,7 +8744,7 @@ export function buildCharacter(
         const bPath = (t: number, out: THREE.Vector3) => out.set(
           0, skullY - 0.186 - 0.272 * t, 0.036 + 0.100 * Math.pow(t, 1.15),
         );
-        const bRad = (t: number) => 0.0250 * (1 - 0.42 * t * t);
+        const bRad = (t: number) => 0.0212 * (1 - 0.38 * t * t);
         p.add(shell([
           { y: skullY - 0.126, hw: 0.056, hd: 0.048, z: 0.040 },
           { y: skullY - 0.160, hw: 0.048, hd: 0.042, z: 0.048 },
