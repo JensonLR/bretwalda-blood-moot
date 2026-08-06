@@ -150,6 +150,22 @@ above is that choice being made — confident planes with landmarks between them
 and the next lever is the same one applied to the face: fewer, larger, more
 certain features. **Do not** do a parameter sweep, and do not reach for the nose.
 
+### What it costs
+
+Same instrument, low tier, `dd7821f` against this tip:
+
+```
+was   739 draw calls  337,615 triangles      (this branch, before this pass)
+now   739 draw calls  341,189 triangles
+```
+
+Draw calls unchanged. The ear itself is *cheaper* than the five primitives it
+replaces — 28 x 9 quads is 504 triangles a side against 406 for the ball, torus,
+ball, torus, ball, but the shell carries two materials into the head's merge where
+the primitives carried three, so the material count came down as the triangle
+count went up. The rest of the +3,574 is the cloak and beard work landing in the
+same window, not the head.
+
 ### Two new defects on the ear, logged rather than chased
 
 Both are on the shell this pass built and both are visible in
