@@ -3261,10 +3261,15 @@ const EAR_NS = 7;
  * rather than by matching two tables. That is the whole reason this is one grid.
  */
 function auricle(K: Skull, earRootX: number, side: number): {
-  skin: THREE.BufferGeometry; shade: THREE.BufferGeometry; warm: THREE.BufferGeometry;
+  skin: THREE.BufferGeometry; shade: THREE.BufferGeometry;
 } {
   const pos: number[] = [], uv: number[] = [];
-  for (let j = 0; j <= EAR_NS; j++) {
+  // Rings 1..NS, then ONE shared pole. Fanning EAR_NA coincident vertices at the
+  // centre instead is what put a visible star in the middle of the concha on the
+  // first capture: `computeVertexNormals` gives each copy the normal of its own
+  // two triangles, and 28 disagreeing normals at one point is a pinch. One vertex
+  // has one normal.
+  for (let j = 1; j <= EAR_NS; j++) {
     const s = j / EAR_NS;
     for (let i = 0; i < EAR_NA; i++) {
       const phi = (i / EAR_NA) * Math.PI * 2;
@@ -3277,35 +3282,42 @@ function auricle(K: Skull, earRootX: number, side: number): {
       uv.push(i / EAR_NA, s);
     }
   }
-  const band = (lo: number, hi: number, keep: (phi: number) => boolean): number[] => {
+  const POLE = EAR_NS * EAR_NA;
+  {
+    const p = earPoint(K, earRootX, 0, 0);
+    pos.push(0, 0, p.ez);
+    uv.push(0.5, 0);
+  }
+  const at = (j: number, i: number) => (j === 0 ? POLE : (j - 1) * EAR_NA + i);
+  const band = (lo: number, hi: number): number[] => {
     const idx: number[] = [];
     for (let j = 0; j < EAR_NS; j++) {
       const s = (j + 0.5) / EAR_NS;
       if (s < lo || s >= hi) continue;
       for (let i = 0; i < EAR_NA; i++) {
         const i1 = (i + 1) % EAR_NA;
-        if (!keep(((i + 0.5) / EAR_NA) * Math.PI * 2)) continue;
-        const a = j * EAR_NA + i, b = j * EAR_NA + i1;
-        const c = (j + 1) * EAR_NA + i, d = (j + 1) * EAR_NA + i1;
+        const a = at(j, i), b = at(j, i1), c = at(j + 1, i), d = at(j + 1, i1);
         if (side > 0) idx.push(a, c, d, a, d, b);
         else idx.push(a, d, c, a, b, d);
       }
     }
     return idx;
   };
-  const lobeAngle = (phi: number) => Math.cos(phi) < -0.45;
-  const make = (idx: number[]) => {
-    const g = finish(pos.slice(), uv.slice(), idx);
-    return g;
-  };
+  const make = (idx: number[]) => finish(pos.slice(), uv.slice(), idx);
   return {
     // The bowl, in the shade tone: at 60 mm a hollow cannot out-shade its own rim
     // on geometry alone, and this is the one place on a head where the tone is
     // doing work the light cannot. It is a hollow now rather than a hole, so the
     // tone is agreeing with the form instead of standing in for it.
-    shade: make(band(0, 0.55, () => true)),
-    warm: make(band(0.55, 1.01, lobeAngle)),
-    skin: make(band(0.55, 1.01, (phi) => !lobeAngle(phi))),
+    shade: make(band(0, 0.50)),
+    // And the rest is ONE material. The lobe used to be given the warm tone,
+    // which is right on a 10 mm ball and wrong on a band of a shell: `warm` is
+    // 0xc4816a against a 0xd4a884 base — redder AND relatively bluer — and over a
+    // crescent that falls into the ear's own shadow it rendered as the magenta
+    // fringe down the front of the first capture of this shell. A bruise is worse
+    // than no translucency. The warmth belongs in `faceComplexion`, which already
+    // runs over these vertices and has no boundary for a fringe to live on.
+    skin: make(band(0.50, 1.01)),
   };
 }
 
@@ -8231,12 +8243,9 @@ export function buildCharacter(
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2));
       const A = auricle(K, earRootX, s);
       p.add(A.skin, headSkin, place3);
-      // The bowl in the form-shadow tone and the lobe in the warm one: an ear lit
-      // from behind is the reddest thing on a head and the thinnest flesh on it,
-      // and the two bands share their vertices with the helix so neither is a
-      // separate object with a rim of its own to catch the light.
+      // The bowl in the form-shadow tone. It shares its vertices with the helix,
+      // so it is not a separate object with a rim of its own to catch the light.
       p.add(A.shade, headShade, place3);
-      p.add(A.warm, headWarm, place3);
     }
 
     // Eyes and mouth. The tonal map used to be a third call here and is now a
