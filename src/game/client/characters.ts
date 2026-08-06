@@ -1755,38 +1755,38 @@ const SAGITTAL: Curve = [
  */
 const PLATE: Curve = [
   [0.640, 0],
-  [0.320, 2],
-  [0.219, 4], //   brow
-  [-0.116, 11], // orbit floor
-  [-0.323, 17], // subnasale
-  [-0.536, 18], // lip line
-  [-0.746, 15], // chin
-  [-0.876, 6],
+  [0.320, 3],
+  [0.219, 7], //   brow
+  [-0.116, 19], // orbit floor
+  [-0.323, 28], // subnasale
+  [-0.536, 30], // lip line
+  [-0.746, 25], // chin
+  [-0.876, 10],
   [-0.960, 0],
 ];
 
 /** How wide the plate is, in radians of bearing off dead ahead. A mandible is
  *  narrower than a maxilla, which is what turns a head from a box into a face. */
 const PLATE_W: Curve = [
-  [0.640, 1.00],
-  [0.219, 1.12],
-  [-0.116, 1.18], // widest at the cheekbone
-  [-0.323, 1.06],
-  [-0.536, 0.92],
-  [-0.766, 0.74],
-  [-0.960, 0.58],
+  [0.640, 1.05],
+  [0.219, 1.20],
+  [-0.116, 1.30], // widest at the cheekbone
+  [-0.323, 1.30],
+  [-0.536, 1.26],
+  [-0.766, 0.86],
+  [-0.960, 0.62],
 ];
 
 /** How wide the midline relief is. A nose is narrow; a chin is not. */
 const PIN_W: Curve = [
-  [0.640, 0.85],
-  [0.219, 0.72],
-  [0.100, 0.44],
-  [-0.231, 0.38], // the nose, and this row is why a pin cannot make a snout
-  [-0.323, 0.34],
-  [-0.536, 0.52],
-  [-0.766, 0.55],
-  [-0.960, 0.60],
+  [0.640, 0.95],
+  [0.219, 0.80],
+  [0.100, 0.52],
+  [-0.231, 0.42], // the nose, and this row is why a pin cannot make a snout
+  [-0.323, 0.40],
+  [-0.536, 0.58],
+  [-0.766, 0.62],
+  [-0.960, 0.66],
 ];
 
 /**
@@ -1798,12 +1798,27 @@ const PIN_W: Curve = [
  * gate written on `z` silently doubles as a vertical profile and shapes the mass
  * in an axis nobody intended. Bearing knows nothing about latitude.
  *
- * And a raised cosine, not a smoothstep between two named edges: it is C1 at
- * both ends with no shoulder to catch a light. Every hard edge this face has
- * ever grown was a mass boundary somebody put an inflection in.
+ * A PLATEAU that turns, and the first cut of this was a raised cosine over the
+ * whole width, which is a dome. The difference is the entire front view. A dome
+ * starts falling away at the midline, so a 32 mm mass had given up 13 mm of
+ * itself by the mouth corner and the gate measured the face falling back 50 mm
+ * between the philtrum and the cheek — a wedge, and at the midline it is the
+ * keel the capture showed. A maxilla is flat across the front of the face and
+ * turns, over a short run, at the zygomatic.
+ *
+ * So: constant out to 0.45 of the width, then a smoothstep to nothing. The
+ * smoothstep is C1, which is what matters — the previous pass got blamed for
+ * putting a hard shoulder here, but the mask it was blamed for was the STEP
+ * along the brow in the vertical profile, not this. A cheekbone is allowed to be
+ * a turn; it is not allowed to be a crease.
  */
 const massEnvelope = (bearing: number, w: number): number =>
-  bearing >= w ? 0 : 0.5 + 0.5 * Math.cos((Math.PI * bearing) / w);
+  1 - smooth(w * 0.45, w, bearing);
+
+/** Bearings, in radians off dead ahead, that `headSilhouette` cuts sections at. */
+const SECTION_BEARINGS = [0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90];
+/** And the latitudes: brow, cheekbone, mouth, chin. */
+const SECTION_LATITUDES = [Y_BROW, Y_EYE - 0.10, Y_LIP, Y_CHIN];
 
 /** How many rows the pin table carries, over field `y` in [-1, 1]. */
 const PIN_N = 193;
@@ -1815,7 +1830,7 @@ const PIN_N = 193;
  * tens of thousands of times and this costs a few hundred.
  */
 function pinTable(K: Skull): Float64Array {
-  const t = new Float64Array(PIN_N);
+  const t = new Float64Array(PIN_N * 2);
   const d = new THREE.Vector3();
   const p = new THREE.Vector3();
   const raw = (y: number) => {
@@ -1840,6 +1855,45 @@ function pinTable(K: Skull): Float64Array {
     const win = smooth(0.86, 0.70, y) * smooth(-0.985, -0.90, y);
     t[i] = (want - raw(y)) * win;
   }
+
+  // ---- and now split it in two, which is the whole difference between a face
+  // and a blade ----
+  //
+  // The first cut delivered the entire residual over the bearing a NOSE is wide,
+  // and the capture is unmistakable: a vertical wedge running from the brow to
+  // below the mouth, down the middle of a face that is otherwise flat. The
+  // profile was correct in every one of the gate's terms while the front view
+  // had grown a keel, which is the same class of failure as the six before it —
+  // a measurement that could not see what the change did.
+  //
+  // The residual is two different things added together, and they want different
+  // masses. Most of it varies SLOWLY with height: the whole facial skeleton has
+  // to come forward off a braincase whose cos(v) gave up 40% of its depth by the
+  // chin. That belongs on a broad mass, and delivered broadly it is not a snout,
+  // it is a face. What is left varies FAST with height — the tip standing out
+  // over the subnasale, the vermilion over the fissure — and that is the part
+  // that is genuinely narrow.
+  //
+  // So the split is a low-pass in latitude, not a guess: a gaussian blur over
+  // the table separates the two, exactly, and by construction they still sum to
+  // the authored profile on the midline. The broad half goes out at the plate's
+  // own bearing and the narrow half at the nose's.
+  const sigma = 0.20 * (PIN_N - 1) * 0.5; // in table rows
+  const rad = Math.ceil(sigma * 3);
+  const w: number[] = [];
+  for (let k = -rad; k <= rad; k++) w.push(Math.exp((-k * k) / (2 * sigma * sigma)));
+  for (let i = 0; i < PIN_N; i++) {
+    let acc = 0, wsum = 0;
+    for (let k = -rad; k <= rad; k++) {
+      const j = i + k;
+      if (j < 0 || j >= PIN_N) continue;
+      acc += t[j] * w[k + rad];
+      wsum += w[k + rad];
+    }
+    t[PIN_N + i] = acc / Math.max(1e-9, wsum);
+  }
+  // `t[0..N)` becomes the NARROW half — what is left once the broad one is out.
+  for (let i = 0; i < PIN_N; i++) t[i] -= t[PIN_N + i];
   return t;
 }
 
@@ -2330,10 +2384,13 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   const y = d.y;
   const f = clamp01((y + 1) * 0.5) * (PIN_N - 1);
   const i = Math.min(PIN_N - 2, Math.floor(f));
-  const c = mix(pin[i], pin[i + 1], f - i);
-  if (c === 0) return out;
-  const ax = Math.abs(d.x);
-  out.z += c * massEnvelope(Math.atan2(ax, d.z), curve(PIN_W, y));
+  const g = f - i;
+  const narrow = mix(pin[i], pin[i + 1], g);
+  const broad = mix(pin[PIN_N + i], pin[PIN_N + i + 1], g);
+  if (narrow === 0 && broad === 0) return out;
+  const bear = Math.atan2(Math.abs(d.x), d.z);
+  out.z += broad * massEnvelope(bear, curve(PLATE_W, y))
+    + narrow * massEnvelope(bear, curve(PIN_W, y));
   return out;
 }
 
@@ -2654,6 +2711,25 @@ export interface HeadSilhouette {
   /** Bigonial half-breadth across the front half, and the neck under it. */
   jawHW: number;
   neckHW: number;
+  /**
+   * THE TRANSVERSE OUTLINE, at the brow, the cheek, the mouth and the chin.
+   *
+   * The profile alone is not enough and the first cut of the pin proved it: the
+   * sagittal curve was correct in all six of its assertions while the front view
+   * had grown a vertical keel from the brow to below the mouth, because the whole
+   * correction was being delivered over the bearing a nose is wide. A silhouette
+   * gate that only looks from the side cannot see a blade pointing at the camera.
+   *
+   * So each row is a horizontal section of the face — `z` in metres at each of
+   * `SECTION_BEARINGS` radians off dead ahead, at one latitude. The gate composes
+   * differences from them rather than being handed a verdict, because which pair
+   * of bearings is meaningful depends on what is at the midline there: at the
+   * cheekbone's latitude the midline is the NOSE, so a fall measured from bearing
+   * zero is the nose's own falloff and says nothing about the cheek at all. That
+   * is a mistake this file made on its first cut of S7 and it is why the bearings
+   * are published rather than the answer.
+   */
+  sections: Array<{ atY: number; z: number[] }>;
   /** Ear: front, back, top, bottom and how far it stands off the skull, metres. */
   earOut: number;
   earDepth: number;
@@ -2739,13 +2815,28 @@ export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette 
   // fixed fraction of the skull's half-breadth — so "an ear like a flat sticker"
   // becomes a number by comparing the two: where the helix's outer surface lands
   // against where the skin under it lands, at the ear's own latitude.
+  // Transverse sections. Bearing is swept on the sphere at a fixed latitude, so
+  // the three samples sit at the same height as the midline one they are
+  // compared to — a section, not a diagonal.
+  const sectionAt = (fy: number) => {
+    const cv = Math.sqrt(Math.max(0, 1 - fy * fy));
+    return {
+      atY: fy,
+      z: SECTION_BEARINGS.map((b) => {
+        faceSurface(K, d.set(Math.sin(b) * cv, fy, Math.cos(b) * cv), p);
+        return p.z;
+      }),
+    };
+  };
+  const sections = SECTION_LATITUDES.map(sectionAt);
+
   const skullHW = skullHalfWidth(K, EAR_Y);
   const earOuter = skullHW * EAR_ROOT + (EAR_HELIX_LIFT + EAR_HELIX_TUBE * EAR_HELIX_KZ);
 
   return {
     y: ys, z: zs, cy, cz, top, bot,
     browY: at(Y_BROW), tipY: at(Y_TIP), noseY: at(Y_NOSE), lipY: at(Y_LIP), chinY: at(Y_CHIN),
-    jawHW, neckHW: S.neckHW,
+    jawHW, neckHW: S.neckHW, sections,
     earOut: earOuter - skullHW,
     earDepth: EAR_HELIX_R * 2 * EAR_HELIX_KY,
   };

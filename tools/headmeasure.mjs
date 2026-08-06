@@ -220,9 +220,31 @@ function silMetrics(sil) {
   const med = [...turns].sort((a, b) => a - b)[turns.length >> 1];
   const gonialOverArc = gonialTurn / Math.max(1e-6, med);
 
+  // ---- S7 · the face is a plane, not a keel ----
+  // The section at the mouth and the section at the cheek, 0.20 rad off the
+  // midline. A face has barely turned away by then — a couple of millimetres —
+  // because a maxilla is a plate. A blade has given up most of its projection,
+  // which is what the first cut of the profile pin built and what nothing in a
+  // sagittal gate could see.
+  // Bearings are [0, .15, .30, .45, .60, .75, .90] radians off dead ahead.
+  const [cheekSec, mouthSec] = [sil.sections[1], sil.sections[2]];
+  // At the mouth: from just outside the lip corner to the cheek. Both samples are
+  // on the maxilla, so this is the PLATE turning and nothing else. A face gives
+  // up 8-14 mm across that span; a keel has already given up everything.
+  const platePlane = mmOf(mouthSec.z[1] - mouthSec.z[4]);
+  // At the cheekbone the midline is the nose, so the section starts OUTSIDE it —
+  // bearing .30, past the alar crease — and runs to the zygomatic at .75.
+  const cheekPlane = mmOf(cheekSec.z[2] - cheekSec.z[5]);
+  // And the keel proper: how much of the mouth's whole projection is spent in the
+  // first .15 rad. A lip is a lip; a blade spends most of it there.
+  const keelAtMouth = mmOf(mouthSec.z[0] - mouthSec.z[1]);
+
   return {
     frontFromCrown,
     noseLead,
+    keelAtMouth,
+    platePlane,
+    cheekPlane,
     lipBeyondEline: mmOf(lipBeyondE),
     lipBeyondElineAt: (sil.top - lipBeyondEAt) / H,
     chinBehindBrow,
@@ -273,6 +295,12 @@ const ASSERTS = [
     "S4 · that corner against the median turn over the same arc. 1.0 is a circle — a jaw with no angle in it"],
   ["neckOverJaw", 1.0, 1.45,
     "S5 · neck breadth over bigonial breadth. Under 1.0 the head sits on a stalk"],
+  ["keelAtMouth", -2, 6,
+    "S7 · mm of the mouth's projection spent in the first 0.15 rad off the midline. A lip is a lip; past 6 mm the face has a blade down it"],
+  ["platePlane", 4, 20,
+    "S7 · mm the maxilla falls back from 0.15 to 0.60 rad at the mouth. Both samples are on the plate, so this is the plate turning: under 4 it is a slab with an edge, past 20 it is a wedge"],
+  ["cheekPlane", 6, 26,
+    "S7 · the same across the cheekbone, started OUTSIDE the nose at 0.30 rad. This is the plane that takes the key, and the one the domino mask was drawn on"],
   ["earStandoff", 11, 26,
     "S6 · mm the helix stands clear of the skin beside it. Under 11 the ear is a sticker with no shadow under it"],
 ];
