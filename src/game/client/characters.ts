@@ -9109,8 +9109,14 @@ export function buildCharacter(
             p.add(braid((t, out) => {
               // Out a little, along a lot. The normal term rises and turns over
               // inside the first third; the tangent term carries the whole way.
-              const outward = len * (0.42 * t - 0.16 * t * t);
-              const along = len * 0.85 * t;
+              // 0.58, not 0.42. At 0.42 the coils sat so far into the shell that
+              // the capture reads as a snug brown cap with a few nicks in its
+              // edge — better than the barbs it replaced and still not curly.
+              // This is the whole span between a spike and a texture and it is
+              // worth being fussy about: the crest of the curl has to clear the
+              // mass by about its own strand radius, and no more.
+              const outward = len * (0.58 * t - 0.20 * t * t);
+              const along = len * 0.82 * t;
               out.set(
                 lockRoot.x + nx * outward + tx * along,
                 lockRoot.y + ny * outward + ty * along,
@@ -9543,14 +9549,27 @@ export function buildCharacter(
             // follow the mass rather than fringing it at a constant length.
             const drop = (0.300 + 0.052 * j) * (1 - 0.34 * Math.abs(a) / 1.15);
             p.add(braid((t, out) => {
-              // Down the belly's flank and forward onto the chest, on the same
-              // reasoning as the shell it rides: a beard that reaches the chest
-              // rests on it, and a hank that falls straight is inside the mail.
-              const w = (0.062 + 0.034 * Math.sin(Math.PI * clamp01(t * 0.86))) * (1 - 0.30 * t * t);
+              // ON the belly, not near it. The first build sized this by eye —
+              // one radius for both axes, no reference to the shell — and the
+              // front hanks landed at z = 0.105 against a surface that reaches
+              // 0.128, i.e. 23 mm INSIDE it. So the sides showed and the front,
+              // which is the whole bearing a portrait is shot from, stayed a
+              // smooth brown surface. Every station is now read off `bellyAt` at
+              // this hank's own height and stood 5 mm outside it, and past the
+              // shell's bottom the profile keeps falling on its own — which is
+              // where the tips are, and the tips are what break the outline.
+              const fall = 0.118 + drop * t;
+              const B2 = bellyAt(fall);
+              const proud = 0.005 + 0.004 * Math.sin(Math.PI * clamp01(t));
+              // Below the shell the hank narrows to a tail rather than snapping
+              // to the last station's 17 mm.
+              const past = clamp01((fall - 0.294) / 0.13);
+              const hw2 = (B2.hw + proud) * (1 - 0.55 * past) + 0.020 * past;
+              const hd2 = (B2.hd + proud) * (1 - 0.55 * past) + 0.018 * past;
               out.set(
-                Math.sin(a) * w,
-                skullY - 0.118 - drop * t,
-                0.036 + Math.cos(a) * w * 0.72 + 0.096 * Math.pow(t, 1.2),
+                Math.sin(a) * hw2,
+                skullY - fall,
+                B2.z + Math.cos(a) * hd2 + 0.070 * Math.pow(past, 1.2),
               );
             }, {
               strands: 2,
