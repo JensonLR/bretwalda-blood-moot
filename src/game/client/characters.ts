@@ -9697,9 +9697,23 @@ export function buildCharacter(
         // own tip — which is the only part of this that changes the silhouette
         // and the whole reason it is here.
         if (lod.trim) {
-          for (let i = 0; i < 9; i++) {
-            const a = (i / 8 - 0.5) * 2.30 + 0.13 * (hash(identity, i * 17 + 2) - 0.5);
+          // ELEVEN, AND NONE OF THEM THE SAME. At nine evenly spaced hanks of one
+          // radius all starting at one height, the capture reads as CORDUROY — a
+          // fluted column, which is a different wrong answer from the egg it
+          // replaced but still an obviously manufactured surface. Hair is not
+          // regular in any of its axes, so none of these are: the angular jitter
+          // is up from 0.13 to 0.34 rad (a third of the gap between neighbours,
+          // enough for hanks to crowd in places and part in others), each hank
+          // starts at its own height under the jaw, and how far it stands off the
+          // shell varies per hank as well — so some lie in the mass and some ride
+          // over their neighbours, which is what stops the row reading as a comb.
+          for (let i = 0; i < 11; i++) {
+            const a = (i / 10 - 0.5) * 2.34 + 0.34 * (hash(identity, i * 17 + 2) - 0.5);
             const j = hash(identity, i * 23 + 9);
+            const k = hash(identity, i * 29 + 13);
+            // Where this hank leaves the jaw. Spread over 26 mm, so the tops do
+            // not form a second hard line across the beard.
+            const top = 0.104 + 0.026 * k;
             // Longest at the midline and shorter round the sides, so the hanks
             // follow the mass rather than fringing it at a constant length.
             const drop = (0.300 + 0.052 * j) * (1 - 0.34 * Math.abs(a) / 1.15);
@@ -9713,9 +9727,9 @@ export function buildCharacter(
               // this hank's own height and stood 5 mm outside it, and past the
               // shell's bottom the profile keeps falling on its own — which is
               // where the tips are, and the tips are what break the outline.
-              const fall = 0.118 + drop * t;
+              const fall = top + drop * t;
               const B2 = bellyAt(fall);
-              const proud = 0.005 + 0.004 * Math.sin(Math.PI * clamp01(t));
+              const proud = (0.002 + 0.007 * k) + 0.004 * Math.sin(Math.PI * clamp01(t));
               // Below the shell the hank narrows to a tail rather than snapping
               // to the last station's 17 mm.
               const past = clamp01((fall - 0.294) / 0.13);
@@ -9731,7 +9745,7 @@ export function buildCharacter(
               turns: 0.9 + 0.5 * j,
               rows: Math.max(9, lod.limb + 1),
               ring: 4,
-              radius: (t) => (0.0132 + 0.0030 * j) * (1 - 0.52 * t * t),
+              radius: (t) => (0.0108 + 0.0062 * j) * (1 - 0.52 * t * t),
             }), beard);
           }
         }
