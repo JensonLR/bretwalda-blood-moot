@@ -324,9 +324,41 @@ console.log(`[wear] ${gfails.length ? "FAIL" : "PASS"}: ` +
 //          mannequin, which is the defect the helm pass spent a section fixing
 //          and which a through-only gate would happily reintroduce by deleting
 //          all the hair.
+//   KEPT   the share of the hairstyle's own solid angle ON A BARE HEAD that is
+//          still visible with the helm on. ALSO A FLOOR, and it is the one that
+//          bites — see below.
+//
+// SHOW WAS THE WRONG QUANTITY AND IT SHIPPED A REGRESSION. Read this before
+// touching either floor.
+//
+// SHOW is a fraction of THE HAIR THAT STILL EXISTS. It was written to stop
+// exactly one failure — "a helmet on a mannequin" — and it cannot see that
+// failure when the mannequin is made by DELETING the hair rather than by
+// covering it, because the deleted hair leaves the denominator at the same time
+// as the numerator. The head stack's first landing took the 40 g Long Mane and
+// the 100 g Braided War-locks from 6-9% of silhouette under a helm to
+// 0.05-0.95%, made the two paid styles pixel-identical to each other on six of
+// the ten rungs, and section 4 reported 39-86% SHOW and PASS on every one of
+// them. `docs/OPEN-DEFECTS.md` has the table.
+//
+// KEPT fixes the denominator, which is the whole of the lesson. It measures the
+// hairstyle against ITSELF ON A BARE HEAD — a build no helmet can touch — so
+// removing hair drives the ratio down and nothing the geometry does can hide
+// it. This is the third test in this project to have passed while measuring the
+// wrong quantity (section 1 measured the bowl while the flanges flew off the
+// sides; a `touchtest` assertion was arithmetically unreachable). The rule that
+// falls out of all three: A RATIO WHOSE DENOMINATOR MOVES WITH ITS NUMERATOR
+// MEASURES NOTHING.
+//
+// The floor is 0.14 rather than something rounder, and it is measured. A helmet
+// is entitled to cover most of a head of hair — that is what a helmet is — and
+// the Sutton Hoo, which closes the face completely and hangs a mail bag off the
+// back of the bowl, is the tightest legal case in the shop at 0.16-0.22. The
+// geometry this bar was written against reads 0.03-0.09 on the same rungs.
 const THRU_BAR = 3.0;
 const FRAC_BAR = 0.008;
 const SHOW_FLOOR = 0.02;
+const KEPT_FLOOR = 0.14;
 // ONE ALLOWANCE, measured rather than assumed, on the same idiom as
 // `allowance()` above. The Jarl's Crowned nape flange is swept on its own rings
 // and passes about 8 mm INSIDE the skin at the top of the nape, on the huscarl
@@ -353,13 +385,13 @@ console.log("");
 console.log("[wear] 4. HAIR UNDER HEAD FURNITURE — every hairstyle under every helm.");
 console.log("[wear]    skull -> hair -> coif/aventail -> helm/hood. Does the stack hold?");
 console.log("");
-console.log("[wear] helm         hair     thru mm    frac %   shown %  worst bearing");
+console.log("[wear] helm         hair     thru mm    frac %   shown %   kept %  worst bearing");
 console.log("[wear] ---------------------------------------------------------------------");
 const hfails = [];
 let hairRuns = 0;
 for (const helm of helms) {
   for (const hair of hairStyles) {
-    let thru = 0, frac = 0, show = 1, azd = 0, eld = 0, cls0 = "-";
+    let thru = 0, frac = 0, show = 1, kept = 1, azd = 0, eld = 0, cls0 = "-", kcls = "-";
     for (const cls of HAIR_CLASSES) {
       for (const seed of seeds) {
         const r = hairFitProbe(cls, seed, helm, hair);
@@ -367,16 +399,25 @@ for (const helm of helms) {
         if (r.throughMm > thru) { thru = r.throughMm; azd = r.worstAzDeg; eld = r.worstElDeg; cls0 = cls; }
         if (r.throughFrac > frac) frac = r.throughFrac;
         if (r.showFrac < show) show = r.showFrac;
+        if (r.keptFrac < kept) { kept = r.keptFrac; kcls = cls; }
       }
     }
     const bad = [];
     if (thru - helmSlop(helm) > THRU_BAR) bad.push(`${thru.toFixed(1)} mm of ${hair} outside the ${helm} on the ${cls0} at ${azd.toFixed(0)}/${eld.toFixed(0)} deg`);
     if (frac > FRAC_BAR) bad.push(`${(frac * 100).toFixed(2)}% of ${hair} is outside what covers it`);
     if (show < SHOW_FLOOR) bad.push(`${hair} shows ${(show * 100).toFixed(1)}% under the ${helm} — a helmet on a mannequin`);
+    // A HOOD IS THE ONE GARMENT ENTITLED TO SWALLOW HAIR. It is a bag drawn over
+    // the head and hiding what is under it is what its 120 gold buys, so KEPT is
+    // reported for it and asserted on everything else. The exemption is named in
+    // one place — here — and it is the same one `cosmetictest` makes.
+    if (helm !== "hood" && kept < KEPT_FLOOR) {
+      bad.push(`only ${(kept * 100).toFixed(0)}% of the bare head's own ${hair} survives the ${helm} on the ${kcls} — that is not a helmet covering hair, it is a helmet deleting it`);
+    }
     if (bad.length) hfails.push(`${helm}/${hair}: ${bad.join("; ")}`);
     console.log(
       `[wear] ${helm.padEnd(12)} ${hair.padEnd(7)} ${thru.toFixed(1).padStart(7)}  ` +
       `${(frac * 100).toFixed(2).padStart(8)}  ${(show * 100).toFixed(1).padStart(8)}  ` +
+      `${(kept * 100).toFixed(0).padStart(6)}${helm === "hood" ? "*" : " "}  ` +
       `${thru > 0.05 ? `${azd.toFixed(0)}/${eld.toFixed(0)} deg` : "-"}` +
       `${bad.length ? "   <-- FAIL" : ""}`);
   }
@@ -384,7 +425,9 @@ for (const helm of helms) {
 console.log("");
 console.log(`[wear] ${hairRuns} hair-under-helm fits measured ` +
   `(${helms.length} helms x ${hairStyles.length} styles x ${HAIR_CLASSES.length} classes x ${seeds.length} seeds)`);
-console.log(`[wear] bars: through ${THRU_BAR} mm, ${(FRAC_BAR * 100).toFixed(1)}% of covered vertices, and at least ${(SHOW_FLOOR * 100).toFixed(0)}% of the hair still visible`);
+console.log(`[wear] bars: through ${THRU_BAR} mm, ${(FRAC_BAR * 100).toFixed(1)}% of covered vertices, `
+  + `at least ${(SHOW_FLOOR * 100).toFixed(0)}% of the hair still visible, and at least `
+  + `${(KEPT_FLOOR * 100).toFixed(0)}% of THE BARE HEAD'S OWN hairstyle still visible (* hood exempt)`);
 for (const f of hfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${hfails.length ? "FAIL" : "PASS"}: ` +
   `${helms.length * hairStyles.length - hfails.length}/${helms.length * hairStyles.length} hair-and-helm pairs keep to the stack`);

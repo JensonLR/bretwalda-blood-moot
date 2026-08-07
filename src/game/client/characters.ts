@@ -5496,6 +5496,18 @@ function hangingMass(
     /** Ridge and hem harmonics: hanks along the fall, raggedness across the hem. */
     hank?: (u: number) => number;
     rag?: (u: number) => number;
+    /**
+     * THE CEILING, for a mass that hangs rather than one that lies on a skull.
+     *
+     * `hairCeil` holds the scalp shell and the locks under whatever is worn over
+     * them, and a fall had no equivalent — so the only lever a garment had over
+     * a fall was `mass`, and the only thing `mass` can do is DELETE it. That is
+     * how a 40-gold mane came to be scaled out of existence under an aventail
+     * rather than squashed inside one. This is the missing lever: the mass is
+     * COMPRESSED to fit whatever encloses it, point by point, and what a garment
+     * cannot fit it hides rather than removes.
+     */
+    fit?: (out: THREE.Vector3, u: number) => void;
     thick: number;
   },
 ): THREE.BufferGeometry {
@@ -5548,6 +5560,7 @@ function hangingMass(
     // flaps with daylight behind them.
     out.z += rz * o + lean * d * (0.32 + 0.68 * Math.max(0, rz));
     out.y -= d;
+    opts.fit?.(out, u);
   };
   return patch({
     nu, nv: N,
@@ -8456,6 +8469,35 @@ function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail:
 // is OUTSIDE the garment's own solid angle — hair the player can see. A helm
 // that reports zero through and zero shown is not passing; it is a helmet on a
 // mannequin, and the bar below says so.
+//
+// ============================================================
+// AND `showFrac` COULD NOT SEE A DELETION, WHICH IS THE FAULT THIS RULER WAS
+// BUILT TO CATCH AND THEN SHIPPED
+// ============================================================
+//
+// `showFrac` is a fraction of THE HAIR THAT STILL EXISTS. Delete nine tenths of
+// a hairstyle and the remaining tenth is still, faithfully, in a direction no
+// garment covers — so the ratio holds and the gate passes. The head stack's
+// first landing did exactly that: the 40 g Long Mane and the 100 g Braided
+// War-locks fell to 0.05-0.95% of silhouette under six of the ten rungs and
+// became pixel-identical to each other, and section 4 reported 39-86% shown
+// and PASS on every one of them. A ratio whose denominator shrinks with its
+// numerator cannot measure a loss.
+//
+// This project has now shipped three tests that passed while measuring the
+// wrong quantity — `wearmeasure` measured the bowl while the flanges flew off
+// the sides, a `touchtest` assertion was arithmetically unreachable, and this.
+// The generalisable lesson is the denominator: **measure against a FIXED
+// reference, not against the thing under test.**
+//
+// So `keptFrac` measures the hairstyle against ITSELF ON A BARE HEAD. It is the
+// share of the solid angle that hairstyle occupies with nothing on, that the
+// same hairstyle still occupies AND is uncovered with the helm on. The
+// denominator is a build the helmet cannot touch, so culling hair drives the
+// number down and nothing the geometry does can hide it. Solid angle rather
+// than vertices, because a vertex count is a tessellation and a direction bin
+// is a thing a player can see; weighted by cos(el), because a lat/lon bin at
+// the pole is not the same size as one at the equator.
 
 export interface HairFit {
   cls: string;
@@ -8471,6 +8513,13 @@ export interface HairFit {
   throughFrac: number;
   /** The share of ALL hair vertices in directions no garment covers, 0..1. */
   showFrac: number;
+  /**
+   * HOW MUCH OF THE HAIRSTYLE THE PLAYER BOUGHT IS STILL VISIBLE, as a share of
+   * the SAME hairstyle on a bare head. This is the one number `showFrac` cannot
+   * be, and the difference is the whole reason it exists — see the note over
+   * `keptOfBare` below.
+   */
+  keptFrac: number;
   /** Where the worst point is: degrees off dead ahead, and degrees of latitude. */
   worstAzDeg: number;
   worstElDeg: number;
@@ -8478,6 +8527,9 @@ export interface HairFit {
 
 /** A tint no palette entry uses, so the hair's meshes can be told by colour. */
 const HAIR_PROBE_TINT = 0x2fe07a;
+
+/** `cls|seed|hairStyle` -> the same hairstyle on a bare head. See `keptFrac`. */
+const BARE_HAIR_CACHE = new Map<string, Map<string, number[]>>();
 
 /** Every mesh under the head pivot, as `hex -> world positions`. */
 function headMeshesByTint(root: THREE.Object3D): Map<string, number[]> {
@@ -8524,6 +8576,15 @@ export function hairFitProbe(
   const bare = build({ helm: "none", hairStyle: "shaved" });
   const capped = build({ helm, hairStyle: "shaved" });
   const full = build({ helm, hairStyle });
+  // The FIXED REFERENCE: the same hairstyle with nothing worn over it. Cached
+  // because it does not depend on the helm, so a ten-helm sweep pays for it
+  // once a class and seed rather than ten times.
+  const openKey = `${cls}|${seed}|${hairStyle}`;
+  let open = BARE_HAIR_CACHE.get(openKey);
+  if (!open) {
+    open = build({ helm: "none", hairStyle });
+    BARE_HAIR_CACHE.set(openKey, open);
+  }
 
   const coverHex = [...capped.keys()].filter((h) => !bare.has(h));
   const hairHex = HAIR_PROBE_TINT.toString(16).padStart(6, "0");
@@ -8611,12 +8672,44 @@ export function hairFitProbe(
       worstEl = (iv + 0.5) / NV * 180 - 90;
     }
   }
+  // ---- keptOfBare: the hairstyle measured against ITSELF WITH NOTHING ON ----
+  //
+  // The denominator is the solid angle this hairstyle occupies on a bare head —
+  // a build no helmet can reach, so it cannot shrink to meet a numerator that
+  // has been culled. The numerator is the solid angle it occupies with the helm
+  // on AND in directions nothing covers, which is the hair a player can see.
+  // Bins rather than vertices: a bin is a direction a viewer looks down, and it
+  // is immune to a style having more triangles than another.
+  const openPts = open.get(hairHex) ?? [];
+  const binW = (iv: number) => Math.cos(((iv + 0.5) / NV - 0.5) * Math.PI);
+  const bareBin = new Uint8Array(NU * NV);
+  for (let i = 0; i + 2 < openPts.length; i += 3) {
+    const [iu, iv] = binOf(openPts[i]!, openPts[i + 1]!, openPts[i + 2]!);
+    bareBin[iv * NU + iu] = 1;
+  }
+  const seenBin = new Uint8Array(NU * NV);
+  for (let i = 0; i + 2 < hairPts.length; i += 3) {
+    const [iu, iv] = binOf(hairPts[i]!, hairPts[i + 1]!, hairPts[i + 2]!);
+    const k = iv * NU + iu;
+    if (!Number.isFinite(inner[k]!)) seenBin[k] = 1;
+  }
+  let bareW = 0, keptW = 0;
+  for (let iv = 0; iv < NV; iv++) {
+    const w = binW(iv);
+    for (let iu = 0; iu < NU; iu++) {
+      const k = iv * NU + iu;
+      if (bareBin[k]) bareW += w;
+      if (seenBin[k]) keptW += w;
+    }
+  }
+
   return {
     cls, helm, hair: hairStyle,
     verts, coverTris,
     throughMm: worst,
     throughFrac: verts ? through / verts : 0,
     showFrac: all ? shown / all : 0,
+    keptFrac: bareW ? keptW / bareW : 0,
     worstAzDeg: worstAz, worstElDeg: worstEl,
   };
 }
@@ -10656,6 +10749,34 @@ export function buildCharacter(
     return c;
   };
   /**
+   * THE CEILING FOR A MASS THAT HANGS, which the first cut of this stack did
+   * not have — and not having it is why a garment's only lever over a fall was
+   * `mass`, and why the only thing `mass` can do to a fall is delete it.
+   *
+   * The aventail is a stack of horizontal rings, so the room at a point is the
+   * ring's own half-breadth at that height along the point's own azimuth, less
+   * a layer gap: the identical arithmetic `hairCeil`'s aventail branch uses,
+   * off the identical table. Applied only BEHIND the mail's opening — hair in
+   * front of the rim is hair in the opening, and squashing it there would be
+   * the same deletion under another name. At low levels `coifAt` has flared to
+   * R.x * 1.82 and this cannot bite, which is correct: the mail is nowhere near
+   * the head down there.
+   */
+  const _ffA = new THREE.Vector3();
+  const fallFit = (out: THREE.Vector3): void => {
+    const dy = out.y - skullY;
+    const r = Math.hypot(out.x, dy, out.z);
+    if (r < 1e-6) return;
+    const c = hairCeil(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))));
+    if (!Number.isFinite(c)) return;
+    dirOf(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))), _ffA);
+    faceSurface(K, _ffA, _ffA);
+    const lim = _ffA.length() + c;
+    if (r <= lim) return;
+    const k = lim / r;
+    out.x *= k; out.z *= k; out.y = skullY + dy * k;
+  };
+  /**
    * THE FALL. How much of a hanging mass survives at this azimuth.
    *
    * A hood swallows hair; so does a coif, which is why a mailed man's hair is
@@ -11343,6 +11464,8 @@ export function buildCharacter(
           // whether its bottom edge is a ruled arc.
           rag: (u) => 1 + 0.15 * Math.cos(u * 4.3 + 1.1) + 0.085 * Math.cos(u * 8.9 - 0.4),
           lean: 0.10,
+          // Compressed into the mail rather than scaled out of it.
+          fit: fallFit,
           thick: 0.008,
         }), hair);
       }
@@ -11443,6 +11566,10 @@ export function buildCharacter(
               bRoot.y - 0.352 * t,
               bRoot.z + swingFwd * swing,
             );
+            // A rope swings as it falls and a mail bag flares as it descends,
+            // so a plait that starts clear of the aventail can still reach it
+            // 200 mm down. Held inside it by the same table the shell is.
+            fallFit(out);
           };
           p.add(braid(bp, {
             // 5.6 turns, not 3.4, and this is the difference between a plait and
