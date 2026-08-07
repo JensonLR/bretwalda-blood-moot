@@ -9490,14 +9490,32 @@ export function buildCharacter(
         // by the depth buffer. That is most of why the three measured as one
         // crescent: what was being compared was the small part of each that
         // cleared the collarbone. A beard that reaches the chest rests ON it.
-        const belly = (k: number, lean: number) => p.add(shell([
-          { y: skullY - 0.122, hw: 0.070 * k, hd: 0.056 * k, z: 0.040 },
-          { y: skullY - 0.176, hw: 0.093 * k, hd: 0.070 * k, z: 0.058 },
-          { y: skullY - 0.226, hw: 0.084 * k, hd: 0.064 * k, z: 0.082 },
-          { y: skullY - 0.268, hw: 0.050 * k, hd: 0.041 * k, z: 0.104 },
-          { y: skullY - 0.294, hw: 0.017 * k, hd: 0.015 * k, z: 0.118 },
-        ], Math.max(8, lod.limb), { power: 2.15, capTop: true, capBottom: true }), beard,
+        // Hoisted, because the hanks below have to be able to find this surface.
+        // A hank sized by eye against a shell it cannot read is a hank that ends
+        // up inside it, which is exactly what happened the first time.
+        const BELLY = [
+          { drop: 0.122, hw: 0.070, hd: 0.056, z: 0.040 },
+          { drop: 0.176, hw: 0.093, hd: 0.070, z: 0.058 },
+          { drop: 0.226, hw: 0.084, hd: 0.064, z: 0.082 },
+          { drop: 0.268, hw: 0.050, hd: 0.041, z: 0.104 },
+          { drop: 0.294, hw: 0.017, hd: 0.015, z: 0.118 },
+        ];
+        const belly = (k: number, lean: number) => p.add(shell(
+          BELLY.map((b) => ({ y: skullY - b.drop, hw: b.hw * k, hd: b.hd * k, z: b.z })),
+          Math.max(8, lod.limb), { power: 2.15, capTop: true, capBottom: true }), beard,
           xf(0, 0, 0, 0, 0, lean));
+        /** The belly's own half-width, half-depth and offset at a given drop. */
+        const bellyAt = (drop: number) => {
+          const last = BELLY[BELLY.length - 1]!;
+          if (drop <= BELLY[0]!.drop) return BELLY[0]!;
+          for (let i = 0; i < BELLY.length - 1; i++) {
+            const a = BELLY[i]!, b = BELLY[i + 1]!;
+            if (drop > b.drop) continue;
+            const f = (drop - a.drop) / (b.drop - a.drop);
+            return { drop, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z, b.z, f) };
+          }
+          return last;
+        };
         belly(1, 0);
         if (lod.trim) belly(0.94, 0.075);
         // ---- AND THEN THE HANKS, because two offset shells are still two eggs.

@@ -304,6 +304,32 @@ const SHEETS = {
     title: "ARMOUR FINISH · at fight distance · the reading that decides whether a 510-gold finish is visible at all",
     rows: [{ turn: QUARTER }],
   },
+  // ---- armour finish, ACROSS THE ROSTER ----
+  //
+  // THE SHEET THE AUDIT NEEDED AND DID NOT HAVE, and the reason it did not is
+  // that `panelsFor` could vary a slot and a bearing but not a man. Every sheet
+  // above photographs the huscarl, and the huscarl is the one class the old
+  // finish was visible on — he is covered in mail, and mail was the only thing
+  // `ap.armorColor` touched.
+  //
+  // That is exactly how the shop got to a state where the owner could buy a
+  // finish and see nothing: the instrument could not see the failure either. The
+  // runekeeper's torso layer is leather and the berserker's is bare skin, so a
+  // slot sold to all four classes had never been rendered on two of them.
+  //
+  // Four rows, one per class, seven finishes across. A finish that does not
+  // change a row is a finish that class cannot buy, and now it says so in one
+  // picture. Fight distance, because that is where the money has to be visible.
+  finishroster: {
+    file: "armour-finish-roster.png", card: "fightcard", slot: "armor", cols: 7,
+    title: "ARMOUR FINISH × CLASS · does the money move on the men who wear no mail? · fight distance",
+    rows: [
+      { turn: QUARTER, tag: "huscarl", cls: "huscarl" },
+      { turn: QUARTER, tag: "warden", cls: "warden" },
+      { turn: QUARTER, tag: "runekeeper", cls: "runekeeper" },
+      { turn: QUARTER, tag: "berserker", cls: "berserker" },
+    ],
+  },
   // ---- warPaint (4) ----
   // The smallest slot and the one most likely to vanish under a helmet — and the
   // shop now sells a helmet that is entirely face. Front on, because paint is
@@ -352,9 +378,14 @@ function panelsFor(name, spec, roster) {
     return opt.value;
   };
   const dressOf = (dress) => Object.entries(dress ?? {});
-  const panel = (label, turn, dress, extra) => ({
+  // `cls` is not a slot and is deliberately kept out of `dress`: it is not
+  // something a player buys, and `expect` checks purchases against what the page
+  // says it built. It rides on the query only, and the card presets have read
+  // `?cls=` since they were written.
+  const panel = (label, turn, dress, extra, cls) => ({
     label,
-    query: [`preset=${spec.card}`, `turn=${turn}`, ...dressOf(dress).map(([s, id]) => `${s}=${id}`),
+    query: [`preset=${spec.card}`, `turn=${turn}`, ...(cls ? [`cls=${cls}`] : []),
+      ...dressOf(dress).map(([s, id]) => `${s}=${id}`),
       ...(extra ? [`${extra.slot}=${extra.id}`] : [])].join("&"),
     expect: {
       turn,
@@ -372,7 +403,7 @@ function panelsFor(name, spec, roster) {
       // The price rides on the panel. "Is it worth the gold" is one of the five
       // questions the audit has to answer per option, and it cannot be answered
       // by flicking between pictures if the numbers are in another file.
-      panel(`${i + 1}. ${o.label} · ${o.cost}g${row.tag ? ` · ${row.tag}` : ""}`, row.turn, row.dress, { slot: spec.slot, id: o.id }),
+      panel(`${i + 1}. ${o.label} · ${o.cost}g${row.tag ? ` · ${row.tag}` : ""}`, row.turn, row.dress, { slot: spec.slot, id: o.id }, row.cls),
     ),
   );
 }
