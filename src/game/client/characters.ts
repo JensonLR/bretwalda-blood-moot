@@ -3799,8 +3799,6 @@ interface SkinRadii {
   r: Float64Array;
 }
 
-const _sr = new THREE.Vector3();
-
 /**
  * Tabulate the skin's radius from the skull centre over direction.
  *
@@ -3809,16 +3807,18 @@ const _sr = new THREE.Vector3();
  * over the nose and report air as skin — and a clearance test that under-reads
  * the skin passes exactly the shells it exists to fail.
  */
-function skinRadii(K: Skull, na = 192, ne = 96): SkinRadii {
+function surfaceRadii(
+  sample: (u: number, v: number, out: THREE.Vector3) => THREE.Vector3,
+  na = 192, ne = 96,
+): SkinRadii {
   const r = new Float64Array(na * ne);
-  const d = new THREE.Vector3();
   const p = new THREE.Vector3();
   const su = na * 2, sv = ne * 2;
   for (let j = 0; j <= sv; j++) {
     const v = -Math.PI / 2 + (j / sv) * Math.PI;
     for (let i = 0; i < su; i++) {
       const u = (i / su) * Math.PI * 2;
-      faceSurface(K, dirOf(u, v, d), p);
+      sample(u, v, p);
       const len = p.length();
       if (len < 1e-6) continue;
       const az = Math.atan2(p.x, p.z);
@@ -3848,6 +3848,50 @@ function skinRadii(K: Skull, na = 192, ne = 96): SkinRadii {
     }
   }
   return { na, ne, r };
+}
+
+const _srD = new THREE.Vector3();
+
+function skinRadii(K: Skull, na = 192, ne = 96): SkinRadii {
+  return surfaceRadii((u, v, out) => faceSurface(K, dirOf(u, v, _srD), out), na, ne);
+}
+
+const _sgP = new THREE.Vector3();
+
+/**
+ * TRUE DAYLIGHT: how far it is from a point on the inside of a plate, straight
+ * down the plate's own normal, to the flesh.
+ *
+ * `skinClearance` is RADIAL from the skull's centre, and radial is the wrong
+ * ruler for this question anywhere the head undercuts. Beside the jaw the skin
+ * radius falls away fast with elevation, so a cheek guard that follows the
+ * mandible perfectly — constant lift along its own normal, metal lying on the
+ * bone — reads 60 mm of "clearance" radially and 8 mm to the eye. Gating on the
+ * radial number would fail every correctly-built guard in the shop and pass a
+ * flat plate held out in front of the ear, which is the exact inversion of what
+ * this is for.
+ *
+ * So: march inward along `n` until the clearance changes sign, then bisect.
+ * `cap` is both the search limit and the answer when the ray never finds flesh,
+ * which is itself the verdict — a plate with more than `cap` of air behind it is
+ * not being worn.
+ */
+function skinGap(tab: SkinRadii, p: THREE.Vector3, n: THREE.Vector3, cap = 0.075): number {
+  if (skinClearance(tab, p) <= 0) return 0;
+  const STEPS = 24;
+  let lo = 0, hi = cap, found = false;
+  for (let i = 1; i <= STEPS; i++) {
+    const d = (i / STEPS) * cap;
+    _sgP.copy(p).addScaledVector(n, -d);
+    if (skinClearance(tab, _sgP) <= 0) { hi = d; lo = ((i - 1) / STEPS) * cap; found = true; break; }
+  }
+  if (!found) return cap;
+  for (let i = 0; i < 8; i++) {
+    const m = (lo + hi) * 0.5;
+    _sgP.copy(p).addScaledVector(n, -m);
+    if (skinClearance(tab, _sgP) <= 0) hi = m; else lo = m;
+  }
+  return (lo + hi) * 0.5;
 }
 
 /** How far outside the skin a point is, in metres. Negative is inside it. */
@@ -3992,6 +4036,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   const nOff = new THREE.Vector3();
   const nSkin = new THREE.Vector3();
   const ntrue = new THREE.Vector3();
+  const gnrm = new THREE.Vector3();
   const dd = new THREE.Vector3();
 
   // Sampled the way the shell was built: on the low-passed form if it is a helm
@@ -3999,6 +4044,16 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   // against the skin's own normals would report folds that are not in the metal
   // — and, worse, would miss the ones that are.
   const F = helmForm(K);
+  // And the radial table of the FORM, for the flare measurement below. The
+  // skin's own table is the wrong ruler for that one: the form is a 12 mm
+  // low-pass with nothing on it under a 45 mm radius, but the SKIN has an ear on
+  // it, and an ear standing 20 mm out under a plate makes the gap under that
+  // plate collapse and reopen over 15 mm of travel. Differentiated, that is a
+  // 60 deg flare reported on a bowl that has none — measured on the band, the
+  // bowl and every brow plate in the shop before this table existed. Flare is a
+  // property of the PLATE against the SKULL, so it is measured against the
+  // block the plate was beaten over.
+  const formTab = surfaceRadii((u, v, out) => formSurface(F, u, v, out));
   const at = (o: WornShellSpec, t: number, s: number, drop: number, out: THREE.Vector3) => {
     const u = mix(o.u0, o.u1, t);
     const v = mix(o.v0(u), o.v1(u), s);
@@ -4013,6 +4068,12 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       out.addScaledVector(ntrue, drop);
     }
     return out;
+  };
+  /** The direction this shell's lift was applied in, at (t, s). */
+  const nrmAt = (o: WornShellSpec, t: number, s: number, out: THREE.Vector3) => {
+    const u = mix(o.u0, o.u1, t);
+    const v = mix(o.v0(u), o.v1(u), s);
+    return o.form ? formNormal(F, u, v, out) : faceNormalTrue(K, u, v, out);
   };
 
   const shells: ShellFit[] = [];
@@ -4054,9 +4115,9 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         if (-cOut > through) { through = -cOut; tu2 = u; tv2 = mix(o.v0(u), o.v1(u), s); }
         if (lift > standoff) standoff = lift;
         if (lift < minLift) minLift = lift;
-        // GAP — daylight you can see under the metal. Radial, because that is
-        // the direction a viewer's eye travels down into the gap.
-        if (cIn > gap) { gap = cIn; gu = u; gv = mix(o.v0(u), o.v1(u), s); }
+        // GAP — daylight under the metal, measured square to the metal.
+        const gHere = skinGap(tab, pIn, nrmAt(o, t, s, gnrm));
+        if (gHere > gap) { gap = gHere; gu = u; gv = mix(o.v0(u), o.v1(u), s); }
         // HEM — the standoff at the free edge. "Free" is not a parameter
         // convention: `v0` is the hem on a cheek guard and the top ring on a
         // nape fall, and hard-coding either would measure the hinge on half the
@@ -4069,14 +4130,15 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         // arc guard is the pole: where the parameterisation collapses the ratio
         // is the direction of the rounding error.
         {
+          // The plate's own standoff differentiated along the surface it is swept
+          // on — exact, because for a shell built by `headWear` the perpendicular
+          // distance to that surface IS the lift. No search, no table, no ear.
           const s3 = Math.min(1, s + hs);
-          at(o, t, s3, o.lift(u, s3), b1);
           at(o, t, s3, 0, b2);
-          at(o, t, s, 0, pIn);
-          const arc = b2.distanceTo(pIn);
+          at(o, t, s, 0, b1);
+          const arc = b2.distanceTo(b1);
           if (arc > 1e-4) {
-            const d = Math.abs(skinClearance(tab, b1) - cOut) / arc;
-            const ang = Math.atan(d) * 180 / Math.PI;
+            const ang = Math.atan(Math.abs(o.lift(u, s3) - lift) / arc) * 180 / Math.PI;
             if (ang > flare) { flare = ang; flu = u; flv = mix(o.v0(u), o.v1(u), s); }
           }
         }
@@ -4139,6 +4201,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   const rIn = new THREE.Vector3();
   const rNext = new THREE.Vector3();
   const rHere = new THREE.Vector3();
+  const rNrm = new THREE.Vector3();
   const drop = new THREE.Vector3(0, 0, 0);
   for (const o of rspy) {
     const NU = Math.max(12, o.nu * 3);
@@ -4152,20 +4215,27 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         const t = i / NU, s = j / NV;
         o.outer(t, s, rOut); rOut.sub(drop);
         o.inner(t, s, rIn); rIn.sub(drop);
-        const cOut = skinClearance(tab, rOut);
         const cIn = skinClearance(tab, rIn);
         if (-cIn > punch) punch = -cIn;
-        if (cOut > standoff) standoff = cOut;
-        if (cOut < minC) minC = cOut;
-        if (cIn > gap) { gap = cIn; gu = t; gv = s; }
-        if (s === 0) { if (rOut.y < e0y) e0y = rOut.y; if (cOut > e0) e0 = cOut; }
-        if (s === 1) { if (rOut.y < e1y) e1y = rOut.y; if (cOut > e1) e1 = cOut; }
+        // A ring has no lift function, so its own wall thickness is the normal:
+        // outer minus inner is the direction the inset was taken along.
+        rNrm.subVectors(rOut, rIn);
+        if (rNrm.lengthSq() < 1e-12) rNrm.copy(rOut).normalize(); else rNrm.normalize();
+        const gHere = skinGap(tab, rIn, rNrm);
+        // Against the form for the flare, against the skin for the daylight —
+        // same split as the shells above, same reason.
+        const fHere = skinGap(formTab, rIn, rNrm);
+        if (gHere > standoff) standoff = gHere;
+        if (gHere < minC) minC = gHere;
+        if (gHere > gap) { gap = gHere; gu = t; gv = s; }
+        if (s === 0) { if (rOut.y < e0y) e0y = rOut.y; if (gHere > e0) e0 = gHere; }
+        if (s === 1) { if (rOut.y < e1y) e1y = rOut.y; if (gHere > e1) e1 = gHere; }
         const s3 = Math.min(1, s + 0.25 / NV);
-        o.outer(t, s3, rNext); rNext.sub(drop);
-        rHere.copy(rOut);
+        o.inner(t, s3, rNext); rNext.sub(drop);
+        rHere.copy(rIn);
         const arc = rNext.distanceTo(rHere);
         if (arc > 1e-4) {
-          const ang = Math.atan(Math.abs(skinClearance(tab, rNext) - cOut) / arc) * 180 / Math.PI;
+          const ang = Math.atan(Math.abs(skinGap(formTab, rNext, rNrm) - fHere) / arc) * 180 / Math.PI;
           if (ang > flare) { flare = ang; flu = t; flv = s; }
         }
       }
