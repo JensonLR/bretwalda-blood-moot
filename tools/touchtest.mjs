@@ -23,9 +23,11 @@ import { chromium } from "playwright";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** The fixed die, handed to the server process with `--import`. See seeddie.mjs. */
+const SEED_DIE = pathToFileURL(resolve(ROOT, "tools/seeddie.mjs")).href;
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
 const HEADED = process.argv.includes("--headed");
 
@@ -1040,7 +1042,11 @@ async function main() {
     console.log("[touchtest] WARNING: src/ is newer than .next — this run grades the last build, not your edit. `npm run build` first.");
   }
   console.log(`[touchtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  // `--import` puts tools/seeddie.mjs in front of the entry point, so the bot
+  // brain rolls the same stream on every run. See that file: the engine's step
+  // was already fixed and its inputs are driven from here, so the die was the
+  // last thing in the simulation that nobody had written down.
+  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

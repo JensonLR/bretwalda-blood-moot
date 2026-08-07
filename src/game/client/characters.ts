@@ -4054,6 +4054,37 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   // property of the PLATE against the SKULL, so it is measured against the
   // block the plate was beaten over.
   const formTab = surfaceRadii((u, v, out) => formSurface(F, u, v, out));
+  /**
+   * The same table with a NECK under it, and it exists because the deep nape
+   * guard's floor is 1.05 head-radii below the skull's centre — off the bottom
+   * of the head mesh entirely. `skinRadii` tabulates the HEAD, so every ray cast
+   * inward from the guard's lower rim ran to the end of its 75 mm search without
+   * finding flesh, and the gate read a plate hanging 23 mm off a neck as a plate
+   * hanging in space. That is the third time a bar in this file has been aimed at
+   * the wrong object; it is cheaper to give the ruler a neck than to tune metal
+   * to a number that is not measuring it.
+   *
+   * The neck is an infinite vertical cylinder of the skeleton's own half-width,
+   * taken only where it lies below the skull's lower third so it cannot reach up
+   * and fill in the jaw. Below the shoulder it under-reads, which errs toward
+   * failing a plate rather than passing one.
+   */
+  const withNeck = (src: SkinRadii): SkinRadii => {
+    const out: SkinRadii = { na: src.na, ne: src.ne, r: Float64Array.from(src.r) };
+    const rn = S.neckHW;
+    for (let ei = 0; ei < src.ne; ei++) {
+      const el = -Math.PI / 2 + ((ei + 0.5) / src.ne) * Math.PI;
+      const cy = Math.cos(el);
+      if (cy < 1e-3) continue;
+      const t = rn / cy;
+      if (t * Math.sin(el) > -K.R.y * 0.35) continue;
+      for (let ai = 0; ai < src.na; ai++) {
+        const k = ei * src.na + ai;
+        if (t > out.r[k]) out.r[k] = t;
+      }
+    }
+    return out;
+  };
   const at = (o: WornShellSpec, t: number, s: number, drop: number, out: THREE.Vector3) => {
     const u = mix(o.u0, o.u1, t);
     const v = mix(o.v0(u), o.v1(u), s);
@@ -4102,6 +4133,24 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     const areas: number[] = [];
     const uvs: number[] = [];
     let areaMax = 0;
+    // How tall this shell's outline is at each u, and how tall its tallest
+    // column is. The flare test needs it for the same reason the fold test needs
+    // the area element: where the outline has tapered to a lip a few millimetres
+    // deep, a 3 mm change of standoff across it is arithmetically a 23 deg slope
+    // and visually nothing at all. A shaped outline necessarily has such ends —
+    // that is what shaping it means — so a flare bar that counted them would
+    // punish exactly the fix it exists to ask for. Columns under a fifth of the
+    // shell's own depth are not measured for flare.
+    const colArc: number[] = [];
+    let colMax = 0;
+    for (let i = 0; i <= NU; i++) {
+      const t = i / NU;
+      at(o, t, 0, 0, b1);
+      at(o, t, 1, 0, b2);
+      const d = b1.distanceTo(b2);
+      colArc.push(d);
+      if (d > colMax) colMax = d;
+    }
     for (let i = 0; i <= NU; i++) {
       for (let j = 0; j <= NV; j++) {
         const t = i / NU, s = j / NV;
@@ -4137,7 +4186,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
           at(o, t, s3, 0, b2);
           at(o, t, s, 0, b1);
           const arc = b2.distanceTo(b1);
-          if (arc > 1e-4) {
+          if (arc > 1e-4 && colArc[i] >= colMax * 0.2) {
             const ang = Math.atan(Math.abs(o.lift(u, s3) - lift) / arc) * 180 / Math.PI;
             if (ang > flare) { flare = ang; flu = u; flv = mix(o.v0(u), o.v1(u), s); }
           }
@@ -4203,6 +4252,8 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   const rHere = new THREE.Vector3();
   const rNrm = new THREE.Vector3();
   const drop = new THREE.Vector3(0, 0, 0);
+  const skinHull = rspy.length ? withNeck(tab) : tab;
+  const formHull = rspy.length ? withNeck(formTab) : formTab;
   for (const o of rspy) {
     const NU = Math.max(12, o.nu * 3);
     const NV = Math.max(8, o.nv * 3);
@@ -4215,16 +4266,16 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         const t = i / NU, s = j / NV;
         o.outer(t, s, rOut); rOut.sub(drop);
         o.inner(t, s, rIn); rIn.sub(drop);
-        const cIn = skinClearance(tab, rIn);
+        const cIn = skinClearance(skinHull, rIn);
         if (-cIn > punch) punch = -cIn;
         // A ring has no lift function, so its own wall thickness is the normal:
         // outer minus inner is the direction the inset was taken along.
         rNrm.subVectors(rOut, rIn);
         if (rNrm.lengthSq() < 1e-12) rNrm.copy(rOut).normalize(); else rNrm.normalize();
-        const gHere = skinGap(tab, rIn, rNrm);
+        const gHere = skinGap(skinHull, rIn, rNrm);
         // Against the form for the flare, against the skin for the daylight —
         // same split as the shells above, same reason.
-        const fHere = skinGap(formTab, rIn, rNrm);
+        const fHere = skinGap(formHull, rIn, rNrm);
         if (gHere > standoff) standoff = gHere;
         if (gHere < minC) minC = gHere;
         if (gHere > gap) { gap = gHere; gu = t; gv = s; }
@@ -4235,7 +4286,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         rHere.copy(rIn);
         const arc = rNext.distanceTo(rHere);
         if (arc > 1e-4) {
-          const ang = Math.atan(Math.abs(skinGap(formTab, rNext, rNrm) - fHere) / arc) * 180 / Math.PI;
+          const ang = Math.atan(Math.abs(skinGap(formHull, rNext, rNrm) - fHere) / arc) * 180 / Math.PI;
           if (ang > flare) { flare = ang; flu = t; flv = s; }
         }
       }
@@ -10579,6 +10630,33 @@ export function buildCharacter(
           }), capMetal, place.clone());
         }
       }
+      // WHERE THE MAIL IS. Declared here rather than inside the coif that draws
+      // it, because the nape fall below has to lie outside it on the one class
+      // that wears both, and a fall carrying its own idea of the coif's radius is
+      // the mirrored-definition fault this file has been bitten by twice.
+      //
+      // Started above the brow band rather than 20 mm below it. At R.y * 0.10 the
+      // coif's top ring cleared the bottom of the band, so its `patch` rim strip —
+      // 14 mm of surface facing straight up — stood out at each temple as a lit
+      // grey tab. A coif's upper edge is riveted *inside* the bowl and is never
+      // seen; 14 mm proud of the skull at this height is well within the band's
+      // own 24 mm standoff, so it is covered.
+      const coifLevels = [
+        { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
+        { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
+        { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
+        { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
+      ];
+      /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
+      const coifAt = (y: number, key: "hw" | "hd"): number => {
+        if (!heavy) return 0;
+        if (y >= coifLevels[0].y) return coifLevels[0][key];
+        for (let i = 0; i < coifLevels.length - 1; i++) {
+          const a = coifLevels[i], b = coifLevels[i + 1];
+          if (y <= a.y && y >= b.y) return mix(a[key], b[key], (a.y - y) / (a.y - b.y));
+        }
+        return coifLevels[coifLevels.length - 1][key];
+      };
       if (style.nape !== "none") {
         // ---- the fall off the back of the band ----
         //
@@ -10607,28 +10685,66 @@ export function buildCharacter(
         const deep = style.nape === "guard";
         const cut = S.neckRoot - S.neckTop;
         const floorY = Math.max(cut + 0.025, skullY - R.y * (deep ? 1.05 : 0.45));
-        // OVER the coif, not inside it. The guard's top ring sat at R.y · 0.30 and
-        // R.x · 1.06 while the huscarl's aventail starts at R.y · 0.44 and
-        // R.x · 1.00 + 11 mm — so on the one class that wears both, the mail's own
-        // top ring stood higher and wider than the plate that is supposed to hide
-        // it, and a band of cut-out mail showed above the guard against the sky.
-        // Because mail's alpha is a texture cutout, what that band drew was a row
-        // of ragged triangles: the review read it as an alpha artifact and a
-        // texture bug, and it was neither — it was a plate 6 mm too small.
-        // The top ring now starts above the coif's and outboard of it, so the
-        // aventail is riveted up under the guard the way it is under the bowl.
+        // THE HULL, AND THIS IS THE OWNER'S DEFECT.
+        //
+        // "There's a lot of raised floating aspects" — pale curved flanges
+        // flaring out and up from the sides of the head, with daylight between
+        // them and the cheek. This is where four of the five he named come from,
+        // and it is one line of arithmetic.
+        //
+        // The rings were CONSTANT MULTIPLES OF R.x: 1.16 at the top, 1.26 in the
+        // middle, 1.30 to 1.38 at the floor. The thing they hang on is not a
+        // cylinder. At the top ring's height — R.y · 0.47 above the skull's
+        // centre — the ellipsoid has already narrowed to 0.88 R.x, so a ring at
+        // 1.16 R.x stood 0.28 R.x proud, and it stood proudest exactly at its
+        // LATERAL extreme, which is the side of the head beside the temple. Below
+        // the skull it is worse: the floor ring sat at 1.38 R.x around a NECK.
+        // `wearmeasure` section 3 measured 61.6 mm of daylight on the flange and
+        // ran off the end of its 75 mm search on the guard. A cylinder over a
+        // sphere is widest where the sphere is narrowest, and what that draws is
+        // a wing.
+        //
+        // So the radius follows the hull: the skull's own half-breadth while
+        // there is skull, the neck's below it, and the coif's on the one class
+        // that wears one — because a plate over mail has to lie on the mail. The
+        // fall still reads as a fall from behind. It was never the radius doing
+        // that; it is the outline, the overhang at the rim and the fact that it
+        // is a hard-edged plate over a soft head.
         const topY = skullY + R.y * 0.47;
+        const neckFrac = Math.max(0.62, S.neckHW / R.x);
+        /** Half-breadth of whatever is under the fall at height y, as a fraction. */
+        const hullFrac = (y: number, key: "hw" | "hd"): number => {
+          const t = (y - skullY) / R.y;
+          const sk = Math.abs(t) < 1 ? Math.sqrt(1 - t * t) : 0;
+          const bone = Math.max(sk, neckFrac);
+          const mail = coifAt(y, key) / (key === "hw" ? R.x : R.z);
+          return Math.max(bone, mail);
+        };
+        // 13 mm at the band, 17 in the middle, 20 to 23 at the rim: a liner and a
+        // padded collar, and the rim's extra few millimetres are the overhang
+        // that throws the shadow line the fall is read by.
+        const ringAt = (y: number, clear: number, z: number) => ({
+          y, z,
+          hw: R.x * hullFrac(y, "hw") + clear,
+          hd: R.z * hullFrac(y, "hd") + clear,
+        });
         const rings = [
-          { y: topY, hw: R.x * 1.16, hd: R.z * 1.14, z: -0.012 },
-          { y: mix(topY, floorY, 0.5), hw: R.x * 1.26, hd: R.z * 1.20, z: -0.028 },
-          { y: floorY, hw: R.x * (deep ? 1.38 : 1.30), hd: R.z * (deep ? 1.32 : 1.24), z: deep ? -0.040 : -0.034 },
+          ringAt(topY, 0.013, -0.006),
+          ringAt(mix(topY, floorY, 0.5), 0.017, -0.012),
+          ringAt(floorY, deep ? 0.023 : 0.020, deep ? -0.018 : -0.015),
         ];
-        // Round far enough forward to meet the cheek guard. The deep guard's rear
-        // edge is at 1.45 rad and this arc used to start at π − 1.62 = 1.52, so
-        // there were 4° of nothing between two plates that are meant to overlap —
-        // and behind that gap, from any profile bearing, bare neck and the mail
-        // curtain. π − 1.74 = 1.40 rad laps the cheek plate by 3° instead.
-        const half = deep ? 1.74 : 1.38;
+        // AND THE ARC IS A FUNCTION OF THE DESCENT, which is the other half of
+        // the wing. At a constant 1.74 rad the deep guard's front edge crossed the
+        // TOP ring — the highest, tightest one — 80° off dead ahead, which is in
+        // front of the ear and level with the temple. A plate edge there is the
+        // pale curve standing off the side of the head in the armoury cards,
+        // whatever its radius does. An aventail is riveted round the BACK of the
+        // band and swings forward as it falls, so it is narrow at the rivets and
+        // laps the cheek guard down at the jaw, where the two are meant to
+        // overlap. The floor value is unchanged, so the lap the profile card
+        // needed is still there.
+        const half = (v: number) =>
+          (deep ? 1.30 : 1.08) + (deep ? 0.44 : 0.30) * v * v;
         const fall = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const t = v * (rings.length - 1);
           const i = Math.min(rings.length - 2, Math.floor(t));
@@ -10646,7 +10762,8 @@ export function buildCharacter(
         // swept the other way round has ∂u × ∂v pointing into the skull and the
         // guard renders inside out — which reads as a hole in the back of the head.
         const sweep = (inset: number) =>
-          (t: number, v: number, out: THREE.Vector3) => fall(mix(Math.PI + half, Math.PI - half, t), v, inset, out);
+          (t: number, v: number, out: THREE.Vector3) =>
+            fall(mix(Math.PI + half(v), Math.PI - half(v), t), v, inset, out);
         p.add(wornRing({
           tag: deep ? "nape guard" : "nape flange",
           originY: skullY,
@@ -10661,8 +10778,10 @@ export function buildCharacter(
           // the plate's own surface instead of sitting on it: no coplanar pair to
           // fight for depth, and its two long rims are buried in silver.
           const lip = (inset: number) =>
-            (t: number, v: number, out: THREE.Vector3) =>
-              fall(mix(Math.PI + half - 0.03, Math.PI - half + 0.03, t), mix(0.86, 1, v), inset, out);
+            (t: number, v: number, out: THREE.Vector3) => {
+              const vv = mix(0.86, 1, v);
+              fall(mix(Math.PI + half(vv) - 0.03, Math.PI - half(vv) + 0.03, t), vv, inset, out);
+            };
           p.add(patch({ nu: Math.max(8, lod.shellU - 2), nv: 1, outer: lip(-0.0025), inner: lip(0.0035) }), gilt);
         }
       }
@@ -11706,16 +11825,39 @@ export function buildCharacter(
       // Neck flange off the back of the band. The warden is the one class with
       // no coif, and without something behind the helm his head ends in a hoop —
       // this is the fall a ridge helm actually carries, and from behind it is the
-      // difference between him and the berserker at fifty metres. His own, and
-      // left exactly as it shipped; a helmet that brings a fall of its own has
-      // already built one above, on rings, and two would fight for the same air.
+      // difference between him and the berserker at fifty metres. A helmet that
+      // brings a fall of its own has already built one above, on rings, and two
+      // would fight for the same air.
+      //
+      // IT WAS THE OTHER HALF OF THE OWNER'S WINGS, and it shipped untagged, so
+      // `helmFitProbe` skipped it as if it were hair and no bar in this file had
+      // ever been applied to it. It was a RECTANGLE IN (u, v) — a constant top, a
+      // constant hem, 132° of arc — with a lift that grew from 17 mm at the band
+      // to 37 mm at the hem. Both of those are the fault. The constant hem
+      // carries the plate's full depth round to its own side edges at 1.99 rad,
+      // which is past the head's widest point, and the growing lift stands that
+      // edge 37 mm off the skull with 30 mm of daylight under it. From the front
+      // three-quarters — which is the armoury card's bearing — that draws as a
+      // pale curved flange flaring out and up from the side of the head, on the
+      // Iron Spangenhelm, the Nasal and the Spectacle. It is on the two cheapest
+      // helmets in the shop and on the class the armoury opens on.
+      //
+      // A neck flange hangs DOWN. So: the outline is a function of u, deepest on
+      // the midline and dying to a lip at both ends, so what reaches the side of
+      // the head is an edge and not a corner; and the standoff CLOSES as it
+      // falls, 18 mm at the band to 21 at the rim, which is a liner plus the few
+      // millimetres of overhang that make the rim a rim.
       if (wallman && style.nape === "none") {
+        const flHalf = 1.15;
+        /** 0 on the midline at the back, 1 at either end of the flange. */
+        const fu = (u: number) => clamp01(Math.abs(u - Math.PI) / flHalf);
         p.add(headWear(K, {
           tag: "warden flange",
-          u0: Math.PI - 1.15, u1: Math.PI + 1.15,
-          v0: () => bandLo - 0.30, v1: () => bandLo + 0.01,
-          nu: Math.max(6, lod.shellU - 4), nv: 2,
-          lift: (_u, v) => 0.017 + 0.020 * (1 - v), thick: 0.007,
+          u0: Math.PI - flHalf, u1: Math.PI + flHalf,
+          v0: (u) => bandLo - 0.30 * mix(1, 0.17, Math.pow(smooth(0.22, 1, fu(u)), 1.35)),
+          v1: () => bandLo + 0.01,
+          nu: Math.max(8, lod.shellU - 2), nv: 3,
+          lift: (_u, v) => 0.018 + 0.003 * (1 - v), thick: 0.007,
         }), capMetal, place.clone());
       }
       if (bare && !ownCrest) {
@@ -11799,18 +11941,11 @@ export function buildCharacter(
         // own silhouette — which now has a parietal curve to show — draws the
         // outline instead of the mail.
         const rim = (v: number) => 1.46 + 0.34 * v * v;
-        const levels = [
-          // Started above the brow band rather than 20 mm below it. At R.y * 0.10
-          // the coif's top ring cleared the bottom of the band, so its `patch` rim
-          // strip — 14 mm of surface facing straight up — stood out at each temple
-          // as a lit grey tab. A coif's upper edge is riveted *inside* the bowl and
-          // is never seen; 14 mm proud of the skull at this height is well within
-          // the band's own 24 mm standoff, so it is now covered.
-          { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
-          { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
-          { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
-          { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
-        ];
+        // The one table, read from two places — see where it is declared, above
+        // the nape fall. A plate that has to lie OVER the mail cannot keep its
+        // own copy of where the mail is; that is how the guard ended up 6 mm too
+        // small and drew a band of ragged cut-out triangles above its own rim.
+        const levels = coifLevels;
         const coif = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const t = v * (levels.length - 1);
           const i = Math.min(levels.length - 2, Math.floor(t));
