@@ -802,6 +802,28 @@
     display: none;
   }
 
+  /* AND ON A POINTER THAT CANNOT SWIPE, IT WRAPS.
+     docs/REGRESSION-CHECK.md: at desktop 1440 this strip cuts mid-word at
+     "CLO…", so CLOAKS, ARMOUR FINISH and WAR PAINT are all off the right-hand
+     edge — and a mouse has no swipe, the scrollbar is hidden by the two rules
+     above, and the 2.25rem mask is the only hint that anything is missing. Three
+     of the shop's eight slots were unreachable on desktop, which is worse than
+     on the phone the strip was designed for. The owner asking for the "no cloak
+     option" to be reworked is partly this: `cloak_none` has existed since the
+     first commit and he cannot get to the tab that sells it.
+     docs/PLATFORMS.md is explicit that desktop does not inherit the phone's
+     compromises, and horizontal-swipe-only navigation is exactly one of those.
+     Two rows of tabs cost 34 px of a screen that has the height, and nothing
+     about the phone layout changes: below this width the strip still scrolls,
+     still masks, and a thumb still works. */
+  @media (min-width: 700px) {
+    .tab-strip {
+      flex-wrap: wrap;
+      overflow-x: visible;
+      mask-image: none;
+    }
+  }
+
   .tab-item {
     display: inline-flex;
     align-items: center;
