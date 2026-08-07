@@ -267,14 +267,23 @@ const PROBE = () => {
    */
   const LOCK_DT_CLAMP = 100;   // src/game/client/GameCanvas.tsx: dt = min(elapsed, 0.1)
   const SETTLE = 500;          // six time constants of the lock's own spring
-  w.__lockRead = (t) => {
+  w.__lockRead = (t, want) => {
     const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
     const rows = w.__probe.frames;
     // Each entry is one publication of the lock's yaw: {t, d.rotationY}.
     const ups = w.__probe.sent.filter((s) => s.t >= t).map((s) => ({ t: s.t, y: s.d.rotationY }));
-    let i = 0, worst = 0, n = 0, yawTravel = 0, adopt = 0, moved = 0;
-    let awake = -1e9, held = -1e9, prevLock = null, prevY = null;
-    let firstFoe = null, id = null, starved = 0, longest = 0;
+    let i = 0, awake = -1e9, held = -1e9, prevLock = null, starved = 0, longest = 0;
+    // Everything is measured over ONE UNBROKEN SPAN of gradeable updates, and
+    // that is deliberate. The first cut of this read accumulated the man's
+    // displacement across a whole attempt while accumulating the camera's turn
+    // only between adjacent readings, so the two numbers described different
+    // stretches of fight and the turn was quietly the smaller of them — the
+    // same mistake, on a smaller scale, as grading a stalled thread. A span
+    // ends the moment the lock is no longer in a position to be graded, and
+    // every fact reported below comes from the same one.
+    const spans = [];
+    let cur = null;
+    const close = () => { if (cur && cur.n >= 2) spans.push(cur); cur = null; };
     for (let k = 0; k < ups.length; k++) {
       const s = ups[k];
       const gap = k ? s.t - ups[k - 1].t : Infinity;
@@ -282,29 +291,44 @@ const PROBE = () => {
       // The freshest snapshot the controller had when it published this yaw.
       while (i + 1 < rows.length && rows[i + 1].t <= s.t) i++;
       const r = rows[i];
-      if (!r || r.t > s.t) continue;
-      if (r.lock !== prevLock) { prevLock = r.lock; held = s.t; firstFoe = null; }
-      if (!r.lock) { prevY = null; continue; }
-      const foe = r.foes[r.lock];
-      if (!foe || foe.dead) { prevY = null; continue; }
-      if (r.state === "staggered" || r.state === "attacking" || r.state === "shoving" || r.state === "dead") { prevY = null; continue; }
-      if (s.t - held < SETTLE || s.t - awake < SETTLE || r.bl < 0.98) { prevY = null; continue; }
-      worst = Math.max(worst, Math.abs(wrap(Math.atan2(foe.x - r.x, foe.z - r.z) - s.y)));
-      if (prevY !== null) yawTravel += Math.abs(wrap(s.y - prevY));
-      prevY = s.y;
-      n++; id = r.lock;
-      if (!firstFoe) firstFoe = { ...foe };
-      moved = Math.max(moved, Math.hypot(foe.x - firstFoe.x, foe.z - firstFoe.z));
-      // Did the fight take the yaw the lock asked for? Compared against an ask
-      // old enough to have been through a server tick and back.
+      if (!r || r.t > s.t) { close(); continue; }
+      if (r.lock !== prevLock) { prevLock = r.lock; held = s.t; close(); }
+      const foe = r.lock && r.foes[r.lock];
+      if (!foe || foe.dead
+        || r.state === "staggered" || r.state === "attacking" || r.state === "shoving" || r.state === "dead"
+        || s.t - held < SETTLE || s.t - awake < SETTLE || !(r.bl >= 0.98)) { close(); continue; }
+      const bear = Math.atan2(foe.x - r.x, foe.z - r.z);
+      if (!cur) cur = { n: 0, t0: s.t, t1: s.t, worst: 0, yawTravel: 0, demand: 0, adopt: 0, moved: 0, id: r.lock, py: null, pb: null, f0: { ...foe } };
+      if (cur.py !== null) {
+        cur.yawTravel += Math.abs(wrap(s.y - cur.py));
+        // What the man's own motion asked the camera to do. The camera's turn
+        // is only evidence that the LOCK did the work if it is set against
+        // this: "turned 0.15 rad" is a number that means one thing over half a
+        // second and another over three, and it was being read over whichever
+        // stretch the box happened to hand over.
+        cur.demand += Math.abs(wrap(bear - cur.pb));
+      }
+      cur.py = s.y; cur.pb = bear; cur.n++; cur.t1 = s.t;
+      cur.worst = Math.max(cur.worst, Math.abs(wrap(bear - s.y)));
+      cur.moved = Math.max(cur.moved, Math.hypot(foe.x - cur.f0.x, foe.z - cur.f0.z));
+      // Did the fight take the yaw the lock asked for? Against an ask old
+      // enough to have been through a server tick and back.
       for (let j = k; j >= 0; j--) {
         if (ups[j].t > r.t - LOCK_DT_CLAMP) continue;
         if (ups[j].t < r.t - 2 * LOCK_DT_CLAMP) break;
-        adopt = Math.max(adopt, Math.abs(wrap(r.rot - ups[j].y)));
+        cur.adopt = Math.max(cur.adopt, Math.abs(wrap(r.rot - ups[j].y)));
         break;
       }
     }
-    return { worst, n, yawTravel, moved, id, adopt, updates: ups.length, starved, longest };
+    close();
+    const good = (v) => v.n >= want && v.moved > 0.8 && v.demand > 0.15;
+    const best = spans.find(good) || spans.sort((x, y) => y.n - x.n)[0] || null;
+    return {
+      n: best ? best.n : 0, worst: best ? best.worst : 0, yawTravel: best ? best.yawTravel : 0,
+      demand: best ? best.demand : 0, moved: best ? best.moved : 0, adopt: best ? best.adopt : 0,
+      id: best ? best.id : null, secs: best ? (best.t1 - best.t0) / 1000 : 0,
+      updates: ups.length, spans: spans.length, starved, longest,
+    };
   };
 };
 
@@ -609,17 +633,18 @@ async function lockAct(browser, url, check) {
     let read = null;
     /**
      * WANTED is the sample the assertion needs, and the loop below now WAITS
-     * for it rather than timing a window and hoping. Twenty-four consecutive
-     * lock updates is about four hundred milliseconds of controller time — the
-     * old read asked for eight readings and took whatever a fixed 2.6 s window
-     * happened to contain, which on a stalled box was eight copies of three
-     * stale ones. Raising the sampler to meet the bar is the only honest
-     * direction to move a flaky assertion in; the bar itself is unchanged.
+     * for it rather than timing a window and hoping. Seventy-two consecutive
+     * lock updates is about one and a quarter seconds of unbroken controller
+     * time — against the eight readings the old assertion asked for, which it
+     * took from whatever a fixed 2.6 s window happened to contain and which on
+     * a stalled box was eight copies of three stale ones. Raising the sampler
+     * to meet the bar is the only honest direction to move a flaky assertion
+     * in; the facing bar itself is untouched at 0.5 rad.
      *
      * Held open, as before, until the locked man has actually gone somewhere.
      * A lock that "held facing" on a man stood still has proved nothing.
      */
-    const WANTED = 24;
+    const WANTED = 72;
     for (let i = 0; i < 8; i++) {
       await waitForAlive().catch(() => {});
       const mark = await now();
@@ -628,10 +653,13 @@ async function lockAct(browser, url, check) {
       // needs, and if the fight will not supply a moving locked man inside
       // twenty seconds the attempt is abandoned and another one is started.
       await page.waitForFunction(
-        ([t, want]) => { const r = window.__lockRead(t); return r.n >= want && r.moved > 0.8; },
+        ([t, want]) => {
+          const r = window.__lockRead(t, want);
+          return r.n >= want && r.moved > 0.8 && r.demand > 0.15;
+        },
         [mark, WANTED], { timeout: 20000, polling: 250 },
       ).catch(() => {});
-      read = await page.evaluate((t) => window.__lockRead(t), mark);
+      read = await page.evaluate(([t, want]) => window.__lockRead(t, want), [mark, WANTED]);
       if (process.env.TOUCH_DIAG) {
         const raw = await page.evaluate((t) => ({
           frames: window.__probe.frames.filter((f) => f.t >= t),
@@ -639,18 +667,19 @@ async function lockAct(browser, url, check) {
         }), mark);
         writeFileSync(resolve(process.env.TOUCH_DIAG, `lockA-${Date.now()}-${i}.json`), JSON.stringify(raw));
       }
-      if (read.n >= WANTED && read.moved > 0.8) break;
+      if (read.n >= WANTED && read.moved > 0.8 && read.demand > 0.15) break;
     }
     check("the lock holds facing on a moving target with no thumb on the button side",
-      read && read.n >= WANTED && read.moved > 0.8 && read.worst < 0.5
-        && read.yawTravel > 0.15 && read.adopt < 0.5,
+      read && read.n >= WANTED && read.moved > 0.8 && read.demand > 0.15
+        && read.worst < 0.5 && read.yawTravel > read.demand * 0.7 && read.adopt < 0.5,
       read
-        ? `over ${read.n} lock updates the locked man travelled ${read.moved.toFixed(2)} units and the camera turned `
-          + `${(read.yawTravel * 57.3).toFixed(0)}° to stay on him; worst facing error ${(read.worst * 57.3).toFixed(1)}° `
-          + `(a thumb was nowhere near the glass), and the fight took the yaw it asked for to within `
-          + `${(read.adopt * 57.3).toFixed(1)}°. ${read.updates} updates were offered and ${read.starved} followed a `
-          + `main-thread block past the lock's own 0.1 s dt clamp (longest ${read.longest.toFixed(0)} ms), which is the box `
-          + `and not the lock, so they are not graded`
+        ? `over ${read.n} unbroken lock updates (${read.secs.toFixed(1)}s) the locked man travelled `
+          + `${read.moved.toFixed(2)} units, which asked the camera for ${(read.demand * 57.3).toFixed(0)}° of turn; it `
+          + `turned ${(read.yawTravel * 57.3).toFixed(0)}° and its worst facing error was `
+          + `${(read.worst * 57.3).toFixed(1)}° (a thumb was nowhere near the glass), and the fight took the yaw it `
+          + `asked for to within ${(read.adopt * 57.3).toFixed(1)}°. ${read.updates} updates were offered across `
+          + `${read.spans} gradeable spans; ${read.starved} followed a main-thread block past the lock's own 0.1 s dt `
+          + `clamp (longest ${read.longest.toFixed(0)} ms), which is the box and not the lock, so they are not graded`
         : "no lock updates");
   }
 
