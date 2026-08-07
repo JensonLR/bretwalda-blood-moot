@@ -98,6 +98,7 @@ for (const l of LIGHTS) { const n = Math.hypot(...l.d); l.d = l.d.map((v) => v /
 const AMBIENT = 0.30;
 
 const IDS = argv.includes("--ids");
+const MATTE = flag("matte", null);
 const LEGEND = new Map();
 const hue = (i) => {
   const h = (i * 0.61803398875) % 1, s = 0.72, v = 0.95;
@@ -144,6 +145,10 @@ function render(root, lens, turnDeg) {
     if (!pos || !nrm) return;
     const mat = Array.isArray(o.material) ? o.material[0] : o.material;
     let mc = mat?.color ? [mat.color.r, mat.color.g, mat.color.b] : [0.7, 0.7, 0.7];
+    // --matte <hex>: everything that is NOT this material goes to a flat dark
+    // grey, so one garment can be looked at on its own without being unpicked
+    // from the man wearing it.
+    if (MATTE && mat?.color?.getHexString?.() !== MATTE) mc = [0.115, 0.12, 0.135];
     if (IDS) {
       // False colour by material identity, so "which surface am I looking at"
       // is answerable without guessing from a tone. The legend goes to stdout.
