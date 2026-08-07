@@ -205,13 +205,22 @@ async function main() {
   await page.waitForSelector("canvas", { timeout: 120000 });
   await page.mouse.click(SCREEN.width / 2, SCREEN.height - 80).catch(() => { });
 
+  // The forge takes about eight seconds to raise the sky and the countdown is
+  // three, so the count and the round's own grace both run out BEHIND the
+  // loader — measured here at t+4.0 s for the arena's first frame. That is the
+  // owner's report explained: he never sees the countdown, he sees the arena
+  // arrive with everybody still strobing on a grace whose clock had only just
+  // started. So the grace worth photographing is a live one — a dodge, well
+  // past the loader, with the plates on screen and something to compare to.
   await shot("1-first-sight", "the arena's first frame",
-    "(p) => !!p.lastState && !document.body.innerText.includes('RAISING THE SKY')"
+    "(p) => !!p.lastState && !!document.querySelector('canvas')"
     + " && !document.body.innerText.includes('THE FORGE')");
-  await shot("2-grace", "a warrior under grace",
-    "(p) => p.phase === 'fighting' && Object.values(p.lastState.players).some((q) => q.invincible)");
-  await shot("3-after", "grace spent",
-    "(p) => p.phase === 'fighting' && Object.values(p.lastState.players).every((q) => !q.invincible)");
+  await shot("2-grace", "a warrior under grace, mid-fight",
+    "(p) => p.phase === 'fighting' && p.lastState.matchTimer > 9"
+    + " && Object.values(p.lastState.players).some((q) => q.invincible)");
+  await shot("3-after", "the same plates, no grace",
+    "(p) => p.phase === 'fighting' && p.lastState.matchTimer > 13"
+    + " && Object.values(p.lastState.players).every((q) => !q.invincible)");
 
   await browser.close();
 }
