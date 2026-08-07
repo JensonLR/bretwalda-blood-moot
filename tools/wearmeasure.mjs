@@ -128,6 +128,76 @@ const SEAT_MM = 28;
 const FLOAT_MM = 34;
 const THRU_MM = 0.5;      // half a millimetre of slop for the radial table's bins
 
+// ============================================================
+// 3. THE GROUNDED PIECES — and why section 2 could say "10/10 seated" while
+//    the owner was looking at wings.
+//
+// "The helmets don't seem any better either theres a lot of raised floating
+// aspects." Nasal, Spectacle, Boar-Crest, Jarl's Crowned and Wyrm-Crest all
+// showed a pale curved flange flaring out and up from the side of the head,
+// standing clear of the face with daylight between it and the cheek. Section 2
+// passed every one of them, and it was not lying: it measures FOLD, SKIN
+// THROUGH, and the lift number the AUTHOR WROTE. None of those three can see a
+// plate that is welded to the head at its hinge, obeys every standoff bar in
+// the file, and then leaves the skull at 35 degrees on its way down.
+//
+// Worse, two of the five pieces were not measured AT ALL. The warden's neck
+// flange carried no tag, so `helmFitProbe` skipped it as if it were hair; the
+// nape fall is swept on its own rings with a bare `patch`, so the spy — which
+// only taps `headWear` — never saw a single vertex of it. For four of the ten
+// rungs the largest sheet of metal on the helmet was outside the gate. Both are
+// now inside it.
+//
+// So this section measures the three things an eye measures on a hanging plate:
+//
+//   GAP    the widest daylight between the metal's INNER wall and the skin. A
+//          liner is 8-12 mm and a mail gap under a jaw is another 10, so the
+//          bar is 26 mm. Past that you are not looking at a helmet, you are
+//          looking THROUGH one.
+//   FLARE  the angle the plate's surface makes with the head's, along the
+//          direction it hangs in. Zero is a plate lying on the skull; 45 deg is
+//          a plate that moves a millimetre off the head for every millimetre it
+//          travels down it. That is a wing, and it is precisely what the owner
+//          is pointing at. The bar is 22 deg, which still allows the brim's
+//          overhang and a guard swinging clear of the mandible.
+//   HEM    the standoff at the LOWER of the plate's two edges. A hanging plate
+//          is furthest from the head at its hinge and closest at its hem; one
+//          that is furthest at its hem is not hanging, it is flaring. 26 mm.
+//
+// Crests, combs, bristle and bowls are exempt: they are silhouette, they are
+// what the player is buying, and nothing about them hangs. Everything that is
+// supposed to follow a jaw, a nape or a shoulder is here.
+const GROUNDED = /cheek|flange|nape|aventail|neck/;
+const GAP_MM = 26;
+const FLARE_DEG = 22;
+const HEM_MM = 26;
+
+// TWO THINGS THIS RULER CANNOT SEE, stated rather than tuned around.
+//
+// It measures metal against FLESH, and in two places in the shop there is
+// something legitimately in between:
+//
+//   - the Sutton Hoo's cheek guards lap a formed face mask. `SEAT_MM` above
+//     already carries the same 15 mm allowance for the same plate and the same
+//     reason; these two bars carry 12.
+//   - the huscarl's nape fall lies on his mail coif, which stands up to 45 mm
+//     off the skull by the time it reaches the shoulder. A plate OVER an
+//     aventail is the correct construction — it is what the finds show and what
+//     the note above the fall spent a paragraph getting right — so a gate that
+//     failed it would be demanding the plate be built inside the mail. The fall
+//     is still gated, on the three classes that wear no coif, through the same
+//     lines of the same build; what is dropped is one class's reading of one
+//     tag, not the tag.
+//
+// Folding the coif into the radial table was tried and is the wrong answer: a
+// 30x9 ring rasterised into a 192x96 table leaves empty bins, the gap function
+// goes discontinuous across them, and the flare it reports is 84 deg of pure
+// aliasing. A hole in the ruler is worse than a gap in its coverage, because
+// the hole reports a number.
+const MASK_ALLOW = 12;
+const allowance = (helm, tag) => (helm === "suttonhoo" && /cheek/.test(tag) ? MASK_ALLOW : 0);
+const blind = (cls, tag) => cls === "huscarl" && /nape/.test(tag);
+
 const helms = ONLY ? [ONLY] : HELM_VALUES;
 const seeds = [];
 for (let i = 0; i < SEEDS; i++) seeds.push(i * 7919 + 13);
@@ -139,10 +209,14 @@ console.log("[wear] helm         shells  fold%   thru mm   seat mm  float mm  wo
 console.log("[wear] ---------------------------------------------------------------------");
 
 const fails = [];
+const ground = [];
 let measured = 0;
 for (const helm of helms) {
   let nShell = 0, fold = 0, thru = 0, seat = 0, float = 0;
   let foldTag = "-", thruTag = "-", seatTag = "-", floatTag = "-";
+  let gap = 0, flare = 0, hem = 0, nGround = 0;
+  let gapTag = "-", flareTag = "-", hemTag = "-";
+  const seen = new Set();
   for (const cls of CLASSES) {
     for (const seed of seeds) {
       const r = helmFitProbe(cls, seed, helm);
@@ -153,9 +227,21 @@ for (const helm of helms) {
         if (sh.throughMm > thru) { thru = sh.throughMm; thruTag = sh.tag; }
         if (sh.minLiftMm > seat) { seat = sh.minLiftMm; seatTag = sh.tag; }
         if (FURNITURE.test(sh.tag) && sh.standoffMm > float) { float = sh.standoffMm; floatTag = sh.tag; }
+        if (!GROUNDED.test(sh.tag)) continue;
+        if (!seen.has(sh.tag)) { seen.add(sh.tag); nGround++; }
+        if (blind(cls, sh.tag)) continue;
+        const a = allowance(helm, sh.tag);
+        if (sh.gapMm - a > gap) { gap = sh.gapMm - a; gapTag = sh.tag; }
+        if (sh.flareDeg > flare) { flare = sh.flareDeg; flareTag = sh.tag; }
+        if (sh.hemMm - a > hem) { hem = sh.hemMm - a; hemTag = sh.tag; }
       }
     }
   }
+  const gbad = [];
+  if (gap > GAP_MM) gbad.push(`${gapTag} opens ${gap.toFixed(1)} mm of daylight`);
+  if (flare > FLARE_DEG) gbad.push(`${flareTag} flares ${flare.toFixed(1)} deg off the skull`);
+  if (hem > HEM_MM) gbad.push(`${hemTag} hem stands ${hem.toFixed(1)} mm out`);
+  ground.push({ helm, nGround, gap, flare, hem, gapTag, flareTag, hemTag, bad: gbad });
   const bad = [];
   if (fold > 0) bad.push(`fold ${(fold * 100).toFixed(1)}% on ${foldTag}`);
   if (thru > THRU_MM) bad.push(`skin ${thru.toFixed(1)} mm through ${thruTag}`);
@@ -175,4 +261,29 @@ console.log(`[wear] ${measured} helmet-on-head builds measured ` +
 console.log(`[wear] bars: fold 0%, skin-through ${THRU_MM} mm, seat ${SEAT_MM} mm, float ${FLOAT_MM} mm on face furniture`);
 for (const f of fails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${fails.length ? "FAIL" : "PASS"}: ${helms.length - fails.length}/${helms.length} helmets seated`);
-process.exit(fails.length ? 1 : 0);
+
+// ============================================================
+// 3. GROUNDED PIECES — the gate section 2 could not be
+// ============================================================
+console.log("");
+console.log("[wear] 3. GROUNDED PIECES — cheek guards, flanges and nape falls.");
+console.log("[wear]    A hanging plate follows the head down. These three say whether it does.");
+console.log("");
+console.log("[wear] helm         parts   gap mm  flare deg   hem mm  worst part");
+console.log("[wear] ---------------------------------------------------------------------");
+const gfails = [];
+for (const g of ground) {
+  if (g.bad.length) gfails.push(`${g.helm}: ${g.bad.join("; ")}`);
+  const worst = g.flare > FLARE_DEG ? g.flareTag : g.hem > HEM_MM ? g.hemTag : g.gap > GAP_MM ? g.gapTag : "-";
+  console.log(
+    `[wear] ${g.helm.padEnd(12)} ${String(g.nGround).padStart(4)}  ` +
+    `${g.gap.toFixed(1).padStart(7)}  ${g.flare.toFixed(1).padStart(9)}  ` +
+    `${g.hem.toFixed(1).padStart(7)}  ${worst}${g.bad.length ? "   <-- FAIL" : ""}`);
+}
+console.log("");
+console.log(`[wear] bars: gap ${GAP_MM} mm, flare ${FLARE_DEG} deg, hem ${HEM_MM} mm`);
+for (const f of gfails) console.log(`[wear] FAIL ${f}`);
+const nG = ground.filter((g) => g.nGround > 0).length;
+console.log(`[wear] ${gfails.length ? "FAIL" : "PASS"}: ` +
+  `${nG - gfails.length}/${nG} helmets with hanging plates keep them on the head`);
+process.exit(fails.length + gfails.length ? 1 : 0);
