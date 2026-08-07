@@ -7650,6 +7650,213 @@ function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail:
  * from it: a preview that reshuffled its own face every time you tried a helmet on
  * would be unusable.
  */
+
+// ============================================================
+// HAIR AGAINST WHAT IS WORN OVER IT — the ruler for the head stack
+// ============================================================
+//
+// `helmFitProbe` measures metal against flesh. It cannot see hair at all, and
+// that is exactly the blind spot the owner was looking into: `wearmeasure` has
+// reported "10/10 helmets seated" through every wave in which a 320 mm mane
+// hung inside a mail coif and a ring of 30 mm coils stood through a hood. Four
+// hairstyles times ten helms is forty combinations, and nobody is going to
+// re-check forty of anything by eye, so it has to be arithmetic.
+//
+// THE MEASUREMENT. Everything worn on a head is star-shaped about the skull's
+// own centre in the region where it can overlap hair — a bowl, a cowl, an
+// aventail. So the covering geometry is rasterised into a RADIAL TABLE: for
+// each direction, the smallest radius any covering triangle reaches, which is
+// its INNER WALL. Then every hair vertex is looked up in that table. A hair
+// vertex whose radius exceeds the inner wall in its own direction is outside
+// the garment, and that is hair through a helmet, in millimetres, with no
+// judgement in it.
+//
+// TWO TRAPS, both of which a coarser version of this walked into:
+//
+//   * THE RIM. A bin that straddles a garment's lower edge holds the inner wall
+//     from above the edge and hair from below it, and reports the hair as
+//     through. Hair emerging from under a rim is the thing this file spent a
+//     whole pass ADDING, so a ruler that fails it is worse than none. Only bins
+//     whose four neighbours are all covered are read — a rim is one bin wide at
+//     2.5 degrees, so this drops the ambiguous ring and keeps every interior
+//     point of the garment.
+//   * WHICH MESH IS WHICH. Nothing is tagged, so the three sets are found by
+//     difference, on real builds: what appears when the helm goes on is the
+//     COVER; what appears when the hair goes on is the HAIR. That cannot drift
+//     from the game, because it is the game's own output being diffed.
+//
+// And it measures the other direction too. `showFrac` is the share of hair that
+// is OUTSIDE the garment's own solid angle — hair the player can see. A helm
+// that reports zero through and zero shown is not passing; it is a helmet on a
+// mannequin, and the bar below says so.
+
+export interface HairFit {
+  cls: string;
+  helm: string;
+  hair: string;
+  /** Hair vertices tested against a covered direction. */
+  verts: number;
+  /** Covering triangles rasterised into the radial table. */
+  coverTris: number;
+  /** The worst any hair vertex stands outside its cover's inner wall, mm. */
+  throughMm: number;
+  /** The share of covered hair vertices that are outside, 0..1. */
+  throughFrac: number;
+  /** The share of ALL hair vertices in directions no garment covers, 0..1. */
+  showFrac: number;
+  /** Where the worst point is: degrees off dead ahead, and degrees of latitude. */
+  worstAzDeg: number;
+  worstElDeg: number;
+}
+
+/** A tint no palette entry uses, so the hair's meshes can be told by colour. */
+const HAIR_PROBE_TINT = 0x2fe07a;
+
+/** Every mesh under the head pivot, as `hex -> world positions`. */
+function headMeshesByTint(root: THREE.Object3D): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  let pivot: THREE.Object3D | null = null;
+  root.traverse((o) => { if (!pivot && o.name === `${RIG_TAG}headPivot`) pivot = o; });
+  const from = (pivot ?? root) as THREE.Object3D;
+  from.updateMatrixWorld(true);
+  const v = new THREE.Vector3();
+  from.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mat = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshStandardMaterial;
+    const hex = mat?.color?.getHexString?.() ?? "??";
+    const pos = m.geometry?.attributes?.position;
+    if (!pos) return;
+    const idx = m.geometry.index;
+    let arr = out.get(hex);
+    if (!arr) { arr = []; out.set(hex, arr); }
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i < n; i++) {
+      const j = idx ? (idx.array[i] as number) : i;
+      v.fromBufferAttribute(pos, j).applyMatrix4(m.matrixWorld);
+      arr.push(v.x, v.y, v.z);
+    }
+  });
+  return out;
+}
+
+/**
+ * Does the hair fit under what is worn over it?
+ *
+ * Three builds at one seed: bare-headed, helmed-and-shaved, and dressed. The
+ * first two name the covering meshes by difference; the third supplies the hair.
+ */
+export function hairFitProbe(
+  cls: WarriorClass, seed: number, helm: string, hairStyle: string,
+): HairFit {
+  const base = { ...defaultAppearance(cls), beardStyle: "none", hairColor: HAIR_PROBE_TINT };
+  const build = (a: Partial<Appearance>) =>
+    headMeshesByTint(buildCharacter(cls, { ...base, ...a } as Appearance,
+      0x8a6b3f, undefined, "high", seed).group);
+
+  const bare = build({ helm: "none", hairStyle: "shaved" });
+  const capped = build({ helm, hairStyle: "shaved" });
+  const full = build({ helm, hairStyle });
+
+  const coverHex = [...capped.keys()].filter((h) => !bare.has(h));
+  const hairHex = HAIR_PROBE_TINT.toString(16).padStart(6, "0");
+
+  // The skull's centre, rebuilt through the same two lines `buildCharacter`
+  // used, because the stature step it quantises to scales the skeleton.
+  const step = Math.round(hash(seed, 31) * 2) - 1;
+  const B = BUILD[cls] ?? BUILD.warden;
+  const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
+  const cy = S.headY;
+
+  // 2.5 degrees a bin: a rim is one bin wide, and a bin is about 4 mm on this
+  // head — finer than any feature either layer has.
+  const NU = 144, NV = 72;
+  const inner = new Float64Array(NU * NV).fill(Infinity);
+  const binOf = (x: number, y: number, z: number): [number, number, number] => {
+    const dy = y - cy;
+    const r = Math.hypot(x, dy, z) || 1e-9;
+    const az = Math.atan2(x, z);
+    const el = Math.asin(Math.max(-1, Math.min(1, dy / r)));
+    let iu = Math.floor(((az + Math.PI) / (Math.PI * 2)) * NU);
+    let iv = Math.floor(((el + Math.PI / 2) / Math.PI) * NV);
+    iu = Math.max(0, Math.min(NU - 1, iu));
+    iv = Math.max(0, Math.min(NV - 1, iv));
+    return [iu, iv, r];
+  };
+  const put = (x: number, y: number, z: number) => {
+    const [iu, iv, r] = binOf(x, y, z);
+    const k = iv * NU + iu;
+    if (r < inner[k]!) inner[k] = r;
+  };
+  let coverTris = 0;
+  for (const hex of coverHex) {
+    const a = capped.get(hex)!;
+    for (let t = 0; t + 8 < a.length; t += 9) {
+      coverTris++;
+      const px = [a[t]!, a[t + 3]!, a[t + 6]!];
+      const py = [a[t + 1]!, a[t + 4]!, a[t + 7]!];
+      const pz = [a[t + 2]!, a[t + 5]!, a[t + 8]!];
+      // Seven samples a triangle — the corners, the edge midpoints and the
+      // centroid. A triangle sampled only at its corners leaves holes in the
+      // table wherever it is larger than a bin, and a hole in this ruler reads
+      // as "no cover here", which is the one answer it must never invent.
+      for (const [wa, wb, wc] of [
+        [1, 0, 0], [0, 1, 0], [0, 0, 1],
+        [0.5, 0.5, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [1 / 3, 1 / 3, 1 / 3],
+      ] as const) {
+        put(px[0]! * wa + px[1]! * wb + px[2]! * wc,
+            py[0]! * wa + py[1]! * wb + py[2]! * wc,
+            pz[0]! * wa + pz[1]! * wb + pz[2]! * wc);
+      }
+    }
+  }
+  // Only bins whose four neighbours are covered too. See the note on the rim.
+  const solid = new Uint8Array(NU * NV);
+  for (let iv = 1; iv < NV - 1; iv++) {
+    for (let iu = 0; iu < NU; iu++) {
+      const k = iv * NU + iu;
+      if (!Number.isFinite(inner[k]!)) continue;
+      const l = iv * NU + ((iu + NU - 1) % NU);
+      const r = iv * NU + ((iu + 1) % NU);
+      if (Number.isFinite(inner[l]!) && Number.isFinite(inner[r]!)
+        && Number.isFinite(inner[k - NU]!) && Number.isFinite(inner[k + NU]!)) solid[k] = 1;
+    }
+  }
+
+  const hairPts = full.get(hairHex) ?? [];
+  let verts = 0, through = 0, worst = 0, shown = 0, all = 0;
+  let worstAz = 0, worstEl = 0;
+  for (let i = 0; i + 2 < hairPts.length; i += 3) {
+    const [iu, iv, r] = binOf(hairPts[i]!, hairPts[i + 1]!, hairPts[i + 2]!);
+    const k = iv * NU + iu;
+    all++;
+    if (!Number.isFinite(inner[k]!)) { shown++; continue; }
+    if (!solid[k]) continue;
+    verts++;
+    const d = (r - inner[k]!) * 1000;
+    // 1.5 mm, which is one tessellation chord on the coarser of the two
+    // surfaces. Counting anything past half a millimetre counts the mesh rather
+    // than the fit, and a share that is mostly facets cannot be read as a hole.
+    if (d > 1.5) through++;
+    if (d > worst) {
+      worst = d;
+      worstAz = (iu + 0.5) / NU * 360 - 180;
+      worstEl = (iv + 0.5) / NV * 180 - 90;
+    }
+  }
+  return {
+    cls, helm, hair: hairStyle,
+    verts, coverTris,
+    throughMm: worst,
+    throughFrac: verts ? through / verts : 0,
+    showFrac: all ? shown / all : 0,
+    worstAzDeg: worstAz, worstElDeg: worstEl,
+  };
+}
+
+/** The hair rungs, so `wearmeasure` can sweep every one of them. */
+export const HAIR_VALUES: readonly string[] = ["shaved", "short", "long", "braids"];
+
 let FACE_SEQ = 0;
 
 export function buildCharacter(
@@ -9350,8 +9557,11 @@ export function buildCharacter(
   };
   /** Hair compressed under a shell that BEARS on the skull. A felt liner. */
   const HAIR_LINER = 0.005;
-  /** What one layer leaves clear under the inner wall of the layer above it. */
-  const LAYER_GAP = 0.003;
+  // What one layer leaves clear under the inner wall of the layer above it.
+  // 5 mm rather than 3: both surfaces are tessellated, and a garment's mesh
+  // chord dips inside the analytic curve this reads by up to 3 mm on a 0.4 rad
+  // row. A gap that only covers the mathematics is not a gap.
+  const LAYER_GAP = 0.005;
 
   // ---- where the iron is ----
   // The band's lower rim, hoisted out of the helm branch so the hair can read
@@ -9415,17 +9625,89 @@ export function buildCharacter(
    * at all, and that is the point: a ceiling that is Infinity below the rim is
    * what makes hair come OUT from under a helmet.
    */
+  //
+  // AND EVERY LIFT OVER THE HAIR IS MEASURED FROM THE FORM, NOT FROM THE SKIN.
+  // `helmWear` sweeps the bowl and the cowl on the low-passed head — that is
+  // what stopped the helms folding — and the skin stands up to 16 mm PROUD of
+  // that form over a brow ridge or an ear. So a cowl authored 25 mm off the
+  // form has 9 mm of room over an ear and 25 over a temple, and a ceiling that
+  // read the author's number would put hair through the cloth in exactly the
+  // places the head is lumpiest. `hairFitProbe` measured that as 4.6 mm through
+  // the hood and 8.0 mm through the Sutton Hoo before this term existed.
+  const _hcForm = helmForm(K);
+  const _hcA = new THREE.Vector3();
+  const _hcB = new THREE.Vector3();
+  /** How far the skin stands outside the form along this direction. */
+  const skinProud = (u: number, v: number): number => {
+    dirOf(u, v, _hcA);
+    faceSurface(K, _hcA, _hcA);
+    formSurface(_hcForm, u, v, _hcB);
+    return Math.max(0, _hcA.length() - _hcB.length());
+  };
   const hairCeil = (u: number, v: number): number => {
     let c = Infinity;
     if (hooded) {
       const a = hoodRim(u);
-      c = Math.max(0.003, hoodLift(u, clamp01((v - a) / (hoodCrown - a))) - HOOD_THICK - LAYER_GAP);
+      // Capped at 22 mm however much room the cowl's point leaves. The hood is
+      // three pieces — the cloth, the point behind the nape and the shoulder
+      // drape — and only the first of them is in this formula; at the nape all
+      // three overlap and the nearest of the three is the one the hair has to
+      // clear. `hairFitProbe` found 4.6 mm of hair through them at 169 degrees
+      // on two of the four classes. 22 mm is more volume than a head of hair
+      // has under a cowl anyway, so this costs nothing that can be seen.
+      c = Math.min(0.022, Math.max(0.002, hoodLift(u, clamp01((v - a) / (hoodCrown - a)))
+        - HOOD_THICK - LAYER_GAP - skinProud(u, v)));
     } else if (helmed && v > bandLo - 0.02) {
-      c = HAIR_LINER;
+      // THE WHOLE of the skin's proudness comes off, not the part of it past
+      // 4 mm. A bowl raised on the low-passed form has its inner wall 10 mm off
+      // THAT surface, and where the skin stands 9 mm proud of the form there is
+      // 1 mm of room, not 5. `hairFitProbe` reads the difference as 2.6 mm of
+      // Warrior Crop outside the Ridge-Helm's band on 3% of the shell.
+      c = Math.max(0.001, HAIR_LINER - skinProud(u, v));
     }
-    // The aventail is a bag the head goes into, and it laps the bowl at the
-    // temple, so it owns the whole of the back and sides below the band.
-    if (coifed && awayFromFace(u) > coifRim(0) - 0.16) c = Math.min(c, 0.008);
+    // AND THE BAND'S RIM IS NOT THE BOTTOM OF THE METAL. Eight of the ten rungs
+    // hang cheek guards off it, down the sides of the face to the jaw, so a
+    // hairline that has just been carried 26 mm further down the temple runs
+    // straight into them — `hairFitProbe` found 15.4 mm of hair standing
+    // through the Wyrm-Crest's deep guard at 39 degrees off dead ahead, on the
+    // berserker as well as the huscarl, which is how it was known not to be the
+    // coif. A guard is worn over a liner like everything else.
+    if (helmed && style.cheek !== "none"
+      && awayFromFace(u) > 0.45 && awayFromFace(u) < 1.60
+      && v < bandLo && v > -0.95) c = Math.min(c, HAIR_LINER);
+    // A nape fall or a neck guard hangs off the back of the band on five rungs,
+    // so the back is metal below the rim as well as above it. 2 mm rather than
+    // a liner's 5, and NEGATIVE. A fall is swept on its own rings rather than
+    // on the skull's field, so what it leaves under itself is whatever the
+    // rings happen to clear — on the Ridge-Helm that is about 4 mm at the top
+    // of the nape and on the Jarl's Crowned about 6, against a skull that has a
+    // 12 mm low-pass between it and the plate. `hairFitProbe` walked it: at
+    // +5 mm the crop stood 7.2 mm outside the Crowned's flange on 2.2% of the
+    // shell, at +1 mm it was 1.7 mm on 3.1%, and at -5 it is nothing. Hair
+    // under a nape fall cannot be seen from any bearing, so the shell is
+    // deliberately put inside the skin there rather than being deleted: the
+    // sweep stays continuous with the hair either side of it, and a continuous
+    // sweep is the whole reason this file authors one surface instead of two.
+    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.58 && v < bandLo + 0.28) {
+      c = Math.min(c, -0.005);
+    }
+    // THE AVENTAIL, read off its own rings rather than guessed at. It is a bag
+    // the head goes into and it laps the bowl at the temple, so it owns the
+    // whole of the back and sides; but it is swept on horizontal rings, not on
+    // the skull's field, so how much room it leaves is a function of where the
+    // skull is inside it and that varies from 20 mm at the temple to 4 mm at
+    // the top of the nape. A flat 8 mm was measured at 4-13 mm of hair through
+    // the mail at 141-180 degrees on every huscarl rung that wears one. The z
+    // offset of each ring is dropped on purpose: it carries the mail BACKWARDS,
+    // which at the nape is further from the skull, so leaving it out can only
+    // under-state the room.
+    if (coifed && awayFromFace(u) > coifRim(0) - 0.16) {
+      dirOf(u, v, _hcA);
+      faceSurface(K, _hcA, _hcB);
+      const y = _hcB.y + skullY;
+      const mail = Math.hypot(Math.sin(u) * coifAt(y, "hw"), Math.cos(u) * coifAt(y, "hd"));
+      c = Math.min(c, Math.max(0.002, mail - Math.hypot(_hcB.x, _hcB.z) - LAYER_GAP));
+    }
     return c;
   };
   /**
@@ -9873,6 +10155,15 @@ export function buildCharacter(
             // of spheres the audit condemned in the war-locks under another name.
             const u = (i / N) * Math.PI * 2 + 0.14 * Math.cos(i * 2.7 + rise * 9);
             if (helmed && awayFromFace(u) < 0.50) continue;
+            // A cowl is three overlapping pieces at the nape — the cloth, the
+            // point behind it and the shoulder drape — and the nearest of the
+            // three is the one a coil has to clear, which no single lift
+            // function knows. `hairFitProbe` measured 4.6 mm of curl standing
+            // out of the back of the Shadow Hood on two classes at one seed. A
+            // hood shows the FRINGE at its opening and nothing else; behind the
+            // temple there is no bearing from which a lock could be seen even
+            // if it fitted, so nothing is built there.
+            if (hooded && awayFromFace(u) > 0.95) continue;
             const v = line(u) + rise + 0.05 * Math.cos(i * 3.9 + rise);
             if (v > Math.PI / 2 - 0.12) continue;
             // A coil's crest stands 0.38 of its length plus a strand radius off
@@ -9905,7 +10196,11 @@ export function buildCharacter(
             // curl, it is a bristle — the barbs the note above spent a paragraph
             // getting rid of — so below that it does not exist.
             if (Number.isFinite(room)) {
-              const k = Math.min(1, room / (0.38 * len + rad));
+              // 0.82 of the room, not all of it. The crest estimate is exact on
+              // the analytic curve and the coil is a swept tube on a 6-row
+              // spine; the difference is a couple of millimetres and it was
+              // measurable — 4.6 mm through the Shadow Hood at the nape.
+              const k = Math.min(1, (room * 0.82) / (0.38 * len + rad));
               if (k < 0.45) continue;
               len *= k; rad *= k;
             }
@@ -10002,6 +10297,20 @@ export function buildCharacter(
           return 0.17 - 0.34 * a * a;
         };
         const maneRoot = (u: number) => Math.max(maneDome(u), line(u));
+        // How much mane there is at an azimuth, once the taper and the stack
+        // have both had their say. Held as its own function because the sweep
+        // has to be able to ask whether there is ANY mane left before it builds
+        // one: with `mass` at zero the `hangingMass` sweep degenerates to a
+        // ribbon lying on the skin, and the skin has an EAR on it, which stands
+        // 5 mm outside the inner wall of a cowl raised on the low-passed form.
+        // `hairFitProbe` reported exactly that — 4.6 mm of hair through the
+        // Shadow Hood on 57 vertices of a mane that was already invisible.
+        // Nothing is the right amount of geometry for nothing.
+        const maneMass = (u: number) => hairFall(u)
+          * Math.pow(1 - smooth(0.95, 1.99, Math.abs(u - Math.PI)), 0.95);
+        let live = 0;
+        for (let i = 0; i <= 48; i++) live = Math.max(live, maneMass(mix(Math.PI - 2.02, Math.PI + 2.02, i / 48)));
+        if (live >= 0.06)
         p.add(hangingMass(K, skullY, Math.max(30, lod.shellU + 18), maneRoot, {
           // Temple round to temple. Wider than the beard's arc by a long way:
           // hair falls from the whole back half of the head, and stopping it at
@@ -10035,8 +10344,7 @@ export function buildCharacter(
           // hood took it through the point at the back. An open helm takes none
           // of it: the mane roots under the band and hangs clear, which is the
           // "hair must come out from under them" the helm pass established.
-          mass: (u) => hairFall(u)
-            * Math.pow(1 - smooth(0.95, 1.99, Math.abs(u - Math.PI)), 0.95),
+          mass: maneMass,
           // THE PARTING. A centre part runs front to back over the crown, so
           // what the back of the head shows is two masses meeting on the
           // midline. A 34% trough 0.26 rad wide at the nape is that meeting,
@@ -10087,7 +10395,25 @@ export function buildCharacter(
           // enough forward that it swings past the jaw rather than down the
           // neck.
           const rootU = s2 * 1.28;
-          if (hairFall(rootU) < 0.35) continue;
+          // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN. The plait roots
+          // above the ear and falls 350 mm past the jaw, which on six of the
+          // ten rungs is straight down the outside of a hinged plate: the ruler
+          // read 18.8 mm of it through the Spectacle's guard, 111 mm through
+          // the Wyrm-Crest's deep pair and 200 mm through the Sutton Hoo's
+          // ventail, on the berserker, who wears no coif at all — so this is
+          // the plates rather than the mail and it needed its own rule. Where
+          // the sides of a helmet close, a plait is inside them.
+          if (style.cheek !== "none") continue;
+          // 0.85, not 0.35, and the ruler is why. A plait is not a mass that
+          // thins out at the edge of a garment the way the mane does — it is one
+          // discrete 35 mm rope hanging 350 mm, so it is either wholly outside
+          // the mail or wholly inside it. At 0.35 the huscarl kept both of his
+          // and `hairFitProbe` measured 97 mm of plait standing through the
+          // Wyrm-Crest's coif and 186 mm through the Sutton Hoo's. You cannot
+          // wear an aventail over a war-lock; the coif goes on over the head and
+          // the hair is inside it, which is what every find and every ruler in
+          // this file agrees on.
+          if (hairFall(rootU) < 0.85) continue;
           const rootV = 0.16;
           dirOf(rootU, rootV, bRoot);
           faceNormalTrue(K, rootU, rootV, bNrm);
