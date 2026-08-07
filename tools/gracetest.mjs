@@ -76,7 +76,7 @@ function record(ms) {
 // so a frame sees a packet the server sent a quarter-second ago — the phone
 // case. Returns one row per frame: the phase the client believed, and the
 // drawn mark for every warrior, eased exactly as `hud3d.ts` eases it.
-function replay(log, fps, lateMs = 0) {
+function replay(log, fps, lateMs = 0, blind = false) {
   const dt = 1 / fps;
   const end = log[log.length - 1].t;
   const drawn = new Map();
@@ -88,7 +88,13 @@ function replay(log, fps, lateMs = 0) {
     if (!held) continue;
     const row = { ms, state: held.state, marks: {}, target: 0 };
     for (const p of Object.values(held.players)) {
-      const target = underGrace(p, held.state) ? 1 : 0;
+      // `blind` is the client this change replaces: it read the untouchable
+      // flag alone, with no idea what phase the room was in. Replaying through
+      // it proves the PACKET STREAM is clean rather than merely that today's
+      // renderer filters it — so a future renderer that forgets the phase gate
+      // still cannot resurrect the flashing, and this harness still fails if
+      // the server ever arms grace against a stopped clock again.
+      const target = (blind ? !!p.invincible : underGrace(p, held.state)) ? 1 : 0;
       const next = easeGrace(drawn.get(p.id) ?? 0, target, dt);
       drawn.set(p.id, next);
       row.marks[p.id] = next;
@@ -172,9 +178,11 @@ for (const [label, fps, late] of [["60 fps", 60, 0], ["4 fps", 4, 0], ["quarter-
   const cdFrames = frames.filter((f) => f.state === "countdown");
   const worstCd = cdFrames.reduce((m, f) => Math.max(m, maxMark(f)), 0);
 
+  const blindCd = replay(log, fps, late, true).filter((f) => f.state === "countdown");
+  const worstBlind = blindCd.reduce((m, f) => Math.max(m, maxMark(f)), 0);
   check(`nothing is drawn on any countdown frame, including the last (${label})`,
-    cdFrames.length > 0 && worstCd === 0,
-    `${cdFrames.length} countdown frames, worst mark ${worstCd}`);
+    cdFrames.length > 0 && worstCd === 0 && worstBlind === 0,
+    `${cdFrames.length} frames; worst mark ${worstCd} phase-gated, ${worstBlind} phase-blind`);
 
   // Across the boundary and through the grace, the mark may only climb. Any
   // fall here is a residue of the countdown fading out inside the fight, which
