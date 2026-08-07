@@ -1360,6 +1360,9 @@ function stationAlong(sts: Station[], y: number): Station {
   return { y, hw: mix(a.hw, b.hw, t), hd: mix(a.hd, b.hd, t), z: mix(a.z ?? 0, b.z ?? 0, t) };
 }
 
+const _laceA = new THREE.Vector3();
+const _laceB = new THREE.Vector3();
+
 /** One seated fitting as the build placed it, for `bodyFitProbe`. */
 interface FitRecord { tag: string; carrier: FitCarrier; pts: THREE.Vector3[] }
 let _fitSpy: FitRecord[] | null = null;
@@ -6488,7 +6491,15 @@ export function bodyFitProbe(cls: WarriorClass, seed: number, cloak?: string): B
   const surf = new THREE.Vector3();
   const nrm = new THREE.Vector3();
   const d = new THREE.Vector3();
-  return spy.map((rec) => {
+  // One row per TAG, not per primitive. A penannular brooch is a ring, a shank
+  // and a head; a buckle is five bars; and the owner's question about any of
+  // them is whether THE OBJECT is lying on the man, not whether its own boss is
+  // lying on its own dome. So pieces that share a tag are one assembly: the
+  // standoff is the closest approach of any of them and the sink is the deepest.
+  // Reporting them separately would have every clasp fail on the stud that is
+  // correctly standing on the disc below it.
+  const out = new Map<string, BodyFit>();
+  for (const rec of spy) {
     let lo = Infinity;
     let hi = -Infinity;
     for (const q of rec.pts) {
@@ -6517,14 +6528,17 @@ export function bodyFitProbe(cls: WarriorClass, seed: number, cloak?: string): B
       if (signed < lo) lo = signed;
       if (signed > hi) hi = signed;
     }
-    return {
-      tag: rec.tag,
-      standoffMm: Math.max(0, lo) * 1000,
-      sinkMm: Math.max(0, -lo) * 1000,
-      // `hi` is only here so a fitting with no vertices cannot report a pass.
-      ...(hi === -Infinity ? { standoffMm: 999, sinkMm: 0 } : {}),
-    };
-  });
+    // A fitting with no vertices at all cannot be allowed to report a pass.
+    const stand = hi === -Infinity ? 999 : Math.max(0, lo) * 1000;
+    const sink = hi === -Infinity ? 0 : Math.max(0, -lo) * 1000;
+    const prevRow = out.get(rec.tag);
+    if (!prevRow) out.set(rec.tag, { tag: rec.tag, standoffMm: stand, sinkMm: sink });
+    else {
+      prevRow.standoffMm = Math.min(prevRow.standoffMm, stand);
+      prevRow.sinkMm = Math.max(prevRow.sinkMm, sink);
+    }
+  }
+  return [...out.values()];
 }
 
 /** What `tools/wearmeasure.mjs` §4 reads to decide the hands are on right. */
@@ -9097,9 +9111,18 @@ export function buildCharacter(
         for (let i = 0; i < 4; i++) {
           const y = mix(S.chestY + 0.055, S.waistY + 0.02, (i + 0.5) / 4);
           const jerkin: FitCarrier = { st: (yy: number) => at(yy, 0.024), power: 2.3 };
-          const edge = shellPoint(jerkin, y, Math.PI / 2 - openGap, new THREE.Vector3());
-          fitAdd(p, "jerkin-lace", jerkin, box(edge.x * 2.05, 0.0075, 0.006), hide,
-            seatXf(jerkin, y, Math.PI / 2, 0.003, (i % 2 ? 1 : -1) * 0.16));
+          // Three short rungs rather than one plank: a 185 mm bar laid flat
+          // across a 2.3-power chest stands 7 mm off it at the ends whatever its
+          // anchor is, which is the same fault as the baldric's long segments.
+          const rung = 3;
+          const arcW = (2 * openGap) / rung;
+          for (let j = 0; j < rung; j++) {
+            const azr = Math.PI / 2 - openGap + arcW * (j + 0.5);
+            const w = shellPoint(jerkin, y, Math.PI / 2 - openGap + arcW * j, _laceA)
+              .distanceTo(shellPoint(jerkin, y, Math.PI / 2 - openGap + arcW * (j + 1), _laceB));
+            fitAdd(p, "jerkin-lace", jerkin, box(w * 1.12, 0.0075, 0.006), hide,
+              seatXf(jerkin, y, azr, 0.003, (i % 2 ? 1 : -1) * 0.16));
+          }
           for (const s of [-1, 1]) {
             fitAdd(p, "jerkin-eyelet", jerkin, ring(0.0055, 0.0022, 4, 8), brass,
               seatXf(jerkin, y, Math.PI / 2 - s * openGap, 0.0022, 0, 1, 1, 0.6));
@@ -9239,14 +9262,14 @@ export function buildCharacter(
     const bkY = 0.019;
     const front = Math.PI / 2;
     for (const s of [-1, 1]) {
-      fitAdd(p, "buckle-upright", beltC, box(0.006, bkY * 2 + 0.011, 0.010), brass,
+      fitAdd(p, "belt-buckle", beltC, box(0.006, bkY * 2 + 0.011, 0.010), brass,
         seatXf(beltC, S.beltY, azAtX(beltC, S.beltY, s * bkX), 0.005));
     }
     for (const s of [-1, 1]) {
-      fitAdd(p, "buckle-bar", beltC, box(bkX * 2 + 0.006, 0.0055, 0.010), brass,
+      fitAdd(p, "belt-buckle", beltC, box(bkX * 2 + 0.006, 0.0055, 0.010), brass,
         seatXf(beltC, S.beltY + s * bkY, front, 0.005));
     }
-    fitAdd(p, "buckle-tongue", beltC, box(0.005, bkY * 1.7, 0.007), brass,
+    fitAdd(p, "belt-buckle", beltC, box(0.005, bkY * 1.7, 0.007), brass,
       seatXf(beltC, S.beltY, front, 0.009));
     fitAdd(p, "strap-end", beltC, box(0.026, 0.11, 0.01), hide,
       seatXf(beltC, S.beltY - 0.05, azAtX(beltC, S.beltY - 0.05, 0.055), 0.005, -0.12));
@@ -9273,7 +9296,7 @@ export function buildCharacter(
     // set on the surface at their own height follow the body instead of cutting
     // through it, and they cost nothing: same material, same merge.
     if (!robed) {
-      const runs = lod.trim ? 5 : 3;
+      const runs = lod.trim ? 7 : 4;
       const yTop = S.shoulderY + 0.035;
       const yBot = S.beltY + 0.01;
       const pad = bare ? 0.032 : 0.052;
@@ -9291,7 +9314,7 @@ export function buildCharacter(
           // 1.75 of the step, not 1.1: consecutive segments are yawed to their own
           // bit of the barrel, so anything under about 1.5 leaves the corners
           // showing and the strap reads as a chain of blocks.
-          fitAdd(p, "baldric", carry, box(0.046, ((yTop - yBot) / runs) * 1.75, 0.013), buff,
+          fitAdd(p, "baldric", carry, box(0.046, ((yTop - yBot) / runs) * 1.6, 0.013), buff,
             seatXf(carry, y, azAtX(carry, y, x, face > 0), 0.0065, 0.4));
         }
       }
@@ -9354,8 +9377,8 @@ export function buildCharacter(
         const chest: FitCarrier = { st: (y: number) => at(y, 0), power: 2.4 };
         fitAdd(p, "bone-string", chest, rod(0.008, 0.003, 0.06, 5),
           M.tinted("bone", 0xd8cfb4, { repeat: 1 }),
-          seatXf(chest, boneY, azAtX(chest, boneY, -0.06 + i * 0.04), 0.006, 0.2 - i * 0.13)
-            .multiply(xf(0, 0, 0, Math.PI / 2 - 0.54, 0, 0)));
+          seatXf(chest, boneY, azAtX(chest, boneY, -0.06 + i * 0.04), 0.010, 0.2 - i * 0.13)
+            .multiply(xf(0, 0, 0, 2.9, 0, 0)));
       }
       // THE TORC, and it goes on the one man with a bare throat to put it on.
       //
@@ -9418,7 +9441,7 @@ export function buildCharacter(
           fitAdd(p, "toggle", mant, rod(0.0055, 0.0042, 0.026, 6),
             M.tinted("bone", 0xd8cfb4, { repeat: 1 }),
             seatXf(mant, togY, azAtX(mant, togY, s * 0.034), 0.0055, s * 0.5)
-              .multiply(xf(0, 0, 0, Math.PI / 2 - 0.3, 0, 0)));
+              .multiply(xf(0, 0, 0, 0.3, 0, 0)));
         }
       }
       // Rune-carver's belt: pouches, a slate tablet and a lit amulet.
@@ -9446,8 +9469,8 @@ export function buildCharacter(
         const amY = S.chestY - 0.01;
         const front = Math.PI / 2;
         const robe = outer(amY);
-        fitAdd(p, "amulet-bezel", robe, ring(0.0202, 0.0062, 6, 16), brass, seatXf(robe, amY, front, 0.0062));
-        fitAdd(p, "amulet-stone", robe, ball(0.0146, 14), rune, seatXf(robe, amY, front, 0.0040, 0, 1, 1, 0.55));
+        fitAdd(p, "amulet", robe, ring(0.0202, 0.0062, 6, 16), brass, seatXf(robe, amY, front, 0.0062));
+        fitAdd(p, "amulet", robe, ball(0.0146, 14), rune, seatXf(robe, amY, front, 0.0040, 0, 1, 1, 0.55));
       }
       // The rune row was the amulet's fault at a smaller size and with a second
       // error under it. Five bare emissive bars are five white ticks in
@@ -9572,24 +9595,24 @@ export function buildCharacter(
         // now, which is what "across the shoulder" means; the old Euler pair
         // raked it across the world and drove the shank into the chest on one
         // side of the body and out of it on the other.
-        fitAdd(p, "clasp-pin", pinned, shell([
+        fitAdd(p, "cloak-clasp", pinned, shell([
           { y: -0.030, hw: 0.0035, hd: 0.0035 },
           { y: 0.014, hw: 0.0055, hd: 0.0055 },
           { y: 0.024, hw: 0.0038, hd: 0.0038 },
         ], 7, { capTop: true, capBottom: true }), hide, seatXf(pinned, cy, az, 0.0055, -0.5));
-        fitAdd(p, "clasp-head", pinned, ball(0.0085, 8), hide,
+        fitAdd(p, "cloak-clasp", pinned, ball(0.0085, 8), hide,
           seatXf(pinned, cy, az, 0.006, 0, 1, 1, 0.7).multiply(xf(0.012, 0.023, 0)));
       } else if (clasp === "disc") {
-        fitAdd(p, "clasp-disc", pinned, ball(0.021, 10), brass,
+        fitAdd(p, "cloak-clasp", pinned, ball(0.021, 10), brass,
           seatXf(pinned, cy, az, 0.0116, 0, 1, 1, 0.55));
-        fitAdd(p, "clasp-rim", pinned, ring(0.026, 0.006, 5, 12), brass, seatXf(pinned, cy, az, 0.006));
+        fitAdd(p, "cloak-clasp", pinned, ring(0.026, 0.006, 5, 12), brass, seatXf(pinned, cy, az, 0.006));
       } else if (clasp === "ringpin") {
         // A penannular: an open ring with a long pin laid across it, which is a
         // taller, thinner object than a disc and reads as a different fastening
         // rather than as the same brooch in another metal.
-        fitAdd(p, "clasp-ring", pinned, ring(0.030, 0.0055, 5, 14), brass,
+        fitAdd(p, "cloak-clasp", pinned, ring(0.030, 0.0055, 5, 14), brass,
           seatXf(pinned, cy + 0.004, az, 0.0055));
-        fitAdd(p, "clasp-shank", pinned, shell([
+        fitAdd(p, "cloak-clasp", pinned, shell([
           { y: -0.046, hw: 0.0028, hd: 0.0028 },
           { y: 0.030, hw: 0.0052, hd: 0.0052 },
         ], 6, { capTop: true, capBottom: true }), brass,
@@ -9598,11 +9621,11 @@ export function buildCharacter(
         // 400 gold: a gilt disc, bossed, on a raised collet. The largest fitting
         // on the man's chest and the only one with a shadow under its rim — and
         // it only gets that shadow if the rim is ON something.
-        fitAdd(p, "clasp-collet", pinned, ring(0.036, 0.0075, 5, 16), gilt,
+        fitAdd(p, "cloak-clasp", pinned, ring(0.036, 0.0075, 5, 16), gilt,
           seatXf(pinned, cy, az, 0.0075));
-        fitAdd(p, "clasp-gilt", pinned, ball(0.030, 12), gilt,
+        fitAdd(p, "cloak-clasp", pinned, ball(0.030, 12), gilt,
           seatXf(pinned, cy, az, 0.0120, 0, 1, 1, 0.40));
-        fitAdd(p, "clasp-boss", pinned, ball(0.011, 8), gilt,
+        fitAdd(p, "cloak-clasp", pinned, ball(0.011, 8), gilt,
           seatXf(pinned, cy, az, 0.0220, 0, 1, 1, 0.8));
       }
     }
