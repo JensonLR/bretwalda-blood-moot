@@ -10507,6 +10507,36 @@ export function buildCharacter(
   /** Azimuth of the coif's front edge at a descent — the mail's own opening. */
   const coifRim = (v: number) => 1.46 + 0.34 * v * v;
 
+  // ---- where the plates are ----
+  // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
+  // the reason `coifLevels` was: two pieces have to agree about them. The plate
+  // draws itself from these; the hair reads them to know where the metal stops,
+  // because hair does not end at a cheek guard — it comes out from under it.
+  //
+  // This is the whole of the correction to the head stack's first landing. That
+  // pass held every rule at a CONSTANT — a liner everywhere below the band
+  // between 0.45 and 1.60 rad, a plait deleted outright on any rung with a
+  // guard — and a constant cannot tell "under the plate" from "below the plate".
+  // So a 100-gold cosmetic went with the overlap it was meant to fix.
+  const cheekIn = style.cheek === "deep" ? (style.mask ? 0.78 : 0.56) : 0.56;
+  const cheekOut = style.cheek === "deep" ? (style.mask ? 1.62 : 1.45) : 1.10;
+  /**
+   * The plate's hem at an azimuth, as a latitude, or -Infinity where nothing
+   * hangs there. Below this line the side of the head is open air on every rung
+   * in the shop, and that is where a mane and a war-lock are allowed to be.
+   */
+  const cheekHemAt = (a: number): number => {
+    const t = clamp01((a - cheekIn) / (cheekOut - cheekIn));
+    return style.cheek === "deep"
+      ? lat(Y_CHIN + 0.05) + 0.34 * Math.pow(smooth(0.30, 1, t), 1.35)
+      : lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.20, 1, t), 1.5);
+  };
+  const cheekHem = (u: number): number => {
+    if (!helmed || style.cheek === "none") return -Infinity;
+    const a = awayFromFace(u);
+    return a < cheekIn || a > cheekOut ? -Infinity : cheekHemAt(a);
+  };
+
   // ---- where the cloth is ----
   // The hood's rim and its lift, authored here and read twice: once by the hood
   // itself and once by the hair that has to fit under it. The hood is a `cap`
@@ -10578,9 +10608,18 @@ export function buildCharacter(
     // through the Wyrm-Crest's deep guard at 39 degrees off dead ahead, on the
     // berserker as well as the huscarl, which is how it was known not to be the
     // coif. A guard is worn over a liner like everything else.
+    //
+    // AND IT STOPS AT THE PLATE'S HEM, WHICH THE FIRST CUT OF THIS DID NOT.
+    // The band ran 0.45..1.60 rad and `v > -0.95` on every rung with a guard —
+    // a fixed box that reached 0.50 rad past the Spectacle's rear edge and a
+    // long way below every plate in the shop, so hair was being flattened to a
+    // liner in a large region where there is no metal at all. `cheekHem` is the
+    // plate's own free edge, so the liner now ends where the plate does and
+    // hair below the hem keeps its volume. Compress under it; do not cull round
+    // it.
     if (helmed && style.cheek !== "none"
-      && awayFromFace(u) > 0.45 && awayFromFace(u) < 1.60
-      && v < bandLo && v > -0.95) c = Math.min(c, HAIR_LINER);
+      && awayFromFace(u) > cheekIn - 0.11 && awayFromFace(u) < cheekOut + 0.15
+      && v < bandLo && v > cheekHemAt(awayFromFace(u)) - 0.02) c = Math.min(c, HAIR_LINER);
     // A nape fall or a neck guard hangs off the back of the band on five rungs,
     // so the back is metal below the rim as well as above it. 2 mm rather than
     // a liner's 5, and NEGATIVE. A fall is swept on its own rings rather than
@@ -10629,7 +10668,14 @@ export function buildCharacter(
    */
   const hairFall = (u: number): number => {
     if (hooded) return 0;
-    if (coifed) return 1 - smooth(coifRim(0) - 0.34, coifRim(0), awayFromFace(u));
+    // ON THE FAR SIDE OF THE RIM, NOT THE NEAR SIDE. The ramp is still 0.34 rad
+    // wide and it still dies inside the mail — that is what stops a free patch
+    // boundary standing on the rings — but it used to run from 0.34 rad IN
+    // FRONT of the opening to the opening itself, so the fall was already at
+    // zero everywhere a man could see it. The mail's opening is where hair
+    // comes OUT of a coif; a ramp that ends there deletes exactly the hair the
+    // opening exists to show. Full mass to the rim, gone 0.28 rad behind it.
+    if (coifed) return 1 - smooth(coifRim(0) - 0.06, coifRim(0) + 0.28, awayFromFace(u));
     // A nape fall or a neck guard hangs off the back of the band and owns
     // everything behind 1.40 rad from the nape — see the fall's own note.
     if (helmed && style.nape !== "none") {
@@ -11202,7 +11248,21 @@ export function buildCharacter(
           const a = Math.abs(u - Math.PI) / 2.18;
           return 0.17 - 0.34 * a * a;
         };
-        const maneRoot = (u: number) => Math.max(maneDome(u), line(u));
+        // AND IT HANGS FROM UNDER A CHEEK PLATE WHERE THERE IS ONE. `cheekHem`
+        // is the plate's own free lower edge; rooting the fall a hair ABOVE it
+        // puts the top of the mass on the skin with 21-25 mm of metal in front
+        // of it, so the join is hidden by the plate and what is seen is hair
+        // coming out from under the hem. That is the picture the helm pass
+        // asked for in as many words — "hair must come out from under them" —
+        // and the alternative the first cut took was to have no hair there at
+        // all. `Math.min` because a latitude descends: below the hem is a
+        // SMALLER v, and the fall may only ever be pushed down by a garment,
+        // never lifted by one.
+        const maneRoot = (u: number) => {
+          const open = Math.max(maneDome(u), line(u));
+          const hem = cheekHem(u);
+          return Number.isFinite(hem) ? Math.min(open, hem + 0.05) : open;
+        };
         // How much mane there is at an azimuth, once the taper and the stack
         // have both had their say. Held as its own function because the sweep
         // has to be able to ask whether there is ANY mane left before it builds
@@ -11212,17 +11272,36 @@ export function buildCharacter(
         // `hairFitProbe` reported exactly that — 4.6 mm of hair through the
         // Shadow Hood on 57 vertices of a mane that was already invisible.
         // Nothing is the right amount of geometry for nothing.
+        //
+        // HOW FAR ROUND TOWARD THE FACE THE FALL REACHES, and it moves with
+        // what is worn. In the open the mass dies at 1.15 rad off dead ahead,
+        // because a mane that runs on to the cheek frames the face in two
+        // vertical bars — that number is unchanged and the bare head is
+        // untouched. Under an aventail the BACK of the fall is inside a bag of
+        // mail and no bearing can see it, and the only hair on a mailed man
+        // that anybody can see is what comes through the mail's own opening at
+        // 1.46 rad. So the window MOVES FORWARD into that opening instead of
+        // the fall being scaled out of existence: the hair a huscarl wears
+        // under a helmet is pulled through the face opening and hangs in front
+        // of the rings, which is what every reconstruction of the kit shows and
+        // what the shop is charging 40 gold for. The arc widens with it so the
+        // mass still reaches zero INSIDE the parametrisation — a sweep that
+        // ends on a live section gets a rim strip drawn across it, which is the
+        // hard temple edge this file has already paid for twice.
+        const maneFrontDead = coifed ? 0.95 : Math.PI - 1.99;
+        const maneFrontFull = coifed ? 1.30 : Math.PI - 0.95;
+        const maneArc = Math.PI - maneFrontDead + 0.03;
         const maneMass = (u: number) => hairFall(u)
-          * Math.pow(1 - smooth(0.95, 1.99, Math.abs(u - Math.PI)), 0.95);
+          * Math.pow(smooth(maneFrontDead, maneFrontFull, awayFromFace(u)), 0.95);
         let live = 0;
-        for (let i = 0; i <= 48; i++) live = Math.max(live, maneMass(mix(Math.PI - 2.02, Math.PI + 2.02, i / 48)));
+        for (let i = 0; i <= 48; i++) live = Math.max(live, maneMass(mix(Math.PI - maneArc, Math.PI + maneArc, i / 48)));
         if (live >= 0.06)
         p.add(hangingMass(K, skullY, Math.max(30, lod.shellU + 18), maneRoot, {
           // Temple round to temple. Wider than the beard's arc by a long way:
           // hair falls from the whole back half of the head, and stopping it at
           // the ear is what made the old shells read as two curtains hung
           // beside a face.
-          u0: Math.PI - 2.02, u1: Math.PI + 2.02,
+          u0: Math.PI - maneArc, u1: Math.PI + maneArc,
           prof: [
             { o: 0.000, d: 0.000 },
             { o: 0.014, d: 0.046 },
@@ -11301,31 +11380,58 @@ export function buildCharacter(
           // enough forward that it swings past the jaw rather than down the
           // neck.
           const rootU = s2 * 1.28;
-          // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN. The plait roots
-          // above the ear and falls 350 mm past the jaw, which on six of the
-          // ten rungs is straight down the outside of a hinged plate: the ruler
-          // read 18.8 mm of it through the Spectacle's guard, 111 mm through
-          // the Wyrm-Crest's deep pair and 200 mm through the Sutton Hoo's
-          // ventail, on the berserker, who wears no coif at all — so this is
-          // the plates rather than the mail and it needed its own rule. Where
-          // the sides of a helmet close, a plait is inside them.
-          if (style.cheek !== "none") continue;
-          // 0.85, not 0.35, and the ruler is why. A plait is not a mass that
-          // thins out at the edge of a garment the way the mane does — it is one
-          // discrete 35 mm rope hanging 350 mm, so it is either wholly outside
-          // the mail or wholly inside it. At 0.35 the huscarl kept both of his
-          // and `hairFitProbe` measured 97 mm of plait standing through the
-          // Wyrm-Crest's coif and 186 mm through the Sutton Hoo's. You cannot
-          // wear an aventail over a war-lock; the coif goes on over the head and
-          // the hair is inside it, which is what every find and every ruler in
-          // this file agrees on.
-          if (hairFall(rootU) < 0.85) continue;
-          const rootV = 0.16;
+          // A HOOD AND AN AVENTAIL ARE BAGS THE HEAD GOES INTO, AND A PLAIT
+          // CANNOT BE WORN OUTSIDE ONE. You cannot put a coif on over a
+          // war-lock; the hair is inside it. At the old 0.35 threshold the
+          // huscarl kept both of his and `hairFitProbe` measured 97 mm of plait
+          // standing through the Wyrm-Crest's coif and 186 mm through the
+          // Sutton Hoo's. But that was fixed by raising a MASS threshold to
+          // 0.85, and `hairFall`'s coif ramp used to reach 0.34 rad in FRONT of
+          // the mail's opening — so the test failed a plait rooted at 1.28 rad,
+          // which is 0.18 rad clear of the opening and outside the mail on
+          // every bearing. The question is not how much fall survives here; it
+          // is whether this azimuth is in front of the rings, so that is what
+          // is asked. A war-lock hanging out of the face opening of a mail coif
+          // is the right picture and this is the line that says so.
+          if (hooded) continue;
+          if (coifed && awayFromFace(rootU) > coifRim(0) - 0.10) continue;
+          // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN — SO THE PLAIT IS
+          // TAKEN FROM UNDER THE GUARD, NOT DELETED BY IT.
+          //
+          // The plait roots above the ear and falls 350 mm past the jaw, which
+          // on six of the ten rungs is straight down the outside of a hinged
+          // plate: 18.8 mm of it through the Spectacle's guard, 111 mm through
+          // the Wyrm-Crest's deep pair, 200 mm through the Sutton Hoo's. All
+          // three readings are real and none of them argues for `continue`.
+          // They argue that the rope is starting in the wrong place. Hair under
+          // a helmet does not stop existing; it is gathered under the metal and
+          // comes out at the metal's edge, and a cheek plate HAS an edge —
+          // `cheekHem` — with 21 to 25 mm of air between it and the jaw. Root
+          // the plait a shade above that hem and the gather is behind the
+          // plate, invisible, while the whole 350 mm of rope hangs in open air
+          // below it. That is one number instead of a deleted cosmetic, and it
+          // is measured by the same probe that condemned the old geometry.
+          const hem = cheekHem(rootU);
+          const rootV = Number.isFinite(hem) ? Math.min(0.16, hem + 0.04) : 0.16;
           dirOf(rootU, rootV, bRoot);
           faceNormalTrue(K, rootU, rootV, bNrm);
           faceSurface(K, bRoot, bRoot);
           bRoot.addScaledVector(bNrm, mane(rootU, rootV) * 0.55);
           bRoot.y += skullY;
+          // WHICH WAY THE ROPE TRAVELS AS IT FALLS, and it is the other half of
+          // clearing a cheek plate. The short guards end at 1.10 rad and the
+          // rope roots at 1.28, so at the top it is already behind the metal —
+          // but 86 mm of FORWARD travel carries it back across the plate's rear
+          // edge by the time it is level with the jaw, which is the 18.8 mm the
+          // ruler read on the Spectacle. Where a plate hangs beside the face
+          // the travel goes OUTBOARD instead: the plait falls down the outside
+          // of the head, clear of the guard's rear edge, which is where a lock
+          // taken from behind the ear hangs anyway. Open rungs keep the forward
+          // swing, because that swing past the jaw is the whole silhouette from
+          // in front and there is nothing there for it to cross.
+          const guarded = helmed && style.cheek !== "none" && !Number.isFinite(hem);
+          const swingOut = guarded ? 0.056 : 0.030;
+          const swingFwd = guarded ? 0.022 : 0.086;
           const bp = (t: number, out: THREE.Vector3) => {
             // Out and forward as it falls, so the plait hangs beside the jaw
             // rather than down the neck — that swing is the whole silhouette,
@@ -11333,9 +11439,9 @@ export function buildCharacter(
             // profile.
             const swing = Math.pow(t, 1.35);
             out.set(
-              bRoot.x + s2 * (0.030 * swing),
+              bRoot.x + s2 * (swingOut * swing),
               bRoot.y - 0.352 * t,
-              bRoot.z + 0.086 * swing,
+              bRoot.z + swingFwd * swing,
             );
           };
           p.add(braid(bp, {
