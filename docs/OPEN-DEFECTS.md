@@ -6,6 +6,215 @@ change is made.
 
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
+---
+
+## THE ARMOURY JUDGEMENT — 7 Aug 2026 — SHIPPED on `main`
+
+The owner's five complaints, judged from frames on this tip. **Four of the five
+moved. One did not, and one fix bought its win with a cost nobody measured.**
+
+`art/shots/` is gitignored, so the paths below are regenerable, not committed:
+`npm run shots -- finishroster` (28 panels, ~45 s each, ~21 min).
+
+### CLOSED — "Warden permanently has a green lower half no matter the finish"
+
+This was the sharpest complaint and it is the cleanest fix. Live, the warden's
+tunic was `CLASS_TUNIC.warden = 0x5a6630`, **hue 78° olive, in all seven
+finishes** — `ap.armorColor` fed only `M.armour(...)`, which tints mail. It is
+now `tunicDye(kit.tunic, accents)`, and the hue by finish is:
+
+| finish | live | branch |
+|---|---|---|
+| Rough Iron | 78° | 42° |
+| Polished Steel | 78° | 193° |
+| Blackened Steel | 78° | 42° |
+| Bronze Scales | 78° | 37° |
+| Crimson Warplate | 78° | 18° |
+| Sea Queen's Gift | 78° | 188° |
+| Bretwalda Gold | 78° | 44° |
+
+Proven in frames, not only in arithmetic:
+`art/shots/cards/finishroster-1._Rough_Iron_0g_warden.png` is an olive-khaki
+skirt over tan leg wraps; `…-6._Sea_Queen_s_Gift_130g_warden.png` is a **teal
+skirt, navy mail and white wraps**. The whole man moves, not the shirt.
+
+**Residual:** at Rough Iron — the free default, which is what a player who has
+bought nothing sees — the tunic is still a yellow-olive (42°). It is browner
+than live and it is no longer *permanent*, but the first impression of the
+warden is unchanged until the player spends. That is the honest limit of this
+fix.
+
+### OPEN, NEW, AND CAUSED BY THE FIX — the four classes now wear one tunic
+
+`tunicDye`'s comment claims the class "shifts hue a fifth of the way … so four
+tunics stay four tunics." **The frames and the arithmetic both say otherwise.**
+Mean pairwise RGB separation across the four class tunics, against live's fixed
+constants (27.8):
+
+```
+LIVE  (class tunic fixed, same in every finish)          27.8
+BRANCH  Rough Iron          8.8   (32% of live)   <-- the free default
+BRANCH  Polished Steel      4.6   (17%)
+BRANCH  Blackened Steel     2.5   ( 9%)   <-- all four classes are one colour
+BRANCH  Bronze Scales       9.1   (33%)
+BRANCH  Crimson Warplate   10.0   (36%)
+BRANCH  Sea Queen's Gift   14.3   (52%)
+BRANCH  Bretwalda Gold     12.0   (43%)
+```
+
+The cause is one line: `s = min(0.6, a.s * (0.72 + b.s))`. Saturation is
+*multiplicative* in the dye lot's own saturation, so when the lot is near-neutral
+(Blackened Steel's `0x3a3733`) every class lands on the same grey and the 0.2 hue
+shift has no chroma to be visible in. Class lightness cannot rescue it either —
+all four accents sit at L 0.29–0.31, so they were never separating on value.
+
+This is a **regression in class readability against live**, and it applies at the
+free default, not only to players who buy. It ships because the classes still
+read apart by silhouette, weapon, helm and cloak (`art/shots/lineup.png`), and
+because reverting it would restore the owner's own complaint. It is the
+predictable next complaint — *"all my characters look the same now"* — and it
+should be the first thing the next wave fixes.
+
+**The fix is known and measured, not guessed.** An additive class-chroma term
+plus a stronger hue weight roughly doubles separation for ~13% of finish travel:
+
+```
+hue 0.20  satAdd 0     mean class sep  9.0   finish travel 24.2   (shipped)
+hue 0.34  satAdd 0.18  mean class sep 14.3   finish travel 23.5
+hue 0.40  satAdd 0.22  mean class sep 18.3   finish travel 21.1
+```
+
+Not applied this wave: it is a look change to all four classes in all seven
+finishes, and the 28-panel sheet that would prove it costs 21 minutes of the
+capture channel. Do it with the sheet, not without.
+
+### CLOSED — "no cloak option"
+
+`cloak_none` has existed since the initial commit. The defect was that
+`.tab-strip` cut the eight tabs at **"CLO…"** on a 1440 desktop, so CLOAKS,
+ARMOUR FINISH and WAR PAINT were unreachable with a mouse — worse on desktop
+than on phone, which can swipe. The strip now wraps above 700 px.
+**A/B: `art/ui/live-helmets-desktop.png` (cut) vs `art/ui/wave-helm-desktop.png`
+(two rows, all eight reachable).** Phone keeps the strip and is untouched
+(`art/ui/wave-helm-phone.png`).
+
+### CLOSED — the Roman banded plate is off the warden
+
+`lorica segmentata` — six rigid courses, plate yoke, iron shin plate — is gone;
+he wears a hip-length mail byrnie, a shoulder doubling and cross-gartering. The
+`lamellar` boolean is renamed `wallman` so the flag stops naming armour that is
+no longer on the model. Visible in `art/shots/lineup.png`.
+
+### OPEN — the head is a lateral move, and the shop's light is the reason
+
+The beard no longer swallows the mouth: live's default Close Crop ran to
+`Y_LIP + 0.045` and buried an `addMouth` nothing could see. On this tip the mouth
+is the gap between two masses. **But at portrait size the beard now reads as
+scattered dark flecks on a pale, washed-out cheek rather than as hair** — see
+`art/ui/wave-helm-phone.png`, where the mannequin is largest. Live's solid dark
+beard read *worse anatomically and better as a character*.
+
+The largest single cause is not geometry: it is `armouryStage.ts` exposure. The
+same head reads well under the arena's dusk key (`art/shots/final/`) and pale and
+blotchy in `art/ui/wave-helm-*.png`. **The owner is looking at the shop.** Fix
+the shop's key light before touching the head again.
+
+### The gate this shipped on — every final line, on this tip
+
+```
+npm run build                        exit 0 — 14 routes, all ƒ (Dynamic)
+npx tsc --noEmit                     TSC EXIT 0
+npm run lint                         ✖ 11 problems (9 errors, 2 warnings)   [bar 12]
+npm run playtest                     [playtest] 34/34 controls working              EXIT=0
+npm run touchtest                    [touchtest] 27/27 touch assertions passing     EXIT=0  (2nd run)
+node tools/firetest.mjs              [firetest] 7/7 claims proven                   EXIT=0
+npm run profiletest  (with DB)       [profiletest] 68/68 checks passing             EXIT=0
+npm run profiletest  (no DB)         [profiletest] 22/22 checks passing             EXIT=0
+npm run soundtest                    [soundtest] 22/22 claims proven                EXIT=0
+node tools/phonesound.mjs            [phonesound] 7/7 claims proven                 EXIT=0
+node tools/bindsynctest.mjs (DB)     [bindsync] 8/8 checks passing                  EXIT=0
+node tools/cameratest.mjs            [cameratest] 13/13 passed                      EXIT=0
+npm run summaryflow                  [flow] 14/14 passed                            EXIT=0
+npm run cheattest (fresh postgres)   [cheattest] 40/40 checks passing               EXIT=0
+node tools/latencytest.mjs judder    JUDDER VERDICT: 17/17 checks pass — PASS       EXIT=0
+node tools/headmeasure.mjs           3 ratios outside tolerance · 0 of 15 SILHOUETTE FAILED
+node tools/wearmeasure.mjs           [wear] PASS: 10/10 helmets seated              EXIT=0
+npm run cosmetictest                 [cos] 18/18 checks passed
+                                     [cos] 19 rendered captures, 744.1 s wall clock
+                                     [cos] PASS                                    EXIT=0
+npm run perf                         low 743 draw calls · medium 3785 · high 4280  EXIT=0
+```
+
+`perf`'s frame times on this box are swiftshader, not a device, and mean nothing.
+**Draw calls are the comparable number and they are identical to the pre-judgement
+run** — 743 / 3785 / 4280 — so nothing in this wave costs a frame.
+
+**touchtest took two runs, and the flake is now diagnosed rather than shrugged
+at.** The failing term is not the facing error — that was **1.3°**, well inside
+the 0.5 rad bar. It is `yawTravel > 0.15` in `tools/touchtest.mjs:521`, a guard
+that requires the camera to have turned at least 8.6° so the assertion cannot
+pass on a target that never moved. The bot happened to walk almost radially, the
+camera only needed 4°, and the guard could not confirm tracking. The lock was
+working perfectly in the run that failed. **Do not "fix" this by loosening the
+bar** — the guard is correct and the retry policy is the right answer.
+
+`bindsynctest` also exits 1 with no database; it needs `PROFILE_TEST_DB` and
+says so. That is not a flake and not a defect.
+
+**The repricing is economically safe, and this is the run that proves it** —
+20–60 g became 60–160 g in `cced17b`. Ownership is a set of **ids**
+(`src/db/catalogue.ts:144` `if (ownedSet.has(id)) continue`), and no id or stored
+hex moved, so nothing already bought is re-billed and no profile is orphaned.
+`cheattest` 40/40 on a fresh postgres is the outside check on that.
+**It is still a price rise, and a price rise is the owner's call, not ours.**
+
+### PARTLY CLOSED — ten helms, and you *can* tell them apart
+
+`art/shots/helm-cards.png`, captured on this tip (10 panels, one huscarl, one
+mark, one camera). The owner's "pointed dark shapes with wing-like flares" is
+**not what this lens shows** — at portrait they are bright polished steel, and
+six of the ten are unmistakable:
+
+| distinct | Bare Head · **Shadow Hood** (now black wool, not a red balaclava) · Boar-Crest (gold boar) · Jarl's Crowned (circlet + spikes) · **Sutton Hoo** (full mask, intact — no regression) · Ridge Helm |
+|---|---|
+| **too alike** | **Iron Spangenhelm / Nasal Helm / Spectacle Helm** — three near-identical domes separated only by a nasal bar and a small apex spike |
+| **also alike** | Ridge Helm vs Wyrm-Crest — both a dome under one big curved arch |
+
+So the helm complaint is **half real**: the ladder is not ten dark cones, but
+30 g, 110 g and 280 g buy three shapes a player cannot tell apart. That is the
+rung to fix, and it is a narrower job than "rebuild the helmets".
+
+### OPEN, AND THE LOUDEST THING IN THE FRAME — the face is speckled
+
+The beard fix worked: the mouth is no longer buried. **But at ~400 px of head
+the face carries scattered dark brown flecks across cheek, forehead and jaw that
+read as dirt or scabbing rather than as stubble** — plainest on
+`art/shots/helm-cards.png` panel 1 (Bare Head) and on `art/ui/wave-helm-phone.png`,
+where the mannequin is largest.
+
+**This is not scored as a regression**, and the reason matters: the same cheek
+speckle is present in the live capture `art/ui/live-helmets-desktop.png`, so it
+predates this wave. What the wave changed is that the beard no longer *hides* it.
+Thinning the beard revealed a skin defect that was always there.
+
+Both causes are already named and neither is geometry on the beard:
+`armouryStage.ts` exposure (the same head reads fine under the arena key in
+`art/shots/final/`), and the complexion stamp. **Fix the shop's light first** —
+it is one number and it is what the owner is looking through.
+
+### OPEN — the helmets were diagnosed and deliberately not touched
+
+"Pointed dark shapes with wing-like flares" localises to two numbers: the `cone`
+bowl at taper `1.15` is a near-linear rise (a straight-sided cone with a sharp
+apex), and the nape fall starts at `skullY + R.y * 0.47` — above the head's
+centre — and flares to `R.x * 1.38`, which reads from the front as two wings
+behind the face on ridge/boar/crowned/wyrm. Not changed without a before-shot to
+A/B against; the risk was regressing the Boar-Crest and Sutton Hoo, and
+`docs/SUTTON-HOO.md` is about exactly that failure. Sutton Hoo is captured
+intact at `art/shots/final/facecard-helmhelm_suttonhoo-…png`.
+
+---
+
 Current reference: **`art/shots/v12/`**. A/B against `v11/`.
 The head's own turntable: **`art/shots/judge9c/`** (portrait) and
 `art/shots/judge9b/head-turn-fight.png` (fight range). A/B against

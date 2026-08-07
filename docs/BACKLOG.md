@@ -9,9 +9,35 @@ one thing was built twice. So **no state below is taken from a document.**
 Every DONE names the commit or the symbol in the tree that proves it; every
 NOT STARTED names the grep that came back empty.
 
-Verified at `775c8b2` on `claude/bretwalda-bloot-moot-aaa-9th390`, which is
-**171 commits ahead of `main` (`e24407a`)**. Everything marked DONE below is
-DONE *on this branch*. Almost none of it is on the live site.
+**Superseded 7 Aug 2026 — the branch is on `main`.** The armoury wave (finish
+palette, warden rebuild, hair/beard/hood, tab wrap) is merged; `main` is at
+`e4e0b30` plus this judgement. The paragraph below described the pre-merge state
+and is kept because the *counts* in it are still the honest record of how far
+ahead the branch ran before it landed.
+
+> Verified at `775c8b2` on `claude/bretwalda-bloot-moot-aaa-9th390`, which is
+> **171 commits ahead of `main` (`e24407a`)**. Everything marked DONE below is
+> DONE *on this branch*. Almost none of it is on the live site.
+
+### The next three, re-ordered by what the owner can see — 7 Aug 2026
+
+The owner's note ("for 74+ commits ahead of branch im not seeing a whole lot of
+improvement in the live game") is a scheduling verdict, not an art one. It is
+answered in the order below, and the reasoning is in `docs/OPEN-DEFECTS.md`.
+
+1. **Restore class separation in `tunicDye`.** The finish palette that fixed the
+   warden's green collapsed the four classes onto one tunic — 32% of live's
+   separation at the free default, 9% at Blackened Steel. The corrective weights
+   are already measured (`hue 0.40 / satAdd 0.22`, ~13% of finish travel). This
+   is the highest-value visible fix on the list and it is a two-number change.
+2. **Fix `armouryStage.ts` exposure before touching the head again.** The same
+   head reads well under the arena key and pale and blotchy in the shop. The
+   owner judges the game from the shop, so the shop's light is worth more than
+   any further geometry on the face.
+3. **The helm bowl and nape flare**, with a before-sheet to A/B against — `cone`
+   taper `1.15` and the nape fall at `skullY + R.y * 0.47` / `R.x * 1.38`. Ten
+   helms that read as one pointed dark shape is the owner's first complaint and
+   the only one this wave did not touch at all.
 
 Gates at the time of writing:
 
