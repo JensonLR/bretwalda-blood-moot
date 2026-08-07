@@ -9207,7 +9207,31 @@ export function buildCharacter(
         // coil orbits that axis, so half of every curl is inside the mass it
         // grows out of and what stands proud is the crest of the curl — which is
         // what you actually see on a head of short curly hair.
-        const courses = helmed ? [0.12] : [0.10, 0.44, 0.80];
+        //
+        // THE HELMED COURSE RUNS BELOW THE HAIRLINE, NOT ABOVE IT. At +0.12 it
+        // sat about level with the band's own lower rim, so every lock was under
+        // the bowl and `cosmetictest` still read the Warrior Crop at 0.07-0.10%
+        // under all eight metal helms — a free hairstyle that vanishes the moment
+        // a helmet goes on, which is the audit's oldest open hair finding and the
+        // other half of "a helmet must look WORN".
+        //
+        // `v` is a latitude climbing to the crown, so hair that shows under a rim
+        // is at a latitude BELOW the hairline the shell starts at. The shell
+        // cannot go there — it is bounded by `line` — but a lock is its own
+        // geometry and can. Negative rise puts the coils in the band of scalp
+        // between the dropped hairline and the iron, which is the one place hair
+        // is visible on a helmed man.
+        // Three courses under a helm as well, measured up rather than guessed.
+        // `cosmetictest --no-render` reads the Warrior Crop against a bare head
+        // under each helm in 56 s, so this was walked: one course 0.35%, two
+        // 0.67%, three 0.79% against the 0.09% it started at. Four is not worth
+        // its vertices — the curve has flattened by then, and the band of
+        // exposed scalp is only as deep as the 0.12 rad the hairline drops.
+        //
+        // It does not clear the 1% bar and it is not gated to, because nobody
+        // paid for the crop. The two deepest helms still take everything (Wyrm
+        // 0.20%, Sutton Hoo 0.00%) and that is correct: those two close the head.
+        const courses = helmed ? [-0.03, -0.10, -0.17] : [0.10, 0.44, 0.80];
         for (const rise of courses) {
           const N = crop ? 26 : 18;
           for (let i = 0; i < N; i++) {
@@ -9215,7 +9239,7 @@ export function buildCharacter(
             // circle at an exact spacing is a wreath, and a wreath is the string
             // of spheres the audit condemned in the war-locks under another name.
             const u = (i / N) * Math.PI * 2 + 0.14 * Math.cos(i * 2.7 + rise * 9);
-            if (helmed && awayFromFace(u) < 0.62) continue;
+            if (helmed && awayFromFace(u) < 0.50) continue;
             const v = line(u) + rise + 0.05 * Math.cos(i * 3.9 + rise);
             if (v > Math.PI / 2 - 0.12) continue;
             dirOf(u, v, lockDir);
