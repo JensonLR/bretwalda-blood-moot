@@ -2351,8 +2351,8 @@ const C_MASK: Curve = [
   [-0.600, 102.0],
   [-0.660, 101.6], // mentolabial
   [-0.750, 102.0],
-  [-0.796, 102.4], // POGONION
-  [-0.840, 101.8],
+  [-0.796, 102.0], // POGONION
+  [-0.840, 101.4],
   [-0.880, 95],
   [-0.920, 80],
   [-0.960, 54],
@@ -2489,18 +2489,47 @@ const C_ZC: Curve = [
  * over the chin, because a chin really is round.
  */
 const C_NF: Curve = [
-  [1.000, 2.10],
-  [0.700, 2.20],
-  [0.500, 2.40],
-  [0.320, 2.75],
-  [0.219, 2.85],
-  [0.000, 2.98],
-  [-0.323, 3.10],
-  [-0.536, 3.30],
-  [-0.700, 2.80],
-  [-0.850, 2.25],
+  [1.000, 2.05],
+  [0.700, 2.10],
+  [0.500, 2.18],
+  [0.320, 2.32],
+  [0.219, 2.38],
+  [0.000, 2.44],
+  [-0.323, 2.62],
+  [-0.536, 3.18],
+  [-0.700, 2.66],
+  [-0.850, 2.20],
   [-1.000, 2.00],
 ];
+
+/*
+ * AND IT CAME DOWN, because at 2.75-3.30 this number was drawing the hard
+ * vertical line down each side of the face that the owner has reported three
+ * times and that three passes have gone looking for in the wrong place.
+ *
+ * A superellipse does not have a corner — it is smooth at every point — but its
+ * CURVATURE is not spread evenly, and past about 2.6 it is nearly all in one
+ * band. Measured on this head's own sections: at n = 2.98 the surface normal
+ * turns 2.0 radians per radian of bearing at 0.71 rad off the midline and 0.1 at
+ * the midline, so the front of the face is a flat plate, the side of the head is
+ * a flat plate, and between them is a chamfer 15 mm wide that runs from the
+ * crown to the jaw without ever touching a piece of anatomy. Under a specular
+ * skin that chamfer is a line. At 2.38 the same figure is 1.34 against a
+ * sphere's 1.0, which the eye reads as a cheek rather than as an edge.
+ *
+ * The plane the face needs is still there. It is in `RELIEF` now, where its
+ * outer boundary can WANDER — out to 0.80 rad at the temple, 0.62 at the
+ * cheekbone, 0.46 at the mouth — which is what the break does on a real head and
+ * what one number per row could never say.
+ *
+ * The mouth's row is the exception at 3.18, and that is the gate rather than the
+ * eye: `platePlane` measures the fall from 0.15 to 0.60 rad at the lip line and
+ * its ceiling is 24 mm. A section 149 mm wide and 203 deep gives up 24.4 of its
+ * own accord at n = 2.0 — the assertion is measuring the section's aspect as
+ * much as its flatness — so the lower face keeps enough exponent to stay inside
+ * it. It is also the one band where the chamfer costs least, because the jaw's
+ * own shadow is already on it.
+ */
 
 /** The same for the back of the head. Blunter than a sphere at the occiput — the
  *  Suffolk cemetery skulls are — and round everywhere else. */
@@ -2564,14 +2593,14 @@ const RELIEF: ReadonlyArray<readonly number[]> = [
   [-0.030, 3.2, 3.8, 0.8, -3.2, -3.6, -1.6, -1.6, -2.0, -0.9, -0.2, 0], // orbital rim
   [-0.075, 6.6, 5.8, -1.2, -8.0, -7.8, -2.6, -1.4, -1.8, -0.8, -0.2, 0],
   [-0.116, 10.5, 8.6, -1.0, -8.6, -7.8, -1.6, -1.0, -1.4, -0.6, -0.1, 0], // EYE LINE + SOCKET
-  [-0.180, 18.5, 16.2, 4.6, -3.0, 1.2, 8.0, 5.0, 0.2, 0, 0, 0], //      the ZYGOMATIC
-  [-0.231, 29.0, 26.4, 11.4, -0.6, 2.6, 8.4, 4.6, 0.0, 0, 0, 0], //     PRONASALE
-  [-0.270, 24.5, 22.0, 11.0, -0.8, 2.2, 7.4, 4.0, 0.0, 0, 0, 0], //     columella
-  [-0.300, 13.0, 11.0, 8.4, -2.6, 1.2, 6.0, 3.4, 0.0, 0, 0, 0], //      the alar crease
-  [-0.323, 2.6, 3.8, 5.4, -2.0, 0.6, 5.0, 3.0, 0.0, 0, 0, 0], //        SUBNASALE
+  [-0.180, 20.0, 16.4, 3.4, -3.6, 1.0, 8.0, 5.0, 0.2, 0, 0, 0], //      the ZYGOMATIC
+  [-0.231, 30.0, 26.0, 9.0, -2.2, 2.2, 8.4, 4.6, 0.0, 0, 0, 0], //      PRONASALE
+  [-0.270, 25.5, 22.0, 9.6, -2.0, 1.8, 7.4, 4.0, 0.0, 0, 0, 0], //      columella
+  [-0.300, 13.5, 11.6, 8.6, -4.2, 0.8, 6.0, 3.4, 0.0, 0, 0, 0], //      the alar crease
+  [-0.323, 2.6, 3.8, 5.6, -3.4, 0.4, 5.0, 3.0, 0.0, 0, 0, 0], //        SUBNASALE
   [-0.400, 2.8, 3.2, 3.2, -0.8, -3.0, 0.6, 1.6, 0.0, 0, 0, 0], //       philtrum, buccal begins
   [-0.470, 6.4, 5.8, 3.6, -2.6, -4.4, -1.2, 1.0, 0.0, 0, 0, 0], //      upper vermilion
-  [-0.536, 3.4, 3.4, 2.6, -2.4, -4.6, -1.6, 0.8, 0.0, 0, 0, 0], //      STOMION
+  [-0.536, 3.2, 3.2, 2.4, -2.4, -4.6, -0.9, 0.8, 0.0, 0, 0, 0], //      STOMION
   [-0.600, 6.8, 6.4, 4.2, -1.8, -4.2, -1.4, 1.2, 0.0, 0, 0, 0], //      lower vermilion
   [-0.660, -1.6, -1.6, -2.2, -3.2, -3.4, -0.8, 1.8, 0.0, 0, 0, 0], //   mentolabial sulcus
   [-0.720, 4.2, 4.2, 3.2, 0.0, -2.2, -0.4, 1.6, 0.0, 0, 0, 0],
@@ -3180,14 +3209,14 @@ const EAR_Y = (Y_EYE + Y_NOSE) * 0.5;
  * than it is wide by 1.75, where the torus it replaces was 1.6 and read round.
  */
 const EAR_OUTLINE = [
-  0.0310, // up — the helix apex
-  0.0290, // up-front
-  0.0150, // front — the margin in front of the tragus, and an ear is narrow here
-  0.0195, // front-down
-  0.0270, // down — the lobe
-  0.0245, // back-down
-  0.0180, // back
-  0.0265, // back-up, where the helix rolls over
+  0.0335, // up — the helix apex
+  0.0300, // up-front
+  0.0180, // front — the margin in front of the tragus, and an ear is narrow here
+  0.0205, // front-down
+  0.0260, // down — the lobe
+  0.0255, // back-down
+  0.0215, // back
+  0.0305, // back-up, where the helix rolls over
 ];
 
 /**
@@ -3211,13 +3240,28 @@ const EAR_SEAT = 0.0030;
  */
 const EAR_SECTION: Curve = [
   [1.00, -EAR_SEAT], // the rim, buried
-  [0.90, -0.0005],
-  [0.78, 0.0160], //   HELIX CREST
-  [0.62, 0.0092], //   the inner wall of the rim, falling into the bowl
-  [0.44, 0.0030], //   the concha floor
-  [0.20, 0.0022], //   the deepest part of the bowl, over the canal
-  [0.00, 0.0030], //   the pole. Closed, and that is the whole point
+  [0.93, 0.0026],
+  [0.84, 0.0122], //   the helix climbing
+  [0.74, 0.0150], //   HELIX CREST — and it is a ROLL, held over two rows
+  [0.62, 0.0112], //   the inner wall of the rim, falling into the bowl
+  [0.46, 0.0038], //   the concha floor
+  [0.20, 0.0026], //   the deepest part of the bowl, over the canal
+  [0.00, 0.0034], //   the pole. Closed, and that is the whole point
 ];
+
+/*
+ * THE CREST MOVED IN AND THE WALL GOT LONGER, and that is the difference between
+ * an ear and the crumpled paper cup in
+ * `art/shots/base0/cards/headturn-profile_90_.png`.
+ *
+ * The old section put a 16 mm crest at s = 0.78 and buried the rim 3 mm at
+ * s = 1.00: 19 mm of fall across 22% of a 30 mm radius, which is an outer wall
+ * raked at seventy degrees. A wall that steep takes the key square on all the way
+ * round, so what the frame showed was a bright ring with a dark hole in it — the
+ * exact read the five primitives before it were replaced for. A helix is a rolled
+ * TUBE. It has a crest that holds over an arc and falls away on both sides, and
+ * this one does.
+ */
 
 /** And the section a LOBE has, which is not a rim round a bowl at all — it is
  *  solid flesh, so it is one smooth bulge that lands on the skin like everything
@@ -3258,7 +3302,7 @@ function earRelief(phi: number, s: number): number {
     * clamp01(0.15 + 0.85 * (0.5 - 0.5 * Math.cos(phi - 0.6)));
   const tragus = bump(s - 0.42, 0, 0, 0.16, 1, 1)
     * bump(Math.sin(phi - Math.PI / 2), 0, 0, 0.34, 1, 1) * clamp01(Math.cos(phi - Math.PI / 2));
-  return 0.0042 * anti + 0.0050 * tragus;
+  return 0.0034 * anti + 0.0038 * tragus;
 }
 
 /** Half-breadth of the SKIN at a latitude — what an ear has to grow out of. */
@@ -5056,35 +5100,35 @@ function faceComplexion(
     let dim = 0;
     // The socket. Tight on the orbit itself — an orbit is 30 mm across, and the
     // term this replaces was 84.
-    dim += 0.42 * gs(s - 0.38, 0.20) * gs(fy + 0.05, 0.12) * front;
+    dim += 0.50 * gs(s - 0.38, 0.19) * gs(fy + 0.05, 0.115) * front;
     // The crease under the brow ridge: the one line that makes an overhang read
     // as an overhang rather than as a band of colour.
-    dim += 0.26 * gs(s - 0.36, 0.24) * gs(fy - 0.045, 0.050) * front;
+    dim += 0.36 * gs(s - 0.36, 0.24) * gs(fy - 0.050, 0.046) * front;
     // Under the tip and the columella — the only part of a nose that faces down.
     dim += 0.50 * gs(s, 0.13) * gs(fy - (Y_NOSE - 0.005), 0.040) * front;
     // The alar crease, where the wing meets the cheek.
-    dim += 0.22 * gs(s - 0.24, 0.075) * gs(fy - (Y_NOSE + 0.035), 0.055) * front;
+    dim += 0.34 * gs(s - 0.22, 0.070) * gs(fy - (Y_NOSE + 0.032), 0.050) * front;
     // Beside the dorsum, and this is the single most valuable term on the nose
     // in this rig. A nose's own relief is a gradient in z, and a light rig with
     // ambient 0.85 cannot see a gradient in z; a narrow shadow down each side of
     // it is what makes the mass read as a nose from in front. Narrow — 0.07 of
     // the half-breadth is 7 mm — because the version of this that was 0.42 wide
     // WAS the painted wedge down the middle of the face.
-    dim += 0.26 * gs(s - 0.20, 0.070) * gs(fy - (Y_EYE - 0.075), 0.120) * front;
+    dim += 0.44 * gs(s - 0.185, 0.062) * gs(fy - (Y_EYE - 0.080), 0.125) * front;
     // The buccal hollow, under the zygomatic and over the jaw. Sited on the
     // relief's own hollow rather than washed down the whole cheek: this is the
     // term that used to be 0.22 x 0.185 of direction space and painted the face
     // narrow while the silhouette measured broad.
-    dim += 0.26 * gs(s - 0.56, 0.17) * gs(fy - (Y_LIP + 0.085), 0.105) * front;
+    dim += 0.40 * gs(s - 0.56, 0.16) * gs(fy - (Y_LIP + 0.075), 0.100) * front;
     // The oral fissure. A mouth is a slot, and a slot with no shadow in it is a
     // scratch — the term worth the most per unit of area on the whole face.
     dim += 0.72 * gs(s, 0.34) * gs(fy - Y_LIP, 0.030) * front;
     // The shelf under the lower lip, which is what divides the lower third.
-    dim += 0.30 * gs(s, 0.28) * gs(fy - (Y_LIP - 0.125), 0.055) * front;
+    dim += 0.38 * gs(s, 0.26) * gs(fy - (Y_LIP - 0.120), 0.050) * front;
     // Under the mandible. Everything below the jawline goes down, and the jaw's
     // own border gets a line over the top of it so the edge is an edge.
     dim += 0.58 * smooth(Y_CHIN + 0.11, Y_CHIN - 0.17, fy);
-    dim += 0.30 * gs(s - 0.52, 0.34) * gs(fy - (Y_CHIN + 0.10), 0.055) * front;
+    dim += 0.42 * gs(s - 0.52, 0.32) * gs(fy - (Y_CHIN + 0.105), 0.050) * front;
     // The nape and behind the ear: a head with tone only on its front reads as a
     // mask laid on a ball, and the three-quarter bearing needs somewhere to turn.
     dim += 0.34 * (1 - front) * smooth(0.30, -0.30, fy) * (1 - smooth(-0.78, -0.95, fy));
@@ -5093,7 +5137,16 @@ function faceComplexion(
     // adds: under 0.46 this is exactly what it was, and above it the sum
     // approaches its cap asymptotically instead of hitting it, so an overlap of
     // three justified shadows deepens a crease rather than painting a plateau.
-    dim = dim <= 0.46 ? dim : 0.46 + 0.24 * (1 - Math.exp(-(dim - 0.46) * 1.6));
+    //
+    // AND THE KNEE IS C1 NOW. The old form's slope fell from 1 to 0.384 across
+    // the join, so wherever the summed shadow crossed 0.46 the field had a
+    // corner in it — and the contour of a corner in a shading field is a LINE.
+    // It is drawn in exactly the places three or four honest shadows overlap,
+    // which is to say round the socket and along the buccal hollow, and it is
+    // the same class of defect as the `front` clamp two hundred lines above.
+    // Dividing by the headroom instead of multiplying by 1.6 makes the
+    // derivative exactly 1 at the join, so there is no contour anywhere.
+    dim = dim <= 0.46 ? dim : 0.46 + 0.26 * (1 - Math.exp(-(dim - 0.46) / 0.26));
 
     // ---- the flush ----
     //
