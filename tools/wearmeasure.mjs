@@ -172,6 +172,32 @@ const GAP_MM = 26;
 const FLARE_DEG = 22;
 const HEM_MM = 26;
 
+// TWO THINGS THIS RULER CANNOT SEE, stated rather than tuned around.
+//
+// It measures metal against FLESH, and in two places in the shop there is
+// something legitimately in between:
+//
+//   - the Sutton Hoo's cheek guards lap a formed face mask. `SEAT_MM` above
+//     already carries the same 15 mm allowance for the same plate and the same
+//     reason; these two bars carry 12.
+//   - the huscarl's nape fall lies on his mail coif, which stands up to 45 mm
+//     off the skull by the time it reaches the shoulder. A plate OVER an
+//     aventail is the correct construction — it is what the finds show and what
+//     the note above the fall spent a paragraph getting right — so a gate that
+//     failed it would be demanding the plate be built inside the mail. The fall
+//     is still gated, on the three classes that wear no coif, through the same
+//     lines of the same build; what is dropped is one class's reading of one
+//     tag, not the tag.
+//
+// Folding the coif into the radial table was tried and is the wrong answer: a
+// 30x9 ring rasterised into a 192x96 table leaves empty bins, the gap function
+// goes discontinuous across them, and the flare it reports is 84 deg of pure
+// aliasing. A hole in the ruler is worse than a gap in its coverage, because
+// the hole reports a number.
+const MASK_ALLOW = 12;
+const allowance = (helm, tag) => (helm === "suttonhoo" && /cheek/.test(tag) ? MASK_ALLOW : 0);
+const blind = (cls, tag) => cls === "huscarl" && /nape/.test(tag);
+
 const helms = ONLY ? [ONLY] : HELM_VALUES;
 const seeds = [];
 for (let i = 0; i < SEEDS; i++) seeds.push(i * 7919 + 13);
@@ -203,9 +229,11 @@ for (const helm of helms) {
         if (FURNITURE.test(sh.tag) && sh.standoffMm > float) { float = sh.standoffMm; floatTag = sh.tag; }
         if (!GROUNDED.test(sh.tag)) continue;
         if (!seen.has(sh.tag)) { seen.add(sh.tag); nGround++; }
-        if (sh.gapMm > gap) { gap = sh.gapMm; gapTag = sh.tag; }
+        if (blind(cls, sh.tag)) continue;
+        const a = allowance(helm, sh.tag);
+        if (sh.gapMm - a > gap) { gap = sh.gapMm - a; gapTag = sh.tag; }
         if (sh.flareDeg > flare) { flare = sh.flareDeg; flareTag = sh.tag; }
-        if (sh.hemMm > hem) { hem = sh.hemMm; hemTag = sh.tag; }
+        if (sh.hemMm - a > hem) { hem = sh.hemMm - a; hemTag = sh.tag; }
       }
     }
   }

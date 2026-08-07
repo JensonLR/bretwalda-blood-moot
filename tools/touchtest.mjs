@@ -192,6 +192,11 @@ const PROBE = () => {
             // here that is not off the wire — the wire does not carry it —
             // and nothing is asserted from it that the facing does not confirm.
             lock: (w.__bretwaldaLock && w.__bretwaldaLock.target) || null,
+            // How far in the lock's blend is. It eases in over LOCK_BLEND_IN
+            // and scales every correction while it does, so a reading taken
+            // under a half-raised blend grades an assist that is still
+            // arriving. Recorded rather than inferred from a stopwatch.
+            bl: (w.__bretwaldaLock && w.__bretwaldaLock.blend) || 0,
             foes,
           });
         } catch { /* ignore */ }
@@ -202,6 +207,105 @@ const PROBE = () => {
   TappedWS.prototype = RealWS.prototype;
   Object.assign(TappedWS, RealWS);
   w.WebSocket = TappedWS;
+
+  /**
+   * THE LOCK READER — the facing assertion's whole instrument, and the one
+   * thing in this harness that had to stop being a stopwatch.
+   *
+   * WHAT WAS WRONG. The old read took the SERVER's copy of the warrior's
+   * rotation off each snapshot and compared it with where the locked man was
+   * standing on that same snapshot, every snapshot, for a fixed 2.6 seconds.
+   * Three separate things then shared one number:
+   *
+   *   1. how well the lock aims — the only thing the assertion is about;
+   *   2. how late the wire is. `sampleInput` runs the lock on a 16 ms timer
+   *      and the wire carries snapshots at 20 Hz, so the rotation in a
+   *      snapshot is the yaw the lock asked for one tick ago. Measured on this
+   *      box, during an acquisition that is worth 15-20° of pure lag, and the
+   *      server's copy visibly moves in three-sample stairs while the lock
+   *      underneath it is running smooth;
+   *   3. how long the main thread was blocked. This box rasterises in software
+   *      and renders the fight at barely one frame a second; twice in two runs
+   *      it stopped servicing timers for over two seconds. The lock cannot run
+   *      while that is happening, snapshots keep arriving throughout, and every
+   *      one of them was scored. That is where 33.8° and 124° came from.
+   *
+   * Only (1) is the behaviour under test. (2) and (3) are the box, and a run
+   * passed or failed on whether the box misbehaved inside one fixed window —
+   * sampling, not behaviour, exactly as the flake looked.
+   *
+   * WHAT IS MEASURED NOW. One reading per LOCK UPDATE, off the lock's own
+   * output. Every call to `sampleInput` publishes its yaw as an input message
+   * (CONTINUOUS_GAP_MS.ws is 12 ms against a 16 ms timer, so no update is
+   * thinned away), which makes `__probe.sent` a one-for-one record of the
+   * controller's own steps. Each is paired with the freshest snapshot the
+   * controller actually had when it published — so there is no round trip
+   * inside the measurement and nothing to be late.
+   *
+   * A reading counts only where the lock was in a position to be graded:
+   *
+   *   * it has held THIS man for 500 ms, and its blend is all the way in. The
+   *     spring's time constant is 1/LOCK_STIFFNESS, 83 ms; half a second is
+   *     six of them, which is convergence rather than a guess. Blend is read
+   *     off the lock rather than timed.
+   *   * the controller has not been starved for 500 ms — no gap between two of
+   *     its updates longer than the 0.1 s its own dt is clamped to. A step
+   *     taken after a two-second block is one the lock was denied the time to
+   *     make; on a phone at 60 Hz this excludes nothing at all.
+   *   * the man is not staggered, committed or dead, where the turn cap and
+   *     not the lock decides his facing. That was already true and stays.
+   *
+   * The bar itself is untouched at 0.5 rad, and the sample is DENSER than
+   * before, not thinner: the assertion used to want eight readings and now
+   * wants twenty-four, and the caller waits for them instead of hoping a fixed
+   * window contained them.
+   *
+   * `adopt` keeps the second fact in its own channel: the server's rotation
+   * against the yaw the lock asked for a beat earlier. If the lock aimed true
+   * and the fight never got it, that is a real failure and it now has
+   * somewhere to show up instead of hiding inside the facing error.
+   */
+  const LOCK_DT_CLAMP = 100;   // src/game/client/GameCanvas.tsx: dt = min(elapsed, 0.1)
+  const SETTLE = 500;          // six time constants of the lock's own spring
+  w.__lockRead = (t) => {
+    const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+    const rows = w.__probe.frames;
+    // Each entry is one publication of the lock's yaw: {t, d.rotationY}.
+    const ups = w.__probe.sent.filter((s) => s.t >= t).map((s) => ({ t: s.t, y: s.d.rotationY }));
+    let i = 0, worst = 0, n = 0, yawTravel = 0, adopt = 0, moved = 0;
+    let awake = -1e9, held = -1e9, prevLock = null, prevY = null;
+    let firstFoe = null, id = null, starved = 0, longest = 0;
+    for (let k = 0; k < ups.length; k++) {
+      const s = ups[k];
+      const gap = k ? s.t - ups[k - 1].t : Infinity;
+      if (gap > LOCK_DT_CLAMP) { awake = s.t; if (k) { starved++; longest = Math.max(longest, gap); } }
+      // The freshest snapshot the controller had when it published this yaw.
+      while (i + 1 < rows.length && rows[i + 1].t <= s.t) i++;
+      const r = rows[i];
+      if (!r || r.t > s.t) continue;
+      if (r.lock !== prevLock) { prevLock = r.lock; held = s.t; firstFoe = null; }
+      if (!r.lock) { prevY = null; continue; }
+      const foe = r.foes[r.lock];
+      if (!foe || foe.dead) { prevY = null; continue; }
+      if (r.state === "staggered" || r.state === "attacking" || r.state === "shoving" || r.state === "dead") { prevY = null; continue; }
+      if (s.t - held < SETTLE || s.t - awake < SETTLE || r.bl < 0.98) { prevY = null; continue; }
+      worst = Math.max(worst, Math.abs(wrap(Math.atan2(foe.x - r.x, foe.z - r.z) - s.y)));
+      if (prevY !== null) yawTravel += Math.abs(wrap(s.y - prevY));
+      prevY = s.y;
+      n++; id = r.lock;
+      if (!firstFoe) firstFoe = { ...foe };
+      moved = Math.max(moved, Math.hypot(foe.x - firstFoe.x, foe.z - firstFoe.z));
+      // Did the fight take the yaw the lock asked for? Compared against an ask
+      // old enough to have been through a server tick and back.
+      for (let j = k; j >= 0; j--) {
+        if (ups[j].t > r.t - LOCK_DT_CLAMP) continue;
+        if (ups[j].t < r.t - 2 * LOCK_DT_CLAMP) break;
+        adopt = Math.max(adopt, Math.abs(wrap(r.rot - ups[j].y)));
+        break;
+      }
+    }
+    return { worst, n, yawTravel, moved, id, adopt, updates: ups.length, starved, longest };
+  };
 };
 
 const results = [];
@@ -503,43 +607,31 @@ async function lockAct(browser, url, check) {
   // ===================================================================
   {
     let read = null;
-    // Held open until the locked man has actually gone somewhere. A lock that
-    // "held facing" on a man stood still has proved nothing, and a bot that has
-    // not closed yet is stood still.
+    /**
+     * WANTED is the sample the assertion needs, and the loop below now WAITS
+     * for it rather than timing a window and hoping. Twenty-four consecutive
+     * lock updates is about four hundred milliseconds of controller time — the
+     * old read asked for eight readings and took whatever a fixed 2.6 s window
+     * happened to contain, which on a stalled box was eight copies of three
+     * stale ones. Raising the sampler to meet the bar is the only honest
+     * direction to move a flaky assertion in; the bar itself is unchanged.
+     *
+     * Held open, as before, until the locked man has actually gone somewhere.
+     * A lock that "held facing" on a man stood still has proved nothing.
+     */
+    const WANTED = 24;
     for (let i = 0; i < 8; i++) {
       await waitForAlive().catch(() => {});
       const mark = await now();
-      // Long enough that even a box whose main thread is being fought over for
-      // most of a second still delivers the eight snapshots this needs.
-      await wait(2600);
-      read = await page.evaluate((t) => {
-        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-        // The first half-second is the ease-in, and a lock is allowed to be
-        // wrong while it is arriving. Rows within 350 ms of the lock changing
-        // man are dropped for the same reason.
-        const rows = window.__probe.frames.filter((f) => f.t >= t + 500);
-        let worst = 0, n = 0, yawTravel = 0, prevRot = null, prevLock = null, changedAt = -1e9;
-        let firstFoe = null, lastFoe = null, id = null;
-        for (const f of rows) {
-          if (f.lock !== prevLock) { changedAt = f.t; prevLock = f.lock; }
-          const foe = f.lock && f.foes[f.lock];
-          if (prevRot !== null) yawTravel += Math.abs(wrap(f.rot - prevRot));
-          prevRot = f.rot;
-          if (!foe || foe.dead) continue;
-          // A staggered or committed man is not free to turn; the cap, not the
-          // lock, is what decides his facing there, and it has its own test.
-          if (f.state === "staggered" || f.state === "attacking" || f.state === "shoving" || f.state === "dead") continue;
-          if (f.t - changedAt < 500) continue;
-          const off = Math.abs(wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot));
-          worst = Math.max(worst, off);
-          n++;
-          id = f.lock;
-          if (!firstFoe) firstFoe = { ...foe };
-          lastFoe = { ...foe };
-        }
-        const moved = firstFoe && lastFoe ? Math.hypot(lastFoe.x - firstFoe.x, lastFoe.z - firstFoe.z) : 0;
-        return { worst, n, yawTravel, moved, id };
-      }, mark);
+      // Wait for the readings, with a ceiling — never a fixed sleep. On a phone
+      // this returns in under a second; on this box it takes as long as the box
+      // needs, and if the fight will not supply a moving locked man inside
+      // twenty seconds the attempt is abandoned and another one is started.
+      await page.waitForFunction(
+        ([t, want]) => { const r = window.__lockRead(t); return r.n >= want && r.moved > 0.8; },
+        [mark, WANTED], { timeout: 20000, polling: 250 },
+      ).catch(() => {});
+      read = await page.evaluate((t) => window.__lockRead(t), mark);
       if (process.env.TOUCH_DIAG) {
         const raw = await page.evaluate((t) => ({
           frames: window.__probe.frames.filter((f) => f.t >= t),
@@ -547,13 +639,19 @@ async function lockAct(browser, url, check) {
         }), mark);
         writeFileSync(resolve(process.env.TOUCH_DIAG, `lockA-${Date.now()}-${i}.json`), JSON.stringify(raw));
       }
-      if (read.n >= 8 && read.moved > 0.8) break;
+      if (read.n >= WANTED && read.moved > 0.8) break;
     }
     check("the lock holds facing on a moving target with no thumb on the button side",
-      read && read.n >= 8 && read.moved > 0.8 && read.worst < 0.5 && read.yawTravel > 0.15,
+      read && read.n >= WANTED && read.moved > 0.8 && read.worst < 0.5
+        && read.yawTravel > 0.15 && read.adopt < 0.5,
       read
-        ? `over ${read.n} snapshots the locked man travelled ${read.moved.toFixed(2)} units and the camera turned ${(read.yawTravel * 57.3).toFixed(0)}° to stay on him; worst facing error ${(read.worst * 57.3).toFixed(1)}° (a thumb was nowhere near the glass)`
-        : "no snapshots");
+        ? `over ${read.n} lock updates the locked man travelled ${read.moved.toFixed(2)} units and the camera turned `
+          + `${(read.yawTravel * 57.3).toFixed(0)}° to stay on him; worst facing error ${(read.worst * 57.3).toFixed(1)}° `
+          + `(a thumb was nowhere near the glass), and the fight took the yaw it asked for to within `
+          + `${(read.adopt * 57.3).toFixed(1)}°. ${read.updates} updates were offered and ${read.starved} followed a `
+          + `main-thread block past the lock's own 0.1 s dt clamp (longest ${read.longest.toFixed(0)} ms), which is the box `
+          + `and not the lock, so they are not graded`
+        : "no lock updates");
   }
 
   // ===================================================================
