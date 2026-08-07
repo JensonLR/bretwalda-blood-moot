@@ -179,7 +179,9 @@ const PROBE = () => {
             if (p.id === mine.id) continue;
             foes[p.id] = { x: p.position.x, z: p.position.z, dead: p.state === "dead" };
           }
-          if (w.__probe.frames.length > 900) w.__probe.frames.shift();
+          // Long enough to cover the whole of the facing sample below, which
+          // now waits for its readings instead of taking a fixed 2.6 s of them.
+          if (w.__probe.frames.length > 2400) w.__probe.frames.shift();
           w.__probe.frames.push({
             t: performance.now(),
             // The frame clock at the instant this snapshot landed. `fn` is the
@@ -328,7 +330,9 @@ const PROBE = () => {
       // the client would match none of them.
       let near = Math.PI;
       for (let j = k; j >= 0 && ups[j].t >= r.t - 250; j--) {
-        near = Math.min(near, Math.abs(wrap(r.rot - ups[j].y)));
+        // Only asks the server could already have had. An ask published after
+        // this snapshot left the server cannot be what is in it.
+        if (ups[j].t <= r.t) near = Math.min(near, Math.abs(wrap(r.rot - ups[j].y)));
       }
       if (near < Math.PI) cur.adopt = Math.max(cur.adopt, near);
     }
@@ -657,19 +661,26 @@ async function lockAct(browser, url, check) {
      * A lock that "held facing" on a man stood still has proved nothing.
      */
     const WANTED = 72;
-    for (let i = 0; i < 8; i++) {
+    // ONE mark for the whole act. `__lockRead` walks every gradeable span since
+    // it and returns the first that qualifies, so a later attempt keeps
+    // everything the earlier ones saw instead of throwing it away and starting
+    // the clock again. Attempts exist only to sit out a death and try again,
+    // which is why there are fewer of them now and the act is no slower for
+    // asking nine times the sample it used to.
+    const mark = await now();
+    for (let i = 0; i < 6; i++) {
       await waitForAlive().catch(() => {});
-      const mark = await now();
       // Wait for the readings, with a ceiling — never a fixed sleep. On a phone
       // this returns in under a second; on this box it takes as long as the box
       // needs, and if the fight will not supply a moving locked man inside
-      // twenty seconds the attempt is abandoned and another one is started.
+      // fifteen seconds the warrior is probably down, so the attempt goes back
+      // to waiting for him to be on his feet and the sample carries on.
       await page.waitForFunction(
         ([t, want]) => {
           const r = window.__lockRead(t, want);
           return r.n >= want && r.moved > 0.8 && r.demand > 0.15;
         },
-        [mark, WANTED], { timeout: 20000, polling: 250 },
+        [mark, WANTED], { timeout: 15000, polling: 250 },
       ).catch(() => {});
       read = await page.evaluate(([t, want]) => window.__lockRead(t, want), [mark, WANTED]);
       if (process.env.TOUCH_DIAG) {
