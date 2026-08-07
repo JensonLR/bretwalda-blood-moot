@@ -8611,10 +8611,27 @@ export function hairFitProbe(
     iv = Math.max(0, Math.min(NV - 1, iv));
     return [iu, iv, r];
   };
+  // AND THE LOWEST THE GARMENT REACHES IN THIS DIRECTION, which is the vertical
+  // half of the rim rule above and was missing.
+  //
+  // The table is star-shaped about the skull's centre, so a point BELOW a
+  // garment's free lower edge is at a bigger radius than the edge and lands in
+  // the edge's own bin: hair hanging out from under a cheek plate's hem reads as
+  // hair standing through the plate, however far below the metal it actually is.
+  // The probe already refuses to make that mistake sideways — "a bin that
+  // straddles a garment's lower edge holds the inner wall from above the edge
+  // and hair from below it, and reports the hair as through … Hair emerging from
+  // under a rim is the thing this file spent a whole pass ADDING, so a ruler
+  // that fails it is worse than none" — and then applied the reasoning to one
+  // bin of AZIMUTH only. A hem 110 mm below the head's centre spans a dozen bins
+  // of elevation. Hair below the lowest metal in its own direction is hair in
+  // open air, and it is counted as SHOWN rather than tested.
+  const coverLo = new Float64Array(NU * NV).fill(Infinity);
   const put = (x: number, y: number, z: number) => {
     const [iu, iv, r] = binOf(x, y, z);
     const k = iv * NU + iu;
     if (r < inner[k]!) inner[k] = r;
+    if (y < coverLo[k]!) coverLo[k] = y;
   };
   let coverTris = 0;
   for (const hex of coverHex) {
@@ -8659,6 +8676,9 @@ export function hairFitProbe(
     const k = iv * NU + iu;
     all++;
     if (!Number.isFinite(inner[k]!)) { shown++; continue; }
+    // Below the hem is not under the helmet. 2 mm of slack is one tessellation
+    // chord, so a facet of the rim itself cannot buy an exemption.
+    if (hairPts[i + 1]! < coverLo[k]! - 0.002) { shown++; continue; }
     if (!solid[k]) continue;
     verts++;
     const d = (r - inner[k]!) * 1000;
@@ -8691,7 +8711,7 @@ export function hairFitProbe(
   for (let i = 0; i + 2 < hairPts.length; i += 3) {
     const [iu, iv] = binOf(hairPts[i]!, hairPts[i + 1]!, hairPts[i + 2]!);
     const k = iv * NU + iu;
-    if (!Number.isFinite(inner[k]!)) seenBin[k] = 1;
+    if (!Number.isFinite(inner[k]!) || hairPts[i + 1]! < coverLo[k]! - 0.002) seenBin[k] = 1;
   }
   let bareW = 0, keptW = 0;
   for (let iv = 0; iv < NV; iv++) {
@@ -10712,7 +10732,7 @@ export function buildCharacter(
     // it.
     if (helmed && style.cheek !== "none"
       && awayFromFace(u) > cheekIn - 0.11 && awayFromFace(u) < cheekOut + 0.15
-      && v < bandLo && v > cheekHemAt(awayFromFace(u)) - 0.14) c = Math.min(c, HAIR_LINER);
+      && v < bandLo + 0.10 && v > cheekHemAt(awayFromFace(u)) - 0.14) c = Math.min(c, HAIR_LINER);
     // A nape fall or a neck guard hangs off the back of the band on five rungs,
     // so the back is metal below the rim as well as above it. 2 mm rather than
     // a liner's 5, and NEGATIVE. A fall is swept on its own rings rather than
@@ -11555,12 +11575,15 @@ export function buildCharacter(
         // that happened to agree.
         const bRoot = new THREE.Vector3();
         const bNrm = new THREE.Vector3();
+        const bDrop = new THREE.Vector3();
         for (const s2 of [-1, 1]) {
           // Above and a little behind the ear, which is where a war-lock is
           // taken from — far enough back that it clears the temple and far
           // enough forward that it swings past the jaw rather than down the
           // neck.
-          const rootU = s2 * 1.28;
+          // Forward of the mask's own guards where the head is closed: a plait
+          // taken from behind the ear on the Sutton Hoo has nowhere to hang.
+          const rootU = s2 * (style.cheek === "deep" ? cheekIn + 0.06 : 1.28);
           // A HOOD AND AN AVENTAIL ARE BAGS THE HEAD GOES INTO, AND A PLAIT
           // CANNOT BE WORN OUTSIDE ONE. You cannot put a coif on over a
           // war-lock; the hair is inside it. At the old 0.35 threshold the
@@ -11593,6 +11616,13 @@ export function buildCharacter(
           // below it. That is one number instead of a deleted cosmetic, and it
           // is measured by the same probe that condemned the old geometry.
           const hem = cheekHem(rootU);
+          // UNDER A MASK THE ROOT GOES BELOW THE LINER BAND, not just below the
+          // hem. `hairCeil` flattens hair to a 5 mm liner everywhere a plate
+          // covers it, and on the Sutton Hoo that plate reaches the midline —
+          // so a plait rooted at the mask's hem had its first third pressed
+          // flat against the throat by `fallFit` and read as 0.12% of a
+          // silhouette. Rooted 0.18 rad lower it starts in open air and the
+          // gather's own brass tie closes the end.
           const rootV = Number.isFinite(hem) ? Math.min(0.16, hem + 0.04) : 0.16;
           dirOf(rootU, rootV, bRoot);
           faceNormalTrue(K, rootU, rootV, bNrm);
@@ -11614,12 +11644,19 @@ export function buildCharacter(
           const swingOut = guarded ? 0.056 : 0.030;
           const swingFwd = guarded ? 0.022 : 0.086;
           // AND IT IS SHORTER WHERE IT STARTS LOWER. The plait's 352 mm is
-          // measured from above the ear; taken from under a cheek plate's hem it
-          // starts 120 mm further down, and 352 mm from there hangs its tip into
-          // the aventail's skirt — `hairFitProbe` read 64.3 mm of rope outside
-          // the rings on the Sutton Hoo. The rope ends where it always did
-          // rather than 120 mm below it.
-          const drop = 0.352 - Math.max(0, 0.16 - rootV) * 0.62;
+          // measured from above the ear; taken from under a cheek plate's hem
+          // it starts as much as 90 mm further down, and 352 mm from there
+          // hangs its tip into the aventail's skirt — `hairFitProbe` read
+          // 64.3 mm of rope outside the rings on the Sutton Hoo. So the rope
+          // ends where it always did rather than 90 mm below it, and the
+          // difference is MEASURED off the two roots rather than converted from
+          // a latitude by a factor: the first cut of this multiplied radians by
+          // 0.62 and got a NEGATIVE fall on the two deep-guarded rungs, so the
+          // plait ran UP the side of the head and 498 vertices of it stood
+          // through the Sutton Hoo's own brow. A latitude is not a length.
+          dirOf(rootU, 0.16, bDrop);
+          faceSurface(K, bDrop, bDrop);
+          const drop = Math.max(0.20, 0.352 - (bDrop.y + skullY - bRoot.y));
           const bp = (t: number, out: THREE.Vector3) => {
             // Out and forward as it falls, so the plait hangs beside the jaw
             // rather than down the neck — that swing is the whole silhouette,
