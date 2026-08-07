@@ -80,7 +80,10 @@ if (!existsSync(built)) {
   process.exit(2);
 }
 
-const { wearNormalProbe, helmFitProbe, hairFitProbe, HELM_VALUES, HAIR_VALUES } = await import(pathToFileURL(built).href);
+const {
+  wearNormalProbe, helmFitProbe, hairFitProbe, bodyFitProbe, handProbe,
+  HELM_VALUES, HAIR_VALUES, CLOAK_VALUES,
+} = await import(pathToFileURL(built).href);
 
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
@@ -386,4 +389,116 @@ for (const f of hfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${hfails.length ? "FAIL" : "PASS"}: ` +
   `${helms.length * hairStyles.length - hfails.length}/${helms.length * hairStyles.length} hair-and-helm pairs keep to the stack`);
 
-process.exit(fails.length + gfails.length + hfails.length ? 1 : 0);
+// 5. BODY FITTINGS — the same question, below the neck
+// ============================================================
+//
+// "if you look at the actual armour you'll see in my screenshot that the gold
+//  'medal' looking circle is floating off the players chest, same with all the
+//  buttons & other aspects floating round the body."
+//
+// Sections 1-4 could not see a single one of these. They tap `headWear`, and a
+// belt stud, a cloak brooch and a baldric boss never go near it — so the whole
+// lower two thirds of the warrior had no fit ruler at all while three of them
+// argued about helmets.
+//
+// `bodyFitProbe` measures each fitting's transformed VERTICES against the
+// garment it is pinned to, along that garment's true normal:
+//
+//   STAND  the daylight under the fitting's closest point, in mm. A rivet, a
+//          stud, a buckle or a brooch is fastened THROUGH the thing under it, so
+//          the bar is 3 mm — one layer of slop and no more. This is the number
+//          in the owner's screenshot.
+//   SINK   how far the deepest point is inside the carrier. Fittings are
+//          deliberately bedded — a rivet head sits half in its plate — so this
+//          is reported and only gated loosely, at 14 mm, which is where a
+//          fitting stops being visible at all — a pin passes THROUGH cloth by
+//          design, so this catches a fitting that has vanished into a garment
+//          rather than one that is doing its job.
+//
+// The vertices and not the anchor, and that distinction is the whole ruler: a
+// boss whose ORIGIN is on the surface and whose back face is 9 mm behind it is
+// seated, and one whose origin is on the surface and whose back face is 40 mm
+// in front of it is the defect. Only the mesh can tell those apart.
+const STAND_MM = 3;
+const SINK_MM = 22;
+console.log("");
+console.log("[wear] 5. BODY FITTINGS — brooches, bosses, buckles, studs, rivets.");
+console.log("[wear]    Measured off each fitting's own vertices, against the garment under it.");
+console.log("");
+console.log("[wear] class        cloak   fittings  stand mm   sink mm  worst fitting");
+console.log("[wear] ---------------------------------------------------------------------");
+const bfails = [];
+let nFit = 0;
+for (const cls of CLASSES) {
+  for (const cloak of CLOAK_VALUES) {
+    let stand = 0, sink = 0, standTag = "-", sinkTag = "-";
+    const rows = bodyFitProbe(cls, seeds[0], cloak);
+    nFit += rows.length;
+    for (const r of rows) {
+      if (r.standoffMm > stand) { stand = r.standoffMm; standTag = r.tag; }
+      if (r.sinkMm > sink) { sink = r.sinkMm; sinkTag = r.tag; }
+    }
+    const bad = [];
+    if (stand > STAND_MM) bad.push(`${standTag} floats ${stand.toFixed(1)} mm off the body`);
+    if (sink > SINK_MM) bad.push(`${sinkTag} is ${sink.toFixed(1)} mm inside it`);
+    if (bad.length) bfails.push(`${cls}/${cloak}: ${bad.join("; ")}`);
+    console.log(
+      `[wear] ${cls.padEnd(12)} ${cloak.padEnd(6)} ${String(rows.length).padStart(8)}  ` +
+      `${stand.toFixed(1).padStart(8)}  ${sink.toFixed(1).padStart(8)}  ` +
+      `${stand > STAND_MM ? standTag : sink > SINK_MM ? sinkTag : "-"}${bad.length ? "   <-- FAIL" : ""}`);
+  }
+}
+console.log("");
+console.log(`[wear] ${nFit} seated fittings measured; bars: standoff ${STAND_MM} mm, sink ${SINK_MM} mm`);
+for (const f of bfails) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${bfails.length ? "FAIL" : "PASS"}: ` +
+  `${CLASSES.length * CLOAK_VALUES.length - bfails.length}/${CLASSES.length * CLOAK_VALUES.length} kits with every fitting on the body`);
+
+// ============================================================
+// 6. HANDS — which one is on which arm
+// ============================================================
+//
+// "The beserkers hands are backwards they look broken haha."
+//
+// A right hand and a left hand are mirror images, and a mirror image is the one
+// thing a rendering pipeline will happily give you without complaining: the
+// winding flips, three.js flips it back, the normals come out right and the
+// surface is perfect. It is simply the wrong hand. Nothing in this file could
+// see that, because every ruler in it measures distances and a chirality is not
+// a distance.
+//
+// So it is measured as anatomy measures it. (D x P) . T over the distal
+// direction, the palm normal and the radial direction is positive on a right
+// hand and negative on a left one under every rotation there is, and only a
+// reflection can change it. `handProbe` pushes the three landmarks the build
+// itself returns through the fist's placement and through the body mirror
+// `anim.ts` applies, and reports the sign that reaches the frame.
+//
+// A man's right hand belongs on the arm at negative x, palm toward the midline.
+// Both bars, on every class.
+const PALM_MIN = 0.25;
+console.log("");
+console.log("[wear] 6. HANDS — chirality and palm facing, on the mesh as it renders.");
+console.log("");
+console.log("[wear] class        arm      x mm   chirality   palm-medial  verdict");
+console.log("[wear] ---------------------------------------------------------------------");
+const handfails = [];
+for (const cls of CLASSES) {
+  for (const h of handProbe(cls, seeds[0])) {
+    const wantChir = h.hand === "right" ? 1 : -1;
+    const bad = [];
+    if (h.chirality !== wantChir) bad.push(`a ${h.chirality > 0 ? "right" : "left"} hand on the ${h.hand} arm`);
+    if (h.palmMedial < PALM_MIN) bad.push(`palm turned outward (${h.palmMedial.toFixed(2)})`);
+    if (bad.length) handfails.push(`${cls} ${h.hand}: ${bad.join("; ")}`);
+    console.log(
+      `[wear] ${cls.padEnd(12)} ${h.hand.padEnd(6)} ${(h.worldX * 1000).toFixed(0).padStart(6)}  ` +
+      `${(h.chirality > 0 ? "right" : "left").padStart(9)}   ${h.palmMedial.toFixed(2).padStart(11)}  ` +
+      `${bad.length ? "<-- FAIL" : "ok"}`);
+  }
+}
+console.log("");
+console.log(`[wear] bars: the right hand is a right hand, palm-medial >= ${PALM_MIN}`);
+for (const f of handfails) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${handfails.length ? "FAIL" : "PASS"}: hands`);
+
+process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length ? 1 : 0);

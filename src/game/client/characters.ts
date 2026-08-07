@@ -907,6 +907,9 @@ const CLOAK_CUTS: Record<string, CloakCut> = {
   },
 };
 
+/** The cloak rungs, so `wearmeasure` §4 can measure all four clasps. */
+export const CLOAK_VALUES: readonly string[] = Object.keys(CLOAK_CUTS);
+
 /**
  * How many times a woven texture tiles across a garment, derived from how big the
  * garment is instead of fixed.
@@ -1186,6 +1189,207 @@ function shell(stations: Station[], seg: number, opts: ShellOptions = {}): THREE
   // put a soft gradient where the garment's hardest line is.
   if (!open) weldRingNormals(g, rings, seg);
   return g;
+}
+
+// ============================================================
+// Seating a fitting on the body it is pinned to
+// ============================================================
+//
+// "if you look at the actual armour you'll see in my screenshot that the gold
+//  'medal' looking circle is floating off the players chest, same with all the
+//  buttons & other aspects floating round the body."
+//
+// He is right about every one of them, and it is one mistake repeated at a dozen
+// call sites. A fitting was placed at a FIXED OFFSET FROM A SKELETON POINT —
+// `xf(-0.125, S.chestY + 0.05, S.chestHD + 0.046)` for the baldric boss, `cz =
+// S.chestHD + 0.058` for the cloak brooch — and `S.chestHD` is the torso's half
+// depth ON THE CENTRELINE. Move 125 mm out to the side of a superellipse and the
+// surface has already fallen 30-50 mm back toward the spine, so a boss authored
+// "6 mm proud of the chest" is standing 50 mm off it in air. That is the
+// daylight under the medal.
+//
+// The helm work solved exactly this and the fix is the same shape: a fitting
+// must be lifted along the TRUE normal of the surface it sits on, from a point
+// ON that surface, not along a body axis from a point near it. `faceNormalTrue`
+// does it for the skull, which is a displaced ellipsoid. The body is a swept
+// superellipse instead, so its true normal comes from the sweep — and that is
+// what `shellNormal` is.
+//
+// Everything below works in the frame the garment was swept in, which is the
+// part's own frame, so a call site reads as "put this stud on the belt, 40
+// degrees round, 2 mm proud" instead of as three coordinates that were true for
+// one class at one stature.
+
+/**
+ * A surface a fitting can be pinned to: the swept superellipse of some garment,
+ * as the station at a height plus the exponent it was swept with.
+ *
+ * `st` is the same sampler the garment itself was built from — `at(y, pad)` for
+ * the torso, a lambda over the pauldron's own dome for a shoulder stud — so the
+ * fitting cannot drift away from a layer that moves. That is the whole point of
+ * passing a function rather than three numbers.
+ */
+interface FitCarrier { st(y: number): Station; power: number }
+
+/** The carrier's surface point at a height and an azimuth (0 is +x, π/2 is +z). */
+function shellPoint(c: FitCarrier, y: number, az: number, out: THREE.Vector3): THREE.Vector3 {
+  const k = 2 / c.power;
+  const st = c.st(y);
+  const cs = Math.cos(az);
+  const sn = Math.sin(az);
+  return out.set(
+    st.hw * Math.sign(cs) * Math.pow(Math.abs(cs), k),
+    y,
+    (st.z ?? 0) + st.hd * Math.sign(sn) * Math.pow(Math.abs(sn), k),
+  );
+}
+
+const _snA = new THREE.Vector3();
+const _snB = new THREE.Vector3();
+const _snT = new THREE.Vector3();
+const _snM = new THREE.Vector3();
+/**
+ * The TRUE outward normal of the swept surface — the one `faceNormalTrue` is for
+ * the skull, and for the same reason.
+ *
+ * Central differences rather than the closed form, and that is deliberate: with
+ * `power > 2` the analytic derivative carries a `|cos a|^(k−1)` with a negative
+ * exponent, so it is singular at exactly the four places a superellipse squares
+ * off — which is where the belt studs and the shoulder bosses sit. A difference
+ * quotient has no singularity, it costs four station lookups, and it is
+ * measuring the same surface the tessellation lands on.
+ *
+ * The ring tangent crossed INTO the meridian tangent, not the other way round:
+ * `shell` proves in its own slit-rim note that increasing azimuth runs
+ * anticlockwise seen from +y, and (up × anticlockwise) is what points out of a
+ * body. The radial check below is the belt-and-braces that would catch a station
+ * list that inverts.
+ */
+function shellNormal(c: FitCarrier, y: number, az: number, out: THREE.Vector3): THREE.Vector3 {
+  const da = 0.02;
+  const dy = 0.004;
+  _snT.copy(shellPoint(c, y, az + da, _snA)).sub(shellPoint(c, y, az - da, _snB));
+  _snM.copy(shellPoint(c, y + dy, az, _snA)).sub(shellPoint(c, y - dy, az, _snB));
+  out.crossVectors(_snM, _snT);
+  if (out.lengthSq() < 1e-12) out.set(Math.cos(az), 0, Math.sin(az));
+  out.normalize();
+  shellPoint(c, y, az, _snA);
+  _snB.set(_snA.x, 0, _snA.z - (c.st(y).z ?? 0));
+  if (out.dot(_snB) < 0) out.negate();
+  return out;
+}
+
+/**
+ * The azimuth at which the carrier's surface reaches a given x — so a fitting
+ * keeps the lateral position it was authored at and only its depth is solved.
+ *
+ * `front` picks which of the two solutions is wanted; almost everything on a
+ * warrior is pinned to his chest.
+ */
+function azAtX(c: FitCarrier, y: number, x: number, front = true): number {
+  const st = c.st(y);
+  const u = Math.max(-1, Math.min(1, x / (st.hw || 1e-4)));
+  // x = hw·sgn(c)|c|^(2/power), so |cos| = |x/hw|^(power/2).
+  const cs = Math.sign(u) * Math.pow(Math.abs(u), c.power / 2);
+  const a = Math.acos(Math.max(-1, Math.min(1, cs)));
+  return front ? a : -a;
+}
+
+const _sxN = new THREE.Vector3();
+const _sxP = new THREE.Vector3();
+const _sxE1 = new THREE.Vector3();
+const _sxE2 = new THREE.Vector3();
+const _sxUp = new THREE.Vector3(0, 1, 0);
+/**
+ * The placement for a fitting seated on a carrier: local +z becomes the
+ * surface's outward normal, local +x runs round the body, local +y runs up it,
+ * and the origin is the surface point lifted by `lift`.
+ *
+ * `lift` is the fitting's own half-thickness — the distance from its origin to
+ * its BACK face — so passing it puts the back of the fitting exactly on the
+ * garment. That is the same contract the helm shells have with `headWear`, and
+ * it is why every call below reads as one number instead of a guessed z.
+ *
+ * `roll` turns the piece about the normal, which is how a strap-end rakes and a
+ * buckle sits square, and the three scales are `xf`'s so a dome can still be
+ * squashed into a boss.
+ */
+function seatXf(
+  c: FitCarrier, y: number, az: number, lift: number,
+  roll = 0, sx = 1, sy = 1, sz = 1,
+): THREE.Matrix4 {
+  shellPoint(c, y, az, _sxP);
+  shellNormal(c, y, az, _sxN);
+  _sxE1.crossVectors(_sxUp, _sxN);
+  if (_sxE1.lengthSq() < 1e-10) _sxE1.set(1, 0, 0);
+  _sxE1.normalize();
+  _sxE2.crossVectors(_sxN, _sxE1).normalize();
+  if (roll !== 0) {
+    const cr = Math.cos(roll);
+    const sr = Math.sin(roll);
+    const ax = _sxE1.x * cr + _sxE2.x * sr, ay = _sxE1.y * cr + _sxE2.y * sr, az2 = _sxE1.z * cr + _sxE2.z * sr;
+    _sxE2.set(_sxE2.x * cr - _sxE1.x * sr, _sxE2.y * cr - _sxE1.y * sr, _sxE2.z * cr - _sxE1.z * sr);
+    _sxE1.set(ax, ay, az2);
+  }
+  const m = new THREE.Matrix4().makeBasis(
+    _sxE1.clone().multiplyScalar(sx),
+    _sxE2.clone().multiplyScalar(sy),
+    _sxN.clone().multiplyScalar(sz),
+  );
+  m.setPosition(_sxP.x + _sxN.x * lift, _sxP.y + _sxN.y * lift, _sxP.z + _sxN.z * lift);
+  return m;
+}
+
+/**
+ * The same carrier offset outward by a fixed thickness — a strap lying on a
+ * garment, a boss lying on that strap. Stacking these is how a fitting three
+ * layers up still knows what its own back face is resting on.
+ */
+const padded = (c: FitCarrier, d: number): FitCarrier => ({
+  st: (y: number) => { const st = c.st(y); return { y, hw: st.hw + d, hd: st.hd + d, z: st.z }; },
+  power: c.power,
+});
+
+/** A station list read at a height, clamped to its own ends. */
+function stationAlong(sts: Station[], y: number): Station {
+  let i = 0;
+  while (i < sts.length - 2 && y < sts[i + 1].y) i++;
+  const a = sts[i];
+  const b = sts[i + 1];
+  const t = clamp01((a.y - y) / (a.y - b.y || 1));
+  return { y, hw: mix(a.hw, b.hw, t), hd: mix(a.hd, b.hd, t), z: mix(a.z ?? 0, b.z ?? 0, t) };
+}
+
+const _laceA = new THREE.Vector3();
+const _laceB = new THREE.Vector3();
+
+/** One seated fitting as the build placed it, for `bodyFitProbe`. */
+interface FitRecord { tag: string; carrier: FitCarrier; pts: THREE.Vector3[] }
+let _fitSpy: FitRecord[] | null = null;
+
+/**
+ * Adds a fitting AND tells the ruler where it went.
+ *
+ * The sample is taken off the geometry's own vertices after the placement
+ * matrix, so what `bodyFitProbe` measures is the metal that reaches the frame —
+ * not the anchor the author asked for. A fitting whose origin is on the surface
+ * and whose back face is 40 mm behind it still floats, and this is the only way
+ * to see that.
+ */
+function fitAdd(
+  p: Part, tag: string, c: FitCarrier,
+  geo: THREE.BufferGeometry, mat: THREE.Material, m: THREE.Matrix4,
+): void {
+  if (_fitSpy) {
+    const src = geo.getAttribute("position") as THREE.BufferAttribute;
+    const step = Math.max(1, Math.floor(src.count / 64));
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i < src.count; i += step) {
+      pts.push(new THREE.Vector3(src.getX(i), src.getY(i), src.getZ(i)).applyMatrix4(m));
+    }
+    _fitSpy.push({ tag, carrier: c, pts });
+  }
+  p.add(geo, mat, m);
 }
 
 /**
@@ -5804,19 +6008,25 @@ function faceComplexion(
 // ============================================================
 
 /**
- * Reflects a geometry through its own XY plane, winding and normals included. A
- * left hand is the *mirror* of a right hand, not a copy of it rotated round the
- * grip — and a mirror is a negative-determinant transform, which a matrix on the
- * mesh cannot express without turning the surface inside out. So the reflection
- * happens here, on the vertices, once per fist, before anything is merged.
+ * Reflects a geometry through one of its own coordinate planes, winding and
+ * normals included. A left hand is the *mirror* of a right hand, not a copy of
+ * it rotated round the grip — and a mirror is a negative-determinant transform,
+ * which a matrix on the mesh cannot express without turning the surface inside
+ * out. So the reflection happens here, on the vertices, before anything is
+ * merged.
+ *
+ * TWO REFLECTIONS ARE NEEDED AND ONLY ONE WAS BEING DONE. See `reflectChirality`
+ * below for the one that was missing and what it looked like in the frame.
  */
-function mirrorZ(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+function reflectAxis(geo: THREE.BufferGeometry, axis: "x" | "z"): THREE.BufferGeometry {
   const pos = geo.getAttribute("position") as THREE.BufferAttribute;
   const nrm = geo.getAttribute("normal") as THREE.BufferAttribute | undefined;
-  for (let i = 0; i < pos.count; i++) pos.setZ(i, -pos.getZ(i));
+  const get = axis === "x" ? "getX" : "getZ";
+  const set = axis === "x" ? "setX" : "setZ";
+  for (let i = 0; i < pos.count; i++) pos[set](i, -pos[get](i));
   pos.needsUpdate = true;
   if (nrm) {
-    for (let i = 0; i < nrm.count; i++) nrm.setZ(i, -nrm.getZ(i));
+    for (let i = 0; i < nrm.count; i++) nrm[set](i, -nrm[get](i));
     nrm.needsUpdate = true;
   }
   const idx = geo.getIndex();
@@ -5830,6 +6040,38 @@ function mirrorZ(geo: THREE.BufferGeometry): THREE.BufferGeometry {
   }
   return geo;
 }
+
+/**
+ * THE HANDS WERE BACKWARDS, AND THIS IS THE LINE THAT FIXES IT.
+ *
+ * "The beserkers hands are backwards they look broken haha." They were, on every
+ * class, in both handedness settings, and the mechanism is one reflection nobody
+ * counted.
+ *
+ * `anim.ts` builds every warrior LEFT-HANDED — the weapon arm is `armPivots[0]`
+ * at `+S.shoulderX`, and a body faces local +Z, so +X is the man's left — and
+ * then hangs the whole body under a `scale.x = -1` node to turn him into a
+ * right-hander. That node is a reflection, and a reflection swaps a hand's
+ * CHIRALITY: a right hand goes through it and comes out a left hand. three.js
+ * flips the winding for the negative determinant, so nothing renders inside out
+ * and nothing in the harness complained — the surface was fine, it was just the
+ * wrong hand. The thumb sat on the ulnar side of the fist, which is what "broken"
+ * looks like at portrait range.
+ *
+ * The fist below is authored as a RIGHT hand: fingers distal at −Y, palm facing
+ * +Z, thumb metacarpal off the −X edge, and (−Y × +Z) · (−X) = +1 is what makes
+ * that a right hand rather than a left one. Reflecting it in X is the only axis
+ * that flips that triple product while leaving the palm (+Z) and the wrist (+Y)
+ * exactly where `fistPlacement` expects them — so the medial-facing palm that
+ * note is about is untouched, and the thumb moves to the other end of the finger
+ * stack, which is the entire anatomical difference between the two hands.
+ *
+ * Applied to BOTH fists, unconditionally, because both go through the same node.
+ * The per-side `mirrorZ` above it stays exactly as it was: that one is about
+ * which way the palm faces, not about which hand it is.
+ */
+const reflectChirality = (geo: THREE.BufferGeometry) => reflectAxis(geo, "x");
+const mirrorZ = (geo: THREE.BufferGeometry) => reflectAxis(geo, "z");
 
 /** One knuckle-to-tip run of a digit: where it goes, and how thick it is there. */
 interface Knuckle { x: number; y: number; z: number; a: number; b: number }
@@ -5973,6 +6215,20 @@ function fingerPath(
 }
 
 /**
+ * Three points on the built fist, in the fist's own frame and already carrying
+ * whatever reflections that fist took. `wrist` is where the forearm caps it,
+ * `knuckle` is the middle of the knuckle line on the palm side, `thumb` is the
+ * base of the thumb metacarpal.
+ *
+ * They exist so `handProbe` can measure which hand this is off the mesh's own
+ * frame instead of off the sign of the flag that built it. A ruler that reads
+ * the flag can only ever confirm that the flag says what it says — this file has
+ * been bitten by that twice, and `docs/GATES.md` calls it "a passing test can
+ * measure the wrong thing".
+ */
+interface FistMarks { wrist: THREE.Vector3; knuckle: THREE.Vector3; thumb: THREE.Vector3 }
+
+/**
  * A hand on a shaft, built in a canonical frame: the shaft runs along +X through
  * the origin, the palm presses on the +Z face of it, the four fingers are stacked
  * along the shaft and wrap under it, and the thumb lies across them. +Z is the
@@ -6002,7 +6258,7 @@ function fistGeometry(
   lod: Lod,
   scale: number,
   opts: { reach: number; lead: number; mirror: boolean; grip: number | null },
-): { skin: THREE.BufferGeometry; warm: THREE.BufferGeometry | null } {
+): { skin: THREE.BufferGeometry; warm: THREE.BufferGeometry | null; marks: FistMarks } {
   const s = scale;
   const body: THREE.BufferGeometry[] = [];
   const tips: THREE.BufferGeometry[] = [];
@@ -6123,16 +6379,36 @@ function fistGeometry(
     ], ring));
   }
 
+  // Chirality first, then the side's palm reflection. Order does not matter —
+  // the two axes are independent — but both must happen, and the second one
+  // alone is what shipped. See `reflectChirality`.
+  const place = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+    reflectChirality(g);
+    return opts.mirror ? mirrorZ(g) : g;
+  };
   const join = (list: THREE.BufferGeometry[]): THREE.BufferGeometry | null => {
     if (list.length === 0) return null;
-    if (list.length === 1) return opts.mirror ? mirrorZ(list[0]) : list[0];
+    if (list.length === 1) return place(list[0]);
     const merged = mergeGeometries(list, false);
-    if (!merged) return opts.mirror ? mirrorZ(list[0]) : list[0];
+    if (!merged) return place(list[0]);
     for (const g of list) g.dispose();
-    return opts.mirror ? mirrorZ(merged) : merged;
+    return place(merged);
   };
   const skin = join(body);
-  return { skin: skin ?? new THREE.BufferGeometry(), warm: join(tips) };
+  // The three landmarks the ruler reads the hand's chirality off, carried through
+  // the same two reflections the mesh just took rather than re-derived from the
+  // sign of a flag — `handProbe` cannot then agree with a build it disagrees with.
+  const mark = (x: number, y: number, z: number): THREE.Vector3 =>
+    new THREE.Vector3(-x, y, opts.mirror ? -z : z);
+  return {
+    skin: skin ?? new THREE.BufferGeometry(),
+    warm: join(tips),
+    marks: {
+      wrist: mark(0, opts.reach, opts.lead),
+      knuckle: mark(0, -0.018 * s, wrap),
+      thumb: mark(-0.046 * s, -0.010 * s, wrap * 0.8),
+    },
+  };
 }
 
 /**
@@ -6150,6 +6426,183 @@ function fistPlacement(gripPitch: number, x: number, y: number, z: number): THRE
   const m = new THREE.Matrix4().makeBasis(e1, e2, e3);
   m.setPosition(x, y, z);
   return m;
+}
+
+/** One fist as the build actually placed it, for `handProbe`. */
+interface FistFit {
+  /** +1 for `armPivots[0]`, the weapon arm, which the build puts at +S.shoulderX. */
+  side: number;
+  /** The shoulder's x in the body's own frame, before `anim.ts` mirrors it. */
+  shoulderX: number;
+  marks: FistMarks;
+  place: THREE.Matrix4;
+}
+let _fistSpy: FistFit[] | null = null;
+
+/**
+ * `anim.ts` hangs every body under `mirror.scale.x`, which is −1 by default —
+ * see `handMirror` there, and the note on `reflectChirality` for why that sign
+ * is a fact about a HAND and not only about which side a sword hangs on. Kept
+ * here because it is the number the hand geometry has to be authored against,
+ * and because `handProbe` has to apply the same one the frame does.
+ */
+const BODY_MIRROR_X = -1;
+
+/** One fitting's fit against the thing it is pinned to. */
+export interface BodyFit {
+  tag: string;
+  /**
+   * The widest daylight under the fitting, in mm: the distance from its CLOSEST
+   * point to the carrier's surface, measured along that surface's true normal.
+   * Zero is a fitting bedded on the metal. Anything past a couple of millimetres
+   * is a fitting a player can see under.
+   */
+  standoffMm: number;
+  /** How far the fitting's deepest point is INSIDE the carrier, in mm. */
+  sinkMm: number;
+}
+
+/**
+ * Every fitting on the body, measured against the garment it sits on.
+ *
+ * This is `helmFitProbe` for the parts of the man below the neck, and it exists
+ * because the helm ruler could not see any of them: `headWear` is the only door
+ * it taps, and a belt stud goes nowhere near it. The measurement is taken off
+ * the fitting's own transformed VERTICES — not off the anchor the call site
+ * asked for — so a boss whose origin is on the surface and whose back face is
+ * 40 mm behind it still fails, which is exactly the shape of the defect the
+ * owner photographed.
+ *
+ * The distance to the carrier is a search over azimuth at the vertex's own
+ * height rather than a closed form: a superellipse has no analytic foot-of-
+ * perpendicular, and a wrong closed form here would be a ruler that reports a
+ * number instead of a hole — the failure mode `wearmeasure` already writes up.
+ */
+export function bodyFitProbe(cls: WarriorClass, seed: number, cloak?: string): BodyFit[] {
+  const spy: FitRecord[] = [];
+  const prev = _fitSpy;
+  _fitSpy = spy;
+  try {
+    const ap = { ...defaultAppearance(cls), ...(cloak ? { cloak } : {}) };
+    buildCharacter(cls, ap, 0x8a6b3f, undefined, "high", seed);
+  } finally {
+    _fitSpy = prev;
+  }
+  const surf = new THREE.Vector3();
+  const nrm = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  // One row per TAG, not per primitive. A penannular brooch is a ring, a shank
+  // and a head; a buckle is five bars; and the owner's question about any of
+  // them is whether THE OBJECT is lying on the man, not whether its own boss is
+  // lying on its own dome. So pieces that share a tag are one assembly: the
+  // standoff is the closest approach of any of them and the sink is the deepest.
+  // Reporting them separately would have every clasp fail on the stud that is
+  // correctly standing on the disc below it.
+  const out = new Map<string, BodyFit>();
+  for (const rec of spy) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const q of rec.pts) {
+      // Coarse sweep for the nearest azimuth, then two bisection refinements —
+      // enough for a tenth of a millimetre on a 250 mm chest.
+      let best = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < 128; i++) {
+        const az = (i / 128) * Math.PI * 2;
+        const dd = shellPoint(rec.carrier, q.y, az, surf).distanceToSquared(q);
+        if (dd < bestD) { bestD = dd; best = az; }
+      }
+      let span = (Math.PI * 2) / 128;
+      for (let k = 0; k < 12; k++) {
+        const a = best - span;
+        const b = best + span;
+        const da = shellPoint(rec.carrier, q.y, a, surf).distanceToSquared(q);
+        const db = shellPoint(rec.carrier, q.y, b, surf).distanceToSquared(q);
+        if (da < bestD && da <= db) { best = a; bestD = da; }
+        else if (db < bestD) { best = b; bestD = db; }
+        span *= 0.5;
+      }
+      shellPoint(rec.carrier, q.y, best, surf);
+      shellNormal(rec.carrier, q.y, best, nrm);
+      const signed = d.copy(q).sub(surf).dot(nrm);
+      if (signed < lo) lo = signed;
+      if (signed > hi) hi = signed;
+    }
+    // A fitting with no vertices at all cannot be allowed to report a pass.
+    const stand = hi === -Infinity ? 999 : Math.max(0, lo) * 1000;
+    const sink = hi === -Infinity ? 0 : Math.max(0, -lo) * 1000;
+    const prevRow = out.get(rec.tag);
+    if (!prevRow) out.set(rec.tag, { tag: rec.tag, standoffMm: stand, sinkMm: sink });
+    else {
+      prevRow.standoffMm = Math.min(prevRow.standoffMm, stand);
+      prevRow.sinkMm = Math.max(prevRow.sinkMm, sink);
+    }
+  }
+  return [...out.values()];
+}
+
+/** What `tools/wearmeasure.mjs` §4 reads to decide the hands are on right. */
+export interface HandFit {
+  /** "right" / "left" — which of the man's own hands this is, after the mirror. */
+  hand: string;
+  /** +1 if the mesh is a right hand, −1 if a left one, measured off its landmarks. */
+  chirality: number;
+  /** Cosine between the palm's outward normal and the direction of the midline. */
+  palmMedial: number;
+  /** Where the shoulder ends up in the frame: negative is the man's right. */
+  worldX: number;
+}
+
+/**
+ * Which hand is on which arm, measured on the built fists.
+ *
+ * The recipe is coordinate-free and it is the one anatomy uses. Take the distal
+ * direction D (wrist to knuckles), the palm's outward normal P, and the radial
+ * direction T (knuckles to thumb base): (D × P) · T is positive on a right hand
+ * and negative on a left one, and no rotation can change that. Push all three
+ * through the fist's placement basis and then through `BODY_MIRROR_X`, which is
+ * what the frame does, and the sign that comes out is the hand the player sees.
+ *
+ * A man's right hand must end up on the arm at negative x, and its palm must
+ * face the midline. Both, or the fist is on backwards.
+ */
+export function handProbe(cls: WarriorClass, seed: number): HandFit[] {
+  const spy: FistFit[] = [];
+  const prev = _fistSpy;
+  _fistSpy = spy;
+  try {
+    buildCharacter(cls, defaultAppearance(cls), 0x8a6b3f, undefined, "high", seed);
+  } finally {
+    _fistSpy = prev;
+  }
+  const d = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const t = new THREE.Vector3();
+  const cross = new THREE.Vector3();
+  const basis = new THREE.Matrix3();
+  return spy.map((f) => {
+    basis.setFromMatrix4(f.place);
+    const m = f.marks;
+    d.copy(m.knuckle).sub(m.wrist).applyMatrix3(basis);
+    // The palm's outward normal, taken as the knuckle line's own radial offset
+    // from the grip axis — the fist is built around a shaft on +X, so the
+    // knuckle's (y, z) IS how far out of that axis the palm sits.
+    p.set(0, m.knuckle.y, m.knuckle.z).applyMatrix3(basis);
+    t.copy(m.thumb).sub(m.knuckle).applyMatrix3(basis);
+    // The body mirror, applied to the three vectors and to the shoulder alike.
+    d.x *= BODY_MIRROR_X; p.x *= BODY_MIRROR_X; t.x *= BODY_MIRROR_X;
+    const worldX = f.shoulderX * BODY_MIRROR_X;
+    cross.crossVectors(d, p);
+    const chirality = Math.sign(cross.dot(t)) || 0;
+    // Medial is toward x = 0, so its sign is the opposite of the shoulder's.
+    const medial = worldX >= 0 ? -1 : 1;
+    return {
+      hand: worldX < 0 ? "right" : "left",
+      chirality,
+      palmMedial: (p.x / (p.length() || 1)) * medial,
+      worldX,
+    };
+  });
 }
 
 // ============================================================
@@ -8653,6 +9106,45 @@ export function buildCharacter(
     const layer = (ys: number[], pad: number, flares?: number[]): Station[] =>
       ys.map((y, i) => at(y, pad, flares?.[i] ?? 0));
 
+    // WHAT A FITTING ON THIS TORSO IS ACTUALLY PINNED TO.
+    //
+    // Every garment below registers itself as it is built, and a fitting takes
+    // the OUTERMOST layer present at its own height. That has to be a question
+    // about the layers THIS class wears — the huscarl's mantle stands 50 mm off
+    // the spine sampler, the warden's byrnie 34, the berserker's fur ruff 80 at
+    // the shoulder — because one pad written into the brooch's own line is a
+    // brooch seated on a garment three of the four men are not wearing. It is
+    // also the fault that produced the floating boss in the first place: a
+    // number that was true somewhere and got carried everywhere.
+    // Registered as the STATION LIST the garment was swept on, not as its pad:
+    // the fur ruff's pad is 55 mm and its flare puts it 80 mm out at exactly the
+    // height the brooch lands, and a pad on its own does not know that.
+    const worn: Array<{ sts: Station[]; power: number }> = [];
+    const wear = (sts: Station[], power: number): Station[] => {
+      worn.push({ sts, power });
+      return sts;
+    };
+    /**
+     * The outermost garment at a height, as a carrier `seatXf` can seat on.
+     *
+     * A layer only competes where it actually reaches — a byrnie that stops at
+     * the hip cannot be what a strap-end 200 mm below it is lying on. With
+     * nothing there the answer is the spine sampler itself, which is right: a
+     * man with no garment at that height has his own skin under the fitting.
+     */
+    const outer = (y: number): FitCarrier => {
+      let best: { sts: Station[]; power: number } | null = null;
+      let widest = -1;
+      for (const w of worn) {
+        if (y > w.sts[0].y + 1e-6 || y < w.sts[w.sts.length - 1].y - 1e-6) continue;
+        const s = stationAlong(w.sts, y);
+        if (s.hw > widest) { widest = s.hw; best = w; }
+      }
+      if (!best) return { st: (yy: number) => at(yy, 0), power: 2.4 };
+      const b = best;
+      return { st: (yy: number) => stationAlong(b.sts, yy), power: b.power };
+    };
+
     // Where every neck opening sits, measured off the cervicale rather than off
     // the yoke's base. 14 mm below it puts a tunic neckline on the collarbone; the
     // mail rides 12 mm lower again so both edges are visible as edges. This is the
@@ -8699,7 +9191,7 @@ export function buildCharacter(
       // its top is a disc the throat passes through, and at the shirt's bare pad the
       // annulus left round the neck is 2 mm wide and z-fights the skin. 8 mm of linen
       // reads as the inside of a neckline instead.
-      p.add(shell(layer([collar + 0.006, ramp, S.shoulderY, S.chestY, S.waistY, S.hipY, S.hipY - 0.05], 0.008, [0.006]), seg, { power: 2.4, capTop: true, capBottom: true }), linen);
+      p.add(shell(wear(layer([collar + 0.006, ramp, S.shoulderY, S.chestY, S.waistY, S.hipY, S.hipY - 0.05], 0.008, [0.006]), 2.4), seg, { power: 2.4, capTop: true, capBottom: true }), linen);
     }
 
     // Wool tunic over it, with a real rolled edge, hung at the class's own hem.
@@ -8734,21 +9226,21 @@ export function buildCharacter(
     if (!bare) {
       if (robed) {
         p.add(shell(
-          layer(
+          wear(layer(
             [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
             0.021,
             [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
-          ),
+          ), 2.3),
           seg, { power: 2.3, wall: 0.014 },
         ), cloakMat);
       } else {
         // Closed from the collar to where the slits start, just below the hip.
         p.add(shell(
-          layer(
+          wear(layer(
             [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, slitY],
             0.021,
             [-0.003, 0, 0, 0, 0.003, 0.01, 0.022],
-          ),
+          ), 2.3),
           seg, { power: 2.3, wall: 0.014 },
         ), wool);
         // Then two panels, one over each leg, lapping 14 mm over the closed part
@@ -8808,7 +9300,7 @@ export function buildCharacter(
       // is worth more to him than any amount of added kit.
       const openGap = 0.30;
       p.add(shell(
-        layer([S.shoulderY + 0.02, S.chestY - 0.02, S.waistY, tunicHem], 0.024, [0, 0, 0.002, 0.008]),
+        wear(layer([S.shoulderY + 0.02, S.chestY - 0.02, S.waistY, tunicHem], 0.024, [0, 0, 0.002, 0.008]), 2.3),
         seg, {
           power: 2.3, wall: 0.016,
           arc: Math.PI * 2 - openGap * 2, start: Math.PI / 2 + openGap,
@@ -8819,14 +9311,28 @@ export function buildCharacter(
         // is a repeated rung between two edges, and the rungs are what make it
         // read as one; a single crossed pair is the painted X this file has now
         // drawn wrong twice, once on a chest and once on a shin.
+        // The eyelets were laid on `(hw·cos a, hd·0.985)` — a CIRCLE'S idea of
+        // where a superellipse is. At the lacing angle that is 50 mm short
+        // laterally and 4 mm proud in depth, so eight brass rings hovered off
+        // the opening they were supposed to be punched through.
         for (let i = 0; i < 4; i++) {
           const y = mix(S.chestY + 0.055, S.waistY + 0.02, (i + 0.5) / 4);
-          const st = at(y, 0.024);
-          const z = st.hd * 0.985;
-          const x = Math.cos(Math.PI / 2 - openGap) * st.hw;
-          p.add(box(x * 2.05, 0.0075, 0.006), hide, xf(0, y, z + 0.004, 0, 0, (i % 2 ? 1 : -1) * 0.16));
+          const jerkin: FitCarrier = { st: (yy: number) => at(yy, 0.024), power: 2.3 };
+          // Three short rungs rather than one plank: a 185 mm bar laid flat
+          // across a 2.3-power chest stands 7 mm off it at the ends whatever its
+          // anchor is, which is the same fault as the baldric's long segments.
+          const rung = 3;
+          const arcW = (2 * openGap) / rung;
+          for (let j = 0; j < rung; j++) {
+            const azr = Math.PI / 2 - openGap + arcW * (j + 0.5);
+            const w = shellPoint(jerkin, y, Math.PI / 2 - openGap + arcW * j, _laceA)
+              .distanceTo(shellPoint(jerkin, y, Math.PI / 2 - openGap + arcW * (j + 1), _laceB));
+            fitAdd(p, "jerkin-lace", jerkin, box(w * 1.12, 0.0075, 0.006), hide,
+              seatXf(jerkin, y, azr, 0.003, (i % 2 ? 1 : -1) * 0.16));
+          }
           for (const s of [-1, 1]) {
-            p.add(ring(0.0055, 0.0022, 4, 8), brass, xf(s * x, y, z + 0.003, Math.PI / 2, 0, 0, 1, 1, 0.6));
+            fitAdd(p, "jerkin-eyelet", jerkin, ring(0.0055, 0.0022, 4, 8), brass,
+              seatXf(jerkin, y, Math.PI / 2 - s * openGap, 0.0022, 0, 1, 1, 0.6));
           }
         }
       }
@@ -8860,11 +9366,11 @@ export function buildCharacter(
       // he is braced shoulder to shoulder and needs his legs.
       const byrnieHem = S.hipY - 0.055;
       p.add(shell(
-        layer(
+        wear(layer(
           [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, byrnieHem + 0.04, byrnieHem],
           0.034,
           [-0.004, 0, 0, 0, 0.004, 0.012, 0.026, 0.036],
-        ),
+        ), 2.3),
         seg, { power: 2.3, wall: 0.016 },
       ), mail);
       // Leather edging on the byrnie's hem. Mail is knitted iron and it unravels
@@ -8896,12 +9402,19 @@ export function buildCharacter(
         ], Math.max(6, Math.round(seg / 2)), {
           power: 2.2, wall: 0.006, arc: 2.35, start: Math.PI / 2 + 0.28,
         }), hide);
+        // On the doubling's own sweep, which is what they rivet through.
+        const dbl: FitCarrier = {
+          st: (y: number) => stationAlong([
+            { y: S.shoulderY + 0.052, hw: S.chestHW * 0.60, hd: S.chestHD * 0.92 },
+            { y: S.shoulderY - 0.020, hw: S.chestHW * 0.74, hd: S.chestHD * 1.02 },
+            { y: S.chestY + 0.010, hw: S.chestHW * 0.70, hd: S.chestHD * 1.00 },
+          ], y),
+          power: 2.2,
+        };
         for (let i = 0; i < 3; i++) {
           const a = Math.PI / 2 + 0.55 + i * 0.62;
-          p.add(ball(0.0075, 6), brass, xf(
-            Math.cos(a) * (S.chestHW * 0.74), S.shoulderY - 0.012, Math.sin(a) * (S.chestHD * 1.05),
-            0, 0, 0, 1, 1, 0.6,
-          ));
+          fitAdd(p, "doubling-rivet", dbl, ball(0.0075, 6), brass,
+            seatXf(dbl, S.shoulderY - 0.012, a, 0.0045, 0, 1, 1, 0.6));
         }
       }
       // Standing mail collar. Kept exactly as it shipped and for the reason it was
@@ -8910,7 +9423,7 @@ export function buildCharacter(
       // longest of the four. It was already mail rather than plate, so the audit's
       // finding never touched it.
       p.add(shell(
-        layer([collar - 0.012, ramp, S.shoulderY + 0.028], 0.03, [-0.004, 0, 0.008]),
+        wear(layer([collar - 0.012, ramp, S.shoulderY + 0.028], 0.03, [-0.004, 0, 0.008]), 2.3),
         seg, { power: 2.3, wall: 0.013 },
       ), mail);
     } else if (!bare) {
@@ -8920,18 +9433,18 @@ export function buildCharacter(
       // both edges read as edges.
       const mailHem = heavy ? tunicHem - 0.03 : tunicHem + 0.26;
       p.add(shell(
-        layer(
+        wear(layer(
           [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, mailHem + 0.05, mailHem],
           0.036,
           [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
-        ),
+        ), 2.3),
         seg, { power: 2.3, wall: 0.016 },
       ), robed ? buff : mail);
       if (heavy) {
         // Bishop's mantle: a second cape of mail over the shoulders. This is the
         // huscarl's silhouette — heavy, round-shouldered, immovable.
         p.add(shell(
-          layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018]),
+          wear(layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018]), 2.2),
           seg, { power: 2.2, wall: 0.014 },
         ), mail);
       }
@@ -8939,7 +9452,12 @@ export function buildCharacter(
 
     // Belt, buckle, strap-end. Everything below the waist hangs off this.
     const beltR = (bare ? 0.03 : 0.05);
-    p.add(shell([at(S.beltY + 0.028, beltR), at(S.beltY - 0.028, beltR + 0.004)], seg, { power: 2.3, wall: 0.014 }), hide);
+    const beltSts = [at(S.beltY + 0.028, beltR), at(S.beltY - 0.028, beltR + 0.004)];
+    p.add(shell(beltSts, seg, { power: 2.3, wall: 0.014 }), hide);
+    // Everything that fastens the belt is seated on the belt, not on `S.waistHD`
+    // plus a guess. `stationAlong` clamps, so a strap-end hanging 50 mm below it
+    // still takes the belt's own radius, which is where a hanging strap is.
+    const beltC: FitCarrier = { st: (y: number) => stationAlong(beltSts, y), power: 2.3 };
     // The buckle, and this is the yellow square dead centre on the huscarl and the
     // warden in `art/shots/v4/lineup.png`. It was one 72 × 60 mm brass slab: a flat
     // rectangle with no interior shape, in a material polished enough to blow out,
@@ -8949,19 +9467,28 @@ export function buildCharacter(
     // merge, and 44 × 50 mm rather than 72 × 60.
     const bkX = 0.022;
     const bkY = 0.019;
-    const bkZ = S.waistHD + beltR + 0.008;
+    const front = Math.PI / 2;
     for (const s of [-1, 1]) {
-      p.add(box(0.006, bkY * 2 + 0.011, 0.010), brass, xf(s * bkX, S.beltY, bkZ));
+      fitAdd(p, "belt-buckle", beltC, box(0.006, bkY * 2 + 0.011, 0.010), brass,
+        seatXf(beltC, S.beltY, azAtX(beltC, S.beltY, s * bkX), 0.005));
     }
     for (const s of [-1, 1]) {
-      p.add(box(bkX * 2 + 0.006, 0.0055, 0.010), brass, xf(0, S.beltY + s * bkY, bkZ));
+      fitAdd(p, "belt-buckle", beltC, box(bkX * 2 + 0.006, 0.0055, 0.010), brass,
+        seatXf(beltC, S.beltY + s * bkY, front, 0.005));
     }
-    p.add(box(0.005, bkY * 1.7, 0.007), brass, xf(0, S.beltY, bkZ + 0.004));
-    p.add(box(0.026, 0.11, 0.01), hide, xf(0.055, S.beltY - 0.05, S.waistHD + beltR + 0.008, 0.1, 0, -0.12));
+    fitAdd(p, "belt-buckle", beltC, box(0.005, bkY * 1.7, 0.007), brass,
+      seatXf(beltC, S.beltY, front, 0.009));
+    fitAdd(p, "strap-end", beltC, box(0.026, 0.11, 0.01), hide,
+      seatXf(beltC, S.beltY - 0.05, azAtX(beltC, S.beltY - 0.05, 0.055), 0.005, -0.12));
     if (lod.trim) {
+      // Six studs round the front of the belt. They used to be placed at
+      // `(hw·sin a, hd·cos a)` and YAWED BY `a` — an ellipse's parameter angle
+      // read as if it were both a position on a superellipse and the direction
+      // of its normal, and it is neither. At the flanks that is 9 mm of daylight
+      // under a stud sitting at 14 degrees to the leather it is riveted to.
       for (let i = 0; i < 6; i++) {
-        const a = -0.8 + i * 0.32;
-        p.add(box(0.016, 0.022, 0.008), brass, xf(Math.sin(a) * (S.waistHW + beltR + 0.01), S.beltY, Math.cos(a) * (S.waistHD + beltR + 0.01), 0, a, 0));
+        const az = front - (-0.8 + i * 0.32);
+        fitAdd(p, "belt-stud", beltC, box(0.016, 0.022, 0.008), brass, seatXf(beltC, S.beltY, az, 0.004));
       }
     }
 
@@ -8976,25 +9503,26 @@ export function buildCharacter(
     // set on the surface at their own height follow the body instead of cutting
     // through it, and they cost nothing: same material, same merge.
     if (!robed) {
-      const runs = lod.trim ? 5 : 3;
+      const runs = lod.trim ? 7 : 4;
       const yTop = S.shoulderY + 0.035;
       const yBot = S.beltY + 0.01;
       const pad = bare ? 0.032 : 0.052;
       for (let i = 0; i < runs; i++) {
         const t = (i + 0.5) / runs;
         const y = mix(yTop, yBot, t);
-        const st = at(y, pad);
-        // From over the left shoulder down to the right hip, and the segment sits on
-        // the ellipse rather than on a plane in front of it.
-        const x = mix(-0.62, 0.34, t) * st.hw;
-        const lean = Math.sqrt(Math.max(0.08, 1 - (x / st.hw) ** 2));
+        const carry = padded(outer(y), 0);
+        // From over the left shoulder down to the right hip. The lateral position
+        // is still authored; the depth and the yaw are SOLVED off the garment the
+        // strap lies on. `lean` was the ellipse's own chord — right for a circle,
+        // 20 mm out on a 2.3-power chest, and wrong by the same amount on every
+        // class whose outer layer is not the one the number was tuned against.
+        const x = mix(-0.62, 0.34, t) * carry.st(y).hw;
         for (const face of [1, -1]) {
-          const z = st.hd * lean * face;
           // 1.75 of the step, not 1.1: consecutive segments are yawed to their own
           // bit of the barrel, so anything under about 1.5 leaves the corners
           // showing and the strap reads as a chain of blocks.
-          p.add(box(0.046, ((yTop - yBot) / runs) * 1.75, 0.013), buff,
-            xf(x, y, z, 0, Math.atan2(x, z), 0.4));
+          fitAdd(p, "baldric", carry, box(0.046, ((yTop - yBot) / runs) * 1.6, 0.013), buff,
+            seatXf(carry, y, azAtX(carry, y, x, face > 0), 0.0065, 0.4));
         }
       }
       // The boss where the baldric crosses. Down 65 mm and in from 52 mm across to
@@ -9002,7 +9530,17 @@ export function buildCharacter(
       // two of them merged into one cluster of gold spheres on the shoulder — the
       // same "bright placeholder blob" read the belt plate had. A strap fitting
       // belongs on the strap, not up beside the collar.
-      p.add(ball(0.017, 8), brass, xf(-0.125, S.chestY + 0.050, S.chestHD + 0.046, 0, 0, 0, 1, 1, 0.55));
+      // THE MEDAL. This is the fitting in the owner's screenshot: a 34 mm gilt
+      // dome authored at `S.chestHD + 0.046` — 46 mm proud of the chest's depth
+      // ON THE CENTRELINE — and then moved 125 mm out to the side, where the
+      // chest has already fallen away behind it. It is seated on the strap it is
+      // a fitting OF now, which is itself seated on the garment.
+      {
+        const bossY = S.chestY + 0.050;
+        const strap = padded(outer(bossY), 0.013);
+        fitAdd(p, "baldric-boss", strap, ball(0.017, 8), brass,
+          seatXf(strap, bossY, azAtX(strap, bossY, -0.125), 0.0090, 0, 1, 1, 0.55));
+      }
     }
     if (cls === "huscarl" || cls === "warden") {
       p.add(shell([
@@ -9022,7 +9560,7 @@ export function buildCharacter(
       // with pointed corners. A pelt lying over a shoulder has no corners at all,
       // and the locks below carry the ragged read instead.
       p.add(shell(
-        layer([collar - 0.006, ramp, S.shoulderY + 0.03, S.chestY + 0.02], 0.055, [-0.03, -0.012, 0.025, 0]),
+        wear(layer([collar - 0.006, ramp, S.shoulderY + 0.03, S.chestY + 0.02], 0.055, [-0.03, -0.012, 0.025, 0]), 2.0),
         seg, { power: 2.0, wall: 0.02 },
       ), fur);
       if (lod.trim) {
@@ -9042,7 +9580,12 @@ export function buildCharacter(
       }
       p.add(box(0.3, 0.6, 0.03), furPelt, xf(0, S.chestY - 0.12, -S.chestHD - 0.075, -0.12, 0, 0));
       for (let i = 0; i < 4; i++) {
-        p.add(rod(0.008, 0.003, 0.06, 5), M.tinted("bone", 0xd8cfb4, { repeat: 1 }), xf(-0.06 + i * 0.04, S.chestY + 0.06, S.chestHD + 0.05, 2.6, 0, 0.2 - i * 0.13));
+        const boneY = S.chestY + 0.06;
+        const chest: FitCarrier = { st: (y: number) => at(y, 0), power: 2.4 };
+        fitAdd(p, "bone-string", chest, rod(0.008, 0.003, 0.06, 5),
+          M.tinted("bone", 0xd8cfb4, { repeat: 1 }),
+          seatXf(chest, boneY, azAtX(chest, boneY, -0.06 + i * 0.04), 0.010, 0.2 - i * 0.13)
+            .multiply(xf(0, 0, 0, 2.9, 0, 0)));
       }
       // THE TORC, and it goes on the one man with a bare throat to put it on.
       //
@@ -9086,8 +9629,8 @@ export function buildCharacter(
       // second horizontal high on the body, and he was the only class on the
       // roster with exactly one.
       p.add(shell(
-        layer([collar - 0.004, ramp, S.shoulderY + 0.018, S.chestY - 0.01, S.chestY - 0.055], 0.036,
-          [-0.004, 0, 0.004, 0.016, 0.026]),
+        wear(layer([collar - 0.004, ramp, S.shoulderY + 0.018, S.chestY - 0.01, S.chestY - 0.055], 0.036,
+          [-0.004, 0, 0.004, 0.016, 0.026]), 2.2),
         seg, { power: 2.2, wall: 0.013 },
       ), wool);
       if (lod.trim) {
@@ -9100,8 +9643,12 @@ export function buildCharacter(
           seg, { power: 2.2, wall: 0.006 },
         ), tablet);
         for (const s of [-1, 1]) {
-          p.add(rod(0.0055, 0.0042, 0.026, 6), M.tinted("bone", 0xd8cfb4, { repeat: 1 }),
-            xf(s * 0.034, S.shoulderY + 0.008, S.chestHD + 0.042, 0.3, 0, s * 0.5));
+          const togY = S.shoulderY + 0.008;
+          const mant = outer(togY);
+          fitAdd(p, "toggle", mant, rod(0.0055, 0.0042, 0.026, 6),
+            M.tinted("bone", 0xd8cfb4, { repeat: 1 }),
+            seatXf(mant, togY, azAtX(mant, togY, s * 0.034), 0.0055, s * 0.5)
+              .multiply(xf(0, 0, 0, 0.3, 0, 0)));
         }
       }
       // Rune-carver's belt: pouches, a slate tablet and a lit amulet.
@@ -9125,8 +9672,13 @@ export function buildCharacter(
       // highlight and a shadow side, and not to the emissive at all. A bezel is
       // also simply how a stone is held; the old pairing had a ball floating
       // 6.5 mm proud of a ring that was not touching it.
-      p.add(ring(0.0202, 0.0062, 6, 16), brass, xf(0, S.chestY - 0.01, S.chestHD + 0.046, 0.15, 0, 0));
-      p.add(ball(0.0146, 14), rune, xf(0, S.chestY - 0.01, S.chestHD + 0.0435, 0, 0, 0, 1, 1, 0.55));
+      {
+        const amY = S.chestY - 0.01;
+        const front = Math.PI / 2;
+        const robe = outer(amY);
+        fitAdd(p, "amulet", robe, ring(0.0202, 0.0062, 6, 16), brass, seatXf(robe, amY, front, 0.0062));
+        fitAdd(p, "amulet", robe, ball(0.0146, 14), rune, seatXf(robe, amY, front, 0.0040, 0, 1, 1, 0.55));
+      }
       // The rune row was the amulet's fault at a smaller size and with a second
       // error under it. Five bare emissive bars are five white ticks in
       // `art/shots/v7/lineup.png` — but they were also placed on a flat z across a
@@ -9144,9 +9696,11 @@ export function buildCharacter(
       }
     }
     if (heavy && lod.trim) {
+      const bossY = S.chestY + 0.012;
+      const mantle = outer(bossY);
       for (let i = 0; i < 5; i++) {
-        const a = -0.7 + i * 0.35;
-        p.add(ball(0.014, 6), brass, xf(Math.sin(a) * (S.chestHW + 0.1), S.chestY + 0.012, Math.cos(a) * (S.chestHD + 0.092)));
+        fitAdd(p, "mantle-boss", mantle, ball(0.014, 6), brass,
+          seatXf(mantle, bossY, Math.PI / 2 - (-0.7 + i * 0.35), 0.009));
       }
     }
     if (wallman) {
@@ -9229,36 +9783,57 @@ export function buildCharacter(
     if (ap.cloak !== "none") {
       const cx = -S.shoulderX * 0.72;
       const cy = S.shoulderY + 0.03;
-      const cz = S.chestHD + 0.058;
+      // THE OTHER HALF OF THE OWNER'S SCREENSHOT. `cz = S.chestHD + 0.058` is a
+      // depth measured on the CENTRELINE, and the brooch is pinned 137 mm out to
+      // the side of it — where the shoulder has already turned back toward the
+      // spine. On the huscarl, whose mantle is the widest layer on the roster,
+      // that put the gilt disc 60-odd millimetres off the metal with clean
+      // daylight under its whole rim. It is seated on the outermost garment now,
+      // plus 10 mm for the two folds of cloak the pin actually passes through,
+      // and every piece of every clasp is lifted by its OWN half-thickness so
+      // its back face lands on that surface rather than near it.
+      const pinned = padded(outer(cy), 0.010);
+      const az = azAtX(pinned, cy, cx);
       const clasp = (CLOAK_CUTS[ap.cloak] ?? CLOAK_CUTS.brown).clasp;
       if (clasp === "pin") {
         // 30 gold fastens with what a traveller has: a turned bone pin through
         // two folds of wool, with the head standing proud and the shank raking
-        // down across the shoulder.
-        p.add(shell([
+        // down across the shoulder. The rake is a roll ABOUT THE SURFACE NORMAL
+        // now, which is what "across the shoulder" means; the old Euler pair
+        // raked it across the world and drove the shank into the chest on one
+        // side of the body and out of it on the other.
+        fitAdd(p, "cloak-clasp", pinned, shell([
           { y: -0.030, hw: 0.0035, hd: 0.0035 },
           { y: 0.014, hw: 0.0055, hd: 0.0055 },
           { y: 0.024, hw: 0.0038, hd: 0.0038 },
-        ], 7, { capTop: true, capBottom: true }), hide, xf(cx, cy, cz - 0.004, 0.45, 0, -0.5));
-        p.add(ball(0.0085, 8), hide, xf(cx + 0.012, cy + 0.023, cz - 0.002, 0, 0, 0, 1, 1, 0.7));
+        ], 7, { capTop: true, capBottom: true }), hide, seatXf(pinned, cy, az, 0.0055, -0.5));
+        fitAdd(p, "cloak-clasp", pinned, ball(0.0085, 8), hide,
+          seatXf(pinned, cy, az, 0.006, 0, 1, 1, 0.7).multiply(xf(0.012, 0.023, 0)));
       } else if (clasp === "disc") {
-        p.add(ball(0.021, 10), brass, xf(cx, cy, cz, 0, 0, 0, 1, 1, 0.55));
-        p.add(ring(0.026, 0.006, 5, 12), brass, xf(cx, cy, cz - 0.005, 0.35, 0, 0));
+        fitAdd(p, "cloak-clasp", pinned, ball(0.021, 10), brass,
+          seatXf(pinned, cy, az, 0.0116, 0, 1, 1, 0.55));
+        fitAdd(p, "cloak-clasp", pinned, ring(0.026, 0.006, 5, 12), brass, seatXf(pinned, cy, az, 0.006));
       } else if (clasp === "ringpin") {
         // A penannular: an open ring with a long pin laid across it, which is a
         // taller, thinner object than a disc and reads as a different fastening
         // rather than as the same brooch in another metal.
-        p.add(ring(0.030, 0.0055, 5, 14), brass, xf(cx, cy + 0.004, cz - 0.004, 0.35, 0, 0, 1, 1, 1));
-        p.add(shell([
+        fitAdd(p, "cloak-clasp", pinned, ring(0.030, 0.0055, 5, 14), brass,
+          seatXf(pinned, cy + 0.004, az, 0.0055));
+        fitAdd(p, "cloak-clasp", pinned, shell([
           { y: -0.046, hw: 0.0028, hd: 0.0028 },
           { y: 0.030, hw: 0.0052, hd: 0.0052 },
-        ], 6, { capTop: true, capBottom: true }), brass, xf(cx, cy + 0.004, cz + 0.003, 0.3, 0, -0.62));
+        ], 6, { capTop: true, capBottom: true }), brass,
+          seatXf(pinned, cy + 0.004, az, 0.0105, -0.62));
       } else {
         // 400 gold: a gilt disc, bossed, on a raised collet. The largest fitting
-        // on the man's chest and the only one with a shadow under its rim.
-        p.add(ring(0.036, 0.0075, 5, 16), gilt, xf(cx, cy, cz - 0.006, 0.35, 0, 0));
-        p.add(ball(0.030, 12), gilt, xf(cx, cy, cz - 0.004, 0, 0, 0, 1, 1, 0.40));
-        p.add(ball(0.011, 8), gilt, xf(cx, cy, cz + 0.008, 0, 0, 0, 1, 1, 0.8));
+        // on the man's chest and the only one with a shadow under its rim — and
+        // it only gets that shadow if the rim is ON something.
+        fitAdd(p, "cloak-clasp", pinned, ring(0.036, 0.0075, 5, 16), gilt,
+          seatXf(pinned, cy, az, 0.0075));
+        fitAdd(p, "cloak-clasp", pinned, ball(0.030, 12), gilt,
+          seatXf(pinned, cy, az, 0.0120, 0, 1, 1, 0.40));
+        fitAdd(p, "cloak-clasp", pinned, ball(0.011, 8), gilt,
+          seatXf(pinned, cy, az, 0.0220, 0, 1, 1, 0.8));
       }
     }
 
@@ -9395,9 +9970,18 @@ export function buildCharacter(
           }
         }
         if (lod.trim) {
+          // Rivet heads on the top lame. `(sin a · 0.86R, cos a · 0.90R)` is a
+          // circle of the wrong radius read off a 2.2-power dome: at the front
+          // the ball stood 5 mm proud of the plate and at the flank it was buried
+          // to its equator in it, which is four rivets that read as three.
+          const capC: FitCarrier = {
+            st: (y: number) => ({ y, hw: capAt(y) * 1.015, hd: capAt(y) * 1.045 }),
+            power: 2.2,
+          };
           for (let i = 0; i < 4; i++) {
             const a = -0.9 + i * 0.6;
-            p.add(ball(0.008, 6), brass, xf(Math.sin(a) * capR * 0.86, 0.022, Math.cos(a) * capR * 0.9));
+            fitAdd(p, "cap-rivet", capC, ball(0.008, 6), brass,
+              seatXf(capC, 0.022, Math.PI / 2 - a, 0.003));
           }
         }
         if (heavy || wallman) {
@@ -9425,15 +10009,21 @@ export function buildCharacter(
       // at the carpus, which is where the hand starts. The band of bare forearm the
       // kit deliberately shows is still there — it is above the bracer, between the
       // linen cuff and the leather, where a pushed-up sleeve leaves it.
-      p.add(shell([
+      const bracerSts = [
         { y: elbow - 0.07, hw: rElB * 1.16, hd: rElB * 1.2 },
         { y: wrist + 0.075, hw: rWr * 1.36, hd: rWr * 1.34 },
         { y: wrist + 0.002, hw: rWr * 1.24, hd: rWr * 1.22 },
-      ], lod.limb, { wall: 0.01 }), robed ? buff : hide);
+      ];
+      p.add(shell(bracerSts, lod.limb, { wall: 0.01 }), robed ? buff : hide);
+      // The bracer's own sweep, so the buckles that lace it ride the taper
+      // instead of standing at the ONE height where `rWr * 1.36` was true.
+      const bracerC: FitCarrier = { st: (y: number) => stationAlong(bracerSts, y), power: 2 };
+      const outboard = side > 0 ? 0 : Math.PI;
       if (lod.trim) {
         for (let i = 0; i < 3; i++) {
           const y = mix(elbow - 0.07, wrist + 0.01, (i + 0.5) / 3);
-          p.add(box(0.014, 0.018, 0.008), brass, xf(side * rWr * 1.36, y, 0.006, 0, side * 1.4, 0));
+          fitAdd(p, "bracer-buckle", bracerC, box(0.014, 0.018, 0.008), brass,
+            seatXf(bracerC, y, outboard, 0.004));
         }
         // Wrist ring on the bracer's lower rim. A hem you can see is what stops
         // leather-onto-skin reading as a paint boundary. In brass rather than buff
@@ -9443,7 +10033,8 @@ export function buildCharacter(
         p.add(ring(rWr * 1.26, 0.005, 4, 10), brass, xf(0, wrist + 0.008, 0, Math.PI / 2, 0, 0, 1, 1, 0.98));
       }
       if (robed) {
-        p.add(box(0.006, 0.05, 0.008), rune, xf(side * rWr * 1.3, wrist + 0.07, 0.004, 0, side * 1.5, 0));
+        fitAdd(p, "wrist-rune", bracerC, box(0.006, 0.05, 0.008), rune,
+          seatXf(bracerC, wrist + 0.07, outboard, 0.004));
       }
 
       // The fist, rotated onto the axis the weapon will run along. `reach` and
@@ -9468,6 +10059,7 @@ export function buildCharacter(
         grip: side > 0 ? grips.main : grips.off,
       });
       const hand = fistPlacement(GRIP_PITCH, side * 0.006, grip, 0.028);
+      if (_fistSpy) _fistSpy.push({ side, shoulderX: side * S.shoulderX, marks: fist.marks, place: hand.clone() });
       p.add(fist.skin, skin, hand.clone());
       if (fist.warm) p.add(fist.warm, skinWarm, hand.clone());
       return p;
