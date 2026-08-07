@@ -1953,32 +1953,75 @@ const LOD: Record<CharacterDetail, Lod> = {
  * panel" in `art/shots/v4/portrait.png`: not shallow relief, an empty plane. The
  * dark blob under it was the stubble patch laid over the empty plane.
  *
- * The fractions below are the classical canon, measured from the crown over the
- * head's full 269 mm: brow ridge 0.350, eye line 0.500, nose tip 0.552,
- * subnasale 0.600, lip line 0.720, gonion 0.755, chin front 0.875. They are
- * given in field-`y` rather than in fractions because the mapping is not linear —
- * `faceSurface` pulls the mandible down by up to `MANDIBLE` — so the conversion
- * is done once, here, by solving `py(y)` for each landmark.
+ * ------------------------------------------------------------------
+ * WHY THE NINTH PASS EXISTS, IN ONE PARAGRAPH.
  *
- * A correction to `docs/OPEN-DEFECTS.md`, because it cost half a day. That table
- * has the eye line at 60% of head height above the chin, the mouth at 39% and the
- * nose tip at 56%, and reads them as 35 mm of surplus lower face. Measured off
- * the mesh those numbers are *stale*: this build lands 50.0 / 28.0 / 44.8, which
- * is canon on the first and within a per-cent of it on the other two. The table
- * describes the layout before the rewrite these constants came out of, and its
- * "canon" column for the mouth and the nose looks to have been taken over the
- * *face* rather than over the head, which is why 22% and 33% do not agree with
- * any published set. The lower face is not long. The neck was — see `shoulderY`.
+ * The version of this comment that stood here said: "the fractions below are the
+ * classical canon, measured from the crown over the head's full 269 mm: brow
+ * ridge 0.350, eye line 0.500, NOSE TIP 0.552, SUBNASALE 0.600, LIP LINE 0.720,
+ * gonion 0.755, chin front 0.875." The first two are canon. The rest are not
+ * near it. Measured from the vertex over the whole head, an adult male carries
+ * his nose tip at 0.62–0.70, his subnasale at 0.66–0.74, his stomion at
+ * 0.76–0.83 and his gonion at 0.80–0.84.
  *
- * They have all moved a little here anyway, because `headR.y` did.
+ * So the mid-face was authored 0.05–0.08 of a head too HIGH — the nose tip only
+ * 0.05 below the eye line where life is 0.15 — and everything from the mouth
+ * down was left as 28% of the head with no feature in it. That is the small face
+ * crammed onto a big dome that three judgements logged and `docs/OPEN-DEFECTS.md`
+ * could not name, and it is why `headmeasure` has passed a face the owner calls
+ * ugly: every ratio in that instrument is derived from these constants, so it
+ * has been checking the head against the same wrong sheet the head was built
+ * from. `tools/landmarks.mjs` is the instrument that does not, and it is the one
+ * that found this. Rule: an anthropometric target is evidence only if it came
+ * from a body of measurements rather than from the build.
+ *
+ * The eight previous passes each tuned the shape of the features. Every one of
+ * them was tuning features that were in the wrong PLACE, which is why every one
+ * of them fixed its notes and broke the object.
+ * ------------------------------------------------------------------
+ *
+ * `RESITE` is the correction and it is deliberately the ONLY copy of it. A
+ * landmark's height used to be owned by three parties — these constants, the
+ * cage's authored table rows, and `eyeFrame`'s own solve — and nothing compared
+ * them, which is this file's recurring one-channel-two-facts failure. Now the
+ * map below owns it: the landmark constants are read out of it, and every table
+ * in the cage is passed through it at declaration, so a row authored at the old
+ * subnasale still lands on the subnasale and rows between two landmarks are
+ * carried proportionally. Nothing above `Y_BROW` moves at all, so every helm
+ * rim, hood edge and circlet solved on the vault is untouched.
  */
-const Y_BROW = 0.219;
-const Y_EYE = -0.116;
-const Y_TIP = -0.231;
-const Y_NOSE = -0.323;
-const Y_LIP = -0.536;
-const Y_CHIN = -0.796;
-const Y_GONION = -0.596;
+const RESITE: ReadonlyArray<readonly [number, number]> = [
+  [1.000, 1.000], //   crown
+  [0.219, 0.219], //   BROW — 0.347 of head height, and already canon
+  [-0.116, -0.116], // EYE — 0.498, already canon: the vault is not the problem
+  [-0.231, -0.400], // NOSE TIP — 0.546 -> 0.644. The single biggest move here:
+  //                   it is what gives the nose a dorsum instead of a stub
+  [-0.323, -0.480], // SUBNASALE — 0.605 -> 0.689
+  [-0.536, -0.640], // STOMION — 0.722 -> 0.783
+  [-0.596, -0.690], // GONION — 0.757 -> 0.812
+  [-0.796, -0.830], // POGONION — 0.875 -> 0.897
+  [-1.000, -1.000], // menton
+];
+
+/** Old field `y` to new, piecewise-linear on `RESITE`. Strictly monotone. */
+function resiteY(y: number): number {
+  if (y >= RESITE[0][0]) return RESITE[0][1];
+  const n = RESITE.length;
+  if (y <= RESITE[n - 1][0]) return RESITE[n - 1][1];
+  let i = 1;
+  while (i < n - 1 && y < RESITE[i][0]) i++;
+  const [x0, v0] = RESITE[i - 1];
+  const [x1, v1] = RESITE[i];
+  return v0 + ((y - x0) / (x1 - x0)) * (v1 - v0);
+}
+
+const Y_BROW = resiteY(0.219);
+const Y_EYE = resiteY(-0.116);
+const Y_TIP = resiteY(-0.231);
+const Y_NOSE = resiteY(-0.323);
+const Y_LIP = resiteY(-0.536);
+const Y_CHIN = resiteY(-0.796);
+const Y_GONION = resiteY(-0.596);
 
 /**
  * How far the mandible is pulled below the braincase, in metres. Named because
@@ -2214,6 +2257,25 @@ function curve(c: Curve, y: number): number {
 }
 
 /**
+ * A control curve re-sited onto the corrected landmark heights.
+ *
+ * Every table in the cage below is authored crown-first against the landmark
+ * rows, and those rows have moved (see `RESITE`). Passing a table through this
+ * moves its KNOTS and leaves its VALUES alone, so the shape a row describes —
+ * 25 mm of nose projection, 74 mm of gonial half-breadth — is preserved exactly
+ * and only its height on the head changes. A row authored at the old subnasale
+ * lands on the new subnasale; a row between two landmarks is carried across in
+ * proportion.
+ *
+ * This is applied at declaration rather than inside `curve()` on purpose:
+ * `curve()` is shared with the ear, the pin envelopes and half a dozen tables
+ * that are not in head-`y` at all, and re-siting those would be a silent
+ * disaster. Being able to point at the wrapped declarations and say "these and
+ * no others" is the whole safety of the change.
+ */
+const resite = (c: Curve): Curve => c.map(([y, v]) => [resiteY(y), v] as const);
+
+/**
  * The sagittal profile: millimetres in front of the glabella vertical.
  *
  * Every one of the silhouette gate's assertions is a property of THIS TABLE, and
@@ -2230,7 +2292,7 @@ function curve(c: Curve, y: number): number {
  * forward, which is what gives the underside of the mandible a direction to turn
  * away in — see the gonial mass below.
  */
-const SAGITTAL: Curve = [
+const SAGITTAL: Curve = resite([
   // The forehead rows are measured against what the VAULT already does, and the
   // first cut of them was not. -30 mm at y = 0.78 sounds like a receding
   // forehead and is in fact 25 mm in FRONT of where the ellipsoid puts that
@@ -2265,11 +2327,11 @@ const SAGITTAL: Curve = [
   [-0.820, 0], //   the chin's front face, still nearly vertical
   [-0.856, -12], // gnathion — a turn now rather than a taper
   [-0.930, -34], // menton, turning back under the jaw
-];
+]);
 
 /** How wide the plate is, in radians of bearing off dead ahead. A mandible is
  *  narrower than a maxilla, which is what turns a head from a box into a face. */
-const PLATE_W: Curve = [
+const PLATE_W: Curve = resite([
   [0.640, 1.05],
   [0.219, 1.20],
   [-0.116, 1.30], // widest at the cheekbone
@@ -2277,10 +2339,10 @@ const PLATE_W: Curve = [
   [-0.536, 1.58],
   [-0.766, 0.86],
   [-0.960, 0.62],
-];
+]);
 
 /** How wide the midline relief is. A nose is narrow; a chin is not. */
-const PIN_W: Curve = [
+const PIN_W: Curve = resite([
   [0.640, 0.95],
   [0.219, 0.80],
   [0.100, 0.52],
@@ -2297,7 +2359,7 @@ const PIN_W: Curve = [
   [-0.536, 0.58],
   [-0.766, 0.62],
   [-0.960, 0.66],
-];
+]);
 
 /**
  * A mass's lateral falloff, as a function of BEARING off dead ahead — 0 straight
@@ -2507,7 +2569,7 @@ const HALF_PI = Math.PI / 2;
  * rather than against the face: `neckHW` is 79.6 mm, so S5's neck-over-jaw is
  * 1.11 and the head cannot sit on a stalk.
  */
-const HALF_W: Curve = [
+const HALF_W: Curve = resite([
   [1.000, 0.0], //   vertex
   [0.985, 14.0],
   [0.950, 32.0],
@@ -2519,18 +2581,19 @@ const HALF_W: Curve = [
   [0.300, 97.0],
   [0.080, 98.2], //  parietal eminence — the widest section on the head
   [-0.116, 97.0], // eye line: the zygomatic carries nearly the full breadth
-  [-0.280, 92.5],
-  [-0.420, 86.5],
-  [-0.520, 78.5],
-  [-0.596, 71.5], // GONION
-  [-0.660, 65.0],
-  [-0.720, 57.0],
-  [-0.796, 45.0], // pogonion
-  [-0.870, 31.0],
-  [-0.940, 18.0],
+  [-0.280, 93.5],
+  [-0.400, 88.0],
+  [-0.480, 83.0],
+  [-0.560, 77.0],
+  [-0.596, 74.0], // GONION — the outline turns here
+  [-0.650, 68.0],
+  [-0.720, 58.0],
+  [-0.796, 44.0], // pogonion
+  [-0.870, 29.0],
+  [-0.940, 17.0],
   [-0.990, 6.0],
   [-1.000, 0.0], //  menton
-];
+]);
 
 /**
  * The midline depth of each section IN FRONT of the ear plane — the facial
@@ -2546,7 +2609,7 @@ const HALF_W: Curve = [
  * Glabella is 105 and opisthocranion is −125, so the head is 230 mm long against
  * 269 tall — Farkas' 0.845 on the nose.
  */
-const FRONT: Curve = [
+const FRONT: Curve = resite([
   [1.000, -14.0], // the vertex sits behind the ear plane
   [0.985, 8.0],
   [0.950, 28.0],
@@ -2574,7 +2637,7 @@ const FRONT: Curve = [
   [-0.930, 66.0],
   [-0.975, 42.0],
   [-1.000, 26.0], //  menton
-];
+]);
 
 /**
  * And the midline depth BEHIND it, signed in the same z. Equal to `FRONT` at
@@ -2588,7 +2651,7 @@ const FRONT: Curve = [
  * interior to the outline the whole time. Take the ball away and the mandible
  * draws the outline, which is what S4 measures.
  */
-const BACK: Curve = [
+const BACK: Curve = resite([
   [1.000, -14.0],
   [0.985, -40.0],
   [0.950, -60.0],
@@ -2611,7 +2674,7 @@ const BACK: Curve = [
   [-0.940, 12.0],
   [-0.975, 20.0],
   [-1.000, 26.0],
-];
+]);
 
 /**
  * How SQUARE each section is: the exponent of the superellipse the front half is
@@ -2626,7 +2689,7 @@ const BACK: Curve = [
  * the cheekbone. 2.52 at the subnasale is that plane; 2.0 at both poles keeps
  * the crown and the underside of the jaw round.
  */
-const N_FRONT: Curve = [
+const N_FRONT: Curve = resite([
   [1.000, 2.00],
   [0.600, 2.08],
   [0.300, 2.22],
@@ -2637,10 +2700,10 @@ const N_FRONT: Curve = [
   [-0.700, 2.34],
   [-0.900, 2.06],
   [-1.000, 2.00],
-];
+]);
 
 /** The same for the back of the skull, which is very nearly a round arc. */
-const N_BACK: Curve = [
+const N_BACK: Curve = resite([
   [1.000, 2.00],
   [0.400, 2.10],
   [-0.116, 2.20],
@@ -2651,7 +2714,7 @@ const N_BACK: Curve = [
   [-0.596, 2.62],
   [-0.760, 2.30],
   [-1.000, 2.00],
-];
+]);
 
 /**
  * One vertical edge loop, and the three profile curves that place it.
@@ -2695,7 +2758,7 @@ const NONE: Curve = [[1, 0], [-1, 0]];
  * nothing, which is why there is a null loop there — the blend has somewhere to
  * land instead of a shoulder.
  */
-const FACE: readonly Loop[] = [
+const FACE_AUTHORED: readonly Loop[] = [
   {
     // ---- THE MIDLINE ----
     b: 0.0,
@@ -2704,37 +2767,38 @@ const FACE: readonly Loop[] = [
       [0.300, 1],
       [0.219, 2], //    glabella stands a touch proud of the frontal plane
       [0.144, -2], //   nasion — the notch that makes the nose a separate mass
-      [0.020, 9], //    rhinion
-      [-0.116, 16], //  the dorsum's run
-      [-0.175, 23],
-      [-0.231, 31], //  PRONASALE — the frontmost point of the face
+      [0.020, 12], //   rhinion
+      [-0.116, 18], //  the dorsum's run
+      [-0.175, 26],
+      [-0.231, 33], //  PRONASALE — the frontmost point of the face
       [-0.258, 29], //  the tip has a FLAT under it before it turns
       [-0.285, 20], //  columella
       [-0.310, 8],
       [-0.330, 3], //   subnasale
       [-0.400, 0], //   the philtrum's floor
-      [-0.481, 7], //   labrale superius
+      [-0.470, 9], //   labrale superius
       [-0.536, 3], //   stomion — behind both vermilions
-      [-0.606, 6], //   labrale inferius
-      [-0.686, -1], //  mentolabial sulcus
-      [-0.766, 3], //   POGONION
-      [-0.830, 2], //   the chin's front face, still near vertical
+      [-0.600, 8], //   labrale inferius
+      [-0.686, -2], //  mentolabial sulcus
+      [-0.740, 4],
+      [-0.790, 5], //   POGONION — the chin is a BOX, and this is its front face
+      [-0.840, 3],
       [-0.880, 0],
     ],
     x: NONE,
     y: [
       [0.300, 0],
-      [0.219, 2.0], //   the brow's crest lifts
-      [0.144, -1.0], //  and the skin under it drops: an overhang, not a bulge
+      [0.219, 0.8], //   the glabella dips between the two arches
+      [0.144, -0.6], //  and the skin under it drops: an overhang, not a bulge
       [-0.190, 1.0],
       [-0.231, 1.4], //  the tip
       [-0.262, 0.4],
       [-0.292, -3.4], // the nostril's shelf, cut back under the lobule
       [-0.345, 0],
-      [-0.481, -1.2], // the upper vermilion's top edge
-      [-0.536, -0.4],
-      [-0.606, 1.2], //  the lower lip's roll
-      [-0.700, -1.6], // the shelf under it
+      [-0.470, -1.6], // the upper vermilion's top edge
+      [-0.536, -0.6],
+      [-0.600, 1.6], //  the lower lip's roll
+      [-0.700, -2.0], // the shelf under it
       [-0.790, 0],
     ],
   },
@@ -2745,20 +2809,21 @@ const FACE: readonly Loop[] = [
       [0.470, 0],
       [0.219, 3],
       [0.144, -1],
-      [0.020, 7],
-      [-0.116, 12],
-      [-0.175, 16],
-      [-0.231, 21], //  the lobule's flank
+      [0.020, 5],
+      [-0.116, 8], //   the root is narrow: this loop is already on its flank
+      [-0.175, 15],
+      [-0.231, 22], //  the lobule's flank
       [-0.258, 20],
       [-0.285, 15],
       [-0.310, 7],
       [-0.330, 4],
       [-0.400, 1],
-      [-0.481, 6],
+      [-0.470, 8],
       [-0.536, 2],
-      [-0.606, 5],
-      [-0.686, -1],
-      [-0.766, 2],
+      [-0.600, 7],
+      [-0.686, -2],
+      [-0.740, 3],
+      [-0.790, 4],
       [-0.880, 0],
     ],
     x: [
@@ -2770,7 +2835,7 @@ const FACE: readonly Loop[] = [
     ],
     y: [
       [0.300, 0],
-      [0.219, 1.8],
+      [0.219, 1.4],
       [0.144, -0.9],
       [-0.231, 1.0],
       [-0.262, 0.2],
@@ -2791,17 +2856,18 @@ const FACE: readonly Loop[] = [
       [0.219, 6], //    the medial head of the brow ridge
       [0.144, 1],
       [0.020, -6],
-      [-0.116, -8], //  the socket floor: the globe is set 13 mm proud of this
-      [-0.190, -7],
+      [-0.060, -9],
+      [-0.116, -9], //  the socket floor: the globe is set 13 mm proud of this
+      [-0.190, -6],
       [-0.250, -1],
       [-0.300, 0],
       [-0.335, -4], //  the alar crease, a groove and not a shadow
-      [-0.420, 1],
-      [-0.481, 4],
-      [-0.536, 1],
-      [-0.606, 3],
-      [-0.686, -2],
-      [-0.766, 0],
+      [-0.420, 0],
+      [-0.470, -2], // the corner of the mouth: the vermilion has died by here
+      [-0.536, -3],
+      [-0.600, -2],
+      [-0.686, -3],
+      [-0.760, 0],
       [-0.880, 0],
     ],
     x: [
@@ -2817,9 +2883,9 @@ const FACE: readonly Loop[] = [
       [-0.060, -1.0],
       [-0.185, -1.5], // the orbital floor
       [-0.300, 0],
-      [-0.481, -1.0],
-      [-0.606, 1.0],
-      [-0.700, -1.2],
+      [-0.470, -0.6],
+      [-0.600, 0.4],
+      [-0.700, -0.8],
       [-0.800, 0],
     ],
   },
@@ -2831,18 +2897,19 @@ const FACE: readonly Loop[] = [
       [0.300, 2],
       [0.219, 7], //    the superciliary arch, the strongest run of the brow
       [0.144, 2],
-      [0.020, -4],
-      [-0.116, -8], //  the orbit
-      [-0.190, -2],
+      [0.020, -3],
+      [-0.060, -6],
+      [-0.116, -6], //  the orbit, shallower than the medial wall inboard of it
+      [-0.190, -1],
       [-0.260, 4], //   the malar coming forward under it
       [-0.360, 3],
-      [-0.450, 0],
-      [-0.500, -4],
-      [-0.536, -5], //  the mouth's corner sits back — this is what makes a mouth
-      [-0.575, -4], //  a mouth rather than a scratch across a plane
-      [-0.660, -3],
-      [-0.740, -3],
-      [-0.820, 0],
+      [-0.450, -1],
+      [-0.505, -6],
+      [-0.536, -7], //  the mouth's corner sits back — this is what makes a mouth
+      [-0.575, -6], //  a mouth rather than a scratch across a plane
+      [-0.660, -4],
+      [-0.740, -4],
+      [-0.830, 0],
     ],
     x: NONE,
     y: [
@@ -2861,26 +2928,29 @@ const FACE: readonly Loop[] = [
     // ---- THE OUTER CANTHUS AND THE CHEEKBONE ----
     b: 0.75,
     z: [
-      [0.470, 0],
-      [0.300, 1],
-      [0.219, 4],
-      [0.144, 1],
-      [0.020, -3],
-      [-0.116, -5],
+      [0.500, 0],
+      [0.330, 0],
+      [0.219, 2], //    the brow has run out of ridge by here
+      [0.144, -1],
+      [0.020, -2],
+      [-0.116, -3],
       [-0.200, 5], //   MALAR EMINENCE — the plane that takes the key
       [-0.300, 5],
-      [-0.400, 0],
-      [-0.500, -4], //  the buccal hollow under it
-      [-0.620, -4],
+      [-0.400, 1],
+      [-0.500, -5], //  the buccal hollow under it
+      [-0.620, -5],
       [-0.760, -1],
       [-0.860, 0],
     ],
     x: [
-      [0.100, 0],
+      [0.500, 0],
+      [0.219, -1.6], // the fossa starts here and deepens outboard
+      [0.020, -1.4],
+      [-0.120, 0],
       [-0.200, 3.0],
       [-0.330, 2.0],
-      [-0.480, -1.6],
-      [-0.620, -1.6],
+      [-0.480, -2.0],
+      [-0.620, -2.0],
       [-0.800, 0],
     ],
     y: [
@@ -2895,10 +2965,10 @@ const FACE: readonly Loop[] = [
     // ---- THE TEMPORAL FOSSA AND THE ZYGOMATIC ARCH ----
     b: 1.00,
     z: [
-      [0.500, 0],
+      [0.560, 0],
       [0.330, -2],
-      [0.219, -4], //   the fossa is a PLANE, not a dimple
-      [0.020, -5],
+      [0.219, -3], //   the fossa is a PLANE, not a dimple
+      [0.020, -4],
       [-0.116, -2],
       [-0.200, 2], //   the arch
       [-0.330, 1],
@@ -2908,9 +2978,9 @@ const FACE: readonly Loop[] = [
     ],
     x: [
       [0.560, 0],
-      [0.380, -3.0],
-      [0.219, -5.0],
-      [0.020, -4.5],
+      [0.380, -2.2],
+      [0.219, -3.6],
+      [0.020, -3.2],
       [-0.150, 0],
       [-0.220, 2.4], // the arch stands off the fossa in front of the ear
       [-0.400, 0.5],
@@ -2932,8 +3002,8 @@ const FACE: readonly Loop[] = [
     x: [
       [0.700, 0],
       [0.470, 2.0], //  the parietal, which is the only vertical in the outline
-      [0.250, -2.6],
-      [0.020, -2.2],
+      [0.250, -2.2],
+      [0.020, -1.8],
       [-0.200, 1.0],
       [-0.560, 0],
       [-0.900, 0],
@@ -2946,6 +3016,11 @@ const FACE: readonly Loop[] = [
   // previous pass was reported for.
   { b: 1.58, z: NONE, x: NONE, y: NONE },
 ];
+
+/** The loops, on the corrected landmark heights. See `resite`. */
+const FACE: readonly Loop[] = FACE_AUTHORED.map((l) => ({
+  b: l.b, z: resite(l.z), x: resite(l.x), y: resite(l.y),
+}));
 
 const _sec = new THREE.Vector2();
 const _rel = new THREE.Vector3();
@@ -2971,11 +3046,47 @@ function sectionAt(bear: number, y: number, out: THREE.Vector2): THREE.Vector2 {
 }
 
 /**
- * The loft between two adjacent edge loops. Smoothstep and not linear, because a
- * linear join between columns is a crease running the full height of the face —
- * and a crease from the inner brow to the jaw is one of the three notes this
- * rewrite exists to answer.
+ * One component of the loft ACROSS the loops: a monotone cubic on four knots.
+ *
+ * It was a smoothstep between the two bracketing loops, and that is the same
+ * defect the rows had and a worse one to look at. A smoothstep arrives at each
+ * knot with zero slope, so the surface has a flat strip down every column and
+ * changes fast between them — and a flat strip down a column of a face is a
+ * VERTICAL CREASE from the forehead to the jaw. It is the hard edge across the
+ * temple in `art/shots/c4` and `c5`, and it is the same complaint the previous
+ * pass shipped ("a hard-edged plane break creasing from inner brow to jaw at
+ * three-quarter") arrived at by a different route. A cubic with real tangents
+ * has no flat strip anywhere.
+ *
+ * `m0` is forced to zero on the midline loop, because the face is mirrored
+ * there: any other slope puts a knife edge down the centre of the nose. `m1` is
+ * forced to zero on the null loop for the same reason at the other end — the
+ * face has to arrive at the skull with nothing left over.
  */
+function across(p: number, a: number, b: number, q: number,
+  hp: number, h: number, hq: number, t: number, endA: boolean, endB: boolean): number {
+  const dab = (b - a) / h;
+  const dpa = hp > 0 ? (a - p) / hp : dab;
+  const dbq = hq > 0 ? (q - b) / hq : dab;
+  let m0 = endA ? 0 : (dpa * dab <= 0 ? 0 : (dpa + dab) * 0.5);
+  let m1 = endB ? 0 : (dab * dbq <= 0 ? 0 : (dab + dbq) * 0.5);
+  if (dab === 0) { m0 = 0; m1 = 0; } else {
+    const r0 = m0 / dab;
+    const r1 = m1 / dab;
+    const s = r0 * r0 + r1 * r1;
+    if (s > 9) {
+      const k = 3 / Math.sqrt(s);
+      m0 = k * r0 * dab;
+      m1 = k * r1 * dab;
+    }
+  }
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * a + (t3 - 2 * t2 + t) * h * m0
+    + (-2 * t3 + 3 * t2) * b + (t3 - t2) * h * m1;
+}
+
+/** The loft between the edge loops, at one bearing and one row. */
 function reliefAt(bear: number, y: number, out: THREE.Vector3): THREE.Vector3 {
   const n = FACE.length;
   if (bear >= FACE[n - 1].b) return out.set(0, 0, 0);
@@ -2983,11 +3094,18 @@ function reliefAt(bear: number, y: number, out: THREE.Vector3): THREE.Vector3 {
   while (j < n - 2 && bear >= FACE[j + 1].b) j++;
   const A = FACE[j];
   const B = FACE[j + 1];
-  const s = smooth(A.b, B.b, bear);
+  const P = FACE[j > 0 ? j - 1 : 0];
+  const Q = FACE[j + 2 < n ? j + 2 : n - 1];
+  const h = B.b - A.b;
+  const hp = A.b - P.b;
+  const hq = Q.b - B.b;
+  const t = (bear - A.b) / h;
+  const endA = j === 0;
+  const endB = j + 1 === n - 1;
   return out.set(
-    mix(curve(A.x, y), curve(B.x, y), s),
-    mix(curve(A.y, y), curve(B.y, y), s),
-    mix(curve(A.z, y), curve(B.z, y), s),
+    across(curve(P.x, y), curve(A.x, y), curve(B.x, y), curve(Q.x, y), hp, h, hq, t, endA, endB),
+    across(curve(P.y, y), curve(A.y, y), curve(B.y, y), curve(Q.y, y), hp, h, hq, t, endA, endB),
+    across(curve(P.z, y), curve(A.z, y), curve(B.z, y), curve(Q.z, y), hp, h, hq, t, endA, endB),
   );
 }
 
@@ -3811,6 +3929,94 @@ export interface HeadSilhouette {
    * from a ring, and that is the hole S6 let through for three passes.
    */
   ear: EarProbe;
+}
+
+/**
+ * The head's mesh, raw, for `tools/clay.mjs`.
+ *
+ * It calls `headGeometry` — the function the game builds the head with — rather
+ * than a copy of it, for the reason `helmFitProbe` is written the way it is: an
+ * instrument that mirrors this file agrees with itself and passes work nobody
+ * can see. A clay render of the real vertices cannot drift from the build.
+ *
+ * It exists because the browser capture takes three minutes and photographs the
+ * complexion, the war paint and the arena's key all at once, and half the
+ * defects on this head have been argued about for a wave because nobody could
+ * tell which of the four was drawing the edge. Clay is the surface on its own.
+ */
+export function headMesh(cls: WarriorClass, seed: number, nu = 40, nv = 44): {
+  pos: Float32Array; idx: Uint32Array;
+} {
+  const S = skeleton(BUILD[cls]);
+  const K: Skull = { R: S.headR, F: faceTraits(seed) };
+  const g = headGeometry(K, nu, nv);
+  return {
+    pos: (g.getAttribute("position") as THREE.BufferAttribute).array as Float32Array,
+    idx: Uint32Array.from(g.getIndex()!.array),
+  };
+}
+
+/**
+ * Where the features ACTUALLY ARE on the built head, in world metres, together
+ * with the crown and the menton the eye measures them against.
+ *
+ * This exists because of a specific argument that has now cost this project two
+ * separate half-days, and it is the argument that `docs/OPEN-DEFECTS.md` and the
+ * note above `Y_BROW` are on opposite sides of. `headmeasure` reports the
+ * cranium at 0.35 of head height and the eye line at 0.50 — canon, both — and the
+ * frame the owner is looking at shows a bald dome with a small face crammed into
+ * the bottom of it. Somebody has been wrong for eight passes and the reason
+ * nobody could tell who is that *three different things own a landmark's
+ * height*: the cage's `Y_*` constants, `eyeFrame`'s own latitude solve, and the
+ * complexion's uv, and nothing in the repo has ever compared them.
+ *
+ * So this reports all three off one build. `eye` is the globe centre `eyeFrame`
+ * really returns, not `Y_EYE` re-derived; `browPaint` is where `faceComplexion`
+ * lays the eyebrow, not where the brow ridge is. When those disagree the face is
+ * wearing its features somewhere other than where it grew the bone for them, and
+ * that is a defect no ratio in `headmeasure` can see — every one of them is
+ * measured from the cage, which is the one party to the argument that has never
+ * been in doubt.
+ */
+export interface HeadLandmarks {
+  /** World Y, metres, head space. Crown first, menton last. */
+  marks: { name: string; y: number }[];
+  crown: number;
+  menton: number;
+}
+
+export function headLandmarks(cls: WarriorClass, seed: number): HeadLandmarks {
+  const S = skeleton(BUILD[cls]);
+  const K: Skull = { R: S.headR, F: faceTraits(seed) };
+  const p = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  /** The cage's own answer: the surface's world Y on the midline at this row. */
+  const rowY = (yv: number): number => {
+    faceSurface(K, dirOf(0, lat(yv), d), p);
+    return p.y;
+  };
+  const { pos } = headMesh(cls, seed);
+  let crown = -1e9;
+  let menton = 1e9;
+  for (let i = 1; i < pos.length; i += 3) {
+    if (pos[i] > crown) crown = pos[i];
+    if (pos[i] < menton) menton = pos[i];
+  }
+  const f = eyeFrame(K, 1);
+  return {
+    crown, menton,
+    marks: [
+      { name: "crown", y: crown },
+      { name: "brow(cage)", y: rowY(Y_BROW) },
+      { name: "eye(cage)", y: rowY(Y_EYE) },
+      { name: "eye(globe)", y: f.c.y },
+      { name: "nosetip", y: rowY(Y_TIP) },
+      { name: "subnasale", y: rowY(Y_NOSE) },
+      { name: "lip", y: rowY(Y_LIP) },
+      { name: "chin", y: rowY(Y_CHIN) },
+      { name: "menton", y: menton },
+    ],
+  };
 }
 
 export function headSilhouette(cls: WarriorClass, seed: number): HeadSilhouette {
