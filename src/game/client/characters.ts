@@ -2199,8 +2199,10 @@ type Curve = ReadonlyArray<readonly [number, number]>;
  * pushed past by its neighbours, so a nose 28 mm deep is 28 mm deep and not 33.
  */
 const _tangents = new WeakMap<Curve, Float64Array>();
-function tangents(c: Curve): Float64Array {
-  const hit = _tangents.get(c);
+const _tangentsFlat = new WeakMap<Curve, Float64Array>();
+function tangents(c: Curve, flat = false): Float64Array {
+  const store = flat ? _tangentsFlat : _tangents;
+  const hit = store.get(c);
   if (hit) return hit;
   const n = c.length;
   const m = new Float64Array(n);
@@ -2209,6 +2211,25 @@ function tangents(c: Curve): Float64Array {
   m[0] = d[0];
   m[n - 1] = d[n - 2];
   for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) * 0.5;
+  // A RELIEF curve is clamped to a constant outside its rows — that is what
+  // `curve` does past either end — so a non-zero end tangent is a slope
+  // discontinuity exactly at the row, and a slope discontinuity across a head in
+  // latitude is a hard horizontal crease running ear to ear. That is the band
+  // across the forehead the owner is looking at ("a lot of raised floating
+  // aspects" is the same defect seen on the helms), and there is one per face
+  // loop: seven creases, at every loop's first row and again at its last.
+  //
+  // The irony is on the record. The comment under `curve` congratulates itself
+  // for replacing a smoothstep BECAUSE a smoothstep's zero end-derivative
+  // terraced the forehead. It did — between rows. Zero slope is wrong in the
+  // middle of a table and it is the only correct value at an end that is
+  // clamped, and the previous pass swapped one for the other everywhere instead
+  // of distinguishing the two cases.
+  //
+  // Section curves do NOT take this: `HALF_W`, `FRONT` and `BACK` end at the
+  // poles, where the clamp is the end of the domain rather than an extension,
+  // and flattening them there would plane the crown into a table top.
+  if (flat) { m[0] = 0; m[n - 1] = 0; }
   for (let i = 0; i < n - 1; i++) {
     if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
     const a = m[i] / d[i];
@@ -2219,7 +2240,7 @@ function tangents(c: Curve): Float64Array {
     m[i] = k * a * d[i];
     m[i + 1] = k * b * d[i];
   }
-  _tangents.set(c, m);
+  store.set(c, m);
   return m;
 }
 
@@ -2237,7 +2258,7 @@ function tangents(c: Curve): Float64Array {
  * A Hermite with real tangents is C1 with no flat spots, and the Fritsch–Carlson
  * limiter keeps it from overshooting, which a Catmull-Rom would do at the nose.
  */
-function curve(c: Curve, y: number): number {
+function curve(c: Curve, y: number, flat = false): number {
   if (y >= c[0][0]) return c[0][1];
   const n = c.length;
   if (y <= c[n - 1][0]) return c[n - 1][1];
@@ -2247,7 +2268,7 @@ function curve(c: Curve, y: number): number {
   const x1 = c[i][0];
   const h = x1 - x0;
   const t = (y - x0) / h;
-  const m = tangents(c);
+  const m = tangents(c, flat);
   const t2 = t * t;
   const t3 = t2 * t;
   return (2 * t3 - 3 * t2 + 1) * c[i - 1][1]
@@ -2460,7 +2481,27 @@ function pinTable(K: Skull): Float64Array {
     const want = datum + (curve(SAGITTAL, y) + jit) * 0.001;
     // Faded to nothing over the vault and under the jaw, so the pin owns the
     // face and nothing else.
-    const win = smooth(0.68, 0.46, y) * smooth(-0.985, -0.90, y);
+    //
+    // The upper edge was 0.68..0.46 and that is the LEDGE ACROSS THE FOREHEAD —
+    // the single most visible surface defect on the head, a lit shelf with a
+    // dark underside running ear to ear at the hairline, and the thing that made
+    // eight passes' worth of foreheads look like a helmet brim. Setting `win` to
+    // zero and rendering the clay removes it completely and changes nothing
+    // else, which is how it was pinned down rather than argued about.
+    //
+    // The cause is amplitude, not continuity: `SAGITTAL`'s vault rows run to
+    // −40 mm against the raw field, so the window was ramping tens of
+    // millimetres of correction on and off across the forehead. A smoothstep is
+    // C1, so this was never a crease — it was a real shelf, correctly built,
+    // from rows that had no business being applied to a forehead. The vault's
+    // profile is `FRONT`'s job; the pin's job is the face.
+    //
+    // 0.32..0.16 brackets the brow, and the brow is the one latitude where this
+    // is free: `datum` is `raw(Y_BROW)` and `SAGITTAL`'s glabella row is 0, so
+    // the residual there is EXACTLY zero by construction. The window therefore
+    // does its whole fade over a correction of nothing, and the forehead above
+    // it is the section sweep alone.
+    const win = smooth(0.32, 0.16, y) * smooth(-0.985, -0.90, y);
     t[i] = (want - raw(y)) * win;
   }
 
@@ -3086,6 +3127,14 @@ function across(p: number, a: number, b: number, q: number,
     + (-2 * t3 + 3 * t2) * b + (t3 - t2) * h * m1;
 }
 
+/**
+ * A face loop's own curve, read with FLAT ENDS — see the note in `tangents`.
+ * Every one of these is relief clamped to nothing above its top row and below
+ * its bottom row, so both ends have to arrive with no slope or the head wears a
+ * crease at that latitude from one ear to the other.
+ */
+const rc = (c: Curve, y: number): number => curve(c, y, true);
+
 /** The loft between the edge loops, at one bearing and one row. */
 function reliefAt(bear: number, y: number, out: THREE.Vector3): THREE.Vector3 {
   const n = FACE.length;
@@ -3103,9 +3152,9 @@ function reliefAt(bear: number, y: number, out: THREE.Vector3): THREE.Vector3 {
   const endA = j === 0;
   const endB = j + 1 === n - 1;
   return out.set(
-    across(curve(P.x, y), curve(A.x, y), curve(B.x, y), curve(Q.x, y), hp, h, hq, t, endA, endB),
-    across(curve(P.y, y), curve(A.y, y), curve(B.y, y), curve(Q.y, y), hp, h, hq, t, endA, endB),
-    across(curve(P.z, y), curve(A.z, y), curve(B.z, y), curve(Q.z, y), hp, h, hq, t, endA, endB),
+    across(rc(P.x, y), rc(A.x, y), rc(B.x, y), rc(Q.x, y), hp, h, hq, t, endA, endB),
+    across(rc(P.y, y), rc(A.y, y), rc(B.y, y), rc(Q.y, y), hp, h, hq, t, endA, endB),
+    across(rc(P.z, y), rc(A.z, y), rc(B.z, y), rc(Q.z, y), hp, h, hq, t, endA, endB),
   );
 }
 

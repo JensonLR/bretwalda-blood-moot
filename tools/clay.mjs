@@ -111,13 +111,35 @@ function render(pos, idx, yaw, w, h, marks) {
   // Smooth vertex normals, because the game shades this mesh smoothly and a
   // flat-shaded clay invents banding the player will never see — which is
   // exactly the kind of phantom this file's history is full of.
+  //
+  // Accumulated onto WELDED vertices — one bucket per distinct position, not per
+  // index. The grid duplicates its seam column, and the game welds those normals
+  // itself (`weldRingNormals`); a clay that did not would draw a hard vertical
+  // line down the nape and invite somebody to spend an afternoon on a defect
+  // that exists only in the instrument. This tool has one job and it is to not
+  // do that.
+  const key = new Map();
+  const weld = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = `${Math.round(pos[i * 3] * 1e6)},${Math.round(pos[i * 3 + 1] * 1e6)},${Math.round(pos[i * 3 + 2] * 1e6)}`;
+    let w = key.get(k);
+    if (w === undefined) { w = i; key.set(k, i); }
+    weld[i] = w;
+  }
   const nrm = new Float64Array(n * 3);
   for (let t = 0; t < idx.length; t += 3) {
     const a = idx[t], b = idx[t + 1], d = idx[t + 2];
     const e1x = vx[b] - vx[a], e1y = vy[b] - vy[a], e1z = vz[b] - vz[a];
     const e2x = vx[d] - vx[a], e2y = vy[d] - vy[a], e2z = vz[d] - vz[a];
     const fx = e1y * e2z - e1z * e2y, fy = e1z * e2x - e1x * e2z, fz = e1x * e2y - e1y * e2x;
-    for (const v of [a, b, d]) { nrm[v * 3] += fx; nrm[v * 3 + 1] += fy; nrm[v * 3 + 2] += fz; }
+    for (const v of [a, b, d]) {
+      const w = weld[v];
+      nrm[w * 3] += fx; nrm[w * 3 + 1] += fy; nrm[w * 3 + 2] += fz;
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const w = weld[i];
+    if (w !== i) { nrm[i * 3] = nrm[w * 3]; nrm[i * 3 + 1] = nrm[w * 3 + 1]; nrm[i * 3 + 2] = nrm[w * 3 + 2]; }
   }
   for (let i = 0; i < n; i++) {
     const l = Math.hypot(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]) || 1;
