@@ -1919,3 +1919,44 @@ a cosmetic and asserts anything about it. Twelve sheets are defined in
 `tools/shoot.mjs` and Cloaks (5), Armour Finish (7) and both colour ladders (12)
 have still never been rendered at all. Assert that adjacent panels differ by more
 than N% of pixels and every finding above falls out without a human looking.
+
+---
+
+## Three the fourth unit never got to push
+
+**Open, and nothing was rebuilt here on purpose.** Four units worked this wave
+and all four hit a session limit. Three had pushed their core fix first and are
+now landed. The fourth had not pushed anything at all, so its work is gone —
+there is no branch, no commit and no diagnosis to inherit, only the three
+defects it was holding.
+
+They are recorded here rather than re-attempted, because the next wave should
+start from the owner's description and not from a second agent's guess at what
+the first one was doing. Each is written in the owner's own words as they were
+relayed; nothing has been added to them, and where a phrase is short that is
+because the phrase is all there is.
+
+1. **"floating blood on round two"** — blood persists or detaches between
+   rounds. Round one is not reported as affected, which makes the round
+   transition the place to look: something spawned in round one is surviving a
+   reset that was meant to clear it, or is being re-parented to a corpse that no
+   longer exists. `docs/GORE-DESIGN.md` owns the blood; `docs/ROUNDS-AND-SPAWNS.md`
+   owns the transition.
+
+2. **"pupils looking in opposite directions"** — the two eyes do not converge.
+   Whatever aims them is being applied per-eye with a sign or a mirror that
+   differs between the left and the right, which is the same shape of fault as
+   the hand chirality this wave just fixed: a reflection that no distance-based
+   ruler can see. `wearmeasure` §6 is the worked example of how that class of
+   defect gets measured — take the sign of a triple product, not a length.
+
+3. **"the last of the neck sloppiness"** — the residue of a neck problem that
+   earlier passes have already narrowed. "The last of" is the owner's phrase and
+   it implies this is a remnant rather than the whole fault, so the first job is
+   to find the frame that still shows it before changing anything.
+
+**Do not treat these as one job.** They touch three unrelated systems — gore,
+the face, and the neck — and the only thing they have in common is the unit that
+died holding them. The first two are cheap to gate: a count of live blood decals
+across a round boundary, and a convergence sign on the two pupils. Both belong
+in a CPU harness, and neither needs a browser.

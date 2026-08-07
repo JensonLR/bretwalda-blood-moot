@@ -81,8 +81,8 @@ if (!existsSync(built)) {
 }
 
 const {
-  wearNormalProbe, helmFitProbe, hairFitProbe, bodyFitProbe, handProbe,
-  HELM_VALUES, HAIR_VALUES, CLOAK_VALUES,
+  wearNormalProbe, helmFitProbe, hairFitProbe, bodyFitProbe, handProbe, beardSeatProbe,
+  HELM_VALUES, HAIR_VALUES, CLOAK_VALUES, BEARD_VALUES,
 } = await import(pathToFileURL(built).href);
 
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
@@ -501,4 +501,58 @@ console.log(`[wear] bars: the right hand is a right hand, palm-medial >= ${PALM_
 for (const f of handfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${handfails.length ? "FAIL" : "PASS"}: hands`);
 
-process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length ? 1 : 0);
+
+// ============================================================
+// 7. THE BEARD — one piece, and resting on the collar
+// ============================================================
+//
+// "the beards all look broken & overlapped in the neck & armour, it doesnt look
+//  or feel like one piece"
+//
+// Both halves of that sentence are measurable and neither was measured. The
+// beard pass replaced three intersecting solids with one authored surface and
+// shipped two magnifying glasses for it, `tools/beardcount.mjs` and
+// `tools/beardseat.mjs` — and BOTH of them say in their own header that
+// `wearmeasure` carries the assertion. It did not. The unit that wrote them ran
+// out of session before writing this section, so the property they exist to
+// protect had a reporter and no gate: `beardcount` prints `solids=3` and exits
+// zero, which is precisely the shape of ruler this file's own §2 note warns
+// about. A number that nobody fails is a number nobody reads.
+//
+//   PIECES   connected components of the beard's geometry, welded at 0.1 mm.
+//            Two surfaces that share no vertex are two objects to the eye
+//            however they are drawn, and every seam and every overlap the owner
+//            photographed is a boundary between two of them. ONE. Not "few" —
+//            one, because "one piece" is the whole of the complaint.
+//   THROUGH  how deep the beard's fall sits inside the torso's outermost
+//            garment, in mm. The fall lies ON the mail collar; 2 mm is a
+//            tessellation chord and anything past it is a beard growing through
+//            armour, which is the other half of the same sentence.
+const PIECES = 1;
+const THRU_BEARD = 2;
+console.log("");
+console.log("[wear] 7. THE BEARD — one authored surface, seated on the collar.");
+console.log("");
+console.log("[wear] class        beard     pieces   through mm   over mm  verdict");
+console.log("[wear] ---------------------------------------------------------------------");
+const dfails = [];
+for (const cls of CLASSES) {
+  for (const b of BEARD_VALUES) {
+    if (b === "none") continue;
+    const r = beardSeatProbe(cls, seeds[0], b);
+    const bad = [];
+    if (r.pieces !== PIECES) bad.push(`${r.pieces} solids, not one`);
+    if (r.throughMm > THRU_BEARD) bad.push(`${r.throughMm.toFixed(1)} mm through the collar (${r.worst})`);
+    if (bad.length) dfails.push(`${cls}/${b}: ${bad.join("; ")}`);
+    console.log(
+      `[wear] ${cls.padEnd(12)} ${b.padEnd(8)} ${String(r.pieces).padStart(6)}   ` +
+      `${r.throughMm.toFixed(1).padStart(10)}  ${r.overMm.toFixed(1).padStart(8)}  ` +
+      `${bad.length ? "<-- FAIL" : "ok"}`);
+  }
+}
+console.log("");
+console.log(`[wear] bars: exactly ${PIECES} connected component, at most ${THRU_BEARD} mm through the garment`);
+for (const f of dfails) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${dfails.length ? "FAIL" : "PASS"}: beards`);
+
+process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length + dfails.length ? 1 : 0);
