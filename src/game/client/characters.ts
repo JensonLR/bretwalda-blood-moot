@@ -243,7 +243,13 @@ export function migrateAppearance(ap: Appearance): Appearance {
 export interface FinishKit {
   /** Mail, plate and the helm's own rings — what `armorColor` always meant. */
   mail: number;
-  /** Wool trousers. THE WARDEN'S GREEN LOWER HALF, and the reason this exists. */
+  /**
+   * The tunic's dye lot — the largest garment on the man, and the surface the
+   * owner was actually pointing at. Not used flat: `tunicDye` lets each class's
+   * own accent shift it, so four classes stay four colours.
+   */
+  tunic: number;
+  /** Wool trousers. */
   trouser: number;
   /** Wound leg wraps, ankle to knee. */
   wrap: number;
@@ -263,27 +269,27 @@ const FINISH_KIT: Record<number, FinishKit> = {
   // Rough Iron — what a man is issued. Undyed wool in the fleece's own colours,
   // oiled harness leather, cast bronze. This row is the old constants, so the
   // free finish looks exactly as it did and the ladder starts where it started.
-  0x5f6b7a: { mail: 0x5f6b7a, trouser: 0x504a3e, wrap: 0xa2926e, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
+  0x5f6b7a: { mail: 0x5f6b7a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x8b7c5c, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
   // Polished Steel — everything on him goes cool and a shade brighter. Slate
   // wool, bleached wraps, tinned-bronze fittings that match the shirt.
-  0x8a97a5: { mail: 0x8a97a5, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  0x8a97a5: { mail: 0x8a97a5, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
   // Blackened Steel — fire-blued metal, soot-dyed wool, black harness. The
   // fittings go to dark iron; brass buttons would undo the whole finish.
-  0x2a2f38: { mail: 0x2a2f38, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
+  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
   // Bronze Scales — the warm end. Walnut-dyed trousers, oat wraps, tan harness
   // and true cast bronze, so the whole man reads as one metal's worth of warmth.
-  0x8a6a3a: { mail: 0x8a6a3a, trouser: 0x5b4527, wrap: 0xc2aa7c, hide: 0x513418, buff: 0x8f6a34, fitting: 0xc79a4a },
+  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0xc2aa7c, hide: 0x513418, buff: 0x8f6a34, fitting: 0xc79a4a },
   // Crimson Warplate — madder. The dyestuff that actually made a Dark Age man
   // look rich, on the trousers and pulled through the leather; wraps stay a
   // pale rose-grey so the legs still break into two values at fight distance.
-  0x7a2f2a: { mail: 0x7a2f2a, trouser: 0x5d2d29, wrap: 0xbc9c8c, hide: 0x46201a, buff: 0x8a5241, fitting: 0xbfa25c },
+  0x7a2f2a: { mail: 0x7a2f2a, tunic: 0x8a3730, trouser: 0x5d2d29, wrap: 0xbc9c8c, hide: 0x46201a, buff: 0x8a5241, fitting: 0xbfa25c },
   // Sea Queen's Gift — woad, the other expensive vat, and the only cold blue on
   // the roster. Fittings go pewter rather than gold for the same reason.
-  0x2f4a6a: { mail: 0x2f4a6a, trouser: 0x333f52, wrap: 0x93a0aa, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
+  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x93a0aa, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
   // Bretwalda Gold — weld yellow over everything and fire-gilt fittings. The top
   // of the ladder, and now the only finish where the trousers, the wraps, the
   // belt and the brooch are all saying the same thing.
-  0x9a7a2a: { mail: 0x9a7a2a, trouser: 0x6b5726, wrap: 0xd2bd7c, hide: 0x4d3a14, buff: 0x9c7c34, fitting: 0xdcc164 },
+  0x9a7a2a: { mail: 0x9a7a2a, tunic: 0x8a6f2c, trouser: 0x6b5726, wrap: 0xd2bd7c, hide: 0x4d3a14, buff: 0x9c7c34, fitting: 0xdcc164 },
 };
 
 /**
@@ -302,12 +308,44 @@ export function finishKit(armorColor: number): FinishKit {
     new THREE.Color().setHSL((hsl.h + hShift + 1) % 1, Math.min(0.55, s), l).getHex();
   return {
     mail: armorColor,
+    tunic: at(hsl.s * 0.62, Math.max(0.16, Math.min(0.36, hsl.l * 0.9))),
     trouser: at(hsl.s * 0.75, Math.max(0.13, Math.min(0.3, hsl.l * 0.72))),
     wrap: at(hsl.s * 0.35, Math.max(0.42, Math.min(0.72, hsl.l * 1.55 + 0.22))),
     hide: at(hsl.s * 0.55, Math.max(0.09, hsl.l * 0.45), 0.02),
     buff: at(hsl.s * 0.5, Math.max(0.24, Math.min(0.45, hsl.l * 0.95)), 0.02),
     fitting: at(hsl.s * 0.4, Math.max(0.5, Math.min(0.74, hsl.l * 1.3 + 0.24))),
   };
+}
+
+/**
+ * The tunic's final colour: the finish's dye lot, shifted by the class's own
+ * accent. The finish says what vat the wool went in; the class says how it wears
+ * it, and keeps the four apart at fight distance.
+ *
+ * The weights are chosen so no class can leave its finish's family. HUE moves a
+ * fifth of the way towards the accent's — enough that the warden stays the
+ * coolest of the four and the berserker the warmest, not enough that Crimson
+ * ever renders anything but red. SATURATION and VALUE are scaled rather than
+ * mixed, because those are the two channels a silhouette actually separates on
+ * under this arena's fire key, and a class that only differed in hue would
+ * collapse to one shape the moment the sun went behind the hall.
+ *
+ * Hue is interpolated the short way round the circle. Doing it the naive way
+ * sends a red accent over an orange dye through the entire spectrum to get
+ * there, which is how a warrior ends up green in a bronze finish.
+ */
+function tunicDye(lot: number, accent: number): number {
+  const a = { h: 0, s: 0, l: 0 };
+  const b = { h: 0, s: 0, l: 0 };
+  new THREE.Color(lot).getHSL(a);
+  new THREE.Color(accent).getHSL(b);
+  let dh = b.h - a.h;
+  if (dh > 0.5) dh -= 1;
+  if (dh < -0.5) dh += 1;
+  const h = (a.h + dh * 0.2 + 1) % 1;
+  const s = Math.min(0.6, a.s * (0.72 + b.s * 1.0));
+  const l = Math.min(0.55, Math.max(0.09, a.l * (0.74 + b.l * 1.1)));
+  return new THREE.Color().setHSL(h, s, l).getHex();
 }
 
 // ---------------- Armoury Catalog ----------------
@@ -7174,7 +7212,10 @@ export function buildCharacter(
   // Torso girth, for the layers that go round it: an ellipse's perimeter, near
   // enough, off the chest section the garments are actually swept on.
   const bodyGirth = Math.PI * (1.5 * (S.chestHW + S.chestHD) - Math.sqrt(S.chestHW * S.chestHD)) * 2;
-  const wool = cloth(accents, bodyGirth);
+  // The tunic. `accents` is the class's own constant from `render/anim.ts` and it
+  // is no longer the whole answer — it shifts the finish's dye lot rather than
+  // being it, which is what stops the warden being olive in all seven finishes.
+  const wool = cloth(tunicDye(kit.tunic, accents), bodyGirth);
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
   // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
@@ -7693,14 +7734,28 @@ export function buildCharacter(
         }
       }
       if (lod.trim) {
-        // The tie: a leather thong crossed over the top two turns and knotted at
-        // the outside of the calf, which is how a winingas is actually held on and
-        // is 60 mm of dark against pale wool right where the knee breaks.
-        for (const lean of [0.5, -0.5]) {
-          p.add(box(0.008, 0.062, 0.006), hide,
-            xf(side * wrapR(wrapTop - 0.02) * 0.62, wrapTop - 0.022, wrapR(wrapTop - 0.02) * 0.82, 0, 0.5 * side, lean));
+        // The tie that holds the top turn down.
+        //
+        // WHAT WAS HERE FIRST WAS A LITERAL X. Two 62 mm dark boxes leaned ±0.5 rad
+        // and stood 6 mm off the wool, and `art/shots/stance.png` renders them as
+        // exactly that — a crossed mark painted on the shin, the same read as the
+        // brass diamond on the warden's chest and the belt plate before it. This
+        // file has now produced that defect four times and the mechanism is always
+        // the same: a fitting drawn as a *symbol* instead of as the object.
+        //
+        // A winingas is tied with a narrow band taken round the leg and knotted at
+        // the outside of the calf. So: a band that goes round — a real ring, on the
+        // leg's own axis, at the leg's own radius, which cannot read as a mark
+        // because it has no ends — and a small knot with two short tails where a
+        // man's hands would have left it.
+        const tieY = wrapTop - 0.019;
+        const tieR = wrapR(tieY);
+        p.add(ring(tieR * 1.01, 0.0038, 4, 12), hide, xf(0, tieY, 0, Math.PI / 2, 0, 0, 1, 1, 1.06));
+        p.add(ball(0.0088, 7), hide, xf(side * tieR * 0.97, tieY, 0, 0, 0, 0, 1, 0.8, 0.66));
+        for (const t of [-1, 1]) {
+          p.add(rod(0.0034, 0.0022, 0.038, 5), hide,
+            xf(side * tieR * 0.99, tieY - 0.016, t * tieR * 0.28, 0.3 * t, 0, side * 0.22));
         }
-        p.add(ball(0.0075, 6), hide, xf(side * wrapR(wrapTop - 0.02) * 0.94, wrapTop - 0.022, wrapR(wrapTop - 0.02) * 0.42, 0, 0, 0, 1, 1, 0.7));
       }
       if (lamellar && lod.trim) {
         // Iron shin plate — the warden's discipline, visible below the hem.
