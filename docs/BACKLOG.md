@@ -543,3 +543,81 @@ E  map three         (BLOCKED on the sim being flat: no jump, x/z only,
 F  matchmaking       (REJECTED until concurrent strangers exist)
 F  flags             (needs profiles — profiles are DONE)
 ```
+
+---
+
+# 7. The owner's list of 2026-08-07
+
+Nine items, sent after playing the live build. Marked **NEW** or **ALREADY
+RECORDED** against everything above, because he asked to be told which is which.
+
+## 7.1 Bugs, with a diagnosis where I have one
+
+| # | Item | State |
+|---|---|---|
+| a | **Custom keybinds do not bind in game.** Adding an additional custom key has no effect. | **NEW.** The remap screen writes, but the bound key never reaches `sampleInput`. `bindings.ts` holds `DEFAULTS` and the profile carries a `bindings` jsonb; `bindsynctest` proves the *round trip to the database*, not that a rebound key moves the man. That is the third instrument in this project to measure the wrong quantity. |
+| b | **Ctrl to crouch does not work on a MacBook.** | **NEW, and diagnosed.** `bindings.ts:88` binds crouch to `["ControlLeft","ControlRight"]`. On macOS **Ctrl is the right-click modifier** — the browser consumes it before the game sees a keydown, and Ctrl-drag is a system gesture. This was never a Mac-safe default. Rebind (`C`, or `Alt`), and add a rule that no default may be a platform modifier. |
+| c | **Berserker has a wooden board through his back and cloak.** | **NEW.** Almost certainly his weapon's rest-carry: the haft is parented to a spine point at a fixed offset instead of being slung, so it passes through the cloak. Sibling to the fittings work already landed — the seating machinery exists, the weapon carry never used it. |
+| d | **Helmets, six faults in one report.** Crown helm overlaps at the back so the gold is hidden; some helms overlap the huscarl's chainmail neck; the Shadow Hood does not connect to its base; ears and hair still overlap helms; **large gaps at the sides of the helms** that need to line up with the ear or be closed; **the Boar and Wyrm crest ornaments are generic and unreadable as animals**. | **PART NEW.** The hair/helm layering and the hair-swallowing regression are recorded above; the crown occlusion, the hood base, the side gaps and the crest legibility are NEW. |
+
+## 7.2 The screens
+
+| # | Item | State |
+|---|---|---|
+| e | **The main menu background is basic and generic** and carries none of the game's identity. | **NEW.** |
+| f | **Every screen is boring.** The armoury is better than it was, but the whole set needs an upgrade — and **any design change must run end to end through the whole journey**. Consistency is the requirement, not a nice-to-have. | **NEW, and it is the largest item here.** Landing screen, lobby, countdown, HUD, round break, summary, armoury, recovery-code screen. A design system, not a reskin: one type scale, one palette, one card, one button, one panel, applied everywhere at once. |
+
+## 7.3 Features
+
+| # | Item | State |
+|---|---|---|
+| g | **Emotes need a big pass** — currently "barely functional, static, robotic". Make them **purchasable in the armoury**, give the player **a loadout of three** to swap for round-end and match-end, and **allow emoting during a fight to taunt an opponent** — "this would compliment the severing limbs aspect". | **PART NEW.** Three emotes exist, server-relayed and rate-limited (`emoteUntil`, the `emote` relay). Purchasable, loadout-of-three and in-fight taunting are all NEW, and they connect directly to the colosseum idea in `docs/GAUNTLET-BRIEF.md` — a taunt over a man you have just dismembered is the same design as mercy-or-finish. **In-fight emoting needs a rule so it cannot be spammed or used to cancel recovery frames.** |
+| h | **New maps.** | **ALREADY RECORDED** — `docs/MAPS.md` has three designed and one built. §0 of this file corrects the record: the `world.ts` ground registry **is in the tree** (`registerGround`, `groundIds`, `GroundDef`, and `grounds.mjs` server-side), so map two is a new module rather than a refactor. It is the single largest cost reduction on this list. |
+| i | **A whole-game review of ergonomics, engagement, deployability and addictiveness.** And: *can Blender be used, and would we benefit?* | **NEW.** The review overlaps `docs/GAUNTLET-BRIEF.md`, which already commissions nine specialists and a critic. The Blender question is answered below. |
+
+## 7.4 Can Blender be used, and would we benefit?
+
+Asked directly, so answered directly.
+
+**For runtime assets: no, and the reason is the product, not the tooling.**
+Everything in this game is generated in code because the pitch is a link in a
+group chat that plays instantly. A Blender export is a binary mesh — glTF, a
+few hundred KB to a few MB — and the moment one ships, "it just opened"
+becomes "it's loading". That rule also protects the art direction: every
+surface in the game is mixed from one palette and one material library, and an
+imported mesh arrives with its own topology, its own UVs and its own idea of
+scale.
+
+**The honest counter-argument, which deserves stating.** The head took **nine
+passes**. An artist in Blender would have had a better one in an afternoon. If
+that pattern repeated across every asset, the rule would be indefensible. It
+did not repeat: the head is now authored as a section stack with a silhouette
+gate that holds at 0 failures, and the remaining faults — layering, seating,
+occlusion — are *integration* problems that a Blender mesh would have too.
+Switching now would throw away a working system to buy a different set of
+problems.
+
+**Where Blender genuinely would help, and costs nothing:** as a **reference and
+measurement tool**, never as a shipping pipeline. Model a helmet, measure it,
+and feed the numbers into the procedural builder. That is exactly what
+`headmeasure` and `wearmeasure` already do with anthropometry — a modeller's
+eye upstream of a generator, with no binary in the repo.
+
+**What would change my mind:** a portal deal (`docs/DISTRIBUTION.md`) where the
+host serves the bundle and load time stops being the differentiator, or a
+second product where the tech matters more than the instant link.
+
+## 7.5 The order I would build these in
+
+1. **(b) the Mac crouch bind** and **(a) custom binds not binding** — a control
+   that does nothing is worse than a control that does not exist, and (a) needs
+   a harness that moves the man, not one that round-trips the database.
+2. **(d) the helmets** and **(c) the berserker's board** — visible on the screen
+   he looks at most, and the seating machinery to fix them already exists.
+3. **(e/f) the screens, as one design system** — the biggest single lift to how
+   the game *feels*, and the one thing that must not be done piecemeal.
+4. **(g) emotes** — purchasable, loadout, in-fight. Ties the shop to the fight
+   and feeds the colosseum design.
+5. **(h) map two** — cheaper than the record claimed.
+6. **(i) the gauntlet review** — it is the frame the rest hangs on, and it is
+   already written up in `docs/GAUNTLET-BRIEF.md`.
