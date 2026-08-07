@@ -2267,8 +2267,8 @@ const C_W: Curve = [
   [0.120, 98],
   [0.000, 98],
   [-0.116, 96],
-  [-0.216, 88],
-  [-0.323, 82],
+  [-0.216, 90],
+  [-0.323, 84],
   [-0.420, 76],
   [-0.500, 73.5],
   [-0.596, 74.0],
@@ -4458,7 +4458,7 @@ function lidPatch(
     const e = mix(s0, s1, s);
     const w = e * e * (3 - 2 * e);
     out.lerpVectors(m, rim, w);
-    out.addScaledVector(n, (upper ? 0.0024 : 0.0006) * Math.sin(Math.PI * w) + off);
+    out.addScaledVector(n, (upper ? 0.0011 : 0.0004) * Math.sin(Math.PI * w) + off);
   };
   return patch({
     nu, nv,
