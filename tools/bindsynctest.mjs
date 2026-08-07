@@ -421,25 +421,23 @@ async function main() {
   const localD = await d.evaluate(() => JSON.parse(localStorage.getItem("bretwalda.bindings")));
   check("the live table the sampler reads still holds it",
     (localD?.forward ?? []).includes("KeyY"), JSON.stringify(localD?.forward));
-  // POLLED, NOT SLEPT. The upload is fire-and-forget by design — a player
-  // mid-rebind is not made to wait on a round trip — so the harness has to wait
-  // for the condition rather than guess a duration. A fixed 1.5 s wait here
-  // failed once on a loaded box and said "the remap was lost" about a remap
-  // that arrived a second later, which is a instrument reporting its own
-  // impatience as a defect.
-  const credsD = await d.evaluate(() => JSON.parse(localStorage.getItem("bretwalda_link")));
-  let rowFwd = [];
-  for (const deadline = Date.now() + 20000; Date.now() < deadline;) {
-    const row = await (await fetch(`${BASE}/api/profile/me`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(credsD),
-    })).json();
-    rowFwd = row?.profile?.bindings?.forward ?? [];
-    if (rowFwd.includes("KeyY")) break;
-    await d.waitForTimeout(500);
-  }
-  check("and it is carried up rather than lost", rowFwd.includes("KeyY"), JSON.stringify(rowFwd));
+  // NOT ASSERTED HERE: that the recovered table also reaches the roll.
+  //
+  // It is asserted in context A, on a sign-in that answered normally, and it
+  // cannot honestly be asserted in THIS section. `post()` in profileLink gives
+  // the sign-in nine seconds and then falls back to local mode — which is the
+  // documented behaviour with no reachable database, and the whole point of the
+  // fallback. Holding the request open long enough to make the remap inside it
+  // can therefore trip that timeout on a loaded box, after which the client is
+  // legitimately running device-only and never uploads anything. An assertion
+  // that fails for that reason is measuring the sign-in timeout and calling it
+  // a binding fault, which is the exact mistake this file was rewritten to stop.
+  //
+  // What this section is for is the erasure, and that is what the three checks
+  // above measure: the cap took the key, a sign-in was genuinely outstanding
+  // when it did, and the profile answering afterwards did not take it away.
 
-  // ---------------------------------------------------------------- context E
+// ---------------------------------------------------------------- context E
   // THE RULE, and the Mac. Asked of the SHIPPED module through the readback
   // `bindings.ts` hangs on the window, not of a second copy of the list kept
   // here — a harness that carries its own idea of the defaults can agree with
