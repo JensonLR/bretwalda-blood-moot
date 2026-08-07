@@ -10185,12 +10185,36 @@ export function buildCharacter(
       const [bowlSeat, bowlRise, bowlTaper] = bowlProfile;
       const crest = bowlSeat + bowlRise;
       const bowlLift = (v: number) => bowlSeat + bowlRise * Math.pow(clamp01(v), bowlTaper);
+      // AND THE SPANGENHELM IS FOUR PLATES, which until now was a claim made only
+      // by four strips of trim lying on a perfectly smooth dome.
+      //
+      // "Spangenhelm, Nasal and Spectacle are three domes a judge could not tell
+      // apart." Two of those three have something of their own in the outline —
+      // the Nasal comes to a point with a finial on it, the Spectacle carries brow
+      // arches and a pair of cheek plates — and the 30-gold rung had a shallower
+      // version of the same sphere. Its whole product is its CONSTRUCTION: four
+      // pieces of iron raised separately and held in a frame. A plate raised on
+      // its own is not a quarter of a sphere; it bellies between the bands it is
+      // riveted to. 6.5 mm of belly at the middle of each plate, dying to nothing at
+      // the band and at the crown where the four meet, gives the bowl a squared
+      // outline from above and four soft highlights instead of one — and it is
+      // the same object the ribs have been claiming to hold together.
+      //
+      // Only on `shallow`, which is only this helmet. The raised cone and the
+      // round bowls above it are single sheets and a belly on them would be a
+      // dent. The ribs sit at pi/4 + i·pi/2, so `cos(4u)` peaks exactly between
+      // them, and the frame still stands proud of the plates it holds.
+      const lobe = style.bowl === "shallow" ? 0.0065 : 0;
+      const bellyAt = (u: number, v: number) =>
+        lobe * (0.5 + 0.5 * Math.cos(4 * u))
+        * Math.pow(clamp01(v), 0.9) * (1 - Math.pow(clamp01(v), 3.0));
       p.add(helmWear(K, {
         tag: "bowl",
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: () => bandLo + 0.015, v1: () => Math.PI / 2 - 0.02,
-        nu: Math.max(10, lod.shellU + 2), nv: Math.max(lod.shellV, style.bowl === "cone" ? 6 : 4),
-        lift: (_u, v) => bowlLift(v),
+        nu: Math.max(lobe ? 20 : 10, lod.shellU + 2),
+        nv: Math.max(lod.shellV, style.bowl === "cone" ? 6 : 4),
+        lift: (u, v) => bowlLift(v) + bellyAt(u, v),
         thick: 0.007,
       }), capMetal, place.clone());
       // ---- a comb along the midline ----
@@ -10347,8 +10371,12 @@ export function buildCharacter(
             // product is its frame the ribs have to be legible against the plates;
             // above it they are a construction detail on a cap whose rung is
             // something else, and 6 mm is the thickness of the strip.
+            // 11 mm on the spangenhelm now that its plates belly out 6.5 mm between
+            // the frame: the audit's brief for the 30-gold rung is "four plates
+            // with the frame bands standing 8-10 mm proud", and it is proud of the
+            // PLATE, not of the sphere the plate used to be.
             lift: (_u, s) =>
-              bowlLift(s) + (style.bowl === "shallow" ? 0.009 : 0.006)
+              bowlLift(s) + (style.bowl === "shallow" ? 0.011 : 0.006)
                 * (1 - Math.pow(clamp01(s), 2.2)),
             thick: 0.004,
           }), trimMetal, place.clone());
