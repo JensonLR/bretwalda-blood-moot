@@ -9800,298 +9800,312 @@ export function buildCharacter(
           },
           thick: full ? 0.005 : 0.0032,
         }), beard, place.clone());
-        // Philtrum gap: a real moustache parts under the nose. Two short patches
-        // rather than one bar is what sells it. The close crop gets one too, at
-        // 60% of the swell — a man who has stopped shaving has stopped shaving his
-        // lip as well, and without it the crop read as a chinstrap.
+        // ---- THE MOUSTACHE, AND IT IS ONE SHAPE NOW ----
+        //
+        // It was two patches, one a side, meeting at zero height on the
+        // philtrum with a 5 mm gap between their inner ends. What that draws is
+        // TWO LUMPS with skin between them, which is what the owner sees; and
+        // the left one was built inside out on top of that (see the winding
+        // note above). A moustache parts under the nose — it does not come in
+        // two pieces.
+        //
+        // One patch from corner to corner, with the philtrum cut into it as a
+        // groove: `leaf` and `swell` both dip to 45% at the midline and are
+        // back to full 13 mrad either side, so there is a valley under the nose
+        // and one continuous mass through it. No inner boundary, no rim strip
+        // in the middle of the face, and nothing for a second solid to clip
+        // against.
         {
           const mo = full ? 1 : 0.6;
-          // Each half is a hump, not a slab. As a rectangle in (u, v) at a flat
-          // 8 mm of lift with a 6 mm rim, these rendered as two hard blocks floating
-          // over the mouth with daylight round them — the same failure as the mouth
-          // corners and for the same reason (see `patch`). Taking the lift to
-          // nothing on all four boundaries buries every rim strip in the skin, and
-          // what is left is a moustache that grows out of the lip and thins toward
-          // the corner.
-          const swell = (u: number, v: number) =>
-            0.0010 + 0.0052 * mo * Math.sin(Math.PI * clamp01(v))
-            * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.035) / 0.345));
-          // A leaf, not a rectangle. Both v bounds converge at both ends of u, so
-          // the half pinches shut against the philtrum on one side and against the
-          // mouth corner on the other — with parallel bounds it was a quadrilateral
-          // with four visible corners sitting over the lip, which is a postage stamp
-          // and not a moustache.
-          // The lower edge came down 50 mm, to sit ON the upper lip. At
-          // `Y_LIP + 0.085` the moustache floated a clear 85 mm above the mouth
-          // line with skin under it, which is a bar across the middle of the
-          // face and not hair on a lip — and with the beard's top edge now on the
-          // mentolabial shelf where it belongs, the mouth is the gap BETWEEN the
-          // two masses. That gap is only a mouth if both edges are on it.
           const mTop = lat(Y_NOSE - 0.035);
           const mBot = lat(Y_LIP + 0.035);
           const mMid = (mTop + mBot) * 0.5;
           const mHalf = (mTop - mBot) * 0.5;
+          /** The philtrum: a groove, not a gap. 1 at the lip, 0.45 on the midline. */
+          const part = (u: number) => 0.45 + 0.55 * smooth(0.015, 0.135, Math.abs(u));
           const leaf = (u: number) =>
-            mHalf * Math.pow(Math.sin(Math.PI * clamp01((Math.abs(u) - 0.025) / 0.365)), 0.5);
+            mHalf * Math.pow(Math.sin(Math.PI * clamp01((0.40 - Math.abs(u)) / 0.40)), 0.55) * part(u);
+          // Droops toward the corners of the mouth, which is the one thing that
+          // separates a moustache from a strip of tape laid across a lip.
           const droop = (u: number) => mMid - 0.055 * smooth(0.06, 0.38, Math.abs(u));
-          // u ascends on BOTH halves — see the brow note above. Written as
-          // `s * 0.025 -> s * 0.39` this ran backwards on the left, so that
-          // half of the moustache was inside out and drew its buried inner
-          // wall: a hard dark lump beside a soft one, which is half of "big
-          // lumps overlapped & clipped" on the one part of the beard that sits
-          // in the middle of the face.
-          for (const [m0, m1] of [[0.025, 0.39], [-0.39, -0.025]] as const) {
-            p.add(headWear(K, {
-              u0: m0, u1: m1,
-              v0: (u) => droop(u) - leaf(u),
-              v1: (u) => droop(u) + leaf(u),
-              // 10 columns, not 6. `leaf` is a half-sine to the 0.5 power, so
-              // it leaves its ends almost vertically; sampled six times across
-              // 0.365 rad the tip is a triangle with two straight sides, which
-              // is the corner of a postage stamp the note above thought it had
-              // removed.
-              // Even nv — see the brow note above; at nv = 3 no row lands on
-              // the crest of `swell` and the moustache loses an eighth of its
-              // own mass to the sampler.
-              nu: 10, nv: 4, lift: swell, thick: 0.004,
-            }), beard, place.clone());
-          }
+          p.add(headWear(K, {
+            u0: -0.40, u1: 0.40,
+            v0: (u) => droop(u) - leaf(u),
+            v1: (u) => droop(u) + leaf(u),
+            // 22 columns over 0.8 rad. The groove is 0.12 rad wide and a patch
+            // can only carry a feature the mesh can sample: at 12 columns the
+            // philtrum was three vertices wide and came out as a notch with
+            // straight sides.
+            nu: 22, nv: 4,
+            // Even nv — see the brow note above; at an odd row count no row
+            // lands on the crest of the swell and the mass loses an eighth of
+            // itself to the sampler.
+            lift: (u, v) => 0.0010 + 0.0060 * mo * part(u)
+              * Math.sin(Math.PI * clamp01(v))
+              * Math.pow(Math.sin(Math.PI * clamp01((0.405 - Math.abs(u)) / 0.405)), 0.7),
+            thick: 0.004,
+          }), beard, place.clone());
         }
       }
-      // The hanging mass, for the three styles that have one. Every station has
-      // dropped 30 mm: the menton is at −145 mm and these used to start at −100,
-      // i.e. inside the chin, so a "full" beard's hang emerged from the middle of
-      // the jaw rather than from under it.
+
+      // ---- THE HANGING MASS, AND IT IS ONE SURFACE NOW ----
       //
-      // THE THREE PAID BEARDS WERE ONE CRESCENT, AND THE MEASUREMENT SAYS SO.
-      // `npm run cosmetictest` reads the ladder with the material off:
-      // Full -> Forked scored **0.57%** of the subject at fight distance and
-      // Forked -> Ringed Braid **0.87%**, both under the 1% a shape has to move
-      // to be a shape a player can see in play. They were three variations on one
-      // mass hung in the same place at the same length, and once colour is gone
-      // that is one beard sold three times for 240 gold.
+      // "all of the beards aren't right they are just big lumps overlapped &
+      // clipped to another part of beard it looks blocky & ugly & unnatural."
       //
-      // The axis they now differ on is the one that survives 7.9 mm to a pixel:
-      // MASS and LENGTH, in that order.
+      // He is describing the construction, exactly. Every beard in the shop was
+      // A SUM OF PRIMITIVES hung near a jaw and left to intersect, and two of
+      // the intersections are arithmetic faults rather than matters of taste:
       //
-      //   Full    broadest and shortest — 172 mm across, ending 150 mm below the
-      //           chin. A bush.
-      //   Forked  a narrower root and two tines that swing 0.46 rad apart and
-      //           reach 230 mm below the chin, so the fork is open air from every
-      //           bearing and the outline has a notch cut out of the bottom of it.
-      //   Ringed  the narrowest and by far the longest — a single 50 mm rope
-      //           reaching 295 mm below the chin with three bindings down it. In
-      //           outline it is a line where Full is a wedge.
+      //   Full    a cheek patch on the face, plus an ovoid belly whose open top
+      //           ring sits under it, plus THE SAME OVOID AGAIN at 0.94 scale
+      //           with 0.075 rad of lean on it. That lean is taken about the
+      //           part's origin, 190 mm above the beard, so the inner copy's
+      //           17 mm tip comes out 8 mm sideways THROUGH the outer one. Two
+      //           eggs crossing at the point of the beard, with eleven
+      //           two-strand ropes laid over the pair of them.
+      //   Forked  a root shell plus two tines, each `xf`-rotated by -s * 0.56
+      //           rad — again ABOUT THE PART ORIGIN and not about its own root.
+      //           At the tine's lowest station that is a 190 mm lever arm, so
+      //           the s = +1 tine finishes at x = -73 mm and the s = -1 tine at
+      //           +73. THE TWO TINES CROSS OVER AND PASS THROUGH EACH OTHER.
+      //           The "fork" in every frame this shipped in is two solids
+      //           intersecting in an X, which is why no amount of opening the
+      //           angle ever made the notch read.
+      //   Ringed  a root shell with a plait springing from its bottom ring, so
+      //           the rope starts at a cut edge.
       //
-      // A player who buys the next rung up gets a different silhouette, not a
-      // different tint, and the price ladder now buys length as well as work.
-      if (ap.beardStyle === "full") {
-        // Three lobes, not one cone. One swept shell under a jaw is a single
-        // smooth mass with a smooth outline, and at portrait range that is a
-        // bib — `art/shots/wip/b3-*` is a brown block with a straight bottom
-        // edge. A beard hangs in hanks: a long one at the chin and two shorter
-        // ones either side of it, each with its own belly and its own tip, so
-        // the mass has strands running down it and the outline is broken in
-        // three places. Same triangle count as the five-station cone it
-        // replaces, because each lobe is coarser.
-        // One mass, and the three separate hanks that were tried here are why it
-        // is written down. Split into a long lobe and two short ones, each shell
-        // presented its own open top ring under the cheek patch and the beard
-        // rendered as three cut tubes hanging off a jaw — a beard is one volume
-        // that hair falls out of, and dividing the volume divides it visibly.
-        // The strands belong on the surface, and that is what the second, offset
-        // shell below is: the same mass again at 3 mm less radius and a slight
-        // lean, so the two outlines disagree down the length of the beard and
-        // the edge is broken without the mass being.
-        // WIDE AND SHORT. The belly went from 68 mm of half-width to 86 and the
-        // tip came up 20 mm, so the mass is a wedge that spreads past the jaw
-        // rather than a cone that follows it down. That is what separates it from
-        // the two beards above it in the ladder: they are both narrower than the
-        // jaw and both longer.
-        // EVERY STATION'S z CLIMBS. All three hanging masses used to fall straight
-        // down at z = 0.024-0.040 in the head's frame while the torso's front
-        // surface is at 0.104 and the mail over it further out, so the bottom
-        // third of every paid beard in the shop was INSIDE the man and thrown away
-        // by the depth buffer. That is most of why the three measured as one
-        // crescent: what was being compared was the small part of each that
-        // cleared the collarbone. A beard that reaches the chest rests ON it.
-        // Hoisted, because the hanks below have to be able to find this surface.
-        // A hank sized by eye against a shell it cannot read is a hank that ends
-        // up inside it, which is exactly what happened the first time.
-        const BELLY = [
-          { drop: 0.122, hw: 0.070, hd: 0.056, z: 0.040 },
-          { drop: 0.176, hw: 0.093, hd: 0.070, z: 0.058 },
-          { drop: 0.226, hw: 0.084, hd: 0.064, z: 0.082 },
-          { drop: 0.268, hw: 0.050, hd: 0.041, z: 0.104 },
-          { drop: 0.294, hw: 0.017, hd: 0.015, z: 0.118 },
-        ];
-        const belly = (k: number, lean: number) => p.add(shell(
-          BELLY.map((b) => ({ y: skullY - b.drop, hw: b.hw * k, hd: b.hd * k, z: b.z })),
-          Math.max(8, lod.limb), { power: 2.15, capTop: true, capBottom: true }), beard,
-          xf(0, 0, 0, 0, 0, lean));
-        /** The belly's own half-width, half-depth and offset at a given drop. */
-        const bellyAt = (drop: number) => {
-          const last = BELLY[BELLY.length - 1]!;
-          if (drop <= BELLY[0]!.drop) return BELLY[0]!;
-          for (let i = 0; i < BELLY.length - 1; i++) {
-            const a = BELLY[i]!, b = BELLY[i + 1]!;
-            if (drop > b.drop) continue;
-            const f = (drop - a.drop) / (b.drop - a.drop);
-            return { drop, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z, b.z, f) };
-          }
-          return last;
+      // This is the oldest failure shape in this project. The ear was ball plus
+      // torus plus ball and had daylight through it; the head was a sum of
+      // bumps and produced five different monsters. Both were fixed the same
+      // way — by authoring ONE CONTINUOUS SURFACE — and this is that.
+      //
+      // The mass is swept off the cheek patch's OWN lower boundary, `hang(u)`,
+      // sampled on the same skin at the same latitude, so there is no join
+      // between the beard on the face and the beard under it: there is one
+      // surface, and it starts where the face's beard stops. Its section runs
+      // from the jawline down the outside of the hair, round the tip and back
+      // up the inside to close on the jawline again — a closed tube with no cap
+      // anywhere, so there is no open ring for a second object to be seen
+      // through and nothing to clip against.
+      //
+      // The four styles are four numbers on that one surface: how much mass at
+      // each azimuth, and how far it falls. That is the axis the audit says a
+      // price ladder has to buy, and it is the axis that survives 7.9 mm to a
+      // pixel.
+      const _br = new THREE.Vector3();
+      const _bn = new THREE.Vector3();
+      /** One point of the beard's section: `o` outward from the skin, `d` down. */
+      interface Bristle { o: number; d: number }
+      const hangMass = (opts: {
+        /** The section, jawline -> outside -> tip -> inside -> jawline. */
+        prof: readonly Bristle[];
+        /** How much beard there is at this azimuth, 0 to 1. */
+        mass: (u: number) => number;
+        /** Scales the FALL only. A fork is this function with two maxima. */
+        reach?: (u: number) => number;
+        /** How far the fall carries forward, so a long beard rests on a chest. */
+        lean: number;
+        thick: number;
+      }): THREE.BufferGeometry => {
+        const { prof, mass, lean } = opts;
+        const reach = opts.reach ?? (() => 1);
+        const N = prof.length - 1;
+        const at = (t: number, s: number, inset: number, out: THREE.Vector3) => {
+          // u DESCENDS. `patch` faces ∂t × ∂s, and with u ascending that cross
+          // product points into the throat — the whole beard would be built
+          // inside out, which is the trap the brows two hundred lines above
+          // fell into.
+          const u = mix(1.24, -1.24, t);
+          const v = hang(u);
+          dirOf(u, v, _br);
+          faceSurface(K, _br, out);
+          faceNormalTrue(K, u, v, _bn);
+          // A shade proud of the skin, which is where the cheek patch's own
+          // lower edge already is, so the two meet flush instead of stepping.
+          out.addScaledVector(_bn, 0.0018);
+          out.y += skullY;
+          // Outward is taken from the head's AXIS at this azimuth, not from the
+          // root point: at the midline the root sits on the chin's underside
+          // where the section has converged to a few millimetres, and a
+          // direction measured off a point that close to the axis is noise.
+          const rx = Math.sin(u), rz = Math.cos(u);
+          const q = clamp01(s) * N;
+          const i = Math.min(N - 1, Math.floor(q));
+          const f = q - i;
+          const a = prof[i]!, b = prof[i + 1]!;
+          const m = mass(u);
+          // Hanks, on the outward leg. Hair is not one surface — it is ropes,
+          // each with a belly and a valley beside it, so the key rakes across a
+          // row of ridges and the eye gets a dozen highlights instead of one
+          // gradient. Two harmonics in u, both inside what 26 columns can
+          // carry; the third that used to live here was above Nyquist and drew
+          // four triangular bites out of the jaw instead of a ragged edge.
+          const hank = 0.17 * Math.cos(u * 7.3 + 0.4) + 0.10 * Math.cos(u * 12.9 - 1.1);
+          // And a ragged hem. A beard's lower edge is where hair runs out, not
+          // where it was cut, and a smooth curve at this scale reads as a bib.
+          const rag = 1 + 0.125 * Math.cos(u * 5.1 + 2.2) + 0.075 * Math.cos(u * 9.7 - 0.6);
+          const oo = mix(a.o, b.o, f);
+          const dd = mix(a.d, b.d, f);
+          // The ridges ride the whole fall, not just the belly: keyed on how
+          // far down the section has come rather than on how far out it is, so
+          // the strands run the length of the hair the way hanks do instead of
+          // dying wherever the profile happens to be thin.
+          const ridge = 1 + hank * smooth(0, 0.35, clamp01(s)) * (oo > 0 ? 1 : 0.35);
+          const d = dd * m * reach(u) * rag;
+          // AND THE MASS HAS TO CLEAR THE THROAT.
+          //
+          // At the midline the root sits on the chin's UNDERSIDE, a few
+          // millimetres off the head's own axis, so a section measured outward
+          // from there falls behind the neck — and the neck, 74 mm of it, comes
+          // straight through the front of the beard as a patch of bare skin
+          // under the chin. `art/look/skinonly.png` shows it: matte everything
+          // but flesh and there is a tongue of throat hanging in the middle of
+          // the beard. It is the same fault as the tines crossing, one level
+          // up — a hanging mass authored without reference to the body it hangs
+          // on — and it is why every previous cut of this beard needed a second
+          // solid bolted over the front.
+          //
+          // So the outward offset is FLOORED at the throat's own half-width as
+          // soon as the fall has cleared the jaw. The beard encloses the neck
+          // rather than grazing it, and the floor does nothing at all out at
+          // the sides, where the root is already 75 mm off the axis.
+          const r0 = Math.hypot(out.x, out.z);
+          const o = Math.max(oo * m * ridge, 0.074 * smooth(0, 0.050, d) - r0) - inset;
+          out.x += rx * o;
+          // The forward swing is weighted toward the FRONT of the jaw. A beard
+          // reaching the chest rests on it, but hair beside the jaw hanging as
+          // far forward as hair under the chin is a scarf: the two side lobes
+          // come off the head and read as flaps with daylight behind them.
+          out.z += rz * o + lean * d * (0.32 + 0.68 * Math.max(0, rz));
+          out.y -= d;
         };
-        belly(1, 0);
-        if (lod.trim) belly(0.94, 0.075);
-        // ---- AND THEN THE HANKS, because two offset shells are still two eggs.
-        //
-        // The note above is right that dividing the VOLUME divides it visibly,
-        // and the fix it chose — the same mass again 3 mm in with a lean on it —
-        // was meant to make the two outlines disagree. The capture says it does
-        // not: at 3 mm the inner shell is inside the outer one from every bearing
-        // that matters, and what the frame shows is a single smooth ovoid hanging
-        // off the chin with an unbroken edge. That is the owner's "enormous mass"
-        // on the class that wears it by default.
-        //
-        // The volume stays one volume. What goes on it is HAIR: nine tapered
-        // hanks lying on the belly's own surface and running past its lower edge,
-        // so the mass keeps its shape and the OUTLINE stops being a curve. Each
-        // is a two-strand rope, which at this size reads as a twist of hair
-        // rather than as a plait, and each overshoots the shell it lies on by its
-        // own tip — which is the only part of this that changes the silhouette
-        // and the whole reason it is here.
-        if (lod.trim) {
-          // ELEVEN, AND NONE OF THEM THE SAME. At nine evenly spaced hanks of one
-          // radius all starting at one height, the capture reads as CORDUROY — a
-          // fluted column, which is a different wrong answer from the egg it
-          // replaced but still an obviously manufactured surface. Hair is not
-          // regular in any of its axes, so none of these are: the angular jitter
-          // is up from 0.13 to 0.34 rad (a third of the gap between neighbours,
-          // enough for hanks to crowd in places and part in others), each hank
-          // starts at its own height under the jaw, and how far it stands off the
-          // shell varies per hank as well — so some lie in the mass and some ride
-          // over their neighbours, which is what stops the row reading as a comb.
-          for (let i = 0; i < 11; i++) {
-            const a = (i / 10 - 0.5) * 2.34 + 0.34 * (hash(identity, i * 17 + 2) - 0.5);
-            const j = hash(identity, i * 23 + 9);
-            const k = hash(identity, i * 29 + 13);
-            // Where this hank leaves the jaw. Spread over 26 mm, so the tops do
-            // not form a second hard line across the beard.
-            const top = 0.104 + 0.026 * k;
-            // Longest at the midline and shorter round the sides, so the hanks
-            // follow the mass rather than fringing it at a constant length.
-            const drop = (0.300 + 0.052 * j) * (1 - 0.34 * Math.abs(a) / 1.15);
-            p.add(braid((t, out) => {
-              // ON the belly, not near it. The first build sized this by eye —
-              // one radius for both axes, no reference to the shell — and the
-              // front hanks landed at z = 0.105 against a surface that reaches
-              // 0.128, i.e. 23 mm INSIDE it. So the sides showed and the front,
-              // which is the whole bearing a portrait is shot from, stayed a
-              // smooth brown surface. Every station is now read off `bellyAt` at
-              // this hank's own height and stood 5 mm outside it, and past the
-              // shell's bottom the profile keeps falling on its own — which is
-              // where the tips are, and the tips are what break the outline.
-              const fall = top + drop * t;
-              const B2 = bellyAt(fall);
-              const proud = (0.002 + 0.007 * k) + 0.004 * Math.sin(Math.PI * clamp01(t));
-              // Below the shell the hank narrows to a tail rather than snapping
-              // to the last station's 17 mm.
-              const past = clamp01((fall - 0.294) / 0.13);
-              const hw2 = (B2.hw + proud) * (1 - 0.55 * past) + 0.020 * past;
-              const hd2 = (B2.hd + proud) * (1 - 0.55 * past) + 0.018 * past;
-              out.set(
-                Math.sin(a) * hw2,
-                skullY - fall,
-                B2.z + Math.cos(a) * hd2 + 0.070 * Math.pow(past, 1.2),
-              );
-            }, {
-              strands: 2,
-              turns: 0.9 + 0.5 * j,
-              rows: Math.max(9, lod.limb + 1),
-              ring: 4,
-              radius: (t) => (0.0108 + 0.0062 * j) * (1 - 0.52 * t * t),
-            }), beard);
-          }
-        }
+        return patch({
+          nu: Math.max(26, lod.shellU + 16), nv: N,
+          outer: (t, s, out) => at(t, s, 0, out),
+          inner: (t, s, out) => at(t, s, opts.thick, out),
+        });
+      };
+
+      if (ap.beardStyle === "short") {
+        // CLOSE CROP, free. It had no mass at all — the whole rung was a 9 mm
+        // patch on the cheek — and `cosmetictest` put it against Clean Shaven
+        // at 1.07% of a play frame, which is one pixel of a 520 x 320 panel and
+        // the weakest pair in the shop. A cropped beard still has a little bulk
+        // under the chin; this is that, 42 mm of it, and nothing more.
+        p.add(hangMass({
+          prof: [
+            { o: 0.000, d: 0.000 },
+            { o: 0.018, d: 0.014 },
+            { o: 0.024, d: 0.036 },
+            { o: 0.016, d: 0.052 },
+            { o: 0.002, d: 0.046 },
+            { o: -0.006, d: 0.018 },
+            { o: 0.000, d: 0.000 },
+          ],
+          mass: (u) => 0.18 + 0.82 * Math.pow(1 - smooth(0.70, 1.20, Math.abs(u)), 0.80),
+          lean: 0.22,
+          thick: 0.0035,
+        }), beard);
+      } else if (ap.beardStyle === "full") {
+        // FULL, 40 gold. Broadest and shortest — a bush. 46 mm of belly at the
+        // chin and 158 mm of fall, spreading PAST the jaw rather than following
+        // it down, which is what separates it from the two above it: both of
+        // those are narrower than the jaw and both are longer.
+        p.add(hangMass({
+          prof: [
+            { o: 0.000, d: 0.000 },
+            { o: 0.032, d: 0.026 },
+            { o: 0.058, d: 0.072 },
+            { o: 0.064, d: 0.120 },
+            { o: 0.050, d: 0.154 },
+            { o: 0.020, d: 0.170 },
+            { o: -0.002, d: 0.152 },
+            { o: -0.011, d: 0.102 },
+            { o: -0.013, d: 0.042 },
+            { o: 0.000, d: 0.000 },
+          ],
+          mass: (u) => 0.10 + 0.90 * Math.pow(1 - smooth(0.66, 1.235, Math.abs(u)), 0.80),
+          lean: 0.40,
+          thick: 0.006,
+        }), beard);
       } else if (ap.beardStyle === "forked") {
         // FORKED, 80 gold, and the audit's instruction was to check it against
-        // the profile card: "a fork that does not separate in profile is a beard
-        // with a notch." It did not. The two tines were 32 mm apart at the chin
-        // and leaned 0.18 rad, so from any bearing but dead ahead they occluded
-        // each other into one cone with a crease down it. They now spring from a
-        // common mass under the chin, part and swing out and forward, so the gap
-        // between them is open air from every bearing — which is the whole thing
-        // a player is buying.
-        // The root is now NARROWER than the Full Beard's belly rather than the
-        // same shell, and it stops 30 mm higher, so the fork starts on the jaw
-        // instead of below a bush. The tines are longer, thicker at the root and
-        // swung 0.46 rad apart: at fight distance the gap between them is 40 mm,
-        // which is five pixels of daylight bitten out of the bottom of the
-        // outline, and a notch of five pixels is a shape. At 0.34 rad it was two.
-        p.add(shell([
-          { y: skullY - 0.126, hw: 0.058, hd: 0.049, z: 0.040 },
-          { y: skullY - 0.160, hw: 0.060, hd: 0.050, z: 0.048 },
-          { y: skullY - 0.186, hw: 0.050, hd: 0.042, z: 0.058 },
-        ], lod.limb, { power: 2.15, capBottom: true }), beard);
-        for (const s of [-1, 1]) {
-          // The tines carry forward as well as apart — see the note on the Full
-          // Beard's belly. Two tines buried in a chest are one notch nobody sees.
-          p.add(shell([
-            { y: skullY - 0.158, hw: 0.053, hd: 0.046, z: 0.052 },
-            { y: skullY - 0.244, hw: 0.047, hd: 0.040, z: 0.090 },
-            { y: skullY - 0.322, hw: 0.031, hd: 0.027, z: 0.126 },
-            { y: skullY - 0.376, hw: 0.012, hd: 0.011, z: 0.146 },
-          ], Math.max(8, lod.limb), { power: 2.1, capBottom: true }), beard,
-            xf(s * 0.028, 0, 0.004, 0.10, 0, -s * 0.56));
-        }
+        // the profile card: "a fork that does not separate in profile is a
+        // beard with a notch." It never separated, because the two tines were
+        // crossing through one another (see the note above).
+        //
+        // The fork is now a property of the ONE mass rather than two solids
+        // bolted to it: `reach` has two maxima 0.42 rad off the midline and a
+        // trough between them, so the same surface falls 235 mm under each
+        // tine and 118 in the middle. The notch is cut out of the outline by
+        // the surface's own hem, it is open air from every bearing because
+        // there is nothing there to occlude it, and no two parts of the beard
+        // can intersect because there is only one part.
+        p.add(hangMass({
+          prof: [
+            { o: 0.000, d: 0.000 },
+            { o: 0.026, d: 0.032 },
+            { o: 0.040, d: 0.088 },
+            { o: 0.038, d: 0.150 },
+            { o: 0.026, d: 0.206 },
+            { o: 0.009, d: 0.240 },
+            { o: -0.004, d: 0.216 },
+            { o: -0.011, d: 0.126 },
+            { o: -0.012, d: 0.034 },
+            { o: 0.000, d: 0.000 },
+          ],
+          mass: (u) => 0.09 + 0.91 * Math.pow(1 - smooth(0.58, 1.215, Math.abs(u)), 0.85),
+          reach: (u) => 0.50 + 0.72 * Math.exp(-Math.pow((Math.abs(u) - 0.42) / 0.25, 2)),
+          lean: 0.46,
+          thick: 0.005,
+        }), beard);
       } else if (ap.beardStyle === "braided") {
-        // RINGED BRAID, 120 gold — the most expensive beard in the shop, and it
-        // was four stacked spheres of falling radius with a brass ring under
-        // them. The audit calls it a rosary and it is right. It is a real
-        // three-strand plait now, sprung out of a mass under the chin so the
-        // hair has somewhere to come from, bound down its length.
+        // RINGED BRAID, 120 gold — the narrowest and by far the longest, so in
+        // outline it is a line where Full is a wedge and Forked is a wedge with
+        // a notch bitten out of it.
         //
-        // THE PLAIT IS NOW THE LONGEST AND NARROWEST BEARD IN THE SHOP, and that
-        // is what the top rung buys. It falls 295 mm below the chin against the
-        // Full Beard's 150, and the root that feeds it is gathered to 34 mm — so
-        // the outline is a rope where Full is a wedge and Forked is a wedge with a
-        // notch. Two turns fewer over half again the length is a coarser plait,
-        // which is the only way three strands read as three strands at 7.9 mm to a
-        // pixel; a tight plait is a cylinder at any distance a match is fought at.
-        //
-        // THREE RINGS, NOT TWO, AND THEY STAND PROUD. The audit's complaint was
-        // that the old rings read "as a string of spheres". A ring reads as a ring
-        // when it is WIDER THAN THE ROPE IT BINDS and casts a step in the outline:
-        // each is 4-5 mm outside the plait's own half-width at the station it sits
-        // on, so the silhouette pinches at the binding and swells between them.
-        // Inside the rope they were invisible and the plait was a cone.
-        // IT HAS TO LIE ON THE CHEST, NOT INSIDE IT. Lengthening this plait bought
-        // nothing at all the first time it was tried — the measurement did not move
-        // by a hundredth of a per cent — and the reason is worth writing down,
-        // because it applies to any long beard anybody adds after this. The path
-        // hung STRAIGHT DOWN at z = 0.036 in the head's frame, while the torso's
-        // front surface is at z = 0.104 and the mail over it is further out again.
-        // So everything below the collarbone was inside the man: drawn, and then
-        // thrown away by the depth buffer. A beard that reaches the chest rests ON
-        // the chest, so the path swings forward as it falls and finishes 136 mm
-        // proud of the head's centre, which clears the mail with the plait's own
-        // radius to spare.
+        // The gather is the same surface as every other beard, pulled in hard
+        // by `mass`, and the plait springs from INSIDE it: the rope's first
+        // station is 40 mm above the gather's tip rather than level with it, so
+        // there is no cut edge where the two meet and the hair reads as being
+        // drawn out of the mass instead of butted onto it.
+        p.add(hangMass({
+          prof: [
+            { o: 0.000, d: 0.000 },
+            { o: 0.022, d: 0.028 },
+            { o: 0.031, d: 0.070 },
+            { o: 0.024, d: 0.106 },
+            { o: 0.009, d: 0.126 },
+            { o: -0.003, d: 0.110 },
+            { o: -0.010, d: 0.062 },
+            { o: -0.010, d: 0.020 },
+            { o: 0.000, d: 0.000 },
+          ],
+          mass: (u) => 0.06 + 0.94 * Math.pow(1 - smooth(0.30, 1.05, Math.abs(u)), 1.15),
+          lean: 0.30,
+          thick: 0.005,
+        }), beard);
+        // IT HAS TO LIE ON THE CHEST, NOT INSIDE IT. Lengthening this plait
+        // bought nothing at all the first time it was tried, and the reason is
+        // worth keeping: the path hung straight down at z = 0.036 in the head's
+        // frame while the torso's front surface is at 0.104 and the mail over
+        // it further out again, so everything below the collarbone was drawn
+        // and then thrown away by the depth buffer.
         const bPath = (t: number, out: THREE.Vector3) => out.set(
-          0, skullY - 0.186 - 0.272 * t, 0.036 + 0.100 * Math.pow(t, 1.15),
+          0, skullY - 0.148 - 0.300 * t, 0.048 + 0.104 * Math.pow(t, 1.15),
         );
-        const bRad = (t: number) => 0.0212 * (1 - 0.38 * t * t);
-        p.add(shell([
-          { y: skullY - 0.126, hw: 0.056, hd: 0.048, z: 0.040 },
-          { y: skullY - 0.160, hw: 0.048, hd: 0.042, z: 0.048 },
-          { y: skullY - 0.190, hw: 0.034, hd: 0.031, z: 0.058 },
-        ], lod.limb, { power: 2.15, capBottom: true }), beard);
+        const bRad = (t: number) => 0.0206 * (1 - 0.40 * t * t);
         p.add(braid(bPath, {
           turns: 3.4, rows: Math.max(14, lod.limb * 3), ring: Math.max(5, lod.limb - 2),
           radius: bRad,
         }), beard);
+        // THREE BINDINGS, AND THEY STAND PROUD. A ring reads as a ring when it
+        // is WIDER THAN THE ROPE IT BINDS and cuts a step into the outline;
+        // inside the rope they are invisible and the plait is a cone.
         {
           const at = new THREE.Vector3();
-          for (const t of [0.05, 0.37, 0.69, 0.97]) {
+          for (const t of [0.12, 0.42, 0.71, 0.97]) {
             bPath(t, at);
             p.add(ring(bRad(t) + 0.0048, 0.0050, 4, 12), brass,
               xf(at.x, at.y, at.z, Math.PI / 2, 0, 0));
