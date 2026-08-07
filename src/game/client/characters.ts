@@ -158,6 +158,140 @@ export function migrateAppearance(ap: Appearance): Appearance {
   return { ...ap, armorColor, hairColor, beardColor };
 }
 
+/**
+ * WHAT A FINISH ACTUALLY DRESSES, AND WHY THIS TABLE EXISTS.
+ *
+ * `ap.armorColor` used to feed exactly one call — `M.armour(...)` — and the
+ * comment beside the kit colours said so out loud: "Kit colours that no armoury
+ * option controls, and therefore mine." That is the whole of the owner's
+ * complaint, and it is three separate faults wearing one coat:
+ *
+ *   * THE RUNEKEEPER AND THE BERSERKER WEAR NO MAIL. The runekeeper's torso
+ *     layer is `robed ? buff : mail` — leather — and the berserker has no metal
+ *     torso layer at all. Buying a finish moved nothing on half the roster, and
+ *     `docs/COSMETICS-AUDIT.md` priced the slot down to 20–60 gold *because of
+ *     that*, calling it "the most dishonest price in the shop".
+ *   * THE WARDEN IS GREEN BELOW THE BELT WHATEVER HE BUYS. `trouser` was the
+ *     constant `0x504a3e`, a grey-green, on every class in every finish. On the
+ *     warden it is the largest cloth surface he has, because his hem is short
+ *     and the shield covers his chest at every bearing a player fights from.
+ *   * THE TINT LANDED ON TWO SHOULDERS AND A SLIVER OF CHEST. Measured, in the
+ *     audit's own frames.
+ *
+ * THE MODEL, argued rather than assumed. Three were on the table:
+ *
+ *   (a) EXTEND THE FINISH TO THE METAL EACH CLASS DOES CARRY — buckle, boss,
+ *       strap-ends, bezel, helm band. Honest, and cheap, but a berserker's total
+ *       metal is a belt buckle and four studs. It is not 250 gold of change.
+ *   (b) A SEPARATE CLOTH SLOT. The cleanest taxonomy and the worst product move
+ *       available: it doubles the number of things a player must buy before he
+ *       stops looking issued, and every profile in existence would open the shop
+ *       owning nothing in the new slot. Rejected on those grounds, not on effort.
+ *   (c) THE FINISH IS A COORDINATED WAR-GEAR PALETTE. One purchase dresses the
+ *       whole man — metal, wool, leather and fittings together — the way a real
+ *       warrior's kit is dyed and furnished as a set rather than piece by piece.
+ *
+ * (c) is what this is, and it takes (a) with it. The reasons it is right and not
+ * merely bigger:
+ *
+ *   1. IT COSTS NO PROFILE ANYTHING. The stored value is still the same single
+ *      hex it always was, the option ids are unchanged, the slot is unchanged,
+ *      and nothing new must be bought. A player who owns Bronze Scales opens the
+ *      game and finds that Bronze Scales now dyes his trousers walnut and his
+ *      wraps oat. Nobody is stranded because nothing was added to strand them.
+ *   2. IT IS THE PERIOD-CORRECT UNIT. Dyestuffs are the expensive part of Dark
+ *      Age dress — madder, woad, weld — and a man who could afford woad wool did
+ *      not wear it over undyed everything else. A palette is how kit was
+ *      actually assembled.
+ *   3. IT PUTS THE PURCHASE WHERE THE CAMERA IS. Trousers, wraps and boots are
+ *      the bottom third of a fight-distance silhouette and are never covered by
+ *      the shield; the buckle and brooch are the two brightest things at
+ *      portrait range. Both lenses now show the money.
+ *
+ * THE TEAM ACCENT IS DELIBERATELY NOT IN HERE. `wool` — the tunic, the single
+ * largest garment — stays `accents`, which is the team colour. That split is the
+ * point rather than an omission: the tunic says which side he is on and must
+ * stay legible at fifty metres, and everything else on him says who he is. If
+ * the finish dyed the tunic too, a Crimson team and a Crimson finish would be
+ * one red mass and the game would lose a read it needs more than the shop does.
+ *
+ * `fitting` is the fourth column and the one that reaches the berserker: it is
+ * `brass` in the build, and `brass` is the buckle frame, the belt studs, the
+ * baldric boss, the amulet bezel, the shoulder bosses, the cloak brooch and the
+ * arm-cap studs. Every class carries several. It moves from cast bronze towards
+ * white metal, dark iron or gilt with the finish, which is what makes Blackened
+ * Steel read as blackened rather than as a grey shirt with gold buttons on it.
+ */
+export interface FinishKit {
+  /** Mail, plate and the helm's own rings — what `armorColor` always meant. */
+  mail: number;
+  /** Wool trousers. THE WARDEN'S GREEN LOWER HALF, and the reason this exists. */
+  trouser: number;
+  /** Wound leg wraps, ankle to knee. */
+  wrap: number;
+  /** Dark strap leather: belt, baldric hangers, scabbard, pouches. */
+  hide: number;
+  /** Pale harness leather: the berserker's jerkin, the runekeeper's body layer. */
+  buff: number;
+  /** Cast fittings: buckle, studs, boss, bezel, brooch. Reaches every class. */
+  fitting: number;
+}
+
+/**
+ * The seven, keyed by the hex the option already stores so no id, cost or saved
+ * profile has to move. Each row is a dye lot and a metal, chosen together.
+ */
+const FINISH_KIT: Record<number, FinishKit> = {
+  // Rough Iron — what a man is issued. Undyed wool in the fleece's own colours,
+  // oiled harness leather, cast bronze. This row is the old constants, so the
+  // free finish looks exactly as it did and the ladder starts where it started.
+  0x5f6b7a: { mail: 0x5f6b7a, trouser: 0x504a3e, wrap: 0xa2926e, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
+  // Polished Steel — everything on him goes cool and a shade brighter. Slate
+  // wool, bleached wraps, tinned-bronze fittings that match the shirt.
+  0x8a97a5: { mail: 0x8a97a5, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  // Blackened Steel — fire-blued metal, soot-dyed wool, black harness. The
+  // fittings go to dark iron; brass buttons would undo the whole finish.
+  0x2a2f38: { mail: 0x2a2f38, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
+  // Bronze Scales — the warm end. Walnut-dyed trousers, oat wraps, tan harness
+  // and true cast bronze, so the whole man reads as one metal's worth of warmth.
+  0x8a6a3a: { mail: 0x8a6a3a, trouser: 0x5b4527, wrap: 0xc2aa7c, hide: 0x513418, buff: 0x8f6a34, fitting: 0xc79a4a },
+  // Crimson Warplate — madder. The dyestuff that actually made a Dark Age man
+  // look rich, on the trousers and pulled through the leather; wraps stay a
+  // pale rose-grey so the legs still break into two values at fight distance.
+  0x7a2f2a: { mail: 0x7a2f2a, trouser: 0x5d2d29, wrap: 0xbc9c8c, hide: 0x46201a, buff: 0x8a5241, fitting: 0xbfa25c },
+  // Sea Queen's Gift — woad, the other expensive vat, and the only cold blue on
+  // the roster. Fittings go pewter rather than gold for the same reason.
+  0x2f4a6a: { mail: 0x2f4a6a, trouser: 0x333f52, wrap: 0x93a0aa, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
+  // Bretwalda Gold — weld yellow over everything and fire-gilt fittings. The top
+  // of the ladder, and now the only finish where the trousers, the wraps, the
+  // belt and the brooch are all saying the same thing.
+  0x9a7a2a: { mail: 0x9a7a2a, trouser: 0x6b5726, wrap: 0xd2bd7c, hide: 0x4d3a14, buff: 0x9c7c34, fitting: 0xdcc164 },
+};
+
+/**
+ * The kit for a stored finish. Anything not in the table — a retired hex that
+ * `migrateAppearance` did not catch, a value off the wire from an older client —
+ * derives a coherent kit from the hue rather than falling back to the issued one,
+ * so an unknown finish still dresses the man instead of silently un-dressing him.
+ */
+export function finishKit(armorColor: number): FinishKit {
+  const known = FINISH_KIT[armorColor];
+  if (known) return known;
+  const c = new THREE.Color(armorColor);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  const at = (s: number, l: number, hShift = 0) =>
+    new THREE.Color().setHSL((hsl.h + hShift + 1) % 1, Math.min(0.55, s), l).getHex();
+  return {
+    mail: armorColor,
+    trouser: at(hsl.s * 0.75, Math.max(0.13, Math.min(0.3, hsl.l * 0.72))),
+    wrap: at(hsl.s * 0.35, Math.max(0.42, Math.min(0.72, hsl.l * 1.55 + 0.22))),
+    hide: at(hsl.s * 0.55, Math.max(0.09, hsl.l * 0.45), 0.02),
+    buff: at(hsl.s * 0.5, Math.max(0.24, Math.min(0.45, hsl.l * 0.95)), 0.02),
+    fitting: at(hsl.s * 0.4, Math.max(0.5, Math.min(0.74, hsl.l * 1.3 + 0.24))),
+  };
+}
+
 // ---------------- Armoury Catalog ----------------
 export interface ArmouryOption {
   id: string;
@@ -6950,7 +7084,13 @@ export function buildCharacter(
   // pixel wide on a phone. No layer, hem or class silhouette goes with it. ---
   const thrifty = detail === "low";
   const tone = SKIN_TONES[face.tone];
-  const mail = M.armour(ap.armorColor);
+  // THE FINISH NOW DRESSES THE WHOLE MAN. `kit` is the coordinated palette off
+  // `ap.armorColor` — see `FINISH_KIT` for the argument. Every colour below that
+  // used to be a hard-coded constant reads out of it, which is what makes a
+  // finish visible on a berserker who owns no mail and stops the warden being
+  // green below the belt in all seven of them.
+  const kit = finishKit(ap.armorColor);
+  const mail = M.armour(kit.mail);
   // Kit colours that no armoury option controls, and therefore mine. They were
   // authored two passes ago against a brighter grade and they are now the reason a
   // warrior reads as a hole in the frame: 0x2f2a22 trousers and 0x2c1e13 leather
@@ -6970,10 +7110,10 @@ export function buildCharacter(
   // enough, off the chest section the garments are actually swept on.
   const bodyGirth = Math.PI * (1.5 * (S.chestHW + S.chestHD) - Math.sqrt(S.chestHW * S.chestHD)) * 2;
   const wool = cloth(accents, bodyGirth);
-  const trouser = cloth(0x504a3e, 2 * Math.PI * S.legR[0]);
-  const wrapWool = cloth(0xa2926e, 2 * Math.PI * S.legR[2]);
-  const hide = M.hide(0x4a3524);
-  const buff = thrifty ? hide : M.hide(0x7a5b38);
+  const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
+  const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
+  const hide = M.hide(kit.hide);
+  const buff = thrifty ? hide : M.hide(kit.buff);
   // Linen is asked for by girth for the same reason wool is. A flat `repeat: 6`
   // put a ~200 mm tile on the shirt body and a ~75 mm one on the same shirt's
   // sleeve — one garment, two fabrics — and the coarse end is the finest cloth
@@ -7000,7 +7140,14 @@ export function buildCharacter(
   // green and reads as glitter glue. Smooth and untextured, the same fittings
   // read as one poured metal, which is what cast bronze is. The micro-relief
   // that is lost was never resolvable at the size any of these are seen.
-  const brass = M.standard(0xbfa25c, 0.46, 0.78);
+  //
+  // AND THE COLOUR IS THE FINISH'S NOW, not a constant. This is the one material
+  // on the list that every class carries several of — buckle frame, tongue, belt
+  // studs, baldric boss, shoulder bosses, amulet bezel, cloak brooch, arm-cap
+  // studs — so it is the surface that makes a finish visible on a berserker, who
+  // owns no mail at all. Roughness and metalness are unchanged and stay argued
+  // above: only the albedo moves.
+  const brass = M.standard(kit.fitting, 0.46, 0.78);
   // The Sutton Hoo palette. Three substances that exist nowhere else on a
   // warrior, so the most expensive thing in the shop is not a recolour of the
   // second most expensive — and minted only for the helm that wears them, which
