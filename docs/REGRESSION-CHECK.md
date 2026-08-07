@@ -6,8 +6,15 @@ can be settled with evidence rather than opinion. This file settles them.
 Method: build a commit in a worktree, capture the same screen with the same
 tool, look at the frames. Nothing here is asserted from a diff.
 
-**Status: IN PROGRESS — draft committed early so a container rebuild cannot eat
-it. Sections marked TODO are not yet answered.**
+All three are answered. Gate at the live tip when this was written: `npm run
+build` exit 0, `npx tsc --noEmit` exit 0, `npm run lint` 11 problems (bar is
+12). No file in `src/` was touched by this work.
+
+**A note on the frames.** `art/` is in `.gitignore`, so the PNGs cited here are
+not in the repo. Every one of them has the exact command that regenerates it
+beside it, and historical ones were built in `git worktree` checkouts — each
+needs `cp -al ../node_modules node_modules` in the worktree, because Turbopack
+rejects a symlinked `node_modules` that points outside the project root.
 
 ---
 
@@ -51,16 +58,23 @@ standing in a lit ring with a head-and-shoulders crop of our weakest asset.
 
 Frames, oldest to newest, all of the armoury with the default profile:
 
-| Commit | Date | Frame |
-|---|---|---|
-| `f74c669` | 2026-08-01 | `armoury-desktop.png`, `armoury-phone.png` (via `node tools/uishots.mjs`) |
-| `cfb49fc` | 2026-08-05 | `yday-helmets-desktop.png` |
-| `07dd3de` | 2026-08-07 (live) | `live-helmets-desktop.png`, `live-fullkit-desktop.png` |
+| Commit | Date | Frame | Regenerate |
+|---|---|---|---|
+| `6321e56` | 2026-07-30 | `art/shots/portrait.png` | `node tools/shoot.mjs portrait closeup` |
+| `f74c669` | 2026-08-01 | `art/ui/armoury-desktop.png`, `armoury-phone.png` | `node tools/uishots.mjs` |
+| `cfb49fc` | 2026-08-05 | `art/ui/yday-helmets-desktop.png` | `node tools/armourycard.mjs --name yday-helmets` |
+| `07dd3de` | 2026-08-07 (live) | `art/ui/live-helmets-desktop.png`, `live-fullkit-desktop.png` | `node tools/armourycard.mjs --name live-helmets` |
+
+Note the tooling changes under you as you go back: `armourycard.mjs` does not
+exist before 2026-08-05 and `uishots.mjs` does not exist before 2026-08-01, so
+the earliest era has to be shot with `shoot.mjs` against the arena instead.
 
 Nothing in any of them has short individually-modelled curly hair, a plain
-silver circlet, or a naturalistic face with eyelids and lips. The face goes from
-a crude bobble at 08-01 to a crude sculpted mask today. It gets *more* detailed
-over time, never less — so there is no earlier, better head to have lost.
+silver circlet, or a naturalistic face with eyelids and lips. At `6321e56` the
+face is painted-on features on a smooth head — no beard, no sculpted brow, no
+lids. At `f74c669` it is a crude bobble. Today it is a crude sculpted mask. It
+gets *more* detailed over time, never less — so there is no earlier, better head
+to have lost.
 
 That is not just an eyeball verdict; the primitives are not there, and a search
 over **all** commits on **all** branches confirms it:
@@ -244,9 +258,39 @@ he cannot see the tab for and cannot take off.
 
 ---
 
+## What this means for the next wave
+
+Ranked by how much visible change each buys per unit of work.
+
+1. **Open the armoury on the whole man again**, in the ring, front-on — the
+   `f74c669` framing. This is the single largest visible win available and it is
+   a camera change, not an art change. Fix `FULL KIT` to face him while you are
+   there.
+2. **Put the default beard back**, by splitting the shared block at
+   `characters.ts:8659-8660` so `short` keeps its pre-`e101cab` lift and
+   thickness and the paid beards keep the widened margins.
+3. **Give `.tab-strip` an affordance.** Three of eight tabs are unreachable on
+   desktop. Cheapest honest fix is to let it wrap to two rows at desktop widths
+   and keep the scroll only on phone.
+4. **Then** the armour-finish problem the owner named, which is the real content
+   work: `const mail = M.armour(ap.armorColor)` tints mail only, and tunic,
+   trousers and leather are hard-coded — which is why the Runekeeper and
+   Berserker barely change and why the Warden's lower half is permanently green.
+   Note the green is visible as far back as `f74c669`; it is long-standing, not
+   new.
+
+Items 1–3 are all small, all visible, and none of them is new art.
+
 ## Captures
 
 | Path | What it is |
 |---|---|
 | `art/ui/live-helmets-phone.png` | live tip `07dd3de`, armoury Helmets, 390×844 |
 | `art/ui/live-helmets-desktop.png` | live tip `07dd3de`, armoury Helmets, 1440×900 |
+| `art/ui/live-beards-desktop.png` | live tip, BEARDS tab — the heavy default beard |
+| `art/ui/live-cleanshaven-desktop.png` | live tip, Clean Shaven staged — proves the jaw is fine |
+| `art/ui/live-fullkit-desktop.png` | live tip, FULL KIT lens — pointed at his back |
+| `art/ui/yday-helmets-desktop.png` | `cfb49fc`, what was live yesterday |
+| `art/ui/yday-beards-desktop.png` | `cfb49fc`, BEARDS tab — stubble, before the wave |
+| `art/ui/armoury-{desktop,phone}.png` | `f74c669`, the full-body-in-the-ring staging |
+| `art/shots/portrait.png` | `6321e56`, the earliest capturable character |
