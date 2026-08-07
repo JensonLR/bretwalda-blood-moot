@@ -350,15 +350,20 @@ console.log(`[wear] ${gfails.length ? "FAIL" : "PASS"}: ` +
 // falls out of all three: A RATIO WHOSE DENOMINATOR MOVES WITH ITS NUMERATOR
 // MEASURES NOTHING.
 //
-// The floor is 0.14 rather than something rounder, and it is measured. A helmet
-// is entitled to cover most of a head of hair — that is what a helmet is — and
-// the Sutton Hoo, which closes the face completely and hangs a mail bag off the
-// back of the bowl, is the tightest legal case in the shop at 0.16-0.22. The
-// geometry this bar was written against reads 0.03-0.09 on the same rungs.
+// The floor is 0.12 and it is MEASURED rather than chosen. A helmet is entitled
+// to cover most of a head of hair — that is what a helmet is — so the bar has to
+// sit under the tightest LEGAL case in the shop, which is the Sutton Hoo: a
+// formed face, deep guards round to 1.62 rad and an aventail from 1.46 back and
+// down onto the shoulder. It closes the head on every bearing and it reads
+// 0.14-0.15. The eight open rungs read 0.17-0.62. The geometry this bar was
+// written against — the head stack's first landing, `origin/main` at 5c2b33a —
+// reads 0.02-0.09 on every metal rung and 0.02 on the Sutton Hoo, so the bar
+// fails it eighteen times over. That comparison is the only thing that makes a
+// floor honest: a number nothing can fail is not a bar.
 const THRU_BAR = 3.0;
 const FRAC_BAR = 0.008;
 const SHOW_FLOOR = 0.02;
-const KEPT_FLOOR = 0.14;
+const KEPT_FLOOR = 0.12;
 // ONE ALLOWANCE, measured rather than assumed, on the same idiom as
 // `allowance()` above. The Jarl's Crowned nape flange is swept on its own rings
 // and passes about 8 mm INSIDE the skin at the top of the nape, on the huscarl

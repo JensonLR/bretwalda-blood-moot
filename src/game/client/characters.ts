@@ -10646,6 +10646,16 @@ export function buildCharacter(
   };
   const cheekHem = (u: number): number => {
     if (!helmed || style.cheek === "none") return -Infinity;
+    // AND THE MASK RUNG HAS NO HEM TO COME OUT FROM UNDER. On every other rung
+    // the space below a cheek plate is open air. On the Sutton Hoo it is the
+    // aventail: a formed face from the midline to 0.78 rad, deep guards to
+    // 1.62, and mail from 1.46 back and down onto the shoulder — the one
+    // helmet in the shop with no opening anywhere. Hair rooted under its guards
+    // hangs straight into the rings, which `hairFitProbe` reads as 19-46 mm of
+    // hair outside the metal. So nothing is rooted there, and what the shop
+    // loses by it is written down in `docs/OPEN-DEFECTS.md` rather than bought
+    // with geometry that stands through a man's own mail.
+    if (style.mask) return -Infinity;
     const a = awayFromFace(u);
     return a < cheekIn || a > cheekOut ? -Infinity : cheekHemAt(a);
   };
@@ -10855,6 +10865,15 @@ export function buildCharacter(
    */
   const hairFall = (u: number): number => {
     if (hooded) return 0;
+    // AND A MASK WITH AN AVENTAIL IS A BAG TOO. The Sutton Hoo is the one rung
+    // that closes the head on every bearing — a formed face to 0.78 rad, deep
+    // guards to 1.62, mail from 1.46 back and down onto the shoulder — so there
+    // is no rim for a fall to come out from under and no opening for it to hang
+    // through. Every attempt to put one there put 19-107 mm of hair outside the
+    // man's own mail, which `hairFitProbe` reads and refuses. This is the same
+    // ruling the hood gets and for the same reason; what it costs the shop is
+    // written down rather than bought with geometry that stands through metal.
+    if (style.mask) return 0;
     // ON THE FAR SIDE OF THE RIM, NOT THE NEAR SIDE. The ramp is still 0.34 rad
     // wide and it still dies inside the mail — that is what stops a free patch
     // boundary standing on the rings — but it used to run from 0.34 rad IN
@@ -11583,7 +11602,7 @@ export function buildCharacter(
           // neck.
           // Forward of the mask's own guards where the head is closed: a plait
           // taken from behind the ear on the Sutton Hoo has nowhere to hang.
-          const rootU = s2 * (style.cheek === "deep" ? cheekIn + 0.06 : 1.28);
+          const rootU = s2 * (style.cheek === "deep" && !style.mask ? cheekIn + 0.06 : 1.34);
           // A HOOD AND AN AVENTAIL ARE BAGS THE HEAD GOES INTO, AND A PLAIT
           // CANNOT BE WORN OUTSIDE ONE. You cannot put a coif on over a
           // war-lock; the hair is inside it. At the old 0.35 threshold the
@@ -11597,7 +11616,7 @@ export function buildCharacter(
           // is whether this azimuth is in front of the rings, so that is what
           // is asked. A war-lock hanging out of the face opening of a mail coif
           // is the right picture and this is the line that says so.
-          if (hooded) continue;
+          if (hooded || style.mask) continue;
           if (coifed && awayFromFace(rootU) > coifRim(0) - 0.10) continue;
           // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN — SO THE PLAIT IS
           // TAKEN FROM UNDER THE GUARD, NOT DELETED BY IT.
