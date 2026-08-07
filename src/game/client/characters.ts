@@ -2352,8 +2352,8 @@ const C_OCC: Curve = [
   [0.560, -104],
   [0.420, -112],
   [0.280, -117],
-  [0.120, -119],
-  [0.020, -119],
+  [0.120, -121],
+  [0.020, -121],
   [-0.116, -117],
   [-0.250, -113],
   [-0.380, -108],
@@ -2366,6 +2366,44 @@ const C_OCC: Curve = [
   [-0.880, -29],
   [-0.940, -15],
   [-1.000, 0],
+];
+
+/**
+ * WHERE EACH LATITUDE SITS, as a fraction of head height below the crown.
+ *
+ * The last thing on this head that was still a formula rather than a table, and
+ * the frame is what found it: the old map put the base of the nose at 0.598 of
+ * head height and the mouth at 0.719, against a Farkas adult male's 0.69 and
+ * 0.78 rescaled to this head. Twenty-three millimetres of nose and sixteen of
+ * mouth, both too high — which does not read as "the features are high", it
+ * reads as A LONG CHIN, because everything the eye has left to measure is the
+ * gap underneath them. `art/shots/v3/cards/headturn-front_0_.png` is 79 mm from
+ * the lip to the menton where life is 58.
+ *
+ * It is a table now, so the layout can be read rather than solved, and the
+ * correction is taken as far as `midThird` and `lowerThird` will carry it: the
+ * subnasale to 0.632 and the stomion to 0.758. Their tolerances are what stops
+ * it going the rest of the way, and they are the next thing to argue with — the
+ * arithmetic above is Farkas, and neither target agrees with it.
+ *
+ * Total head height is unchanged (`2 * R.y * F.tall + MANDIBLE`), so `headCount`,
+ * every helm cut, every `lat()` and the whole neck solve are untouched.
+ */
+const C_H: Curve = [
+  [1.000, 0],
+  [0.700, 0.134],
+  [0.420, 0.259],
+  [0.219, 0.350], //  BROW — the helm datum, and the top of the forehead's rake
+  [0.050, 0.428],
+  [-0.116, 0.500], // EYE LINE — half way down the head, where a man's is
+  [-0.231, 0.578], // PRONASALE
+  [-0.323, 0.632], // SUBNASALE
+  [-0.430, 0.696],
+  [-0.536, 0.758], // STOMION
+  [-0.660, 0.826],
+  [-0.796, 0.893], // POGONION
+  [-0.900, 0.944],
+  [-1.000, 1.000], // MENTON
 ];
 
 /** Where the widest point of each section sits in z. A skull's broadest line
@@ -2465,27 +2503,26 @@ const REL_B = [0, 0.10, 0.20, 0.32, 0.46, 0.62, 0.80, 1.00, 1.22, 1.45, 1.5708];
 const RELIEF: ReadonlyArray<readonly number[]> = [
   //   y        0    0.10   0.20   0.32   0.46   0.62   0.80   1.00   1.22  1.45  pi/2
   [0.560, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0.420, 0, 0, 0.4, 0.8, 0.8, 0.2, -0.5, -0.8, -0.5, -0.2, 0],
-  [0.320, 0.5, 0.9, 1.8, 2.4, 2.0, 0.4, -1.2, -2.0, -1.4, -0.4, 0],
-  [0.260, 2.2, 2.8, 4.2, 4.8, 3.6, 0.8, -1.6, -2.6, -1.8, -0.5, 0],
-  [0.219, 5.0, 5.4, 6.2, 6.0, 4.2, 1.2, -1.8, -3.0, -2.0, -0.6, 0], //  BROW CREST
-  [0.175, 1.5, 2.4, 5.0, 5.6, 3.8, 0.8, -2.0, -3.2, -2.2, -0.6, 0], //  under the ridge
-  [0.144, -3.8, -2.4, 3.0, 4.6, 3.2, 0.4, -2.2, -3.4, -2.3, -0.7, 0], // NASION notch
-  [0.100, -2.8, -1.2, 2.6, 4.0, 2.6, 0.0, -2.2, -3.4, -2.3, -0.7, 0],
-  [0.050, -1.0, 0.6, 2.2, 3.0, 1.6, -0.6, -2.0, -3.2, -2.2, -0.6, 0], // the shelf the brow hair lies on
-  [0.000, 2.0, 1.6, -0.8, -3.4, -3.0, -1.8, -1.6, -2.6, -1.8, -0.5, 0], // orbital rim
-  [-0.060, 6.0, 4.0, -3.6, -8.5, -6.6, -1.8, -1.0, -2.0, -1.4, -0.4, 0], // THE SOCKET
-  [-0.116, 11.5, 8.5, -2.4, -8.5, -6.4, -1.0, -0.6, -1.6, -1.0, -0.3, 0], // EYE LINE
-  [-0.180, 18.5, 16.2, 4.8, -4.0, -1.0, 5.0, 4.5, -0.4, 0, 0, 0], //   the zygomatic
+  [0.420, 0, 0, 0.3, 0.6, 0.6, 0.2, -0.4, -0.7, -0.4, -0.2, 0],
+  [0.320, 0.4, 0.6, 1.2, 1.6, 1.4, 0.3, -1.0, -1.8, -1.2, -0.4, 0],
+  [0.219, 1.2, 1.6, 2.8, 3.2, 2.4, 0.6, -1.4, -2.4, -1.6, -0.5, 0],
+  [0.155, 3.8, 4.2, 5.6, 5.8, 4.0, 1.0, -1.8, -3.0, -2.0, -0.6, 0], //  BROW CREST
+  [0.110, 2.0, 3.0, 5.2, 5.6, 3.8, 0.8, -2.0, -3.2, -2.2, -0.6, 0], //  under the ridge
+  [0.070, -2.8, -1.2, 3.6, 4.8, 3.2, 0.4, -2.2, -3.4, -2.3, -0.7, 0], // NASION notch
+  [0.020, -2.4, -0.8, 2.6, 3.6, 2.2, 0.0, -2.2, -3.4, -2.3, -0.7, 0],
+  [-0.030, -0.2, 1.2, 0.4, 0.0, -0.2, -1.0, -2.0, -3.2, -2.2, -0.6, 0], // orbital rim
+  [-0.075, 3.0, 2.4, -3.2, -7.0, -5.4, -1.6, -1.4, -2.4, -1.6, -0.5, 0],
+  [-0.116, 8.0, 6.0, -3.2, -8.5, -6.6, -1.4, -0.8, -1.8, -1.2, -0.4, 0], // EYE LINE + SOCKET
+  [-0.180, 16.0, 14.0, 3.0, -4.5, -1.2, 5.0, 4.5, -0.4, 0, 0, 0], //   the zygomatic
   [-0.231, 27.5, 25.2, 10.5, -1.0, 0.8, 6.5, 5.2, 0.0, 0, 0, 0], //    PRONASALE
   [-0.270, 23.5, 21.2, 10.0, -1.0, 0.8, 5.8, 4.6, 0.0, 0, 0, 0], //    columella
   [-0.300, 12.5, 10.5, 8.0, -2.5, 0.6, 4.8, 3.8, 0.0, 0, 0, 0], //     the alar crease
   [-0.323, 2.5, 3.6, 5.0, -1.6, 0.6, 4.0, 3.0, 0.0, 0, 0, 0], //       SUBNASALE
-  [-0.400, 1.2, 1.8, 2.4, 0.0, -1.6, 0.0, 0.6, 0.0, 0, 0, 0], //       philtrum, and the buccal begins
-  [-0.470, 6.0, 5.6, 4.0, -1.4, -2.4, -1.0, -1.4, 0.0, 0, 0, 0], //    upper vermilion
-  [-0.536, 3.5, 3.5, 2.8, -1.2, -2.4, -1.0, -1.6, 0.0, 0, 0, 0], //    STOMION
-  [-0.600, 7.2, 6.9, 4.6, -0.8, -2.2, -1.0, -1.4, 0.0, 0, 0, 0], //    lower vermilion
-  [-0.660, -1.5, -1.4, -1.8, -2.6, -2.4, -1.2, -0.4, 0.0, 0, 0, 0], // mentolabial sulcus
+  [-0.400, 1.2, 1.8, 2.4, 0.0, -1.6, 0.0, 0.6, 0.0, 0, 0, 0], //       philtrum, buccal begins
+  [-0.470, 5.4, 5.0, 3.6, -1.4, -2.4, -1.0, -1.4, 0.0, 0, 0, 0], //    upper vermilion
+  [-0.536, 3.0, 3.0, 2.4, -1.2, -2.4, -1.0, -1.6, 0.0, 0, 0, 0], //    STOMION
+  [-0.600, 6.4, 6.1, 4.2, -0.8, -2.2, -1.0, -1.4, 0.0, 0, 0, 0], //    lower vermilion
+  [-0.660, -1.8, -1.7, -2.0, -2.6, -2.4, -1.2, -0.4, 0.0, 0, 0, 0], // mentolabial sulcus
   [-0.720, 3.0, 3.0, 2.4, 0.2, -1.6, -0.8, 0, 0, 0, 0, 0],
   [-0.796, 3.0, 3.0, 2.6, 0.6, -1.4, -0.6, 0, 0, 0, 0, 0], //          POGONION
   [-0.870, 1.6, 1.6, 1.2, 0.0, -0.8, 0.0, 0, 0, 0, 0, 0],
@@ -2496,6 +2533,7 @@ const RELIEF: ReadonlyArray<readonly number[]> = [
 const REL_COL: Spl[] = REL_B.map((_, k) =>
   spl(RELIEF.map((r) => [r[0], r[k + 1]] as const)));
 
+const S_H = spl(C_H);
 const S_W = spl(C_W);
 const S_MASK = spl(C_MASK);
 const S_OCC = spl(C_OCC);
@@ -2626,7 +2664,8 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
   // The mandible hangs off the braincase, which is what turns a sphere into a
   // head. Unchanged from the field this replaces, because every landmark
   // constant, every helm cut and the whole `lat()` family are solved against it.
-  const py = y * R.y * F.tall - MANDIBLE * Math.pow(clamp01((-y - 0.22) / 0.78), 1.3);
+  const top = R.y * F.tall;
+  const py = top - ev(S_H, y) * (2 * top + MANDIBLE);
 
   const hw = Math.max(1e-5, ev(S_W, y) * MM * sc * F.wide * widthGain(F, y));
   const zc = ev(S_ZC, y) * MM * sc;
@@ -4830,11 +4869,12 @@ function faceComplexion(
   // is written in those two numbers, which means it can be read straight against
   // the relief table.
   const sc = R.x / RX0;
+  const top0 = R.y * F.tall;
   const fieldY = (yy: number): number => {
     let lo = -1, hi = 1;
     for (let i = 0; i < 24; i++) {
       const m = (lo + hi) * 0.5;
-      const v = m * R.y * F.tall - MANDIBLE * Math.pow(clamp01((-m - 0.22) / 0.78), 1.3);
+      const v = top0 - ev(S_H, m) * (2 * top0 + MANDIBLE);
       if (v < yy) lo = m; else hi = m;
     }
     return (lo + hi) * 0.5;
@@ -8692,14 +8732,18 @@ export function buildCharacter(
     // moves with `F.nose`, `F.nostril` and `F.deep`, and a nostril that misses
     // its own nose by 4 mm is worse than none.
     if (lod.trim) {
-      const sub = faceSurface(K, dirOf(0, lat(Y_NOSE - 0.020), _d), new THREE.Vector3());
+      // `Y_NOSE - 0.020` was under the SUBNASALE, which on this head is the top
+      // of the upper lip — 12 mm behind and 6 below the nose's own underside, so
+      // both openings were inside the skull and the frame showed a nose with no
+      // nostrils in it. The lobule's underside is the row at `Y_NOSE + 0.030`.
+      const sub = faceSurface(K, dirOf(0, lat(Y_NOSE + 0.030), _d), new THREE.Vector3());
       for (const s of [-1, 1]) {
         // Ten segments, not six: at six a scaled sphere this small is a faceted
         // lozenge and renders as a dark rectangle, which on the underside of a
         // nose reads as a slot cut in it. Sunk far enough back that only the
         // opening clears the alar wall.
         p.add(ball(0.0062, 10), dark, xf(
-          s * 0.0094 + K.F.asym, skullY + sub.y + 0.0018, sub.z - 0.0090,
+          s * 0.0098 + K.F.asym, skullY + sub.y - 0.0012, sub.z - 0.0062,
           0.52, s * 0.26, 0, 0.74, 0.42, 1.2,
         ));
       }
@@ -8715,8 +8759,8 @@ export function buildCharacter(
     // and with the ridge itself 34 mm above head centre the pair of them read as
     // one wide band across the middle of the forehead.
     for (const s of [-1, 1]) {
-      const inner = lat(Y_EYE + 0.20);
-      const outer = lat(Y_EYE + 0.135);
+      const inner = lat(Y_EYE + 0.245);
+      const outer = lat(Y_EYE + 0.175);
       // Thinned to nothing at the outer end as well as arched. A brow of constant
       // height is a bar; a brow that tapers off toward the temple is a brow, and it
       // is the taper rather than the arch that stops it reading as drawn on.
