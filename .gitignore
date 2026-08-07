@@ -57,3 +57,4 @@ art/ui/
 # CPU look sheets (tools/facelook.mjs) and its transpile cache
 /.facelook
 art/look/
+art/fit/
