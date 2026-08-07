@@ -10730,14 +10730,15 @@ export function buildCharacter(
         // through the middle of it.
         const deep = style.nape === "guard";
         const cut = S.neckRoot - S.neckTop;
-        // 0.95 head-radii, not 1.05. The last centimetre of the deep guard's fall
-        // is below the skull's own pole, where the thing under the plate stops
-        // being a skull and starts being a neck — and the plate has to turn
-        // through that corner in the few millimetres it has left. `wearmeasure`
-        // measured 35 deg of flare in that turn. Stopping the fall while it is
-        // still beside the neck rather than under the skull costs 7 mm of a
-        // 115 mm plate and takes the corner out of it.
-        const floorY = Math.max(cut + 0.025, skullY - R.y * (deep ? 1.05 : 0.45));
+        // 1.12 head-radii, not 1.05, and the extra 5 mm is a fit fix rather than a
+        // style one. The plate has to turn through the corner where the skull's
+        // base becomes a neck, and the turn costs it a few degrees whatever it
+        // does; what decides whether that reads is how much STRAIGHT plate there
+        // is beside the neck under it. Ending at 1.05 put the corner in the last
+        // third of the fall with nothing after it, and `wearmeasure` measured
+        // 22 deg of flare against a 22 deg bar. Carrying it 5 mm further down
+        // gives the corner something to land on and measures 18.6.
+        const floorY = Math.max(cut + 0.025, skullY - R.y * (deep ? 1.12 : 0.45));
         // THE HULL, AND THIS IS THE OWNER'S DEFECT.
         //
         // "There's a lot of raised floating aspects" — pale curved flanges
@@ -10812,7 +10813,7 @@ export function buildCharacter(
         // so a kink in what it follows is a spike in what it measures. 12 mm of
         // rounding is a fillet, not a fudge: it is what a plate beaten over that
         // corner would do.
-        const sm = (a: number, b: number, k = 0.010) =>
+        const sm = (a: number, b: number, k = 0.004) =>
           0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k)) - k * 0.5;
         const hullAt = (y: number) => {
           let hw = sm(readP(sideP, y), S.neckHW);
@@ -10832,8 +10833,13 @@ export function buildCharacter(
         // shadow line the fall is read by. The backward shift is a tenth of what
         // it was — at 40 mm the `z` term alone put the rim behind the neck with
         // nothing under it.
-        const clearAt = (v: number) => 0.012 + 0.004 * smooth(0, 1, v);
-        const zAt = (v: number) => -0.003 - 0.003 * smooth(0, 1, v);
+        // Nearly flat. Every millimetre the clearance opens on the way down is a
+        // millimetre of flare on top of whatever the hull is doing under it, and
+        // the hull already has a corner in it where the skull's base becomes a
+        // neck. 13 mm holding to 15 at the rim is a liner and two millimetres of
+        // overhang, which is all the rim needs to catch a light.
+        const clearAt = (v: number) => 0.013 + 0.002 * smooth(0, 1, v);
+        const zAt = (v: number) => -0.003 - 0.002 * smooth(0, 1, v);
         // AND THE ARC IS A FUNCTION OF THE DESCENT, which is the other half of
         // the wing. At a constant 1.74 rad the deep guard's front edge crossed the
         // TOP ring — the highest, tightest one — 80° off dead ahead, which is in
@@ -11972,7 +11978,12 @@ export function buildCharacter(
           v0: (u) => bandLo - 0.30 * mix(1, 0.17, Math.pow(smooth(0.22, 1, fu(u)), 1.35)),
           v1: () => bandLo + 0.01,
           nu: Math.max(8, lod.shellU - 2), nv: 3,
-          lift: (_u, v) => 0.018 + 0.003 * (1 - v), thick: 0.007,
+          // Flat, at a liner's thickness. The 3 mm of rim overhang this used to
+          // carry bought a shadow line the brow band already draws, and on a lip
+          // whose outline tapers to nothing at both ends 3 mm of rise across a
+          // short column is 21 deg of measured flare — most of a bar, spent on
+          // something nobody can see.
+          lift: () => 0.019, thick: 0.007,
         }), capMetal, place.clone());
       }
       if (bare && !ownCrest) {
