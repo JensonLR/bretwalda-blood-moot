@@ -21,11 +21,13 @@
 // ============================================================
 import { chromium } from "playwright";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** The fixed die, handed to the server process with `--import`. See seeddie.mjs. */
+const SEED_DIE = pathToFileURL(resolve(ROOT, "tools/seeddie.mjs")).href;
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
 const HEADED = process.argv.includes("--headed");
 
@@ -108,6 +110,25 @@ const PROBE = () => {
   // "with nothing else changed" is the whole of the claim it makes.
   w.__freeze = false;
 
+  // THE FRAME CLOCK. The lock is a controller that runs once per animation
+  // frame; the wire delivers snapshots at 20 Hz regardless. On a box with no
+  // GPU those two rates come apart badly — a post chain that blocks the main
+  // thread for half a second lets four snapshots land against a camera that
+  // has not been allowed to move since the first of them. Reading a facing
+  // error across that gap grades the rasteriser, not the lock.
+  //
+  // This does not wrap requestAnimationFrame — it only rides it, so nothing in
+  // the app can be delayed or reordered by the measurement. Every snapshot row
+  // then carries how many frames the client had drawn by the time it arrived,
+  // which is what makes "the camera had a chance to act on this" answerable.
+  w.__frames = { n: 0, at: performance.now() };
+  const tickFrameClock = () => {
+    w.__frames.n++;
+    w.__frames.at = performance.now();
+    requestAnimationFrame(tickFrameClock);
+  };
+  requestAnimationFrame(tickFrameClock);
+
   const RealWS = window.WebSocket;
   function TappedWS(url, protocols) {
     const ws = protocols === undefined ? new RealWS(url) : new RealWS(url, protocols);
@@ -158,15 +179,26 @@ const PROBE = () => {
             if (p.id === mine.id) continue;
             foes[p.id] = { x: p.position.x, z: p.position.z, dead: p.state === "dead" };
           }
-          if (w.__probe.frames.length > 900) w.__probe.frames.shift();
+          // Long enough to cover the whole of the facing sample below, which
+          // now waits for its readings instead of taking a fixed 2.6 s of them.
+          if (w.__probe.frames.length > 2400) w.__probe.frames.shift();
           w.__probe.frames.push({
             t: performance.now(),
+            // The frame clock at the instant this snapshot landed. `fn` is the
+            // client's frame count, `fdt` how long the camera had already been
+            // standing still when the packet arrived.
+            fn: w.__frames.n, fdt: performance.now() - w.__frames.at,
             rot: mine.rotation, state: mine.state,
             x: mine.position.x, z: mine.position.z,
             // Which man the client believes it is holding. The only thing in
             // here that is not off the wire — the wire does not carry it —
             // and nothing is asserted from it that the facing does not confirm.
             lock: (w.__bretwaldaLock && w.__bretwaldaLock.target) || null,
+            // How far in the lock's blend is. It eases in over LOCK_BLEND_IN
+            // and scales every correction while it does, so a reading taken
+            // under a half-raised blend grades an assist that is still
+            // arriving. Recorded rather than inferred from a stopwatch.
+            bl: (w.__bretwaldaLock && w.__bretwaldaLock.blend) || 0,
             foes,
           });
         } catch { /* ignore */ }
@@ -177,6 +209,143 @@ const PROBE = () => {
   TappedWS.prototype = RealWS.prototype;
   Object.assign(TappedWS, RealWS);
   w.WebSocket = TappedWS;
+
+  /**
+   * THE LOCK READER — the facing assertion's whole instrument, and the one
+   * thing in this harness that had to stop being a stopwatch.
+   *
+   * WHAT WAS WRONG. The old read took the SERVER's copy of the warrior's
+   * rotation off each snapshot and compared it with where the locked man was
+   * standing on that same snapshot, every snapshot, for a fixed 2.6 seconds.
+   * Three separate things then shared one number:
+   *
+   *   1. how well the lock aims — the only thing the assertion is about;
+   *   2. how late the wire is. `sampleInput` runs the lock on a 16 ms timer
+   *      and the wire carries snapshots at 20 Hz, so the rotation in a
+   *      snapshot is the yaw the lock asked for one tick ago. Measured on this
+   *      box, during an acquisition that is worth 15-20° of pure lag, and the
+   *      server's copy visibly moves in three-sample stairs while the lock
+   *      underneath it is running smooth;
+   *   3. how long the main thread was blocked. This box rasterises in software
+   *      and renders the fight at barely one frame a second; twice in two runs
+   *      it stopped servicing timers for over two seconds. The lock cannot run
+   *      while that is happening, snapshots keep arriving throughout, and every
+   *      one of them was scored. That is where 33.8° and 124° came from.
+   *
+   * Only (1) is the behaviour under test. (2) and (3) are the box, and a run
+   * passed or failed on whether the box misbehaved inside one fixed window —
+   * sampling, not behaviour, exactly as the flake looked.
+   *
+   * WHAT IS MEASURED NOW. One reading per LOCK UPDATE, off the lock's own
+   * output. Every call to `sampleInput` publishes its yaw as an input message
+   * (CONTINUOUS_GAP_MS.ws is 12 ms against a 16 ms timer, so no update is
+   * thinned away), which makes `__probe.sent` a one-for-one record of the
+   * controller's own steps. Each is paired with the freshest snapshot the
+   * controller actually had when it published — so there is no round trip
+   * inside the measurement and nothing to be late.
+   *
+   * A reading counts only where the lock was in a position to be graded:
+   *
+   *   * it has held THIS man for 500 ms, and its blend is all the way in. The
+   *     spring's time constant is 1/LOCK_STIFFNESS, 83 ms; half a second is
+   *     six of them, which is convergence rather than a guess. Blend is read
+   *     off the lock rather than timed.
+   *   * the controller has not been starved for 500 ms — no gap between two of
+   *     its updates longer than the 0.1 s its own dt is clamped to. A step
+   *     taken after a two-second block is one the lock was denied the time to
+   *     make; on a phone at 60 Hz this excludes nothing at all.
+   *   * the man is not staggered, committed or dead, where the turn cap and
+   *     not the lock decides his facing. That was already true and stays.
+   *
+   * The bar itself is untouched at 0.5 rad, and the sample is DENSER than
+   * before, not thinner: the assertion used to want eight readings and now
+   * wants twenty-four, and the caller waits for them instead of hoping a fixed
+   * window contained them.
+   *
+   * `adopt` keeps the second fact in its own channel: the server's rotation
+   * against the yaw the lock asked for a beat earlier. If the lock aimed true
+   * and the fight never got it, that is a real failure and it now has
+   * somewhere to show up instead of hiding inside the facing error.
+   */
+  const LOCK_DT_CLAMP = 100;   // src/game/client/GameCanvas.tsx: dt = min(elapsed, 0.1)
+  const SETTLE = 500;          // six time constants of the lock's own spring
+  w.__lockRead = (t, want) => {
+    const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+    const rows = w.__probe.frames;
+    // Each entry is one publication of the lock's yaw: {t, d.rotationY}.
+    const ups = w.__probe.sent.filter((s) => s.t >= t).map((s) => ({ t: s.t, y: s.d.rotationY }));
+    let i = 0, awake = -1e9, held = -1e9, prevLock = null, starved = 0, longest = 0;
+    // Everything is measured over ONE UNBROKEN SPAN of gradeable updates, and
+    // that is deliberate. The first cut of this read accumulated the man's
+    // displacement across a whole attempt while accumulating the camera's turn
+    // only between adjacent readings, so the two numbers described different
+    // stretches of fight and the turn was quietly the smaller of them — the
+    // same mistake, on a smaller scale, as grading a stalled thread. A span
+    // ends the moment the lock is no longer in a position to be graded, and
+    // every fact reported below comes from the same one.
+    const spans = [];
+    let cur = null;
+    const close = () => { if (cur && cur.n >= 2) spans.push(cur); cur = null; };
+    for (let k = 0; k < ups.length; k++) {
+      const s = ups[k];
+      const gap = k ? s.t - ups[k - 1].t : Infinity;
+      if (gap > LOCK_DT_CLAMP) { awake = s.t; if (k) { starved++; longest = Math.max(longest, gap); } }
+      // The freshest snapshot the controller had when it published this yaw.
+      while (i + 1 < rows.length && rows[i + 1].t <= s.t) i++;
+      const r = rows[i];
+      if (!r || r.t > s.t) { close(); continue; }
+      if (r.lock !== prevLock) { prevLock = r.lock; held = s.t; close(); }
+      const foe = r.lock && r.foes[r.lock];
+      if (!foe || foe.dead
+        || r.state === "staggered" || r.state === "attacking" || r.state === "shoving" || r.state === "dead"
+        || s.t - held < SETTLE || s.t - awake < SETTLE || !(r.bl >= 0.98)) { close(); continue; }
+      const bear = Math.atan2(foe.x - r.x, foe.z - r.z);
+      if (!cur) cur = { n: 0, t0: s.t, t1: s.t, worst: 0, yawTravel: 0, demand: 0, adopt: 0, moved: 0, id: r.lock, py: null, pb: null, f0: { ...foe } };
+      if (cur.py !== null) {
+        cur.yawTravel += Math.abs(wrap(s.y - cur.py));
+        // What the man's own motion asked the camera to do. The camera's turn
+        // is only evidence that the LOCK did the work if it is set against
+        // this: "turned 0.15 rad" is a number that means one thing over half a
+        // second and another over three, and it was being read over whichever
+        // stretch the box happened to hand over.
+        cur.demand += Math.abs(wrap(bear - cur.pb));
+      }
+      cur.py = s.y; cur.pb = bear; cur.n++; cur.t1 = s.t;
+      cur.worst = Math.max(cur.worst, Math.abs(wrap(bear - s.y)));
+      cur.moved = Math.max(cur.moved, Math.hypot(foe.x - cur.f0.x, foe.z - cur.f0.z));
+      // DID THE FIGHT TAKE THE YAW THE LOCK ASKED FOR? Its own channel, so a
+      // lock that aimed true into a wire that dropped it cannot hide inside
+      // the facing error.
+      //
+      // The comparison is against the CLOSEST recent ask, not against the ask
+      // at some fixed age. Those are not the same measurement: the server's
+      // copy is one tick behind whatever the client last said, so pinning the
+      // comparison to a fixed lag multiplies that lag by the rate the yaw
+      // happens to be sweeping at — 110°/s past a man at arm's length turns
+      // 150 ms of ordinary transport into 20° of "disagreement" and makes the
+      // number a reading of how fast the fight was rather than of whether the
+      // server listened. Matching ANY ask inside a quarter of a second says
+      // exactly the intended thing — this rotation IS one the client asked
+      // for — and says it the same way at every speed. A server that ignored
+      // the client would match none of them.
+      let near = Math.PI;
+      for (let j = k; j >= 0 && ups[j].t >= r.t - 250; j--) {
+        // Only asks the server could already have had. An ask published after
+        // this snapshot left the server cannot be what is in it.
+        if (ups[j].t <= r.t) near = Math.min(near, Math.abs(wrap(r.rot - ups[j].y)));
+      }
+      if (near < Math.PI) cur.adopt = Math.max(cur.adopt, near);
+    }
+    close();
+    const good = (v) => v.n >= want && v.moved > 0.8 && v.demand > 0.15;
+    const best = spans.find(good) || spans.sort((x, y) => y.n - x.n)[0] || null;
+    return {
+      n: best ? best.n : 0, worst: best ? best.worst : 0, yawTravel: best ? best.yawTravel : 0,
+      demand: best ? best.demand : 0, moved: best ? best.moved : 0, adopt: best ? best.adopt : 0,
+      id: best ? best.id : null, secs: best ? (best.t1 - best.t0) / 1000 : 0,
+      updates: ups.length, spans: spans.length, starved, longest,
+    };
+  };
 };
 
 const results = [];
@@ -478,50 +647,63 @@ async function lockAct(browser, url, check) {
   // ===================================================================
   {
     let read = null;
-    // Held open until the locked man has actually gone somewhere. A lock that
-    // "held facing" on a man stood still has proved nothing, and a bot that has
-    // not closed yet is stood still.
-    for (let i = 0; i < 8; i++) {
+    /**
+     * WANTED is the sample the assertion needs, and the loop below now WAITS
+     * for it rather than timing a window and hoping. Seventy-two consecutive
+     * lock updates is about one and a quarter seconds of unbroken controller
+     * time — against the eight readings the old assertion asked for, which it
+     * took from whatever a fixed 2.6 s window happened to contain and which on
+     * a stalled box was eight copies of three stale ones. Raising the sampler
+     * to meet the bar is the only honest direction to move a flaky assertion
+     * in; the facing bar itself is untouched at 0.5 rad.
+     *
+     * Held open, as before, until the locked man has actually gone somewhere.
+     * A lock that "held facing" on a man stood still has proved nothing.
+     */
+    const WANTED = 72;
+    // ONE mark for the whole act. `__lockRead` walks every gradeable span since
+    // it and returns the first that qualifies, so a later attempt keeps
+    // everything the earlier ones saw instead of throwing it away and starting
+    // the clock again. Attempts exist only to sit out a death and try again,
+    // which is why there are fewer of them now and the act is no slower for
+    // asking nine times the sample it used to.
+    const mark = await now();
+    for (let i = 0; i < 6; i++) {
       await waitForAlive().catch(() => {});
-      const mark = await now();
-      // Long enough that even a box whose main thread is being fought over for
-      // most of a second still delivers the eight snapshots this needs.
-      await wait(2600);
-      read = await page.evaluate((t) => {
-        const wrap = (d) => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-        // The first half-second is the ease-in, and a lock is allowed to be
-        // wrong while it is arriving. Rows within 350 ms of the lock changing
-        // man are dropped for the same reason.
-        const rows = window.__probe.frames.filter((f) => f.t >= t + 500);
-        let worst = 0, n = 0, yawTravel = 0, prevRot = null, prevLock = null, changedAt = -1e9;
-        let firstFoe = null, lastFoe = null, id = null;
-        for (const f of rows) {
-          if (f.lock !== prevLock) { changedAt = f.t; prevLock = f.lock; }
-          const foe = f.lock && f.foes[f.lock];
-          if (prevRot !== null) yawTravel += Math.abs(wrap(f.rot - prevRot));
-          prevRot = f.rot;
-          if (!foe || foe.dead) continue;
-          // A staggered or committed man is not free to turn; the cap, not the
-          // lock, is what decides his facing there, and it has its own test.
-          if (f.state === "staggered" || f.state === "attacking" || f.state === "shoving" || f.state === "dead") continue;
-          if (f.t - changedAt < 500) continue;
-          const off = Math.abs(wrap(Math.atan2(foe.x - f.x, foe.z - f.z) - f.rot));
-          worst = Math.max(worst, off);
-          n++;
-          id = f.lock;
-          if (!firstFoe) firstFoe = { ...foe };
-          lastFoe = { ...foe };
-        }
-        const moved = firstFoe && lastFoe ? Math.hypot(lastFoe.x - firstFoe.x, lastFoe.z - firstFoe.z) : 0;
-        return { worst, n, yawTravel, moved, id };
-      }, mark);
-      if (read.n >= 8 && read.moved > 0.8) break;
+      // Wait for the readings, with a ceiling — never a fixed sleep. On a phone
+      // this returns in under a second; on this box it takes as long as the box
+      // needs, and if the fight will not supply a moving locked man inside
+      // fifteen seconds the warrior is probably down, so the attempt goes back
+      // to waiting for him to be on his feet and the sample carries on.
+      await page.waitForFunction(
+        ([t, want]) => {
+          const r = window.__lockRead(t, want);
+          return r.n >= want && r.moved > 0.8 && r.demand > 0.15;
+        },
+        [mark, WANTED], { timeout: 15000, polling: 250 },
+      ).catch(() => {});
+      read = await page.evaluate(([t, want]) => window.__lockRead(t, want), [mark, WANTED]);
+      if (process.env.TOUCH_DIAG) {
+        const raw = await page.evaluate((t) => ({
+          frames: window.__probe.frames.filter((f) => f.t >= t),
+          sent: window.__probe.sent.filter((s) => s.t >= t).map((s) => ({ t: s.t, y: s.d.rotationY })),
+        }), mark);
+        writeFileSync(resolve(process.env.TOUCH_DIAG, `lockA-${Date.now()}-${i}.json`), JSON.stringify(raw));
+      }
+      if (read.n >= WANTED && read.moved > 0.8 && read.demand > 0.15) break;
     }
     check("the lock holds facing on a moving target with no thumb on the button side",
-      read && read.n >= 8 && read.moved > 0.8 && read.worst < 0.5 && read.yawTravel > 0.15,
+      read && read.n >= WANTED && read.moved > 0.8 && read.demand > 0.15
+        && read.worst < 0.5 && read.yawTravel > read.demand * 0.7 && read.adopt < 0.5,
       read
-        ? `over ${read.n} snapshots the locked man travelled ${read.moved.toFixed(2)} units and the camera turned ${(read.yawTravel * 57.3).toFixed(0)}° to stay on him; worst facing error ${(read.worst * 57.3).toFixed(1)}° (a thumb was nowhere near the glass)`
-        : "no snapshots");
+        ? `over ${read.n} unbroken lock updates (${read.secs.toFixed(1)}s) the locked man travelled `
+          + `${read.moved.toFixed(2)} units, which asked the camera for ${(read.demand * 57.3).toFixed(0)}° of turn; it `
+          + `turned ${(read.yawTravel * 57.3).toFixed(0)}° and its worst facing error was `
+          + `${(read.worst * 57.3).toFixed(1)}° (a thumb was nowhere near the glass), and the fight took the yaw it `
+          + `asked for to within ${(read.adopt * 57.3).toFixed(1)}°. ${read.updates} updates were offered across `
+          + `${read.spans} gradeable spans; ${read.starved} followed a main-thread block past the lock's own 0.1 s dt `
+          + `clamp (longest ${read.longest.toFixed(0)} ms), which is the box and not the lock, so they are not graded`
+        : "no lock updates");
   }
 
   // ===================================================================
@@ -718,6 +900,26 @@ async function lockAct(browser, url, check) {
      * in pieces.
      */
     const NEED = 40;
+    /**
+     * Distinct PAINTED FRAMES the mark must be seen across before `travel` is
+     * read off it. A run that came back with "135 readings, 66 lit, slid 0px"
+     * had collected TWO paints and called it a measurement — 133 of its
+     * readings were copies of a picture the renderer had not redrawn.
+     *
+     * Four, and not more, because of what this number is for. It is not the
+     * evidence that the mark tracks the camera — that is `matched >= lit - 3`,
+     * which puts the element within 2 px of `camera.project()` on every single
+     * reading and is worth six hundred of them a run. This is only the guard
+     * that `travel` was measured across more than one picture, so a slide
+     * cannot be read off a jump. Four distinct paints say that and nothing
+     * more, and asking for more than the claim needs is how a diagnostic
+     * becomes the flake it was added to catch: measured on this box with three
+     * other agents rasterising beside it, the renderer painted the reticle SIX
+     * times in ninety-eight seconds, and an eight-frame gate turned a run that
+     * had already shown 377 px of faithful slide into a red about somebody
+     * else's CPU.
+     */
+    const NEED_FRAMES = 4;
     /** And the least wall time it will spend collecting them, so "it slid as he
      *  moved" is still a statement about a man who had time to move. At 1.4 s a
      *  man walking 4.5 u/s across the lens could be measured as having stood
@@ -797,7 +999,15 @@ async function lockAct(browser, url, check) {
           // mirror is measured exactly now, on a scene held still, so the
           // window is gone and with it the luck it took to land inside one.
           if (o > 0.5 && range !== null && off !== null && x > -40 && x < p.w + 40) {
-            out.push({ x, range, source: p.source, lead: Math.abs(p.leadPx || 0), leadM: p.leadM || 0 });
+            // Stamped with the frame the mark was PAINTED on. The reticle only
+            // moves when the renderer runs, and on this box the renderer runs
+            // about once a second while this sampler ticks every 40 ms — so a
+            // run of readings can be twenty copies of one paint. Counting those
+            // as evidence that "the mark slid as he moved" is the same mistake
+            // the facing assertion was making: a wall clock asked to report on
+            // something that only changes on a frame.
+            out.push({ x, range, fn: (window.__frames && window.__frames.n) || 0,
+              source: p.source, lead: Math.abs(p.leadPx || 0), leadM: p.leadM || 0 });
           }
         }
         const spent = performance.now() - t0;
@@ -819,6 +1029,10 @@ async function lockAct(browser, url, check) {
     const sampleReticle = async (budgetMs) => {
       const started = Date.now();
       const xs = [];
+      // The distinct animation frames the mark was actually repainted on. This,
+      // not the number of timer ticks, is the sample size for anything that
+      // claims the mark MOVED.
+      const painted = new Set();
       let matched = 0, lit = 0, reads = 0, batches = 0, offWire = 0, paint = "none";
       const leads = [];
       while (Date.now() - started < budgetMs) {
@@ -832,18 +1046,23 @@ async function lockAct(browser, url, check) {
         if (b.paint !== "none") paint = b.paint;
         for (const s of b.out) {
           xs.push(s.x);
+          painted.add(s.fn);
           leads.push(s.lead);
           // Which position the mark was painted off: the rig the man is DRAWN
           // on, or the wire that is ~83 ms ahead of him. See `drawnBodies` in
           // render/camera.ts — this is the regression guard on the lead bug.
           if (s.source !== "rig") offWire++;
         }
-        if (xs.length >= NEED && Date.now() - started > SPAN_MS) break;
+        // NEED readings AND enough distinct paints for `travel` to mean
+        // something. Raising the sampler rather than dropping the claim: on a
+        // phone these are the same condition, and on this box the second one is
+        // what the budget is really for.
+        if (xs.length >= NEED && painted.size >= NEED_FRAMES && Date.now() - started > SPAN_MS) break;
       }
       const sorted = xs.slice().sort((a, b2) => a - b2);
       const sortedLeads = leads.slice().sort((a, b2) => a - b2);
       return {
-        seen: xs.length, matched, lit, reads, batches, offWire, paint,
+        seen: xs.length, matched, lit, reads, batches, offWire, paint, frames: painted.size,
         seconds: (Date.now() - started) / 1000,
         median: sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0,
         travel: sorted.length > 1 ? sorted[sorted.length - 1] - sorted[0] : 0,
@@ -965,7 +1184,12 @@ async function lockAct(browser, url, check) {
 
     // And the sampling half, on a fight that is running    // And the sampling half, on a fight that is running: this is where "it
     // moves with him" and "it is painted off the rig" are taken.
-    const overRight = await sampleReticle(90000);
+    // Two minutes, not ninety seconds. The budget is no longer being spent on
+    // readings — there are hundreds — but on waiting for the renderer to draw
+    // the handful of frames `travel` has to be read across, and that is the one
+    // thing on this box that cannot be hurried. It costs nothing on a machine
+    // that renders.
+    const overRight = await sampleReticle(120000);
 
     const shift = mirror.best ? mirror.best.shift : 0;
     check("the lock is drawn on the man it is holding, through the real camera",
@@ -973,8 +1197,14 @@ async function lockAct(browser, url, check) {
       && overRight.matched >= 40
       && overRight.matched >= overRight.lit - 3
       && overRight.offWire === 0
+      // The slide, and the sample it is read off, in two channels rather than
+      // one. "It slid 0px" used to mean either "the mark is stuck to the glass"
+      // — a real defect — or "the renderer drew two frames while I watched",
+      // which is the box. They are different findings and they now fail
+      // separately.
+      && overRight.frames >= NEED_FRAMES
       && overRight.travel > 3,
-      `the element sat within 2px of the rig's own projected x on ${overRight.matched} of the ${overRight.lit} readings it was lit for (sampled on a 40 ms timer, ${overRight.reads} readings, ${overRight.batches} passes, ${overRight.seconds.toFixed(1)}s), and slid ${Math.round(overRight.travel)}px as he moved; every one of its ${overRight.seen} qualifying samples was painted off the rig the man is DRAWN on rather than the wire (${overRight.offWire} off the wire), which sat a median ${Math.round(overRight.lead)}px and up to ${Math.round(overRight.leadMax)}px ahead of him; and with the WIRE HELD so the fight could not move — same man, same range, same frame — the one handedness switch moved the mark from x=${mirror.best ? Math.round(mirror.best.right.x) : "?"} to x=${mirror.best ? Math.round(mirror.best.left.x) : "?"}, ${Math.round(Math.abs(shift))}px of pure camera parallax with nothing else in the game changed — the man himself stood at ${mirror.best ? `${mirror.best.right.bodyX.toFixed(2)},${mirror.best.right.bodyZ.toFixed(2)}` : "?"} for both readings, ${mirror.best ? mirror.best.moved.toFixed(3) : "?"} m apart, and the mark wandered ${mirror.best ? mirror.best.right.still.toFixed(1) : "?"} and ${mirror.best ? mirror.best.left.still.toFixed(1) : "?"} px while it was held (best of ${mirror.tries} frozen moment${mirror.tries === 1 ? "" : "s"}${mirror.notes.length ? `; discarded: ${mirror.notes.join(", ")}` : ""}); last paint ${overRight.paint}`);
+      `the element sat within 2px of the rig's own projected x on ${overRight.matched} of the ${overRight.lit} readings it was lit for (sampled on a 40 ms timer, ${overRight.reads} readings, ${overRight.batches} passes, ${overRight.seconds.toFixed(1)}s), and slid ${Math.round(overRight.travel)}px as he moved across ${overRight.frames} distinct painted frames; every one of its ${overRight.seen} qualifying samples was painted off the rig the man is DRAWN on rather than the wire (${overRight.offWire} off the wire), which sat a median ${Math.round(overRight.lead)}px and up to ${Math.round(overRight.leadMax)}px ahead of him; and with the WIRE HELD so the fight could not move — same man, same range, same frame — the one handedness switch moved the mark from x=${mirror.best ? Math.round(mirror.best.right.x) : "?"} to x=${mirror.best ? Math.round(mirror.best.left.x) : "?"}, ${Math.round(Math.abs(shift))}px of pure camera parallax with nothing else in the game changed — the man himself stood at ${mirror.best ? `${mirror.best.right.bodyX.toFixed(2)},${mirror.best.right.bodyZ.toFixed(2)}` : "?"} for both readings, ${mirror.best ? mirror.best.moved.toFixed(3) : "?"} m apart, and the mark wandered ${mirror.best ? mirror.best.right.still.toFixed(1) : "?"} and ${mirror.best ? mirror.best.left.still.toFixed(1) : "?"} px while it was held (best of ${mirror.tries} frozen moment${mirror.tries === 1 ? "" : "s"}${mirror.notes.length ? `; discarded: ${mirror.notes.join(", ")}` : ""}); last paint ${overRight.paint}`);
   }
 
   // ===================================================================
@@ -1013,7 +1243,11 @@ async function main() {
     console.log("[touchtest] WARNING: src/ is newer than .next — this run grades the last build, not your edit. `npm run build` first.");
   }
   console.log(`[touchtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  // `--import` puts tools/seeddie.mjs in front of the entry point, so the bot
+  // brain rolls the same stream on every run. See that file: the engine's step
+  // was already fixed and its inputs are driven from here, so the die was the
+  // last thing in the simulation that nobody had written down.
+  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

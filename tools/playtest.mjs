@@ -16,7 +16,14 @@ import { chromium } from "playwright";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
+// THE FIXED DIE, BEFORE THE ENGINE. This import has to come first and has to
+// stay first: it replaces Math.random, and the engine below reads the die at
+// call time but the ORDER is what guarantees no module-scope roll escapes it.
+// See tools/seeddie.mjs for what it buys and what it deliberately does not.
+// The same file is handed to the spawned server with `--import`, so the engine
+// this process drives and the engine the browser talks to roll one stream.
+import "./seeddie.mjs";
 // The weight pass is a set of NUMBERS as much as it is a feel, and the numbers
 // are assertable without a browser. Importing the engine is side-effect free —
 // `makeEngine` only runs from `getEngine`, so nothing starts a tick here.
@@ -26,6 +33,8 @@ import {
 } from "../src/game/engine.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** The fixed die, handed to the server process with `--import`. See seeddie.mjs. */
+const SEED_DIE = pathToFileURL(resolve(ROOT, "tools/seeddie.mjs")).href;
 const PORT = parseInt(process.env.PORT || String(3800 + (process.pid % 150)), 10);
 const HEADED = process.argv.includes("--headed");
 
@@ -194,7 +203,21 @@ async function until(cond, what, timeoutMs = 15000) {
 }
 
 function shoveSession(engine, name) {
-  const state = { latest: null, matchEnd: null, kills: [], hits: [], playerId: null, joinData: null };
+  const state = {
+    latest: null, matchEnd: null, kills: [], hits: [], playerId: null, joinData: null,
+    // THE LATCH. Armed by `watch`, filled here — where every packet is
+    // eventually read — instead of from a poll. A stagger's whole life is
+    // SHOVE.stagger seconds and this box can sit on the event loop for most of
+    // one, so a 40 ms `setTimeout` loop is not a sampler of it: it is a
+    // lottery over whether the loop woke inside the window. touchtest learned
+    // exactly this about the shove and latched it; the same reasoning applies
+    // to every one of these four observations, and this is the last place in
+    // either harness that was still racing a poll against a state change.
+    //
+    // `watch` cannot miss a packet now no matter how badly the box behaves,
+    // because it is not the one doing the looking.
+    latch: null,
+  };
   const sid = engine.connect((str) => {
     const m = JSON.parse(str);
     if (m.type === "join") { state.playerId = m.data.playerId; state.joinData = m.data; }
@@ -202,7 +225,17 @@ function shoveSession(engine, name) {
     // full snapshot.
     // round_end carries a full room snapshot too, and it is the one that says
     // "finished" — the summary checks read the loser's corpse out of it.
-    if ((m.type === "game_state" || m.type === "lobby_update" || m.type === "countdown" || m.type === "round_end") && m.data.players) state.latest = m.data;
+    if ((m.type === "game_state" || m.type === "lobby_update" || m.type === "countdown" || m.type === "round_end") && m.data.players) {
+      state.latest = m.data;
+      const L = state.latch;
+      const me = L && m.data.players[state.playerId];
+      if (me) {
+        if (me.state === "staggered") L.staggered = true;
+        if (me.burning) L.burning = true;
+        L.moved = Math.max(L.moved, Math.hypot(me.position.x - L.from.x, me.position.z - L.from.z));
+        L.packets++;
+      }
+    }
     if (m.type === "match_end") state.matchEnd = m.data;
     if (m.type === "kill") state.kills.push(m.data);
     if (m.type === "hit") state.hits.push(m.data);
@@ -270,20 +303,30 @@ async function throwShove(engine, A, B, dir, gap) {
   return { from: { x: b.position.x, z: b.position.z } };
 }
 
-/** Watch B for `ms`, collecting states and the furthest displacement. */
+/**
+ * Watch B for a stretch of the SIMULATION, collecting states and the furthest
+ * displacement — every packet of it, latched in the session's own reader.
+ *
+ * The window is counted in TICKS, not in milliseconds. `ms` names the stretch
+ * of fight the claim is about and is converted at the engine's fixed 20 Hz, so
+ * "1.2 s of shove" is 24 snapshots whether the box delivered them in 1.2 s or,
+ * on a bad afternoon, in four. The old wall-clock window let a stalled event
+ * loop end the watch after nine packets and then report `staggered=false`
+ * about a stagger that had not been sent yet: one channel — elapsed time —
+ * was carrying two orthogonal facts, how much fight had happened and how
+ * busy the box was. Now it carries only the first.
+ *
+ * A wall-clock ceiling of six times the nominal window is still there so a
+ * genuinely dead engine fails as a timeout rather than as a hang.
+ */
 async function watch(B, from, ms) {
-  const seen = { staggered: false, burning: false, moved: 0 };
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    const b = myself(B);
-    if (b) {
-      if (b.state === "staggered") seen.staggered = true;
-      if (b.burning) seen.burning = true;
-      seen.moved = Math.max(seen.moved, Math.hypot(b.position.x - from.x, b.position.z - from.z));
-    }
-    await sleep(40);
-  }
-  return seen;
+  const want = Math.round((ms / 1000) * 20);
+  const latch = { staggered: false, burning: false, moved: 0, from, packets: 0 };
+  B.state.latch = latch;
+  const ceiling = Date.now() + Math.max(4000, ms * 6);
+  while (latch.packets < want && Date.now() < ceiling) await sleep(20);
+  B.state.latch = null;
+  return latch;
 }
 
 async function checkShoveClaims() {
@@ -313,9 +356,9 @@ async function checkShoveClaims() {
       await until(() => A.state.hits.some((h) => h.type === "shove" && h.targetId === B.state.playerId), "the shove to land", 3000);
       const seen = await watch(B, from, 1200);
       check("a shove displaces its target", seen.moved > 1.2 && seen.staggered,
-        `the mark was carried ${seen.moved.toFixed(2)} m by one shove (push ${SHOVE.push} m) and staggered on the way`);
+        `the mark was carried ${seen.moved.toFixed(2)} m by one shove (push ${SHOVE.push} m) and staggered on the way, over ${seen.packets} snapshots of fight`);
       check("a shove can put a man in the fire", seen.burning,
-        `burning=${seen.burning} after being driven over the hazard line at 1.475 m`);
+        `burning=${seen.burning} after being driven over the hazard line at 1.475 m, watched for ${seen.packets} snapshots`);
       const kill = await until(() => A.state.kills.find((k) => k.victimId === B.state.playerId), "the burn death", 9000);
       const feed = A.state.latest?.killFeed?.slice(-1)[0];
       check("the fire kill is credited to the SHOVER, cause fire",
@@ -342,7 +385,7 @@ async function checkShoveClaims() {
       clearInterval(holdBlock);
       const seen = await watch(B, from, 1000);
       check("a raised shield does not stop a shove", seen.moved > 1.2 && seen.staggered,
-        `a blocking huscarl was carried ${seen.moved.toFixed(2)} m and staggered — the guard-break niche`);
+        `a blocking huscarl was carried ${seen.moved.toFixed(2)} m and staggered over ${seen.packets} snapshots — the guard-break niche`);
       engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
     }
 
@@ -362,7 +405,7 @@ async function checkShoveClaims() {
       const seen = await watch(B, { x: b.position.x, z: b.position.z }, 1200);
       const shoved = A.state.hits.some((h) => h.type === "shove" && h.targetId === B.state.playerId);
       check("a dodging man is not shoved", !shoved && !seen.staggered && myself(B).lastHitBy !== A.state.playerId,
-        `no shove contact reached him and he was never staggered (he rolled ${seen.moved.toFixed(2)} m under his own steam)`);
+        `no shove contact reached him and he was never staggered across all ${seen.packets} snapshots watched (he rolled ${seen.moved.toFixed(2)} m under his own steam)`);
       engine.message(A.sid, { type: "leave" }); engine.message(B.sid, { type: "leave" });
     }
   } finally {
@@ -518,7 +561,9 @@ async function main() {
   }
   const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
   console.log(`[playtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  // Same fixed die the in-process engine above got, so the browser's opponents
+  // are as reproducible as the scripted ones. See tools/seeddie.mjs.
+  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
