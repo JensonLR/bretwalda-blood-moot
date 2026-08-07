@@ -2405,9 +2405,9 @@ const C_NF: Curve = [
   [0.700, 2.20],
   [0.500, 2.40],
   [0.320, 2.75],
-  [0.219, 3.00],
-  [0.000, 3.12],
-  [-0.323, 3.24],
+  [0.219, 2.85],
+  [0.000, 2.98],
+  [-0.323, 3.10],
   [-0.536, 3.30],
   [-0.700, 2.80],
   [-0.850, 2.25],
@@ -2465,29 +2465,29 @@ const REL_B = [0, 0.10, 0.20, 0.32, 0.46, 0.62, 0.80, 1.00, 1.22, 1.45, 1.5708];
 const RELIEF: ReadonlyArray<readonly number[]> = [
   //   y        0    0.10   0.20   0.32   0.46   0.62   0.80   1.00   1.22  1.45  pi/2
   [0.560, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0.420, 0, 0, 0.4, 0.8, 0.8, 0.2, -0.8, -1.4, -0.5, 0, 0],
-  [0.320, 0.5, 0.9, 1.8, 2.4, 2.0, 0.4, -2.2, -3.4, -1.0, 0, 0],
-  [0.260, 2.2, 2.8, 4.2, 4.8, 3.6, 0.8, -3.0, -4.6, -1.3, 0, 0],
-  [0.219, 5.0, 5.4, 6.2, 6.0, 4.2, 1.2, -3.4, -5.2, -1.5, 0, 0], //  BROW CREST
-  [0.175, 1.5, 2.4, 5.0, 5.6, 3.8, 0.8, -3.8, -5.6, -1.6, 0, 0], //  under the ridge
-  [0.144, -3.8, -2.4, 3.0, 4.6, 3.2, 0.4, -4.0, -5.8, -1.6, 0, 0], // NASION notch
-  [0.100, -2.8, -1.2, 2.6, 4.0, 2.6, 0.0, -4.0, -5.8, -1.6, 0, 0],
-  [0.050, -1.0, 0.6, 2.2, 3.0, 1.6, -0.6, -3.8, -5.6, -1.5, 0, 0], // the shelf the brow hair lies on
-  [0.000, 2.0, 1.6, -0.8, -3.4, -3.0, -1.8, -3.0, -4.4, -1.2, 0, 0], // orbital rim
-  [-0.060, 6.0, 4.0, -3.6, -8.5, -6.6, -1.8, -1.8, -3.4, -0.8, 0, 0], // THE SOCKET
-  [-0.116, 11.5, 8.5, -2.4, -8.5, -6.4, -1.0, -1.2, -3.0, -0.6, 0, 0], // EYE LINE
-  [-0.180, 18.5, 16.2, 4.8, -4.0, -1.0, 3.6, 3.6, -0.6, 0, 0, 0],
-  [-0.231, 27.5, 25.2, 10.5, -1.0, 0.8, 5.0, 4.4, 0.0, 0, 0, 0], //   PRONASALE
-  [-0.270, 23.5, 21.2, 10.0, -1.0, 0.8, 4.6, 4.0, 0.0, 0, 0, 0], //   columella
-  [-0.300, 12.5, 10.5, 8.0, -2.5, 0.6, 4.0, 3.4, 0.0, 0, 0, 0], //    the alar crease
-  [-0.323, 2.5, 3.6, 5.0, -1.6, 0.6, 3.4, 2.8, 0.0, 0, 0, 0], //      SUBNASALE
-  [-0.400, 1.2, 1.8, 2.4, 0.0, -0.4, 1.6, 1.2, 0.0, 0, 0, 0], //      philtrum
-  [-0.470, 6.0, 5.6, 4.0, -1.4, -1.6, 0.0, 0.2, 0.0, 0, 0, 0], //     upper vermilion
-  [-0.536, 3.5, 3.5, 2.8, -1.2, -1.8, -0.4, 0.0, 0.0, 0, 0, 0], //    STOMION
-  [-0.600, 7.2, 6.9, 4.6, -0.8, -1.8, -0.6, 0.0, 0.0, 0, 0, 0], //    lower vermilion
-  [-0.660, -1.5, -1.4, -1.8, -2.6, -2.0, -0.6, 0.0, 0.0, 0, 0, 0], // mentolabial sulcus
-  [-0.720, 3.0, 3.0, 2.4, 0.2, -1.4, -0.6, 0, 0, 0, 0, 0],
-  [-0.796, 3.0, 3.0, 2.6, 0.6, -1.2, -0.4, 0, 0, 0, 0, 0], //         POGONION
+  [0.420, 0, 0, 0.4, 0.8, 0.8, 0.2, -0.5, -0.8, -0.5, -0.2, 0],
+  [0.320, 0.5, 0.9, 1.8, 2.4, 2.0, 0.4, -1.2, -2.0, -1.4, -0.4, 0],
+  [0.260, 2.2, 2.8, 4.2, 4.8, 3.6, 0.8, -1.6, -2.6, -1.8, -0.5, 0],
+  [0.219, 5.0, 5.4, 6.2, 6.0, 4.2, 1.2, -1.8, -3.0, -2.0, -0.6, 0], //  BROW CREST
+  [0.175, 1.5, 2.4, 5.0, 5.6, 3.8, 0.8, -2.0, -3.2, -2.2, -0.6, 0], //  under the ridge
+  [0.144, -3.8, -2.4, 3.0, 4.6, 3.2, 0.4, -2.2, -3.4, -2.3, -0.7, 0], // NASION notch
+  [0.100, -2.8, -1.2, 2.6, 4.0, 2.6, 0.0, -2.2, -3.4, -2.3, -0.7, 0],
+  [0.050, -1.0, 0.6, 2.2, 3.0, 1.6, -0.6, -2.0, -3.2, -2.2, -0.6, 0], // the shelf the brow hair lies on
+  [0.000, 2.0, 1.6, -0.8, -3.4, -3.0, -1.8, -1.6, -2.6, -1.8, -0.5, 0], // orbital rim
+  [-0.060, 6.0, 4.0, -3.6, -8.5, -6.6, -1.8, -1.0, -2.0, -1.4, -0.4, 0], // THE SOCKET
+  [-0.116, 11.5, 8.5, -2.4, -8.5, -6.4, -1.0, -0.6, -1.6, -1.0, -0.3, 0], // EYE LINE
+  [-0.180, 18.5, 16.2, 4.8, -4.0, -1.0, 5.0, 4.5, -0.4, 0, 0, 0], //   the zygomatic
+  [-0.231, 27.5, 25.2, 10.5, -1.0, 0.8, 6.5, 5.2, 0.0, 0, 0, 0], //    PRONASALE
+  [-0.270, 23.5, 21.2, 10.0, -1.0, 0.8, 5.8, 4.6, 0.0, 0, 0, 0], //    columella
+  [-0.300, 12.5, 10.5, 8.0, -2.5, 0.6, 4.8, 3.8, 0.0, 0, 0, 0], //     the alar crease
+  [-0.323, 2.5, 3.6, 5.0, -1.6, 0.6, 4.0, 3.0, 0.0, 0, 0, 0], //       SUBNASALE
+  [-0.400, 1.2, 1.8, 2.4, 0.0, -1.6, 0.0, 0.6, 0.0, 0, 0, 0], //       philtrum, and the buccal begins
+  [-0.470, 6.0, 5.6, 4.0, -1.4, -2.4, -1.0, -1.4, 0.0, 0, 0, 0], //    upper vermilion
+  [-0.536, 3.5, 3.5, 2.8, -1.2, -2.4, -1.0, -1.6, 0.0, 0, 0, 0], //    STOMION
+  [-0.600, 7.2, 6.9, 4.6, -0.8, -2.2, -1.0, -1.4, 0.0, 0, 0, 0], //    lower vermilion
+  [-0.660, -1.5, -1.4, -1.8, -2.6, -2.4, -1.2, -0.4, 0.0, 0, 0, 0], // mentolabial sulcus
+  [-0.720, 3.0, 3.0, 2.4, 0.2, -1.6, -0.8, 0, 0, 0, 0, 0],
+  [-0.796, 3.0, 3.0, 2.6, 0.6, -1.4, -0.6, 0, 0, 0, 0, 0], //          POGONION
   [-0.870, 1.6, 1.6, 1.2, 0.0, -0.8, 0.0, 0, 0, 0, 0, 0],
   [-0.940, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ];
@@ -4289,7 +4289,7 @@ interface EyeFrame {
 }
 
 function eyeFrame(K: Skull, side: number): EyeFrame {
-  const uE = side * 0.355 * K.F.eyeU;
+  const uE = side * 0.395 * K.F.eyeU;
   // On the head's mid-height, where a human's eyes are. It used to be 0.085 —
   // 40% of the way down from the crown instead of 50% — and the whole face was
   // dragged up with it. See `Y_EYE`.
@@ -4326,7 +4326,7 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // rather than as small-eyed.
   return {
     c, lat: base, up, fwd,
-    wA: 0.0126, hA: 0.0065 * K.F.eyeOpen, tilt: side * 0.0019,
+    wA: 0.0138, hA: 0.0072 * K.F.eyeOpen, tilt: side * 0.0021,
     uE, vE,
   };
 }
@@ -4876,7 +4876,7 @@ function faceComplexion(
     let dim = 0;
     // The socket. Tight on the orbit itself — an orbit is 30 mm across, and the
     // term this replaces was 84.
-    dim += 0.34 * gs(s - 0.38, 0.20) * gs(fy + 0.05, 0.12) * front;
+    dim += 0.42 * gs(s - 0.38, 0.20) * gs(fy + 0.05, 0.12) * front;
     // The crease under the brow ridge: the one line that makes an overhang read
     // as an overhang rather than as a band of colour.
     dim += 0.26 * gs(s - 0.36, 0.24) * gs(fy - 0.045, 0.050) * front;
@@ -4884,6 +4884,18 @@ function faceComplexion(
     dim += 0.50 * gs(s, 0.13) * gs(fy - (Y_NOSE - 0.005), 0.040) * front;
     // The alar crease, where the wing meets the cheek.
     dim += 0.22 * gs(s - 0.24, 0.075) * gs(fy - (Y_NOSE + 0.035), 0.055) * front;
+    // Beside the dorsum, and this is the single most valuable term on the nose
+    // in this rig. A nose's own relief is a gradient in z, and a light rig with
+    // ambient 0.85 cannot see a gradient in z; a narrow shadow down each side of
+    // it is what makes the mass read as a nose from in front. Narrow — 0.07 of
+    // the half-breadth is 7 mm — because the version of this that was 0.42 wide
+    // WAS the painted wedge down the middle of the face.
+    dim += 0.26 * gs(s - 0.20, 0.070) * gs(fy - (Y_EYE - 0.075), 0.120) * front;
+    // The buccal hollow, under the zygomatic and over the jaw. Sited on the
+    // relief's own hollow rather than washed down the whole cheek: this is the
+    // term that used to be 0.22 x 0.185 of direction space and painted the face
+    // narrow while the silhouette measured broad.
+    dim += 0.26 * gs(s - 0.56, 0.17) * gs(fy - (Y_LIP + 0.085), 0.105) * front;
     // The oral fissure. A mouth is a slot, and a slot with no shadow in it is a
     // scratch — the term worth the most per unit of area on the whole face.
     dim += 0.72 * gs(s, 0.34) * gs(fy - Y_LIP, 0.030) * front;
@@ -10309,7 +10321,7 @@ export function buildCharacter(
         // out is a blindfold. So the two lines below are the two lines out of
         // `eyeFrame`, in the same order, off the same traits — not `Y_EYE` and a
         // guess at where the eye ended up.
-        const eu = 0.355 * K.F.eyeU;
+        const eu = 0.395 * K.F.eyeU;
         const ev = lat(Y_EYE) + K.F.eyeV;
         const uIn = eu - 0.170;
         const uOut = eu + 0.170;
