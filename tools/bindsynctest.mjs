@@ -49,6 +49,17 @@ const check = (name, pass, detail) => {
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
+/**
+ * `--no-fight` skips the two sections that have to muster an arena.
+ *
+ * NOT a way to run to green: the summary line says so loudly, so a run with it
+ * cannot be quoted as a passing gate, and the merge gate never uses it. It
+ * exists because this box CPU-rasterises every frame and an arena costs
+ * minutes, while proving that one of the table-level assertions bites against
+ * a deliberately broken build needs no fight at all.
+ */
+const NO_FIGHT = process.argv.includes("--no-fight");
+
 const PROBE = () => {
   const w = window;
   w.__probe = { sent: [], lastState: null, states: 0 };
@@ -243,6 +254,7 @@ async function main() {
     JSON.stringify(capB?.forward));
 
   // The whole point: does the remapped key move the warrior on THIS device?
+  if (!NO_FIGHT) {
   await b.getByText("Back", { exact: false }).first().click().catch(() => {});
   await b.goto(`${BASE}/?quality=low`, { waitUntil: "domcontentloaded" });
   await reachFight(b);
@@ -320,6 +332,7 @@ async function main() {
   check("a key unbound mid-fight stops reaching the server at all",
     dropped.wire.moving === 0 && dropped.dist < 0.4,
     `KeyY: ${dropped.wire.moving}/${dropped.wire.n} samples carried movement, travelled ${dropped.dist.toFixed(2)} units`);
+  }
 
   // ---------------------------------------------------------------- context C
   // A player who remapped BEFORE any of this shipped: his table is in
@@ -476,7 +489,8 @@ async function main() {
 
   await browser.close();
   const failed = results.filter((r) => !r.pass);
-  console.log(`\n[bindsync] ${results.length - failed.length}/${results.length} checks passing`);
+  console.log(`\n[bindsync] ${results.length - failed.length}/${results.length} checks passing`
+    + (NO_FIGHT ? " — PARTIAL RUN, --no-fight skipped every assertion that presses a key in an arena. NOT a gate." : ""));
   process.exitCode = failed.length ? 1 : 0;
 }
 
