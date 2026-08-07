@@ -7504,6 +7504,29 @@ export function buildCharacter(
   const dark = M.standard(0x1a1310, 0.42);
   const rune = M.get("runeGlow");
   const cloakMat = cloth(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, bodyGirth * 1.4);
+  // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
+  //
+  // The hood, its mantle, its point and its shoulder drape were all raised on
+  // `robed ? cloakMat : hide` — so on the runekeeper, who is the only `robed`
+  // class and the only class issued the hood by default, the entire head
+  // covering took `CLOAK_COLORS[ap.cloak]`. Buy the Blood Red Cloak and the
+  // Shadow Hood turns red; and because the hood closes round the face with
+  // nothing but an eye slot, a red hood is not a red hood — it is a RED
+  // BALACLAVA, which is exactly what the owner is looking at and exactly what
+  // he called it.
+  //
+  // Two separate faults in one expression. A helm-slot item must not be
+  // coloured by the cloak slot: the shop sells them apart, a player who changes
+  // one does not expect the other to move, and 120 gold of head furniture
+  // taking its identity from a 90-gold garment is the same class of defect as
+  // the armour finish tinting only mail. And an item NAMED the Shadow Hood has
+  // to read as shadow at every price of cloak, which no bright dye can.
+  //
+  // So it is its own substance now: undyed dark wool, the same on every class,
+  // at a tighter pitch than a cloak because a hood is a smaller garment and the
+  // weave has to scale with the thing it is woven into. `hide` stops being the
+  // unrobed fallback for the same reason — a hood is cloth on everybody.
+  const hoodCloth = cloth(0x2a2521, bodyGirth * 0.62);
 
   // --- merged-geometry cache. Only for callers that brought a shared library;
   // the armoury preview allocates and disposes its own materials, so caching its
@@ -8940,9 +8963,35 @@ export function buildCharacter(
       // with itself as finely as the mesh can carry, and the honest raggedness
       // at this scale is now in the complexion field's stubble, which has no
       // mesh at all and can therefore be as fine as it likes.
+      //
+      // THE TOP EDGE WAS ABOVE THE MOUTH, AND THAT IS THE WHOLE COMPLAINT.
+      // `Y_LIP` is the lip line; this ran the patch's upper boundary at
+      // `Y_LIP + 0.045`, i.e. 45 mm ABOVE it, so the very first thing the beard
+      // did was cover the mouth. The moustache patches sit from `Y_NOSE − 0.035`
+      // to `Y_LIP + 0.085` and the beard began 40 mm under that, which left one
+      // thin band of skin above the lip and then wool over everything below —
+      // and `addMouth` was drawing a mouth underneath it that nothing could see.
+      // A face with no mouth is why the owner's frames read as "a dark smear with
+      // two pale patches for cheeks": the pale patches are the last of the cheek
+      // above the boundary, and there is no other feature left in the lower face.
+      //
+      // The midline now starts on the MENTOLABIAL SHELF — the crease under the
+      // lower lip, `Y_LIP − 0.105` — which is where a beard's own upper edge is
+      // on a face. Lip, philtrum and the fold beside it are skin, the mouth is
+      // drawn and visible, and the moustache above is a separate mass with air
+      // between the two, which is what a moustache is.
+      //
+      // AND IT STOPPED CLIMBING AT THE EYE. The outer end was `−0.20`, which is
+      // above the ear's own centre (`EAR_Y` = −0.220) and level with the lower
+      // lid; a boundary there takes the whole cheek including the cheekbone, and
+      // that is the second half of "it swallows the lower face". It now tops out
+      // along the line the masseter actually runs — under the zygomatic, not over
+      // it — and a full beard is allowed 45 mm more of it than a close crop,
+      // because carrying up the cheek is the thing a full beard buys.
+      const cheekHi = full ? -0.268 : -0.313;
       const cheek = (u: number) => {
-        const t = smooth(0.55, 1.20, Math.abs(u));
-        const y = mix(Y_LIP + 0.045, -0.20, t);
+        const t = smooth(0.42, 1.18, Math.abs(u));
+        const y = mix(Y_LIP - (full ? 0.088 : 0.105), cheekHi, t);
         return lat(y) + 0.024 * Math.cos(u * 4.5) + 0.010 * Math.cos(u * 7.5 + 1.9);
       };
       // The lower silhouette, and this is what was reading as "a doormat strapped
@@ -8954,9 +9003,20 @@ export function buildCharacter(
       // chin, swings up under the jaw toward the ear, and is *ragged*; the lobe
       // term below is worth more than the arc, because a smooth curve at this
       // scale still reads as something cut to a pattern.
+      //
+      // AND IT MUST NOT EAT THE NECK. `Y_CHIN` is latitude −0.921; this floored at
+      // −1.27 for every style, which is 0.35 rad past the menton and onto the
+      // throat. On a Full Beard that is covered by the hanging belly below and
+      // costs nothing, but the CLOSE CROP is the free default three of the four
+      // classes wear, and it has no hanging mass at all — so its patch was the
+      // whole beard, and it ran from above the mouth to below the jaw as one
+      // unbroken surface. That is the mass the owner is looking at. The crop now
+      // floors 0.20 rad under the menton: it wraps the underside of the jaw, which
+      // is where a cropped beard goes, and stops before the throat.
+      const hangLo = full ? -1.27 : -1.12;
       const hang = (u: number) => {
         const a = Math.abs(u);
-        const arc = -1.27 + 0.52 * Math.pow(smooth(0.1, 1.24, a), 1.35);
+        const arc = hangLo + (full ? 0.52 : 0.40) * Math.pow(smooth(0.1, 1.24, a), 1.35);
         const rag = smooth(0.04, 0.5, a);
         return arc + 0.044 * Math.cos(u * 3.7 + 0.6) * rag + 0.016 * Math.cos(u * 6.9 - 0.8) * rag;
       };
@@ -8972,7 +9032,11 @@ export function buildCharacter(
           u0: -1.24, u1: 1.24,
           v0: (u) => mix(hang(u), cheek(u) - 0.03, smooth(0.98, 1.24, Math.abs(u))),
           v1: cheek,
-          nu: Math.max(20, lod.shellU + 10), nv: Math.max(5, lod.shellV + 1),
+          // 26 columns, not 20. The hank term below runs to cos(12.5u) over
+          // 2.48 rad; at 20 columns that is 0.124 rad a sample and 4.0 samples a
+          // cycle, which is where a ridge starts turning into a stair. At 26 it
+          // is 5.3, and the ridges resolve as ridges.
+          nu: Math.max(26, lod.shellU + 16), nv: Math.max(5, lod.shellV + 1),
           // Thickness dies at *both* boundaries rather than being thickest at the
           // one that is in silhouette. `patch` closes every boundary with a rim
           // strip whose normal points along the surface, so a patch that ends at
@@ -8981,13 +9045,41 @@ export function buildCharacter(
           // silhouette. Peaked at a third of the way up, which is where the mass of
           // a beard actually is, and at 2 mm of lift on the boundary the rim strip
           // is inside the skin and cannot be seen at all.
-          lift: (_u, s) => (full
-            ? 0.002 + 0.016 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.55)), 1.15)
-            // A close crop: 9 mm at the jaw, dying to nothing at both boundaries
-            // for the same reason the full beard's does — a rim strip at full lift
-            // draws its own outline as a bright band. Half a full beard's mass and
-            // no hang, which is the difference a player is looking at.
-            : 0.0014 + 0.0096 * Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.6)), 1.1)),
+          //
+          // A BEARD IS HAIR, AND THIS WAS A SOLID. The lift depended on `s`
+          // alone, so every column of the patch was the identical curve and the
+          // surface was a smooth swept mass with one tone across the whole of it
+          // — a lozenge of dark wool, which is what the frames show and what
+          // "an enormous black mass" is describing. Nothing about its colour is
+          // the fault: at this exposure ANY smooth unbroken surface that size
+          // reads as a blob, and darkening or lightening it only changes which
+          // blob.
+          //
+          // What makes hair read as hair on a lit surface is that it is not one
+          // surface — it is hanks, each with its own belly and its own valley
+          // beside it, so the key light rakes across a row of ridges and the
+          // eye gets a dozen highlights and a dozen shadows instead of one
+          // gradient. `hank` puts that in: two harmonics in `u` (the ridges
+          // running down the beard) and one that leans with `s` (so a ridge
+          // drifts as it falls rather than being a fluted column). It runs
+          // 0.44-1.00 of the mass, so the PEAK IS EXACTLY WHAT IT WAS — the
+          // valleys are cut, nothing is added, and no measurement of standoff or
+          // punch-through can be made worse by it.
+          //
+          // `jaw` is the other half. A beard is thickest at the chin and thins to
+          // nothing at the sideburn, and a constant mass to the ear is a large
+          // part of why this covered the face like a mask.
+          lift: (u, s) => {
+            const along = full
+              ? Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.55)), 1.15)
+              : Math.pow(Math.sin(Math.PI * Math.pow(clamp01(s), 0.6)), 1.1);
+            const jaw = 1 - 0.40 * smooth(0.30, 1.20, Math.abs(u));
+            const hank = 0.72 + 0.28 * (
+              0.55 * Math.cos(u * 7.5 + 0.4)
+              + 0.30 * Math.cos(u * 12.5 - 1.2)
+              + 0.15 * Math.cos(s * 8.0 + u * 5.0));
+            return (full ? 0.002 : 0.0014) + (full ? 0.016 : 0.0096) * along * jaw * hank;
+          },
           thick: full ? 0.005 : 0.0032,
         }), beard, place.clone());
         // Philtrum gap: a real moustache parts under the nose. Two short patches
@@ -9011,8 +9103,14 @@ export function buildCharacter(
           // mouth corner on the other — with parallel bounds it was a quadrilateral
           // with four visible corners sitting over the lip, which is a postage stamp
           // and not a moustache.
+          // The lower edge came down 50 mm, to sit ON the upper lip. At
+          // `Y_LIP + 0.085` the moustache floated a clear 85 mm above the mouth
+          // line with skin under it, which is a bar across the middle of the
+          // face and not hair on a lip — and with the beard's top edge now on the
+          // mentolabial shelf where it belongs, the mouth is the gap BETWEEN the
+          // two masses. That gap is only a mouth if both edges are on it.
           const mTop = lat(Y_NOSE - 0.035);
-          const mBot = lat(Y_LIP + 0.085);
+          const mBot = lat(Y_LIP + 0.035);
           const mMid = (mTop + mBot) * 0.5;
           const mHalf = (mTop - mBot) * 0.5;
           const leaf = (u: number) =>
@@ -11041,7 +11139,7 @@ export function buildCharacter(
           + 0.048 * (1 - v) * clamp01(-Math.cos(u))
           + 0.022 * Math.pow(1 - v, 1.5) * clamp01(Math.cos(u)),
         thick: 0.010,
-      }), robed ? cloakMat : hide, place.clone());
+      }), hoodCloth, place.clone());
       // Shadow gore: a dark inner course set well inside the cloth, so what you
       // see through the opening is a lined cavity rather than the sky behind it.
       // Cheaper and more reliable than asking a shadow map to resolve 30 mm.
@@ -11058,7 +11156,7 @@ export function buildCharacter(
         { y: skullY + R.y * 0.6, hw: 0.03, hd: 0.03, z: -R.z * 0.9 },
         { y: skullY + R.y * 0.2, hw: 0.05, hd: 0.05, z: -R.z * 1.25 },
         { y: skullY - R.y * 0.4, hw: 0.028, hd: 0.028, z: -R.z * 1.5 },
-      ], 8, { capTop: true, capBottom: true }), robed ? cloakMat : hide);
+      ], 8, { capTop: true, capBottom: true }), hoodCloth);
       // Shoulder drape, so the hood is attached to something.
       //
       // It was a 436 mm bell — wider than the runekeeper's own shoulders — whose rim
@@ -11079,7 +11177,7 @@ export function buildCharacter(
         { y: skullY - R.y * 1.45, hw: R.x * 1.16, hd: R.z * 1.10 },
         { y: skullY - R.y * 2.10, hw: R.x * 1.62, hd: R.z * 1.40 },
         { y: skullY - R.y * 2.95, hw: R.x * 2.02, hd: R.z * 1.58 },
-      ], Math.max(10, lod.body - 4), { power: 2.2, wall: 0.014 }), robed ? cloakMat : hide);
+      ], Math.max(10, lod.body - 4), { power: 2.2, wall: 0.014 }), hoodCloth);
     }
 
     // The complexion, written onto every piece of flesh on the head at once —
