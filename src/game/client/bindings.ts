@@ -240,6 +240,29 @@ let table: Record<ActionId, BindingCode[]> = cloneDefaults();
 let snapshot: Bindings = freeze(table);
 let loaded = false;
 
+/**
+ * THE PLAYER HAS CHANGED A BINDING ON THIS DEVICE SINCE THE PAGE LOADED.
+ *
+ * This exists because of the bug the owner reported as "the key binds aren't
+ * binding in game when adding additional custom keys", and the bug was not in
+ * the table at all — it was a RACE with the sign-in.
+ *
+ * The landing screen is interactive the instant it paints, and the sign-in POST
+ * runs behind it. On the live free-tier dyno that request can take tens of
+ * seconds cold. A player who opens the remap screen inside that window and adds
+ * a key gets it written here and to localStorage, and then the profile answers
+ * and `adoptBindings` hydrates the ROW straight over the top of it — screen
+ * accepted the key, cap showed the key, key never reached the man, and the
+ * remap is gone from localStorage too. Measured: cap read `["T","↑","Y"]` before
+ * the sign-in answered and `["T","↑"]` after.
+ *
+ * So the boot has to know that this device has an opinion. Set by the four
+ * writers the settings screen drives and by nothing else — `hydrateBindings`
+ * deliberately does NOT set it, because a table arriving from the roll is not
+ * the player touching a key.
+ */
+let touchedHere = false;
+
 const listeners = new Set<() => void>();
 let persist: ((bindings: Bindings) => void) | null = null;
 
@@ -295,6 +318,14 @@ function commit(next: Record<ActionId, BindingCode[]>): void {
   for (const l of listeners) l();
 }
 
+/** A change the PLAYER made, through the settings screen. Marks the device as
+ *  having an opinion, so a sign-in that answers afterwards does not overwrite
+ *  it. `commit` alone is used by `hydrateBindings`, which is the opposite. */
+function commitByPlayer(next: Record<ActionId, BindingCode[]>): void {
+  touchedHere = true;
+  commit(next);
+}
+
 function load(): void {
   if (loaded) return;
   loaded = true;
@@ -337,6 +368,18 @@ export function bindingsAreDefault(b: Bindings = getBindings()): boolean {
     const shipped = DEFAULT_BINDINGS[id];
     return mine.length === shipped.length && mine.every((c, i) => c === shipped[i]);
   });
+}
+
+/**
+ * Has the player rebound anything on this device since the page loaded?
+ *
+ * Asked by the sign-in in `page.tsx` before it hydrates a table off the roll:
+ * a remap made while the profile request was still in flight is the newest
+ * thing anybody knows, and hydrating over it is how a rebound key stopped
+ * reaching the man. True means "send mine up", not "take theirs".
+ */
+export function bindingsTouchedHere(): boolean {
+  return touchedHere;
 }
 
 export function subscribeBindings(onChange: () => void): () => void {
@@ -430,7 +473,7 @@ export function rebind(
     }
     next[action] = [...own, code];
   }
-  commit(next);
+  commitByPlayer(next);
   return { ok: true, bindings: snapshot, tookFrom: clash };
 }
 
@@ -439,14 +482,14 @@ export function unbind(action: ActionId, code: BindingCode): Bindings {
   load();
   const next = cloneCurrent();
   next[action] = next[action].filter((c) => c !== code);
-  commit(next);
+  commitByPlayer(next);
   return snapshot;
 }
 
 /** Back to the shipped table. The way out for a player who bound movement to nothing reachable. */
 export function resetBindings(): Bindings {
   load();
-  commit(cloneDefaults());
+  commitByPlayer(cloneDefaults());
   return snapshot;
 }
 
@@ -455,7 +498,7 @@ export function resetAction(action: ActionId): Bindings {
   load();
   const next = cloneCurrent();
   next[action] = [...DEFAULT_BINDINGS[action]];
-  commit(next);
+  commitByPlayer(next);
   return snapshot;
 }
 
@@ -537,7 +580,11 @@ let mac = false;
 function resolveMac(): void {
   if (typeof navigator === "undefined") return;
   const nav = navigator as unknown as { userAgentData?: { platform?: string }; platform?: string; userAgent?: string };
-  const claim = nav.userAgentData?.platform || nav.platform || nav.userAgent || "";
+  // All three, joined rather than preferred in order. `userAgentData.platform`
+  // is the modern answer, `platform` is what Safari still gives, and the UA
+  // string is the only one a test harness can set — and any of them saying Mac
+  // is enough, because nothing else in the world says "Macintosh".
+  const claim = `${nav.userAgentData?.platform ?? ""} ${nav.platform ?? ""} ${nav.userAgent ?? ""}`;
   mac = /mac/i.test(claim);
 }
 
@@ -653,4 +700,31 @@ export function isActionHit(action: ActionId, mouse?: { left: boolean; right: bo
 /** Called by `sampleInput` once the latch has been read. */
 export function clearTapped(): void {
   tappedCodes.clear();
+}
+
+// ---------------------------------------------------------------------------
+// A readback for tools/bindsynctest.mjs
+// ---------------------------------------------------------------------------
+//
+// The same shape of hook `input.ts` already hangs on the window for touchtest,
+// and it exists for the same reason: the harness must be able to ask the
+// SHIPPED module what it thinks, rather than keeping a second copy of the rules
+// in a .mjs file that can agree with itself while the game disagrees. That is
+// the failure this project has hit three times.
+//
+// READ-ONLY, deliberately. Nothing here writes a binding, so it is not a lever
+// a cheat could pull that localStorage does not already give away.
+if (typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__bretwaldaBinds = {
+    /** The live table `isActionDown` reads — not localStorage, not React. */
+    get table() { return getBindings(); },
+    get defaults() { return DEFAULT_BINDINGS; },
+    /** The platform-modifier rule, run against the shipped defaults. */
+    get ruleViolations() { return defaultsRuleViolations(); },
+    /** Physical codes down right now, so a harness can tell "the key never
+     *  arrived" from "the key arrived and was not bound to anything". */
+    get held() { return [...heldCodes]; },
+    label: (code: string) => labelForCode(code),
+    why: (code: string) => reservedReason(code),
+  };
 }

@@ -4478,6 +4478,7 @@ root, opts) {
         // flaps with daylight behind them.
         out.z += rz * o + lean * d * (0.32 + 0.68 * Math.max(0, rz));
         out.y -= d;
+        opts.fit?.(out, u);
     };
     return patch({
         nu, nv: N,
@@ -8985,7 +8986,7 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
         // it.
         if (helmed && style.cheek !== "none"
             && awayFromFace(u) > cheekIn - 0.11 && awayFromFace(u) < cheekOut + 0.15
-            && v < bandLo && v > cheekHemAt(awayFromFace(u)) - 0.02)
+            && v < bandLo && v > cheekHemAt(awayFromFace(u)) - 0.14)
             c = Math.min(c, HAIR_LINER);
         // A nape fall or a neck guard hangs off the back of the band on five rungs,
         // so the back is metal below the rim as well as above it. 2 mm rather than
@@ -9021,6 +9022,90 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
             c = Math.min(c, Math.max(0.002, mail - Math.hypot(_hcB.x, _hcB.z) - LAYER_GAP));
         }
         return c;
+    };
+    /**
+     * THE CEILING FOR A MASS THAT HANGS, which the first cut of this stack did
+     * not have — and not having it is why a garment's only lever over a fall was
+     * `mass`, and why the only thing `mass` can do to a fall is delete it.
+     *
+     * The aventail is a stack of horizontal rings, so the room at a point is the
+     * ring's own half-breadth at that height along the point's own azimuth, less
+     * a layer gap: the identical arithmetic `hairCeil`'s aventail branch uses,
+     * off the identical table. Applied only BEHIND the mail's opening — hair in
+     * front of the rim is hair in the opening, and squashing it there would be
+     * the same deletion under another name. At low levels `coifAt` has flared to
+     * R.x * 1.82 and this cannot bite, which is correct: the mail is nowhere near
+     * the head down there.
+     */
+    /**
+     * THE AVENTAIL'S OWN RINGS, INVERTED — where is the mail at this height?
+     *
+     * `hairCeil`'s aventail branch asks the question the other way round: given a
+     * DIRECTION, how much room is there? That is right for a shell lying on the
+     * skull, where a direction and a height are the same thing. It is wrong for a
+     * mass that hangs 320 mm, because the direction of a point that far down maps
+     * to a skull-surface height nowhere near the point's own — so the mail's
+     * radius gets read off the wrong ring and a fall that is 17 mm outside the
+     * rings measures as fitting. This reads the rings at the point's ACTUAL
+     * height, off the same table the coif is drawn from.
+     */
+    const coifRingAt = (y) => {
+        const n = coifLevels.length - 1;
+        if (y >= coifLevels[0].y)
+            return { v: 0, ...coifLevels[0] };
+        for (let i = 0; i < n; i++) {
+            const a = coifLevels[i], b = coifLevels[i + 1];
+            if (y <= a.y && y >= b.y) {
+                const f = (a.y - y) / (a.y - b.y);
+                return {
+                    v: (i + f) / n, y,
+                    hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z, b.z, f),
+                };
+            }
+        }
+        return { v: 1, ...coifLevels[n] };
+    };
+    /**
+     * Squash a hanging mass inside the mail rather than deleting it. A coif is a
+     * SLEEVE, open from `coifRim` round to `-coifRim`, so a point in front of the
+     * rim is a point in the opening and is left alone — that is where a mailed
+     * man's hair is seen, and squashing it there would be the same deletion under
+     * another name. Below the lowest ring there is no mail at all.
+     */
+    const coifSquash = (out) => {
+        if (!coifed || out.y < coifLevels[coifLevels.length - 1].y)
+            return;
+        const L = coifRingAt(out.y);
+        const px = out.x / L.hw, pz = (out.z - L.z) / L.hd;
+        if (Math.abs(Math.atan2(px, pz)) < coifRim(L.v))
+            return;
+        const e = Math.hypot(px, pz);
+        const lim = 1 - LAYER_GAP / Math.min(L.hw, L.hd);
+        if (lim <= 0 || e <= lim)
+            return;
+        const k = lim / e;
+        out.x *= k;
+        out.z = L.z + (out.z - L.z) * k;
+    };
+    const _ffA = new THREE.Vector3();
+    const fallFit = (out) => {
+        coifSquash(out);
+        const dy = out.y - skullY;
+        const r = Math.hypot(out.x, dy, out.z);
+        if (r < 1e-6)
+            return;
+        const c = hairCeil(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))));
+        if (!Number.isFinite(c))
+            return;
+        dirOf(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))), _ffA);
+        faceSurface(K, _ffA, _ffA);
+        const lim = _ffA.length() + c;
+        if (r <= lim)
+            return;
+        const k = lim / r;
+        out.x *= k;
+        out.z *= k;
+        out.y = skullY + dy * k;
     };
     /**
      * THE FALL. How much of a hanging mass survives at this azimuth.
@@ -9702,7 +9787,19 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                         // midline. A 34% trough 0.26 rad wide at the nape is that meeting,
                         // and it reads as a part from every bearing behind the ear because
                         // the surface really does dip there.
-                        reach: (u) => 1 - 0.10 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2)),
+                        //
+                        // AND THE FALL IS SHORTER INSIDE A COIF, which is the one thing about
+                        // this style a mail bag genuinely does change. 322 mm of hair hanging
+                        // out of the mail's opening reaches the aventail's own skirt at the
+                        // shoulder, which flares to R.x * 1.82 and is 130 mm behind the fall's
+                        // hem — `hairFitProbe` read 49.9 mm of mane outside the rings at
+                        // −156 mm, on 42 vertices, every one of them in the last third of the
+                        // fall. Hair pulled through a face opening is a shorter tail than hair
+                        // hanging free down a back; 0.58 stops it at the collar, above the
+                        // mail's flare, and the shape a player is buying — the mass beside the
+                        // face — is entirely in the part that is kept.
+                        reach: (u) => (coifed ? 0.58 : 1)
+                            * (1 - 0.10 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))),
                         hank: (u) => -0.30 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))
                             + 0.18 * Math.cos(u * 6.1 + 0.7) + 0.11 * Math.cos(u * 10.3 - 1.4),
                         // A hem that is not a curve. Hair ends where it stops growing, and
@@ -9710,6 +9807,8 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                         // whether its bottom edge is a ruled arc.
                         rag: (u) => 1 + 0.15 * Math.cos(u * 4.3 + 1.1) + 0.085 * Math.cos(u * 8.9 - 0.4),
                         lean: 0.10,
+                        // Compressed into the mail rather than scaled out of it.
+                        fit: fallFit,
                         thick: 0.008,
                     }), hair);
             }
@@ -9801,13 +9900,24 @@ export function buildCharacter(cls, ap, accents, materials, detail = "high", see
                     const guarded = helmed && style.cheek !== "none" && !Number.isFinite(hem);
                     const swingOut = guarded ? 0.056 : 0.030;
                     const swingFwd = guarded ? 0.022 : 0.086;
+                    // AND IT IS SHORTER WHERE IT STARTS LOWER. The plait's 352 mm is
+                    // measured from above the ear; taken from under a cheek plate's hem it
+                    // starts 120 mm further down, and 352 mm from there hangs its tip into
+                    // the aventail's skirt — `hairFitProbe` read 64.3 mm of rope outside
+                    // the rings on the Sutton Hoo. The rope ends where it always did
+                    // rather than 120 mm below it.
+                    const drop = 0.352 - Math.max(0, 0.16 - rootV) * 0.62;
                     const bp = (t, out) => {
                         // Out and forward as it falls, so the plait hangs beside the jaw
                         // rather than down the neck — that swing is the whole silhouette,
                         // and it is what makes this rung read from in front as well as in
                         // profile.
                         const swing = Math.pow(t, 1.35);
-                        out.set(bRoot.x + s2 * (swingOut * swing), bRoot.y - 0.352 * t, bRoot.z + swingFwd * swing);
+                        out.set(bRoot.x + s2 * (swingOut * swing), bRoot.y - drop * t, bRoot.z + swingFwd * swing);
+                        // A rope swings as it falls and a mail bag flares as it descends,
+                        // so a plait that starts clear of the aventail can still reach it
+                        // 200 mm down. Held inside it by the same table the shell is.
+                        fallFit(out);
                     };
                     p.add(braid(bp, {
                         // 5.6 turns, not 3.4, and this is the difference between a plait and
