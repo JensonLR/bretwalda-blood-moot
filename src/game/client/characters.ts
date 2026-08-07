@@ -5353,73 +5353,139 @@ function hangingMass(
 }
 
 const jag = (t: number, a: number, f: number) => a * (Math.cos(t * f) + 0.55 * Math.cos(t * f * 2.37 + 1.7));
+// ---- WAR PAINT, AND WHY IT LOOKED PRINTED ----
+//
+// "I'd like better war paint too, its generic & low quality rendered."
+//
+// "Low quality rendered" is the accurate half, and it is a sampling fault
+// rather than a taste one. These marks are written into the complexion field,
+// which is evaluated PER VERTEX of the head — and the head's grid is about
+// 13 mm across in u and 9 mm in v. Blood Stripes asked for a transition band of
+// `half * 0.12`, which is 6.6 mm: less than one cell. A boundary finer than the
+// mesh cannot be drawn by the mesh, so what the interpolator produces instead
+// is the mesh: `art/look/w_stripes.png` shows the stripes as a staircase of
+// hard red rectangles, one per triangle, which is exactly "low quality
+// rendered". Every `jag` term on top of that was above Nyquist too, so the
+// raggedness they were meant to add came out as more stairs.
+//
+// The answer is NOT to sharpen it. It is to author marks the mesh can carry,
+// which is also what the owner is asking for on the taste side: "a stroke has a
+// start, a direction and a taper; pigment sits in the skin." Pigment dragged
+// into skin with a finger has NO hard edge — it has a dense core and a spread
+// halo, it is heaviest where the finger landed and it dies out where the finger
+// lifted. All three of those are low-frequency, and low-frequency is what 13 mm
+// cells can draw.
+//
+// So every mark below is a STROKE: a segment with a start point, an end point,
+// a width that tapers along it, and a two-lobe falloff across it — a core at
+// 25% of the width and a halo out to 150% — rather than a box with a smoothstep
+// on its side.
+
+/**
+ * How much pigment a stroke leaves at a point.
+ *
+ * `(a0, y0) -> (a1, y1)` in the paint's own space, which is |dx| across and
+ * field latitude down. Those two axes have different scales — |dx| = 1 is 96 mm
+ * at the side of the head, latitude 1 is about 135 mm — so the across-axis is
+ * weighted by 1.4 and the metric is very nearly isotropic. Without that a
+ * stroke's width means one thing when it runs down the face and another when it
+ * runs across it, which is how the Raven Cross came to have a band four times
+ * the weight of its own bar.
+ */
+const stroke = (
+  ax: number, y: number,
+  a0: number, y0: number, a1: number, y1: number,
+  w0: number, w1: number,
+): number => {
+  const dx = (a1 - a0) * 1.4, dy = y1 - y0;
+  const L2 = dx * dx + dy * dy || 1e-6;
+  const t = ((ax - a0) * 1.4 * dx + (y - y0) * dy) / L2;
+  const te = clamp01(t);
+  const px = a0 + (a1 - a0) * te, py = y0 + (y1 - y0) * te;
+  const dist = Math.hypot((ax - px) * 1.4, y - py);
+  const w = Math.max(1e-4, mix(w0, w1, te));
+  // Along the stroke: full where the finger landed, dying over the last third
+  // where it lifted, and with a short lead-in so the start is not a cut end.
+  const along = smooth(-0.10, 0.06, t) * (1 - 0.85 * smooth(0.55, 1.02, t));
+  // Across it: a dense core inside a spread halo. Both transitions are wider
+  // than a mesh cell, which is the whole point.
+  const core = 1 - smooth(w * 0.10, w * 1.00, dist);
+  const halo = 1 - smooth(w * 0.70, w * 1.90, dist);
+  return along * clamp01(0.66 * core + 0.44 * halo);
+};
 
 const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
-  // BLOOD STRIPES — three raked bars down each cheek, wide at the cheekbone and
-  // dying below the jaw. They used to be three parallel verticals on ONE side of
-  // the face, running from the lip to above the brow: a bar code, and only on
-  // his left. Three fingers dragged down through blood is the thing this is
-  // meant to be, so the bars now converge slightly as they fall, taper at both
-  // ends, and carry past the mandible onto the throat — which is where they stay
-  // visible under a helmet with cheek guards, and under the mask.
+  // BLOOD STRIPES — three fingers dragged down through blood, starting at the
+  // cheekbone and dying below the jaw. They fan as they fall the way a hand's
+  // fingers do, the middle one is the heaviest because the middle finger
+  // presses hardest, and each carries past the mandible onto the throat, which
+  // is where they stay visible under a helmet with cheek guards and under the
+  // mask.
   stripes: {
     color: 0x7c1d10,
     mark: (ax, x, y, z, front) => {
       let cover = 0;
       for (let i = 0; i < 3; i++) {
-        // The rake: each bar leans out as it climbs, so the three fan open at the
-        // cheekbone the way a hand's fingers do. Started at 0.42 rather than 0.30
-        // so the inner bar lands on the cheek and not on the wing of the nose.
-        const centre = 0.42 + i * 0.21 + (y - Y_EYE) * 0.22;
-        const half = 0.055 + 0.013 * smooth(Y_CHIN, Y_EYE, y) + jag(y * 21 + i * 3.1, 0.011, 1);
-        // The transition band is a tenth of the bar's width, not half of it. At
-        // half the bars had no edge at all: three overlapping gaussians washed
-        // the whole cheek pink, which is a bruise. Paint drawn with a finger has
-        // a hard edge with a ragged line to it, and `jag` supplies the raggedness
-        // — the smoothstep only has to stop it aliasing.
-        const across = 1 - smooth(half * 0.88, half, Math.abs(ax - centre));
-        const along = smooth(Y_CHIN - 0.34, Y_CHIN - 0.10, y) * (1 - smooth(Y_EYE + 0.04, Y_EYE + 0.16, y));
-        cover = Math.max(cover, across * along);
+        // Fanning: the three start close together on the cheekbone and spread
+        // as they fall, which is what a hand does and what a set of parallel
+        // bars conspicuously does not.
+        const a0 = 0.24 + i * 0.30;
+        const a1 = a0 + 0.10 + i * 0.055;
+        const w = 0.185 + 0.045 * (1 - Math.abs(i - 1));
+        cover = Math.max(cover, stroke(
+          ax, y,
+          a0, Y_EYE + 0.055,
+          a1, Y_CHIN - 0.30,
+          w, w * 0.62,
+        ));
       }
       return cover * front;
     },
   },
-  // RAVEN CROSS — the pitch band across the eyes and the bar down the midline.
-  // Both were rectangles in (u, v). The band is now notched over the nose (paint
-  // does not bridge a dorsum in one stroke) and dies before the ear rather than
-  // stopping dead at a u limit, and the bar runs the full height of the face,
-  // over the ridge of the nose and down over the chin onto the throat, which is
-  // the part a mask leaves showing.
+  // RAVEN CROSS — a band of pitch across the eyes and a bar down the midline.
+  // Both were rectangles in (u, v) with 14% transition bands, so both came out
+  // as staircases. Both are strokes now: the band is drawn from the far cheek
+  // to the near one and lifts off the bridge of the nose, because paint does
+  // not bridge a dorsum in one pass; the bar runs from the hairline over the
+  // ridge of the nose and down over the chin onto the throat, which is the part
+  // a mask leaves showing.
   cross: {
     color: 0x15192b,
     mark: (ax, x, y, z, front) => {
-      const bandMid = Y_EYE + 0.045 - 0.055 * smooth(0.15, 0.95, ax);
-      const bandHalf = 0.150 * (1 - Math.pow(clamp01(ax / 1.02), 2.6)) + jag(ax * 17, 0.014, 1);
-      const band = 1 - smooth(bandHalf * 0.86, bandHalf, Math.abs(y - bandMid));
-      // The notch: the stroke lifts off the bridge of the nose, so the two halves
-      // read as two strokes of one hand rather than as a ruled line.
-      const notch = 1 - 0.55 * (1 - smooth(0.055, 0.135, ax)) * smooth(Y_NOSE, Y_EYE + 0.05, y);
-      const barHalf = 0.085 + 0.035 * smooth(Y_BROW, Y_CHIN, -y) + jag(y * 19, 0.012, 1);
-      const bar = (1 - smooth(barHalf * 0.84, barHalf, ax))
-        * smooth(-1.05, -0.86, y) * (1 - smooth(Y_BROW + 0.30, Y_BROW + 0.50, y));
+      // The band, as one stroke running outward and falling a little as it
+      // goes — a hand drawing across a face does not hold a level line.
+      const band = stroke(ax, y, 0.02, Y_EYE + 0.055, 1.06, Y_EYE - 0.030, 0.210, 0.150);
+      // The notch over the bridge. Wide and soft: at the old 0.055-0.135 it was
+      // half a mesh cell and drew a step rather than a lift.
+      const notch = 1 - 0.62 * (1 - smooth(0.05, 0.42, ax)) * smooth(Y_NOSE, Y_EYE + 0.06, y);
+      // The bar, down the midline, heaviest at the brow and dying on the
+      // throat.
+      const bar = stroke(ax, y, 0.0, Y_BROW + 0.34, 0.0, Y_CHIN - 0.34, 0.215, 0.140);
       return Math.max(band * notch, bar) * front;
     },
   },
   // HALF-FACE SHADOW — one side of the head in soot, and the most expensive of
   // the three, so it has to be the one that changes a man's read at fight
   // distance. It does: half a head at a different value is legible at 34 px when
-  // nothing else on the face is. The boundary follows the midline of the *skull*
-  // rather than a plane, wanders by 8 mm, and carries over the jaw, round the
-  // ear and down the throat — a man who has painted half his face does not stop
-  // at his chin.
+  // nothing else on the face is.
+  //
+  // The boundary was a ±0.022 smoothstep, which on a 13 mm grid is a HARD CUT
+  // with a stair in it — the "flat black smear with hard edges" exactly. It is
+  // 0.10 wide now, about 10 mm, so the edge is a soft line where the hand
+  // stopped rather than a mask boundary, and the two harmonics that wander it
+  // are both well below the mesh's Nyquist.
   half: {
     color: 0x18140f,
     mark: (ax, x, y, z, front) => {
-      const edge = -0.02 + jag(y * 9 + z * 4, 0.075, 1);
-      const side = smooth(edge + 0.022, edge - 0.022, x);
+      const edge = -0.02 + 0.075 * (Math.cos(y * 5.5) + 0.55 * Math.cos(y * 9.1 + z * 3.1 + 1.7));
+      const side = smooth(edge + 0.100, edge - 0.045, x);
+      // Denser toward the outside of the face and thinning across the midline,
+      // so the soot has a direction — a hand drags from the ear inward and runs
+      // out of pigment.
+      const load = 0.72 + 0.28 * smooth(0.10, 0.85, ax);
       // Behind the ear it wraps rather than ending: `front` would take the mark
       // off the side of the head entirely, which is where half of it lives.
-      return side * clamp01(0.45 + 0.55 * front);
+      return side * load * clamp01(0.45 + 0.55 * front);
     },
   },
 };
