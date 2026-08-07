@@ -954,6 +954,29 @@ interface ShellOptions {
    * width has to be scaled back up to compensate; `bladeSection` does that.
    */
   phase?: number;
+  /**
+   * Sweeps only part of the way round. `arc` is the angle covered in radians
+   * (default `2π`, the closed tube every other caller wants) and `start` is where
+   * that sweep begins, measured the same way the section is: `0` is +x, `π/2` is
+   * +z, so the front of a warrior is `π/2` and his back is `3π/2`.
+   *
+   * THIS EXISTS FOR THE HEM. `docs/COSMETICS-AUDIT.md` §1 records that the tunic
+   * reads as a kilt on every class — "a straight horizontal flare at mid-thigh"
+   * — and the reason is that the garment is one closed cone that ends in one
+   * unbroken horizontal line all the way round. A real tunic is slit at the
+   * centre front and the centre back so a man can walk, ride and use his legs,
+   * and it hangs in two panels that swing independently. Two panels need two
+   * open sweeps, and an open sweep is a partial arc.
+   *
+   * When `wall` is set the two longitudinal edges are closed into rims as well,
+   * so a panel is a piece of cloth with a visible thickness at its slit rather
+   * than a paper cut you can see through from the side. That matters more here
+   * than at the hem: the slit is a vertical line right down the silhouette's
+   * centre and a zero-width one would crawl exactly the way the `phase` note
+   * above describes.
+   */
+  arc?: number;
+  start?: number;
 }
 
 /**
@@ -972,13 +995,20 @@ function shell(stations: Station[], seg: number, opts: ShellOptions = {}): THREE
   const span = Math.abs(yTop - yBot) || 1;
 
   const phase = opts.phase ?? 0;
+  const arc = opts.arc ?? Math.PI * 2;
+  const start = opts.start ?? 0;
+  // A closed sweep's last vertex is the first one again, so the strip that joins
+  // them must wrap; an open one ends where it ends and must not. Everything below
+  // steps `i < seg` over `seg + 1` vertices either way — the difference is only
+  // whether the two longitudinal edges get rims, which is `open`.
+  const open = arc < Math.PI * 2 - 1e-6;
   const ring = (st: Station, inset: number): number => {
     const base = pos.length / 3;
     const hw = Math.max(2e-4, st.hw - inset);
     const hd = Math.max(2e-4, st.hd - inset);
     const v = 1 - (yTop - st.y) / span;
     for (let i = 0; i <= seg; i++) {
-      const a = ((i + phase) / seg) * Math.PI * 2;
+      const a = start + ((i + phase) / seg) * arc;
       const c = Math.cos(a);
       const s = Math.sin(a);
       pos.push(
@@ -1020,6 +1050,19 @@ function shell(stations: Station[], seg: number, opts: ShellOptions = {}): THREE
     for (let i = 0; i < seg; i++) {
       idx.push(ot + i, it + i + 1, ot + i + 1, ot + i, it + i, it + i + 1);
     }
+    if (open) {
+      // The two cut edges of a partial sweep, outer skin stitched to inner across
+      // the wall so a slit hem is cloth with a thickness. Windings are derived
+      // rather than guessed: the outer surface's own strip proves that increasing
+      // `i` runs anticlockwise seen from +y, so the start edge's outward normal is
+      // the −tangent and the end edge's is the +tangent, and these are the two
+      // orders that produce them.
+      for (let r = 0; r < n - 1; r++) {
+        const oT = outer[r], oB = outer[r + 1], iT = inner[r], iB = inner[r + 1];
+        idx.push(oT, iB, iT, oT, oB, iB);
+        idx.push(oT + seg, iT + seg, iB + seg, oT + seg, iB + seg, oB + seg);
+      }
+    }
   }
 
   if (opts.capTop) {
@@ -1038,7 +1081,11 @@ function shell(stations: Station[], seg: number, opts: ShellOptions = {}): THREE
   }
 
   const g = finish(pos, uv, idx);
-  weldRingNormals(g, rings, seg);
+  // Welding averages the first and last vertex of each ring, which is right when
+  // they are the same point on a closed tube and wrong when they are the two
+  // sides of a slit: it would round the panel's cut edges into each other and
+  // put a soft gradient where the garment's hardest line is.
+  if (!open) weldRingNormals(g, rings, seg);
   return g;
 }
 
@@ -7112,6 +7159,14 @@ export function buildCharacter(
   const wool = cloth(accents, bodyGirth);
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
+  // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
+  // garment and sewn on, so it is its own cloth at its own scale: 3 repeats round
+  // a band 16 mm tall is a coarse pattern rather than a weave, which is what a
+  // tablet loom actually makes. Takes the finish's wrap dye so a warrior's trim
+  // agrees with his legs instead of being a third opinion.
+  // Named `tablet` because `braid()` at module scope is the hair/beard curve
+  // builder and belongs to another part of the file entirely.
+  const tablet = M.tinted("wool", kit.wrap, { repeat: 3 });
   const hide = M.hide(kit.hide);
   const buff = thrifty ? hide : M.hide(kit.buff);
   // Linen is asked for by girth for the same reason wool is. A flat `repeat: 6`
@@ -7532,21 +7587,79 @@ export function buildCharacter(
         { y: ankle, hw: rAnkle, hd: rAnkle * 1.05 },
       ], lod.limb, { capTop: true, capBottom: true }), trouser);
 
-      // Leg wraps: wound wool from ankle to below the knee, the one piece of
-      // Dark Age kit everybody wore and nobody models.
-      const wrapTop = knee - 0.05;
-      p.add(shell([
-        { y: wrapTop, hw: rKnee * 1.14, hd: rKnee * 1.16 },
-        { y: mix(wrapTop, ankle, 0.5), hw: rCalf * 1.1, hd: rCalf * 1.14 },
-        { y: ankle + 0.03, hw: rAnkle * 1.28, hd: rAnkle * 1.32 },
-      ], lod.limb, { wall: 0.008 }), wrapWool);
-      if (lod.trim) {
-        for (let i = 0; i < 5; i++) {
-          const t = (i + 0.5) / 5;
-          const y = mix(wrapTop, ankle + 0.03, t);
-          const r = mix(rKnee * 1.14, rAnkle * 1.28, t) + 0.004;
-          p.add(ring(r, 0.0045, 4, 10), buff, xf(0, y, 0, Math.PI / 2, 0, 0.14, 1, 1, 1.04));
+      // ---- leg wraps (winingas) ----
+      //
+      // THE SECOND HALF OF THE KILT FINDING. `docs/COSMETICS-AUDIT.md` §1 says the
+      // hem reads as a kilt "over legs that read bare, because the leg wraps are
+      // only `rCalf * 1.1` proud and vanish". Measured against the leg shell under
+      // them, the old wraps stood 4 mm proud at the knee and 8 mm at the calf — a
+      // wound wool binding is a rope of cloth eight or ten turns deep and stands a
+      // centimetre and a half off the shin. At 4 mm it is a slightly different
+      // colour of leg, which is why the eye reported a bare one.
+      //
+      // Two changes and they do different jobs. THE WRAP IS NOW 14 mm PROUD at the
+      // calf and 12 at the ankle, which is the brief's number and is what makes a
+      // silhouette rather than a tint. AND IT IS WOUND RATHER THAN SMOOTH: five
+      // stacked turns, each a short shell with its own rolled lower edge, each
+      // stepping in a millimetre and a half as it climbs. A smooth cone with five
+      // cords painted on it — which is what was here — has one continuous outline
+      // and reads as a gaiter; five lapped turns have five hard horizontals on the
+      // shin and read as something a man wound on this morning.
+      //
+      // THE KNEE BREAKS because the wrap stops 42 mm below it. The old top was at
+      // `knee - 0.05` but only 4 mm proud, so nothing marked where it ended and
+      // the leg was one unbroken taper from hip to ankle. A wrap that stands out
+      // and then stops leaves the knee as the narrowest thing between two wider
+      // ones, which is the joint the whole leg reads from.
+      const wrapTop = knee - 0.042;
+      const wrapBot = ankle + 0.022;
+      const turns = lod.trim ? 5 : 3;
+      // Proud-ness in metres, lerped down the shin: the binding is thickest over
+      // the calf belly where the most cloth is wound and thins onto the ankle.
+      const proudAt = (t: number) => mix(0.0145, 0.012, t);
+      const legAt = (y: number) => {
+        // The trouser shell's own radius at this height, so "proud" is measured
+        // against the leg rather than asserted against a constant.
+        const stations: Array<[number, number]> = [
+          [knee - 0.03, rKnee * 1.02], [knee - 0.12, rCalf], [ankle + 0.1, rAnkle * 1.3], [ankle, rAnkle],
+        ];
+        let i = 0;
+        while (i < stations.length - 2 && y < stations[i + 1][0]) i++;
+        const t = clamp01((stations[i][0] - y) / (stations[i][0] - stations[i + 1][0] || 1));
+        return mix(stations[i][1], stations[i + 1][1], t);
+      };
+      const wrapR = (y: number) => {
+        const t = clamp01((wrapTop - y) / (wrapTop - wrapBot));
+        return legAt(y) + proudAt(t);
+      };
+      for (let i = 0; i < turns; i++) {
+        const y0 = mix(wrapTop, wrapBot, i / turns);
+        // Each turn laps a fifth of its own height past its share, which is the
+        // overlap that makes the horizontal visible from the side.
+        const y1 = mix(wrapTop, wrapBot, (i + 1) / turns) - ((wrapTop - wrapBot) / turns) * 0.18;
+        // A turn is fatter at its bottom edge than at its top — cloth lapping over
+        // cloth — so the stack is scalloped rather than conical.
+        const r0 = wrapR(y0) - 0.0016;
+        const r1 = wrapR(y1) + 0.0012;
+        p.add(shell([
+          { y: y0, hw: r0, hd: r0 * 1.06 },
+          { y: y1, hw: r1, hd: r1 * 1.07 },
+        ], lod.limb, { wall: 0.007, capTop: i === 0 }), wrapWool);
+        if (lod.trim) {
+          // The rolled edge of the turn. A rim is a specular line and a cone is
+          // not; this is the thing that actually resolves at fight distance.
+          p.add(ring(r1 * 1.02, 0.0042, 4, 10), wrapWool, xf(0, y1, 0, Math.PI / 2, 0, 0.1, 1, 1, 1.06));
         }
+      }
+      if (lod.trim) {
+        // The tie: a leather thong crossed over the top two turns and knotted at
+        // the outside of the calf, which is how a winingas is actually held on and
+        // is 60 mm of dark against pale wool right where the knee breaks.
+        for (const lean of [0.5, -0.5]) {
+          p.add(box(0.008, 0.062, 0.006), hide,
+            xf(side * wrapR(wrapTop - 0.02) * 0.62, wrapTop - 0.022, wrapR(wrapTop - 0.02) * 0.82, 0, 0.5 * side, lean));
+        }
+        p.add(ball(0.0075, 6), hide, xf(side * wrapR(wrapTop - 0.02) * 0.94, wrapTop - 0.022, wrapR(wrapTop - 0.02) * 0.42, 0, 0, 0, 1, 1, 0.7));
       }
       if (lamellar && lod.trim) {
         // Iron shin plate — the warden's discipline, visible below the hem.
@@ -7780,15 +7893,86 @@ export function buildCharacter(
     // horizontal are four silhouettes nobody can tell apart, which is what
     // `art/shots/v6/lineup.png` shows. See `BuildTrait.hem`.
     const tunicHem = S.hemY;
+    // THE HEM THAT READ AS A KILT. `docs/COSMETICS-AUDIT.md` §1: "a straight
+    // horizontal flare at mid-thigh over legs that read bare". Both halves of that
+    // are true and this is the first of them — the garment was one closed cone
+    // that ended in one unbroken horizontal all the way round, on all four
+    // classes, which is a skirt and not a tunic.
+    //
+    // A tunic is slit at the centre front and the centre back. That is not
+    // decoration: it is how a man walks, rides and fights in one, it is on every
+    // reconstruction of the period, and it turns the single horizontal into two
+    // hanging panels with two vertical edges between them — a shape that reads as
+    // *cloth over legs* rather than as a bell the legs come out of. The slit is
+    // also the one place the leg wraps below can be seen from the front, which is
+    // what makes the second half of the audit's finding fixable at all.
+    //
+    // THE RUNEKEEPER IS EXEMPT AND THAT IS THE POINT. He is the only class whose
+    // outer garment stays closed to the hem, because he is not a fighting man in a
+    // fighting man's tunic — he is a wisdom figure in a long robe, and an unslit
+    // hem is the cheapest true thing that says so. Coverage and cut, not invented
+    // armour: three slit tunics at three lengths and one closed robe.
+    const slitY = mix(S.hipY, tunicHem, 0.16);
     if (!bare) {
-      p.add(shell(
-        layer(
-          [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
+      if (robed) {
+        p.add(shell(
+          layer(
+            [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
+            0.021,
+            [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
+          ),
+          seg, { power: 2.3, wall: 0.014 },
+        ), cloakMat);
+      } else {
+        // Closed from the collar to where the slits start, just below the hip.
+        p.add(shell(
+          layer(
+            [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, slitY],
+            0.021,
+            [-0.003, 0, 0, 0, 0.003, 0.01, 0.022],
+          ),
+          seg, { power: 2.3, wall: 0.014 },
+        ), wool);
+        // Then two panels, one over each leg, lapping 14 mm over the closed part
+        // and half a millimetre proud of it so the join is a lap and not a
+        // z-fight. They hang 20 mm lower than the old single hem and flare wider,
+        // so the outline gains a swing it never had.
+        //
+        // `gap` is the half-angle of each slit. 0.115 rad either side of centre
+        // front and centre back opens roughly 35 mm at the hem, which is wide
+        // enough to survive the 390 px column and narrow enough that the man is
+        // not wearing two aprons.
+        const gap = 0.115;
+        const panelSeg = Math.max(5, Math.round(seg / 2));
+        const panelBottom = tunicHem - 0.02;
+        const panel = layer(
+          [slitY + 0.014, mix(slitY, panelBottom, 0.45), panelBottom + 0.055, panelBottom],
           0.021,
-          [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
-        ),
-        seg, { power: 2.3, wall: 0.014 },
-      ), robed ? cloakMat : wool);
+          [0.0225, 0.036, 0.056, 0.072],
+        );
+        for (const startAngle of [-Math.PI / 2 + gap, Math.PI / 2 + gap]) {
+          p.add(shell(panel, panelSeg, {
+            power: 2.3, wall: 0.014, arc: Math.PI - gap * 2, start: startAngle,
+          }), wool);
+          if (lod.trim) {
+            // Tablet-woven braid at the hem. This is the period's own way of
+            // finishing an edge and it is the cheapest flare in the file: a 16 mm
+            // band in the finish's second wool, on the one horizontal the eye
+            // already goes to. It also does structural work — the panel's lower
+            // rim used to be the only thing marking the hem, and a rim strip two
+            // pixels wide is this file's most reliable source of crawl.
+            const [a, b] = [panel[2], panel[3]];
+            const bandTop = (t: number) => ({
+              y: mix(a.y, b.y, t),
+              hw: mix(a.hw, b.hw, t) + 0.0022,
+              hd: mix(a.hd, b.hd, t) + 0.0022,
+            });
+            p.add(shell([bandTop(0.71), bandTop(1)], panelSeg, {
+              power: 2.3, wall: 0.006, arc: Math.PI - gap * 2, start: startAngle,
+            }), tablet);
+          }
+        }
+      }
     } else {
       // A sleeveless hide jerkin, open at the chest, cut off at the hip — the
       // berserker's hem is the highest on the roster and the reason he reads as
