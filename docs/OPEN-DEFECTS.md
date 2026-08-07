@@ -139,7 +139,15 @@ npm run cheattest (fresh postgres)   [cheattest] 40/40 checks passing           
 node tools/latencytest.mjs judder    JUDDER VERDICT: 17/17 checks pass — PASS       EXIT=0
 node tools/headmeasure.mjs           3 ratios outside tolerance · 0 of 15 SILHOUETTE FAILED
 node tools/wearmeasure.mjs           [wear] PASS: 10/10 helmets seated              EXIT=0
+npm run cosmetictest                 [cos] 18/18 checks passed
+                                     [cos] 19 rendered captures, 744.1 s wall clock
+                                     [cos] PASS                                    EXIT=0
+npm run perf                         low 743 draw calls · medium 3785 · high 4280  EXIT=0
 ```
+
+`perf`'s frame times on this box are swiftshader, not a device, and mean nothing.
+**Draw calls are the comparable number and they are identical to the pre-judgement
+run** — 743 / 3785 / 4280 — so nothing in this wave costs a frame.
 
 **touchtest took two runs, and the flake is now diagnosed rather than shrugged
 at.** The failing term is not the facing error — that was **1.3°**, well inside
@@ -159,6 +167,40 @@ says so. That is not a flake and not a defect.
 hex moved, so nothing already bought is re-billed and no profile is orphaned.
 `cheattest` 40/40 on a fresh postgres is the outside check on that.
 **It is still a price rise, and a price rise is the owner's call, not ours.**
+
+### PARTLY CLOSED — ten helms, and you *can* tell them apart
+
+`art/shots/helm-cards.png`, captured on this tip (10 panels, one huscarl, one
+mark, one camera). The owner's "pointed dark shapes with wing-like flares" is
+**not what this lens shows** — at portrait they are bright polished steel, and
+six of the ten are unmistakable:
+
+| distinct | Bare Head · **Shadow Hood** (now black wool, not a red balaclava) · Boar-Crest (gold boar) · Jarl's Crowned (circlet + spikes) · **Sutton Hoo** (full mask, intact — no regression) · Ridge Helm |
+|---|---|
+| **too alike** | **Iron Spangenhelm / Nasal Helm / Spectacle Helm** — three near-identical domes separated only by a nasal bar and a small apex spike |
+| **also alike** | Ridge Helm vs Wyrm-Crest — both a dome under one big curved arch |
+
+So the helm complaint is **half real**: the ladder is not ten dark cones, but
+30 g, 110 g and 280 g buy three shapes a player cannot tell apart. That is the
+rung to fix, and it is a narrower job than "rebuild the helmets".
+
+### OPEN, AND THE LOUDEST THING IN THE FRAME — the face is speckled
+
+The beard fix worked: the mouth is no longer buried. **But at ~400 px of head
+the face carries scattered dark brown flecks across cheek, forehead and jaw that
+read as dirt or scabbing rather than as stubble** — plainest on
+`art/shots/helm-cards.png` panel 1 (Bare Head) and on `art/ui/wave-helm-phone.png`,
+where the mannequin is largest.
+
+**This is not scored as a regression**, and the reason matters: the same cheek
+speckle is present in the live capture `art/ui/live-helmets-desktop.png`, so it
+predates this wave. What the wave changed is that the beard no longer *hides* it.
+Thinning the beard revealed a skin defect that was always there.
+
+Both causes are already named and neither is geometry on the beard:
+`armouryStage.ts` exposure (the same head reads fine under the arena key in
+`art/shots/final/`), and the complexion stamp. **Fix the shop's light first** —
+it is one number and it is what the owner is looking through.
 
 ### OPEN — the helmets were diagnosed and deliberately not touched
 
