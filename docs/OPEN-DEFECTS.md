@@ -6,6 +6,132 @@ change is made.
 
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
+---
+
+## THE ARMOURY JUDGEMENT — 7 Aug 2026 — SHIPPED on `main`
+
+The owner's five complaints, judged from frames on this tip. **Four of the five
+moved. One did not, and one fix bought its win with a cost nobody measured.**
+
+`art/shots/` is gitignored, so the paths below are regenerable, not committed:
+`npm run shots -- finishroster` (28 panels, ~45 s each, ~21 min).
+
+### CLOSED — "Warden permanently has a green lower half no matter the finish"
+
+This was the sharpest complaint and it is the cleanest fix. Live, the warden's
+tunic was `CLASS_TUNIC.warden = 0x5a6630`, **hue 78° olive, in all seven
+finishes** — `ap.armorColor` fed only `M.armour(...)`, which tints mail. It is
+now `tunicDye(kit.tunic, accents)`, and the hue by finish is:
+
+| finish | live | branch |
+|---|---|---|
+| Rough Iron | 78° | 42° |
+| Polished Steel | 78° | 193° |
+| Blackened Steel | 78° | 42° |
+| Bronze Scales | 78° | 37° |
+| Crimson Warplate | 78° | 18° |
+| Sea Queen's Gift | 78° | 188° |
+| Bretwalda Gold | 78° | 44° |
+
+Proven in frames, not only in arithmetic:
+`art/shots/cards/finishroster-1._Rough_Iron_0g_warden.png` is an olive-khaki
+skirt over tan leg wraps; `…-6._Sea_Queen_s_Gift_130g_warden.png` is a **teal
+skirt, navy mail and white wraps**. The whole man moves, not the shirt.
+
+**Residual:** at Rough Iron — the free default, which is what a player who has
+bought nothing sees — the tunic is still a yellow-olive (42°). It is browner
+than live and it is no longer *permanent*, but the first impression of the
+warden is unchanged until the player spends. That is the honest limit of this
+fix.
+
+### OPEN, NEW, AND CAUSED BY THE FIX — the four classes now wear one tunic
+
+`tunicDye`'s comment claims the class "shifts hue a fifth of the way … so four
+tunics stay four tunics." **The frames and the arithmetic both say otherwise.**
+Mean pairwise RGB separation across the four class tunics, against live's fixed
+constants (27.8):
+
+```
+LIVE  (class tunic fixed, same in every finish)          27.8
+BRANCH  Rough Iron          8.8   (32% of live)   <-- the free default
+BRANCH  Polished Steel      4.6   (17%)
+BRANCH  Blackened Steel     2.5   ( 9%)   <-- all four classes are one colour
+BRANCH  Bronze Scales       9.1   (33%)
+BRANCH  Crimson Warplate   10.0   (36%)
+BRANCH  Sea Queen's Gift   14.3   (52%)
+BRANCH  Bretwalda Gold     12.0   (43%)
+```
+
+The cause is one line: `s = min(0.6, a.s * (0.72 + b.s))`. Saturation is
+*multiplicative* in the dye lot's own saturation, so when the lot is near-neutral
+(Blackened Steel's `0x3a3733`) every class lands on the same grey and the 0.2 hue
+shift has no chroma to be visible in. Class lightness cannot rescue it either —
+all four accents sit at L 0.29–0.31, so they were never separating on value.
+
+This is a **regression in class readability against live**, and it applies at the
+free default, not only to players who buy. It ships because the classes still
+read apart by silhouette, weapon, helm and cloak (`art/shots/lineup.png`), and
+because reverting it would restore the owner's own complaint. It is the
+predictable next complaint — *"all my characters look the same now"* — and it
+should be the first thing the next wave fixes.
+
+**The fix is known and measured, not guessed.** An additive class-chroma term
+plus a stronger hue weight roughly doubles separation for ~13% of finish travel:
+
+```
+hue 0.20  satAdd 0     mean class sep  9.0   finish travel 24.2   (shipped)
+hue 0.34  satAdd 0.18  mean class sep 14.3   finish travel 23.5
+hue 0.40  satAdd 0.22  mean class sep 18.3   finish travel 21.1
+```
+
+Not applied this wave: it is a look change to all four classes in all seven
+finishes, and the 28-panel sheet that would prove it costs 21 minutes of the
+capture channel. Do it with the sheet, not without.
+
+### CLOSED — "no cloak option"
+
+`cloak_none` has existed since the initial commit. The defect was that
+`.tab-strip` cut the eight tabs at **"CLO…"** on a 1440 desktop, so CLOAKS,
+ARMOUR FINISH and WAR PAINT were unreachable with a mouse — worse on desktop
+than on phone, which can swipe. The strip now wraps above 700 px.
+**A/B: `art/ui/live-helmets-desktop.png` (cut) vs `art/ui/wave-helm-desktop.png`
+(two rows, all eight reachable).** Phone keeps the strip and is untouched
+(`art/ui/wave-helm-phone.png`).
+
+### CLOSED — the Roman banded plate is off the warden
+
+`lorica segmentata` — six rigid courses, plate yoke, iron shin plate — is gone;
+he wears a hip-length mail byrnie, a shoulder doubling and cross-gartering. The
+`lamellar` boolean is renamed `wallman` so the flag stops naming armour that is
+no longer on the model. Visible in `art/shots/lineup.png`.
+
+### OPEN — the head is a lateral move, and the shop's light is the reason
+
+The beard no longer swallows the mouth: live's default Close Crop ran to
+`Y_LIP + 0.045` and buried an `addMouth` nothing could see. On this tip the mouth
+is the gap between two masses. **But at portrait size the beard now reads as
+scattered dark flecks on a pale, washed-out cheek rather than as hair** — see
+`art/ui/wave-helm-phone.png`, where the mannequin is largest. Live's solid dark
+beard read *worse anatomically and better as a character*.
+
+The largest single cause is not geometry: it is `armouryStage.ts` exposure. The
+same head reads well under the arena's dusk key (`art/shots/final/`) and pale and
+blotchy in `art/ui/wave-helm-*.png`. **The owner is looking at the shop.** Fix
+the shop's key light before touching the head again.
+
+### OPEN — the helmets were diagnosed and deliberately not touched
+
+"Pointed dark shapes with wing-like flares" localises to two numbers: the `cone`
+bowl at taper `1.15` is a near-linear rise (a straight-sided cone with a sharp
+apex), and the nape fall starts at `skullY + R.y * 0.47` — above the head's
+centre — and flares to `R.x * 1.38`, which reads from the front as two wings
+behind the face on ridge/boar/crowned/wyrm. Not changed without a before-shot to
+A/B against; the risk was regressing the Boar-Crest and Sutton Hoo, and
+`docs/SUTTON-HOO.md` is about exactly that failure. Sutton Hoo is captured
+intact at `art/shots/final/facecard-helmhelm_suttonhoo-…png`.
+
+---
+
 Current reference: **`art/shots/v12/`**. A/B against `v11/`.
 The head's own turntable: **`art/shots/judge9c/`** (portrait) and
 `art/shots/judge9b/head-turn-fight.png` (fight range). A/B against
