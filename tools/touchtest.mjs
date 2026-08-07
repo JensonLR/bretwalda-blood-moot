@@ -21,7 +21,7 @@
 // ============================================================
 import { chromium } from "playwright";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -108,6 +108,25 @@ const PROBE = () => {
   // "with nothing else changed" is the whole of the claim it makes.
   w.__freeze = false;
 
+  // THE FRAME CLOCK. The lock is a controller that runs once per animation
+  // frame; the wire delivers snapshots at 20 Hz regardless. On a box with no
+  // GPU those two rates come apart badly — a post chain that blocks the main
+  // thread for half a second lets four snapshots land against a camera that
+  // has not been allowed to move since the first of them. Reading a facing
+  // error across that gap grades the rasteriser, not the lock.
+  //
+  // This does not wrap requestAnimationFrame — it only rides it, so nothing in
+  // the app can be delayed or reordered by the measurement. Every snapshot row
+  // then carries how many frames the client had drawn by the time it arrived,
+  // which is what makes "the camera had a chance to act on this" answerable.
+  w.__frames = { n: 0, at: performance.now() };
+  const tickFrameClock = () => {
+    w.__frames.n++;
+    w.__frames.at = performance.now();
+    requestAnimationFrame(tickFrameClock);
+  };
+  requestAnimationFrame(tickFrameClock);
+
   const RealWS = window.WebSocket;
   function TappedWS(url, protocols) {
     const ws = protocols === undefined ? new RealWS(url) : new RealWS(url, protocols);
@@ -161,6 +180,10 @@ const PROBE = () => {
           if (w.__probe.frames.length > 900) w.__probe.frames.shift();
           w.__probe.frames.push({
             t: performance.now(),
+            // The frame clock at the instant this snapshot landed. `fn` is the
+            // client's frame count, `fdt` how long the camera had already been
+            // standing still when the packet arrived.
+            fn: w.__frames.n, fdt: performance.now() - w.__frames.at,
             rot: mine.rotation, state: mine.state,
             x: mine.position.x, z: mine.position.z,
             // Which man the client believes it is holding. The only thing in
@@ -515,6 +538,10 @@ async function lockAct(browser, url, check) {
         const moved = firstFoe && lastFoe ? Math.hypot(lastFoe.x - firstFoe.x, lastFoe.z - firstFoe.z) : 0;
         return { worst, n, yawTravel, moved, id };
       }, mark);
+      if (process.env.TOUCH_DIAG) {
+        const raw = await page.evaluate((t) => window.__probe.frames.filter((f) => f.t >= t), mark);
+        writeFileSync(resolve(process.env.TOUCH_DIAG, `lockA-${Date.now()}-${i}.json`), JSON.stringify(raw));
+      }
       if (read.n >= 8 && read.moved > 0.8) break;
     }
     check("the lock holds facing on a moving target with no thumb on the button side",

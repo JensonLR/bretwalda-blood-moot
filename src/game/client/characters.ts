@@ -3894,6 +3894,44 @@ export interface ShellFit {
   /** Where the worst of it is, in the head's own (u, v). NaN if it is clean. */
   foldU: number;
   foldV: number;
+  /**
+   * THE OWNER'S DEFECT, and the three numbers above could not see it.
+   *
+   * "The helmets don't seem any better either theres a lot of raised floating
+   * aspects" — pale curved flanges flaring out and up from the sides of the
+   * head, with daylight between them and the cheek. `standoffMm` says nothing
+   * about it because it reports the number the AUTHOR WROTE along the true
+   * normal, and `minLiftMm` says nothing about it because a flange that touches
+   * at its hinge and flies at its hem has a perfectly good minimum. What the
+   * eye is reading is the gap you can see through and the angle the metal makes
+   * with the head, and those are these three.
+   *
+   * GAP is the largest daylight between the shell's INNER wall and the skin,
+   * radially — the thing you can look through. A liner is 8-12 mm and a mail
+   * gap under a jaw is another 10, so anything past about 25 mm on a piece that
+   * is supposed to hang against the head is a hole in the costume.
+   */
+  gapMm: number;
+  /** Where the widest daylight is, in the head's own (u, v). */
+  gapU: number;
+  gapV: number;
+  /**
+   * FLARE is the angle the shell's surface makes with the head's, along the
+   * direction the piece hangs in. Zero is a plate lying parallel to the skull;
+   * 45 deg is a plate that moves a millimetre away from the head for every
+   * millimetre it travels down it, which is a wing. This is the measurement the
+   * owner is making by eye, and no bar in this file was making it.
+   */
+  flareDeg: number;
+  flareU: number;
+  flareV: number;
+  /**
+   * The standoff at the FREE EDGE — the hem of a cheek guard, the bottom ring
+   * of a nape fall, the lip of a flange. A hanging plate is furthest from the
+   * head at its hinge and closest at its hem; a plate that is furthest at its
+   * hem is not hanging, it is flaring.
+   */
+  hemMm: number;
 }
 
 export interface HelmFit {
@@ -3924,13 +3962,17 @@ export interface HelmFit {
  */
 export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): HelmFit {
   const spy: WornShellSpec[] = [];
+  const rspy: WornRingSpec[] = [];
   const prev = _wearSpy;
+  const prevR = _ringSpy;
   _wearSpy = spy;
+  _ringSpy = rspy;
   try {
     const ap = { ...defaultAppearance(cls), helm };
     buildCharacter(cls, ap, 0x8a6b3f, undefined, "high", seed);
   } finally {
     _wearSpy = prev;
+    _ringSpy = prevR;
   }
   // The same skull `buildCharacter` just used: `identity` is the seed it was
   // handed, and the stature step it quantises to scales the skeleton the head is
@@ -3985,6 +4027,8 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     const ht = 0.25 / NU, hs = 0.25 / NV;
     let punch = 0, through = 0, standoff = 0, minLift = Infinity;
     let tu2 = NaN, tv2 = NaN;
+    let gap = 0, gu = NaN, gv = NaN, flare = 0, flu = NaN, flv = NaN;
+    let e0 = 0, e1 = 0, e0y = Infinity, e1y = Infinity;
     // The fold verdict is deferred, because it needs a scale. Every patch on a
     // sphere has samples where its own parameterisation collapses — at a pole
     // the u-tangent goes to nothing — and there the cross product is the
@@ -4010,6 +4054,32 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         if (-cOut > through) { through = -cOut; tu2 = u; tv2 = mix(o.v0(u), o.v1(u), s); }
         if (lift > standoff) standoff = lift;
         if (lift < minLift) minLift = lift;
+        // GAP — daylight you can see under the metal. Radial, because that is
+        // the direction a viewer's eye travels down into the gap.
+        if (cIn > gap) { gap = cIn; gu = u; gv = mix(o.v0(u), o.v1(u), s); }
+        // HEM — the standoff at the free edge. "Free" is not a parameter
+        // convention: `v0` is the hem on a cheek guard and the top ring on a
+        // nape fall, and hard-coding either would measure the hinge on half the
+        // shop. It is the LOWER of the two edges in y, which is what hanging
+        // means.
+        if (s === 0) { if (pOut.y < e0y) e0y = pOut.y; if (lift > e0) e0 = lift; }
+        if (s === 1) { if (pOut.y < e1y) e1y = pOut.y; if (lift > e1) e1 = lift; }
+        // FLARE — how fast the metal leaves the head as it travels along its own
+        // hang direction. `dGap / dArc` on the skin under it, as an angle. The
+        // arc guard is the pole: where the parameterisation collapses the ratio
+        // is the direction of the rounding error.
+        {
+          const s3 = Math.min(1, s + hs);
+          at(o, t, s3, o.lift(u, s3), b1);
+          at(o, t, s3, 0, b2);
+          at(o, t, s, 0, pIn);
+          const arc = b2.distanceTo(pIn);
+          if (arc > 1e-4) {
+            const d = Math.abs(skinClearance(tab, b1) - cOut) / arc;
+            const ang = Math.atan(d) * 180 / Math.PI;
+            if (ang > flare) { flare = ang; flu = u; flv = mix(o.v0(u), o.v1(u), s); }
+          }
+        }
         // Orientation of the offset sheet against orientation of the skin under
         // it, both from the same two forward differences.
         const t2 = Math.min(1, t + ht), s2 = Math.min(1, s + hs);
@@ -4050,6 +4120,74 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       foldFrac: folds / Math.max(1, n),
       foldU: fu,
       foldV: fv,
+      gapMm: gap * 1000,
+      gapU: gu,
+      gapV: gv,
+      flareDeg: flare,
+      flareU: flu,
+      flareV: flv,
+      hemMm: (e0y <= e1y ? e0 : e1) * 1000,
+    });
+  }
+  // And the pieces swept on their own rings — the nape fall, which for four of
+  // the ten rungs is the biggest sheet of metal on the helmet and was outside
+  // this loop entirely until now. There is no `lift` to read here, so standoff
+  // IS the radial clearance; fold and skin-through are meaningless on a shape
+  // that is not an offset of the head and are reported as zero rather than
+  // faked.
+  const rOut = new THREE.Vector3();
+  const rIn = new THREE.Vector3();
+  const rNext = new THREE.Vector3();
+  const rHere = new THREE.Vector3();
+  const drop = new THREE.Vector3(0, 0, 0);
+  for (const o of rspy) {
+    const NU = Math.max(12, o.nu * 3);
+    const NV = Math.max(8, o.nv * 3);
+    let gap = 0, gu = NaN, gv = NaN, flare = 0, flu = NaN, flv = NaN;
+    let standoff = 0, minC = Infinity, punch = 0;
+    let e0 = 0, e1 = 0, e0y = Infinity, e1y = Infinity;
+    drop.set(0, o.originY, 0);
+    for (let i = 0; i <= NU; i++) {
+      for (let j = 0; j <= NV; j++) {
+        const t = i / NU, s = j / NV;
+        o.outer(t, s, rOut); rOut.sub(drop);
+        o.inner(t, s, rIn); rIn.sub(drop);
+        const cOut = skinClearance(tab, rOut);
+        const cIn = skinClearance(tab, rIn);
+        if (-cIn > punch) punch = -cIn;
+        if (cOut > standoff) standoff = cOut;
+        if (cOut < minC) minC = cOut;
+        if (cIn > gap) { gap = cIn; gu = t; gv = s; }
+        if (s === 0) { if (rOut.y < e0y) e0y = rOut.y; if (cOut > e0) e0 = cOut; }
+        if (s === 1) { if (rOut.y < e1y) e1y = rOut.y; if (cOut > e1) e1 = cOut; }
+        const s3 = Math.min(1, s + 0.25 / NV);
+        o.outer(t, s3, rNext); rNext.sub(drop);
+        rHere.copy(rOut);
+        const arc = rNext.distanceTo(rHere);
+        if (arc > 1e-4) {
+          const ang = Math.atan(Math.abs(skinClearance(tab, rNext) - cOut) / arc) * 180 / Math.PI;
+          if (ang > flare) { flare = ang; flu = t; flv = s; }
+        }
+      }
+    }
+    shells.push({
+      tag: o.tag,
+      punchMm: punch * 1000,
+      throughMm: 0,
+      throughU: NaN,
+      throughV: NaN,
+      standoffMm: standoff * 1000,
+      minLiftMm: (Number.isFinite(minC) ? Math.max(0, minC) : 0) * 1000,
+      foldFrac: 0,
+      foldU: NaN,
+      foldV: NaN,
+      gapMm: gap * 1000,
+      gapU: gu,
+      gapV: gv,
+      flareDeg: flare,
+      flareU: flu,
+      flareV: flv,
+      hemMm: (e0y <= e1y ? e0 : e1) * 1000,
     });
   }
   return { helm, cls, seed, shells };
@@ -4189,6 +4327,41 @@ export interface WornShellSpec {
  * feature of it, and the build behaves identically whether or not it is open.
  */
 let _wearSpy: WornShellSpec[] | null = null;
+
+/**
+ * A worn piece swept on ITS OWN rings rather than on the head's field.
+ *
+ * There is one of these — the fall off the back of the band — and it is exactly
+ * the piece the owner is looking at. It is built with a bare `patch` because a
+ * field-sampled fall hangs inside the huscarl's coif (see the block that builds
+ * it), and the consequence of that bare `patch` is that `helmFitProbe` NEVER
+ * SAW IT. The spy only taps `headWear`, so for four of the ten rungs the single
+ * largest sheet of metal on the helmet was outside the gate entirely, and
+ * `wearmeasure` reported "10/10 seated" while a plate stood off the side of the
+ * head like a wing. A gate with a hole in it is worse than no gate, because it
+ * is believed.
+ *
+ * So rings go through here instead, and the probe measures them in the same
+ * three terms as everything else. `originY` is where the skull's centre sits in
+ * the frame these points are authored in, because `skinClearance` is radial
+ * from that centre and the rings are drawn in the parent's frame.
+ */
+export interface WornRingSpec {
+  tag: string;
+  nu: number;
+  nv: number;
+  originY: number;
+  outer(t: number, s: number, out: THREE.Vector3): void;
+  inner(t: number, s: number, out: THREE.Vector3): void;
+}
+
+let _ringSpy: WornRingSpec[] | null = null;
+
+/** `patch`, with the fit probe watching. Same geometry, byte for byte. */
+function wornRing(spec: WornRingSpec): THREE.BufferGeometry {
+  if (_ringSpy) _ringSpy.push(spec);
+  return patch({ nu: spec.nu, nv: spec.nv, outer: spec.outer, inner: spec.inner });
+}
 
 /**
  * Anything worn on the head: hair, beard, war paint, a helm bowl, a hood. `lift`
@@ -10404,7 +10577,9 @@ export function buildCharacter(
         // guard renders inside out — which reads as a hole in the back of the head.
         const sweep = (inset: number) =>
           (t: number, v: number, out: THREE.Vector3) => fall(mix(Math.PI + half, Math.PI - half, t), v, inset, out);
-        p.add(patch({
+        p.add(wornRing({
+          tag: deep ? "nape guard" : "nape flange",
+          originY: skullY,
           nu: Math.max(8, lod.shellU - 2), nv: 3,
           outer: sweep(0), inner: sweep(0.008),
         }), capMetal);
@@ -11451,6 +11626,7 @@ export function buildCharacter(
         // skull that no other class on the roster has.
         for (const u of [0, Math.PI]) {
           p.add(headWear(K, {
+            tag: "warden comb",
             u0: u - 0.055, u1: u + 0.055,
             v0: () => bandHi - 0.02, v1: () => Math.PI / 2 - 0.02,
             nu: 1, nv: 5, lift: (_u, v) => 0.022 + 0.052 * Math.sin(v * Math.PI), thick: 0.008,
@@ -11465,6 +11641,7 @@ export function buildCharacter(
       // already built one above, on rings, and two would fight for the same air.
       if (wallman && style.nape === "none") {
         p.add(headWear(K, {
+          tag: "warden flange",
           u0: Math.PI - 1.15, u1: Math.PI + 1.15,
           v0: () => bandLo - 0.30, v1: () => bandLo + 0.01,
           nu: Math.max(6, lod.shellU - 4), nv: 2,
@@ -11477,6 +11654,7 @@ export function buildCharacter(
         // and a ragged organic crest is the opposite read from the warden's
         // machined steel fin, which is the point of having both.
         p.add(headWear(K, {
+          tag: "bristle",
           u0: -0.085, u1: 0.085,
           v0: () => bandHi - 0.06, v1: () => Math.PI / 2 - 0.02,
           nu: 2, nv: 6,
