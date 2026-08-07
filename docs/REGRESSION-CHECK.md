@@ -37,7 +37,85 @@ deploy-lag artefact: for two days the branch was well ahead of what was served.
 
 ## Q1 — did we regress and lose the design in the owner's reference image?
 
-TODO — captures running.
+**Two answers, and both matter.**
+
+**(a) No commit in this repository has ever rendered that character.** The head
+in that image has never existed here.
+
+**(b) But the owner is right that something was lost, and my first instinct
+about what was wrong.** The *staging* in that image is this codebase's own
+armoury preview as it stood until 2026-08-05. We replaced a full-body warrior
+standing in a lit ring with a head-and-shoulders crop of our weakest asset.
+
+### (a) The character
+
+Frames, oldest to newest, all of the armoury with the default profile:
+
+| Commit | Date | Frame |
+|---|---|---|
+| `f74c669` | 2026-08-01 | `armoury-desktop.png`, `armoury-phone.png` (via `node tools/uishots.mjs`) |
+| `cfb49fc` | 2026-08-05 | `yday-helmets-desktop.png` |
+| `07dd3de` | 2026-08-07 (live) | `live-helmets-desktop.png`, `live-fullkit-desktop.png` |
+
+Nothing in any of them has short individually-modelled curly hair, a plain
+silver circlet, or a naturalistic face with eyelids and lips. The face goes from
+a crude bobble at 08-01 to a crude sculpted mask today. It gets *more* detailed
+over time, never less — so there is no earlier, better head to have lost.
+
+That is not just an eyeball verdict; the primitives are not there, and a search
+over **all** commits on **all** branches confirms it:
+
+- **Hair cannot curl.** `characters.ts:8414` builds hair as a single displaced
+  parametric shell over the skull. The "fourteen locks" in its own comment are
+  cosine harmonics on a lift function — `0.20*cos(7u) + 0.14*cos(13u) +
+  0.10*cos(9v+3u)` — not geometry. There are four styles ever: shaved, crop,
+  mane, braids. No per-lock or per-curl primitive has existed in any commit.
+- **There is no circlet.** `git log --all -S'circlet'` returns four commits, all
+  of them the *Jarl's Crowned Helm*, where `crown: "circlet"` is a band welded
+  onto a helmet bowl. A silver circlet worn on bare hair has never been buildable.
+- **There are no cobblestones.** `git log --all -S'cobble' -- src/` returns two
+  commits, and in both, "cobble" appears only inside a *comment* describing how
+  the muddy arena ground unintentionally read. No cobbled surface was ever
+  authored.
+
+So: a spear, a red cloak, dark hose, white leg-wraps, brown boots, a mailed
+shoulder and a bracer are all real things this game builds. A curly-haired,
+circleted, naturalistically-sculpted head is not, and never was. **That image
+was not produced by this codebase.** Most likely it is our staging described
+from memory, with the face filled in by expectation — which is a completely
+normal thing for a person to do, and is not the owner being careless.
+
+### (b) What we actually lost — and this is the real finding
+
+Compare `armoury-phone.png` @ `f74c669` with `live-helmets-desktop.png` @ tip.
+
+**On 2026-08-01 the armoury opened on a whole man**: full body, facing front, lit
+by a soft key on a dark ground, standing inside a **thin orange ring**, wearing a
+**red cloak**, holding a **spear**, with **white leg-wraps** and **brown boots**
+below dark hose, and mail at the shoulders. Read that list against the owner's
+description of his reference image. It matches on every point except the head.
+
+**Today the armoury opens on `PORTRAIT`** — a head-and-shoulders crop. The
+armoury switched from `CharacterPreview.tsx` to `armouryStage.ts` on 2026-08-05
+and made the head crop the default lens.
+
+That single change is most of the owner's complaint:
+
+1. It fills the screen with **the face and beard**, which are the weakest things
+   we own, and hides the kit, which is the strongest.
+2. It is why "the outfits are barely affected by armour finish" reads so loudly
+   — at PORTRAIT you can barely see an outfit at all.
+3. Every helmet thumbnail became a head crop too, which is why they read as
+   "pointed dark shapes with odd wing-like flares".
+
+And the fallback is broken: **the `FULL KIT` lens photographs the man's back.**
+`live-fullkit-desktop.png` is a red cloak filling the frame with a spear beside
+it and the head tiny at the top. So a player who goes looking for the old view
+cannot get it.
+
+**Verdict for the owner, in one line:** we did not lose a better character — we
+lost the shot that made the character look good, and replaced it with a close-up
+of the part that needed the most work.
 
 ---
 
