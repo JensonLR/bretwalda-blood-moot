@@ -208,12 +208,30 @@ export function migrateAppearance(ap: Appearance): Appearance {
  *      the shield; the buckle and brooch are the two brightest things at
  *      portrait range. Both lenses now show the money.
  *
- * THE TEAM ACCENT IS DELIBERATELY NOT IN HERE. `wool` — the tunic, the single
- * largest garment — stays `accents`, which is the team colour. That split is the
- * point rather than an omission: the tunic says which side he is on and must
- * stay legible at fifty metres, and everything else on him says who he is. If
- * the finish dyed the tunic too, a Crimson team and a Crimson finish would be
- * one red mass and the game would lose a read it needs more than the shop does.
+ * THE TUNIC, AND A CORRECTION I OWE THE FRAME THAT CAUGHT ME.
+ *
+ * The first version of this note claimed the tunic had to stay out of the
+ * palette because `accents` is the team colour and a Crimson team in a Crimson
+ * finish would be one red mass. That was wrong, and `art/shots/lineup.png` is
+ * what disproved it: the warden's lower half is still olive after everything
+ * above was wired up. `accents` is not a team colour at all. It is
+ * `CLASS_TUNIC[cls]` in `render/anim.ts` — four hard-coded per-class constants,
+ * and the warden's is `0x5a6630`, an olive green. There are no teams in it.
+ *
+ * SO THAT CONSTANT IS THE OWNER'S GREEN LOWER HALF. Not the trousers, which is
+ * where I looked first. The tunic is the largest garment on the man, the warden's
+ * hem is short enough to put it squarely at mid-thigh, and his shield covers the
+ * chest at every fighting bearing, so olive at the hem is most of what a player
+ * sees of him. It was immune to the finish because nothing in the shop had ever
+ * been wired to it.
+ *
+ * The tunic is therefore in the palette too — but as a DYE THE CLASS SHIFTS
+ * rather than as a flat override, because the four class colours are doing real
+ * work at fight distance and replacing them with one colour would trade the
+ * owner's complaint for a worse one. `tunicDye` takes the finish's dye lot and
+ * lets the class's own accent push its hue, saturation and value; the finish
+ * decides what vat the wool went in, the class decides how it wears it. Four
+ * tunics stay four tunics, and all four move when a finish is bought.
  *
  * `fitting` is the fourth column and the one that reaches the berserker: it is
  * `brass` in the build, and `brass` is the buckle frame, the belt studs, the
@@ -8822,6 +8840,82 @@ export function buildCharacter(
         lift: (u, s) => mane(u, mix(line(u), Math.PI / 2 - 0.02, s)),
         thick: helmed ? 0.004 : 0.006,
       }), hair, place.clone());
+      // ---- THE LOCKS, and this is what the shell alone can never be ----
+      //
+      // Everything above is ONE parametric shell whose "fourteen locks" are
+      // cosine harmonics multiplying its lift. That is a bumpy surface, and a
+      // bumpy surface is not hair — its OUTLINE is still the skull's own curve
+      // scaled up, because a harmonic on the lift moves the silhouette by the
+      // amplitude of the harmonic and no further. The audit photographed the
+      // result and called it a smooth egg; it was right, and no amount of extra
+      // harmonics fixes it, because the defect is topological rather than
+      // numerical. Hair breaks a head's outline because hair is MANY OBJECTS
+      // with air between them.
+      //
+      // So there are real locks now: short coils sprung off the scalp, each one
+      // a single strand orbiting its own axis — which is exactly what `braid`
+      // draws at `strands: 1`, and the reason it is reused here rather than a
+      // curl primitive being written. They fall as they spring, so the coil
+      // droops instead of standing off like a bristle.
+      //
+      // This is the owner's reference read as a specification: short curly hair,
+      // naturalistic, nothing that swallows the face. The crop gets the densest
+      // course because the crop is the free default and the style the reference
+      // actually shows; the two paid styles get fewer, because they are already
+      // buying their outline from the fall and the plaits.
+      if (lod.trim) {
+        const lockRoot = new THREE.Vector3();
+        const lockNrm = new THREE.Vector3();
+        const lockDir = new THREE.Vector3();
+        // Two courses: one along the hairline, where a lock is seen against the
+        // face and against the sky, and one over the crown, which is the band
+        // that has to break the dome. Under a helm the crown course is dropped
+        // entirely — a bowl sits on that scalp — and the hairline course is kept
+        // only where the band's rim has risen off the head, so what shows is
+        // hair emerging from under iron rather than hair through it.
+        const courses = helmed ? [0.10] : [0.10, 0.62];
+        for (const rise of courses) {
+          const N = crop ? 22 : 15;
+          for (let i = 0; i < N; i++) {
+            // Jittered in both axes off a strict ring: a course laid on an exact
+            // circle at an exact spacing is a wreath, and a wreath is the string
+            // of spheres the audit condemned in the war-locks under another name.
+            const u = (i / N) * Math.PI * 2 + 0.14 * Math.cos(i * 2.7 + rise * 9);
+            if (helmed && awayFromFace(u) < 0.62) continue;
+            const v = line(u) + rise + 0.05 * Math.cos(i * 3.9 + rise);
+            if (v > Math.PI / 2 - 0.12) continue;
+            dirOf(u, v, lockDir);
+            faceSurface(K, lockDir, lockRoot);
+            faceNormalTrue(K, u, v, lockNrm);
+            // Sunk into the shell by nearly half its own lift, so the coil grows
+            // out of the mass rather than resting on it with a seam round the
+            // root.
+            lockRoot.addScaledVector(lockNrm, mane(u, v) * 0.45);
+            const nx = lockNrm.x, ny = lockNrm.y, nz = lockNrm.z;
+            const len = (crop ? 0.040 : 0.034) * (0.78 + 0.34 * hash(identity, i * 7 + Math.round(rise * 100)));
+            const rad = (crop ? 0.0125 : 0.0105) * (0.85 + 0.30 * hash(identity, i * 11 + 3));
+            p.add(braid((t, out) => {
+              // Out along the normal, then over: the springy part of the arc is
+              // the first third, and after that the lock is falling. Without the
+              // fall term these stand off the skull like a mace head.
+              out.set(
+                lockRoot.x + nx * len * (0.95 * t - 0.30 * t * t),
+                lockRoot.y + ny * len * (0.95 * t - 0.30 * t * t) - len * 0.62 * t * t,
+                lockRoot.z + nz * len * (0.95 * t - 0.30 * t * t),
+              );
+            }, {
+              strands: 1,
+              // Just over one full turn. At three the coil closes into a tube
+              // and reads as a bead; at one the strand is a comma, which is what
+              // a short curl is at this size.
+              turns: 1.15 + 0.5 * hash(identity, i * 13 + 5),
+              rows: Math.max(7, lod.limb - 1),
+              ring: 4,
+              radius: (t) => rad * (1 - 0.34 * t * t),
+            }), hair, place.clone());
+          }
+        }
+      }
       if (ap.hairStyle === "long") {
         // The fall. Parted down the middle rather than swept as one curtain —
         // the audit's reading of the hair-colour sheet is that the mane is "a
