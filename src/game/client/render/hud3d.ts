@@ -77,6 +77,7 @@
 import * as THREE from "three";
 import { noteDrawnBody } from "./camera";
 import { LAYER_UNOCCLUDED, setLayerDeep, type FrameContext, type QualitySettings, type QualityTier } from "./quality";
+import { easeGrace } from "@/game/grace.mjs";
 
 export interface Hud3D {
   /**
@@ -93,6 +94,15 @@ export interface Hud3D {
    */
   setSuppressed(on: boolean): void;
   setHealth(id: string, current: number, max: number): void;
+  /**
+   * Mark a warrior as under the fight's grace — untouchable while the fight is
+   * actually running. Pass the answer, not a duration: `underGrace(player,
+   * roomState.state)` from `@/game/grace.mjs` is the only intended argument,
+   * and it is a pure function of the packet in hand. The HUD eases the drawn
+   * gild toward it and holds no clock of its own, so the mark cannot outlive
+   * the thing that caused it.
+   */
+  setGuard(id: string, on: boolean): void;
   spawnDamageNumber(amount: number, at: { x: number; z: number }, big: boolean): void;
   update(dt: number, ctx: FrameContext): void;
   dispose(): void;
@@ -327,8 +337,13 @@ uniform float uAspect;
 uniform float uSegments;
 uniform float uFlash;
 uniform float uPulse;
+uniform float uGuard;
 uniform float uSeed;
 varying vec2 vUv;
+
+// Gilt, not white. The arena is gold and garnet on near-black and the only
+// light in it comes off a fire; a neutral highlight here reads as chrome.
+const vec3 GUARD_GILT = vec3( 0.62, 0.47, 0.20 );
 
 // A box with 45-degree ends. A slot cut with a chisel does not have round caps.
 float chiselBox( vec2 p, vec2 b, float ch ) {
@@ -465,6 +480,22 @@ void main() {
 	// and shadows against a filled one. Same mark, opposite sign.
 	col = mix( col, mix( uRimColor * 0.22, col * 0.42, max( fill, lag ) ), notch * 0.55 );
 	col = mix( col, uRimColor * bevel * ( 0.88 + 0.18 * wear ), rim );
+	// GRACE: this man cannot be struck yet. It rides the FRAME and nothing else
+	// — not the fill, which is his blood, and not the alpha, which is distance.
+	// A gild on a bevel already catching the fire is the quietest place in this
+	// object to say a thing, and it is steady: no oscillation anywhere in this
+	// term, because the blink it replaces was the defect.
+	//
+	// MULTIPLIED BY the bevel, not added beside it, and that is the whole of the
+	// tuning. A flat term measured +66% luma at the bevel peak and +207% along
+	// the bottom arris — which is the exact failure the rim's own note warns
+	// about, a lit edge on carved bone flattened back into the hard outline that
+	// "measured brighter than every surface it was drawn over". Scaling by the
+	// bevel lifts the whole gradient by ONE proportion, so the carve survives
+	// and only the colour temperature changes. Measured at 0.28: +20% luma at
+	// the peak and +20% on the arris, peak 0.81 — still under FILL_LAG at 1.06,
+	// so the brightest thing on a plate is a man's blood, not his grace.
+	col += uGuard * GUARD_GILT * rim * bevel * 0.28;
 	col = mix( col, uKeyColor, keyline );
 	// Warm, because the only thing in this arena bright enough to justify a flash
 	// is on fire. A neutral one read as a UI blink over a fire-lit frame.
@@ -854,6 +885,15 @@ interface Plate {
   lag: number;
   lagHold: number;
   flash: number;
+  /**
+   * The grace mark. TWO fields for two facts, because collapsing them is the
+   * mistake this whole change exists to undo: `guardTruth` is what the last
+   * packet said (0 or 1, server-owned, no memory), `guard` is what is currently
+   * drawn (eased toward it, client-owned, purely cosmetic). The drawn value can
+   * never keep a mark alive on its own — it has no duration, only a target.
+   */
+  guardTruth: number;
+  guard: number;
   /** Seconds since this warrior hit zero health. Negative while alive. */
   dying: number;
   push: number;
@@ -1097,6 +1137,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         uSegments: { value: 4 },
         uFlash: { value: 0 },
         uPulse: { value: 0 },
+        uGuard: { value: 0 },
         uSeed: { value: (seedFrom(id)() * 64) | 0 },
       };
 
@@ -1163,7 +1204,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         halfW: Math.max(BAR_W, nameMesh ? nameW * glyphs.ink : 0) * 0.5,
         halfH: (top - bottom) * 0.5,
         centreY: (top + bottom) * 0.5,
-        pct: 1, lag: 1, lagHold: 0, flash: 0, dying: -1, push: 0,
+        pct: 1, lag: 1, lagHold: 0, flash: 0, guardTruth: 0, guard: 0, dying: -1, push: 0,
         sx: 0, sy: 0, hx: 0, hy: 0, ndcY: 0, barHx: 0, barHy: 0, compact: false,
         dist: 0, worldPerNdc: 1, alpha: 1, live: false,
       };
@@ -1208,6 +1249,12 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       // per-frame multiply over this, and mixing it in here would compound every
       // time a warrior took a hit.
       plate.fill = pct > 0.55 ? FILL_HEALTHY : pct > 0.28 ? FILL_WOUNDED : FILL_CRITICAL;
+    },
+
+    setGuard(id, on) {
+      const plate = plates.get(id);
+      if (!plate) return;
+      plate.guardTruth = on ? 1 : 0;
     },
 
     spawnDamageNumber(amount, at, big) {
@@ -1434,10 +1481,16 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         else plate.lag = plate.pct;
 
         plate.flash = Math.max(0, plate.flash - dt * 3.6);
+        // Eased toward the truth, never counted down from it. `easeGrace` snaps
+        // its own tail, so a plate that is not under grace writes an exact 0 —
+        // which is the number `tools/gracetest.mjs` asserts on the first frame
+        // of `fighting`, rather than a tolerance.
+        plate.guard = easeGrace(plate.guard, plate.guardTruth, dt);
 
         plate.barUniforms.uPct.value = plate.pct;
         plate.barUniforms.uLag.value = plate.lag;
         plate.barUniforms.uFlash.value = plate.flash * plate.flash * 0.55;
+        plate.barUniforms.uGuard.value = plate.guard * alpha;
         plate.barUniforms.uOpacity.value = alpha;
         // A warrior about to go down says so on his own plate. This is the one
         // place the HUD is allowed to move without being hit: at critical health
