@@ -9060,9 +9060,25 @@ export function buildCharacter(
         // entirely — a bowl sits on that scalp — and the hairline course is kept
         // only where the band's rim has risen off the head, so what shows is
         // hair emerging from under iron rather than hair through it.
-        const courses = helmed ? [0.10] : [0.10, 0.62];
+        //
+        // THREE COURSES, NOT TWO, AND EVERY LOCK IS SMALLER. The first build of
+        // this ran 22 locks a course at 40 mm long standing 26 mm out along the
+        // normal, and the capture is unambiguous: at that spacing and that
+        // standoff they are not hair, they are BARBS — a scatter of dark hooks
+        // on a pale dome, each one read as its own object because there is bare
+        // shell between it and its neighbour. Two numbers were wrong and they
+        // compound. Spacing, because a curl is texture only when curls overlap;
+        // and attitude, because a coil whose axis leaves along the normal is a
+        // spike whatever is wrapped round it.
+        //
+        // A lock now travels along the scalp instead of away from it: 26% of its
+        // length out and 85% of it ACROSS, down the surface's own fall line. The
+        // coil orbits that axis, so half of every curl is inside the mass it
+        // grows out of and what stands proud is the crest of the curl — which is
+        // what you actually see on a head of short curly hair.
+        const courses = helmed ? [0.12] : [0.10, 0.44, 0.80];
         for (const rise of courses) {
-          const N = crop ? 22 : 15;
+          const N = crop ? 26 : 18;
           for (let i = 0; i < N; i++) {
             // Jittered in both axes off a strict ring: a course laid on an exact
             // circle at an exact spacing is a wreath, and a wreath is the string
@@ -9079,16 +9095,26 @@ export function buildCharacter(
             // root.
             lockRoot.addScaledVector(lockNrm, mane(u, v) * 0.45);
             const nx = lockNrm.x, ny = lockNrm.y, nz = lockNrm.z;
-            const len = (crop ? 0.040 : 0.034) * (0.78 + 0.34 * hash(identity, i * 7 + Math.round(rise * 100)));
-            const rad = (crop ? 0.0125 : 0.0105) * (0.85 + 0.30 * hash(identity, i * 11 + 3));
+            // The fall line: straight down, with whatever the normal claims of it
+            // taken back out, so the axis lies IN the scalp's tangent plane. Near
+            // the crown the normal is nearly vertical and this degenerates, so it
+            // falls back to running rearward — which is the way a crown lock lies
+            // anyway.
+            let tx = -nx * ny, ty = -1 - ny * ny, tz = -nz * ny;
+            const tl = Math.hypot(tx, ty, tz);
+            if (tl < 0.18) { tx = 0; ty = 0; tz = -1; }
+            else { tx /= tl; ty /= tl; tz /= tl; }
+            const len = (crop ? 0.030 : 0.026) * (0.80 + 0.32 * hash(identity, i * 7 + Math.round(rise * 100)));
+            const rad = (crop ? 0.0092 : 0.0080) * (0.85 + 0.30 * hash(identity, i * 11 + 3));
             p.add(braid((t, out) => {
-              // Out along the normal, then over: the springy part of the arc is
-              // the first third, and after that the lock is falling. Without the
-              // fall term these stand off the skull like a mace head.
+              // Out a little, along a lot. The normal term rises and turns over
+              // inside the first third; the tangent term carries the whole way.
+              const outward = len * (0.42 * t - 0.16 * t * t);
+              const along = len * 0.85 * t;
               out.set(
-                lockRoot.x + nx * len * (0.95 * t - 0.30 * t * t),
-                lockRoot.y + ny * len * (0.95 * t - 0.30 * t * t) - len * 0.62 * t * t,
-                lockRoot.z + nz * len * (0.95 * t - 0.30 * t * t),
+                lockRoot.x + nx * outward + tx * along,
+                lockRoot.y + ny * outward + ty * along,
+                lockRoot.z + nz * outward + tz * along,
               );
             }, {
               strands: 1,
@@ -9096,7 +9122,7 @@ export function buildCharacter(
               // and reads as a bead; at one the strand is a comma, which is what
               // a short curl is at this size.
               turns: 1.15 + 0.5 * hash(identity, i * 13 + 5),
-              rows: Math.max(7, lod.limb - 1),
+              rows: Math.max(6, lod.limb - 2),
               ring: 4,
               radius: (t) => rad * (1 - 0.34 * t * t),
             }), hair, place.clone());
@@ -9474,6 +9500,49 @@ export function buildCharacter(
           xf(0, 0, 0, 0, 0, lean));
         belly(1, 0);
         if (lod.trim) belly(0.94, 0.075);
+        // ---- AND THEN THE HANKS, because two offset shells are still two eggs.
+        //
+        // The note above is right that dividing the VOLUME divides it visibly,
+        // and the fix it chose — the same mass again 3 mm in with a lean on it —
+        // was meant to make the two outlines disagree. The capture says it does
+        // not: at 3 mm the inner shell is inside the outer one from every bearing
+        // that matters, and what the frame shows is a single smooth ovoid hanging
+        // off the chin with an unbroken edge. That is the owner's "enormous mass"
+        // on the class that wears it by default.
+        //
+        // The volume stays one volume. What goes on it is HAIR: nine tapered
+        // hanks lying on the belly's own surface and running past its lower edge,
+        // so the mass keeps its shape and the OUTLINE stops being a curve. Each
+        // is a two-strand rope, which at this size reads as a twist of hair
+        // rather than as a plait, and each overshoots the shell it lies on by its
+        // own tip — which is the only part of this that changes the silhouette
+        // and the whole reason it is here.
+        if (lod.trim) {
+          for (let i = 0; i < 9; i++) {
+            const a = (i / 8 - 0.5) * 2.30 + 0.13 * (hash(identity, i * 17 + 2) - 0.5);
+            const j = hash(identity, i * 23 + 9);
+            // Longest at the midline and shorter round the sides, so the hanks
+            // follow the mass rather than fringing it at a constant length.
+            const drop = (0.300 + 0.052 * j) * (1 - 0.34 * Math.abs(a) / 1.15);
+            p.add(braid((t, out) => {
+              // Down the belly's flank and forward onto the chest, on the same
+              // reasoning as the shell it rides: a beard that reaches the chest
+              // rests on it, and a hank that falls straight is inside the mail.
+              const w = (0.062 + 0.034 * Math.sin(Math.PI * clamp01(t * 0.86))) * (1 - 0.30 * t * t);
+              out.set(
+                Math.sin(a) * w,
+                skullY - 0.118 - drop * t,
+                0.036 + Math.cos(a) * w * 0.72 + 0.096 * Math.pow(t, 1.2),
+              );
+            }, {
+              strands: 2,
+              turns: 0.9 + 0.5 * j,
+              rows: Math.max(9, lod.limb + 1),
+              ring: 4,
+              radius: (t) => (0.0132 + 0.0030 * j) * (1 - 0.52 * t * t),
+            }), beard);
+          }
+        }
       } else if (ap.beardStyle === "forked") {
         // FORKED, 80 gold, and the audit's instruction was to check it against
         // the profile card: "a fork that does not separate in profile is a beard
