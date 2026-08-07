@@ -2244,40 +2244,69 @@ function ev(s: Spl, q: number): number {
  * Half-breadth, in millimetres, at every height. This curve IS the front
  * silhouette of the head — read it top to bottom and the outline is drawn.
  *
- * 97 at the parietal is 194 mm across, 0.72 of head height, which is the broad
- * Saxon vault this build has always asked for. 86 at the cheekbone is a 172 mm
- * bizygomatic — 0.89 of the vault, where life is 0.88 — and 71.5 at the gonion
- * is 143, which leaves the neck under it wider than the jaw on it.
+ * REWRITTEN AGAINST THE FRAME, and the frame is `art/shots/base0`: what the old
+ * numbers drew was a pointed egg. Two properties did it, and neither is visible
+ * in any ratio the gate owns.
+ *
+ * FIRST, THE VAULT OPENED TOO SLOWLY. 17 mm at y = 0.985 and 44 at 0.920 is a
+ * dome, and a dome that then holds 96–98 for the whole of the middle of the head
+ * is an egg standing on its narrow end. A human vault opens FAST off the crown
+ * and then goes nearly vertical — the parietal wall is a wall — so the rows near
+ * the top are 30–50% wider than they were and the middle of the head is 5 mm
+ * narrower. 93 at the parietal is 186 mm across, 0.69 of head height, against a
+ * life 0.67 and the old build's 0.73.
+ *
+ * SECOND, THE WIDEST LINE WAS AT THE TEMPLE. The old table peaked at y = 0.000
+ * to 0.120, which is the temporal fossa — the one place on a skull that is
+ * hollow. Everything below it then narrowed monotonically, so the cheekbone was
+ * 6 mm narrower than the temple above it and there was no cheekbone in the
+ * outline at all. Now the maximum is at 0.30 (the parietal eminence, where a
+ * skull's really is), the temple gives up 5 mm to it, and the zygomatic HOLDS at
+ * 90 through two rows instead of tapering. The eye reads that hold as a
+ * cheekbone; it read the old taper as the side of an egg.
+ *
+ * The BREADTHS themselves are unchanged — 98 at the parietal, 90 at the cheek,
+ * 74 at the gonion — and that is deliberate. Four of the gate's ratios are a
+ * coupled system around them (`breadthOverHeight` wants a broad vault,
+ * `neckOverHead` wants one at least as broad as the neck, `jawOverCheek` fixes
+ * the jaw against the cheek and `neckOverJaw` fixes the neck against the jaw),
+ * and a first cut of this pass narrowed the whole head by 5% and put four of
+ * them out at once for no gain the frame could see. The defect was never the
+ * width. It was the ORDER of the widths down the head.
  *
  * Below the gonion it falls away fast, and that is what gives the mandible a
  * corner instead of a curve: a jaw that runs from the ear to the chin as one arc
- * is an egg however hard it is flared sideways.
+ * is an egg however hard it is flared sideways. The break is sharper than it was
+ * and it starts LOWER — 69.5 held to −0.596 and then 21 mm gone in a tenth of
+ * the field.
  */
 const C_W: Curve = [
   [1.000, 0],
-  [0.985, 17],
-  [0.960, 30],
-  [0.920, 44],
-  [0.860, 57],
-  [0.780, 70],
-  [0.680, 81],
-  [0.560, 89],
-  [0.420, 93],
-  [0.280, 96],
-  [0.120, 98],
-  [0.000, 98],
-  [-0.116, 96],
-  [-0.216, 90],
-  [-0.323, 84],
-  [-0.420, 76],
-  [-0.500, 73.5],
-  [-0.596, 74.0],
-  [-0.660, 67],
-  [-0.720, 63],
-  [-0.796, 52],
-  [-0.860, 38],
-  [-0.920, 22],
-  [-0.970, 11],
+  [0.988, 24],
+  [0.965, 39],
+  [0.930, 56],
+  [0.880, 70],
+  [0.810, 82],
+  [0.720, 90],
+  [0.600, 94.5],
+  [0.450, 97],
+  [0.300, 98], //    PARIETAL — the widest line on the head, 196 mm across
+  [0.150, 96.5],
+  [0.020, 93], //    temple, 5 mm inboard of the parietal
+  [-0.116, 91.5], // eye line
+  [-0.216, 90], //   ZYGOMATIC — held, not tapered: this is the cheekbone
+  [-0.290, 87],
+  [-0.360, 82],
+  [-0.440, 77],
+  [-0.520, 74.5],
+  [-0.596, 74], //   GONION
+  [-0.650, 70],
+  [-0.700, 62],
+  [-0.760, 50],
+  [-0.796, 43],
+  [-0.860, 30],
+  [-0.920, 17],
+  [-0.970, 8],
   [-1.000, 0],
 ];
 
@@ -2301,34 +2330,55 @@ const C_W: Curve = [
  */
 const C_MASK: Curve = [
   [1.000, 0],
-  [0.985, 22],
-  [0.960, 36],
-  [0.920, 52],
-  [0.860, 68],
-  [0.780, 83],
-  [0.680, 94],
-  [0.560, 101],
-  [0.420, 105],
-  [0.320, 106],
-  [0.260, 106],
-  [0.219, 105.5], //  GLABELLA — the datum
-  [0.144, 105], //    nasal root
-  [0.050, 104.5],
-  [-0.116, 104.5], // eye line
-  [-0.231, 104.5], // the nose tip's row: the PLANE, not the nose
-  [-0.323, 104.5], // subnasale
-  [-0.420, 104.5],
-  [-0.536, 104], //   lip line
-  [-0.600, 104],
-  [-0.660, 103.5], // mentolabial
-  [-0.750, 104.5],
-  [-0.796, 104], //   POGONION
-  [-0.840, 104],
-  [-0.880, 97],
-  [-0.920, 82],
-  [-0.960, 55],
+  [0.988, 20],
+  [0.965, 34],
+  [0.930, 50],
+  [0.880, 66],
+  [0.810, 80],
+  [0.720, 91],
+  [0.600, 98.5],
+  [0.450, 102.4],
+  [0.360, 104.0],
+  [0.290, 105.0],
+  [0.219, 105.6], // GLABELLA — the datum, and now the MAXIMUM of the vault run
+  [0.144, 105.1], // nasal root
+  [0.050, 104.6],
+  [-0.116, 104.2], // eye line
+  [-0.231, 103.8], // the nose tip's row: the PLANE, not the nose
+  [-0.323, 103.2], // subnasale
+  [-0.420, 102.4],
+  [-0.536, 102.4], // lip line
+  [-0.600, 102.0],
+  [-0.660, 101.6], // mentolabial
+  [-0.750, 102.0],
+  [-0.796, 102.4], // POGONION
+  [-0.840, 101.8],
+  [-0.880, 95],
+  [-0.920, 80],
+  [-0.960, 54],
   [-1.000, 0],
 ];
+
+/*
+ * TWO THINGS MOVED IN THE TABLE ABOVE, and both of them came off the frame.
+ *
+ * THE FOREHEAD USED TO BULGE. The old maximum was 106 at y = 0.260 to 0.320 —
+ * ABOVE the brow — with the glabella half a millimetre behind it. That is an
+ * infant's forehead: it swells forward over the brow and then falls away, which
+ * is the single clearest "not an adult male" signal a profile can carry, and it
+ * is most of why the head in `art/shots/base0/cards/headturn-profile_90_.png`
+ * reads as a bald dome with a face pinned to the front of it. A man's frontal
+ * bone rakes BACK from the ridge: the maximum is at the glabella now and the
+ * plane gives up 3 mm by 0.36 and 8 by 0.60, which is about 12 degrees of rake.
+ *
+ * THE LOWER FACE USED TO BE A WALL. Holding 104–104.5 from the eye line to
+ * pogonion means the maxilla, the lip block and the chin all stand on the same
+ * vertical plane, and the relief then has to build a mouth on top of a surface
+ * that is already as far forward as the brow — which is a pouch. It now recedes
+ * 4 mm from the eye line to the mentolabial and comes back 2 for the chin, so
+ * the chin is a BOX standing proud of the plane above it rather than the bottom
+ * of a barrel.
+ */
 
 /**
  * The back of the skull, same units. The knee between `-0.570` and `-0.680` is
@@ -2343,28 +2393,28 @@ const C_MASK: Curve = [
  */
 const C_OCC: Curve = [
   [1.000, 0],
-  [0.985, -18],
-  [0.960, -30],
-  [0.920, -44],
-  [0.860, -60],
-  [0.780, -77],
-  [0.680, -92],
-  [0.560, -104],
-  [0.420, -112],
-  [0.280, -117],
-  [0.120, -121],
-  [0.020, -121],
-  [-0.116, -117],
-  [-0.250, -113],
-  [-0.380, -108],
-  [-0.500, -102],
-  [-0.570, -99],
-  [-0.625, -94],
-  [-0.685, -81],
-  [-0.750, -62],
-  [-0.820, -45],
-  [-0.880, -29],
-  [-0.940, -15],
+  [0.988, -21],
+  [0.965, -35],
+  [0.930, -49],
+  [0.880, -64],
+  [0.810, -80],
+  [0.720, -93],
+  [0.600, -104],
+  [0.450, -112],
+  [0.300, -117],
+  [0.120, -120],
+  [0.020, -120],
+  [-0.116, -116],
+  [-0.250, -112],
+  [-0.380, -107],
+  [-0.500, -101],
+  [-0.570, -96],
+  [-0.625, -91],
+  [-0.685, -77],
+  [-0.750, -58],
+  [-0.820, -42],
+  [-0.880, -27],
+  [-0.940, -14],
   [-1.000, 0],
 ];
 
@@ -2502,32 +2552,73 @@ const REL_B = [0, 0.10, 0.20, 0.32, 0.46, 0.62, 0.80, 1.00, 1.22, 1.45, 1.5708];
  */
 const RELIEF: ReadonlyArray<readonly number[]> = [
   //   y        0    0.10   0.20   0.32   0.46   0.62   0.80   1.00   1.22  1.45  pi/2
-  [0.560, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0.420, 0, 0, 0.3, 0.6, 0.6, 0.2, -0.4, -0.7, -0.4, -0.2, 0],
-  [0.320, 0.4, 0.6, 1.2, 1.6, 1.4, 0.3, -1.0, -1.8, -1.2, -0.4, 0],
-  [0.219, 1.2, 1.6, 2.8, 3.2, 2.4, 0.6, -1.4, -2.4, -1.6, -0.5, 0],
-  [0.155, 3.8, 4.2, 5.6, 5.8, 4.0, 1.0, -1.8, -3.0, -2.0, -0.6, 0], //  BROW CREST
-  [0.110, 2.0, 3.0, 5.2, 5.6, 3.8, 0.8, -2.0, -3.2, -2.2, -0.6, 0], //  under the ridge
-  [0.070, -2.8, -1.2, 3.6, 4.8, 3.2, 0.4, -2.2, -3.4, -2.3, -0.7, 0], // NASION notch
-  [0.020, -2.4, -0.8, 2.6, 3.6, 2.2, 0.0, -2.2, -3.4, -2.3, -0.7, 0],
-  [-0.030, -0.2, 1.2, 0.4, 0.0, -0.2, -1.0, -2.0, -3.2, -2.2, -0.6, 0], // orbital rim
-  [-0.075, 3.0, 2.4, -3.2, -7.0, -5.4, -1.6, -1.4, -2.4, -1.6, -0.5, 0],
-  [-0.116, 8.0, 6.0, -3.2, -8.5, -6.6, -1.4, -0.8, -1.8, -1.2, -0.4, 0], // EYE LINE + SOCKET
-  [-0.180, 16.0, 14.0, 3.0, -4.5, -1.2, 5.0, 4.5, -0.4, 0, 0, 0], //   the zygomatic
-  [-0.231, 27.5, 25.2, 10.5, -1.0, 0.8, 6.5, 5.2, 0.0, 0, 0, 0], //    PRONASALE
-  [-0.270, 23.5, 21.2, 10.0, -1.0, 0.8, 5.8, 4.6, 0.0, 0, 0, 0], //    columella
-  [-0.300, 12.5, 10.5, 8.0, -2.5, 0.6, 4.8, 3.8, 0.0, 0, 0, 0], //     the alar crease
-  [-0.323, 2.5, 3.6, 5.0, -1.6, 0.6, 4.0, 3.0, 0.0, 0, 0, 0], //       SUBNASALE
-  [-0.400, 1.2, 1.8, 2.4, 0.0, -1.6, 0.0, 0.6, 0.0, 0, 0, 0], //       philtrum, buccal begins
-  [-0.470, 5.4, 5.0, 3.6, -1.4, -2.4, -1.0, -1.4, 0.0, 0, 0, 0], //    upper vermilion
-  [-0.536, 3.0, 3.0, 2.4, -1.2, -2.4, -1.0, -1.6, 0.0, 0, 0, 0], //    STOMION
-  [-0.600, 6.4, 6.1, 4.2, -0.8, -2.2, -1.0, -1.4, 0.0, 0, 0, 0], //    lower vermilion
-  [-0.660, -1.8, -1.7, -2.0, -2.6, -2.4, -1.2, -0.4, 0.0, 0, 0, 0], // mentolabial sulcus
-  [-0.720, 3.0, 3.0, 2.4, 0.2, -1.6, -0.8, 0, 0, 0, 0, 0],
-  [-0.796, 3.0, 3.0, 2.6, 0.6, -1.4, -0.6, 0, 0, 0, 0, 0], //          POGONION
-  [-0.870, 1.6, 1.6, 1.2, 0.0, -0.8, 0.0, 0, 0, 0, 0, 0],
+  [0.620, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  [0.480, 0.2, 0.3, 0.5, 0.6, 0.5, 0.2, 0, 0, 0, 0, 0],
+  [0.360, 1.0, 1.2, 1.8, 2.0, 1.6, 0.6, -0.5, -0.7, -0.3, 0, 0],
+  [0.270, 2.2, 2.6, 3.4, 3.6, 2.8, 1.0, -1.3, -1.8, -0.8, -0.2, 0],
+  [0.219, 3.8, 4.4, 5.6, 5.8, 4.4, 1.4, -1.7, -2.4, -1.1, -0.2, 0], // GLABELLA
+  [0.170, 5.8, 6.4, 7.4, 7.4, 5.6, 1.8, -2.0, -2.8, -1.3, -0.3, 0], // BROW CREST
+  [0.120, 3.8, 5.0, 7.2, 7.2, 5.2, 1.4, -2.2, -3.0, -1.4, -0.3, 0], // under the ridge
+  [0.070, -2.6, -0.2, 5.2, 5.8, 3.8, 0.6, -2.2, -3.0, -1.4, -0.3, 0], // NASION notch
+  [0.020, 0.2, 2.0, 3.8, 4.0, 2.2, -0.2, -2.0, -2.6, -1.2, -0.2, 0],
+  [-0.030, 3.2, 3.8, 0.8, -3.2, -3.6, -1.6, -1.6, -2.0, -0.9, -0.2, 0], // orbital rim
+  [-0.075, 6.6, 5.8, -1.2, -8.0, -7.8, -2.6, -1.4, -1.8, -0.8, -0.2, 0],
+  [-0.116, 10.5, 8.6, -1.0, -8.6, -7.8, -1.6, -1.0, -1.4, -0.6, -0.1, 0], // EYE LINE + SOCKET
+  [-0.180, 18.5, 16.2, 4.6, -3.0, 1.2, 8.0, 5.0, 0.2, 0, 0, 0], //      the ZYGOMATIC
+  [-0.231, 29.0, 26.4, 11.4, -0.6, 2.6, 8.4, 4.6, 0.0, 0, 0, 0], //     PRONASALE
+  [-0.270, 24.5, 22.0, 11.0, -0.8, 2.2, 7.4, 4.0, 0.0, 0, 0, 0], //     columella
+  [-0.300, 13.0, 11.0, 8.4, -2.6, 1.2, 6.0, 3.4, 0.0, 0, 0, 0], //      the alar crease
+  [-0.323, 2.6, 3.8, 5.4, -2.0, 0.6, 5.0, 3.0, 0.0, 0, 0, 0], //        SUBNASALE
+  [-0.400, 2.8, 3.2, 3.2, -0.8, -3.0, 0.6, 1.6, 0.0, 0, 0, 0], //       philtrum, buccal begins
+  [-0.470, 6.4, 5.8, 3.6, -2.6, -4.4, -1.2, 1.0, 0.0, 0, 0, 0], //      upper vermilion
+  [-0.536, 3.4, 3.4, 2.6, -2.4, -4.6, -1.6, 0.8, 0.0, 0, 0, 0], //      STOMION
+  [-0.600, 6.8, 6.4, 4.2, -1.8, -4.2, -1.4, 1.2, 0.0, 0, 0, 0], //      lower vermilion
+  [-0.660, -1.6, -1.6, -2.2, -3.2, -3.4, -0.8, 1.8, 0.0, 0, 0, 0], //   mentolabial sulcus
+  [-0.720, 4.2, 4.2, 3.2, 0.0, -2.2, -0.4, 1.6, 0.0, 0, 0, 0],
+  [-0.796, 5.0, 4.8, 3.8, 0.8, -1.4, -0.2, 0.8, 0.0, 0, 0, 0], //       POGONION
+  [-0.870, 2.2, 2.2, 1.6, 0.2, -0.8, 0, 0, 0, 0, 0, 0],
   [-0.940, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ];
+
+/*
+ * WHAT CHANGED IN THE TABLE ABOVE, and it is four forms rather than forty
+ * numbers. Read it against `art/shots/base0/cards/headturn-front_0_.png`, which
+ * is the frame the owner called ugly and oddly shaped.
+ *
+ * 1. THERE IS A BROW. The ridge peaked at 5.8 mm over an orbit 8.5 mm deep, and
+ *    on a 269 mm head under an ambient of 0.85 that is 14 mm of relief spread
+ *    over 25 mm of height — a gradient, not a shelf, and it rendered as a
+ *    perfectly smooth forehead with two dark chevrons drawn on it. The crest is
+ *    7.4 now and it holds its height from 0.170 down to 0.120 before the notch,
+ *    so the ridge has a FLAT UNDERSIDE that faces down. An overhang is a plane
+ *    that faces down; a bump is not an overhang at any amplitude.
+ *
+ * 2. THERE IS A CHEEKBONE. The zygomatic column ran 5.0/6.5 at bearing 0.62 with
+ *    NOTHING under it, so the malar was a soft swelling on a continuous cheek.
+ *    It is 8.6/9.0 now and — the half that matters — the mouth rows carry a real
+ *    HOLLOW at 0.46 (−4.4 against the old −2.4). A cheekbone is not a lump; it is
+ *    a lump with a shadow under it, and the pair of them is the single form that
+ *    separates a man in his twenties from a mannequin.
+ *
+ * 3. THERE IS A JAW. Every row below the subnasale used to be exactly zero from
+ *    bearing 0.80 outward, so the mandible was whatever `C_W` happened to sweep.
+ *    The masseter now stands 1.0–1.8 mm at 0.80 through the whole lip and chin
+ *    block, which at those latitudes is 55–65 mm off the midline: the flat of the
+ *    jaw, running back to the corner `C_W` breaks at.
+ *
+ * 4. THE DORSUM STARTS AT THE NOTCH. The midline used to go NEGATIVE from 0.070
+ *    to 0.020 and only reach 8 mm by the eye line, so there was no nasal bridge
+ *    between the eyes at all and the nose appeared out of a flat plain as a nub
+ *    with two holes in it. It runs 0.2 → 3.2 → 6.6 → 10.5 → 18.5 → 29.0 now, one
+ *    monotone ramp from the root to the tip.
+ *
+ * AND THE OUTER COLUMNS CAME IN. 0.80 through 1.45 used to carry −1.4 to −3.4 on
+ * every row from the forehead to the base of the nose — a continuous trough down
+ * the side of the head with a ridge outboard of it, which is one half of the
+ * hard vertical line framing the face in that frame. (The other half was in
+ * `faceComplexion`; see the note on `front` there.) They are now under 3 mm and
+ * only in the temple band where a skull is actually hollow.
+ */
 
 /** One spline per relief column, built once at module load. */
 const REL_COL: Spl[] = REL_B.map((_, k) =>
@@ -4309,7 +4400,7 @@ function helmWear(K: Skull, opts: WornShellSpec): THREE.BufferGeometry {
  * 28.4 mm is 24.4 taken up with the rest of the skull. The lids, the sclera, the
  * iris and the lash line are all solved off this radius, so they follow.
  */
-const GLOBE = 0.0142;
+const GLOBE = 0.0152;
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -4328,7 +4419,12 @@ interface EyeFrame {
 }
 
 function eyeFrame(K: Skull, side: number): EyeFrame {
-  const uE = side * 0.395 * K.F.eyeU;
+  // 0.375 rather than 0.395: at the eye line that bearing lands 37 mm off the
+  // midline, so the pupils are 74 mm apart against a Farkas 63 rescaled to this
+  // head's 73. At 0.395 they were 78 apart with a 21 mm nasal root between them,
+  // and wide-set eyes on a broad vault is most of the "not quite a person" in
+  // `art/shots/base0`.
+  const uE = side * 0.375 * K.F.eyeU;
   // On the head's mid-height, where a human's eyes are. It used to be 0.085 —
   // 40% of the way down from the crown instead of 50% — and the whole face was
   // dragged up with it. See `Y_EYE`.
@@ -4345,8 +4441,11 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // deep enough that the brow's shadow crosses the eye, shallow enough that the
   // key still finds the iris. At 6.5 mm it was 27 mm behind and the socket read
   // as the void it was supposed to be replacing.
+  // 13.8 mm, and it moved because the socket did: the orbit is 9.6 mm deep now
+  // where it was 8.5, so at the old standoff the cornea would have gone back with
+  // it and the eye would have been in a cave.
   const floor = faceSurface(K, dir, new THREE.Vector3());
-  const c = floor.addScaledVector(fwd, 0.013 - GLOBE);
+  const c = floor.addScaledVector(fwd, 0.0138 - GLOBE);
   // `lat` stays with the skull's +x rather than flipping to "outward", so
   // (lat, up, fwd) is right-handed on both sides of the face. That matters: every
   // patch below takes its winding from that cross product, and a mirrored frame
@@ -4363,9 +4462,16 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // measurement runs over the curve of the lids and past the medial canthal fold.
   // `hA` scales with `eyeOpen`, so a narrow-eyed warrior reads as squinting
   // rather than as small-eyed.
+  //
+  // 27.6 x 13.6 mm. It is WIDER and no taller, and that ratio is the whole of
+  // it: at 21.6 x 14.4 the aperture was 1.5 : 1, which is a round hole, and a
+  // round hole full of sclera is the stare a warrior must not have. Life is
+  // 2.4 : 1 at the skin. 2.0 : 1 is as far as the globe will carry the chord and
+  // it is enough — the frame stops reading "startled" and starts reading "calm",
+  // which is the expression the owner's reference has.
   return {
     c, lat: base, up, fwd,
-    wA: 0.0138, hA: 0.0072 * K.F.eyeOpen, tilt: side * 0.0021,
+    wA: 0.0150, hA: 0.0068 * K.F.eyeOpen, tilt: side * 0.0022,
     uE, vE,
   };
 }
@@ -4398,7 +4504,13 @@ function globePatch(
 }
 
 /** Half-height of the fissure along its length — zero at both canthi. */
-const fissure = (f: EyeFrame, tt: number) => f.hA * Math.pow(Math.max(0, 1 - tt * tt), 0.62);
+// The exponent is what makes it an almond rather than a lens. At 0.62 the
+// aperture is still 62% of its full height a third of the way from the canthus,
+// so both ends of the slit are blunt and the sclera runs right out to them —
+// which is the ring of white that reads as a stare. At 0.80 it closes to a point
+// the way a real fissure does, and the widest part of the white sits under the
+// iris where it belongs.
+const fissure = (f: EyeFrame, tt: number) => f.hA * Math.pow(Math.max(0, 1 - tt * tt), 0.80);
 
 /**
  * An eyelid, built as the bridge it actually is: it starts on the globe at the
@@ -4418,7 +4530,12 @@ function lidPatch(
   // with `skin` now carrying a tighter specular lobe, it took the key square on and
   // rendered as a pale crescent — an under-eye bag, which is the second-worst thing
   // you can give a warrior after a glowing sclera.
-  const rimDv = upper ? 0.115 : -0.072;
+  // Both shallower. With the orbit dug to 9.6 mm the socket rim is where the lid
+  // needs to die, and it is closer to the margin than it was: at 0.115 the upper
+  // lid was 13 mm of skin bridging from the globe to a rim above the ridge's
+  // underside, and it rendered as the fat pale almond sitting over each eye in
+  // `art/shots/base0/cards/headturn-front_0_.png`.
+  const rimDv = upper ? 0.096 : -0.062;
   const m = new THREE.Vector3();
   const rim = new THREE.Vector3();
   const n = new THREE.Vector3();
@@ -4458,7 +4575,7 @@ function lidPatch(
     const e = mix(s0, s1, s);
     const w = e * e * (3 - 2 * e);
     out.lerpVectors(m, rim, w);
-    out.addScaledVector(n, (upper ? 0.0011 : 0.0004) * Math.sin(Math.PI * w) + off);
+    out.addScaledVector(n, (upper ? 0.0008 : 0.0003) * Math.sin(Math.PI * w) + off);
   };
   return patch({
     nu, nv,
@@ -4580,11 +4697,15 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
  * which the eye needs as a hard dark line before it will read a mouth at all.
  */
 function addMouth(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMaterials): void {
-  const w = 0.25 * K.F.mouth;
+  // 0.29 rad, not 0.25. At the lip line that bearing stands 29 mm off the
+  // midline, so the mouth is 59 mm across against a Farkas 50 rescaled to this
+  // head's 58. The old 50 mm was life-sized on a head that is not life-sized, and
+  // a small mouth centred in a wide lower face is the other half of the pouch.
+  const w = 0.29 * K.F.mouth;
   const nu = Math.max(6, lod.shellU - 2);
   // Pinched to nothing at both corners, so the line ends where the lips end
   // instead of stopping dead — the square lobe on each end of the old letterbox.
-  const half = (u: number) => 0.0155 * Math.pow(1 - Math.pow(clamp01(Math.abs(u) / w), 1.7), 0.55);
+  const half = (u: number) => 0.0150 * Math.pow(1 - Math.pow(clamp01(Math.abs(u) / w), 1.7), 0.55);
   p.add(headWear(K, {
     u0: -w, u1: w,
     v0: (u) => lat(Y_LIP) - half(u),
@@ -4887,7 +5008,26 @@ function faceComplexion(
     const zc = ev(S_ZC, fy) * MM * sc;
     const s = Math.abs(px) / hw;
     const dep = Math.max(1e-4, (ev(S_MASK, fy) * MM * sc - zc) * F.deep);
-    const front = clamp01(((pz - zc) / dep) * 1.5);
+    /**
+     * How much of "the front of the head" this vertex is on. EVERY shadow term
+     * below multiplies by it, and that is why its shape matters more than any of
+     * them: it is one channel gating a dozen others, and a knee in it is a knee
+     * in all of them at once.
+     *
+     * It used to be `clamp01(z/dep * 1.5)`, whose clamp puts a hard corner in the
+     * derivative at two thirds of the head's depth — a line running from the
+     * temple, past the outer canthus and the corner of the mouth, down to the
+     * jaw, with every form shadow switched fully on inboard of it and fading
+     * outboard. That line is the hard-edged FACE PLATE the owner has now reported
+     * three times, and three passes have gone looking for it in the geometry. It
+     * was never in the geometry. `art/shots/base0/cards/headturn-front_0_.png`
+     * shows it plainly at portrait scale: a pale, faintly pink panel outboard of
+     * a crease that no vertex of this head sits on.
+     *
+     * A smoothstep has zero slope at BOTH ends, so the field has no corner
+     * anywhere and the shadow dies into the side of the head instead of stopping.
+     */
+    const front = smooth(-0.10, 0.72, (pz - zc) / dep);
     // The war paint marks are authored in the old direction space and there are
     // fourteen of them, so that space is still computed — for them and for the
     // mottle, and for nothing else.
@@ -4963,7 +5103,12 @@ function faceComplexion(
     let warm = 0;
     warm += 1.00 * gs(s, 0.16) * gs(fy - (Y_TIP - 0.040), 0.10) * front;
     warm += 0.55 * gs(s - 0.25, 0.09) * gs(fy - (Y_NOSE + 0.03), 0.075) * front;
-    warm += 0.85 * gs(ax - 1.00, 0.17) * gs(dyDir - (Y_EYE + Y_NOSE) * 0.5, 0.30) * gs(dz + 0.12, 0.60);
+    // The ear, and it is the EAR rather than the side of the face. At a width of
+    // 0.17 in |dx| this reached 0.83 of the half-breadth — well onto the cheek —
+    // and what it drew was a warm band running down the outside of the face,
+    // which is the pink half of the plate the `front` note above is about. An ear
+    // is 60 mm of a 190 mm head; 0.09 is that, and no more.
+    warm += 0.80 * gs(ax - 1.00, 0.09) * gs(dyDir - (Y_EYE + Y_NOSE) * 0.5, 0.26) * gs(dz + 0.12, 0.50);
     warm += 0.40 * gs(s - 0.58, 0.24) * gs(fy - (Y_EYE - 0.13), 0.135) * front * F.cheek;
     warm += 0.32 * gs(s, 0.26) * gs(fy - Y_CHIN, 0.13) * front;
     warm = clamp01(warm);
@@ -4978,7 +5123,7 @@ function faceComplexion(
     // In the head's own lateral fraction, so it agrees with `addMouth`: that
     // slot is cut from azimuth -0.25 to +0.25 of `F.mouth`, which at the lip's
     // latitude lands at 0.34 of the half-breadth.
-    const lipW = 0.36 * F.mouth;
+    const lipW = 0.44 * F.mouth;
     const lipHalf = 0.078 * (1 - Math.pow(clamp01(s / lipW), 2.2)) + 0.012;
     const lip = clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
       * (1 - smooth(lipW * 0.78, lipW, s))) * front;
@@ -8749,22 +8894,34 @@ export function buildCharacter(
       }
     }
 
-    // Brows, conformed to the ridge and angled down toward the temple. Thin: at
-    // 4 mm they were two black slabs, which is the one thing worse than none.
-    // The inner end sits lower than the outer, which is what reads as a scowl
-    // rather than as surprise — and a warrior should not look surprised.
-    //
-    // Sat between the brow ridge and the eye, which is where a brow goes and is
-    // 30 mm below where these were: at v ≈ 0.15–0.215 they were on the *ridge*,
-    // and with the ridge itself 34 mm above head centre the pair of them read as
-    // one wide band across the middle of the forehead.
+    // Brows, conformed to the ridge. See the note inside the loop: the shape they
+    // were authored with was the opposite of the shape the comment described, and
+    // it is the loudest single defect in the frame this pass exists to answer.
     for (const s of [-1, 1]) {
-      const inner = lat(Y_EYE + 0.245);
-      const outer = lat(Y_EYE + 0.175);
-      // Thinned to nothing at the outer end as well as arched. A brow of constant
-      // height is a bar; a brow that tapers off toward the temple is a brow, and it
-      // is the taper rather than the arch that stops it reading as drawn on.
-      const arc = (u: number) => mix(inner, outer, clamp01((Math.abs(u) - 0.10) / 0.52));
+      // ---- AND THE ARCH RAN THE WRONG WAY ----
+      //
+      // The comment three lines above this one said "the inner end sits lower
+      // than the outer, which is what reads as a scowl rather than as surprise"
+      // and the code did the exact opposite: `inner` was `Y_EYE + 0.245` and
+      // `outer` was `Y_EYE + 0.175`, and a larger field `y` is HIGHER on the
+      // head. So the inner ends were 8 mm above the outer ones and every warrior
+      // in the game wore the pleading eyebrows of a man apologising. It is the
+      // first thing the eye reads in
+      // `art/shots/base0/cards/headturn-front_0_.png` and no amount of skull
+      // underneath it was ever going to survive it.
+      //
+      // Authored as three heights now rather than as a lerp between two, because
+      // a male brow is not a ramp: it leaves the nose LOW and heavy, runs almost
+      // level to about two thirds, peaks there, and falls away toward the temple.
+      // The whole excursion is 4 mm. It is the direction that carries the read.
+      //
+      // The pair has also come DOWN 12 mm. At `Y_EYE + 0.245` the inner end sat
+      // 32 mm above the eye line, which on this head is the middle of the
+      // forehead — hence two dark chevrons floating on a bald dome with nothing
+      // between them and the eyes.
+      const browAt = (t: number) => lat(Y_EYE + 0.170 + 0.030 * Math.sin(Math.PI * Math.pow(clamp01(t), 0.80)) - 0.010 * t * t);
+      const along = (u: number) => clamp01((Math.abs(u) - 0.09) / 0.47);
+      const arc = (u: number) => browAt(along(u));
       // Tapered at *both* ends, not just the temple one. Held full height at the
       // inner end, a brow is a bar with a squared-off inboard corner sitting 4 mm
       // proud of the forehead — two dark slabs, which is what the render showed —
@@ -8772,9 +8929,13 @@ export function buildCharacter(
       // closer to the skin now: brow hair lies on a ridge, it does not perch on
       // one, and at 3.8 mm of lift with a 2.2 mm rim the patch was drawing its own
       // bright outline (see `patch`).
+      // Heavier over the inner two thirds and gone by the temple. 0.044 rad of
+      // latitude is 10 mm of brow, which is life on a head this size, and the
+      // pair of them are the strongest dark shape on the face — worth having at
+      // full weight where the ridge is and worth nothing at all past it.
       const half = (u: number) => {
-        const t = clamp01((Math.abs(u) - 0.10) / 0.52);
-        return 0.036 * (1 - 0.68 * Math.pow(t, 1.4)) * smooth(0, 0.16, t);
+        const t = along(u);
+        return 0.044 * (1 - 0.74 * Math.pow(t, 1.5)) * smooth(0, 0.13, t);
       };
       // Twelve columns and two rows, and the lift dies at all four boundaries.
       //
@@ -8788,13 +8949,13 @@ export function buildCharacter(
       // every boundary buries every rim strip in the skin, and what is left is
       // hair growing out of a ridge instead of a decal parked over one.
       p.add(headWear(K, {
-        u0: s * 0.09, u1: s * 0.62,
+        u0: s * 0.09, u1: s * 0.56,
         v0: (u) => arc(u) - half(u),
         v1: (u) => arc(u) + half(u),
-        nu: 12, nv: 2,
-        lift: (u, v) => 0.0004 + 0.0016
+        nu: 14, nv: 2,
+        lift: (u, v) => 0.0004 + 0.0018
           * Math.sin(Math.PI * clamp01(v))
-          * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.09) / 0.53)),
+          * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.09) / 0.47)),
         thick: 0.0007,
       }), hair, place.clone());
     }
