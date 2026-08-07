@@ -5322,6 +5322,113 @@ function addMouth(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMate
  * hair and beards hang — and avoids the twist a Frenet frame develops on a path
  * with an inflection in it.
  */
+/**
+ * A CAST FIGURE SWEPT ALONG ITS OWN SPINE, AS ONE CLOSED SURFACE.
+ *
+ * "boar & wyrm crest helmets actual ornament pieces need upgrading as they look
+ * generic & hard to see what they are."
+ *
+ * They look generic because they are A SUM OF PRIMITIVES, which is the oldest
+ * defect in this file and the one it has now paid for four times — the ear was
+ * ball + torus + ball with daylight through it, the head was a sum of bumps and
+ * produced five monsters over eight passes, the beard was three solids, the
+ * Long Mane was two slabs with rods beside them. The boar was
+ * `ball(0.032) + ball(0.019) + box + 2 rods + 2 balls`, and two overlapping
+ * ellipsoids read as a LOZENGE: the union of two convex blobs is a convex blob,
+ * and an animal's outline is the one thing a blob cannot have. A boar is a
+ * WEDGE — high at the withers, falling to a low head, a snout thrown out in
+ * front, a spine of bristles along the top — and not one of those four features
+ * survives being built out of parts each of which has to be convex.
+ *
+ * So a beast is one tube swept down a spine whose section is free to change
+ * shape along it: breadth and depth independently, a crest raised on the DORSAL
+ * half only — which is what a ridge of bristles is, and what no radius function
+ * can say — and a belly flattened toward the cap so the figure sits on the
+ * helmet instead of hovering over it. Both ends close by tapering to a point,
+ * so there is no cap ring to see through from any bearing, which is the same
+ * property `hangingMass` is built for and for the same reason.
+ *
+ * The frame is built off world up, like `braid`'s: both of the animals this
+ * carries run fore-and-aft over a crown and neither has a spine that turns
+ * vertical, which is the one case that construction cannot hold.
+ */
+function beast(
+  spine: (t: number, out: THREE.Vector3) => void,
+  opts: {
+    rows: number;
+    ring: number;
+    /** Half-breadth across the body at t. */
+    half: (t: number) => number;
+    /** Half-depth, spine to back and spine to belly, at t. */
+    tall: (t: number) => number;
+    /** Extra height on the DORSAL half only: bristles, scales, a brow. */
+    crest?: (t: number) => number;
+    /** How much of `tall` the underside keeps. 1 is round, 0.4 is a flat belly. */
+    belly?: (t: number) => number;
+  },
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const c = new THREE.Vector3();
+  const ahead = new THREE.Vector3();
+  const back = new THREE.Vector3();
+  const tan = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const P = new THREE.Vector3();
+  const crestOf = opts.crest ?? (() => 0);
+  const bellyOf = opts.belly ?? (() => 1);
+  const stride = opts.ring + 1;
+  // TWO COLLAPSED ROWS, ONE AT EACH END, AND THEY ARE NOT OPTIONAL. A swept
+  // tube whose section is authored blunt — and a boar's snout IS blunt — ends
+  // in an OPEN RING, which is daylight straight through the animal from the one
+  // bearing that looks down it. This file has already paid for that exact hole
+  // twice, on the ear and on the hanging masses, and both times the fix was to
+  // make the surface closed by construction rather than to ask every caller to
+  // remember to taper to a point. A row collapsed onto the spine costs `ring`
+  // degenerate triangles and closes it for every section a caller can write.
+  const N = opts.rows + 2;
+  for (let j = 0; j <= N; j++) {
+    const t = clamp01((j - 1) / opts.rows);
+    const cap = j === 0 || j === N;
+    spine(t, c);
+    // The tangent is taken forward everywhere except at the last row, where
+    // there is nothing in front to take it from and a clamped sample would give
+    // a zero-length difference and collapse the frame.
+    if (t < 0.99) { spine(Math.min(1, t + 0.012), ahead); tan.subVectors(ahead, c); }
+    else { spine(t - 0.012, back); tan.subVectors(c, back); }
+    if (tan.lengthSq() < 1e-12) tan.set(0, 0, 1);
+    tan.normalize();
+    side.set(0, 1, 0).cross(tan);
+    if (side.lengthSq() < 1e-8) side.set(1, 0, 0).cross(tan);
+    side.normalize();
+    up.crossVectors(tan, side).normalize();
+    const k = cap ? 0 : 1;
+    const hw = opts.half(t) * k, ht = opts.tall(t) * k;
+    const cr = crestOf(t) * k, be = bellyOf(t);
+    for (let i = 0; i <= opts.ring; i++) {
+      const a = (i / opts.ring) * Math.PI * 2;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      // The crest rides `cos(a)^2` on top of the section rather than scaling it:
+      // a ridge of bristles is narrow across the back and dies before the flank,
+      // and a term on the radius would inflate the whole upper half into a
+      // second, taller tube instead of standing a comb on the first one.
+      const dy = ca >= 0 ? (ht + cr * ca * ca) * ca : ht * be * ca;
+      P.copy(c).addScaledVector(side, hw * sa).addScaledVector(up, dy);
+      pos.push(P.x, P.y, P.z);
+      uv.push(i / opts.ring, t);
+    }
+  }
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < opts.ring; i++) {
+      const a = j * stride + i;
+      idx.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+    }
+  }
+  return finish(pos, uv, idx);
+}
+
 function braid(
   path: (t: number, out: THREE.Vector3) => void,
   opts: {
@@ -11707,6 +11814,44 @@ export function buildCharacter(
       const bowlV1 = Math.PI / 2 - 0.02;
       const bowlUnder = (theta: number) =>
         bowlLift(clamp01(((Math.PI / 2 - Math.abs(theta)) - bowlV0) / (bowlV1 - bowlV0)));
+      // A point ON THE OUTSIDE OF THE CAP at a sagittal angle, with a standoff.
+      // `theta` is signed and runs nape-negative to brow-positive through the
+      // crown at zero, which is the same parametrisation `comb` sweeps in — so a
+      // figure lying along the crown and the comb under it cannot disagree about
+      // where the iron is. Declared beside `bowlUnder` and read by both animals,
+      // for the reason burned into this file three times: a piece that keeps its
+      // own copy of where another piece is will drift away from it.
+      const _sg = new THREE.Vector3();
+      const sagittal = (theta: number, off: number, out: THREE.Vector3): THREE.Vector3 => {
+        const u = theta >= 0 ? 0 : Math.PI;
+        const v = Math.PI / 2 - Math.abs(theta);
+        formSurface(_form, u, v, _sg);
+        formNormal(_form, u, v, _n);
+        return out.copy(_sg).addScaledVector(_n, bowlUnder(theta) + off);
+      };
+      // THE CAP'S OWN TOPLINE, AS A TABLE IN z. Both animals lie along the crown
+      // and both have to know where the iron under them is at a given depth —
+      // the boar so its belly can be soldered to it, the wyrm so its arch has
+      // something to spring from. Sampled once here rather than twice in the two
+      // blocks below: a piece that keeps its own copy of where another piece is
+      // will drift away from it, which is the fault this file has now recorded
+      // three times.
+      const _cq = new THREE.Vector3();
+      const CAP: Array<[number, number]> = [];
+      for (let i = 0; i <= 24; i++) {
+        sagittal(mix(-1.15, 1.15, i / 24), 0, _cq);
+        CAP.push([_cq.z, _cq.y]);
+      }
+      const capY = (z: number) => {
+        if (z <= CAP[0]![0]) return CAP[0]![1];
+        for (let i = 0; i < CAP.length - 1; i++) {
+          const a = CAP[i]!, b = CAP[i + 1]!;
+          if (z <= b[0]) return mix(a[1], b[1], (z - a[0]) / (b[0] - a[0]));
+        }
+        return CAP[CAP.length - 1]![1];
+      };
+      sagittal(0, 0, _cq);
+      const zTop = _cq.z, yTop = _cq.y;
       const _cb = new THREE.Vector3();
       const _cn = new THREE.Vector3();
       const _cb2 = new THREE.Vector3();
@@ -12140,6 +12285,27 @@ export function buildCharacter(
       // head stack above the hair, because three pieces now have to agree about
       // it: this fall, which lies outside the mail; the coif, which draws it;
       // and the hair, which has to lie inside it.
+      // WHERE THE JARL'S CROWN'S HOOP IS — declared ABOVE the plate that hangs
+      // behind it, because the owner's complaint is precisely that the two did
+      // not agree.
+      //
+      //   "crown helmet is overlapping at back of head so the gold isn't
+      //    visible" — the 570-gold rung hides the thing it is sold for.
+      //
+      // Two numbers, and they compound. The nape flange's top ring is at
+      // `R.y * 0.47` and the hoop sat at `R.y * 0.34`, so the plate STARTED
+      // 12 mm above the gold; and the flange's occipital radius is the hull plus
+      // 13 mm of clearance, which on this head lands within a millimetre of the
+      // hoop's own `R.z + 24`. A ring and a plate at the same radius over the
+      // same 100 degrees of arc is not an overlap that can be shaded apart — it
+      // is coplanar, so the back of the crown was buried and what was left in
+      // the frame was four gold tips above a steel dome (`art/look/base_crowned`
+      // panel 4, before this).
+      //
+      // So the hoop stands 10 mm further out than any plate behind it, and the
+      // plate begins BELOW it. One definition, two readers.
+      const circletY = skullY + R.y * 0.34;
+      const circletR = R.x + 0.034;
       if (style.nape !== "none") {
         // ---- the fall off the back of the band ----
         //
@@ -12201,7 +12367,13 @@ export function buildCharacter(
         // fall still reads as a fall from behind. It was never the radius doing
         // that; it is the outline, the overhang at the rim and the fact that it
         // is a hard-edged plate over a soft head.
-        const topY = skullY + R.y * 0.47;
+        // Under the crown's hoop where there is one, so the gold has steel above
+        // it and steel below it and reads as a band rather than as the join
+        // between two grey things. 14 mm of clearance under the hoop is the
+        // strip of bowl the crown is riveted through.
+        const topY = style.crown === "circlet"
+          ? Math.min(skullY + R.y * 0.47, circletY - 0.014)
+          : skullY + R.y * 0.47;
         // SAMPLED OFF THE FORM, not guessed from the ellipsoid it started as.
         // The first draft of this used `R.x · sqrt(1 - t²)`, which is 12% wider
         // at the ear's height than at the top ring's — but the head is not an
@@ -12350,9 +12522,9 @@ export function buildCharacter(
         // rhythm survives all the way down to the four pixels a fight-distance
         // capture gives it. The tall ones are 62 mm, which is the first thing on
         // this helmet to break its own outline from the front.
-        const cr = R.x + 0.024;
-        const cz = (R.z + 0.024) / cr;
-        const cy = skullY + R.y * 0.34;
+        const cr = circletR;
+        const cz = (R.z + 0.034) / cr;
+        const cy = circletY;
         p.add(ring(cr, 0.013, 5, 20), brass, xf(0, cy, 0, Math.PI / 2, 0, 0, 1, 1, cz));
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2 + 0.22;
@@ -12407,20 +12579,169 @@ export function buildCharacter(
         // immediately, at 0.8% of outline between the 280 and the 380. Measured
         // off the bowl's own crown it keeps the 14 mm of sink that stops it
         // reading as parked, on every rung and every class.
-        const boarSeat = onForm(0, Math.PI / 2, crest + 0.014);
-        const by = skullY + boarSeat.y;
-        p.add(ball(0.032, 8), brass, xf(0, by, -0.006, 0, 0, 0, 0.50, 0.62, 1.75));
-        p.add(ball(0.019, 7), brass, xf(0, by - 0.006, 0.066, -0.20, 0, 0, 0.62, 0.72, 1.15));
-        // The dorsal ridge, in the helmet's bright metal so the animal's back
-        // catches the key and its flank does not — a bronze lump on a bronze
-        // helmet is a lump, and the ridge is what makes it read as a spine.
-        p.add(box(0.005, 0.015, 0.062), trimMetal, xf(0, by + 0.013, -0.012));
-        if (lod.trim) {
-          for (const s of [-1, 1]) {
-            p.add(rod(0.0007, 0.0032, 0.019, 4), trimMetal,
-              xf(s * 0.0085, by - 0.012, 0.082, -1.05, 0, -s * 0.30));
+        // ---- AND IT WAS A LOZENGE, NOT A BOAR ----
+        //
+        // "boar & wyrm crest helmets actual ornament pieces need upgrading as
+        // they look generic & hard to see what they are ... a boar must read as
+        // a BOAR at portrait distance: snout, tusks, a spine of bristles."
+        //
+        // `art/look/boar_base.png` is the evidence and it is unanswerable: at
+        // the armoury's own portrait lens the 380-gold rung carries a 20-pixel
+        // GOLD KNOB on the apex of the cap. Three faults, and the first is the
+        // one the note above this block was proud of. 102 mm of animal was
+        // measured along a curve; what the eye gets is the OUTLINE, and the
+        // outline of `ball + ball` is one convex lozenge whatever the two radii
+        // are. Second, all of it sat within 0.35 rad of the crown, so from the
+        // front it hid behind its own bowl. Third, the tusks were 19 mm rods
+        // raked backwards at −1.05 rad, which from every bearing a player sees
+        // is inside the snout.
+        //
+        // It is one swept figure now, and the numbers are the animal's rather
+        // than a fitting's: 195 mm nose to tail along the cap — a bit over a
+        // head's own length, which is what the Benty Grange boar is against the
+        // helmet carrying it — 40 mm across the shoulder, and a back that FALLS
+        // 26 mm from the withers to the head. That fall is the whole read. A
+        // pig is the one large animal whose topline drops toward its face, and
+        // it is why a boar is recognisable at a size where its legs are three
+        // pixels.
+        // THE SPINE IS LEVEL, AND THE FIRST CUT OF THIS GOT IT WRONG IN THE ONE
+        // WAY WORTH RECORDING. Swept along the cap's own sagittal arc — which is
+        // what `comb` does and what the ridge helm wants — the body inherits the
+        // BOWL's curvature, and `art/look/boar_v1.png` shows exactly what that
+        // draws: a smooth gold banana over the crown with its snout ploughed
+        // down the front of the face and the tusks floating beside the nose.
+        // An animal standing on a helmet does not drape over it. Its legs hold a
+        // level back clear of the iron and its ends OVERHANG, which is also what
+        // lets the topline say something the cap is not already saying.
+        //
+        // So the spine is authored in the sagittal plane as a topline, and the
+        // cap is used once, for the datum. `TOP` is that topline read as a
+        // profile rather than as a formula: rump, withers, the fall down the
+        // neck, and the muzzle carried out past the brow. The fall from withers
+        // to head is 30 mm over 90 mm of run, and it is the whole read — a pig
+        // is the one large animal whose back drops toward its face.
+        // AND THE BELLY IS SOLDERED TO THE IRON, WHICH IS THE THIRD THING THE
+        // CAPTURES TAUGHT. `boar_v2` held a level spine 21 mm over the crown, and
+        // because the cap falls away under both ends the figure stood on a
+        // visible slot of daylight — "parked", which is the word the note over
+        // this block already used about the version before it. The Benty Grange
+        // boar is cast and then soldered along its underside to the crest it
+        // rides; so the BELLY follows the cap and the BACK is the belly plus the
+        // section's own depth, which means the wedge is carried by the animal
+        // rather than by where it is held. A tail and a snout that overhang are
+        // then free: the sample is clamped at the last station still on the
+        // crown, so the ends hold their height and jut instead of sliding down
+        // the occiput and the brow.
+        // THE SECTIONS ARE A TABLE, NOT A FORMULA, and that is the second thing
+        // `boar_v1` taught. Sines and powers give a body that swells and shrinks
+        // SMOOTHLY, which is a sausage; an animal has landmarks — a rump, a
+        // withers, a NECK PINCH, a jowl, a muzzle — and the pinch between the
+        // shoulder and the head is the single feature that makes a viewer read
+        // "head" rather than "front end". Breadth and depth are separate columns
+        // because a boar is deep through the chest and narrow across the snout,
+        // and one radius cannot say both.
+        //          t     half     tall    bristle
+        const BODY: ReadonlyArray<readonly [number, number, number, number]> = [
+          [0.00, 0.0046, 0.0052, 0.0000], // tail
+          [0.10, 0.0170, 0.0205, 0.0060], // rump
+          [0.28, 0.0220, 0.0280, 0.0150], // loin
+          [0.46, 0.0248, 0.0352, 0.0216], // withers — the high point of the wedge
+          [0.60, 0.0182, 0.0236, 0.0142], // the neck pinch
+          [0.74, 0.0208, 0.0232, 0.0043], // jowl — a boar's head is BROAD
+          [0.87, 0.0162, 0.0176, 0.0010], // muzzle
+          [1.00, 0.0118, 0.0130, 0.0000], // snout, and it is blunt
+        ];
+        const bodyAt = (t: number, k: 1 | 2 | 3) => {
+          for (let i = 0; i < BODY.length - 1; i++) {
+            const a = BODY[i]!, b = BODY[i + 1]!;
+            if (t <= b[0]) return mix(a[k], b[k], smooth(a[0], b[0], t));
           }
-          for (const s of [-1, 1]) p.add(ball(0.0028, 5), dark, xf(s * 0.0092, by + 0.002, 0.055));
+          return BODY[BODY.length - 1]![k];
+        };
+        const boarSpine = (t: number, out: THREE.Vector3) => {
+          const z = zTop + mix(-0.078, 0.126, t);
+          // Follows the cap where the cap is under it and NEVER FOLLOWS IT DOWN
+          // past 7 mm below the crown. Clamping the sample's z instead — which
+          // is what the first cut did — holds the ends at the height of the last
+          // station, and that station is already down the slope, so the head
+          // ended up buried inside the dome with only the bristles showing
+          // (`art/look/boar_v4.png`). It is the belly that has a floor, not the
+          // sample. What overhangs is then genuinely level, which is what a cast
+          // figure soldered along a crest does at both ends.
+          const belly = Math.max(capY(z), yTop - 0.007) + 0.004
+            // AND THE HEAD HANGS BELOW THE BODY LINE. A pig carries its skull
+            // low — the muzzle is under the belly's own level, not level with
+            // it — and that drop is the second half of the wedge. Without it
+            // the head is merely a thinner part of the same tube, which is the
+            // sausage `boar_v3` drew.
+            - 0.019 * Math.pow(clamp01((t - 0.60) / 0.40), 1.4);
+          out.set(0, belly + bodyAt(t, 2) * 0.40, z);
+        };
+        p.add(beast(boarSpine, {
+          rows: 30, ring: Math.max(8, lod.limb),
+          half: (t) => bodyAt(t, 1), tall: (t) => bodyAt(t, 2),
+          // THE BRISTLES, and they are silhouette rather than detail. A boar's
+          // hackles stand along the spine and are tallest over the withers,
+          // which is the same place the back is highest — so the two compound
+          // into one wedge that survives being four pixels tall. The cosine is
+          // the individual hairs: a smooth ridge is a fin, and the notches are
+          // what stop this reading as one more piece of helmet trim.
+          crest: (t) => bodyAt(t, 3) * (0.74 + 0.26 * Math.cos(t * 62)),
+          // A cast figure is soldered to the cap along its belly, so the
+          // underside is flat where it lands and rounds off at both ends.
+          belly: (t) => mix(1, 0.40, clamp01(Math.sin(Math.PI * clamp01(t * 0.9 + 0.05)))),
+        }), brass, place.clone());
+        // THE SPINE IS IN THE FORM'S FRAME AND THE FITTINGS ARE IN THE PART'S,
+        // and the first cut of this block forgot the difference. `beast` is added
+        // with `place`, which carries `skullY`; every `xf(...)` below is not, so
+        // a tusk sited at `boarSpine(t).y` landed 190 mm lower — down beside the
+        // jaw, which is exactly where `art/look/boar_v1.png` shows two gold
+        // slivers floating next to the mouth. Every fitting reads the spine
+        // through this, so the mistake cannot be made once per fitting.
+        const _bq = new THREE.Vector3();
+        const onBoar = (t: number): THREE.Vector3 => {
+          boarSpine(t, _bq);
+          _bq.y += skullY;
+          return _bq;
+        };
+        if (lod.trim) {
+          // THE TUSKS, which are what name the animal. Forward and UP off the
+          // snout, in the helmet's bright metal against the figure's bronze, so
+          // the pair reads as two light strokes crossing the dark of the brow —
+          // the one cue that separates a boar from a dog at portrait size. The
+          // old pair raked back at −1.05 rad and was inside the muzzle.
+          onBoar(0.945);
+          for (const s of [-1, 1]) {
+            p.add(rod(0.0010, 0.0046, 0.034, 5), trimMetal,
+              xf(_bq.x + s * 0.0068, _bq.y - 0.0040, _bq.z + 0.008, 0.80, 0, -s * 0.34));
+          }
+          // The ears, laid back along the neck: two short tapered horns off the
+          // top of the skull. Small, and they matter because they break the one
+          // stretch of the topline that would otherwise be a smooth arc.
+          onBoar(0.80);
+          for (const s of [-1, 1]) {
+            p.add(rod(0.0010, 0.0055, 0.018, 5), brass,
+              xf(_bq.x + s * 0.0075, _bq.y + 0.009, _bq.z - 0.004, -0.85, 0, -s * 0.55));
+          }
+          onBoar(0.845);
+          for (const s of [-1, 1]) {
+            p.add(ball(0.0030, 6), garnet, xf(_bq.x + s * 0.0085, _bq.y + 0.005, _bq.z + 0.002));
+          }
+          // FOUR LEGS, and this is what turns a shape on a helmet into a beast
+          // STANDING on one. Each is its own tapering limb rather than a slice of
+          // the body, which is the honest reading of the one-surface rule: an ear
+          // and a leg really are separate objects on an animal, and it is the
+          // TRUNK that must not be a sum of lumps. They are short — the belly is
+          // 16 mm off the cap — but in profile four verticals under a long body
+          // are unmistakably a quadruped, and nothing else in the shop has them.
+          // NO LEGS, and that is a decision rather than an omission. The first
+          // cut hung four of them off the spine, where a body 23 mm deep
+          // swallowed all four and the render showed none. Sited off the belly
+          // they would be right — and with the belly now soldered to the cap
+          // there are five millimetres for them to stand in, which is not a leg.
+          // The artefact this is drawn from is soldered along its underside too.
+          // What names the animal is the head, the tusks and the spine, and all
+          // three of those are in the outline.
         }
       }
       if (style.crown === "wyrm") {
@@ -12442,30 +12763,105 @@ export function buildCharacter(
         // reads as an animal rather than as a strap. The body is fattest toward
         // the head and tapers to the tail, which is the one asymmetry that says
         // which end is which at fight distance.
-        p.add(comb(-1.34, 1.30,
-          // Monotonic to the crown from BOTH ends, which is what the ridge helm's
-          // crest already did and what this one was measured failing to do.
-          (t) => 0.052 - 0.018 * Math.pow(Math.abs(mix(-1, 1, t)), 1.4),
-          (t) => 0.010 + 0.005 * Math.pow(clamp01(t), 0.7),
-          0.007), trimMetal, place.clone());
-        // THE HEAD, thrown clear of the brow. The audit asks for 40 mm past the
-        // brow line "so it breaks the outline from the front as well as the
-        // side", and that is the number: the snout sits on the comb's front
-        // terminal and is carried forward in +z, not merely lifted, because a
-        // lift on the brow is inside the head's own outline from head-on and
-        // buys nothing at all from the one bearing a duel is fought at.
-        const hv = bandLo - 0.02;
-        const hd = onForm(0, hv, bowlUnder(Math.PI / 2 - hv) + 0.030);
-        const hx = hd.x;
-        const hy = skullY + hd.y + 0.006;
-        const hz = hd.z + 0.030;
-        p.add(ball(0.021, 8), trimMetal, xf(hx, hy, hz, 0.30, 0, 0, 0.78, 0.82, 1.45));
-        p.add(ball(0.012, 7), trimMetal, xf(hx, hy - 0.017, hz + 0.026, 0.50, 0, 0, 0.62, 0.58, 1.35));
+        // ---- AND IT WAS A STRAP WITH TWO BALLS ON THE END ----
+        //
+        // "a wyrm must read as a serpent." What was here was `comb` — a blade
+        // swept along the cap — with `ball + ball` for a head and two rods for
+        // horns. Three faults, and they are the boar's three under other names.
+        // A comb has a CONSTANT SECTION SHAPE: it can be tall or short but it is
+        // always a blade standing on the cap, and a blade is a crest, not an
+        // animal. The head was two overlapping ellipsoids, whose union is one
+        // convex blob. And the body never left the iron, so from any bearing the
+        // "arch" was a rib lying on a dome.
+        //
+        // A serpent is one tube. What names it is that the tube LEAVES the
+        // surface — a real arch with sky under it — that it wanders off the
+        // midline as it runs, and that it is thickest just behind a head that is
+        // thrown clear of everything. All three are properties of a swept spine
+        // and none of them can be said by a lift function.
+        const wyrmSpine = (t: number, out: THREE.Vector3) => {
+          const z = zTop + mix(-0.090, 0.132, t);
+          // THE ARCH. The body springs off the nape, clears the crown by 46 mm
+          // and comes down in front of the brow — so from the side there is
+          // daylight between the animal and the cap over the whole middle third,
+          // which is the one thing that says "arched over" rather than "lying
+          // on". `sin^0.7` rather than `sin` keeps the height up along both
+          // flanks instead of peaking only at the pole, which is the same
+          // correction the comb version's note records making and then made only
+          // to its height, not to its path.
+          const rise = 0.046 * Math.pow(Math.sin(Math.PI * clamp01(t * 0.92 + 0.04)), 0.70);
+          out.set(
+            // The wander. A snake does not run down a centreline, and 11 mm of
+            // travel is enough to break the symmetry at portrait size. Taken
+            // back out over the last quarter so the head sits square to the
+            // face, which is the bearing a duel is fought at.
+            0.011 * Math.sin(t * Math.PI * 2.3) * (1 - clamp01((t - 0.68) / 0.32)),
+            Math.max(capY(z), yTop - 0.030) + 0.012 + rise
+              // The head is thrown DOWN as well as forward, over the brow, so it
+              // looks at whoever the man is looking at.
+              - 0.030 * Math.pow(clamp01((t - 0.70) / 0.30), 1.5),
+            z,
+          );
+        };
+        //          t     half     tall     scales
+        const WYRM: ReadonlyArray<readonly [number, number, number, number]> = [
+          [0.00, 0.0030, 0.0032, 0.0000], // tail tip, on the nape
+          [0.16, 0.0082, 0.0092, 0.0030],
+          [0.42, 0.0116, 0.0132, 0.0050], // the thick of the body, over the crown
+          [0.62, 0.0104, 0.0118, 0.0046],
+          [0.74, 0.0090, 0.0100, 0.0034], // the neck
+          [0.86, 0.0158, 0.0132, 0.0030], // the head — BROAD across the jaw
+          [0.94, 0.0128, 0.0104, 0.0012], // the muzzle
+          [1.00, 0.0060, 0.0052, 0.0000], // the snout
+        ];
+        const wyrmAt = (t: number, k: 1 | 2 | 3) => {
+          for (let i = 0; i < WYRM.length - 1; i++) {
+            const a = WYRM[i]!, b = WYRM[i + 1]!;
+            if (t <= b[0]) return mix(a[k], b[k], smooth(a[0], b[0], t));
+          }
+          return WYRM[WYRM.length - 1]![k];
+        };
+        p.add(beast(wyrmSpine, {
+          rows: 34, ring: Math.max(8, lod.limb),
+          half: (t) => wyrmAt(t, 1), tall: (t) => wyrmAt(t, 2),
+          // A ridge of scales down the spine, notched at about one scale every
+          // 12 mm. It is what stops the arch reading as a bent wire, and it is
+          // the same term the boar's bristles ride.
+          crest: (t) => wyrmAt(t, 3) * (0.66 + 0.34 * Math.cos(t * 78)),
+          belly: () => 0.86,
+        }), trimMetal, place.clone());
+        // Same frame trap as the boar's fittings: the sweep is in the form's
+        // space and every `xf` below is in the part's, so the spine is read
+        // through one helper that adds `skullY` and nothing else may.
+        const _wq = new THREE.Vector3();
+        const onWyrm = (t: number): THREE.Vector3 => {
+          wyrmSpine(t, _wq); _wq.y += skullY; return _wq;
+        };
         if (lod.trim) {
+          // THE JAW, hung under the head as its own short sweep, so the mouth is
+          // a line between two masses rather than a seam drawn on one. This is
+          // the second thing after the arch that says "serpent": a head with a
+          // jaw under it has a MOUTH, and two merged ellipsoids never can.
+          const jaw = onWyrm(0.90).clone();
+          const jz = jaw.z, jy = jaw.y;
+          p.add(beast((t, out) => {
+            out.set(0, jy - 0.008 - 0.004 * (1 - t), jz - 0.020 + 0.040 * t);
+          }, {
+            rows: 8, ring: 6,
+            half: (t) => 0.0125 * (1 - 0.55 * t * t),
+            tall: (t) => 0.0052 * (1 - 0.45 * t * t),
+            belly: () => 0.9,
+          }), trimMetal);
           for (const s of [-1, 1]) {
-            p.add(rod(0.0009, 0.0038, 0.030, 4), brass,
-              xf(hx + s * 0.011, hy + 0.016, hz - 0.010, -0.72, 0, -s * 0.42));
-            p.add(ball(0.0034, 5), dark, xf(hx + s * 0.0092, hy + 0.004, hz + 0.014));
+            // The brow horns, swept back off the skull the way a serpent's are
+            // drawn in the interlace this game's identity is built on.
+            const h = onWyrm(0.845);
+            p.add(rod(0.0010, 0.0044, 0.034, 5), brass,
+              xf(h.x + s * 0.0100, h.y + 0.011, h.z - 0.006, -0.92, 0, -s * 0.42));
+          }
+          for (const s of [-1, 1]) {
+            const e = onWyrm(0.875);
+            p.add(ball(0.0040, 6), garnet, xf(e.x + s * 0.0112, e.y + 0.0035, e.z + 0.003));
           }
         }
       }
