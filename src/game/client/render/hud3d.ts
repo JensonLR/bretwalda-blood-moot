@@ -482,11 +482,20 @@ void main() {
 	col = mix( col, uRimColor * bevel * ( 0.88 + 0.18 * wear ), rim );
 	// GRACE: this man cannot be struck yet. It rides the FRAME and nothing else
 	// — not the fill, which is his blood, and not the alpha, which is distance.
-	// A gild on a bevel that is already catching the fire is the quietest place
-	// in this object to say a thing, and it is steady: no oscillation anywhere
-	// in this term, because the blink it replaces was the defect. The keyline
-	// goes over the top of it, so the plate keeps its own edge.
-	col += uGuard * GUARD_GILT * ( rim * 0.62 + bevel * rim * 0.30 );
+	// A gild on a bevel already catching the fire is the quietest place in this
+	// object to say a thing, and it is steady: no oscillation anywhere in this
+	// term, because the blink it replaces was the defect.
+	//
+	// MULTIPLIED BY the bevel, not added beside it, and that is the whole of the
+	// tuning. A flat term measured +66% luma at the bevel peak and +207% along
+	// the bottom arris — which is the exact failure the rim's own note warns
+	// about, a lit edge on carved bone flattened back into the hard outline that
+	// "measured brighter than every surface it was drawn over". Scaling by the
+	// bevel lifts the whole gradient by ONE proportion, so the carve survives
+	// and only the colour temperature changes. Measured at 0.28: +20% luma at
+	// the peak and +20% on the arris, peak 0.81 — still under FILL_LAG at 1.06,
+	// so the brightest thing on a plate is a man's blood, not his grace.
+	col += uGuard * GUARD_GILT * rim * bevel * 0.28;
 	col = mix( col, uKeyColor, keyline );
 	// Warm, because the only thing in this arena bright enough to justify a flash
 	// is on fire. A neutral one read as a UI blink over a fire-lit frame.
