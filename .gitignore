@@ -46,3 +46,10 @@ art/ui/
 .tb/
 .headmeasure/
 .wearmeasure/
+
+# Git worktrees the agent harness creates for isolated parallel work. These are
+# whole checkouts of this repository living inside it — `git worktree list`
+# shows them as live, locked trees. A `git add -A` sweeps in ~8 MB of nested
+# copy and would commit the repo into itself; ignoring the directory is the
+# only correct answer.
+.claude/
