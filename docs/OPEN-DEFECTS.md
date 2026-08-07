@@ -1960,3 +1960,61 @@ the face, and the neck — and the only thing they have in common is the unit th
 died holding them. The first two are cheap to gate: a count of live blood decals
 across a round boundary, and a convergence sign on the two pupils. Both belong
 in a CPU harness, and neither needs a browser.
+
+---
+
+## The head stack bought hair-through-helmets by deleting the hair, and it is paid hair
+
+**Open, and it is a REGRESSION AGAINST MAIN — the one on this page that should
+be picked up first.** `npm run cosmetictest -- --no-render` is 15/15 on
+`origin/main` (6d10f84) and 14/15 on `integrate` (9fa32ac). The failing check is
+`every paid hairstyle still reads under every helm that is not a hood`, and it
+was already failing before the fittings, the hands and the beard were merged on
+top. It was not caught because the head stack was judged on `wearmeasure` §4,
+which it passes.
+
+**How much hair went.** Silhouette difference against Shaved, portrait lens:
+
+| helm | Long Mane 40g | Braided War-locks 100g |
+|---|---|---|
+| Iron Spangen | 6.86% -> 2.26% | 8.68% -> 2.26% |
+| Nasal | 6.66% -> 2.19% | 8.42% -> 2.19% |
+| Ridge | 6.66% -> 1.98% | 8.42% -> 1.98% |
+| Spectacle | 6.14% -> 1.19% | 7.38% -> 1.19% |
+| Boar-Crest | 6.03% -> **0.95%** | 7.25% -> **0.95%** |
+| Jarl's Crowned | 6.04% -> **0.95%** | 7.26% -> **0.95%** |
+| Wyrm-Crest | 4.00% -> **0.31%** | 6.00% -> **0.31%** |
+| Sutton Hoo | 2.87% -> **0.05%** | 4.98% -> **0.05%** |
+
+The bar is 1%. A player pays 100 gold for Braided War-locks and, under six of
+the ten helms, gets 0.05-0.95% of a silhouette — which is nothing. The two paid
+styles are also now identical to each other under every helm, because what
+survives under a helm is the scalp shell and both styles share it.
+
+**Why the existing ruler says this is fine, and this is the interesting part.**
+`wearmeasure` §4 carries `SHOW_FLOOR = 0.02` precisely to stop this — its own
+comment calls the failure mode "a helmet on a mannequin". It passes at 39-86%
+shown. It passes because SHOW is *the fraction of hair vertices lying in
+directions no garment covers*, and the head stack deletes the hair that would
+have been in those directions rather than covering it. A ratio whose denominator
+shrinks with its numerator cannot see a deletion. **§4's SHOW_FLOOR needs to be
+measured against a fixed reference — the bare head's hair — not against whatever
+hair is left.** That is a small change to an existing ruler and it would have
+failed this on the day it was written.
+
+**Where the geometry actually goes.** Two rules in `buildCharacter`, both
+deliberate and both commented:
+
+- `if (style.cheek !== "none") continue;` deletes BOTH war-locks outright on the
+  six rungs with cheek guards. The comment is right that a plait was standing
+  through those plates — 18.8 mm through the Spectacle's, 200 mm through the
+  Sutton Hoo's ventail. Deleting it is the blunt answer to that.
+- `hairFall(u)` takes the mane to zero inside a coif or a hood.
+
+**The fix is not to relax the bar.** It is to make a war-lock hang *clear of* a
+cheek guard instead of vanishing — root it further back and swing it outboard of
+the plate — and to let a mane emerge below an aventail's hem rather than be
+scaled out. Both are shape problems with a ruler already built for them
+(`hairFitProbe`), which is the good position to be in. Neither is a merge fix,
+which is why this is written down rather than attempted at the end of a landing
+pass.
