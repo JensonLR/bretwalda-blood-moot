@@ -1,0 +1,593 @@
+// ============================================================
+// THE HEAD, AUTHORED — CROSS-SECTIONS AND EDGE LOOPS
+//
+// Eight passes have failed on this face and every one of them was the same
+// object: an ellipsoid displaced by a SUM of gaussians, tuned. That method
+// produced, in order, a mannequin, a beak, a muzzle, a pug and a puppet, and
+// the reason is structural rather than a matter of coefficients — a sum has no
+// named point on it. You cannot ask a sum where its cheekbone is, so every pass
+// pulled on one term, moved three it did not intend, satisfied its list, and
+// shipped a worse head. `docs/SUTTON-HOO.md` records the same failure four
+// times on the helmet, and the ear was fixed the way this is: stop summing
+// shapes and AUTHOR THE GEOMETRY.
+//
+// So the head below is a modeller's cage, and nothing else.
+//
+//   ROWS are horizontal edge loops — crown, frontal eminence, brow, orbit,
+//   nose, subnasale, lip, mentolabial, pogonion, gnathion — each of them a
+//   CROSS-SECTION with an authored half-breadth, an authored midline depth
+//   front and back, and an authored squareness. The section is a superellipse,
+//   which is the same primitive `charSweep` already sweeps torsos, limbs and
+//   axe hafts on, and it is the whole reason the mid-face can be a PLANE that
+//   turns at the zygomatic instead of a dome that falls away from the midline.
+//
+//   COLUMNS are vertical edge loops — the midline, the flank of the nose, the
+//   alar crease, the pupil line, the cheek, the arch, the turn onto the side of
+//   the head. Each carries a PROFILE CURVE of its own: how far forward, how far
+//   out and how far up the skin sits at that loop, landmark by landmark.
+//
+// The surface is the loft between them. Every number below is a vertex the
+// modeller placed; nothing is emergent, nothing compounds, and there is no term
+// whose amplitude can be turned up until the face becomes a different species.
+// If the brow is wrong, one row of one column is wrong.
+//
+// Read every table crown-first, in millimetres, on a head 269 mm tall and
+// 196 mm broad. `y` is the field's own latitude sine, and the landmark rows are
+// the `Y_*` constants above, so a change here and a change to a helm's brow line
+// are written in the same coordinate.
+// ============================================================
+
+const HALF_PI = Math.PI / 2;
+
+/**
+ * The half-breadth of each section, at the coronal plane through the ear.
+ *
+ * This is the front view's whole outline, and it is the first of the two things
+ * the owner is looking at when he says "oddly shaped". The field this replaces
+ * had one width term and a `1 - 0.36·low^1.55` taper, which drew a balloon over
+ * a wedge: the vault held 96% of its breadth to within 40 mm of the crown and
+ * the jaw ran to a point, so the head was an egg with a face scratched down the
+ * front of it. A skull is widest just above the ear and comes in ABOVE that as
+ * well as below, and the mandible leaves the cheek at a corner rather than in a
+ * taper. Both of those are rows here.
+ *
+ * The bigonial row is 71.5 mm — 143 mm across — and it is set against the neck
+ * rather than against the face: `neckHW` is 79.6 mm, so S5's neck-over-jaw is
+ * 1.11 and the head cannot sit on a stalk.
+ */
+const HALF_W: Curve = [
+  [1.000, 0.0], //   vertex
+  [0.985, 14.0],
+  [0.950, 32.0],
+  [0.900, 48.5],
+  [0.830, 64.0],
+  [0.740, 77.0],
+  [0.620, 87.0],
+  [0.480, 93.5],
+  [0.300, 97.0],
+  [0.080, 98.2], //  parietal eminence — the widest section on the head
+  [-0.116, 97.0], // eye line: the zygomatic carries nearly the full breadth
+  [-0.280, 92.5],
+  [-0.420, 85.0],
+  [-0.520, 78.0],
+  [-0.596, 71.5], // GONION
+  [-0.660, 65.0],
+  [-0.720, 57.0],
+  [-0.796, 45.0], // pogonion
+  [-0.870, 31.0],
+  [-0.940, 18.0],
+  [-0.990, 6.0],
+  [-1.000, 0.0], //  menton
+];
+
+/**
+ * The midline depth of each section IN FRONT of the ear plane — the facial
+ * plane, with the nose, the lips and the chin's own mass taken off it.
+ *
+ * Those three are relief on the columns below, and the separation is deliberate:
+ * it is the difference between a face and a keel. Author the nose into this
+ * curve and the section carries it across the whole breadth of the head, which
+ * is the "vertical wedge running from brow to mouth down the middle of an
+ * otherwise flat face" the previous pass shipped. Author it into columns 0 and 1
+ * only, and it is a nose 32 mm wide standing on a plane.
+ *
+ * Glabella is 105 and opisthocranion is −125, so the head is 230 mm long against
+ * 269 tall — Farkas' 0.845 on the nose.
+ */
+const FRONT: Curve = [
+  [1.000, -16.0], // the vertex sits behind the ear plane
+  [0.985, 8.0],
+  [0.950, 30.0],
+  [0.900, 50.0],
+  [0.830, 68.0],
+  [0.740, 83.0],
+  [0.620, 93.0],
+  [0.470, 100.0],
+  [0.330, 103.0],
+  [0.250, 104.5],
+  [0.219, 105.0], //  GLABELLA — the datum the columns are written against
+  [0.144, 102.0], //  nasion
+  [0.010, 99.5],
+  [-0.116, 98.0], //  the plane between the orbits
+  [-0.231, 99.0], //  behind the nose, not the nose
+  [-0.323, 102.0], // subnasale
+  [-0.430, 105.0], // the alveolar plane the lips are carried on
+  [-0.481, 106.0],
+  [-0.536, 105.5],
+  [-0.606, 104.5],
+  [-0.686, 102.5],
+  [-0.766, 103.0], // pogonion's base — the chin's own mass is column 0
+  [-0.820, 100.0],
+  [-0.856, 90.0], //  gnathion: the underside turns away here
+  [-0.930, 66.0],
+  [-0.975, 42.0],
+  [-1.000, 26.0], //  menton
+];
+
+/**
+ * And the midline depth BEHIND it, signed in the same z. Equal to `FRONT` at
+ * both poles, because a pole is one point.
+ *
+ * The rows below the ear are the ones that matter and they are steep on purpose:
+ * under and behind the ear a man has no skull at all — mastoid, then
+ * sternocleidomastoid, then neck — and the ball that used to be there was
+ * further out than any jaw put on it, so the gonial corner could never reach the
+ * silhouette. Six passes of "flare the jaw harder" were pushing a mass that was
+ * interior to the outline the whole time. Take the ball away and the mandible
+ * draws the outline, which is what S4 measures.
+ */
+const BACK: Curve = [
+  [1.000, -16.0],
+  [0.985, -42.0],
+  [0.950, -64.0],
+  [0.900, -84.0],
+  [0.830, -101.0],
+  [0.740, -113.0],
+  [0.620, -120.0],
+  [0.470, -124.0],
+  [0.250, -125.0], // OPISTHOCRANION
+  [0.050, -123.0],
+  [-0.116, -116.0],
+  [-0.250, -101.0],
+  [-0.380, -82.0],
+  [-0.500, -62.0],
+  [-0.596, -46.0], // GONION
+  [-0.700, -28.0],
+  [-0.800, -12.0],
+  [-0.900, 2.0],
+  [-0.975, 20.0],
+  [-1.000, 26.0],
+];
+
+/**
+ * How SQUARE each section is: the exponent of the superellipse the front half is
+ * drawn on. 2.0 is an ellipse; above it the front flattens into a plane and the
+ * corner tightens toward the zygomatic.
+ *
+ * This one row of numbers is the mid-face. An ellipse starts falling away from
+ * the midline immediately, so a head drawn on one presents no plane to the key
+ * at all — it is a dome with a scratch down it, and every previous pass then
+ * tried to fix that by pushing a mass forward on the midline, which is a keel.
+ * A maxilla is FLAT across the front of a face and turns, over a short run, at
+ * the cheekbone. 2.52 at the subnasale is that plane; 2.0 at both poles keeps
+ * the crown and the underside of the jaw round.
+ */
+const N_FRONT: Curve = [
+  [1.000, 2.00],
+  [0.600, 2.08],
+  [0.300, 2.22],
+  [0.100, 2.36],
+  [-0.116, 2.46],
+  [-0.323, 2.52], // the maxilla, and the flattest section on the head
+  [-0.536, 2.44],
+  [-0.700, 2.26],
+  [-0.900, 2.04],
+  [-1.000, 2.00],
+];
+
+/** The same for the back of the skull, which is very nearly a round arc. */
+const N_BACK: Curve = [
+  [1.000, 2.00],
+  [0.400, 2.10],
+  [-0.116, 2.16],
+  [-0.500, 2.10],
+  [-1.000, 2.00],
+];
+
+/**
+ * One vertical edge loop, and the three profile curves that place it.
+ *
+ * `b` is the loop's bearing off dead ahead — which, on this parameterisation, is
+ * exactly the sampling `u`, because `dirOf(u, v)` gives `atan2(|x|, z) = |u|` at
+ * every latitude. So a loop is a column of the mesh, and a landmark written here
+ * lands on the vertex a modeller would have moved. That identity is the reason
+ * this can be authored at all.
+ *
+ * `z` is how far the skin stands in front of the section, `x` how far outboard
+ * of it, `y` how far above it. All millimetres, all crown-first.
+ *
+ * `y` is not decoration, and it is the term the previous eight passes kept
+ * spending on `z` instead. The arena's key hangs at 60°, so a face shades almost
+ * entirely off surfaces that face UP or DOWN; 20 mm of forward push on a plane
+ * already facing the camera is invisible, while 2 mm of lift on a brow crest
+ * with the skin below it dropped 1.5 is an overhang with a lit top and a dark
+ * underside. Every row of `y` below is an edge the light can find.
+ */
+interface Loop {
+  b: number;
+  z: Curve;
+  x: Curve;
+  y: Curve;
+}
+
+const NONE: Curve = [[1, 0], [-1, 0]];
+
+/**
+ * The face, loop by loop, from the midline out to where the head stops being a
+ * face and starts being a skull.
+ *
+ * Seven loops and no more, because seven is what the features need: the midline
+ * carries the dorsum, the philtrum and the chin; 0.17 is the flank of the nose
+ * and the ridge of the philtrum; 0.34 is the inner canthus, the alar crease and
+ * the body of the lip; 0.53 is the pupil, the mouth's corner and the front of
+ * the malar; 0.75 is the outer canthus and the cheekbone itself; 1.00 is the
+ * temporal fossa and the zygomatic arch; 1.28 is the turn onto the side of the
+ * head. Past 1.58 the skull's own section is the answer and the face adds
+ * nothing, which is why there is a null loop there — the blend has somewhere to
+ * land instead of a shoulder.
+ */
+const FACE: readonly Loop[] = [
+  {
+    // ---- THE MIDLINE ----
+    b: 0.0,
+    z: [
+      [0.470, 0],
+      [0.300, 1],
+      [0.219, 2], //    glabella stands a touch proud of the frontal plane
+      [0.144, -2], //   nasion — the notch that makes the nose a separate mass
+      [0.020, 9], //    rhinion
+      [-0.116, 16], //  the dorsum's run
+      [-0.190, 24],
+      [-0.231, 28], //  PRONASALE — the frontmost point of the face
+      [-0.262, 24], //  the tip's underside
+      [-0.290, 14], //  columella
+      [-0.323, 4], //   subnasale
+      [-0.400, 0], //   the philtrum's floor
+      [-0.481, 7], //   labrale superius
+      [-0.536, 3], //   stomion — behind both vermilions
+      [-0.606, 6], //   labrale inferius
+      [-0.686, -1], //  mentolabial sulcus
+      [-0.766, 3], //   POGONION
+      [-0.830, 2], //   the chin's front face, still near vertical
+      [-0.880, 0],
+    ],
+    x: NONE,
+    y: [
+      [0.300, 0],
+      [0.219, 2.0], //   the brow's crest lifts
+      [0.144, -1.0], //  and the skin under it drops: an overhang, not a bulge
+      [-0.190, 1.0],
+      [-0.231, 1.4], //  the tip
+      [-0.300, -2.6], // the nostril's shelf, cut back under the lobule
+      [-0.360, 0],
+      [-0.481, -1.2], // the upper vermilion's top edge
+      [-0.536, -0.4],
+      [-0.606, 1.2], //  the lower lip's roll
+      [-0.700, -1.6], // the shelf under it
+      [-0.790, 0],
+    ],
+  },
+  {
+    // ---- THE FLANK OF THE NOSE, AND THE RIDGE OF THE PHILTRUM ----
+    b: 0.17,
+    z: [
+      [0.470, 0],
+      [0.219, 3],
+      [0.144, -1],
+      [0.020, 7],
+      [-0.116, 12],
+      [-0.190, 17],
+      [-0.231, 20], //  the lobule's flank
+      [-0.262, 17],
+      [-0.290, 10],
+      [-0.323, 4],
+      [-0.400, 1],
+      [-0.481, 6],
+      [-0.536, 2],
+      [-0.606, 5],
+      [-0.686, -1],
+      [-0.766, 2],
+      [-0.880, 0],
+    ],
+    x: [
+      [0.000, 0],
+      [-0.240, 1.4],
+      [-0.300, 3.8], // the ala — the nose's breadth is one row, not a gaussian
+      [-0.345, 2.4],
+      [-0.430, 0],
+    ],
+    y: [
+      [0.300, 0],
+      [0.219, 1.8],
+      [0.144, -0.9],
+      [-0.231, 1.0],
+      [-0.300, -2.0],
+      [-0.360, 0],
+      [-0.481, -1.0],
+      [-0.606, 1.0],
+      [-0.700, -1.3],
+      [-0.790, 0],
+    ],
+  },
+  {
+    // ---- THE INNER CANTHUS, THE ALAR CREASE, THE BODY OF THE LIP ----
+    b: 0.34,
+    z: [
+      [0.470, 0],
+      [0.300, 2],
+      [0.219, 6], //    the medial head of the brow ridge
+      [0.144, 1],
+      [0.020, -6],
+      [-0.116, -11], // the socket floor: the globe is set 13 mm proud of this
+      [-0.190, -7],
+      [-0.250, -1],
+      [-0.300, 0],
+      [-0.340, -3], //  the alar crease, a groove and not a shadow
+      [-0.420, 1],
+      [-0.481, 4],
+      [-0.536, 1],
+      [-0.606, 3],
+      [-0.686, -2],
+      [-0.766, 0],
+      [-0.880, 0],
+    ],
+    x: [
+      [0.000, 0],
+      [-0.300, -1.4],
+      [-0.420, 0],
+      [-1.000, 0],
+    ],
+    y: [
+      [0.300, 0],
+      [0.219, 2.2],
+      [0.130, -1.6], //  the supraorbital margin, cut
+      [-0.060, -1.0],
+      [-0.185, -1.5], // the orbital floor
+      [-0.300, 0],
+      [-0.481, -1.0],
+      [-0.606, 1.0],
+      [-0.700, -1.2],
+      [-0.800, 0],
+    ],
+  },
+  {
+    // ---- THE PUPIL LINE, THE MOUTH'S CORNER, THE FRONT OF THE MALAR ----
+    b: 0.53,
+    z: [
+      [0.470, 0],
+      [0.300, 2],
+      [0.219, 7], //    the superciliary arch, the strongest run of the brow
+      [0.144, 2],
+      [0.020, -5],
+      [-0.116, -10], // the orbit
+      [-0.190, -3],
+      [-0.260, 3], //   the malar coming forward under it
+      [-0.360, 3],
+      [-0.450, 0],
+      [-0.536, -3], //  the mouth's corner sits back — this is what makes a mouth
+      [-0.620, -3], //  a mouth rather than a scratch across a plane
+      [-0.720, -3],
+      [-0.820, 0],
+    ],
+    x: NONE,
+    y: [
+      [0.300, 0],
+      [0.219, 2.4],
+      [0.130, -1.8],
+      [-0.060, -1.0],
+      [-0.185, -1.5],
+      [-0.320, 0],
+      [-0.536, -0.5],
+      [-0.700, -0.8],
+      [-0.820, 0],
+    ],
+  },
+  {
+    // ---- THE OUTER CANTHUS AND THE CHEEKBONE ----
+    b: 0.75,
+    z: [
+      [0.470, 0],
+      [0.300, 1],
+      [0.219, 4],
+      [0.144, 1],
+      [0.020, -3],
+      [-0.116, -5],
+      [-0.200, 5], //   MALAR EMINENCE — the plane that takes the key
+      [-0.300, 5],
+      [-0.400, 0],
+      [-0.500, -4], //  the buccal hollow under it
+      [-0.620, -4],
+      [-0.760, -1],
+      [-0.860, 0],
+    ],
+    x: [
+      [0.100, 0],
+      [-0.200, 3.0],
+      [-0.330, 2.0],
+      [-0.480, -1.6],
+      [-0.620, -1.6],
+      [-0.800, 0],
+    ],
+    y: [
+      [0.300, 0],
+      [0.219, 1.4],
+      [0.130, -1.0],
+      [-0.185, -0.8],
+      [-0.400, 0],
+    ],
+  },
+  {
+    // ---- THE TEMPORAL FOSSA AND THE ZYGOMATIC ARCH ----
+    b: 1.00,
+    z: [
+      [0.500, 0],
+      [0.330, -2],
+      [0.219, -4], //   the fossa is a PLANE, not a dimple
+      [0.020, -5],
+      [-0.116, -2],
+      [-0.200, 2], //   the arch
+      [-0.330, 1],
+      [-0.470, -2],
+      [-0.620, -2],
+      [-0.800, 0],
+    ],
+    x: [
+      [0.500, 0],
+      [0.219, -3.0],
+      [0.020, -3.0],
+      [-0.150, 0],
+      [-0.220, 2.4], // the arch stands off the fossa in front of the ear
+      [-0.400, 0.5],
+      [-0.560, -1.0],
+      [-0.800, 0],
+    ],
+    y: NONE,
+  },
+  {
+    // ---- THE TURN ONTO THE SIDE OF THE HEAD ----
+    b: 1.28,
+    z: [
+      [0.500, 0],
+      [0.219, -2],
+      [0.020, -2],
+      [-0.150, 0],
+      [-0.600, 0],
+    ],
+    x: [
+      [0.700, 0],
+      [0.400, 2.0], //  the parietal, which is the only vertical in the outline
+      [0.219, -1.4],
+      [0.020, -1.0],
+      [-0.200, 1.0],
+      [-0.560, 0],
+      [-0.900, 0],
+    ],
+    y: NONE,
+  },
+  // The null loop. The face has to arrive at the skull's own section with a
+  // derivative of zero, or the blend's last step is a shoulder — which is
+  // exactly the "hard-edged plane break creasing from inner brow to jaw" the
+  // previous pass was reported for.
+  { b: 1.58, z: NONE, x: NONE, y: NONE },
+];
+
+const _sec = new THREE.Vector2();
+const _rel = new THREE.Vector3();
+
+/**
+ * The cross-section at one row, as a superellipse about the ear plane: the front
+ * half swept from the midline out to the widest point, the rear half back from
+ * it. C1 where they meet, because both arrive with their tangent along −z.
+ */
+function sectionAt(bear: number, y: number, out: THREE.Vector2): THREE.Vector2 {
+  const hw = curve(HALF_W, y);
+  const zf = curve(FRONT, y);
+  const zb = curve(BACK, y);
+  const zc = (zf + zb) * 0.5;
+  const zh = (zf - zb) * 0.5;
+  if (bear <= HALF_PI) {
+    const e = 2 / curve(N_FRONT, y);
+    return out.set(hw * Math.pow(Math.sin(bear), e), zc + zh * Math.pow(Math.cos(bear), e));
+  }
+  const t = bear - HALF_PI;
+  const e = 2 / curve(N_BACK, y);
+  return out.set(hw * Math.pow(Math.cos(t), e), zc - zh * Math.pow(Math.sin(t), e));
+}
+
+/**
+ * The loft between two adjacent edge loops. Smoothstep and not linear, because a
+ * linear join between columns is a crease running the full height of the face —
+ * and a crease from the inner brow to the jaw is one of the three notes this
+ * rewrite exists to answer.
+ */
+function reliefAt(bear: number, y: number, out: THREE.Vector3): THREE.Vector3 {
+  const n = FACE.length;
+  if (bear >= FACE[n - 1].b) return out.set(0, 0, 0);
+  let j = 0;
+  while (j < n - 2 && bear >= FACE[j + 1].b) j++;
+  const A = FACE[j];
+  const B = FACE[j + 1];
+  const s = smooth(A.b, B.b, bear);
+  return out.set(
+    mix(curve(A.x, y), curve(B.x, y), s),
+    mix(curve(A.y, y), curve(B.y, y), s),
+    mix(curve(A.z, y), curve(B.z, y), s),
+  );
+}
+
+/** A narrow weight in latitude, for handing one seed trait one landmark. */
+const at1 = (t: number, w: number): number => Math.exp((-t * t) / (w * w));
+
+/**
+ * Maps a unit direction onto the authored head, in metres, centred on the head's
+ * own origin.
+ *
+ * There is no displacement field here any more. The point is READ OUT of the
+ * cage: the row's section supplies the mass, the two bracketing columns supply
+ * the face, and the seed supplies a gain of a few per cent on named landmarks —
+ * a gain on a number somebody placed, which cannot compound into a different
+ * species the way ±30% on the amplitude of a gaussian could.
+ *
+ * Everything worn on the head is sampled through this same function, so hair
+ * sits on the skull it belongs to and war paint lies on the cheek rather than
+ * hovering in front of it.
+ */
+function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  const R = K.R;
+  const F = K.F;
+  const y = d.y;
+  const sx = d.x < 0 ? -1 : 1;
+  const bear = Math.atan2(Math.abs(d.x), d.z);
+  // The cage is written for a 269 mm head; a class's stature scales all of it.
+  const mm = 0.001 * (R.y / 0.1205);
+
+  sectionAt(bear, y, _sec);
+  reliefAt(bear, y, _rel);
+
+  // ---- the seed, as gains on landmarks ----
+  //
+  // ±30% on the amplitude of a gaussian is what drew the storybook witch: four
+  // of them compounded and the nose tip ended up 73 mm in front of pogonion
+  // where life is 20. A gain on an authored row cannot do that, because the row
+  // IS the shape and there is nothing underneath it to add to. Half a trait's
+  // span on one landmark is a millimetre or two — legible in a portrait and
+  // invisible as a deformity.
+  const gz = 1
+    + (F.brow - 1) * 0.55 * at1(y - Y_BROW, 0.13)
+    + (F.bridge - 1) * 0.40 * at1(y - (Y_BROW - 0.12), 0.12)
+    + (F.deepSet - 1) * 0.50 * at1(y - Y_EYE, 0.14)
+    + (F.nose - 1) * 0.60 * at1(y - Y_TIP, 0.16)
+    + (F.cheek - 1) * 0.50 * at1(y - (Y_EYE - 0.10), 0.20)
+    + (F.gaunt - 1) * 0.40 * at1(y - (Y_LIP + 0.03), 0.18)
+    + (F.lip - 1) * 0.30 * at1(y - Y_LIP, 0.12)
+    + (F.chin - 1) * 0.50 * at1(y - Y_CHIN, 0.15);
+  const gw = F.wide
+    + (F.jaw - 1) * 0.35 * at1(y - Y_GONION, 0.22)
+    + (F.cheek - 1) * 0.25 * at1(y - (Y_EYE - 0.10), 0.22);
+  const gx = 1 + (F.nostril - 1) * 0.5 * at1(y - (Y_NOSE + 0.02), 0.10);
+
+  // A symmetric face is a mask; two millimetres off centre is a man. Faded out
+  // by the ear, so the skull it is worn on does not move with it.
+  const drift = F.asym * (1 - smooth(0.2, 1.2, bear));
+
+  const px = sx * (_sec.x * gw + _rel.x * gx) * mm + drift;
+  const pz = (_sec.y * F.deep + _rel.z * gz) * mm;
+  // The mandible is hung below the braincase, which is what turns a vault into a
+  // head. Unchanged, because `Y_BROW` and its friends — and every helm rim, hood
+  // edge and beard line cut against them — are solved on this exact curve.
+  const py = y * R.y * F.tall
+    - MANDIBLE * Math.pow(clamp01((-y - 0.22) / 0.78), 1.3)
+    + _rel.y * mm;
+
+  return out.set(px, py, pz);
+}
