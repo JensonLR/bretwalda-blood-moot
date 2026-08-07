@@ -2520,8 +2520,8 @@ const HALF_W: Curve = [
   [0.080, 98.2], //  parietal eminence — the widest section on the head
   [-0.116, 97.0], // eye line: the zygomatic carries nearly the full breadth
   [-0.280, 92.5],
-  [-0.420, 85.0],
-  [-0.520, 78.0],
+  [-0.420, 86.5],
+  [-0.520, 78.5],
   [-0.596, 71.5], // GONION
   [-0.660, 65.0],
   [-0.720, 57.0],
@@ -2547,27 +2547,27 @@ const HALF_W: Curve = [
  * 269 tall — Farkas' 0.845 on the nose.
  */
 const FRONT: Curve = [
-  [1.000, -16.0], // the vertex sits behind the ear plane
+  [1.000, -14.0], // the vertex sits behind the ear plane
   [0.985, 8.0],
-  [0.950, 30.0],
-  [0.900, 50.0],
-  [0.830, 68.0],
-  [0.740, 83.0],
-  [0.620, 93.0],
-  [0.470, 100.0],
-  [0.330, 103.0],
-  [0.250, 104.5],
-  [0.219, 105.0], //  GLABELLA — the datum the columns are written against
-  [0.144, 102.0], //  nasion
-  [0.010, 99.5],
-  [-0.116, 98.0], //  the plane between the orbits
-  [-0.231, 99.0], //  behind the nose, not the nose
-  [-0.323, 102.0], // subnasale
-  [-0.430, 105.0], // the alveolar plane the lips are carried on
-  [-0.481, 106.0],
-  [-0.536, 105.5],
-  [-0.606, 104.5],
-  [-0.686, 102.5],
+  [0.950, 28.0],
+  [0.900, 45.0],
+  [0.830, 62.0],
+  [0.740, 78.0],
+  [0.620, 90.0],
+  [0.470, 98.0],
+  [0.330, 102.0],
+  [0.250, 104.0],
+  [0.219, 104.5], // GLABELLA — the datum the columns are written against
+  [0.144, 99.0], //  nasion
+  [0.010, 95.0],
+  [-0.116, 93.0], // the plane between the orbits — a real orbit is set BACK
+  [-0.231, 95.0], // behind the nose, not the nose
+  [-0.323, 99.5], // subnasale
+  [-0.430, 103.5], // the alveolar plane the lips are carried on
+  [-0.481, 105.0],
+  [-0.536, 104.5],
+  [-0.606, 103.5],
+  [-0.686, 102.0],
   [-0.766, 103.0], // pogonion's base — the chin's own mass is column 0
   [-0.820, 100.0],
   [-0.856, 90.0], //  gnathion: the underside turns away here
@@ -2589,24 +2589,26 @@ const FRONT: Curve = [
  * draws the outline, which is what S4 measures.
  */
 const BACK: Curve = [
-  [1.000, -16.0],
-  [0.985, -42.0],
-  [0.950, -64.0],
-  [0.900, -84.0],
-  [0.830, -101.0],
-  [0.740, -113.0],
-  [0.620, -120.0],
-  [0.470, -124.0],
-  [0.250, -125.0], // OPISTHOCRANION
-  [0.050, -123.0],
-  [-0.116, -116.0],
-  [-0.250, -101.0],
-  [-0.380, -82.0],
-  [-0.500, -62.0],
-  [-0.596, -46.0], // GONION
-  [-0.700, -28.0],
-  [-0.800, -12.0],
-  [-0.900, 2.0],
+  [1.000, -14.0],
+  [0.985, -40.0],
+  [0.950, -60.0],
+  [0.900, -78.0],
+  [0.830, -97.0],
+  [0.740, -108.0],
+  [0.620, -115.0],
+  [0.470, -120.0],
+  [0.250, -121.0], // OPISTHOCRANION
+  [0.050, -119.0],
+  [-0.116, -112.0],
+  [-0.250, -99.0],
+  [-0.400, -89.0],
+  [-0.520, -81.0],
+  [-0.596, -76.0], // GONION — the ramus has run near-vertical down to here
+  [-0.645, -60.0], // and the mandible's lower border turns forward: the corner
+  [-0.700, -40.0],
+  [-0.780, -18.0],
+  [-0.860, -2.0],
+  [-0.940, 12.0],
   [-0.975, 20.0],
   [-1.000, 26.0],
 ];
@@ -2632,8 +2634,8 @@ const N_FRONT: Curve = [
   [-0.116, 2.46],
   [-0.323, 2.52], // the maxilla, and the flattest section on the head
   [-0.536, 2.44],
-  [-0.700, 2.26],
-  [-0.900, 2.04],
+  [-0.700, 2.34],
+  [-0.900, 2.06],
   [-1.000, 2.00],
 ];
 
@@ -2641,8 +2643,13 @@ const N_FRONT: Curve = [
 const N_BACK: Curve = [
   [1.000, 2.00],
   [0.400, 2.10],
-  [-0.116, 2.16],
-  [-0.500, 2.10],
+  [-0.116, 2.20],
+  // The ramus and the angle. A mandible is not an arc — it turns a CORNER at the
+  // gonion and runs forward from it, and on a section that is a squarer curve
+  // through the rear quadrant. S4 measures the turn this row makes.
+  [-0.430, 2.50],
+  [-0.596, 2.62],
+  [-0.760, 2.30],
   [-1.000, 2.00],
 ];
 
@@ -2699,11 +2706,12 @@ const FACE: readonly Loop[] = [
       [0.144, -2], //   nasion — the notch that makes the nose a separate mass
       [0.020, 9], //    rhinion
       [-0.116, 16], //  the dorsum's run
-      [-0.190, 24],
-      [-0.231, 28], //  PRONASALE — the frontmost point of the face
-      [-0.262, 24], //  the tip's underside
-      [-0.290, 14], //  columella
-      [-0.323, 4], //   subnasale
+      [-0.175, 23],
+      [-0.231, 31], //  PRONASALE — the frontmost point of the face
+      [-0.258, 29], //  the tip has a FLAT under it before it turns
+      [-0.285, 20], //  columella
+      [-0.310, 8],
+      [-0.330, 3], //   subnasale
       [-0.400, 0], //   the philtrum's floor
       [-0.481, 7], //   labrale superius
       [-0.536, 3], //   stomion — behind both vermilions
@@ -2720,8 +2728,9 @@ const FACE: readonly Loop[] = [
       [0.144, -1.0], //  and the skin under it drops: an overhang, not a bulge
       [-0.190, 1.0],
       [-0.231, 1.4], //  the tip
-      [-0.300, -2.6], // the nostril's shelf, cut back under the lobule
-      [-0.360, 0],
+      [-0.262, 0.4],
+      [-0.292, -3.4], // the nostril's shelf, cut back under the lobule
+      [-0.345, 0],
       [-0.481, -1.2], // the upper vermilion's top edge
       [-0.536, -0.4],
       [-0.606, 1.2], //  the lower lip's roll
@@ -2738,11 +2747,12 @@ const FACE: readonly Loop[] = [
       [0.144, -1],
       [0.020, 7],
       [-0.116, 12],
-      [-0.190, 17],
-      [-0.231, 20], //  the lobule's flank
-      [-0.262, 17],
-      [-0.290, 10],
-      [-0.323, 4],
+      [-0.175, 16],
+      [-0.231, 21], //  the lobule's flank
+      [-0.258, 20],
+      [-0.285, 15],
+      [-0.310, 7],
+      [-0.330, 4],
       [-0.400, 1],
       [-0.481, 6],
       [-0.536, 2],
@@ -2753,18 +2763,19 @@ const FACE: readonly Loop[] = [
     ],
     x: [
       [0.000, 0],
-      [-0.240, 1.4],
-      [-0.300, 3.8], // the ala — the nose's breadth is one row, not a gaussian
-      [-0.345, 2.4],
-      [-0.430, 0],
+      [-0.235, 1.0],
+      [-0.290, 3.4], // the ala — the nose's breadth is one row, not a gaussian
+      [-0.335, 2.2],
+      [-0.420, 0],
     ],
     y: [
       [0.300, 0],
       [0.219, 1.8],
       [0.144, -0.9],
       [-0.231, 1.0],
-      [-0.300, -2.0],
-      [-0.360, 0],
+      [-0.262, 0.2],
+      [-0.292, -2.6],
+      [-0.345, 0],
       [-0.481, -1.0],
       [-0.606, 1.0],
       [-0.700, -1.3],
@@ -2780,11 +2791,11 @@ const FACE: readonly Loop[] = [
       [0.219, 6], //    the medial head of the brow ridge
       [0.144, 1],
       [0.020, -6],
-      [-0.116, -11], // the socket floor: the globe is set 13 mm proud of this
+      [-0.116, -8], //  the socket floor: the globe is set 13 mm proud of this
       [-0.190, -7],
       [-0.250, -1],
       [-0.300, 0],
-      [-0.340, -3], //  the alar crease, a groove and not a shadow
+      [-0.335, -4], //  the alar crease, a groove and not a shadow
       [-0.420, 1],
       [-0.481, 4],
       [-0.536, 1],
@@ -2820,15 +2831,17 @@ const FACE: readonly Loop[] = [
       [0.300, 2],
       [0.219, 7], //    the superciliary arch, the strongest run of the brow
       [0.144, 2],
-      [0.020, -5],
-      [-0.116, -10], // the orbit
-      [-0.190, -3],
-      [-0.260, 3], //   the malar coming forward under it
+      [0.020, -4],
+      [-0.116, -8], //  the orbit
+      [-0.190, -2],
+      [-0.260, 4], //   the malar coming forward under it
       [-0.360, 3],
       [-0.450, 0],
-      [-0.536, -3], //  the mouth's corner sits back — this is what makes a mouth
-      [-0.620, -3], //  a mouth rather than a scratch across a plane
-      [-0.720, -3],
+      [-0.500, -4],
+      [-0.536, -5], //  the mouth's corner sits back — this is what makes a mouth
+      [-0.575, -4], //  a mouth rather than a scratch across a plane
+      [-0.660, -3],
+      [-0.740, -3],
       [-0.820, 0],
     ],
     x: NONE,
@@ -2894,9 +2907,10 @@ const FACE: readonly Loop[] = [
       [-0.800, 0],
     ],
     x: [
-      [0.500, 0],
-      [0.219, -3.0],
-      [0.020, -3.0],
+      [0.560, 0],
+      [0.380, -3.0],
+      [0.219, -5.0],
+      [0.020, -4.5],
       [-0.150, 0],
       [-0.220, 2.4], // the arch stands off the fossa in front of the ear
       [-0.400, 0.5],
@@ -2917,9 +2931,9 @@ const FACE: readonly Loop[] = [
     ],
     x: [
       [0.700, 0],
-      [0.400, 2.0], //  the parietal, which is the only vertical in the outline
-      [0.219, -1.4],
-      [0.020, -1.0],
+      [0.470, 2.0], //  the parietal, which is the only vertical in the outline
+      [0.250, -2.6],
+      [0.020, -2.2],
       [-0.200, 1.0],
       [-0.560, 0],
       [-0.900, 0],
@@ -3024,7 +3038,7 @@ function faceSurfaceRaw(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.V
     + (F.lip - 1) * 0.30 * at1(y - Y_LIP, 0.12)
     + (F.chin - 1) * 0.50 * at1(y - Y_CHIN, 0.15);
   const gw = F.wide
-    + (F.jaw - 1) * 0.35 * at1(y - Y_GONION, 0.22)
+    + (F.jaw - 1) * 0.20 * at1(y - Y_GONION, 0.22)
     + (F.cheek - 1) * 0.25 * at1(y - (Y_EYE - 0.10), 0.22);
   const gx = 1 + (F.nostril - 1) * 0.5 * at1(y - (Y_NOSE + 0.02), 0.10);
 
@@ -4309,25 +4323,52 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
  * face for the same 3520 triangles, and the back of the head loses vertices it
  * had nothing to do with.
  */
-function bandWarp(s: number, a: number, b: number, lo: number, hi: number, d: number): number {
-  const L1 = a - lo;
-  const L2 = (b - a) * d;
-  const L3 = hi - b;
-  const t = s * (L1 + L2 + L3);
-  if (t <= L1) return lo + t;
-  if (t <= L1 + L2) return a + (t - L1) / d;
-  return b + (t - L1 - L2);
+function warpTable(lo: number, hi: number, a: number, b: number, d: number, soft: number): Float64Array {
+  const N = 512;
+  const cdf = new Float64Array(N + 1);
+  let acc = 0;
+  for (let i = 0; i < N; i++) {
+    const x = lo + ((i + 0.5) / N) * (hi - lo);
+    const w = smooth(a - soft, a + soft, x) * (1 - smooth(b - soft, b + soft, x));
+    acc += 1 + (d - 1) * w;
+    cdf[i + 1] = acc;
+  }
+  for (let i = 0; i <= N; i++) cdf[i] /= acc;
+  return cdf;
 }
 
+/**
+ * And the inverse. A binary search on 512 rows, run once per vertex ring.
+ *
+ * The density ramps over `soft` rather than stepping, and that is not tidiness:
+ * a STEP in vertex spacing is a step in how the shading interpolates across the
+ * band's edge, and it draws a hard horizontal line across the forehead — plainly
+ * there in `art/shots/c3/`, one per band boundary, and indistinguishable from a
+ * geometric crease at portrait range. The surface either side of it is identical.
+ */
+function warpAt(cdf: Float64Array, s: number, lo: number, hi: number): number {
+  const N = cdf.length - 1;
+  let a = 0;
+  let b = N;
+  while (b - a > 1) {
+    const m = (a + b) >> 1;
+    if (cdf[m] <= s) a = m; else b = m;
+  }
+  const t = (s - cdf[a]) / Math.max(1e-12, cdf[a + 1] - cdf[a]);
+  return lo + ((a + t) / N) * (hi - lo);
+}
+
+const ROW_CDF = warpTable(-Math.PI / 2, Math.PI / 2, -1.10, 0.36, 2.2, 0.30);
+const COL_CDF = warpTable(0, 1, 0.33, 0.67, 2.2, 0.07);
+
 /** Row placement: the band is the forehead down to under the jaw. */
-const faceRow = (s: number): number =>
-  bandWarp(s, -1.10, 0.36, -Math.PI / 2, Math.PI / 2, 2.2);
+const faceRow = (s: number): number => warpAt(ROW_CDF, s, -Math.PI / 2, Math.PI / 2);
 
 /**
  * Column placement, in turns. The grid starts at the nape, so the face is the
  * middle of the run and the band is symmetric about 0.5.
  */
-const faceCol = (s: number): number => bandWarp(s, 0.33, 0.67, 0, 1, 2.2);
+const faceCol = (s: number): number => warpAt(COL_CDF, s, 0, 1);
 
 function headGeometry(K: Skull, nu: number, nv: number): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -9074,7 +9115,7 @@ export function buildCharacter(
       // matrix, because each vertex has to know the latitude it ends up at in
       // order to be seated against it.
       const place3 = new THREE.Matrix4()
-        .makeTranslation(s * earRootX, earY, -0.024)
+        .makeTranslation(s * earRootX, earY, -0.040)
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2));
       const A = auricle(K, earRootX, s);
       p.add(A.skin, headSkin, place3);
