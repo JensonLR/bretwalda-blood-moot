@@ -541,7 +541,10 @@ async function lockAct(browser, url, check) {
         return { worst, n, yawTravel, moved, id };
       }, mark);
       if (process.env.TOUCH_DIAG) {
-        const raw = await page.evaluate((t) => window.__probe.frames.filter((f) => f.t >= t), mark);
+        const raw = await page.evaluate((t) => ({
+          frames: window.__probe.frames.filter((f) => f.t >= t),
+          sent: window.__probe.sent.filter((s) => s.t >= t).map((s) => ({ t: s.t, y: s.d.rotationY })),
+        }), mark);
         writeFileSync(resolve(process.env.TOUCH_DIAG, `lockA-${Date.now()}-${i}.json`), JSON.stringify(raw));
       }
       if (read.n >= 8 && read.moved > 0.8) break;

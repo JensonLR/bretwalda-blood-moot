@@ -10711,27 +10711,61 @@ export function buildCharacter(
         // that; it is the outline, the overhang at the rim and the fact that it
         // is a hard-edged plate over a soft head.
         const topY = skullY + R.y * 0.47;
-        const neckFrac = Math.max(0.62, S.neckHW / R.x);
-        /** Half-breadth of whatever is under the fall at height y, as a fraction. */
-        const hullFrac = (y: number, key: "hw" | "hd"): number => {
-          const t = (y - skullY) / R.y;
-          const sk = Math.abs(t) < 1 ? Math.sqrt(1 - t * t) : 0;
-          const bone = Math.max(sk, neckFrac);
-          const mail = coifAt(y, key) / (key === "hw" ? R.x : R.z);
-          return Math.max(bone, mail);
+        // SAMPLED OFF THE FORM, not guessed from the ellipsoid it started as.
+        // The first draft of this used `R.x · sqrt(1 - t²)`, which is 12% wider
+        // at the ear's height than at the top ring's — but the head is not an
+        // ellipsoid there. Its own breadth table holds 98 mm at the parietal and
+        // 90 mm at the cheekbone, so the real outline is close to a straight
+        // side, and a ring following a barrel over a straight side leaves it at
+        // 35 deg. Two columns off the block the helmet is beaten over — one at
+        // the flank, one at the occiput — cost 26 field samples and are the
+        // shape that is actually there.
+        const sideP: Array<[number, number]> = [];
+        const backP: Array<[number, number]> = [];
+        {
+          const q = new THREE.Vector3();
+          for (let i = 0; i <= 12; i++) {
+            const v = mix(Math.PI / 2 - 0.05, -Math.PI / 2 + 0.30, i / 12);
+            formSurface(_form, Math.PI / 2, v, q);
+            sideP.push([skullY + q.y, Math.abs(q.x)]);
+            formSurface(_form, Math.PI, v, q);
+            backP.push([skullY + q.y, Math.abs(q.z)]);
+          }
+        }
+        /** Read one of those columns at a height. Both descend in y. */
+        const readP = (tab: Array<[number, number]>, y: number): number => {
+          if (y >= tab[0][0]) return tab[0][1];
+          for (let i = 0; i < tab.length - 1; i++) {
+            if (y <= tab[i][0] && y >= tab[i + 1][0]) {
+              return mix(tab[i][1], tab[i + 1][1], (tab[i][0] - y) / (tab[i][0] - tab[i + 1][0]));
+            }
+          }
+          return tab[tab.length - 1][1];
         };
-        // 13 mm at the band, 17 in the middle, 20 to 23 at the rim: a liner and a
-        // padded collar, and the rim's extra few millimetres are the overhang
-        // that throws the shadow line the fall is read by.
-        const ringAt = (y: number, clear: number, z: number) => ({
-          y, z,
-          hw: R.x * hullFrac(y, "hw") + clear,
-          hd: R.z * hullFrac(y, "hd") + clear,
-        });
+        // Below the skull there is no skull, and a neck is a neck in millimetres
+        // rather than a fraction of a head — expressing it as 0.62 R.z stood the
+        // deep guard's rim 34 mm behind a throat that is 45 mm through, which was
+        // most of its 48 mm of daylight. And on the one class that wears mail the
+        // plate lies on the mail, because that is what is under it.
+        const hullAt = (y: number) => {
+          let hw = Math.max(readP(sideP, y), S.neckHW);
+          let hd = Math.max(readP(backP, y), S.neckHW);
+          if (heavy) { hw = Math.max(hw, coifAt(y, "hw")); hd = Math.max(hd, coifAt(y, "hd")); }
+          return { hw, hd };
+        };
+        // 13 mm at the band, 16 in the middle, 19 to 21 at the rim: a liner, then
+        // a padded collar, and the rim's extra few millimetres are the overhang
+        // that throws the shadow line the fall is read by. The backward shifts
+        // are a tenth of what they were — at 40 mm the `z` term alone put the
+        // rim behind the neck with nothing under it.
+        const ringAt = (y: number, clear: number, z: number) => {
+          const h = hullAt(y);
+          return { y, z, hw: h.hw + clear, hd: h.hd + clear };
+        };
         const rings = [
-          ringAt(topY, 0.013, -0.006),
-          ringAt(mix(topY, floorY, 0.5), 0.017, -0.012),
-          ringAt(floorY, deep ? 0.023 : 0.020, deep ? -0.018 : -0.015),
+          ringAt(topY, 0.013, -0.004),
+          ringAt(mix(topY, floorY, 0.5), 0.016, -0.007),
+          ringAt(floorY, deep ? 0.021 : 0.019, deep ? -0.010 : -0.008),
         ];
         // AND THE ARC IS A FUNCTION OF THE DESCENT, which is the other half of
         // the wing. At a constant 1.74 rad the deep guard's front edge crossed the
