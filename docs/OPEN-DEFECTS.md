@@ -375,6 +375,19 @@ on a `gorget: 0.0` class** (runekeeper or berserker). `jawOverCheek` is rounding
 against a bizygomatic that is 22% over life by art direction; rewrite the
 tolerance or delete it. Nothing here is worth sculpting for.
 
+> **CORRECTION — do not act on the paragraph above.** `CLASS.gorget` IS READ BY
+> NOTHING. `grep -rn gorget src/` returns the field declaration, the four class
+> rows and these two notes, and no consumer anywhere in the build. The huscarl's
+> `1.0` has never covered a throat: there is no leather collar, and the neck he
+> is measured on is bare skin from the jaw to the tunic collar, exactly like the
+> berserker's. So `neckOverHead` and `neckOverJaw` measure what they say they
+> measure, and both are load-bearing — retiring them on the strength of a number
+> that does nothing would have thrown away the only two instruments watching the
+> shape the owner went on to complain about. The error came from taking a table
+> at its word instead of grepping for its reader, which is the same mistake as
+> trusting a comment over the neck's own material: see the note over
+> `emit("neck", …)` in `characters.ts`.
+
 ### FAULT 4 — the phone lost the flick chevrons with the gunsight
 
 The old lock reticle drew a pair of chevrons on mobile only, saying which way the
