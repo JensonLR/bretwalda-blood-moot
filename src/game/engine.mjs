@@ -1195,7 +1195,18 @@ function makeEngine() {
       p.health = p.maxHealth;
       p.stamina = p.maxStamina;
       p.state = "idle";
-      p.invincible = true; p.invincibleTimer = SPAWN_INVINCIBLE;
+      // NO GRACE ARMED HERE. It used to be, and the timer it set is decremented
+      // in exactly one place — `stepRoom` — which `gameTick` skips for any room
+      // that is not `fighting` / `last_stand`. So two seconds armed at the top
+      // of a three-second countdown did not begin burning until the countdown
+      // ended, and every warrior stayed flagged untouchable for a further two
+      // seconds INTO the fight. It bought the simulation nothing on the way
+      // through: nothing is stepped during `countdown` and `handleAttack`
+      // rejects every swing outside a fight, so there was no blow for it to
+      // stop. All it did was drive the client's body strobe, which is why the
+      // flashing outlived the countdown that triggered it. The grace is armed
+      // below, on the frame the fight starts, against the clock that runs.
+      p.invincible = false; p.invincibleTimer = 0;
       // Nobody walks out of the last fight into this one — nor bleeds out of it,
       // nor comes back still swinging the blow that killed him.
       p.attackTimer = 0; p.blockTimer = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
@@ -1214,6 +1225,16 @@ function makeEngine() {
       if (room.countdown <= 0) {
         clearInterval(ci);
         room.state = "fighting";
+        // The grace is armed HERE, in the same statement that starts the fight,
+        // because `stepRoom` — the only thing that spends it — starts running
+        // on this transition too. Armed anywhere earlier it is a duration held
+        // against a stopped clock, which is the bug this replaces. Two seconds
+        // now means two seconds of the fight, which is what the constant is
+        // named for.
+        room.players.forEach((p) => {
+          if (p.state === "dead") return;
+          p.invincible = true; p.invincibleTimer = SPAWN_INVINCIBLE;
+        });
         broadcast(room, { type: "game_state", data: serializeRoom(room) });
       } else {
         broadcast(room, { type: "countdown", data: { countdown: room.countdown } });
