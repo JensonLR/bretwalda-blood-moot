@@ -77,6 +77,11 @@ export type Bindings = Readonly<Record<ActionId, readonly BindingCode[]>>;
  * `shift` and `control` as `event.key` matched either side of the keyboard, so
  * both sides are bound. The arrow keys were already the alternate for WASD and
  * they survive as second bindings.
+ *
+ * ONE EXCEPTION, AND IT IS A BUG FIX: crouch shipped on
+ * `["ControlLeft","ControlRight"]` and was dead on every Mac in the world. See
+ * `PLATFORM_MODIFIER_CODES` below, and `defaultsRuleViolations()`, which is the
+ * rule that stops the next one.
  */
 export const DEFAULT_BINDINGS: Bindings = Object.freeze({
   forward: Object.freeze(["KeyW", "ArrowUp"]),
@@ -85,7 +90,15 @@ export const DEFAULT_BINDINGS: Bindings = Object.freeze({
   right: Object.freeze(["KeyD", "ArrowRight"]),
   sprint: Object.freeze(["ShiftLeft", "ShiftRight"]),
   dodge: Object.freeze(["Space"]),
-  crouch: Object.freeze(["ControlLeft", "ControlRight"]),
+  // C, not Ctrl. Ctrl is the right-click modifier on macOS — the browser takes
+  // the chord before the page sees a keydown, and Ctrl-drag is a system
+  // gesture — so the shipped crouch was a control that did nothing for every
+  // Mac player, and crouch is a real tactic (`CROUCH_DROP` in engine.mjs drops
+  // a crouching man's hitbox so cuts land at the legs). C is free, it is
+  // conventional, and it is the same physical key everywhere. Alt was the other
+  // candidate and is refused by the same rule: it is Option on a Mac and
+  // composes characters rather than reporting a plain key.
+  crouch: Object.freeze(["KeyC"]),
   attack: Object.freeze(["Mouse0"]),
   heavy: Object.freeze(["KeyE", "KeyV"]),
   block: Object.freeze(["Mouse2"]),
@@ -108,6 +121,12 @@ export const MAX_BINDINGS_PER_ACTION = 3;
 /**
  * Keys the browser or the game has already spoken for. Refused with a reason
  * rather than accepted and then silently not working.
+ *
+ * THIS LIST IS THE SERVER CONTRACT. `src/db/bindings.ts` reads it and rejects a
+ * whole table containing any of these, so nothing may be ADDED here that a
+ * shipped table might already contain — a row written before the rule would
+ * come back `null` and take a player's entire remap with it. New refusals go in
+ * `PLATFORM_MODIFIER_CODES`, which the screen enforces and the server tolerates.
  */
 export const RESERVED_CODES: Readonly<Record<string, string>> = Object.freeze({
   Escape: "Escape closes menus.",
@@ -119,6 +138,90 @@ export const RESERVED_CODES: Readonly<Record<string, string>> = Object.freeze({
   MetaRight: "The system key cannot be held reliably in a browser.",
   ContextMenu: "The menu key is the browser's.",
 });
+
+/**
+ * THE RULE: no binding may be a bare platform modifier.
+ *
+ * Ctrl-to-crouch was dead on a MacBook for the whole life of this game, and the
+ * reason is not a bug anywhere in this file — it is that **Ctrl is the
+ * right-click modifier on macOS**. The browser turns Ctrl-click into a context
+ * menu and Ctrl-drag into a system gesture before the page is consulted, so a
+ * key the settings screen happily accepted never arrived. Option (Alt) is the
+ * same shape of mistake from the other end: macOS uses it to compose
+ * characters, and holding it changes what every other key reports.
+ *
+ * A modifier is a thing you hold WITH something else. It is a poor game control
+ * on every platform and an impossible one on some, so it is refused with the
+ * reason rather than accepted and quietly dropped — the difference between a
+ * control that does not exist and one that does nothing.
+ *
+ * Deliberately NOT merged into `RESERVED_CODES`: the server validates against
+ * that list and would reject an entire stored table on sight of one legacy
+ * `ControlLeft`. `coerce()` below strips them on the way in instead, so old
+ * tables heal rather than break.
+ */
+export const PLATFORM_MODIFIER_CODES: Readonly<Record<string, string>> = Object.freeze({
+  ControlLeft: "Ctrl is the right-click modifier on a Mac — the browser takes it before the game does.",
+  ControlRight: "Ctrl is the right-click modifier on a Mac — the browser takes it before the game does.",
+  AltLeft: "Alt is Option on a Mac, where it composes characters instead of reporting a key.",
+  AltRight: "Alt is Option on a Mac, where it composes characters instead of reporting a key.",
+  MetaLeft: "Cmd on a Mac and the system key on Windows; neither can be held reliably in a browser.",
+  MetaRight: "Cmd on a Mac and the system key on Windows; neither can be held reliably in a browser.",
+  // Old Gecko names for the same two physical keys. A Firefox that still
+  // reports them must not slip a modifier past the rule.
+  OSLeft: "The system key cannot be held reliably in a browser.",
+  OSRight: "The system key cannot be held reliably in a browser.",
+});
+
+/** Own-property lookup: these tables are object literals, so a code of
+ *  `constructor` or `toString` would otherwise come back as Object's own. */
+function reasonIn(map: Readonly<Record<string, string>>, code: string): string | null {
+  return Object.prototype.hasOwnProperty.call(map, code) ? map[code] : null;
+}
+
+/** Every code that is a bare platform modifier, for the rule and the strip. */
+export function isPlatformModifier(code: BindingCode): boolean {
+  return reasonIn(PLATFORM_MODIFIER_CODES, code) !== null;
+}
+
+/**
+ * Why `code` may not SHIP as a default, or null if it may.
+ *
+ * Function keys are included and the reserved list is not enough on its own:
+ * F1 is help, F3 is find, F6 is the address bar and F7 is caret browsing, and
+ * which of them the browser eats varies by browser. A default has to work on
+ * every machine that opens the link, so none of them is a candidate.
+ */
+export function unsafeDefaultReason(code: BindingCode): string | null {
+  return reasonIn(PLATFORM_MODIFIER_CODES, code)
+    ?? reasonIn(RESERVED_CODES, code)
+    ?? (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)
+      ? `${code} is a browser function key on at least one platform.`
+      : null);
+}
+
+/**
+ * The rule, applied to the shipped table. Empty means the defaults are clean.
+ *
+ * Exported so `tools/bindsynctest.mjs` asserts the same implementation the game
+ * uses rather than a second copy of the list — the failure mode this project has
+ * hit three times is a test that measures a different quantity from the code.
+ */
+export function defaultsRuleViolations(): string[] {
+  const out: string[] = [];
+  const seen = new Map<BindingCode, ActionId>();
+  for (const id of ACTION_IDS) {
+    for (const code of DEFAULT_BINDINGS[id]) {
+      const why = unsafeDefaultReason(code);
+      if (why) out.push(`${id} defaults to ${code}: ${why}`);
+      const already = seen.get(code);
+      if (already) out.push(`${id} and ${already} both default to ${code}.`);
+      else seen.set(code, id);
+    }
+    if (DEFAULT_BINDINGS[id].length === 0) out.push(`${id} ships with no binding at all.`);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // The table
@@ -137,6 +240,29 @@ let table: Record<ActionId, BindingCode[]> = cloneDefaults();
 let snapshot: Bindings = freeze(table);
 let loaded = false;
 
+/**
+ * THE PLAYER HAS CHANGED A BINDING ON THIS DEVICE SINCE THE PAGE LOADED.
+ *
+ * This exists because of the bug the owner reported as "the key binds aren't
+ * binding in game when adding additional custom keys", and the bug was not in
+ * the table at all — it was a RACE with the sign-in.
+ *
+ * The landing screen is interactive the instant it paints, and the sign-in POST
+ * runs behind it. On the live free-tier dyno that request can take tens of
+ * seconds cold. A player who opens the remap screen inside that window and adds
+ * a key gets it written here and to localStorage, and then the profile answers
+ * and `adoptBindings` hydrates the ROW straight over the top of it — screen
+ * accepted the key, cap showed the key, key never reached the man, and the
+ * remap is gone from localStorage too. Measured: cap read `["T","↑","Y"]` before
+ * the sign-in answered and `["T","↑"]` after.
+ *
+ * So the boot has to know that this device has an opinion. Set by the four
+ * writers the settings screen drives and by nothing else — `hydrateBindings`
+ * deliberately does NOT set it, because a table arriving from the roll is not
+ * the player touching a key.
+ */
+let touchedHere = false;
+
 const listeners = new Set<() => void>();
 let persist: ((bindings: Bindings) => void) | null = null;
 
@@ -150,7 +276,21 @@ function isActionId(v: unknown): v is ActionId {
   return typeof v === "string" && (ACTION_IDS as readonly string[]).includes(v);
 }
 
-/** Anything shaped like a table, from localStorage or from a profile row. */
+/**
+ * Anything shaped like a table, from localStorage or from a profile row.
+ *
+ * THE HEALING STEP. Every table written before the platform-modifier rule
+ * carries `crouch: ["ControlLeft","ControlRight"]`, and those rows are on the
+ * war rolls and in localStorage on every device that has ever remapped
+ * anything. They are stripped here, on the way in, so a Mac player's crouch
+ * comes back without him being told to reset — and because `commit()` writes
+ * the cleaned table straight back to storage and up to the profile, it heals
+ * once and stays healed.
+ *
+ * An action left with NOTHING by the strip gets its shipped default back rather
+ * than being handed an unbound control. An action that was already empty is left
+ * empty: unbinding is a thing the screen offers and "Unbound" is a real answer.
+ */
 function coerce(raw: unknown): Record<ActionId, BindingCode[]> | null {
   if (!raw || typeof raw !== "object") return null;
   const src = raw as Record<string, unknown>;
@@ -161,7 +301,8 @@ function coerce(raw: unknown): Record<ActionId, BindingCode[]> | null {
     if (!Array.isArray(v)) continue;
     const codes = v.filter((c): c is string => typeof c === "string" && c.length > 0)
       .slice(0, MAX_BINDINGS_PER_ACTION);
-    next[id] = codes;
+    const kept = codes.filter((c) => !isPlatformModifier(c));
+    next[id] = kept.length === 0 && codes.length > 0 ? [...DEFAULT_BINDINGS[id]] : kept;
     sawOne = true;
   }
   return sawOne ? next : null;
@@ -175,6 +316,14 @@ function commit(next: Record<ActionId, BindingCode[]>): void {
   } catch { /* private mode: the remap still holds for this session */ }
   persist?.(snapshot);
   for (const l of listeners) l();
+}
+
+/** A change the PLAYER made, through the settings screen. Marks the device as
+ *  having an opinion, so a sign-in that answers afterwards does not overwrite
+ *  it. `commit` alone is used by `hydrateBindings`, which is the opposite. */
+function commitByPlayer(next: Record<ActionId, BindingCode[]>): void {
+  touchedHere = true;
+  commit(next);
 }
 
 function load(): void {
@@ -221,6 +370,18 @@ export function bindingsAreDefault(b: Bindings = getBindings()): boolean {
   });
 }
 
+/**
+ * Has the player rebound anything on this device since the page loaded?
+ *
+ * Asked by the sign-in in `page.tsx` before it hydrates a table off the roll:
+ * a remap made while the profile request was still in flight is the newest
+ * thing anybody knows, and hydrating over it is how a rebound key stopped
+ * reaching the man. True means "send mine up", not "take theirs".
+ */
+export function bindingsTouchedHere(): boolean {
+  return touchedHere;
+}
+
 export function subscribeBindings(onChange: () => void): () => void {
   load();
   listeners.add(onChange);
@@ -263,7 +424,7 @@ export function conflictsFor(code: BindingCode, action?: ActionId): ActionId[] {
 
 /** The reason a code cannot be bound, or null if it can. */
 export function reservedReason(code: BindingCode): string | null {
-  return RESERVED_CODES[code] ?? null;
+  return reasonIn(RESERVED_CODES, code) ?? reasonIn(PLATFORM_MODIFIER_CODES, code);
 }
 
 export type RebindResult =
@@ -312,7 +473,7 @@ export function rebind(
     }
     next[action] = [...own, code];
   }
-  commit(next);
+  commitByPlayer(next);
   return { ok: true, bindings: snapshot, tookFrom: clash };
 }
 
@@ -321,14 +482,14 @@ export function unbind(action: ActionId, code: BindingCode): Bindings {
   load();
   const next = cloneCurrent();
   next[action] = next[action].filter((c) => c !== code);
-  commit(next);
+  commitByPlayer(next);
   return snapshot;
 }
 
 /** Back to the shipped table. The way out for a player who bound movement to nothing reachable. */
 export function resetBindings(): Bindings {
   load();
-  commit(cloneDefaults());
+  commitByPlayer(cloneDefaults());
   return snapshot;
 }
 
@@ -337,7 +498,7 @@ export function resetAction(action: ActionId): Bindings {
   load();
   const next = cloneCurrent();
   next[action] = [...DEFAULT_BINDINGS[action]];
-  commit(next);
+  commitByPlayer(next);
   return snapshot;
 }
 
@@ -363,26 +524,74 @@ interface KeyboardLayoutCapable {
   keyboard?: { getLayoutMap?: () => Promise<Map<string, string>> };
 }
 
-/** Resolve the layout once, then re-label. Await before drawing the list. */
+/**
+ * Resolve the layout AND the platform once, then re-label. Called from an
+ * effect, so both land after hydration. Await before drawing the list.
+ */
 export async function loadKeyboardLayout(): Promise<void> {
+  const was = mac;
+  resolveMac();
+  let changed = mac !== was;
   try {
     const nav = navigator as unknown as KeyboardLayoutCapable;
     const map = await nav.keyboard?.getLayoutMap?.();
-    if (map) { layout = map; for (const l of listeners) l(); }
+    if (map) { layout = map; changed = true; }
   } catch { /* not supported; names it is */ }
+  if (changed) for (const l of listeners) l();
 }
 
 const CODE_NAMES: Readonly<Record<string, string>> = Object.freeze({
   Space: "Space", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
   ShiftLeft: "L Shift", ShiftRight: "R Shift", ControlLeft: "L Ctrl", ControlRight: "R Ctrl",
-  AltLeft: "L Alt", AltRight: "R Alt", Enter: "Enter", Backspace: "Backspace", CapsLock: "Caps",
+  AltLeft: "L Alt", AltRight: "R Alt", MetaLeft: "L Win", MetaRight: "R Win",
+  Enter: "Enter", Backspace: "Backspace", CapsLock: "Caps",
   Mouse0: "Left mouse", Mouse1: "Middle mouse", Mouse2: "Right mouse", Mouse3: "Mouse 4", Mouse4: "Mouse 5",
 });
 
-/** What to print on the key cap for a code, on THIS keyboard. */
+/**
+ * The same physical keys, named the way they are PRINTED ON A MAC.
+ *
+ * A Mac user hunting for crouch is looking for ⌃, and "L Ctrl" is not a word
+ * that appears anywhere on his machine — the key says `control`, Option is not
+ * Alt, and Command is not Windows. The remap screen exists to tell a player
+ * which key he is looking at, so on a Mac it has to speak Mac. Everything else
+ * (letters, digits, arrows) is already layout-resolved by `getLayoutMap()` and
+ * is the same on both.
+ */
+const MAC_CODE_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  ControlLeft: "⌃ Control", ControlRight: "⌃ Control (R)",
+  AltLeft: "⌥ Option", AltRight: "⌥ Option (R)",
+  MetaLeft: "⌘ Command", MetaRight: "⌘ Command (R)",
+  ShiftLeft: "⇧ Shift", ShiftRight: "⇧ Shift (R)",
+  Enter: "↩ Return", Backspace: "⌫ Delete", CapsLock: "⇪ Caps",
+});
+
+/**
+ * FALSE UNTIL `loadKeyboardLayout` SAYS OTHERWISE, and that is not timidity —
+ * it is the same rule the caps already live under. These labels are
+ * server-rendered, React replays the server's answer during hydration, and a
+ * cap that reads "L Shift" in the HTML and "⇧ Shift" on the first client render
+ * throws #418 and re-renders the landing screen. Resolving inside the effect
+ * that already re-labels for the keyboard layout puts the change after
+ * hydration, on a path that notifies the same listeners.
+ */
+let mac = false;
+
+function resolveMac(): void {
+  if (typeof navigator === "undefined") return;
+  const nav = navigator as unknown as { userAgentData?: { platform?: string }; platform?: string; userAgent?: string };
+  // All three, joined rather than preferred in order. `userAgentData.platform`
+  // is the modern answer, `platform` is what Safari still gives, and the UA
+  // string is the only one a test harness can set — and any of them saying Mac
+  // is enough, because nothing else in the world says "Macintosh".
+  const claim = `${nav.userAgentData?.platform ?? ""} ${nav.platform ?? ""} ${nav.userAgent ?? ""}`;
+  mac = /mac/i.test(claim);
+}
+
+/** What to print on the key cap for a code, on THIS keyboard and THIS platform. */
 export function labelForCode(code: BindingCode): string {
   if (!code) return "Unbound";
-  const named = CODE_NAMES[code];
+  const named = (mac ? reasonIn(MAC_CODE_NAMES, code) : null) ?? reasonIn(CODE_NAMES, code);
   if (named) return named;
   const produced = layout?.get(code);
   if (produced) return produced.toUpperCase();
@@ -491,4 +700,31 @@ export function isActionHit(action: ActionId, mouse?: { left: boolean; right: bo
 /** Called by `sampleInput` once the latch has been read. */
 export function clearTapped(): void {
   tappedCodes.clear();
+}
+
+// ---------------------------------------------------------------------------
+// A readback for tools/bindsynctest.mjs
+// ---------------------------------------------------------------------------
+//
+// The same shape of hook `input.ts` already hangs on the window for touchtest,
+// and it exists for the same reason: the harness must be able to ask the
+// SHIPPED module what it thinks, rather than keeping a second copy of the rules
+// in a .mjs file that can agree with itself while the game disagrees. That is
+// the failure this project has hit three times.
+//
+// READ-ONLY, deliberately. Nothing here writes a binding, so it is not a lever
+// a cheat could pull that localStorage does not already give away.
+if (typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__bretwaldaBinds = {
+    /** The live table `isActionDown` reads — not localStorage, not React. */
+    get table() { return getBindings(); },
+    get defaults() { return DEFAULT_BINDINGS; },
+    /** The platform-modifier rule, run against the shipped defaults. */
+    get ruleViolations() { return defaultsRuleViolations(); },
+    /** Physical codes down right now, so a harness can tell "the key never
+     *  arrived" from "the key arrived and was not bound to anything". */
+    get held() { return [...heldCodes]; },
+    label: (code: string) => labelForCode(code),
+    why: (code: string) => reservedReason(code),
+  };
 }

@@ -1,5 +1,31 @@
 # Hotkeys on desktop
 
+> **2026-08-07 — the two faults the owner reported, and what they actually were.**
+>
+> **"Custom keybinds do not bind in game."** Not the table. **A race with the
+> sign-in.** The landing screen is interactive the instant it paints and the
+> profile POST runs behind it; a remap made inside that window was written to
+> localStorage and then hydrated straight over by the row when the request
+> answered. On the live free-tier dyno the window is a cold start, so nearly
+> every remap made in the first minute of a session was silently erased.
+> Measured on `95c27f0` with `/api/profile/me` held eight seconds: the Forward
+> caps read `["T","↑","Y"]` with the request in flight and `["T","↑"]` after.
+> Fixed by `bindingsTouchedHere()` — a table the player has changed on this
+> device goes UP instead of being overwritten. Four typed words still win.
+>
+> **"Ctrl to crouch does not work on a MacBook."** Ctrl is the right-click
+> modifier on macOS; the browser takes the chord before the page sees a
+> keydown. Crouch moves to **C**, and `PLATFORM_MODIFIER_CODES` +
+> `defaultsRuleViolations()` are the rule that stops the next one: no default
+> may be a bare Ctrl/Alt/Cmd or a browser function key, and the remap screen
+> refuses those codes with the reason. Legacy tables carrying `ControlLeft` are
+> stripped and healed by `coerce()` rather than rejected, because
+> `src/db/bindings.ts` validates against `RESERVED_CODES` and would have thrown
+> a whole stored table away.
+>
+> **`bindsynctest` was 8/8 through both.** It graded the round trip to the
+> database. It now taps the game socket and grades what the server was told.
+
 The owner asked for *"option to add hotkeys / change on Desktop version."*
 
 Worth doing, and it fixes a bug nobody has reported yet.

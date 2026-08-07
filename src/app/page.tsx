@@ -28,7 +28,7 @@ import { getHandedness, getServerHandedness, subscribeHandedness } from "../game
 import {
   bindingsFor, labelForAction, labelForCode, loadKeyboardLayout,
   getBindings, getServerBindings, subscribeBindings,
-  bindingsAreDefault, hydrateBindings, setBindingsPersister,
+  bindingsAreDefault, hydrateBindings, setBindingsPersister, bindingsTouchedHere,
 } from "../game/client/bindings";
 import type { ForgeProgress } from "../game/client/GameCanvas";
 import {
@@ -266,13 +266,25 @@ export default function Page() {
    * fail into a broken control scheme: a refusal leaves localStorage as the
    * store, which is exactly how the game ran before there was a server.
    */
-  const adoptBindings = useCallback((p: ServerProfile | null) => {
-    if (p?.bindings && Object.keys(p.bindings).length > 0) {
+  const adoptBindings = useCallback((p: ServerProfile | null, opts: { asked?: boolean } = {}) => {
+    // THE THIRD CASE, AND IT IS THE OWNER'S BUG. The landing screen is live the
+    // instant it paints and this runs behind it; on a cold dyno the sign-in can
+    // be seconds or tens of seconds away. A player who opens the remap screen
+    // inside that window and adds a key had it silently erased here — the row
+    // hydrated over the top of him, localStorage and all. Measured before the
+    // fix: the cap read ["T","↑","Y"] with the request still in flight and
+    // ["T","↑"] once it answered.
+    //
+    // A remap he just made is the newest thing anybody knows, so it wins and
+    // goes UP instead. The one exception is `asked`: typing four words is an
+    // explicit request for the other device's saga, and the roll wins there.
+    const touched = bindingsTouchedHere();
+    if (p?.bindings && Object.keys(p.bindings).length > 0 && (opts.asked || !touched)) {
       noteBindingsSynced(p.bindings);
       if (hydrateBindings(p.bindings)) return;
     }
     const mine = getBindings();
-    if (!bindingsAreDefault(mine)) void syncBindings(mine);
+    if (touched || !bindingsAreDefault(mine)) void syncBindings(mine);
   }, []);
 
   // One place where "where does the gold live" changes, because two places
@@ -873,8 +885,11 @@ export default function Page() {
       adoptServer(reply.value.profile);
       // This device is now that player, keys included. A profile carrying
       // bindings takes this machine's over — that is what "restored" means —
-      // and one carrying none is given the table already on it.
-      adoptBindings(reply.value.profile);
+      // and one carrying none is given the table already on it. `asked`,
+      // because four words typed by hand outrank a remap made on this device:
+      // the guard that protects a remap from the boot must not stop a player
+      // deliberately pulling his own saga back.
+      adoptBindings(reply.value.profile, { asked: true });
       setBindingsPersister((b) => { void syncBindings(b); });
       settleLink("server");
       setCarried(null);

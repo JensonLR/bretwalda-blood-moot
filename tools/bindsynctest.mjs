@@ -5,9 +5,33 @@
 //              then read the four recovery words off the profile screen.
 //   Context B: a browser that has never seen that profile, with its own
 //              localStorage. Type the four words, walk into a fight, and press
-//              the remapped key.
+//              the remapped key. Then remap again FROM INSIDE THE FIGHT and
+//              grade every press on the wire.
+//   Context C: a remap made before the column existed is carried up.
+//   Context D: a Mac. Names on the caps, and a legacy Ctrl-crouch healing.
 //
-// Storing a blob proves nothing; this asserts the warrior moves.
+// ---------------------------------------------------------------------------
+// WHAT THIS TEST USED TO MEASURE, AND WHY THAT WAS THE WRONG QUANTITY
+// ---------------------------------------------------------------------------
+//
+// It was 8/8 for months while the owner's custom binds did not work, because
+// every one of those eight checks graded the ROUND TRIP TO THE DATABASE: the
+// row holds KeyT, the second device's localStorage holds KeyT, and one press of
+// KeyT moves the man. Three things were never asked:
+//
+//   1. Is a SECOND key added to an action honoured, or only the first? The only
+//      remap the test ever made REPLACED slot 0, so a table that read
+//      `bindings[action][0]` and ignored the rest would have passed all eight.
+//   2. Does a remap made without a page reload reach the sampler? Context B
+//      navigates between the remap and the fight, so the live table was never
+//      asked to change under a running game.
+//   3. Does an action that is not movement arrive? Crouch is a flag on the wire
+//      and nothing here had ever looked at one.
+//
+// So the sections below grade the WIRE — the same way `playtest` does, by
+// tapping the game socket from inside the page and reading what the server was
+// actually told — rather than the row. `holdAndMeasure` is the instrument, and
+// every behavioural claim is made in terms of what came out of it.
 import { chromium } from "playwright";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
@@ -25,6 +49,17 @@ const check = (name, pass, detail) => {
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
+/**
+ * `--no-fight` skips the two sections that have to muster an arena.
+ *
+ * NOT a way to run to green: the summary line says so loudly, so a run with it
+ * cannot be quoted as a passing gate, and the merge gate never uses it. It
+ * exists because this box CPU-rasterises every frame and an arena costs
+ * minutes, while proving that one of the table-level assertions bites against
+ * a deliberately broken build needs no fight at all.
+ */
+const NO_FIGHT = process.argv.includes("--no-fight");
+
 const PROBE = () => {
   const w = window;
   w.__probe = { sent: [], lastState: null, states: 0 };
@@ -32,6 +67,18 @@ const PROBE = () => {
   function TappedWS(url, protocols) {
     const ws = protocols === undefined ? new RealWS(url) : new RealWS(url, protocols);
     if (String(url).includes("/ws")) {
+      // THE WIRE. Every input message the client sends, recorded before it
+      // leaves — this is what "the server was told" means, and it is the only
+      // thing that can tell "the key is not bound" from "the key is bound and
+      // the man could not walk because a bot was standing on him".
+      const send = ws.send.bind(ws);
+      ws.send = (data) => {
+        try {
+          const m = JSON.parse(data);
+          if (m.type === "input") w.__probe.sent.push(m.data);
+        } catch { /* ignore */ }
+        return send(data);
+      };
       ws.addEventListener("message", (ev) => {
         try {
           const m = JSON.parse(ev.data);
@@ -63,6 +110,62 @@ async function reachFight(page) {
   for (let i = 0; i < 8 && await fewer.isEnabled().catch(() => false); i++) await fewer.click();
   await page.getByText("DRAW STEEL", { exact: false }).first().click();
   await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 90000 });
+}
+
+/**
+ * Hold one physical key and report BOTH what the client sent and how far the
+ * server moved the man.
+ *
+ * Two numbers rather than one, because they fail differently and the pair is
+ * what makes a verdict readable. `wire.moving` is the client's answer to "is
+ * this key bound to movement" and cannot be confounded by the simulation — a
+ * warrior pinned against the arena wall travels nothing with a perfectly good
+ * binding. `dist` is the server's answer and is what the owner actually sees.
+ * A claim about a binding asserts on the wire; a claim about the man asserts on
+ * both.
+ */
+async function holdAndMeasure(page, key, ms = 1200) {
+  await page.evaluate(() => { window.__probe.sent.length = 0; });
+  const before = await me(page);
+  await page.keyboard.down(key);
+  await page.waitForTimeout(ms);
+  const wire = await page.evaluate(() => {
+    const s = window.__probe.sent;
+    return {
+      n: s.length,
+      moving: s.filter((d) => Math.hypot(d.moveX, d.moveZ) > 0.01).length,
+      crouching: s.filter((d) => d.crouch).length,
+      sprinting: s.filter((d) => d.sprint).length,
+    };
+  });
+  await page.keyboard.up(key);
+  const after = await me(page, before.seq);
+  return {
+    wire,
+    dist: Math.hypot(after.x - before.x, after.z - before.z),
+    /** Share of samples that carried the intent. A held key should be nearly
+     *  all of them; a stray frame either side of the press is not a failure. */
+    share: (f) => (wire.n ? wire[f] / wire.n : 0),
+  };
+}
+
+/** Open the bindings panel from inside the fight. Pointer lock has to go first
+ *  — a locked canvas is handed every mouse event in the document, so the KEYS
+ *  button is not clickable until the player presses Escape. */
+async function openKeysInFight(page) {
+  await page.evaluate(() => document.exitPointerLock?.());
+  await page.waitForTimeout(200);
+  await page.getByRole("button", { name: "Key bindings" }).first().click({ timeout: 20000 });
+  await page.getByText("KEY BINDINGS", { exact: false }).first().waitFor({ timeout: 10000 });
+}
+
+/** Press a key into the panel's capture state for one action's `slot`, or for a
+ *  NEW alternate when `slot` is omitted — the `+` button. */
+async function bindInPanel(page, action, code, slot) {
+  await page.getByLabel(slot === undefined ? `Add another key for ${action}` : `Change ${action} key ${slot}`).click();
+  await page.getByText("PRESS A KEY").waitFor({ timeout: 10000 });
+  await page.keyboard.press(code);
+  await page.waitForTimeout(250);
 }
 
 const me = (page, afterSeq = -1) => page.evaluate(async (seq) => {
@@ -151,6 +254,7 @@ async function main() {
     JSON.stringify(capB?.forward));
 
   // The whole point: does the remapped key move the warrior on THIS device?
+  if (!NO_FIGHT) {
   await b.getByText("Back", { exact: false }).first().click().catch(() => {});
   await b.goto(`${BASE}/?quality=low`, { waitUntil: "domcontentloaded" });
   await reachFight(b);
@@ -176,6 +280,59 @@ async function main() {
   const old = Math.hypot(a2.x - b2.x, a2.z - b2.z);
   check("and the old key does not, on the second device", old < 0.4,
     `KeyW travelled ${old.toFixed(2)} units`);
+
+  // ------------------------------------------------- context B, still fighting
+  // THE PART THAT WAS MISSING, and the reason this file was 8/8 while the
+  // owner's binds did not bind. Everything above remapped ONE action's FIRST
+  // slot and then reloaded the page. Below: a key ADDED as an alternate, bound
+  // from inside a running fight with no reload, and graded on the wire.
+  await openKeysInFight(b);
+
+  // Forward is on KeyT (context A's remap). Add KeyY ALONGSIDE it.
+  await bindInPanel(b, "Forward", "KeyY");
+  const fwdCaps = (await b.getByLabel(/^Change Forward key/).allTextContents()).map((s) => s.trim());
+  check("the screen shows both keys after the second one is added",
+    fwdCaps.length >= 2 && fwdCaps.includes("T") && fwdCaps.includes("Y"), JSON.stringify(fwdCaps));
+
+  // Crouch, on a key of its own. Not movement — a flag on the wire — and the
+  // action the Mac fault was about, so it is the one worth proving arrives.
+  await bindInPanel(b, "Crouch", "KeyB", 1);
+  await b.getByLabel("Close key bindings").click();
+  await b.waitForTimeout(250);
+  await canvas.click({ position: { x: 640, y: 400 } });
+  await b.waitForTimeout(400);
+
+  // THE SECOND KEY. A table read as `bindings[action][0]` passes every check
+  // above and fails this one.
+  const added = await holdAndMeasure(b, "KeyY");
+  check("a key ADDED as a second binding moves the warrior, with no reload",
+    added.share("moving") > 0.8 && added.dist > 3.0,
+    `KeyY: ${added.wire.moving}/${added.wire.n} samples carried movement, travelled ${added.dist.toFixed(2)} units`);
+
+  await b.waitForTimeout(400);
+  const kept = await holdAndMeasure(b, "KeyT");
+  check("and the key it was added alongside still does",
+    kept.share("moving") > 0.8 && kept.dist > 3.0,
+    `KeyT: ${kept.wire.moving}/${kept.wire.n} samples carried movement, travelled ${kept.dist.toFixed(2)} units`);
+
+  await b.waitForTimeout(400);
+  const crouched = await holdAndMeasure(b, "KeyB", 900);
+  check("a rebound crouch reaches the server as crouch",
+    crouched.share("crouching") > 0.8,
+    `KeyB: ${crouched.wire.crouching}/${crouched.wire.n} samples carried crouch`);
+
+  // And an unbinding, taken through the same screen, has to stop reaching it.
+  await openKeysInFight(b);
+  await b.getByLabel("Unbind Y from Forward").click();
+  await b.waitForTimeout(250);
+  await b.getByLabel("Close key bindings").click();
+  await canvas.click({ position: { x: 640, y: 400 } });
+  await b.waitForTimeout(400);
+  const dropped = await holdAndMeasure(b, "KeyY");
+  check("a key unbound mid-fight stops reaching the server at all",
+    dropped.wire.moving === 0 && dropped.dist < 0.4,
+    `KeyY: ${dropped.wire.moving}/${dropped.wire.n} samples carried movement, travelled ${dropped.dist.toFixed(2)} units`);
+  }
 
   // ---------------------------------------------------------------- context C
   // A player who remapped BEFORE any of this shipped: his table is in
@@ -206,9 +363,144 @@ async function main() {
   check("and it was not overwritten with defaults on the device",
     localC?.forward?.[0] === "KeyG", JSON.stringify(localC?.forward));
 
+  // ---------------------------------------------------------------- context D
+  // THE RACE. This is the fault the owner reported, and it is not in the table:
+  // the landing screen is live the moment it paints and the sign-in POST runs
+  // behind it, so a remap made in that window used to be hydrated straight over
+  // by the profile row. On the live free-tier dyno the window is a cold start,
+  // which is why "adding additional custom keys" looked like it never worked.
+  //
+  // HELD OPEN, NOT DELAYED. The first version of this section slept the request
+  // for eight seconds and rebound inside that window — and it PASSED against a
+  // build with the guard removed, because under load the panel took longer to
+  // open than the sleep and the sign-in had already landed before the key was
+  // pressed. An assertion that can quietly fail to reproduce the fault is the
+  // fourth instrument in this project to measure the wrong quantity, so the
+  // request is now pinned until this file lets it go, and the number of
+  // outstanding requests is asserted at the moment of the remap.
+  const ctxD = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await ctxD.addInitScript(PROBE);
+  const d = await ctxD.newPage();
+  d.on("pageerror", (e) => console.log(`[D page-error] ${e}`));
+  await d.goto(`${BASE}/?quality=low`, { waitUntil: "domcontentloaded" });
+  await d.waitForFunction(() => {
+    try { return !!JSON.parse(localStorage.getItem("bretwalda_link") || "null")?.id; } catch { return false; }
+  }, null, { timeout: 30000 });
+  // Give this profile a table on the roll, so the boot has something to hydrate.
+  await d.getByText("Keys", { exact: false }).first().click();
+  await bindInPanel(d, "Forward", "KeyT", 1);
+  await d.getByLabel("Close key bindings").click();
+  await d.waitForTimeout(1800);
+
+  let releaseSignIn;
+  const signInHeld = new Promise((r) => { releaseSignIn = r; });
+  let outstanding = 0;
+  await ctxD.route("**/api/profile/me", async (route) => {
+    outstanding++;
+    await signInHeld;
+    outstanding--;
+    await route.continue();
+  });
+  await d.goto(`${BASE}/?quality=low`, { waitUntil: "domcontentloaded" });
+  await d.getByText("Saga", { exact: false }).first().waitFor({ timeout: 30000 });
+  await d.getByText("Keys", { exact: false }).first().click();
+  await bindInPanel(d, "Forward", "KeyY");
+  const duringCaps = (await d.getByLabel(/^Change Forward key/).allTextContents()).map((s) => s.trim());
+  // Both halves, in one check: the key was taken, AND the sign-in genuinely had
+  // not answered when it was. Without the second half this passes by not
+  // reproducing the race, which is exactly how it fooled me once already.
+  check("the screen takes a remap made while the sign-in is still in flight",
+    duringCaps.includes("Y") && outstanding > 0,
+    `${JSON.stringify(duringCaps)}, ${outstanding} sign-in request(s) still held`);
+  // Let the held request land, then look again. This is the whole bug.
+  releaseSignIn();
+  await d.waitForTimeout(4000);
+  const afterCaps = (await d.getByLabel(/^Change Forward key/).allTextContents()).map((s) => s.trim());
+  check("and the sign-in does not overwrite it when the profile answers",
+    afterCaps.includes("Y"), JSON.stringify(afterCaps));
+  const localD = await d.evaluate(() => JSON.parse(localStorage.getItem("bretwalda.bindings")));
+  check("the live table the sampler reads still holds it",
+    (localD?.forward ?? []).includes("KeyY"), JSON.stringify(localD?.forward));
+  // POLLED, NOT SLEPT. The upload is fire-and-forget by design — a player
+  // mid-rebind is not made to wait on a round trip — so the harness has to wait
+  // for the condition rather than guess a duration. A fixed 1.5 s wait here
+  // failed once on a loaded box and said "the remap was lost" about a remap
+  // that arrived a second later, which is a instrument reporting its own
+  // impatience as a defect.
+  const credsD = await d.evaluate(() => JSON.parse(localStorage.getItem("bretwalda_link")));
+  let rowFwd = [];
+  for (const deadline = Date.now() + 20000; Date.now() < deadline;) {
+    const row = await (await fetch(`${BASE}/api/profile/me`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(credsD),
+    })).json();
+    rowFwd = row?.profile?.bindings?.forward ?? [];
+    if (rowFwd.includes("KeyY")) break;
+    await d.waitForTimeout(500);
+  }
+  check("and it is carried up rather than lost", rowFwd.includes("KeyY"), JSON.stringify(rowFwd));
+
+  // ---------------------------------------------------------------- context E
+  // THE RULE, and the Mac. Asked of the SHIPPED module through the readback
+  // `bindings.ts` hangs on the window, not of a second copy of the list kept
+  // here — a harness that carries its own idea of the defaults can agree with
+  // itself while the game disagrees, which is how three instruments in this
+  // project came to measure the wrong quantity.
+  const ctxE = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    // A MacBook, as far as the page is concerned.
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+  });
+  // A table written before the rule existed: crouch on Ctrl, which is what
+  // every device that has ever remapped anything is carrying today.
+  await ctxE.addInitScript(() => {
+    window.localStorage.setItem("bretwalda.bindings", JSON.stringify({
+      forward: ["KeyW", "ArrowUp"], back: ["KeyS", "ArrowDown"],
+      left: ["KeyA", "ArrowLeft"], right: ["KeyD", "ArrowRight"],
+      sprint: ["ShiftLeft", "ShiftRight"], dodge: ["Space"],
+      crouch: ["ControlLeft", "ControlRight"],
+      attack: ["Mouse0"], heavy: ["KeyE", "KeyV"], block: ["Mouse2"], ability: ["KeyQ"],
+    }));
+  });
+  const e = await ctxE.newPage();
+  e.on("pageerror", (ex) => console.log(`[E page-error] ${ex}`));
+  await e.goto(`${BASE}/?quality=low`, { waitUntil: "domcontentloaded" });
+  await e.getByText("Saga", { exact: false }).first().waitFor({ timeout: 30000 });
+  // The screen has to have been drawn once for the layout/platform resolve to
+  // have run; opening the panel is how a player gets there anyway.
+  await e.getByText("Keys", { exact: false }).first().click();
+  await e.getByText("KEY BINDINGS", { exact: false }).first().waitFor({ timeout: 10000 });
+
+  const rule = await e.evaluate(() => {
+    const b = window.__bretwaldaBinds;
+    return {
+      violations: b.ruleViolations,
+      defaults: b.defaults,
+      table: JSON.parse(JSON.stringify(b.table)),
+      ctrl: b.why("ControlLeft"),
+      alt: b.why("AltLeft"),
+      meta: b.why("MetaLeft"),
+      ctrlLabel: b.label("ControlLeft"),
+      altLabel: b.label("AltLeft"),
+    };
+  });
+  check("no shipped default is a platform modifier or a browser key",
+    rule.violations.length === 0, rule.violations.join(" | ") || "clean");
+  check("crouch no longer ships on Ctrl",
+    !rule.defaults.crouch.includes("ControlLeft") && rule.defaults.crouch.length > 0,
+    JSON.stringify(rule.defaults.crouch));
+  check("the screen refuses Ctrl, Alt and Cmd with a reason",
+    !!rule.ctrl && !!rule.alt && !!rule.meta, rule.ctrl || "Ctrl was accepted");
+  check("a table stored with Ctrl-crouch heals into a crouch key that can fire",
+    rule.table.crouch.length > 0 && !rule.table.crouch.some((c) => /^(Control|Alt|Meta|OS)(Left|Right)$/.test(c)),
+    JSON.stringify(rule.table.crouch));
+  check("a Mac is shown Mac key names, not L Ctrl",
+    rule.ctrlLabel.includes("⌃") && rule.altLabel.includes("⌥"),
+    `${rule.ctrlLabel} / ${rule.altLabel}`);
+
   await browser.close();
   const failed = results.filter((r) => !r.pass);
-  console.log(`\n[bindsync] ${results.length - failed.length}/${results.length} checks passing`);
+  console.log(`\n[bindsync] ${results.length - failed.length}/${results.length} checks passing`
+    + (NO_FIGHT ? " — PARTIAL RUN, --no-fight skipped every assertion that presses a key in an arena. NOT a gate." : ""));
   process.exitCode = failed.length ? 1 : 0;
 }
 
