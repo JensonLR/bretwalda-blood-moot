@@ -43,7 +43,68 @@ TODO — captures running.
 
 ## Q2 — did the beard wave make beards worse?
 
-TODO — captures running.
+**Yes. Confirmed regression, and it is mine. The default beard every player
+wears got visibly heavier last night and went live this morning.**
+
+Two frames, same tool, same tab, same viewport, same default profile:
+
+| Frame | Commit | Regenerate with |
+|---|---|---|
+| `yday-beards-desktop.png` | `cfb49fc` — what was live yesterday | `node tools/armourycard.mjs --tab BEARDS --name yday-beards --desktop-only` in a worktree at `cfb49fc` |
+| `live-beards-desktop.png` | `07dd3de` — live now | `node tools/armourycard.mjs --tab BEARDS --name live-beards --desktop-only` |
+
+What the two frames show, on the **equipped default** card (the middle one — the
+Warden's `beardStyle: "short"`, which every non-berserker starts with):
+
+- **Yesterday** it read as *stubble*. The jaw, chin and mouth were all legible
+  through it; the beard was a tonal shading on the lower face, not an object.
+  The card was even labelled "Stubble".
+- **Today** it reads as a solid dark wedge running from under the cheekbone,
+  across the jaw, and down into the neck. The mouth and chin are gone. The card
+  is now labelled "Close Crop", which is a rename in the same window and makes
+  an A/B by eye harder, not easier.
+
+The owner's description — "an enormous black mass that swallows the lower face
+and neck", "a dark smear with pale patches" — is accurate for today's frame and
+not for yesterday's.
+
+### The line that did it
+
+`e101cab` "Widen the beard margins" was tuning the **Forked → Ringed Braid**
+separation at fight distance, which had landed on exactly 1.00%. It moved
+numbers in the *shared* beard block, above the `if (full)` branches, so the
+default short beard was enlarged as collateral. `characters.ts:8659-8660`:
+
+```
+-  : 0.0012 + 0.0078 * Math.pow(Math.sin(...), 1.1)),
+-  thick: full ? 0.005 : 0.0028,
++  : 0.0014 + 0.0096 * Math.pow(Math.sin(...), 1.1)),
++  thick: full ? 0.005 : 0.0032,
+```
+
+`const full = ap.beardStyle !== "short"` (line 8585), so the `:` branch of that
+ternary and the `: 0.0032` are **exactly and only the default beard**. Lift
+amplitude +23%, thickness +14%, on the one beard nobody chose and everybody
+sees.
+
+The second commit, `40821a8` "The paid beards were hanging inside the man", is
+a genuine fix and is not implicated in this — it moved the paid hanging masses
+forward out of the torso (`z` 0.036 → 0.036 + 0.100·t^1.15) and does not touch
+the short beard.
+
+### What must not be concluded from this
+
+**The mass is the beard, and only the beard.** I checked, because "the head was
+rebuilt in the same merge" was a live alternative explanation and would have
+sent the fix to the wrong file. Staging Clean Shaven and photographing the large
+portrait — `live-cleanshaven-desktop.png`, `node tools/armourycard.mjs --tab
+BEARDS --item "Clean Shaven" --name live-cleanshaven --desktop-only` — gives a
+clean tan lower face with no dark mass at all. The jaw geometry is fine. Shrink
+the beard, not the head.
+
+**Do not simply revert `e101cab`.** It was solving a real measured problem. The
+fix is to split the shared block so the short beard keeps its old lift and
+thickness while the paid beards keep the widened margins.
 
 ---
 
