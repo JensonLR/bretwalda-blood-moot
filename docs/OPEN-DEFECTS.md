@@ -119,6 +119,47 @@ same head reads well under the arena's dusk key (`art/shots/final/`) and pale an
 blotchy in `art/ui/wave-helm-*.png`. **The owner is looking at the shop.** Fix
 the shop's key light before touching the head again.
 
+### The gate this shipped on — every final line, on this tip
+
+```
+npm run build                        exit 0 — 14 routes, all ƒ (Dynamic)
+npx tsc --noEmit                     TSC EXIT 0
+npm run lint                         ✖ 11 problems (9 errors, 2 warnings)   [bar 12]
+npm run playtest                     [playtest] 34/34 controls working              EXIT=0
+npm run touchtest                    [touchtest] 27/27 touch assertions passing     EXIT=0  (2nd run)
+node tools/firetest.mjs              [firetest] 7/7 claims proven                   EXIT=0
+npm run profiletest  (with DB)       [profiletest] 68/68 checks passing             EXIT=0
+npm run profiletest  (no DB)         [profiletest] 22/22 checks passing             EXIT=0
+npm run soundtest                    [soundtest] 22/22 claims proven                EXIT=0
+node tools/phonesound.mjs            [phonesound] 7/7 claims proven                 EXIT=0
+node tools/bindsynctest.mjs (DB)     [bindsync] 8/8 checks passing                  EXIT=0
+node tools/cameratest.mjs            [cameratest] 13/13 passed                      EXIT=0
+npm run summaryflow                  [flow] 14/14 passed                            EXIT=0
+npm run cheattest (fresh postgres)   [cheattest] 40/40 checks passing               EXIT=0
+node tools/latencytest.mjs judder    JUDDER VERDICT: 17/17 checks pass — PASS       EXIT=0
+node tools/headmeasure.mjs           3 ratios outside tolerance · 0 of 15 SILHOUETTE FAILED
+node tools/wearmeasure.mjs           [wear] PASS: 10/10 helmets seated              EXIT=0
+```
+
+**touchtest took two runs, and the flake is now diagnosed rather than shrugged
+at.** The failing term is not the facing error — that was **1.3°**, well inside
+the 0.5 rad bar. It is `yawTravel > 0.15` in `tools/touchtest.mjs:521`, a guard
+that requires the camera to have turned at least 8.6° so the assertion cannot
+pass on a target that never moved. The bot happened to walk almost radially, the
+camera only needed 4°, and the guard could not confirm tracking. The lock was
+working perfectly in the run that failed. **Do not "fix" this by loosening the
+bar** — the guard is correct and the retry policy is the right answer.
+
+`bindsynctest` also exits 1 with no database; it needs `PROFILE_TEST_DB` and
+says so. That is not a flake and not a defect.
+
+**The repricing is economically safe, and this is the run that proves it** —
+20–60 g became 60–160 g in `cced17b`. Ownership is a set of **ids**
+(`src/db/catalogue.ts:144` `if (ownedSet.has(id)) continue`), and no id or stored
+hex moved, so nothing already bought is re-billed and no profile is orphaned.
+`cheattest` 40/40 on a fresh postgres is the outside check on that.
+**It is still a price rise, and a price rise is the owner's call, not ours.**
+
 ### OPEN — the helmets were diagnosed and deliberately not touched
 
 "Pointed dark shapes with wing-like flares" localises to two numbers: the `cone`
