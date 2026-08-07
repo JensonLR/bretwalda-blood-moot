@@ -2071,24 +2071,24 @@ function faceTraits(raw: number): FaceTraits {
     // inhuman. What these do is stop four men being one casting; ±20% on a 5 mm
     // landmark is a millimetre, which is legible in a portrait and invisible as a
     // deformity. That is the whole job.
-    brow: 1 + span(seed, 4, 0.30),
-    deepSet: 1 + span(seed, 5, 0.25),
-    nose: 1 + span(seed, 6, 0.16),
+    brow: 1 + span(seed, 4, 0.20),
+    deepSet: 1 + span(seed, 5, 0.18),
+    nose: 1 + span(seed, 6, 0.10),
     bridge: 1 + span(seed, 7, 0.25),
     nostril: 1 + span(seed, 8, 0.22),
     cheek: 1 + span(seed, 9, 0.28),
     gaunt: 1 + span(seed, 10, 0.32),
     jaw: 1 + span(seed, 11, 0.20),
-    chin: 1 + span(seed, 12, 0.20),
+    chin: 1 + span(seed, 12, 0.15),
     eyeU: 1 + span(seed, 13, 0.09),
     eyeV: span(seed, 14, 0.035),
     eyeOpen: 1 + span(seed, 15, 0.2),
     mouth: 1 + span(seed, 16, 0.16),
-    lip: 1 + span(seed, 17, 0.45),
+    lip: 1 + span(seed, 17, 0.20),
     asym: span(seed, 18, 0.0022),
-    pNose: span(seed, 21, 2.0),
-    pLip: span(seed, 22, 1.2),
-    pChin: span(seed, 23, 1.5),
+    pNose: span(seed, 21, 1.5),
+    pLip: span(seed, 22, 0.8),
+    pChin: span(seed, 23, 1.2),
     tone: stratify(seed, 19, SKIN_TONES.length),
     iris: stratify(seed, 20, IRIS_COLORS.length),
   };
@@ -2256,26 +2256,26 @@ function ev(s: Spl, q: number): number {
 const C_W: Curve = [
   [1.000, 0],
   [0.985, 17],
-  [0.960, 27],
-  [0.920, 40],
-  [0.860, 53],
-  [0.780, 66],
-  [0.680, 78],
-  [0.560, 87],
+  [0.960, 30],
+  [0.920, 44],
+  [0.860, 57],
+  [0.780, 70],
+  [0.680, 81],
+  [0.560, 89],
   [0.420, 93],
   [0.280, 96],
   [0.120, 98],
   [0.000, 98],
-  [-0.116, 97],
-  [-0.216, 86],
-  [-0.323, 80],
+  [-0.116, 96],
+  [-0.216, 88],
+  [-0.323, 82],
   [-0.420, 76],
   [-0.500, 73.5],
-  [-0.596, 73.5],
+  [-0.596, 74.0],
   [-0.660, 67],
-  [-0.720, 60],
-  [-0.796, 47],
-  [-0.860, 34],
+  [-0.720, 63],
+  [-0.796, 52],
+  [-0.860, 38],
   [-0.920, 22],
   [-0.970, 11],
   [-1.000, 0],
@@ -2322,7 +2322,7 @@ const C_MASK: Curve = [
   [-0.600, 104],
   [-0.660, 103.5], // mentolabial
   [-0.750, 104.5],
-  [-0.796, 104.5], // POGONION
+  [-0.796, 104], //   POGONION
   [-0.840, 104],
   [-0.880, 97],
   [-0.920, 82],
@@ -2406,8 +2406,8 @@ const C_NF: Curve = [
   [0.500, 2.40],
   [0.320, 2.75],
   [0.219, 3.00],
-  [0.000, 3.30],
-  [-0.323, 3.40],
+  [0.000, 3.12],
+  [-0.323, 3.24],
   [-0.536, 3.30],
   [-0.700, 2.80],
   [-0.850, 2.25],
@@ -2465,28 +2465,30 @@ const REL_B = [0, 0.10, 0.20, 0.32, 0.46, 0.62, 0.80, 1.00, 1.22, 1.45, 1.5708];
 const RELIEF: ReadonlyArray<readonly number[]> = [
   //   y        0    0.10   0.20   0.32   0.46   0.62   0.80   1.00   1.22  1.45  pi/2
   [0.560, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0.420, 0, 0, 0.3, 0.6, 0.6, 0.2, -0.4, -0.8, -0.3, 0, 0],
-  [0.320, 0.4, 0.7, 1.4, 1.8, 1.5, 0.4, -1.4, -2.2, -0.6, 0, 0],
-  [0.260, 1.8, 2.2, 3.2, 3.6, 2.8, 0.8, -2.0, -3.2, -0.9, 0, 0],
-  [0.219, 4.0, 4.2, 4.6, 4.2, 3.0, 1.0, -2.2, -3.6, -1.0, 0, 0], //  BROW RIDGE
-  [0.175, 1.2, 1.8, 3.0, 3.2, 2.2, 0.4, -2.6, -4.0, -1.1, 0, 0], //  orbital margin
-  [0.144, -4.0, -2.6, 0.6, 1.4, 1.0, -0.4, -3.0, -4.2, -1.1, 0, 0], // NASION notch
-  [0.060, -1.0, -1.2, -2.4, -4.0, -3.2, -1.2, -2.6, -3.6, -1.0, 0, 0],
-  [-0.020, 3.0, 1.6, -3.0, -6.0, -4.6, -1.4, -1.6, -2.6, -0.6, 0, 0], // upper orbit
-  [-0.116, 8.5, 6.0, -1.6, -6.2, -4.6, -0.8, -1.0, -2.2, -0.4, 0, 0], // EYE LINE
-  [-0.180, 16.5, 13.5, 3.6, -3.4, -1.4, 2.2, 2.4, 0.0, 0, 0, 0],
-  [-0.231, 25.0, 22.5, 11.5, 1.5, 0.5, 3.4, 2.8, 0.0, 0, 0, 0], //  PRONASALE
-  [-0.270, 21.0, 17.5, 9.5, 1.0, 0.6, 3.2, 2.6, 0.0, 0, 0, 0], //   columella
-  [-0.300, 10.5, 9.0, 6.8, 0.4, 0.8, 2.8, 2.2, 0.0, 0, 0, 0], //    nostril floor
-  [-0.323, 2.0, 3.0, 4.0, 0.2, 0.8, 2.4, 1.8, 0.0, 0, 0, 0], //      SUBNASALE
-  [-0.400, 1.0, 1.4, 1.8, 0.6, 0.6, 1.6, 1.0, 0.0, 0, 0, 0], //      philtrum
-  [-0.470, 5.5, 5.2, 3.6, 0.4, 0.0, 0.6, 0.4, 0.0, 0, 0, 0], //      upper vermilion
-  [-0.536, 3.0, 3.0, 2.4, 0.2, -0.4, 0.2, 0.3, 0.0, 0, 0, 0], //     STOMION
-  [-0.600, 7.0, 6.6, 4.2, 0.4, -0.4, 0.2, 0.3, 0.0, 0, 0, 0], //     lower vermilion
-  [-0.660, 0.6, 0.6, 0.0, -1.2, -1.2, -0.3, 0.0, 0.0, 0, 0, 0], //   mentolabial sulcus
-  [-0.720, 2.6, 2.6, 2.0, 0.4, -0.6, 0.0, 0, 0, 0, 0, 0],
-  [-0.796, 2.2, 2.2, 1.8, 0.6, -0.4, 0.0, 0, 0, 0, 0, 0], //         POGONION
-  [-0.870, 1.2, 1.2, 0.8, 0.2, 0.0, 0.0, 0, 0, 0, 0, 0],
+  [0.420, 0, 0, 0.4, 0.8, 0.8, 0.2, -0.8, -1.4, -0.5, 0, 0],
+  [0.320, 0.5, 0.9, 1.8, 2.4, 2.0, 0.4, -2.2, -3.4, -1.0, 0, 0],
+  [0.260, 2.2, 2.8, 4.2, 4.8, 3.6, 0.8, -3.0, -4.6, -1.3, 0, 0],
+  [0.219, 5.0, 5.4, 6.2, 6.0, 4.2, 1.2, -3.4, -5.2, -1.5, 0, 0], //  BROW CREST
+  [0.175, 1.5, 2.4, 5.0, 5.6, 3.8, 0.8, -3.8, -5.6, -1.6, 0, 0], //  under the ridge
+  [0.144, -3.8, -2.4, 3.0, 4.6, 3.2, 0.4, -4.0, -5.8, -1.6, 0, 0], // NASION notch
+  [0.100, -2.8, -1.2, 2.6, 4.0, 2.6, 0.0, -4.0, -5.8, -1.6, 0, 0],
+  [0.050, -1.0, 0.6, 2.2, 3.0, 1.6, -0.6, -3.8, -5.6, -1.5, 0, 0], // the shelf the brow hair lies on
+  [0.000, 2.0, 1.6, -0.8, -3.4, -3.0, -1.8, -3.0, -4.4, -1.2, 0, 0], // orbital rim
+  [-0.060, 6.0, 4.0, -3.6, -8.5, -6.6, -1.8, -1.8, -3.4, -0.8, 0, 0], // THE SOCKET
+  [-0.116, 11.5, 8.5, -2.4, -8.5, -6.4, -1.0, -1.2, -3.0, -0.6, 0, 0], // EYE LINE
+  [-0.180, 18.5, 16.2, 4.8, -4.0, -1.0, 3.6, 3.6, -0.6, 0, 0, 0],
+  [-0.231, 27.5, 25.2, 10.5, -1.0, 0.8, 5.0, 4.4, 0.0, 0, 0, 0], //   PRONASALE
+  [-0.270, 23.5, 21.2, 10.0, -1.0, 0.8, 4.6, 4.0, 0.0, 0, 0, 0], //   columella
+  [-0.300, 12.5, 10.5, 8.0, -2.5, 0.6, 4.0, 3.4, 0.0, 0, 0, 0], //    the alar crease
+  [-0.323, 2.5, 3.6, 5.0, -1.6, 0.6, 3.4, 2.8, 0.0, 0, 0, 0], //      SUBNASALE
+  [-0.400, 1.2, 1.8, 2.4, 0.0, -0.4, 1.6, 1.2, 0.0, 0, 0, 0], //      philtrum
+  [-0.470, 6.0, 5.6, 4.0, -1.4, -1.6, 0.0, 0.2, 0.0, 0, 0, 0], //     upper vermilion
+  [-0.536, 3.5, 3.5, 2.8, -1.2, -1.8, -0.4, 0.0, 0.0, 0, 0, 0], //    STOMION
+  [-0.600, 7.2, 6.9, 4.6, -0.8, -1.8, -0.6, 0.0, 0.0, 0, 0, 0], //    lower vermilion
+  [-0.660, -1.5, -1.4, -1.8, -2.6, -2.0, -0.6, 0.0, 0.0, 0, 0, 0], // mentolabial sulcus
+  [-0.720, 3.0, 3.0, 2.4, 0.2, -1.4, -0.6, 0, 0, 0, 0, 0],
+  [-0.796, 3.0, 3.0, 2.6, 0.6, -1.2, -0.4, 0, 0, 0, 0, 0], //         POGONION
+  [-0.870, 1.6, 1.6, 1.2, 0.0, -0.8, 0.0, 0, 0, 0, 0, 0],
   [-0.940, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ];
 
@@ -4811,132 +4813,95 @@ function faceComplexion(
   const pg = p ? p.g / Math.max(0.03, base.g) : 1;
   const pb = p ? p.b / Math.max(0.03, base.b) : 1;
 
-  return (px, py, pz, out) => {
-    // Back to the skull's own direction. The displacement never exceeds about a
-    // tenth of a radius, so normalising the scaled position recovers the sampling
-    // direction closely enough for a field this smooth — and it means a lid, a
-    // lip and an earlobe land on the same map as the skin they sit on without
-    // any of them having to know their own parameterisation.
-    let dx = px / R.x;
-    let dy = (py - y0) / R.y;
-    let dz = pz / R.z;
-    const len = Math.hypot(dx, dy, dz) || 1;
-    dx /= len; dy /= len; dz /= len;
-    const ax = Math.abs(dx);
-    const front = clamp01(dz * 1.25);
+  // ---- WHERE ON THE HEAD A VERTEX IS ----
+  //
+  // The old answer was `position / R, normalised` — the sampling direction of an
+  // ellipsoid. The head is not an ellipsoid any more and never really was, and
+  // the error is not academic: normalising a point carrying 27 mm of nose rotates
+  // its apparent latitude by several degrees, so every band in this field sat a
+  // few millimetres off the feature it was named for, and the sum of them
+  // rendered as a blur across the cheek.
+  //
+  // Now it is solved. `py` is a strictly increasing function of the field's own
+  // `y` (see `faceSurface`), so it inverts by bisection — a build-time-only path
+  // — and the vertex's TRUE latitude comes back. Lateral position comes back as
+  // a fraction of the head's own half-breadth at that latitude, so `s = 0` is the
+  // midline and `s = 1` is the side of the head at every height. Every term below
+  // is written in those two numbers, which means it can be read straight against
+  // the relief table.
+  const sc = R.x / RX0;
+  const fieldY = (yy: number): number => {
+    let lo = -1, hi = 1;
+    for (let i = 0; i < 24; i++) {
+      const m = (lo + hi) * 0.5;
+      const v = m * R.y * F.tall - MANDIBLE * Math.pow(clamp01((-m - 0.22) / 0.78), 1.3);
+      if (v < yy) lo = m; else hi = m;
+    }
+    return (lo + hi) * 0.5;
+  };
+  const gs = (d: number, w: number) => Math.exp(-(d * d) / (w * w));
 
-    // ---- the form shadow ----
+  return (px, py, pz, out) => {
+    const fy = fieldY(py - y0);
+    const hw = Math.max(1e-4, ev(S_W, fy) * MM * sc * F.wide * widthGain(F, fy));
+    const zc = ev(S_ZC, fy) * MM * sc;
+    const s = Math.abs(px) / hw;
+    const dep = Math.max(1e-4, (ev(S_MASK, fy) * MM * sc - zc) * F.deep);
+    const front = clamp01(((pz - zc) / dep) * 1.5);
+    // The war paint marks are authored in the old direction space and there are
+    // fourteen of them, so that space is still computed — for them and for the
+    // mottle, and for nothing else.
+    let dx = px / R.x;
+    let dyDir = (py - y0) / R.y;
+    let dz = pz / R.z;
+    const len = Math.hypot(dx, dyDir, dz) || 1;
+    dx /= len; dyDir /= len; dz /= len;
+    const ax = Math.abs(dx);
+    const dy = fy;
+
+    // ---- the form shadow, and there is far less of it than there was ----
     //
-    // Every term is a place a head is dark because of its own shape, and the
-    // list is ordered by how much it is worth at seventy pixels. The first four
-    // are the ones that decide whether there is a face there at all.
+    // This field used to carry fourteen terms summing to 0.52 over an area
+    // running temple to temple and brow to mouth, which is a domino mask painted
+    // onto a face, and three separate judgements have logged it as one. It was
+    // that big because the geometry underneath it was not doing its job: an
+    // orbit 3 mm deep has to be *drawn*.
+    //
+    // The orbit is 8.5 mm deep now, the brow overhangs it by 9, the alar crease
+    // is cut, the mentolabial sulcus is a real shelf and the nose is 27 mm of
+    // projection — all of it in the relief table, all of it lit by the rig rather
+    // than painted under it. What is left here is only the places a head is dark
+    // for a reason no displacement can express: the inside of a slot, the
+    // underside of an overhang, and skin that is in shadow all day.
     let dim = 0;
-    // The orbit. A socket darker than the brow above it is most of what "a face"
-    // means at portrait size, and this is the term the patch version could never
-    // get right because its lower boundary had to stop inside a crease.
-    //
-    // THE MASK. These terms are each individually right and they SUM, and the sum
-    // was flat-lining. Measured off the field at the mid-cheek: orbit 0.6 +
-    // paranasal 0.4 + buccal 0.15 = 1.15, clamped to 1, which is the full
-    // 30/37/42 per cent out of the three channels — over an area running from
-    // temple to temple and from the brow to the mouth. The bare-head front card
-    // renders that as a dark bat across the middle of the face with a hard edge
-    // along the brow, and it is most of what makes the man read as a goblin: not
-    // one feature, a shadow the shape of a domino mask.
-    //
-    // The two spreading offenders are here. An orbit is not 29 mm of sigma wide —
-    // that reaches the midline on one side and the temple on the other — and the
-    // shadow beside the dorsum is not 45 mm tall, which runs it from the eye to
-    // the mouth. Both tightened onto the features they are named for. Amplitudes
-    // are untouched: the socket has to stay dark, and it does.
-    // AND IT IS STILL THE MASK. The previous pass tightened these and wrote the
-    // shadow field off as disproven; the geometry rewrite this pass then removed
-    // the face block's hard brow step and the mask DID NOT MOVE, which leaves
-    // this sum as the only remaining candidate and rules out the third
-    // hypothesis (the arena rig's terminator) along with it — a light does not
-    // survive its own geometry being replaced.
-    //
-    // The arithmetic is the giveaway. This one term is 0.22 of direction space
-    // in x, which is +/-42 mm: two of them, one per eye, overlapping across the
-    // midline and reaching the temples. That is a domino mask drawn by a single
-    // line, before the paranasal, the under-brow crease and the buccal are added
-    // on top of it. An orbit is 30 mm across.
-    dim += 0.72 * bump(ax - 0.34, dy - (Y_EYE + 0.035), 0, 0.150, 0.105, 1) * front;
-    // The crease immediately under the brow ridge, which is what makes the ridge
-    // read as overhanging rather than as a band of colour.
-    dim += 0.42 * bump(ax - 0.34, dy - (Y_EYE + 0.115), 0, 0.20, 0.050, 1) * front;
-    // Beside the dorsum. The single most valuable term on the nose in this rig:
-    // the nose's own relief is a gradient in z, which a light rig with this much
-    // fill cannot see, and a shadow down each side of it is what makes the mass
-    // read as a nose from in front.
-    //
-    // 0.30, down from 0.42, and the one below from 0.75 to 0.58 with its width
-    // halved. Both are the same correction and it is the correction this whole
-    // field's history is about: a tone that stands in for a form has to come off
-    // when the form arrives. It has now. The pin's narrow half goes out on a
-    // raised cosine instead of a plateau, so the dorsum is a rounded ridge with a
-    // gradient of its own rather than a flat panel; the philtrum is above Nyquist
-    // for the first time; the alar creases and the columella undercut are all
-    // being resolved. Front-on in `art/shots/judge9b/cards/headturn-front_0_.png`
-    // the three terms still SUM into one dark column from the brow to the mouth —
-    // a painted wedge down the middle of the face, which is the same failure as
-    // the domino mask one feature further in. The 0.15 under the tip is +/-28 mm,
-    // wider than the base of the nose it is meant to be under, which is what
-    // carried it down onto the lip.
-    dim += 0.30 * bump(ax - 0.105, dy - (Y_NOSE + 0.115), 0, 0.050, 0.100, 1) * front;
-    // Under the tip and the columella.
-    dim += 0.58 * bump(dx, dy - (Y_NOSE - 0.018), 0, 0.085, 0.045, 1) * front;
-    // Under the mandible, and this is the term that stops the head reading as
-    // proud of the neck. Everything below the jawline goes down; the jaw's own
-    // border gets a crease over the top of it so the edge has a line.
-    dim += 0.62 * smooth(Y_CHIN + 0.13, Y_CHIN - 0.16, dy);
-    dim += 0.45 * bump(ax - 0.44, dy - (Y_CHIN + 0.115), 0, 0.44, 0.070, 1) * front;
-    // The buccal hollow, under the cheekbone, and the nasolabial fold beside it.
-    //
-    // These two are adjacent, they are both enormous — 0.22 x 0.185 and
-    // 0.15 x 0.20 of direction space — and they SUM. Over most of the mid-face
-    // the pair reached 0.68 of a `dim` that takes 30/37/42 per cent out of the
-    // three channels, so what rendered front-on was a pale vertical strip about
-    // 110 mm wide with a dark triangle down each side of it. That strip is the
-    // "egg on a stalk" in note 3, and it is not the skull's shape at all: the
-    // silhouette measures 190 mm at the cheekbone against 163 at the jaw, which
-    // is a broad face. It was being *painted* narrow.
-    //
-    // Halved, and the buccal one tightened in y so it sits under the zygomatic
-    // arch instead of washing down the whole cheek. A hollow is a shape the
-    // light finds; at this strength it was a shape the light was replaced by.
-    dim += 0.21 * bump(ax - 0.47, dy - (Y_LIP + 0.055), 0, 0.22, 0.145, 1) * front;
-    dim += 0.13 * bump(ax - 0.30, dy - (Y_LIP + 0.125), 0, 0.15, 0.20, 1) * front;
-    // The shelf under the lower lip.
-    dim += 0.40 * bump(dx, dy - (Y_LIP - 0.140), 0, 0.24, 0.070, 1) * front;
-    // The oral fissure. Tight, and worth as much as the socket: a mouth is a
-    // slot, and a slot with no shadow in it is a scratch. Without this the
-    // mouth's whole read at portrait range was one dark line 1.5 mm wide, which
-    // is what `art/shots/wip/p6-*` shows — the lips are there in the sculpt and
-    // nothing was telling the eye where to look for them.
-    dim += 0.85 * bump(dx, dy - Y_LIP, 0, 0.26, 0.030, 1) * front;
-    // And the two corners, which is where a mouth is deepest and where the
-    // vermilion has already died away to nothing.
-    dim += 0.45 * bump(ax - 0.25, dy - (Y_LIP + 0.01), 0, 0.075, 0.055, 1) * front;
-    // The temple, and behind the ear. Both are off the front of the face, which
-    // is exactly why they are here: a head with no tone anywhere but its front
-    // reads as a mask laid on a ball, and these two are what give the three
-    // quarter bearing somewhere to turn.
-    dim += 0.38 * bump(ax - 0.86, dy - (Y_BROW + 0.10), dz - 0.22, 0.20, 0.26, 0.80);
-    dim += 0.26 * bump(ax - 0.90, dy - (Y_EYE - 0.06), dz + 0.28, 0.22, 0.40, 0.55);
-    // The nape, under the occiput. Free, and it stops the back of the head being
-    // the flattest surface on the warrior.
-    dim += 0.30 * bump(dx * 0.35, dy + 0.72, dz + 0.85, 1, 0.34, 0.55);
-    // And a knee rather than a cliff, as insurance against the next term somebody
-    // adds. Under 0.7 this is exactly what it was; above it the sum approaches 1
-    // asymptotically instead of hitting it, so an overlap of three justified
-    // shadows deepens a crease rather than painting a plateau.
-    // The knee comes down from 0.7 to 0.52. It is a cap on the SUM, so its value
-    // is the darkest tone anywhere on the face, and 0.7 of a 30/37/42 per cent
-    // cut is very dark indeed to be reached over an area rather than in a crease.
-    // With the relief rebuilt the paint has less to do: the socket is a real
-    // socket now and can be found by the light instead of drawn.
-    dim = dim <= 0.52 ? dim : 0.52 + 0.26 * (1 - Math.exp(-(dim - 0.52) * 1.6));
+    // The socket. Tight on the orbit itself — an orbit is 30 mm across, and the
+    // term this replaces was 84.
+    dim += 0.34 * gs(s - 0.38, 0.20) * gs(fy + 0.05, 0.12) * front;
+    // The crease under the brow ridge: the one line that makes an overhang read
+    // as an overhang rather than as a band of colour.
+    dim += 0.26 * gs(s - 0.36, 0.24) * gs(fy - 0.045, 0.050) * front;
+    // Under the tip and the columella — the only part of a nose that faces down.
+    dim += 0.50 * gs(s, 0.13) * gs(fy - (Y_NOSE - 0.005), 0.040) * front;
+    // The alar crease, where the wing meets the cheek.
+    dim += 0.22 * gs(s - 0.24, 0.075) * gs(fy - (Y_NOSE + 0.035), 0.055) * front;
+    // The oral fissure. A mouth is a slot, and a slot with no shadow in it is a
+    // scratch — the term worth the most per unit of area on the whole face.
+    dim += 0.72 * gs(s, 0.34) * gs(fy - Y_LIP, 0.030) * front;
+    // The shelf under the lower lip, which is what divides the lower third.
+    dim += 0.30 * gs(s, 0.28) * gs(fy - (Y_LIP - 0.125), 0.055) * front;
+    // Under the mandible. Everything below the jawline goes down, and the jaw's
+    // own border gets a line over the top of it so the edge is an edge.
+    dim += 0.58 * smooth(Y_CHIN + 0.11, Y_CHIN - 0.17, fy);
+    dim += 0.30 * gs(s - 0.52, 0.34) * gs(fy - (Y_CHIN + 0.10), 0.055) * front;
+    // The nape and behind the ear: a head with tone only on its front reads as a
+    // mask laid on a ball, and the three-quarter bearing needs somewhere to turn.
+    dim += 0.34 * (1 - front) * smooth(0.30, -0.30, fy) * (1 - smooth(-0.78, -0.95, fy));
+    dim += 0.20 * gs(s - 0.92, 0.20) * gs(fy - 0.10, 0.30) * clamp01(1 - front);
+    // A knee rather than a cliff, as insurance against the next term somebody
+    // adds: under 0.46 this is exactly what it was, and above it the sum
+    // approaches its cap asymptotically instead of hitting it, so an overlap of
+    // three justified shadows deepens a crease rather than painting a plateau.
+    dim = dim <= 0.46 ? dim : 0.46 + 0.24 * (1 - Math.exp(-(dim - 0.46) * 1.6));
 
     // ---- the flush ----
     //
@@ -4944,11 +4909,11 @@ function faceComplexion(
     // shadow and off the open planes: warmth on a cheek is rouge, warmth on a
     // nose tip and an earlobe is a man.
     let warm = 0;
-    warm += 1.00 * bump(dx, dy - (Y_TIP - 0.045), 0, 0.135, 0.095, 1) * front;
-    warm += 0.60 * bump(ax - 0.145, dy - (Y_NOSE + 0.05), 0, 0.075, 0.075, 1) * front;
-    warm += 0.85 * bump(ax - 1.00, dy - (Y_EYE + Y_NOSE) * 0.5, dz + 0.12, 0.17, 0.30, 0.60);
-    warm += 0.45 * bump(ax - 0.54, dy - (Y_EYE - 0.135), 0, 0.24, 0.135, 1) * front * F.cheek;
-    warm += 0.35 * bump(dx, dy - Y_CHIN, 0, 0.24, 0.130, 1) * front;
+    warm += 1.00 * gs(s, 0.16) * gs(fy - (Y_TIP - 0.040), 0.10) * front;
+    warm += 0.55 * gs(s - 0.25, 0.09) * gs(fy - (Y_NOSE + 0.03), 0.075) * front;
+    warm += 0.85 * gs(ax - 1.00, 0.17) * gs(dyDir - (Y_EYE + Y_NOSE) * 0.5, 0.30) * gs(dz + 0.12, 0.60);
+    warm += 0.40 * gs(s - 0.58, 0.24) * gs(fy - (Y_EYE - 0.13), 0.135) * front * F.cheek;
+    warm += 0.32 * gs(s, 0.26) * gs(fy - Y_CHIN, 0.13) * front;
     warm = clamp01(warm);
 
     // The vermilion, on its own channel because it is the one place on a face
@@ -4958,10 +4923,13 @@ function faceComplexion(
     // the field it is a soft oval that the lip geometry's own roll then lights.
     // Bounded tightly in x by the mouth's own width so it cannot creep onto the
     // cheek, and pinched at both corners the way a lip is.
-    const lipW = 0.30 * F.mouth;
-    const lipHalf = 0.090 * (1 - Math.pow(clamp01(ax / lipW), 2.2)) + 0.014;
-    const lip = clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(dy - (Y_LIP - 0.014))))
-      * (1 - smooth(lipW * 0.78, lipW, ax))) * front;
+    // In the head's own lateral fraction, so it agrees with `addMouth`: that
+    // slot is cut from azimuth -0.25 to +0.25 of `F.mouth`, which at the lip's
+    // latitude lands at 0.34 of the half-breadth.
+    const lipW = 0.36 * F.mouth;
+    const lipHalf = 0.078 * (1 - Math.pow(clamp01(s / lipW), 2.2)) + 0.012;
+    const lip = clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
+      * (1 - smooth(lipW * 0.78, lipW, s))) * front;
 
     // Shadow goes cool as well as dark, which is what separates it from dirt;
     // flush goes red without going bright, because the specular term does not
@@ -5001,15 +4969,15 @@ function faceComplexion(
       // the ear, broken by three harmonics so the edge disagrees with itself the
       // way a growing edge does. Bounded below at the throat, because whiskers
       // stop somewhere and a man stubbled to his collarbone is a wolf.
-      const rise = smooth(0.50, 1.15, ax);
+      const rise = smooth(0.45, 1.00, s);
       const top = mix(Y_LIP - 0.075, -0.13, rise)
-        + 0.055 * Math.cos(ax * 6.5) + 0.028 * Math.cos(ax * 11.3 + 1.9)
-        + 0.016 * Math.cos(dy * 23 + ax * 7);
-      let jaw = (1 - smooth(top - 0.07, top + 0.07, dy)) * smooth(-1.30, -1.12, dy);
+        + 0.055 * Math.cos(s * 6.0) + 0.028 * Math.cos(s * 10.4 + 1.9)
+        + 0.016 * Math.cos(fy * 23 + s * 6.4);
+      let jaw = (1 - smooth(top - 0.07, top + 0.07, fy)) * smooth(-1.04, -0.94, fy);
       // The moustache: above the lip, inside the philtrum's width, and parted at
       // the midline the way one grows.
-      const mo = (1 - smooth(Y_LIP + 0.055, Y_LIP + 0.16, dy)) * smooth(Y_LIP + 0.02, Y_LIP + 0.09, dy)
-        * (1 - smooth(0.30, 0.40, ax)) * smooth(0.02, 0.075, ax);
+      const mo = (1 - smooth(Y_LIP + 0.055, Y_LIP + 0.16, fy)) * smooth(Y_LIP + 0.02, Y_LIP + 0.09, fy)
+        * (1 - smooth(0.36, 0.48, s)) * smooth(0.025, 0.09, s);
       jaw = clamp01(Math.max(jaw, mo) * clamp01(0.30 + 0.85 * front));
       // Never over the lips themselves — a moustache grows above a mouth.
       jaw *= 1 - 0.85 * lip;
