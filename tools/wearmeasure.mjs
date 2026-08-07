@@ -80,7 +80,8 @@ if (!existsSync(built)) {
   process.exit(2);
 }
 
-const { wearNormalProbe, helmFitProbe, HELM_VALUES } = await import(pathToFileURL(built).href);
+const { wearNormalProbe, helmFitProbe, HELM_VALUES, bodyFitProbe, handProbe, CLOAK_VALUES } =
+  await import(pathToFileURL(built).href);
 
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 

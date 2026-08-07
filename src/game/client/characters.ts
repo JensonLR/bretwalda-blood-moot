@@ -907,6 +907,9 @@ const CLOAK_CUTS: Record<string, CloakCut> = {
   },
 };
 
+/** The cloak rungs, so `wearmeasure` §4 can measure all four clasps. */
+export const CLOAK_VALUES: readonly string[] = Object.keys(CLOAK_CUTS);
+
 /**
  * How many times a woven texture tiles across a garment, derived from how big the
  * garment is instead of fixed.
@@ -10299,7 +10302,7 @@ export function buildCharacter(
       // onto the top of the neck, which is where hair that is going to be
       // gathered into a plait has to come from.
       const sideDrop = crop ? 0.17 : 0.26;
-      const napeDrop = crop ? 0 : 0.12;
+      const napeDrop = crop ? 0.05 : 0.22;
       const line = (u: number) => (crop ? 0.30 : 0.21)
         + 0.235 * Math.cos(u) - 0.080 * Math.cos(u * 2)
         + 0.080 * Math.cos(u * 5 + 1.1) + 0.042 * Math.cos(u * 9 - 0.7)
