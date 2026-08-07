@@ -10863,10 +10863,16 @@ export function buildCharacter(
         const sweep = (inset: number) =>
           (t: number, v: number, out: THREE.Vector3) =>
             fall(mix(Math.PI + half(v), Math.PI - half(v), t), v, inset, out);
+        // Five rows on the deep fall and four on the flange, not three. When the
+        // plate was three straight rings its own tessellation was the shape; now
+        // that it reads the hull continuously there is a real curve under it —
+        // down the flank, round the base of the skull, then straight beside the
+        // neck — and three spans cannot hold an S. This is the one shell on the
+        // helmet whose row count is carrying geometry rather than smoothness.
         p.add(wornRing({
           tag: deep ? "nape guard" : "nape flange",
           originY: skullY,
-          nu: Math.max(8, lod.shellU - 2), nv: 3,
+          nu: Math.max(8, lod.shellU - 2), nv: deep ? 5 : 4,
           outer: sweep(0), inner: sweep(0.008),
         }), capMetal);
         if (style.noble) {

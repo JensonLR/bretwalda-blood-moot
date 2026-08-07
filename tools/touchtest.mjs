@@ -311,14 +311,26 @@ const PROBE = () => {
       cur.py = s.y; cur.pb = bear; cur.n++; cur.t1 = s.t;
       cur.worst = Math.max(cur.worst, Math.abs(wrap(bear - s.y)));
       cur.moved = Math.max(cur.moved, Math.hypot(foe.x - cur.f0.x, foe.z - cur.f0.z));
-      // Did the fight take the yaw the lock asked for? Against an ask old
-      // enough to have been through a server tick and back.
-      for (let j = k; j >= 0; j--) {
-        if (ups[j].t > r.t - LOCK_DT_CLAMP) continue;
-        if (ups[j].t < r.t - 2 * LOCK_DT_CLAMP) break;
-        cur.adopt = Math.max(cur.adopt, Math.abs(wrap(r.rot - ups[j].y)));
-        break;
+      // DID THE FIGHT TAKE THE YAW THE LOCK ASKED FOR? Its own channel, so a
+      // lock that aimed true into a wire that dropped it cannot hide inside
+      // the facing error.
+      //
+      // The comparison is against the CLOSEST recent ask, not against the ask
+      // at some fixed age. Those are not the same measurement: the server's
+      // copy is one tick behind whatever the client last said, so pinning the
+      // comparison to a fixed lag multiplies that lag by the rate the yaw
+      // happens to be sweeping at — 110°/s past a man at arm's length turns
+      // 150 ms of ordinary transport into 20° of "disagreement" and makes the
+      // number a reading of how fast the fight was rather than of whether the
+      // server listened. Matching ANY ask inside a quarter of a second says
+      // exactly the intended thing — this rotation IS one the client asked
+      // for — and says it the same way at every speed. A server that ignored
+      // the client would match none of them.
+      let near = Math.PI;
+      for (let j = k; j >= 0 && ups[j].t >= r.t - 250; j--) {
+        near = Math.min(near, Math.abs(wrap(r.rot - ups[j].y)));
       }
+      if (near < Math.PI) cur.adopt = Math.max(cur.adopt, near);
     }
     close();
     const good = (v) => v.n >= want && v.moved > 0.8 && v.demand > 0.15;
