@@ -514,6 +514,49 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       // steel. (Stored profiles holding the old value will show no finish selected
       // until the player re-picks one; the warrior still builds correctly.)
       //
+      // REPRICED UPWARD, ON THE CONDITION THE LAST REPRICING WROTE DOWN.
+      //
+      // Read the block below first — it is the previous owner's, it is correct
+      // about the shop it was looking at, and it ends with an explicit condition:
+      // "If somebody later gives these real substance ... and puts it on a
+      // surface every class actually has, then the ladder can be re-argued upward
+      // with a frame behind it."
+      //
+      // That is what this wave did. `ap.armorColor` no longer feeds one material.
+      // It selects a coordinated kit — mail, tunic dye, trousers, leg wraps, strap
+      // leather, buff leather and every cast fitting on the man (see `FINISH_KIT`)
+      // — so all three of the measurements below have been answered rather than
+      // argued with:
+      //
+      //   * "the tint lands on two shoulders and a sliver of chest" — it now lands
+      //     on the largest cloth surfaces on the body, which are the ones the
+      //     shield never covers.
+      //   * "two of the four classes cannot wear it" — the runekeeper's leather
+      //     body layer, his new mantle, the berserker's jerkin, his torc and his
+      //     arm rings are all on the palette. `art/shots/armour-finish-roster.png`
+      //     is the frame: four classes down, seven finishes across.
+      //   * "0.00% silhouette and 0.00% form on all six adjacent rungs" — STILL
+      //     TRUE, AND DELIBERATELY SO. A finish moves no geometry. `cosmetictest`
+      //     asserts that and the assertion is untouched, because a colour slot
+      //     that quietly grew geometry would break the one thing that instrument
+      //     is for. What changed is how much of the man the colour reaches, which
+      //     is a coverage claim and needs the sheet above, not the silhouette
+      //     measure.
+      //
+      // SO: 20–60 becomes 60–160. That is a rise and it should be called one. The
+      // anchor is the measured 90–135 gold a winning best-of-3 pays, so the entry
+      // rung is most of one match and the top is a little over one — priced beside
+      // the 90-gold cloaks, which is the other slot that changes the whole
+      // outline, and nowhere near the 510 this slot used to charge for a hex.
+      //
+      // NOBODY IS STRANDED AND NOBODY IS BILLED AGAIN. Ownership is by id, the ids
+      // are unchanged, and a player who bought Bretwalda Gold at 60 owns Bretwalda
+      // Gold. The server reads this same array (`src/db/catalogue.ts` imports
+      // `ARMOURY` rather than keeping its own price list), so there is one number
+      // and it cannot drift.
+      //
+      // ---- the previous owner's note, which is why the prices were 20–60 ----
+      //
       // REPRICED FROM 1050 GOLD OF LADDER TO 250, BECAUSE IT IS A TINT AND THIS
       // WAVE DID NOT MAKE IT ANYTHING ELSE. Three measurements, none of them an
       // opinion:
@@ -539,12 +582,12 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       // colour costs. Ids are unchanged, so a profile that already paid 510 keeps
       // what it bought.
       { id: "armor_iron", label: "Rough Iron", cost: 0, slot: "armor", value: 0x5f6b7a },
-      { id: "armor_steel", label: "Polished Steel", cost: 20, slot: "armor", value: 0x8a97a5 },
-      { id: "armor_dark", label: "Blackened Steel", cost: 40, slot: "armor", value: 0x2a2f38 },
-      { id: "armor_bronze", label: "Bronze Scales", cost: 50, slot: "armor", value: 0x8a6a3a },
-      { id: "armor_crimson", label: "Crimson Warplate", cost: 40, slot: "armor", value: 0x7a2f2a },
-      { id: "armor_seablue", label: "Sea Queen's Gift", cost: 40, slot: "armor", value: 0x2f4a6a },
-      { id: "armor_gold", label: "Bretwalda Gold", cost: 60, slot: "armor", value: 0x9a7a2a },
+      { id: "armor_steel", label: "Polished Steel", cost: 60, slot: "armor", value: 0x8a97a5 },
+      { id: "armor_dark", label: "Blackened Steel", cost: 110, slot: "armor", value: 0x2a2f38 },
+      { id: "armor_bronze", label: "Bronze Scales", cost: 110, slot: "armor", value: 0x8a6a3a },
+      { id: "armor_crimson", label: "Crimson Warplate", cost: 130, slot: "armor", value: 0x7a2f2a },
+      { id: "armor_seablue", label: "Sea Queen's Gift", cost: 130, slot: "armor", value: 0x2f4a6a },
+      { id: "armor_gold", label: "Bretwalda Gold", cost: 160, slot: "armor", value: 0x9a7a2a },
     ],
   },
   {
