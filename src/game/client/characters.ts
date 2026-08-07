@@ -5375,7 +5375,7 @@ function hangingMass(
  */
 function braidProfile(): Bristle[] {
   const M = 13;
-  const DROP = 0.176;
+  const DROP = 0.118;
   const BIND = [0.15, 0.40, 0.66, 0.92];
   const out: Bristle[] = [];
   for (let i = 0; i <= 2 * M; i++) {
@@ -5418,6 +5418,8 @@ interface BeardCut {
   /** The collar this beard has to rest ON: head-local height, and its radius. */
   seatY: number;
   seatR: number;
+  /** How fast that radius grows as the collar drops onto the yoke. */
+  seatFlare: number;
   hank: (u: number) => number;
   rag: (u: number) => number;
   thick: number;
@@ -5483,11 +5485,15 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
   const prof = cut.prof;
   const reach = cut.reach ?? (() => 1);
   const P = prof.length - 1;
-  // Six rows down the face, then the fall's own stations. The face needs six
-  // because the moustache, the lip, the chin and the jaw all have to land on
-  // rows of their own: at three the mouth's dip is sampled once and comes out
-  // as a crease rather than as a parting.
-  const FACE = 6;
+  // Nine rows down the face, then the fall's own stations, and BUNCHED TOWARD
+  // THE TOP. This is the moustache's whole existence: the face leg spans 82 mm
+  // of latitude at the midline, of which the moustache is the top 20, so evenly
+  // spaced rows put ONE row on it and a single row cannot carry a mass with a
+  // feathered edge above it and a mouth below it. At six rows spaced by w^0.86
+  // — which pushes rows DOWN — the moustache had no row at all above the lip
+  // and what drew was a 6 mm blob with skin all round it, which is the exact
+  // defect this pass exists to delete. w^1.35 lands four rows in the top third.
+  const FACE = 9;
   const N = FACE + P;
   const uE = cut.uEdge;
 
@@ -5525,9 +5531,9 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
    * no boundary is created: the mesh runs continuously straight through it.
    */
   const mouth = (u: number, y: number) => clamp01(
-    (1 - smooth(0.26, 0.47, Math.abs(u)))
-    * smooth(Y_LIP + 0.078, Y_LIP + 0.034, y)
-    * smooth(Y_LIP - 0.118, Y_LIP - 0.070, y));
+    (1 - smooth(0.24, 0.46, Math.abs(u)))
+    * smooth(Y_LIP + 0.056, Y_LIP + 0.024, y)
+    * smooth(Y_LIP - 0.082, Y_LIP - 0.046, y));
 
   /** How much hair there is at this point of the face, 0 to 1. */
   const dens = (u: number, y: number) => {
@@ -5539,7 +5545,18 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
     // And thinning to the sideburn. A constant mass all the way to the ear is
     // most of why the old cheek patch covered the face like a mask.
     const side = 1 - 0.46 * smooth(0.32, uE, Math.abs(u));
-    return clamp01(grow * deep * side * (1 - mouth(u, y)));
+    // Hanks on the FACE as well as in the fall. Without them the moustache is a
+    // plateau of constant thickness with a smoothstep at each end, which at a
+    // hundred pixels is a bar of tape — the exact thing the owner is pointing
+    // at — and the cheek is a sheet of felt. Two harmonics in u and one that
+    // leans with height, so a ridge drifts as it descends instead of being a
+    // fluted column, and all three are cut out of the mass rather than added to
+    // it so no standoff can be made worse by them.
+    const hankF = 0.86 + 0.14 * (
+      0.58 * Math.cos(u * 8.5 + 0.4)
+      + 0.28 * Math.cos(u * 14.5 - 1.2)
+      + 0.14 * Math.cos(y * 34 + u * 6));
+    return clamp01(grow * deep * side * hankF * (1 - mouth(u, y)));
   };
 
   const _bn = new THREE.Vector3();
@@ -5564,7 +5581,7 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
     if (q <= FACE) {
       // ---- down the face ----
       const w = q / FACE;
-      y = mix(topY(u), jy, Math.pow(w, 0.86));
+      y = mix(topY(u), jy, Math.pow(w, 1.35));
       // Buried 3.2 mm where there is no hair and standing at `skin` where it is
       // thickest. The negative end is what makes the growth line a growth line:
       // the boundary ring, and the rim strip `patch` closes it with, are inside
@@ -5594,19 +5611,18 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
       lift = mix(jLift, -0.0030, tuck);
     }
 
+    const rx = Math.sin(u);
+    const rz = Math.cos(u);
     dirOf(u, lat(y), _bd);
     faceSurface(K, _bd, out);
     faceNormalTrue(K, u, lat(y), _bn);
-    out.addScaledVector(_bn, lift - inset);
+    out.addScaledVector(_bn, lift);
     out.y += y0;
-
     if (o !== 0 || d !== 0) {
-      const rx = Math.sin(u);
-      const rz = Math.cos(u);
-      out.x += rx * (o - inset);
+      out.x += rx * o;
       // The forward swing is weighted toward the FRONT: hair beside the jaw
       // hanging as far forward as hair under the chin is a scarf.
-      out.z += rz * (o - inset) + cut.lean * d * (0.32 + 0.68 * Math.max(0, rz));
+      out.z += rz * o + cut.lean * d * (0.32 + 0.68 * Math.max(0, rz));
       out.y -= d;
     }
 
@@ -5614,24 +5630,32 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
     //
     // A beard is soft and a collar is not, so where the two meet the collar
     // wins and the hair spreads on it. Below the neckline the section is pushed
-    // out to the radius the collar presents, over a 40 mm ramp so what the
-    // spread reads as is a curve and not a shelf. `wearmeasure` section 5
-    // measures the result against the ACTUAL garment rather than against these
-    // two numbers, so if the torso moves the gate says so instead of this
-    // quietly going wrong.
+    // out to the radius the garment presents at that height — the neckline's own
+    // radius, flaring at the rate the yoke flares under it — over a 40 mm ramp,
+    // so the spread reads as a curve and not as a shelf.
+    //
+    // Solved on the OUTER wall and then applied to both, which is the whole
+    // reason this is computed before the inset rather than after. A clamp
+    // applied to each wall separately drags them both onto the same radius and
+    // the tube loses its thickness exactly where it is in silhouette — pressed
+    // flat against the collar, with the two walls free to swap sides and turn
+    // the normals inside out.
+    //
     // Only the FALL is seated. The face leg and the tuck both finish on skin,
-    // and pushing those out was the bib: every buried vertex under the jaw got
-    // dragged to the collar's radius and the beard came out as a scarf.
-    const onSeat = d > 0.004 ? smooth(cut.seatY + 0.040, cut.seatY - 0.005, out.y) : 0;
-    if (onSeat > 0) {
-      const want = cut.seatR * onSeat;
+    // and seating those was the bib: every buried vertex under the jaw was
+    // dragged out to the collar and the beard came out as a scarf.
+    let push = 0;
+    if (d > 0.004) {
+      const drop = Math.max(0, cut.seatY - out.y);
+      const onSeat = smooth(cut.seatY + 0.040, cut.seatY - 0.005, out.y);
+      const want = (cut.seatR + cut.seatFlare * drop) * onSeat;
       const r = Math.hypot(out.x, out.z);
-      if (r < want && r > 1e-5) {
-        const k = mix(1, want / r, 0.94);
-        out.x *= k;
-        out.z *= k;
-      }
+      if (r < want && r > 1e-5) push = (want - r) * 0.94 / r;
     }
+
+    out.addScaledVector(_bn, -inset);
+    if (o !== 0 || d !== 0) { out.x -= rx * inset; out.z -= rz * inset; }
+    if (push > 0) { out.x += out.x * push; out.z += out.z * push; }
   };
 
   return patch({
@@ -10196,6 +10220,12 @@ export function buildCharacter(
       // pair cannot drift out of true without the gate saying so.
       const seatY = S.neckRoot - 0.014 - S.neckTop;
       const seatR = Math.max(S.neckHW * 0.86, S.neckHD * 0.80) + 0.048;
+      // And how fast it opens out under that. The torso's next two stations are
+      // 16 and 36 mm down and carry the yoke rather than the neck, so the stack
+      // gains about 0.8 mm of radius per millimetre of drop over the first
+      // 60 mm. A beard long enough to reach that is lying on a shoulder, not
+      // hanging beside a throat.
+      const seatFlare = 0.80;
       // Hanks down the fall and a ragged hem. Both are harmonics in u and both
       // stay inside what `nu` columns can carry: the third that used to live
       // here was above Nyquist and drew four triangular bites out of the jaw
@@ -10229,10 +10259,10 @@ export function buildCharacter(
             { o: -0.008, d: 0.014 },
             { o: -0.013, d: 0.002 },
           ],
-          mass: (u) => 0.10 + 0.90 * Math.pow(1 - smooth(0.50, 1.02, Math.abs(u)), 0.80),
+          mass: (u) => Math.pow(1 - smooth(0.50, 1.02, Math.abs(u)), 0.80),
           lean: 0.20,
           thick: 0.0034,
-          seatY, seatR, hank, rag,
+          seatY, seatR, seatFlare, hank, rag,
         },
         // FULL, 40 gold. Broadest and shortest — a bush. It spreads PAST the
         // jaw rather than following it down, which is what separates it from
@@ -10243,20 +10273,20 @@ export function buildCharacter(
           uEdge: 1.20,
           prof: [
             { o: 0.000, d: 0.000 },
-            { o: 0.022, d: 0.020 },
-            { o: 0.038, d: 0.052 },
-            { o: 0.042, d: 0.086 },
-            { o: 0.034, d: 0.112 },
-            { o: 0.018, d: 0.124 },
-            { o: 0.002, d: 0.110 },
-            { o: -0.008, d: 0.070 },
-            { o: -0.012, d: 0.026 },
-            { o: -0.014, d: 0.003 },
+            { o: 0.019, d: 0.012 },
+            { o: 0.032, d: 0.030 },
+            { o: 0.036, d: 0.050 },
+            { o: 0.030, d: 0.064 },
+            { o: 0.016, d: 0.071 },
+            { o: 0.002, d: 0.062 },
+            { o: -0.008, d: 0.040 },
+            { o: -0.013, d: 0.015 },
+            { o: -0.015, d: 0.002 },
           ],
-          mass: (u) => 0.04 + 0.96 * Math.pow(1 - smooth(0.42, 0.98, Math.abs(u)), 0.85),
-          lean: 0.30,
+          mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
+          lean: 0.22,
           thick: 0.006,
-          seatY, seatR, hank, rag,
+          seatY, seatR, seatFlare, hank, rag,
         },
         // FORKED, 80 gold, and the audit's instruction was to check it against
         // the profile card: "a fork that does not separate in profile is a
@@ -10279,21 +10309,21 @@ export function buildCharacter(
           uEdge: 1.15,
           prof: [
             { o: 0.000, d: 0.000 },
-            { o: 0.019, d: 0.024 },
-            { o: 0.030, d: 0.062 },
-            { o: 0.031, d: 0.104 },
-            { o: 0.023, d: 0.140 },
-            { o: 0.010, d: 0.162 },
-            { o: -0.002, d: 0.144 },
-            { o: -0.009, d: 0.086 },
-            { o: -0.013, d: 0.028 },
-            { o: -0.015, d: 0.004 },
+            { o: 0.020, d: 0.015 },
+            { o: 0.032, d: 0.038 },
+            { o: 0.033, d: 0.064 },
+            { o: 0.025, d: 0.086 },
+            { o: 0.011, d: 0.099 },
+            { o: -0.002, d: 0.088 },
+            { o: -0.009, d: 0.052 },
+            { o: -0.013, d: 0.017 },
+            { o: -0.015, d: 0.002 },
           ],
-          mass: (u) => 0.04 + 0.96 * Math.pow(1 - smooth(0.36, 0.92, Math.abs(u)), 0.85),
+          mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
           reach: (u) => 0.34 + 0.86 * Math.exp(-Math.pow((Math.abs(u) - 0.40) / 0.215, 2)),
-          lean: 0.42,
+          lean: 0.30,
           thick: 0.005,
-          seatY, seatR, hank, rag,
+          seatY, seatR, seatFlare, hank, rag,
         },
         // RINGED BRAID, 120 gold — the narrowest and by far the longest, so in
         // outline it is a LINE where Full is a wedge and Forked is a wedge with
@@ -10312,10 +10342,10 @@ export function buildCharacter(
           burnY: Y_EYE - 0.175,
           uEdge: 1.13,
           prof: braidProfile(),
-          mass: (u) => 0.03 + 0.97 * Math.pow(1 - smooth(0.18, 0.80, Math.abs(u)), 1.20),
-          lean: 0.30,
+          mass: (u) => Math.pow(1 - smooth(0.18, 0.80, Math.abs(u)), 1.20),
+          lean: 0.24,
           thick: 0.005,
-          seatY, seatR, hank, rag,
+          seatY, seatR, seatFlare, hank, rag,
         },
       };
 
@@ -12797,5 +12827,247 @@ export function buildCharacter(
     reassemble: () => {
       for (const s of [...cutting.live.values()]) s.release();
     },
+  };
+}
+
+/** The beard rungs, so `wearmeasure` section 5 can measure all five. */
+export const BEARD_VALUES: readonly string[] =
+  (ARMOURY.find((s) => s.slot === "beard")?.options ?? []).map((o) => String(o.value));
+
+export interface BeardSeat {
+  /** Connected components of the beard's own geometry. One beard is one piece. */
+  pieces: number;
+  /** The deepest a beard vertex sits INSIDE the torso's outermost garment, in mm. */
+  throughMm: number;
+  /** Which class-and-style that was. */
+  worst: string;
+  /** How far the beard's hem falls below the neckline, in mm. Descriptive. */
+  overMm: number;
+  /** How far the beard falls below the menton, in mm. Descriptive. */
+  fallMm: number;
+}
+
+/**
+ * DOES THE BEARD SIT ON THE MAIL, OR THROUGH IT — and is it one object?
+ *
+ * "the beards all look broken & overlapped in the neck & armour, it doesnt look
+ *  or feel like one piece if that makes sense."
+ *
+ * Two measurements, one for each half of that sentence, and both of them are
+ * arithmetic rather than taste.
+ *
+ * PIECES is the one this project has needed three times. The ear was `ball +
+ * torus + ball + torus + ball` and you could see daylight through it; the head
+ * was a sum of gaussian bumps and produced five different monsters over eight
+ * passes; the beard was a cheek shell plus a lip shell plus a hanging mass, and
+ * every seam the owner can see is a boundary between two of those. `Part.merge`
+ * welds by MATERIAL, so a mesh count is a draw-call count and cannot see any of
+ * it — what the eye is reading is CONNECTED COMPONENTS. Two surfaces that share
+ * no vertex are two objects however they are drawn. So this welds the beard's
+ * triangles at a tenth of a millimetre and counts the islands. The bar is one.
+ *
+ * THROUGH is the other half. The armour is a hard surface: hair rests on a
+ * collar and spreads, it does not pass through it. The torso's garments are
+ * tabulated as a radial height field about the body's own axis — max radius per
+ * (height, bearing) bin, so the outermost of mail-over-linen-over-wool wins —
+ * and every beard vertex in the collar's band is asked how far inside that
+ * surface it is. `beardShell` seats the fall on two numbers derived from the
+ * skeleton; this measures the RESULT against the garment that is actually
+ * built, so the two cannot drift apart in silence.
+ *
+ * A radial field is the right ruler here and a mesh intersection is not: the
+ * head turns, so a beard has to clear the collar at every yaw the animation can
+ * reach, and a radius about the neck axis is exactly that invariant.
+ */
+export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: string): BeardSeat {
+  const ap = { ...defaultAppearance(cls), beardStyle, beardColor: 0x1c1712, hairColor: 0x4a3220 };
+  const c = buildCharacter(cls, ap, 0x8a6b3f, undefined, "high", seed);
+  c.group.updateMatrixWorld(true);
+
+  // THE GARMENT, AS AN OUTLINE PER HEIGHT.
+  //
+  // Bins of 5 deg and 6 mm, maxed so that the outermost of mail-over-linen-
+  // over-wool wins, and then any empty bearing is filled by interpolating
+  // between its nearest occupied neighbours round the ring.
+  //
+  // The interpolation is the whole of the ruler's accuracy and it went wrong
+  // first: taking the max over a WIDE bearing bin reads the top of the shoulder
+  // two bins round from the throat — 268 mm of radius against a collar's 110 —
+  // and reports a shoulder as a beard fault. A surface is a function of
+  // bearing, so it has to be reconstructed as one.
+  const AZ = 72;
+  const YB = 0.006;
+  const rings = new Map<number, Float32Array>();
+  const v = new THREE.Vector3();
+  const torsoMesh: THREE.Mesh[] = [];
+  const beardXYZ: number[] = [];
+  const beardTri: number[] = [];
+  let mentonY = Infinity;
+  let hemY = Infinity;
+
+  c.group.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    let anc: THREE.Object3D | null = o;
+    let name = "";
+    while (anc && !name) { name = anc.name; anc = anc.parent; }
+    const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
+    const hex = mat?.color?.getHexString?.();
+    const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+    if (!pos) return;
+    if (name === `${RIG_TAG}torso`) { torsoMesh.push(mesh); return; }
+    if (name === `${RIG_TAG}head` && hex === "c99d75") {
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        if (v.y < mentonY) mentonY = v.y;
+      }
+      return;
+    }
+    if (hex !== "1c1712") return;
+    const base = beardXYZ.length / 3;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      beardXYZ.push(v.x, v.y, v.z);
+      if (v.y < hemY) hemY = v.y;
+    }
+    const idx = mesh.geometry.index;
+    const n = idx ? idx.count : pos.count;
+    for (let t = 0; t < n; t += 3) {
+      beardTri.push(
+        base + (idx ? idx.getX(t) : t),
+        base + (idx ? idx.getX(t + 1) : t + 1),
+        base + (idx ? idx.getX(t + 2) : t + 2));
+    }
+  });
+
+  const nV = beardXYZ.length / 3;
+  if (!nV) return { pieces: 0, throughMm: 0, worst: `${cls}/${beardStyle}`, overMm: 0, fallMm: 0 };
+
+  // ---- pieces: weld at 0.1 mm and union the triangles ----
+  const weld = new Map<string, number>();
+  const rep = new Int32Array(nV);
+  for (let i = 0; i < nV; i++) {
+    const k = `${Math.round(beardXYZ[i * 3]! * 1e4)},${Math.round(beardXYZ[i * 3 + 1]! * 1e4)},${Math.round(beardXYZ[i * 3 + 2]! * 1e4)}`;
+    const had = weld.get(k);
+    if (had === undefined) { weld.set(k, i); rep[i] = i; } else rep[i] = had;
+  }
+  const parent = new Int32Array(nV);
+  for (let i = 0; i < nV; i++) parent[i] = i;
+  const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]!]!; a = parent[a]!; } return a; };
+  const join = (a: number, b: number) => { const ra = find(a); const rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  for (let t = 0; t < beardTri.length; t += 3) {
+    join(rep[beardTri[t]!]!, rep[beardTri[t + 1]!]!);
+    join(rep[beardTri[t + 1]!]!, rep[beardTri[t + 2]!]!);
+  }
+  const islands = new Set<number>();
+  for (let t = 0; t < beardTri.length; t += 3) islands.add(find(rep[beardTri[t]!]!));
+
+  // ---- through: every beard vertex against the garment's radial field ----
+  //
+  // A bin with no garment sample in it is not evidence of no garment, so an
+  // empty bin is filled from its neighbours in bearing before it is used. A hole
+  // in a ruler is worse than a gap in its coverage, because the hole reports a
+  // number.
+  // ---- WHICH TORSO MESHES ARE A RULER AT ALL ----
+  //
+  // A radial height field says "the surface is this far out at this bearing",
+  // and that is only true of a shell that ENCLOSES THE AXIS. A shoulder pad is
+  // a blob sitting at 260 mm of radius with nothing between it and the spine,
+  // so a beard 115 mm out is inside its radius and nowhere near its geometry —
+  // and that is what this reported as 151 mm of beard through mail on the
+  // huscarl, on a beard that was clear of him. Only shells that come round the
+  // whole turn are used, which is every body garment in the shop and none of
+  // its furniture.
+  const bodies: THREE.Mesh[] = [];
+  for (const mesh of torsoMesh) {
+    const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const seen = new Set<number>();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      seen.add(Math.round(((Math.atan2(v.x, v.z) + Math.PI) / (2 * Math.PI)) * AZ) % AZ);
+    }
+    if (seen.size >= AZ * 0.85) bodies.push(mesh);
+  }
+  for (const mesh of bodies) {
+    // RASTERISED, NOT SAMPLED AT THE VERTICES. A tunic is swept on seven
+    // stations over 600 mm, so in 6 mm bins fewer than one row in ten has a
+    // vertex in it — and a ring built from vertices alone was mostly empty at
+    // the front and got filled, by the pass below, from whatever was nearest
+    // round the turn, which is the shoulder. The surface between the vertices
+    // is as real as the vertices; this walks it.
+    const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const idxT = mesh.geometry.index;
+    const nT = idxT ? idxT.count : pos.count;
+    const t0 = new THREE.Vector3();
+    const t1 = new THREE.Vector3();
+    const t2 = new THREE.Vector3();
+    for (let t = 0; t < nT; t += 3) {
+      t0.fromBufferAttribute(pos, idxT ? idxT.getX(t) : t).applyMatrix4(mesh.matrixWorld);
+      t1.fromBufferAttribute(pos, idxT ? idxT.getX(t + 1) : t + 1).applyMatrix4(mesh.matrixWorld);
+      t2.fromBufferAttribute(pos, idxT ? idxT.getX(t + 2) : t + 2).applyMatrix4(mesh.matrixWorld);
+      const G = 6;
+      for (let ga = 0; ga <= G; ga++) {
+        for (let gb = 0; ga + gb <= G; gb++) {
+          const wa = ga / G;
+          const wb = gb / G;
+          const wc = 1 - wa - wb;
+          v.set(
+            t0.x * wa + t1.x * wb + t2.x * wc,
+            t0.y * wa + t1.y * wb + t2.y * wc,
+            t0.z * wa + t1.z * wb + t2.z * wc);
+          const yi = Math.round(v.y / YB);
+          let ring = rings.get(yi);
+          if (!ring) { ring = new Float32Array(AZ); rings.set(yi, ring); }
+          const ai = Math.round(((Math.atan2(v.x, v.z) + Math.PI) / (2 * Math.PI)) * AZ) % AZ;
+          const r = Math.hypot(v.x, v.z);
+          if (r > ring[ai]!) ring[ai] = r;
+        }
+      }
+    }
+  }
+  for (const ring of rings.values()) {
+    for (let i = 0; i < AZ; i++) {
+      if (ring[i]! > 0) continue;
+      let a = -1;
+      let b = -1;
+      for (let k = 1; k < AZ; k++) { const j = (i - k + AZ) % AZ; if (ring[j]! > 0) { a = k; break; } }
+      for (let k = 1; k < AZ; k++) { const j = (i + k) % AZ; if (ring[j]! > 0) { b = k; break; } }
+      if (a < 0 || b < 0) continue;
+      ring[i] = -mix(ring[(i - a + AZ) % AZ]!, ring[(i + b) % AZ]!, a / (a + b));
+    }
+    for (let i = 0; i < AZ; i++) if (ring[i]! < 0) ring[i] = -ring[i]!;
+  }
+  const radiusAt = (x: number, y: number, z: number): number => {
+    const yi = Math.round(y / YB);
+    const ai = Math.round(((Math.atan2(x, z) + Math.PI) / (2 * Math.PI)) * AZ) % AZ;
+    let best = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      const ring = rings.get(yi + dy);
+      if (ring && ring[ai]! > best) best = ring[ai]!;
+    }
+    return best;
+  };
+  let through = 0;
+  let wx = 0; let wy = 0; let wz = 0; let wg = 0;
+  for (let i = 0; i < nV; i++) {
+    const x = beardXYZ[i * 3]!;
+    const y = beardXYZ[i * 3 + 1]!;
+    const z = beardXYZ[i * 3 + 2]!;
+    // Only the front and the sides: a beard cannot be behind a neck, and the
+    // shoulder mass at the back would report a penetration that is a shoulder.
+    if (Math.abs(Math.atan2(x, z)) > 0.9) continue;
+    const g = radiusAt(x, y, z);
+    if (g <= 0) continue;
+    const d = (g - Math.hypot(x, z)) * 1000;
+    if (d > through) { through = d; wx = x; wy = y; wz = z; wg = g; }
+  }
+
+  const S = skeleton({ ...(BUILD[cls] ?? BUILD.warden), stature: (BUILD[cls] ?? BUILD.warden).stature * (1 + (Math.round(hash(seed, 31) * 2) - 1) * 0.022) });
+  return {
+    pieces: islands.size,
+    throughMm: through,
+    worst: `${cls}/${beardStyle} at y=${wy.toFixed(3)} az=${Math.atan2(wx, wz).toFixed(2)} r=${Math.hypot(wx, wz).toFixed(3)} garment=${wg.toFixed(3)}`,
+    overMm: (S.neckRoot - 0.014 - hemY) * 1000,
+    fallMm: (mentonY - hemY) * 1000,
   };
 }

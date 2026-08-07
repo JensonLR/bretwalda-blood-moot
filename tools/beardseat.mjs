@@ -30,6 +30,6 @@ for (const cls of CLASSES) {
     if (b === "none") continue;
     const r = beardSeatProbe(cls, 13, b);
     console.log(`[seat] ${cls.padEnd(12)} ${b.padEnd(9)} ${String(r.pieces).padStart(6)}   ` +
-      `${r.throughMm.toFixed(1).padStart(10)}   ${r.overMm.toFixed(1).padStart(7)}   ${r.fallMm.toFixed(0).padStart(7)}`);
+      `${r.throughMm.toFixed(1).padStart(10)}   ${r.overMm.toFixed(1).padStart(7)}   ${r.fallMm.toFixed(0).padStart(7)}   ${r.throughMm > 2 ? r.worst : ""}`);
   }
 }
