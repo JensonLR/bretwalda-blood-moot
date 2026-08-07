@@ -900,6 +900,16 @@ async function lockAct(browser, url, check) {
      * in pieces.
      */
     const NEED = 40;
+    /**
+     * Distinct PAINTED FRAMES the mark must be seen across before `travel` is
+     * read off it. Eight is the smallest number that can describe a slide
+     * rather than a jump, and on this box — which renders the fight at about
+     * one frame a second while three other agents rasterise beside it — it is
+     * what the ninety-second budget is actually being spent on. A run that came
+     * back with "135 readings, 66 lit, slid 0px" had collected two paints and
+     * called it a measurement.
+     */
+    const NEED_FRAMES = 8;
     /** And the least wall time it will spend collecting them, so "it slid as he
      *  moved" is still a statement about a man who had time to move. At 1.4 s a
      *  man walking 4.5 u/s across the lens could be measured as having stood
@@ -979,7 +989,15 @@ async function lockAct(browser, url, check) {
           // mirror is measured exactly now, on a scene held still, so the
           // window is gone and with it the luck it took to land inside one.
           if (o > 0.5 && range !== null && off !== null && x > -40 && x < p.w + 40) {
-            out.push({ x, range, source: p.source, lead: Math.abs(p.leadPx || 0), leadM: p.leadM || 0 });
+            // Stamped with the frame the mark was PAINTED on. The reticle only
+            // moves when the renderer runs, and on this box the renderer runs
+            // about once a second while this sampler ticks every 40 ms — so a
+            // run of readings can be twenty copies of one paint. Counting those
+            // as evidence that "the mark slid as he moved" is the same mistake
+            // the facing assertion was making: a wall clock asked to report on
+            // something that only changes on a frame.
+            out.push({ x, range, fn: (window.__frames && window.__frames.n) || 0,
+              source: p.source, lead: Math.abs(p.leadPx || 0), leadM: p.leadM || 0 });
           }
         }
         const spent = performance.now() - t0;
@@ -1001,6 +1019,10 @@ async function lockAct(browser, url, check) {
     const sampleReticle = async (budgetMs) => {
       const started = Date.now();
       const xs = [];
+      // The distinct animation frames the mark was actually repainted on. This,
+      // not the number of timer ticks, is the sample size for anything that
+      // claims the mark MOVED.
+      const painted = new Set();
       let matched = 0, lit = 0, reads = 0, batches = 0, offWire = 0, paint = "none";
       const leads = [];
       while (Date.now() - started < budgetMs) {
@@ -1014,18 +1036,23 @@ async function lockAct(browser, url, check) {
         if (b.paint !== "none") paint = b.paint;
         for (const s of b.out) {
           xs.push(s.x);
+          painted.add(s.fn);
           leads.push(s.lead);
           // Which position the mark was painted off: the rig the man is DRAWN
           // on, or the wire that is ~83 ms ahead of him. See `drawnBodies` in
           // render/camera.ts — this is the regression guard on the lead bug.
           if (s.source !== "rig") offWire++;
         }
-        if (xs.length >= NEED && Date.now() - started > SPAN_MS) break;
+        // NEED readings AND enough distinct paints for `travel` to mean
+        // something. Raising the sampler rather than dropping the claim: on a
+        // phone these are the same condition, and on this box the second one is
+        // what the budget is really for.
+        if (xs.length >= NEED && painted.size >= NEED_FRAMES && Date.now() - started > SPAN_MS) break;
       }
       const sorted = xs.slice().sort((a, b2) => a - b2);
       const sortedLeads = leads.slice().sort((a, b2) => a - b2);
       return {
-        seen: xs.length, matched, lit, reads, batches, offWire, paint,
+        seen: xs.length, matched, lit, reads, batches, offWire, paint, frames: painted.size,
         seconds: (Date.now() - started) / 1000,
         median: sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0,
         travel: sorted.length > 1 ? sorted[sorted.length - 1] - sorted[0] : 0,
@@ -1155,8 +1182,14 @@ async function lockAct(browser, url, check) {
       && overRight.matched >= 40
       && overRight.matched >= overRight.lit - 3
       && overRight.offWire === 0
+      // The slide, and the sample it is read off, in two channels rather than
+      // one. "It slid 0px" used to mean either "the mark is stuck to the glass"
+      // — a real defect — or "the renderer drew two frames while I watched",
+      // which is the box. They are different findings and they now fail
+      // separately.
+      && overRight.frames >= 8
       && overRight.travel > 3,
-      `the element sat within 2px of the rig's own projected x on ${overRight.matched} of the ${overRight.lit} readings it was lit for (sampled on a 40 ms timer, ${overRight.reads} readings, ${overRight.batches} passes, ${overRight.seconds.toFixed(1)}s), and slid ${Math.round(overRight.travel)}px as he moved; every one of its ${overRight.seen} qualifying samples was painted off the rig the man is DRAWN on rather than the wire (${overRight.offWire} off the wire), which sat a median ${Math.round(overRight.lead)}px and up to ${Math.round(overRight.leadMax)}px ahead of him; and with the WIRE HELD so the fight could not move — same man, same range, same frame — the one handedness switch moved the mark from x=${mirror.best ? Math.round(mirror.best.right.x) : "?"} to x=${mirror.best ? Math.round(mirror.best.left.x) : "?"}, ${Math.round(Math.abs(shift))}px of pure camera parallax with nothing else in the game changed — the man himself stood at ${mirror.best ? `${mirror.best.right.bodyX.toFixed(2)},${mirror.best.right.bodyZ.toFixed(2)}` : "?"} for both readings, ${mirror.best ? mirror.best.moved.toFixed(3) : "?"} m apart, and the mark wandered ${mirror.best ? mirror.best.right.still.toFixed(1) : "?"} and ${mirror.best ? mirror.best.left.still.toFixed(1) : "?"} px while it was held (best of ${mirror.tries} frozen moment${mirror.tries === 1 ? "" : "s"}${mirror.notes.length ? `; discarded: ${mirror.notes.join(", ")}` : ""}); last paint ${overRight.paint}`);
+      `the element sat within 2px of the rig's own projected x on ${overRight.matched} of the ${overRight.lit} readings it was lit for (sampled on a 40 ms timer, ${overRight.reads} readings, ${overRight.batches} passes, ${overRight.seconds.toFixed(1)}s), and slid ${Math.round(overRight.travel)}px as he moved across ${overRight.frames} distinct painted frames; every one of its ${overRight.seen} qualifying samples was painted off the rig the man is DRAWN on rather than the wire (${overRight.offWire} off the wire), which sat a median ${Math.round(overRight.lead)}px and up to ${Math.round(overRight.leadMax)}px ahead of him; and with the WIRE HELD so the fight could not move — same man, same range, same frame — the one handedness switch moved the mark from x=${mirror.best ? Math.round(mirror.best.right.x) : "?"} to x=${mirror.best ? Math.round(mirror.best.left.x) : "?"}, ${Math.round(Math.abs(shift))}px of pure camera parallax with nothing else in the game changed — the man himself stood at ${mirror.best ? `${mirror.best.right.bodyX.toFixed(2)},${mirror.best.right.bodyZ.toFixed(2)}` : "?"} for both readings, ${mirror.best ? mirror.best.moved.toFixed(3) : "?"} m apart, and the mark wandered ${mirror.best ? mirror.best.right.still.toFixed(1) : "?"} and ${mirror.best ? mirror.best.left.still.toFixed(1) : "?"} px while it was held (best of ${mirror.tries} frozen moment${mirror.tries === 1 ? "" : "s"}${mirror.notes.length ? `; discarded: ${mirror.notes.join(", ")}` : ""}); last paint ${overRight.paint}`);
   }
 
   // ===================================================================
