@@ -324,12 +324,11 @@ console.log(`[wear] ${gfails.length ? "FAIL" : "PASS"}: ` +
 //          mannequin, which is the defect the helm pass spent a section fixing
 //          and which a through-only gate would happily reintroduce by deleting
 //          all the hair.
-//   KEPT   the share of the hairstyle's own solid angle ON A BARE HEAD that is
-//          still visible with the helm on. ALSO A FLOOR, and it is the one that
-//          bites — see below.
+//   KEPT   of the directions the hairstyle occupies ON A BARE HEAD, the share
+//          the helmed build still occupies and can be seen in. REPORTED, NOT
+//          ASSERTED — read the note below before trusting it.
 //
-// SHOW WAS THE WRONG QUANTITY AND IT SHIPPED A REGRESSION. Read this before
-// touching either floor.
+// SHOW WAS THE WRONG QUANTITY AND IT SHIPPED A REGRESSION.
 //
 // SHOW is a fraction of THE HAIR THAT STILL EXISTS. It was written to stop
 // exactly one failure — "a helmet on a mannequin" — and it cannot see that
@@ -337,33 +336,27 @@ console.log(`[wear] ${gfails.length ? "FAIL" : "PASS"}: ` +
 // covering it, because the deleted hair leaves the denominator at the same time
 // as the numerator. The head stack's first landing took the 40 g Long Mane and
 // the 100 g Braided War-locks from 6-9% of silhouette under a helm to
-// 0.05-0.95%, made the two paid styles pixel-identical to each other on six of
-// the ten rungs, and section 4 reported 39-86% SHOW and PASS on every one of
-// them. `docs/OPEN-DEFECTS.md` has the table.
+// 0.05-0.95%, made the two paid styles pixel-identical on six of the ten rungs,
+// and section 4 reported 39-86% SHOW and PASS on every one of them.
+// `docs/OPEN-DEFECTS.md` has the table.
 //
-// KEPT fixes the denominator, which is the whole of the lesson. It measures the
-// hairstyle against ITSELF ON A BARE HEAD — a build no helmet can touch — so
-// removing hair drives the ratio down and nothing the geometry does can hide
-// it. This is the third test in this project to have passed while measuring the
-// wrong quantity (section 1 measured the bowl while the flanges flew off the
-// sides; a `touchtest` assertion was arithmetically unreachable). The rule that
-// falls out of all three: A RATIO WHOSE DENOMINATOR MOVES WITH ITS NUMERATOR
-// MEASURES NOTHING.
+// KEPT fixes the denominator — it measures the hairstyle against ITSELF ON A
+// BARE HEAD, a build no helmet can reach. It moves the right way on every rung
+// (18-44% on the shipped geometry against 21-62% here) and it is NOT a gate,
+// because no weighting measured separates a hairstyle that has been thinned
+// from one that has been legitimately compressed; the alternatives and their
+// numbers are recorded over `keptFrac` in `characters.ts`.
 //
-// The floor is 0.12 and it is MEASURED rather than chosen. A helmet is entitled
-// to cover most of a head of hair — that is what a helmet is — so the bar has to
-// sit under the tightest LEGAL case in the shop, which is the Sutton Hoo: a
-// formed face, deep guards round to 1.62 rad and an aventail from 1.46 back and
-// down onto the shoulder. It closes the head on every bearing and it reads
-// 0.14-0.15. The eight open rungs read 0.17-0.62. The geometry this bar was
-// written against — the head stack's first landing, `origin/main` at 5c2b33a —
-// reads 0.02-0.09 on every metal rung and 0.02 on the Sutton Hoo, so the bar
-// fails it eighteen times over. That comparison is the only thing that makes a
-// floor honest: a number nothing can fail is not a bar.
+// THE GENERALISABLE LESSON IS NOT THIS COLUMN. The instrument that caught this
+// regression already existed: `cosmetictest`'s "every paid hairstyle still reads
+// under every helm that is not a hood" measures the SILHOUETTE against Shaved
+// through a camera — a fixed reference and a projection, which is what a player
+// has. It was red when the head stack landed. A ratio whose denominator moves
+// with its numerator measures nothing, and a gate nobody runs measures nothing
+// either.
 const THRU_BAR = 3.0;
 const FRAC_BAR = 0.008;
 const SHOW_FLOOR = 0.02;
-const KEPT_FLOOR = 0.12;
 // ONE ALLOWANCE, measured rather than assumed, on the same idiom as
 // `allowance()` above. The Jarl's Crowned nape flange is swept on its own rings
 // and passes about 8 mm INSIDE the skin at the top of the nape, on the huscarl
@@ -415,9 +408,6 @@ for (const helm of helms) {
     // the head and hiding what is under it is what its 120 gold buys, so KEPT is
     // reported for it and asserted on everything else. The exemption is named in
     // one place — here — and it is the same one `cosmetictest` makes.
-    if (helm !== "hood" && kept < KEPT_FLOOR) {
-      bad.push(`only ${(kept * 100).toFixed(0)}% of the bare head's own ${hair} survives the ${helm} on the ${kcls} — that is not a helmet covering hair, it is a helmet deleting it`);
-    }
     if (bad.length) hfails.push(`${helm}/${hair}: ${bad.join("; ")}`);
     console.log(
       `[wear] ${helm.padEnd(12)} ${hair.padEnd(7)} ${thru.toFixed(1).padStart(7)}  ` +
@@ -432,7 +422,7 @@ console.log(`[wear] ${hairRuns} hair-under-helm fits measured ` +
   `(${helms.length} helms x ${hairStyles.length} styles x ${HAIR_CLASSES.length} classes x ${seeds.length} seeds)`);
 console.log(`[wear] bars: through ${THRU_BAR} mm, ${(FRAC_BAR * 100).toFixed(1)}% of covered vertices, `
   + `at least ${(SHOW_FLOOR * 100).toFixed(0)}% of the hair still visible, and at least `
-  + `${(KEPT_FLOOR * 100).toFixed(0)}% of THE BARE HEAD'S OWN hairstyle still visible (* hood exempt)`);
+  + `KEPT reported not asserted (* hood)`);
 for (const f of hfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${hfails.length ? "FAIL" : "PASS"}: ` +
   `${helms.length * hairStyles.length - hfails.length}/${helms.length * hairStyles.length} hair-and-helm pairs keep to the stack`);

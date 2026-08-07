@@ -8700,6 +8700,38 @@ export function hairFitProbe(
   // on AND in directions nothing covers, which is the hair a player can see.
   // Bins rather than vertices: a bin is a direction a viewer looks down, and it
   // is immune to a style having more triangles than another.
+  //
+  // ---- keptOfBare: the hairstyle measured against ITSELF WITH NOTHING ON ----
+  //
+  // The denominator is a build no helmet can reach, which is the whole point:
+  // `showFrac` is a fraction of THE HAIR THAT STILL EXISTS, so deleting nine
+  // tenths of a hairstyle leaves it unmoved, and that is exactly how the head
+  // stack's first landing shipped. This asks the other question — of the
+  // directions the bare hairstyle occupies, how many does the helmed one still
+  // occupy at all?
+  //
+  // READ THE LIMIT BEFORE YOU TRUST THE NUMBER. This separates a hairstyle that
+  // is GONE from one that is merely covered, and it does NOT separate one that
+  // has been thinned from one that has been compressed. Three weightings were
+  // measured against both trees and none of them did:
+  //
+  //   bins occupied           main 17-44%   this tree 21-62%   (published)
+  //   bins weighted by extent main  6-9%    this tree  6-11%
+  //   share of extent kept    main  6-8%    this tree  6-8%
+  //
+  // The two weighted forms collapse because a helmet legitimately flattens 20 mm
+  // of crown to a 5 mm liner and legitimately hides most of what is left, so
+  // they punish the correct behaviour as hard as the wrong one. The bin count
+  // moves in the right direction on every rung but not far enough to carry a
+  // bar that would fail the shipped geometry without also failing this one.
+  //
+  // SO IT IS REPORTED AND NOT ASSERTED, and the honest lesson is not about this
+  // column at all: the gate that caught the regression already existed. It is
+  // `cosmetictest`'s "every paid hairstyle still reads under every helm that is
+  // not a hood", which measures the SILHOUETTE against Shaved through a camera —
+  // a fixed reference and a projection, which is what a player actually has.
+  // What failed was not the instrument, it was that a wave was judged on
+  // `wearmeasure` and shipped with `cosmetictest` red.
   const openPts = open.get(hairHex) ?? [];
   const binW = (iv: number) => Math.cos(((iv + 0.5) / NV - 0.5) * Math.PI);
   const bareBin = new Uint8Array(NU * NV);
