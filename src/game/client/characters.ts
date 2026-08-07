@@ -9688,7 +9688,7 @@ export function buildCharacter(
     // deliberately put inside the skin there rather than being deleted: the
     // sweep stays continuous with the hair either side of it, and a continuous
     // sweep is the whole reason this file authors one surface instead of two.
-    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.58 && v < bandLo + 0.28) {
+    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.95 && v < bandLo + 0.28) {
       c = Math.min(c, -0.005);
     }
     // THE AVENTAIL, read off its own rings rather than guessed at. It is a bag
