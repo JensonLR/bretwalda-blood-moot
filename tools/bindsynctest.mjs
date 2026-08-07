@@ -421,13 +421,23 @@ async function main() {
   const localD = await d.evaluate(() => JSON.parse(localStorage.getItem("bretwalda.bindings")));
   check("the live table the sampler reads still holds it",
     (localD?.forward ?? []).includes("KeyY"), JSON.stringify(localD?.forward));
-  await d.waitForTimeout(1500);
+  // POLLED, NOT SLEPT. The upload is fire-and-forget by design — a player
+  // mid-rebind is not made to wait on a round trip — so the harness has to wait
+  // for the condition rather than guess a duration. A fixed 1.5 s wait here
+  // failed once on a loaded box and said "the remap was lost" about a remap
+  // that arrived a second later, which is a instrument reporting its own
+  // impatience as a defect.
   const credsD = await d.evaluate(() => JSON.parse(localStorage.getItem("bretwalda_link")));
-  const rowD = await (await fetch(`${BASE}/api/profile/me`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(credsD),
-  })).json();
-  check("and it is carried up rather than lost", (rowD?.profile?.bindings?.forward ?? []).includes("KeyY"),
-    JSON.stringify(rowD?.profile?.bindings?.forward));
+  let rowFwd = [];
+  for (const deadline = Date.now() + 20000; Date.now() < deadline;) {
+    const row = await (await fetch(`${BASE}/api/profile/me`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(credsD),
+    })).json();
+    rowFwd = row?.profile?.bindings?.forward ?? [];
+    if (rowFwd.includes("KeyY")) break;
+    await d.waitForTimeout(500);
+  }
+  check("and it is carried up rather than lost", rowFwd.includes("KeyY"), JSON.stringify(rowFwd));
 
   // ---------------------------------------------------------------- context E
   // THE RULE, and the Mac. Asked of the SHIPPED module through the readback
