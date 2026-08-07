@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId } from "../types";
 import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
+import { underGrace } from "@/game/grace.mjs";
 import {
   resolveQuality, configureRenderer,
   type FrameContext, type Mood, type QualitySettings,
@@ -994,6 +995,12 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         }
 
         stage.hud.setHealth(id, p.health, p.maxHealth);
+        // The grace mark, straight off the packet in hand — no timer on this
+        // side of the wire. `underGrace` is false for every frame of the
+        // countdown and true only while the fight is actually running, so the
+        // mark ends BECAUSE THE FIGHT STARTED rather than because anything
+        // elapsed. See src/game/grace.mjs for the bug this replaces.
+        stage.hud.setGuard(id, underGrace(p, roomState.state));
 
         poseWarrior(slot.rig, slot.motion, p, dt, ctx, animHooks);
 

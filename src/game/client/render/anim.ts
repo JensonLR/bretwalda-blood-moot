@@ -3832,7 +3832,9 @@ export function poseWarrior(
     commit(rig, piv, st, motion.blend, 0);
     drapeCloak(rig, motion, dt, t, P.cloak);
     stepPiece(rig.gore, dt, hooks?.groundAt);
-    rig.body.visible = player.invincible ? Math.floor(t * 12) % 2 === 0 : true;
+    // No strobe. See the note at the live-body site below — and note that this
+    // one was drawing a CORPSE flickering in and out of existence, because a
+    // dead man in solo keeps his respawn grace flag until the tick clears it.
     fadeBlob(rig, 1);
     return;
   }
@@ -3951,7 +3953,27 @@ export function poseWarrior(
   commit(rig, piv, st, motion.blend, ready);
   drapeCloak(rig, motion, dt, t, P.cloak);
   fadeBlob(rig, 0);
-  rig.body.visible = player.invincible ? Math.floor(t * 12) % 2 === 0 : true;
+  // THE BODY DOES NOT BLINK. It used to: `rig.body.visible` was toggled at
+  // 12 Hz for as long as `player.invincible` was true, and that one line was
+  // the whole of the countdown flashing the owner reported.
+  //
+  // Two things were wrong with it. The first is the bug — the flag's clock does
+  // not run during `countdown` (see `grace.mjs` and the note in `startRound`),
+  // so the strobe outlived the countdown by the grace's full length. The second
+  // is that it should never have been on the body at all. A 12 Hz visibility
+  // toggle is an arcade convention: it says "a rule is in force", not "this man
+  // cannot be hurt yet". On a fire-lit, near-black frame it is the loudest
+  // thing on screen — it pops the rim light, the cloak, the shadow and the
+  // silhouette together, on every warrior at once, at the frequency the eye is
+  // most sensitive to. It is the same register as the lock-on mark that read as
+  // "too game-like & basic", and it is precisely the "UI blink over a fire-lit
+  // frame" that `hud3d.ts` already warns against next to `uFlash`.
+  //
+  // Grace is a status, and status lives on the plate. `hud3d`'s `setGuard` now
+  // carries it as a STEADY warm gild on the plate's own bevel — no oscillation,
+  // nothing touching the body, arriving and leaving on an ease. It is off for
+  // every frame of the countdown, so the men stand whole and lit in the ring
+  // while the numeral counts, which is what men waiting for a fight look like.
 
   // ---- blade trail ----
   if (attacking && hooks?.onBladeTrail) {
