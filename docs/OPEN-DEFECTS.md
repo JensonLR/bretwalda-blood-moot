@@ -56,6 +56,58 @@ spends the match behind cannot tell these two heads apart, so nothing a live
 player does today got worse. The shop lens is where the branch's gain is, and it
 is the lens 2400 gold is spent through.
 
+### The gate this shipped on — every final line, on this tip
+
+```
+npm run build              ✓ Compiled successfully · 5/5 static pages            exit=0
+npx tsc --noEmit           (no output)                                           exit=0
+npm run lint               ✖ 11 problems (9 errors, 2 warnings)  — IDENTICAL on cfb49fc, pre-existing in src/
+npm run playtest           [playtest] 34/34 controls working                     exit=0
+npm run touchtest          [touchtest] 27/27 touch assertions passing            exit=0
+node tools/firetest.mjs    [firetest] 7/7 claims proven                          exit=0
+npm run profiletest        [profiletest] 22/22 checks passing                    exit=0
+    with a database        [profiletest] 68/68 checks passing                    exit=0
+npm run soundtest          [soundtest] 22/22 claims proven                       exit=0
+node tools/phonesound.mjs  [phonesound] 7/7 claims proven                        exit=0
+node tools/bindsynctest    [bindsync] 8/8 checks passing                         exit=0
+node tools/cameratest.mjs  [cameratest] 13/13 passed                             exit=0
+npm run summaryflow        [flow] 11/11 passed                                   exit=0
+npm run cheattest          [cheattest] 40/40 checks passing   (fresh postgres)   exit=0
+node tools/latencytest     JUDDER VERDICT: 17/17 checks pass — PASS              exit=0
+node tools/headmeasure     3 ratios outside tolerance · 0 of 15 SILHOUETTE assertions FAILED
+node tools/wearmeasure     [wear] PASS: 10/10 helmets seated                     exit=0
+npm run cosmetictest       [cos] 18/18 checks passed · 47 options, 55 pairs      exit=0
+```
+
+`playtest` and `touchtest` both came back green **first run** this time. That is
+not evidence the flake is fixed — see FAULT 5. It is one sample of a gate that
+has been measured at one failure in three, and it is exactly the kind of run that
+would have been believed.
+
+`cosmetictest` regenerated `docs/COSMETICS-SWEEP.md` byte-identical to the
+committed table apart from the date and the wall clock (1091 s → 929 s). A
+harness that reproduces its own published output is worth more than the assertion
+count beside it.
+
+### What it costs, measured on one instrument against both builds
+
+`tools/perf.mjs` copied into a worktree at `cfb49fc` and run against main's own
+production build, so the counter is identical on both sides. The fps figures are
+SwiftShader's and mean nothing; the draws and triangles are the same numbers a
+player's phone renders.
+
+| tier | draws `cfb49fc` | draws `60fbeae` | Δ | tris `cfb49fc` | tris `60fbeae` | Δ |
+|---|---|---|---|---|---|---|
+| **low** (weak phone) | 739 | **739** | 0 | 307,889 | **341,183** | **+10.8%** |
+| **medium** (the phone) | 3801 | **3737** | **−64** | 1,731,422 | **1,820,952** | +5.2% |
+| **high** (desktop) | 4304 | **4234** | **−70** | 2,400,620 | **2,431,854** | +1.3% |
+
+**Draw calls fall or hold on every tier.** Triangles rise, and all of the rise is
+the head: `LOD.low` went 14×10 → 30×30 and `LOD.medium` 30×30 → 40×44, bought
+partly back out of `body` and `limb`. That is a real cost paid on the tier phones
+get, for a head that still does not pass — **it must not rise again before the
+head reads.** These are the recorded baselines now.
+
 ### FAULT 1 — the phone floor under-samples a face that now has content
 
 **Ships. Measured. Worst thing on this list.**
@@ -488,6 +540,14 @@ without `PROFILE_TEST_DB` — it prints `no PROFILE_TEST_DB set — skipping the
 database half` and then runs the eleven no-database checks — so on this box the
 22/22 says nothing about the new column. No `soundtest`/`phonesound` assertion
 covers it either; both are client-side.
+
+*Land judgement, 6 Aug:* the database half **was** run against a real postgres
+on this branch's tip — `PROFILE_TEST_DB=... npm run profiletest` → **68/68**
+against the 22/22 the bare run reports. That proves the database path works; it
+still does not prove the *mute* specifically, because no assertion in that 68
+equips `{ muted: true }` and reads it back. The check named below is still the
+work. What has changed is that "the harness cannot see the database on this box"
+is no longer the excuse — start postgres, and the other 46 checks come with it.
 
 **To close it**, run `PROFILE_TEST_DB=... npm run profiletest` and add a check
 beside the bindings ones at `tools/profiletest.mjs:207-232`: equip with
