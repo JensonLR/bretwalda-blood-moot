@@ -2830,7 +2830,31 @@ function faceSurface(K: Skull, d: THREE.Vector3, out: THREE.Vector3): THREE.Vect
     }
     // A symmetric face is a mask. Two millimetres of drift on the midline
     // features, gone by the time the section reaches the ear.
-    px += F.asym * (1 - a / (Math.PI * 0.5));
+    //
+    // AND IT WAS SHEARING THE EYES, which is "theres wonky eyes".
+    //
+    // The term is a lateral push over the WHOLE front hemisphere whose weight
+    // falls off with azimuth, so it is not a drift of the midline features: it
+    // is a drift of everything in front, by an amount that changes as you go
+    // round. Across one eye — 0.23 to 0.52 rad of azimuth — the weight runs
+    // from 0.85 to 0.67, so the medial end of the socket moves 0.4 mm further
+    // in +x than the lateral end does. On the +x eye that CLOSES the aperture
+    // and on the −x eye it OPENS it, because +x is outboard on one side and
+    // inboard on the other. Worse, `eyeFrame` takes the globe's centre from
+    // one sample of this field and then `lidPatch` takes the lid's socket rim
+    // from twenty more, so the globe gets a rigid offset while the lid it sits
+    // in gets a graded one — and the lid is sheared off its own eye, one way
+    // on the left and the other way on the right. That is the whole of "one
+    // lid sits differently from the other", and it is why looking for it in
+    // the eye code found nothing: it is not in the eye code.
+    //
+    // Real facial asymmetry is not a sideways slide of the orbits anyway. It
+    // is a nose that leans, a mouth whose corners sit at different heights, a
+    // chin off the midline — all of it BELOW the eyes. So the drift is now
+    // windowed to the lower face: full from the nose base down, nothing at and
+    // above the eye line, C1 across the join. The two orbits are built from
+    // identical numbers again, and the face is still not a mask.
+    px += F.asym * (1 - a / (Math.PI * 0.5)) * smooth(Y_EYE, Y_NOSE, y);
   }
 
   return out.set(px, py, pz);
@@ -5342,6 +5366,8 @@ function faceComplexion(
   // the relief table.
   const sc = R.x / RX0;
   const top0 = R.y * F.tall;
+  /** The menton, in the head's own space. Below this the field has no latitude. */
+  const mentonY = -(top0 + MANDIBLE);
   const fieldY = (yy: number): number => {
     let lo = -1, hi = 1;
     for (let i = 0; i < 24; i++) {
@@ -5436,6 +5462,31 @@ function faceComplexion(
     // own border gets a line over the top of it so the edge is an edge.
     dim += 0.58 * smooth(Y_CHIN + 0.11, Y_CHIN - 0.17, fy);
     dim += 0.42 * gs(s - 0.52, 0.32) * gs(fy - (Y_CHIN + 0.105), 0.050) * front;
+    // ---- AND THEN THE THROAT, WHICH THIS FIELD USED TO STOP AT ----
+    //
+    // `fieldY` bisects the height spline, which is only defined between the
+    // vertex and the menton — so the instant a vertex is past the chin it
+    // saturates at −1 and EVERY TERM ABOVE FREEZES. The line above then hands
+    // the whole neck one flat 0.58 and nothing else varies at all: a smooth
+    // tube at a single value, hard against a jaw that is fully modelled. That
+    // is most of "the neck is very strange on the front & back", and it is why
+    // the neck read as a separate solid rather than as the same man continuing
+    // downward.
+    //
+    // A throat is not one value. It is dark right under the mandible, where the
+    // jaw overhangs it, and it opens out to nearly full daylight by the collar.
+    // Measured off the menton in METRES rather than in field latitude, because
+    // field latitude is the thing that has run out.
+    const drop = (y0 + mentonY) - py;
+    if (drop > 0) {
+      const t = clamp01(drop / 0.115);
+      dim = mix(dim, 0.20, smooth(0.02, 0.95, t));
+      // Deepest at the FRONT, under the chin, because that is where the
+      // overhang is — the nape has a skull above it, not a jaw. Taken in metres
+      // off the neck's own axis: `front` above is computed from a section that
+      // has saturated too and cannot be trusted down here.
+      dim += 0.26 * (1 - smooth(0, 0.62, t)) * smooth(-0.02, 0.055, pz);
+    }
     // The nape and behind the ear: a head with tone only on its front reads as a
     // mask laid on a ball, and the three-quarter bearing needs somewhere to turn.
     dim += 0.34 * (1 - front) * smooth(0.30, -0.30, fy) * (1 - smooth(-0.78, -0.95, fy));
@@ -8815,92 +8866,10 @@ export function buildCharacter(
       }
     }
 
-    // ---- the neck ----
-    //
-    // What was here was a 126 mm circle swept dead straight from 1.71 down to
-    // 1.43, capped at the top, and it is the thing the owner was looking at when
-    // he said the heads float. Three separate faults, all of them visible in
-    // `art/shots/v3/lineup.png`:
-    //
-    //   * Its top ring sat 3 mm *below* the chin, where the head's own surface has
-    //     converged to a 25 mm nub — so the cap was a lit horizontal plate 126 mm
-    //     across standing out past the jaw on every side. You can see the disc's
-    //     rim under the huscarl's coif.
-    //   * From 1.71 to 1.60 it changed radius by 4 mm. A column, not a neck.
-    //   * It was centred on the head's own axis, so the throat stood as far
-    //     forward as the chin and the mandible overhung nothing. No undercut, no
-    //     occlusion, no shadow — and that shadow is the only cue the eye uses to
-    //     decide a head is attached rather than balanced.
-    //
-    // So: elliptical rather than round, tapered rather than extruded, set back in
-    // z so the jaw hangs over it, and flared hard at the base into the trapezius.
-    // The top three stations climb *into* the mandible and are covered there by
-    // the head's own throat mass (see `headPivot` below); the two surfaces share
-    // `skinDark`, so wherever a nod slides one through the other the seam does not
-    // exist to be seen.
-    const nHW = S.neckHW;
-    const nHD = S.neckHD;
-    // The taper at the top, shared with the strap sampler below so the muscles are
-    // laid on the section they belong to and not on an average of it.
-    //
-    // 0.78 was too much of one. The bare throat a viewer actually sees is the band
-    // between the mandible's lower border and the collar, which is the *top* of
-    // this sweep — so 0.78 of an already-thin section was rendering 100 mm of neck
-    // under a 178 mm jaw, and that 0.56 ratio is what note 4 is looking at. On a
-    // man the taper from the base to the thyroid is about 0.88; the dramatic
-    // narrowing is the trapezius flare below, which the lower stations already do.
-    // And the top of the sweep is the band a viewer sees, so it is the band the
-    // ratio has to hold at. 0.88 of an already-thin section put the *visible*
-    // throat at 0.79 of the jaw however healthy the section's own number was.
-    const TOP_W = 0.95;
-    const TOP_D = 0.94;
-    p.add(shell([
-      { y: S.neckTop + 0.095, hw: nHW * TOP_W, hd: nHD * TOP_D, z: -0.024 },
-      { y: S.neckTop + 0.020, hw: nHW * 0.88, hd: nHD * 0.91, z: -0.017 },
-      { y: S.neckRoot - 0.048, hw: nHW, hd: nHD, z: -0.007 },
-      { y: S.neckBase + 0.070, hw: nHW * 1.13, hd: nHD * 1.04, z: 0 },
-      { y: S.neckBase + 0.010, hw: nHW * 1.50, hd: nHD * 1.16, z: 0 },
-      { y: S.neckBase - 0.055, hw: nHW * 1.93, hd: nHD * 1.23, z: 0 },
-    ], lod.limb, { capTop: true }), skinDark);
-
-    // Sternocleidomastoid. Two straps from the mastoid to the sternal notch, and
-    // the cheapest 300 triangles in the file: they are what stops the throat being
-    // a smooth tube, they catch the key along their outer edge, and the hollow they
-    // leave between them is where the collar's shadow lands.
-    //
-    // Sited *on* the section rather than at a fraction of its half-width, because
-    // the first attempt did the latter and vanished: a tube at 0.66 of `nHW` on an
-    // ellipse 62 × 68 mm sits 12 mm inside the skin and renders nothing at all.
-    // `θ` is the azimuth off dead ahead, converging toward the notch as it descends,
-    // and half the tube stands proud of the surface it is laid on.
-    const strap = (y: number, th: number, r: number): Knuckle => {
-      const t = clamp01((S.neckTop + 0.095 - y) / 0.155);
-      const hw = mix(nHW * TOP_W, nHW, t);
-      const hd = mix(nHD * TOP_D, nHD, t);
-      const zc = mix(-0.024, -0.007, t);
-      return { x: hw * Math.sin(th), y, z: zc + hd * Math.cos(th), a: r, b: r };
-    };
-    for (const s of [-1, 1]) {
-      const at3 = (y: number, th: number, r: number) => {
-        const k = strap(y, th, r);
-        k.x *= s;
-        return k;
-      };
-      p.add(digit([
-        at3(S.neckTop + 0.088, 1.25, 0.010),
-        at3(S.neckTop + 0.012, 0.95, 0.011),
-        at3(S.neckRoot - 0.042, 0.42, 0.009),
-      ], lod.trim ? 6 : 4), skinDark);
-    }
-    // Laryngeal prominence. One flattened ball, and the single most recognisable
-    // landmark on a man's throat — without it the front of the neck has no feature
-    // between the jaw and the collar for the eye to measure the length against,
-    // which is most of why 91 mm of throat was reading as a fence post.
-    if (lod.trim) {
-      const ly = S.neckTop + 0.040;
-      const k = strap(ly, 0, 0);
-      p.add(ball(0.011, 8), skinDark, xf(0, ly, k.z - 0.003, 0, 0, 0, 1.35, 1.15, 0.62));
-    }
+    // The neck used to be built here, and it is now its own part further down
+    // the file — see `emit("neck", ...)` after the head. It moved because it
+    // has to carry the head's complexion field, and this part is cached by
+    // loadout and stature only while that field varies per seed.
     return p;
   });
 
@@ -9308,14 +9277,63 @@ export function buildCharacter(
       // `art/shots/wip/p3-*` is one flipped face. Taking the lift to nothing on
       // every boundary buries every rim strip in the skin, and what is left is
       // hair growing out of a ridge instead of a decal parked over one.
+      // ---- AND THE LEFT BROW WAS BUILT INSIDE OUT ----
+      //
+      // THIS is "eyebrows look like there are overlapped in parts so look
+      // broken", and it is one sign.
+      //
+      // `patch` takes its winding from the grid: increasing t crossed with
+      // increasing s faces outward, and every triangle it emits is wound on
+      // that assumption. This call ran `u0: s * 0.09, u1: s * 0.56`, so on the
+      // s = -1 side u ran from -0.09 DOWN to -0.56 — the parameter reversed,
+      // the cross product flipped, and the whole shell came out with its outer
+      // wall facing into the skull. Backface culling then throws that wall
+      // away and draws the INNER one, which is sunk `thick` below the skin, so
+      // what reaches the frame is whatever fragments of a 0.7 mm-buried
+      // surface happen to clear the forehead: a brow with a rectangular bite
+      // out of it, in a different tone from its partner, on one side only.
+      // `art/look/brow.png` shows the pair side by side and they are not the
+      // same object.
+      //
+      // `lidPatch` already knows this trap — its `tt = sign * (t * 2 - 1)` and
+      // the note above it are about exactly this — and the brows and the
+      // moustache halves below were written without it.
+      //
+      // So u ALWAYS ASCENDS. `arc` and `half` are functions of |u|, so the two
+      // brows are now exact mirrors of one another by construction rather than
+      // by hoping two sign flips cancel.
+      const bIn = s > 0 ? 0.09 : -0.56;
+      const bOut = s > 0 ? 0.56 : -0.09;
       p.add(headWear(K, {
-        u0: s * 0.09, u1: s * 0.56,
+        u0: bIn, u1: bOut,
         v0: (u) => arc(u) - half(u),
         v1: (u) => arc(u) + half(u),
-        nu: 14, nv: 2,
-        lift: (u, v) => 0.0004 + 0.0018
-          * Math.sin(Math.PI * clamp01(v))
-          * Math.sin(Math.PI * clamp01((Math.abs(u) - 0.09) / 0.47)),
+        // Three rows, not two. The lift peaks on the middle row, so at nv = 2
+        // the brow is a tent with one ridge line and two flat planes — and two
+        // flat planes meeting along a crease is a fold, which is the second
+        // thing reading as a seam down the middle of the stroke. At nv = 3 the
+        // section is a rounded bead and the highlight runs along it instead of
+        // breaking on it.
+        //
+        // FOUR, not three. The lift is a half-sine in `v` and `patch` samples
+        // rows at j/nv, so an ODD row count never lands on v = 0.5 — the crest
+        // is never evaluated and the whole bead comes out 13% thinner than it
+        // is written to be. Every sine-lifted patch on this head wants an even
+        // nv, and `cosmetictest --no-render` reads the difference: the same
+        // change on the moustache below moved Clean Shaven -> Close Crop from
+        // 1.07% to 0.61% at fight distance and took the ladder from 15/15 to
+        // 14/15 on its own.
+        nu: 16, nv: 4,
+        // Heaviest at the head of the brow and thinning to the tail, which is
+        // the way a brow actually grows: the old profile was symmetric in u,
+        // so both ends tapered equally and the middle was the thickest part —
+        // a leaf, not a brow.
+        lift: (u, v) => {
+          const t = clamp01((Math.abs(u) - 0.09) / 0.47);
+          return 0.0004 + 0.0020
+            * Math.sin(Math.PI * clamp01(v))
+            * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.72)), 0.85);
+        },
         thick: 0.0007,
       }), hair, place.clone());
     }
@@ -9816,12 +9834,26 @@ export function buildCharacter(
           const leaf = (u: number) =>
             mHalf * Math.pow(Math.sin(Math.PI * clamp01((Math.abs(u) - 0.025) / 0.365)), 0.5);
           const droop = (u: number) => mMid - 0.055 * smooth(0.06, 0.38, Math.abs(u));
-          for (const s of [-1, 1]) {
+          // u ascends on BOTH halves — see the brow note above. Written as
+          // `s * 0.025 -> s * 0.39` this ran backwards on the left, so that
+          // half of the moustache was inside out and drew its buried inner
+          // wall: a hard dark lump beside a soft one, which is half of "big
+          // lumps overlapped & clipped" on the one part of the beard that sits
+          // in the middle of the face.
+          for (const [m0, m1] of [[0.025, 0.39], [-0.39, -0.025]] as const) {
             p.add(headWear(K, {
-              u0: s * 0.025, u1: s * 0.39,
+              u0: m0, u1: m1,
               v0: (u) => droop(u) - leaf(u),
               v1: (u) => droop(u) + leaf(u),
-              nu: 6, nv: 2, lift: swell, thick: 0.004,
+              // 10 columns, not 6. `leaf` is a half-sine to the 0.5 power, so
+              // it leaves its ends almost vertically; sampled six times across
+              // 0.365 rad the tip is a triangle with two straight sides, which
+              // is the corner of a postage stamp the note above thought it had
+              // removed.
+              // Even nv — see the brow note above; at nv = 3 no row lands on
+              // the crest of `swell` and the moustache loses an eighth of its
+              // own mass to the sampler.
+              nu: 10, nv: 4, lift: swell, thick: 0.004,
             }), beard, place.clone());
           }
         }
@@ -12178,6 +12210,179 @@ export function buildCharacter(
     if (!thrifty) {
       p.paint([headSkin, headShade, headWarm], faceComplexion(
         K, skullY, tone, ap.warPaint,
+        ap.beardStyle === "none" ? null
+          : { color: ap.beardColor, full: ap.beardStyle !== "short" },
+      ));
+    }
+    return p;
+  }, headSig);
+
+  // ==========================================================
+  // THE NECK
+  // ==========================================================
+  //
+  // WHAT THE OWNER IS LOOKING AT — "the neck is very strange on the front &
+  // back" — AND IT IS TWO FAULTS, BOTH STRUCTURAL.
+  //
+  // 1. IT WAS A DIFFERENT SUBSTANCE FROM THE HEAD. The neck was swept in the
+  //    torso in `skinDark` — a plain flesh material with no vertex colour on it
+  //    at all — while the head, the jaw mass, the lids, the lips and the ears
+  //    are all one surface carrying `faceComplexion`. So the man's skin
+  //    CHANGED MATERIAL at the jawline. The head above the seam is graded, the
+  //    neck below it is one flat value, and the boundary between them is a
+  //    silhouette curve rather than a straight line — which draws exactly the
+  //    hard-edged pale wedge, with a straight diagonal seam on one side of the
+  //    throat in front and a large pale panel over the whole back. It reads as
+  //    two solids intersecting because it IS two solids intersecting: two
+  //    surfaces, two materials, no shared grading.
+  //
+  //    The comment that used to sit over the sweep asserted the opposite —
+  //    "the two surfaces share `skinDark`, so wherever a nod slides one through
+  //    the other the seam does not exist to be seen". They have not shared a
+  //    material since the head was rebuilt around `faceComplexion`, and the
+  //    note went on saying they did.
+  //
+  // 2. AND `CLASS.gorget` IS DEAD. The strong lead was that the huscarl's
+  //    `gorget: 1.0` was drawing a flat plate over the throat. It is not: the
+  //    field is READ BY NOTHING. `grep gorget src/` finds the declaration, the
+  //    four class rows and two mentions in docs, and no consumer anywhere. The
+  //    huscarl's throat is bare skin, the same as the berserker's, and the
+  //    number that says otherwise has never been true. Wired up below, because
+  //    a value in a table that nothing reads is a lie the next reader inherits.
+  //
+  // So the neck is now ITS OWN PART, emitted on `headSig` rather than on the
+  // body signature. That is the whole reason it moved out of the torso: the
+  // body is cached by loadout and stature so a shieldwall shares one set of
+  // limbs, and the complexion field varies per SEED — `F.tall`, `F.wide`,
+  // `F.deep` and the tone all enter it. A neck painted with that field and
+  // cached on the body signature would hand the second warrior the first one's
+  // face tones. It hangs off `root` exactly as the torso does, so `insertSpine`
+  // carries it with the chest and `severBody` leaves it alone, both unchanged.
+  emit("neck", root, () => {
+    const p = new Part();
+    const nHW = S.neckHW;
+    const nHD = S.neckHD;
+    // Elliptical rather than round, tapered rather than extruded, set back in z
+    // so the jaw hangs over it, and flared hard at the base into the trapezius.
+    // All of that was right and none of it has moved.
+    //
+    // WHAT HAS MOVED IS THE TOP, AND IT IS THE OTHER HALF OF THE WEDGE. The top
+    // ring was 0.95 x 0.94 of the full section — 77 x 81 mm — at a height where
+    // the head's own submandibular mass measures 62 x 69. So the neck stood
+    // 15 mm proud of the throat above it on every side and 19 mm proud at the
+    // nape, capped, at a height that is INSIDE the head: a lit disc on a post,
+    // wider than the thing it is supposed to be disappearing into. The comment
+    // claimed those stations "climb into the mandible and are covered there by
+    // the head's own throat mass". They climb into it and come straight back
+    // out the other side.
+    //
+    // The two stations above the mandible's lower border now tuck INSIDE the
+    // jaw mass they hand off to, and the first station the viewer can actually
+    // see — below the menton — keeps the width it had, so the visible throat is
+    // the same throat `headmeasure` signed off on.
+    // AND THE TOP STATIONS REACH FURTHER BACK THAN THEY DID, which is the
+    // nape half of the same defect. The skull's occiput carries further back
+    // than its chin does, so a neck centred for the throat leaves the back of
+    // the head standing over it on a shelf — a ragged horizontal lip across
+    // the nape with daylight under it, which is the "large pale shape covers
+    // the back of the neck and skull junction" seen from behind. The back of
+    // each top station moves back 13 mm and the front does not move at all:
+    // `z` down by half of it and `hd` up by half, which is the only way to
+    // grow one side of an ellipse.
+    const NECK: Station[] = [
+      { y: S.neckTop + 0.095, hw: nHW * 0.70, hd: nHD * 0.72 + 0.0065, z: -0.0275 },
+      { y: S.neckTop + 0.042, hw: nHW * 0.82, hd: nHD * 0.84 + 0.0065, z: -0.0255 },
+      { y: S.neckTop - 0.008, hw: nHW * 0.93, hd: nHD * 0.95 + 0.0045, z: -0.0175 },
+      { y: S.neckRoot - 0.048, hw: nHW, hd: nHD, z: -0.007 },
+      { y: S.neckBase + 0.070, hw: nHW * 1.13, hd: nHD * 1.04, z: 0 },
+      { y: S.neckBase + 0.010, hw: nHW * 1.50, hd: nHD * 1.16, z: 0 },
+      { y: S.neckBase - 0.055, hw: nHW * 1.93, hd: nHD * 1.23, z: 0 },
+    ];
+    p.add(shell(NECK, lod.limb, { capTop: true }), headSkin);
+    /**
+     * The neck's own section at a height, read off the stations above.
+     *
+     * The strap sampler used to carry a SECOND, hand-written copy of the top of
+     * this profile as a two-point lerp, and the two disagreed the moment the
+     * stations moved: a muscle sited on 0.82 of the section where the shell is
+     * actually at 0.70 stands 3 mm outside the throat it is supposed to be
+     * inside, and what that draws is a hard tab of skin floating under the ear.
+     * One profile, read by everything that rides on it.
+     */
+    const neckAt = (y: number): Station => {
+      if (y >= NECK[0]!.y) return NECK[0]!;
+      for (let i = 0; i < NECK.length - 1; i++) {
+        const a = NECK[i]!, b = NECK[i + 1]!;
+        if (y > b.y) {
+          const f = (a.y - y) / (a.y - b.y);
+          return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z ?? 0, b.z ?? 0, f) };
+        }
+      }
+      return NECK[NECK.length - 1]!;
+    };
+
+    // Sternocleidomastoid. Two straps from the mastoid to the sternal notch, and
+    // the cheapest 300 triangles in the file: they are what stops the throat being
+    // a smooth tube, they catch the key along their outer edge, and the hollow they
+    // leave between them is where the collar's shadow lands.
+    //
+    // Sited *on* the section rather than at a fraction of its half-width, because
+    // the first attempt did the latter and vanished: a tube at 0.66 of `nHW` on an
+    // ellipse 62 × 68 mm sits 12 mm inside the skin and renders nothing at all.
+    // `θ` is the azimuth off dead ahead, converging toward the notch as it descends,
+    // and half the tube stands proud of the surface it is laid on.
+    const strap = (y: number, th: number, r: number, sink = 0): Knuckle => {
+      const st = neckAt(y);
+      // Sunk by 60% of its own radius, not laid on the surface. A tube whose
+      // axis is exactly on the skin stands half proud, and half an 11 mm tube
+      // meets the neck at 90° — a hard crease running from the ear to the
+      // collar, which is the strap reading as a blade stuck on the throat
+      // rather than as a muscle under it. At 0.4 r proud the ridge is a ridge.
+      const k = 1 - (0.6 * r + sink) / Math.max(1e-4, st.hw);
+      return { x: st.hw * k * Math.sin(th), y, z: (st.z ?? 0) + st.hd * k * Math.cos(th), a: r, b: r };
+    };
+    for (const s of [-1, 1]) {
+      const at3 = (y: number, th: number, r: number, sink = 0) => {
+        const k = strap(y, th, r, sink);
+        k.x *= s;
+        return k;
+      };
+      // Four knuckles, and the top one is 3 mm rather than 10. A `digit` ends
+      // in a cap the size of its last radius, so a 10 mm knuckle at the mastoid
+      // finished the muscle in a blunt disc standing off the jaw — the hard
+      // little blade visible under each ear from three-quarter rear. A muscle
+      // dies into its own attachment.
+      // Both ENDS buried, and eight sides rather than six. `digit` closes a run
+      // with a cap the size of its last knuckle, and a cap on a tube that is
+      // riding the surface is a lit polygon standing in the open — the little
+      // staircase of dark facets under each ear. Sinking the first and last
+      // knuckles by 6 mm puts both caps inside the throat, so what emerges is
+      // the belly of the muscle and nothing else; at six segments the hexagon's
+      // own facets were reading as the steps of that staircase even where the
+      // cap was gone.
+      p.add(digit([
+        at3(S.neckTop + 0.074, 1.34, 0.0060, 0.0075),
+        at3(S.neckTop + 0.044, 1.20, 0.0088, 0.0012),
+        at3(S.neckTop + 0.002, 0.92, 0.0105),
+        at3(S.neckRoot - 0.036, 0.44, 0.0080, 0.0016),
+        at3(S.neckRoot - 0.062, 0.34, 0.0052, 0.0070),
+      ], lod.trim ? 8 : 5), headSkin);
+    }
+    // Laryngeal prominence. One flattened ball, and the single most recognisable
+    // landmark on a man's throat — without it the front of the neck has no feature
+    // between the jaw and the collar for the eye to measure the length against.
+    if (lod.trim) {
+      const ly = S.neckTop + 0.022;
+      const k = strap(ly, 0, 0);
+      p.add(ball(0.011, 8), headSkin, xf(0, ly, k.z - 0.003, 0, 0, 0, 1.35, 1.15, 0.62));
+    }
+    // And the same field the face wears, on the same material, sampled with the
+    // head's origin where it actually is in this part's space — `S.headY`,
+    // because this part hangs off the body root and not off the head pivot. One
+    // continuous map from the crown to the collar, and no boundary in it.
+    if (!thrifty) {
+      p.paint([headSkin], faceComplexion(
+        K, S.headY, tone, ap.warPaint,
         ap.beardStyle === "none" ? null
           : { color: ap.beardColor, full: ap.beardStyle !== "short" },
       ));
