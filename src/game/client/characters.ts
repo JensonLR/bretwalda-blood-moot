@@ -17,7 +17,7 @@
 //      there and the whole body moves together, which is the point.
 //
 //   2. LAYERS, NOT DECALS. Kit is assembled the way it was worn — linen next to
-//      the skin, wool over it, mail or lamellar over that, then belts, then the
+//      the skin, wool over it, mail over that, then belts, then the
 //      cloak. Each layer is a separate swept shell sitting a measured 8–20 mm
 //      proud of the one under it, and every hem is built with `wall` so it has a
 //      real edge. That edge is what makes armour read as *put on* rather than
@@ -7635,7 +7635,10 @@ export function buildCharacter(
 
   // Class kit flags, read all over the build below.
   const heavy = cls === "huscarl";
-  const lamellar = cls === "warden";
+  // The warden. Named for what he is rather than for what he used to wear: the
+  // flag was `lamellar` until the banded plate came off him, and a boolean named
+  // after armour that is no longer on the model is how a file starts lying.
+  const wallman = cls === "warden";
   const bare = cls === "berserker";
   const robed = cls === "runekeeper";
 
@@ -7757,12 +7760,29 @@ export function buildCharacter(
             xf(side * tieR * 0.99, tieY - 0.016, t * tieR * 0.28, 0.3 * t, 0, side * 0.22));
         }
       }
-      if (lamellar && lod.trim) {
-        // Iron shin plate — the warden's discipline, visible below the hem.
-        p.add(shell([
-          { y: knee - 0.09, hw: rCalf * 1.24, hd: rCalf * 1.3 },
-          { y: ankle + 0.08, hw: rAnkle * 1.5, hd: rAnkle * 1.6 },
-        ], lod.limb, { wall: 0.009 }), iron);
+      if (wallman && lod.trim) {
+        // CROSS-GARTERING, WHICH IS WHAT WAS ACTUALLY WORN, replacing the iron
+        // shin plate that stood here. The plate went for the same reason the six
+        // banded courses above it went: it is Roman greave logic, and
+        // `docs/COSMETICS-AUDIT.md` §1 lists it in the same breath as the cuirass.
+        //
+        // Anglo-Saxon manuscript figures bind the lower leg with a thong taken
+        // round and round in crossing turns over the wraps, and that is a *better*
+        // read for the warden than the plate ever was: it says disciplined, kitted
+        // and drilled without claiming armour nobody in England wore, and it is
+        // the one leg on the roster with a diagonal on it.
+        //
+        // Four bands, alternately raked, each a full ring on the leg's own axis.
+        // Full rings on purpose — the crossed pair of straight thongs I tried on
+        // the wrap tie rendered as a painted X and had to be torn out, and the
+        // lesson is that a binding must be seen to go round.
+        for (let i = 0; i < 4; i++) {
+          const t = (i + 0.5) / 4;
+          const y = mix(wrapTop - 0.012, wrapBot + 0.03, t);
+          const r = wrapR(y) + 0.0025;
+          p.add(ring(r, 0.0042, 4, 12), hide,
+            xf(0, y, 0, Math.PI / 2, 0, (i % 2 ? 0.34 : -0.34), 1, 1, 1.06));
+        }
       }
 
       // ---- the turnshoe ----
@@ -8080,25 +8100,83 @@ export function buildCharacter(
       p.add(box(0.14, 0.34, 0.02), buff, xf(0, S.chestY - 0.02, S.chestHD + 0.02, 0.1, 0, 0));
     }
 
-    // The metal layer. Mail hangs and flares; lamellar is rigid and banded, and
-    // the difference has to be visible from behind.
-    if (lamellar) {
-      // Rigid plate laced in courses. Each row overhangs the one below, so the
-      // torso reads as banded from any angle — nothing like the way mail hangs.
-      const rows = lod.trim ? 6 : 4;
-      const top = S.shoulderY - 0.005;
-      const bottom = S.hipY + 0.02;
-      for (let i = 0; i < rows; i++) {
-        const y0 = mix(top, bottom, i / rows);
-        const y1 = mix(top, bottom, (i + 1) / rows);
-        p.add(shell([at(y0, 0.03), at(y1 + 0.005, 0.038)], seg, { power: 2.3, wall: 0.012 }), mail);
+    // THE METAL LAYER, AND THE WARDEN'S IS NOT WHAT IT WAS.
+    //
+    // What stood here was six rigid courses, each overhanging the one below, with
+    // a plate yoke over the shoulders and an iron shin plate down on the leg.
+    // `docs/COSMETICS-AUDIT.md` §1 names it: BANDED RIGID PLATE IS ROMAN AND
+    // BYZANTINE AND IS NOT ATTESTED IN ANGLO-SAXON ENGLAND. It is lorica
+    // segmentata with the serial numbers filed off, it was the single loudest
+    // wrong note in the lineup, and the owner asking for "more flare and
+    // uniqueness for the anglo saxon style" is asking for this to go first.
+    //
+    // WHAT REPLACES IT IS NOT LESS ARMOUR, IT IS A DIFFERENT CUT OF THE SAME
+    // ARMOUR — which is the whole method here. He gets the byrnie every armoured
+    // Anglo-Saxon fighting man wore, and he is told apart from the huscarl by
+    // WHERE IT STOPS rather than by what it is made of:
+    //
+    //   huscarl  a lord's retainer in a long hauberk — mail hangs 30 mm BELOW the
+    //            tunic, so the outermost line on him is metal, plus the mantle.
+    //   warden   a shield-wall man in a short byrnie — mail stops at the HIP,
+    //            well ABOVE his tunic hem, so he shows two horizontals: a metal
+    //            edge high and a wool edge low, with slit panels below that.
+    //
+    // That is one silhouette cue the eye reads instantly and no reconstruction
+    // has to be invented for it. Everything else on him is period fittings.
+    if (wallman) {
+      // The byrnie. Short — it ends at the hip, which is the cut a man wants when
+      // he is braced shoulder to shoulder and needs his legs.
+      const byrnieHem = S.hipY - 0.055;
+      p.add(shell(
+        layer(
+          [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, byrnieHem + 0.04, byrnieHem],
+          0.034,
+          [-0.004, 0, 0, 0, 0.004, 0.012, 0.026, 0.036],
+        ),
+        seg, { power: 2.3, wall: 0.016 },
+      ), mail);
+      // Leather edging on the byrnie's hem. Mail is knitted iron and it unravels
+      // at a cut edge; every reconstruction binds it in hide, and here it does the
+      // same job it does on a real one — it makes the edge an edge. This is the
+      // high horizontal his read depends on.
+      p.add(shell(
+        layer([byrnieHem + 0.019, byrnieHem - 0.004], 0.034, [0.0295, 0.0375]),
+        seg, { power: 2.3, wall: 0.007 },
+      ), hide);
+      // The shield-shoulder doubling, on the LEFT ONLY, and the asymmetry is the
+      // point. A shield-wall man takes every blow that gets past the boss on one
+      // shoulder, and the kit that survives that has a second layer of mail sewn
+      // over hide exactly there. It is the only asymmetric armour on the roster,
+      // it is instantly legible from the front at fight distance, and unlike a
+      // crest it survives every helmet in the shop.
+      p.add(shell([
+        { y: S.shoulderY + 0.052, hw: S.chestHW * 0.60, hd: S.chestHD * 0.92 },
+        { y: S.shoulderY - 0.020, hw: S.chestHW * 0.74, hd: S.chestHD * 1.02 },
+        { y: S.chestY + 0.010, hw: S.chestHW * 0.70, hd: S.chestHD * 1.00 },
+      ], Math.max(6, Math.round(seg / 2)), {
+        power: 2.2, wall: 0.013, arc: 2.35, start: Math.PI / 2 + 0.28,
+      }), mail);
+      if (lod.trim) {
+        // Its own bound edge, and three rivets holding it to the shirt under it.
+        p.add(shell([
+          { y: S.chestY + 0.028, hw: S.chestHW * 0.715, hd: S.chestHD * 1.015 },
+          { y: S.chestY + 0.008, hw: S.chestHW * 0.725, hd: S.chestHD * 1.025 },
+        ], Math.max(6, Math.round(seg / 2)), {
+          power: 2.2, wall: 0.006, arc: 2.35, start: Math.PI / 2 + 0.28,
+        }), hide);
+        for (let i = 0; i < 3; i++) {
+          const a = Math.PI / 2 + 0.55 + i * 0.62;
+          p.add(ball(0.0075, 6), brass, xf(
+            Math.cos(a) * (S.chestHW * 0.74), S.shoulderY - 0.012, Math.sin(a) * (S.chestHD * 1.05),
+            0, 0, 0, 1, 1, 0.6,
+          ));
+        }
       }
-      p.add(shell(layer([S.shoulderY + 0.03, S.shoulderY - 0.012], 0.03, [0, 0.012]), seg, { power: 2.3, wall: 0.012 }), steel);
-      // Laced standing collar. Without it the warden's topmost metal stopped at
-      // 1.552 and the only thing between there and the neckline was 60 mm of thin
-      // wool — a funnel with a pale post rising out of it, which is why his neck
-      // read as the longest of the four. Mail, not plate: this is the coif's skirt
-      // laced into the cuirass, and it wants to look soft where the courses do not.
+      // Standing mail collar. Kept exactly as it shipped and for the reason it was
+      // built: without it the warden's topmost metal stopped at 1.552 and the only
+      // thing above it was 60 mm of thin wool, which is why his neck read as the
+      // longest of the four. It was already mail rather than plate, so the audit's
+      // finding never touched it.
       p.add(shell(
         layer([collar - 0.012, ramp, S.shoulderY + 0.028], 0.03, [-0.004, 0, 0.008]),
         seg, { power: 2.3, wall: 0.013 },
@@ -8281,22 +8359,71 @@ export function buildCharacter(
         p.add(ball(0.014, 6), brass, xf(Math.sin(a) * (S.chestHW + 0.1), S.chestY + 0.012, Math.cos(a) * (S.chestHD + 0.092)));
       }
     }
-    if (lamellar) {
-      // The lace that closes the cuirass. What was here was a 55 mm brass box
-      // turned 45° — a flat yellow diamond dead centre on the warden's chest, the
-      // one thing in `art/shots/v4/lineup.png` that reads as a debug marker rather
-      // than as kit, and the reason is that a diamond is not a shape anything on a
-      // suit of armour has. A lamellar cuirass laces: two iron loops with a leather
-      // thong crossed through them, which is smaller, darker, and actually explains
-      // how the front of the plate stays shut.
-      const lz = S.chestHD + 0.046;
-      for (const s of [-1, 1]) {
-        p.add(ring(0.013, 0.0035, 4, 10), iron, xf(s * 0.03, S.chestY + 0.055, lz, 0.2, 0, 0));
+    if (wallman) {
+      // The cuirass lace is gone with the cuirass. Two iron loops and a thong
+      // explaining how the front of a plate stays shut have nothing to hold shut
+      // on a byrnie, and leaving them would be the same class of error as the
+      // plate itself — a fitting for armour the man is not wearing.
+    }
+
+    // ---- THE SEAX, ON EVERY FREE MAN ----
+    //
+    // The single most Anglo-Saxon object it is possible to put on this roster, and
+    // until now not one of the four carried one. The people are named for it. A
+    // free man wore a seax at his belt the way he wore his shoes, whether he was a
+    // lord's retainer, a shield-wall man, a berserker or a rune-carver, and it is
+    // one of the places `docs/COSMETICS-AUDIT.md` explicitly points at when it
+    // asks where to put period flare.
+    //
+    // WHY IT EARNS ITS TRIANGLES AT BOTH LENSES, which is the test everything on a
+    // warrior has to pass. At fight distance it is a 210 mm hard diagonal across
+    // the one part of the figure that was empty — the front of the hip, below the
+    // belt and inside the tunic's new slit, where nothing else on the body lives.
+    // At portrait range in the armoury it sits just under the frame's lower edge
+    // on the figure lens and reads as the reason the belt is there.
+    //
+    // Hung on the right front, raked back and down, because the scabbard on the
+    // left hip belongs to the sword and two things cannot hang in one place. Its
+    // fittings are `brass`, so it moves with the finish like everything else.
+    {
+      const sxDrop = bare ? 0.02 : 0.0;
+      const seaxAt = xf(
+        S.hipHW * 0.66, S.beltY - 0.052 + sxDrop, S.waistHD * 0.86,
+        0.16, -0.62, -1.02,
+      );
+      // The scabbard: a broken-back sheath, deeper at the throat than at the tip,
+      // and wider than it is thick because a seax is a single-edged blade lying
+      // flat against the hip.
+      p.add(shell([
+        { y: 0.008, hw: 0.0175, hd: 0.0092 },
+        { y: -0.085, hw: 0.0165, hd: 0.0085 },
+        { y: -0.178, hw: 0.0128, hd: 0.0070 },
+        { y: -0.205, hw: 0.0052, hd: 0.0038 },
+      ], 8, { power: 2.5, capTop: true, capBottom: true }), hide, seaxAt.clone());
+      // Grip and pommel standing out of the throat. Horn, not wood: a seax grip is
+      // the one place on a warrior where that substance appears, and `M.timber`
+      // dark enough reads as it.
+      p.add(shell([
+        { y: 0.098, hw: 0.0118, hd: 0.0105 },
+        { y: 0.060, hw: 0.0138, hd: 0.0118 },
+        { y: 0.014, hw: 0.0122, hd: 0.0102 },
+      ], 8, { power: 2.3, capTop: true, capBottom: true }), M.timber(0x3a2a1e),
+        seaxAt.clone());
+      if (lod.trim) {
+        // Mouth ferrule, one suspension loop and a strap-end. Three small cast
+        // fittings are what makes a sheath read as a sheath rather than as a dark
+        // wedge, and they are the finish's metal.
+        p.add(ring(0.0184, 0.0042, 4, 10), brass,
+          seaxAt.clone().multiply(xf(0, 0.006, 0, Math.PI / 2, 0, 0, 1, 1, 0.55)));
+        p.add(ring(0.0168, 0.0036, 4, 10), brass,
+          seaxAt.clone().multiply(xf(0, -0.088, 0, Math.PI / 2, 0, 0, 1, 1, 0.55)));
+        p.add(ball(0.0092, 7), brass,
+          seaxAt.clone().multiply(xf(0, 0.104, 0, 0, 0, 0, 1, 0.72, 0.62)));
+        // The thong from the loop up to the belt, which is the thing that stops a
+        // knife looking stuck to a man's hip by nothing.
+        p.add(rod(0.0028, 0.0028, 0.054, 5), hide,
+          seaxAt.clone().multiply(xf(0.004, -0.062, 0.008, 0, 0, 0.34)));
       }
-      for (const s of [-1, 1]) {
-        p.add(box(0.062, 0.007, 0.005), buff, xf(0, S.chestY + 0.055, lz + 0.004, 0, 0, s * 0.42));
-      }
-      p.add(ball(0.008, 6), brass, xf(0, S.chestY + 0.055, lz + 0.008, 0, 0, 0, 1, 1, 0.6));
     }
 
     // Cloak clasp. Built here rather than on the cloak pivot because a brooch is
@@ -8546,11 +8673,16 @@ export function buildCharacter(
             // medium. On low there are no rims, so alternating would buy one extra
             // draw call per arm for a distinction two pixels wide on a phone; the
             // three courses still read, off their own overlap.
-            lod.trim && i % 2 === 1 ? iron : (lamellar ? steel : mail));
+            // The warden used to take `steel` here — polished plate lames on the
+            // shoulder to match the plate cuirass. The cuirass is gone, so the
+            // bright plate goes with it: his arm caps are mail like everybody
+            // else's, and what tells him apart is the doubling on his left
+            // shoulder, not a different metal on both.
+            lod.trim && i % 2 === 1 ? iron : mail);
           if (lod.trim) {
             // Rolled rim on each course's lower edge, which is what actually reads at
             // twenty metres — a rim is a specular line and a plate is not.
-            p.add(ring(capAt(yB) * 1.02, 0.0062, 4, 12), lamellar ? steel : iron,
+            p.add(ring(capAt(yB) * 1.02, 0.0062, 4, 12), iron,
               xf(0, yB, 0, Math.PI / 2, 0, 0, 1, 1, 1.03));
           }
         }
@@ -8560,7 +8692,7 @@ export function buildCharacter(
             p.add(ball(0.008, 6), brass, xf(Math.sin(a) * capR * 0.86, 0.022, Math.cos(a) * capR * 0.9));
           }
         }
-        if (heavy || lamellar) {
+        if (heavy || wallman) {
           p.add(shell([
             { y: -0.035, hw: rSh * 1.3, hd: rSh * 1.32 },
             { y: elbow + 0.09, hw: rEl * 1.36, hd: rEl * 1.38 },
@@ -11112,7 +11244,7 @@ export function buildCharacter(
       // top of his flange. The circlet is exempt on purpose: it is a hoop round
       // the bowl, not a spine along it, and the two have always coexisted.
       const ownCrest = style.crown !== "none" && style.crown !== "circlet";
-      if (lamellar && !ownCrest) {
+      if (wallman && !ownCrest) {
         // Fore-and-aft comb, raised. The warden's one unmistakable outline cue,
         // and at 30 mm it was inside the bowl's own dome — a ridge on a helmet,
         // not a shape in a silhouette. 52 mm puts a hard vertical fin above the
@@ -11131,7 +11263,7 @@ export function buildCharacter(
       // difference between him and the berserker at fifty metres. His own, and
       // left exactly as it shipped; a helmet that brings a fall of its own has
       // already built one above, on rings, and two would fight for the same air.
-      if (lamellar && style.nape === "none") {
+      if (wallman && style.nape === "none") {
         p.add(headWear(K, {
           u0: Math.PI - 1.15, u1: Math.PI + 1.15,
           v0: () => bandLo - 0.30, v1: () => bandLo + 0.01,
@@ -11178,7 +11310,8 @@ export function buildCharacter(
       // the sake of a shorter patch. The face stays open: the arc runs cheek to
       // cheek, so all of this is behind and beside the throat, never across it.
       //
-      // Gated to the huscarl this pass. It used to hang off `!lamellar`, which
+      // Gated to the huscarl this pass. It used to hang off `!wallman` (then
+      // named `lamellar`), which
       // handed the same mail bell to the berserker — so three of the four classes
       // shared one head silhouette and the fourth differed by a 30 mm ridge. A
       // coif is heavy-infantry kit and it is the huscarl's whole read; the
