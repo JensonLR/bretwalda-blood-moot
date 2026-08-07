@@ -1188,6 +1188,184 @@ function shell(stations: Station[], seg: number, opts: ShellOptions = {}): THREE
   return g;
 }
 
+// ============================================================
+// Seating a fitting on the body it is pinned to
+// ============================================================
+//
+// "if you look at the actual armour you'll see in my screenshot that the gold
+//  'medal' looking circle is floating off the players chest, same with all the
+//  buttons & other aspects floating round the body."
+//
+// He is right about every one of them, and it is one mistake repeated at a dozen
+// call sites. A fitting was placed at a FIXED OFFSET FROM A SKELETON POINT —
+// `xf(-0.125, S.chestY + 0.05, S.chestHD + 0.046)` for the baldric boss, `cz =
+// S.chestHD + 0.058` for the cloak brooch — and `S.chestHD` is the torso's half
+// depth ON THE CENTRELINE. Move 125 mm out to the side of a superellipse and the
+// surface has already fallen 30-50 mm back toward the spine, so a boss authored
+// "6 mm proud of the chest" is standing 50 mm off it in air. That is the
+// daylight under the medal.
+//
+// The helm work solved exactly this and the fix is the same shape: a fitting
+// must be lifted along the TRUE normal of the surface it sits on, from a point
+// ON that surface, not along a body axis from a point near it. `faceNormalTrue`
+// does it for the skull, which is a displaced ellipsoid. The body is a swept
+// superellipse instead, so its true normal comes from the sweep — and that is
+// what `shellNormal` is.
+//
+// Everything below works in the frame the garment was swept in, which is the
+// part's own frame, so a call site reads as "put this stud on the belt, 40
+// degrees round, 2 mm proud" instead of as three coordinates that were true for
+// one class at one stature.
+
+/**
+ * A surface a fitting can be pinned to: the swept superellipse of some garment,
+ * as the station at a height plus the exponent it was swept with.
+ *
+ * `st` is the same sampler the garment itself was built from — `at(y, pad)` for
+ * the torso, a lambda over the pauldron's own dome for a shoulder stud — so the
+ * fitting cannot drift away from a layer that moves. That is the whole point of
+ * passing a function rather than three numbers.
+ */
+interface FitCarrier { st(y: number): Station; power: number }
+
+/** The carrier's surface point at a height and an azimuth (0 is +x, π/2 is +z). */
+function shellPoint(c: FitCarrier, y: number, az: number, out: THREE.Vector3): THREE.Vector3 {
+  const k = 2 / c.power;
+  const st = c.st(y);
+  const cs = Math.cos(az);
+  const sn = Math.sin(az);
+  return out.set(
+    st.hw * Math.sign(cs) * Math.pow(Math.abs(cs), k),
+    y,
+    (st.z ?? 0) + st.hd * Math.sign(sn) * Math.pow(Math.abs(sn), k),
+  );
+}
+
+const _snA = new THREE.Vector3();
+const _snB = new THREE.Vector3();
+const _snT = new THREE.Vector3();
+const _snM = new THREE.Vector3();
+/**
+ * The TRUE outward normal of the swept surface — the one `faceNormalTrue` is for
+ * the skull, and for the same reason.
+ *
+ * Central differences rather than the closed form, and that is deliberate: with
+ * `power > 2` the analytic derivative carries a `|cos a|^(k−1)` with a negative
+ * exponent, so it is singular at exactly the four places a superellipse squares
+ * off — which is where the belt studs and the shoulder bosses sit. A difference
+ * quotient has no singularity, it costs four station lookups, and it is
+ * measuring the same surface the tessellation lands on.
+ *
+ * The ring tangent crossed INTO the meridian tangent, not the other way round:
+ * `shell` proves in its own slit-rim note that increasing azimuth runs
+ * anticlockwise seen from +y, and (up × anticlockwise) is what points out of a
+ * body. The radial check below is the belt-and-braces that would catch a station
+ * list that inverts.
+ */
+function shellNormal(c: FitCarrier, y: number, az: number, out: THREE.Vector3): THREE.Vector3 {
+  const da = 0.02;
+  const dy = 0.004;
+  _snT.copy(shellPoint(c, y, az + da, _snA)).sub(shellPoint(c, y, az - da, _snB));
+  _snM.copy(shellPoint(c, y + dy, az, _snA)).sub(shellPoint(c, y - dy, az, _snB));
+  out.crossVectors(_snM, _snT);
+  if (out.lengthSq() < 1e-12) out.set(Math.cos(az), 0, Math.sin(az));
+  out.normalize();
+  shellPoint(c, y, az, _snA);
+  _snB.set(_snA.x, 0, _snA.z - (c.st(y).z ?? 0));
+  if (out.dot(_snB) < 0) out.negate();
+  return out;
+}
+
+/**
+ * The azimuth at which the carrier's surface reaches a given x — so a fitting
+ * keeps the lateral position it was authored at and only its depth is solved.
+ *
+ * `front` picks which of the two solutions is wanted; almost everything on a
+ * warrior is pinned to his chest.
+ */
+function azAtX(c: FitCarrier, y: number, x: number, front = true): number {
+  const st = c.st(y);
+  const u = Math.max(-1, Math.min(1, x / (st.hw || 1e-4)));
+  // x = hw·sgn(c)|c|^(2/power), so |cos| = |x/hw|^(power/2).
+  const cs = Math.sign(u) * Math.pow(Math.abs(u), c.power / 2);
+  const a = Math.acos(Math.max(-1, Math.min(1, cs)));
+  return front ? a : -a;
+}
+
+const _sxN = new THREE.Vector3();
+const _sxP = new THREE.Vector3();
+const _sxE1 = new THREE.Vector3();
+const _sxE2 = new THREE.Vector3();
+const _sxUp = new THREE.Vector3(0, 1, 0);
+/**
+ * The placement for a fitting seated on a carrier: local +z becomes the
+ * surface's outward normal, local +x runs round the body, local +y runs up it,
+ * and the origin is the surface point lifted by `lift`.
+ *
+ * `lift` is the fitting's own half-thickness — the distance from its origin to
+ * its BACK face — so passing it puts the back of the fitting exactly on the
+ * garment. That is the same contract the helm shells have with `headWear`, and
+ * it is why every call below reads as one number instead of a guessed z.
+ *
+ * `roll` turns the piece about the normal, which is how a strap-end rakes and a
+ * buckle sits square, and the three scales are `xf`'s so a dome can still be
+ * squashed into a boss.
+ */
+function seatXf(
+  c: FitCarrier, y: number, az: number, lift: number,
+  roll = 0, sx = 1, sy = 1, sz = 1,
+): THREE.Matrix4 {
+  shellPoint(c, y, az, _sxP);
+  shellNormal(c, y, az, _sxN);
+  _sxE1.crossVectors(_sxUp, _sxN);
+  if (_sxE1.lengthSq() < 1e-10) _sxE1.set(1, 0, 0);
+  _sxE1.normalize();
+  _sxE2.crossVectors(_sxN, _sxE1).normalize();
+  if (roll !== 0) {
+    const cr = Math.cos(roll);
+    const sr = Math.sin(roll);
+    const ax = _sxE1.x * cr + _sxE2.x * sr, ay = _sxE1.y * cr + _sxE2.y * sr, az2 = _sxE1.z * cr + _sxE2.z * sr;
+    _sxE2.set(_sxE2.x * cr - _sxE1.x * sr, _sxE2.y * cr - _sxE1.y * sr, _sxE2.z * cr - _sxE1.z * sr);
+    _sxE1.set(ax, ay, az2);
+  }
+  const m = new THREE.Matrix4().makeBasis(
+    _sxE1.clone().multiplyScalar(sx),
+    _sxE2.clone().multiplyScalar(sy),
+    _sxN.clone().multiplyScalar(sz),
+  );
+  m.setPosition(_sxP.x + _sxN.x * lift, _sxP.y + _sxN.y * lift, _sxP.z + _sxN.z * lift);
+  return m;
+}
+
+/** One seated fitting as the build placed it, for `bodyFitProbe`. */
+interface FitRecord { tag: string; carrier: FitCarrier; pts: THREE.Vector3[] }
+let _fitSpy: FitRecord[] | null = null;
+
+/**
+ * Adds a fitting AND tells the ruler where it went.
+ *
+ * The sample is taken off the geometry's own vertices after the placement
+ * matrix, so what `bodyFitProbe` measures is the metal that reaches the frame —
+ * not the anchor the author asked for. A fitting whose origin is on the surface
+ * and whose back face is 40 mm behind it still floats, and this is the only way
+ * to see that.
+ */
+function fitAdd(
+  p: Part, tag: string, c: FitCarrier,
+  geo: THREE.BufferGeometry, mat: THREE.Material, m: THREE.Matrix4,
+): void {
+  if (_fitSpy) {
+    const src = geo.getAttribute("position") as THREE.BufferAttribute;
+    const step = Math.max(1, Math.floor(src.count / 64));
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i < src.count; i += step) {
+      pts.push(new THREE.Vector3(src.getX(i), src.getY(i), src.getZ(i)).applyMatrix4(m));
+    }
+    _fitSpy.push({ tag, carrier: c, pts });
+  }
+  p.add(geo, mat, m);
+}
+
 /**
  * A two-sided parametric sheet with real thickness — cloaks, hair, beards, helm
  * bowls, war paint. `outer` and `inner` are the same surface offset along its
@@ -5804,19 +5982,25 @@ function faceComplexion(
 // ============================================================
 
 /**
- * Reflects a geometry through its own XY plane, winding and normals included. A
- * left hand is the *mirror* of a right hand, not a copy of it rotated round the
- * grip — and a mirror is a negative-determinant transform, which a matrix on the
- * mesh cannot express without turning the surface inside out. So the reflection
- * happens here, on the vertices, once per fist, before anything is merged.
+ * Reflects a geometry through one of its own coordinate planes, winding and
+ * normals included. A left hand is the *mirror* of a right hand, not a copy of
+ * it rotated round the grip — and a mirror is a negative-determinant transform,
+ * which a matrix on the mesh cannot express without turning the surface inside
+ * out. So the reflection happens here, on the vertices, before anything is
+ * merged.
+ *
+ * TWO REFLECTIONS ARE NEEDED AND ONLY ONE WAS BEING DONE. See `reflectChirality`
+ * below for the one that was missing and what it looked like in the frame.
  */
-function mirrorZ(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+function reflectAxis(geo: THREE.BufferGeometry, axis: "x" | "z"): THREE.BufferGeometry {
   const pos = geo.getAttribute("position") as THREE.BufferAttribute;
   const nrm = geo.getAttribute("normal") as THREE.BufferAttribute | undefined;
-  for (let i = 0; i < pos.count; i++) pos.setZ(i, -pos.getZ(i));
+  const get = axis === "x" ? "getX" : "getZ";
+  const set = axis === "x" ? "setX" : "setZ";
+  for (let i = 0; i < pos.count; i++) pos[set](i, -pos[get](i));
   pos.needsUpdate = true;
   if (nrm) {
-    for (let i = 0; i < nrm.count; i++) nrm.setZ(i, -nrm.getZ(i));
+    for (let i = 0; i < nrm.count; i++) nrm[set](i, -nrm[get](i));
     nrm.needsUpdate = true;
   }
   const idx = geo.getIndex();
@@ -5830,6 +6014,38 @@ function mirrorZ(geo: THREE.BufferGeometry): THREE.BufferGeometry {
   }
   return geo;
 }
+
+/**
+ * THE HANDS WERE BACKWARDS, AND THIS IS THE LINE THAT FIXES IT.
+ *
+ * "The beserkers hands are backwards they look broken haha." They were, on every
+ * class, in both handedness settings, and the mechanism is one reflection nobody
+ * counted.
+ *
+ * `anim.ts` builds every warrior LEFT-HANDED — the weapon arm is `armPivots[0]`
+ * at `+S.shoulderX`, and a body faces local +Z, so +X is the man's left — and
+ * then hangs the whole body under a `scale.x = -1` node to turn him into a
+ * right-hander. That node is a reflection, and a reflection swaps a hand's
+ * CHIRALITY: a right hand goes through it and comes out a left hand. three.js
+ * flips the winding for the negative determinant, so nothing renders inside out
+ * and nothing in the harness complained — the surface was fine, it was just the
+ * wrong hand. The thumb sat on the ulnar side of the fist, which is what "broken"
+ * looks like at portrait range.
+ *
+ * The fist below is authored as a RIGHT hand: fingers distal at −Y, palm facing
+ * +Z, thumb metacarpal off the −X edge, and (−Y × +Z) · (−X) = +1 is what makes
+ * that a right hand rather than a left one. Reflecting it in X is the only axis
+ * that flips that triple product while leaving the palm (+Z) and the wrist (+Y)
+ * exactly where `fistPlacement` expects them — so the medial-facing palm that
+ * note is about is untouched, and the thumb moves to the other end of the finger
+ * stack, which is the entire anatomical difference between the two hands.
+ *
+ * Applied to BOTH fists, unconditionally, because both go through the same node.
+ * The per-side `mirrorZ` above it stays exactly as it was: that one is about
+ * which way the palm faces, not about which hand it is.
+ */
+const reflectChirality = (geo: THREE.BufferGeometry) => reflectAxis(geo, "x");
+const mirrorZ = (geo: THREE.BufferGeometry) => reflectAxis(geo, "z");
 
 /** One knuckle-to-tip run of a digit: where it goes, and how thick it is there. */
 interface Knuckle { x: number; y: number; z: number; a: number; b: number }
@@ -5973,6 +6189,20 @@ function fingerPath(
 }
 
 /**
+ * Three points on the built fist, in the fist's own frame and already carrying
+ * whatever reflections that fist took. `wrist` is where the forearm caps it,
+ * `knuckle` is the middle of the knuckle line on the palm side, `thumb` is the
+ * base of the thumb metacarpal.
+ *
+ * They exist so `handProbe` can measure which hand this is off the mesh's own
+ * frame instead of off the sign of the flag that built it. A ruler that reads
+ * the flag can only ever confirm that the flag says what it says — this file has
+ * been bitten by that twice, and `docs/GATES.md` calls it "a passing test can
+ * measure the wrong thing".
+ */
+interface FistMarks { wrist: THREE.Vector3; knuckle: THREE.Vector3; thumb: THREE.Vector3 }
+
+/**
  * A hand on a shaft, built in a canonical frame: the shaft runs along +X through
  * the origin, the palm presses on the +Z face of it, the four fingers are stacked
  * along the shaft and wrap under it, and the thumb lies across them. +Z is the
@@ -6002,7 +6232,7 @@ function fistGeometry(
   lod: Lod,
   scale: number,
   opts: { reach: number; lead: number; mirror: boolean; grip: number | null },
-): { skin: THREE.BufferGeometry; warm: THREE.BufferGeometry | null } {
+): { skin: THREE.BufferGeometry; warm: THREE.BufferGeometry | null; marks: FistMarks } {
   const s = scale;
   const body: THREE.BufferGeometry[] = [];
   const tips: THREE.BufferGeometry[] = [];
@@ -6123,16 +6353,36 @@ function fistGeometry(
     ], ring));
   }
 
+  // Chirality first, then the side's palm reflection. Order does not matter —
+  // the two axes are independent — but both must happen, and the second one
+  // alone is what shipped. See `reflectChirality`.
+  const place = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+    reflectChirality(g);
+    return opts.mirror ? mirrorZ(g) : g;
+  };
   const join = (list: THREE.BufferGeometry[]): THREE.BufferGeometry | null => {
     if (list.length === 0) return null;
-    if (list.length === 1) return opts.mirror ? mirrorZ(list[0]) : list[0];
+    if (list.length === 1) return place(list[0]);
     const merged = mergeGeometries(list, false);
-    if (!merged) return opts.mirror ? mirrorZ(list[0]) : list[0];
+    if (!merged) return place(list[0]);
     for (const g of list) g.dispose();
-    return opts.mirror ? mirrorZ(merged) : merged;
+    return place(merged);
   };
   const skin = join(body);
-  return { skin: skin ?? new THREE.BufferGeometry(), warm: join(tips) };
+  // The three landmarks the ruler reads the hand's chirality off, carried through
+  // the same two reflections the mesh just took rather than re-derived from the
+  // sign of a flag — `handProbe` cannot then agree with a build it disagrees with.
+  const mark = (x: number, y: number, z: number): THREE.Vector3 =>
+    new THREE.Vector3(-x, y, opts.mirror ? -z : z);
+  return {
+    skin: skin ?? new THREE.BufferGeometry(),
+    warm: join(tips),
+    marks: {
+      wrist: mark(0, opts.reach, opts.lead),
+      knuckle: mark(0, -0.018 * s, wrap),
+      thumb: mark(-0.046 * s, -0.010 * s, wrap * 0.8),
+    },
+  };
 }
 
 /**
@@ -6150,6 +6400,90 @@ function fistPlacement(gripPitch: number, x: number, y: number, z: number): THRE
   const m = new THREE.Matrix4().makeBasis(e1, e2, e3);
   m.setPosition(x, y, z);
   return m;
+}
+
+/** One fist as the build actually placed it, for `handProbe`. */
+interface FistFit {
+  /** +1 for `armPivots[0]`, the weapon arm, which the build puts at +S.shoulderX. */
+  side: number;
+  /** The shoulder's x in the body's own frame, before `anim.ts` mirrors it. */
+  shoulderX: number;
+  marks: FistMarks;
+  place: THREE.Matrix4;
+}
+let _fistSpy: FistFit[] | null = null;
+
+/**
+ * `anim.ts` hangs every body under `mirror.scale.x`, which is −1 by default —
+ * see `handMirror` there, and the note on `reflectChirality` for why that sign
+ * is a fact about a HAND and not only about which side a sword hangs on. Kept
+ * here because it is the number the hand geometry has to be authored against,
+ * and because `handProbe` has to apply the same one the frame does.
+ */
+const BODY_MIRROR_X = -1;
+
+/** What `tools/wearmeasure.mjs` §4 reads to decide the hands are on right. */
+export interface HandFit {
+  /** "right" / "left" — which of the man's own hands this is, after the mirror. */
+  hand: string;
+  /** +1 if the mesh is a right hand, −1 if a left one, measured off its landmarks. */
+  chirality: number;
+  /** Cosine between the palm's outward normal and the direction of the midline. */
+  palmMedial: number;
+  /** Where the shoulder ends up in the frame: negative is the man's right. */
+  worldX: number;
+}
+
+/**
+ * Which hand is on which arm, measured on the built fists.
+ *
+ * The recipe is coordinate-free and it is the one anatomy uses. Take the distal
+ * direction D (wrist to knuckles), the palm's outward normal P, and the radial
+ * direction T (knuckles to thumb base): (D × P) · T is positive on a right hand
+ * and negative on a left one, and no rotation can change that. Push all three
+ * through the fist's placement basis and then through `BODY_MIRROR_X`, which is
+ * what the frame does, and the sign that comes out is the hand the player sees.
+ *
+ * A man's right hand must end up on the arm at negative x, and its palm must
+ * face the midline. Both, or the fist is on backwards.
+ */
+export function handProbe(cls: WarriorClass, seed: number): HandFit[] {
+  const spy: FistFit[] = [];
+  const prev = _fistSpy;
+  _fistSpy = spy;
+  try {
+    buildCharacter(cls, defaultAppearance(cls), 0x8a6b3f, undefined, "high", seed);
+  } finally {
+    _fistSpy = prev;
+  }
+  const d = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const t = new THREE.Vector3();
+  const cross = new THREE.Vector3();
+  const basis = new THREE.Matrix3();
+  return spy.map((f) => {
+    basis.setFromMatrix4(f.place);
+    const m = f.marks;
+    d.copy(m.knuckle).sub(m.wrist).applyMatrix3(basis);
+    // The palm's outward normal, taken as the knuckle line's own radial offset
+    // from the grip axis — the fist is built around a shaft on +X, so the
+    // knuckle's (y, z) IS how far out of that axis the palm sits.
+    p.set(0, m.knuckle.y, m.knuckle.z).applyMatrix3(basis);
+    t.copy(m.thumb).sub(m.knuckle).applyMatrix3(basis);
+    // The body mirror, applied to the three vectors and to the shoulder alike.
+    d.x *= BODY_MIRROR_X; p.x *= BODY_MIRROR_X; t.x *= BODY_MIRROR_X;
+    const worldX = f.shoulderX * BODY_MIRROR_X;
+    cross.crossVectors(d, p);
+    const chirality = Math.sign(cross.dot(t)) || 0;
+    // Medial is toward x = 0, so its sign is the opposite of the shoulder's.
+    const medial = worldX >= 0 ? -1 : 1;
+    return {
+      hand: worldX < 0 ? "right" : "left",
+      chirality,
+      palmMedial: (p.x / (p.length() || 1)) * medial,
+      worldX,
+    };
+  });
 }
 
 // ============================================================
@@ -8446,6 +8780,54 @@ export function buildCharacter(
     const layer = (ys: number[], pad: number, flares?: number[]): Station[] =>
       ys.map((y, i) => at(y, pad, flares?.[i] ?? 0));
 
+    // WHAT A FITTING ON THIS TORSO IS ACTUALLY PINNED TO.
+    //
+    // Every garment below registers itself as it is built, and a fitting takes
+    // the OUTERMOST layer present at its own height. That has to be a question
+    // about the layers THIS class wears — the huscarl's mantle stands 50 mm off
+    // the spine sampler, the warden's byrnie 34, the berserker's fur ruff 80 at
+    // the shoulder — because one pad written into the brooch's own line is a
+    // brooch seated on a garment three of the four men are not wearing. It is
+    // also the fault that produced the floating boss in the first place: a
+    // number that was true somewhere and got carried everywhere.
+    // Registered as the STATION LIST the garment was swept on, not as its pad:
+    // the fur ruff's pad is 55 mm and its flare puts it 80 mm out at exactly the
+    // height the brooch lands, and a pad on its own does not know that.
+    const worn: Array<{ sts: Station[]; power: number }> = [];
+    const wear = (sts: Station[], power: number): Station[] => {
+      worn.push({ sts, power });
+      return sts;
+    };
+    /** A station list read at a height, clamped to its own ends. */
+    const along = (sts: Station[], y: number): Station => {
+      let i = 0;
+      while (i < sts.length - 2 && y < sts[i + 1].y) i++;
+      const a = sts[i];
+      const b = sts[i + 1];
+      const t = clamp01((a.y - y) / (a.y - b.y || 1));
+      return { y, hw: mix(a.hw, b.hw, t), hd: mix(a.hd, b.hd, t), z: mix(a.z ?? 0, b.z ?? 0, t) };
+    };
+    /**
+     * The outermost garment at a height, as a carrier `seatXf` can seat on.
+     *
+     * A layer only competes where it actually reaches — a byrnie that stops at
+     * the hip cannot be what a strap-end 200 mm below it is lying on. With
+     * nothing there the answer is the spine sampler itself, which is right: a
+     * man with no garment at that height has his own skin under the fitting.
+     */
+    const outer = (y: number): FitCarrier => {
+      let best: { sts: Station[]; power: number } | null = null;
+      let widest = -1;
+      for (const w of worn) {
+        if (y > w.sts[0].y + 1e-6 || y < w.sts[w.sts.length - 1].y - 1e-6) continue;
+        const s = along(w.sts, y);
+        if (s.hw > widest) { widest = s.hw; best = w; }
+      }
+      if (!best) return { st: (yy: number) => at(yy, 0), power: 2.4 };
+      const b = best;
+      return { st: (yy: number) => along(b.sts, yy), power: b.power };
+    };
+
     // Where every neck opening sits, measured off the cervicale rather than off
     // the yoke's base. 14 mm below it puts a tunic neckline on the collarbone; the
     // mail rides 12 mm lower again so both edges are visible as edges. This is the
@@ -8492,7 +8874,7 @@ export function buildCharacter(
       // its top is a disc the throat passes through, and at the shirt's bare pad the
       // annulus left round the neck is 2 mm wide and z-fights the skin. 8 mm of linen
       // reads as the inside of a neckline instead.
-      p.add(shell(layer([collar + 0.006, ramp, S.shoulderY, S.chestY, S.waistY, S.hipY, S.hipY - 0.05], 0.008, [0.006]), seg, { power: 2.4, capTop: true, capBottom: true }), linen);
+      p.add(shell(wear(layer([collar + 0.006, ramp, S.shoulderY, S.chestY, S.waistY, S.hipY, S.hipY - 0.05], 0.008, [0.006]), 2.4), seg, { power: 2.4, capTop: true, capBottom: true }), linen);
     }
 
     // Wool tunic over it, with a real rolled edge, hung at the class's own hem.
@@ -8527,21 +8909,21 @@ export function buildCharacter(
     if (!bare) {
       if (robed) {
         p.add(shell(
-          layer(
+          wear(layer(
             [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
             0.021,
             [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
-          ),
+          ), 2.3),
           seg, { power: 2.3, wall: 0.014 },
         ), cloakMat);
       } else {
         // Closed from the collar to where the slits start, just below the hip.
         p.add(shell(
-          layer(
+          wear(layer(
             [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, slitY],
             0.021,
             [-0.003, 0, 0, 0, 0.003, 0.01, 0.022],
-          ),
+          ), 2.3),
           seg, { power: 2.3, wall: 0.014 },
         ), wool);
         // Then two panels, one over each leg, lapping 14 mm over the closed part
@@ -8653,11 +9035,11 @@ export function buildCharacter(
       // he is braced shoulder to shoulder and needs his legs.
       const byrnieHem = S.hipY - 0.055;
       p.add(shell(
-        layer(
+        wear(layer(
           [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, byrnieHem + 0.04, byrnieHem],
           0.034,
           [-0.004, 0, 0, 0, 0.004, 0.012, 0.026, 0.036],
-        ),
+        ), 2.3),
         seg, { power: 2.3, wall: 0.016 },
       ), mail);
       // Leather edging on the byrnie's hem. Mail is knitted iron and it unravels
@@ -8703,7 +9085,7 @@ export function buildCharacter(
       // longest of the four. It was already mail rather than plate, so the audit's
       // finding never touched it.
       p.add(shell(
-        layer([collar - 0.012, ramp, S.shoulderY + 0.028], 0.03, [-0.004, 0, 0.008]),
+        wear(layer([collar - 0.012, ramp, S.shoulderY + 0.028], 0.03, [-0.004, 0, 0.008]), 2.3),
         seg, { power: 2.3, wall: 0.013 },
       ), mail);
     } else if (!bare) {
@@ -8713,18 +9095,18 @@ export function buildCharacter(
       // both edges read as edges.
       const mailHem = heavy ? tunicHem - 0.03 : tunicHem + 0.26;
       p.add(shell(
-        layer(
+        wear(layer(
           [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, mailHem + 0.05, mailHem],
           0.036,
           [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
-        ),
+        ), 2.3),
         seg, { power: 2.3, wall: 0.016 },
       ), robed ? buff : mail);
       if (heavy) {
         // Bishop's mantle: a second cape of mail over the shoulders. This is the
         // huscarl's silhouette — heavy, round-shouldered, immovable.
         p.add(shell(
-          layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018]),
+          wear(layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018]), 2.2),
           seg, { power: 2.2, wall: 0.014 },
         ), mail);
       }
@@ -8815,7 +9197,7 @@ export function buildCharacter(
       // with pointed corners. A pelt lying over a shoulder has no corners at all,
       // and the locks below carry the ragged read instead.
       p.add(shell(
-        layer([collar - 0.006, ramp, S.shoulderY + 0.03, S.chestY + 0.02], 0.055, [-0.03, -0.012, 0.025, 0]),
+        wear(layer([collar - 0.006, ramp, S.shoulderY + 0.03, S.chestY + 0.02], 0.055, [-0.03, -0.012, 0.025, 0]), 2.0),
         seg, { power: 2.0, wall: 0.02 },
       ), fur);
       if (lod.trim) {
@@ -9261,6 +9643,7 @@ export function buildCharacter(
         grip: side > 0 ? grips.main : grips.off,
       });
       const hand = fistPlacement(GRIP_PITCH, side * 0.006, grip, 0.028);
+      if (_fistSpy) _fistSpy.push({ side, shoulderX: side * S.shoulderX, marks: fist.marks, place: hand.clone() });
       p.add(fist.skin, skin, hand.clone());
       if (fist.warm) p.add(fist.warm, skinWarm, hand.clone());
       return p;
@@ -9295,6 +9678,162 @@ export function buildCharacter(
   const skullY = S.headY - S.neckTop;
   const style = helmStyle(ap.helm);
   const helmed = style.cap;
+
+  // ============================================================
+  // THE HEAD STACK — one owner for the order of things worn on a head
+  // ============================================================
+  //
+  // Three complaints, one cause:
+  //
+  //   "the braided & long hair styles have a weird cutoff on the sides"
+  //   "the Huscarl's chainmail at the rear of the head ... has some overlapping
+  //    issues with helmets & hair styles"
+  //   "shadow hood struggles with long hair with overlaps"
+  //
+  // NOTHING OWNED THE LAYERING ORDER. The scalp shell, the locks, the mane, the
+  // war-locks, the coif, the bowl and the hood each placed themselves against
+  // the skull independently, every one of them correct on its own and every
+  // pair of them free to occupy the same cubic centimetre. The hair knew about
+  // exactly one of the things that can be worn over it — `helmed` — and only as
+  // a boolean, so a hood (which is not `cap`) got hair at FULL crown volume
+  // under 6 mm of cloth, and the huscarl's aventail got 320 mm of falling mane
+  // inside it. The `art/look/x_*` sheets show both: a brown slab standing
+  // through the back of the hood, and a mane hanging in front of the mail.
+  //
+  // So the stack is declared here, once, ABOVE everything that obeys it:
+  //
+  //     skull -> hair -> coif/aventail -> helm/hood
+  //
+  // and every layer is offset outward from the one beneath it by a real
+  // thickness rather than by a number chosen where it was typed. Three
+  // functions say all of it, and they are the only things the hair below is
+  // allowed to ask about what is worn over it:
+  //
+  //   `hairCeil(u, v)`  the largest standoff hair may have at this point, which
+  //                     is the INNER WALL of whatever covers it less a gap.
+  //                     Infinity where the head is open to the air. Hair is
+  //                     COMPRESSED to it rather than culled by it, so a crop
+  //                     under a helm is a liner and not an absence.
+  //   `hairFall(u)`     how much FALLING mass survives at this azimuth. A hood
+  //                     swallows hair by design and a coif is a bag of mail the
+  //                     head goes into, so both take it to zero; an open helm
+  //                     takes none of it, because hair has to come out from
+  //                     under a helmet.
+  //   `hairFloor(u)`    the latitude below which hair is in the open whatever
+  //                     is worn — the rim it emerges from.
+  //
+  // The two definitions the hood and the coif are drawn from live here as well,
+  // for the reason stated over `coifLevels` further down and burned into this
+  // file twice already: a piece that keeps its own copy of where another piece
+  // is will drift away from it. One definition, two readers.
+  const hooded = ap.helm === "hood";
+  const coifed = helmed && heavy;
+  /** Angular distance from dead ahead, folded into 0..PI. */
+  const awayFromFace = (u: number) => {
+    const a = ((u % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    return a > Math.PI ? Math.PI * 2 - a : a;
+  };
+  /** Hair compressed under a shell that BEARS on the skull. A felt liner. */
+  const HAIR_LINER = 0.005;
+  /** What one layer leaves clear under the inner wall of the layer above it. */
+  const LAYER_GAP = 0.003;
+
+  // ---- where the iron is ----
+  // The band's lower rim, hoisted out of the helm branch so the hair can read
+  // it. This is the latitude hair emerges from on every metal rung.
+  const bandLo = lat(Y_BROW + mix(0.065, 0.005, clamp01((B.bowl - 0.76) / 0.36)))
+    - (style.mask ? 0.050 : 0);
+
+  // ---- where the mail is ----
+  // Declared here rather than inside the coif that draws it, because the nape
+  // fall has to lie outside it on the one class that wears both, and now the
+  // hair has to lie inside it. A fall — or a mane — carrying its own idea of
+  // the coif's radius is the mirrored-definition fault this file has been
+  // bitten by twice.
+  //
+  // Started above the brow band rather than 20 mm below it. At R.y * 0.10 the
+  // coif's top ring cleared the bottom of the band, so its `patch` rim strip —
+  // 14 mm of surface facing straight up — stood out at each temple as a lit
+  // grey tab. A coif's upper edge is riveted *inside* the bowl and is never
+  // seen; 14 mm proud of the skull at this height is well within the band's
+  // own 24 mm standoff, so it is covered.
+  const coifLevels = [
+    { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
+    { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
+    { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
+    { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
+  ];
+  /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
+  const coifAt = (y: number, key: "hw" | "hd"): number => {
+    if (!heavy) return 0;
+    if (y >= coifLevels[0].y) return coifLevels[0][key];
+    for (let i = 0; i < coifLevels.length - 1; i++) {
+      const a = coifLevels[i], b = coifLevels[i + 1];
+      if (y <= a.y && y >= b.y) return mix(a[key], b[key], (a.y - y) / (a.y - b.y));
+    }
+    return coifLevels[coifLevels.length - 1][key];
+  };
+  /** Azimuth of the coif's front edge at a descent — the mail's own opening. */
+  const coifRim = (v: number) => 1.46 + 0.34 * v * v;
+
+  // ---- where the cloth is ----
+  // The hood's rim and its lift, authored here and read twice: once by the hood
+  // itself and once by the hair that has to fit under it. The hood is a `cap`
+  // in every sense that matters to the layer beneath it — it bears on the skull
+  // — and it was not one to the hair, which is the whole of the third fault.
+  const hoodRim = (u: number) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2);
+  const hoodCrown = Math.PI / 2 - 0.02;
+  const hoodLift = (u: number, s: number) => 0.016 + 0.016 * s
+    + 0.048 * (1 - s) * clamp01(-Math.cos(u))
+    + 0.022 * Math.pow(1 - s, 1.5) * clamp01(Math.cos(u));
+  const HOOD_THICK = 0.010;
+
+  /**
+   * THE CEILING. How far proud of the skin hair may stand at (u, v).
+   *
+   * Under a metal bowl it is a liner, because a helm flattens hair and the
+   * bowl's own inner wall is 10 mm off a FORM that the skin can stand 16 mm
+   * proud of. Under a hood it is the cloth's own inner wall less a gap, which
+   * is generous at the nape where the cowl has a point and tight over the ear
+   * where it does not — so hair fills a hood instead of being deleted by it.
+   * Under mail it is the 8 mm a coif is padded for. In the open it is nothing
+   * at all, and that is the point: a ceiling that is Infinity below the rim is
+   * what makes hair come OUT from under a helmet.
+   */
+  const hairCeil = (u: number, v: number): number => {
+    let c = Infinity;
+    if (hooded) {
+      const a = hoodRim(u);
+      c = Math.max(0.003, hoodLift(u, clamp01((v - a) / (hoodCrown - a))) - HOOD_THICK - LAYER_GAP);
+    } else if (helmed && v > bandLo - 0.02) {
+      c = HAIR_LINER;
+    }
+    // The aventail is a bag the head goes into, and it laps the bowl at the
+    // temple, so it owns the whole of the back and sides below the band.
+    if (coifed && awayFromFace(u) > coifRim(0) - 0.16) c = Math.min(c, 0.008);
+    return c;
+  };
+  /**
+   * THE FALL. How much of a hanging mass survives at this azimuth.
+   *
+   * A hood swallows hair; so does a coif, which is why a mailed man's hair is
+   * never in the frame. A helm does not — it is a bowl on the crown with the
+   * whole nape open under it — so an open rung keeps all of it. The ramp is
+   * 0.34 rad wide so the mane dies INSIDE the garment rather than at its edge:
+   * a mass that stops where the mail starts leaves a free `patch` boundary
+   * standing on the mail, which is the same straight-edged rim strip the side
+   * cutoff is made of.
+   */
+  const hairFall = (u: number): number => {
+    if (hooded) return 0;
+    if (coifed) return 1 - smooth(coifRim(0) - 0.34, coifRim(0), awayFromFace(u));
+    // A nape fall or a neck guard hangs off the back of the band and owns
+    // everything behind 1.40 rad from the nape — see the fall's own note.
+    if (helmed && style.nape !== "none") {
+      return 1 - smooth(Math.PI - 1.74, Math.PI - 1.40, awayFromFace(u));
+    }
+    return 1;
+  };
 
   emit("head", headPivot, () => {
     const p = new Part();
@@ -9542,11 +10081,6 @@ export function buildCharacter(
     // passes.
     if (ap.hairStyle !== "shaved") {
       const crop = ap.hairStyle === "short";
-      /** Angular distance from dead ahead, folded into 0..PI. */
-      const awayFromFace = (u: number) => {
-        const a = ((u % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-        return a > Math.PI ? Math.PI * 2 - a : a;
-      };
       // The hairline. Three harmonics rather than two, and the third is above
       // Nyquist for `nu` on purpose: a hairline is where hair thins out, not
       // where it was cut, and a curve at one frequency is still a curve. The
@@ -9560,10 +10094,29 @@ export function buildCharacter(
       // the amplitudes on the last two are 10 and 5 mm rather than 4 and 2,
       // because at 4 mm the line rendered as an arc and an arc across a forehead
       // is the brim of a cap.
+      //
+      // AND IT SAT 30 mm ABOVE THE EAR, WHICH IS THE "WEIRD CUTOFF ON THE
+      // SIDES". Every term above is even in `u` about the temple, so the line
+      // ran at latitude 0.32 rad at u = +-pi/2 — the ear's own crown is at
+      // about 0.05 — and the shell simply STOPPED there. `patch` closes a v0
+      // boundary with a rim strip, so what the player sees on the profile and
+      // three-quarter bearings is a hard edge with 26 mm of bare skull under it
+      // running from the temple to behind the ear (`art/look/x_braids.png`
+      // panels 2 and 3, before this). It is not a haircut. It is the boundary
+      // of the patch, drawn.
+      //
+      // Hair does not stop above the ear; it comes DOWN past it, in front of it
+      // to the sideburn and behind it to the nape. `sin^2` is maximal exactly
+      // at the temple and zero at the brow and the nape, so this drops the two
+      // sides and moves neither of the two places the hairline is supposed to
+      // be a hairline. The paid styles take more of it than the crop: a warrior
+      // crop IS cut close over the ear, a mane and a set of war-locks are not.
+      const sideDrop = crop ? 0.17 : 0.26;
       const line = (u: number) => (crop ? 0.30 : 0.21)
         + 0.235 * Math.cos(u) - 0.080 * Math.cos(u * 2)
         + 0.080 * Math.cos(u * 5 + 1.1) + 0.042 * Math.cos(u * 9 - 0.7)
         + 0.020 * Math.cos(u * 17 + 2.3)
+        - sideDrop * Math.pow(Math.sin(u), 2)
         // Under a helm the hairline drops 0.12 rad at the sides and the nape —
         // about 16 mm — so hair emerges below the brow band's rim instead of the
         // iron meeting bare scalp all the way round. A helmet on a man who has
@@ -9581,21 +10134,33 @@ export function buildCharacter(
       // is what breaks the outline. A shell whose lift depends only on v has a
       // silhouette that is exactly the skull's curve scaled up, and that is the
       // egg the audit photographed.
-      const mane = (u: number, v: number) => (helmed
-        ? 0.002 + 0.003 * clamp01(v / (Math.PI / 2))
+      //
+      // ONE CURVE, THEN THE CEILING. This used to branch on `helmed` and hold
+      // the whole shell at a flat 2-5 mm the moment a cap went on, which is why
+      // a helmed man's hair read as paint even 60 mm below the band where
+      // nothing was touching it. The open-air curve is now written once and
+      // CLIPPED by the stack, so hair is a liner exactly where a shell bears on
+      // it, keeps every millimetre of its volume below the rim, and fills a
+      // hood's point at the nape instead of being deleted by the hood.
+      const openMane = (u: number, v: number) =>
+        0.0028 + 0.017 * Math.pow(clamp01((v - line(u)) / (Math.PI / 2 - line(u))), 0.7)
         // Flattened over the last 0.3 rad. Held at full height to the pole, 21 mm
         // of hair on top of a skull that is already domed comes to a point, and
         // the crop rendered as an acorn cap.
-        : 0.0028 + 0.017 * Math.pow(clamp01((v - line(u)) / (Math.PI / 2 - line(u))), 0.7)
           * (1 - 0.34 * clamp01((v - 1.24) / 0.33))
           * (1 + 0.20 * Math.cos(u * 7 + 0.4) + 0.14 * Math.cos(u * 13 - 1.2)
-             + 0.10 * Math.cos(v * 9 + u * 3)));
+             + 0.10 * Math.cos(v * 9 + u * 3));
+      const mane = (u: number, v: number) => Math.min(openMane(u, v), hairCeil(u, v));
+      // The sheet's own thickness is part of the stack too: a 6 mm sheet whose
+      // outer wall is on the ceiling has its INNER wall 6 mm inside the skin.
+      // Under a liner it thins with the hair it is carrying.
+      const hairThick = helmed || hooded ? 0.0035 : 0.006;
       p.add(headWear(K, {
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: line, v1: () => Math.PI / 2 - 0.02,
         nu: Math.max(16, lod.shellU + 6), nv: Math.max(5, lod.shellV),
         lift: (u, s) => mane(u, mix(line(u), Math.PI / 2 - 0.02, s)),
-        thick: helmed ? 0.004 : 0.006,
+        thick: hairThick,
       }), hair, place.clone());
       // ---- THE LOCKS, and this is what the shell alone can never be ----
       //
@@ -9670,6 +10235,15 @@ export function buildCharacter(
         // It does not clear the 1% bar and it is not gated to, because nobody
         // paid for the crop. The two deepest helms still take everything (Wyrm
         // 0.20%, Sutton Hoo 0.00%) and that is correct: those two close the head.
+        //
+        // AND A HOOD IS A CAP TOO. `helmed` is `style.cap`, and the Shadow Hood
+        // is not `cap` — so a hooded man got the OPEN courses: three rings of
+        // 30 mm coils springing off a crown with 6 mm of cloth over it. That is
+        // the third of the owner's three faults, and it needed no new geometry
+        // to fix, only somebody to ask what was overhead. Every lock now asks
+        // the stack how much room it has and either fits itself into it or
+        // stands down; the two rules are the same two the brief names, compress
+        // or cull, and neither of them is a boolean about helmets.
         const courses = helmed ? [-0.03, -0.10, -0.17] : [0.10, 0.44, 0.80];
         for (const rise of courses) {
           const N = crop ? 26 : 18;
@@ -9681,6 +10255,13 @@ export function buildCharacter(
             if (helmed && awayFromFace(u) < 0.50) continue;
             const v = line(u) + rise + 0.05 * Math.cos(i * 3.9 + rise);
             if (v > Math.PI / 2 - 0.12) continue;
+            // A coil's crest stands 0.38 of its length plus a strand radius off
+            // the root — that is where the `outward` term below tops out — so
+            // the room it needs is arithmetic rather than a judgement, and it
+            // can be held to the ceiling exactly. Under a hood's point at the
+            // nape there is 33 mm and the lock is built full size; over the ear
+            // there is 9 mm and it is not built at all.
+            const room = hairCeil(u, v);
             dirOf(u, v, lockDir);
             faceSurface(K, lockDir, lockRoot);
             faceNormalTrue(K, u, v, lockNrm);
@@ -9698,8 +10279,16 @@ export function buildCharacter(
             const tl = Math.hypot(tx, ty, tz);
             if (tl < 0.18) { tx = 0; ty = 0; tz = -1; }
             else { tx /= tl; ty /= tl; tz /= tl; }
-            const len = (crop ? 0.030 : 0.026) * (0.80 + 0.32 * hash(identity, i * 7 + Math.round(rise * 100)));
-            const rad = (crop ? 0.0092 : 0.0080) * (0.85 + 0.30 * hash(identity, i * 11 + 3));
+            let len = (crop ? 0.030 : 0.026) * (0.80 + 0.32 * hash(identity, i * 7 + Math.round(rise * 100)));
+            let rad = (crop ? 0.0092 : 0.0080) * (0.85 + 0.30 * hash(identity, i * 11 + 3));
+            // Compress, then cull. Squeezed past 45% a coil is not a smaller
+            // curl, it is a bristle — the barbs the note above spent a
+            // paragraph getting rid of — so below that it does not exist.
+            if (Number.isFinite(room)) {
+              const k = Math.min(1, room / (0.38 * len + rad));
+              if (k < 0.45) continue;
+              len *= k; rad *= k;
+            }
             p.add(braid((t, out) => {
               // Out a little, along a lot. The normal term rises and turns over
               // inside the first third; the tangent term carries the whole way.
@@ -10367,8 +10956,8 @@ export function buildCharacter(
       // which is `Y_BROW + 0.04`. The note twenty lines below about not putting
       // the band ON the ridge still holds and this does not break it — the ridge
       // peaks at `Y_BROW` and the rim now clears it by 5 mm rather than by 19.
-      const bandLo = lat(Y_BROW + mix(0.065, 0.005, clamp01((B.bowl - 0.76) / 0.36)))
-        - (style.mask ? 0.050 : 0);
+      // `bandLo` — the band's lower rim — is declared with the head stack, above
+      // the hair, because the hair has to emerge from under it. See there.
       const bandHi = bandLo + 0.20;
       // The two substances the whole cap is cut from. Every helm below the noble
       // tier gets the iron/steel pair it always had; the Sutton Hoo gets tinned
@@ -10923,33 +11512,10 @@ export function buildCharacter(
           }), capMetal, place.clone());
         }
       }
-      // WHERE THE MAIL IS. Declared here rather than inside the coif that draws
-      // it, because the nape fall below has to lie outside it on the one class
-      // that wears both, and a fall carrying its own idea of the coif's radius is
-      // the mirrored-definition fault this file has been bitten by twice.
-      //
-      // Started above the brow band rather than 20 mm below it. At R.y * 0.10 the
-      // coif's top ring cleared the bottom of the band, so its `patch` rim strip —
-      // 14 mm of surface facing straight up — stood out at each temple as a lit
-      // grey tab. A coif's upper edge is riveted *inside* the bowl and is never
-      // seen; 14 mm proud of the skull at this height is well within the band's
-      // own 24 mm standoff, so it is covered.
-      const coifLevels = [
-        { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
-        { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
-        { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
-        { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
-      ];
-      /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
-      const coifAt = (y: number, key: "hw" | "hd"): number => {
-        if (!heavy) return 0;
-        if (y >= coifLevels[0].y) return coifLevels[0][key];
-        for (let i = 0; i < coifLevels.length - 1; i++) {
-          const a = coifLevels[i], b = coifLevels[i + 1];
-          if (y <= a.y && y >= b.y) return mix(a[key], b[key], (a.y - y) / (a.y - b.y));
-        }
-        return coifLevels[coifLevels.length - 1][key];
-      };
+      // `coifLevels` and `coifAt` — WHERE THE MAIL IS — are declared with the
+      // head stack above the hair, because three pieces now have to agree about
+      // it: this fall, which lies outside the mail; the coif, which draws it;
+      // and the hair, which has to lie inside it.
       if (style.nape !== "none") {
         // ---- the fall off the back of the band ----
         //
@@ -12313,7 +12879,9 @@ export function buildCharacter(
         // temple, the cheekbone and the jaw are all in front of it and the head's
         // own silhouette — which now has a parietal curve to show — draws the
         // outline instead of the mail.
-        const rim = (v: number) => 1.46 + 0.34 * v * v;
+        // The mail's own opening, declared with the head stack because the hair
+        // has to know where it is. See `coifRim`.
+        const rim = coifRim;
         // The one table, read from two places — see where it is declared, above
         // the nape fall. A plate that has to lie OVER the mail cannot keep its
         // own copy of where the mail is; that is how the guard ended up 6 mm too
