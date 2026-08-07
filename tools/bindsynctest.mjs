@@ -357,8 +357,14 @@ async function main() {
   // by the profile row. On the live free-tier dyno the window is a cold start,
   // which is why "adding additional custom keys" looked like it never worked.
   //
-  // Reproduced by holding /api/profile/me for eight seconds and rebinding
-  // inside it — the same shape as a cold dyno, on demand.
+  // HELD OPEN, NOT DELAYED. The first version of this section slept the request
+  // for eight seconds and rebound inside that window — and it PASSED against a
+  // build with the guard removed, because under load the panel took longer to
+  // open than the sleep and the sign-in had already landed before the key was
+  // pressed. An assertion that can quietly fail to reproduce the fault is the
+  // fourth instrument in this project to measure the wrong quantity, so the
+  // request is now pinned until this file lets it go, and the number of
+  // outstanding requests is asserted at the moment of the remap.
   const ctxD = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await ctxD.addInitScript(PROBE);
   const d = await ctxD.newPage();
@@ -373,8 +379,13 @@ async function main() {
   await d.getByLabel("Close key bindings").click();
   await d.waitForTimeout(1800);
 
+  let releaseSignIn;
+  const signInHeld = new Promise((r) => { releaseSignIn = r; });
+  let outstanding = 0;
   await ctxD.route("**/api/profile/me", async (route) => {
-    await new Promise((r) => setTimeout(r, 8000));
+    outstanding++;
+    await signInHeld;
+    outstanding--;
     await route.continue();
   });
   await d.goto(`${BASE}/?quality=low`, { waitUntil: "domcontentloaded" });
@@ -382,10 +393,15 @@ async function main() {
   await d.getByText("Keys", { exact: false }).first().click();
   await bindInPanel(d, "Forward", "KeyY");
   const duringCaps = (await d.getByLabel(/^Change Forward key/).allTextContents()).map((s) => s.trim());
+  // Both halves, in one check: the key was taken, AND the sign-in genuinely had
+  // not answered when it was. Without the second half this passes by not
+  // reproducing the race, which is exactly how it fooled me once already.
   check("the screen takes a remap made while the sign-in is still in flight",
-    duringCaps.includes("Y"), JSON.stringify(duringCaps));
+    duringCaps.includes("Y") && outstanding > 0,
+    `${JSON.stringify(duringCaps)}, ${outstanding} sign-in request(s) still held`);
   // Let the held request land, then look again. This is the whole bug.
-  await d.waitForTimeout(9000);
+  releaseSignIn();
+  await d.waitForTimeout(4000);
   const afterCaps = (await d.getByLabel(/^Change Forward key/).allTextContents()).map((s) => s.trim());
   check("and the sign-in does not overwrite it when the profile answers",
     afterCaps.includes("Y"), JSON.stringify(afterCaps));
