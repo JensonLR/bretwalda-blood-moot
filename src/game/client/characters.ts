@@ -9296,6 +9296,160 @@ export function buildCharacter(
   const style = helmStyle(ap.helm);
   const helmed = style.cap;
 
+  // ============================================================
+  // THE HEAD STACK — one owner for the order of things worn on a head
+  // ============================================================
+  //
+  // Three complaints, one cause:
+  //
+  //   "the braided & long hair styles have a weird cutoff on the sides"
+  //   "the Huscarl's chainmail at the rear of the head ... has some overlapping
+  //    issues with helmets & hair styles"
+  //   "shadow hood struggles with long hair with overlaps"
+  //
+  // NOTHING OWNED THE LAYERING ORDER. The scalp shell, the locks, the mane, the
+  // war-locks, the coif, the bowl and the hood each placed themselves against
+  // the skull independently, every one of them correct on its own and every
+  // pair of them free to occupy the same cubic centimetre. The hair knew about
+  // exactly one of the things that can be worn over it — `helmed` — and only as
+  // a boolean, so a hood (which is not `cap`) got hair at FULL crown volume
+  // under 6 mm of cloth, and the huscarl's aventail got 320 mm of falling mane
+  // inside it. The `art/look/x_*` sheets show both: a brown slab standing
+  // through the back of the hood, and a mane hanging in front of the mail.
+  //
+  // So the stack is declared here, once, ABOVE everything that obeys it:
+  //
+  //     skull -> hair -> coif/aventail -> helm/hood
+  //
+  // and every layer is offset outward from the one beneath it by a real
+  // thickness rather than by a number chosen where it was typed. Three
+  // functions say all of it, and they are the only things the hair below is
+  // allowed to ask about what is worn over it:
+  //
+  //   `hairCeil(u, v)`  the largest standoff hair may have at this point, which
+  //                     is the INNER WALL of whatever covers it less a gap.
+  //                     Infinity where the head is open to the air. Hair is
+  //                     COMPRESSED to it rather than culled by it, so a crop
+  //                     under a helm is a liner and not an absence.
+  //   `hairFall(u)`     how much FALLING mass survives at this azimuth. A hood
+  //                     swallows hair by design and a coif is a bag of mail the
+  //                     head goes into, so both take it to zero; an open helm
+  //                     takes none of it, because hair has to come out from
+  //                     under a helmet.
+  //
+  // The two definitions the hood and the coif are drawn from live here as well,
+  // for the reason stated over `coifLevels` and burned into this file twice
+  // already: a piece that keeps its own copy of where another piece is will
+  // drift away from it. One definition, two readers.
+  const hooded = ap.helm === "hood";
+  const coifed = helmed && heavy;
+  /** Angular distance from dead ahead, folded into 0..PI. */
+  const awayFromFace = (u: number) => {
+    const a = ((u % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    return a > Math.PI ? Math.PI * 2 - a : a;
+  };
+  /** Hair compressed under a shell that BEARS on the skull. A felt liner. */
+  const HAIR_LINER = 0.005;
+  /** What one layer leaves clear under the inner wall of the layer above it. */
+  const LAYER_GAP = 0.003;
+
+  // ---- where the iron is ----
+  // The band's lower rim, hoisted out of the helm branch so the hair can read
+  // it. This is the latitude hair emerges from on every metal rung.
+  const bandLo = lat(Y_BROW + mix(0.065, 0.005, clamp01((B.bowl - 0.76) / 0.36)))
+    - (style.mask ? 0.050 : 0);
+
+  // ---- where the mail is ----
+  // Declared here rather than inside the coif that draws it, because THREE
+  // pieces now have to agree about it: the nape fall, which lies outside the
+  // mail; the coif, which draws it; and the hair, which has to lie inside it. A
+  // piece carrying its own idea of the coif's radius is the mirrored-definition
+  // fault this file has been bitten by twice.
+  //
+  // Started above the brow band rather than 20 mm below it. At R.y * 0.10 the
+  // coif's top ring cleared the bottom of the band, so its `patch` rim strip —
+  // 14 mm of surface facing straight up — stood out at each temple as a lit
+  // grey tab. A coif's upper edge is riveted *inside* the bowl and is never
+  // seen; 14 mm proud of the skull at this height is well within the band's
+  // own 24 mm standoff, so it is covered.
+  const coifLevels = [
+    { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
+    { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
+    { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
+    { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
+  ];
+  /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
+  const coifAt = (y: number, key: "hw" | "hd"): number => {
+    if (!heavy) return 0;
+    if (y >= coifLevels[0].y) return coifLevels[0][key];
+    for (let i = 0; i < coifLevels.length - 1; i++) {
+      const a = coifLevels[i], b = coifLevels[i + 1];
+      if (y <= a.y && y >= b.y) return mix(a[key], b[key], (a.y - y) / (a.y - b.y));
+    }
+    return coifLevels[coifLevels.length - 1][key];
+  };
+  /** Azimuth of the coif's front edge at a descent — the mail's own opening. */
+  const coifRim = (v: number) => 1.46 + 0.34 * v * v;
+
+  // ---- where the cloth is ----
+  // The hood's rim and its lift, authored here and read twice: once by the hood
+  // itself and once by the hair that has to fit under it. The hood is a `cap`
+  // in every sense that matters to the layer beneath it — it bears on the skull
+  // — and it was not one to the hair, which is the whole of the third fault.
+  const hoodRim = (u: number) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2);
+  const hoodCrown = Math.PI / 2 - 0.02;
+  const hoodLift = (u: number, s: number) => 0.016 + 0.016 * s
+    + 0.048 * (1 - s) * clamp01(-Math.cos(u))
+    + 0.022 * Math.pow(1 - s, 1.5) * clamp01(Math.cos(u));
+  const HOOD_THICK = 0.010;
+
+  /**
+   * THE CEILING. How far proud of the skin hair may stand at (u, v).
+   *
+   * Under a metal bowl it is a liner, because a helm flattens hair and the
+   * bowl's own inner wall is 10 mm off a FORM that the skin can stand 16 mm
+   * proud of. Under a hood it is the cloth's own inner wall less a gap, which
+   * is generous at the nape where the cowl has a point and tight over the ear
+   * where it does not — so hair FILLS a hood instead of being deleted by it.
+   * Under mail it is the 8 mm a coif is padded for. In the open it is nothing
+   * at all, and that is the point: a ceiling that is Infinity below the rim is
+   * what makes hair come OUT from under a helmet.
+   */
+  const hairCeil = (u: number, v: number): number => {
+    let c = Infinity;
+    if (hooded) {
+      const a = hoodRim(u);
+      c = Math.max(0.003, hoodLift(u, clamp01((v - a) / (hoodCrown - a))) - HOOD_THICK - LAYER_GAP);
+    } else if (helmed && v > bandLo - 0.02) {
+      c = HAIR_LINER;
+    }
+    // The aventail is a bag the head goes into, and it laps the bowl at the
+    // temple, so it owns the whole of the back and sides below the band.
+    if (coifed && awayFromFace(u) > coifRim(0) - 0.16) c = Math.min(c, 0.008);
+    return c;
+  };
+  /**
+   * THE FALL. How much of a hanging mass survives at this azimuth.
+   *
+   * A hood swallows hair; so does a coif, which is why a mailed man's hair is
+   * never in the frame. A helm does not — it is a bowl on the crown with the
+   * whole nape open under it — so an open rung keeps all of it. The ramp is
+   * 0.34 rad wide so a mane dies INSIDE the garment rather than at its edge: a
+   * mass that stops where the mail starts leaves a free `patch` boundary
+   * standing on the mail, which is the same straight-edged rim strip the side
+   * cutoff is made of.
+   */
+  const hairFall = (u: number): number => {
+    if (hooded) return 0;
+    if (coifed) return 1 - smooth(coifRim(0) - 0.34, coifRim(0), awayFromFace(u));
+    // A nape fall or a neck guard hangs off the back of the band and owns
+    // everything behind 1.40 rad from the nape — see the fall's own note.
+    if (helmed && style.nape !== "none") {
+      return 1 - smooth(Math.PI - 1.74, Math.PI - 1.40, awayFromFace(u));
+    }
+    return 1;
+  };
+
   emit("head", headPivot, () => {
     const p = new Part();
     const place = xf(0, skullY, 0);
@@ -9542,11 +9696,6 @@ export function buildCharacter(
     // passes.
     if (ap.hairStyle !== "shaved") {
       const crop = ap.hairStyle === "short";
-      /** Angular distance from dead ahead, folded into 0..PI. */
-      const awayFromFace = (u: number) => {
-        const a = ((u % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-        return a > Math.PI ? Math.PI * 2 - a : a;
-      };
       // The hairline. Three harmonics rather than two, and the third is above
       // Nyquist for `nu` on purpose: a hairline is where hair thins out, not
       // where it was cut, and a curve at one frequency is still a curve. The
@@ -9560,10 +9709,34 @@ export function buildCharacter(
       // the amplitudes on the last two are 10 and 5 mm rather than 4 and 2,
       // because at 4 mm the line rendered as an arc and an arc across a forehead
       // is the brim of a cap.
+      //
+      // AND IT SAT 30 mm ABOVE THE EAR, WHICH IS THE "WEIRD CUTOFF ON THE
+      // SIDES". Every term above is even in `u` about the temple, so the line
+      // ran at latitude 0.32 rad at u = +-pi/2 — the ear's own crown is at
+      // about 0.05 — and the shell simply STOPPED there. `patch` closes a v0
+      // boundary with a rim strip, so what the player sees on the profile and
+      // three-quarter bearings is a hard edge with 26 mm of bare skull under it
+      // running from the temple to behind the ear (`art/look/x_braids.png`
+      // panels 2 and 3, before this). It is not a haircut. It is the boundary
+      // of the patch, drawn.
+      //
+      // Hair does not stop above the ear; it comes DOWN past it, in front of it
+      // to the sideburn and behind it to the nape. `sin^2` is maximal exactly
+      // at the temple and zero at the brow and the nape, so this drops the two
+      // sides and moves neither of the two places the hairline is supposed to
+      // be a hairline. And the same at the nape, where a crop is cut up into
+      // the hairline and a mane or a set of war-locks is not: 0.22 rad carries
+      // the shell onto the top of the neck, which is where hair that is going
+      // to be gathered into a plait has to come from. The paid styles take more
+      // of both than the crop — a warrior crop IS cut close over the ear.
+      const sideDrop = crop ? 0.17 : 0.26;
+      const napeDrop = crop ? 0.05 : 0.22;
       const line = (u: number) => (crop ? 0.30 : 0.21)
         + 0.235 * Math.cos(u) - 0.080 * Math.cos(u * 2)
         + 0.080 * Math.cos(u * 5 + 1.1) + 0.042 * Math.cos(u * 9 - 0.7)
         + 0.020 * Math.cos(u * 17 + 2.3)
+        - sideDrop * Math.pow(Math.sin(u), 2)
+        - napeDrop * clamp01(-Math.cos(u))
         // Under a helm the hairline drops 0.12 rad at the sides and the nape —
         // about 16 mm — so hair emerges below the brow band's rim instead of the
         // iron meeting bare scalp all the way round. A helmet on a man who has
@@ -9581,21 +9754,33 @@ export function buildCharacter(
       // is what breaks the outline. A shell whose lift depends only on v has a
       // silhouette that is exactly the skull's curve scaled up, and that is the
       // egg the audit photographed.
-      const mane = (u: number, v: number) => (helmed
-        ? 0.002 + 0.003 * clamp01(v / (Math.PI / 2))
+      //
+      // ONE CURVE, THEN THE CEILING. This used to branch on `helmed` and hold
+      // the whole shell at a flat 2-5 mm the moment a cap went on, which is why
+      // a helmed man's hair read as paint even 60 mm below the band where
+      // nothing was touching it — and why a HOOD, which is not `cap`, got the
+      // open curve under 6 mm of cloth. The open-air curve is now written once
+      // and CLIPPED by the stack, so hair is a liner exactly where a shell
+      // bears on it, keeps every millimetre of its volume below the rim, and
+      // fills a hood's point at the nape instead of standing through it.
+      const openMane = (u: number, v: number) =>
+        0.0028 + 0.017 * Math.pow(clamp01((v - line(u)) / (Math.PI / 2 - line(u))), 0.7)
         // Flattened over the last 0.3 rad. Held at full height to the pole, 21 mm
         // of hair on top of a skull that is already domed comes to a point, and
         // the crop rendered as an acorn cap.
-        : 0.0028 + 0.017 * Math.pow(clamp01((v - line(u)) / (Math.PI / 2 - line(u))), 0.7)
           * (1 - 0.34 * clamp01((v - 1.24) / 0.33))
           * (1 + 0.20 * Math.cos(u * 7 + 0.4) + 0.14 * Math.cos(u * 13 - 1.2)
-             + 0.10 * Math.cos(v * 9 + u * 3)));
+             + 0.10 * Math.cos(v * 9 + u * 3));
+      const mane = (u: number, v: number) => Math.min(openMane(u, v), hairCeil(u, v));
+      // The sheet's own thickness is part of the stack too: a 6 mm sheet whose
+      // outer wall is on the ceiling has its INNER wall 6 mm inside the skin.
+      // Under a liner it thins with the hair it is carrying.
       p.add(headWear(K, {
         u0: 0, u1: Math.PI * 2, wrapU: true,
         v0: line, v1: () => Math.PI / 2 - 0.02,
         nu: Math.max(16, lod.shellU + 6), nv: Math.max(5, lod.shellV),
         lift: (u, s) => mane(u, mix(line(u), Math.PI / 2 - 0.02, s)),
-        thick: helmed ? 0.004 : 0.006,
+        thick: helmed || hooded ? 0.0035 : 0.006,
       }), hair, place.clone());
       // ---- THE LOCKS, and this is what the shell alone can never be ----
       //
@@ -9670,6 +9855,15 @@ export function buildCharacter(
         // It does not clear the 1% bar and it is not gated to, because nobody
         // paid for the crop. The two deepest helms still take everything (Wyrm
         // 0.20%, Sutton Hoo 0.00%) and that is correct: those two close the head.
+        //
+        // AND A HOOD IS A CAP TOO. `helmed` is `style.cap`, and the Shadow Hood
+        // is not `cap` — so a hooded man got the OPEN courses: three rings of
+        // 30 mm coils springing off a crown with 6 mm of cloth over it. That is
+        // the third of the owner's three faults, and it needed no new geometry
+        // to fix, only somebody to ask what was overhead. Every lock now asks
+        // the stack how much room it has and either fits itself into it or
+        // stands down; the two rules are the ones the brief names, compress or
+        // cull, and neither of them is a boolean about helmets.
         const courses = helmed ? [-0.03, -0.10, -0.17] : [0.10, 0.44, 0.80];
         for (const rise of courses) {
           const N = crop ? 26 : 18;
@@ -9681,6 +9875,13 @@ export function buildCharacter(
             if (helmed && awayFromFace(u) < 0.50) continue;
             const v = line(u) + rise + 0.05 * Math.cos(i * 3.9 + rise);
             if (v > Math.PI / 2 - 0.12) continue;
+            // A coil's crest stands 0.38 of its length plus a strand radius off
+            // the root — that is where the `outward` term below tops out — so
+            // the room it needs is arithmetic rather than a judgement and it can
+            // be held to the ceiling exactly. Under a hood's point at the nape
+            // there is 33 mm and the lock is built full size; over the ear there
+            // is 9 mm and it is not built at all.
+            const room = hairCeil(u, v);
             dirOf(u, v, lockDir);
             faceSurface(K, lockDir, lockRoot);
             faceNormalTrue(K, u, v, lockNrm);
@@ -9698,8 +9899,16 @@ export function buildCharacter(
             const tl = Math.hypot(tx, ty, tz);
             if (tl < 0.18) { tx = 0; ty = 0; tz = -1; }
             else { tx /= tl; ty /= tl; tz /= tl; }
-            const len = (crop ? 0.030 : 0.026) * (0.80 + 0.32 * hash(identity, i * 7 + Math.round(rise * 100)));
-            const rad = (crop ? 0.0092 : 0.0080) * (0.85 + 0.30 * hash(identity, i * 11 + 3));
+            let len = (crop ? 0.030 : 0.026) * (0.80 + 0.32 * hash(identity, i * 7 + Math.round(rise * 100)));
+            let rad = (crop ? 0.0092 : 0.0080) * (0.85 + 0.30 * hash(identity, i * 11 + 3));
+            // Compress, then cull. Squeezed past 45% a coil is not a smaller
+            // curl, it is a bristle — the barbs the note above spent a paragraph
+            // getting rid of — so below that it does not exist.
+            if (Number.isFinite(room)) {
+              const k = Math.min(1, room / (0.38 * len + rad));
+              if (k < 0.45) continue;
+              len *= k; rad *= k;
+            }
             p.add(braid((t, out) => {
               // Out a little, along a lot. The normal term rises and turns over
               // inside the first third; the tangent term carries the whole way.
@@ -9772,10 +9981,27 @@ export function buildCharacter(
         // So the root is a dome: highest at the nape, where it is buried inside
         // the scalp shell and cannot be seen, and falling away to ear level at
         // both temples, where `mass` has taken it to a sliver anyway.
-        const maneRoot = (u: number) => {
+        //
+        // AND THE DOME LEFT THE SCALP SHELL BEHIND, WHICH IS THE OTHER HALF OF
+        // "A WEIRD CUTOFF ON THE SIDES". The dome falls to latitude -0.12 at
+        // the temple; the hairline the scalp shell ends at was +0.32 there. So
+        // the two hair surfaces did not meet: the mane's top edge hung 0.44 rad
+        // — 42 mm — BELOW the shell, over bare skin, and `patch` closed that
+        // free boundary with a rim strip. What the profile card showed is a
+        // wedge of hair standing off the side of the head with a razor-straight
+        // leading edge and daylight under it, which is exactly the phrase the
+        // owner used. No amount of shaping the hem or the mass could reach it,
+        // because the defect is a JOIN and neither surface owned it.
+        //
+        // The stack owns it now: the fall roots on the dome where the dome is
+        // inside the shell, and ON THE HAIRLINE ITSELF wherever the dome would
+        // drop below it. There is no free edge left to draw — everywhere the
+        // mane starts, hair is already growing.
+        const maneDome = (u: number) => {
           const a = Math.abs(u - Math.PI) / 2.18;
           return 0.17 - 0.34 * a * a;
         };
+        const maneRoot = (u: number) => Math.max(maneDome(u), line(u));
         p.add(hangingMass(K, skullY, Math.max(30, lod.shellU + 18), maneRoot, {
           // Temple round to temple. Wider than the beard's arc by a long way:
           // hair falls from the whole back half of the head, and stopping it at
@@ -9796,10 +10022,21 @@ export function buildCharacter(
           ],
           // Full over the back and the sides, dying at the temple so the face
           // is never framed by two vertical bars.
-          mass: (u) => {
-            const a = Math.abs(u - Math.PI);
-            return 0.06 + 0.94 * Math.pow(1 - smooth(0.95, 1.99, a), 0.95);
-          },
+          //
+          // TO NOTHING, not to 6%. A floor of 0.06 keeps 19 mm of fall alive at
+          // the arc's last column, so the sweep ended on a LIVE section and the
+          // patch drew an 8 mm rim across it: a second hard edge, at the temple,
+          // on top of the one the root fixes above. A mass that is meant to die
+          // has to reach zero before the parametrisation runs out.
+          //
+          // And the whole fall is scaled by the stack. Inside a coif or a hood
+          // there is no hair, because both are bags the head goes into — the
+          // huscarl's mail took 320 mm of mane straight through its side and the
+          // hood took it through the point at the back. An open helm takes none
+          // of it: the mane roots under the band and hangs clear, which is the
+          // "hair must come out from under them" the helm pass established.
+          mass: (u) => hairFall(u)
+            * Math.pow(1 - smooth(0.95, 1.99, Math.abs(u - Math.PI)), 0.95),
           // THE PARTING. A centre part runs front to back over the crown, so
           // what the back of the head shows is two masses meeting on the
           // midline. A 34% trough 0.26 rad wide at the nape is that meeting,
@@ -9834,6 +10071,14 @@ export function buildCharacter(
         // strand radius swells over the first fifth, which is what hair drawn
         // together into a plait actually does, and a leather tie sits on the
         // gather.
+        //
+        // AND IT OBEYS THE STACK LIKE EVERYTHING ELSE ON THIS HEAD. A plait is
+        // 35 mm of rope hanging 350 mm; under a cowl that is 350 mm of rope
+        // inside 6 mm of cloth. It roots at 1.28 rad, which is 0.18 rad IN
+        // FRONT of the coif's own opening, so the mailed huscarl keeps both of
+        // his — a war-lock hanging outside an aventail is the right picture, and
+        // the stack says so rather than it being an accident of two numbers
+        // that happened to agree.
         const bRoot = new THREE.Vector3();
         const bNrm = new THREE.Vector3();
         for (const s2 of [-1, 1]) {
@@ -9842,6 +10087,7 @@ export function buildCharacter(
           // enough forward that it swings past the jaw rather than down the
           // neck.
           const rootU = s2 * 1.28;
+          if (hairFall(rootU) < 0.35) continue;
           const rootV = 0.16;
           dirOf(rootU, rootV, bRoot);
           faceNormalTrue(K, rootU, rootV, bNrm);
@@ -9861,7 +10107,15 @@ export function buildCharacter(
             );
           };
           p.add(braid(bp, {
-            turns: 3.4, rows: Math.max(14, lod.limb * 2), ring: Math.max(5, lod.limb - 2),
+            // 5.6 turns, not 3.4, and this is the difference between a plait and
+            // a twisted rope. The chevron a three-strand braid draws reads as a
+            // plait when its PITCH is about two rope diameters; at 3.4 turns
+            // over 352 mm of a 35 mm rope the pitch was 103 mm — three diameters
+            // — so each strand ran nearly straight down the side of the rope
+            // with a lazy lean on it. At 5.6 the pitch is 63 mm, the strand
+            // boundaries cross the rope at 30 degrees, and the alternating
+            // chevron resolves at the fighting lens as well as the portrait one.
+            turns: 5.6, rows: Math.max(22, lod.limb * 3), ring: Math.max(5, lod.limb - 2),
             // Gathered at the root, full through the middle, tapering to the
             // tie. A rope of constant radius springing out of a scalp is a
             // handle; a rope that is thin where it leaves the hair is a plait.
@@ -9872,7 +10126,10 @@ export function buildCharacter(
           // station they sit on, so the silhouette pinches at the binding — a
           // ring inside a rope is invisible and the plait is a cone.
           const at = new THREE.Vector3();
-          for (const [t, r] of [[0.10, 0.0128], [0.965, 0.0118]] as const) {
+          // The gather binding moved off 0.10 to 0.17. At 0.10 it sat level with
+          // the outer canthus, so the front view carried a brass tick beside
+          // each eye and the eye went to those instead of to the face.
+          for (const [t, r] of [[0.17, 0.0120], [0.965, 0.0118]] as const) {
             bp(t, at);
             p.add(ring(r, 0.0034, 4, 10), brass,
               xf(at.x, at.y, at.z, Math.PI / 2 - 0.24, 0, s2 * 0.14));
@@ -10367,8 +10624,8 @@ export function buildCharacter(
       // which is `Y_BROW + 0.04`. The note twenty lines below about not putting
       // the band ON the ridge still holds and this does not break it — the ridge
       // peaks at `Y_BROW` and the rim now clears it by 5 mm rather than by 19.
-      const bandLo = lat(Y_BROW + mix(0.065, 0.005, clamp01((B.bowl - 0.76) / 0.36)))
-        - (style.mask ? 0.050 : 0);
+      // `bandLo` — the band's lower rim — is declared with the head stack, above
+      // the hair, because the hair has to emerge from under it. See there.
       const bandHi = bandLo + 0.20;
       // The two substances the whole cap is cut from. Every helm below the noble
       // tier gets the iron/steel pair it always had; the Sutton Hoo gets tinned
@@ -10923,33 +11180,10 @@ export function buildCharacter(
           }), capMetal, place.clone());
         }
       }
-      // WHERE THE MAIL IS. Declared here rather than inside the coif that draws
-      // it, because the nape fall below has to lie outside it on the one class
-      // that wears both, and a fall carrying its own idea of the coif's radius is
-      // the mirrored-definition fault this file has been bitten by twice.
-      //
-      // Started above the brow band rather than 20 mm below it. At R.y * 0.10 the
-      // coif's top ring cleared the bottom of the band, so its `patch` rim strip —
-      // 14 mm of surface facing straight up — stood out at each temple as a lit
-      // grey tab. A coif's upper edge is riveted *inside* the bowl and is never
-      // seen; 14 mm proud of the skull at this height is well within the band's
-      // own 24 mm standoff, so it is covered.
-      const coifLevels = [
-        { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
-        { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
-        { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
-        { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
-      ];
-      /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
-      const coifAt = (y: number, key: "hw" | "hd"): number => {
-        if (!heavy) return 0;
-        if (y >= coifLevels[0].y) return coifLevels[0][key];
-        for (let i = 0; i < coifLevels.length - 1; i++) {
-          const a = coifLevels[i], b = coifLevels[i + 1];
-          if (y <= a.y && y >= b.y) return mix(a[key], b[key], (a.y - y) / (a.y - b.y));
-        }
-        return coifLevels[coifLevels.length - 1][key];
-      };
+      // `coifLevels` and `coifAt` — WHERE THE MAIL IS — are declared with the
+      // head stack above the hair, because three pieces now have to agree about
+      // it: this fall, which lies outside the mail; the coif, which draws it;
+      // and the hair, which has to lie inside it.
       if (style.nape !== "none") {
         // ---- the fall off the back of the band ----
         //
@@ -12313,7 +12547,9 @@ export function buildCharacter(
         // temple, the cheekbone and the jaw are all in front of it and the head's
         // own silhouette — which now has a parietal curve to show — draws the
         // outline instead of the mail.
-        const rim = (v: number) => 1.46 + 0.34 * v * v;
+        // The mail's own opening, declared with the head stack because the hair
+        // has to know where it is. See `coifRim`.
+        const rim = coifRim;
         // The one table, read from two places — see where it is declared, above
         // the nape fall. A plate that has to lie OVER the mail cannot keep its
         // own copy of where the mail is; that is how the guard ended up 6 mm too
