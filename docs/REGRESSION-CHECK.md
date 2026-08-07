@@ -292,5 +292,11 @@ Items 1–3 are all small, all visible, and none of them is new art.
 | `art/ui/live-fullkit-desktop.png` | live tip, FULL KIT lens — pointed at his back |
 | `art/ui/yday-helmets-desktop.png` | `cfb49fc`, what was live yesterday |
 | `art/ui/yday-beards-desktop.png` | `cfb49fc`, BEARDS tab — stubble, before the wave |
-| `art/ui/armoury-{desktop,phone}.png` | `f74c669`, the full-body-in-the-ring staging |
-| `art/shots/portrait.png` | `6321e56`, the earliest capturable character |
+| `art/ui/yday-helmets-phone.png` | `cfb49fc`, phone |
+| `art/ui/aug01-armoury-{desktop,phone}.png` | `f74c669`, the full-body-in-the-ring staging |
+| `art/shots/jul30-portrait.png` | `6321e56`, the earliest capturable character |
+
+All of the above have been copied into this checkout's `art/` so they sit
+together, under the `aug01-` / `jul30-` / `yday-` / `live-` prefixes. They are
+still gitignored — they exist on this container only, and the regenerate
+commands above are the durable record.
