@@ -8093,11 +8093,41 @@ export function buildCharacter(
       // A sleeveless hide jerkin, open at the chest, cut off at the hip — the
       // berserker's hem is the highest on the roster and the reason he reads as
       // all limb.
+      // AND IT IS OPEN NOW. The audit's word for this class is HALF-STRIPPED, and
+      // what was here was a closed hide tube from shoulder to hip with a flat
+      // 140 × 340 mm slab laid on the front of it — a fully covered torso plus a
+      // plank. `art/shots/lineup.png` reads him as the most clothed man on the
+      // roster after the huscarl, which is the opposite of his whole idea.
+      //
+      // The jerkin runs round the back and both flanks and stops short of the
+      // centre front, so a hand's width of bare chest shows from throat to belt
+      // with the bone strings hanging on it. Same partial sweep the tunic panels
+      // use. He is the only class whose skin is part of his silhouette, and that
+      // is worth more to him than any amount of added kit.
+      const openGap = 0.30;
       p.add(shell(
         layer([S.shoulderY + 0.02, S.chestY - 0.02, S.waistY, tunicHem], 0.024, [0, 0, 0.002, 0.008]),
-        seg, { power: 2.3, wall: 0.016 },
+        seg, {
+          power: 2.3, wall: 0.016,
+          arc: Math.PI * 2 - openGap * 2, start: Math.PI / 2 + openGap,
+        },
       ), buff);
-      p.add(box(0.14, 0.34, 0.02), buff, xf(0, S.chestY - 0.02, S.chestHD + 0.02, 0.1, 0, 0));
+      if (lod.trim) {
+        // Laced across the opening. Four short thongs and eight eyelets — a lace
+        // is a repeated rung between two edges, and the rungs are what make it
+        // read as one; a single crossed pair is the painted X this file has now
+        // drawn wrong twice, once on a chest and once on a shin.
+        for (let i = 0; i < 4; i++) {
+          const y = mix(S.chestY + 0.055, S.waistY + 0.02, (i + 0.5) / 4);
+          const st = at(y, 0.024);
+          const z = st.hd * 0.985;
+          const x = Math.cos(Math.PI / 2 - openGap) * st.hw;
+          p.add(box(x * 2.05, 0.0075, 0.006), hide, xf(0, y, z + 0.004, 0, 0, (i % 2 ? 1 : -1) * 0.16));
+          for (const s of [-1, 1]) {
+            p.add(ring(0.0055, 0.0022, 4, 8), brass, xf(s * x, y, z + 0.003, Math.PI / 2, 0, 0, 1, 1, 0.6));
+          }
+        }
+      }
     }
 
     // THE METAL LAYER, AND THE WARDEN'S IS NOT WHAT IT WAS.
@@ -8312,8 +8342,66 @@ export function buildCharacter(
       for (let i = 0; i < 4; i++) {
         p.add(rod(0.008, 0.003, 0.06, 5), M.tinted("bone", 0xd8cfb4, { repeat: 1 }), xf(-0.06 + i * 0.04, S.chestY + 0.06, S.chestHD + 0.05, 2.6, 0, 0.2 - i * 0.13));
       }
+      // THE TORC, and it goes on the one man with a bare throat to put it on.
+      //
+      // A neck ring and arm rings are how this culture wore its wealth — a lord
+      // is a ring-giver and his men wear what he gave them — and it is the single
+      // most period-legible ornament available that is not armour. It lands right
+      // where the armoury's portrait lens is aimed, on skin, above an open
+      // jerkin, so it is the berserker's answer to "basic and ugly" at the exact
+      // framing where he was worst.
+      //
+      // It is `brass`, so it moves with the finish like every other fitting. That
+      // matters more here than anywhere: he owns no mail, and before this pass the
+      // finish had nothing on him to land on at all.
+      const torcY = S.neckRoot - 0.030;
+      const torcR = S.neckHW * 1.22;
+      p.add(ring(torcR, 0.0072, 5, 14), brass, xf(0, torcY, -0.004, Math.PI / 2 + 0.16, 0, 0, 1, 1, 0.86));
+      if (lod.trim) {
+        // Terminals. A torc is not a closed hoop — it is a twisted bar bent round
+        // with two knobbed ends meeting at the throat, and the two knobs are what
+        // stop it reading as a hoop somebody dropped over his head.
+        for (const s of [-1, 1]) {
+          p.add(ball(0.0125, 8), brass, xf(s * torcR * 0.30, torcY - 0.010, torcR * 0.80, 0, 0, 0, 1, 0.85, 0.85));
+        }
+      }
+      // Arm rings on the other bicep, where a lord's gift is meant to be seen.
+      for (let i = 0; i < (lod.trim ? 3 : 2); i++) {
+        p.add(ring(S.armR[0] * 1.06, 0.0062, 4, 12), brass,
+          xf(-S.shoulderX - 0.006, S.shoulderY - 0.10 - i * 0.028, 0, Math.PI / 2, 0, 0, 1, 1, 1.04));
+      }
     }
     if (robed) {
+      // LAYERED WOOL, which is the audit's own word for this class and the thing
+      // he did not have. He was one robe and a belt: a single garment from collar
+      // to hem in one value, which is why he reads as basic however much small
+      // detail is hung on the belt. A wisdom figure's wealth is CLOTH — he owns
+      // more of it than the fighting men and wears it in layers — so he gets a
+      // short mantle over the shoulders, ending just below the chest, in the
+      // finish's tunic dye rather than the robe's own.
+      //
+      // It does silhouette work as well as material work: the mantle's hem is a
+      // second horizontal high on the body, and he was the only class on the
+      // roster with exactly one.
+      p.add(shell(
+        layer([collar - 0.004, ramp, S.shoulderY + 0.018, S.chestY - 0.01, S.chestY - 0.055], 0.036,
+          [-0.004, 0, 0.004, 0.016, 0.026]),
+        seg, { power: 2.2, wall: 0.013 },
+      ), wool);
+      if (lod.trim) {
+        // Braid round the mantle's hem, and a pair of bone toggles at the throat
+        // that explain how it stays on. Little metal on him, on purpose — that is
+        // the line between a rune-carver and a warrior, and it is the reason his
+        // finish has to reach his cloth or it does not reach him at all.
+        p.add(shell(
+          layer([S.chestY - 0.041, S.chestY - 0.058], 0.036, [0.0245, 0.0275]),
+          seg, { power: 2.2, wall: 0.006 },
+        ), tablet);
+        for (const s of [-1, 1]) {
+          p.add(rod(0.0055, 0.0042, 0.026, 6), M.tinted("bone", 0xd8cfb4, { repeat: 1 }),
+            xf(s * 0.034, S.shoulderY + 0.008, S.chestHD + 0.042, 0.3, 0, s * 0.5));
+        }
+      }
       // Rune-carver's belt: pouches, a slate tablet and a lit amulet.
       p.add(box(0.1, 0.13, 0.06), buff, xf(0.13, S.beltY - 0.09, S.waistHD + 0.03, 0.1, -0.3, 0));
       p.add(box(0.08, 0.11, 0.05), buff, xf(-0.14, S.beltY - 0.08, S.waistHD + 0.02, 0.1, 0.3, 0));
