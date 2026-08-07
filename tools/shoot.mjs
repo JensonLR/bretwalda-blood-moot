@@ -118,6 +118,21 @@ const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "suttonho
 // The whole audit is ~100 captures, which on a GPU-less box is about two hours.
 // Each sheet is nameable on its own so it can be run a slot at a time, and that
 // is the intended way to work through it.
+//
+// 5. THESE SHEETS DO NOT ASSERT ANYTHING, AND THAT IS NOT THEIR JOB. A sheet is
+//    for a human to look at. Until `tools/cosmetictest.mjs` was written no
+//    harness in this project had ever rendered a cosmetic and asserted anything
+//    about it, so every defect the audit lists — seven helms sharing a bowl,
+//    four war paints identical under the mask, two paid colours that were the
+//    same colour — was found by eye, months late. Run
+//
+//        npm run cosmetictest
+//
+//    before you run these sheets. It measures all 47 options at both lenses in
+//    about fifteen seconds of arithmetic plus a handful of captures, writes
+//    docs/COSMETICS-SWEEP.md, and tells you which panels are worth your eyes.
+//    The sheets are then for judging what it cannot: whether the thing is any
+//    good.
 // ============================================================
 
 // -35°, not 0 and not +35. Three-quarter because head-on is precisely the
@@ -164,6 +179,47 @@ const SHEETS = {
     ].map((s) => ({
       label: s.label,
       dress: { helm: "helm_suttonhoo" },
+      turn: s.turn,
+    })),
+  },
+  // The head with nothing on it, turned. Every other sheet here photographs a
+  // *product* — a helm, a beard, a colour — and judges the head by implication,
+  // which is how five passes in a row corrected a list of features on an object
+  // nobody had looked at square. `docs/SUTTON-HOO.md` is about this exact
+  // failure.
+  //
+  // Profile is the panel that earns it. A beak, a receding chin and a long skull
+  // are all *silhouette* faults and all three are nearly invisible at the
+  // three-quarter bearing every other sheet uses; the owner's five notes came off
+  // a capture where the profile was the one thing on screen. Front-on is where
+  // the breadth of the jaw against the cheekbone and the neck against both of
+  // them can be read, and 180° is the only check on the cranial length now that
+  // the occiput has moved.
+  headturn: {
+    file: "head-turn.png", card: "facecard", cols: 4,
+    title: "THE HEAD ITSELF · bare · the rig is fixed and the man turns · profile is the honest panel",
+    shots: [
+      { label: "front 0°", turn: 0 },
+      { label: "three-quarter −35°", turn: QUARTER },
+      { label: "profile −90°", turn: -90 },
+      { label: "back 180°", turn: 180 },
+    ].map((s) => ({
+      label: s.label,
+      dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+      turn: s.turn,
+    })),
+  },
+  headturnfight: {
+    file: "head-turn-fight.png", card: "fightcard", cols: 4,
+    title: "THE HEAD ITSELF · at fight distance · the lens the player actually spends the match behind",
+    shots: [
+      { label: "front 0°", turn: 0 },
+      { label: "three-quarter −35°", turn: QUARTER },
+      { label: "profile −90°", turn: -90 },
+      { label: "back 180°", turn: 180 },
+    ].map((s) => ({
+      label: s.label,
+      dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
       turn: s.turn,
     })),
   },
@@ -352,7 +408,7 @@ const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak",
 // A misspelled preset used to fall through to "no presets named" and quietly
 // shoot the whole default set — twenty minutes of the wrong pictures. Name
 // which words are flag values so anything left over can be called out.
-const VALUE_FLAGS = new Set(["out", "w", "h", "port", "settle", ...SLOT_FLAGS]);
+const VALUE_FLAGS = new Set(["out", "w", "h", "port", "settle", "quality", ...SLOT_FLAGS]);
 const eaten = new Set();
 argv.forEach((a, i) => {
   if (!a.startsWith("--")) return;
@@ -574,8 +630,14 @@ async function main() {
     // captures that instead. On a gore preset it is the respawn check: a body
     // that came apart has to go back together, and this is the only way to look
     // at the result rather than argue about it.
+    // `--quality low|medium|high` pins the tier the page resolves, so one head
+    // can be photographed at the tier a phone actually gets AND at the tier a
+    // desktop gets. Without it a capture is always whatever `detectTier` makes
+    // of a headless box, and docs/PLATFORMS.md wants a frame from each.
+    const quality = flag("quality", null);
     const url = `${ORIGIN}/shot?${query}&clean=${CLEAN}`
       + (settle ? `&settle=${settle}` : "")
+      + (quality ? `&quality=${quality}` : "")
       + (has("revive") ? "&revive=1" : "");
     console.log(`[shoot] ${key} -> ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 300000 });

@@ -6,7 +6,9 @@
 // mouse look, the mobile auto-follow and attack magnetism from fighting over it.
 
 import * as THREE from "three";
-import { getHandedness, lockReticle, lockView, subscribeHandedness } from "../input";
+import {
+  getHandedness, lockFootMark, lockReticle, lockView, routeLook, subscribeHandedness,
+} from "../input";
 import { LAYER_UNOCCLUDED, type FrameContext, type QualitySettings } from "./quality";
 
 export type CameraMode =
@@ -55,8 +57,22 @@ export interface SummaryShot {
 
 export interface CameraRig {
   readonly camera: THREE.PerspectiveCamera;
-  /** Camera yaw in radians. Also the rotationY sent to the server. */
+  /**
+   * Camera yaw in radians. Also the rotationY sent to the server.
+   *
+   * This is the ENGINE's channel: the lock's correction, the facing assist and
+   * the photo harness write it and mean it. A look the PLAYER asked for goes
+   * through `look` instead — see the note there.
+   */
   yaw: number;
+  /**
+   * A look the player asked for, in radians, from a mouse or a thumb. Offered
+   * to the lock before it lands: with a man held the lock owns the yaw, and the
+   * travel becomes the flick that takes the next man rather than a shove the
+   * lock spends the next three frames undoing. With nobody held it is applied
+   * whole, which is free-look exactly as it was.
+   */
+  look(dx: number): void;
   setMode(mode: CameraMode): void;
   /** Aims "photo" mode. Selecting the mode without this leaves the rig put. */
   setPhotoFraming(framing: PhotoFraming): void;
@@ -92,19 +108,79 @@ const FOV_SPRINT = 61;
  */
 const SPAWN_MIN_RADIUS = 0.35;
 
+// ---------------------------------------------------------------------------
+// THE LOCK MARK
+// ---------------------------------------------------------------------------
+//
+// It sits on the glass every second of every fight, which makes it the
+// most-seen element in the game, and the man it points at is the thing the
+// player is actually trying to read. So the mark is held to one rule: SAY WHO,
+// AND OTHERWISE GET OUT OF THE WAY. The first cut was a 56 px amber ring with
+// four ticks, a pair of chevrons and an inset glow, drawn at full opacity — a
+// gunsight over an Anglo-Saxon melee, and the owner was polite about it.
+//
+// What replaced it is two hairline jaws at the sternum and a scribed line on
+// the ground he is standing on. A third of the width, a fifth of the ink, and
+// it is SILENT unless something has changed: a brief tighten when the lock
+// takes a man, a snappier one when a flick hands it another, and nothing at all
+// in between. Everything is drawn in the game's own bone-and-shadow palette,
+// each stroke doubled over a dark one so it survives daylight turf on a phone.
+//
+// Two anchors, because "who" and "where he stands" are different claims and one
+// scaled wrapper cannot carry both honestly: the jaws are placed on his chest
+// and the line on his feet, each by its own projection.
+
 /**
- * Chest height on the man the lock is holding. The reticle is drawn there
- * rather than at his feet because a ground mark disappears under the man in
- * front of him the moment three of them converge, and the lock has to be
- * readable in exactly that case.
+ * Sternum height on the man the lock is holding — where the jaws close.
+ *
+ * Measured off captures rather than guessed, against a warden whose feet and
+ * head-top were both in frame: these men stand about 1.9 m, so his sternum is
+ * at 1.37 and his belt at 1.12, and the mark wants the soft ground between
+ * them. High enough not to read as a belt buckle, low enough not to crowd the
+ * throat, and on the one part of him nothing else is ever drawn — the nameplate
+ * and the health bar are above his head, the ground mark is at his feet.
  */
-const LOCK_MARK_HEIGHT = 1.45;
-/** The reticle is drawn at full size at this range and shrinks with distance,
- *  the same way a real sight would. Clamped so it never becomes a dot or eats
- *  the screen. */
+const LOCK_MARK_HEIGHT = 1.28;
+/** The mark is drawn at full size at this range and shrinks with distance, the
+ *  same way a real sight would. Clamped so it never becomes a dot or shouts. */
 const LOCK_MARK_REF_DIST = 6.0;
-const LOCK_MARK_MIN_SCALE = 0.55;
-const LOCK_MARK_MAX_SCALE = 1.5;
+const LOCK_MARK_MIN_SCALE = 0.62;
+const LOCK_MARK_MAX_SCALE = 1.35;
+/**
+ * The acquire tighten: the jaws arrive this much too wide and close onto him.
+ * A quarter of a second, once, and then the mark holds still — motion is how a
+ * mark says something has changed, so a mark that is always moving has nothing
+ * left to say with it.
+ */
+const LOCK_SNAP_SECONDS = 0.22;
+const LOCK_SNAP_SPREAD = 0.46;
+/** A pick the PLAYER made gets a shorter, harder flick than one the scoring
+ *  made for him: he already knows it happened and only wants confirming. */
+const LOCK_FLICK_SECONDS = 0.15;
+const LOCK_FLICK_SPREAD = 0.32;
+/** How much brighter the mark goes at the top of a snap. Small: the tighten is
+ *  the event, and a flash on top of it would be two announcements of one thing. */
+const LOCK_SNAP_LIFT = 0.4;
+
+/**
+ * WHERE THE MAN IS DRAWN, per player id — his rig group, registered by
+ * render/hud3d.ts as it attaches the nameplate that tracks the same object.
+ *
+ * This exists because the mark was reading `target.position` off the wire while
+ * a remote body renders 1.5 packet intervals in the past (REMOTE_DELAY_PACKETS,
+ * render/anim.ts). At a run that is ~83 ms and ~0.34 m: the mark LED the man,
+ * and two captures caught it sitting on empty turf beside him. The wire is the
+ * right answer for the lock's own scoring — it is what the server will judge a
+ * blow against — and the wrong answer for a mark on the glass, whose whole job
+ * is to point at the man the player can see. So the mark follows the rig.
+ */
+const drawnBodies = new Map<string, THREE.Object3D>();
+
+/** Register (or, with null, forget) the object a warrior is drawn on. */
+export function noteDrawnBody(id: string, body: THREE.Object3D | null): void {
+  if (body) drawnBodies.set(id, body);
+  else drawnBodies.delete(id);
+}
 
 /**
  * Which shoulder the camera looks over, as a sign on the lateral offset.
@@ -141,9 +217,30 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
 
   const orbitTarget = new THREE.Vector3();
   const markPoint = new THREE.Vector3();
+  const footPoint = new THREE.Vector3();
+  const wirePoint = new THREE.Vector3();
+  const bodyPoint = new THREE.Vector3();
   const viewPoint = new THREE.Vector3();
-  /** Where the last painted reticle landed, for tools/touchtest.mjs. */
-  const lockPaint = { sx: 0, sy: 0, ndcZ: 0, viewZ: 0, dist: 0, w: 0 };
+  /**
+   * Where the last painted mark landed, for tools/touchtest.mjs.
+   *
+   * `source` and `leadPx` are the record of the lead bug: `wireSx` is where the
+   * old code would have painted this same frame, and the gap between them is
+   * the distance the mark used to run ahead of the man.
+   */
+  const lockPaint = {
+    sx: 0, sy: 0, footY: 0, ndcZ: 0, viewZ: 0, dist: 0, w: 0,
+    source: "none" as "none" | "rig" | "wire",
+    wireSx: 0, leadPx: 0, leadM: 0,
+    /** Both answers to "where is he", in world units, for the harnesses. */
+    bodyX: 0, bodyZ: 0, wireX: 0, wireZ: 0, bodies: 0,
+  };
+  /** Which man the mark is on, and how far into its one animation it is. */
+  let markId: string | null = null;
+  let markSwitches = -1;
+  let snapT = 99;
+  let snapDur = LOCK_SNAP_SECONDS;
+  let snapSpread = 0;
   // Seeded rather than left at 1: `setViewport` is called from the resize
   // handler, so on a phone that never rotates it is never called at all, and a
   // reticle projected against a 1×1 viewport is painted in the top-left corner
@@ -250,32 +347,64 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     camera.updateProjectionMatrix();
   }
 
+  /** Hide both halves of the mark, without touching the DOM if they already are. */
+  function hideLock(el: HTMLElement, foot: HTMLElement | null): void {
+    if (el.style.opacity !== "0") el.style.opacity = "0";
+    if (foot && foot.style.opacity !== "0") foot.style.opacity = "0";
+    lockPaint.source = "none";
+  }
+
   /**
-   * Put the lock's reticle on the man it is holding.
+   * Put the lock's mark on the man it is holding.
    *
    * The rule this exists for: never carry information in one channel only. The
    * camera holding a man is not, by itself, a statement that he is LOCKED —
    * it looks exactly like a player who happens to be pointing that way — so the
-   * lock says so on the frame as well. Written straight onto the element's
-   * transform rather than through React, because it moves every frame and the
+   * lock says so on the frame as well. Written straight onto the elements'
+   * transforms rather than through React, because they move every frame and the
    * interface must not re-render at frame rate on a phone.
    *
    * The projection lives here because the camera does. `input.ts` decides who
-   * is held; this decides where on the glass he currently is.
+   * is held; this decides where on the glass he currently is — and, since the
+   * lead bug, WHICH of the two answers to that question is the honest one. See
+   * `drawnBodies` above: the wire says where the server last put him, the rig
+   * says where the player can see him, and a mark is a statement about the
+   * picture.
    */
-  function paintLock(): void {
+  function paintLock(dt: number): void {
     const el = lockReticle();
+    const foot = lockFootMark();
     if (!el) return;
     const v = mode === "follow" ? lockView() : null;
     if (!v || v.blend < 0.02) {
-      if (el.style.opacity !== "0") el.style.opacity = "0";
+      hideLock(el, foot);
+      // Hidden is forgotten: the next man the lock takes gets the acquire
+      // tighten rather than sliding silently in from wherever the last one fell.
+      markId = null;
       return;
     }
-    markPoint.set(v.x, LOCK_MARK_HEIGHT, v.z);
+
+    // ---- who, and where he is DRAWN ----
+    const body = drawnBodies.get(v.id) ?? null;
+    if (body && body.parent) {
+      // The rig is a child of the scene and anim.ts has already placed it this
+      // frame, push and all; this only refreshes the derived matrix.
+      body.updateWorldMatrix(true, false);
+      bodyPoint.setFromMatrixPosition(body.matrixWorld);
+      lockPaint.source = "rig";
+    } else {
+      // No rig for him yet — one frame at most, on the frame he joins. The wire
+      // is a better answer than nothing.
+      bodyPoint.set(v.x, 0, v.z);
+      lockPaint.source = "wire";
+    }
+    markPoint.set(bodyPoint.x, bodyPoint.y + LOCK_MARK_HEIGHT, bodyPoint.z);
+    footPoint.copy(bodyPoint);
+
     const dist = camera.position.distanceTo(markPoint);
     // The camera is positioned by hand above and only the renderer refreshes
-    // its world matrix, so without this the reticle is projected through LAST
-    // frame's lens — which at 120 Hz is a reticle that visibly trails the man.
+    // its world matrix, so without this the mark is projected through LAST
+    // frame's lens — which at 120 Hz is a mark that visibly trails the man.
     camera.updateMatrixWorld();
     // Behind the lens, tested in VIEW SPACE rather than off the projected z.
     // `project` divides by w, and for a point at or behind the eye plane w
@@ -284,27 +413,74 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     // of an out-of-frame point being clamped by nothing at all.
     viewPoint.copy(markPoint).applyMatrix4(camera.matrixWorldInverse);
     if (viewPoint.z > -camera.near) {
-      if (el.style.opacity !== "0") el.style.opacity = "0";
+      hideLock(el, foot);
       return;
     }
     markPoint.project(camera);
     // And a belt for the braces: anything this far outside the frustum is not
     // on the man, whatever the arithmetic says.
     if (Math.abs(markPoint.x) > 4 || Math.abs(markPoint.y) > 4) {
-      if (el.style.opacity !== "0") el.style.opacity = "0";
+      hideLock(el, foot);
       return;
     }
     const sx = (markPoint.x * 0.5 + 0.5) * viewW;
     const sy = (-markPoint.y * 0.5 + 0.5) * viewH;
+    // His feet, projected in their own right. Clamped rather than trusted: the
+    // chest can be in front of the eye plane while the feet are not — a man
+    // stood on top of the lens — and `project` divides by a w approaching zero,
+    // which is how the old reticle once landed 22589 px off centre. A ground
+    // mark a screen height off the bottom is off the bottom; that is enough.
+    footPoint.project(camera);
+    const footY = Math.max(-viewH, Math.min(viewH * 2, (-footPoint.y * 0.5 + 0.5) * viewH));
+
+    // What the wire would have painted this frame, kept only so the harness can
+    // measure the lead the rig position removes. Nothing draws from it.
+    wirePoint.set(v.x, LOCK_MARK_HEIGHT, v.z).project(camera);
+    lockPaint.wireSx = (wirePoint.x * 0.5 + 0.5) * viewW;
+    lockPaint.leadPx = lockPaint.wireSx - sx;
+    lockPaint.leadM = Math.hypot(v.x - bodyPoint.x, v.z - bodyPoint.z);
+    lockPaint.bodyX = bodyPoint.x;
+    lockPaint.bodyZ = bodyPoint.z;
+    lockPaint.wireX = v.x;
+    lockPaint.wireZ = v.z;
+    lockPaint.bodies = drawnBodies.size;
     lockPaint.sx = sx;
     lockPaint.sy = sy;
+    lockPaint.footY = footY;
     lockPaint.ndcZ = markPoint.z;
     lockPaint.viewZ = viewPoint.z;
     lockPaint.dist = dist;
     lockPaint.w = viewW;
+
+    // ---- the one animation ----
+    // A new man is an event and gets a tighten. A man the PLAYER took with a
+    // flick gets the shorter, harder one: he knows what he did and only wants
+    // it confirmed. Everything else is stillness, on purpose.
+    if (v.id !== markId) {
+      const flicked = markId !== null && v.switches !== markSwitches;
+      snapDur = flicked ? LOCK_FLICK_SECONDS : LOCK_SNAP_SECONDS;
+      snapSpread = flicked ? LOCK_FLICK_SPREAD : LOCK_SNAP_SPREAD;
+      snapT = 0;
+      markId = v.id;
+      markSwitches = v.switches;
+    }
+    snapT += dt;
+    // Ease-out cubic on the way in, so it lands rather than arriving linearly.
+    const u = Math.min(1, snapT / snapDur);
+    const open = (1 - u) * (1 - u) * (1 - u) * snapSpread;
+
     const scale = Math.max(LOCK_MARK_MIN_SCALE, Math.min(LOCK_MARK_MAX_SCALE, LOCK_MARK_REF_DIST / Math.max(0.5, dist)));
-    el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -50%) scale(${scale.toFixed(3)})`;
-    el.style.opacity = Math.min(1, v.blend).toFixed(3);
+    const alpha = Math.min(1, v.blend * (1 + open * (LOCK_SNAP_LIFT / Math.max(0.01, snapSpread))));
+    // The jaws carry the tighten; they are the half of the mark that says WHO.
+    el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -50%) scale(${(scale * (1 + open)).toFixed(3)})`;
+    el.style.opacity = alpha.toFixed(3);
+    if (foot) {
+      // The ground line is placed by its OWN projection rather than hung off
+      // the jaws at a fixed offset: the distance scale is clamped at both ends,
+      // and anything hung off it walks up the man's shins the moment it is.
+      foot.style.transform = `translate3d(${sx.toFixed(1)}px, ${footY.toFixed(1)}px, 0) translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+      foot.style.opacity = (alpha * 0.9).toFixed(3);
+    }
   }
 
   function orbit(dt: number, radius: number, height: number, spin: number, lerp: number, lookY: number): void {
@@ -329,6 +505,14 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     },
     set yaw(v: number) {
       yaw = v;
+    },
+
+    look(dx) {
+      // Offered to the lock first. With a man held it takes the whole of it and
+      // spends it on choosing WHICH man; with nobody held it hands it straight
+      // back and this is free-look, unchanged. The lock's own corrections do
+      // not come through here — they are not the player asking for anything.
+      yaw += routeLook(dx);
     },
 
     setMode(next) {
@@ -420,7 +604,7 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
       // After the rig has moved, so the reticle is projected through this
       // frame's camera rather than the last one's — a lag of one frame here is
       // a reticle that trails the man at 120 Hz on a phone.
-      paintLock();
+      paintLock(dt);
 
       if (shakeAmount > 0.01) {
         camera.position.x += (Math.random() - 0.5) * shakeAmount * 0.12;
@@ -463,6 +647,21 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
        */
       /** Where the lock reticle was last painted, and the numbers behind it. */
       get lockPaint() { return { ...lockPaint }; },
+      /**
+       * Every warrior the mark could be put on, and where his rig is standing.
+       * The one readback that can tell "the mark is on the wrong man" from "the
+       * mark is on the right man in the wrong place" — which are different bugs
+       * and cost an hour to tell apart without it.
+       */
+      get bodies() {
+        const out: { id: string; x: number; z: number; inScene: boolean }[] = [];
+        for (const [id, body] of drawnBodies) {
+          body.updateWorldMatrix(true, false);
+          bodyPoint.setFromMatrixPosition(body.matrixWorld);
+          out.push({ id, x: bodyPoint.x, z: bodyPoint.z, inScene: !!body.parent });
+        }
+        return out;
+      },
       get shoulder() {
         return (camera.position.x - focusX) * -Math.cos(yaw)
           + (camera.position.z - focusZ) * Math.sin(yaw);

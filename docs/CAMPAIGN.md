@@ -10,6 +10,20 @@ say what would change my mind.
 
 ---
 
+> **The live order of work is now `docs/BACKLOG.md`.** That file reconciles
+> every document in this directory against the tree, gives each item a state
+> with the commit or the empty grep that proves it, and ends with a
+> recommendation. The eight waves below are the original sequencing and are
+> kept because the *reasoning* in them is still the reasoning; five of the
+> items they assume are unbuilt are in fact built, and the backlog says which.
+>
+> The one correction worth pulling forward into this file: **wave 3 (profiles)
+> is done, and it did not stop the economy being auditable — it made it
+> auditable.** Gold, unlocks and cosmetics are server-authoritative behind
+> `/api/profile/*`, validated against `ARMOURY` before they land. The audit's
+> repricing work in `COSMETICS-AUDIT.md` §5 is therefore unblocked and has been
+> since profiles landed. Nothing has acted on it.
+
 ## Order of work, and why this order
 
 Each wave unblocks the next. This is not arbitrary sequencing.

@@ -7,6 +7,522 @@ change is made.
 Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 Current reference: **`art/shots/v12/`**. A/B against `v11/`.
+The head's own turntable: **`art/shots/judge9c/`** (portrait) and
+`art/shots/judge9b/head-turn-fight.png` (fight range). A/B against
+`art/shots/judge/`, which is the capture the owner's three notes came off.
+
+**The A/B against what is LIVE**, taken for the land judgement below and the
+only capture set in this file shot from two trees with one instrument:
+
+```
+art/shots/judgeA-high/  art/shots/judgeA-med/  art/shots/judgeA-low/   origin/main cfb49fc  (LIVE)
+art/shots/judgeB-high/  art/shots/judgeB-med/  art/shots/judgeB-low/   this branch 60fbeae
+```
+
+Regenerate with `node tools/shoot.mjs headturn headturnfight --quality
+{low,medium,high} --out <dir>`, one tier at a time, from a production build.
+`--quality` is what makes a two-viewport judgement possible at all: sheets use
+the card's own fixed lens so `--w/--h` never reaches them, and `detectTier()` on
+a headless box always answers the same thing. **desktop = `high`, mainstream
+phone = `medium`, weak phone = `low`** (`render/quality.ts:204`).
+
+---
+
+## THE LAND JUDGEMENT — 6 Aug 2026 — SHIPPED, and what shipped broken
+
+76 commits went to `main` at this tip. The test applied was **not** "does the
+head reach 8" — two judgements have already held this branch on that bar and
+between them kept the reticle, the helm seating, the cosmetic harness, the sweep
+table and the platform correction off the live game for two days. The test
+applied was **is anything here a regression against what live players have
+today**, measured from frames of both trees.
+
+**Nothing was.** Everything below is a fault that SHIPPED. It is here so the next
+wave inherits a list instead of rediscovering it.
+
+### What the head A/B actually shows, by tier
+
+| bearing | live `cfb49fc` | branch `60fbeae` | verdict |
+|---|---|---|---|
+| profile, desktop | no nose — a pug bump on an egg; ear is a **torus with daylight through the middle**; chin runs straight from lip into the throat | nasal bridge and dorsum, a mental fold, a gonial corner, an ear that is a closed shell with helix, concha and lobe | branch |
+| three-quarter, desktop | a hard faceted **plane break** creasing inner brow to jaw | no crease | branch |
+| back 180°, desktop | one unbroken egg | inion, nuchal hollow, lambdoid flattening, temporal plane | branch |
+| front, desktop | painted slash brows and two dark slots on a smooth ball | brow that casts, orbits, nose with a tip, vermilion, chin | branch |
+| **skin, every bearing, every tier** | a ruled square lattice of identical stamps — the woven cross-hatch. Forehead patch, band-passed 3–12 px: lattice peak **18.20x** the band mean | soft incommensurate mottle: **7.91x** at `high`, **11.84x** at `low` | branch |
+| **fight distance, every tier** | ~35 px of pale blob | ~35 px of pale blob | **no difference either way** |
+
+The fight-distance row is the one that decides "regression": the lens a player
+spends the match behind cannot tell these two heads apart, so nothing a live
+player does today got worse. The shop lens is where the branch's gain is, and it
+is the lens 2400 gold is spent through.
+
+### The gate this shipped on — every final line, on this tip
+
+```
+npm run build              ✓ Compiled successfully · 5/5 static pages            exit=0
+npx tsc --noEmit           (no output)                                           exit=0
+npm run lint               ✖ 11 problems (9 errors, 2 warnings)  — IDENTICAL on cfb49fc, pre-existing in src/
+npm run playtest           [playtest] 34/34 controls working                     exit=0
+npm run touchtest          [touchtest] 27/27 touch assertions passing            exit=0
+node tools/firetest.mjs    [firetest] 7/7 claims proven                          exit=0
+npm run profiletest        [profiletest] 22/22 checks passing                    exit=0
+    with a database        [profiletest] 68/68 checks passing                    exit=0
+npm run soundtest          [soundtest] 22/22 claims proven                       exit=0
+node tools/phonesound.mjs  [phonesound] 7/7 claims proven                        exit=0
+node tools/bindsynctest    [bindsync] 8/8 checks passing                         exit=0
+node tools/cameratest.mjs  [cameratest] 13/13 passed                             exit=0
+npm run summaryflow        [flow] 11/11 passed                                   exit=0
+npm run cheattest          [cheattest] 40/40 checks passing   (fresh postgres)   exit=0
+node tools/latencytest     JUDDER VERDICT: 17/17 checks pass — PASS              exit=0
+node tools/headmeasure     3 ratios outside tolerance · 0 of 15 SILHOUETTE assertions FAILED
+node tools/wearmeasure     [wear] PASS: 10/10 helmets seated                     exit=0
+npm run cosmetictest       [cos] 18/18 checks passed · 47 options, 55 pairs      exit=0
+```
+
+`playtest` and `touchtest` both came back green **first run** this time. That is
+not evidence the flake is fixed — see FAULT 5. It is one sample of a gate that
+has been measured at one failure in three, and it is exactly the kind of run that
+would have been believed.
+
+`cosmetictest` regenerated `docs/COSMETICS-SWEEP.md` byte-identical to the
+committed table apart from the date and the wall clock (1091 s → 929 s). A
+harness that reproduces its own published output is worth more than the assertion
+count beside it.
+
+### What it costs, measured on one instrument against both builds
+
+`tools/perf.mjs` copied into a worktree at `cfb49fc` and run against main's own
+production build, so the counter is identical on both sides. The fps figures are
+SwiftShader's and mean nothing; the draws and triangles are the same numbers a
+player's phone renders.
+
+| tier | draws `cfb49fc` | draws `60fbeae` | Δ | tris `cfb49fc` | tris `60fbeae` | Δ |
+|---|---|---|---|---|---|---|
+| **low** (weak phone) | 739 | **739** | 0 | 307,889 | **341,183** | **+10.8%** |
+| **medium** (the phone) | 3801 | **3737** | **−64** | 1,731,422 | **1,820,952** | +5.2% |
+| **high** (desktop) | 4304 | **4234** | **−70** | 2,400,620 | **2,431,854** | +1.3% |
+
+**Draw calls fall or hold on every tier.** Triangles rise, and all of the rise is
+the head: `LOD.low` went 14×10 → 30×30 and `LOD.medium` 30×30 → 40×44, bought
+partly back out of `body` and `limb`. That is a real cost paid on the tier phones
+get, for a head that still does not pass — **it must not rise again before the
+head reads.** These are the recorded baselines now.
+
+### FAULT 1 — the phone floor under-samples a face that now has content
+
+**Ships. Measured. Worst thing on this list.**
+
+`art/shots/judgeB-low/cards/headturn-front_0_.png` against
+`art/shots/judgeA-low/cards/headturn-front_0_.png`. At `low` the branch's nose,
+philtrum and chin read front-on as **one continuous keel** from brow to below the
+jaw, with the mandible closing to a V. Live's front-on at the same tier is a
+featureless egg with painted brows. Both fail axis 5; the branch fails it
+differently, and a keel is a louder failure than a blank.
+
+The cause is arithmetic and it is in the file already. `LOD.low` is
+`headU: 30, headV: 30` (`characters.ts:1655`) — raised from live's **14×10**, so
+this branch is a large improvement at this tier and still under Nyquist for the
+tightest creases, which the comment above the table admits in as many words. The
+mesh can see the brow, the socket and the dorsum; it cannot see the alar crease
+or the columella undercut that give the nose sides, so the sides vanish and what
+is left is the midline.
+
+**Do not fix this by flattening the nose.** The two honest fixes are (a) take
+`low` to the same 40×44 the other two tiers carry — the head is one merged
+geometry per warrior and the note at `characters.ts:1630` already argues this is
+a correctness number, not a quality one — and measure the cost at the tier, or
+(b) widen the alar and columella terms at `low` only, the same way the philtrum
+was widened to clear its own sampling limit. (a) first; it is one number.
+
+**It is not a regression:** a `low` device is a weak phone (`cores <= 4 ||
+memoryGb <= 4 || minDimension <= 320`), a mainstream phone gets `medium`, and
+`medium` on this branch carries the full 40×44 head where live gives it 30×30.
+
+### FAULT 2 — the mass relation is still open, and it is still unmeasured
+
+Unchanged from the entry below: front-on is the weakest bearing at every tier and
+the read is "a small face on a large smooth dome". Four proportions have now been
+measured and all four are at or better than life (`facePanel` 0.795 against 0.72,
+`craniumShare` 0.342, `breadthOverHeight` 0.703, `lengthOverHeight` 0.843), so
+**stop reaching for the proportions**. The two candidates in order are the
+features' share of the face and the complexion narrowing what geometry made
+broad. Neither is measured.
+
+### FAULT 3 — three ratios still outside tolerance, and two of them measure a covered throat
+
+`node tools/headmeasure.mjs` → `3 ratios outside tolerance · 0 of 15 SILHOUETTE
+assertions FAILED` (was 6 and 0 of 12 at the last judgement).
+
+```
+jawOverCheek     0.774 0.788 0.807   0.860±0.080   OUT by 0.006
+neckOverHead     0.824 0.843 0.866   0.750±0.090   OUT by 0.026
+neckOverJaw      1.039 1.087 1.123   1.000±0.120   OUT by 0.003
+```
+
+`neckOverHead` and `neckOverJaw` are asserted on a huscarl whose `CLASS.gorget`
+is `1.0` — the throat is a leather collar from jaw to yoke and no skin neck is
+visible on the class every head sheet is shot on. **Retire them or re-site them
+on a `gorget: 0.0` class** (runekeeper or berserker). `jawOverCheek` is rounding
+against a bizygomatic that is 22% over life by art direction; rewrite the
+tolerance or delete it. Nothing here is worth sculpting for.
+
+### FAULT 4 — the phone lost the flick chevrons with the gunsight
+
+The old lock reticle drew a pair of chevrons on mobile only, saying which way the
+thumb goes to take the next man. The quiet mark that replaced it does not
+(`GameHud.tsx`, the `isMobile.current && (...)` block is gone). The gesture still
+works and `touchtest` still proves it; what went is the affordance that told a
+new player it exists. Small, real, and cheapest to fix in the tutorial line
+rather than by putting ink back on the glass.
+
+### FAULT 5 — two gates are not deterministic, and one of them was believed
+
+Carried forward and **still open** — see the entry further down. `touchtest` fails
+about one run in three at 160° of facing error; `playtest` fails about one run in
+three on a mouse sweep its own harness did not register. Two runs agreeing is what
+a person uses to decide something is real, and here two runs agreed on a false
+positive. Both need their input synthesis to wait on the client having *received*
+the pointer delta rather than on a wall clock. **This is the top item of the next
+wave** and it is the only thing on this list that makes a verdict untrustworthy
+rather than a picture ugly.
+
+### FAULT 6 — the shop still sells four cloaks that are one mesh, at portrait
+
+`npm run cosmetictest` is **18/18** and the three 0.00% shop pairs are closed at
+fight distance. What is not closed is the price ladder itself: the geometry now
+differs, but `COSMETICS-AUDIT.md §5`'s cut/reprice list has still not been acted
+on, and all four war paints remain byte-identical under the Sutton Hoo mask (a
+110g paint invisible under a 2400g helm). Correct behaviour from the mask; a shop
+problem at the till.
+
+### FAULT 7 — two unexplained console errors on the phone armoury load
+
+`net::ERR_CONNECTION_RESET` and a `404`, reproduced on both `armourycard.mjs` and
+a bare probe at 390×844. Named twice now and diagnosed never.
+
+---
+
+## The head, pass eight: the ear, the crease and the grid are closed; the mass is not
+
+**Read this before touching the face.** Eight passes now. The method that finally
+holds is from the seventh and must not be lost: the profile is AUTHORED as an
+outline (`SAGITTAL`) and the midline is PINNED to it, and the gate asserts on the
+SILHOUETTE rather than on ratios between landmarks. Do not go back to tuning
+gaussians against a list of adjectives.
+
+This pass took the owner's three notes off `art/shots/judge/cards/`. Two are
+closed with a frame behind them, one is half closed, and the honest verdict on
+the remaining half is at the bottom.
+
+### 1. CLOSED — the ear was a torus with daylight through it
+
+The build was `ball + torus + ball + torus + ball`. A sum of primitives has no
+outline, which is the identical failure this file already diagnosed and fixed for
+the head itself, and two things followed from it: the ring's hole is only covered
+from the one bearing it was checked at, and every primitive was seated at a
+single half-breadth taken at ONE latitude while the skull it lands on tapers — so
+the bottom of the rim stood outside the head and the sky came through under it.
+
+Now ONE closed radial shell per ear (`EAR_OUTLINE`, `EAR_SECTION`, `earPoint`,
+`auricle`), 58 x 33 mm, with a helix crest, an antihelix, a tragus and a concha
+floor that is closed at the back — and with the rim's depth **measured** per angle
+off the skin it lands on rather than authored, then buried by `EAR_SEAT`.
+
+**S6 was the other half of this defect and is the more important fix.** It was one
+number, `earStandoff`, and it passed at 12.7 mm on the torus — because a standoff
+is a property of one curve and cannot tell a shell from a curtain ring nailed to a
+head. It is now four numbers, and the one that bites is `earSeat`: the worst point
+of the rim against the skin under it, which must be NEGATIVE. Proof that it bites
+rather than merely being present — re-seating the rim on a plane, as the five
+primitives did, and running the gate:
+
+```
+  earSeat                 13.364    14.699    16.254  -9.000..-0.500   FAIL
+[head] FINAL: 6 ratios outside tolerance · 1 of 15 SILHOUETTE assertions FAILED
+```
+
+### 2. CLOSED — the mid-face plane break, and it was an envelope
+
+"A hard-edged plane break creasing from inner brow to jaw at three-quarter, and
+the nose reads as an upturned pug with the subnasal mass pushed forward as one
+block."
+
+Both halves are one line. The pin splits its residual into a broad half (the
+facial skeleton coming forward off the braincase) and a narrow half (the tip over
+the subnasale, the vermilion over the fissure), and **both were being delivered
+through `massEnvelope`** — a plateau with a shoulder. That is correct for the
+plate, because a maxilla is genuinely flat across the front of a face. On the
+narrow half it puts a flat panel down the middle of the face out to 0.16 rad and
+then a shoulder, and since `PIN_W` widens as it descends (0.35 at the nose, 0.58
+at the lip, 0.62 at the chin) the shoulder sweeps outward as it falls. Inner brow
+to jaw. The flat top is the pug.
+
+`ridgeEnvelope` — a raised cosine, zero derivative at the midline and zero again
+at the edge — replaces it on the narrow half only. The midline profile is
+untouched (the envelope is 1 at bearing zero), so every S1/S2/S3 assertion holds.
+
+Two more things the frame said were missing and the arithmetic agreed with:
+- **the philtrum was below Nyquist ACROSS.** 0.035 of sigma in x against 40
+  columns, which is 0.157 rad — four and a half times under. There was nothing
+  there to see. 0.085 now, which is half the column spacing and also a 14 mm
+  philtrum, with its two crests.
+- **no mental fold.** Three rows straight from pogonion to gnathion is an arc.
+  `SAGITTAL` gains a row at −0.820 holding the chin's front face out, so the drop
+  to gnathion is a corner. `gonialOverArc` 4.77 -> 6.42.
+
+### 3. HALF CLOSED — the cranial vault
+
+"An unbroken egg. Enormous, smooth, featureless at 180 degrees, with a small face
+crammed into its lower front quarter."
+
+What the vault now has, and the 180° and 90° panels of `art/shots/judge9/` show
+all three: an **occipital curve** (the inion as a distinct mass with the nuchal
+plane hollowed under it, and a lambdoid flattening above, so the back reads as two
+planes meeting at a landmark instead of one arc), a **temporal fossa** — a broad
+6 mm plane from the lateral orbit back to the ear with a superior temporal line
+above it, where what was there before was a 2.5 mm thumbprint — and a **brow that
+casts**.
+
+The brow is worth a paragraph because the obvious fix is wrong and costs an hour.
+Raising the ridge's crest to steepen its underside takes the shop from 10/10
+helmets seated to **2/10**: every helm in the game seats its bowl on that exact
+band and `wearmeasure` puts the clearance under a millimetre. The overhang is the
+same angle whether you lift the ridge or drop the skin under it, and only one of
+those grows the head into the bowl sitting on it. So the crest keeps its 9 mm and
+the orbital margin below now cuts 9 mm instead of 4.
+
+**What is NOT closed: the mass relationship.** Front-on
+(`art/shots/judge9c/cards/headturn-front_0_.png`) is still the weakest bearing by
+a distance and the read is unchanged: a small face on a large smooth dome. This
+is the same item the seventh pass logged and could not measure.
+
+**A new measurement, and it DISPROVES the standing theory.** `facePanel` asks how
+much of the head's breadth the face occupies at the eye line — swept from outside
+the nose at bearing 0.30 out to where the surface has fallen 15 mm behind the
+cheek, which is where a viewer stops reading "face" and starts reading "side of
+head". The theory for three passes has been that the face is narrow. **It is
+not:** 139–164 mm of panel on a 176–206 mm head, 0.76–0.83 against a life 0.72.
+The face is if anything slightly broader than life.
+
+So the read is real and it is not breadth, and it is not `craniumShare` (0.338
+against a canon 0.35), `breadthOverHeight` (0.703 against a life 0.67) or
+`lengthOverHeight` (0.843 against 0.845) either. All four now measured, all four
+at or better than life. Whatever carries this read is something else, and the next
+pass should stop reaching for the proportions.
+
+*(A warning for whoever writes the next probe: the first cut of `facePanel` took
+its datum at the midline and reported 0.116 — a face a ninth of the head's
+breadth — which would have sent this straight back to widening a face that is not
+narrow. At the eye line the MIDLINE IS THE NOSE, so a fall measured from bearing
+zero is the nose's own falloff. `headSilhouette`'s S7 note says exactly this and
+it got made anyway.)*
+
+**The two candidates left, in order.** Neither is measured:
+1. **The features' share of the face, rather than the face's share of the head.**
+   The eyes, nose and mouth occupy a vertical band from `Y_EYE` to `Y_LIP` — about
+   a fifth of the head's height — with large unbroken cheek, temple and forehead
+   around it. Larger, fewer, more certain features is the stylised answer and it
+   costs nothing in geometry.
+2. **The complexion is narrowing what the geometry made broad.** The panel is
+   151 mm and the LIT part of it front-on is far less than that. This file has
+   already caught the same field painting the face narrow once ("the silhouette
+   measures 190 mm at the cheekbone against 163 at the jaw, which is a broad face.
+   It was being *painted* narrow") and halved the buccal terms for it. Measure the
+   luma across the face at the eye line on the front card before touching any
+   geometry.
+
+**What the next pass should do about it.** Take the owner's explicit offer and
+commit to the stylised head rather than to realism: the face's job is the armoury
+portrait at 300–400 px where a player spends 2400 gold, and at fight distance the
+judge already found "no defect, no character" in a 30 px blob. The vault work
+above is that choice being made — confident planes with landmarks between them —
+and the next lever is the same one applied to the face: fewer, larger, more
+certain features. **Do not** do a parameter sweep, and do not reach for the nose.
+
+### What it costs
+
+Same instrument, low tier, `dd7821f` against this tip:
+
+```
+was   739 draw calls  337,615 triangles      (this branch, before this pass)
+now   739 draw calls  341,189 triangles
+```
+
+Draw calls unchanged. The ear itself is *cheaper* than the five primitives it
+replaces — 28 x 9 quads is 504 triangles a side against 406 for the ball, torus,
+ball, torus, ball, but the shell carries two materials into the head's merge where
+the primitives carried three, so the material count came down as the triangle
+count went up. The rest of the +3,574 is the cloak and beard work landing in the
+same window, not the head.
+
+### Two new defects on the ear, logged rather than chased
+
+Both are on the shell this pass built and both are visible in
+`art/shots/judge9c/cards/headturn-profile_90_.png` at 7x.
+
+1. **A violet rim down the inner wall of the helix.** 69 pixels, mean RGB
+   (153, 85, 100) against skin at (202, 113, 68) nearby — much more blue at
+   similar red, which is the night sky. The inner wall of the rim is the one
+   steeply up-and-outward-facing surface on the head, so it takes the arena's cool
+   hemisphere and environment square on over a warm albedo. It is not the shade
+   tone (0x9b7456 is brown) and it is not the complexion's flush (which removes
+   blue). Left alone deliberately: it is an interaction with the arena rig and the
+   environment intensity, not with the head, and this wave owns the head.
+2. **The bowl is faintly faceted.** Fixed once already this pass — seven radial
+   rings put the helix crest at 0.78 between samples at 0.714 and 0.857, so the
+   rim was a chord across its own peak and the facets read as a spider of radial
+   creases. Nine rings land on 0.222 / 0.444 / 0.778 against control points at
+   0.20 / 0.44 / 0.78. What is left is mild and is the angular count (28), not the
+   radial one.
+
+### The tape measure itself was wrong twice, and both are fixed
+
+Worth its own heading because two of the six out-of-tolerance ratios were the
+INSTRUMENT and no amount of sculpting would ever have closed them.
+
+- **`noseProjection` (+0.43) and `chinBeyondNasion` (+0.93) were measured against
+  the middle of the man's forehead.** The nasion is found by sweeping for the
+  deepest point of the nasal root, and the band ran to `Y_BROW + 0.10` — a tenth
+  of the field ABOVE the glabella. A nasion is by definition below it. On a
+  forehead that correctly rakes back 12°, the deepest point in that band is the
+  frontal bone at y = 0.319, where `SAGITTAL` reads −10.7 mm against the nasion
+  row's −5. Bounded at the glabella, and `nasionFromCrown` is now published beside
+  it so a probe that wanders onto the forehead says so.
+- **`tipBreadth` (+4.05, 15–31 mm across seeds) was `F.asym` doubled.** The owner
+  called it an unpinned parameter and was right that it was not a tuning error,
+  but the parameter is not on the nose. `tipHalf` swept ONE side and doubled
+  `|p.x|`, on a face whose midline is deliberately drifted up to 2.2 mm sideways
+  ("a symmetric face is a mask") — so 2 x 2 x 2.2 = 8.8 mm of the 12 mm spread was
+  the drift. Bisecting every trait confirms it: forcing `span(seed, 18, …)` alone
+  to zero drops the spread from 11.9 mm to 3.9, and no other trait moves it by
+  more than 1.4. A nose displaced sideways is not a wider nose. Measured between
+  the two sides, and with the ridge narrowed now that the plateau no longer has to
+  be hidden: **18.6–23.2 mm**, a bulb.
+
+Ratios outside tolerance: **6 -> 3**. The three that remain are `jawOverCheek`
+(0.006), `neckOverJaw` (0.003) and `neckOverHead` (0.026), and the last two
+measure a throat the huscarl's `gorget: 1.0` covers completely on the class every
+sheet is shot on. They are not worth chasing; they are worth **deleting or
+re-siting**, and that is the next honest change to this file.
+
+### The skin was a woven cross-hatch, and it was the tile repeat
+
+`FACE_TILE` was 8.5 mm, chosen by reading the recipe: the ridge field's base
+octave lands at 1.1 mm, under a pixel, therefore grain. The frame disagreed. An
+FFT of an 80x80 patch of the vault returns ONE sharp peak at 5.7 px with almost no
+y component — a ruled square lattice, 4.7 mm at that card's 1.22 px/mm. Nothing in
+the recipe is 4.7 mm. 8.5 / 4.7 is 1.8, and that is the tell: a 256-texel map at a
+8.5 mm tile is 25 texels to a pixel, mip 4.6, an effective 10x10 map — every
+octave the recipe was reasoned about is filtered away and all that is left is one
+blob per tile, stamped every 8.5 mm.
+
+**Pushing content under a pixel does not delete it, it hands it to the tile
+repeat.** This file had already found the same thing twice on the ground (`grit`
+in textures.ts: "sub-texel content there is not dither, it is crawl"). 2.2 mm puts
+the stamp at 1.2 mm, 1.5 px at portrait. The variation it cost is bought back in
+`faceComplexion` as three cosines on incommensurate periods in the skull's own
+direction space — no lattice, wavelengths 16–40 mm. Measured on the new card, the
+5.7 px peak is gone and the strongest remaining periodic content is at 26.7 px
+with 5.5x less magnitude, which is the mottle.
+
+---
+
+## The domino mask was the complexion sum, and all three hypotheses are now closed
+
+Kept as a record because it cost three passes.
+
+- **Hypothesis 1, the shadow field.** Marked disproven by an earlier pass. It was
+  *correct* and the pass that raised it only half-acted on it.
+- **Hypothesis 2, the face block's lateral falloff.** Genuinely disproven — the
+  frame moved 3.4% of its pixels and the mask stayed.
+- **Hypothesis 3, the arena night rig's brow terminator.** Now also disproven,
+  and by a stronger argument than a capture: this pass DELETED the face block,
+  including the `smooth(Y_BROW - 0.05, ...)` step that put a hard edge exactly
+  along the brow, and the mask did not move. A light does not survive its own
+  geometry being replaced.
+
+The cause is the sum in `faceComplexion`. The orbit term alone ran 0.22 of
+direction space in x — ±42 mm — so two of them, one per eye, overlapped across
+the midline and reached both temples: a domino mask drawn by one line, before the
+paranasal, the under-brow crease and the buccal hollow were summed on top. The
+knee capping the sum sat at 0.7, making the darkest tone reachable over an *area*
+0.7 of a 30/37/42% cut. Orbit tightened to 0.150 and dropped to 0.72, paranasal
+to 0.42, knee to 0.52. `art/shots/fix5/head-turn.png` front panel: the bat is
+gone. **What is left** is a soft band under the brow that reads as form, and the
+entry stays open only until a critic panel confirms that from a fresh capture.
+
+---
+
+## The hair and beard shop still sells differences that do not exist
+
+Diagnosed this pass; only the first is fixed.
+
+1. **FIXED — the long mane was two detached slabs from behind.** Arithmetic, not
+   rendering: each half sat `R.x · 0.44` off the midline with a half-width of
+   `R.x · 0.40` at its lowest station, so the two spans were [0.04, 0.84] and
+   [−0.84, −0.04] — about 8 mm of daylight down the back of the head, widening as
+   the hair fell, with only 11 mm of overlap at the crown (inside the wall
+   thickness). Offset now 0.30 with every station widened; the halves overlap by
+   40 mm at the fall. **Verified** in `art/shots/fix5/hair.png`, back row: no
+   daylight through the mass, one volume with a crease down it.
+   **Still wrong, and it is a different fault:** the mane reads as a boxy
+   rectangular curtain with a hard vertical seam and a flat bottom edge. The
+   audit's original complaint — "a flat curtain with a hard edge and no volume" —
+   is only half answered. The six locks that were meant to break the edge are
+   inside `lod.trim` and are not doing it. Hair needs a broken lower edge and a
+   silhouette that is not a box before this slot is worth 40 gold.
+2. **OPEN — all four hairstyles are pixel-identical under the Sutton Hoo mask.**
+   Narrowed this pass: the same four styles are plainly *distinct* from behind in
+   `art/shots/fix5/hair.png`, so the fault is specific to the masked row and not
+   to the styles. NOT yet explained. Read the code and the four branches *are* distinct under a
+   helm: `helmed` only flattens the scalp shell's lift, and the `long` fall and
+   the `braids` plaits are added with no `helmed` guard at all. So either the
+   mask's own geometry occludes them at the capture bearing, or the facecard's
+   dress is not passing `hairStyle` through when `helm_suttonhoo` is set. Check
+   the second first — it is a one-line bug and it would explain the war paints
+   too.
+3. **OPEN — beards 3/4/5 (40/80/120 gold) read as one crescent.** Also not
+   explained by the code, which builds three genuinely different masses (a belly
+   plus an offset copy; two tines parting at 64 mm; a three-strand plait with two
+   brass rings). Every one of them shares the same chin mass from
+   `skullY − 0.126` to `−0.20` and differs only *below* that. The neck was
+   widened 10% this pass, so check first whether the throat now occludes the
+   hanging part at the capture bearing — that would make all three read as the
+   shared crescent and nothing else.
+
+Both open items are worth more to a player than anything left on the head: a man
+is being charged 120 gold for a beard he cannot tell from the 40-gold one.
+
+---
+
+## Two of the gates are not deterministic, and one of them was believed
+
+`dd7821f` recorded touchtest failing once in three runs at 160 deg of facing
+error and called it "a gate that fails a third of the time is not a gate". The
+same is now recorded for **playtest**, which is the larger of the two and had not
+been suspected.
+
+On this wave's final tree, unchanged between runs:
+
+```
+run 1   [playtest] 33/34 controls working
+        BROKEN: turning is reduced to the stated cap while committed
+run 2   [playtest] 33/34 controls working      (reproduced)
+run 3   [playtest] 34/34 controls working
+```
+
+The failing assertion reports `the client asked for 0.00 rad of turn and the body
+delivered 0.00 rad` — the harness's own mouse sweep did not register during the
+swing, not a turn cap that failed to apply. Nothing in the input path changed this
+wave (`git diff --stat 39cbad3..HEAD` is characters.ts, headmeasure.mjs, docs and
+.gitignore), so it cannot be geometry.
+
+**Why this matters more than the flake.** Two runs agreeing is what a person uses
+to decide something is real, and here two runs agreed on a false positive. Any
+verdict on this branch that rests on a single playtest or touchtest run is worth
+less than it looks. Both harnesses need their input synthesis made deterministic —
+wait on the client having *received* the pointer delta before sampling, rather
+than on a wall-clock timer — before either is trusted to gate a release.
 
 ---
 
@@ -24,6 +540,14 @@ without `PROFILE_TEST_DB` — it prints `no PROFILE_TEST_DB set — skipping the
 database half` and then runs the eleven no-database checks — so on this box the
 22/22 says nothing about the new column. No `soundtest`/`phonesound` assertion
 covers it either; both are client-side.
+
+*Land judgement, 6 Aug:* the database half **was** run against a real postgres
+on this branch's tip — `PROFILE_TEST_DB=... npm run profiletest` → **68/68**
+against the 22/22 the bare run reports. That proves the database path works; it
+still does not prove the *mute* specifically, because no assertion in that 68
+equips `{ muted: true }` and reads it back. The check named below is still the
+work. What has changed is that "the harness cannot see the database on this box"
+is no longer the excuse — start postgres, and the other 46 checks come with it.
 
 **To close it**, run `PROFILE_TEST_DB=... npm run profiletest` and add a check
 beside the bindings ones at `tools/profiletest.mjs:207-232`: equip with
@@ -885,19 +1409,26 @@ window hook through the real app records **zero** progress events while the
 build runs perfectly. Read `__forgeStages` instead. This cost a verify pass a
 false FAIL.
 
-## Bindings live in localStorage only — the profile column was never added
+## Resolved — bindings reached the profile after all
 
-`docs/KEYBINDS.md` asked for bindings to persist to the **profile**, so they
-follow a player to a new device through the four-word recovery code. They do
-not. `bretwalda.bindings` in localStorage is the whole of it, which means a
-remap is lost on a new device, a new browser, or a site-data clear.
+This entry read "the profile column was never added". It was added. Corrected
+here rather than deleted, because it was carried as open long enough to be
+planned around, and the next reader should know why it is gone.
 
-The client half is already built and waiting: `setBindingsPersister(fn)` and
-`hydrateBindings(profile.bindings)` are exported from
-`src/game/client/bindings.ts` and nothing calls either. What is missing is
-server-side and untouched — a `bindings jsonb` column on the profile row and a
-`bindings?` field accepted by `/api/profile/equip`. Until then the fallback is
-the only path, exactly as the profile layer's own no-database fallback works.
+The column is `players.bindings`, `jsonb`, in `src/db/schema.ts` — nullable on
+purpose, and the comment beside it is worth reading: the null means "this
+player has never saved bindings", which is what tells the client to carry the
+ones already on his device *up* to the server rather than be handed defaults
+and lose a remap made before the column existed. The write is `syncBindings()`
+at `src/app/profileLink.ts:328`, POSTing to `/api/profile/equip`; the
+validation is `bad_bindings` at `src/db/api.ts:30` ("Those key bindings were
+not written by this game"); the boot hydration sits beside the mute's.
+
+**What is still unproven is the same thing that is unproven about the mute**,
+and for the same reason: `npm run profiletest` skips its whole database half
+without `PROFILE_TEST_DB`. The column exists and the path is wired; no test has
+watched a remap survive a recovery onto a second device. Close that with the
+same run that closes the mute.
 
 ## A server-rendered binding cap is a hydration mismatch waiting to happen
 
@@ -1039,3 +1570,130 @@ Note its `--settle`: the camera push accumulates RENDERED dt, and on this box th
 summary runs at about three frames a second, so the default eleven-second wait
 photographs a lens a quarter of the way through its move. A settled frame costs
 two and a half minutes and is a different picture.
+
+---
+
+## The face is not a caricature any more, and it is not right yet
+
+**Open.** The owner's five notes on the armoury card — beak, receding chin, long
+skull, thin neck, scored mouth and beady eye — are all measurable and all fixed.
+`tools/headmeasure.mjs` is the instrument; run it before and after touching
+anything in `faceSurface`, `skeleton` or `faceComplexion`.
+
+    measure              before    after     life / target
+    lengthOverHeight     0.944     0.827     0.845     note 3, the long skull
+    noseBeyondChin       51.7      29.1      ~24 mm    note 1, the beak
+    noseProjection       28.0      29.7      25-30 mm
+    chinBeyondNasion     -         +0.6      0 mm      note 2, the facial angle
+    jawOverCheek         0.93      0.85      0.84-0.90
+    neckOverJaw          0.74      0.89      ~1.05     note 4
+    eye aperture / head  0.080     0.093     0.129     note 5
+
+**What is still wrong, stated so the next pass does not have to rediscover it.**
+The bare-head front card (`npm run shots -- headturn`) shows a broad dark form
+over the mid-face with a hard upper edge along the brow — a domino mask. Half of
+it was the shadow field summing four justified terms to a clamped 1.0 and that
+half is fixed. The other half is **not the paint**: rendering the same frame with
+`dim` forced to zero moves 31,721 pixels and the form is still there.
+
+**Two hypotheses have been tested and both are wrong.** Write them down so the
+next pass does not spend a capture round each on them:
+
+1. *The shadow field.* Disproven by the `dim = 0` render above.
+2. *The maxillary face block's lateral falloff.* The block was gated by
+   `front = clamp01(z * 1.15)`, and `z` on a sphere falls with latitude as well
+   as bearing, so one gate was shaping the block in two axes. That is a real bug
+   and it is fixed — the gate is now on azimuth (`ax / h`) with the vertical
+   profile stated separately — but it is **not the mask**. The fix moved 3.4% of
+   the frame and the dark form is unchanged.
+
+**What it looks like instead.** A hard terminator at the brow ridge under the
+arena's night key at 60 degrees elevation, with too little fill under it at this
+framing. Two things point that way: the edge is crisp and follows the ridge
+exactly, and the SAME head under the armoury stage's own lighting shows no mask
+at all (`art/ui/armourycard-desktop.png`). If that is right then the fix is in
+the rig or in the brow's 24 mm over a 13 mm falloff, not in the complexion field
+and not in the skull's plan — and it is worth checking whether a 24 mm ridge is
+simply too much once the face beneath it stopped receding.
+
+**Two method notes, both of which cost capture rounds here.**
+
+1. *Do not A/B two 700x860 renders by eye.* Twice in this pass two frames were
+   read as identical when a pixel diff put 5.3% of the frame between them, and
+   once a frame was read as fresh when it was the previous run's file — the
+   `until [ -f ... ]` wait returned instantly because the path already existed.
+   Diff the pixels, and check the mtime against the build's.
+
+2. *A metric can pass while the thing it names fails.* `craniumShare` scored 0.34
+   against a canonical 0.35 for a head that reads as an egg, because it measures
+   the cranium's share of the head's HEIGHT and note 3 is about its share of the
+   head's MASS. The number was right and useless. The turntable card is what
+   caught it.
+
+---
+
+## Four helms are broken geometry, and the lift direction was only half of it
+
+**Half closed, half open.** Found gating the unmerged wave on 2026-08-06.
+
+**The half that closed.** `headWear` stood every worn shell off the skin along
+`faceNormal` — the normal of the *undisplaced* ellipsoid. The head stopped being
+an ellipsoid when the face block went on. `tools/wearmeasure.mjs` measures the
+resulting error over 32 heads at 11.4 deg mean, 71.6 deg worst over the band a
+helm rim sits on; at the worst point a 6 mm lift clears 0.00 mm. `faceNormalTrue`
+central-differences `faceSurface` instead. That **fixed the Shadow Hood**, which
+had been cutting a flat plane through the skull.
+
+**The half that is open.** It did NOT fix the Spectacle (280 g), Boar-Crest
+(380 g), Jarl's Crowned (570 g) or Wyrm-Crest (950 g) cheek guards, which still
+render as a slab with razor-straight edges standing proud of the face with skin
+punching back through it. Frame:
+`art/shots/fix1/cards/helmcards-7._Boar-Crest_Helm_380g.png`.
+
+**What it is instead, read off that frame.** The guard's boundary is a
+*rectangle in (u, v)* — its edges are straight lines in parameter space, which is
+why they project as a hard-edged quad rather than as the outline of a piece of
+beaten iron. And the standoff is large enough that the plate has left the face
+altogether, so the head pokes through wherever the head's curvature exceeds the
+plate's.
+
+**The template is already in the file.** The Sutton Hoo mask is the one helm of
+the ten that reads correctly, and it is the only one that (a) shapes its lower
+edge as a function of azimuth — `maskBot(u)`, mixing `chinV` to `jawV` on a 1.55
+power — and (b) had its standoff cut to 20.5 mm at the chin and 15 at the brow.
+Give the four guards both.
+
+**A hypothesis NOT yet tested, written down so it is not re-derived.** The blur
+shell that builds the Sutton Hoo mask still averages `faceNormal` over its
+kernel rather than `faceNormalTrue`. That was left alone deliberately — it is
+the one helm that works and a blurred normal is arguably what it wants — but if
+the four guards share that path, it is the first thing to check.
+
+**Method note that held up.** Do not A/B two helm sheets by eye; the earlier
+note in this file is right. The per-panel pixel diff is what proved the fix
+touched every worn item (Hood 3.5%, Spectacle 4.0%, Boar 4.0%, Jarl 3.8%, Wyrm
+6.6%, Sutton Hoo 3.1%) while the bare head moved 0.18% — which is also what
+proved the *face itself* was untouched by it.
+
+---
+
+## Long Mane is two detached slabs, and no harness would have noticed
+
+**Open.** `art/shots/fix1/hair.png`, row 2 (`back`). The 40-gold Long Mane, seen
+from behind, is two separate brown slabs with a gap between them hanging over
+the shoulders. It does not read as hair; it reads as broken geometry. This is the
+**first time hair has ever been captured** — `tools/shoot.mjs` has defined a
+`hair` sheet for some time and nothing had ever run it.
+
+Two more from the same sheet, both of which cost real money in the shop:
+
+- **All four hairstyles are pixel-identical under the Sutton Hoo mask.** 100 g
+  of Braided War-locks buys what Shaved buys.
+- **All four war paints are pixel-identical under the same mask**
+  (`warpaint.png`, row 2). They are genuinely distinguishable bare-headed.
+
+**The gate that would have caught all of it** does not exist: no harness renders
+a cosmetic and asserts anything about it. Twelve sheets are defined in
+`tools/shoot.mjs` and Cloaks (5), Armour Finish (7) and both colour ladders (12)
+have still never been rendered at all. Assert that adjacent panels differ by more
+than N% of pixels and every finding above falls out without a human looking.

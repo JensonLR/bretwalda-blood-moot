@@ -161,8 +161,9 @@ who else is standing there, and grades:
 - a committed swing still cannot follow the man the lock was handed — measured
   as the server's own rotation against the 1.8 cap, with the demand the lock was
   making printed beside it;
-- the reticle is painted on the man it is holding, and moves with him;
-- the reticle and its tuition line take no bite out of the button side, for
+- the mark is painted on the man it is holding, moves with him, and is painted
+  off the RIG HE IS DRAWN ON rather than off the wire;
+- the mark and its tuition line take no bite out of the button side, for
   **both** handednesses.
 
 Act two's warrior can and does die. Every assertion in it waits for a man on his
@@ -170,7 +171,25 @@ feet and takes its verdict off the snapshot trail rather than off the state at
 the end of a settle — the first cut of the switch test watched a perfectly good
 switch happen and then failed it, because he was cut down 350 ms later.
 
+The mark assertion samples from a **rAF loop in the page**, not from polls, and
+keeps collecting across a death and the next round until it has 12 qualifying
+samples. Its gate is narrow on purpose — the man 1.5–6 m from the camera, within
+6° of dead ahead, the mark lit and on the glass — and at 6.7 pokes a second,
+landing inside it was luck: one run in three came back with zero samples and
+read as a failure of the reticle, which it never was.
+
 Frames land in `art/shots/lock/`.
+
+**`npm run lockshot` is the one that is for eyes.** touchtest's frames are taken
+at the end of a four-minute fight, best-effort, and the warrior is usually dead
+by then with nobody left to hold — three in a row came back with an empty field
+in them. `tools/lockshot.mjs` stands a fight up, waits until the mark is on a
+live man at a range worth photographing, HOLDS THE WIRE so the fight cannot move
+while the shutter is open, and takes both handednesses off that one frozen
+moment plus a close-up of each. It asserts nothing. It is how you find out
+whether the mark is any good to look at, which is not a question a harness can
+answer — and the first cut of this mark passed every assertion in touchtest
+while being, on the man, a pair of faint ticks you had to be told were there.
 
 ## Things that will go wrong
 
@@ -262,16 +281,72 @@ uncapped lock runs at 5.0. This is the line between an assist and an aimbot and
 it is a test, not a comment.
 
 It also drops a target that dies or leaves 15 m, it never acquires a man outside
-the cone, and it is **off by default on desktop** (`lockon`, bound to `R`),
-because desktop mouse-look adds its own dX to `rig.yaw` before `sampleInput` and
-the two fight. That routing hook is still open.
+the cone, and it is **off by default on desktop** (`lockon`, bound to `R`).
 
-### The reticle mirrors
+**Desktop look is routed now.** It used to be added straight onto `rig.yaw`
+immediately before `sampleInput` ran the lock's spring, which took most of it
+back out again — the player pushed, the camera pushed back, and nothing he asked
+for happened. Every look the PLAYER asks for, mouse or thumb, now goes through
+`CameraRig.look` → `routeLook`, which hands back whatever the lock does not
+claim `(1 - blend)` and banks the rest into the same target-switch flick a thumb
+makes on bare glass — 0.64 rad of asked-for look, which is exactly the 64 px the
+phone measures at the free-look gain. The lock's own corrections still write the
+yaw directly: they are not the player asking for anything. Sixth sighting of the
+overloaded channel, and the first one fixed by naming the two channels rather
+than by tuning either.
 
-The ring is drawn on the man through the real camera, offset to his weapon
-shoulder — so it mirrors with everything else. Measured across a single
-handedness switch with nothing else changed: the same man's reticle moved from
-x=97 to x=300 on a 390 px screen, a 203 px shift.
+### The mark
+
+It is on the glass every second of every fight, which makes it the most-seen
+element in the game — and the man it points at is what the player is actually
+trying to read. So it says WHO and then gets out of the way. The first cut was a
+56 px amber gunsight: ring, four ticks, two chevrons, an inset glow, full
+opacity. It won the frame off the fight. What replaced it is
+
+- **two hairline jaws at his sternum** — who; and
+- **a scribed oval on the ground he is standing on** — where he stands,
+
+in the nameplates' own bone rather than saturated amber, at a third of the width
+and a fifth of the ink. Every stroke is drawn twice, a dark one under a light
+one, because the alternative on daylight turf is a glow and a glow is how a UI
+mark starts competing with the lighting.
+
+**It holds still.** Motion is how a mark says something has *changed*, so a mark
+that is always moving has nothing left to say with it: one ease-out tighten
+(0.22 s) when the lock takes a man, a shorter, harder one (0.15 s) when a flick
+hands it another, and nothing whatever in between. No idle pulse, no spin.
+
+**Two anchors, two projections.** "Who" and "where he stands" are different
+claims about different points in the world, and one scaled wrapper cannot carry
+both: the distance scale is clamped at 0.62 and 1.35 so the mark never becomes a
+dot or shouts, and anything hung off it at a fixed offset walks up his shins the
+moment it clamps. The jaws are projected onto his chest, the oval onto his feet.
+
+**It is painted on the man as DRAWN, not as sent.** It used to read
+`target.position` straight off the wire while a remote body renders 1.5 packet
+intervals in the past (`REMOTE_DELAY_PACKETS`, `render/anim.ts`) — ~83 ms, and
+at a run about 0.34 m of turf between the mark and the man. Two captures caught
+it sitting on empty grass beside him. `render/hud3d.ts` now registers each
+warrior's rig group as it attaches the nameplate that tracks the same object,
+and the mark is projected off that. The wire stays the lock's own answer for
+scoring — it is what the server will judge a blow against — and survives here
+only as the fallback for a man who has no rig yet, plus a readback of the lead
+it used to carry. touchtest asserts the source, not just the position.
+
+**It mirrors**, because it is projected through the real camera and the camera
+sits over the weapon shoulder. That is asserted as the thing which is
+unconditionally true — the element sitting within 2 px of `lockPaint.sx`, which
+comes out of the real `camera.project()`, on every reading it is lit for — and
+the shoulder itself is measured in METRES in the warrior's own frame by
+`tools/cameratest.mjs`. touchtest also freezes the wire, switches the hand and
+reads the mark twice on a scene verified not to have moved (the man's drawn
+position within 3 cm), and prints the shift; it does not assert a floor on it,
+because the shift is genuinely ZERO for a man standing on the camera's optical
+axis. The rig looks 3.6 m ahead of the warrior: a man at that range does not
+move when the shoulder does, men either side of him move opposite ways, and the
+old test's median over a moving brawl was averaging all three regimes together
+— which is how one run reported a 228 px shift with the sign reversed and
+nobody noticed it meant nothing.
 
 **The whole top row mirrors too, not just the thumb cluster.** END and the mute
 toggle live under the timer on the movement side so they never sit in the

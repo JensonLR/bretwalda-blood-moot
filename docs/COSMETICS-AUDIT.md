@@ -649,3 +649,398 @@ cheaper than two helmets that read as less.
   distance is ~200 px of a 700 px frame and a weapon cannot be judged alone at
   all. Add a `weaponcard` — 0.35 m of frame at the fist, and a stage that
   builds `buildWeaponForClass` on an empty mark.
+
+---
+
+# Gate pass on the unmerged wave — 2026-08-06
+
+The first time this branch has been gated. A container killed the ship phase of
+the wave four times; what follows is what a first look at it found. **The wave
+was held, not merged.** The reasons are below, and every one of them has a
+frame behind it.
+
+Captures: `art/shots/fix1/` (`helm-cards.png`, `head-turn.png`, `hair.png`,
+`beards.png`, `warpaint.png`, and `cards/` per item), `art/ui/armourycard-{phone,desktop}.png`,
+`art/shots/lock/{right,left}-handed{,-close}.png`.
+
+## What this wave CLOSED
+
+- **The reticle reads the drawn man, not the wire.** Proven twice, two ways.
+  `touchtest`: every one of 31 qualifying samples painted off the rig, 0 off the
+  wire, while the wire sat a median 153 px and up to 227 px ahead of him.
+  `lockshot`: right-handed −7 px / 0.63 m, left-handed −43 px / 1.53 m of lead
+  *avoided*. This is the wave's one unambiguous success.
+- **The mark is quiet enough to live on the glass.** Two hairline brackets on
+  the chest and a thin ground ellipse — no glow, no fill. It reads at 390x844 in
+  both hands and takes no bite out of the button side (7267 sampled points, both
+  handednesses).
+- **The Shadow Hood no longer shears through the skull.** Closed in this gate
+  pass, not by the wave — see below.
+- **`profiletest` against a real database is 68/68, not 22/22.** The 22 that
+  earlier reports quoted is the no-database subset. The mute column, the
+  bindings and the recovery path are all now actually exercised.
+
+## What this wave BROKE, and it is the reason for the hold
+
+The head rebuild added a face block — a large forward displacement carrying the
+maxilla and mandible. Nothing that is *worn* was taught about it. `headWear`
+stands every shell (hair, beard, war paint, helm bowl, hood) off the skin along
+`faceNormal`, which is the normal of the **undisplaced ellipsoid**.
+
+`tools/wearmeasure.mjs` (new) measures the error over 32 heads:
+
+    whole head   mean    11.4 deg
+    whole head   worst   90.0 deg
+    helm band    mean    11.8 deg
+    helm band    worst   71.6 deg
+    a 6.0 mm lift clears 0.00 mm at the worst point
+
+`faceNormalTrue` fixes the direction and every worn item moved for it (panel
+pixel-diff, before vs after: Hood 3.5%, Spectacle 4.0%, Boar 4.0%, Jarl 3.8%,
+Wyrm 6.6%, Sutton Hoo 3.1%, bare head 0.18%). **It fixed the Shadow Hood and it
+did not fix helms 6–9.**
+
+**Still open, and precisely located.** On Spectacle (280 g), Boar-Crest (380 g),
+Jarl's Crowned (570 g) and Wyrm-Crest (950 g) the cheek guard is a slab with
+razor-straight edges standing proud of the face, with skin punching back through
+it — `art/shots/fix1/cards/helmcards-7._Boar-Crest_Helm_380g.png`. The edges are
+straight because the patch's domain is a **rectangle in (u, v)** and its outline
+is never shaped; the slab floats because the standoff is tens of millimetres.
+The Sutton Hoo mask is the one that works and it is the template: it shapes its
+lower edge with `maskBot(u)` and it was re-tuned from 29/22.5 mm down to
+20.5/15. Do the same for the four guards. **2110 gold of the ladder is currently
+broken geometry.**
+
+## What has still never been good enough
+
+- **Hair — captured for the first time, and it fails.** `hair.png`. From behind,
+  Long Mane (40 g) is **two detached brown slabs with a gap between them** — not
+  hair, broken geometry. Warrior Crop and Braided War-locks are the same cap plus
+  a string. **Under the Sutton Hoo mask all four are pixel-identical**, so 100 g
+  of Braided War-locks buys exactly what Shaved buys.
+- **Beards — three of five are one shape.** `beards.png`. Full (40 g), Forked
+  (80 g) and Ringed Braid (120 g) are the same dark crescent at three-quarter.
+  All three are a hard-edged solid shell clamped on the jaw like a chinstrap,
+  leaving bare skin at the chin — hair does not grow out of skin anywhere here.
+- **War paint — reads bare, dies under the mask.** `warpaint.png`. The four are
+  genuinely distinguishable bare-headed (Half-Face Shadow is the strongest), and
+  **all four are pixel-identical under the Sutton Hoo mask**. Audit finding 11
+  is confirmed, not closed.
+- **The face is not a man.** See `docs/OPEN-DEFECTS.md`. The nose still leads the
+  profile, the chin still recedes behind the lip, the neck is still narrower than
+  the jaw with a hard step at the collar, the ear is still a flat oval decal, and
+  the domino mask over the mid-face is still there. Character Craft is a 4.
+
+## The instrument gained one, and it still has a hole
+
+`tools/wearmeasure.mjs` joins `headmeasure.mjs`. What is still missing is the
+thing that would have caught all of the above automatically: **no harness
+renders a cosmetic and asserts anything about it.** Twelve sheets are defined in
+`tools/shoot.mjs` (`hair`, `hairfight`, `hairtone`, `beards`, `beardfight`,
+`beardtone`, `cloaks`, `cloakfight`, `finishes`, `finishfight`, `warpaint`,
+`warpaintfight`) and before this pass **not one had ever been run** — only the
+helm and head sheets existed on disk. Cloaks (5), Armour Finish (7) and both
+colour ladders (12) remain uncaptured to this hour.
+
+The cheapest real gate: render each sheet and assert that adjacent panels differ
+by more than N% of pixels. Long Mane vs Warrior Crop under the mask would score
+zero and the harness would have said so without anyone looking.
+
+---
+
+# The helm wave — 2026-08-06
+
+Scope: the helmet slot only. The face, the hair and the beards are somebody
+else's pass and are untouched here.
+
+## The fault was never the lift direction
+
+The wave before this one diagnosed the four broken helms as a lift-direction
+error, built `faceNormalTrue` to fix it, and **the four stayed broken**. That is
+recorded above as an open item and it was the right place to start, because the
+reason is arithmetic and it is worth stating once:
+
+> Offsetting a surface along its own normal by more than its radius of curvature
+> **turns the surface inside out**. Past that distance the offset self-intersects,
+> its facets face backwards, backface culling removes them, and what the player
+> sees through the hole is the head.
+
+The brow ridge has a radius of curvature of about 15 mm. The spectacle plate
+stood off it by 18 and the nasal's rivet plate by 26. **Neither could ever have
+worked, at any lift direction.** No amount of correcting *where* the metal was
+pushed could help, because the fault was *how far*.
+
+## The instrument first, because the last four passes argued from opinion
+
+`tools/wearmeasure.mjs` used to measure the angle between `faceNormal` and the
+true normal. That number is a property of the HEAD — 11.4° mean whatever the
+helmets do — so it could name the bug and could never hold a helmet. It is kept,
+demoted to a diagnosis, and the gate is now `helmFitProbe`.
+
+`headWear`/`helmWear` record the spec of every shell they are asked for.
+`helmFitProbe` builds each helmet through the real `buildCharacter` on real
+heads and walks those specs for four numbers per shell:
+
+| | what it is | bar |
+|---|---|---|
+| **fold** | share of the sheet turned inside out | 0% |
+| **thru** | how far the skin gets outside the metal | 0.5 mm |
+| **seat** | the *smallest* standoff — where the plate lands | 28 mm |
+| **float** | the *largest* standoff, face furniture only | 34 mm |
+
+Nothing in it mirrors a helmet definition. It reads the arguments the build
+actually passes, so it cannot drift the way the lineup sheet did.
+
+**It reproduced this document's own ruling with no opinion in it.** Baseline:
+nasal plate 32% inverted, brow plate 17%, both cheek guards 6–11%, and the one
+deep guard that measured clean was the Sutton Hoo's — which is exactly the panel
+§3 passes and names as the template.
+
+`tools/silhouette.mjs` gained the second gate this file asked for by name: every
+adjacent pair of panels on a helm sheet is compared as a Jaccard distance of the
+ink, and a pair under the bar fails the run.
+
+## What changed in the geometry
+
+1. **The helm tier is beaten over a FORM.** Every helm shell now rides a
+   low-passed copy of the head instead of the skin itself. The features go; the
+   skull, the class's dome, the per-warrior breadth and the jaw all stay, because
+   those are 60–200 mm shapes and the filter is an 11 mm one. Nothing on the form
+   has a radius of curvature under about 45 mm, so a 30 mm standoff cannot fold
+   it. The Sutton Hoo mask has done this since it was built and is the one piece
+   §3 passes; this generalises its trick to the tier. The filter runs once per
+   skull on a grid — 2701 field samples against the head's own 1200 — rather than
+   17 per vertex the way the mask does it.
+2. **Four bowl profiles**, which is the axis the ladder did not have. `shallow`
+   for the spangenhelm, `cone` for the nasal helm (one piece, so no ribs, and a
+   finial), `round` for the Vendel bowls, `tall` for the noble rungs.
+3. **Both crests were needles.** Each was a strip spanning a fixed span of
+   AZIMUTH, and azimuthal width collapses to nothing at the pole — so an 11 mm
+   comb at the brow was 0 mm across at the crown while still carrying its full
+   height. A quarter of the wyrm's measured inverted. Both are swept in the
+   sagittal plane now as half-tubes of constant width: the ridge helm gets the
+   40 mm comb §3 asks for along its whole length, and the wyrm gets 52 mm at the
+   crown, monotonic from both ends, with its head thrown 30 mm past the brow.
+4. **The plates are cut, not clipped.** The spectacle plate is an arch over each
+   eye feathered into the band and the nasal; the nasal's rivet plate is a
+   lozenge at 19–22 mm; both cheek guards are cut to the jaw the way `maskBot(u)`
+   cuts the mask.
+5. **Both cheek guards covered the far eye**, because they began at 0.42 and 0.50
+   rad and the outer canthus is at 0.53. That, and not the standoff, is most of
+   what "a slab across the face" was. They start at 0.56 now and their top edge
+   is cut away below the eye line at the front.
+6. **The Jarl's Crown**, whose finding was a pricing one with a geometry cause:
+   the tall bowl, the nape flange back, and eight alternating leaves in place of
+   six identical pins.
+7. **The boar is seated on the bowl**, not at a height above the skull. The new
+   ladder test caught this within a minute of existing: the deeper `round` bowl
+   swallowed the animal and 6→7 fell to 0.8%.
+
+## The numbers
+
+Adjacent-rung outline difference, three-quarter −35°, silhouette only, measured
+over the helmet — the top 40% of the frame taken down from the higher of the two
+apexes. **The window is not a convenience.** Every panel is the same man in the
+same mail at the same mark with only his head changed, so counting his shoulders
+puts a large constant in the denominator and nothing in the numerator, and the
+same change of shape then scores differently depending on how much torso the
+lens included. Whole-frame, this instrument read the Spectacle against the
+Boar-Crest at 1.7% while one of them has a boar standing on its crown.
+
+| rungs | before | after |
+|---|---|---|
+| Bare 0 → Iron 30 | 8.3% | 8.2% |
+| **Iron 30 → Nasal 110** | **0.0%** | **13.2%** |
+| Nasal 110 → Hood 120 | 11.4% | 10.7% |
+| Hood 120 → Ridge 190 | 10.7% | 14.0% |
+| Ridge 190 → Spectacle 280 | 8.0% | 12.6% |
+| Spectacle 280 → Boar 380 | 4.2% | 5.1% |
+| Boar 380 → Crowned 570 | 5.1% | 6.2% |
+| Crowned 570 → Wyrm 950 | 15.4% | 15.4% |
+| Wyrm 950 → Sutton Hoo 2400 | 11.7% | 18.7% |
+
+**`0.0%` between the 30-gold helm and the 110-gold helm is this document's
+finding stated as a measurement**: two helmets with the same outline, 80 gold
+apart, and the one thing on this table nobody can argue with. The rest is a
+smaller and more honest story than the whole-frame numbers made it look — four
+pairs improve substantially, one holds exactly, and two barely move.
+
+**The two that barely move are the ones to send back next.** Spectacle → Boar at
+5.1% and Boar → Crowned at 6.2% are the tightest steps in the ladder and both
+sit in the middle of the price range, where a player is most likely to be
+choosing between them. They pass a 4% bar; they do not pass a look.
+
+At fight distance (6.8 m, ~35 px of head, window 16%): 16.4 / 7.6 / 15.9 / 17.6
+/ 11.2 / 5.7 / 4.1 / 13.9 / 14.8 — every rung over the bar, and the same two
+pairs at the bottom of it.
+
+Fit, all ten rungs on 4 classes × 2 seeds = 80 builds:
+
+    [wear] helm         shells  fold%   thru mm   seat mm  float mm
+    [wear] iron            6     0.0      0.0      24.4      24.0
+    [wear] nasal           3     0.0      0.0      19.0      24.0
+    [wear] ridge           7     0.0      0.0      23.0      24.0
+    [wear] spectacle      11     0.0      0.0      23.0      25.0
+    [wear] boar           11     0.0      0.0      23.0      25.0
+    [wear] crowned        11     0.0      0.0      23.0      25.0
+    [wear] wyrm           11     0.0      0.0      23.0      29.0
+    [wear] suttonhoo      10     0.0      0.0      27.0      31.0
+    [wear] PASS: 10/10 helmets seated
+
+## What this wave did NOT close
+
+- **The pricing rulings in §5 are geometry now, not prices.** The Nasal Helm has
+  a bowl of its own, the Jarl's Crown has more geometry than the Boar-Crest, and
+  the Wyrm-Crest's serpent breaks the outline — so the reprice list is stale
+  where it says "until". Nobody has re-argued the numbers themselves.
+- **The Shadow Hood is still underpriced at 120** and still the only bought
+  silhouette under the top rung that costs nothing to make.
+- **Hair, beards, war paint, cloaks and the armour finishes are untouched.** The
+  ladder gate is built and only the three helm sheets declare a bar; wiring the
+  other slots to it is the cheapest next pass in this file.
+
+---
+
+# The cloak and beard wave — 2026-08-06
+
+Scope: the cloak slot, the beard slot, and the prices of everything that is
+still a colour after this pass. The helmets are the wave above. The face, the
+head and the ear are somebody else's pass and are untouched here.
+
+**This is the first wave in this file whose findings were not found by eye.**
+`npm run cosmetictest` existed before it started and had already failed on
+exactly these three things, and the same command is what says they are fixed.
+Nothing below is an impression.
+
+## What the instrument said, before
+
+    15/18 checks passed
+
+    FAIL  no two options in a shape slot are the same object, adjacent or not — 7 twins
+    FAIL  no two adjacent shape options are the same object (20 pairs) — 4 identical
+    FAIL  every shape pair that reads at portrait still reads at fight distance — 6/20 below 1%
+
+Three assertions, and between them one sentence: **four cloaks were one cloak,
+two beards were one beard, and three more beards did not read in play.**
+
+| pair | before | what it was |
+|---|---|---|
+| Traveller's 30g → Blood Red 90g | **0.00%** | one mesh |
+| Blood Red 90g → Sea-Wolf 90g | **0.00%** | one mesh |
+| Sea-Wolf 90g → Gilded War 400g | **0.00%** | one mesh |
+| Clean Shaven 0g → Stubble 0g | **0.00%** | one mesh |
+| Full 40g → Forked 80g | 0.57% at fight | under the bar |
+| Forked 80g → Ringed Braid 120g | 0.87% at fight | under the bar |
+
+0.00% is not "similar". It is silhouette AND form agreeing to the last pixel
+from every lens and every bearing, on a rasteriser that reports 0.00% for a
+subject against itself and 20.6% for a bare head against a 30-gold helm.
+
+## The cloak: the clasp and the cloth had never agreed
+
+The structural finding is §1's and it was right. The sheet spanned **±0.56π
+symmetrically about the spine** — a cape over both shoulders, a Roman
+paludamentum — while the brooch was pinned to one shoulder at
+`-S.shoulderX * 0.72`. Two garments in one object, and neither of them Saxon.
+
+Every cut is asymmetric now (`CLOAK_CUTS` in `characters.ts`):
+
+- It comes over the **pinned shoulder** — negative azimuth, which is where the
+  brooch already sat and which is the shield side, `armPivots[1]`.
+- It crosses the back on a **falling top edge**, because across the back there
+  is nothing holding it up. The old top edge was a hard horizontal line standing
+  *above* both shoulders with daylight under it, which is the audit's own
+  reading of the Gilded War Cloak and was true of all four.
+- It stops at `a1 ≤ 0.40π` against the old 0.56π, so the **sword arm is
+  strictly clearer of cloth than it was**. `armPivots[0]` is the weapon arm and
+  `anim.ts` hangs the weapon on it; that is checked, not assumed.
+
+Then four names got four garments. They differ in what survives 7.9 mm to a
+pixel — **length, hem, wrap, flare, fold count and fastening** — and colour is
+now the last item on that list instead of the only one:
+
+| | length | hem | wrap | flare | folds | pinned with |
+|---|---|---|---|---|---|---|
+| Traveller's 30g | hip | shallow arc | narrowest | 62 mm | 5 | a bone pin |
+| Blood Red 90g | knee | level | full | 135 mm | 5.5 | a disc brooch |
+| Sea-Wolf 90g | mid-calf | a deep point | narrow | 38 mm | 3.4 | a ring-and-pin |
+| Gilded War 400g | ankle, **trained** | longest at the trailing corner | widest | 205 mm | 7 | a bossed gilt disc |
+
+The two 90-gold rungs are deliberately opposite garments at one price: a bell
+with a level hem against a column with a tail. A player choosing between them is
+choosing a shape.
+
+## The beards: three of them were hanging inside the man
+
+The three paid beards were rebuilt for mass and length — a wedge, a wedge with a
+notch cut out of the bottom of it, and a rope reaching twice as far. That got
+Full → Forked from 0.57% to 1.47% and stopped there, and **Forked → Ringed
+Braid would not move off 1.00% however much plait was added to it.** Adding
+48 mm of beard changed the measurement by zero.
+
+The reason is the wave's most useful finding and it is not about beards:
+
+> Every hanging mass fell straight down at **z = 0.024–0.040** in the head's
+> frame. The torso's front surface is at **z = 0.104**, and the mail over it is
+> further out again. **The bottom third of every paid beard in the shop was
+> inside the body**, drawn and then thrown away by the depth buffer.
+
+So what the eye and the instrument were both comparing was only the part of each
+beard that cleared the collarbone, which is the part all three have in common.
+That is most of why three beards measured as one crescent, and no amount of
+sculpting below the chin could ever have shown. Every station now carries
+forward as it falls: a beard that reaches the chest rests **on** it.
+
+`Stubble` was a separate fault with the same shape. The whole beard block was
+gated `ap.beardStyle !== "short"`, so the `full ? … : …` branches written for
+stubble were **dead code that had never once been reached** — the option had no
+geometry at all and the note above it describing a 1.2 mm shell described
+something that did not exist. It is built now at 11 mm, and renamed **Close
+Crop**, because "Stubble" names a shadow and this is a beard. Id, value and its
+free price are unchanged, so nothing stored moves.
+
+## Prices
+
+The rule applied: **where this wave made an item genuinely distinct, its price
+stands; where an item is still a colour, it is priced as a colour.**
+
+**HELD — cloaks 30/90/90/400 and beards 40/80/120.** They are four cuts and
+three masses now, and the ladder buys outline. The Gilded War Cloak keeps 400
+because it is the largest garment in the game and the biggest silhouette change
+a player can buy below the Sutton Hoo helm — which is the one thing a cloak can
+do that a helmet cannot, at a range where a helmet crest is two pixels and a
+cloak is fifty.
+
+**REPRICED — Armour Finish, 1050 gold of ladder down to 250.** Three
+measurements, no opinion: every adjacent rung reads 0.00% silhouette and 0.00%
+form; `ap.armorColor` feeds exactly one thing, `M.armour(...)`; and two of the
+four classes have no mail torso layer to tint at all, because the runekeeper's
+is `robed ? buff : mail` and the berserker's is `bare`. Bretwalda Gold at 510
+was four to six winning matches for a hex value half the roster cannot see. The
+slot is a rack of dyes and polishes and is now priced as one, 20–60. If somebody
+later gives them real substance on a surface every class has, the ladder can be
+re-argued upward with a frame behind it.
+
+**REPRICED — hair and beard colour, 30–40 a rung down to 10.** Twelve SKUs of
+pure hex were carrying 210 gold. §5 asked for exactly this.
+
+Ids are unchanged throughout, so **no profile is stranded and nobody loses what
+they already bought** — a price only ever applies to a purchase not yet made.
+
+**Also fixed: the stale pricing comment above `ARMOURY`**, which this file flags
+twice. It still reasoned from "call it 200–260 a match"; measurement says a
+winning best-of-3 pays 90–135, and every price is now read against that.
+
+## What this wave did NOT close
+
+- **War paint still dies under the Sutton Hoo mask.** The gate reports it
+  correctly as a shop finding rather than a render defect — 110 gold of
+  Half-Face Shadow under 2400 gold of helm — and the fix §3 names is to build
+  the paint into the skin where a helm leaves it showing. That is complexion
+  field work and belongs to the head owner.
+- **The Shadow Hood is still underpriced at 120**, and the helm wave's note that
+  §5's reprice list is stale where it says "until" still stands.
+- **Hair (4) and the Warrior Crop's volume are untouched.** The crop is still a
+  7 mm shell and `Warrior Crop under every helm` still reads 0.00–0.06%: a free
+  hairstyle that vanishes under a bowl. Reported by the gate, not gated, because
+  nobody paid for it — but it is the cheapest remaining thing in this file.

@@ -19,7 +19,7 @@ import { WARRIOR_STATS } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
-  getLockSnapshot, getServerLockSnapshot, setLockReticle, subscribeLock,
+  getLockSnapshot, getServerLockSnapshot, setLockFootMark, setLockReticle, subscribeLock,
   type MobileFlags,
 } from "./input";
 import {
@@ -440,43 +440,83 @@ export default function GameHud({
       {isFighting && localPlayer && (
         <>
           {/* THE LOCK, ON THE FRAME.
+
               A camera that holds a man looks exactly like a player who happens
               to be pointing that way, so the lock is never left to the camera
-              alone. This is drawn on the tracked man himself: ring, four ticks
-              and — while the lock is live — a pair of chevrons saying which way
-              the thumb goes to take the next one.
-              Position and opacity are written by render/camera.ts straight onto
-              this node every frame; React only decides that it exists.
-              pointer-events stays none so it never stands in front of the
-              free-look half or a button. */}
+              alone. But this mark is on the glass every second of every fight,
+              which makes it the most-seen thing in the game — and the man it
+              points at is what the player is actually trying to read. The first
+              cut was a 56px amber gunsight with four ticks, two chevrons and a
+              glow, and it won the frame off the fight. It says the same thing
+              now in a fifth of the ink:
+
+                · TWO HAIRLINE JAWS at his sternum — who.
+                · A SCRIBED OVAL on the ground — where he stands.
+
+              Every stroke is drawn twice, a dark one under a bone one, because
+              the alternative on daylight turf is a glow, and a glow is how a UI
+              mark starts competing with the lighting. Both halves are placed and
+              faded by render/camera.ts straight onto these nodes every frame —
+              React only decides that they exist, and the mark holds STILL unless
+              the lock has changed hands. pointer-events stays none so neither
+              ever stands in front of the free-look half or a button. */}
           <div
             ref={setLockReticle}
             aria-hidden
             data-lock-reticle=""
             className="absolute left-0 top-0 z-10 pointer-events-none"
             style={{ opacity: 0, willChange: "transform, opacity" }}>
-            <div className="relative h-14 w-14">
-              <div className="absolute inset-0 rounded-full border-2 border-amber-300/85"
-                style={{ boxShadow: "0 0 10px rgba(0,0,0,0.85), inset 0 0 8px rgba(255,190,80,0.35)" }} />
-              {/* Four ticks, at the quarters. Shape, not colour: the ring alone
-                  reads as a health pip on a small screen. */}
+            <svg width="34" height="34" viewBox="-17 -17 34 34" className="block overflow-visible">
+              {/* Both jaws in one path, twice over: the shadow pass first, wider
+                  by a stroke, then the ink over it.
+
+                  They are FILLED CRESCENTS, not stroked arcs — thickest at the
+                  middle and tapering to a point at each end, the way a mark
+                  scribed with a blade thins as it leaves the metal. A uniform
+                  stroke reads as a browser border; this reads as something made.
+                  Each jaw is two quadratics: out along the back at r=14.0, home
+                  along the belly at r=12.4, meeting at r=13.2 at ±38°.
+
+                  A capture set the numbers. The first cut was 54° of arc in bone
+                  at 0.72 over a 3px shadow at 0.45, and on the man it was a pair
+                  of faint ticks you had to be told were there — quiet is the
+                  brief, invisible is a bug. 76° of arc reads as a ring held open
+                  rather than as two marks, and it still puts a fifth of the ink
+                  on the glass that the old gunsight did. */}
               {[
-                { top: -5, left: "50%", w: 2, h: 8, mx: -1 },
-                { top: "100%", left: "50%", w: 2, h: 8, mx: -1, my: -3 },
-                { left: -5, top: "50%", w: 8, h: 2, my: -1 },
-                { left: "100%", top: "50%", w: 8, h: 2, my: -1, mx: -3 },
-              ].map((t, i) => (
-                <div key={i} className="absolute bg-amber-200/90"
-                  style={{ top: t.top, left: t.left, width: t.w, height: t.h,
-                    marginLeft: t.mx ?? 0, marginTop: t.my ?? 0 }} />
+                { grow: 2.0, c: "rgba(10,7,4,0.55)" },
+                { grow: 0, c: "rgba(240,229,203,0.94)" },
+              ].map((p, i) => (
+                <path key={i}
+                  d="M 10.40 -8.13 Q 17.60 0 10.40 8.13 Q 14.40 0 10.40 -8.13 Z
+                     M -10.40 -8.13 Q -17.60 0 -10.40 8.13 Q -14.40 0 -10.40 -8.13 Z"
+                  fill={p.c} stroke={p.grow ? p.c : "none"} strokeWidth={p.grow}
+                  strokeLinejoin="round" />
               ))}
-              {isMobile.current && (
-                <>
-                  <div className="absolute top-1/2 -left-5 -translate-y-1/2 border-y-[5px] border-r-[7px] border-y-transparent border-r-amber-200/70" />
-                  <div className="absolute top-1/2 -right-5 -translate-y-1/2 border-y-[5px] border-l-[7px] border-y-transparent border-l-amber-200/70" />
-                </>
-              )}
-            </div>
+            </svg>
+          </div>
+
+          {/* The ground he is standing on, marked separately because it has its
+              own anchor in the world — his feet — and a mark hung off the jaws
+              at a fixed offset walks up his shins the moment the distance scale
+              clamps. Flattened to roughly what a ring on the ground looks like
+              from a camera this low, so it reads as ground rather than as a
+              badge floating at his ankles. */}
+          <div
+            ref={setLockFootMark}
+            aria-hidden
+            data-lock-foot=""
+            className="absolute left-0 top-0 z-10 pointer-events-none"
+            style={{ opacity: 0, willChange: "transform, opacity" }}>
+            <svg width="46" height="14" viewBox="-23 -7 46 14" className="block overflow-visible">
+              {[
+                { w: 3.0, c: "rgba(10,7,4,0.52)" },
+                { w: 1.25, c: "rgba(240,229,203,0.68)" },
+              ].map((p, i) => (
+                <ellipse key={i} cx="0" cy="0" rx="19" ry="3.8"
+                  fill="none" stroke={p.c} strokeWidth={p.w} />
+              ))}
+            </svg>
           </div>
 
           {/* Discoverability for the switch, and it retires the moment the
