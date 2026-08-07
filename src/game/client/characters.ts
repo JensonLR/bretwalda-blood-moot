@@ -9248,7 +9248,7 @@ export function buildCharacter(
     const beltSts = [at(S.beltY + 0.028, beltR), at(S.beltY - 0.028, beltR + 0.004)];
     p.add(shell(beltSts, seg, { power: 2.3, wall: 0.014 }), hide);
     // Everything that fastens the belt is seated on the belt, not on `S.waistHD`
-    // plus a guess. `along` clamps, so a strap-end hanging 50 mm below the belt
+    // plus a guess. `stationAlong` clamps, so a strap-end hanging 50 mm below it
     // still takes the belt's own radius, which is where a hanging strap is.
     const beltC: FitCarrier = { st: (y: number) => stationAlong(beltSts, y), power: 2.3 };
     // The buckle, and this is the yellow square dead centre on the huscarl and the
