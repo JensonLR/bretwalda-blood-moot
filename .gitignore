@@ -53,3 +53,7 @@ art/ui/
 # copy and would commit the repo into itself; ignoring the directory is the
 # only correct answer.
 .claude/
+
+# CPU look sheets (tools/facelook.mjs) and its transpile cache
+/.facelook
+art/look/
