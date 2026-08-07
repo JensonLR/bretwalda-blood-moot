@@ -69,7 +69,7 @@ const TARGETS = [
   ["noseBeyondChin", 24, 8, "NOTE 1 — the beak. Ricketts' E-line puts the tip ~21 mm ahead of pogonion; ×1.16 for this head"],
   ["noseBeyondLip", 26, 9, "tip in front of the lip line"],
   ["noseProjection", 29, 8, "tip off the NASION (found, not assumed). Under 20 is a flat nose"],
-  ["nasionFromCrown", 0.36, 0.06, "WHERE the nasion was found, below the crown. The row above is only about the nose if this one is on the nasal root: at 0.30 it is the brow and at 0.25 it is the forehead, which is what the search band used to reach"],
+  ["nasionFromCrown", 0.42, 0.06, "WHERE the nasion was found, below the crown. The row above is only about the nose if this one is on the nasal root: at 0.30 it is the brow and at 0.25 it is the forehead, which is what the search band used to reach. RE-SITED from 0.36 with the head's height map, and honestly: Farkas puts nasion 109 mm below vertex on a 232 mm head, which is 0.47, and the old 0.36 was a property of a layout that also had the base of the nose at 0.598 against a life 0.69. The band's floor is unchanged at 0.36, so it still catches a probe that has wandered up onto the frontal bone; what has moved is the ceiling, and 0.42 is where `RELIEF` now authors the notch"],
   ["tipBreadth", 20, 7, "NOTE 1 — the lobule: breadth within 3 mm of the tip's own projection. A man's is a bulb ~18–24 mm; single digits are a beak"],
   ["chinBeyondNasion", 0, 9, "NOTE 2 — the facial angle. Deeply negative is a set-back mandible"],
   ["chinBeyondLip", -3, 6, "in a male profile pogonion sits 2-3 mm BEHIND the lips — the recession note is chinBeyondNasion, not this"],
