@@ -291,12 +291,43 @@
   /* Both backdrops are pure CSS. There is no /public directory in this
      repo, so the .jpg backgrounds these screens used to reference were
      404s and every menu was rendering on flat black. */
+  /* COLD AT THE TOP, AND THAT IS THE WHOLE FIX.
+     Every stop here used to be a brown, so there was nothing for the fire to be
+     warmer THAN and the glow flattened into a beige wash. A night sky is blue-
+     black; putting one above the fire is what makes the fire read as fire. The
+     warm stops stay, low and off the bottom edge, where `HeroBackdrop` puts the
+     hall's own fire just out of frame. */
   .backdrop-hero {
     background:
-      radial-gradient(115% 62% at 50% 116%, rgba(198, 92, 20, 0.34), transparent 64%),
-      radial-gradient(95% 52% at 50% -14%, rgba(255, 178, 66, 0.24), transparent 62%),
-      radial-gradient(70% 40% at 50% 34%, rgba(120, 62, 18, 0.28), transparent 70%),
-      linear-gradient(180deg, #241b11 0%, #16110c 44%, #0a0806 100%);
+      radial-gradient(120% 58% at 50% 118%, rgba(198, 92, 20, 0.30), transparent 62%),
+      radial-gradient(80% 44% at 50% 96%, rgba(226, 116, 26, 0.16), transparent 58%),
+      radial-gradient(110% 62% at 50% -12%, rgba(58, 74, 104, 0.28), transparent 66%),
+      linear-gradient(180deg, #0c1018 0%, #12121a 26%, #171310 58%, #0a0806 100%);
+  }
+
+  /* The spark field. Behind everything the shell draws, above the gradient. */
+  .hero-embers {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    pointer-events: none;
+  }
+
+  /* The skyline. Anchored to the bottom and allowed to run the full width —
+     which is the desktop emptiness answered by PUTTING SOMETHING THERE rather
+     than by dragging the cards outward. Capped in height so it stays a horizon
+     on a 390px phone instead of becoming the picture. */
+  .hero-ridge {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: clamp(120px, 26vh, 260px);
+    display: block;
+    pointer-events: none;
   }
 
   .backdrop-hall {
@@ -327,8 +358,13 @@
       repeating-linear-gradient(-45deg, rgba(255, 226, 175, 0.012) 0 1px, transparent 1px 7px);
   }
 
-  /* Embers. Cheap — one composited transform on one element — and it is most
-     of what makes the landing read as a game rather than a form. */
+  /* Embers, the CSS version. STILL IN USE — `src/app/factions/page.tsx` renders
+     it, so this is not dead code and deleting it blanks that page's backdrop.
+     The landing no longer uses it: eight gradient dots on a 26-second loop read
+     as a still image, and `HeroBackdrop` replaced them with a real field. The
+     faction map keeps this one on purpose — that page is a reference plate with
+     a lot to read on it, and a live spark field behind a map would be competing
+     with the thing the page exists for. */
   .embers {
     position: absolute;
     left: 0;

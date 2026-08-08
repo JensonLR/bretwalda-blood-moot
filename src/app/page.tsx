@@ -42,6 +42,7 @@ import {
   getAudio, subscribeMuted, getMuted, getServerMuted, type UiSound,
 } from "../game/client/render/audio";
 import dynamic from "next/dynamic";
+import HeroBackdrop from "@/game/client/HeroBackdrop";
 
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
 const KeyBindingsPanel = dynamic(
@@ -1997,7 +1998,12 @@ function MenuShell({ children, art = "hall", notice, onDismiss, muted, onMute }:
       {onMute && <SoundToggle muted={muted === true} onToggle={onMute} className="fixed right-3 top-3 z-40" />}
       {art !== "none" && (
         <div className={`backdrop ${art === "hero" ? "backdrop-hero" : "backdrop-hall"}`}>
-          {art === "hero" && <div className="embers" />}
+          {/* The canvas field replaces `.embers`, which was eight CSS dots on a
+              26-second loop — see HeroBackdrop for why that read as a still
+              image. Landing only: the other screens want a quiet ground behind
+              a lot of reading, and a hall on the horizon behind the armoury
+              would be competing with the mannequin. */}
+          {art === "hero" && <HeroBackdrop />}
         </div>
       )}
       {notice && (
