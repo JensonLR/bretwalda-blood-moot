@@ -157,7 +157,7 @@ const hairNames = (flag("hair", "long,braids,short")).split(",");
 console.log("");
 console.log("[probe] helm         hair      SIL%   verdict     (bar 1.00%, identical below 0.05%)");
 for (const helm of helmNames) {
-  const base = raster(staged({ helm, hairStyle: "shaved" }, QUARTER).group, LENS.portrait, QUARTER);
+  const base = raster(staged({ helm, hairStyle: flag("base", "shaved") }, QUARTER).group, LENS.portrait, QUARTER);
   for (const hair of hairNames) {
     const w = raster(staged({ helm, hairStyle: hair }, QUARTER).group, LENS.portrait, QUARTER);
     const d = shapeDiff(base, w);
@@ -171,10 +171,12 @@ if (!has("no-fit")) {
   for (const helm of helmNames) {
     for (const hair of hairNames) {
       for (const cls of (flag("classes", "huscarl,berserker")).split(",")) {
-        const r = hairFitProbe(cls, 13, helm, hair);
+        for (const seed of (flag("seeds", "13,7932")).split(",").map(Number)) {
+        const r = hairFitProbe(cls, seed, helm, hair);
         console.log(`[probe] ${helm.padEnd(12)} ${hair.padEnd(8)} ${r.throughMm.toFixed(1).padStart(7)}  `
           + `${(r.throughFrac * 100).toFixed(2).padStart(7)}  ${(r.showFrac * 100).toFixed(1).padStart(8)}  `
-          + `${(r.keptFrac * 100).toFixed(0).padStart(6)}  ${r.worstAzDeg.toFixed(0)}/${r.worstElDeg.toFixed(0)} deg  ${cls}`);
+          + `${(r.keptFrac * 100).toFixed(0).padStart(6)}  ${r.worstAzDeg.toFixed(0)}/${r.worstElDeg.toFixed(0)} deg  ${cls} s${seed}`);
+        }
       }
     }
   }
@@ -192,9 +194,10 @@ if (has("why")) {
   const hair = flag("hair", "long").split(",")[0];
   const cls = flag("classes", "huscarl").split(",")[0];
   const TINT = 0x2fe07a;
+  const SEED = parseInt(flag("seed", "13"), 10);
   const meshes = (a) => {
     const c = buildCharacter(cls, { ...defaultAppearance(cls), beardStyle: "none", hairColor: TINT, ...a },
-      0x8a6b3f, undefined, "high", 13);
+      0x8a6b3f, undefined, "high", SEED);
     let pivot = null;
     c.group.traverse((o) => { if (!pivot && o.name?.endsWith("headPivot")) pivot = o; });
     const from = pivot ?? c.group;
