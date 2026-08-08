@@ -3,8 +3,8 @@
 This is the contract between `src/game/engine.mjs` — the authoritative
 simulation — and anything that wants to be a client of it. It is derived from
 the code, line by line, and not from the other documents in this repo, several
-of which describe a game that was never built (`CLASS.gorget`; and see §10 for
-three more found while writing this).
+of which describe a game that was never built (`CLASS.gorget`; and see §9.11 for
+four more found while writing this).
 
 **Why it exists.** `docs/PLATFORM-PATH.md` §2 says the one decision that costs
 nothing today and decides everything later is whether the simulation is a
