@@ -178,10 +178,65 @@ export interface VfxOptions {
   autoFires?: boolean;
 }
 
+/**
+ * Everything this module is still holding, counted rather than described.
+ *
+ * It exists because "the arena is clean" was, until now, an adjective. A round
+ * leaves blood in six separate pools — ground stains, marks on skin, running
+ * stumps, droplets in the air, shockwave rings and men still alight — and five
+ * of the six are invisible to a count of the sixth. `tools/goretest.mjs` reads
+ * this across a round boundary; nothing in the game reads it.
+ *
+ * `combatParticles` deliberately excludes the fire-borne (`F_AMBIENT`)
+ * population: the bonfire burns through the intermission by design and counting
+ * its embers as leftover gore would make the assertion unsatisfiable.
+ */
+export interface GoreCensus {
+  /** Marks on the ground: thrown spatter and pools together. */
+  decals: number;
+  /** Of those, the ones that are pools rather than spatter. */
+  pools: number;
+  /** Blood stains stuck to a body, following its bones. */
+  bodyMarks: number;
+  /** Stumps still running. */
+  jets: number;
+  /** Particles that are not the arena's own dust, embers or smoke. */
+  combatParticles: number;
+  /** Every particle in the store, ambient included. */
+  particles: number;
+  /** Ability shockwaves lying on the ground. */
+  rings: number;
+  /** Blade ribbons that have not yet dissolved. */
+  ribbons: number;
+  /** Men the client still believes are on fire. */
+  burners: number;
+  /** Highest y of anything in the four blood pools, or -Infinity for none.
+   *  A leftover ON the ground and a leftover IN the air are different bugs and
+   *  a count alone cannot tell them apart — the owner's report was about height. */
+  highestBloodY: number;
+}
+
 export interface VfxHandle {
   readonly root: THREE.Group;
   /** Live particle count, for anyone who wants to know what the budget is doing. */
   readonly liveParticles: number;
+  /**
+   * What the last round left behind, so a harness can assert it is nothing.
+   * Allocates one object per call; not for the frame loop.
+   */
+  census(): GoreCensus;
+  /**
+   * The round is over and the next one opens on clean ground.
+   *
+   * Every pool this module owns is emptied — stains, marks on skin, running
+   * stumps, blood in the air, rings, ribbons and burning men — and the arena's
+   * own dust, bonfire and torches are left alone, because they belong to the
+   * place rather than to the fight. Stumps are ended WITHOUT leaving their pool:
+   * a wound that stops because the round stopped has nothing to drip onto.
+   *
+   * Idempotent, and safe from any state. `src/game/roundreset.mjs` owns when.
+   */
+  clearBattle(): void;
   burst(opts: BurstOptions): void;
   /** A blade tip mid-arc. Successive calls that stay close become one ribbon. */
   trail(opts: BurstOptions): void;
@@ -1818,6 +1873,13 @@ export function createVfx(
     store.seed[i] = Math.random() * 100;
     store.flags[i] = s.flags;
     return true;
+  }
+
+  /** Move one particle's whole row from `src` to `dst`. Used by `clearBattle`'s
+   *  compaction, which keeps the ambient population and drops everything else. */
+  function copyParticle(src: number, dst: number): void {
+    for (const f of STORE_FIELDS) store[f][dst] = store[f][src];
+    store.flags[dst] = store.flags[src];
   }
 
   function kill(i: number): void {
@@ -4058,6 +4120,92 @@ export function createVfx(
     root,
     get liveParticles() {
       return store.n;
+    },
+
+    census(): GoreCensus {
+      let decalsN = 0;
+      let poolsN = 0;
+      let highest = -Infinity;
+      for (const d of decals) {
+        if (!d.active) continue;
+        decalsN++;
+        if (d.pool) poolsN++;
+        if (d.y > highest) highest = d.y;
+      }
+      let marksN = 0;
+      for (const m of bodyMarks) {
+        if (m.life <= 0 || !m.anchor) continue;
+        marksN++;
+        m.anchor.updateWorldMatrix(true, false);
+        markVec.set(m.lx, m.ly, m.lz).applyMatrix4(m.anchor.matrixWorld);
+        if (markVec.y > highest) highest = markVec.y;
+      }
+      let jetsN = 0;
+      for (const j of jets) {
+        if (!j.active) continue;
+        jetsN++;
+        if (j.y > highest) highest = j.y;
+      }
+      // A droplet is blood; the arena's ash, embers and smoke are not. The two
+      // share one store and only the flag tells them apart.
+      let combat = 0;
+      for (let i = 0; i < store.n; i++) {
+        if (store.flags[i] & F_AMBIENT) continue;
+        combat++;
+        if (store.py[i] > highest) highest = store.py[i];
+      }
+      return {
+        decals: decalsN,
+        pools: poolsN,
+        bodyMarks: marksN,
+        jets: jetsN,
+        combatParticles: combat,
+        particles: store.n,
+        rings: rings.length,
+        ribbons: ribbons.reduce((n, r) => n + (r.active ? 1 : 0), 0),
+        burners: burners.reduce((n, b) => n + (b.active ? 1 : 0), 0),
+        highestBloodY: highest,
+      };
+    },
+
+    clearBattle() {
+      // Stumps first, and with `leavePool` false. `finishJet(j, true)` is the
+      // normal ending and it drops a pool where the body came to rest — exactly
+      // the right thing when a wound runs dry mid-fight, and exactly the wrong
+      // thing here, where it would stain the new round's ground on the frame
+      // the old one was wiped off it.
+      for (const j of jets) finishJet(j, false);
+      jetsLive = 0;
+      for (const m of bodyMarks) { m.life = 0; m.anchor = null; m.owner = null; }
+      for (const d of decals) d.active = false;
+      // Compacted in place rather than emptied: the arena's dust, embers and
+      // smoke belong to the place and burn straight through an intermission,
+      // and the fire that emitted them is still standing. Only combat leaves.
+      let w = 0;
+      for (let i = 0; i < store.n; i++) {
+        if (!(store.flags[i] & F_AMBIENT)) continue;
+        if (w !== i) copyParticle(i, w);
+        w++;
+      }
+      store.n = w;
+      ambientLive = w;
+      stainLive = 0;
+      rings.length = 0;
+      for (const r of ribbons) { r.active = false; r.n = 0; r.idle = 0; }
+      // A man alight when the round ended is not alight when the next one opens:
+      // the server clears `burning` on every warrior in `startRound`, and until
+      // now nothing on this side spent what the last round had already lit.
+      for (const b of burners) {
+        if (!b.active) continue;
+        b.active = false; b.id = ""; b.alight = false;
+        b.flame = 0; b.tail = 0; b.placed = false; b.want = 0; b.score = 0;
+      }
+      burnersLive = 0;
+      // The flame layer holds the tongues of whoever was burning until something
+      // repacks it. `rebuildFires` runs while this is non-zero, so leaving it
+      // set for one more frame is what actually takes them out of the buffer.
+      burnerTongues = Math.max(burnerTongues, 1);
+      bodies.length = 0;
     },
 
     burst,
