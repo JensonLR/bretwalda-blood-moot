@@ -128,9 +128,52 @@ const LIGHTS = [
 for (const l of LIGHTS) { const n = Math.hypot(...l.d); l.d = l.d.map((v) => v / n); }
 const AMBIENT = 0.30;
 
-const IDS = argv.includes("--ids");
+const IDS = argv.includes("--ids") || argv.includes("--cover");
+/**
+ * --cover: HOW MUCH OF THE FACE THE KIT TAKES, AND FROM WHICH BEARING.
+ *
+ * The assertion the gate never had. cosmetictest asks how much of a cosmetic
+ * READS; nothing asked what stands IN FRONT OF the face at the bearing the shop
+ * photographs the warrior from, which is how the huscarl's aventail came to
+ * hang across his own cheek with every harness green.
+ *
+ * IT IS A DIFFERENTIAL, NOT A CLASSIFICATION, and that is the whole design. The
+ * first attempt tried to tell legitimate cover from illegitimate by the PART — a
+ * helm may cover a face, the body may not — and reported 0.00% on the defect,
+ * because a coif rides the head and is parented to it: `rig:head` carries the
+ * skin, the mask, the mail and the gold alike, so there is no boundary to draw
+ * the line on. See docs/OPEN-DEFECTS.md.
+ *
+ * So nothing is classified. The same head is rendered twice at each bearing —
+ * bare-headed and helmed — and the only question is how much of the skin that
+ * was visible has gone. No opinion about mail or masks is needed to ask it.
+ *
+ * WHAT IT IS NOT YET. The design predicted that a FALL would show a wide spread
+ * across bearings — little from the front, a great deal from three-quarter —
+ * while a mask stayed flat, and that the spread would be the discriminator.
+ * MEASURED, THAT IS FALSE:
+ *
+ *     nasal      44.0 / 42.8 / 42.9    spread 1.2%
+ *     boar       63.0 / 60.2 / 60.2    spread 2.9%
+ *     suttonhoo  95.0 / 97.3 / 97.4    spread 2.3%
+ *
+ * Every helm is flat. The falls take their share from every bearing, not only
+ * from three-quarter, so spread separates nothing.
+ *
+ * The other thing the table shows is that this counts skin on the whole HEAD —
+ * scalp, ears and occiput included — and a helm is entitled to all of those. A
+ * bar drawn on these numbers would fail a helmet for being a helmet. Restricting
+ * the count to the face proper, below the brow and facing the lens, is the next
+ * move and it is the one that would make this a gate.
+ *
+ * So it prints and does not judge, deliberately. What it does settle is the
+ * INSTRUMENT: see `idbuf`.
+ */
+const COVER = argv.includes("--cover");
 const MATTE = flag("matte", null);
 const LEGEND = new Map();
+/** Part keys in first-seen order; `idbuf` holds indices into this. */
+const PARTS = [];
 const hue = (i) => {
   const h = (i * 0.61803398875) % 1, s = 0.72, v = 0.95;
   const k = (n) => { const t = (n + h * 6) % 6; return v - v * s * Math.max(0, Math.min(1, Math.min(t, 4 - t))); };
@@ -151,6 +194,15 @@ function render(root, lens, turnDeg) {
 
   const depth = new Float32Array(W * H).fill(Infinity);
   const rgb = new Float32Array(W * H * 3);
+  // WHICH PART WON, per pixel, as an index into `PARTS`.
+  //
+  // Not recoverable from `rgb`, and that cost two attempts at the coverage
+  // assertion before it was noticed: even under --ids the buffer holds the
+  // material colour TIMES THE LIGHT, so the flat legend colour never actually
+  // appears in it and matching against the legend finds nothing at all. An
+  // id buffer is written where the depth test is won, so it cannot disagree
+  // with what is on screen.
+  const idbuf = new Int32Array(W * H).fill(-1);
   for (let i = 0; i < W * H; i++) { rgb[i * 3] = 0.055; rgb[i * 3 + 1] = 0.058; rgb[i * 3 + 2] = 0.065; }
   root.updateMatrixWorld(true);
 
@@ -224,6 +276,11 @@ function render(root, lens, turnDeg) {
       if (!e) { e = hue(LEGEND.size); LEGEND.set(key, e); }
       mc = e;
     }
+    let anc0 = o, pname = "";
+    while (anc0 && !pname) { if (anc0.name) pname = anc0.name; anc0 = anc0.parent; }
+    const partKey = `${pname || "?"} \u00b7 ${(mat?.color?.getHexString?.() ?? "??")}`;
+    let partIx = PARTS.indexOf(partKey);
+    if (partIx < 0) { partIx = PARTS.length; PARTS.push(partKey); }
     const idx = g.index;
     // Already in world space when skinned, so the model matrix is identity.
     const m = skun ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] : o.matrixWorld.elements;
@@ -268,6 +325,7 @@ function render(root, lens, turnDeg) {
           const o2 = py * W + px;
           if (z >= depth[o2]) continue;
           depth[o2] = z;
+          idbuf[o2] = partIx;
           let nx2 = w0 * A[3] + w1 * B[3] + w2 * C[3];
           let ny2 = w0 * A[4] + w1 * B[4] + w2 * C[4];
           let nz2 = w0 * A[5] + w1 * B[5] + w2 * C[5];
@@ -289,7 +347,7 @@ function render(root, lens, turnDeg) {
       }
     }
   });
-  return { rgb, W, H };
+  return { rgb, W, H, idbuf };
 }
 
 // ---- PNG, hand-rolled, because a picture with a dependency is not a picture.
@@ -413,6 +471,49 @@ const panels = turnsArg.map((turn) => {
   root.updateMatrixWorld(true);
   return render(root, lens, turn);
 });
+if (COVER) {
+  // The bare head, same seed, same lens, same bearings — the control.
+  const bareAp = { ...ap, helm: "none" };
+  const bare = turnsArg.map((turn) => {
+    const root = buildCharacter(CLS, bareAp, 0, undefined, "high", SEED).group;
+    root.rotation.y = Math.PI + (turn * Math.PI) / 180;
+    root.updateMatrixWorld(true);
+    return render(root, lens, turn);
+  });
+  const partAt = (pan, i) => (pan.idbuf[i] >= 0 ? PARTS[pan.idbuf[i]] : "");
+  // Bare-headed, every visible `rig:head` pixel IS skin — there is nothing else
+  // on the head to be. That sidesteps having to know which hexes are
+  // complexions, which would go stale the day a tone is added.
+  const skinKeys = new Set();
+  for (const pan of bare) {
+    for (let i = 0; i < pan.W * pan.H; i++) {
+      const k = partAt(pan, i);
+      if (k.startsWith("rig:head")) skinKeys.add(k);
+    }
+  }
+  const losses = [];
+  turnsArg.forEach((turn, pi) => {
+    const b = bare[pi], d = panels[pi];
+    let was = 0, lost = 0;
+    for (let i = 0; i < b.W * b.H; i++) {
+      if (!skinKeys.has(partAt(b, i))) continue;
+      was++;
+      if (!skinKeys.has(partAt(d, i))) lost++;
+    }
+    losses.push({ turn, pct: was ? lost / was : 0, was, lost });
+  });
+  const pcts = losses.map((l) => l.pct);
+  const spread = Math.max(...pcts) - Math.min(...pcts);
+  console.log(`[cover] ${CLS} / ${ap.helm}: skin taken off the face by the helm`);
+  for (const l of losses) {
+    console.log(`[cover]   ${String(l.turn).padStart(5)}deg  ${(l.pct * 100).toFixed(1).padStart(6)}%  `
+      + `(${l.lost} of ${l.was} skin px)`);
+  }
+  console.log(`[cover]   spread across bearings ${(spread * 100).toFixed(1)}%`);
+  console.log("[cover]   MEASUREMENT ONLY — no bar. This counts skin on the whole head, and a helm");
+  console.log("[cover]   is entitled to the scalp; see the note above --cover before gating on it.");
+}
+
 const sheet = tile(panels, Math.min(panels.length, 4));
 writeFileSync(outPath, png(sheet.rgb, sheet.W, sheet.H));
 console.log(`[look] ${outPath}  ${sheet.W}x${sheet.H}  ${panels.length} panels  ${Date.now() - t0} ms  ${JSON.stringify(extra)}`);

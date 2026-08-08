@@ -114,12 +114,39 @@ candidates each fail on a real garment:
 - *Left/right asymmetry of skin coverage* — a three-quarter bearing is
   legitimately asymmetric, so the signal is buried in perspective.
 
-The one that looks sound and was not built for want of time: **render the head
-twice at the same bearing, once with the helm slot only and once fully dressed,
-and require that no skin pixel visible in the first is lost in the second.** A
-mask removes skin in BOTH renders; a fall removes skin only in the second. That
-is a differential measurement rather than a classification, which is why it does
-not need to tell mail from a mask.
+**BUILT, AND THE HYPOTHESIS IS DISPROVEN.** `facelook --cover` renders the same
+head twice at each bearing, bare-headed and helmed, and counts the skin that
+went. It needed a real per-pixel id buffer to work at all — see below — and with
+one, it measures:
+
+```
+helm         0deg   -35deg    35deg     spread
+nasal       44.0%    42.8%    42.9%       1.2%
+boar        63.0%    60.2%    60.2%       2.9%
+suttonhoo   95.0%    97.3%    97.4%       2.3%
+```
+
+The design predicted a fall would spike at three-quarter and stay low from the
+front, so that SPREAD would be the discriminator. **Every helm is flat.** The
+falls take their share from every bearing, not only from the shop's, so spread
+separates nothing and that idea is dead.
+
+The table also shows why these numbers cannot be gated as they stand: they count
+skin on the whole HEAD — scalp, ears, occiput — and a helm is entitled to all of
+those. A bar here would fail a helmet for being a helmet.
+
+**The next move, and it is now small:** restrict the count to the face proper —
+below the brow and facing the lens — and the same differential becomes a gate.
+The instrument is done; only the region is wrong.
+
+**THE INSTRUMENT IS THE REAL DELIVERABLE.** Two attempts at this assertion
+returned 0.00% on the defect and both failed for one reason: the rasteriser's
+colour buffer holds the material colour TIMES THE LIGHT, so even under `--ids`
+the flat legend colour never appears in it and matching pixels against the
+legend finds nothing. `render()` now keeps an `idbuf` written where the depth
+test is won, so which part owns a pixel is a fact rather than an inference. Any
+future per-pixel assertion about who covers what depends on that and could not
+have been written without it.
 
 **Still unexplained from the same screenshots:** a dark blade hanging from the
 jaw on a warrior whose beard slot reads Clean Shaven, and the helm standing off
