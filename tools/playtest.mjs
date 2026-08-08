@@ -881,20 +881,49 @@ async function main() {
       if (!s) return null;
       return Object.values(s.players || {}).find((p) => !String(p.id).startsWith("bot_")) || null;
     };
-    let sent = 0, waited = 0;
+    let sent = 0, waited = 0, startedAt = -1;
+    // PACED BY SNAPSHOTS, NOT BY setTimeout — and this is the second half of
+    // the same bug the block above describes.
+    //
+    // The first fix moved the sweep off `page.mouse` and into the page, which
+    // removed the CDP round trip. It still spread the twelve steps over
+    // `setTimeout(tick, 15)`, so delivery was paced by the MAIN THREAD while
+    // `asked` is summed between SERVER SNAPSHOTS. Those are two different
+    // clocks, and under load they diverge: run this harness beside four others
+    // on one box and the timer starves while the socket keeps delivering, so
+    // the recorder sees a full 16-snapshot stroke and the sweep gets 6 of 12
+    // steps out. Measured exactly that way — `1.06 rad (6/12 steps, the stroke
+    // ended first)` — on a green build that scored 12/12 and 2.53 rad when run
+    // alone. A gate whose verdict depends on what else is running is not a gate.
+    //
+    // So the sweep is clocked by the thing it is measured against: the
+    // recorder's own snapshot count. Two steps per snapshot arriving puts all
+    // twelve out over six of a warden stroke's seventeen. If the thread stalls
+    // and four snapshots land unobserved, the next run dispatches the eight it
+    // owes rather than losing them — starvation delays the demand, it no longer
+    // shrinks it.
+    const recLen = () => (window.__probe.rec ? window.__probe.rec.length : 0);
     const tick = () => {
       const m = mine();
       // The server's own word for "committed", not a clock this side of the
       // wire: a stroke that started late still gets the whole sweep.
       const committed = !!m && m.attackPhase !== null && m.attackPhase !== undefined;
       if (!gate || committed) {
-        // The first sighting of the stroke gets a burst, so a demand is
-        // standing in the very first committed tick even if the main thread
-        // stalls immediately afterwards. The server slews on its own fixed
-        // step toward the last yaw it was told, so a HELD demand exercises the
-        // cap exactly as a moving one does.
-        const n = sent === 0 ? 4 : 1;
-        for (let i = 0; i < n && sent < steps; i++, sent++) {
+        if (startedAt < 0) startedAt = recLen();
+        // Owed, not "one per tick": the arrears are what survive a stall.
+        let owe = Math.max(1, (recLen() - startedAt) * 2) - sent;
+        // Past the half-way point of the stroke, everything still owed goes out
+        // at once. The server slews toward the last yaw it was told on its own
+        // fixed step, so a demand that arrives whole and is then HELD exercises
+        // the cap exactly as a moving one does — and this is what guarantees
+        // the full 2.53 rad reaches the wire inside the window even if every
+        // frame before now was dropped.
+        // `swingDuration`, which is what the wire calls it — the recorder above
+        // renames it to `dur` when it stores a sample, and reading that name
+        // here would be `undefined > 0`, i.e. a burst that never fires and a
+        // safety net that silently is not there.
+        if (m && m.swingDuration > 0 && m.swingT / m.swingDuration > 0.5) owe = steps - sent;
+        for (let i = 0; i < owe && sent < steps; i++, sent++) {
           cv.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, movementX: px, movementY: 0 }));
         }
       } else if (++waited > (sent === 0 ? 400 : 60)) {
@@ -905,7 +934,7 @@ async function main() {
         return done({ sent, why: sent === 0 ? "the stroke never started" : "the stroke ended first" });
       }
       if (sent >= steps) return done({ sent, why: "complete" });
-      setTimeout(tick, 15);
+      setTimeout(tick, 8);
     };
     tick();
   }), [SWEEP_PX, SWEEP_STEPS, gateOnStroke]);

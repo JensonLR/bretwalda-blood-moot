@@ -8,6 +8,64 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## REOPENED — the Sutton Hoo swallows the hair again, and one unit closed the other's window
+
+**Status on `main` (measured, not inferred):**
+
+```
+FAIL  every paid hairstyle still reads under every helm that is not a hood — 2 swallowed
+  SWALLOWED  Long Mane (40g) under The Sutton Hoo Helm — 0.62% (helm covers 100% of the face)
+  SWALLOWED  Braided War-locks (100g) under The Sutton Hoo Helm — 0.64%
+[cos] FAIL   (14/15)
+```
+
+Two paid items — 40 and 100 gold — are invisible on the helm a player pays 2400
+gold for. **Both of the sections below are accurate about the work they
+describe, and both were green when they were written.** The combination is not.
+
+**What happened, exactly.** Two units landed within twenty minutes of each
+other and each broke the other's assumption:
+
+| | commit | what it did |
+|---|---|---|
+| hair | `536b91f` | routed the fall out through the Sutton Hoo's **side slot** — the gap between the cheek guard's rear edge and the aventail's front edge — reaching 1.56% and 1.44% |
+| helm shell | `9b2172d` | closed a hole at the jaw by widening the same guard inward: `cheekIn` on a masked helm **0.78 → 0.66 rad**, so the guard laps the mask all the way down |
+
+The 0.12 rad the guard gained is the slot the hair was coming out of. Neither
+unit could have caught it: `wearmeasure` §10 measures metal and holes and has no
+concept of hair, `cosmetictest` §3 measures hair and has no concept of a hole,
+and each ran its own gate green before merging.
+
+**The section below said so in advance**, which is the part worth keeping:
+*"most of what a player sees at the shop lens is hair filling the helmet's own
+side slot"*, and *"the next honest move on this rung is the cloak's collar, not
+the hair."* That warning was the load-bearing sentence and it was right.
+
+**What the fix has to satisfy, and it is both at once:**
+
+1. `wearmeasure` §10 — no sight line lands on the shell's own far wall at the
+   jaw. The guard must keep lapping the mask; reverting `cheekIn` to 0.78 puts
+   the hole straight back and is not a fix.
+2. `cosmetictest` §3 — Long Mane and Braided War-locks each read above 1.00%
+   under this helm.
+
+Which means the hair cannot go back through the slot, and the only route left is
+the one already identified: **the gather below the aventail's hem, which is
+currently buried in the cloak** (cloak collar top edge y 1.514 against the mail
+hem at 1.505 — 9 mm, and the hair loses). A forward `lean` of 0.24 was already
+tried and moved the number by −0.02%. **So the work is on the cloak collar —
+dropping or scooping it behind the nape so the hem's gather is in open air —
+and not on the hair at all.** `tools/hairprobe.mjs` is the 10-second inner loop
+for it.
+
+**The process lesson, which is the more expensive one.** Two agents in separate
+worktrees, each with a green gate, produced a red main. Nothing in the gate runs
+the *other* unit's ruler before a merge, so a unit can only ever prove it did
+not break itself. Until units that touch the same geometry share a gate, the
+merge order is doing work nobody is checking.
+
+---
+
 ## CLOSED — the head stack's hair regression: ten rungs of ten
 
 Supersedes the entry at the bottom of this file. `npm run cosmetictest --
