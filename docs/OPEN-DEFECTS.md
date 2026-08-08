@@ -73,27 +73,44 @@ difference, and it costs 21 points of face at the bearing the shop uses.
 The id buffer names the surface directly: **95% of the loss is
 `rig:head · 6e767f`**, the helm's iron. The Hood's is 100% `· 2a2521`, its cloth.
 
-### The trap that cost three sweeps, and it is worth more than the defect
+### Every lever tried, and what it moved
 
-`cheekIn`, `cheekOut` and `cheekHemAt` look like the guard's geometry. **They are
-not.** Sweeping all three moved the reading by nothing:
+Measured at 0 / -35 / 35 deg. Baseline `24.3 / 50.9 / 53.1`, spread 28.8.
+Spectacle, the shape to aim at, is `25.2 / 29.4 / 29.4`, spread 4.2.
 
-```
-cheekIn  0.56 -> 0.88   50.9% -> 32.2%   (front falls; the side does not)
-hem drop 0.34 -> 0.14   50.9% -> 50.9%   (no effect whatsoever)
-cheekOut 1.45 -> 1.10   50.9% -> 52.1%   (slightly worse)
-```
+| change | reading | spread |
+|---|---|---|
+| `cheek: "short"` (whole style) | 25.2 / 29.4 / 29.4 | **4.2** |
+| `bowl: "round"` | 24.3 / 50.9 / — | 26.6 |
+| `nape: "flange"` | 24.3 / 50.9 / — | 26.6 |
+| `cheekIn` 0.56 → 0.88 | 12.3 / 32.2 / 35.1 | 22.8 |
+| `cheekOut` 1.45 → 1.10 | 30.6 / 52.1 / 55.3 | 24.7 |
+| `deepHem` addend 0.34 → 0.12 | 24.3 / 50.9 / 53.3 | 29.0 |
+| `deepHem` base `Y_CHIN+0.05` → `Y_LIP+0.02` | 23.2 / 43.7 / 45.6 | 22.4 |
 
-They are the guard's DESCRIPTION, consumed by other systems — the file says so
-itself about `cheekOut`: *"the hair reads this line to know where the metal
-stops"*. The shell that is actually drawn is built elsewhere off
-`style.cheek === "deep"`. That is the mirrored-definition fault this file
-records having made three times before, and it caught a fourth victim.
+**No single constant is the fix.** The bowl, the nape and the hem's addend do
+nothing at all. Moving the inner edge back drops the FRONT and leaves the side.
+Widening or narrowing the outer edge makes it slightly worse. Raising the hem to
+the short guard's height buys seven points and costs the guard its depth, which
+is the thing the rung is sold on.
 
-**So the fix is in the deep guard's own construction**, and the target is
-spectacle's profile: about 29% at every bearing rather than 24 rising to 53. Not
-"smaller" — a deep guard is meant to be deep — but hung BEHIND the jaw instead
-of across the cheek.
+Only replacing the whole style fixes it — which says the coverage is distributed
+across coupled terms rather than sitting in one. **So this is a reshape, not a
+retune**, and the file's own audit already named the shape of the answer: *"a
+rectangle in parameter space is not a cheek guard; it is a billboard."* The
+guard has to be cut to the jaw it covers — deep at the front beside the mouth,
+sweeping up to clear the mandible's angle, finishing short at the back — while
+sitting BEHIND the jawline rather than out on the cheek.
+
+### The trap that cost three of those sweeps
+
+`cheekIn`, `cheekOut` and `cheekHemAt` at the top of the file look like the
+guard's geometry. `cheekHemAt` is a DUPLICATE of `deepHem` inside the builder,
+and it was the copy I swept first — which is why the hem appeared to do nothing
+twice. The file records having made this mirrored-definition mistake three times
+before; this is the fourth. Anyone editing the guard must edit `deepHem` at the
+builder, and keep `cheekHemAt` in step because the hair reads it to know where
+the metal stops.
 
 **The Hood is not yet judged.** 3.1% to 34.2% is the same signature, but a hood
 draping round a face at three-quarter may simply be what a hood does. It needs a
