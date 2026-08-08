@@ -9,6 +9,7 @@ import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase,
 import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { underGrace } from "@/game/grace.mjs";
+import { roundBoundary } from "@/game/roundreset.mjs";
 import {
   resolveQuality, configureRenderer,
   type FrameContext, type Mood, type QualitySettings,
@@ -109,6 +110,15 @@ interface RoomState {
   matchTimer: number;
   killFeed: Array<{ killerName: string; victimName: string; timestamp: number }>;
   lastStandTriggered: boolean;
+  /**
+   * Which round of the match this is, 1-based, 0 in a lobby. It rides on every
+   * snapshot `serializeRoom` sends and it is the only thing on the wire that
+   * says a round has been dealt — which is what the arena has to be emptied on.
+   * Optional here because the per-second countdown ticks are thin: they carry a
+   * number and nothing else, and `roundBoundary` has the phase edge as its
+   * backstop for exactly that case.
+   */
+  roundIndex?: number;
 }
 
 /** Everything the render modules build, held together so teardown is one call. */
@@ -168,6 +178,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // it, and a match ending must not rebuild the animation frame callback.
   const matchEndRef = useRef<MatchEndData | null>(matchEnd ?? null);
   const summaryRef = useRef<SummaryHandle | null>(null);
+  /**
+   * The round the last frame believed it was in. Two fields off the wire and
+   * nothing else — see `@/game/roundreset.mjs`, which owns what a change in them
+   * means. A ref rather than state because the loop is the only reader and a
+   * round starting must not rebuild the animation frame callback.
+   */
+  const roundPhaseRef = useRef<{ state: string | null; roundIndex: number } | null>(null);
   // Initialised from the first render's prop rather than filled in by an
   // effect: the build reads it on mount, before any effect that assigns it
   // would have run, and a build that could not see its consumer would silently
@@ -605,6 +622,28 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         stage.postfx.render(dt, ctx);
         return;
       }
+
+      // ---------- the round boundary ----------
+      //
+      // The owner's report: "when loading into a second round blood floating in
+      // mid air." It is the countdown flash again in a different organ — an
+      // effect the client owns whose ending condition the server owns. The sim
+      // ends a round, waits out the break, stands everyone up on a fresh ring
+      // and starts the next one; vfx.ts was never told, and a ground stain
+      // lives twenty-six seconds, a pool seventy, and a mark of blood stuck to
+      // a man's skin thirty — all of them longer than the five-second break.
+      // The marks on skin are stored in the local frame of the spine bone, so
+      // they are redrawn at chest height wherever that bone has got to, which
+      // is the "mid air" half of what he saw.
+      //
+      // Ahead of every branch below — summary, lobby, intermission and fight —
+      // because a round can be dealt into any of them and the arena has to be
+      // clean before anything draws. `roundBoundary` is shared with
+      // `tools/goretest.mjs`, so what this frame calls a new round and what the
+      // harness asserts about one are the same function.
+      const phase = { state: roomState.state, roundIndex: roomState.roundIndex ?? 0 };
+      if (roundBoundary(roundPhaseRef.current, phase)) stage.vfx.clearBattle();
+      roundPhaseRef.current = phase;
 
       // A warrior's client half, built on first sight. Shared by the fight
       // loop and the summary path: a canvas that mounts straight into a

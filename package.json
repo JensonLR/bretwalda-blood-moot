@@ -16,6 +16,7 @@
     "protocoltest": "node tools/protocoltest.mjs",
     "firetest": "node tools/firetest.mjs",
     "gracetest": "node tools/gracetest.mjs",
+    "goretest": "node tools/goretest.mjs",
     "touchtest": "node tools/touchtest.mjs",
     "lockshot": "node tools/lockshot.mjs",
     "profiletest": "node tools/profiletest.mjs",

@@ -50,6 +50,8 @@ art/ui/
 .wearmeasure/
 .beardcount/
 .beardseat/
+.goretest/
+.vfxprobe/
 
 # Git worktrees the agent harness creates for isolated parallel work. These are
 # whole checkouts of this repository living inside it — `git worktree list`
