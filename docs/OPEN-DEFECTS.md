@@ -84,13 +84,42 @@ tell that it worked is the cloak's brown edge disappearing from panel 4.
 0.89, not a band) and a mirrored transform (no negative-determinant world
 matrix).
 
-**The fix has two halves.** The geometry: the falls are far too broad and hang
-too far forward, and a real aventail hangs BEHIND the jaw rather than beside the
-cheekbone. And the assertion, which is the half that keeps it shut — nothing in
-the gate asks *"does any kit cross the face at the bearing the shop photographs
-the warrior from"*. `cosmetictest` asks how much of a cosmetic READS and never
-what is standing in front of it. Build the assertion first; it will very likely
-catch the dark blade at the jaw too.
+**The fix has two halves, and the second is HARDER THAN IT LOOKS.**
+
+*The geometry:* the falls are too broad and hang too far forward. A real aventail
+hangs BEHIND the jaw rather than beside the cheekbone.
+
+*The assertion:* nothing asks "does any kit cross the face at the bearing the
+shop photographs the warrior from". The obvious version of that check was written
+and **thrown away, because it could not see the defect** — recorded here so it is
+not written a second time:
+
+> Rule attempted: *within the face's own on-screen bounds, no `rig:torso`
+> surface may win the depth test.* A helm covering a face is legitimate (that is
+> what a mask IS); body kit covering it never is, so draw the line on the part.
+>
+> It reported **0.00% and PASS** on the very warrior whose cheek is covered. The
+> reason is in the ID legend: **the aventail is `rig:head`.** A coif rides the
+> head, so it is parented to it, and every helm material is on `rig:head` too —
+> `rig:head · 6e767f`, `· b6bfca`, `· bfa25c` are all steel and gold. There is no
+> part boundary between "the mask that may cover your face" and "the mail that
+> may not".
+
+**So the discriminator has to be something other than the part**, and the easy
+candidates each fail on a real garment:
+
+- *No metal over skin inside the face bounds* — fails every masked helm, correctly.
+- *Skin, then metal, then skin across a scanline* — fails the NASAL, which is
+  exactly that pattern and is right.
+- *Left/right asymmetry of skin coverage* — a three-quarter bearing is
+  legitimately asymmetric, so the signal is buried in perspective.
+
+The one that looks sound and was not built for want of time: **render the head
+twice at the same bearing, once with the helm slot only and once fully dressed,
+and require that no skin pixel visible in the first is lost in the second.** A
+mask removes skin in BOTH renders; a fall removes skin only in the second. That
+is a differential measurement rather than a classification, which is why it does
+not need to tell mail from a mask.
 
 **Still unexplained from the same screenshots:** a dark blade hanging from the
 jaw on a warrior whose beard slot reads Clean Shaven, and the helm standing off
