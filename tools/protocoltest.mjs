@@ -552,7 +552,7 @@ function scenarioHeadless() {
   check("a standing intent lapses on SIM time, so a stepped host is not a man running forever",
     movingAt400 > 1 && movingAt2000 === 0,
     `${movingAt400.toFixed(2)} u/s at 400 ms of sim, ${movingAt2000.toFixed(2)} at 2000 ms ` +
-    `— the lapse is ${600} ms and 2 s of sim cost ${Date.now() - wallStart} ms of wall clock`);
+    `— INPUT_LAPSE_MS is 600, and 2 s of sim cost ${Date.now() - wallStart} ms of wall clock`);
 
   // ROUND ONE. Alfa sprints into the bonfire and cooks; Bravo never sends an
   // input and never moves, so the round ends with one man standing.
