@@ -380,6 +380,6 @@ export const LABEL_AT: Record<string, { readonly x: number; readonly y: number }
   saxon: { x: 402.2, y: 825.1 },
   norse: { x: 479.3, y: 666.5 },
   briton: { x: 299.5, y: 741.9 },
-  pict: { x: 282.4, y: 256.2 },
-  dalriata: { x: 196.8, y: 344.8 },
+  pict: { x: 259.6, y: 287.7 },
+  dalriata: { x: 194, y: 360.2 },
 };

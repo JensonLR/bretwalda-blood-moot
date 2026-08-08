@@ -43,6 +43,25 @@
     --garnet: #7c1420;
     --garnet-lit: #c8323c;
 
+    /* Two more field colours, and the rule above — "no fourth accent hue
+       anywhere in the menus" — still holds, because these are not menu
+       accents. They exist for exactly one surface, the faction map, where
+       four peoples need four distinguishable fields and gilt and garnet are
+       only two. Neither is invented: woad is the blue the Picts are actually
+       remembered for, moss the grey-green docs/FACTIONS-AND-STEAM.md already
+       assigns to the Britons ("grey-green, slate, checks").
+
+       Neither is allowed to outshine the metals. Both sit well below gilt in
+       lightness and below garnet in chroma, so on the map the gilt
+       Anglo-Saxon field is still the brightest thing on it. The -lit pairs
+       are lifted from hues this file already ships rather than picked fresh:
+       --woad-lit is .badge-sky's text colour exactly, --moss-lit the same
+       step taken for the green in .card-glow-green. */
+    --woad: #2b4f72;
+    --woad-lit: #a5dcfc;
+    --moss: #3f6353;
+    --moss-lit: #9dc3ae;
+
     /* Plaitwork, drawn as two strands weaving through each other. An inline
        SVG is the only honest way to get a curve that crosses itself — it is
        markup, not an asset, so it still costs zero requests, which is the
@@ -1121,12 +1140,289 @@
     height: 1px;
     background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.38), transparent);
   }
+
+  /* ---------------------------------------------------------- faction map */
+
+  /* Map beside legend on a desktop, map above legend on a phone, and the
+     order in the markup is already the reading order for both — no `order`
+     anywhere, so a screen reader and a keyboard walk it the same way the eye
+     does. docs/PLATFORMS.md holds both as first class. */
+  .faction-map {
+    display: grid;
+    gap: var(--rhythm);
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  /* The map column is sized by the map, not by the grid. Britain is roughly
+     1:1.56, so a column any wider than this makes a 900px-tall island and
+     pushes the legend off the screen — the two have to be read together. */
+  @media (min-width: 62rem) {
+    .faction-map {
+      grid-template-columns: clamp(17rem, 30vw, 23rem) minmax(0, 1fr);
+      gap: calc(var(--rhythm) * 1.2);
+    }
+  }
+
+  /* The sea. Plaitwork under the island rather than a flat field — it is the
+     one ornament these screens repeat, and it is the difference between a
+     map and a chart. Tiled from --knot, so still no request and no asset. */
+  .faction-map-plate {
+    position: relative;
+    /* On a phone the plate is the column; capped so the island cannot grow
+       taller than a screen and leave the legend below the fold. */
+    max-width: 23rem;
+    margin-inline: auto;
+    width: 100%;
+    border-radius: 0.85rem;
+    overflow: hidden;
+    background:
+      radial-gradient(85% 60% at 50% 30%, rgba(60, 48, 34, 0.55), transparent 70%),
+      linear-gradient(180deg, #191309 0%, #100c07 100%);
+    border: 1px solid rgba(217, 164, 65, 0.22);
+    box-shadow:
+      inset 0 1px 0 rgba(246, 221, 160, 0.12),
+      0 3px 14px rgba(0, 0, 0, 0.45);
+  }
+  .faction-map-plate::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: var(--knot);
+    opacity: 0.07;
+    pointer-events: none;
+  }
+
+  .faction-map-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  /* ---- map bodies ---- */
+
+  .fm-neighbour {
+    fill: rgba(58, 51, 42, 0.5);
+    stroke: rgba(120, 108, 88, 0.35);
+    stroke-width: 1;
+  }
+
+  /* Four states, one rule. `rest` is nothing chosen yet — every field
+     readable, none shouting. `dim` is the ground of somebody you did not
+     pick, and it stays visible rather than vanishing: the map is meant to
+     show you a divided island, not just your own corner of it. */
+  .fm-field {
+    transition: opacity 0.18s ease;
+  }
+  .fm-field[data-state="rest"] { opacity: 0.62; }
+  .fm-field[data-state="dim"] { opacity: 0.3; }
+  .fm-field[data-state="live"] { opacity: 0.82; }
+  .fm-field[data-state="sel"] { opacity: 1; }
+
+  .fm-edge {
+    fill: none;
+    stroke-width: 2.4;
+    stroke-linejoin: round;
+    pointer-events: none;
+  }
+
+  .fm-coast {
+    fill: none;
+    stroke: rgba(246, 221, 160, 0.6);
+    stroke-width: 1.1;
+    stroke-linejoin: round;
+    pointer-events: none;
+  }
+
+  .fm-dalriata {
+    fill: none;
+    stroke: rgba(246, 221, 160, 0.5);
+    stroke-width: 1.6;
+    stroke-dasharray: 7 6;
+    pointer-events: none;
+  }
+
+  .fm-watling {
+    fill: none;
+    stroke: var(--gilt-lit);
+    stroke-width: 2.4;
+    stroke-dasharray: 9 7;
+    stroke-linecap: round;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  .fm-watling[data-on="no"] { opacity: 0; }
+  .fm-watling[data-on="yes"] { opacity: 0.85; }
+
+  /* ---- seat and labels ---- */
+
+  .fm-seat { pointer-events: none; }
+  .fm-seat-ring {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    opacity: 0.55;
+    animation: seatPulse 2.6s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .fm-seat-dot {
+    fill: currentColor;
+    stroke: #14100b;
+    stroke-width: 2;
+  }
+  @keyframes seatPulse {
+    0%, 100% { transform: scale(0.82); opacity: 0.6; }
+    50% { transform: scale(1.1); opacity: 0.2; }
+  }
+
+  .fm-seat-name,
+  .fm-label,
+  .fm-label-small {
+    font-family: "Cinzel", serif;
+    font-weight: 700;
+    paint-order: stroke fill;
+    stroke: rgba(6, 4, 3, 0.85);
+    pointer-events: none;
+  }
+  /* Ink, not identity. The field underneath already says which faction this
+     is; garnet lettering on a garnet ground says it twice and reads neither
+     time. The marker keeps the hue, the words keep the contrast. */
+  .fm-seat-name {
+    fill: #fbeecd;
+    font-size: 25px;
+    letter-spacing: 0.14em;
+    stroke-width: 4;
+  }
+  .fm-label {
+    fill: #fffaf0;
+    font-size: 33px;
+    letter-spacing: 0.16em;
+    text-anchor: middle;
+    stroke-width: 5;
+  }
+  .fm-label-small {
+    fill: rgba(246, 221, 160, 0.75);
+    font-size: 20px;
+    letter-spacing: 0.14em;
+    text-anchor: middle;
+    stroke-width: 4;
+  }
+
+  /* ---- hit layer ---- */
+
+  /* `transparent` and not `none`: a fill of none is unpainted and takes no
+     pointer events at all, which is the whole trick this layer depends on. */
+  .fm-hit {
+    fill: transparent;
+    cursor: pointer;
+    outline: none;
+  }
+  /* Keyboard focus draws the territory's own edge rather than a rectangle
+     round its bounding box — Wessex's bbox is most of England. */
+  .fm-hit:focus-visible {
+    stroke: var(--gilt-lit);
+    stroke-width: 3;
+    stroke-dasharray: 8 6;
+  }
+
+  /* ---- legend ---- */
+
+  .faction-map-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .fm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    list-style: none;
+  }
+  .fm-list > li { display: flex; }
+
+  .fm-row {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.8rem 0.9rem;
+    text-align: left;
+    min-height: var(--tap);
+    flex-wrap: wrap;
+  }
+
+  .fm-swatch {
+    width: 0.9rem;
+    height: 2.1rem;
+    border-radius: 3px;
+    border: 1px solid;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .fm-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+  .fm-row-name {
+    font-family: "Cinzel", serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #fbeecd;
+    letter-spacing: 0.02em;
+  }
+  .fm-row-ground {
+    font-size: 0.75rem;
+    color: var(--gilt);
+    letter-spacing: 0.04em;
+  }
+  .fm-row-note {
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: #a8a091;
+  }
+
+  .fm-row-seat {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #d6cbb2;
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+
+  .fm-foot {
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: #a8a091;
+  }
+  .fm-foot strong { color: var(--gilt); font-weight: 700; }
+
+  .fm-credit {
+    font-size: 0.7rem;
+    color: #7d7364;
+    letter-spacing: 0.03em;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .embers,
   .animate-glow,
-  .animate-fadeIn {
+  .animate-fadeIn,
+  .fm-seat-ring {
     animation: none;
+  }
+  .fm-field,
+  .fm-watling {
+    transition: none;
   }
 }
