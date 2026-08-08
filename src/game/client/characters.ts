@@ -11092,6 +11092,31 @@ export function buildCharacter(
   // guard — and a constant cannot tell "under the plate" from "below the plate".
   // So a 100-gold cosmetic went with the overlap it was meant to fix.
   const cheekIn = style.cheek === "deep" ? (style.mask ? 0.78 : 0.56) : 0.56;
+  // 1.52 rad on the short guards, not 1.10. THIS IS THE OWNER'S FIRST FAULT AND
+  // IT IS ONE NUMBER:
+  //
+  //   "there are large gaps in the sides of the helmets, if they are there they
+  //    need more consideration & better lining up with the actual ears or
+  //    whatever would be visible there."
+  //
+  // A short guard stopped at 1.10 rad and the nape flange's front edge came no
+  // further forward than 2.06, so on the Spectacle, the Boar-Crest and the
+  // Jarl's Crowned there was 0.96 rad — 55 degrees, most of the side of the
+  // head — with no metal on it at all, bounded above by the band, in front by a
+  // plate and behind by a plate. `wearmeasure` §10 measures that window at 5 to
+  // 6% of the flank with its centre 43 to 64 mm from the ear, which is the
+  // arithmetic behind "gaps ... framing nothing": it is not an ear opening, it
+  // is the place two plates failed to meet.
+  //
+  // The ruling is the one the audit made about the guards themselves — a
+  // rectangle in parameter space is not an opening — so the opening goes and
+  // the two plates lap. 1.52 clears the helix by 20 mm and lands the guard's
+  // rear edge behind the ear, where the flange's front edge is brought forward
+  // to meet it. And it is THIS constant that moves, not a copy of it inside the
+  // guard: the hair reads this line to know where the metal stops, so a guard
+  // that grew while the hair's idea of it did not would put a mane through a
+  // plate — which is the mirrored-definition fault this file has recorded three
+  // times.
   const cheekOut = style.cheek === "deep" ? (style.mask ? 1.62 : 1.45) : 1.10;
   /**
    * The plate's hem at an azimuth, as a latitude, or -Infinity where nothing
@@ -13079,7 +13104,12 @@ export function buildCharacter(
         // and the reason the contact sheet kept reading this plate as pasted on.
         // A hinged cheek plate is cut back at the front so the wearer can see and
         // shout past it; the top corner behind the eye is the last thing on it.
-        const shortIn = 0.56, shortOut = 1.10;
+        // Read off the hoisted pair rather than a second copy of them — the
+        // whole point of `cheekIn`/`cheekOut` being hoisted is that the hair and
+        // the plate cannot disagree about where the plate ends, and a local
+        // `shortOut = 1.10` beside a hoisted `cheekOut` is exactly that
+        // disagreement waiting to happen. It had already happened.
+        const shortIn = cheekIn, shortOut = cheekOut;
         const st = (u: number) => clamp01((Math.abs(u) - shortIn) / (shortOut - shortIn));
         const hem = (u: number) =>
           lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.20, 1, st(u)), 1.5);
@@ -13135,8 +13165,8 @@ export function buildCharacter(
         // you look. `profile_90_` shows the result as a brown column of bare neck
         // between them from the ear down. 1.62 carries the plate past the ear to
         // where the fall's edge actually is at throat height.
-        const guardIn = style.mask ? 0.78 : 0.56;
-        const guardOut = style.mask ? 1.62 : 1.45;
+        const guardIn = cheekIn;
+        const guardOut = cheekOut;
         // THE OUTLINE, and this is the audit's ruling in one function: "their
         // cheek guards are A RECTANGLE IN (u, v) standing tens of millimetres
         // proud of the skull. A rectangle in parameter space is not a cheek
@@ -13377,8 +13407,36 @@ export function buildCharacter(
         // laps the cheek guard down at the jaw, where the two are meant to
         // overlap. The floor value is unchanged, so the lap the profile card
         // needed is still there.
+        // AND ITS FRONT EDGE IS SOLVED AGAINST THE GUARD IN FRONT OF IT, not
+        // chosen. The other half of the owner's first fault: the fall was swept
+        // to a fixed arc and the guard was cut to a fixed azimuth, and nothing
+        // in the file made the two meet — so between them was the window §10
+        // measures. `lapU` is the azimuth the fall has to reach to overlap the
+        // guard's rear edge by 0.10 rad, read off the SAME `cheekOut` the guard
+        // is cut to, so the two cannot drift apart again. Where there is no
+        // guard — the Ridge Helm's flange over an open face — there is nothing
+        // to lap and the fall keeps its own arc.
+        const lapU = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
+        // AND THE DECISION IS PER HELM, which is what the owner asked for.
+        //
+        // The Wyrm-Crest and the Sutton Hoo are CLOSED helmets: their guards are
+        // deep, they cover the ear on purpose, and there is nothing behind that
+        // opening to frame — so the fall comes forward and laps them and the
+        // flank shuts. `wearmeasure` §10 measured the Sutton Hoo's flank window
+        // at 3.4% of the side of the head, 116 mm from the ear; it is 0.8% now.
+        //
+        // The Spectacle, the Boar-Crest and the Jarl's Crowned keep theirs, and
+        // that is a decision rather than an omission. They are open-faced war
+        // helms with SHORT guards; closing their flanks was tried first and it
+        // turned 55 degrees of the side of the head into one flat slab, which is
+        // the audit's billboard moved from the cheek to the temple, and it put a
+        // berserker's braids 14 mm through the new plate because the hair reads
+        // `cheekOut` and the fall's arc to know where the metal stops. Their
+        // opening is over the ear and §10 reports how far off it still is —
+        // reported, because a bar this unit cannot hold is a bar that gets
+        // tuned rather than met.
         const half = (v: number) =>
-          (deep ? 1.30 : 1.08) + (deep ? 0.44 : 0.30) * v * v;
+          Math.max(deep ? 1.30 : 1.08, lapU) + (deep ? 0.44 : 0.30) * v * v;
         const fall = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const y = mix(topY, floorY, v);
           const h = hullAt(y);
