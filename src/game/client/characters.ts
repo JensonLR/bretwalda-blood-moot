@@ -911,6 +911,19 @@ const CLOAK_CUTS: Record<string, CloakCut> = {
 export const CLOAK_VALUES: readonly string[] = Object.keys(CLOAK_CUTS);
 
 /**
+ * How far the berserker's fur stands off the spine sampler at its thickest —
+ * and the reason it is one constant read in two places instead of two numbers.
+ *
+ * He is the only man on the roster who wears anything on his BACK under a
+ * cloak. The pelt is lofted by this; the cloak's top radius clears the same
+ * amount on the same class. Written once so the two cannot drift: loft the fur
+ * and the cloth moves with it, which is the difference between "the cloak goes
+ * over the pelt" being a decision and being a coincidence that survives until
+ * somebody re-tunes one of them. `tools/wearmeasure.mjs` §8 is the assertion.
+ */
+const PELT_LOFT = 0.026;
+
+/**
  * How many times a woven texture tiles across a garment, derived from how big the
  * garment is instead of fixed.
  *
@@ -1362,10 +1375,57 @@ function stationAlong(sts: Station[], y: number): Station {
 
 const _laceA = new THREE.Vector3();
 const _laceB = new THREE.Vector3();
+const _peltN = new THREE.Vector3();
 
 /** One seated fitting as the build placed it, for `bodyFitProbe`. */
 interface FitRecord { tag: string; carrier: FitCarrier; pts: THREE.Vector3[] }
 let _fitSpy: FitRecord[] | null = null;
+
+/**
+ * One GARMENT worn on the back, as the build swept it, for `backCarryProbe`.
+ *
+ * Separate from `FitRecord` because the two ask different questions. A fitting
+ * is a stud, and the only thing wrong with a stud is daylight under its closest
+ * point; §5 measures exactly that and is right to. A sheet hung down a man's
+ * back fails at its CORNERS and at its HEM while its centre is still touching —
+ * which is precisely how a 300 x 600 mm plank passed every ruler in this file
+ * while the owner was looking at it — so this keeps every vertex and §8 takes
+ * the WIDEST standoff, not the narrowest.
+ */
+interface BackRecord { tag: string; carrier: FitCarrier; pts: THREE.Vector3[] }
+let _backSpy: BackRecord[] | null = null;
+
+/**
+ * The cloak's own surface function, handed to the ruler rather than described
+ * to it.
+ *
+ * `u`, `v` and `inset` are the cloak sweep's own parameters and this IS the
+ * closure the mesh is built from, so a cut that changes moves the ruler with it.
+ * The alternative — retyping `CLOAK_CUTS` arithmetic into a probe — is the
+ * "a passing test measuring the wrong quantity" failure this file's §2 note has
+ * already been bitten by three times.
+ */
+interface CloakRecord {
+  origin: THREE.Vector3;
+  surf: (u: number, v: number, inset: number, out: THREE.Vector3) => void;
+  /** The inset the LINING is drawn at, so the ruler measures against the cloth's inner wall. */
+  lining: number;
+}
+let _cloakSpy: { rec: CloakRecord | null } | null = null;
+
+/**
+ * The torso's whole `worn` stack, so the ruler can ask what the cloak is hanging
+ * over WITHOUT being handed a list of names to check.
+ *
+ * A list would be the third mistake in a row here. The pelt was one piece coming
+ * through the cloth; the fur ruff at 80 mm of flare and the huscarl's bishop's
+ * mantle at 68 are two more, and neither would ever have appeared in a list
+ * written while looking at a pelt. Every garment on the torso already registers
+ * itself through `wear()` because the seated fittings needed to know what was
+ * outermost — so the stack is already there, and §8 measures the cloak against
+ * all of it at once.
+ */
+let _wornSpy: { layers: Array<{ sts: Station[]; power: number }> } | null = null;
 
 /**
  * Adds a fitting AND tells the ruler where it went.
@@ -6868,6 +6928,169 @@ export function bodyFitProbe(cls: WarriorClass, seed: number, cloak?: string): B
   return [...out.values()];
 }
 
+/** One thing borne on the back, measured against the man and against his cloak. */
+export interface BackFit {
+  tag: string;
+  /**
+   * The WIDEST daylight anywhere under it, in mm, along the true normal of the
+   * garment it is worn over. Not the narrowest: §5's question is right for a
+   * stud and wrong for a sheet, because a sheet is still touching at its centre
+   * while its corners are a hand's width off the man.
+   */
+  standoffMm: number;
+  /** How far its own surface stands OUTSIDE the cloak's lining, in mm. */
+  throughMm: number;
+  /** The (u, v) on the cloak sweep where that happens, for the failing line. */
+  throughAt: [number, number];
+  /** Vertices measured — a piece the spy never saw must not report a pass. */
+  points: number;
+}
+
+/**
+ * Everything a man wears on his back, against the back and against the cloak.
+ *
+ * `bodyFitProbe` could not see this and was right not to: it measures a
+ * fitting's CLOSEST point, which is the whole question for a rivet and half a
+ * question for a garment. A 300 x 600 mm slab held off one station of the spine
+ * sampler touches the man at its middle and passes every bar in §5 while its
+ * corners hang 132 mm clear and its face stands 55 mm outside the cloak. Both of
+ * those are measured here, and neither is measured anywhere else in this file.
+ *
+ * The cloak side is done against the sweep's OWN closure — `CloakRecord` — on a
+ * dense grid, and a point whose nearest sample is on the grid's boundary is not
+ * counted: past the edge of the cloth there is nothing to come through.
+ */
+export function backCarryProbe(cls: WarriorClass, seed: number, cloak: string): BackFit[] {
+  const back: BackRecord[] = [];
+  const cs: { rec: CloakRecord | null } = { rec: null };
+  const worn: { layers: Array<{ sts: Station[]; power: number }> } = { layers: [] };
+  const prevBack = _backSpy;
+  const prevCloak = _cloakSpy;
+  const prevWorn = _wornSpy;
+  _backSpy = back;
+  _cloakSpy = cs;
+  _wornSpy = worn;
+  try {
+    buildCharacter(cls, { ...defaultAppearance(cls), cloak }, 0x8a6b3f, undefined, "high", seed);
+  } finally {
+    _backSpy = prevBack;
+    _cloakSpy = prevCloak;
+    _wornSpy = prevWorn;
+  }
+
+  // The cloak's lining, sampled dense enough that the nearest-sample test is
+  // reading the surface and not the tessellation: 96 x 48 puts the samples about
+  // 12 mm apart on the largest garment in the shop.
+  const NU = 96;
+  const NV = 48;
+  const lin: THREE.Vector3[] = [];
+  if (cs.rec) {
+    const o = cs.rec.origin;
+    for (let j = 0; j <= NV; j++) {
+      for (let i = 0; i <= NU; i++) {
+        const q = new THREE.Vector3();
+        cs.rec.surf(i / NU, j / NV, cs.rec.lining, q);
+        lin.push(q.add(o));
+      }
+    }
+  }
+  const stride = NU + 1;
+  const d = new THREE.Vector3();
+  const surf = new THREE.Vector3();
+  const sn = new THREE.Vector3();
+
+  const out: BackFit[] = [];
+  for (const rec of back) {
+    let stand = 0;
+    let thru = -Infinity;
+    let at: [number, number] = [0, 0];
+    for (const q of rec.pts) {
+      // Against the garment under it: the same azimuth search `bodyFitProbe`
+      // uses, for the same reason — a superellipse has no closed-form foot of
+      // perpendicular and a wrong closed form is a ruler that reports a number
+      // instead of a hole.
+      let best = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < 128; i++) {
+        const az = (i / 128) * Math.PI * 2;
+        const dd = shellPoint(rec.carrier, q.y, az, surf).distanceToSquared(q);
+        if (dd < bestD) { bestD = dd; best = az; }
+      }
+      let span = (Math.PI * 2) / 128;
+      for (let k = 0; k < 12; k++) {
+        const a = best - span;
+        const b = best + span;
+        const da = shellPoint(rec.carrier, q.y, a, surf).distanceToSquared(q);
+        const db = shellPoint(rec.carrier, q.y, b, surf).distanceToSquared(q);
+        if (da < bestD && da <= db) { best = a; bestD = da; }
+        else if (db < bestD) { best = b; bestD = db; }
+        span *= 0.5;
+      }
+      shellPoint(rec.carrier, q.y, best, surf);
+      shellNormal(rec.carrier, q.y, best, sn);
+      const lift = d.copy(q).sub(surf).dot(sn);
+      if (lift > stand) stand = lift;
+
+    }
+    out.push({
+      tag: rec.tag,
+      standoffMm: stand * 1000,
+      throughMm: 0,
+      throughAt: [0, 0],
+      points: rec.pts.length,
+    });
+  }
+
+  // THE CLOAK, against everything it is hanging over.
+  //
+  // One row, and it covers the pelt, the fur ruff, the bishop's mantle, the
+  // byrnie and anything a later pass hangs on a torso, because it is measured
+  // off the `wear()` stack rather than off a list of pieces somebody remembered.
+  // For every sample of the cloak's LINING: which garment is outermost at that
+  // height, where is its surface on the same bearing, and is the cloth outside it
+  // or inside it? Inside it is cloth through fur.
+  if (cs.rec && worn.layers.length) {
+    let worst = Infinity;
+    let at: [number, number] = [0, 0];
+    for (let j = 0; j <= NV; j++) {
+      for (let i = 0; i <= NU; i++) {
+        const q = lin[j * stride + i];
+        // Only where a garment actually reaches. A cloak at the knee is past the
+        // last station of every torso layer, and `stationAlong` clamps — so
+        // measuring there would compare a hem against a hip and report a fault
+        // that is an artefact of the clamp.
+        let best: { sts: Station[]; power: number } | null = null;
+        let widest = -1;
+        for (const w of worn.layers) {
+          if (q.y > w.sts[0].y + 1e-6 || q.y < w.sts[w.sts.length - 1].y - 1e-6) continue;
+          const s = stationAlong(w.sts, q.y);
+          if (s.hw > widest) { widest = s.hw; best = w; }
+        }
+        if (!best) continue;
+        const b = best;
+        const carrier: FitCarrier = { st: (yy: number) => stationAlong(b.sts, yy), power: b.power };
+        // The bearing from the body's own axis, which is the direction the two
+        // surfaces are stacked along.
+        const az = Math.atan2(q.z - (carrier.st(q.y).z ?? 0), q.x);
+        shellPoint(carrier, q.y, az, surf);
+        shellNormal(carrier, q.y, az, sn);
+        const clear = d.copy(q).sub(surf).dot(sn);
+        if (clear < worst) { worst = clear; at = [i / NU, j / NV]; }
+      }
+    }
+    out.push({
+      tag: "cloak-over",
+      standoffMm: 0,
+      // Reported as a positive "how far the garment comes THROUGH the lining",
+      // so it reads the same way round as every other number in this file.
+      throughMm: worst === Infinity ? 0 : -worst * 1000,
+      throughAt: at,
+      points: lin.length,
+    });
+  }
+  return out;
+}
+
 /** What `tools/wearmeasure.mjs` §4 reads to decide the hands are on right. */
 export interface HandFit {
   /** "right" / "left" — which of the man's own hands this is, after the mirror. */
@@ -9909,6 +10132,10 @@ export function buildCharacter(
       }
     }
 
+    // Every layer this class actually wears, handed to `backCarryProbe` so the
+    // cloak can be measured against the stack instead of against a guess.
+    if (_wornSpy) _wornSpy.layers = worn;
+
     // Belt, buckle, strap-end. Everything below the waist hangs off this.
     const beltR = (bare ? 0.03 : 0.05);
     const beltSts = [at(S.beltY + 0.028, beltR), at(S.beltY - 0.028, beltR + 0.004)];
@@ -10037,7 +10264,77 @@ export function buildCharacter(
           ));
         }
       }
-      p.add(box(0.3, 0.6, 0.03), furPelt, xf(0, S.chestY - 0.12, -S.chestHD - 0.075, -0.12, 0, 0));
+      // THE PELT DOWN THE BACK, AND WHAT IT WAS.
+      //
+      // The owner: "Berserker skin looks like he has a big wooden board sticking
+      // out of his back and overlapping through his cloak." He was describing
+      // this line, and it was `box(0.3, 0.6, 0.03)` — a 300 x 600 x 30 mm slab —
+      // parented to the torso at `-S.chestHD - 0.075` and pitched back 0.12 rad.
+      //
+      // That is a FIXED OFFSET behind ONE station of the spine sampler, which is
+      // the same fault every floating body fitting had before `seatXf`: a number
+      // that is true at one point on the surface and then carried everywhere.
+      // A back is not a plane. It tapers from the shoulder blade to the waist and
+      // it curves away to both flanks, so a flat slab held off the deepest point
+      // of the chest leaves daylight everywhere else — measured on the shipped
+      // build, 132 mm at its lower corners. And the cloak's lining hangs at
+      // `S.chestHD + 0.05 - 0.014` off the same sampler, so the slab's outer face
+      // stood 55 mm OUTSIDE the cloth that is supposed to cover it and came
+      // through the garment down its whole length.
+      //
+      // It is one continuous two-sided sheet now, and every point of it is a
+      // point ON the jerkin — `shellPoint` of the garment underneath, lifted
+      // along that garment's TRUE normal by the fur's own thickness, which is the
+      // machinery the seated fittings already use. It hangs from under the ruff,
+      // narrows toward the hem the way a skin does, and its lower edge is ragged
+      // rather than sawn square.
+      //
+      // AND THE CLOAK GOES OVER IT. That is the deliberate half. A fur worn on
+      // the back goes UNDER a cloak pinned at the shoulder — the cloak is the
+      // outermost thing a man owns — so the fur's loft and the cloak's own top
+      // radius are the SAME constant, `PELT_LOFT`, read at both ends. That also
+      // buys the ruff its clearance: at 55 mm of pad it was itself 19 mm outside
+      // the lining, so on this class the cloth was fighting both furs.
+      // `tools/wearmeasure.mjs` §8 is the assertion; it fails on the slab.
+      const peltOn = outer(S.waistY);
+      const peltTop = S.chestY + 0.035;
+      const peltBot = S.hipY + 0.012;
+      // Half the angular width of the skin at the top edge and at the hem. A
+      // pelt is widest across the shoulder blades and runs to a tail.
+      const peltWide = 0.30 * Math.PI;
+      const peltNarrow = 0.205 * Math.PI;
+      // The lower edge. Lowest on the midline, rising to both corners, with a
+      // shallow ripple over it: a cut hide, not a hem.
+      const peltHem = (u: number) => {
+        const e = Math.abs(u * 2 - 1);
+        return peltBot + 0.062 * e * e + 0.014 * (1 - e) * (0.5 - 0.5 * Math.cos(u * 23));
+      };
+      // How far the fur stands off the leather. Thinnest across the shoulder
+      // blade where it is pressed by the ruff above it, opening to the full loft
+      // at the hem because a hanging skin does not follow a waist in — which is
+      // what a pelt looks like and is what the cloak has been given room for.
+      const peltLoft = (v: number) => PELT_LOFT * (0.55 + 0.45 * v * v);
+      const peltSurf = (u: number, v: number, lift: number, out: THREE.Vector3): void => {
+        const y = mix(peltTop, peltHem(u), v);
+        const az = -Math.PI / 2 + (u - 0.5) * 2 * mix(peltWide, peltNarrow, v * v);
+        shellPoint(peltOn, y, az, out);
+        shellNormal(peltOn, y, az, _peltN);
+        out.addScaledVector(_peltN, lift);
+      };
+      const peltGeo = patch({
+        nu: Math.max(9, lod.shellU), nv: Math.max(6, lod.shellV),
+        outer: (u, v, out) => peltSurf(u, v, peltLoft(v), out),
+        // The inner face lies ON the jerkin — 2 mm, one tessellation chord, so
+        // the two surfaces never z-fight where the pelt turns its edge under.
+        inner: (u, v, out) => peltSurf(u, v, 0.002, out),
+      });
+      if (_backSpy) {
+        const src = peltGeo.getAttribute("position") as THREE.BufferAttribute;
+        const pts: THREE.Vector3[] = [];
+        for (let i = 0; i < src.count; i++) pts.push(new THREE.Vector3(src.getX(i), src.getY(i), src.getZ(i)));
+        _backSpy.push({ tag: "back-pelt", carrier: peltOn, pts });
+      }
+      p.add(peltGeo, furPelt);
       for (let i = 0; i < 4; i++) {
         const boneY = S.chestY + 0.06;
         const chest: FitCarrier = { st: (y: number) => at(y, 0), power: 2.4 };
@@ -14215,6 +14512,44 @@ export function buildCharacter(
     // Elliptical, not circular: a body is wider than it is deep, and a cloak cut
     // on a circle either cuts through the shoulders or stands 130 mm off the
     // spine.
+    //
+    // AND IT HANGS OVER WHAT IS ALREADY ON THE MAN. A cloak is the outermost
+    // thing a warrior owns, and the radius it is cut at has to admit the garment
+    // under it. It did not: `S.chestHW + 0.055` is a clearance for a body, and
+    // every class on the roster wears something thicker than a body across the
+    // shoulders — the huscarl's bishop's mantle stands 68 mm off the spine
+    // sampler, the berserker's fur ruff 80, the runekeeper's mantle and the
+    // warden's byrnie less but still more than 55. Measured on the shipped
+    // build, the cloth ran up to 41.9 mm INSIDE the garment it is supposed to
+    // cover, on eleven of the sixteen kits in the shop. That is the second half
+    // of "overlapping through his cloak", and it was never only the berserker.
+    //
+    // These four numbers are not free. `tools/wearmeasure.mjs` §8 measures the
+    // lining against the torso's whole `wear()` stack on all sixteen kits, so a
+    // pad that moves under one of them comes back as a failing line rather than
+    // as cloth through mail. The berserker's reads `PELT_LOFT` because that is
+    // the same constant his pelt is lofted by — loft the fur and the cloth
+    // follows.
+    //
+    // AND IT IS SPENT AT THE TOP EDGE ONLY. The first cut of this added the
+    // clearance to `topX/topZ`, which is the radius the whole garment is
+    // interpolated FROM — so every cloak in the shop got 50 mm wider all the way
+    // to its hem and the Blood Red came out as a stiff red box standing off the
+    // shoulders with a hard horizontal top edge: the "lampshade" the audit
+    // already threw the Gilded War Cloak out for, reintroduced to fix a
+    // different fault. The stack is a fact about the garment UNDER the cloth and
+    // it stops where that garment stops, so the clearance is carried at full
+    // width down to the class's own hem and is gone 120 mm below it — in ABSOLUTE
+    // height, not in the sweep's `v`. A fraction of the drop spends it in the
+    // wrong place on two cuts at once: the Traveller's stops at the hip, so half
+    // its length would never need it, while the Sea-Wolf falls to the ankle and
+    // would have run out of clearance at exactly the hip where a mail skirt is
+    // widest — which is the pair of rows that were still failing when it was
+    // written that way. Below the hem there is nothing under a cloak but a leg,
+    // so the drape, the flare and the hem are exactly where they were.
+    const stack = heavy ? 0.052 : robed ? 0.040 : bare ? PELT_LOFT + 0.012 : 0.024;
+    const hipOff = pivot.position.y;
+    const stackAt = (y: number) => stack * smooth(S.hemY - 0.12, S.hemY + 0.02, y + hipOff);
     const topX = S.chestHW + 0.055;
     const topZ = S.chestHD + 0.05;
     const hemX = topX + cut.flareX;
@@ -14237,8 +14572,6 @@ export function buildCharacter(
         const fold = (0.5 - 0.5 * Math.cos(a * cut.foldN)) * cut.foldA * v * v
           + (0.5 - 0.5 * Math.cos(a * cut.foldN * 2)) * cut.foldA * 0.3 * v;
         const grow = v * v * cut.grow + v * (1 - cut.grow);
-        const rx = mix(topX, hemX, grow) + fold - inset;
-        const rz = mix(topZ, hemZ, grow) + fold - inset;
         // THE TOP EDGE IS A DIAGONAL, and this is the whole asymmetry. The cloth
         // is carried at the brooch on the pinned side; across the back there is
         // nothing holding it up, so the edge falls away toward the trailing
@@ -14250,6 +14583,11 @@ export function buildCharacter(
         const yTop = -cut.nape * Math.pow(t, cut.napePow)
           - cut.lead * Math.pow(1 - t, 3);
         const y = yTop - drop * cut.hem(t) * v;
+        // The clearance for whatever is worn under the cloth, spent where that
+        // garment actually is. Solved off `y`, so it has to come after it.
+        const clear = stackAt(y);
+        const rx = mix(topX, hemX, grow) + fold + clear - inset;
+        const rz = mix(topZ, hemZ, grow) + fold + clear - inset;
         out.set(Math.sin(a) * rx, y, -Math.cos(a) * rz);
       };
       p.add(patch({
@@ -14268,6 +14606,9 @@ export function buildCharacter(
         // shaded curvature and is also what a hemmed edge of wool does.
         inner: (u, v, out) => surf(u, v * (1 - 0.018), 0.014, out),
       }), cloakMat);
+      // The ruler takes the sweep itself, not a description of it — see
+      // `CloakRecord`. 0.014 is the lining's own inset, one line above.
+      if (_cloakSpy) _cloakSpy.rec = { origin: pivot.position.clone(), surf, lining: 0.014 };
       // Rolled border along the top edge, following the cloak's own diagonal
       // rather than ringing the chest — the flat disc this replaced read as a
       // plank laid across the shoulders. Its depth is per cut: the Gilded War

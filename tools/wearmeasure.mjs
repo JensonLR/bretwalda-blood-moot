@@ -49,9 +49,10 @@
 // this cannot drift from the game the way the lineup sheet did.
 // ============================================================
 import { spawnSync } from "child_process";
-import { rmSync, mkdirSync, existsSync, readdirSync } from "fs";
+import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
+import * as THREE from "three";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".wearmeasure");
@@ -66,14 +67,35 @@ const ONLY = flag("helm", null);
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
-const tsc = spawnSync("npx", ["tsc", "src/game/client/characters.ts",
+// `render/anim.ts` and not `characters.ts`, and it costs nothing: characters is
+// anim's own import, so ONE tsc emits both. §9 needs the rig POSED — the rest
+// carry lives in `STANCE` and reaches the frame through `poseWarrior`, and no
+// amount of building a character will show you where a man holds his axe.
+const tsc = spawnSync("npx", ["tsc", "src/game/client/render/anim.ts",
   "--outDir", ".wearmeasure", "--target", "es2022", "--module", "esnext",
   "--moduleResolution", "bundler", "--skipLibCheck"],
 { cwd: ROOT, encoding: "utf8" });
 const found = [];
-const walk = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true }))
-  e.isDirectory() ? walk(resolve(dir, e.name)) : e.name === "characters.js" && found.push(resolve(dir, e.name)); };
+const foundAnim = [];
+const emitted = [];
+const walk = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true })) {
+  const f = resolve(dir, e.name);
+  if (e.isDirectory()) walk(f);
+  else if (e.name.endsWith(".js")) {
+    emitted.push(f);
+    if (e.name === "characters.js") found.push(f);
+    if (e.name === "anim.js") foundAnim.push(f);
+  }
+} };
 if (existsSync(OUT)) walk(OUT);
+// tsc emits TypeScript's extensionless relative specifiers, which node's ESM
+// loader will not resolve. One rewrite over the emitted tree, and it only ever
+// touches `.wearmeasure`.
+for (const f of emitted) {
+  const src = readFileSync(f, "utf8");
+  const fixed = src.replace(/(from\s+")(\.[^"]*?)(")/g, (m, a, b, c) => (b.endsWith(".js") ? m : a + b + ".js" + c));
+  if (fixed !== src) writeFileSync(f, fixed);
+}
 const built = found[0] ?? resolve(OUT, "characters.js");
 if (!existsSync(built)) {
   console.error("[wear] tsc emitted nothing:\n" + (tsc.stdout || "") + (tsc.stderr || ""));
@@ -82,8 +104,12 @@ if (!existsSync(built)) {
 
 const {
   wearNormalProbe, helmFitProbe, hairFitProbe, bodyFitProbe, handProbe, beardSeatProbe,
-  HELM_VALUES, HAIR_VALUES, CLOAK_VALUES, BEARD_VALUES,
+  backCarryProbe,
+  HELM_VALUES, HAIR_VALUES, CLOAK_VALUES, BEARD_VALUES, defaultAppearance,
 } = await import(pathToFileURL(built).href);
+const anim = foundAnim[0] && existsSync(foundAnim[0])
+  ? await import(pathToFileURL(foundAnim[0]).href)
+  : null;
 
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
@@ -593,4 +619,204 @@ console.log(`[wear] bars: exactly ${PIECES} connected component, at most ${THRU_
 for (const f of dfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${dfails.length ? "FAIL" : "PASS"}: beards`);
 
-process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length + dfails.length ? 1 : 0);
+// ============================================================
+// 8. WHAT IS CARRIED ON THE BACK — and what the cloak does about it
+// ============================================================
+//
+// "Berserker skin looks like he has a big wooden board sticking out of his back
+//  and overlapping through his cloak."
+//
+// It was `box(0.3, 0.6, 0.03)` — his fur pelt — parented to the torso at a FIXED
+// OFFSET behind one station of the spine sampler. Every ruler above passed it,
+// and §5 passed it while measuring the right family of question, because §5 asks
+// for a fitting's CLOSEST point. That is the whole question for a rivet. For a
+// sheet hung down a back it is half a question: a flat slab touches the man at
+// its middle and hangs 132 mm clear at its corners, and the number §5 prints is
+// the middle. THREE TESTS IN THIS PROJECT HAVE PASSED WHILE MEASURING THE WRONG
+// QUANTITY; this is the fourth, caught.
+//
+// So two numbers, and they are the two an eye takes:
+//
+//   STAND    the WIDEST daylight anywhere under a piece borne on the back, in
+//            mm, along the true normal of the garment it is worn over. A pelt
+//            hangs — it does not follow a waist in — so this is not zero and
+//            should not be; the bar is 45 mm, which is a hand's fur and no more.
+//            A plank held off one station of the spine sampler reads 168.
+//   THROUGH  how far the OUTERMOST GARMENT comes through the cloak's LINING.
+//            Measured off the cloak sweep's own closure and off the `wear()`
+//            stack — not off a retyped copy of `CLOAK_CUTS` and not off a list
+//            of piece names — so it covers the pelt, the berserker's fur ruff at
+//            80 mm of flare, the huscarl's bishop's mantle at 68, and whatever a
+//            later pass hangs on a torso. A cloak is the outermost thing a man
+//            owns; the bar is 2 mm, one tessellation chord, the same slop §7
+//            gives the beard.
+//
+// The floor matters as much as the bars. A piece the spy never saw reports
+// `points: 0`, and a section that let that through would go green the day
+// somebody deleted the pelt — which is the hair test's own logged failure mode.
+const BACK_STAND_MM = 45;
+const BACK_THRU_MM = 2;
+console.log("");
+console.log("[wear] 8. BORNE ON THE BACK — and the cloak that has to cover it.");
+console.log("[wear]    Widest daylight under a hanging piece; deepest garment through the lining.");
+console.log("");
+console.log("[wear] class        cloak   piece         pts   stand mm  through mm  at u,v");
+console.log("[wear] ---------------------------------------------------------------------");
+const kfails = [];
+let nBack = 0;
+let nCloakRows = 0;
+for (const cls of CLASSES) {
+  for (const cloak of CLOAK_VALUES) {
+    for (const r of backCarryProbe(cls, seeds[0], cloak)) {
+      nBack++;
+      const isCloak = r.tag === "cloak-over";
+      if (isCloak) nCloakRows++;
+      const bad = [];
+      if (!r.points) bad.push(`${r.tag} reached the ruler with no vertices at all`);
+      if (!isCloak && r.standoffMm > BACK_STAND_MM) bad.push(`${r.tag} hangs ${r.standoffMm.toFixed(1)} mm clear of the back`);
+      if (isCloak && r.throughMm > BACK_THRU_MM) bad.push(`the ${cloak} cloak has ${r.throughMm.toFixed(1)} mm of garment through its lining`);
+      if (bad.length) kfails.push(`${cls}/${cloak}: ${bad.join("; ")}`);
+      console.log(
+        `[wear] ${cls.padEnd(12)} ${cloak.padEnd(6)} ${r.tag.padEnd(12)} ` +
+        `${String(r.points).padStart(5)}  ${(isCloak ? "-" : r.standoffMm.toFixed(1)).padStart(9)}  ` +
+        `${(isCloak ? r.throughMm.toFixed(1) : "-").padStart(10)}  ` +
+        `${r.throughAt[0].toFixed(2)},${r.throughAt[1].toFixed(2)}` +
+        `${bad.length ? "   <-- FAIL" : ""}`);
+    }
+  }
+}
+console.log("");
+console.log(`[wear] ${nBack} rows over ${CLASSES.length} classes x ${CLOAK_VALUES.length} cloaks; ` +
+  `bars: stand ${BACK_STAND_MM} mm, through ${BACK_THRU_MM} mm, and at least one vertex`);
+// Every class wears a cloak in this sweep, so every class owes a cloak row. A
+// silent zero here is the shape of ruler this file's §2 note keeps warning about.
+if (nCloakRows !== CLASSES.length * CLOAK_VALUES.length) {
+  kfails.push(`only ${nCloakRows} of ${CLASSES.length * CLOAK_VALUES.length} kits reported a cloak at all — the spy is not being fed`);
+}
+for (const f of kfails) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${kfails.length ? "FAIL" : "PASS"}: what is carried on the back`);
+
+// ============================================================
+// 9. THE WEAPON AT REST — against the cloak, and against the man
+// ============================================================
+//
+// Sections 1-8 measure a BUILT character, and the rest carry is not in one. A
+// weapon leaves `buildCharacter` pointing straight out of the fist like a lance;
+// where a man actually holds it is `STANCE` in `render/anim.ts`, written onto
+// the fist by `poseWarrior`, and no ruler in this file had ever seen it. So the
+// four rest carries — the huscarl's sword point-down, the warden's spear upright,
+// the runekeeper's staff, the berserker's Dane axe over the shoulder — were four
+// angles nobody could fail.
+//
+// This builds the real rig through `createWarriorRig`, runs three seconds of
+// idle through the real `poseWarrior`, and skins every vertex on the CPU the way
+// the shader would. Two closest approaches come out, and both are surface to
+// surface rather than origin to origin:
+//
+//   CLOTH  the nearest the weapon's own surface gets to the cloak's. This is the
+//          number the owner's sentence is about — "overlapping through his
+//          cloak" — and it has to be measured on the POSED cloak, because a
+//          cloak that is not draped is not where the cloak is.
+//   BODY   the nearest it gets to the torso. A haft carried up the spine is the
+//          logged v3 defect (`STANCE.berserker`: "97 of the axe's 556 vertices
+//          stood inside the warrior's own surface"), and a rest angle re-tuned
+//          for silhouette can walk straight back into it.
+//
+// Both bars are 3 mm — one tessellation chord, the same slop §7 gives the beard —
+// because the question is INTERSECTION, not clearance. A weapon is allowed to
+// rest against a man. It is not allowed to be inside him, or inside his cloak.
+const CARRY_MM = 3;
+console.log("");
+console.log("[wear] 9. THE WEAPON AT REST — posed through anim.ts, skinned on the CPU.");
+console.log("[wear]    Closest approach of the carried weapon to the cloak and to the torso.");
+console.log("");
+console.log("[wear] class        cloak    verts   cloth mm    body mm  verdict");
+console.log("[wear] ---------------------------------------------------------------------");
+const cfails = [];
+if (!anim) {
+  cfails.push("render/anim.js was not emitted — the rest carry is not being measured at all");
+} else {
+  // Everything the shader does to a SkinnedMesh, on the CPU. Reading `position`
+  // straight off one draws its BIND pose — for the cloak that is a flat undraped
+  // sheet standing off the back, which looks exactly like the defect being
+  // hunted and would have this section reporting on a garment that is not there.
+  const skinned = (o, out) => {
+    const g = o.geometry, pos = g.attributes.position;
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+    const v = new THREE.Vector3(), acc = new THREE.Vector3(), m = new THREE.Matrix4();
+    if (o.isSkinnedMesh && si && sw && o.skeleton) {
+      o.skeleton.update();
+      const bm = o.skeleton.boneMatrices;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.bindMatrix);
+        acc.set(0, 0, 0);
+        for (let k = 0; k < 4; k++) {
+          const w = sw.getComponent(i, k);
+          if (!w) continue;
+          m.fromArray(bm, si.getComponent(i, k) * 16);
+          acc.addScaledVector(v.clone().applyMatrix4(m), w);
+        }
+        out.push(acc.clone().applyMatrix4(o.bindMatrixInverse).applyMatrix4(o.matrixWorld));
+      }
+    } else {
+      for (let i = 0; i < pos.count; i++) out.push(v.fromBufferAttribute(pos, i).clone().applyMatrix4(o.matrixWorld));
+    }
+  };
+  const near = (a, b) => {
+    let best = Infinity;
+    for (const p of a) for (const q of b) { const d = p.distanceToSquared(q); if (d < best) best = d; }
+    return best === Infinity ? 9.999 : Math.sqrt(best);
+  };
+  for (const cls of CLASSES) {
+    for (const cloak of CLOAK_VALUES) {
+      const player = {
+        id: "wear", name: "", warriorClass: cls, team: "none", ready: true,
+        position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+        health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
+        attackDir: "right", blockDir: "right",
+        attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+        abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+        kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+        comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
+        appearance: { ...defaultAppearance(cls), cloak },
+      };
+      const parent = new THREE.Group();
+      const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+      const motion = anim.createMotion(player);
+      const ctx = {
+        dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
+        focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",
+        quality: { tier: "high", shadows: false },
+      };
+      // Three seconds, because the idle layer shifts weight on a 0.42 rad/s sine
+      // and a single frame of it is one phase of a breath.
+      for (let i = 0; i < 180; i++) { ctx.time = i / 60; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+      parent.updateMatrixWorld(true);
+      const wpts = [], cpts = [], bpts = [];
+      rig.weapon.traverse((o) => { if (o.isMesh) skinned(o, wpts); });
+      rig.group.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.name.endsWith("cloak")) skinned(o, cpts);
+        else if (o.name.endsWith("torso")) skinned(o, bpts);
+      });
+      const cloth = near(wpts, cpts) * 1000;
+      const body = near(wpts, bpts) * 1000;
+      const bad = [];
+      if (!wpts.length) bad.push(`${cls} reached the ruler with no weapon at all`);
+      if (!cpts.length) bad.push(`the ${cloak} cloak reached the ruler with no vertices`);
+      if (cloth < CARRY_MM) bad.push(`the rest carry is ${cloth.toFixed(1)} mm from the ${cloak} cloak's cloth`);
+      if (body < CARRY_MM) bad.push(`the rest carry is ${body.toFixed(1)} mm from his own torso`);
+      if (bad.length) cfails.push(`${cls}/${cloak}: ${bad.join("; ")}`);
+      console.log(
+        `[wear] ${cls.padEnd(12)} ${cloak.padEnd(6)} ${String(wpts.length).padStart(6)}  ` +
+        `${cloth.toFixed(1).padStart(9)}  ${body.toFixed(1).padStart(9)}  ` +
+        `${bad.length ? "<-- FAIL" : "ok"}`);
+    }
+  }
+}
+console.log("");
+console.log(`[wear] bars: the carried weapon comes no closer than ${CARRY_MM} mm to the cloak or to the torso`);
+for (const f of cfails) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${cfails.length ? "FAIL" : "PASS"}: the weapon at rest`);
+
+process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length + dfails.length + kfails.length + cfails.length ? 1 : 0);
