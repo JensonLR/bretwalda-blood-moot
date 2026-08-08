@@ -26,7 +26,7 @@ as the shape of the answer, not as quotes.**
    then the deadline is real again — so do it now while it is free to do.
 2. **Unity and Blender are both available.** Console stops being hypothetical.
    See §5, rewritten.
-3. **PWA approved for mobile.** It moves from "recommended" to "build it" — §6.
+3. **PWA approved for mobile.** Built on 2026-08-08 — §6.
 
 ---
 
@@ -272,9 +272,26 @@ is dead, and the browser build is the funnel.
 
 Three options, in increasing cost:
 
-1. **PWA — available today, costs nothing.** Installable straight from the link,
-   no store, no review queue, no 30% cut. Already recommended in
-   `docs/MONETISATION.md` and still unbuilt.
+1. **PWA — BUILT, 2026-08-08.** Installable straight from the link: no store, no
+   review queue, no 30% cut. `src/app/manifest.ts` and `src/app/icon.tsx`, both
+   GENERATED rather than stored, so the zero-asset rule holds — the icon is
+   drawn by the same renderer as the link card and shares its palette, so a
+   player who saw the unfurl recognises what lands on his home screen.
+
+   What it buys beyond an icon is the reason to bother. `display: "standalone"`
+   takes the browser chrome away — roughly 120px of vertical handed back to a
+   HUD laid out against 390x844 — and it stops the address bar appearing and
+   disappearing mid-fight, which resizes the WebGL canvas while a man is
+   swinging. `orientation: "portrait"` because the touch controls put a thumb
+   either side of the screen, and a rotation mid-match buries the attack buttons
+   under the player's palms.
+
+   **No service worker, deliberately.** Installability does not require one, and
+   a worker caching this app would be a liability rather than a feature: it is a
+   live WebSocket against an authoritative server, so there is nothing useful to
+   serve offline, and a stale bundle speaking an older wire protocol is a class
+   of bug worth not inventing. If offline ever matters it will be for the
+   armoury, and that deserves its own reasons.
 2. **Capacitor wrapper** — the same web build inside a native shell for the App
    Store and Play Store. Real store presence, real review queues, real cut.
 3. **Falls out of a Godot/Unity port for free**, if that ever happens.
