@@ -547,11 +547,68 @@ async function checkSummaryShapes() {
   console.log("");
 }
 
+/**
+ * Two lobby messages that were reachable mid-fight, and both were exploits.
+ *
+ * The economy has been cheat-tested since the shop existed — `cheattest` proves
+ * the server refuses a client that claims gold. Nothing ever asked the same
+ * question of the MATCH, so `select_class` re-rolled health to the class
+ * maximum at any moment (an unlimited self-heal) and `select_team` wrote any
+ * string at all (a team of one turns off friendly fire, and `checkRoundEnd`
+ * counts only red and blue so the round can never resolve).
+ *
+ * Both are now refused outside `lobby` and `intermission`. These checks fail on
+ * the geometry that shipped — that is the point of them.
+ */
+async function checkMatchStateGuards() {
+  console.log("[playtest] the lobby messages, sent mid-fight\n");
+  const engine = getEngine();
+  const { A, B } = await startDuel(engine);
+
+  // Wound him on the ENGINE's own player, not on the snapshot. `myself()` reads
+  // `state.latest`, which is a serialized copy the server sent — writing to it
+  // changes nothing and the check would then measure a wound that never
+  // happened. That is the fourth time in this project a test has been about to
+  // measure the wrong quantity, and the first time it was caught before it
+  // shipped rather than after.
+  const room = [...engine._rooms.values()].find((r) => r.players.has(B.state.playerId));
+  const live = room.players.get(B.state.playerId);
+  const hurt = Math.max(1, Math.round(live.maxHealth * 0.6));
+  live.health = hurt;
+
+  engine.message(B.sid, { type: "select_class", data: { warriorClass: "warden" } });
+  await sleep(200);
+  check(
+    "a class change mid-fight does not refill the man who sent it",
+    live.health <= hurt,
+    `health ${hurt} -> ${live.health.toFixed(1)} of ${live.maxHealth}, room ${room.state}`,
+  );
+
+  const teamBefore = myself(B).team;
+  engine.message(B.sid, { type: "select_team", data: { team: "PWNED" } });
+  await sleep(200);
+  check(
+    "the server refuses a side that does not exist",
+    myself(B).team === teamBefore && myself(B).team !== "PWNED",
+    `team stayed ${myself(B).team}`,
+  );
+
+  engine.message(B.sid, { type: "select_team", data: { team: "red" } });
+  await sleep(200);
+  check(
+    "and refuses even a real side once the fighting has started",
+    myself(B).team === teamBefore,
+    `team stayed ${myself(B).team}`,
+  );
+  console.log("");
+}
+
 async function main() {
   console.log("[playtest] the weight numbers\n");
   checkWeightNumbers();
   console.log("");
   try {
+    await checkMatchStateGuards();
     await checkShoveClaims();
     await checkSummaryShapes();
   } finally {

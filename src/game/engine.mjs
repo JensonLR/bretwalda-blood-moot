@@ -6,6 +6,20 @@
 import { randomUUID } from "crypto";
 
 const TICK_RATE = 20;
+
+/**
+ * The two rooms states in which a man may still change his kit or his side.
+ *
+ * `intermission` is included deliberately — between rounds is exactly when a
+ * player should be able to switch class, and health is restored at the round
+ * start anyway, so the re-roll costs nothing there. `countdown`, `fighting`,
+ * `last_stand` and `finished` are not: in those, a class change is a heal and a
+ * team change is a truce nobody agreed to.
+ */
+const KIT_STATES = new Set(["lobby", "intermission"]);
+
+/** The only sides that exist. `checkRoundEnd` counts these two and no others. */
+const TEAMS = new Set(["none", "red", "blue"]);
 const PARRY_WINDOW = 0.15;
 const COMBO_WINDOW = 0.8;
 const DODGE_DURATION = 0.35;
@@ -942,15 +956,36 @@ function makeEngine() {
       case "create": return handleCreate(sid, data);
       case "join": return handleJoin(sid, data);
       case "solo": return handleSolo(sid, data);
+      // Both of these were reachable AT ANY TIME, and both were exploits.
+      //
+      // `select_class` re-rolls health and stamina to the class maximum. With no
+      // state guard that is an unlimited self-heal: send it mid-swing and walk
+      // away from a fight you had lost. Measured before the guard: 84.8/120 ->
+      // 146.7/150 from one message.
+      //
+      // `select_team` wrote `data.team` unchecked — any string, any time. A team
+      // nobody else is on turns off friendly fire in `applyDamage` (which tests
+      // `attacker.team === target.team`) and breaks `checkRoundEnd`, which counts
+      // only "red" and "blue" and so can never resolve a round.
+      //
+      // The shape is the one this project keeps meeting: a message that is
+      // harmless in the state it was written for, and never asked which state it
+      // is in. The economy is cheat-tested; the MATCH was not.
       case "select_class": return withRoom(sid, (room, player) => {
         if (!WARRIOR_STATS[data.warriorClass]) return;
+        if (!KIT_STATES.has(room.state)) return;
         player.warriorClass = data.warriorClass;
         const stats = WARRIOR_STATS[data.warriorClass];
         player.maxHealth = stats.maxHealth; player.health = stats.maxHealth;
         player.maxStamina = stats.staminaMax; player.stamina = stats.staminaMax;
         sendLobbyUpdate(room);
       });
-      case "select_team": return withRoom(sid, (room, player) => { player.team = data.team; sendLobbyUpdate(room); });
+      case "select_team": return withRoom(sid, (room, player) => {
+        if (!TEAMS.has(data.team)) return;
+        if (!KIT_STATES.has(room.state)) return;
+        player.team = data.team;
+        sendLobbyUpdate(room);
+      });
       case "ready": return withRoom(sid, (room, player) => { player.ready = !player.ready; sendLobbyUpdate(room); });
       case "add_bot": return withRoom(sid, (room, player) => {
         if (room.hostId !== player.id) return;
@@ -2400,6 +2435,15 @@ function makeEngine() {
     disconnectSession,
     has(sid) { return sessions.has(sid); },
     _tickInterval: tickInterval,
+    /**
+     * The live room map, for harnesses only.
+     *
+     * A test that wounds a man has to wound the SERVER'S player, not the
+     * serialized copy the snapshot carries — writing to the copy changes
+     * nothing, and a check reading it back would report a wound that never
+     * happened and pass. Underscored because no client path may use it.
+     */
+    _rooms: rooms,
   };
 
   function disconnectSession(sid) {
