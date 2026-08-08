@@ -246,7 +246,7 @@ export default function FactionMap({ value, onSelect, className }: FactionMapPro
               is how "everything not taken by the others" becomes clickable
               without a fifth shape needing to exist. */}
           <g clipPath={`url(#${uid}-land)`}>
-            {[FACTIONS[0], ...FACTIONS.slice(1)].map((f) => (
+            {FACTIONS.map((f) => (
               <path
                 key={f.id}
                 ref={(el) => { regions.current.set(f.id, el); }}
