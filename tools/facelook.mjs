@@ -170,6 +170,15 @@ const IDS = argv.includes("--ids") || argv.includes("--cover");
  * INSTRUMENT: see `idbuf`.
  */
 const COVER = argv.includes("--cover");
+/**
+ * How squarely a surface must face the lens to count as "the face".
+ *
+ * -0.35 is about 70 degrees off dead-on. Generous, because a cheek at a
+ * three-quarter bearing is genuinely oblique and excluding it would throw away
+ * the very region the defect lives in; but firm enough that the side and back
+ * of the skull, which is what wrongly entered the sample before, leave it.
+ */
+const FACING = -0.35;
 const MATTE = flag("matte", null);
 const LEGEND = new Map();
 /** Part keys in first-seen order; `idbuf` holds indices into this. */
@@ -203,6 +212,17 @@ function render(root, lens, turnDeg) {
   // id buffer is written where the depth test is won, so it cannot disagree
   // with what is on screen.
   const idbuf = new Int32Array(W * H).fill(-1);
+  // HOW SQUARELY EACH PIXEL FACES THE LENS: normal dotted with the view
+  // direction, so -1 is dead-on and 0 is edge-on.
+  //
+  // The coverage measurement needs it because "the face" cannot be a REGION.
+  // Taking the face's bounds from the head's silhouette put the SIDE of the
+  // head inside the box the moment the man turned, so a nape guard over the jaw
+  // and a hood over the temple both read as covering the face — and the number
+  // then failed to respond when the cheek guard it accused was moved, which is
+  // how the mistake was caught. A surface that has rotated away from the lens
+  // is not part of the face any more, and only its own normal knows that.
+  const facebuf = new Float32Array(W * H).fill(0);
   for (let i = 0; i < W * H; i++) { rgb[i * 3] = 0.055; rgb[i * 3 + 1] = 0.058; rgb[i * 3 + 2] = 0.065; }
   root.updateMatrixWorld(true);
 
@@ -330,6 +350,10 @@ function render(root, lens, turnDeg) {
           let ny2 = w0 * A[4] + w1 * B[4] + w2 * C[4];
           let nz2 = w0 * A[5] + w1 * B[5] + w2 * C[5];
           const nl = Math.hypot(nx2, ny2, nz2) || 1;
+          // After normalisation, and after the depth test above has already
+          // claimed this pixel — so what is recorded is the surface actually
+          // seen, not one that was later covered.
+          facebuf[o2] = (nx2 * fx + ny2 * fy + nz2 * fz) / nl;
           nx2 /= nl; ny2 /= nl; nz2 /= nl;
           let r = mc[0], g2 = mc[1], b = mc[2];
           if (A.vc && B.vc && C.vc) {
@@ -347,7 +371,7 @@ function render(root, lens, turnDeg) {
       }
     }
   });
-  return { rgb, W, H, idbuf };
+  return { rgb, W, H, idbuf, facebuf };
 }
 
 // ---- PNG, hand-rolled, because a picture with a dependency is not a picture.
@@ -503,11 +527,13 @@ if (COVER) {
   // from crown to chin puts the cut just over the eyes at every bearing,
   // because it is measured on the same pixels it is applied to.
   const losses = [];
+  const blame = new Map();
   turnsArg.forEach((turn, pi) => {
     const b = bare[pi], d = panels[pi];
     let top = b.H, bot = -1;
     for (let y = 0; y < b.H; y++) for (let x = 0; x < b.W; x++) {
-      if (!skinKeys.has(partAt(b, y * b.W + x))) continue;
+      const i0 = y * b.W + x;
+      if (!skinKeys.has(partAt(b, i0)) || b.facebuf[i0] > FACING) continue;
       if (y < top) top = y;
       if (y > bot) bot = y;
     }
@@ -515,9 +541,17 @@ if (COVER) {
     let was = 0, lost = 0;
     for (let y = brow; y <= bot; y++) for (let x = 0; x < b.W; x++) {
       const i = y * b.W + x;
-      if (!skinKeys.has(partAt(b, i))) continue;
+      if (!skinKeys.has(partAt(b, i)) || b.facebuf[i] > FACING) continue;
       was++;
-      if (!skinKeys.has(partAt(d, i))) lost++;
+      const took = partAt(d, i);
+      if (!skinKeys.has(took)) {
+        lost++;
+        // WHICH PART TOOK IT. The whole point of the id buffer: the answer to
+        // "what is covering his face" is a fact on the pixel rather than a
+        // hypothesis to be sweep-tested. Three parameter sweeps of the cheek
+        // guard were spent guessing before this line existed.
+        blame.set(took || "(nothing)", (blame.get(took || "(nothing)") || 0) + 1);
+      }
     }
     losses.push({ turn, pct: was ? lost / was : 0, was, lost });
   });
@@ -529,6 +563,11 @@ if (COVER) {
       + `(${l.lost} of ${l.was} skin px)`);
   }
   console.log(`[cover]   spread across bearings ${(spread * 100).toFixed(1)}%`);
+  const top = [...blame].sort((a, b2) => b2[1] - a[1]).slice(0, 4);
+  const tot = [...blame.values()].reduce((a, b2) => a + b2, 0) || 1;
+  for (const [k, v] of top) {
+    console.log(`[cover]   took ${((v / tot) * 100).toFixed(0).padStart(3)}% of the loss: ${k}`);
+  }
   console.log("[cover]   MEASUREMENT ONLY — no bar. This counts skin on the whole head, and a helm");
   console.log("[cover]   is entitled to the scalp; see the note above --cover before gating on it.");
 }

@@ -48,36 +48,60 @@ may be performing, on either route.
 ---
 
 
-## OPEN — two helms swing across the face as the man turns
+## OPEN — the Wyrm's DEEP cheek guard takes half the face at three-quarter
 
-**The assertion now exists and names them.** `npm run facecover`:
+`npm run facecover` measures, per bearing, how much lens-facing face skin the
+helm takes — the head rendered twice, bare and helmed, differenced. Face means
+below the brow and within 70 degrees of facing the lens, so the side of the
+skull leaves the sample as the man turns instead of entering it.
 
 ```
-class        helm          0deg   -35deg    35deg    spread   verdict
-huscarl      none           0.0%    0.0%    0.0%      0.0
-huscarl      iron           0.5%    1.9%    2.3%      1.8
-huscarl      nasal          6.2%    5.9%    6.2%      0.3
-huscarl      spectacle     29.5%   28.3%   28.8%      1.2
-huscarl      suttonhoo     90.3%   94.9%   95.1%      4.8
-huscarl      wyrm          29.4%   51.1%   54.2%     24.8   <-- SWINGS ACROSS THE FACE
-huscarl      hood           3.7%   31.7%   35.1%     31.4   <-- SWINGS ACROSS THE FACE
+helm         0deg   -35deg    35deg
+iron         0.2%    1.7%     2.1%
+nasal        6.4%    5.3%     5.6%
+spectacle   25.2%   29.4%    29.4%      <- short cheek guard
+wyrm        24.3%   50.9%    53.1%      <- DEEP cheek guard
+suttonhoo   89.3%   94.7%    94.8%      <- a mask, and that is the product
+hood         3.1%   31.4%    34.2%
 ```
 
-**The Wyrm-Crest Helm** (`cheek: "deep"`) and **the Shadow Hood**. Both are low
-from the front and half the face from three-quarter — which is the bearing the
-armoury photographs from, and why the owner saw it in the shop rather than in a
-fight.
+**Confirmed by swapping the flag, not by argument:** set the Wyrm's `cheek` to
+`"short"` and it reads **25.2 / 29.4** — spectacle's numbers exactly. Set its
+`bowl` to `"round"` and nothing changes. The deep guard is the whole of the
+difference, and it costs 21 points of face at the bearing the shop uses.
 
-**What the fix is.** A fall or a deep cheek guard belongs BEHIND the jaw, not
-beside the cheekbone. Narrow it, move it back, and re-run — the bar is spread,
-so the target is "as flat as the Sutton Hoo", not "as small as the iron bowl". A
-helm is still allowed to take the whole face; it is not allowed to CHANGE how
-much it takes as the man turns.
+The id buffer names the surface directly: **95% of the loss is
+`rig:head · 6e767f`**, the helm's iron. The Hood's is 100% `· 2a2521`, its cloth.
 
-**How the question was found, after two wrong ones:**
+### The trap that cost three sweeps, and it is worth more than the defect
 
-| attempt | why it failed |
-|---|---|
+`cheekIn`, `cheekOut` and `cheekHemAt` look like the guard's geometry. **They are
+not.** Sweeping all three moved the reading by nothing:
+
+```
+cheekIn  0.56 -> 0.88   50.9% -> 32.2%   (front falls; the side does not)
+hem drop 0.34 -> 0.14   50.9% -> 50.9%   (no effect whatsoever)
+cheekOut 1.45 -> 1.10   50.9% -> 52.1%   (slightly worse)
+```
+
+They are the guard's DESCRIPTION, consumed by other systems — the file says so
+itself about `cheekOut`: *"the hair reads this line to know where the metal
+stops"*. The shell that is actually drawn is built elsewhere off
+`style.cheek === "deep"`. That is the mirrored-definition fault this file
+records having made three times before, and it caught a fourth victim.
+
+**So the fix is in the deep guard's own construction**, and the target is
+spectacle's profile: about 29% at every bearing rather than 24 rising to 53. Not
+"smaller" — a deep guard is meant to be deep — but hung BEHIND the jaw instead
+of across the cheek.
+
+**The Hood is not yet judged.** 3.1% to 34.2% is the same signature, but a hood
+draping round a face at three-quarter may simply be what a hood does. It needs a
+look before it is called a fault.
+
+---
+
+---|
 | by PART — "no body kit inside the face bounds" | reported 0.00%: a coif rides the head, so `rig:head` carries skin, mask, mail and gold alike |
 | by COLOUR — match pixels to the `--ids` legend | reported 0.00%: the colour buffer holds material colour TIMES THE LIGHT, so the flat legend colour never appears in it |
 | by AMOUNT, whole head | every helm 44-95%: a helm is entitled to the scalp, so a bar fails a helmet for being a helmet |
