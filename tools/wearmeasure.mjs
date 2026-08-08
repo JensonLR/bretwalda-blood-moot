@@ -1243,7 +1243,29 @@ const SLOT_MISS_MM = 22;
   console.log("[wear]       An opening either frames a feature or it is not an opening.");
   for (const n of note) console.log(`[wear] note ${n}`);
   for (const f of ofails) console.log(`[wear] FAIL ${f}`);
-  console.log(`[wear] ${ofails.length ? "FAIL" : "PASS"}: the openings`);
+  // THE DEFERRAL IS PART OF THE VERDICT, not a footnote above it.
+  //
+  // These windows are measured and deliberately not gated — the note beside
+  // `slotFrac` gives the reason, and it is a good one: the opening is shaped by
+  // the guard's rear edge, the fall's leading edge AND the hairline, so a bar
+  // here is a bar on three owners at once. Declining to rule was right.
+  //
+  // Printing "PASS: the openings" and leaving the count in a note above it was
+  // not. The owner read the shop on 2026-08-08 and reported exactly what these
+  // lines say — "the sides of helmets are missing too with leaves bald spots or
+  // ears exposed" — against a harness that had been calling itself green for
+  // weeks. The same week, `cosmetictest` was found to be carving the Shadow Hood
+  // out of its hair assertion for the same reason, and reporting that as a note
+  // too. Twice is a pattern: a measurement nobody has to look at is a
+  // measurement nobody looks at.
+  //
+  // So the count rides on the verdict. It still does not fail, because a bar
+  // tuned rather than met is worse than a hole — but a green line that says
+  // "7 windows not gated" cannot be read as "nothing to do here".
+  const openNotes = note.length;
+  console.log(`[wear] ${ofails.length ? "FAIL" : "PASS"}: the openings`
+    + (openNotes ? ` — WITH ${openNotes} ungated window(s) reported above, ` +
+      "which is a deferral and not a clean sheet" : ""));
   globalThis.__openFails = ofails.length;
   if (DUMP && dumps.length) {
     // grey flesh, blue metal, RED the shell's own inner wall seen from outside,

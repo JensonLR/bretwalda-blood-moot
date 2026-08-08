@@ -126,11 +126,52 @@ seconds a style.
 the back of the hood at ear height, unattached to the silhouette. Not yet
 diagnosed.
 
-### 4. Helm sides leaving bald spots and exposed ears
+### 4. Helm sides: seven ungated windows, and the harness knew
 
-Owner-reported and not yet reproduced here. `wearmeasure` §10 "the openings" was
-built for exactly this and passes, which — after the hood — is reason to check
-whether it too carries a carve-out or measures at bearings that miss it.
+`wearmeasure` §10 measures these and **deliberately does not gate them**:
+
+```
+huscarl/spectacle:  a window 5.2% of the flank sits  65 mm off the ear — the ear is not inside it
+huscarl/boar:       a window 4.6% of the flank sits  63 mm off the ear — the ear is not inside it
+huscarl/crowned:    a window 6.5% of the flank sits  38 mm off the ear — the ear is not inside it
+huscarl/wyrm:       a window 2.0% of the flank sits 120 mm off the ear — the ear is not inside it
+berserker/spectacle: 1.5% of the flank, 163 mm off the ear
+berserker/crowned:   2.5% of the flank, 107 mm off the ear
+berserker/wyrm:      2.2% of the flank,  89 mm off the ear
+```
+
+A hole in the side of the helmet that **frames nothing** — the ear is not in it.
+That is the owner's *"the sides of helmets are missing too with leaves bald
+spots or ears exposed & looks wrong"*, measured, in a harness that was calling
+itself green.
+
+Its own comment gives the reason and the reason is good: *"an opening in the
+flank is shaped by the guard's rear edge, the fall's leading edge AND the
+hairline ... a bar here is a bar on three owners at once, and the one thing
+worse than a hole is a bar that gets tuned instead of met ... that is the next
+pass."* Declining to rule was right; **printing `PASS: the openings` with the
+count in a note above it was not.** The verdict line now carries the count, so a
+green run reads "with 7 ungated windows" rather than as a clean sheet. The bar
+is still not invented, because inventing it here is the failure the comment
+warns about.
+
+## THE PATTERN ACROSS ALL FOUR REPORTS
+
+Every one of the owner's 2026-08-08 complaints was a thing the gate already knew
+about and had chosen not to fail on:
+
+| report | harness | why it was green |
+|---|---|---|
+| long hair vanishes under the hood | cosmetictest §3 | explicit carve-out; the hood was exempt by name |
+| helm sides leave bald spots | wearmeasure §10 | measured, reported as a note, deliberately not gated |
+| beards are sharp and thin | beardcount / beardseat | neither asks about VOLUME — a sheet is one island and intersects nothing |
+| the face seam | facelook / cosmetictest | coverage measured, but never "what is in front of the face" |
+
+Two deliberate deferrals, one unmeasured property, one unasked question. **None
+was a bad measurement.** The lesson is not "measure harder" — it is that a
+harness written by whoever is fixing the defect encodes THAT PERSON'S idea of
+done, and every deferral it makes is invisible to the person who actually
+decides. Deferrals now ride on the verdict line in both places they were found.
 
 ---
 
