@@ -8,6 +8,37 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — the helm splits the face down the middle, and the jaw grows a spike
+
+Reported from the live armoury on 2026-08-08, two screenshots, Nasal/Spectacle
+tier on a huscarl.
+
+**1. Half the face is shaded as metal.** There is a hard vertical seam on the
+midline: the wearer's left side is skin, the right side is the same blue-grey
+the helm's steel is. It is a straight line, it runs from the brow to the jaw,
+and it does not follow any feature — so this is a MATERIAL or vertex-colour
+boundary landing on the face, not a lighting effect. Suspect the nasal's own
+geometry or its tone being applied to the face patch it overlays; the seam sits
+exactly where a nasal guard's mask would be mirrored.
+
+**2. A dark blade hangs from the jaw down the throat**, on a warrior whose beard
+slot reads **Clean Shaven** — so it is not beard geometry. Visible in the
+three-quarter rear view, running from under the ear to below the collar.
+
+**3. In profile the helm stands off the skull** with daylight between bowl and
+head, and the neck reads much too long under it.
+
+None of these is caught by anything in the gate: `wearmeasure` measures
+clearances and holes in metal, `headmeasure` measures ratios, `cosmetictest`
+measures how much of a cosmetic READS. **A face shaded in two colours passes all
+three** — every one of them would report a perfectly seated helm on a head that
+is half steel. That is the same shape as the beard-through-the-neck defect: the
+right questions asked of the wrong surface. A ruler that samples FACE VERTEX
+COLOUR either side of the midline and fails on a discontinuity would catch (1)
+in a second and does not exist.
+
+---
+
 ## CLOSED — the Sutton Hoo's hair, and it was never the cloak
 
 `npm run cosmetictest -- --no-render` is **16/16**. Long Mane reads **1.42%** and

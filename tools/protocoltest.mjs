@@ -122,7 +122,7 @@ console.log("-- headlessness --");
 }
 
 // The engine is loaded ONLY now, with the trap armed.
-const { getEngine, makeEngine, HIT_ZONES, EMOTES, WARRIOR_STATS, SWING_PHASES } = await import("../src/game/engine.mjs");
+const { getEngine, makeEngine, decideMatch, HIT_ZONES, EMOTES, WARRIOR_STATS, SWING_PHASES } = await import("../src/game/engine.mjs");
 const engine = getEngine();
 check("engine.mjs imports with every browser global rigged to throw", true,
   "window/document/navigator/self/location/HTMLElement/rAF");
@@ -771,6 +771,50 @@ const h = scenarioHeadless();
 }
 
 const [a, m] = await Promise.all([scenarioMatch(), scenarioMelee()]);
+
+console.log("\n-- who takes the match --");
+{
+  // The owner's case, verbatim: eight men, five rounds, two men on two apiece
+  // and a third on one. Before the tiebreak existed this returned null and the
+  // match those rounds produced ended "none".
+  const eight = (kills) => Object.entries(kills).map(([key, k]) => ({ key, kills: k }));
+  const ffa = { a: 2, b: 2, c: 1 };
+
+  check("rounds still decide it outright when somebody is ahead",
+    decideMatch({ roundWins: { a: 3, b: 1, c: 1 }, entrants: eight({ a: 0, b: 40, c: 9 }) }) === "a",
+    "a took three rounds with zero kills against b's forty — kills never overturn rounds");
+
+  check("level on rounds, the most kills takes it",
+    decideMatch({ roundWins: ffa, entrants: eight({ a: 4, b: 7, c: 30 }) }) === "b",
+    "a and b tie on two rounds each, c has one round and thirty kills — b wins on 7 kills to a's 4, "
+    + "and c's thirty do not promote him past men who won more rounds");
+
+  check("level on rounds AND on kills is a draw",
+    decideMatch({ roundWins: ffa, entrants: eight({ a: 7, b: 7, c: 30 }) }) === null,
+    "nobody is the victor, which the wire reports as winnerKind none and the stage renders as a draw");
+
+  check("a three-way tie broken by one man's kill count",
+    decideMatch({ roundWins: { a: 2, b: 2, c: 2 }, entrants: eight({ a: 5, b: 9, c: 5 }) }) === "b",
+    "three level on rounds, b alone on top of the kills");
+
+  check("a match in which nobody won a round is a draw, whatever the kills",
+    decideMatch({ roundWins: {}, entrants: eight({ a: 3, b: 11, c: 6 }) }) === null,
+    "every round a mutual wipe — the kill count does not get to invent a victor, and summaryflow "
+    + "caught the version that let it: a 2v2 whose only round downed both sides stood a band up");
+
+  check("a man who won a round and left cannot be skipped",
+    decideMatch({ roundWins: { gone: 3, a: 1 }, entrants: [{ key: "a", kills: 50 }] }) === "gone",
+    "gone is not among the entrants any more and still takes the match he won");
+
+  check("an empty match is a draw rather than a crash",
+    decideMatch({ roundWins: {}, entrants: [] }) === null, "no entrants, no victor");
+
+  // A war band ranks bands, so the same rule has to work on two keys carrying
+  // summed kills rather than eight carrying their own.
+  check("a war band tied on rounds is broken by the band's kills",
+    decideMatch({ roundWins: { red: 1, blue: 1 }, entrants: [{ key: "red", kills: 12 }, { key: "blue", kills: 13 }] }) === "blue",
+    "red 12, blue 13");
+}
 
 console.log("\n-- the sim never reached for the browser --");
 check("no browser global was touched during a whole match", touched.length === 0,

@@ -567,6 +567,70 @@ export const WARRIOR_STATS = {
 };
 
 /** Seconds a whole swing takes for this class, heavy or light. */
+/**
+ * WHO TOOK THE MATCH, AND THE TIEBREAK THAT WAS MISSING.
+ *
+ * The owner, on an eight-man free-for-all: *"if 2 people win 2 rounds each & a
+ * third wins 1 round out of 8 people FFA then it should come down to who has
+ * the most kills. if they are tied then it should be a draw & all dead."*
+ *
+ * What it did before was return NOBODY the moment two sides were level on
+ * rounds — no tiebreak of any kind. In a duel that is nearly harmless, because
+ * a best-of-3 between two men can only tie if rounds are drawn. In an eight-man
+ * free-for-all it is the COMMON case: five rounds shared between eight men will
+ * very often leave two of them on two apiece, and the match those sixteen
+ * minutes produced would end "none" with a man who won two rounds and topped
+ * the kill count standing next to a man who did neither.
+ *
+ * So the order is rounds, then kills, then an honest draw:
+ *
+ *   1. Most rounds won. Unchanged, and still the thing the format is about —
+ *      kills never overturn a man who simply won more rounds.
+ *   2. Level on rounds: most KILLS across the whole match. Not the last round's
+ *      kills and not damage — the owner asked for kills, kills are what the
+ *      kill feed has been showing all match, and a player can count them.
+ *   3. Level on both: a draw, and nobody is the victor.
+ *
+ * A pure function of a tally rather than a method on a room, because the cases
+ * that matter are the rare ones — three-way ties, a man who won a round and
+ * quit, a match where every round was drawn — and they are unreachable by
+ * playing a match but trivial to enumerate against this.
+ *
+ * `entrants` is every side still able to win, with the kills it carries; in a
+ * war band that is the band's kills summed, because a war band ranks bands.
+ * Returns the winning key, or null for a draw.
+ */
+export function decideMatch({ roundWins = {}, entrants = [] }) {
+  const kills = new Map(entrants.map((e) => [e.key, e.kills || 0]));
+  // Anyone who won a round is a contender even if they have since left, so a
+  // man cannot be denied a match he won by disconnecting after winning it.
+  for (const k of Object.keys(roundWins)) if (!kills.has(k)) kills.set(k, 0);
+  if (kills.size === 0) return null;
+
+  let best = 0;
+  for (const k of kills.keys()) best = Math.max(best, roundWins[k] || 0);
+  // NOBODY WON A ROUND AT ALL — every round was a mutual wipe. That is a draw,
+  // and the kill count does NOT get to break it.
+  //
+  // The first cut of this did let it: "men still fought, and one of them may
+  // well have fought best." It was an extrapolation of the owner's rule rather
+  // than the rule, and summaryflow caught what it cost — a 2v2 war band whose
+  // only round ended with both sides down now had a winning side, so the stage
+  // stood a band up over a match nobody had won. The ask was about ties BETWEEN
+  // ROUND WINNERS; a match with no round winner is not that, and inventing a
+  // victor for it changes what the format means.
+  if (best === 0) return null;
+  let top = [...kills.keys()].filter((k) => (roundWins[k] || 0) === best);
+  if (top.length === 1) return top[0];
+
+  let mostKills = -1;
+  for (const k of top) mostKills = Math.max(mostKills, kills.get(k) || 0);
+  top = top.filter((k) => (kills.get(k) || 0) === mostKills);
+  // Level on rounds AND on kills. A draw, and it is reported as one — the wire
+  // says winnerKind "none" and the stage stands nobody up.
+  return top.length === 1 ? top[0] : null;
+}
+
 export function swingDurationOf(warriorClass, isHeavy) {
   const stats = WARRIOR_STATS[warriorClass] ?? WARRIOR_STATS.huscarl;
   return stats.attackSpeed * (isHeavy ? HEAVY_SWING_SCALE : 1);
@@ -998,12 +1062,22 @@ export function makeEngine(options = {}) {
 
   /** The key with the most round wins, or null if nobody leads alone. */
   function roundLeader(room) {
-    let leader = null, best = 0, tied = false;
-    for (const [key, wins] of Object.entries(room.roundWins || {})) {
-      if (wins > best) { best = wins; leader = key; tied = false; }
-      else if (wins === best && wins > 0) tied = true;
+    const teamMode = isTeamMode(room);
+    // Every side that could win, with the kills it is carrying. In a war band
+    // that is the band's kills summed, because a war band ranks bands, not men.
+    const tally = new Map();
+    room.players.forEach((p) => {
+      const key = teamMode ? p.team : p.id;
+      if (!key || key === "none") return;
+      tally.set(key, (tally.get(key) || 0) + (p.kills || 0));
+    });
+    for (const key of Object.keys(room.roundWins || {})) {
+      if (!tally.has(key)) tally.set(key, 0);   // won a round then left
     }
-    return tied ? null : leader;
+    return decideMatch({
+      roundWins: room.roundWins || {},
+      entrants: [...tally].map(([key, kills]) => ({ key, kills })),
+    });
   }
 
   const sendLobbyUpdate = (room) => broadcast(room, { type: "lobby_update", data: serializeRoom(room) });
