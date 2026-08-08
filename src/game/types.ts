@@ -489,33 +489,31 @@ export interface KillData {
   cause: DeathCause;
 }
 
-// WebSocket message types
-export type WSMessageType =
-  | "join"
-  | "create"
-  | "lobby_update"
-  | "select_class"
-  | "select_team"
-  | "ready"
-  | "start"
-  | "input"
-  | "game_state"
-  | "hit"
-  | "kill"
-  | "set_rounds"
-  | "round_end"
-  | "match_end"
-  | "error"
-  | "player_joined"
-  | "player_left"
-  | "countdown"
-  | "chat"
-  | "emote"
-  | "kill_feed"
-  | "last_stand"
-  | "ability_used"
-  | "ping"
-  | "pong";
+/**
+ * Every message on the wire, in both directions. **`docs/WIRE-PROTOCOL.md` is
+ * the specification**; this union is only the TypeScript face of it, and
+ * `tools/protocoltest.mjs` holds both to what `engine.mjs` actually does.
+ *
+ * It used to declare `"chat"` and `"kill_feed"`, neither of which the engine
+ * has ever sent or accepted, and to omit `solo`, `add_bot`, `remove_bot`,
+ * `set_bots`, `set_appearance` and `leave`, all of which it routes. Same fault
+ * as the documented-and-unread `CLASS.gorget`: a type that describes an
+ * intention rather than a program. Corrected against the router.
+ */
+export type WSClientMessageType =
+  | "create" | "join" | "solo"
+  | "select_class" | "select_team" | "ready" | "set_appearance"
+  | "add_bot" | "remove_bot" | "set_bots" | "set_rounds"
+  | "start" | "input" | "emote" | "leave" | "ping";
+
+export type WSServerMessageType =
+  | "join" | "error" | "pong"
+  | "player_joined" | "player_left" | "lobby_update"
+  | "countdown" | "game_state"
+  | "hit" | "kill" | "ability_used" | "last_stand"
+  | "round_end" | "match_end" | "emote";
+
+export type WSMessageType = WSClientMessageType | WSServerMessageType;
 
 export interface WSMessage {
   type: WSMessageType;
