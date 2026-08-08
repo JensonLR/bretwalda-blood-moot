@@ -897,8 +897,12 @@ async function main() {
         for (let i = 0; i < n && sent < steps; i++, sent++) {
           cv.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, movementX: px, movementY: 0 }));
         }
-      } else if (++waited > 400) {
-        return done({ sent, why: "the stroke never started" });
+      } else if (++waited > (sent === 0 ? 400 : 60)) {
+        // Two different failures, named apart, because they mean different
+        // things: nothing to sweep during, versus a stroke that ended before
+        // the sweep had finished asking. Both leave `asked` short and both are
+        // meant to fail the check rather than quietly halve the demand.
+        return done({ sent, why: sent === 0 ? "the stroke never started" : "the stroke ended first" });
       }
       if (sent >= steps) return done({ sent, why: "complete" });
       setTimeout(tick, 15);
