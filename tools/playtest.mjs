@@ -881,7 +881,7 @@ async function main() {
       if (!s) return null;
       return Object.values(s.players || {}).find((p) => !String(p.id).startsWith("bot_")) || null;
     };
-    let sent = 0, waited = 0, startedAt = -1;
+    let sent = 0, waited = 0;
     // PACED BY SNAPSHOTS, NOT BY setTimeout — and this is the second half of
     // the same bug the block above describes.
     //
@@ -896,35 +896,40 @@ async function main() {
     // ended first)` — on a green build that scored 12/12 and 2.53 rad when run
     // alone. A gate whose verdict depends on what else is running is not a gate.
     //
-    // So the sweep is clocked by the thing it is measured against: the
-    // recorder's own snapshot count. Two steps per snapshot arriving puts all
-    // twelve out over six of a warden stroke's seventeen. If the thread stalls
-    // and four snapshots land unobserved, the next run dispatches the eight it
-    // owes rather than losing them — starvation delays the demand, it no longer
-    // shrinks it.
-    const recLen = () => (window.__probe.rec ? window.__probe.rec.length : 0);
+    // THE WHOLE DEMAND LEAVES ON THE FIRST COMMITTED TICK, AND THAT IS THE
+    // THIRD AND LAST VERSION OF THIS.
+    //
+    // Version two paced the sweep by the recorder's snapshot count — two steps
+    // per snapshot arriving — on the reasoning that pacing it by the clock the
+    // measurement uses could not come apart from the measurement. It still
+    // needed `tick` to RUN. Merging the new lid and beard geometry made the
+    // head heavier, the software rasteriser slower and the main thread hungrier,
+    // and the sweep came back `0.21 rad (1/12 steps, the stroke ended first)`:
+    // the poller fired once inside an 850 ms stroke. Any design that dispatches
+    // over time loses on a box slow enough, and the box is allowed to be slow.
+    //
+    // So nothing is spread over time. The first tick that sees the server call
+    // the man committed sends all twelve moves in one go and the loop is done.
+    // Delivery now depends on the poller running ONCE, which it must do anyway
+    // to notice the stroke at all — there is no second thing left to starve.
+    //
+    // This still tests the cap, and arguably tests it harder. A real flick IS
+    // many events in a few milliseconds; `sampleInput` folds them into one yaw,
+    // and the server slews toward the last yaw it was told on its own fixed
+    // step, so a demand that arrives whole and is then HELD for the rest of the
+    // stroke exercises the cap exactly as a moving one does. `asked` is summed
+    // between 20 Hz snapshots and the burst lands after the snapshot that
+    // revealed the stroke, so the full 2.53 rad still appears as travel between
+    // two recorded samples rather than before the first of them.
     const tick = () => {
       const m = mine();
       // The server's own word for "committed", not a clock this side of the
       // wire: a stroke that started late still gets the whole sweep.
       const committed = !!m && m.attackPhase !== null && m.attackPhase !== undefined;
       if (!gate || committed) {
-        if (startedAt < 0) startedAt = recLen();
-        // Owed, not "one per tick": the arrears are what survive a stall.
-        let owe = Math.max(1, (recLen() - startedAt) * 2) - sent;
-        // Past the half-way point of the stroke, everything still owed goes out
-        // at once. The server slews toward the last yaw it was told on its own
-        // fixed step, so a demand that arrives whole and is then HELD exercises
-        // the cap exactly as a moving one does — and this is what guarantees
-        // the full 2.53 rad reaches the wire inside the window even if every
-        // frame before now was dropped.
-        // `swingDuration`, which is what the wire calls it — the recorder above
-        // renames it to `dur` when it stores a sample, and reading that name
-        // here would be `undefined > 0`, i.e. a burst that never fires and a
-        // safety net that silently is not there.
-        if (m && m.swingDuration > 0 && m.swingT / m.swingDuration > 0.5) owe = steps - sent;
-        for (let i = 0; i < owe && sent < steps; i++, sent++) {
+        while (sent < steps) {
           cv.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, movementX: px, movementY: 0 }));
+          sent++;
         }
       } else if (++waited > (sent === 0 ? 400 : 60)) {
         // Two different failures, named apart, because they mean different
