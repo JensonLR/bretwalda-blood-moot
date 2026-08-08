@@ -11693,7 +11693,7 @@ export function buildCharacter(
     // so the hair may not be in front of the rings, and the mass reaches zero
     // 0.30 rad IN FRONT of the rim rather than behind it.
     if (style.mask) {
-      return coifed ? smooth(2.26, 2.70, awayFromFace(u)) : 0;
+      return coifed ? smooth(1.50, 1.90, awayFromFace(u)) : 0;
     }
     // ON THE FAR SIDE OF THE RIM, NOT THE NEAR SIDE. The ramp is still 0.34 rad
     // wide and it still dies inside the mail — that is what stops a free patch
@@ -12344,8 +12344,8 @@ export function buildCharacter(
         // multiplied together taper a mass twice and that is how a fall ends up
         // at 6% of itself while both of its authors think they left it alone.
         const maskedFall = style.mask && coifed;
-        const maneFrontDead = maskedFall ? 2.06 : coifed ? 0.72 : Math.PI - 1.99;
-        const maneFrontFull = maskedFall ? 2.40 : coifed ? 1.02 : Math.PI - 0.95;
+        const maneFrontDead = maskedFall ? 1.44 : coifed ? 0.72 : Math.PI - 1.99;
+        const maneFrontFull = maskedFall ? 1.78 : coifed ? 1.02 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
         const maneMass = (u: number) => hairFall(u)
           * Math.pow(smooth(maneFrontDead, maneFrontFull, awayFromFace(u)), 0.95);
