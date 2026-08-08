@@ -48,26 +48,52 @@ may be performing, on either route.
 ---
 
 
-## OPEN — the huscarl's aventail flanks the face and crosses the cheek
+## OPEN — two helms swing across the face as the man turns
 
-Reported from the live armoury 2026-08-08. **Now isolated to a named part.**
+**The assertion now exists and names them.** `npm run facecover`:
 
-**What it looks like:** a hard vertical seam down the face, one side skin and the
-other blue-grey steel, brow to jaw, following no feature.
+```
+class        helm          0deg   -35deg    35deg    spread   verdict
+huscarl      none           0.0%    0.0%    0.0%      0.0
+huscarl      iron           0.5%    1.9%    2.3%      1.8
+huscarl      nasal          6.2%    5.9%    6.2%      0.3
+huscarl      spectacle     29.5%   28.3%   28.8%      1.2
+huscarl      suttonhoo     90.3%   94.9%   95.1%      4.8
+huscarl      wyrm          29.4%   51.1%   54.2%     24.8   <-- SWINGS ACROSS THE FACE
+huscarl      hood           3.7%   31.7%   35.1%     31.4   <-- SWINGS ACROSS THE FACE
+```
 
-**What it is:** the huscarl's MAIL COIF / AVENTAIL. It hangs as two broad flat
-falls either side of the head, from under the helm down past the shoulder, and
-covers the whole back of the skull. Front on they frame the face as vertical
-slabs; at a three-quarter bearing — **which is the armoury's own lens** — the
-near one swings across the cheek. Everything in the report follows: the edge is
-straight because it is a fall's edge, the colour is steel because the fall is
-mail, and it follows no feature because it is a separate surface standing in
-front of the face.
+**The Wyrm-Crest Helm** (`cheek: "deep"`) and **the Shadow Hood**. Both are low
+from the front and half the face from three-quarter — which is the bearing the
+armoury photographs from, and why the owner saw it in the shop rather than in a
+fight.
 
-**Isolated by elimination, in three renders** (`node tools/facelook.mjs`):
+**What the fix is.** A fall or a deep cheek guard belongs BEHIND the jaw, not
+beside the cheekbone. Narrow it, move it back, and re-run — the bar is spread,
+so the target is "as flat as the Sutton Hoo", not "as small as the iron bowl". A
+helm is still allowed to take the whole face; it is not allowed to CHANGE how
+much it takes as the man turns.
 
-| render | what it shows |
+**How the question was found, after two wrong ones:**
+
+| attempt | why it failed |
 |---|---|
+| by PART — "no body kit inside the face bounds" | reported 0.00%: a coif rides the head, so `rig:head` carries skin, mask, mail and gold alike |
+| by COLOUR — match pixels to the `--ids` legend | reported 0.00%: the colour buffer holds material colour TIMES THE LIGHT, so the flat legend colour never appears in it |
+| by AMOUNT, whole head | every helm 44-95%: a helm is entitled to the scalp, so a bar fails a helmet for being a helmet |
+| **by SPREAD, face only** | **works** — masks are flat-high, bowls flat-low, only a fall changes with bearing |
+
+Two things made it possible: `render()` keeping a per-pixel **`idbuf`** so which
+part owns a pixel is a fact rather than an inference, and cutting the count at
+the brow so the scalp stops drowning the signal.
+
+**Still unexplained from the same screenshots:** a dark blade hanging from the
+jaw on a warrior whose beard slot reads Clean Shaven, and the helm standing off
+the skull in profile.
+
+---
+
+---|
 | `art/look/slab-ids.png` (`--ids`) | the falls carry ONE torso material, so they are swept into the body mesh rather than the helm |
 | `art/look/nocloak2.png` (`cloak: "none"`) | the cloak is genuinely off — its brown edge is gone from the rear panel — and **the falls remain** |
 | `art/look/boar.png` | the same falls under a crested helm, so they are not that helm's nape flange either |

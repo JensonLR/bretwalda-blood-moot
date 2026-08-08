@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "csscheck": "node tools/csscheck.mjs",
     "locktest": "node tools/locktest.mjs",
+    "facecover": "node tools/facecover.mjs",
     "typecheck": "tsc --noEmit",
     "perf": "node tools/perf.mjs",
     "playtest": "node tools/playtest.mjs",

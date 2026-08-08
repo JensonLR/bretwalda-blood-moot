@@ -491,11 +491,30 @@ if (COVER) {
       if (k.startsWith("rig:head")) skinKeys.add(k);
     }
   }
+  // THE FACE PROPER, NOT THE HEAD. Counting the whole head made a helmet fail
+  // for being a helmet: a helm is entitled to the scalp, the ears and the
+  // occiput, and those are most of the skin a bare head shows. What a helm is
+  // NOT entitled to is the face, so the band is cut at the brow.
+  //
+  // The brow is found from the bare head's own silhouette rather than from a
+  // constant: `characters.ts` puts the eye line at the head's mid-height ("on
+  // the head's mid-height, where a human's eyes are" — see Y_EYE), so the brow
+  // is a little above it and the face is everything below. 0.45 of the way down
+  // from crown to chin puts the cut just over the eyes at every bearing,
+  // because it is measured on the same pixels it is applied to.
   const losses = [];
   turnsArg.forEach((turn, pi) => {
     const b = bare[pi], d = panels[pi];
+    let top = b.H, bot = -1;
+    for (let y = 0; y < b.H; y++) for (let x = 0; x < b.W; x++) {
+      if (!skinKeys.has(partAt(b, y * b.W + x))) continue;
+      if (y < top) top = y;
+      if (y > bot) bot = y;
+    }
+    const brow = top + Math.round((bot - top) * 0.45);
     let was = 0, lost = 0;
-    for (let i = 0; i < b.W * b.H; i++) {
+    for (let y = brow; y <= bot; y++) for (let x = 0; x < b.W; x++) {
+      const i = y * b.W + x;
       if (!skinKeys.has(partAt(b, i))) continue;
       was++;
       if (!skinKeys.has(partAt(d, i))) lost++;
@@ -504,7 +523,7 @@ if (COVER) {
   });
   const pcts = losses.map((l) => l.pct);
   const spread = Math.max(...pcts) - Math.min(...pcts);
-  console.log(`[cover] ${CLS} / ${ap.helm}: skin taken off the face by the helm`);
+  console.log(`[cover] ${CLS} / ${ap.helm}: FACE skin (below the brow) taken by the helm`);
   for (const l of losses) {
     console.log(`[cover]   ${String(l.turn).padStart(5)}deg  ${(l.pct * 100).toFixed(1).padStart(6)}%  `
       + `(${l.lost} of ${l.was} skin px)`);
