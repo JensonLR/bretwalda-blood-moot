@@ -14,6 +14,22 @@ as the shape of the answer, not as quotes.**
 
 ---
 
+## 0. Three owner decisions, taken 2026-08-08, that change this file
+
+1. **"I don't mind losing the Render database."** *"the game is still fresh &
+   only close friends have tested it."* — This removes the migration entirely.
+   There is no export, no import, no reconciliation of anonymous profiles
+   against recovery codes. Stand up a clean database, run the schema, point the
+   app at it. **The 90-day deadline stops being an emergency and becomes a
+   choice**, and the job drops from "a careful migration" to "an afternoon".
+   *It does not remove the need.* The next set of players will care, and by
+   then the deadline is real again — so do it now while it is free to do.
+2. **Unity and Blender are both available.** Console stops being hypothetical.
+   See §5, rewritten.
+3. **PWA approved for mobile.** It moves from "recommended" to "build it" — §6.
+
+---
+
 ## 1. What we actually have, because it constrains everything
 
 - A **Next.js/React/three.js client** — WebGL, procedural, zero binary assets.
