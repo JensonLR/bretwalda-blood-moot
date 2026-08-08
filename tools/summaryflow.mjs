@@ -65,12 +65,49 @@ const PROBE = () => {
 };
 
 const results = [];
+/**
+ * Assertions that could not be run, and WHY THEY ARE COUNTED.
+ *
+ * The emote-row check is only judgeable while the summary is up and before the
+ * server's ten-second rollback. On a software rasteriser the first summary
+ * frame can take longer than that to draw, so the check quietly turns into a
+ * NOTE and returns — and the tally then printed "11/11 passed" for a run that
+ * had actually tested eleven of thirteen things. Green, and two assertions
+ * short, with nothing in the output saying so.
+ *
+ * That is this repository's signature failure wearing yet another coat: a
+ * report of success from something that did not measure. A skip is not a pass,
+ * so it is named, counted, and printed beside the score.
+ */
+const skipped = [];
 const check = (name, pass, detail) => {
   results.push({ name, pass });
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
-async function until(cond, what, timeoutMs = 15000) {
+/**
+ * WHY THE BUDGETS ARE LARGE, AND WHY THAT IS NOT SLOPPINESS.
+ *
+ * These waits poll for a state the server or the client is going to reach. A
+ * genuine hang never reaches it, so the budget only decides how long a BROKEN
+ * run takes to admit it — it is not a performance assertion, and nothing is
+ * measured against it. Set it too low and it stops being a deadline and starts
+ * being a second thing under test: the box's speed.
+ *
+ * That is exactly what happened. `tapNow` below already records that on a
+ * software rasteriser the first summary frame jams the main thread for
+ * EIGHT TO TWENTY-FIVE SECONDS. The budgets were then written at 6 s for the
+ * parked ready and 10 s for the verdict — both under the worst stall the same
+ * file documents — and the shortest of them was given to the step that needs a
+ * whole client-server-client round trip through that stall. Run this beside
+ * another harness and it failed on `the parked ready to stick` with nothing
+ * wrong; run it alone and it passed 13/13. A gate whose verdict depends on what
+ * else is running is not a gate.
+ *
+ * So anything that has to survive a main-thread stall gets 30 s, comfortably
+ * past the 25 s worst case and still nowhere near an infinite hang.
+ */
+async function until(cond, what, timeoutMs = 30000) {
   const end = Date.now() + timeoutMs;
   for (;;) {
     const v = await cond();
@@ -243,9 +280,11 @@ async function emoteCheck(page, cast, where) {
   // past the rollback the row is mounted off a wire that calls every corpse
   // idle, which is the gap the NOTE below reports rather than this assertion.
   if (!seen.mounted || cast.roomState !== "finished") {
-    console.log(`[flow] NOTE ${where}: the row could not be judged in the window `
+    skipped.push(`${where}: the flourish is offered exactly to the man left standing`);
+    console.log(`[flow] SKIP ${where}: the row could not be judged in the window `
       + `— mounted=${seen.mounted} room=${cast.roomState}. This box needs longer to `
-      + `draw its first summary frame than the server's ten seconds allow.`);
+      + `draw its first summary frame than the server's ten seconds allow. `
+      + `NOT A PASS — counted as skipped.`);
     return mine;
   }
   check(`${where}: the flourish is offered exactly to the man left standing`,
@@ -285,7 +324,7 @@ async function vetoCheck(page, where) {
  */
 async function emoteAfterRollback(page, mine, where) {
   await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"),
-    "the rollback", 16000).catch(() => null);
+    "the rollback", 30000).catch(() => null);   // see `until`: a timeout here prints a NOTE that is simply wrong
   await sleep(600);
   const offered = (await page.getByLabel(/^Emote:/).count()) > 0;
   console.log(`[flow] NOTE ${where}: after the rollback the row is `
@@ -346,7 +385,11 @@ async function main() {
 
   await browser.close();
   const passed = results.filter((r) => r.pass).length;
-  console.log(`\n[flow] ${passed}/${results.length} passed`);
+  console.log(`\n[flow] ${passed}/${results.length} passed`
+    + (skipped.length ? `, ${skipped.length} NOT RUN` : ""));
+  // Named, not just counted: "2 not run" tells you coverage moved, and only the
+  // names tell you what stopped being covered.
+  for (const s of skipped) console.log(`[flow]   not run: ${s}`);
   process.exitCode = passed === results.length ? 0 : 1;
 }
 
@@ -362,7 +405,7 @@ async function duelPhase(browser) {
   clearInterval(walker);
   console.log("[flow] the opponent is dead");
 
-  const verdict = await until(() => page.evaluate(() => window.__probe?.matchEnd || null), "the verdict", 10000);
+  const verdict = await until(() => page.evaluate(() => window.__probe?.matchEnd || null), "the verdict", 30000)   // the first summary frame IS the 8-25 s stall; see `until`;
   // The server rolls the room back to a lobby ten seconds after this instant,
   // and the press under test has to land inside that. Every step from here is
   // timed, because "the window closed" and "the button is broken" produce the
@@ -405,11 +448,11 @@ async function duelPhase(browser) {
     && duelCast.men.some((m) => !m.standing && m.state === "dead"),
     `kind=${duelCast.stage?.kind} standing=${duelCast.men.filter((m) => m.standing).length}`);
 
-  await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"), "the rollback", 14000);
+  await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"), "the rollback", 30000)   // see `until`;
   await until(() => page.evaluate(() => {
     const p = window.__probe;
     return p?.latest?.players?.[p.playerId]?.ready === true;
-  }), "the parked ready to stick", 6000);
+  }), "the parked ready to stick", 30000)   // a full round trip through that stall; see `until`;
   const onLobby = await page.getByText("READY — SKAL!", { exact: false }).first().isVisible().catch(() => false);
   check("the rollback lands him in the lobby with his ready lit", onLobby, "READY — SKAL! on screen; wire says ready=true");
   await page.screenshot({ path: `${OUT}/summary-real-lobby.png` });
