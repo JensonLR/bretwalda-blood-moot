@@ -45,7 +45,29 @@ function connect(): Db | null {
       max: 5,
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 30_000,
-    });
+      // Neon hands out connection strings ending `&channel_binding=require`,
+      // and node-postgres SILENTLY IGNORES IT. `pg-connection-string` parses it
+      // to `channel_binding`, while the client reads `enableChannelBinding` and
+      // defaults it to false — so the parameter that looks like it is pinning
+      // the session to the TLS certificate does nothing at all, and the
+      // deployment believes it has a protection it does not have.
+      //
+      // `channel_binding` is a client-side assertion in libpq, not something
+      // the server enforces, so the connection succeeds either way. That is
+      // exactly what makes it worth setting here rather than leaving: the
+      // failure mode is silence.
+      //
+      // Safe unconditionally. SCRAM-SHA-256-PLUS is only chosen when the
+      // socket is TLS and the server offers it; without TLS the driver falls
+      // back to plain SCRAM, which is what a local test database does.
+      //
+      // Cast because `@types/pg` has not caught up with the runtime: pg 8.20's
+      // `client.js` reads `enableChannelBinding` off the config, but `PoolConfig`
+      // does not declare it. Verified against node_modules/pg/lib/client.js and
+      // lib/crypto/sasl.js rather than assumed — drop the cast when the types
+      // gain the field.
+      enableChannelBinding: true,
+    } as ConstructorParameters<typeof Pool>[0] & { enableChannelBinding: boolean });
     // An idle client erroring out is normal when the host recycles. Without a
     // listener it is an unhandled 'error' event, which takes the process down
     // and turns a database hiccup into a game outage.
