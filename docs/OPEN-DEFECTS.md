@@ -8,6 +8,141 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## MOSTLY CLOSED — the head stack's hair regression: eight rungs of ten fixed
+
+Supersedes the entry at the bottom of this file. `npm run cosmetictest --
+--no-render` went from **8 swallowed to 2**, and the two that remain are both
+cells of one helmet.
+
+Silhouette against Shaved, huscarl, portrait lens at -35 deg — which is the
+number the shop is judged on:
+
+| helm | Warrior Crop 0g | Long Mane 40g | Braided War-locks 100g |
+|---|---|---|---|
+| Bare Head | 13.00 -> 13.00 | 21.00 -> 21.00 | 23.04 -> 22.76 |
+| Iron Spangen 30g | 1.10 -> 1.10 | **2.26 -> 10.22** | **2.26 -> 9.18** |
+| Nasal 110g | 1.07 -> 1.07 | **2.20 -> 9.91** | **2.20 -> 8.90** |
+| Shadow Hood 120g | 0.38 -> 0.38 | 1.00 -> 1.00 | 1.00 -> 1.00 |
+| Ridge 190g | 1.05 -> 1.05 | **1.98 -> 9.71** | **1.98 -> 8.70** |
+| Spectacle 280g | 0.56 -> 0.60 | **1.19 -> 7.70** | **1.19 -> 7.31** |
+| Boar-Crest 380g | 0.53 -> 0.57 | **0.95 -> 7.36** | **0.95 -> 7.04** |
+| Jarl's Crowned 570g | 0.53 -> 0.57 | **0.95 -> 7.36** | **0.95 -> 7.05** |
+| Wyrm-Crest 950g | 0.21 -> 0.21 | **0.31 -> 3.44** | **0.31 -> 4.48** |
+| **Sutton Hoo 2400g** | 0.00 -> 0.00 | **0.05 -> 0.05** | **0.05 -> 0.05** |
+
+The two paid styles are no longer identical to each other on any rung. The bar
+is 1%.
+
+### What moved, and it is three constants that were all facing the wrong way
+
+Every one of the three rules that deleted the hair was a CONSTANT standing where
+the metal is a curve, so each of them culled a region much larger than the piece
+it was written for.
+
+- **`hairCeil`'s cheek-guard clamp** flattened hair to a 5 mm liner in a fixed
+  0.45-1.60 rad box, down to `v > -0.95`. That is half a radian past the
+  Spectacle's rear edge and a long way below every plate in the shop. It now ends
+  at `cheekHem` — the plate's own free lower edge, hoisted to the stack beside
+  `coifLevels` for the reason those were. Hair is compressed UNDER a guard and
+  keeps its volume BELOW one.
+- **`hairFall`'s coif ramp** ran from 0.34 rad IN FRONT of the aventail's opening
+  to the opening itself, so the fall was already at zero everywhere a man could
+  see it. The mane's window now sits IN the opening: a mailed man wears his hair
+  pulled through the mail's face opening, which is the only place on him hair can
+  be seen at all.
+- **`if (style.cheek !== "none") continue;`** deleted both war-locks on the six
+  rungs with cheek guards. They are ROUTED now — taken from under the plate's own
+  hem, with the forward swing traded for outboard travel where a plate hangs
+  beside them, and shortened by however far down the plate made them start.
+
+`hangingMass` also gains `fit`, the ceiling `hairCeil` gives the scalp shell and
+a falling mass never had. Without it a garment's only lever over a fall was
+`mass`, and the only thing `mass` can do to a fall is delete it. That is the
+general shape of the whole defect.
+
+### OPEN — the Sutton Hoo swallows both paid hairstyles, and it is not a cull
+
+**2 of 18 cells still fail and they are the same helmet.** It is the one rung
+that closes the head on every bearing: a formed face plate to 0.78 rad, deep
+cheek guards from there round to 1.62, an aventail from 1.46 back and down onto
+the shoulder, and a plated nape guard over that. There is no rim anywhere above
+the collar for hair to come out from under.
+
+Four constructions were built and measured, and every one of them bought its
+silhouette by putting hair through metal:
+
+| where the hair was put | cosmetictest | `hairFitProbe` |
+|---|---|---|
+| under the deep guard's hem, hanging | 0.05 / 0.20% | 46-107 mm of hair outside the rings |
+| under the mask's own lower edge, at the throat | 1.35 / 0.63% | 19-77 mm out, and the frames show brown patches standing through the chest mail |
+| plaits rooted at the throat, swung forward | 0.11% | into the mantle, invisible |
+| plaits rooted at 0.30 rad | 0.12% | inside the body |
+
+So the Sutton Hoo is ruled a closed helmet in the geometry — `hairFall` returns
+zero for `style.mask` exactly as it does for the hood, and the war-locks stand
+down — and the shop's problem is recorded here instead of being paid for with
+geometry that stands through a man's own mail. **The next honest move is at the
+till, not on the head:** either the Sutton Hoo carries its own hair-visible
+opening (a slot between the guard's rear edge and the aventail, which the profile
+frames show already exists as a gap), or the shop stops implying a 100-gold
+hairstyle is visible under a 2400-gold mask. `cosmetictest` stays RED until one
+of those happens, and that is the correct state for it to be in.
+
+### The ruler — what was built, what it measures, and what it does not
+
+`wearmeasure` section 4 passed the shipped geometry because `SHOW_FLOOR` is a
+fraction of THE HAIR THAT STILL EXISTS: delete nine tenths of a hairstyle and the
+remaining tenth still sits in a direction no garment covers, so the ratio holds.
+A ratio whose denominator moves with its numerator measures nothing.
+
+`hairFitProbe` now also returns **KEPT** — of the directions the hairstyle
+occupies ON A BARE HEAD, the share the helmed build still occupies and can be
+seen in. The denominator is a build no helmet can reach. It reads 18-44% on the
+shipped geometry and 21-62% here, so it moves the right way on every rung.
+
+**It is REPORTED and not asserted, and that is a negative result worth having.**
+Three weightings were measured against both trees:
+
+```
+bins occupied            main 17-44%    this tree 21-62%    <- published
+bins weighted by extent  main  6-9%     this tree  6-11%
+share of extent kept     main  6-8%     this tree  6-8%
+```
+
+The two weighted forms collapse because a helmet legitimately flattens 20 mm of
+crown to a 5 mm liner and legitimately hides most of what is left — they punish
+the correct behaviour as hard as the wrong one. The bin count moves but not far
+enough to carry a bar that fails the shipped geometry without also failing this
+one. Separating "thinned" from "compressed" on the CPU is still open.
+
+**The lesson is not about that column.** The instrument that catches this
+regression already existed and was already red: `cosmetictest`'s "every paid
+hairstyle still reads under every helm that is not a hood" measures the
+SILHOUETTE against Shaved through a camera — a fixed reference and a projection,
+which is what a player actually has. The head stack shipped anyway because the
+wave was judged on `wearmeasure`. **A gate nobody runs measures as little as a
+gate that measures the wrong thing.**
+
+### Proof both rulers still bite
+
+`hairCeil`'s helm branch put back to a 25 mm standoff — hair through the bowl:
+
+```
+[wear] iron         long        6.8     50.00      77.0      51   -106/24 deg   <-- FAIL
+[wear] crowned      short      11.3      2.86      69.2      24   -26/24 deg    <-- FAIL
+[wear] FAIL: 12/30 hair-and-helm pairs keep to the stack
+```
+
+And the probe's own rim rule gained its missing half. The table is star-shaped
+about the skull's centre, so a point BELOW a garment's free lower edge is at a
+bigger radius than the edge and lands in the edge's own bin — hair hanging out
+from under a cheek plate read as hair standing through it. The probe already
+refused to make that mistake sideways and applied the reasoning to one bin of
+AZIMUTH only; a hem 110 mm below the head's centre spans a dozen bins of
+elevation. `coverLo` is that fix.
+
+---
+
 ## THE ARMOURY JUDGEMENT — 7 Aug 2026 — SHIPPED on `main`
 
 The owner's five complaints, judged from frames on this tip. **Four of the five
