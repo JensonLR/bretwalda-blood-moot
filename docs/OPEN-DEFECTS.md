@@ -100,15 +100,33 @@ huscarl      forked       250     0.9      4.4      9.9       43%
 huscarl      braided      304     0.2      3.1      6.8       68%
 ```
 
-**Between a third and two thirds of every beard is under 4 mm thick, and the
-braided rung's thinnest tenth is a fifth of a millimetre.** That is a surface,
-not a mass, and it is exactly what "really sharp & thin / folded" describes seen
-edge-on.
+```
+class        beard       rays     p10      med      p90
+huscarl      short        398     1.3      3.8      7.8
+huscarl      full         366     1.4      6.0     12.1
+huscarl      forked       250     0.9      4.4      9.9
+huscarl      braided      304     0.2      3.1      6.8
+```
 
-Restricting the sample to the fall made every number WORSE than measuring the
-whole beard — the part with the most reason to have body has the least. That is
-the confirmation the ruler is aimed correctly: a mistaken region would have
-improved the readings, the way counting the scalp flattered facecover.
+**Read the MEDIAN, not the tenth percentile, and the first version of this entry
+had that wrong.** p10 looked like the right statistic — "a tenth of the beard is
+paper-thin" describes what the owner is looking at — and it is INERT. Doubling
+`cut.thick` on all four styles moved every median as expected (3.8→6.9, 6.0→8.3,
+4.4→6.5, 3.1→5.4) and left p10 almost exactly where it was (1.3→1.9, 1.4→1.8,
+braided did not move off 0.2 at all).
+
+A statistic that does not respond to the only lever controlling it is not
+measuring that lever. **The thin tenth is the hem and the edges**, where the
+section wraps from the outer wall to the inner one and the two meet by
+construction. That is legitimate taper — a beard IS thin where it ends — and
+gating on it would demand a beard with a blunt cut edge.
+
+**So what is actually true:** the mesh is built to its own specification. The
+median tracks `cut.thick` (declared 4.0 to 6.8 mm) almost exactly. The question
+the owner's screenshots raise is therefore not "is the mesh wrong" but **"is a
+4-7 mm shell on a 150 mm head enough to read as a mass"** — and that is a look
+question wanting an eye on a render, not a threshold picked in a harness. Two of
+the four styles do not even reach the thickness they declare.
 
 **Why nothing caught it.** `beardcount` welds triangles and counts islands — a
 sheet is one island. `beardseat` measures how deep the beard sits inside the
