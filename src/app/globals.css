@@ -258,6 +258,27 @@
     }
   }
 
+  /* THE RAIL, BUT LEADING IN THE MARKUP.
+     `.rail-grid` stacks in source order on a phone, which is right for the
+     lobby — the war code is why the lobby exists, so it leads and "your
+     warrior" follows, exactly as the single-column phone layout always did.
+     It is WRONG for the Saga. That screen's subject is the man himself, and
+     putting his column second dropped his own name, title and level BELOW his
+     kill count, his recovery words and the sound toggle on a 390px phone. He
+     read about his hoard before he was told who he was.
+
+     Fixed by placing rather than reordering: the rail is written FIRST, so the
+     phone and the screen reader both get identity before record, and at desktop
+     width the two columns are assigned explicitly so the rail still sits on the
+     right where the lobby put it. `order` is not used — `globals.css` bans it
+     for the faction list because there the sequence carries meaning; here there
+     are exactly two named blocks and the swap is a layout fact, not a
+     reordering of anything a reader must follow in sequence. */
+  @media (min-width: 64rem) {
+    .rail-grid-lead > :first-child { grid-column: 2; grid-row: 1; }
+    .rail-grid-lead > :nth-child(2) { grid-column: 1; grid-row: 1; }
+  }
+
   /* --------------------------------------------------------------- backdrop */
 
   .backdrop {

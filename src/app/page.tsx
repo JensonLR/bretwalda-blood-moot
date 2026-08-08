@@ -1873,41 +1873,81 @@ export default function Page() {
       )}
 
       {screen === "profile" && (
-        <ContentWrap>
+        <ContentWrap wide>
           <BackButton onClick={() => setScreen("landing")} />
 
-          <div className="flex flex-col items-center gap-3 text-center">
-            <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-amber-600/70 bg-stone-900 shadow-[0_0_45px_rgba(255,170,50,0.2)]">
-              <Medal size={40} className="text-amber-400" />
+          {/* THE SAME SPLIT THE LOBBY USES, AND THE SAME SIDE FOR THE SAME THING.
+              The rail is always YOU — in the lobby that is the warrior everyone
+              will see, here it is the man whose record this is. Keeping the rule
+              constant across the journey is the point: a player who has learned
+              where to look in one screen has learned it in all of them. Left is
+              the record, which is what grows.
+              At 34rem this whole screen was a thin ribbon down the middle of a
+              1440px window with two thirds of it empty, which is what "the
+              screens feel really boring" looks like in a screenshot. */}
+          <div className="rail-grid rail-grid-lead">
+          <div className="rail-col rail-sticky">
+            {/* WHO THE RECORD BELONGS TO. The masthead every other screen has,
+                which this one did not: the heading was a bare `text-white`
+                instead of the struck-gilt `.screen-head h1`, so the one screen
+                named after the player was the one screen not written in the
+                game's own hand. */}
+            <div className="card card-noble flex flex-col items-center gap-3 p-6 text-center">
+              <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-[rgba(217,164,65,0.7)] bg-[radial-gradient(circle_at_50%_24%,rgba(96,78,54,0.85),rgba(16,12,9,0.94)_72%)] shadow-[inset_0_1px_2px_rgba(246,221,160,0.22),0_0_45px_rgba(217,164,65,0.18)]">
+                <Medal size={40} className="text-[#f6dda0]" />
+              </div>
+              <div className="screen-head screen-head-center">
+                <h1>{playerName || "Unnamed Warrior"}</h1>
+              </div>
+              <div className="knot-band w-full max-w-[11rem]" />
+              <div>
+                <div className="label-overline">{getLevelTitle(profile.level)}</div>
+                <div className="mt-1.5 text-xs text-stone-500">Level {profile.level}</div>
+              </div>
+
+              {/* XP SITS WITH THE LEVEL IT FEEDS. It used to be the first thing
+                  in the left column, above the first heading — a bar with two
+                  numbers over it and nothing saying what it was, which reads as
+                  a stray progress indicator rather than as this man's standing.
+                  Sunk track, struck-metal fill: the same read as `.seg`, so a
+                  bar that fills and a control that is chosen belong to one
+                  object. It was a flat grey line with a Tailwind gradient. */}
+              <div className="mt-1 flex w-full flex-col gap-1.5">
+                <div className="h-3 w-full overflow-hidden rounded-full border border-[rgba(217,164,65,0.28)] bg-black/55 shadow-[inset_0_2px_5px_rgba(0,0,0,0.6)]">
+                  <div className="h-full rounded-full bg-[linear-gradient(180deg,rgba(255,236,190,0.45),rgba(255,236,190,0)_46%),linear-gradient(180deg,#c9761d,#8a4408)] shadow-[inset_0_1px_0_rgba(255,240,200,0.45)] transition-all"
+                    style={{ width: `${Math.min(100, (profile.xp / xpForLevel(profile.level + 1)) * 100)}%` }} />
+                </div>
+                <div className="flex justify-between text-[11px] text-stone-500">
+                  <span className="tabular-nums">{profile.xp} XP</span>
+                  <span className="tabular-nums">{xpForLevel(profile.level + 1)} to rise</span>
+                </div>
+              </div>
             </div>
-            <h1 className="font-display text-3xl text-white">{playerName || "Unnamed Warrior"}</h1>
-            <div>
-              <div className="text-sm tracking-[0.25em] text-amber-400">{getLevelTitle(profile.level)}</div>
-              <div className="mt-1 text-xs text-stone-500">Level {profile.level}</div>
+
+            <div className="flex flex-col gap-3">
+              <button onClick={() => openArmoury("profile")} className="btn-primary w-full !min-h-[3.5rem]">
+                <Shirt size={16} /> OPEN THE ARMOURY
+              </button>
+              <button onClick={() => setScreen("training")} className="btn-ghost w-full !min-h-[3.5rem]">
+                <Crosshair size={15} /> ENTER TESTGROUNDS
+              </button>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-between text-xs text-stone-400">
-              <span>XP {profile.xp}</span><span>Next: {xpForLevel(profile.level + 1)}</span>
-            </div>
-            <div className="h-3 w-full overflow-hidden rounded-full border border-stone-600/60 bg-stone-800/90">
-              <div className="h-full rounded-full bg-gradient-to-r from-amber-600 to-amber-300 transition-all"
-                style={{ width: `${Math.min(100, (profile.xp / xpForLevel(profile.level + 1)) * 100)}%` }} />
-            </div>
-          </div>
+          <div className="rail-col">
 
           <div className="flex flex-col gap-4">
+            <h2 className="section-title"><Swords size={12} className="shrink-0" /> THE RECKONING</h2>
             <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-              <ProfStat Icon={Coins} val={profile.gold} label="Gold" cls="text-yellow-400" />
-              <ProfStat Icon={Sparkles} val={profile.honour} label="Honour" cls="text-purple-400" />
-              <ProfStat Icon={Trophy} val={profile.wins} label="Victories" cls="text-emerald-400" />
-              <ProfStat Icon={Swords} val={profile.matches} label="Battles" cls="text-white" />
-              <ProfStat Icon={Skull} val={profile.kills} label="Kills" cls="text-red-400" />
-              <ProfStat Icon={Heart} val={profile.deaths} label="Deaths" cls="text-stone-400" />
+              <ProfStat Icon={Coins} val={profile.gold} label="Gold" tone="won" />
+              <ProfStat Icon={Sparkles} val={profile.honour} label="Honour" tone="won" />
+              <ProfStat Icon={Trophy} val={profile.wins} label="Victories" tone="won" />
+              <ProfStat Icon={Swords} val={profile.matches} label="Battles" tone="tally" />
+              <ProfStat Icon={Skull} val={profile.kills} label="Kills" tone="blood" />
+              <ProfStat Icon={Heart} val={profile.deaths} label="Deaths" tone="blood" />
             </div>
             <div className="text-center text-xs leading-relaxed text-stone-500">
-              K/D {profile.deaths > 0 ? (profile.kills / profile.deaths).toFixed(2) : profile.kills} · Win rate {profile.matches > 0 ? Math.round((profile.wins / profile.matches) * 100) : 0}% · {profile.unlocked.length - freeCosmeticIds().length} unlocks earned
+              K/D <span className="tabular-nums">{profile.deaths > 0 ? (profile.kills / profile.deaths).toFixed(2) : profile.kills}</span> · Win rate <span className="tabular-nums">{profile.matches > 0 ? Math.round((profile.wins / profile.matches) * 100) : 0}%</span> · <span className="tabular-nums">{profile.unlocked.length - freeCosmeticIds().length}</span> unlocks earned
             </div>
           </div>
 
@@ -1929,14 +1969,9 @@ export default function Page() {
             </div>
           </Section>
 
-          <div className="flex flex-col gap-3">
-            <button onClick={() => openArmoury("profile")} className="btn-primary w-full !min-h-[3.5rem]">
-              <Shirt size={16} /> OPEN THE ARMOURY
-            </button>
-            <button onClick={() => setScreen("training")} className="btn-ghost w-full !min-h-[3.5rem]">
-              <Crosshair size={15} /> ENTER TESTGROUNDS
-            </button>
-          </div>
+          </div>{/* /rail-col — the record */}
+
+          </div>{/* /rail-grid */}
         </ContentWrap>
       )}
     </MenuShell>
@@ -2566,11 +2601,35 @@ function Tip({ text }: { text: string }) {
   return <div className="tip-row">{text}</div>;
 }
 
-function ProfStat({ Icon, val, label, cls }: { Icon: typeof Swords; val: number; label: string; cls: string }) {
+/**
+ * One figure from a warrior's record.
+ *
+ * `tone` is THREE VALUES AND NOT SIX FREE COLOURS, and the difference is the
+ * whole point. This grid used to be `text-yellow-400`, `text-purple-400`,
+ * `text-emerald-400`, `text-white`, `text-red-400` and `text-stone-400` — six
+ * hues, one per tile, none of them from the game's palette: yellow-400 is not
+ * gilt and red-400 is not garnet. `globals.css` sets the rule ("three metals and
+ * one stone, and no fourth accent hue anywhere in the menus") and this one
+ * screen broke it six ways, which is most of why the Saga read as a settings
+ * page with a serif heading rather than as a page of the same chronicle.
+ *
+ * Colour still carries meaning here — this is information, not decoration — but
+ * it groups rather than labels, so the eye reads three kinds of fact instead of
+ * six unrelated ones:
+ *   won   — what he has taken: gold, honour, victories. Gilt.
+ *   blood — what it cost: kills, deaths. Garnet.
+ *   tally — a plain count that is neither: battles. Vellum.
+ */
+function ProfStat({ Icon, val, label, tone }: {
+  Icon: typeof Swords; val: number; label: string; tone: "won" | "blood" | "tally";
+}) {
+  const ink = tone === "won" ? "text-[#f6dda0]" : tone === "blood" ? "text-[#c8323c]" : "text-[#ddd3bd]";
   return (
-    <div className="card px-2 py-4 text-center">
-      <div className={`text-xl font-bold ${cls} flex items-center justify-center gap-1.5`}><Icon size={15} />{val}</div>
-      <div className="text-[10px] text-stone-400 mt-1 tracking-wide">{label}</div>
+    <div className="card flex flex-col items-center gap-1 px-2 py-4 text-center">
+      <div className={`flex items-center justify-center gap-1.5 text-xl font-bold tabular-nums ${ink}`}>
+        <Icon size={15} className="opacity-80" />{val}
+      </div>
+      <div className="text-[10px] tracking-wide text-stone-400">{label}</div>
     </div>
   );
 }
