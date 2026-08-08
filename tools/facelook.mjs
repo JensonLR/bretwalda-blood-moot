@@ -14,6 +14,15 @@
 // knowing WHICH SURFACE WINS THE DEPTH TEST AT EACH PIXEL, and that is
 // arithmetic.
 //
+//   node tools/facelook.mjs --pose --lens fight --turns 180,-140  # the rest carry
+//
+// `--pose` runs the built character through the REAL `createWarriorRig` and
+// `poseWarrior` before rasterising, and skins every vertex on the CPU. Without
+// it this draws the bind pose, in which every warrior holds his weapon straight
+// out of his fist like a lance and every cloak is a flat undraped sheet standing
+// off the back — which is not what anybody is looking at, and looks exactly like
+// a defect. It costs one extra tsc target and about a second a panel.
+//
 // So this rasterises the real `buildCharacter` output with a flat lambert term
 // and each mesh's own material colour, and writes a PNG. ~0.4 s a panel against
 // ~40 s for a capture. It is a magnifying glass, not a substitute for the
@@ -21,6 +30,7 @@
 // ============================================================
 import { spawnSync } from "child_process";
 import { rmSync, mkdirSync, existsSync, readdirSync, writeFileSync, readFileSync } from "fs";
+import * as THREE from "three";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import { deflateSync } from "zlib";
@@ -32,20 +42,41 @@ const flag = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 && argv
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
-const tsc = spawnSync("npx", ["tsc", "src/game/client/characters.ts",
+const POSE = argv.includes("--pose");
+// `render/anim.ts` pulls `characters.ts` in as its own import, so one tsc emits
+// both and the unposed path costs nothing extra.
+const tsc = spawnSync("npx", ["tsc", POSE ? "src/game/client/render/anim.ts" : "src/game/client/characters.ts",
   "--outDir", ".facelook", "--target", "es2022", "--module", "esnext",
   "--moduleResolution", "bundler", "--skipLibCheck"],
 { cwd: ROOT, encoding: "utf8" });
 const found = [];
-const walk = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true }))
-  e.isDirectory() ? walk(resolve(dir, e.name)) : e.name === "characters.js" && found.push(resolve(dir, e.name)); };
+const foundAnim = [];
+const emitted = [];
+const walk = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true })) {
+  const f = resolve(dir, e.name);
+  if (e.isDirectory()) walk(f);
+  else if (e.name.endsWith(".js")) {
+    emitted.push(f);
+    if (e.name === "characters.js") found.push(f);
+    if (e.name === "anim.js") foundAnim.push(f);
+  }
+} };
 if (existsSync(OUT)) walk(OUT);
+// tsc emits TypeScript's extensionless relative specifiers and node's ESM loader
+// will not resolve them. One rewrite over the emitted tree, inside `.facelook`.
+for (const f of emitted) {
+  const src = readFileSync(f, "utf8");
+  const fixed = src.replace(/(from\s+")(\.[^"]*?)(")/g, (m, a, b, c) => (b.endsWith(".js") ? m : a + b + ".js" + c));
+  if (fixed !== src) writeFileSync(f, fixed);
+}
 const built = found[0] ?? resolve(OUT, "characters.js");
 if (!existsSync(built)) {
   console.error("[look] tsc emitted nothing:\n" + (tsc.stdout || "") + (tsc.stderr || ""));
   process.exit(2);
 }
 const { buildCharacter, defaultAppearance, ARMOURY } = await import(pathToFileURL(built).href);
+const anim = POSE ? await import(pathToFileURL(foundAnim[0]).href) : null;
+if (POSE && !anim) { console.error("[look] --pose asked for, render/anim.js not emitted"); process.exit(2); }
 
 // The audit dress, read out of /shot the same way cosmetictest reads it, so the
 // man in this sheet is the man in that one.
@@ -136,6 +167,39 @@ function render(root, lens, turnDeg) {
   };
 
   const tmp = [0, 0, 0, 0, 0, 0];
+  // Everything the skinning shader does, on the CPU. Only `--pose` produces
+  // SkinnedMeshes; reading `position` off one draws its BIND pose, which for a
+  // cloak is a flat sheet standing clear of the back.
+  const skinOf = (o) => {
+    const g = o.geometry;
+    const pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+    if (!o.isSkinnedMesh || !si || !sw || !o.skeleton) return null;
+    o.skeleton.update();
+    const bm = o.skeleton.boneMatrices;
+    const nrm = g.attributes.normal;
+    const n = pos.count;
+    const P = new Float32Array(n * 3), N = new Float32Array(n * 3);
+    const v = new THREE.Vector3(), nv = new THREE.Vector3();
+    const acc = new THREE.Vector3(), accN = new THREE.Vector3();
+    const m = new THREE.Matrix4(), t = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.bindMatrix);
+      nv.fromBufferAttribute(nrm, i).transformDirection(o.bindMatrix);
+      acc.set(0, 0, 0); accN.set(0, 0, 0);
+      for (let k = 0; k < 4; k++) {
+        const w = sw.getComponent(i, k);
+        if (!w) continue;
+        m.fromArray(bm, si.getComponent(i, k) * 16);
+        acc.addScaledVector(t.copy(v).applyMatrix4(m), w);
+        accN.addScaledVector(t.copy(nv).transformDirection(m), w);
+      }
+      acc.applyMatrix4(o.bindMatrixInverse).applyMatrix4(o.matrixWorld);
+      accN.transformDirection(o.bindMatrixInverse).transformDirection(o.matrixWorld).normalize();
+      P[i * 3] = acc.x; P[i * 3 + 1] = acc.y; P[i * 3 + 2] = acc.z;
+      N[i * 3] = accN.x; N[i * 3 + 1] = accN.y; N[i * 3 + 2] = accN.z;
+    }
+    return { P, N };
+  };
   root.traverse((o) => {
     if (!o.isMesh || !o.visible) return;
     const g = o.geometry;
@@ -143,6 +207,7 @@ function render(root, lens, turnDeg) {
     const nrm = g.attributes?.normal;
     const col = g.attributes?.color;
     if (!pos || !nrm) return;
+    const skun = skinOf(o);
     const mat = Array.isArray(o.material) ? o.material[0] : o.material;
     let mc = mat?.color ? [mat.color.r, mat.color.g, mat.color.b] : [0.7, 0.7, 0.7];
     // --matte <hex>: everything that is NOT this material goes to a flat dark
@@ -160,9 +225,10 @@ function render(root, lens, turnDeg) {
       mc = e;
     }
     const idx = g.index;
-    const m = o.matrixWorld.elements;
+    // Already in world space when skinned, so the model matrix is identity.
+    const m = skun ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] : o.matrixWorld.elements;
     const n = idx ? idx.count : pos.count;
-    const pa = pos.array, na = nrm.array, ca = col?.array, ia = idx?.array;
+    const pa = skun ? skun.P : pos.array, na = skun ? skun.N : nrm.array, ca = col?.array, ia = idx?.array;
     for (let t = 0; t < n; t += 3) {
       let ok = true;
       for (let k = 0; k < 3 && ok; k++) {
@@ -301,10 +367,41 @@ mkdirSync(dirname(outPath), { recursive: true });
 
 const ap = { ...defaultAppearance(CLS), ...DRESS, ...extra };
 const t0 = Date.now();
+/**
+ * A standing man off the wire, with nothing on the wire — the same mannequin the
+ * armoury stage builds, so `--pose` photographs the figure the shop photographs.
+ */
+const mannequin = () => ({
+  id: "look", name: "", warriorClass: CLS, team: "none", ready: true,
+  position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+  health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
+  attackDir: "right", blockDir: "right",
+  attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+  abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+  kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+  comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
+  appearance: ap,
+});
+const posedRoot = () => {
+  const parent = new THREE.Group();
+  const player = mannequin();
+  const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+  const motion = anim.createMotion(player);
+  const ctx = {
+    dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
+    focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",
+    quality: { tier: "high", shadows: false },
+  };
+  // Three seconds of idle: the weight shift is a 0.42 rad/s sine and one frame
+  // of it is one phase of a breath.
+  for (let i = 0; i < 180; i++) { ctx.time = i / 60; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+  return parent;
+};
 const panels = turnsArg.map((turn) => {
-  const c = buildCharacter(CLS, ap, 0, undefined, "high", SEED);
-  c.group.rotation.y = Math.PI + (turn * Math.PI) / 180;
-  return render(c.group, lens, turn);
+  const root = POSE ? posedRoot() : buildCharacter(CLS, ap, 0, undefined, "high", SEED).group;
+  root.rotation.y = Math.PI + (turn * Math.PI) / 180;
+  root.updateMatrixWorld(true);
+  return render(root, lens, turn);
 });
 const sheet = tile(panels, Math.min(panels.length, 4));
 writeFileSync(outPath, png(sheet.rgb, sheet.W, sheet.H));
