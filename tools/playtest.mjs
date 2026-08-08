@@ -88,6 +88,7 @@ const PROBE = () => {
               // from a client that simply stopped asking.
               const last = w.__probe.sent[w.__probe.sent.length - 1];
               if (mine) w.__probe.rec.push({
+                wall: performance.now(), sentN: w.__probe.sent.length,
                 t: m.data.matchTimer, cls: mine.warriorClass, state: mine.state,
                 rot: mine.rotation, phase: mine.attackPhase ?? null,
                 swingT: mine.swingT ?? 0, dur: mine.swingDuration ?? 0,
@@ -873,6 +874,17 @@ async function main() {
     asked += Math.abs(wrapPi(mid[i].aim - mid[i - 1].aim));
   }
   const turned = mid.length > 1 ? Math.abs(wrapPi(mid[mid.length - 1].rot - mid[0].rot)) : 0;
+
+  // ---- TEMPORARY DIAGNOSTIC ----
+  const sentTail = await page.evaluate(() => window.__probe.sent.slice(-500).map(
+    (s) => [Math.round(s.t), Number((s.d.rotationY ?? NaN).toFixed(4)), s.d.attack === true ? 1 : 0]));
+  console.log("[diag] commSamples=%d mid=%d", commSamples.length, mid.length);
+  console.log("[diag] snapshots:", JSON.stringify(commSamples.map(
+    (s) => [Math.round(s.wall), s.sentN, s.state, s.phase, Number(s.swingT.toFixed(2)),
+      Number(s.rot.toFixed(3)), s.aim === null ? null : Number(s.aim.toFixed(3))])));
+  console.log("[diag] sentTail:", JSON.stringify(sentTail));
+  console.log("[diag] pointerLock:", await page.evaluate(() => document.pointerLockElement !== null));
+  // ---- END DIAGNOSTIC ----
 
   check("free turning is faster than the committed cap", freePeak > SWING_TURN_RATE,
     `${freePeak.toFixed(2)} rad/s under the same mouse sweep, against a cap of ${SWING_TURN_RATE}`);
