@@ -13392,15 +13392,30 @@ export function buildCharacter(
         // because a boar is deep through the chest and narrow across the snout,
         // and one radius cannot say both.
         //          t     half     tall    bristle
+        // AND THE SNOUT STILL DID NOT READ. The audit's last word on this rung
+        // was that it had become "an animal-shaped mass with tusks and bristles
+        // rather than a 20-pixel knob — real progress — but the snout is not
+        // legible", and `art/look/beforecrest_boar.png` shows why in one line of
+        // this table: 0.87 was 16.2 mm across and 1.00 was 11.8, so the head
+        // TAPERED BY A THIRD over its last 25 mm and everything before it was
+        // within 4 mm of everything else. A taper is not a muzzle. What names a
+        // boar is a WEDGE — a heavy shoulder, a hard pinch behind the skull, a
+        // broad jowl, and then a narrow snout thrown well clear of it — and the
+        // ratio that says so is jowl to snout, which was 1.9:1 and is 3.1:1.
+        // The muzzle is also DEEPER than it is wide from 0.82 on, because a pig
+        // looks down its nose and the section a viewer gets at portrait size is
+        // the vertical one.
+        //          t     half     tall    bristle
         const BODY: ReadonlyArray<readonly [number, number, number, number]> = [
-          [0.00, 0.0046, 0.0052, 0.0000], // tail
-          [0.10, 0.0170, 0.0205, 0.0060], // rump
-          [0.28, 0.0220, 0.0280, 0.0150], // loin
-          [0.46, 0.0248, 0.0352, 0.0216], // withers — the high point of the wedge
-          [0.60, 0.0182, 0.0236, 0.0142], // the neck pinch
-          [0.74, 0.0208, 0.0232, 0.0043], // jowl — a boar's head is BROAD
-          [0.87, 0.0162, 0.0176, 0.0010], // muzzle
-          [1.00, 0.0118, 0.0130, 0.0000], // snout, and it is blunt
+          [0.00, 0.0044, 0.0050, 0.0000], // tail
+          [0.10, 0.0180, 0.0215, 0.0072], // rump
+          [0.28, 0.0232, 0.0300, 0.0170], // loin
+          [0.46, 0.0272, 0.0384, 0.0258], // withers — the heavy shoulder
+          [0.58, 0.0172, 0.0226, 0.0150], // the neck pinch, and it is the read
+          [0.70, 0.0226, 0.0250, 0.0040], // jowl — a boar's head is BROAD
+          [0.82, 0.0148, 0.0208, 0.0008], // the cheek falling away to the muzzle
+          [0.92, 0.0084, 0.0126, 0.0000], // the muzzle, narrow and deep
+          [1.00, 0.0072, 0.0080, 0.0000], // the snout disc, blunt and small
         ];
         const bodyAt = (t: number, k: 1 | 2 | 3) => {
           for (let i = 0; i < BODY.length - 1; i++) {
@@ -13410,7 +13425,7 @@ export function buildCharacter(
           return BODY[BODY.length - 1]![k];
         };
         const boarSpine = (t: number, out: THREE.Vector3) => {
-          const z = zTop + mix(-0.078, 0.126, t);
+          const z = zTop + mix(-0.074, 0.146, t);
           // Follows the cap where the cap is under it and NEVER FOLLOWS IT DOWN
           // past 7 mm below the crown. Clamping the sample's z instead — which
           // is what the first cut did — holds the ends at the height of the last
@@ -13425,7 +13440,7 @@ export function buildCharacter(
             // it — and that drop is the second half of the wedge. Without it
             // the head is merely a thinner part of the same tube, which is the
             // sausage `boar_v3` drew.
-            - 0.019 * Math.pow(clamp01((t - 0.60) / 0.40), 1.4);
+            - 0.027 * Math.pow(clamp01((t - 0.56) / 0.44), 1.35);
           out.set(0, belly + bodyAt(t, 2) * 0.40, z);
         };
         p.add(beast(boarSpine, {
@@ -13461,10 +13476,30 @@ export function buildCharacter(
           // the pair reads as two light strokes crossing the dark of the brow —
           // the one cue that separates a boar from a dog at portrait size. The
           // old pair raked back at −1.05 rad and was inside the muzzle.
-          onBoar(0.945);
+          // A TUSK CURVES. Two straight rods raked forward were the whole of
+          // this, and a straight rod beside a snout is a splinter — which is
+          // what `art/look/beforecrest_boar.png` shows at the muzzle. A boar's
+          // tush leaves the jaw, runs forward, and then turns UP past the eye,
+          // and it is that turn the eye reads as a tusk at four pixels. Swept,
+          // so it is one tapering curve rather than a cylinder pointed at the
+          // sky, and 38 mm of it against a 20 mm muzzle: at portrait size the
+          // pair are the two brightest strokes on the crest and they cross the
+          // dark of the brow, which is the cue that separates a boar from a dog.
+          const tuskAt = onBoar(0.90).clone();
           for (const s of [-1, 1]) {
-            p.add(rod(0.0010, 0.0046, 0.034, 5), trimMetal,
-              xf(_bq.x + s * 0.0068, _bq.y - 0.0040, _bq.z + 0.008, 0.80, 0, -s * 0.34));
+            p.add(beast((t, out) => {
+              const a = t * 1.62;
+              out.set(
+                s * (0.0066 + 0.0042 * t),
+                tuskAt.y - 0.0080 + 0.0300 * (1 - Math.cos(a)),
+                tuskAt.z + 0.0300 * Math.sin(a),
+              );
+            }, {
+              rows: 12, ring: 6,
+              half: (t) => 0.0044 * (1 - 0.86 * t * t),
+              tall: (t) => 0.0044 * (1 - 0.86 * t * t),
+              belly: () => 1,
+            }), trimMetal);
           }
           // The ears, laid back along the neck: two short tapered horns off the
           // top of the skull. Small, and they matter because they break the one
@@ -14755,6 +14790,47 @@ export function buildCharacter(
         { y: skullY - R.y * 2.10, hw: R.x * 1.62, hd: R.z * 1.40 },
         { y: skullY - R.y * 2.95, hw: R.x * 2.02, hd: R.z * 1.58 },
       ], Math.max(10, lod.body - 4), { power: 2.2, wall: 0.014 }), hoodCloth);
+      // ---- AND THE CLOTH BETWEEN THE TWO, WHICH IS THE OWNER'S SECOND FAULT ----
+      //
+      //   "shadow hood doesn't connect to the base."
+      //
+      // Three pieces were being asked to read as one garment and only two of
+      // them touched. The cowl ends at its own rim — `hoodRim` puts that 56 mm
+      // below the skull's centre at the sides and 78 mm at the nape — and the
+      // mantle's first ring is at 145 mm. Between them ran 60 to 90 mm of BARE
+      // NECK with cloth above it and cloth below it, which is why the hood reads
+      // as hanging in the air rather than as worn: a hood is one garment and it
+      // has a continuous surface from the crown to the shoulder.
+      //
+      // So the fall is swept off `hoodRim` itself rather than off a height
+      // somebody picked — the cowl's rim IS its top row, so the two cannot part
+      // however the rim is retuned — and its bottom row lands INSIDE the
+      // mantle's own first ring, where the mantle's wall hides the join. It
+      // sweeps 2.30 rad either side of the nape and stops there: the throat and
+      // the beard stay open, because a cowl that closes at the front is a bag.
+      {
+        const mantleTopY = skullY - R.y * 1.45;
+        const fallArc = 2.30;
+        const cowlFall = (t: number, s: number, inset: number, out: THREE.Vector3) => {
+          const u = mix(Math.PI - fallArc, Math.PI + fallArc, t);
+          const a = hoodRim(u);
+          const q = smooth(0, 1, s);
+          // The rim's own point on the head, as the cowl draws it, plus the
+          // cowl's own standoff there — so the fall starts on the cloth above
+          // it and not on the skin under that cloth.
+          const tr = Math.cos(a), lift = hoodLift(u, 0) - inset;
+          out.set(
+            mix(Math.sin(u) * (R.x * tr + lift), Math.sin(u) * (R.x * 1.14 - inset), q),
+            mix(skullY + R.y * Math.sin(a), mantleTopY - 0.010, s),
+            mix(Math.cos(u) * (R.z * tr + lift), Math.cos(u) * (R.z * 1.08 - inset), q),
+          );
+        };
+        p.add(patch({
+          nu: Math.max(12, lod.shellU + 2), nv: 3,
+          outer: (t, s, out) => cowlFall(t, s, 0, out),
+          inner: (t, s, out) => cowlFall(t, s, 0.009, out),
+        }), hoodCloth);
+      }
     }
 
     // The complexion, written onto every piece of flesh on the head at once —
