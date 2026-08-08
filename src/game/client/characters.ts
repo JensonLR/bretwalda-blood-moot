@@ -5250,18 +5250,128 @@ function globePatch(
 const fissure = (f: EyeFrame, tt: number) => f.hA * Math.pow(Math.max(0, 1 - tt * tt), 0.80);
 
 /**
+ * The shell the lid's free edge and its hugging band both lie on: the globe plus
+ * the thickness of the conjunctiva and the lid's own inner face. Hoisted out of
+ * `lidPatch` because `lidMarginPoint` and `eyeClipProbe` are both measured
+ * against it, and a ruler that carries its own copy of a radius is a ruler that
+ * can drift away from the thing it measures.
+ */
+const LID_SHELL = GLOBE + 0.0016;
+
+/**
+ * Rows across the lid's bridge, margin to socket rim.
+ *
+ * It was 2 — three rows of vertices — for as long as the lid ran STRAIGHT from
+ * the margin to the rim, where two rows describe a straight line exactly and a
+ * third is generosity. The lid now lies on the globe for a band above the margin
+ * before it folds back (see `LID_HUG_ARC`), and a curve sampled twice is a
+ * chord: at 2 the hugging band was drawn as a single flat quad cutting straight
+ * across it, which is the defect it exists to fix, redrawn slightly smaller.
+ * `eyeClipProbe` measures the EMITTED TRIANGLES, so it fails at 2 and passes at
+ * 6, and the row count is here rather than at the four call sites because it is
+ * one property of one surface.
+ *
+ * 6 and not more: `LID_HUG_SPAN` is set so that three of the six rows land inside
+ * the hugging band, and on a 16.8 mm shell the chord across the widest of those
+ * gaps stands 0.04 mm off the sphere — a twentieth of the clearance it has to
+ * hold. The rest buys nothing and every lid is drawn four times a head.
+ */
+const LID_ROWS = 6;
+
+/**
+ * The lid margin — the free edge of the lid, lying on the globe at the boundary
+ * of the palpebral fissure.
+ *
+ * Factored out so `lidPatch` builds from it and `eyeClipProbe` measures against
+ * it. `docs/SUTTON-HOO.md` lesson 2 is about rulers pointed at a declaration
+ * rather than at the object; the twin of that mistake is a ruler that reimplements
+ * the formula it is checking, passes, and proves only that the same arithmetic
+ * was typed twice.
+ */
+function lidMarginPoint(f: EyeFrame, upper: boolean, t: number, out: THREE.Vector3): THREE.Vector3 {
+  const sign = upper ? 1 : -1;
+  const tt = sign * (t * 2 - 1);
+  const x = tt * f.wA;
+  const y = f.tilt * tt + sign * fissure(f, tt);
+  const zz = Math.sqrt(Math.max(1e-8, LID_SHELL * LID_SHELL - x * x - y * y));
+  return out.copy(f.c).addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz);
+}
+
+/**
+ * HOW FAR THE LID LIES ON THE EYEBALL BEFORE IT FOLDS BACK — in radians of
+ * `LID_SHELL`, at the middle of the slit.
+ *
+ * "the pupils overlap the upper eyelids slightly."
+ *
+ * The lid used to leave the globe AT its margin and run straight to the socket
+ * rim: `out.lerpVectors(m, rim, w)` with `s0 = 0.12`, so even its first emitted
+ * row had already stepped off the ball. Above the margin there was therefore
+ * open air between globe and lid, and the iris — a FULL disc of 12.2 mm laid out
+ * on `f.gaze` with no reference to the aperture at all — was drawn straight
+ * through it. `eyeclip` measured 5.0 mm of iris standing proud of the lid margin
+ * on a narrow-eyed seed, and 897 of its samples visible there.
+ *
+ * The cause is not the iris's size and must not be paid for out of it: the
+ * palpebral-fissure block and the note over `GLOBE` are both about how much a
+ * small iris in a wide aperture costs, and the answer was the doll's stare they
+ * spent passes removing. The cause is that the aperture is cut on the SOCKET
+ * normal while the eyeball's contents are laid out on the GAZE, and `eyeclip`
+ * reports those two axes 26° apart with 5.6° of that vertical. A disc pushed
+ * 1.5 mm up the ball relative to the hole it looks out of will clear the top of
+ * that hole, and it does — on every seed whose `eyeOpen` is under about 0.9,
+ * which is roughly half of them.
+ *
+ * So the lid does what a lid does: it LIES ON the globe for a band above its own
+ * margin, and only then folds back into the socket. 0.30 rad is 5.0 mm of arc,
+ * which covers the top millimetre or two of the iris in a relaxed eye and rather
+ * more in a narrow one — which is also what a real lid does, and is why this
+ * fixes the narrow-eyed seeds hardest without touching the wide ones.
+ *
+ * It is deliberately NOT a clip of the iris to the aperture. A clip would have
+ * to be solved between the two bases the eye is built in, would only ever be
+ * right for the bearing it was solved at, and would leave the lid still floating
+ * off the ball for every other feature to fall through later.
+ */
+const LID_HUG_ARC = 0.38;
+/** The lower lid does the same, over the shorter band a lower lid actually has. */
+const LID_HUG_ARC_LOWER = 0.12;
+/**
+ * The fraction of the bridge — margin to socket rim — spent on that band.
+ *
+ * Bigger than the arc's share of the LENGTH on purpose. `w` is already
+ * smoothstepped, so rows crowd toward the margin; spending 0.42 of it on the hug
+ * is what puts three emitted rows inside the band rather than one, and a curve
+ * with one row in it is a chord. See `LID_ROWS`.
+ */
+const LID_HUG_SPAN = 0.42;
+const LID_HUG_SPAN_LOWER = 0.22;
+/**
+ * The thickest the lid's shell is allowed to be while it lies on the globe.
+ *
+ * A lid at its full 1.3 mm would carry its back face down to 15.5 mm from the
+ * globe centre, and the pupil's own shell is at 15.9 — so dragging the lid over
+ * the iris at full thickness buries the lid's inside INSIDE the eye's contents,
+ * and two surfaces a twentieth of a millimetre apart interleave wherever the
+ * depth buffer rounds. 0.5 mm keeps 0.4 mm of air between them. It is also what
+ * a palpebral margin is: a blade at the edge that thickens into the tarsus, so
+ * the constraint and the anatomy want the same thing.
+ */
+const LID_HUG_THICK = 0.0005;
+
+/**
  * An eyelid, built as the bridge it actually is: it starts on the globe at the
- * lid margin and ends buried in the socket rim, with a fold of volume in between.
- * Modelling it as a bridge rather than as a cap is what stops the eye reading as
- * a marble dropped into a hole — and the `s0` band is the lash line, which at
- * this scale carries more of the read than the lid itself.
+ * lid margin, LIES ALONG IT for a band above it, and ends buried in the socket
+ * rim with a fold of volume in between. Modelling it as a bridge rather than as
+ * a cap is what stops the eye reading as a marble dropped into a hole — and the
+ * `s0` band is the lash line, which at this scale carries more of the read than
+ * the lid itself.
  */
 function lidPatch(
   K: Skull, f: EyeFrame, upper: boolean,
   nu: number, nv: number, s0: number, s1: number, thick: number,
 ): THREE.BufferGeometry {
   const sign = upper ? 1 : -1;
-  const rL = GLOBE + 0.0016;
+  const rL = LID_SHELL;
   // How far into the socket the lid dies, in latitude. The lower one is shallower
   // than it was: at 0.115 its bridge was 13 mm of up-facing skin below the eye and,
   // with `skin` now carrying a tighter specular lobe, it took the key square on and
@@ -5273,20 +5383,23 @@ function lidPatch(
   // underside, and it rendered as the fat pale almond sitting over each eye in
   // `art/shots/base0/cards/headturn-front_0_.png`.
   const rimDv = upper ? 0.096 : -0.062;
+  const hugArc = upper ? LID_HUG_ARC : LID_HUG_ARC_LOWER;
+  const hugSpan = upper ? LID_HUG_SPAN : LID_HUG_SPAN_LOWER;
   const m = new THREE.Vector3();
   const rim = new THREE.Vector3();
   const n = new THREE.Vector3();
   const d = new THREE.Vector3();
+  const rad = new THREE.Vector3();
+  const tang = new THREE.Vector3();
+  const hug = new THREE.Vector3();
+  const back = new THREE.Vector3();
 
   const at = (t: number, s: number, off: number, out: THREE.Vector3) => {
     // The lower lid runs the other way along the slit. Its `s` climbs downward,
     // so without reversing `t` the surface's own cross product points into the
     // skull and the lid vanishes to backface culling.
     const tt = sign * (t * 2 - 1);
-    const x = tt * f.wA;
-    const y = f.tilt * tt + sign * fissure(f, tt);
-    const zz = Math.sqrt(Math.max(1e-8, rL * rL - x * x - y * y));
-    m.copy(f.c).addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz);
+    lidMarginPoint(f, upper, t, m);
     // Sunk a fraction of a millimetre into the skull, so the lid's own rim strip
     // is buried instead of standing off the cheek as a step.
     //
@@ -5311,8 +5424,58 @@ function lidPatch(
     rim.addScaledVector(n, -0.0018);
     const e = mix(s0, s1, s);
     const w = e * e * (3 - 2 * e);
-    out.lerpVectors(m, rim, w);
-    out.addScaledVector(n, (upper ? 0.0008 : 0.0003) * Math.sin(Math.PI * w) + off);
+
+    // ---- the hug: the lid lying on the eyeball ----
+    //
+    // A great-circle walk of `a` radians from the margin, in the vertical plane
+    // through it, so every point of this band is exactly on `LID_SHELL` — 1.25 mm
+    // outside the iris at the same bearing, whatever the gaze, whatever `eyeOpen`
+    // and from whatever the camera is standing. That last clause is the reason
+    // this is the fix and clipping the disc to the aperture is not: an occlusion
+    // that holds by construction cannot be got round by turning the head.
+    //
+    // The arc tapers to nothing at both canthi. Held level it would carry the
+    // lid's corner up off the canthus, and a lid corner standing above the corner
+    // of the eye is the hard step over each eye that `art/shots/wip/p2-*` was full
+    // of. A lid converges on the canthi — it does that here too.
+    //
+    // The exponent is 0.40 and not the 0.5 the socket rim's `arch` uses, because
+    // the two are tapering for different reasons. `arch` only has to die at the
+    // canthus; this has to die at the canthus AND still be covering the iris two
+    // thirds of the way out, where the disc's shoulder sits. At 0.5 `eyeclip`
+    // found six samples of iris standing 4.99 mm proud at x = −8.1 mm — the disc
+    // clearing the lid's boundary just past the shoulder while the middle of the
+    // slit was covered by millimetres.
+    //
+    // `1 − (1 − r)²` rather than `r`: the walk has to leave the margin FAST, so
+    // that the lash line's own narrow band (w up to 0.044) is a millimetre of lid
+    // on the ball rather than a tenth of one, and it has to arrive at the fold
+    // with zero speed, so that the seam between hugging and folding is a smooth
+    // one. Both ends of the piecewise meet at zero derivative, which is what makes
+    // this a lid crease and not a crimp.
+    const taper = Math.pow(Math.max(0, 1 - tt * tt), 0.40);
+    const r01 = Math.min(1, w / hugSpan);
+    const a = hugArc * taper * (1 - (1 - r01) * (1 - r01));
+    rad.copy(m).sub(f.c).multiplyScalar(1 / rL);
+    tang.copy(f.up).multiplyScalar(sign);
+    tang.addScaledVector(rad, -tang.dot(rad)).normalize();
+    hug.copy(f.c).addScaledVector(rad, rL * Math.cos(a)).addScaledVector(tang, rL * Math.sin(a));
+
+    // And then the fold back into the socket, over what is left of the bridge.
+    const gg = w <= hugSpan ? 0 : (w - hugSpan) / (1 - hugSpan);
+    const g = gg * gg * (3 - 2 * gg);
+    out.lerpVectors(hug, rim, g);
+    // The shell's own thickness, and the direction it is taken in: down the
+    // GLOBE's radial while the lid is on the globe — where the skull's normal is
+    // the wrong axis and would push the back face sideways into the eye — and
+    // back onto the skull normal as it folds. Capped at `LID_HUG_THICK` over the
+    // hug for the reason written there.
+    back.copy(rad).lerp(n, g).normalize();
+    out.addScaledVector(back, mix(Math.max(off, -LID_HUG_THICK), off, g));
+    // The fold's own volume. It rides `g` rather than `w` so that none of it
+    // lands on the hugging band: a bulge there would lift the lid off the ball,
+    // which is the whole thing this is fixing.
+    out.addScaledVector(n, (upper ? 0.0008 : 0.0003) * Math.sin(Math.PI * w) * g);
   };
   return patch({
     nu, nv,
@@ -5433,15 +5596,17 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     }, true);
     p.add(irisGeom, fine ? M.iris : M.dark, place.clone());
     let pupilGeom = irisGeom;
+    let limbalGeom: THREE.BufferGeometry | null = null;
     if (fine) {
       // Limbal ring: the dark rim a real iris has where it meets the sclera. Two
       // hundred triangles, and it is what stops the iris reading as a flat dot at
       // the distance the eye is actually seen from.
-      p.add(globePatch(f, f.gaze, GLOBE + 0.0005, 0.0002, 10, 1, (t, s, out) => {
+      limbalGeom = globePatch(f, f.gaze, GLOBE + 0.0005, 0.0002, 10, 1, (t, s, out) => {
         const a = -t * Math.PI * 2;
         const r = mix(rI * 0.84, rI, s);
         out.set(Math.cos(a) * r, Math.sin(a) * r);
-      }, true), M.dark, place.clone());
+      }, true);
+      p.add(limbalGeom, M.dark, place.clone());
       const rP = 0.0024;
       pupilGeom = globePatch(f, f.gaze, GLOBE + 0.0007, 0.0003, 8, 1, (t, s, out) => {
         const a = -t * Math.PI * 2;
@@ -5477,16 +5642,164 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     // but now it arrives as a gradient with no boundary in it at all, and it
     // carries across the lid, the socket and the cheek as one surface.
     const nu = Math.max(5, lod.shellU - 3);
-    p.add(lidPatch(K, f, true, nu, 2, 0.12, 1, 0.0013), M.skin, place.clone());
-    p.add(lidPatch(K, f, false, nu, 2, 0.1, 1, 0.0011), M.skin, place.clone());
+    const upperLid = lidPatch(K, f, true, nu, LID_ROWS, 0.12, 1, 0.0013);
+    const lowerLid = lidPatch(K, f, false, nu, LID_ROWS, 0.1, 1, 0.0011);
+    p.add(upperLid, M.skin, place.clone());
+    p.add(lowerLid, M.skin, place.clone());
+    let upperLash: THREE.BufferGeometry | null = null;
+    let lowerLash: THREE.BufferGeometry | null = null;
     if (fine) {
       // Lash line: one narrow band in hair, right on the margin. This is the only
       // part of the lid that is allowed a material of its own, because a lash line
       // IS a hard dark edge — it is the one boundary on the eye the eye expects.
-      p.add(lidPatch(K, f, true, nu, 1, 0, 0.13, 0.0009), M.lash, place.clone());
-      p.add(lidPatch(K, f, false, nu, 1, 0, 0.11, 0.0008), M.skin, place.clone());
+      upperLash = lidPatch(K, f, true, nu, 1, 0, 0.13, 0.0009);
+      lowerLash = lidPatch(K, f, false, nu, 1, 0, 0.11, 0.0008);
+      p.add(upperLash, M.lash, place.clone());
+      p.add(lowerLash, M.skin, place.clone());
+    }
+
+    if (_eyeClipSpy) {
+      // Same discipline as `_eyeSpy` above: read AFTER every `add`, so what the
+      // probe gets is the buffer as it finally sits in the head rather than the
+      // shape somebody meant to build. The margin is re-sampled through
+      // `lidMarginPoint` — the identical function the lid itself is built from —
+      // and pushed through the same `place`.
+      const axisOf = (a: THREE.Vector3): number[] =>
+        a.clone().add(f.c).applyMatrix4(place).sub(f.c.clone().applyMatrix4(place)).toArray();
+      const marginOf = (up: boolean): number[] => {
+        const o: number[] = [];
+        const v = new THREE.Vector3();
+        for (let i = 0; i <= 96; i++) {
+          lidMarginPoint(f, up, i / 96, v).applyMatrix4(place);
+          o.push(v.x, v.y, v.z);
+        }
+        return o;
+      };
+      _eyeClipSpy.push({
+        side,
+        disc: triangleSoup([irisGeom, limbalGeom, pupilGeom === irisGeom ? null : pupilGeom]),
+        upper: triangleSoup([upperLid, upperLash]),
+        lower: triangleSoup([lowerLid, lowerLash]),
+        margin: marginOf(true),
+        lowerMargin: marginOf(false),
+        centre: f.c.clone().applyMatrix4(place).toArray(),
+        // The socket frame, carried through `place` as a DIFFERENCE of two placed
+        // points rather than as a rotated vector. `place` is a translation today
+        // and a direction would survive it untouched — but "today" is how a probe
+        // starts lying the first time somebody puts a scale or a tilt on the head.
+        lat: axisOf(f.lat),
+        up: axisOf(f.up),
+        fwd: axisOf(f.fwd),
+        irisR: rI,
+        hA: f.hA,
+        wA: f.wA,
+        lidShell: LID_SHELL,
+      });
     }
   }
+}
+
+// ============================================================
+// THE LID GATE
+//
+// "the pupils overlap the upper eyelids slightly."
+//
+// Every ratio in `headProbe`, every silhouette assertion and every one of the
+// gaze bars passed on the build that drew this, and once again that is not a
+// slack tolerance. `gazeProbe` asks WHERE the iris points and the answer was
+// right; this asks WHAT IS IN FRONT OF IT, and no bearing, distance or angle on
+// a single surface can answer that. Occlusion is a relationship between two
+// surfaces and a camera, so it takes two surfaces and a camera to measure.
+//
+// The mechanism it is pointed at: the iris, the limbal ring and the pupil are
+// FULL DISCS laid out on `f.gaze` with no reference to the aperture at all,
+// while the lid used to leave the globe at its margin and run straight to the
+// socket rim. Between the two there was open air, and a disc of 12.2 mm against
+// an aperture of 13.6 — which shrinks with `eyeOpen` while the disc does not —
+// showed through it.
+//
+// So: `eyeClipProbe` hands back the eye's own emitted triangles, kept apart by
+// role, plus the lid margin re-sampled from the same function the lid is built
+// from. `tools/eyeclip.mjs` puts the portrait camera on them and asks whether
+// any part of the coloured disc survives above the margin. What it deliberately
+// does NOT do is count the brow ridge, the hair or the helm as occluders: an
+// iris hidden behind a brow at one bearing is an iris on show at the next, and
+// covering the top of the iris is the upper lid's job in every frame of the game.
+// ============================================================
+
+/** The eye's emitted surfaces, kept apart by role, for `eyeClipProbe`. */
+export interface EyeClipFit {
+  /** −1 or +1, the sign the orbit's bearing was taken with. */
+  side: number;
+  /** The eyeball's coloured contents — iris, limbal ring, pupil — as triangles. */
+  disc: number[];
+  /** Upper lid and its lash line: the surface whose job is to cover them. */
+  upper: number[];
+  /** Lower lid and its lash line. */
+  lower: number[];
+  /** The upper lid margin, as a polyline of 97 points. */
+  margin: number[];
+  lowerMargin: number[];
+  /** Globe centre, in the same space as everything above. */
+  centre: number[];
+  /** The SOCKET frame — not the gaze frame; the aperture is cut in the skull. */
+  lat: number[];
+  up: number[];
+  fwd: number[];
+  irisR: number;
+  hA: number;
+  wA: number;
+  lidShell: number;
+}
+let _eyeClipSpy: EyeClipFit[] | null = null;
+
+/**
+ * Every triangle of a set of geometries, flattened to nine numbers apiece.
+ *
+ * Flat numbers rather than the geometries themselves because `Part.merge` calls
+ * `dispose()` on each piece the moment the head is assembled, and a probe that
+ * hands out live `BufferGeometry` is handing out something the build has already
+ * finished with.
+ */
+function triangleSoup(geos: Array<THREE.BufferGeometry | null>): number[] {
+  const out: number[] = [];
+  for (const g of geos) {
+    if (!g) continue;
+    const pos = g.getAttribute("position");
+    const idx = g.getIndex();
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i < n; i++) {
+      const j = idx ? idx.getX(i) : i;
+      out.push(pos.getX(j), pos.getY(j), pos.getZ(j));
+    }
+  }
+  return out;
+}
+
+/**
+ * The eyes as the build actually emitted them, in the head mesh's own space,
+ * with the head's world matrix so a caller can stand a camera off the face.
+ *
+ * `materials` is left undefined for the same reason `gazeProbe` leaves it: that
+ * is what switches the merged-geometry cache off, and a cached head never calls
+ * the builder the spy is hooked into.
+ */
+export function eyeClipProbe(cls: WarriorClass, seed: number): { eyes: EyeClipFit[]; headWorld: number[] } {
+  const spy: EyeClipFit[] = [];
+  const prev = _eyeClipSpy;
+  _eyeClipSpy = spy;
+  let root: THREE.Group;
+  try {
+    root = buildCharacter(cls, defaultAppearance(cls), 0x8a6b3f, undefined, "high", seed).group;
+  } finally {
+    _eyeClipSpy = prev;
+  }
+  root.updateMatrixWorld(true);
+  let headWorld = new THREE.Matrix4();
+  root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh && o.name === `${RIG_TAG}head`) headWorld = o.matrixWorld;
+  });
+  return { eyes: spy, headWorld: headWorld.toArray() };
 }
 
 /**
