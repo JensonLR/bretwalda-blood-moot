@@ -593,13 +593,28 @@ console.log(`[wear] ${handfails.length ? "FAIL" : "PASS"}: hands`);
 //            garment, in mm. The fall lies ON the mail collar; 2 mm is a
 //            tessellation chord and anything past it is a beard growing through
 //            armour, which is the other half of the same sentence.
+//   IN NECK  how deep the HANGING beard sits inside the throat, in mm.
+//
+// The third column is here because the first two both said PASS on the beard
+// the owner raised a second time — "beards also still overlapping the neck &
+// doesnt look right". THROUGH read 0.0 on every class and every style, and it
+// was telling the truth: the fall does not reach the mail at all. It could not
+// report anything else, because it tabulates `rig:torso` and THE NECK IS NOT
+// THE TORSO. The neck was swept in the torso once; the "pale wedge" pass moved
+// it out to its own part on `headSig`, and from that day there was no ruler in
+// this project that could see a beard intersecting a throat — which is the one
+// thing the owner was pointing at. Sixteen rungs out of sixteen failed the
+// moment the column was added, between 19 and 33 mm inside the neck. FIVE TESTS
+// IN THIS PROJECT HAVE PASSED WHILE MEASURING THE WRONG QUANTITY; this is the
+// sixth, and it is the same shape as §8's: the right question, the wrong
+// surface.
 const PIECES = 1;
 const THRU_BEARD = 2;
 console.log("");
-console.log("[wear] 7. THE BEARD — one authored surface, seated on the collar.");
+console.log("[wear] 7. THE BEARD — one authored surface, seated on the collar, clear of the throat.");
 console.log("");
-console.log("[wear] class        beard     pieces   through mm   over mm  verdict");
-console.log("[wear] ---------------------------------------------------------------------");
+console.log("[wear] class        beard     pieces   through mm   in neck mm   over mm  verdict");
+console.log("[wear] ------------------------------------------------------------------------------");
 const dfails = [];
 for (const cls of CLASSES) {
   for (const b of BEARD_VALUES) {
@@ -608,15 +623,16 @@ for (const cls of CLASSES) {
     const bad = [];
     if (r.pieces !== PIECES) bad.push(`${r.pieces} solids, not one`);
     if (r.throughMm > THRU_BEARD) bad.push(`${r.throughMm.toFixed(1)} mm through the collar (${r.worst})`);
+    if (r.intoNeckMm > THRU_BEARD) bad.push(`${r.intoNeckMm.toFixed(1)} mm through the neck (${r.neckWorst})`);
     if (bad.length) dfails.push(`${cls}/${b}: ${bad.join("; ")}`);
     console.log(
       `[wear] ${cls.padEnd(12)} ${b.padEnd(8)} ${String(r.pieces).padStart(6)}   ` +
-      `${r.throughMm.toFixed(1).padStart(10)}  ${r.overMm.toFixed(1).padStart(8)}  ` +
+      `${r.throughMm.toFixed(1).padStart(10)}   ${r.intoNeckMm.toFixed(1).padStart(10)}  ${r.overMm.toFixed(1).padStart(8)}  ` +
       `${bad.length ? "<-- FAIL" : "ok"}`);
   }
 }
 console.log("");
-console.log(`[wear] bars: exactly ${PIECES} connected component, at most ${THRU_BEARD} mm through the garment`);
+console.log(`[wear] bars: exactly ${PIECES} connected component, at most ${THRU_BEARD} mm through the garment, at most ${THRU_BEARD} mm through the neck`);
 for (const f of dfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${dfails.length ? "FAIL" : "PASS"}: beards`);
 
