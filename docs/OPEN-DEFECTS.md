@@ -8,6 +8,39 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — summaryflow's war band emote check is intermittent
+
+```
+FAIL  war band: the flourish is offered exactly to the man left standing
+      — localStanding=false emoteButtons=3 wire=dead/finished
+```
+
+A man the stage left DEAD is offered three emote buttons, inside the window
+(`wire=...finished`, so this is before the rollback, where the row coming back
+is already a documented NOTE).
+
+**Intermittent, and PRE-EXISTING.** It passed on 2026-08-08 immediately after the
+FFA verdict rule was narrowed ("13/13 passed, 1 NOT RUN"), then failed twice in
+a row later the same day against changes that cannot affect who wins. Reproduced
+at `468926f` — before the FFA rule existed at all — so it is not that change.
+
+**What it is probably not:** the verdict. `decideMatch` is exercised by 9 cases
+in protocoltest and the war band branch is among them.
+
+**What to look at:** the row is mounted by `page.tsx` off `players[me].state`,
+and the stage vetoes the flourish separately in `render/summary.ts` via
+`canPerform`. Two sources of truth for one question is the shape of the bug —
+the DOM offers on the WIRE's state and the stage refuses on the STAGE's, so any
+frame where those disagree shows buttons that do nothing. That disagreement is
+timing, which is why it comes and goes.
+
+**The third intermittent gate found in this project**, after the turn-cap sweep
+and the summary-window skips. All three had the same root: a check racing
+something instead of being driven by it. Now that the sim clock is exported, the
+honest fix for this whole family is to DRIVE the phase rather than wait on it.
+
+---
+
 ## OPEN — kit panels flank the head and swing across the face
 
 Reported from the live armoury 2026-08-08, two screenshots. Diagnosed the same

@@ -449,6 +449,12 @@ export interface MatchResult {
  */
 export interface MatchEndData {
   winnerKind: "player" | "team" | "none";
+  /**
+   * HOW it was won. A match taken on the kill count looks identical on the
+   * summary to one taken on rounds, so without this a player who just lost a
+   * match he was level on has no way to learn why he lost it.
+   */
+  winnerBy?: "rounds" | "kills" | "draw";
   winnerId: string | null;
   winnerTeam: Team | null;
   winnerName: string;

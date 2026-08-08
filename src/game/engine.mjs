@@ -598,14 +598,19 @@ export const WARRIOR_STATS = {
  *
  * `entrants` is every side still able to win, with the kills it carries; in a
  * war band that is the band's kills summed, because a war band ranks bands.
- * Returns the winning key, or null for a draw.
+ *
+ * Returns `{ key, by }` rather than a bare key, and the reason is not
+ * bookkeeping: a match decided on KILLS looks identical on the summary to one
+ * decided on rounds, so a player who has just lost a match he was level on has
+ * no way to learn why. `by` is what lets the screen say it. "rounds" | "kills" |
+ * "draw".
  */
 export function decideMatch({ roundWins = {}, entrants = [] }) {
   const kills = new Map(entrants.map((e) => [e.key, e.kills || 0]));
   // Anyone who won a round is a contender even if they have since left, so a
   // man cannot be denied a match he won by disconnecting after winning it.
   for (const k of Object.keys(roundWins)) if (!kills.has(k)) kills.set(k, 0);
-  if (kills.size === 0) return null;
+  if (kills.size === 0) return { key: null, by: "draw" };
 
   let best = 0;
   for (const k of kills.keys()) best = Math.max(best, roundWins[k] || 0);
@@ -619,16 +624,16 @@ export function decideMatch({ roundWins = {}, entrants = [] }) {
   // stood a band up over a match nobody had won. The ask was about ties BETWEEN
   // ROUND WINNERS; a match with no round winner is not that, and inventing a
   // victor for it changes what the format means.
-  if (best === 0) return null;
+  if (best === 0) return { key: null, by: "draw" };
   let top = [...kills.keys()].filter((k) => (roundWins[k] || 0) === best);
-  if (top.length === 1) return top[0];
+  if (top.length === 1) return { key: top[0], by: "rounds" };
 
   let mostKills = -1;
   for (const k of top) mostKills = Math.max(mostKills, kills.get(k) || 0);
   top = top.filter((k) => (kills.get(k) || 0) === mostKills);
   // Level on rounds AND on kills. A draw, and it is reported as one — the wire
   // says winnerKind "none" and the stage stands nobody up.
-  return top.length === 1 ? top[0] : null;
+  return top.length === 1 ? { key: top[0], by: "kills" } : { key: null, by: "draw" };
 }
 
 export function swingDurationOf(warriorClass, isHeavy) {
@@ -1987,7 +1992,7 @@ export function makeEngine(options = {}) {
   function endMatch(room) {
     room.state = "finished";
     const teamMode = isTeamMode(room);
-    const winnerKey = roundLeader(room);
+    const { key: winnerKey, by: winnerBy } = roundLeader(room);
     const won = (p) => !!winnerKey && (teamMode ? p.team === winnerKey : p.id === winnerKey);
     const results = [];
     room.players.forEach((p) => {
@@ -2004,6 +2009,8 @@ export function makeEngine(options = {}) {
       winnerId: teamMode ? null : winnerKey,
       winnerTeam: teamMode ? winnerKey : null,
       winnerName: keyName(room, winnerKey),
+      // How it was won, so the summary can say so. See `decideMatch`.
+      winnerBy,
       bestOf: room.bestOf || 1, roundsPlayed: room.roundIndex || 0,
       roundTarget: roundsToWin(room), roundWins: { ...room.roundWins },
       roundScoreBy: teamMode ? "team" : "player",

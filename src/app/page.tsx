@@ -2271,7 +2271,11 @@ function roundsBlurb(bestOf: number, mode: string): string {
   const team = mode === "war_band";
   if (bestOf <= 1) return "One round decides everything. Fall once and the match is over.";
   const need = Math.ceil(bestOf / 2);
-  return `First ${team ? "war band" : "warrior"} to ${need} round${need === 1 ? "" : "s"} takes the match — so it can end ${need}–0. Kills carry across every round; gold and glory are paid at the end.`;
+  // The tiebreak is stated here because the lobby is the only place a player
+  // reads the rules before they cost him anything. Two men level on rounds is
+  // the ordinary result of a free-for-all, not an edge case.
+  return `First ${team ? "war band" : "warrior"} to ${need} round${need === 1 ? "" : "s"} takes the match — so it can end ${need}\u20130. `
+    + `Level on rounds, the most kills wins; level on both and it is a draw. Gold and glory are paid at the end.`;
 }
 
 function RoundPicker({ value, onChange }: { value: BestOf; onChange: (n: BestOf) => void }) {
@@ -2433,6 +2437,17 @@ function MatchSummary({ data, playerId, payState, waiting, onEmote, onFightAgain
             ? "BLOOD SPILT — A DRAW"
             : `${data.winnerName.toUpperCase()} PREVAILS`}
         </h1>
+        {/* WON ON KILLS, SAID OUT LOUD. Two men level on rounds is the common
+            shape of an eight-man free-for-all, and the man who lost it that way
+            is owed the reason — otherwise the summary reads as arbitrary. Only
+            shown when it actually decided the match; on a rounds win it would
+            be noise. */}
+        {data.winnerBy === "kills" && data.winnerKind !== "none" && (
+          <div className="badge-garnet !text-[10px]">LEVEL ON ROUNDS — TAKEN ON KILLS</div>
+        )}
+        {data.winnerBy === "draw" && data.winnerKind === "none" && (
+          <div className="badge-stone !text-[10px]">LEVEL ON ROUNDS AND ON KILLS</div>
+        )}
         {/* `isWinner` and not an id match: a war band is won by a side, and
             every man on it won it. */}
         {mine?.isWinner && (
