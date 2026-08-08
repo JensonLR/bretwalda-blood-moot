@@ -44,6 +44,13 @@ interface GameHudProps {
   roomState: HudRoomState | null;
   glError: string | null;
   isMobile: React.RefObject<boolean>;
+  /**
+   * GameCanvas's own copy of the lock, kept for the frame loop's use. The HUD
+   * no longer reads it: a ref cannot re-render, so anything drawn from it was
+   * only ever as fresh as the last packet that happened to arrive, and the
+   * KEYS control has to change the instant Escape is pressed. See `locked`
+   * below, which is the same fact as state.
+   */
   pointerLocked: React.RefObject<boolean>;
   /** Read for button labels; never written — writes go through setFlag. */
   mobileFlags: React.RefObject<MobileFlags>;
@@ -359,7 +366,7 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, isMobile, pointerLocked, mobileFlags, setFlag, joyOrigin, joystickPos,
+  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos,
 }: GameHudProps) {
   const localPlayer = roomState?.players[playerId];
   const isAlive = localPlayer && localPlayer.state !== "dead";
@@ -383,9 +390,31 @@ export default function GameHud({
   // to see what his last flick armed without swinging to find out.
   const [armed, setArmed] = useState<AttackDirection>("right");
   const [taught, setTaught] = useState(false);
-  // Rebinding mid-fight, which is when anyone wants it. Opening it gives the
-  // pointer back: locked, the cursor cannot reach a button on it.
+  // Rebinding mid-fight, which is when anyone wants it.
   const [keysOpen, setKeysOpen] = useState(false);
+  // POINTER LOCK, AS RENDER STATE AND NOT ONLY AS A REF.
+  //
+  // The KEYS button used to call `document.exitPointerLock()` from its onClick,
+  // which reads like the fix and is unreachable code: while the pointer is
+  // locked there is NO CURSOR to put on the button, and the click lands on the
+  // canvas as a swing. So the button did nothing, the player had to already
+  // know to press Escape first, and nothing on screen said so — the same family
+  // as the crouch key that was dead on every Mac: a control that appears to
+  // exist and does not.
+  //
+  // It cannot honestly be made one press. Re-entering pointer lock needs a user
+  // gesture, leaving it is Escape, and Escape belongs to the browser — the page
+  // is not consulted. What the button CAN do is state its own precondition and
+  // stop presenting itself as pressable while it is not. That needs the lock to
+  // be state the HUD renders from, not a ref it happens to read on somebody
+  // else's re-render.
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    const sync = () => setLocked(document.pointerLockElement !== null);
+    sync();
+    document.addEventListener("pointerlockchange", sync);
+    return () => { document.removeEventListener("pointerlockchange", sync); };
+  }, []);
   const onCommit = useCallback((dir: AttackDirection) => {
     setArmed(dir);
     setTaught(true);
@@ -757,7 +786,7 @@ export default function GameHud({
       </>
     )}
 
-    {!isMobile.current && isFighting && !pointerLocked.current && (
+    {!isMobile.current && isFighting && !locked && !keysOpen && (
       <div className="absolute inset-0 flex items-center justify-center bg-black/45 z-10 pointer-events-none">
         <div className="text-white text-lg bg-black/70 px-7 py-3.5 rounded-lg border border-amber-900/60 tracking-wide font-display">
           CLICK TO TAKE UP YOUR WEAPON
@@ -766,15 +795,30 @@ export default function GameHud({
     )}
 
     {/* Bindings, from inside the fight. Desktop only — the touch scheme has no
-        keys to remap and its own handedness button already. */}
-    {!isMobile.current && isFighting && (
+        keys to remap and its own handedness button already.
+
+        Two faces, because the control has two truths. With the cursor captured
+        it is not a button at all — nothing can point at it — so it says what to
+        press instead and takes itself out of the pointer's way and out of the
+        tab order. With the cursor free it is a live button, and it is lit in
+        gilt so a player who has just pressed Escape can see where he was sent. */}
+    {!isMobile.current && isFighting && (locked ? (
+      <div
+        role="note"
+        aria-label="Key bindings: press Escape to free the cursor, then click KEYS"
+        className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-stone-700/70 bg-stone-950/70 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-stone-500 backdrop-blur">
+        <KeyRound size={13} />
+        <span className="rounded border border-stone-600 px-1 py-px text-[9px] leading-none text-stone-300">ESC</span>
+        <span>FOR KEYS</span>
+      </div>
+    ) : (
       <button
         onClick={() => { document.exitPointerLock?.(); setKeysOpen(true); }}
         aria-label="Key bindings"
-        className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-stone-600 bg-stone-900/85 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-stone-200 backdrop-blur transition hover:border-amber-600 hover:text-amber-200">
+        className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-amber-700/70 bg-stone-900/85 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-amber-200 backdrop-blur transition hover:border-amber-500 hover:text-amber-100">
         <KeyRound size={13} /> KEYS
       </button>
-    )}
+    ))}
 
     {keysOpen && <KeyBindingsPanel onClose={() => setKeysOpen(false)} />}
     </>
