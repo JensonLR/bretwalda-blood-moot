@@ -507,20 +507,62 @@ tick, 32,000 per second, and it scales with total server population rather than
 with room size. A `playerId → session` index is a five-line change. Not urgent
 at current concurrency; it is the first thing that will bite on a shared host.
 
-### 9.9 The engine cannot be stepped, and starts a clock on import — engine.mjs:2369, 2428-2432
+### 9.9 The host may own the clock — FIXED, engine.mjs `makeEngine`/`advance`/`advancePhase`
 
-`makeEngine()` calls `setInterval(gameTick, TICK_MS)` at construction, and
-`getEngine()` caches the instance on `globalThis`. So: importing the module
-starts a 20 Hz timer; there is one simulation per process and no way to run two;
-there is no exported `step(dt)`, so the sim cannot be driven by an external game
-loop, cannot be replayed deterministically, and cannot be run faster than real
-time in a test. `stepRoom(room, dt)` is already a pure fixed step — the whole
-fix is exporting it and letting the host own the clock.
+*This entry used to read "the engine cannot be stepped, and starts a clock on
+import", and called it the one defect that decides how a console client is
+built. It is fixed; what follows is what a native host is now given.*
 
-**This is the one that decides how a console client is built.** A Steam
-listen-server or a console host runs the sim inside its own frame loop; it
-cannot hand its clock to a `setInterval` it does not own. Everything else in
-this document is portable today. This is not.
+```js
+import { makeEngine } from "./src/game/engine.mjs";
+const sim = makeEngine({ autoTick: false });   // no timer of any kind
+sim.step();          // one fixed tick (1/20 s)
+sim.step(dtSeconds); // a frame's worth: runs the WHOLE steps it owes, carries the rest
+```
+
+| | |
+|---|---|
+| `makeEngine(options?)` | An independent simulation — own rooms, own sessions, own clock. Exported, so a process may hold several. |
+| `options.autoTick` | Default `true`: the 20 Hz `setInterval` this engine has always started, which is what `custom-server.mjs` gets and is unchanged. `false` starts nothing. |
+| `options.epoch` | Wall ms that sim time 0 stands for. Read by no rule; it stamps the two display fields below. Pin it and a replay repeats byte for byte. |
+| `step(dtSeconds?)` | Advance by that much sim time; returns the fixed steps run. Omit the argument for exactly one tick. |
+| `simTime()` | Milliseconds of simulation advanced. Monotonic and exact. |
+| `stop()` | Put the internal timer down. A no-op when there is none. |
+| `getEngine()` | Unchanged: the `globalThis`-cached default engine the two servers share. |
+
+**The step is still fixed.** `step(dt)` spends `dt` on whole 1/20 s steps and
+carries the remainder into the next call, so a ragged frame loop cannot make
+speeds, cooldowns or timers a measurement of the host's frame rate. Broadcasting
+is unchanged — one `game_state` per call per room that was fighting when the
+call began, §9.10 included.
+
+**No rule reads a wall clock.** Every deadline the sim owns is measured against
+`simTime()`: the countdown, the round break (`ROUND_BREAK`), the summary
+rollback (`SUMMARY_HOLD`), the solo deal-in, an input's lapse
+(`INPUT_LAPSE_MS`), an emote's throttle. The four `setTimeout`/`setInterval`
+calls that used to carry the first four are gone, replaced by one sim-ms
+deadline per room (`room.phaseAt`, server scratch, never on the wire) that
+`advancePhase` spends on every step. `performance.now()` survives in exactly one
+function — `gameTick`, the optional internal timer — and `Date.now()` in exactly
+one expression, the default for `options.epoch`.
+
+**Two epoch-ms fields remain epoch-ms**, because a browser compares them against
+its own `Date.now()`: `nextRoundAt` (§9.6) and each kill-feed `timestamp`. They
+are now `epoch + simTime()` rather than `Date.now()`, so they name the instant
+the *simulation* will act rather than one it has no opinion about.
+
+**What is still shared between two engines in a process**, and it is the host's,
+not this module's: `Math.random` (bot decisions, room codes, bot names — two
+engines interleave their draws, and it is left global because
+`tools/seeddie.mjs` pins that stream process-wide to make harnesses repeatable)
+and `crypto.randomUUID` (ids, which are meant to collide with nothing). Room
+codes are checked for collision only within one engine's own map, so two engines
+may hold the same code — route by engine, never by code alone.
+
+`tools/protocoltest.mjs` plays a whole match — lobby, countdown, fighting, round
+break, second round, summary, back to lobby — through `step()` alone, with no
+timer and no wall-clock wait, and runs the same script twice to hold the frames
+identical to the byte.
 
 ### 9.10 One `game_state` always arrives *after* `match_end` — engine.mjs:2227-2231
 
