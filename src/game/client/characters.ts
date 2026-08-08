@@ -11067,7 +11067,17 @@ export function buildCharacter(
   // between 0.45 and 1.60 rad, a plait deleted outright on any rung with a
   // guard — and a constant cannot tell "under the plate" from "below the plate".
   // So a 100-gold cosmetic went with the overlap it was meant to fix.
-  const cheekIn = style.cheek === "deep" ? (style.mask ? 0.78 : 0.56) : 0.56;
+  // 0.66 rad on the masked helm, not 0.78. `art/look/openings_suttonhoo.png`
+  // draws the reason: a slot ran down both sides of the face from the temple to
+  // the jaw, between the mask's outer curve and the guard hinged outboard of it,
+  // and §10 counted 0.27% of the head looking THROUGH it into the helmet's own
+  // hollow. The guard is meant to lap the mask; at 0.78 it laps it at the
+  // cheekbone, where the mask is widest, and lets go of it at the jaw, where the
+  // mask has already curved away. 0.66 is still outboard of the mask's own edge
+  // — the 6 mm that says hinged is untouched — and it holds the lap all the way
+  // down. It is short of the 0.50 the audit failed for drawing a fold across the
+  // middle of the cheek by 90 mm of arc.
+  const cheekIn = style.cheek === "deep" ? (style.mask ? 0.66 : 0.56) : 0.56;
   // 1.52 rad on the short guards, not 1.10. THIS IS THE OWNER'S FIRST FAULT AND
   // IT IS ONE NUMBER:
   //
