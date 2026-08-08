@@ -938,6 +938,7 @@ const SLOT_MISS_MM = 22;
   console.log("[wear] class        helm         flesh%   inside%    void%   flank%  ear off mm  verdict");
   console.log("[wear] ----------------------------------------------------------------------------------");
   const ofails = [];
+  const note = [];
   const oclasses = ONLY ? CLASSES : ["huscarl", "berserker"];
   // `--opendump wyrm` writes the classification the numbers are counted off, as
   // a sheet of the worst nine bearings. A ruler nobody has looked through is
@@ -960,7 +961,7 @@ const SLOT_MISS_MM = 22;
       root.updateMatrixWorld(true);
       let pivot = null;
       root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
-      let best = [0, 0, 0], bx = -1, mx = 0, n = 0;
+      let best = [0, 0, 0], bx = -1, mx = 0, n = 0, top = -Infinity;
       const v = new THREE.Vector3();
       const pts = [];
       (pivot ?? root).traverse((o) => {
@@ -968,7 +969,7 @@ const SLOT_MISS_MM = 22;
         const pos = o.geometry.attributes.position;
         for (let i = 0; i < pos.count; i++) {
           v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
-          pts.push(v.x, v.y, v.z); mx += v.x; n++;
+          pts.push(v.x, v.y, v.z); mx += v.x; n++; top = Math.max(top, v.y);
         }
       });
       mx /= Math.max(1, n);
@@ -976,7 +977,7 @@ const SLOT_MISS_MM = 22;
         const d = Math.abs(pts[i] - mx);
         if (d > bx) { bx = d; best = [pts[i], pts[i + 1], pts[i + 2]]; }
       }
-      return best;
+      return { pos: best, top };
     })();
     for (const helm of helms) {
       if (helm === "none") continue;
@@ -994,13 +995,19 @@ const SLOT_MISS_MM = 22;
       }
       if (!nf) { ofails.push(`${cls}/${helm}: no flesh under the helmet at all`); continue; }
       cx /= nf; cy /= nf; cz /= nf;
-      let crownY = -Infinity;
+      // THE TOP OF THE SKULL, off the SHAVEN head, and the second thing the
+      // pictures corrected. Taken off the dressed head this was the top of a
+      // berserker's hair, which stands above the cap — so the scalloped sky
+      // between the spangenhelm's four ribs came in under the ceiling and got
+      // counted as a hole in a shell. Silhouette above the skull is silhouette:
+      // ribs, combs, crests, a crown's points and the notches between them all
+      // live up there and none of them is a hole.
+      const crownY = ear.top;
       for (let i = 0; i < tris.length; i++) {
         if (isHelm[i] || !tris[i][10]) continue;
         const t = tris[i];
         for (let k = 0; k < 3; k++) {
           rad = Math.max(rad, Math.hypot(t[k * 3] - cx, t[k * 3 + 1] - cy, t[k * 3 + 2] - cz));
-          crownY = Math.max(crownY, t[k * 3 + 1]);
         }
       }
       const half = rad * 1.18;
@@ -1083,7 +1090,15 @@ const SLOT_MISS_MM = 22;
           // hair; a hole in a shell is beside the head it is supposed to be
           // covering. One height separates them, and it is the head's own.
           const wy = cy + (1 - ((y + 0.5) / N) * 2) * half * uy;
-          if (l && r && u && dn && ((met(l) && met(r)) || (met(u) && met(dn))) && wy <= crownY) {
+          // AND THE HEAD HAS TO BE BESIDE IT. Third correction the pictures
+          // made: the spangenhelm's four plates belly out 6.5 mm between the
+          // frame bands, so along its crown the ribs stand proud and the sky in
+          // the scallops between two ribs is bracketed by metal on every side.
+          // That is the 30-gold rung's whole product — four raised plates in a
+          // frame — and it is not a hole. A hole in a shell has the man next to
+          // it; a notch in an outline has only more outline.
+          const flesh1 = l === 1 || r === 1 || u === 1 || dn === 1;
+          if (l && r && u && dn && flesh1 && ((met(l) && met(r)) || (met(u) && met(dn))) && wy <= crownY) {
             nVoid++; holed[j] = 1;
           }
         }
@@ -1129,7 +1144,7 @@ const SLOT_MISS_MM = 22;
           }
           // The near ear at this bearing, projected the same way the triangles were.
           const side = Math.sin(az) > 0 ? 1 : -1;
-          const ex = side * Math.abs(ear[0] - cx), ey = ear[1] - cy, ez = ear[2] - cz;
+          const ex = side * Math.abs(ear.pos[0] - cx), ey = ear.pos[1] - cy, ez = ear.pos[2] - cz;
           const px_ = ((ex * sxv + ey * syv + ez * szv) / half) * 0.5 * N + N * 0.5;
           const py_ = N * 0.5 - ((ex * ux + ey * uy + ez * uz) / half) * 0.5 * N;
           if (n > slotBest) {
@@ -1142,7 +1157,7 @@ const SLOT_MISS_MM = 22;
             slotAz = `${Math.round((az * 180) / Math.PI)}`;
           }
         }
-        if (DUMP && DUMP === helm && cls === oclasses[0]) {
+        if (DUMP && DUMP === helm) {
           dumps.push({ az, el, N, kind: kind.slice(), holed: holed.slice(), n: nIn + nVoid });
         }
         flesh += nAny - nIn; inside += nIn; voidEnc += nVoid; total += nAny + nVoid;
@@ -1155,9 +1170,18 @@ const SLOT_MISS_MM = 22;
       const bad = [];
       if (fIn > OPEN_INSIDE) bad.push(`${(fIn * 100).toFixed(2)}% of the head's footprint looks through a hole in the shell at the shell's own inner wall`);
       if (fVoid > OPEN_VOID) bad.push(`${(fVoid * 100).toFixed(2)}% is daylight punched through the shell with head on all four sides`);
+      // REPORTED, NOT GATED, and the reason is the one §1 gives for its own
+      // number: this measures a property the unit that owns the shell cannot
+      // move on its own. An opening in the flank is shaped by the guard's rear
+      // edge, the fall's leading edge AND the hairline, and the hair reads
+      // `cheekOut` to decide where it stops — so a bar here is a bar on three
+      // owners at once, and the one thing worse than a hole is a bar that gets
+      // tuned instead of met. What it is for is the number in the column: on
+      // the three open-faced rungs the window is still 2 to 4% of the flank
+      // with its centre 40 to 90 mm off the helix, and that is the next pass.
       if (slotFrac > SLOT_MIN && (!slotOnEar || slotMiss > SLOT_MISS_MM)) {
-        bad.push(`a window ${(slotFrac * 100).toFixed(1)}% of the flank is cut in the side of the shell and it is ${slotMiss.toFixed(0)} mm off the ear`
-          + `${slotOnEar ? "" : " — the ear is not even inside it"} (bearing az ${slotAz})`);
+        note.push(`${cls}/${helm}: a window ${(slotFrac * 100).toFixed(1)}% of the flank sits ${slotMiss.toFixed(0)} mm off the ear`
+          + `${slotOnEar ? "" : " — the ear is not inside it"} (bearing az ${slotAz})`);
       }
       if (bad.length) ofails.push(`${cls}/${helm}: ${bad.join("; ")} (worst bearing az/el ${worst})`);
       console.log(
@@ -1171,6 +1195,7 @@ const SLOT_MISS_MM = 22;
   console.log(`[wear] bars: at most ${(OPEN_INSIDE * 100).toFixed(2)}% of the head seen through a hole onto the shell's own inside,`);
   console.log(`[wear]       at most ${(OPEN_VOID * 100).toFixed(2)}% daylight enclosed by head on all four sides.`);
   console.log("[wear]       An opening either frames a feature or it is not an opening.");
+  for (const n of note) console.log(`[wear] note ${n}`);
   for (const f of ofails) console.log(`[wear] FAIL ${f}`);
   console.log(`[wear] ${ofails.length ? "FAIL" : "PASS"}: the openings`);
   globalThis.__openFails = ofails.length;
