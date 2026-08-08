@@ -20,6 +20,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AttackDirection, GamePlayer, WarriorClass } from "../types";
 import type { CameraRig } from "./render/camera";
+import { liveEnemies, sameSide } from "./targeting";
 import { clearTapped, ensureKeyTracking, isActionDown, isActionHit } from "./bindings";
 
 export interface MobileFlags {
@@ -371,15 +372,6 @@ function lockScore(yaw: number, local: GamePlayer, e: GamePlayer): number {
   return distTo(local, e) + Math.abs(shortestAngle(yaw, bearingTo(local, e))) * LOCK_CENTRE_WEIGHT;
 }
 
-function liveEnemies(players: Record<string, GamePlayer>, localId: string): string[] {
-  const out: string[] = [];
-  for (const id of Object.keys(players)) {
-    if (id === localId) continue;
-    if (players[id].state === "dead") continue;
-    out.push(id);
-  }
-  return out;
-}
 
 /**
  * Take the next man in the direction the thumb flicked.
@@ -406,7 +398,7 @@ function applySwitch(
   let takeRel = 0;
   let wrap: string | null = null;
   let wrapRel = 0;
-  for (const id of liveEnemies(players, localId)) {
+  for (const id of liveEnemies(players, localId, local)) {
     if (id === lock.id) continue;
     // ACQUIRE range, not DROP range. A flick that could hand the lock a man at
     // 14 m hands it a man who is dropped again the moment he takes two steps
@@ -449,11 +441,13 @@ function applySwitch(
  */
 function pickTarget(yaw: number, players: Record<string, GamePlayer>, local: GamePlayer, localId: string): void {
   const held = lock.id ? players[lock.id] : null;
-  const keeps = held && held.state !== "dead" && distTo(local, held) <= LOCK_DROP_RANGE;
+  const keeps = held && held.state !== "dead" && !sameSide(local, held)
+    && distTo(local, held) <= LOCK_DROP_RANGE;
   if (!keeps && lock.id) {
     lock.reason = !held ? "the man left the fight"
       : held.state === "dead" ? "the man died"
-        : "the man went outside drop range";
+        : sameSide(local, held) ? "the man is on your own side"
+          : "the man went outside drop range";
     lock.id = null;
     lock.sticky = 0;
   }
@@ -464,7 +458,7 @@ function pickTarget(yaw: number, players: Record<string, GamePlayer>, local: Gam
   let best: string | null = null;
   let bestScore = Infinity;
   let inRange = 0;
-  for (const id of liveEnemies(players, localId)) {
+  for (const id of liveEnemies(players, localId, local)) {
     const e = players[id];
     const d = distTo(local, e);
     if (d > (id === lock.id ? LOCK_DROP_RANGE : LOCK_ACQUIRE_RANGE)) continue;
