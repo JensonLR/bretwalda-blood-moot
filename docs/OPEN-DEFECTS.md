@@ -8,38 +8,45 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## OPEN — summaryflow's war band emote check is intermittent
+## CLOSED — a corpse was shown three buttons that did nothing
+
+The entry this replaces called it "an intermittent gate". The intermittency was
+real and so was the cause named there — two sources of truth for one question —
+but it was not only a harness problem. It was a live UX defect.
+
+**What happened.** `MatchSummary` mounted the flourish row off the WIRE's
+`players[me].state`. That panel stays mounted through the server's ten-second
+rollback into the lobby, and the rollback resets every man to idle — so a man
+the stage had laid down got his row back the moment the room reset, three
+buttons that `render/summary.ts` then refused on every press. To the player
+holding the phone, a vetoed press and a broken game look identical.
+
+It read as intermittent because whether the local man was standing depended on
+which side won, which varies run to run.
+
+**The fix is that the button now asks what the stage answers.** `GameCanvas`
+already held `summaryRef.current.canPerform` — the function that decides whether
+a flourish is honoured — and now pushes that answer up on change; `page.tsx`
+gates the row on it as well as on the wire's state. One source of truth.
 
 ```
-FAIL  war band: the flourish is offered exactly to the man left standing
-      — localStanding=false emoteButtons=3 wire=dead/finished
+before: NOTE war band: after the rollback the row is OFFERED to a man the stage left DEAD
+after:  NOTE war band: after the rollback the row is gone   to a man the stage left DEAD
+        PASS war band: a man lying dead does not perform — the row was not offered at all
 ```
 
-A man the stage left DEAD is offered three emote buttons, inside the window
-(`wire=...finished`, so this is before the rollback, where the row coming back
-is already a documented NOTE).
-
-**Intermittent, and PRE-EXISTING.** It passed on 2026-08-08 immediately after the
-FFA verdict rule was narrowed ("13/13 passed, 1 NOT RUN"), then failed twice in
-a row later the same day against changes that cannot affect who wins. Reproduced
-at `468926f` — before the FFA rule existed at all — so it is not that change.
-
-**What it is probably not:** the verdict. `decideMatch` is exercised by 9 cases
-in protocoltest and the war band branch is among them.
-
-**What to look at:** the row is mounted by `page.tsx` off `players[me].state`,
-and the stage vetoes the flourish separately in `render/summary.ts` via
-`canPerform`. Two sources of truth for one question is the shape of the bug —
-the DOM offers on the WIRE's state and the stage refuses on the STAGE's, so any
-frame where those disagree shows buttons that do nothing. That disagreement is
-timing, which is why it comes and goes.
-
-**The third intermittent gate found in this project**, after the turn-cap sweep
-and the summary-window skips. All three had the same root: a check racing
-something instead of being driven by it. Now that the sim clock is exported, the
-honest fix for this whole family is to DRIVE the phase rather than wait on it.
+**And a test had to change with it, which is worth recording.** `vetoCheck`
+asserted `pressed && refused`: it PRESSED the row as a corpse and required the
+stage's refusal counter to move. That was right while the button was always
+there. It became wrong the moment the button correctly went away — the check
+failed with `pressed=false` on the build that had just fixed the defect, because
+it was measuring the old implementation rather than the rule. The rule is "no
+corpse performs", and it now accepts either route: not offered (stronger) or
+pressed-and-refused. What was not relaxed is the part that matters — no corpse
+may be performing, on either route.
 
 ---
+
 
 ## OPEN — kit panels flank the head and swing across the face
 

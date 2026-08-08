@@ -180,6 +180,13 @@ export default function Page() {
   // endMatch), so a "ready" sent early would be wiped — the intent is held
   // here and honoured on the lobby_update that announces the rollback.
   const rematchRef = useRef(false);
+  /**
+   * Whether the STAGE would honour a flourish from this player. Pushed up by
+   * GameCanvas from `render/summary.ts`'s own `canPerform`, which is the thing
+   * that actually decides — see the note there. True until a stage exists,
+   * matching that function's own fallback.
+   */
+  const [canEmote, setCanEmote] = useState(true);
   const [rematchWaiting, setRematchWaiting] = useState(false);
   // The sign-in, as a promise. Anything that must not guess where the gold
   // lives — a purchase, a payout — waits on this rather than reading a link
@@ -972,7 +979,7 @@ export default function Page() {
     return (
       <div className="fixed inset-0 bg-black">
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} matchEnd={matchResults} onForge={setForge}
-          onEmote={sendEmote} emoteFeed={emoteFeedRef} />
+          onEmote={sendEmote} onCanEmote={setCanEmote} emoteFeed={emoteFeedRef} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
@@ -1025,7 +1032,14 @@ export default function Page() {
             playerId={playerId}
             payState={payState}
             waiting={rematchWaiting}
-            onEmote={roomState.players[playerId]?.state !== "dead" ? sendEmote : undefined}
+            // BOTH, and the second is the fix. The wire's `state` alone was not
+            // enough: this panel stays mounted through the rollback into the
+            // lobby, and the rollback resets every man to idle — so a corpse the
+            // stage had laid down got his flourish row back, three buttons the
+            // stage then refused. Two sources of truth for one question, with
+            // "vetoed" and "broken" identical to the man pressing them.
+            // `canEmote` is the stage's own answer.
+            onEmote={canEmote && roomState.players[playerId]?.state !== "dead" ? sendEmote : undefined}
             onFightAgain={() => {
               if (roomState.state === "lobby") {
                 if (!roomState.players[playerId]?.ready) sendMsg("ready");

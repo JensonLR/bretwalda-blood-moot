@@ -71,6 +71,12 @@ interface GameCanvasProps {
    */
   onEmote?: (emote: EmoteId) => void;
   /**
+   * Whether the STAGE would honour a flourish from the local player, pushed up
+   * so the button and the thing that honours it stop being two different
+   * answers. Fired only on a change — this is evaluated every frame.
+   */
+  onCanEmote?: (can: boolean) => void;
+  /**
    * Emote relays from the server, pushed by page.tsx and drained by the frame
    * loop, which is the only thing that can reach the rigs. A ref'd array for
    * the same reason roomState rides a ref: a flourish must not rebuild the
@@ -158,7 +164,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, emoteFeed }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, emoteFeed }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -200,6 +206,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // Same argument, for the emote press and the emote relay.
   const onEmoteRef = useRef(onEmote);
   useEffect(() => { onEmoteRef.current = onEmote; }, [onEmote]);
+  const onCanEmoteRef = useRef(onCanEmote);
+  useEffect(() => { onCanEmoteRef.current = onCanEmote; }, [onCanEmote]);
+  /** Last value pushed, so a per-frame reading becomes a per-change callback. */
+  const canEmoteRef = useRef<boolean | null>(null);
   const emoteFeedRef = useRef(emoteFeed);
   useEffect(() => { emoteFeedRef.current = emoteFeed; }, [emoteFeed]);
 
@@ -721,6 +731,17 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // is drained AFTER the stage has been built, because who is standing is
         // the stage's answer and it is what decides whose press is honoured.
         drainEmotes((id) => summaryRef.current?.canPerform(id) ?? true);
+        // THE BUTTON ASKS WHAT THE STAGE ANSWERS. `MatchSummary` used to render
+        // the flourish row unconditionally — `{onEmote && <EmoteRow/>}`, with no
+        // reference to whether the man could actually perform — while the stage
+        // refused every press from anyone it had not stood up. Two sources of
+        // truth for one question, so a corpse on the summary was shown three
+        // buttons that did nothing, and "vetoed" is indistinguishable from
+        // "broken" to the player pressing them. It also made summaryflow's war
+        // band check fail about half the time, which is how it surfaced: the
+        // answer depended on which side the local man happened to be on.
+        const can = summaryRef.current?.canPerform(playerId) ?? true;
+        if (can !== canEmoteRef.current) { canEmoteRef.current = can; onCanEmoteRef.current?.(can); }
         stage.rig.update(dt, ctx);
         stage.vfx.update(dt, ctx);
         stage.audio.update(dt, ctx);

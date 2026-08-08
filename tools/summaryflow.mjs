@@ -294,11 +294,27 @@ async function emoteCheck(page, cast, where) {
 }
 
 /**
- * THE VETO, END TO END. A man the stage laid dead presses the row himself — the
- * press is legal as far as the server is concerned, because by now the room has
- * rolled back and every man on it is idle again — and the tableau must refuse
- * it: no corpse performing, and the stage's own refusal counter moved. Without
- * the counter "refused" and "the press never arrived" are the same picture.
+ * NO CORPSE PERFORMS, BY WHICHEVER OF THE TWO ROUTES IS IN FORCE.
+ *
+ * The invariant is "a man the stage laid dead does not perform". There are two
+ * honest ways to hold it and this check now accepts either, because the good
+ * one only just became possible:
+ *
+ *   NOT OFFERED — the row is not there to press. Strictly better, because a
+ *     button that does nothing is indistinguishable from a broken one to the
+ *     man pressing it. `page.tsx` now gates the row on the stage's own
+ *     `canPerform` rather than on the wire's `state`, which used to hand a
+ *     corpse three dead buttons every time the rollback reset him to idle.
+ *   REFUSED — the row was pressed and the tableau threw it out, with its own
+ *     counter moving. Without that counter "refused" and "never arrived" are
+ *     the same picture.
+ *
+ * Requiring the PRESS to land was right while the button was always there. It
+ * became wrong the moment the button correctly went away: the check failed with
+ * `pressed=false` on a build that had just fixed the defect, which is a test
+ * measuring the old implementation rather than the rule.
+ *
+ * What is NOT relaxed: no corpse may be performing, on either route.
  */
 async function vetoCheck(page, where) {
   const before = await page.evaluate(() => window.__summaryEmoteRefused ?? 0);
@@ -308,19 +324,23 @@ async function vetoCheck(page, where) {
     refused: window.__summaryEmoteRefused ?? 0,
     performing: (window.__summaryBodies ?? []).filter((m) => !m.standing && m.emote),
   }));
-  check(`${where}: a man lying dead is refused his flourish`,
-    pressed && after.refused > before && after.performing.length === 0,
-    `pressed=${pressed} refusals ${before}->${after.refused} `
-    + `corpsesPerforming=${after.performing.length}`);
+  const notOffered = !pressed;
+  const refused = pressed && after.refused > before;
+  check(`${where}: a man lying dead does not perform`,
+    (notOffered || refused) && after.performing.length === 0,
+    `${notOffered ? "the row was not offered at all (the stronger guarantee)" : `pressed, refusals ${before}->${after.refused}`}`
+    + `; corpsesPerforming=${after.performing.length}`);
 }
 
 /**
  * The same question again, after the server's ten-second rollback. It is a
- * NOTE and not a check because the answer is not this module's to give: the
- * row is mounted by page.tsx off `players[me].state`, and the rollback resets
- * every man to idle — so a corpse on the stage is offered the row again. The
- * press is refused where it can be refused (render/summary.ts `canPerform`
- * vetoes the flourish itself), but the button comes back.
+ * Left as a NOTE rather than a check because it reports a state rather than
+ * enforcing one — but what it reports has changed, and for the better. It used
+ * to say the row came BACK for a corpse: page.tsx mounted it off
+ * `players[me].state`, the rollback resets every man to idle, so the buttons
+ * returned and `render/summary.ts` quietly refused every press. The row is now
+ * gated on that same `canPerform`, so the two agree and a man the stage laid
+ * down keeps no buttons at all.
  */
 async function emoteAfterRollback(page, mine, where) {
   await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"),
@@ -329,7 +349,8 @@ async function emoteAfterRollback(page, mine, where) {
   const offered = (await page.getByLabel(/^Emote:/).count()) > 0;
   console.log(`[flow] NOTE ${where}: after the rollback the row is `
     + `${offered ? "OFFERED" : "gone"} to a man the stage left ${mine?.standing ? "standing" : "DEAD"}`
-    + ` — the button is page.tsx's, the flourish is vetoed by the stage.`);
+    + ` — page.tsx now gates the row on the stage's own canPerform, so this line`
+    + ` should read "gone" for a man the stage left dead and "OFFERED" for one it stood up.`);
 }
 
 /** A 2v2 WAR BAND: the winning side stands whole, the losing side lies whole. */
