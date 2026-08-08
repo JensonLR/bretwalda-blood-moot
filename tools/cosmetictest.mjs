@@ -862,8 +862,25 @@ for (const helm of helms) {
   TABLE.companions.push({ kind: "face-coverage", helm: helm.label, cover });
 }
 console.log("");
+// THE FREE COUNT RIDES ON THE VERDICT, not in a note under it.
+//
+// Six free hairstyles are swallowed too, and the harness has been exempting
+// them on the reasoning that nobody paid for them. That is sound about REFUNDS
+// and says nothing about how the game looks: a free crop that vanishes under a
+// helm is as broken to the man wearing it as a 100-gold mane, and the owner's
+// report — "across the 4 fighting types the hair designs break with helmets on
+// & dont look right" — did not distinguish by price.
+//
+// Not gated, because the paid rungs are the ones with a promise attached and a
+// bar on the free ones would be a bar on the cheapest geometry in the shop. But
+// it stops being invisible: this is the third harness this week found green
+// while carrying a deferral in a note nobody had to read, after the Shadow
+// Hood's carve-out here and wearmeasure's seven ungated flank windows.
 check("every paid hairstyle still reads under every helm, the hood included",
-  swallowed.length === 0, swallowed.length ? `${swallowed.length} swallowed` : "all clear", swallowed);
+  swallowed.length === 0,
+  (swallowed.length ? `${swallowed.length} swallowed` : "all clear")
+  + (freeSwallowed.length ? ` — AND ${freeSwallowed.length} free hairstyles are swallowed too, ungated` : ""),
+  swallowed);
 for (const s of swallowed) note(`SWALLOWED  ${s}`);
 if (freeSwallowed.length) {
   note(`${freeSwallowed.length} FREE hairstyles are also swallowed — not gated, because nobody paid for them:`);
