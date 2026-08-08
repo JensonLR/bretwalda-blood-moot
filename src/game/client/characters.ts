@@ -11055,6 +11055,30 @@ export function buildCharacter(
   };
   /** Azimuth of the coif's front edge at a descent — the mail's own opening. */
   const coifRim = (v: number) => 1.46 + 0.34 * v * v;
+  /**
+   * THE AVENTAIL'S OWN FREE LOWER HEM, and it is the whole of the Sutton Hoo fix.
+   *
+   * A cheek guard has a hem and hair comes out from under it — that is
+   * `cheekHem`, and reading it lifted nine of the ten rungs from 0.95-2.26% of
+   * silhouette to 7-10%. The mail has a hem too. It is the bottom ring of
+   * `coifLevels`, lying on the shoulder, and nobody had ever read it, so the one
+   * helmet whose ONLY opening is that hem was ruled closed and the gate was left
+   * red with a note. Below this line there is no metal anywhere behind the man's
+   * collarbones, and a mane or a pair of plaits gathered inside an aventail
+   * comes out under it and falls on the shoulder OUTSIDE the rings — which is
+   * both what a man with long hair actually does with a mail collar and the one
+   * route that costs no millimetre of hair through metal.
+   */
+  const coifHemY = coifLevels[coifLevels.length - 1]!.y;
+  /**
+   * THE NAPE GUARD'S OWN FREE LOWER EDGE, hoisted for the same reason and read
+   * by `hairCeil` below. The plate solves it as `floorY`; this is that line,
+   * declared once so the hair and the plate cannot drift apart.
+   */
+  const napeHemY = Math.max(
+    S.neckRoot - S.neckTop + 0.025,
+    skullY - R.y * (style.nape === "guard" ? 1.12 : 0.45),
+  );
 
   // ---- where the plates are ----
   // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
@@ -11139,7 +11163,26 @@ export function buildCharacter(
     formSurface(_hcForm, u, v, _hcB);
     return Math.max(0, _hcA.length() - _hcB.length());
   };
-  const hairCeil = (u: number, v: number): number => {
+  /**
+   * @param atY  THE POINT'S OWN HEIGHT, for a mass that HANGS. Omit it for
+   *   anything lying on the skull.
+   *
+   *   A direction and a height are the same thing for a shell swept on the
+   *   skull's field, and they are NOT the same thing for a mass that falls
+   *   400 mm: the direction of a point that far down maps to a skull-surface
+   *   latitude nowhere near the point's own, so a fall gets a garment's ceiling
+   *   long after it has passed BELOW that garment. `coifRingAt` already carries
+   *   this correction for the mail's radius; the two terms that own a free
+   *   lower edge — the nape guard and the aventail — never had it, and between
+   *   them they are why every construction tried for the Sutton Hoo either
+   *   vanished or stood through metal. With `atY` in hand each of them stops at
+   *   its own hem, which is the same fix `cheekHem` was and the same fix
+   *   `coverLo` was in the probe that measures this.
+   *
+   *   Omitting it is exactly the old behaviour: every point of the skull's own
+   *   surface is above both hems, so no shell and no lock moves by a micron.
+   */
+  const hairCeil = (u: number, v: number, atY?: number): number => {
     let c = Infinity;
     if (hooded) {
       const a = hoodRim(u);
@@ -11192,7 +11235,8 @@ export function buildCharacter(
     // deliberately put inside the skin there rather than being deleted: the
     // sweep stays continuous with the hair either side of it, and a continuous
     // sweep is the whole reason this file authors one surface instead of two.
-    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.95 && v < bandLo + 0.28) {
+    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.95 && v < bandLo + 0.28
+      && (atY === undefined || atY > napeHemY)) {
       c = Math.min(c, -0.005);
     }
     // THE AVENTAIL, read off its own rings rather than guessed at. It is a bag
@@ -11205,7 +11249,15 @@ export function buildCharacter(
     // offset of each ring is dropped on purpose: it carries the mail BACKWARDS,
     // which at the nape is further from the skull, so leaving it out can only
     // under-state the room.
-    if (coifed && awayFromFace(u) > coifRim(0) - 0.16) {
+    // AND IT ENDS AT THE MAIL'S OWN HEM. For a point ON the skull the question
+    // never arises — the skull is entirely inside the aventail — so `atY` is
+    // absent and this reads exactly as it always did. For a point that has
+    // fallen past `coifHemY` there is no mail in its direction at all, only the
+    // ring the ray happens to cross on its way out, and clamping to that ring
+    // is what crushed 400 mm of hair back onto a neck. `coifSquash` holds the
+    // fall inside the rings at its OWN height, which is the honest reader.
+    if (coifed && awayFromFace(u) > coifRim(0) - 0.16
+      && (atY === undefined || atY > coifHemY)) {
       dirOf(u, v, _hcA);
       faceSurface(K, _hcA, _hcB);
       const y = _hcB.y + skullY;
@@ -11261,12 +11313,21 @@ export function buildCharacter(
    * rim is a point in the opening and is left alone — that is where a mailed
    * man's hair is seen, and squashing it there would be the same deletion under
    * another name. Below the lowest ring there is no mail at all.
+   *
+   * EXCEPT UNDER A MASK, WHERE THERE IS NO OPENING TO BE LEFT ALONE. On the
+   * Sutton Hoo the face plate runs to 0.78 rad and the deep guards to 1.62, so
+   * the mail's front edge laps BEHIND metal and the sleeve is a closed bag.
+   * Exempting the arc in front of `coifRim` there is exempting a hole that does
+   * not exist, and it leaks in the worst possible way: the rim opens from 1.46
+   * to 1.80 rad as it descends, so a fall at 1.5 rad is squashed at the temple
+   * and released at the shoulder — which measured as 83.2 mm of mane standing
+   * outside the metal at 91 deg, exactly where the guard is.
    */
   const coifSquash = (out: THREE.Vector3): void => {
     if (!coifed || out.y < coifLevels[coifLevels.length - 1]!.y) return;
     const L = coifRingAt(out.y);
     const px = out.x / L.hw, pz = (out.z - L.z) / L.hd;
-    if (Math.abs(Math.atan2(px, pz)) < coifRim(L.v)) return;
+    if (!style.mask && Math.abs(Math.atan2(px, pz)) < coifRim(L.v)) return;
     const e = Math.hypot(px, pz);
     const lim = 1 - LAYER_GAP / Math.min(L.hw, L.hd);
     if (lim <= 0 || e <= lim) return;
@@ -11279,7 +11340,9 @@ export function buildCharacter(
     const dy = out.y - skullY;
     const r = Math.hypot(out.x, dy, out.z);
     if (r < 1e-6) return;
-    const c = hairCeil(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))));
+    // `out.y` is the third argument, and it is the whole of what a hanging mass
+    // knows that a shell does not: WHERE IT ACTUALLY IS. See `hairCeil`'s `atY`.
+    const c = hairCeil(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))), out.y);
     if (!Number.isFinite(c)) return;
     dirOf(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))), _ffA);
     faceSurface(K, _ffA, _ffA);
@@ -11301,15 +11364,31 @@ export function buildCharacter(
    */
   const hairFall = (u: number): number => {
     if (hooded) return 0;
-    // AND A MASK WITH AN AVENTAIL IS A BAG TOO. The Sutton Hoo is the one rung
-    // that closes the head on every bearing — a formed face to 0.78 rad, deep
-    // guards to 1.62, mail from 1.46 back and down onto the shoulder — so there
-    // is no rim for a fall to come out from under and no opening for it to hang
-    // through. Every attempt to put one there put 19-107 mm of hair outside the
-    // man's own mail, which `hairFitProbe` reads and refuses. This is the same
-    // ruling the hood gets and for the same reason; what it costs the shop is
-    // written down rather than bought with geometry that stands through metal.
-    if (style.mask) return 0;
+    // A MASK IS NOT A HOOD, AND THE DIFFERENCE IS A HEM.
+    //
+    // The Sutton Hoo closes the head on every bearing above the collar — a
+    // formed face to 0.78 rad, deep guards to 1.62, mail from 1.46 back — and
+    // four constructions were tried inside that and every one of them bought
+    // its silhouette by putting 19-107 mm of hair through the man's own metal.
+    // The conclusion drawn was that the helm swallows hair like the hood does.
+    // It was the wrong conclusion, and what was wrong with it is that all four
+    // attempts looked for an opening ABOVE the shoulder, where there is none.
+    //
+    // The aventail ends. `coifHemY` is where, and below it there is nothing but
+    // shoulder. A man wearing a mail collar does not tuck a mane inside it — it
+    // fouls the rings — he gathers it and it hangs out under the hem and down
+    // his back, and that is the picture here: full mass BEHIND the mail's own
+    // opening, squashed inside the rings by `coifSquash` the whole way down
+    // where nobody can see it, and out into open air under the hem where the
+    // 40 gold is. Not one vertex crosses metal, because the route never crosses
+    // metal — it goes round the bottom of it.
+    //
+    // The ramp is the mirror of the coif's below: the mask has no face opening,
+    // so the hair may not be in front of the rings, and the mass reaches zero
+    // 0.30 rad IN FRONT of the rim rather than behind it.
+    if (style.mask) {
+      return coifed ? smooth(2.26, 2.70, awayFromFace(u)) : 0;
+    }
     // ON THE FAR SIDE OF THE RIM, NOT THE NEAR SIDE. The ramp is still 0.34 rad
     // wide and it still dies inside the mail — that is what stops a free patch
     // boundary standing on the rings — but it used to run from 0.34 rad IN
@@ -11827,7 +11906,28 @@ export function buildCharacter(
           }
         }
       }
-      if (ap.hairStyle === "long") {
+      // AND THE WAR-LOCKS BORROW THE FALL ON THE ONE RUNG WHERE THEY HAVE TO.
+      //
+      // A plait is an ACCENT everywhere else: the war-locks rung sells two
+      // ropes taken out of a head of hair whose hairline, crown and nape are
+      // all still in frame, and the ropes only have to be the loudest thing on
+      // it. Under a full mask none of that hair exists to be seen, so two ropes
+      // on their own are two tassels hanging off a helmet — measured at 0.89%
+      // of silhouette against a 1.00% bar with four of them, and every honest
+      // lever left (longer, fatter, further out) either stopped paying or put
+      // the rope through the throat ventail.
+      //
+      // What a man with war-locks and a mail collar actually has under the hem
+      // is the same thing the mane has — the whole gathered mass — with the
+      // ropes plaited out of it. So the fall is built for both styles here, and
+      // `plaited` is the difference: a shorter, deeper-ridged, more raggedly
+      // hemmed version of the same one surface, with the plaits hanging past
+      // it. The two rungs are not the same shape and they are not two
+      // unrelated shapes either, which is what a price ladder is supposed to
+      // look like.
+      const maskGather = style.mask && coifed && ap.hairStyle === "braids";
+      if (ap.hairStyle === "long" || maskGather) {
+        const plaited = maskGather;
         // ---- LONG MANE, 40 gold, AND IT WAS A SLAB WITH RODS ON IT ----
         //
         // "The hair options could be improved in quality, especially for the
@@ -11930,11 +12030,38 @@ export function buildCharacter(
         // mass still reaches zero INSIDE the parametrisation — a sweep that
         // ends on a live section gets a rim strip drawn across it, which is the
         // hard temple edge this file has already paid for twice.
-        const maneFrontDead = coifed ? 0.72 : Math.PI - 1.99;
-        const maneFrontFull = coifed ? 1.02 : Math.PI - 0.95;
+        //
+        // AND UNDER A MASK IT MOVES THE OTHER WAY, BEHIND THE RINGS. There is no
+        // face opening on that rung, so the window is `hairFall`'s own — full
+        // behind the mail's rim, dead in front of it — and this pair is opened
+        // wide enough that it never becomes the binding constraint. Two ramps
+        // multiplied together taper a mass twice and that is how a fall ends up
+        // at 6% of itself while both of its authors think they left it alone.
+        const maskedFall = style.mask && coifed;
+        const maneFrontDead = maskedFall ? 2.06 : coifed ? 0.72 : Math.PI - 1.99;
+        const maneFrontFull = maskedFall ? 2.40 : coifed ? 1.02 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
         const maneMass = (u: number) => hairFall(u)
           * Math.pow(smooth(maneFrontDead, maneFrontFull, awayFromFace(u)), 0.95);
+        // HOW LONG THE FALL HAS TO BE TO CLEAR THE MAIL, measured off the root
+        // rather than converted from a latitude by a factor — the mistake that
+        // once gave the war-locks a NEGATIVE fall and ran 498 vertices of plait
+        // up through the Sutton Hoo's own brow. `prof`'s deepest station is
+        // `MANE_DEEP` of the reach, so the reach that puts the hem `MASK_SHOW`
+        // below the mail is one division.
+        const MANE_DEEP = 0.322;
+        // The gather stops SHORTER on the plaited rung — 55 mm of loose mass
+        // under the hem against 110 — because what hangs past it there is rope.
+        // A gather as long as the mane's with plaits below it is 400 mm of hair
+        // on a man's back and reads as a cape.
+        const MASK_SHOW = plaited ? 0.055 : 0.110;
+        const _mrA = new THREE.Vector3();
+        const maneReach = (u: number) => {
+          dirOf(u, maneRoot(u), _mrA);
+          faceSurface(K, _mrA, _mrA);
+          return Math.max(0.6, Math.min(2.4,
+            (_mrA.y + skullY - coifHemY + MASK_SHOW) / MANE_DEEP));
+        };
         let live = 0;
         for (let i = 0; i <= 48; i++) live = Math.max(live, maneMass(mix(Math.PI - maneArc, Math.PI + maneArc, i / 48)));
         if (live >= 0.06)
@@ -11988,10 +12115,25 @@ export function buildCharacter(
           // hanging free down a back; 0.58 stops it at the collar, above the
           // mail's flare, and the shape a player is buying — the mass beside the
           // face — is entirely in the part that is kept.
-          reach: (u) => (coifed ? 0.72 : 1)
+          //
+          // AND UNDER A MASK IT IS SOLVED AGAINST THE MAIL'S HEM RATHER THAN
+          // TYPED. The whole of this rung's silhouette is the hair BELOW
+          // `coifHemY`; everything above that line is inside the rings and
+          // cannot be seen from any bearing, so a reach chosen by eye either
+          // stops short of the hem — which is 0.05% and a shop lie — or runs on
+          // past the shoulder blade. `maneReach` asks the root where it is and
+          // returns the scale that lands the deepest station `MASK_SHOW` below
+          // the hem. It is `deep guard hem + 90 mm` arithmetic, not a taste.
+          reach: (u) => (maskedFall ? maneReach(u) : coifed ? 0.72 : 1)
             * (1 - 0.10 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))),
+          // AND THE RIDGES ARE DEEPER WHERE THE HAIR IS PLAITED. `hank` is the
+          // surface's own ropes; a gather that is going into four braids is
+          // already parted into ropes before it leaves the mail, and doubling
+          // the two harmonics is what makes the same one surface read as
+          // twisted rather than combed at the same lens.
           hank: (u) => -0.30 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))
-            + 0.18 * Math.cos(u * 6.1 + 0.7) + 0.11 * Math.cos(u * 10.3 - 1.4),
+            + (plaited ? 0.36 : 0.18) * Math.cos(u * 6.1 + 0.7)
+            + (plaited ? 0.24 : 0.11) * Math.cos(u * 10.3 - 1.4),
           // A hem that is not a curve. Hair ends where it stops growing, and
           // the one thing a 34-pixel silhouette can read about long hair is
           // whether its bottom edge is a ruled arc.
@@ -12031,6 +12173,14 @@ export function buildCharacter(
         const bRoot = new THREE.Vector3();
         const bNrm = new THREE.Vector3();
         const bDrop = new THREE.Vector3();
+        // A SECOND PAIR OF ROPES WAS BUILT AND MEASURED AND IS NOT HERE. The
+        // obvious way to make four plaits' worth of hairstyle out of two is to
+        // add two more, and at 2.94 rad — between the outer plait and the
+        // parting — they moved the silhouette by 0.00%: at the shop's own
+        // three-quarter lens they are behind the head on both sides. Vertices
+        // that cannot be seen from the bearing the thing is sold at are not a
+        // cheap win, they are a cost. What made this rung read is the gather
+        // they hang out of, above.
         for (const s2 of [-1, 1]) {
           // Above and a little behind the ear, which is where a war-lock is
           // taken from — far enough back that it clears the temple and far
@@ -12038,7 +12188,19 @@ export function buildCharacter(
           // neck.
           // Forward of the mask's own guards where the head is closed: a plait
           // taken from behind the ear on the Sutton Hoo has nowhere to hang.
-          const rootU = s2 * (style.cheek === "deep" && !style.mask ? cheekIn + 0.06 : 1.34);
+          //
+          // AND UNDER A MASK IT IS TAKEN FROM THE NAPE AND COMES OUT UNDER THE
+          // AVENTAIL, which is the same route the mane takes on this rung and
+          // for the same reason: the only free edge on a closed helm above the
+          // collar is the bottom of its own mail. 2.52 rad is chosen and not
+          // guessed — the throat's ventail sweeps to 2.45 rad, so behind that
+          // line the aventail is the ONLY metal a rope has to be inside, and
+          // `coifSquash` holds it there the whole way down. At 2.10 the rope
+          // passed between the two curtains and the probe read 32 mm of plait
+          // outside the ventail; at 2.52 it reads nothing.
+          const masked = style.mask && coifed;
+          const rootU = s2 * (masked ? 2.60
+            : style.cheek === "deep" && !style.mask ? cheekIn + 0.06 : 1.34);
           // A HOOD AND AN AVENTAIL ARE BAGS THE HEAD GOES INTO, AND A PLAIT
           // CANNOT BE WORN OUTSIDE ONE. You cannot put a coif on over a
           // war-lock; the hair is inside it. At the old 0.35 threshold the
@@ -12052,8 +12214,16 @@ export function buildCharacter(
           // is whether this azimuth is in front of the rings, so that is what
           // is asked. A war-lock hanging out of the face opening of a mail coif
           // is the right picture and this is the line that says so.
-          if (hooded || style.mask) continue;
-          if (coifed && awayFromFace(rootU) > coifRim(0) - 0.10) continue;
+          //
+          // A MASK WITHOUT AN AVENTAIL STILL STANDS DOWN, and that is not an
+          // oversight. What closes the throat under the plate is the ventail,
+          // whose hem lands ON the hauberk's collar; a class that wears no mail
+          // coif has no free edge between the two, so there is nowhere for a
+          // rope to come out. The huscarl's aventail is what creates the hem
+          // this rung's hair uses, and he is the class the shop's portrait and
+          // this gate are both shot on.
+          if (hooded || (style.mask && !coifed)) continue;
+          if (coifed && !masked && awayFromFace(rootU) > coifRim(0) - 0.10) continue;
           // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN — SO THE PLAIT IS
           // TAKEN FROM UNDER THE GUARD, NOT DELETED BY IT.
           //
@@ -12096,8 +12266,17 @@ export function buildCharacter(
           // swing, because that swing past the jaw is the whole silhouette from
           // in front and there is nothing there for it to cross.
           const guarded = helmed && style.cheek !== "none" && !Number.isFinite(hem);
-          const swingOut = guarded ? 0.056 : 0.030;
-          const swingFwd = guarded ? 0.022 : 0.086;
+          // AND UNDER A MASK IT SWINGS OUT AND BACK, NOT FORWARD. The rope is
+          // inside the mail until it is level with the shoulder, so a forward
+          // swing spends its whole travel pressed against the inside of the
+          // aventail and then reappears at the throat, where the ventail is.
+          // Outboard and a little rearward is where a plait taken from the nape
+          // actually hangs on a man in a mail collar — over the shoulder, clear
+          // of the rings — and it is what makes two ropes read apart from the
+          // mane's single curtain at the same lens.
+          const swingOut = masked ? 0.150 : guarded ? 0.056 : 0.030;
+          const swingLat = masked ? 0 : 0;
+          const swingFwd = masked ? -0.020 : guarded ? 0.022 : 0.086;
           // AND IT IS SHORTER WHERE IT STARTS LOWER. The plait's 352 mm is
           // measured from above the ear; taken from under a cheek plate's hem
           // it starts as much as 90 mm further down, and 352 mm from there
@@ -12111,22 +12290,74 @@ export function buildCharacter(
           // through the Sutton Hoo's own brow. A latitude is not a length.
           dirOf(rootU, 0.16, bDrop);
           faceSurface(K, bDrop, bDrop);
-          const drop = Math.max(0.20, 0.352 - (bDrop.y + skullY - bRoot.y));
+          // AND UNDER A MASK THE LENGTH IS SOLVED AGAINST THE MAIL'S HEM, the
+          // same division `maneReach` does above: everything above `coifHemY`
+          // is inside the rings and cannot be seen, so a rope that stops at the
+          // shoulder is a rope nobody has bought. `MASK_PLAIT` is what hangs
+          // BELOW the hem, and it is longer than the mane's fall because a
+          // plait is a rope — it is what a 100-gold rung reads apart on.
+          const MASK_PLAIT = 0.250;
+          // THE ROPE'S OWN HALF-WIDTH, held as a constant because two things
+          // now depend on it: the sweep, and the tuck that keeps the sweep
+          // inside the mail. Thicker under a mask, and that is a statement
+          // about the style rather than a fudge — on every other rung the
+          // war-locks are two plaits taken out of a head of hair that is also
+          // showing at the hairline, the crown and the nape. Under a full mask
+          // they are the ONLY hair on the man, so they carry all of it.
+          const BRAID_R = masked ? 0.0240 : 0.0175;
+          const drop = masked
+            ? bRoot.y - coifHemY + MASK_PLAIT
+            : Math.max(0.20, 0.352 - (bDrop.y + skullY - bRoot.y));
           const bp = (t: number, out: THREE.Vector3) => {
             // Out and forward as it falls, so the plait hangs beside the jaw
             // rather than down the neck — that swing is the whole silhouette,
             // and it is what makes this rung read from in front as well as in
             // profile.
             const swing = Math.pow(t, 1.35);
+            // AND UNDER A MASK THE SWING IS RADIAL, WHICH IS THE WHOLE OF THE
+            // FIT. `s2 * swingOut` travels in x alone, so a rope rooted at
+            // 2.70 rad drifts FORWARD in azimuth as it falls — 0.074 m of x
+            // carried it to 2.43 rad, into the last few degrees of the throat
+            // ventail's arc, and the probe read 9.8 mm of plait outside it.
+            // Moving out along the root's OWN bearing holds the azimuth exactly
+            // where it was chosen, so the rope stays behind every curtain for
+            // its whole length instead of being aimed at one.
+            //
+            // A LATERAL SWING BELOW THE HEM WAS TRIED AND MEASURED AND IT DOES
+            // NOT WORK. It is the obvious idea — once the rope is out from under
+            // the mail there is nothing to stay behind, so turn it outboard over
+            // the shoulder where it can be seen — and it bought 0.02% of
+            // silhouette for 107 mm of plait outside the throat ventail on both
+            // seeds, because moving sideways at collar height walks the rope
+            // back into the one arc this rung has no room in. The bearing is
+            // held for the whole fall.
             out.set(
-              bRoot.x + s2 * (swingOut * swing),
+              bRoot.x + (masked ? Math.sin(rootU) : s2) * (swingOut * swing),
               bRoot.y - drop * t,
-              bRoot.z + swingFwd * swing,
+              bRoot.z + (masked ? Math.cos(rootU) * swingOut * swing : swingFwd * swing),
             );
             // A rope swings as it falls and a mail bag flares as it descends,
             // so a plait that starts clear of the aventail can still reach it
             // 200 mm down. Held inside it by the same table the shell is.
             fallFit(out);
+            // AND A ROPE IS NOT A POINT, WHICH IS WHY THE SECOND SEED CAUGHT
+            // THIS AND THE FIRST DID NOT. `fallFit` holds the SPINE inside the
+            // rings; `braid` then sweeps a 17.6 mm tube around that spine, so a
+            // spine sitting exactly on the limit puts a third of the rope's
+            // circumference through the mail. It measured 0.0 mm at seed 13 and
+            // 4.3 mm at seed 7932 — a fault that is invisible on one stature and
+            // real on the next, which is the whole argument for sweeping two.
+            // Above the hem the rope is tucked its own radius further in, faded
+            // in over the 50 mm above the hem so the tuck itself is buried in
+            // mail rather than drawing a step where the hair comes out.
+            if (masked) {
+              const tuck = BRAID_R * 1.15 * smooth(coifHemY, coifHemY + 0.050, out.y);
+              const h = Math.hypot(out.x, out.z);
+              if (h > 1e-6) {
+                const k = Math.max(0, h - tuck) / h;
+                out.x *= k; out.z *= k;
+              }
+            }
           };
           p.add(braid(bp, {
             // 5.6 turns, not 3.4, and this is the difference between a plait and
@@ -12141,7 +12372,7 @@ export function buildCharacter(
             // Gathered at the root, full through the middle, tapering to the
             // tie. A rope of constant radius springing out of a scalp is a
             // handle; a rope that is thin where it leaves the hair is a plait.
-            radius: (t) => 0.0175 * (0.46 + 0.54 * smooth(0, 0.17, t)) * (1 - 0.42 * t * t),
+            radius: (t) => BRAID_R * (0.46 + 0.54 * smooth(0, 0.17, t)) * (1 - 0.42 * t * t),
           }), hair);
           // Two bindings: one on the gather where the hair is drawn together,
           // one at the tip. Both stand outside the rope's own half-width at the
@@ -13015,7 +13246,6 @@ export function buildCharacter(
         // down carries the guard with it rather than quietly putting the cut
         // through the middle of it.
         const deep = style.nape === "guard";
-        const cut = S.neckRoot - S.neckTop;
         // 1.12 head-radii, not 1.05, and the extra 5 mm is a fit fix rather than a
         // style one. The plate has to turn through the corner where the skull's
         // base becomes a neck, and the turn costs it a few degrees whatever it
@@ -13024,7 +13254,12 @@ export function buildCharacter(
         // third of the fall with nothing after it, and `wearmeasure` measured
         // 22 deg of flare against a 22 deg bar. Carrying it 5 mm further down
         // gives the corner something to land on and measures 18.6.
-        const floorY = Math.max(cut + 0.025, skullY - R.y * (deep ? 1.12 : 0.45));
+        // ONE DEFINITION, TWO READERS. `napeHemY` up in the head stack is this
+        // same line, and the hair reads it to know where the plate stops — the
+        // identical arrangement `coifLevels` and `cheekHem` are in, for the
+        // identical reason: a piece that keeps its own copy of where another
+        // piece is will drift away from it.
+        const floorY = napeHemY;
         // THE HULL, AND THIS IS THE OWNER'S DEFECT.
         //
         // "There's a lot of raised floating aspects" — pale curved flanges

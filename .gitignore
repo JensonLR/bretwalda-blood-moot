@@ -38,6 +38,8 @@ art/ui/
 # Transpiled output the cosmetic harness emits so it can import the
 # renderer outside a browser. Regenerated on every run.
 .cosmetictest/
+# transpile cache for tools/hairprobe.mjs
+.hairprobe/
 
 # Transpiler scratch from the head/wear tape measures. tools/headmeasure.mjs
 # and tools/wearmeasure.mjs emit into the repo on purpose (they need node to
