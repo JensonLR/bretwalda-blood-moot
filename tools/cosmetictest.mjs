@@ -789,14 +789,32 @@ function faceCoverage(helmValue) {
 
 console.log("  helm          face covered   " + slotOf("hair").options.map((o) => o.label.slice(0, 9).padStart(10)).join(""));
 console.log("  " + "-".repeat(30 + 10 * slotOf("hair").options.length));
-const swallowed = [], hoodLeaks = [], freeSwallowed = [];
+const swallowed = [], hoodLeaks = [], freeSwallowed = [], mergedPaid = [];
 for (const helm of helms) {
   const cover = faceCoverage(helm.value);
   const base = raster(staged({ helm: helm.value, hairStyle: "shaved" }, QUARTER).group, LENS.portrait, QUARTER);
   const cells = [];
+  // AND THE LADDER IS MEASURED AGAINST ITSELF, NOT ONLY AGAINST SHAVED.
+  //
+  // Every rung above was compared to a bare scalp, and that is the wrong
+  // question asked on its own: two paid rungs can each clear the bar against
+  // Shaved and be the SAME OBJECT AS EACH OTHER. That is not hypothetical and
+  // it is not small — it is the exact wording of the complaint this section was
+  // written for, "a 40-gold Long Mane and a 100-gold Braided War-locks are
+  // pixel-identical", and on `main` the two of them read 0.05% and 0.05% under
+  // the Sutton Hoo, so this table printed two numbers that both passed while
+  // the shop sold one shape twice. A ladder is a set of DIFFERENT things; the
+  // rung-to-rung comparison is the only one that says so.
+  //
+  // No new threshold. `IDENTICAL_PCT` is the bar the whole file already uses
+  // for "these two are the same object with two price tags", and the hood keeps
+  // the one exemption it already has, in the same place, for the same reason.
+  const paid = slotOf("hair").options.filter((o) => o.cost > 0);
+  const paidShots = new Map();
   for (const hair of slotOf("hair").options) {
     if (hair.value === "shaved") { cells.push("     —    "); continue; }
     const withHair = raster(staged({ helm: helm.value, hairStyle: hair.value }, QUARTER).group, LENS.portrait, QUARTER);
+    if (hair.cost > 0) paidShots.set(hair.value, { hair, shot: withHair });
     const d = shapeDiff(base, withHair);
     cells.push(`${d.changed.toFixed(2)}%`.padStart(10));
     TABLE.companions.push({ kind: "hair-under-helm", helm: helm.label, option: hair.label, changed: d.changed, cover });
@@ -813,6 +831,20 @@ for (const helm of helms) {
       freeSwallowed.push(`${hair.label} (free) under ${helm.label} — ${pct2(d.changed)}`);
     }
   }
+  const paidRows = paid.map((o) => paidShots.get(o.value)).filter(Boolean);
+  for (let i = 0; i < paidRows.length; i++) {
+    for (let j = i + 1; j < paidRows.length; j++) {
+      const dp = shapeDiff(paidRows[i].shot, paidRows[j].shot);
+      TABLE.companions.push({ kind: "paid-hair-pair", helm: helm.label,
+        option: `${paidRows[i].hair.label} vs ${paidRows[j].hair.label}`, changed: dp.changed, cover });
+      if (helm.value === HOOD) continue;
+      if (dp.changed < IDENTICAL_PCT) {
+        mergedPaid.push(`${paidRows[i].hair.label} (${paidRows[i].hair.cost}g) and `
+          + `${paidRows[j].hair.label} (${paidRows[j].hair.cost}g) are the same shape under `
+          + `${helm.label} — ${pct2(dp.changed)}`);
+      }
+    }
+  }
   console.log(`  ${helm.label.slice(0, 12).padEnd(12)}  ${cover.toFixed(0).padStart(9)}%   ${cells.join("")}`);
   TABLE.companions.push({ kind: "face-coverage", helm: helm.label, cover });
 }
@@ -823,6 +855,19 @@ for (const s of swallowed) note(`SWALLOWED  ${s}`);
 if (freeSwallowed.length) {
   note(`${freeSwallowed.length} FREE hairstyles are also swallowed — not gated, because nobody paid for them:`);
   for (const f of freeSwallowed) note(`  ${f}`);
+}
+check("no two PAID hairstyles are the same shape as each other under any helm that is not a hood",
+  mergedPaid.length === 0, mergedPaid.length ? `${mergedPaid.length} merged` : "every paid pair is two objects", mergedPaid);
+for (const m of mergedPaid) note(`MERGED  ${m}`);
+{
+  // The hood's pair reads 0.00% and is exempt, so quoting it here would make
+  // the margin on the assertion look like nothing when it is the one row the
+  // assertion deliberately does not cover.
+  const hoodLabel = helms.find((h) => h.value === HOOD)?.label;
+  const pairs = TABLE.companions.filter((c) => c.kind === "paid-hair-pair" && c.helm !== hoodLabel);
+  const worst = pairs.reduce((a, b) => (a && a.changed <= b.changed ? a : b), null);
+  if (worst) note(`the closest paid pair anywhere is ${worst.option} under ${worst.helm} at ${pct2(worst.changed)} `
+    + `(bar ${IDENTICAL_PCT.toFixed(2)}%)`);
 }
 note("the Shadow Hood is the one helm entitled to cover hair, so it is reported rather than asserted:");
 for (const h of hoodLeaks) note(`  ${h}`);
