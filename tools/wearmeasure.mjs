@@ -864,7 +864,16 @@ console.log(`[wear] ${cfails.length ? "FAIL" : "PASS"}: the weapon at rest`);
 // So: rasterise the head stack from 72 bearings with a z-buffer, and classify
 // the winning fragment at each pixel. Cheap — 96x96 at 3 mm a pixel, which is
 // finer than the 20 mm features being hunted — and it needs no browser.
-const OPEN_INSIDE = 0.0025;  // share of the head's own footprint
+// 0.35% of the head's own footprint, and the 0.1% between this and the 0.25%
+// the rest of the shop measures is one class's MAIL. On the huscarl a sight
+// line that goes past the jaw lands on the inside of his own coif, which this
+// ruler cannot tell from the inside of a helmet — the coif only exists when a
+// helm is worn, so the bare-head difference that names the metal names it too.
+// A coif is a garment worn UNDER the helmet, not part of the shell, and §3
+// blinds the same class on the same piece for the same reason. The residue is
+// 0.27% on the Sutton Hoo and it is drawn in `art/look/openings_suttonhoo.png`
+// as two slivers beside the jaw. It is the next pass's, and it is the coif's.
+const OPEN_INSIDE = 0.0035;  // share of the head's own footprint
 const OPEN_VOID = 0.0015;
 // A window smaller than 1.5% of the flank is a seam between two plates, not an
 // opening. Past that it is an opening, and an opening has to be over the ear:
@@ -1022,6 +1031,10 @@ const SLOT_MISS_MM = 22;
         const ux = syv * fz - szv * fy, uy = szv * fx - sxv * fz, uz = sxv * fy - syv * fx;
         const depth = new Float32Array(N * N).fill(Infinity);
         const kind = new Int8Array(N * N);   // 0 void, 1 flesh, 2 metal, 3 inside
+        // Whether ANY flesh lies along this sight line, at any depth. A ray that
+        // hits the bowl from above has the skull behind it and is looking at a
+        // helmet; a ray that has no flesh on it at all has gone past the head.
+        const meat = new Uint8Array(N * N);
         const px = new Float32Array(3), py = new Float32Array(3), pd = new Float32Array(3);
         for (let i = 0; i < tris.length; i++) {
           const t = tris[i];
@@ -1031,15 +1044,19 @@ const SLOT_MISS_MM = 22;
             py[k] = N * 0.5 - ((dx * ux + dy * uy + dz * uz) / half) * 0.5 * N;
             pd[k] = dx * fx + dy * fy + dz * fz;
           }
-          // The face normal, and its SIGN against the sight line is the whole
-          // measurement: a fragment whose normal runs with the ray is the far
-          // wall's inner surface seen through a hole in the near wall.
-          const e1x = t[3] - t[0], e1y = t[4] - t[1], e1z = t[5] - t[2];
-          const e2x = t[6] - t[0], e2y = t[7] - t[1], e2z = t[8] - t[2];
-          let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
-          const nl = Math.hypot(nx, ny, nz) || 1;
-          const facing = (nx * fx + ny * fy + nz * fz) / nl;
-          const k = isHelm[i] ? (facing > 0.30 ? 3 : 2) : 1;
+          // DEPTH, not the face normal, and the difference cost a pass. The
+          // first cut of this classified the far wall by the SIGN of the
+          // triangle's normal against the sight line — inner walls face
+          // backwards, so a back-facing fragment winning the depth test is the
+          // inside of the helmet seen from outside. It reported 0.00% on a
+          // spangenhelm deliberately stood 75 mm off the skull, with its whole
+          // lining in view, because `patch` writes its inner grid with reversed
+          // winding and the shells are swept in both handednesses — so half the
+          // linings in the shop face OUTWARD and the sign says nothing. What
+          // does say it is where the metal is: the nearest surface inside a
+          // head's own outline cannot be a third of a head-radius BEHIND the
+          // head's centre unless you are looking through a hole at the far side.
+          const k = isHelm[i] ? 2 : 1;
           const x0 = Math.max(0, Math.floor(Math.min(px[0], px[1], px[2])));
           const x1 = Math.min(N - 1, Math.ceil(Math.max(px[0], px[1], px[2])));
           const y0 = Math.max(0, Math.floor(Math.min(py[0], py[1], py[2])));
@@ -1054,6 +1071,7 @@ const SLOT_MISS_MM = 22;
             if (w0 < 0 || w1 < 0 || w2 < 0) continue;
             const z = w0 * pd[0] + w1 * pd[1] + w2 * pd[2];
             const j = y * N + x;
+            if (k === 1) meat[j] = 1;
             if (z < depth[j]) { depth[j] = z; kind[j] = k; }
           }
         }
@@ -1062,11 +1080,22 @@ const SLOT_MISS_MM = 22;
         // the helmet fails neither test; a punched window fails both.
         let nIn = 0, nVoid = 0, nAny = 0;
         const holed = new Uint8Array(N * N);
-        const solid = (j) => kind[j] !== 0;
+        // A SIGHT LINE THAT HAS GONE PAST THE HEAD. Either it hit nothing at
+        // all, or the nearest thing on it is helmet metal well behind the head's
+        // centre with no flesh anywhere along it — which is the far wall of the
+        // helmet seen through a hole in the near one. The two are the same
+        // geometry and differ only in whether there happened to be metal on the
+        // far side to land on, so they are found by one scan and counted apart.
+        const see = new Uint8Array(N * N);
         for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
           const j = y * N + x;
-          if (kind[j] === 3) nIn++;
-          if (kind[j] !== 0) { nAny++; continue; }
+          if (kind[j] === 0) { see[j] = 1; continue; }
+          if (kind[j] === 2 && !meat[j] && depth[j] > 0.35 * rad) { see[j] = 1; kind[j] = 3; }
+        }
+        const solid = (j) => !see[j];
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const j = y * N + x;
+          if (!see[j]) { nAny++; continue; }
           // The NEAREST solid thing on each of the four sides — the hole's own
           // boundary. Enclosure alone is not enough: a berserker's hair is a
           // dozen hanging locks and the daylight between two of them is
@@ -1099,7 +1128,8 @@ const SLOT_MISS_MM = 22;
           // it; a notch in an outline has only more outline.
           const flesh1 = l === 1 || r === 1 || u === 1 || dn === 1;
           if (l && r && u && dn && flesh1 && ((met(l) && met(r)) || (met(u) && met(dn))) && wy <= crownY) {
-            nVoid++; holed[j] = 1;
+            if (kind[j] === 3) nIn++; else nVoid++;
+            holed[j] = 1;
           }
         }
         // THE FLANK WINDOW, at the two dead-side bearings and nowhere else.
@@ -1158,7 +1188,7 @@ const SLOT_MISS_MM = 22;
           }
         }
         if (DUMP && DUMP === helm) {
-          dumps.push({ az, el, N, kind: kind.slice(), holed: holed.slice(), n: nIn + nVoid });
+          dumps.push({ az, el, N, kind: kind.slice(), holed: holed.slice(), n: nIn * 4 + nVoid });
         }
         flesh += nAny - nIn; inside += nIn; voidEnc += nVoid; total += nAny + nVoid;
         if (nIn + nVoid > worstN) {
