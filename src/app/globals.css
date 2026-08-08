@@ -199,6 +199,65 @@
     gap: calc(var(--rhythm) * 0.6);
   }
 
+  /* THE WIDE-SCREEN SPLIT, AND THE COMPLAINT IT ANSWERS.
+     "All the pages / screens feel really boring ... the armoury layout is
+     better than before" — and the armoury is better for exactly one structural
+     reason: at desktop width it is TWO COLUMNS, a fixed stage beside a fluid
+     list. Every other wide screen was a phone layout stretched. The lobby at
+     1440px put a 28rem invite card and a 26rem rounds picker each alone in the
+     middle of a 62rem row, so two thirds of the window was empty brown either
+     side of a thin ribbon of content — which reads as a page that failed to
+     load, not as a page that was designed.
+
+     So the armoury's shape becomes a primitive the whole journey can use
+     rather than something one screen happens to do. Below 64rem it is one
+     column and nothing about the phone changes; docs/PLATFORMS.md holds both
+     as first class and this is the seam where desktop stops inheriting the
+     phone's compromises.
+
+     The rail is the narrower column on purpose. It carries the thing you are
+     LOOKING at — your own warrior, the war code — while the fluid column
+     carries the thing you are READING, which is the one that must be free to
+     grow as a roster fills. */
+  .rail-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--rhythm);
+    align-items: start;
+  }
+  /* 64rem and not the 62rem `.faction-map` uses, because the screens that take
+     this grid are written in Tailwind utilities and `lg:` is 64rem. A grid that
+     split at 62 while its children restyled at 64 would leave a 32px window
+     where a card is still capped to a reading measure inside a column that is
+     already narrow — a seam nobody would ever see in a screenshot and every
+     player with a 1000px window would sit in. */
+  @media (min-width: 64rem) {
+    .rail-grid {
+      grid-template-columns: minmax(0, 1fr) clamp(19rem, 26vw, 23rem);
+      gap: calc(var(--rhythm) * 1.15);
+    }
+  }
+
+  /* Each column keeps the page's one vertical step, so a block does not change
+     rhythm just by being moved into a column. */
+  .rail-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--rhythm);
+    min-width: 0;
+  }
+
+  /* The rail follows you down a long roster instead of scrolling away — but
+     only where there is height to spare for it. On a phone this is a single
+     stacked column and sticking it would pin a 3D preview over the list the
+     player is trying to read. */
+  @media (min-width: 64rem) {
+    .rail-sticky {
+      position: sticky;
+      top: 1.25rem;
+    }
+  }
+
   /* --------------------------------------------------------------- backdrop */
 
   .backdrop {

@@ -20,18 +20,24 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: origin ? new URL(origin) : undefined,
     title: "BRETWALDA: BLOOD MOOT — Anglo-Saxon Arena Combat",
     description: "Multiplayer sword fighting in Dark Age Britain. Send your friends a link, choose a warrior, fight. No downloads.",
+    // NO `images` ON EITHER OF THESE, DELIBERATELY.
+    //
+    // They used to name `/images/hero-bg.jpg`, which has never existed — this
+    // repository has no `public/` directory at all — so every unfurl of this
+    // link resolved a 404 and collapsed to a bare grey card. `opengraph-image.tsx`
+    // now DRAWS the card per request, and Next wires it into both tag sets
+    // automatically at the correct absolute URL. Naming an image here would
+    // override that with the same broken path again.
     openGraph: {
       title: "BRETWALDA: BLOOD MOOT",
       siteName: "Bretwalda",
-      description: "Real-time multiplayer sword fighting in Dark Age Britain. Tap to join the battle — works on any phone, no downloads.",
-      images: [{ url: "/images/hero-bg.jpg", width: 1200, height: 675, alt: "Anglo-Saxon warriors gathered around a war camp bonfire" }],
+      description: "Real-time multiplayer sword fighting in Dark Age Britain. Open the link, choose a warrior, fight — no downloads.",
       type: "website",
     },
     twitter: {
       card: "summary_large_image",
       title: "BRETWALDA: BLOOD MOOT",
-      description: "Real-time multiplayer sword fighting in your browser. Tap to join — works on any phone.",
-      images: ["/images/hero-bg.jpg"],
+      description: "Real-time multiplayer sword fighting in your browser. Open the link and fight — works on any phone.",
     },
   };
 }
@@ -55,7 +61,18 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           rel="stylesheet"
         />
       </head>
-      <body className="bg-stone-950 text-white antialiased">{children}</body>
+      {/* NO COLOUR UTILITIES ON THIS ELEMENT.
+          `bg-stone-950 text-white` used to sit here, and it beat the palette:
+          Tailwind emits utilities into @layer utilities, which outranks the
+          @layer base rule in globals.css that sets the game's real ground
+          (#14100b) and its real ink (#f0e9da, warm vellum). So every screen was
+          painted on a cool near-black with pure white text — the two colours
+          the Sutton Hoo palette specifically does not use — and the palette
+          only ever applied where a component happened to restate it. This is
+          the same layering trap the top of globals.css documents, arriving
+          from the one element nobody thought to check. Anything this element
+          needs belongs in globals.css with the rest of the system. */}
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

@@ -1088,10 +1088,20 @@ export default function Page() {
             </h1>
           </div>
 
+          {/* TWO COLUMNS ON A DESKTOP, ONE ON A PHONE. See `.rail-grid`.
+              Left is THE MATCH — how men get in, what they are playing, who is
+              here — and it is the column allowed to grow, because the roster
+              does. Right is YOU: the warrior everyone else will see, and the
+              two choices that change him. Reading order is the same in the
+              markup as on the screen in both layouts, so a keyboard and a
+              screen reader walk it the way the eye does. */}
+          <div className="rail-grid">
+          <div className="rail-col">
+
           {/* INVITE — this is the whole reason the lobby exists. A second
               player only ever arrives through this block, so it gets the top
               of the screen, the largest type and the widest target. */}
-          <div className="warcode-frame card-noble mx-auto flex w-full max-w-md flex-col gap-4 p-5 sm:p-6">
+          <div className="warcode-frame card-noble mx-auto flex w-full max-w-md flex-col gap-4 p-5 sm:p-6 lg:max-w-none">
             <div className="flex flex-col items-center text-center">
               <div className="label-overline">WAR CODE</div>
               <div className="warcode mt-2">{roomCode}</div>
@@ -1110,9 +1120,16 @@ export default function Page() {
             </div>
 
             <div className="flex flex-col gap-2 border-t border-amber-200/10 pt-3.5 text-center">
+              {/* This used to read "Paste the link in your group chat". That
+                  pitch was scaffolding for the first round of testing among
+                  friends and the owner has retired it — the game is going to a
+                  storefront, and a storefront does not describe itself by the
+                  one channel its first dozen players happened to arrive
+                  through. What survives is the fact the sentence was carrying:
+                  a link needs no code typed at the other end. */}
               <p className="text-[11px] leading-relaxed text-stone-400">
-                Paste the link in your group chat — friends open it and join
-                instantly, with no code to type.
+                Send this link and they join straight into your war band —
+                no code to type, nothing to install.
               </p>
               <div className="link-preview">{shareUrl()}</div>
             </div>
@@ -1219,8 +1236,14 @@ export default function Page() {
             </div>
           </section>
 
-          {/* YOUR WARRIOR — live preview */}
+          </div>{/* /rail-col — the match */}
+
+          <div className="rail-col rail-sticky">
+
+          {/* YOUR WARRIOR — live preview. `stack` because in a 23rem rail the
+              side-by-side arrangement would give the mannequin a 9rem stage. */}
           <WarriorPanel
+            stack
             warriorClass={roomState.players[playerId]?.warriorClass ?? "warden"}
             appearance={profile.appearance}
             name={playerName || "Warrior"}
@@ -1237,6 +1260,7 @@ export default function Page() {
               </button>
             </div>
             <ClassGrid
+              compact
               selected={roomState.players[playerId]?.warriorClass}
               onSelect={(c) => sendMsg("select_class", { warriorClass: c })}
             />
@@ -1258,6 +1282,9 @@ export default function Page() {
               </div>
             </section>
           )}
+
+          </div>{/* /rail-col — you */}
+          </div>{/* /rail-grid */}
 
           {/* actions — pinned bottom on mobile for thumb reach */}
           <div className="action-bar">
@@ -1638,7 +1665,7 @@ export default function Page() {
               {busy ? "ANSWERING..." : "JOIN"}
             </button>
             <p className="text-center text-xs leading-relaxed text-stone-400">
-              Got the link in your group chat? Just open it — the code fills in itself.
+              Sent a link instead? Open it — the code fills itself in.
             </p>
           </div>
         </ContentWrap>
@@ -1989,16 +2016,26 @@ function ScreenHead({ overline, title, lede, center, onBack, aside }: {
 
 // The lobby and the muster show the identical "this is you" block. Shared so
 // the two cannot drift apart, since they are the same promise made twice.
-function WarriorPanel({ warriorClass, appearance, name, note, onCustomise }: {
+function WarriorPanel({ warriorClass, appearance, name, note, onCustomise, stack }: {
   warriorClass: WarriorClass; appearance: Appearance; name: string;
   note: string; onCustomise: () => void;
+  /**
+   * Keep the mannequin above the words at every width instead of turning to a
+   * row at `sm`. For the lobby's 23rem rail, where a 42% stage is about 9rem
+   * across and the warrior in it stops being legible as a warrior — the panel
+   * exists to show a player what everyone else will see of him, and a figure
+   * too small to read defeats the only thing it is for.
+   */
+  stack?: boolean;
 }) {
+  const row = stack ? "" : "sm:flex-row sm:gap-6";
+  const col = stack ? "" : "sm:items-start sm:text-left";
   return (
-    <div className="card card-noble card-glow flex flex-col items-center gap-4 p-5 sm:flex-row sm:gap-6 sm:p-6">
-      <div className="w-full sm:w-[42%] sm:shrink-0">
-        <CharacterPreview warriorClass={warriorClass} appearance={appearance} height={210} />
+    <div className={`card card-noble card-glow flex flex-col items-center gap-4 p-5 sm:p-6 ${row}`}>
+      <div className={`w-full ${stack ? "" : "sm:w-[42%] sm:shrink-0"}`}>
+        <CharacterPreview warriorClass={warriorClass} appearance={appearance} height={stack ? 260 : 210} />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center sm:items-start sm:text-left">
+      <div className={`flex min-w-0 flex-1 flex-col items-center gap-2 text-center ${col}`}>
         <div className="label-overline">YOUR WARRIOR</div>
         <div className="font-display truncate text-2xl text-amber-100">{name}</div>
         <div className="text-sm capitalize text-stone-300">{warriorClass}</div>
@@ -2149,9 +2186,18 @@ function TheKeep({ link, code, onRestore, onSay }: {
   );
 }
 
-function ClassGrid({ selected, onSelect }: { selected: WarriorClass | undefined; onSelect: (c: WarriorClass) => void }) {
+function ClassGrid({ selected, onSelect, compact }: {
+  selected: WarriorClass | undefined; onSelect: (c: WarriorClass) => void;
+  /**
+   * Stay two-up at every width. The four-across row is right when this grid
+   * owns the page; inside the lobby's 23rem rail it would give each warrior
+   * about 5rem, which is narrower than the word "RUNEKEEPER" and would set
+   * every stat bar to a stub. A card that cannot be read is not a chooser.
+   */
+  compact?: boolean;
+}) {
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className={`grid grid-cols-2 gap-3 ${compact ? "" : "lg:grid-cols-4"}`}>
       {WARRIOR_INFO.map((w) => {
         const stats = WARRIOR_STATS[w.id];
         const isSel = selected === w.id;
