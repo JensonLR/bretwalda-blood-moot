@@ -771,7 +771,28 @@ export function makeEngine(options = {}) {
   // time the box owes. An engine built with `autoTick: false` never touches it.
   let wakeAt = 0;
   // `epoch` stamps the two display fields described above and nothing else.
-  const epoch = Number.isFinite(options.epoch) ? options.epoch : Date.now();
+  //
+  // NOT A CONST, AND THE REASON IS A REGRESSION THIS FILE SHIPPED WITH.
+  // `wallNow()` is `epoch + simMs`, and `simMs` is what the sim actually ran —
+  // which is NOT what the wall did, because `advance` clamps arrears at
+  // `MAX_CATCHUP_MS`. Every event-loop stall past 400 ms therefore threw
+  // `stall - 400` ms out of `simMs` and never put it back, so on a long-lived
+  // server `wallNow()` fell permanently and unboundedly behind the browsers
+  // comparing against it. Measured before the fix: ten 600 ms stalls cost
+  // 2252 ms, four 1500 ms stalls cost 4655 ms, linear and cumulative.
+  //
+  // What that breaks is visible and specific. `page.tsx` computes the round
+  // break's countdown as `nextRoundAt - Date.now()`, so the counter ran early
+  // by the accumulated lag, and once the lag passed the five-second break it
+  // opened at 0 and the break sat there looking hung — which is the exact
+  // opposite of the promise that component exists to make.
+  //
+  // The engine this replaced never had the bug because it re-anchored to the
+  // wall on every cap and stamped both fields from `Date.now()` directly.
+  // Deriving them from sim time is still right — it is what lets a replay
+  // repeat them — so the dropped milliseconds are added to the EPOCH instead,
+  // in the one place they are dropped. See `advance`.
+  let epoch = Number.isFinite(options.epoch) ? options.epoch : Date.now();
   /** Wall-clock ms for the wire, derived from sim time so a replay repeats it. */
   const wallNow = () => epoch + simMs;
   /** The phases in which a room is stepped at all. */
@@ -2332,7 +2353,19 @@ export function makeEngine(options = {}) {
     // asleep for a minute must not fast-forward the fight when it wakes; a
     // caller that deliberately hands the sim a minute is asking for a minute,
     // and shortening it would make a replay disagree with the match it replays.
-    if (capMs !== undefined && arrearsMs > capMs) arrearsMs = capMs;
+    if (capMs !== undefined && arrearsMs > capMs) {
+      // THE DROPPED TIME GOES ON THE EPOCH, because it really did happen — the
+      // wall advanced through it even though the simulation refused to. Without
+      // this line `wallNow()` loses it forever and the two epoch-ms fields on
+      // the wire drift behind every client's own clock. See `epoch` above.
+      //
+      // Only the internal timer passes a cap, so an engine driven by `step(dt)`
+      // never reaches this branch and its epoch never moves — a replay stays
+      // byte-identical, which is the whole reason these fields are derived from
+      // sim time rather than read off the wall.
+      epoch += arrearsMs - capMs;
+      arrearsMs = capMs;
+    }
     const steps = Math.floor((arrearsMs + TICK_SLACK_MS) / TICK_MS);
     if (steps <= 0) return 0;   // owed nothing yet: no simulation, no duplicate snapshot
     arrearsMs -= steps * TICK_MS;
@@ -2652,6 +2685,19 @@ export function makeEngine(options = {}) {
      * a match has got asks this rather than a wall clock.
      */
     simTime() { return simMs; },
+    /**
+     * The wall-clock millisecond this engine currently believes it is, and the
+     * value both epoch-ms fields on the wire are stamped from.
+     *
+     * Exposed because the alternative was that nothing could see it. `wallNow()`
+     * shipped drifting permanently behind the real clock — every stall past
+     * `MAX_CATCHUP_MS` was dropped from `simMs` and never returned — and no
+     * test could catch it, because the only readings of it leave through
+     * `nextRoundAt` and a kill-feed entry, and every determinism check runs on
+     * an `autoTick: false` engine where the cap never bites. A quantity a gate
+     * cannot read is a quantity that regresses.
+     */
+    wallTime() { return wallNow(); },
     /** Whether this engine started a timer of its own. */
     autoTick,
     /**

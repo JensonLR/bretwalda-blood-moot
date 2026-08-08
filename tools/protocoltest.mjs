@@ -677,22 +677,97 @@ function replayOnce() {
     }
     sim.step();
   }
-  return host.frames.join("\n")
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<id>")
-    .split(joined.code).join("<code>");
+  // The engine's OWN sim time comes back with the frames. Not tidiness — see
+  // the check below, which had nothing to prove the match ever ran.
+  return {
+    text: host.frames.join("\n")
+      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<id>")
+      .split(joined.code).join("<code>"),
+    simMs: sim.simTime(),
+  };
 }
 
+/** 400 steps of TICK_MS with a tick of slack. A run shorter than this did not happen. */
+const REPLAY_MIN_MS = 19_000;
+/**
+ * A live run emits 432 kB of frames. A DEAD one — `step()` sabotaged to a no-op
+ * — still emits 11.5 kB, because the lobby handshake happens before any time
+ * passes at all. So the floor has to sit above the dead figure and not merely
+ * above zero: 4 kB was the first number here and it would have passed the very
+ * sabotage this tooth exists to catch.
+ */
+const REPLAY_MIN_BYTES = 100_000;
+
 // ============================================================
+// ---- the wire's two epoch-ms fields still track the browser's clock ----
+//
+// THE REGRESSION THIS CATCHES, which shipped and which nothing could see.
+// `nextRoundAt` and the kill feed's `timestamp` are stamped from `wallNow()`
+// = `epoch + simMs`, and `simMs` is what the sim RAN, not what the wall did:
+// `advance` clamps arrears at MAX_CATCHUP_MS, so every event-loop stall past
+// 400 ms threw `stall - 400` ms away permanently. Ten 600 ms stalls cost
+// 2252 ms; four 1500 ms stalls cost 4655 ms. Cumulative and unbounded.
+//
+// What breaks is the round break. `page.tsx` counts down `nextRoundAt -
+// Date.now()` against the BROWSER's clock, so the counter ran early by the
+// accumulated lag and, once the lag passed the five-second break, opened at
+// zero and sat there looking hung — the opposite of the promise that
+// component exists to make.
+//
+// It has to be tested through the real timer. `step(dt)` passes no cap, so an
+// `autoTick: false` engine never reaches the clamp — which is exactly why
+// every determinism check in this file ran green while this was broken.
+{
+  const drift = makeEngine();
+  const before = drift.wallTime() - Date.now();
+  // Three stalls the cap will bite on, blocking the loop the way a real one
+  // does. Busy-waiting is the point: `await` would yield and the timer would
+  // keep up, which is the case that never had a bug.
+  for (let i = 0; i < 3; i++) {
+    const until = Date.now() + 1200;
+    while (Date.now() < until) { /* hold the event loop, as a GC pause would */ }
+    await new Promise((r) => setTimeout(r, 60));
+  }
+  const after = drift.wallTime() - Date.now();
+  drift.stop();
+  // One cap's worth of slack, and no more. Before the fix this ran to
+  // seconds and grew with every stall.
+  const slipped = Math.abs(after - before);
+  check("the wire's epoch-ms clock keeps up with the wall across stalls",
+    slipped < 500,
+    `${slipped} ms of slip across 3 x 1200 ms stalls (cap is 400 ms) — nextRoundAt is compared ` +
+    `against the browser's own Date.now(), so slip here is the round-break counter running early`);
+}
+
 const h = scenarioHeadless();
 {
-  const first = replayOnce(), second = replayOnce();
+  const a = replayOnce(), b = replayOnce();
+  const first = a.text, second = b.text;
   let where = -1;
   for (let i = 0; i < Math.max(first.length, second.length); i++) if (first[i] !== second[i]) { where = i; break; }
+  // THREE TEETH, AND THE FIRST TWO ARE WHY THIS CHECK IS WORTH ANYTHING.
+  //
+  // It used to assert `first === second` and nothing else. Two empty strings
+  // are identical, so a dead engine passed it: under a `step()` sabotaged to a
+  // no-op it reported `PASS ... 11506 B of frames, twice, 0 s of sim apiece`
+  // and stayed green. That is this repository's signature failure — a test
+  // measuring the wrong quantity — and it is the sixth instance.
+  //
+  // Worse, the number it printed was a lie by construction: `h.simMs` belongs
+  // to `scenarioHeadless()`, a DIFFERENT scenario, so the sim time in the
+  // detail line was never the sim time of the thing under test. Each run now
+  // reports its own.
+  const ran = a.simMs >= REPLAY_MIN_MS && b.simMs >= REPLAY_MIN_MS;
+  const spoke = first.length >= REPLAY_MIN_BYTES;
   check("two runs of one scripted match are identical to the byte",
-    first === second,
-    where < 0
-      ? `${first.length} B of frames, twice, ${(h.simMs / 1000).toFixed(0)} s of sim apiece`
-      : `diverged at byte ${where}: ${JSON.stringify(first.slice(where - 60, where + 60))} vs ${JSON.stringify(second.slice(where - 60, where + 60))}`);
+    first === second && ran && spoke,
+    where >= 0
+      ? `diverged at byte ${where}: ${JSON.stringify(first.slice(where - 60, where + 60))} vs ${JSON.stringify(second.slice(where - 60, where + 60))}`
+      : !ran
+        ? `the match did not run: ${(a.simMs / 1000).toFixed(1)} s and ${(b.simMs / 1000).toFixed(1)} s of sim against a floor of ${REPLAY_MIN_MS / 1000} s — two identical nothings are still identical`
+        : !spoke
+          ? `only ${first.length} B of frames against a floor of ${REPLAY_MIN_BYTES} B — the engine ran but said almost nothing`
+          : `${first.length} B of frames, twice, ${(a.simMs / 1000).toFixed(0)} s of sim apiece`);
 }
 
 const [a, m] = await Promise.all([scenarioMatch(), scenarioMelee()]);
