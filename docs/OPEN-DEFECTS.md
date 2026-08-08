@@ -84,19 +84,41 @@ A 40-gold and a 100-gold item, both under 1% under a 120-gold helm. `art/look/re
 shows why: the mane is entirely INSIDE the cowl, with a few millimetres of
 hairline showing at the brow and nothing at all below the shoulder.
 
-### 2. The beard is a SHEET, not a mass
+### 2. The beard is a SHEET, not a mass — MEASURED
 
-`art/look/rep1.png` panel 3, and the owner's own profile shots. In profile the
-beard reads as a thin flat plane standing off the jaw with a hard straight edge
-— "really sharp & thin / folded" is an exact description of a surface with no
-thickness seen edge-on. This is a different fault from the throat overlap fixed
-earlier today: that one was about WHERE the surface was, this is about the
-surface having no body. `beardcount` (one island) and `beardseat` (0.0 mm into
-neck and garment) are both satisfied by a sheet, because neither asks about
-volume.
+`npm run beardvolume` fires rays through the beard and reports the gap where
+each crosses it. Measured on the HANGING FALL only, because hair lying on a
+cheek is legitimately thin — `BeardCut.skin` is literally "how thickly the hair
+lies on the face at the jaw" — while the fall hangs in air with nothing behind
+it and has to have body:
 
-**The missing ruler:** thickness. A beard should read as a mass from every
-bearing, and nothing measures the distance between its outer and inner walls.
+```
+class        beard       rays     p10      med      p90   under 4mm
+huscarl      short        398     1.3      3.8      7.8       55%
+huscarl      full         366     1.4      6.0     12.1       32%
+huscarl      forked       250     0.9      4.4      9.9       43%
+huscarl      braided      304     0.2      3.1      6.8       68%
+```
+
+**Between a third and two thirds of every beard is under 4 mm thick, and the
+braided rung's thinnest tenth is a fifth of a millimetre.** That is a surface,
+not a mass, and it is exactly what "really sharp & thin / folded" describes seen
+edge-on.
+
+Restricting the sample to the fall made every number WORSE than measuring the
+whole beard — the part with the most reason to have body has the least. That is
+the confirmation the ruler is aimed correctly: a mistaken region would have
+improved the readings, the way counting the scalp flattered facecover.
+
+**Why nothing caught it.** `beardcount` welds triangles and counts islands — a
+sheet is one island. `beardseat` measures how deep the beard sits inside the
+neck and the collar — a sheet intersects nothing. `wearmeasure` §5 folds in the
+same two questions. All three are about POSITION and none about VOLUME.
+
+**The fix** is in `beardShell`'s section: the fall's outer and inner walls run
+too close together. `prof` is the section and `thick` the wall gap; giving the
+fall real depth is the change, and `beardvolume` confirms it in about fifteen
+seconds a style.
 
 ### 3. A stray flat tab on the hood
 
