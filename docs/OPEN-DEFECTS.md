@@ -8,11 +8,12 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## MOSTLY CLOSED — the head stack's hair regression: eight rungs of ten fixed
+## CLOSED — the head stack's hair regression: ten rungs of ten
 
 Supersedes the entry at the bottom of this file. `npm run cosmetictest --
---no-render` went from **8 swallowed to 2**, and the two that remain are both
-cells of one helmet.
+--no-render` went from **8 swallowed to 2** and then to **0**; the last two were
+both cells of the Sutton Hoo and they are written up under their own heading
+below. The gate is green.
 
 Silhouette against Shaved, huscarl, portrait lens at -35 deg — which is the
 number the shop is judged on:
@@ -27,11 +28,12 @@ number the shop is judged on:
 | Spectacle 280g | 0.56 -> 0.60 | **1.19 -> 7.70** | **1.19 -> 7.31** |
 | Boar-Crest 380g | 0.53 -> 0.57 | **0.95 -> 7.36** | **0.95 -> 7.04** |
 | Jarl's Crowned 570g | 0.53 -> 0.57 | **0.95 -> 7.36** | **0.95 -> 7.05** |
-| Wyrm-Crest 950g | 0.21 -> 0.21 | **0.31 -> 3.44** | **0.31 -> 4.48** |
-| **Sutton Hoo 2400g** | 0.00 -> 0.00 | **0.05 -> 0.05** | **0.05 -> 0.05** |
+| Wyrm-Crest 950g | 0.21 -> 0.21 | **0.31 -> 3.43** | **0.31 -> 4.48** |
+| **Sutton Hoo 2400g** | 0.00 -> 0.00 | **0.05 -> 1.56** | **0.05 -> 1.44** |
 
 The two paid styles are no longer identical to each other on any rung. The bar
-is 1%.
+is 1%, and "not identical to each other" is now an ASSERTION rather than an
+observation — see the note on it below.
 
 ### What moved, and it is three constants that were all facing the wrong way
 
@@ -60,16 +62,16 @@ a falling mass never had. Without it a garment's only lever over a fall was
 `mass`, and the only thing `mass` can do to a fall is delete it. That is the
 general shape of the whole defect.
 
-### OPEN — the Sutton Hoo swallows both paid hairstyles, and it is not a cull
+### CLOSED — the Sutton Hoo, and the opening was the bottom of its own mail
 
-**2 of 18 cells still fail and they are the same helmet.** It is the one rung
-that closes the head on every bearing: a formed face plate to 0.78 rad, deep
-cheek guards from there round to 1.62, an aventail from 1.46 back and down onto
-the shoulder, and a plated nape guard over that. There is no rim anywhere above
-the collar for hair to come out from under.
+`cosmetictest` is GREEN. 16/16, and the two cells that were red read **1.56%**
+(Long Mane) and **1.44%** (Braided War-locks) against a 1.00% bar, with
+`hairFitProbe` at **0.0 mm and 0.00%** on the huscarl and the berserker at both
+seeds. Nothing was relaxed and nothing was marked closed.
 
-Four constructions were built and measured, and every one of them bought its
-silhouette by putting hair through metal:
+The entry below this one was right about the measurements and wrong about the
+conclusion, and the reason is worth keeping. Four constructions were built and
+every one of them put hair through metal:
 
 | where the hair was put | cosmetictest | `hairFitProbe` |
 |---|---|---|
@@ -78,15 +80,64 @@ silhouette by putting hair through metal:
 | plaits rooted at the throat, swung forward | 0.11% | into the mantle, invisible |
 | plaits rooted at 0.30 rad | 0.12% | inside the body |
 
-So the Sutton Hoo is ruled a closed helmet in the geometry — `hairFall` returns
-zero for `style.mask` exactly as it does for the hood, and the war-locks stand
-down — and the shop's problem is recorded here instead of being paid for with
-geometry that stands through a man's own mail. **The next honest move is at the
-till, not on the head:** either the Sutton Hoo carries its own hair-visible
-opening (a slot between the guard's rear edge and the aventail, which the profile
-frames show already exists as a gap), or the shop stops implying a 100-gold
-hairstyle is visible under a 2400-gold mask. `cosmetictest` stays RED until one
-of those happens, and that is the correct state for it to be in.
+**All four looked for an opening ABOVE the collar, where the helmet genuinely
+has none.** The aventail ENDS. `coifLevels`' bottom ring lies on the shoulder at
+`skullY - R.y * 2.60`, and below that line there is no metal anywhere behind the
+man's collarbones. `cheekHem` — the cheek plate's own free lower edge — is what
+lifted the other nine rungs from 0.95-2.26% to 7-10%; the mail has exactly the
+same thing and nobody had read it. It is `coifHemY` now, and a man with long
+hair and a mail collar does not tuck it inside the rings anyway.
+
+So the hair is gathered inside the aventail from the scalp down, squashed there
+by `coifSquash` where no bearing can see it, and comes out under the hem onto
+the shoulder. **The route never crosses metal because it goes round the bottom
+of it.**
+
+Three things had to be true for that to work, and each of them was a bug of its
+own:
+
+- **`hairCeil` did not know how far down the point it was fitting was.** A
+  direction and a height are the same thing for a shell on a skull and are not
+  the same thing for a mass that falls 400 mm, so the nape guard's `-5 mm` and
+  the aventail's ring lookup were both being applied to hair hundreds of
+  millimetres below the metal that owns them — which is what crushed every
+  previous attempt back onto the neck. `atY` stops each at its own hem
+  (`napeHemY`, `coifHemY`). Omitting it is exactly the old behaviour.
+- **`coifSquash` exempted the mail's face opening on a helm that has none.** The
+  rim opens from 1.46 to 1.80 rad as it descends, so a fall at 1.5 rad was
+  squashed at the temple and released at the shoulder: **83.2 mm of mane
+  standing outside the metal at 91 deg**, which is where the deep guard is.
+- **The throat ventail is a second curtain and it sweeps to 2.45 rad.** Between
+  it and the aventail there is a nested gap a fall can sit in and a radial ruler
+  cannot read. The fall and the plaits are both held behind 2.26 rad, which is
+  the one arc where the aventail is the only metal there is. Every value in
+  front of that line was measured and every one of them reads 27-126 mm through.
+
+The war-locks needed one thing more. Two ropes under a full mask measured
+**0.89%** — four of them measured the same, because at the shop's own
+three-quarter lens the inner pair is behind the head — and every honest lever
+left (longer, fatter, further outboard, swung sideways once free of the hem)
+either stopped paying or put the rope through the ventail. A plait is an ACCENT
+on a head of hair everywhere else in the shop; under a mask there is no hairline,
+crown or nape left for it to be an accent ON. So the rung now shows the same
+gather the mane does — shorter, with `hank` doubled so the surface reads as rope
+— with the plaits hanging past it. The two paid rungs separate at **0.73%**
+under this helm and 6-13% under every other.
+
+**What is honestly still weak:** most of what a player sees at the shop lens is
+hair filling the helmet's own side slot (the gap between the guard's rear edge
+and the aventail's front edge — `art/look/sh-long.png` panel 1 shows it plainly,
+and the brief was right that it was already there). The gather below the hem is
+real, measured and mostly buried in the cloak, whose top edge is at y 1.514
+against the mail's hem at 1.505. A forward `lean` of 0.24 was tried to carry it
+onto the shoulder in front of the cloak and moved the number by -0.02%. **The
+next honest move on this rung is the cloak's collar, not the hair.**
+
+A mask on a class with no aventail — berserker, warden, runekeeper — still shows
+nothing, and that is stated rather than hidden: what closes their throat is the
+ventail, whose hem lands ON the hauberk collar, so there is no free edge between
+the two for hair to come out of. Only the huscarl's mail creates the hem this
+rung's hair uses.
 
 ### The ruler — what was built, what it measures, and what it does not
 
@@ -123,14 +174,47 @@ which is what a player actually has. The head stack shipped anyway because the
 wave was judged on `wearmeasure`. **A gate nobody runs measures as little as a
 gate that measures the wrong thing.**
 
+### THE NEW ASSERTION — the ladder is measured against ITSELF, not only Shaved
+
+Every rung in the table above is compared to a bare scalp, and that question
+asked on its own has a hole straight through the middle of it: **two paid rungs
+can each clear the bar against Shaved and be the same object as each other.**
+That is not a hypothetical, it is the owner's exact wording — "a 40-gold Long
+Mane and a 100-gold Braided War-locks are pixel-identical" — and the table
+printed 0.05% and 0.05% under the Sutton Hoo and passed both.
+
+`cosmetictest` §3 now also asserts **"no two PAID hairstyles are the same shape
+as each other under any helm that is not a hood"**, at the file's existing
+`IDENTICAL_PCT` (0.05%). No new threshold, and the hood keeps the one exemption
+it already has, in the same place, for the same reason.
+
+**Proof it bites, and proof it is not a duplicate of the check beside it.** The
+war-locks' masked build was made identical to the mane's — same gather, plaits
+stood down — and the run is unambiguous about which assertion sees it:
+
+```
+  PASS  every paid hairstyle still reads under every helm that is not a hood — all clear
+  FAIL  no two PAID hairstyles are the same shape as each other under any helm that is not a hood — 1 merged
+        MERGED  Long Mane (40g) and Braided War-locks (100g) are the same shape under The Sutton Hoo Helm — 0.00%
+        the closest paid pair anywhere is Long Mane vs Braided War-locks under The Sutton Hoo Helm at 0.00% (bar 0.05%)
+[cos] 15/16 checks passed
+```
+
+The old check passes on a shop that sells one shape twice. The new one does not.
+On the shipped tree the closest asserted pair is 0.73%, under the Sutton Hoo.
+
 ### Proof both rulers still bite
 
-`hairCeil`'s helm branch put back to a 25 mm standoff — hair through the bowl:
+`hairCeil`'s helm branch put back to a 25 mm standoff — hair through the bowl.
+Re-run on this tip, because `hairCeil` gained a third argument and a ruler that
+was proven to bite before a change is not proven to bite after one:
 
 ```
 [wear] iron         long        6.8     50.00      77.0      51   -106/24 deg   <-- FAIL
-[wear] crowned      short      11.3      2.86      69.2      24   -26/24 deg    <-- FAIL
-[wear] FAIL: 12/30 hair-and-helm pairs keep to the stack
+[wear] iron         braids      6.8     50.00      85.5      61   -106/24 deg   <-- FAIL
+[wear] crowned      long        5.4      1.05      67.9      30   -54/24 deg    <-- FAIL
+[wear] suttonhoo    short       8.7      3.85      53.7      20   54/6 deg      <-- FAIL
+[wear] FAIL: 14/30 hair-and-helm pairs keep to the stack
 ```
 
 And the probe's own rim rule gained its missing half. The table is star-shaped
