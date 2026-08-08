@@ -97,3 +97,38 @@ point and it should land hard. Keep it to combat: dismemberment on a killing
 blow, blood from wounds. There is no reason to go further than the reference
 class, and the game is a drop-in link that lands in group chats, so the default
 should be something an adult would happily show a friend.
+
+---
+
+## The round boundary owns the blood
+
+The owner, playing: *"when loading into a second round blood floating in mid
+air."*
+
+It is the countdown flash again in a different organ — **an effect the client
+owns whose ending condition the server owns**. `engine.mjs` ends a round, waits
+out `ROUND_BREAK` (5 s), stands every warrior on a fresh ring and starts the
+next; nothing on the client side spent what the last round had left. The numbers
+say it cannot have worked: a thrown stain lives **26 s**, a pool **70 s**, a mark
+of blood stuck to a man's skin **30 s**. All three outlive the break.
+
+The airborne half is the marks on skin. One is stored in the local frame of the
+victim's **spine** bone, so it is redrawn at chest height wherever that bone has
+got to — measured leaving round two with blood at **y = 1.8 m**, and, when a
+death lands on the turnover frame, 191 droplets still flying at **y = 3.3 m**.
+
+Three pieces, and each has exactly one owner:
+
+| what | where | says |
+|---|---|---|
+| **when** | `src/game/roundreset.mjs` → `roundBoundary(prev, next)` | a new round has been dealt: `roundIndex` rose, or the room entered `countdown` on a packet too thin to carry an index. Never on the way *down* to the lobby — the match-end tableau is staged over the corpse the last round left, and its pool has to stay. |
+| **what** | `vfx.clearBattle()` | stains, pools, marks on skin, running stumps, blood in the air, shockwave rings, blade ribbons and burning men. Stumps end **without** dropping their pool: a wound that stopped because the round stopped has nothing to drip onto. The arena's own dust, embers and smoke are kept — the bonfire burns through an intermission by design, and `dustSeeded` is a one-shot, so emptying the store outright would put the arena out for good. |
+| **proof** | `tools/goretest.mjs` (`npm run goretest`) | a real best-of-3 duel on the real engine, replayed through the real `vfx.ts` on the CPU. No browser. |
+
+`vfx.census()` is the instrument: it counts all six pools and reports the
+**height** of the highest leftover, because a stain on the ground and a stain in
+the air are different bugs and a count cannot tell them apart.
+
+`node tools/goretest.mjs --blind` runs the whole suite against a client that
+never calls the reset — which is what shipped — and is kept permanently as the
+proof of failure.
