@@ -10100,71 +10100,180 @@ export function buildCharacter(
   // ==========================================================
   // TORSO — under-tunic, then wool, then metal, then straps
   // ==========================================================
+  //
+  // THE BODY PROFILE AND THE LAYERS OVER IT ARE HOISTED OUT OF THE `emit`
+  // CLOSURE, and that is not tidying — it is the only way anything above the
+  // collar can know what the man is wearing below it.
+  //
+  // The head stack needed exactly that and did not have it. `coifLevels` cuts
+  // the aventail against the SKULL's own radii, so on the one class that wears
+  // an aventail its lower rings ended up 8-20 mm INSIDE the bishop's mantle,
+  // and the mane gathered inside those rings fell another 43-108 mm inside the
+  // man's own back. Measured on the shipped build at the shop's own lens: of
+  // the 2804 pixels of Long Mane below the aventail's hem, 2804 were occluded
+  // by `rig:torso`. The hair was not lost to the helmet and not lost to the
+  // cloak — the gate stages no cloak at all — it was lost inside the hauberk.
+  //
+  // Hoisting rather than restating: writing the mantle's pad into the head's
+  // arithmetic is the mirrored-definition fault this file has recorded three
+  // times, and it would come apart the first time the mantle is re-cut.
+  //
+  // It also has to live OUTSIDE the closure rather than inside it, because
+  // `emit` caches merged geometry whenever the caller brought materials — so a
+  // second huscarl in the same kit never runs the closure at all. Anything the
+  // head reads from in here would be present in the probes (which pass no
+  // materials, so nothing caches) and absent in the game. That is this
+  // project's signature bug and it would have been invisible in every gate.
+  const seg = lod.body;
+  // One profile for the body, sampled by every layer that goes over it. Each
+  // garment used to carry its own station list, which is how the trapezius
+  // slope ended up compressed into 2 mm of height and the waist vanished
+  // entirely: a layer can only agree with the body if it is derived from it.
+  //
+  // The top three stations are the trapezius, and they are the reason the old
+  // shoulders read as a slab with a pipe stuck in it. They used to run 1.625 /
+  // 0.069 → 1.570 / 0.110 → 1.544 / 0.164: 95 mm of width bought with 81 mm of
+  // drop, a straight 40° cone, and then the deltoid cap popped back up above it
+  // at 1.607 — so each side of the neck had a V-shaped notch cut out of it. The
+  // profile below leaves the neck almost level and turns down late, which is the
+  // fan a trapezius actually makes, and the cap has come down to meet it.
+  //
+  // The topmost station is deliberately *narrower than the neck shell that rises
+  // out of it*. At yokeHW * 0.5 the torso's own capped top stood 7 mm proud of
+  // the throat and you could see the disc — a lit horizontal plate under the
+  // chin, which is exactly what a floating head looks like.
+  // The bottom half is new, and it is the "no pelvis mass" finding. The list
+  // used to stop 50 mm under the hip joint on a ring 6 mm narrower than the one
+  // above it, so a body went waist → straight tube → open hole, and the two
+  // thigh shells rose into that hole as separate pipes with daylight between
+  // them right up to the hem. There was no crotch, no gluteal volume and no
+  // iliac flare anywhere on the figure — and because every garment is swept off
+  // `at()`, which samples this list, no skirt had any swing either.
+  //
+  // The last station here is the hip and not the crotch on purpose. `at()`
+  // clamps below its final station, so a skirt hanging past the pelvis takes
+  // that station's width: terminate the sampler at the crotch and a tunic hem
+  // comes out *inside* the thighs. The crotch stations are appended separately
+  // for the body shell only — see `seat`.
+  const spine: Station[] = [
+    { y: S.neckRoot - 0.046, hw: S.neckHW * 0.86, hd: S.neckHD * 0.80 },
+    { y: S.neckRoot - 0.062, hw: S.yokeHW * 0.80, hd: S.yokeHD * 0.82 },
+    { y: S.neckRoot - 0.082, hw: S.yokeHW * 1.03, hd: S.yokeHD * 0.92 },
+    { y: S.shoulderY - 0.012, hw: S.chestHW * 0.97, hd: S.chestHD * 0.96 },
+    { y: S.shoulderY - 0.052, hw: S.chestHW * 0.995, hd: S.chestHD * 0.99 },
+    { y: S.chestY, hw: S.chestHW, hd: S.chestHD },
+    { y: S.waistY, hw: S.waistHW, hd: S.waistHD },
+    // Iliac crest: where the pelvis starts to swell out of the waist.
+    { y: S.beltY - 0.032, hw: S.waistHW * 1.05, hd: S.waistHD * 1.05 },
+    // Widest across the trochanters, and set back in z — a pelvis carries its
+    // volume behind the hip joint, not around it.
+    { y: S.hipY + 0.055, hw: S.hipHW, hd: S.hipHD, z: -0.007 },
+    { y: S.hipY - 0.020, hw: S.hipHW * 0.99, hd: S.hipHD * 1.03, z: -0.011 },
+  ];
+  // The seat: the last 75 mm of pelvis, closing the two thighs into one mass.
+  // Kept off `spine` so it cannot be sampled by a garment.
+  const seat: Station[] = [
+    { y: S.crotchY + 0.034, hw: S.hipHW * 0.87, hd: S.hipHD * 0.93, z: -0.009 },
+    { y: S.crotchY, hw: S.hipHW * 0.62, hd: S.hipHD * 0.75, z: -0.003 },
+  ];
+  const at = (y: number, pad: number, flare = 0): Station => {
+    let i = 0;
+    while (i < spine.length - 2 && y < spine[i + 1].y) i++;
+    const a = spine[i];
+    const b = spine[i + 1];
+    const t = clamp01((a.y - y) / (a.y - b.y || 1));
+    return { y, hw: mix(a.hw, b.hw, t) + pad + flare, hd: mix(a.hd, b.hd, t) + pad + flare };
+  };
+  const layer = (ys: number[], pad: number, flares?: number[]): Station[] =>
+    ys.map((y, i) => at(y, pad, flares?.[i] ?? 0));
+
+  // Where every neck opening sits, measured off the cervicale rather than off
+  // the yoke's base. 14 mm below it puts a tunic neckline on the collarbone; the
+  // mail rides 12 mm lower again so both edges are visible as edges. This is the
+  // single number that decides how much bare throat the frame shows.
+  const collar = S.neckRoot - 0.014;
+  // Every layer takes a station here, and the reason is worth stating because
+  // getting it wrong cost a pass. Above the spine's topmost station `at()` clamps,
+  // so every collar is built off the *same* base width and differs only by its pad
+  // — which is exactly the nesting we want. Below it they ramp to the shoulder at
+  // different rates from different heights, and the one that starts highest
+  // arrives widest: raise the collar line without this shared station and the
+  // linen shirt comes out through the hauberk for the first 23 mm. Derived from
+  // `spine[0].y` rather than from `collar` so it cannot drift out of the clamped
+  // band and quietly stop working.
+  const ramp = spine[0].y + 0.004;
+
+  /**
+   * THE OUTERMOST THING THIS CLASS WEARS ACROSS ITS SHOULDERS, declared once
+   * so that the aventail hanging onto it and the hair coming out from under
+   * the aventail are both cut against the garment that is actually there.
+   *
+   * Only the huscarl has anything here worth clearing — the bishop's mantle,
+   * a second cape of mail that stands 50 mm off the spine sampler and flares
+   * another 18 at the chest. It is also the only class that wears an
+   * aventail, which is why this is the one list the head stack needs. The
+   * torso below sweeps THIS array rather than a copy of it, so the mantle
+   * cannot be re-cut without the mail and the hair over it following.
+   */
+  const shoulderStack: Station[] | null = heavy
+    ? layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018])
+    : null;
+  /**
+   * The hauberk under it, hoisted for the same reason and needed for the same
+   * reach. The mantle is a CAPE — it stops at the chest — and a plait hangs
+   * 250 mm below the aventail's hem, which is well past the bottom of it. Left
+   * with the mantle alone the rope rode out onto the shoulder and then dropped
+   * back inside the mail the moment the cape ran out, which is the same defect
+   * one station lower down.
+   */
+  // Only where it is actually SWEPT. The warden wears a short byrnie from its
+  // own station list and the berserker wears no mail at all, so reporting this
+  // one for them would be `shoulderOut` describing a garment that is not on the
+  // man — the same "a number that was true somewhere and got carried
+  // everywhere" fault that produced the floating boss.
+  const trunkStack: Station[] | null = (bare || wallman) ? null
+    : layer(
+      [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY,
+        (heavy ? S.hemY - 0.03 : S.hemY + 0.26) + 0.05, heavy ? S.hemY - 0.03 : S.hemY + 0.26],
+      0.036,
+      [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
+    );
+  /**
+   * That stack's own half-breadths at a BODY height — the surface anything worn
+   * over the shoulders is lying ON. The caller adds its own clearance, so this
+   * reports the garment and nothing else.
+   *
+   * Clamped to the stack's own span: above its collar and below its lowest
+   * station it reports nothing, because a garment that stops at the chest is
+   * not what a thing 200 mm below it is lying on. That is the same rule
+   * `outer()` applies to a seated fitting, for the same reason.
+   */
+  const shoulderOut = (y: number): { hw: number; hd: number; power: number } | null => {
+    let out: { hw: number; hd: number; power: number } | null = null;
+    // THE POWER TRAVELS WITH THE HALF-BREADTHS. `shell` sweeps a SUPERELLIPSE —
+    // its cross-section is |x/hw|^p + |z/hd|^p = 1, and `power` is that p — so
+    // clearing against a plain ellipse clears against a curve the garment does
+    // not have, and on the diagonals that is the wrong side of the mail.
+    //
+    // Stated honestly, because it was measured and it is not the headline: this
+    // was a real error and fixing it did NOT fix the picture. The gather still
+    // came out as a fan of blades with the correct curve in hand
+    // (`art/look/hairfall-diag2.png` is the same failure as `-diag.png`). What
+    // fixed it was moving the travel into the section — see `MASK_SWING`. The
+    // curve matters for the last few millimetres and for nothing else.
+    for (const [sts, power] of [[shoulderStack, 2.2], [trunkStack, 2.3]] as const) {
+      if (!sts) continue;
+      // A layer only competes where it actually reaches — the same rule
+      // `outer()` applies to a seated fitting, and for the same reason.
+      if (y > sts[0]!.y + 1e-6 || y < sts[sts.length - 1]!.y - 1e-6) continue;
+      const s = stationAlong(sts, y);
+      if (!out || s.hw > out.hw) out = { hw: s.hw, hd: s.hd, power };
+    }
+    return out;
+  };
+
   const torsoMeshes = emit("torso", root, () => {
     const p = new Part();
-    const seg = lod.body;
-
-    // One profile for the body, sampled by every layer that goes over it. Each
-    // garment used to carry its own station list, which is how the trapezius
-    // slope ended up compressed into 2 mm of height and the waist vanished
-    // entirely: a layer can only agree with the body if it is derived from it.
-    //
-    // The top three stations are the trapezius, and they are the reason the old
-    // shoulders read as a slab with a pipe stuck in it. They used to run 1.625 /
-    // 0.069 → 1.570 / 0.110 → 1.544 / 0.164: 95 mm of width bought with 81 mm of
-    // drop, a straight 40° cone, and then the deltoid cap popped back up above it
-    // at 1.607 — so each side of the neck had a V-shaped notch cut out of it. The
-    // profile below leaves the neck almost level and turns down late, which is the
-    // fan a trapezius actually makes, and the cap has come down to meet it.
-    //
-    // The topmost station is deliberately *narrower than the neck shell that rises
-    // out of it*. At yokeHW * 0.5 the torso's own capped top stood 7 mm proud of
-    // the throat and you could see the disc — a lit horizontal plate under the
-    // chin, which is exactly what a floating head looks like.
-    // The bottom half is new, and it is the "no pelvis mass" finding. The list
-    // used to stop 50 mm under the hip joint on a ring 6 mm narrower than the one
-    // above it, so a body went waist → straight tube → open hole, and the two
-    // thigh shells rose into that hole as separate pipes with daylight between
-    // them right up to the hem. There was no crotch, no gluteal volume and no
-    // iliac flare anywhere on the figure — and because every garment is swept off
-    // `at()`, which samples this list, no skirt had any swing either.
-    //
-    // The last station here is the hip and not the crotch on purpose. `at()`
-    // clamps below its final station, so a skirt hanging past the pelvis takes
-    // that station's width: terminate the sampler at the crotch and a tunic hem
-    // comes out *inside* the thighs. The crotch stations are appended separately
-    // for the body shell only — see `seat`.
-    const spine: Station[] = [
-      { y: S.neckRoot - 0.046, hw: S.neckHW * 0.86, hd: S.neckHD * 0.80 },
-      { y: S.neckRoot - 0.062, hw: S.yokeHW * 0.80, hd: S.yokeHD * 0.82 },
-      { y: S.neckRoot - 0.082, hw: S.yokeHW * 1.03, hd: S.yokeHD * 0.92 },
-      { y: S.shoulderY - 0.012, hw: S.chestHW * 0.97, hd: S.chestHD * 0.96 },
-      { y: S.shoulderY - 0.052, hw: S.chestHW * 0.995, hd: S.chestHD * 0.99 },
-      { y: S.chestY, hw: S.chestHW, hd: S.chestHD },
-      { y: S.waistY, hw: S.waistHW, hd: S.waistHD },
-      // Iliac crest: where the pelvis starts to swell out of the waist.
-      { y: S.beltY - 0.032, hw: S.waistHW * 1.05, hd: S.waistHD * 1.05 },
-      // Widest across the trochanters, and set back in z — a pelvis carries its
-      // volume behind the hip joint, not around it.
-      { y: S.hipY + 0.055, hw: S.hipHW, hd: S.hipHD, z: -0.007 },
-      { y: S.hipY - 0.020, hw: S.hipHW * 0.99, hd: S.hipHD * 1.03, z: -0.011 },
-    ];
-    // The seat: the last 75 mm of pelvis, closing the two thighs into one mass.
-    // Kept off `spine` so it cannot be sampled by a garment.
-    const seat: Station[] = [
-      { y: S.crotchY + 0.034, hw: S.hipHW * 0.87, hd: S.hipHD * 0.93, z: -0.009 },
-      { y: S.crotchY, hw: S.hipHW * 0.62, hd: S.hipHD * 0.75, z: -0.003 },
-    ];
-    const at = (y: number, pad: number, flare = 0): Station => {
-      let i = 0;
-      while (i < spine.length - 2 && y < spine[i + 1].y) i++;
-      const a = spine[i];
-      const b = spine[i + 1];
-      const t = clamp01((a.y - y) / (a.y - b.y || 1));
-      return { y, hw: mix(a.hw, b.hw, t) + pad + flare, hd: mix(a.hd, b.hd, t) + pad + flare };
-    };
-    const layer = (ys: number[], pad: number, flares?: number[]): Station[] =>
-      ys.map((y, i) => at(y, pad, flares?.[i] ?? 0));
 
     // WHAT A FITTING ON THIS TORSO IS ACTUALLY PINNED TO.
     //
@@ -10204,22 +10313,6 @@ export function buildCharacter(
       const b = best;
       return { st: (yy: number) => stationAlong(b.sts, yy), power: b.power };
     };
-
-    // Where every neck opening sits, measured off the cervicale rather than off
-    // the yoke's base. 14 mm below it puts a tunic neckline on the collarbone; the
-    // mail rides 12 mm lower again so both edges are visible as edges. This is the
-    // single number that decides how much bare throat the frame shows.
-    const collar = S.neckRoot - 0.014;
-    // Every layer takes a station here, and the reason is worth stating because
-    // getting it wrong cost a pass. Above the spine's topmost station `at()` clamps,
-    // so every collar is built off the *same* base width and differs only by its pad
-    // — which is exactly the nesting we want. Below it they ramp to the shoulder at
-    // different rates from different heights, and the one that starts highest
-    // arrives widest: raise the collar line without this shared station and the
-    // linen shirt comes out through the hauberk for the first 23 mm. Derived from
-    // `spine[0].y` rather than from `collar` so it cannot drift out of the clamped
-    // band and quietly stop working.
-    const ramp = spine[0].y + 0.004;
 
     // Breeches over the seat, for every class. Without this the pelvis stops at
     // the last spine station and the crotch is a hole; with it, the two thigh
@@ -10491,20 +10584,19 @@ export function buildCharacter(
       // outermost line on him and it wants to be the one you see. Everyone else
       // wears a shirt of mail that stops well short of the garment under it, so
       // both edges read as edges.
-      const mailHem = heavy ? tunicHem - 0.03 : tunicHem + 0.26;
+      // Swept off `trunkStack`, hoisted above so the hair falling over it reads
+      // the same array the mail is drawn from.
       p.add(shell(
-        wear(layer(
-          [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, mailHem + 0.05, mailHem],
-          0.036,
-          [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
-        ), 2.3),
+        wear(trunkStack!, 2.3),
         seg, { power: 2.3, wall: 0.016 },
       ), robed ? buff : mail);
       if (heavy) {
         // Bishop's mantle: a second cape of mail over the shoulders. This is the
-        // huscarl's silhouette — heavy, round-shouldered, immovable.
+        // huscarl's silhouette — heavy, round-shouldered, immovable. Swept off
+        // `shoulderStack`, which is the same array the aventail and the mane
+        // above are cut to clear — see the note on it.
         p.add(shell(
-          wear(layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018]), 2.2),
+          wear(shoulderStack!, 2.2),
           seg, { power: 2.2, wall: 0.014 },
         ), mail);
       }
@@ -11314,6 +11406,37 @@ export function buildCharacter(
     { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
     { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
   ];
+  // AND THE LOWEST RINGS COME OUT ONTO THE SHOULDER STACK, because every one of
+  // those numbers is a multiple of the SKULL's radii and the mail lands on a
+  // BODY.
+  //
+  // Measured on the shipped build, huscarl seed 13, radius from the body axis
+  // at the bearings the masked fall actually occupies: at the hem the aventail
+  // stands 169-183 mm behind the axis and the bishop's mantle 177-197, so the
+  // "free lower hem lying on the shoulder" that this whole rung's hair route was
+  // built on is 9 to 28 mm INSIDE the mantle. It is not a free edge. Nothing
+  // shows it, because mail buried in mail looks exactly like mail — and the
+  // gather that came out under it landed inside the hauberk, which is where all
+  // 2804 pixels of Long Mane below the hem were going.
+  //
+  // The correction is REARWARD ONLY, and that is deliberate. Growing the ring
+  // outright would take the throat with it, and the front of this ring is the
+  // one place a ventail and a beard are already negotiating millimetres.
+  // Deepening `hd` while walking `z` back by the same amount moves the rearmost
+  // point out by twice that and leaves the frontmost exactly where it was — so
+  // the arc this rung's hair comes out of clears the mantle and nothing in
+  // front of the ears moves at all.
+  if (heavy) {
+    for (const ring of coifLevels) {
+      const under = shoulderOut(ring.y + S.neckTop);
+      if (!under) continue;
+      // The ring's own rearmost radius against the mantle's, both from the axis.
+      const clear = (under.hd + LAYER_GAP) - (ring.hd - ring.z);
+      if (clear <= 0) continue;
+      ring.hd += clear / 2;
+      ring.z -= clear / 2;
+    }
+  }
   /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
   const coifAt = (y: number, key: "hw" | "hd"): number => {
     if (!heavy) return 0;
@@ -11640,9 +11763,56 @@ export function buildCharacter(
     const k = lim / e;
     out.x *= k; out.z = L.z + (out.z - L.z) * k;
   };
+  /**
+   * WHERE THE GATHER GOES ONCE IT IS OUT FROM UNDER THE MAIL — onto the man's
+   * back, not into it.
+   *
+   * `coifSquash` stops at the aventail's lowest ring on the reasoning that
+   * "below the lowest ring there is no mail at all". That is true of the
+   * AVENTAIL and false of the MAN. Below that ring is the bishop's mantle, and
+   * a fall released at the hem kept the radius the rings had squashed it to and
+   * dropped straight down inside the hauberk: measured on the shipped build,
+   * 100% of Long Mane's below-hem vertices sat a mean 100 mm and a worst 137 mm
+   * inside the torso's own mail, and every one of the 2804 pixels it should
+   * have painted at the shop's lens was occluded by `rig:torso`. The route was
+   * described as going "round the bottom of" the metal. It went round the
+   * bottom of the aventail and straight into the hauberk.
+   *
+   * Hair gathered under a mail collar lies ON the rings. So below the hem the
+   * fall is carried out onto the outside of whatever the shoulders are wearing
+   * — the same rule the cloak obeys two hundred lines down, off the same
+   * `shoulderStack` the mantle itself is swept on, so the two cannot drift.
+   *
+   * It PUSHES OUT AND NEVER PULLS IN. A plait that has already swung wider than
+   * the shoulder is hanging in open air and there is nothing there to lie on;
+   * clamping it to the stack would be the "a constant standing where the metal
+   * is a curve" fault this file has now recorded four times.
+   */
+  const shoulderRide = (out: THREE.Vector3): void => {
+    if (!coifed || out.y >= coifHemY) return;
+    const under = shoulderOut(out.y + S.neckTop);
+    if (!under) return;
+    const hw = under.hw + LAYER_GAP, hd = under.hd + LAYER_GAP;
+    // The garment's own curve, not an ellipse standing in for it. See the note
+    // on `shoulderOut`: `power` IS the superellipse exponent, because
+    // `shell`'s section satisfies |x/hw|^p + |z/hd|^p = 1.
+    const p = under.power;
+    const e = Math.pow(Math.pow(Math.abs(out.x) / hw, p)
+      + Math.pow(Math.abs(out.z) / hd, p), 1 / p);
+    if (e >= 1 || e < 1e-6) return;
+    // FADED IN OVER THE 60 mm BELOW THE HEM, and never switched on at it. The
+    // section already carries the travel (see `MASK_SWING`); this is the last
+    // few millimetres of it, and a correction that arrives at full strength on
+    // the first row below the hem is a step in the surface however small it is.
+    // At the hem itself it does nothing, so the fall leaves the rings at
+    // exactly the radius the rings left it.
+    const k = 1 + (1 / e - 1) * smooth(coifHemY, coifHemY - 0.035, out.y);
+    out.x *= k; out.z *= k;
+  };
   const _ffA = new THREE.Vector3();
-  const fallFit = (out: THREE.Vector3): void => {
+  const fitFall = (out: THREE.Vector3, ride: boolean): void => {
     coifSquash(out);
+    if (ride) shoulderRide(out);
     const dy = out.y - skullY;
     const r = Math.hypot(out.x, dy, out.z);
     if (r < 1e-6) return;
@@ -11657,6 +11827,21 @@ export function buildCharacter(
     const k = lim / r;
     out.x *= k; out.z *= k; out.y = skullY + dy * k;
   };
+  /**
+   * A ROPE IS NOT A CURTAIN, AND ONLY THE CURTAIN LIES ON THE MAN.
+   *
+   * `shoulderRide` is a statement about a broad mass of hair draping over the
+   * shoulders. A war-lock is 24 mm of rope hanging free from the nape, already
+   * aimed outboard along its own bearing; laying it on the mantle would flatten
+   * it against the back, which is neither what a plait does nor what makes this
+   * rung read apart from the mane. And it does not survive the ruler either —
+   * ridden out, `hairFitProbe` read **84.7 mm of braids outside the suttonhoo
+   * on the huscarl at -151/-59 deg**, because the rope's own 24 mm sweep lands
+   * outside the aventail's hem ring in the bin that ring occupies. The gather
+   * rides; the ropes hang.
+   */
+  const gatherFit = (out: THREE.Vector3): void => fitFall(out, true);
+  const fallFit = (out: THREE.Vector3): void => fitFall(out, false);
   /**
    * THE FALL. How much of a hanging mass survives at this azimuth.
    *
@@ -12361,6 +12546,49 @@ export function buildCharacter(
         // A gather as long as the mane's with plaits below it is 400 mm of hair
         // on a man's back and reads as a cape.
         const MASK_SHOW = plaited ? 0.055 : 0.110;
+        /**
+         * THE SECTION, AND UNDER A MASK IT SWINGS OUT AS IT DESCENDS.
+         *
+         * The open section tapers INWARD over the last third — `o` runs
+         * 23 → 21 → 13 → 3 mm — which is right for hair falling down a bare
+         * neck and wrong for hair coming out from under a mail hem. The hem
+         * lies on the bishop's mantle, and the man's back swells from 177 mm
+         * behind the axis at that line to 214 by the time the fall has dropped
+         * another 60. A section that narrows while the body under it widens is
+         * a section that ends up inside the body: measured on the shipped
+         * build, every vertex of the gather below the hem sat a mean 100 mm
+         * inside the torso's own mail.
+         *
+         * SO IT IS IN THE SECTION AND NOT IN `fit`, and that distinction is the
+         * whole of why the first cut of this looked like broken glass. Pushing
+         * the finished points onto the mantle in `fit` moves ONE ROW of the
+         * sweep — the profile has ten stations and only two of them fall below
+         * the hem — so an 85 mm correction landed on a single quad and the
+         * gather came out as a fan of green blades standing through the mail
+         * (`art/look/hairfall-diag.png`). The sweep interpolates the SECTION;
+         * put the travel there and it is spread over every row that has it,
+         * which is what makes one continuous curtain instead of ten fragments.
+         *
+         * The swing is keyed on depth rather than on height so it rides the
+         * same `reach` the rest of the fall does, and it starts late — nothing
+         * moves for the first half, which is inside the rings where `coifSquash`
+         * owns the shape anyway.
+         */
+        const MASK_SWING = 0.190;
+        const maneProf = ([
+          { o: 0.000, d: 0.000 },
+          { o: 0.014, d: 0.046 },
+          { o: 0.023, d: 0.126 },
+          { o: 0.021, d: 0.214 },
+          { o: 0.013, d: 0.284 },
+          { o: 0.003, d: 0.322 },
+          { o: -0.007, d: 0.300 },
+          { o: -0.013, d: 0.196 },
+          { o: -0.011, d: 0.068 },
+          { o: 0.000, d: 0.000 },
+        ] as const).map((b) => (maskedFall
+          ? { o: b.o + MASK_SWING * smooth(0.16, MANE_DEEP, b.d), d: b.d }
+          : { o: b.o, d: b.d }));
         const _mrA = new THREE.Vector3();
         const maneReach = (u: number) => {
           dirOf(u, maneRoot(u), _mrA);
@@ -12377,18 +12605,7 @@ export function buildCharacter(
           // the ear is what made the old shells read as two curtains hung
           // beside a face.
           u0: Math.PI - maneArc, u1: Math.PI + maneArc,
-          prof: [
-            { o: 0.000, d: 0.000 },
-            { o: 0.014, d: 0.046 },
-            { o: 0.023, d: 0.126 },
-            { o: 0.021, d: 0.214 },
-            { o: 0.013, d: 0.284 },
-            { o: 0.003, d: 0.322 },
-            { o: -0.007, d: 0.300 },
-            { o: -0.013, d: 0.196 },
-            { o: -0.011, d: 0.068 },
-            { o: 0.000, d: 0.000 },
-          ],
+          prof: maneProf,
           // Full over the back and the sides, dying at the temple so the face
           // is never framed by two vertical bars.
           //
@@ -12445,8 +12662,9 @@ export function buildCharacter(
           // whether its bottom edge is a ruled arc.
           rag: (u) => 1 + 0.15 * Math.cos(u * 4.3 + 1.1) + 0.085 * Math.cos(u * 8.9 - 0.4),
           lean: 0.10,
-          // Compressed into the mail rather than scaled out of it.
-          fit: fallFit,
+          // Compressed into the mail rather than scaled out of it, and carried
+          // out onto the shoulder stack once it is past the mail's hem.
+          fit: gatherFit,
           thick: 0.008,
         }), hair);
       }

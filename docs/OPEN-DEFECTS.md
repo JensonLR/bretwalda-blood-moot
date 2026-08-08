@@ -8,61 +8,106 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## REOPENED — the Sutton Hoo swallows the hair again, and one unit closed the other's window
+## CLOSED — the Sutton Hoo's hair, and it was never the cloak
 
-**Status on `main` (measured, not inferred):**
+`npm run cosmetictest -- --no-render` is **16/16**. Long Mane reads **1.42%** and
+Braided War-locks **1.31%** under the Sutton Hoo against a 1.00% bar, with
+`wearmeasure` §10 still PASS at 0.27% (bar 0.35%) and `hairFitProbe` reading
+**0.0 mm** of hair outside the metal on every Sutton Hoo row. `cheekIn` was not
+touched.
+
+**The entry this replaces named the wrong garment, and one measurement settles
+it.** It said the gather was "buried in the cloak", quoted the cloak collar's
+top edge at y 1.514 against the mail hem at 1.505, and concluded "the work is on
+the cloak collar, not the hair". The check that was never run is what the gate
+actually stages:
 
 ```
-FAIL  every paid hairstyle still reads under every helm that is not a hood — 2 swallowed
-  SWALLOWED  Long Mane (40g) under The Sutton Hoo Helm — 0.62% (helm covers 100% of the face)
-  SWALLOWED  Braided War-locks (100g) under The Sutton Hoo Helm — 0.64%
-[cos] FAIL   (14/15)
+[cos] audit dress, read from /shot's own DRESS_IDS: ... cloak=cloak_none ...
 ```
 
-Two paid items — 40 and 100 gold — are invisible on the helm a player pays 2400
-gold for. **Both of the sections below are accurate about the work they
-describe, and both were green when they were written.** The combination is not.
+`src/app/shot/page.tsx` says so in its own comment — *"Bare-headed and cloakless
+on purpose"*. §3 builds a man with **no cloak on**. Sweeping the whole slot
+through the gate's own rasteriser and lens:
 
-**What happened, exactly.** Two units landed within twenty minutes of each
-other and each broke the other's assumption:
+```
+[cloakprobe] cloak    hair      SIL%   (bar 1.00%)  — helm suttonhoo, huscarl s13, portrait -35
+[cloakprobe] none     long       0.62
+[cloakprobe] red      long       0.61
+[cloakprobe] gold     long       0.61
+```
 
-| | commit | what it did |
-|---|---|---|
-| hair | `536b91f` | routed the fall out through the Sutton Hoo's **side slot** — the gap between the cheek guard's rear edge and the aventail's front edge — reaching 1.56% and 1.44% |
-| helm shell | `9b2172d` | closed a hole at the jaw by widening the same guard inward: `cheekIn` on a masked helm **0.78 → 0.66 rad**, so the guard laps the mask all the way down |
+Deleting or changing the cloak moves the failing number by **0.01 points**. The
+cloak collar could not have fixed this and nothing on it was changed. The 9 mm
+was read off a *render*, which is shot with a cloak; the gate is not.
 
-The 0.12 rad the guard gained is the slot the hair was coming out of. Neither
-unit could have caught it: `wearmeasure` §10 measures metal and holes and has no
-concept of hair, `cosmetictest` §3 measures hair and has no concept of a hole,
-and each ran its own gate green before merging.
+### What was actually eating it, in two layers of the man's own mail
 
-**The section below said so in advance**, which is the part worth keeping:
-*"most of what a player sees at the shop lens is hair filling the helmet's own
-side slot"*, and *"the next honest move on this rung is the cloak's collar, not
-the hair."* That warning was the load-bearing sentence and it was right.
+**1. The gather fell inside the hauberk.** `coifSquash` stops at the aventail's
+lowest ring on the reasoning *"below the lowest ring there is no mail at all"*.
+True of the aventail, false of the man — below it is the bishop's mantle. Every
+one of Long Mane's below-hem vertices sat a mean **100 mm** and a worst **137 mm**
+inside the torso's outer mail wall, and at the shop's lens **all 2804** of its
+below-hem pixels were occluded by `rig:torso`. The route was described as going
+"round the bottom of" the metal. It went round the bottom of the aventail and
+straight into the hauberk.
 
-**What the fix has to satisfy, and it is both at once:**
+**2. The aventail's "free hem" is not free.** `coifLevels` cuts the mail against
+multiples of the SKULL's radii and it lands on a BODY. Per-azimuth, at the
+bearings the masked fall occupies:
 
-1. `wearmeasure` §10 — no sight line lands on the shell's own far wall at the
-   jaw. The guard must keep lapping the mask; reverting `cheekIn` to 0.78 puts
-   the hole straight back and is not a fix.
-2. `cosmetictest` §3 — Long Mane and Braided War-locks each read above 1.00%
-   under this helm.
+```
+[prof] y=1.505 (the hem)   az -173  -158  -143  -128  -113
+[prof]  aventail             169   174   183   191   194
+[prof]  torso mail           177   184   197   212   222
+[prof]  aventail - torso      -9    -9   -14   -21   -28
+```
 
-Which means the hair cannot go back through the slot, and the only route left is
-the one already identified: **the gather below the aventail's hem, which is
-currently buried in the cloak** (cloak collar top edge y 1.514 against the mail
-hem at 1.505 — 9 mm, and the hair loses). A forward `lean` of 0.24 was already
-tried and moved the number by −0.02%. **So the work is on the cloak collar —
-dropping or scooping it behind the nape so the hem's gather is in open air —
-and not on the hair at all.** `tools/hairprobe.mjs` is the 10-second inner loop
-for it.
+The hem the whole rung was built on is 9 to 28 mm **inside** the mantle. Mail
+buried in mail looks exactly like mail, so nothing showed it.
 
-**The process lesson, which is the more expensive one.** Two agents in separate
-worktrees, each with a green gate, produced a red main. Nothing in the gate runs
-the *other* unit's ruler before a merge, so a unit can only ever prove it did
-not break itself. Until units that touch the same geometry share a gate, the
-merge order is doing work nobody is checking.
+### What changed
+
+- `spine`, `at`, `layer`, `collar`, `ramp` and the two mail station lists are
+  **hoisted out of the `emit("torso")` closure** so the head stack can read what
+  the man is wearing below his collar. Outside the closure and not inside it,
+  because `emit` caches merged geometry once materials are present — a second
+  huscarl never runs the closure, so anything read from inside it would be right
+  in every probe and absent in the game.
+- The aventail's lower rings clear the mantle **rearward only** (`hd` deepened,
+  `z` walked back by the same amount), so the arc the hair comes out of gets a
+  real free edge and nothing in front of the ears moves.
+- `MASK_SWING`: under a mask the fall's **section** swings out as it descends,
+  so the gather lies on the mail instead of inside it.
+- `shoulderRide`: the last few millimetres onto the stack's own superellipse,
+  faded in over the 35 mm below the hem. **The gather rides; the ropes hang** —
+  applied to the plaits it measured 84.7 mm of braids outside the helm.
+
+**The lesson is the one the file keeps re-learning, and this time it cost the
+route.** The travel was first written into `fit`, which moves finished points.
+The profile has ten stations and only two fall below the hem, so an 85 mm
+correction landed on a single quad and the gather came out as a fan of blades
+standing through the mail — `art/look/hairfall-diag.png`. Fixing the curve it was
+projected onto (`shell` sweeps a superellipse, not an ellipse) was a real bug
+and changed the picture not at all (`-diag2.png`). Putting the same travel in the
+SECTION, where the sweep interpolates it across every row, is what made one
+curtain instead of ten fragments.
+
+### What is honestly still weak, and it is the same bearing as before
+
+**At the shop's own lens the gain is not the gather.** Of the 956 visible hair
+pixels on the fixed build, every one is at y 1.55–1.83; **none** is below the
+mail hem at 1.505. The three-quarter portrait looks at the man's front-left and
+his own shoulder and arm stand in front of the nape, so the below-hem gather —
+which is real, is now outside the mail, and reads as a curtain at −90° and 180°
+— pays nothing at −35°. What the extra silhouette is, is hair filling the gap
+where the aventail's rim opens past the cheek guard's rear edge as it descends.
+That is a genuine opening and it costs 0.0 mm through metal, but it is the same
+"hair in the helmet's own side slot" the previous entry flagged as weak.
+
+Anyone raising this bar again should know that the below-hem route cannot pay at
+−35° for a reason no amount of cloak, mantle or hem work will change: at that
+bearing the gather is behind the man.
 
 ---
 
@@ -188,8 +233,15 @@ and the aventail's front edge — `art/look/sh-long.png` panel 1 shows it plainl
 and the brief was right that it was already there). The gather below the hem is
 real, measured and mostly buried in the cloak, whose top edge is at y 1.514
 against the mail's hem at 1.505. A forward `lean` of 0.24 was tried to carry it
-onto the shoulder in front of the cloak and moved the number by -0.02%. **The
-next honest move on this rung is the cloak's collar, not the hair.**
+onto the shoulder in front of the cloak and moved the number by -0.02%. ~~**The
+next honest move on this rung is the cloak's collar, not the hair.**~~
+
+> **CORRECTED — that last sentence was wrong, and it sent a whole pass at the
+> wrong garment.** The 9 mm was read off a render, and a render is shot with a
+> cloak on. `cosmetictest` §3 stages the audit dress, which is `cloak=cloak_none`
+> — sweeping the entire cloak slot through the gate moves the failing number by
+> 0.01 points. What the gather was buried in was the man's own hauberk. See the
+> CLOSED entry at the top of this file.
 
 A mask on a class with no aventail — berserker, warden, runekeeper — still shows
 nothing, and that is stated rather than hidden: what closes their throat is the
