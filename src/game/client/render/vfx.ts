@@ -4205,7 +4205,13 @@ export function createVfx(
       // repacks it. `rebuildFires` runs while this is non-zero, so leaving it
       // set for one more frame is what actually takes them out of the buffer.
       burnerTongues = Math.max(burnerTongues, 1);
+      // The capsule cache is dropped and its clock wound back, not merely
+      // dropped: a new round moves every warrior to a new place on the ring, and
+      // an empty `bodies` with a fresh `bodyScanAt` would leave up to six tenths
+      // of a second in which blood passes through men because the scan has not
+      // been allowed to run yet.
       bodies.length = 0;
+      bodyScanAt = -1e3;
     },
 
     burst,
