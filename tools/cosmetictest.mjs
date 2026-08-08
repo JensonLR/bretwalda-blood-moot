@@ -818,14 +818,27 @@ for (const helm of helms) {
     const d = shapeDiff(base, withHair);
     cells.push(`${d.changed.toFixed(2)}%`.padStart(10));
     TABLE.companions.push({ kind: "hair-under-helm", helm: helm.label, option: hair.label, changed: d.changed, cover });
-    if (helm.value === HOOD) {
-      // The Shadow Hood is the ONE helm entitled to cover hair — a hood is a bag
-      // for a head, and swallowing what is under it is what its 120 gold buys.
-      // So it is exempted from the assertion and reported instead: whether a
-      // draped cowl should hide a mane or let it spill out the front is a design
-      // call, and a harness that decided it by fiat would be inventing a defect.
+    // THE HOOD IS NO LONGER EXEMPT, AND THE OWNER MADE THE CALL.
+    //
+    // This carve-out used to say: "a hood is a bag for a head, and swallowing
+    // what is under it is what its 120 gold buys ... whether a draped cowl
+    // should hide a mane or let it spill out the front is a design call, and a
+    // harness that decided it by fiat would be inventing a defect."
+    //
+    // That was the right instinct — the harness declined to rule and reported
+    // instead. The ruling has now been made, 2026-08-08, in the owner's own
+    // words: *"long hair dissappears fully even if it should be visible at the
+    // below the helmet"*. A cowl covers the crown; it does not swallow a mane
+    // that hangs past the shoulder. So the hood is held to the same bar as every
+    // other helm and the note becomes an assertion.
+    //
+    // `hoodLeaks` is kept and still printed, because the NUMBER is worth seeing
+    // next to the verdict — a hood that reads 0.9% and one that reads 0.02% are
+    // both failures and are not the same distance from a fix.
+    if (helm.value === HOOD && d.changed < DIFFERS_PCT) {
       hoodLeaks.push(`${hair.label} reads ${pct2(d.changed)} under the Shadow Hood`);
-    } else if (hair.cost > 0 && d.changed < DIFFERS_PCT) {
+    }
+    if (hair.cost > 0 && d.changed < DIFFERS_PCT) {
       swallowed.push(`${hair.label} (${hair.cost}g) under ${helm.label} — ${pct2(d.changed)} (helm covers ${cover.toFixed(0)}% of the face)`);
     } else if (d.changed < DIFFERS_PCT) {
       freeSwallowed.push(`${hair.label} (free) under ${helm.label} — ${pct2(d.changed)}`);
@@ -849,14 +862,14 @@ for (const helm of helms) {
   TABLE.companions.push({ kind: "face-coverage", helm: helm.label, cover });
 }
 console.log("");
-check("every paid hairstyle still reads under every helm that is not a hood",
+check("every paid hairstyle still reads under every helm, the hood included",
   swallowed.length === 0, swallowed.length ? `${swallowed.length} swallowed` : "all clear", swallowed);
 for (const s of swallowed) note(`SWALLOWED  ${s}`);
 if (freeSwallowed.length) {
   note(`${freeSwallowed.length} FREE hairstyles are also swallowed — not gated, because nobody paid for them:`);
   for (const f of freeSwallowed) note(`  ${f}`);
 }
-check("no two PAID hairstyles are the same shape as each other under any helm that is not a hood",
+check("no two PAID hairstyles are the same shape as each other under any helm but the hood",
   mergedPaid.length === 0, mergedPaid.length ? `${mergedPaid.length} merged` : "every paid pair is two objects", mergedPaid);
 for (const m of mergedPaid) note(`MERGED  ${m}`);
 {

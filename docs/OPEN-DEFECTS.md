@@ -48,6 +48,70 @@ may be performing, on either route.
 ---
 
 
+## OPEN — the beards are flat sheets, and the hood swallows a mane
+
+Reported 2026-08-08 with four screenshots: *"all beards have a similar defect &
+issue where it looks to be really sharp & thin / folded in areas, overlapping
+into the neck or just a hole in it ... the design & display of the beards is
+really broken & poor, the hair & helmets also have similar issues"*, and
+*"across the 4 fighting types the hair designs break with helmets on ... long
+hair dissappears fully even if it should be visible at the below the helmet ...
+the sides of helmets are missing too with leaves bald spots or ears exposed"*.
+
+### 1. The hood swallowed a mane, and the gate was told to allow it
+
+`cosmetictest` §3 carried an explicit CARVE-OUT for the Shadow Hood, with this
+reasoning:
+
+> *"a hood is a bag for a head, and swallowing what is under it is what its 120
+> gold buys ... whether a draped cowl should hide a mane or let it spill out the
+> front is a design call, and a harness that decided it by fiat would be
+> inventing a defect."*
+
+That was the right instinct and it is why the harness read green while the owner
+read broken: it declined to rule, and reported instead. **The ruling has now been
+made** — a cowl covers the crown, it does not swallow a mane that hangs past the
+shoulder — so the exemption is gone and the numbers are an assertion:
+
+```
+SWALLOWED  Long Mane (40g)          under Shadow Hood — 0.97% (helm covers 37% of the face)
+SWALLOWED  Braided War-locks (100g) under Shadow Hood — 0.97%
+           Warrior Crop  reads 0.37% under the Shadow Hood
+[cos] 15/16
+```
+
+A 40-gold and a 100-gold item, both under 1% under a 120-gold helm. `art/look/rep1.png`
+shows why: the mane is entirely INSIDE the cowl, with a few millimetres of
+hairline showing at the brow and nothing at all below the shoulder.
+
+### 2. The beard is a SHEET, not a mass
+
+`art/look/rep1.png` panel 3, and the owner's own profile shots. In profile the
+beard reads as a thin flat plane standing off the jaw with a hard straight edge
+— "really sharp & thin / folded" is an exact description of a surface with no
+thickness seen edge-on. This is a different fault from the throat overlap fixed
+earlier today: that one was about WHERE the surface was, this is about the
+surface having no body. `beardcount` (one island) and `beardseat` (0.0 mm into
+neck and garment) are both satisfied by a sheet, because neither asks about
+volume.
+
+**The missing ruler:** thickness. A beard should read as a mass from every
+bearing, and nothing measures the distance between its outer and inner walls.
+
+### 3. A stray flat tab on the hood
+
+`art/look/rep1.png` panel 3 shows a hard-edged rectangular quad projecting from
+the back of the hood at ear height, unattached to the silhouette. Not yet
+diagnosed.
+
+### 4. Helm sides leaving bald spots and exposed ears
+
+Owner-reported and not yet reproduced here. `wearmeasure` §10 "the openings" was
+built for exactly this and passes, which — after the hood — is reason to check
+whether it too carries a carve-out or measures at bearings that miss it.
+
+---
+
 ## OPEN — the Wyrm's DEEP cheek guard takes half the face at three-quarter
 
 `npm run facecover` measures, per bearing, how much lens-facing face skin the
