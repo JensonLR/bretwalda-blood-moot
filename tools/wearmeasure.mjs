@@ -106,6 +106,7 @@ const {
   wearNormalProbe, helmFitProbe, hairFitProbe, bodyFitProbe, handProbe, beardSeatProbe,
   backCarryProbe,
   HELM_VALUES, HAIR_VALUES, CLOAK_VALUES, BEARD_VALUES, defaultAppearance,
+  buildCharacter,
 } = await import(pathToFileURL(built).href);
 const anim = foundAnim[0] && existsSync(foundAnim[0])
   ? await import(pathToFileURL(foundAnim[0]).href)
@@ -819,4 +820,310 @@ console.log(`[wear] bars: the carried weapon comes no closer than ${CARRY_MM} mm
 for (const f of cfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${cfails.length ? "FAIL" : "PASS"}: the weapon at rest`);
 
-process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length + dfails.length + kfails.length + cfails.length ? 1 : 0);
+// ============================================================
+// 10. THE OPENINGS — what a hole in the side of a helmet frames.
+// ============================================================
+//
+// The owner, on the whole tier at once:
+//
+//   "there are large gaps in the sides of the helmets, if they are there they
+//    need more consideration & better lining up with the actual ears or
+//    whatever would be visible there."
+//
+// Every ruler above this one measures metal against skin: fold, skin-through,
+// standoff, flare, hem. NOT ONE OF THEM CAN SEE A HOLE. A shell with a window
+// cut in its flank passes section 2 with a perfect score, because every vertex
+// that still exists is seated correctly — the defect is in the vertices that
+// are NOT there, and a distance from a surface to a surface cannot report an
+// absence. That is the fourth time in this file's history that a green harness
+// has been measuring the wrong quantity, and it is why the owner had to be the
+// instrument.
+//
+// A hole is measurable, and the measurement is a SIGHT LINE rather than a
+// length: cast through the opening and see what you hit.
+//
+//   FLESH   the sight line lands on an ear, a cheek, a jaw. The opening frames
+//           a feature — that is an aperture, and it is legitimate.
+//   INSIDE  the sight line misses every near surface, crosses the hollow of
+//           the helmet and lands on the INNER wall of the far side. You are
+//           looking through the helmet at the inside of the helmet. THE
+//           OPENING FRAMES NOTHING, and this is exactly the fault the last
+//           agent captured as "a rectangular hole in the helmet's side framing
+//           nothing".
+//   VOID    the sight line hits nothing at all, with metal on both sides of it
+//           in the row AND in the column — daylight punched clean through the
+//           shell with head on four sides of it.
+//
+// INSIDE is a SIGN, not a distance, which is the lesson `wearmeasure` §6
+// records about the hand: the winning fragment is inner wall exactly when its
+// normal points back along the sight line, and no ruler laid between two
+// surfaces can tell that from a plate seen from outside. A back-facing helmet
+// fragment 6 mm from the camera and one 200 mm away read identically to every
+// other section of this file.
+//
+// So: rasterise the head stack from 72 bearings with a z-buffer, and classify
+// the winning fragment at each pixel. Cheap — 96x96 at 3 mm a pixel, which is
+// finer than the 20 mm features being hunted — and it needs no browser.
+const OPEN_INSIDE = 0.0025;  // share of the head's own footprint
+const OPEN_VOID = 0.0015;
+{
+  const RIG = "rig:";
+  const hexOf = (m) => {
+    const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+    return mat?.color?.getHexString?.() ?? "??";
+  };
+  /**
+   * Every triangle of the WHOLE warrior in world space, each one flagged with
+   * whether it is helmet.
+   *
+   * The whole warrior and not just the head pivot, and the first cut of this
+   * got it wrong in the one way worth recording: restricted to the head, the
+   * NECK is not in the frame, so the daylight under a hole in the side of a
+   * helm had nothing solid below it and the enclosure test — head on all four
+   * sides — never fired. The instrument reported 0.01% on the one helmet the
+   * owner had already photographed a hole in. What occludes a sight line is
+   * the man, not the head; what is *helmet* is decided separately, below.
+   */
+  const headTris = (cls, seed, helm) => {
+    const root = buildCharacter(cls, { ...defaultAppearance(cls), helm }, 0, undefined, "high", seed).group;
+    root.updateMatrixWorld(true);
+    let pivot = null;
+    root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
+    const onHead = new Set();
+    (pivot ?? root).traverse((o) => { if (o.isMesh) onHead.add(o); });
+    const tris = [];
+    const tints = new Set();
+    root.traverse((o) => {
+      if (!o.isMesh || !o.geometry?.attributes?.position) return;
+      const hex = hexOf(o);
+      const head = onHead.has(o);
+      if (head) tints.add(hex);
+      const pos = o.geometry.attributes.position;
+      const idx = o.geometry.index;
+      const n = idx ? idx.count : pos.count;
+      const v = new THREE.Vector3();
+      const P = [];
+      for (let i = 0; i < (idx ? pos.count : pos.count); i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        P.push(v.x, v.y, v.z);
+      }
+      for (let i = 0; i + 2 < n; i += 3) {
+        const a = (idx ? idx.array[i] : i) * 3;
+        const b = (idx ? idx.array[i + 1] : i + 1) * 3;
+        const c = (idx ? idx.array[i + 2] : i + 2) * 3;
+        tris.push([P[a], P[a + 1], P[a + 2], P[b], P[b + 1], P[b + 2], P[c], P[c + 1], P[c + 2], hex, head]);
+      }
+    });
+    return { tris, tints };
+  };
+  // WHICH TRIANGLES ARE THE HELMET. Not a hard-coded list of materials — a
+  // difference. The same head is built bare; every material tint that appears
+  // on it is flesh, hair, beard, eye or paint, and everything the helmed build
+  // adds on top of that set is the helmet. So a new rung with a new substance
+  // on it is inside this gate the day it is authored.
+  const N = 96;
+  const BEARINGS = [];
+  for (let a = 0; a < 24; a++) for (const el of [-0.42, 0, 0.34]) BEARINGS.push([(a / 24) * Math.PI * 2, el]);
+
+  console.log("");
+  console.log("[wear] 10. THE OPENINGS — cast through every hole and see what it frames.");
+  console.log(`[wear]     ${BEARINGS.length} bearings x ${N}x${N} sight lines a helm.`);
+  console.log("");
+  console.log("[wear] class        helm         flesh%   inside%    void%  worst bearing  verdict");
+  console.log("[wear] ---------------------------------------------------------------------------");
+  const ofails = [];
+  const oclasses = ONLY ? CLASSES : ["huscarl", "berserker"];
+  // `--opendump wyrm` writes the classification the numbers are counted off, as
+  // a sheet of the worst nine bearings. A ruler nobody has looked through is
+  // the fault this file records four times; this is how you look through it.
+  const DUMP = flag("opendump", null);
+  const dumps = [];
+  for (const cls of oclasses) {
+    const bare = headTris(cls, seeds[0], "none").tints;
+    for (const helm of helms) {
+      if (helm === "none") continue;
+      const { tris } = headTris(cls, seeds[0], helm);
+      const isHelm = tris.map((t) => t[10] && !bare.has(t[9]));
+      // The head's own centre and extent, from the flesh only, so a crest
+      // 100 mm above the crown does not zoom the frame out and shrink the
+      // 20 mm hole being hunted to two pixels.
+      let cx = 0, cy = 0, cz = 0, nf = 0;
+      let rad = 0;
+      for (let i = 0; i < tris.length; i++) {
+        if (isHelm[i] || !tris[i][10]) continue;
+        const t = tris[i];
+        cx += (t[0] + t[3] + t[6]) / 3; cy += (t[1] + t[4] + t[7]) / 3; cz += (t[2] + t[5] + t[8]) / 3; nf++;
+      }
+      if (!nf) { ofails.push(`${cls}/${helm}: no flesh under the helmet at all`); continue; }
+      cx /= nf; cy /= nf; cz /= nf;
+      let crownY = -Infinity;
+      for (let i = 0; i < tris.length; i++) {
+        if (isHelm[i] || !tris[i][10]) continue;
+        const t = tris[i];
+        for (let k = 0; k < 3; k++) {
+          rad = Math.max(rad, Math.hypot(t[k * 3] - cx, t[k * 3 + 1] - cy, t[k * 3 + 2] - cz));
+          crownY = Math.max(crownY, t[k * 3 + 1]);
+        }
+      }
+      const half = rad * 1.18;
+      let flesh = 0, inside = 0, voidEnc = 0, total = 0;
+      let worst = "-", worstN = 0;
+      for (const [az, el] of BEARINGS) {
+        // Orthographic, so a pixel is a fixed number of millimetres wherever it
+        // lands and the shares below are areas rather than perspective.
+        const fx = -Math.sin(az) * Math.cos(el), fy = -Math.sin(el), fz = -Math.cos(az) * Math.cos(el);
+        const sxv = Math.cos(az), syv = 0, szv = -Math.sin(az);
+        const ux = syv * fz - szv * fy, uy = szv * fx - sxv * fz, uz = sxv * fy - syv * fx;
+        const depth = new Float32Array(N * N).fill(Infinity);
+        const kind = new Int8Array(N * N);   // 0 void, 1 flesh, 2 metal, 3 inside
+        const px = new Float32Array(3), py = new Float32Array(3), pd = new Float32Array(3);
+        for (let i = 0; i < tris.length; i++) {
+          const t = tris[i];
+          for (let k = 0; k < 3; k++) {
+            const dx = t[k * 3] - cx, dy = t[k * 3 + 1] - cy, dz = t[k * 3 + 2] - cz;
+            px[k] = ((dx * sxv + dy * syv + dz * szv) / half) * 0.5 * N + N * 0.5;
+            py[k] = N * 0.5 - ((dx * ux + dy * uy + dz * uz) / half) * 0.5 * N;
+            pd[k] = dx * fx + dy * fy + dz * fz;
+          }
+          // The face normal, and its SIGN against the sight line is the whole
+          // measurement: a fragment whose normal runs with the ray is the far
+          // wall's inner surface seen through a hole in the near wall.
+          const e1x = t[3] - t[0], e1y = t[4] - t[1], e1z = t[5] - t[2];
+          const e2x = t[6] - t[0], e2y = t[7] - t[1], e2z = t[8] - t[2];
+          let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+          const nl = Math.hypot(nx, ny, nz) || 1;
+          const facing = (nx * fx + ny * fy + nz * fz) / nl;
+          const k = isHelm[i] ? (facing > 0.30 ? 3 : 2) : 1;
+          const x0 = Math.max(0, Math.floor(Math.min(px[0], px[1], px[2])));
+          const x1 = Math.min(N - 1, Math.ceil(Math.max(px[0], px[1], px[2])));
+          const y0 = Math.max(0, Math.floor(Math.min(py[0], py[1], py[2])));
+          const y1 = Math.min(N - 1, Math.ceil(Math.max(py[0], py[1], py[2])));
+          const d = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
+          if (!d) continue;
+          for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+            const qx = x + 0.5, qy = y + 0.5;
+            const w0 = ((px[1] - qx) * (py[2] - qy) - (px[2] - qx) * (py[1] - qy)) / d;
+            const w1 = ((px[2] - qx) * (py[0] - qy) - (px[0] - qx) * (py[2] - qy)) / d;
+            const w2 = 1 - w0 - w1;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            const z = w0 * pd[0] + w1 * pd[1] + w2 * pd[2];
+            const j = y * N + x;
+            if (z < depth[j]) { depth[j] = z; kind[j] = k; }
+          }
+        }
+        // Enclosed void: nothing at all under the sight line, with the head on
+        // both sides of it along the row AND along the column. Open sky beside
+        // the helmet fails neither test; a punched window fails both.
+        let nIn = 0, nVoid = 0, nAny = 0;
+        const holed = new Uint8Array(N * N);
+        const solid = (j) => kind[j] !== 0;
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const j = y * N + x;
+          if (kind[j] === 3) nIn++;
+          if (kind[j] !== 0) { nAny++; continue; }
+          // The NEAREST solid thing on each of the four sides — the hole's own
+          // boundary. Enclosure alone is not enough: a berserker's hair is a
+          // dozen hanging locks and the daylight between two of them is
+          // enclosed by head on all four sides while being no fault of any
+          // helmet. So the boundary has to be METAL along at least one whole
+          // axis: a hole with the shell on its left and the shell on its right
+          // is a hole IN THE SHELL, and a slot between two braids is not.
+          let l = 0, r = 0, u = 0, dn = 0;
+          for (let i = x - 1; i >= 0; i--) if (solid(y * N + i)) { l = kind[y * N + i]; break; }
+          for (let i = x + 1; i < N; i++) if (solid(y * N + i)) { r = kind[y * N + i]; break; }
+          for (let i = y - 1; i >= 0; i--) if (solid(i * N + x)) { u = kind[i * N + x]; break; }
+          for (let i = y + 1; i < N; i++) if (solid(i * N + x)) { dn = kind[i * N + x]; break; }
+          const met = (k) => k >= 2;
+          // AND THE SIGHT LINE HAS TO PASS BELOW THE TOP OF THE HEAD.
+          // The first cut of this counted the sky under the wyrm's arch — 2% of
+          // the frame, enclosed by the serpent above and the cap below, with
+          // metal on both sides of every row through it — and that daylight is
+          // the whole point of an arch. `art/look/openings_wyrm.png` is the
+          // picture that said so, which is why this section can be looked
+          // through. A crest, a comb and a crown's points all stand ABOVE the
+          // hair; a hole in a shell is beside the head it is supposed to be
+          // covering. One height separates them, and it is the head's own.
+          const wy = cy + (1 - ((y + 0.5) / N) * 2) * half * uy;
+          if (l && r && u && dn && ((met(l) && met(r)) || (met(u) && met(dn))) && wy <= crownY) {
+            nVoid++; holed[j] = 1;
+          }
+        }
+        if (DUMP && DUMP === helm && cls === oclasses[0]) {
+          dumps.push({ az, el, N, kind: kind.slice(), holed: holed.slice(), n: nIn + nVoid });
+        }
+        flesh += nAny - nIn; inside += nIn; voidEnc += nVoid; total += nAny + nVoid;
+        if (nIn + nVoid > worstN) {
+          worstN = nIn + nVoid;
+          worst = `${Math.round((az * 180) / Math.PI)}/${Math.round((el * 180) / Math.PI)}`;
+        }
+      }
+      const fIn = inside / Math.max(1, total), fVoid = voidEnc / Math.max(1, total);
+      const bad = [];
+      if (fIn > OPEN_INSIDE) bad.push(`${(fIn * 100).toFixed(2)}% of the head's footprint looks through a hole in the shell at the shell's own inner wall`);
+      if (fVoid > OPEN_VOID) bad.push(`${(fVoid * 100).toFixed(2)}% is daylight punched through the shell with head on all four sides`);
+      if (bad.length) ofails.push(`${cls}/${helm}: ${bad.join("; ")} (worst bearing az/el ${worst})`);
+      console.log(
+        `[wear] ${cls.padEnd(12)} ${helm.padEnd(11)} ${((flesh / Math.max(1, total)) * 100).toFixed(1).padStart(6)}  ` +
+        `${(fIn * 100).toFixed(2).padStart(8)} ${(fVoid * 100).toFixed(2).padStart(8)}  ` +
+        `${worst.padStart(13)}  ${bad.length ? "<-- FAIL" : "ok"}`);
+    }
+  }
+  console.log("");
+  console.log(`[wear] bars: at most ${(OPEN_INSIDE * 100).toFixed(2)}% of the head seen through a hole onto the shell's own inside,`);
+  console.log(`[wear]       at most ${(OPEN_VOID * 100).toFixed(2)}% daylight enclosed by head on all four sides.`);
+  console.log("[wear]       An opening either frames a feature or it is not an opening.");
+  for (const f of ofails) console.log(`[wear] FAIL ${f}`);
+  console.log(`[wear] ${ofails.length ? "FAIL" : "PASS"}: the openings`);
+  globalThis.__openFails = ofails.length;
+  if (DUMP && dumps.length) {
+    // grey flesh, blue metal, RED the shell's own inner wall seen from outside,
+    // MAGENTA daylight punched through the shell.
+    const PAL = [[0.08, 0.08, 0.09], [0.55, 0.52, 0.47], [0.24, 0.36, 0.55], [0.95, 0.15, 0.10]];
+    dumps.sort((a, b) => b.n - a.n);
+    const pick = dumps.slice(0, 9);
+    const N9 = pick[0].N, C = 3, S = 4;
+    const W = N9 * C * S, H = N9 * Math.ceil(pick.length / C) * S;
+    const rgb = new Float32Array(W * H * 3);
+    pick.forEach((d, k) => {
+      const ox = (k % C) * N9 * S, oy = Math.floor(k / C) * N9 * S;
+      for (let y = 0; y < N9; y++) for (let x = 0; x < N9; x++) {
+        const c = d.holed[y * N9 + x] ? [0.95, 0.15, 0.85] : PAL[d.kind[y * N9 + x]];
+        for (let sy = 0; sy < S; sy++) for (let sx = 0; sx < S; sx++) {
+          const o = ((oy + y * S + sy) * W + ox + x * S + sx) * 3;
+          rgb[o] = c[0]; rgb[o + 1] = c[1]; rgb[o + 2] = c[2];
+        }
+      }
+    });
+    const raw = Buffer.alloc(H * (W * 3 + 1));
+    let o = 0;
+    for (let y = 0; y < H; y++) {
+      raw[o++] = 0;
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 3;
+        for (let c = 0; c < 3; c++) raw[o++] = Math.round(Math.max(0, Math.min(1, rgb[i + c])) * 255);
+      }
+    }
+    const crcTab = [];
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crcTab[n] = c; }
+    const crc32 = (b) => { let c = -1; for (let i = 0; i < b.length; i++) c = (c >>> 8) ^ crcTab[(c ^ b[i]) & 0xff]; return (c ^ -1) >>> 0; };
+    const chunk = (type, data) => {
+      const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+      const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+      const cr = Buffer.alloc(4); cr.writeUInt32BE(crc32(td));
+      return Buffer.concat([len, td, cr]);
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
+    ihdr[8] = 8; ihdr[9] = 2;
+    const { deflateSync } = await import("zlib");
+    const out = resolve(ROOT, `art/look/openings_${DUMP}.png`);
+    mkdirSync(resolve(ROOT, "art/look"), { recursive: true });
+    writeFileSync(out, Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0)),
+    ]));
+    console.log(`[wear] opendump ${out}  ${W}x${H}  worst ${pick.length} bearings`);
+  }
+}
+
+process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length + dfails.length + kfails.length + cfails.length + (globalThis.__openFails ?? 0) ? 1 : 0);
