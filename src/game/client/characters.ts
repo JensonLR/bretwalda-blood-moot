@@ -5043,21 +5043,81 @@ const GLOBE = 0.0152;
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
+/**
+ * An orthonormal basis a `globePatch` can be laid out in: two axes across the
+ * tangent plane and one out of it. Two of them exist per eye and the difference
+ * between them is the whole of the wall-eye fix — see `EyeFrame.gaze`.
+ */
+interface EyeAxes {
+  lat: THREE.Vector3;
+  up: THREE.Vector3;
+  fwd: THREE.Vector3;
+}
+
 /** The orbit, resolved into a frame the eye's parts can all be built in. */
-interface EyeFrame {
+interface EyeFrame extends EyeAxes {
   /** Globe centre, in head space — buried in the skull, not sitting on it. */
   c: THREE.Vector3;
   /** Laterally outward, toward the temple. */
   lat: THREE.Vector3;
   up: THREE.Vector3;
   fwd: THREE.Vector3;
+  /**
+   * WHERE THE EYE IS LOOKING, which is NOT where the socket faces.
+   *
+   * "the actual pupils of the eyes are looking in opposite directions."
+   *
+   * `fwd` above is `faceNormal` at the orbit's own bearing, and the orbit sits
+   * at ±0.375 rad off the midline on a curved skull, so that normal splays
+   * OUTWARD by about 24° on each side — in opposite directions, because the
+   * bearing carries the side. Every part of the eye used to be laid out on it,
+   * pupil included, so the two optical axes left the face 48° apart and the
+   * irises sat hard against the temporal canthus of each eye. That is divergent
+   * strabismus, and it is drawn exactly as an exotropic man looks.
+   *
+   * AND NO DISTANCE COULD SEE IT. The two eyes are perfect mirror images of one
+   * another either way; every length, every clearance, every ratio in
+   * `headProbe` is identical on a converging pair and a diverging one. What
+   * separates them is a SIGN — see `gazeProbe`, and `wearmeasure` §6 for the
+   * same lesson learned on a hand.
+   *
+   * So the socket keeps `fwd` (the lids, the lash, the aperture and its shadow
+   * are all seated on the skull and were never wrong) and the globe's own
+   * contents — iris, limbal ring, pupil — are laid out on this basis instead,
+   * which points at one shared fixation point in front of the face.
+   */
+  gaze: EyeAxes;
   /** Palpebral fissure: half-width, half-height at the centre, canthal tilt. */
   wA: number; hA: number; tilt: number;
   /** Where the lid dies into the socket, as an offset on the skull's own u/v. */
   uE: number; vE: number;
 }
 
-function eyeFrame(K: Skull, side: number): EyeFrame {
+/**
+ * How far in front of the eyes both of them fixate, in metres.
+ *
+ * Not infinity, and not a hand's breadth. Parallel axes (a fixation at
+ * infinity) would pass any convergence test that only forbids divergence, and
+ * they read as a thousand-yard stare — a man focused past you rather than at
+ * you. The armoury portrait lens stands 2.05 m off the head, so fixating there
+ * means the warrior in the shop is looking at the player, which is what the
+ * whole eye build exists for ("what reads as a man looking at you").
+ *
+ * The toe-in it buys is small and that is correct: a 74 mm interpupillary
+ * distance at 2.05 m is 1.03° per eye. The defect being fixed was 24° per eye,
+ * so the correction is twenty-three degrees of it and the last one is the
+ * convergence a real pair of eyes has.
+ */
+const GAZE_FIXATION = 2.05;
+
+/**
+ * The globe's centre and the socket normal it hangs off, for one side.
+ *
+ * Split out of `eyeFrame` because the fixation point is a property of BOTH
+ * eyes: it has to be solved from the two centres together, and an eye frame
+ * only knows its own side. Cheap — a handful of field evaluations.
+ */
+function orbitOf(K: Skull, side: number): { uE: number; vE: number; fwd: THREE.Vector3; c: THREE.Vector3 } {
   // 0.375 rather than 0.395: at the eye line that bearing lands 37 mm off the
   // midline, so the pupils are 74 mm apart against a Farkas 63 rescaled to this
   // head's 73. At 0.395 they were 78 apart with a 21 mm nasal root between them,
@@ -5070,10 +5130,6 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   const vE = lat(Y_EYE) + K.F.eyeV;
   const dir = dirOf(uE, vE, new THREE.Vector3());
   const fwd = faceNormal(K, dir, new THREE.Vector3());
-  // A frame built off world up rather than off the skull's poles, so the eye
-  // stays level whichever way the socket normal happens to point.
-  const base = new THREE.Vector3().crossVectors(UP_AXIS, fwd).normalize();
-  const up = new THREE.Vector3().crossVectors(fwd, base).normalize();
   // The socket floor the displacement field already dug, with the globe set so
   // its cornea stands 11 mm proud of it. Measured, not guessed: that puts the
   // cornea 22 mm behind the brow ridge, which is a heavy-browed but human orbit —
@@ -5083,8 +5139,41 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // 13.8 mm, and it moved because the socket did: the orbit is 9.6 mm deep now
   // where it was 8.5, so at the old standoff the cornea would have gone back with
   // it and the eye would have been in a cave.
-  const floor = faceSurface(K, dir, new THREE.Vector3());
-  const c = floor.addScaledVector(fwd, 0.0138 - GLOBE);
+  const c = faceSurface(K, dir, new THREE.Vector3()).addScaledVector(fwd, 0.0138 - GLOBE);
+  return { uE, vE, fwd, c };
+}
+
+/**
+ * The point both eyes fixate on, in head space: straight ahead of the midpoint
+ * of the two globes, `GAZE_FIXATION` in front of them.
+ *
+ * Solved from both centres so it is ONE point rather than two nearly-equal
+ * ones. That matters for `gazeProbe`: two rays aimed at slightly different
+ * targets do not meet, and "do they meet" is one of the bars.
+ */
+function gazeTarget(K: Skull, out: THREE.Vector3): THREE.Vector3 {
+  const a = orbitOf(K, -1).c;
+  const b = orbitOf(K, 1).c;
+  out.addVectors(a, b).multiplyScalar(0.5);
+  // The head's own forward is +z — `faceSurface` sweeps the face at positive z
+  // and `headProbe.front()` reads it there. The midline, not each eye's own x,
+  // is what makes the two axes converge instead of running parallel.
+  out.x = 0;
+  out.z += GAZE_FIXATION;
+  return out;
+}
+
+function eyeFrame(K: Skull, side: number): EyeFrame {
+  const { uE, vE, fwd, c } = orbitOf(K, side);
+  // A frame built off world up rather than off the skull's poles, so the eye
+  // stays level whichever way the socket normal happens to point.
+  const base = new THREE.Vector3().crossVectors(UP_AXIS, fwd).normalize();
+  const up = new THREE.Vector3().crossVectors(fwd, base).normalize();
+  // The ocular axis, and the same right-handed recipe off the same world up, so
+  // the winding note below holds for the iris exactly as it holds for the lids.
+  const gFwd = gazeTarget(K, new THREE.Vector3()).sub(c).normalize();
+  const gLat = new THREE.Vector3().crossVectors(UP_AXIS, gFwd).normalize();
+  const gUp = new THREE.Vector3().crossVectors(gFwd, gLat).normalize();
   // `lat` stays with the skull's +x rather than flipping to "outward", so
   // (lat, up, fwd) is right-handed on both sides of the face. That matters: every
   // patch below takes its winding from that cross product, and a mirrored frame
@@ -5110,6 +5199,7 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // which is the expression the owner's reference has.
   return {
     c, lat: base, up, fwd,
+    gaze: { lat: gLat, up: gUp, fwd: gFwd },
     wA: 0.0150, hA: 0.0068 * K.F.eyeOpen, tilt: side * 0.0022,
     uE, vE,
   };
@@ -5119,9 +5209,17 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
  * A shell lying on the globe: sclera, iris, pupil. `extent` returns where in the
  * eye's tangent plane the sample sits and the sphere supplies the depth, so every
  * one of the three is curved with the eyeball rather than pasted flat across it.
+ *
+ * `axes` is which of the eye's two bases the patch is laid out in, and it is the
+ * argument that has to be got right rather than defaulted. Anything seated on
+ * the SKULL — the aperture, the lid shadow — takes `f` itself, whose `fwd` is
+ * the socket normal. Anything that is part of the EYEBALL and therefore turns
+ * with the gaze — iris, limbal ring, pupil — takes `f.gaze`. Both are centred on
+ * the same `f.c`, because they are two orientations of one ball.
  */
 function globePatch(
   f: EyeFrame,
+  axes: EyeAxes,
   radius: number,
   thick: number,
   nu: number,
@@ -5133,7 +5231,7 @@ function globePatch(
   const at = (t: number, s: number, r: number, out: THREE.Vector3) => {
     extent(t, s, uv);
     const zz = Math.sqrt(Math.max(1e-8, r * r - uv.x * uv.x - uv.y * uv.y));
-    out.copy(f.c).addScaledVector(f.lat, uv.x).addScaledVector(f.up, uv.y).addScaledVector(f.fwd, zz);
+    out.copy(f.c).addScaledVector(axes.lat, uv.x).addScaledVector(axes.up, uv.y).addScaledVector(axes.fwd, zz);
   };
   return patch({
     nu, nv, wrapU,
@@ -5235,6 +5333,59 @@ interface FaceMaterials {
   lash: THREE.Material;
 }
 
+/**
+ * One eye as the build actually laid it out, for `gazeProbe`.
+ *
+ * Every point here is read back OFF THE EMITTED VERTEX BUFFER, so what the probe
+ * measures is the object rather than the intention. Lesson 2 in
+ * `docs/SUTTON-HOO.md`: a ruler pointed at the declaration passes on geometry
+ * that never got built.
+ */
+interface EyeFit {
+  /** −1 or +1, the sign the orbit's bearing was taken with. */
+  side: number;
+  /** Globe centre, in the head part's own space. */
+  centre: THREE.Vector3;
+  /** Centre of the PUPIL disc — the thing the owner's complaint is about. */
+  pupil: THREE.Vector3;
+  /** Centre of the IRIS disc, so a probe can check the two still agree. */
+  iris: THREE.Vector3;
+}
+let _eyeSpy: EyeFit[] | null = null;
+
+/**
+ * The axis point of one of the eye's discs, taken off its emitted vertices.
+ *
+ * Every disc `globePatch` builds is a spherical cap, rotationally symmetric
+ * about the axis it was laid out on, so the mean of its vertices lies exactly on
+ * that axis and `mean − globeCentre` is the direction the eye points. Measured
+ * from the buffer rather than from the frame that made it, because a stored
+ * vector proves only that somebody stored a vector.
+ *
+ * DEDUPLICATED FIRST, and that is not tidiness. `patch` duplicates the seam
+ * column on a wrapped ring and collapses the whole `s = 0` row onto the apex, so
+ * a plain average counts one angle nine times over and comes out 1.3 mm off the
+ * axis — an artefact of the row count, which would have sat inside a tolerance
+ * pretending to be a squint. Averaging the DISTINCT positions restores the
+ * symmetry the estimator depends on, and it is exact.
+ */
+function discAxisPoint(geo: THREE.BufferGeometry): THREE.Vector3 {
+  const pos = geo.getAttribute("position");
+  const seen = new Set<string>();
+  const acc = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  let n = 0;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const key = `${Math.round(v.x * 1e7)},${Math.round(v.y * 1e7)},${Math.round(v.z * 1e7)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    acc.add(v);
+    n++;
+  }
+  return acc.multiplyScalar(1 / Math.max(1, n));
+}
+
 /** Both eyes, their lids and their lashes, added into the head's part. */
 function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMaterials): void {
   const fine = lod.trim;
@@ -5243,7 +5394,9 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
 
     // Sclera — the exposed almond only. Anything wider would be visible past
     // the lids as a ring of white, which is the one way to make a face look mad.
-    p.add(globePatch(f, GLOBE, 0.0014, Math.max(4, lod.shellU - 4), 2, (t, s, out) => {
+    // On the SOCKET frame: the almond is the hole the lids leave, and it is cut
+    // in the skull, not in the eyeball.
+    p.add(globePatch(f, f, GLOBE, 0.0014, Math.max(4, lod.shellU - 4), 2, (t, s, out) => {
       const tt = t * 2 - 1;
       const hh = fissure(f, tt);
       out.set(tt * f.wA, f.tilt * tt + (s * 2 - 1) * hh);
@@ -5258,7 +5411,7 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     // 0.15 mm outboard of the sclera so it wins the depth test outright. Cheaper
     // than any shadow, and it survives the head turning, which a baked one would
     // not.
-    p.add(globePatch(f, GLOBE + 0.00015, 0.0002, Math.max(4, lod.shellU - 4), 1, (t, s, out) => {
+    p.add(globePatch(f, f, GLOBE + 0.00015, 0.0002, Math.max(4, lod.shellU - 4), 1, (t, s, out) => {
       const tt = t * 2 - 1;
       const hh = fissure(f, tt);
       out.set(tt * f.wA, f.tilt * tt + mix(0.68, 1.0, s) * hh);
@@ -5268,25 +5421,47 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     // the iris material is the catchlight: one specular dot off the key is worth
     // more than any amount of iris detail.
     // The angle runs backwards for the same winding reason the lower lid does.
+    //
+    // ALL THREE OF THESE ARE ON `f.gaze`, and that is the wall-eye fix. They are
+    // the eyeball's own contents, so they aim where the man is looking; the
+    // socket normal they used to sit on aims wherever that patch of skull
+    // happens to face, which on a curved head is outward, oppositely per side.
     const rI = 0.0061;
-    p.add(globePatch(f, GLOBE + 0.00035, 0.0003, fine ? 10 : 6, 2, (t, s, out) => {
+    const irisGeom = globePatch(f, f.gaze, GLOBE + 0.00035, 0.0003, fine ? 10 : 6, 2, (t, s, out) => {
       const a = -t * Math.PI * 2;
       out.set(Math.cos(a) * rI * s, Math.sin(a) * rI * s);
-    }, true), fine ? M.iris : M.dark, place.clone());
+    }, true);
+    p.add(irisGeom, fine ? M.iris : M.dark, place.clone());
+    let pupilGeom = irisGeom;
     if (fine) {
       // Limbal ring: the dark rim a real iris has where it meets the sclera. Two
       // hundred triangles, and it is what stops the iris reading as a flat dot at
       // the distance the eye is actually seen from.
-      p.add(globePatch(f, GLOBE + 0.0005, 0.0002, 10, 1, (t, s, out) => {
+      p.add(globePatch(f, f.gaze, GLOBE + 0.0005, 0.0002, 10, 1, (t, s, out) => {
         const a = -t * Math.PI * 2;
         const r = mix(rI * 0.84, rI, s);
         out.set(Math.cos(a) * r, Math.sin(a) * r);
       }, true), M.dark, place.clone());
       const rP = 0.0024;
-      p.add(globePatch(f, GLOBE + 0.0007, 0.0003, 8, 1, (t, s, out) => {
+      pupilGeom = globePatch(f, f.gaze, GLOBE + 0.0007, 0.0003, 8, 1, (t, s, out) => {
         const a = -t * Math.PI * 2;
         out.set(Math.cos(a) * rP * s, Math.sin(a) * rP * s);
-      }, true), M.dark, place.clone());
+      }, true);
+      p.add(pupilGeom, M.dark, place.clone());
+    }
+    if (_eyeSpy) {
+      // Read AFTER the adds, because `Part.add` bakes `place` into the buffer in
+      // place — so these are the vertices as they finally sit in the head, and
+      // the globe centre they are compared against goes through the same matrix.
+      // Below the trim tier there is no separate pupil and the iris disc IS the
+      // dark spot, so it stands in for one; at every tier the probe is looking at
+      // the disc the player sees in the middle of the eye.
+      _eyeSpy.push({
+        side,
+        centre: f.c.clone().applyMatrix4(place),
+        pupil: discAxisPoint(pupilGeom),
+        iris: discAxisPoint(irisGeom),
+      });
     }
 
     // Lids, and every one of them is in the *base* tone now.
@@ -7260,6 +7435,102 @@ export function handProbe(cls: WarriorClass, seed: number): HandFit[] {
       worldX,
     };
   });
+}
+
+/** Where the two eyes are pointing, and whether they agree. */
+export interface GazeFit { [k: string]: number }
+
+/**
+ * THE GAZE, measured as a SIGN.
+ *
+ * "the actual pupils of the eyes are looking in opposite directions."
+ *
+ * A wall-eyed pair and a converging pair are both perfectly symmetric about the
+ * sagittal plane. Every length on one equals the same length on the other: the
+ * interpupillary distance, the corneal standoff, the iris radius, the clearance
+ * under each lid. So no ruler in `headProbe` — none of the 26 ratios, none of
+ * the 15 silhouette assertions — can tell them apart, and none of them did. It
+ * is the same shape of defect as the backwards hand in `wearmeasure` §6: a
+ * REFLECTION, invisible to a distance.
+ *
+ * What separates them is the sign of how the separation between the two gaze
+ * rays CHANGES as they travel. Write the rays as `cA + t·gA` and `cB + t·gB`.
+ * Then
+ *
+ *     d/dt |pB − pA|²  at t = 0   =   2 (cB − cA) · (gB − gA)
+ *
+ * and `converge` below is that inner product per unit of travel: NEGATIVE when
+ * the axes close on each other, zero when they run parallel, POSITIVE when they
+ * splay. It needs no convention for which eye is which — swapping the labels
+ * negates both differences and leaves the product alone — and it is unchanged
+ * by any rotation of the head, so it survives `place` and the body mirror.
+ *
+ * Two more, because a sign alone is not enough:
+ *
+ *   `fixation` is where along the axes that separation bottoms out, in metres.
+ *   Convergent-but-behind-the-head is a possible sign-passing configuration and
+ *   it is a cross-eyed man looking backwards, so the distance is bounded too.
+ *
+ *   `skew` is the honest triple product: (gA × gB) · b̂ over the interocular
+ *   direction b̂. It is zero exactly when the two axes are COPLANAR with the
+ *   line between the globes — that is, when they really meet — and it changes
+ *   sign if one eye is aimed above the other. A converging pair with one eye
+ *   rolled up passes `converge` and fails this.
+ */
+export function gazeProbe(cls: WarriorClass, seed: number): GazeFit {
+  const spy: EyeFit[] = [];
+  const prev = _eyeSpy;
+  _eyeSpy = spy;
+  try {
+    buildCharacter(cls, defaultAppearance(cls), 0x8a6b3f, undefined, "high", seed);
+  } finally {
+    _eyeSpy = prev;
+  }
+  // Two eyes, or there is nothing to compare and the probe must say so rather
+  // than average its way to a pass.
+  if (spy.length !== 2) return { eyes: spy.length, converge: 0, fixation: 0, skew: 9, ipd: 0, miss: 999, ahead: -1, irisOffAxis: 999 };
+  // Through the body mirror `anim.ts` hangs every character under, exactly as
+  // `handProbe` does — a mirror is precisely the transform this measurement is
+  // about, so it cannot be left off.
+  const mir = (v: THREE.Vector3) => new THREE.Vector3(v.x * BODY_MIRROR_X, v.y, v.z);
+  const cA = mir(spy[0].centre), cB = mir(spy[1].centre);
+  const gA = mir(spy[0].pupil).sub(cA).normalize();
+  const gB = mir(spy[1].pupil).sub(cB).normalize();
+  const dc = new THREE.Vector3().subVectors(cB, cA);
+  const dg = new THREE.Vector3().subVectors(gB, gA);
+  const ipd = dc.length();
+  // Millimetres the two axes gain (positive) or lose (negative) per metre flown.
+  const converge = (dc.dot(dg) / Math.max(1e-9, ipd)) * 1000;
+  // Closest approach of two skew lines: t* on each ray, and the gap there.
+  const dgg = dg.lengthSq();
+  const fixation = dgg < 1e-12 ? Infinity : -dc.dot(dg) / dgg;
+  const pA = cA.clone().addScaledVector(gA, fixation);
+  const pB = cB.clone().addScaledVector(gB, fixation);
+  const miss = Number.isFinite(fixation) ? pA.distanceTo(pB) * 1000 : 0;
+  const skew = new THREE.Vector3().crossVectors(gA, gB).dot(dc.clone().divideScalar(Math.max(1e-9, ipd)));
+  // And that the pair looks FORWARD rather than backward or at the floor: the
+  // mean axis against the head's own facing. `BODY_MIRROR_X` does not touch z.
+  const mean = gA.clone().add(gB).normalize();
+  // And that the iris has not been left behind on the socket while the pupil
+  // moved: the angle between the two discs' axes, as mm of iris-centre offset at
+  // the globe's surface. An eye with a pupil off-centre in its own iris is a
+  // different defect with the same cause.
+  let irisOffAxis = 0;
+  for (const e of spy) {
+    const g = e.pupil.clone().sub(e.centre).normalize();
+    const i = e.iris.clone().sub(e.centre);
+    irisOffAxis = Math.max(irisOffAxis, i.clone().addScaledVector(g, -i.dot(g)).length() * 1000);
+  }
+  return {
+    eyes: 2,
+    ipd: ipd * 1000,
+    converge,
+    fixation,
+    miss,
+    skew,
+    ahead: mean.z,
+    irisOffAxis,
+  };
 }
 
 // ============================================================

@@ -53,7 +53,7 @@ if (!existsSync(built)) {
   process.exit(2);
 }
 
-const { headProbe, headSilhouette } = await import(pathToFileURL(built).href);
+const { headProbe, headSilhouette, gazeProbe } = await import(pathToFileURL(built).href);
 
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
@@ -353,7 +353,73 @@ for (const [key, lo, hi, note] of ASSERTS) {
   console.log(`    ${note}`);
 }
 draw(headSilhouette("huscarl", 0));
+
+// ============================================================
+// THE GAZE GATE
+//
+// "the actual pupils of the eyes are looking in opposite directions."
+//
+// Every ratio above and every silhouette assertion passed on the build that
+// shipped a wall-eyed man, and this is not a slack tolerance either. A wall-eyed
+// pair and a converging pair are MIRROR IMAGES of one another about the sagittal
+// plane, so every distance on the head is bit-for-bit identical between them —
+// interpupillary distance, corneal standoff, iris radius, lid clearance, the lot.
+// A reflection is invisible to a distance ruler. That is `wearmeasure` §6's
+// lesson, learned there on a backwards hand and paid for again here.
+//
+// So none of these four is a distance either. They are the sign and the
+// geometry of the relationship between the two optical axes, taken off the
+// EMITTED IRIS VERTICES of the built character and pushed through the same body
+// mirror `anim.ts` applies:
+//
+//   G1  the axes CONVERGE — separation shrinks as they travel, sign negative
+//   G2  they meet a plausible distance IN FRONT of the face, not behind it
+//   G3  they actually meet: coplanar with the interocular line, |triple| ~ 0
+//   G4  the pair looks FORWARD
+//
+// G1 is the one that catches the defect. On the shipped build it read +413 mm
+// per metre — the pupils flying apart at forty-one centimetres for every metre
+// of travel, which is a man whose eyes never meet anything.
+// ============================================================
+const GAZE_ASSERTS = [
+  ["eyes", 2, 2,
+    "the probe found two eyes on the head. If this is not 2 nothing below means anything"],
+  ["converge", -80, -3,
+    "G1 · THE SIGN. mm the two optical axes gain per metre flown; d/dt|pB-pA|^2 = 2(cB-cA).(gB-gA). NEGATIVE converges, 0 is parallel (a thousand-yard stare), POSITIVE IS WALL-EYED. The floor is -80 because a hard toe-in is cross-eyed, and the ceiling is -3 rather than 0 because parallel axes pass any test that only forbids divergence"],
+  ["fixation", 0.9, 6.0,
+    "G2 · metres in front of the eyes where the axes come closest. The armoury lens stands at 2.05 m, so a warrior in the shop is looking at the player. Negative would be convergent BEHIND the head, which passes G1 and is a man looking through the back of his own skull"],
+  ["miss", -0.001, 0.05,
+    "G3 · mm the two axes miss each other by at that closest approach. Not a bar on its own — it is the magnitude whose SIGN structure `skew` carries"],
+  ["irisOffAxis", -0.001, 0.05,
+    "mm the IRIS disc's centre sits off the PUPIL's own axis, worst of the two eyes. Catches half a fix: a pupil moved onto the gaze while its iris stayed on the socket normal is an eye with the coloured part and the black part in different places"],
+  ["skew", -0.004, 0.004,
+    "G3 · THE TRIPLE PRODUCT. (gA x gB) . b-hat over the interocular direction. Zero exactly when the two axes are coplanar with the line joining the globes, i.e. when they really meet; it CHANGES SIGN if one eye is aimed above the other, which is a hypertropia that sails through G1"],
+  ["ipd", 60, 88,
+    "mm between the globe centres. Reported so a convergence read on two eyes that have collapsed onto one point cannot pass"],
+  ["ahead", 0.985, 1.001,
+    "G4 · cosine of the mean axis against the head's own forward. A pair can converge beautifully on a point beside the man's ear"],
+];
+const gazes = [];
+for (const cls of CLASSES) for (let s = 0; s < SEEDS; s++) gazes.push(gazeProbe(cls, s));
+
+console.log("\n\n[head] GAZE GATE — the sign of the convergence, which no distance can see");
+console.log(`[head] ${gazes.length} heads\n`);
+console.log("  assertion                 min      mean       max        allowed      verdict");
+console.log("  " + "-".repeat(84));
+let gfails = 0;
+for (const [key, lo, hi, note] of GAZE_ASSERTS) {
+  const vals = gazes.map((r) => r[key]);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const ok = min >= lo && max <= hi;
+  if (!ok) gfails++;
+  console.log(`  ${key.padEnd(20)} ${fmt(min).padStart(9)} ${fmt(mean).padStart(9)} ${fmt(max).padStart(9)}` +
+    `  ${`${fmt(lo)}..${fmt(hi)}`.padStart(13)}   ${ok ? "ok" : "FAIL"}`);
+  console.log(`    ${note}`);
+}
+
 console.log("\n  " + "-".repeat(84));
-console.log(`[head] FINAL: ${fails} ratios outside tolerance · ${sfails} of ${ASSERTS.length} SILHOUETTE assertions FAILED`);
+console.log(`[head] FINAL: ${fails} ratios outside tolerance · ${sfails} of ${ASSERTS.length} SILHOUETTE assertions FAILED` +
+  ` · ${gfails} of ${GAZE_ASSERTS.length} GAZE assertions FAILED`);
 rmSync(OUT, { recursive: true, force: true });
-process.exit(sfails > 0 ? 1 : 0);
+process.exit(sfails > 0 || gfails > 0 ? 1 : 0);
