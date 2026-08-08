@@ -161,6 +161,96 @@ publisher or a porting house. Months, and money, after the port itself.
 
 ---
 
+## 5b. Assets: procedural on the web, authored on the desktop — decided 2026-08-08
+
+The owner: *"so are we going to utilise blender going forward?"*, and then, having
+read the reasoning below: *"i will take your recommendation here."*
+
+**The decision. The zero-binary-asset rule stays for the browser build and stops
+applying to the desktop build.** They become two targets of one codebase rather
+than one target with one rule.
+
+### Why the rule existed, and why it expires
+
+Every mesh, texture and sound in this game is generated in code. That was not
+purity — it bought one specific property: **the game opens from a link, on a
+phone, with nothing to download.** A 5 MB asset pack would have destroyed the
+only distribution channel the game had.
+
+That channel is being retired. The owner has already removed the "link in a group
+chat" pitch, and the game is going to a storefront. **A Steam user has already
+downloaded the game before they run it; the size of the payload is not a feature
+they experience.** So on desktop the rule buys nothing and costs a great deal —
+because the thing procedural geometry is worst at is exactly what this project
+keeps failing at.
+
+### The evidence that it costs something
+
+Every head-and-face defect in `docs/OPEN-DEFECTS.md` is a parametric bug, and the
+list is long: nine failed face passes, the ear that was `ball + torus + ball`
+with daylight through it, the beard that was three solids, the hand that was
+mirrored inside out, the boar that was a bracket. The two the owner raised today
+are the same shape —
+
+- the iris is a **full circle with no clip**, so it draws over the eyelid;
+- the beard's inner wall dies at a **fixed 60 mm** under a jawline whose neck was
+  later reworked underneath it.
+
+Neither is a modelling problem. Both are the cost of describing a face as
+arithmetic. **In a mesh, an eyelid occludes an iris because it is in front of
+it** — there is no clip to forget.
+
+### What this does NOT mean
+
+- **The browser build keeps every line of the procedural pipeline.** It is not
+  legacy and it is not deleted. It is the free, instant, no-download demo that
+  feeds the storefront, and it is the reason anybody played this game at all.
+- **It does not start now.** Authored assets need the renderer to be able to load
+  them, and the seam that makes two clients possible is §2 — the wire protocol
+  and the headless sim. **Export the clock first.** Doing assets before that seam
+  means doing them twice.
+- **It is not a licence to reach for Blender for the current defect list.** The
+  eye and the beard are being fixed in the code they live in. Rebuilding a head
+  as a mesh in the middle of a defect pass is how a pass takes five hours.
+
+### Blender is not reachable from a cloud session, and this is why
+
+The owner has `blender-mcp` listening on his Mac — port 9876, then 9877. **A
+Claude Code session running in the cloud cannot reach it, and no amount of
+enabling it in the connector settings will change that.** Checked four ways on
+2026-08-08: the connector list, a keyword filter of it, a tool search, and a TCP
+probe of both ports on `localhost`, `127.0.0.1` and `host.docker.internal`. All
+negative.
+
+The reason is not configuration. **A local MCP server bound to a port on a laptop
+can only be reached by a Claude Code session running on that laptop.** claude.ai
+connectors are remote HTTP services — Canva, Gmail, Drive — reached outward from
+Anthropic's side. They are not a tunnel from a cloud container back into a
+machine at home, and there is no setting that makes them one.
+
+**So: Blender work has to be driven from Claude Code running locally on the Mac**
+— the desktop app or the CLI — where `localhost:9877` means the same machine
+Blender is on. That is a real and easy option; it is simply a different session
+from this one. Recorded here so nobody spends another twenty minutes proving it
+again.
+
+### The order, when it comes
+
+1. §2's seam — headless sim, exported clock, written protocol. **In flight.**
+2. A Tauri desktop build that runs the existing WebGL client. No assets yet.
+3. An asset loader in the renderer, behind a build flag, with the procedural path
+   as the fallback the web build always takes.
+4. Author the highest-value pieces first, and the list is not arbitrary — it is
+   the defect log: **head, face, hands, beard, helmets.** These are the things
+   twenty passes have not closed and the things a player looks straight at.
+5. Environments and weapons only if there is reason to.
+
+**The rule to hold on to:** an authored asset must never become the only way a
+thing can be drawn. The moment the procedural path is deleted, the browser build
+is dead, and the browser build is the funnel.
+
+---
+
 ## 6. Mobile
 
 Three options, in increasing cost:
@@ -182,7 +272,9 @@ group chat" pitch exactly.
 1. **Neon.** Removes the 90-day deadline sitting on every profile. Days.
 2. **Fly.io, auto-stop off.** Leaves Render, keeps everything working. Days.
 3. **Formalise the wire protocol and keep the sim headless.** The cheapest thing
-   on this page and the one that decides the console question. Days.
+   on this page and the one that decides the console question. Days. **This is
+   also the gate on §5b** — an authored-asset pipeline needs a renderer that can
+   be swapped, and that is the same seam. Do not start assets before it.
 4. **Ship analytics.** Nothing on this page can be prioritised honestly while
    "most players are on a phone" remains unmeasured (`docs/PLATFORMS.md`).
 5. **PWA.** Mobile, free, immediate.
