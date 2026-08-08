@@ -836,31 +836,99 @@ async function main() {
     `hitstop present on every snapshot`);
 
   // ---- 9. commitment: the body cannot chase the aim mid-swing ----
-  // The same violent sweep of the mouse, once free and once inside a stroke.
-  // Free, the server adopts the client's yaw outright; committed, it may only
-  // slew toward it at SWING_TURN_RATE.
-  // Under pointer lock only the DELTA between moves reaches the page, so the
-  // sweep has to be monotonic and the mouse has to be parked before recording
-  // starts — a there-and-back sweep nets to zero and asks the warrior to turn
-  // by nothing at all, which is a test measuring itself.
-  const park = async () => { await page.mouse.move(200, 400); await page.waitForTimeout(350); };
-  const sweepRight = () => page.mouse.move(1240, 400, { steps: 12 });
+  // The same violent sweep of look, once free and once inside a stroke. Free,
+  // the server adopts the client's yaw outright; committed, it may only slew
+  // toward it at SWING_TURN_RATE.
+  //
+  // WHY THE SWEEP IS DISPATCHED FROM INSIDE THE PAGE, AND NOT WITH page.mouse.
+  // It used to be `page.mouse.move(1240, 400, {steps: 12})` fired straight
+  // after the click, on the reasoning that twelve interpolated moves land
+  // inside an 0.85 s warden stroke. On this box they do not, and this is the
+  // whole of the bug that left the assertion red for days. Measured: each CDP
+  // move waits on a main thread that a software rasteriser blocks in ~5 s
+  // chunks, so the twelve steps took **40 s** end to end and the FIRST of them
+  // arrived 23 ms AFTER the stroke had already finished:
+  //   sweep 67799..107866 ms (40067 ms) — mousemove at 68554, 74346, 79408, …
+  //   swing ran 67761..68531
+  // Nothing asked the committed body to turn, so it did not turn, so there was
+  // nothing to cap and the check reported `client asked 0.00 rad`. The cap
+  // itself was never broken — this was a delivery fault in the harness, of the
+  // same family as the lock-facing flake: the demand and the window it was
+  // supposed to fall in had come apart.
+  //
+  // A sweep synthesised in the page cannot come apart from the stroke, because
+  // it is GATED ON THE STROKE: it polls the server's own attackPhase and only
+  // dispatches while the man is committed. It runs on the page's clock, costs
+  // no CDP round trip, and enters the game through the identical path a real
+  // mouse takes — canvas 'mousemove' -> movementX -> mouseDelta -> rig.look ->
+  // routeLook -> rig.yaw -> sampleInput's rotationY -> the wire. The one thing
+  // it does not exercise is Chromium's own event synthesis under pointer lock,
+  // and check 7 above ("mouse turns the camera") still drives that with a real
+  // page.mouse.move, so that path keeps its own witness.
+  //
+  // 12 x 44 px at the desktop gain of 0.0048 rad/px is 2.53 rad of demand. The
+  // cap can deliver at most 0.85 s x (0.40x1.0 + 0.15x0.25 + 0.45x0.6) x 1.8 =
+  // 1.08 rad over a whole warden stroke, so the demand provably exceeds what
+  // the cap allows — which is what makes the cap the thing under test rather
+  // than the sweep.
+  const SWEEP_PX = 44;
+  const SWEEP_STEPS = 12;
+  const sweepLook = (gateOnStroke) => page.evaluate(([px, steps, gate]) => new Promise((done) => {
+    const cv = document.querySelector("canvas");
+    if (!cv) return done({ sent: 0, why: "no canvas" });
+    const mine = () => {
+      const s = window.__probe.lastState;
+      if (!s) return null;
+      return Object.values(s.players || {}).find((p) => !String(p.id).startsWith("bot_")) || null;
+    };
+    let sent = 0, waited = 0;
+    const tick = () => {
+      const m = mine();
+      // The server's own word for "committed", not a clock this side of the
+      // wire: a stroke that started late still gets the whole sweep.
+      const committed = !!m && m.attackPhase !== null && m.attackPhase !== undefined;
+      if (!gate || committed) {
+        // The first sighting of the stroke gets a burst, so a demand is
+        // standing in the very first committed tick even if the main thread
+        // stalls immediately afterwards. The server slews on its own fixed
+        // step toward the last yaw it was told, so a HELD demand exercises the
+        // cap exactly as a moving one does.
+        const n = sent === 0 ? 4 : 1;
+        for (let i = 0; i < n && sent < steps; i++, sent++) {
+          cv.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, movementX: px, movementY: 0 }));
+        }
+      } else if (++waited > (sent === 0 ? 400 : 60)) {
+        // Two different failures, named apart, because they mean different
+        // things: nothing to sweep during, versus a stroke that ended before
+        // the sweep had finished asking. Both leave `asked` short and both are
+        // meant to fail the check rather than quietly halve the demand.
+        return done({ sent, why: sent === 0 ? "the stroke never started" : "the stroke ended first" });
+      }
+      if (sent >= steps) return done({ sent, why: "complete" });
+      setTimeout(tick, 15);
+    };
+    tick();
+  }), [SWEEP_PX, SWEEP_STEPS, gateOnStroke]);
 
-  await park();
-  await rec();
-  await sweepRight();
   await page.waitForTimeout(500);
+  await rec();
+  const freeInfo = await sweepLook(false);
+  await page.waitForTimeout(600);
   const freeSamples = await stopRec();
   const freePeak = peakTurnRate(freeSamples.filter((s) => s.phase === null));
 
-  await park();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
   await rec();
+  // ARMED BEFORE THE CLICK. The poller is already running when the stroke
+  // opens, so it catches it in the windup — where the phase multiplier is 1.0
+  // and the cap is at its full 1.8 rad/s — instead of whenever a CDP call
+  // happens to return.
+  const sweeping = sweepLook(true);
   await page.mouse.down();
   await page.waitForTimeout(120);
   await page.mouse.up();
-  await sweepRight();                  // inside the windup, and held through contact
-  await page.waitForTimeout(1400);
+  const commInfo = await sweeping;
+  await page.waitForTimeout(1500);
   const commSamples = await stopRec();
   const mid = commSamples.filter((s) => s.phase !== null);
   const commPeak = peakTurnRate(mid);
@@ -875,14 +943,22 @@ async function main() {
   const turned = mid.length > 1 ? Math.abs(wrapPi(mid[mid.length - 1].rot - mid[0].rot)) : 0;
 
   check("free turning is faster than the committed cap", freePeak > SWING_TURN_RATE,
-    `${freePeak.toFixed(2)} rad/s under the same mouse sweep, against a cap of ${SWING_TURN_RATE}`);
-  // `asked` is only there to keep this honest: a body that did not turn because
-  // nothing asked it to would pass a cap test while proving nothing. A 1040px
-  // sweep buys about 0.4 rad at desktop sensitivity, so 0.2 is a real demand
-  // rather than a threshold picked to be cleared.
+    `${freePeak.toFixed(2)} rad/s under the same sweep (${freeInfo.sent}/${SWEEP_STEPS} steps, ${freeInfo.why}), ` +
+    `against a cap of ${SWING_TURN_RATE}`);
+  // Three teeth, and the first two are what keep this from measuring itself.
+  //   `asked` — the demand actually reached the wire DURING the stroke. Below
+  //     1.5 rad the sweep missed its window and the run proves nothing; it is
+  //     set above the 1.08 rad the cap can deliver over a whole warden stroke,
+  //     so a passing run is one where the cap had to bind.
+  //   `turned < asked * 0.7` — the body demonstrably did NOT follow the aim.
+  //     Lift the cap in advanceSwing and the body adopts the yaw outright, so
+  //     `turned` climbs to meet `asked` and this fails on its own, without
+  //     relying on the rate arithmetic below.
+  //   `commPeak` — and it never went faster than 1.8 rad/s while it did so.
   check("turning is reduced to the stated cap while committed",
-    mid.length >= 3 && asked > 0.2 && commPeak <= SWING_TURN_RATE * 1.05,
-    `over ${mid.length} mid-stroke snapshots the client asked for ${asked.toFixed(2)} rad of turn and the ` +
+    mid.length >= 3 && asked > 1.5 && turned < asked * 0.7 && commPeak <= SWING_TURN_RATE * 1.05,
+    `over ${mid.length} mid-stroke snapshots the client asked for ${asked.toFixed(2)} rad of turn ` +
+    `(${commInfo.sent}/${SWEEP_STEPS} steps, ${commInfo.why}) and the ` +
     `body delivered ${turned.toFixed(2)} rad, peaking at ${commPeak.toFixed(2)} rad/s against ${SWING_TURN_RATE} ` +
     `allowed — the same sweep taken free ran at ${freePeak.toFixed(1)} rad/s`);
 

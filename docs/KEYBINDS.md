@@ -109,6 +109,32 @@ And it must be **reachable from the pause/HUD**, not only from the main menu —
 the moment a player wants to rebind is the moment a key did not do what they
 expected, which is mid-fight.
 
+### Reachable costs one press of Escape, and the button now says so
+
+The in-fight KEYS control cannot be a single click and no amount of code makes
+it one. While the pointer is locked there is **no cursor**: the canvas is handed
+every mouse event in the document, so a click aimed at KEYS lands on the canvas
+as a swing, and the `document.exitPointerLock()` that sat in the button's
+`onClick` was code that could never run. Leaving the lock is Escape, and Escape
+is the browser's — the page is not consulted and cannot fake it.
+
+So the control has two faces, and this is the rule for any HUD control that
+lives behind pointer lock:
+
+- **Locked** — it is not a button. It renders as a note reading `[ESC] FOR KEYS`,
+  dimmed, `pointer-events-none`, out of the tab order. It states its own
+  precondition instead of pretending to be pressable.
+- **Free** — it is a live button lit in gilt, so a player who has just pressed
+  Escape can see where he was sent.
+
+This is the crouch-on-a-Mac failure in a different costume: *a control that
+appears to exist and does not*. A control that cannot work yet must say what it
+needs, not look identical to one that works.
+
+`bindsynctest`'s `openKeysInFight()` is the witness — it calls
+`document.exitPointerLock()` and only then clicks `Key bindings`, so a button
+that stops appearing when the cursor is free fails the gate.
+
 ## Things that will break
 
 - **`npm run playtest` presses real keys** (`w`, `d`, space, `q`) and asserts on
