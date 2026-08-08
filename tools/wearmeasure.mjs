@@ -866,6 +866,12 @@ console.log(`[wear] ${cfails.length ? "FAIL" : "PASS"}: the weapon at rest`);
 // finer than the 20 mm features being hunted — and it needs no browser.
 const OPEN_INSIDE = 0.0025;  // share of the head's own footprint
 const OPEN_VOID = 0.0015;
+// A window smaller than 1.5% of the flank is a seam between two plates, not an
+// opening. Past that it is an opening, and an opening has to be over the ear:
+// 22 mm is about the radius of an auricle, so a window whose centre is further
+// off than that is not framing it whatever else it is doing.
+const SLOT_MIN = 0.015;
+const SLOT_MISS_MM = 22;
 {
   const RIG = "rig:";
   const hexOf = (m) => {
@@ -929,8 +935,8 @@ const OPEN_VOID = 0.0015;
   console.log("[wear] 10. THE OPENINGS — cast through every hole and see what it frames.");
   console.log(`[wear]     ${BEARINGS.length} bearings x ${N}x${N} sight lines a helm.`);
   console.log("");
-  console.log("[wear] class        helm         flesh%   inside%    void%  worst bearing  verdict");
-  console.log("[wear] ---------------------------------------------------------------------------");
+  console.log("[wear] class        helm         flesh%   inside%    void%   flank%  ear off mm  verdict");
+  console.log("[wear] ----------------------------------------------------------------------------------");
   const ofails = [];
   const oclasses = ONLY ? CLASSES : ["huscarl", "berserker"];
   // `--opendump wyrm` writes the classification the numbers are counted off, as
@@ -940,6 +946,38 @@ const OPEN_VOID = 0.0015;
   const dumps = [];
   for (const cls of oclasses) {
     const bare = headTris(cls, seeds[0], "none").tints;
+    // WHERE THE EAR IS, found rather than declared, and found on a SHAVEN head.
+    // The ear is the widest point of a skull at its own latitude — the note
+    // over `earProbe` says so in as many words — so the flesh vertex furthest
+    // from the midline is the helix, PROVIDED there is no hair outboard of it.
+    // Measured on the dressed head this ruler picked a braid on two classes and
+    // reported the ear 257 mm from itself, which is a ruler reading the wrong
+    // object. One shaven build a class, and it does not depend on a hairstyle
+    // this unit does not own.
+    const ear = (() => {
+      const root = buildCharacter(cls, { ...defaultAppearance(cls), helm: "none", hairStyle: "shaved", beardStyle: "none" },
+        0, undefined, "high", seeds[0]).group;
+      root.updateMatrixWorld(true);
+      let pivot = null;
+      root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
+      let best = [0, 0, 0], bx = -1, mx = 0, n = 0;
+      const v = new THREE.Vector3();
+      const pts = [];
+      (pivot ?? root).traverse((o) => {
+        if (!o.isMesh || !o.geometry?.attributes?.position) return;
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+          pts.push(v.x, v.y, v.z); mx += v.x; n++;
+        }
+      });
+      mx /= Math.max(1, n);
+      for (let i = 0; i < pts.length; i += 3) {
+        const d = Math.abs(pts[i] - mx);
+        if (d > bx) { bx = d; best = [pts[i], pts[i + 1], pts[i + 2]]; }
+      }
+      return best;
+    })();
     for (const helm of helms) {
       if (helm === "none") continue;
       const { tris } = headTris(cls, seeds[0], helm);
@@ -968,6 +1006,7 @@ const OPEN_VOID = 0.0015;
       const half = rad * 1.18;
       let flesh = 0, inside = 0, voidEnc = 0, total = 0;
       let worst = "-", worstN = 0;
+      let slotBest = 0, slotFrac = 0, slotMiss = 0, slotOnEar = false, slotAz = "-";
       for (const [az, el] of BEARINGS) {
         // Orthographic, so a pixel is a fixed number of millimetres wherever it
         // lands and the shares below are areas rather than perspective.
@@ -1048,6 +1087,61 @@ const OPEN_VOID = 0.0015;
             nVoid++; holed[j] = 1;
           }
         }
+        // THE FLANK WINDOW, at the two dead-side bearings and nowhere else.
+        //
+        //   "there are large gaps in the sides of the helmets, if they are
+        //    there they need more consideration & better lining up with the
+        //    actual ears or whatever would be visible there."
+        //
+        // The two rules above catch a hole that frames DAYLIGHT. They cannot
+        // catch a hole that frames a bare stretch of scalp, because a sight
+        // line onto skin is a sight line onto skin whether there is an ear
+        // under it or not — which is the whole of the owner's sentence. So the
+        // flank is measured on its own terms: a SLOT is a run of not-metal with
+        // the helmet's own metal closing the row at both ends, which is a
+        // window cut in the side of the shell. A helm may have one or it may
+        // not; what it may not do is have one that misses the ear.
+        if (el === 0 && (Math.abs(az - Math.PI / 2) < 1e-6 || Math.abs(az - 3 * Math.PI / 2) < 1e-6)) {
+          let n = 0, sx = 0, sy = 0;
+          const slot = new Uint8Array(N * N);
+          for (let y = 0; y < N; y++) {
+            let lk = 0;
+            for (let x = 0; x < N; x++) {
+              const j = y * N + x;
+              if (kind[j] >= 2) { lk = kind[j]; continue; }
+              if (!lk) continue;
+              let rk = 0, x2 = x;
+              while (x2 < N && kind[y * N + x2] < 2) x2++;
+              if (x2 < N) rk = kind[y * N + x2];
+              // A run that crosses the whole head is not a window in the flank
+              // — it is the helmet's own front rim on one side of the frame and
+              // its back rim on the other, with a face in between. A window is a
+              // window: 60 mm is wider than any aperture on any find.
+              if (rk >= 2 && (x2 - x) * (2 * half / N) <= 0.060) {
+                for (let q = x; q < x2; q++) {
+                  const wq = cy + (1 - ((y + 0.5) / N) * 2) * half * uy;
+                  if (wq > crownY) continue;
+                  slot[y * N + q] = 1; n++; sx += q; sy += y;
+                }
+              }
+              x = x2 - 1;
+            }
+          }
+          // The near ear at this bearing, projected the same way the triangles were.
+          const side = Math.sin(az) > 0 ? 1 : -1;
+          const ex = side * Math.abs(ear[0] - cx), ey = ear[1] - cy, ez = ear[2] - cz;
+          const px_ = ((ex * sxv + ey * syv + ez * szv) / half) * 0.5 * N + N * 0.5;
+          const py_ = N * 0.5 - ((ex * ux + ey * uy + ez * uz) / half) * 0.5 * N;
+          if (n > slotBest) {
+            slotBest = n;
+            slotFrac = n / Math.max(1, nAny + nVoid + n);
+            const cxs = sx / n, cys = sy / n;
+            slotMiss = Math.hypot(cxs - px_, cys - py_) * (2 * half / N) * 1000;
+            const ix = Math.round(px_), iy = Math.round(py_);
+            slotOnEar = ix >= 0 && ix < N && iy >= 0 && iy < N && slot[iy * N + ix] === 1;
+            slotAz = `${Math.round((az * 180) / Math.PI)}`;
+          }
+        }
         if (DUMP && DUMP === helm && cls === oclasses[0]) {
           dumps.push({ az, el, N, kind: kind.slice(), holed: holed.slice(), n: nIn + nVoid });
         }
@@ -1061,11 +1155,16 @@ const OPEN_VOID = 0.0015;
       const bad = [];
       if (fIn > OPEN_INSIDE) bad.push(`${(fIn * 100).toFixed(2)}% of the head's footprint looks through a hole in the shell at the shell's own inner wall`);
       if (fVoid > OPEN_VOID) bad.push(`${(fVoid * 100).toFixed(2)}% is daylight punched through the shell with head on all four sides`);
+      if (slotFrac > SLOT_MIN && (!slotOnEar || slotMiss > SLOT_MISS_MM)) {
+        bad.push(`a window ${(slotFrac * 100).toFixed(1)}% of the flank is cut in the side of the shell and it is ${slotMiss.toFixed(0)} mm off the ear`
+          + `${slotOnEar ? "" : " — the ear is not even inside it"} (bearing az ${slotAz})`);
+      }
       if (bad.length) ofails.push(`${cls}/${helm}: ${bad.join("; ")} (worst bearing az/el ${worst})`);
       console.log(
         `[wear] ${cls.padEnd(12)} ${helm.padEnd(11)} ${((flesh / Math.max(1, total)) * 100).toFixed(1).padStart(6)}  ` +
         `${(fIn * 100).toFixed(2).padStart(8)} ${(fVoid * 100).toFixed(2).padStart(8)}  ` +
-        `${worst.padStart(13)}  ${bad.length ? "<-- FAIL" : "ok"}`);
+        `${(slotFrac * 100).toFixed(1).padStart(6)}  ${(slotFrac > 0 ? slotMiss.toFixed(0) : "-").padStart(10)}  ` +
+        `${bad.length ? "<-- FAIL" : "ok"}`);
     }
   }
   console.log("");
