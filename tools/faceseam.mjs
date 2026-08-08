@@ -50,6 +50,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".faceseam");
 const argv = process.argv.slice(2);
 const flag = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
+const dump = argv.includes("--dump");
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -98,6 +99,8 @@ for (const cls of CLASSES) {
       group.updateMatrixWorld?.(true);
       let inward = 0, total = 0;
       let worst = null;
+      /** Every backlit triangle's centroid, kept only for --dump. */
+      const backlit = [];
 
       // Per-band asymmetry: the face split into six horizontal bands, each
       // counting inward-facing vertices left and right of the midline.
@@ -166,8 +169,40 @@ for (const cls of CLASSES) {
             inward++;
             bands[bi][side]++;
             if (!worst || dot < worst.dot) worst = { dot, x: mx, y: my, z: (a.z + b.z + cc.z) / 3, mesh: m.name };
+            if (dump) backlit.push({ x: mx, y: my, z: (a.z + b.z + cc.z) / 3, mesh: m.name });
           }
         }
+      }
+      // WHERE the backlit triangles are, which is the whole question.
+      //
+      // A count cannot tell a defect from a cost. 1% reversed slivers scattered
+      // evenly through a merged mesh is the price of sweeping hundreds of
+      // patches and is invisible at any lens. 1% packed into a vertical band on
+      // one side of the midline is the owner's seam. Same number, opposite
+      // conclusions — so the distribution is what gets printed.
+      if (dump && backlit.length) {
+        const xs = backlit.map((q) => q.x);
+        const ys = backlit.map((q) => q.y);
+        const zs = backlit.map((q) => q.z);
+        const mean = (v) => v.reduce((s, x) => s + x, 0) / v.length;
+        const sd = (v) => { const m = mean(v); return Math.sqrt(mean(v.map((x) => (x - m) ** 2))); };
+        const left = xs.filter((x) => x < 0).length;
+        const byMesh = new Map();
+        for (const q of backlit) byMesh.set(q.mesh, (byMesh.get(q.mesh) || 0) + 1);
+        console.log(`[seam] --- ${cls}/${helm}/${seed}: ${backlit.length} backlit triangles ---`);
+        console.log(`[seam]   x  mean ${mean(xs).toFixed(4)}  sd ${sd(xs).toFixed(4)}  `
+          + `range ${Math.min(...xs).toFixed(3)}..${Math.max(...xs).toFixed(3)}   `
+          + `left ${left} / right ${backlit.length - left}`);
+        console.log(`[seam]   y  mean ${mean(ys).toFixed(4)}  sd ${sd(ys).toFixed(4)}  `
+          + `range ${Math.min(...ys).toFixed(3)}..${Math.max(...ys).toFixed(3)}`);
+        console.log(`[seam]   z  mean ${mean(zs).toFixed(4)}  sd ${sd(zs).toFixed(4)}  `
+          + `range ${Math.min(...zs).toFixed(3)}..${Math.max(...zs).toFixed(3)}`);
+        console.log(`[seam]   by mesh: ${[...byMesh].map(([k, v]) => `${k} ${v}`).join(", ")}`);
+        // A seam is a NARROW x-spread against a WIDE y-spread. Stated as a ratio
+        // so it is one number to look at rather than six.
+        const shape = sd(xs) / Math.max(1e-6, sd(ys));
+        console.log(`[seam]   x-sd / y-sd = ${shape.toFixed(2)}  `
+          + `(below ~0.3 is a vertical band, i.e. a seam; near 1 is scatter)`);
       }
       if (mirrored.length) {
         console.log(`[seam] ${cls}/${helm}/${seed} MIRRORED TRANSFORM on ${mirrored.join(", ")}`

@@ -8,36 +8,58 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## OPEN — the helm splits the face down the middle, and the jaw grows a spike
+## OPEN — kit panels flank the head and swing across the face
 
-Reported from the live armoury on 2026-08-08, two screenshots, Nasal/Spectacle
-tier on a huscarl.
+Reported from the live armoury 2026-08-08, two screenshots. Diagnosed the same
+day; the cause is NOT what the first write-up guessed.
 
-**1. Half the face is shaded as metal.** There is a hard vertical seam on the
-midline: the wearer's left side is skin, the right side is the same blue-grey
-the helm's steel is. It is a straight line, it runs from the brow to the jaw,
-and it does not follow any feature — so this is a MATERIAL or vertex-colour
-boundary landing on the face, not a lighting effect. Suspect the nasal's own
-geometry or its tone being applied to the face patch it overlays; the seam sits
-exactly where a nasal guard's mask would be mirrored.
+**What it looks like:** a hard vertical seam down the face, one side skin and the
+other blue-grey steel, running brow to jaw and following no feature.
 
-**2. A dark blade hangs from the jaw down the throat**, on a warrior whose beard
-slot reads **Clean Shaven** — so it is not beard geometry. Visible in the
-three-quarter rear view, running from under the ear to below the collar.
+**Two hypotheses tested and RULED OUT, so nobody spends the day on them again:**
 
-**3. In profile the helm stands off the skull** with daylight between bowl and
-head, and the neck reads much too long under it.
+1. **Inverted normals.** `tools/faceseam.mjs` was written for this: for every
+   triangle of the head's flesh, does its winding agree with the normals it is
+   shaded by? It does find a real population — 0.7 to 1.0% of every head is
+   backlit, worst dot -1.000 — but `--dump` settles what it means:
+   ```
+   x  mean 0.0008  sd 0.0353  range -0.050..0.050   left 43 / right 55
+   y  mean 0.1575  sd 0.0398  range  0.035..0.184
+   x-sd / y-sd = 0.89   (below ~0.3 would be a vertical band, i.e. a seam)
+   ```
+   Symmetric scatter across the full width of the head, not a band on one side.
+   That is the ordinary cost of merging hundreds of swept patches, and it is not
+   the seam.
+2. **A mirrored transform**, the way the hands went. No flesh mesh has a
+   negative-determinant world matrix. Also ruled out.
 
-None of these is caught by anything in the gate: `wearmeasure` measures
-clearances and holes in metal, `headmeasure` measures ratios, `cosmetictest`
-measures how much of a cosmetic READS. **A face shaded in two colours passes all
-three** — every one of them would report a perfectly seated helm on a head that
-is half steel. That is the same shape as the beard-through-the-neck defect: the
-right questions asked of the wrong surface. A ruler that samples FACE VERTEX
-COLOUR either side of the midline and fails on a discontinuity would catch (1)
-in a second and does not exist.
+**What it actually is, and `art/look/boar.png` shows it plainly:** LARGE FLAT
+STEEL-TONED PANELS HANG DOWN EITHER SIDE OF THE HEAD, from the helm past the jaw
+to below the shoulder. Front on they frame the face as two vertical slabs; at a
+three-quarter bearing — which is the armoury's own lens — the near one swings
+across the cheek. Everything in the report follows from that: the edge is
+straight because it is a slab's edge, the colour is steel because the slab is
+steel, and it follows no feature because it is a separate object standing in
+front of the face rather than part of it.
+
+**Not yet isolated:** which part. The panels are present with `hairStyle: shaved`
+so they are not hair; they appear under helms with no nape flange too, so they
+are most likely the huscarl's coif/aventail side falls or the cloak's hood.
+Naming the part is the next step and a part-ID render answers it in one run.
+
+**Why nothing caught it.** `facelook` CAN see this — it is coverage, which is
+exactly what facelook measures. What is missing is an ASSERTION: nothing in the
+gate asks "does any kit cross the face at the bearing the shop photographs the
+warrior from". `cosmetictest` asks how much of a cosmetic READS, never what is
+standing in front of the face. That assertion is the fix to make first, because
+it is the one that keeps this closed.
+
+**Also unexplained from the same screenshots:** a dark blade hanging from the jaw
+down the throat on a warrior whose beard slot reads Clean Shaven, and the helm
+standing off the skull in profile with the neck reading too long.
 
 ---
+
 
 ## CLOSED — the Sutton Hoo's hair, and it was never the cloak
 
