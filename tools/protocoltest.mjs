@@ -122,7 +122,7 @@ console.log("-- headlessness --");
 }
 
 // The engine is loaded ONLY now, with the trap armed.
-const { getEngine, HIT_ZONES, EMOTES, WARRIOR_STATS, SWING_PHASES } = await import("../src/game/engine.mjs");
+const { getEngine, makeEngine, HIT_ZONES, EMOTES, WARRIOR_STATS, SWING_PHASES } = await import("../src/game/engine.mjs");
 const engine = getEngine();
 check("engine.mjs imports with every browser global rigged to throw", true,
   "window/document/navigator/self/location/HTMLElement/rAF");
@@ -165,9 +165,9 @@ check("docs/WIRE-PROTOCOL.md carries a ```protocol block", !!block,
  * assertion below reads a room object or a player object out of the engine —
  * a console client will not have one.
  */
-function open(label) {
+function open(label, eng = engine) {
   const c = { label, frames: [], byType: new Map(), snapshot: null, order: [] };
-  c.sid = engine.connect((str) => {
+  c.sid = eng.connect((str) => {
     c.frames.push(str);
     const m = JSON.parse(str);
     c.order.push(m.type);
@@ -175,7 +175,7 @@ function open(label) {
     c.byType.get(m.type).push(m.data);
     if (m.data && m.data.players) c.snapshot = m.data;
   });
-  c.send = (type, data) => engine.message(c.sid, { type, data: data || {} });
+  c.send = (type, data) => eng.message(c.sid, { type, data: data || {} });
   c.got = (t) => c.byType.get(t) || [];
   c.last = (t) => { const a = c.got(t); return a[a.length - 1]; };
   c.bytes = (t) => c.frames.filter((f) => f.startsWith(`{"type":"${t}"`)).map((f) => Buffer.byteLength(f));
@@ -427,6 +427,274 @@ async function scenarioMelee() {
 }
 
 // ============================================================
+// SCENARIO C — THE CLOCK, TAKEN OFF THE ENGINE
+//
+// The two scenarios above are what a BROWSER client is: they hand the engine a
+// socket and then wait, on the wall clock, for the engine's own 20 Hz timer to
+// produce a match. That is the thing docs/PLATFORM-PATH.md §2 says a console
+// client cannot do. A native host runs the simulation inside its own frame
+// loop; it cannot hand its clock to a `setInterval` it does not own, and it
+// cannot wait eighteen real seconds to find out whether a round transition
+// works.
+//
+// So this scenario plays a WHOLE match — lobby, countdown, fighting, the round
+// break, a second round, the summary, and the room becoming a lobby again — and
+// it contains no timer, no `sleep`, no `await` and no reading of a wall clock.
+// Every millisecond of the match is one this function handed the engine.
+//
+// It is also, deliberately, where the wall clock is CAUGHT. Under the old
+// arrangement a `Date.now()` inside the sim was invisible: the timer advanced
+// the sim at roughly the rate the wall advanced, so the two agreed and nothing
+// could tell them apart. Drive the sim faster than real time and they part
+// company immediately — an intent whose lapse is measured on the wall never
+// lapses, a round break measured on the wall never ends, a `nextRoundAt`
+// stamped off the wall lands billions of milliseconds away from the epoch this
+// engine was built with. Each of those is one of the checks below.
+//
+// EPOCH is pinned to a date long past so that a leaked `Date.now()` is not
+// merely wrong, it is twenty-four years wrong, and the range check says so.
+const EPOCH = 1_000_000_000_000;
+
+function scenarioHeadless() {
+  const wallStart = Date.now();
+  console.log("\n-- the sim can be driven by a host that owns the clock --");
+
+  // How many fixed steps a second of sim time buys, asked of the engine rather
+  // than assumed — and the first claim, which everything else rests on:
+  // `step(dt)` spends a duration on WHOLE fixed steps and CARRIES the
+  // remainder. A frame loop hands the sim ragged 16 ms and 33 ms frames; if any
+  // of that were spent on a variable-length step then every speed, cooldown and
+  // timer in the arena would become a measurement of the host's frame rate,
+  // which is the exact bug the clock comment in engine.mjs is about.
+  const probe = makeEngine({ autoTick: false });
+  const HZ = probe.step(1);
+  const short = probe.step(0.03);     // 30 ms: not yet a step, and not thrown away
+  const carried = probe.step(0.03);   // 60 ms owed: one step, 10 ms still owed
+  check("step(dt) spends a duration on whole fixed steps and carries the remainder",
+    HZ === 20 && short === 0 && carried === 1 && probe.simTime() === 1050,
+    `step(1) = ${HZ} steps; two 30 ms frames ran ${short} then ${carried}; sim clock ${probe.simTime()} ms`);
+  // Everything below counts in ticks. If the engine cannot step at all then the
+  // check above has already gone red and every one below is going red with it —
+  // this fallback exists only so they REPORT that rather than dividing by zero
+  // and taking the run down with a TypeError. A harness that dies is a harness
+  // whose other findings are lost.
+  const RATE = HZ || 20;
+  {
+    // The default, built only to prove it is untouched, and put straight down
+    // again — a live interval holds this process open.
+    const timed = makeEngine();
+    check("autoTick:false owns no timer at all, and the default still owns the 20 Hz one",
+      probe.autoTick === false && probe._tickInterval === null &&
+      timed.autoTick === true && timed._tickInterval !== null,
+      "the default is what custom-server.mjs and dev-server.mjs get, unchanged");
+    timed.stop();
+  }
+
+  // ---- a whole match, on step() alone ----
+  const sim = makeEngine({ autoTick: false, epoch: EPOCH });
+  const host = open("clock-host", sim), guest = open("clock-guest", sim);
+
+  // The ladder a room walks, recorded off the WIRE — the same frames a console
+  // client would have and nothing else.
+  const ladder = [];
+  const record = () => {
+    const s = host.snapshot ? host.snapshot.state : null;
+    if (s && s !== ladder[ladder.length - 1]) ladder.push(s);
+  };
+  let totalSteps = 0;
+  const tick = () => { sim.step(); totalSteps++; record(); };
+  /** Step until the room leaves `state`, and say how many steps that took. */
+  const stepWhile = (state, cap) => {
+    let n = 0;
+    while (host.snapshot.state === state && n < cap) { tick(); n++; }
+    return n;
+  };
+
+  // Every message is answered synchronously, so the whole lobby is one straight
+  // line with nothing to wait for.
+  host.send("create", { name: "Alfa", mode: "blood_moot", bestOf: 3 });
+  const joined = host.last("join");
+  const aid = joined.playerId;
+  host.send("select_class", { warriorClass: "runekeeper" });
+  guest.send("join", { code: joined.code, name: "Bravo" });
+  const bid = guest.last("join").playerId;
+  host.send("ready"); guest.send("ready");
+  record();
+  host.send("start");
+  record();
+  const startedOnCountdown = host.snapshot.state === "countdown" && host.snapshot.countdown === 3;
+
+  // THE BELL. Three seconds of countdown that used to be a `setInterval` — a
+  // host driving the sim itself could reach this state and then step for the
+  // rest of the afternoon without the fight ever starting.
+  const bellSteps = stepWhile("countdown", 400);
+  check("a countdown no timer is driving still rings the bell, on the tick sim time says",
+    bellSteps === 3 * RATE && host.snapshot.state === "fighting" &&
+    host.got("countdown").map((d) => d.countdown).join(",") === "3,2,1",
+    `${bellSteps} steps = ${(bellSteps / RATE).toFixed(1)} s of sim, counted 3,2,1`);
+  check("the grace is armed on the bell frame, under a frame loop exactly as under the timer",
+    Object.values(host.snapshot.players).every((p) => p.invincible === true && p.invincibleTimer > 0),
+    "grace.mjs — armed by the statement that starts the fight, not by startRound");
+
+  // THE INPUT LAPSE, and this is the check that catches a wall clock in a rule.
+  // One `input` and then nothing but steps. A standing intent lapses after
+  // INPUT_LAPSE_MS (600 ms), which is 12 steps — so at 8 steps he is still
+  // running and at 40 he has stopped dead. Measured on the WALL those 40 steps
+  // are a millisecond or two, the intent never lapses, and the warrior runs
+  // into the palisade forever.
+  const alfa = () => host.snapshot.players[aid];
+  const speed = (p) => Math.hypot(p.velocity.x, p.velocity.z);
+  host.send("input", { ...NEUTRAL, moveX: 1, moveZ: 0, rotationY: Math.PI / 2 });
+  for (let i = 0; i < 8; i++) tick();          // 400 ms of sim, inside the lapse
+  const movingAt400 = speed(alfa());
+  for (let i = 0; i < 32; i++) tick();         // 2.0 s of sim in all, no further input
+  const movingAt2000 = speed(alfa());
+  check("a standing intent lapses on SIM time, so a stepped host is not a man running forever",
+    movingAt400 > 1 && movingAt2000 === 0,
+    `${movingAt400.toFixed(2)} u/s at 400 ms of sim, ${movingAt2000.toFixed(2)} at 2000 ms ` +
+    `— the lapse is ${600} ms and 2 s of sim cost ${Date.now() - wallStart} ms of wall clock`);
+
+  // ROUND ONE. Alfa sprints into the bonfire and cooks; Bravo never sends an
+  // input and never moves, so the round ends with one man standing.
+  const driveIntoFire = () => {
+    const p = alfa();
+    if (!p || p.state === "dead") return;
+    const r = Math.hypot(p.position.x, p.position.z) || 1;
+    host.send("input", { ...NEUTRAL, moveX: -p.position.x / r, moveZ: -p.position.z / r,
+      rotationY: Math.atan2(-p.position.x, -p.position.z), sprint: true });
+  };
+  let fightSteps = 0;
+  while (host.snapshot.state === "fighting" && fightSteps < 600) { driveIntoFire(); tick(); fightSteps++; }
+  const roundEndAt = sim.simTime();
+  // `|| {}` for the same reason RATE has a fallback: if the round never ends,
+  // the check below says so and the ones after it still get to run.
+  const re1 = host.got("round_end")[0] || {};
+  check("a round is fought and decided with no clock but the one the caller supplies",
+    re1.index === 1 && re1.winnerId === bid && re1.matchOver === false &&
+    host.snapshot.state === "intermission",
+    `${fightSteps} steps = ${(fightSteps / RATE).toFixed(1)} s of fight; ${host.got("kill").length} death(s)`);
+
+  // THE ROUND BREAK — a `setTimeout` until now, and therefore unreachable from
+  // a stepped host: the match simply stopped at round one, forever.
+  const breakSteps = stepWhile("intermission", 600);
+  check("the round break is five seconds of SIM time, and the next round is dealt on the tick that owes it",
+    breakSteps === 5 * RATE && host.snapshot.state === "countdown" && host.snapshot.roundIndex === 2,
+    `${breakSteps} steps = ${(breakSteps / RATE).toFixed(1)} s, then round ${host.snapshot.roundIndex}`);
+  check("nextRoundAt names the tick the sim will ACTUALLY deal the round, not an instant off the wall",
+    re1.nextRoundAt === EPOCH + roundEndAt + breakSteps * (1000 / RATE),
+    `epoch+${roundEndAt} ms + ${(breakSteps / RATE).toFixed(1)} s = ${re1.nextRoundAt}, ` +
+    `and the wall clock is ${Date.now()} — a leaked Date.now() misses by ${((Date.now() - re1.nextRoundAt) / 31557600000).toFixed(0)} years`);
+
+  // ROUND TWO, and the match falls out of it: two round wins take a best of three.
+  const bell2 = stepWhile("countdown", 400);
+  let fight2 = 0;
+  while (host.snapshot.state === "fighting" && fight2 < 600) { driveIntoFire(); tick(); fight2++; }
+  const me = host.last("match_end");
+  check("the second round runs, and the match ends out of it, on step() alone",
+    bell2 === 3 * RATE && !!me && me.winnerKind === "player" && me.winnerId === bid &&
+    me.roundsPlayed === 2 && me.bestOf === 3 && me.roundWins[bid] === 2 &&
+    host.snapshot.state === "finished",
+    `round 2: ${bell2} countdown steps, ${fight2} fight steps; ${me ? me.results.length : 0} result rows paid`);
+
+  // THE SUMMARY, held for ten seconds and then rolled back to a lobby — the
+  // last of the four `setTimeout`s, and the one `render/summary.ts` stages the
+  // victor over a corpse for.
+  const summarySteps = stepWhile("finished", 600);
+  check("the summary is held for ten seconds of sim time and then the room is a lobby again",
+    summarySteps === 10 * RATE && host.snapshot.state === "lobby" &&
+    host.snapshot.roundIndex === 0 && host.snapshot.players[aid].health > 0,
+    `${summarySteps} steps = ${(summarySteps / RATE).toFixed(1)} s`);
+
+  check("the room walked the whole ladder without a timer anywhere in the process",
+    startedOnCountdown &&
+    ladder.join(" -> ") === "lobby -> countdown -> fighting -> intermission -> countdown -> fighting -> finished -> lobby",
+    ladder.join(" -> "));
+
+  // Every wire timestamp has to be a function of sim time. Pinned epoch, so the
+  // whole match's stamps live inside one known window; a `Date.now()` anywhere
+  // in that path lands a quarter of a century outside it.
+  const stamps = host.got("game_state").flatMap((d) => d.killFeed.map((k) => k.timestamp));
+  check("every timestamp on the wire is sim time on a fixed epoch, not the box's clock",
+    stamps.length > 0 && stamps.every((t) => t >= EPOCH && t <= EPOCH + sim.simTime()),
+    `${stamps.length} kill-feed stamps, all within [epoch, epoch+${sim.simTime()} ms]`);
+
+  const wallMs = Date.now() - wallStart;
+  check("a whole match ran faster than real time, which no timer-driven engine can do",
+    sim.simTime() > 25000 && wallMs < sim.simTime() / 4,
+    `${(sim.simTime() / 1000).toFixed(2)} s of match in ${wallMs} ms of wall clock over ${totalSteps} step() calls ` +
+    `— ${(sim.simTime() / Math.max(1, wallMs)).toFixed(0)}x real time, no timer and no await`);
+
+  // ---- two engines in one process ----
+  // Nothing in engine.mjs keeps mutable state outside `makeEngine`'s closure,
+  // so two simulations cannot reach each other. Proved the only way that means
+  // anything: step ONE of them and check the other did not move.
+  const alpha = makeEngine({ autoTick: false }), beta = makeEngine({ autoTick: false });
+  const ca = open("engine-alpha", alpha), cb = open("engine-beta", beta);
+  ca.send("solo", { name: "Alpha", difficulty: "recruit", botCount: 1 });
+  cb.send("solo", { name: "Beta", difficulty: "recruit", botCount: 1 });
+  for (let i = 0; i < 200; i++) alpha.step();
+  check("two engines in one process share no clock, no rooms and no sessions",
+    alpha.simTime() === 10000 && beta.simTime() === 0 &&
+    ca.snapshot.state === "fighting" && cb.snapshot.state === "lobby" &&
+    cb.snapshot.matchTimer === 0 &&
+    alpha.has(ca.sid) && !alpha.has(cb.sid) && beta.has(cb.sid) && !beta.has(ca.sid),
+    `alpha ran ${alpha.simTime()} ms and is ${ca.snapshot.state}; beta ran ${beta.simTime()} ms and is still ${cb.snapshot.state}`);
+  check("the process-wide singleton is one engine among many, not the only one there can be",
+    getEngine() === getEngine() && getEngine() !== alpha && getEngine() !== sim,
+    "getEngine() still caches on globalThis for the two servers; makeEngine() is independent of it");
+
+  return { simMs: sim.simTime(), steps: totalSteps, wallMs };
+}
+
+// ============================================================
+// The same scripted match, twice, on two engines built with the same epoch.
+// Determinism is the other half of what taking the clock off the engine buys —
+// and it is the check that would catch a wall clock ANYWHERE on the wire, not
+// only in the places named above, because a wall clock is the one thing that
+// cannot be the same in two runs a few milliseconds apart.
+//
+// Ids are masked and nothing else is: `randomUUID` is deliberately not seeded
+// (see the note on getEngine) and room codes come off the process-wide
+// `Math.random`, which two engines share. Everything else — every position,
+// every timer, every timestamp — has to match to the byte.
+function replayOnce() {
+  const sim = makeEngine({ autoTick: false, epoch: EPOCH });
+  const host = open("replay", sim), guest = open("replay-guest", sim);
+  host.send("create", { name: "Alfa", mode: "blood_moot", bestOf: 3 });
+  const joined = host.last("join");
+  host.send("select_class", { warriorClass: "runekeeper" });
+  guest.send("join", { code: joined.code, name: "Bravo" });
+  host.send("ready"); guest.send("ready");
+  host.send("start");
+  // A fixed budget, not a condition: 20 s of sim carries the bell, a fire
+  // death, the five-second break and the second round's countdown.
+  for (let i = 0; i < 400; i++) {
+    const p = host.snapshot.players[joined.playerId];
+    if (p && p.state !== "dead" && host.snapshot.state === "fighting") {
+      const r = Math.hypot(p.position.x, p.position.z) || 1;
+      host.send("input", { ...NEUTRAL, moveX: -p.position.x / r, moveZ: -p.position.z / r,
+        rotationY: Math.atan2(-p.position.x, -p.position.z), sprint: true });
+    }
+    sim.step();
+  }
+  return host.frames.join("\n")
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<id>")
+    .split(joined.code).join("<code>");
+}
+
+// ============================================================
+const h = scenarioHeadless();
+{
+  const first = replayOnce(), second = replayOnce();
+  let where = -1;
+  for (let i = 0; i < Math.max(first.length, second.length); i++) if (first[i] !== second[i]) { where = i; break; }
+  check("two runs of one scripted match are identical to the byte",
+    first === second,
+    where < 0
+      ? `${first.length} B of frames, twice, ${(h.simMs / 1000).toFixed(0)} s of sim apiece`
+      : `diverged at byte ${where}: ${JSON.stringify(first.slice(where - 60, where + 60))} vs ${JSON.stringify(second.slice(where - 60, where + 60))}`);
+}
+
 const [a, m] = await Promise.all([scenarioMatch(), scenarioMelee()]);
 
 console.log("\n-- the sim never reached for the browser --");

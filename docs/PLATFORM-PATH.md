@@ -65,6 +65,23 @@ headless, add a conformance test that a non-browser client can run.
 **Everything below assumes this is done first. It is the cheapest insurance on
 the page.**
 
+**Status, 2026-08-08 — the simulation no longer owns its clock.** `makeEngine`
+is exported and takes `{ autoTick: false }`; `step(dtSeconds)` advances the sim
+on the caller's time, and nothing inside it reads a wall clock any more. The
+countdown, the round break, the summary rollback, the solo deal-in, the input
+lapse and the emote throttle all run on accumulated sim time, and the four
+`setTimeout`/`setInterval` calls that used to drive the first four are gone. One
+process may hold several engines. `tools/protocoltest.mjs` plays a whole match —
+lobby, countdown, fighting, round transition, summary — through `step()` alone,
+with no timer and no wall-clock wait, then runs the same script twice and holds
+the frames identical to the byte. API and the two things that stay process-wide
+(`Math.random`, `randomUUID`): `docs/WIRE-PROTOCOL.md` §9.9.
+
+That is the third bullet — a console client driving the sim from its own frame
+loop — together with deterministic replay and concurrent engines. The written
+protocol and its conformance test were already here; the host's right to own the
+loop was the piece that was missing.
+
 ---
 
 ## 3. Hosting: leave Render, and the answer depends on who is playing

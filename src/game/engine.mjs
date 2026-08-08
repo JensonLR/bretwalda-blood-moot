@@ -100,6 +100,14 @@ const DEFAULT_BEST_OF = 3;
 const ROUND_BREAK = 5;          // seconds between rounds: long enough to read the
                                 // result off the screen, short enough that nobody
                                 // reaches for another tab
+// The other two waits a room can be in, named now that they are numbers the
+// simulation's own clock spends rather than arguments to setTimeout.
+const SUMMARY_HOLD = 10;        // seconds the tableau holds before the room is a
+                                // lobby again — render/summary.ts stages the
+                                // victor over a corpse for exactly this window
+const SOLO_DEAL_DELAY = 0.8;    // a beat between joining a trial and the ring
+                                // being dealt, so a client has a frame of lobby
+                                // to draw instead of being thrown into a fight
 
 // ---- where men start ----
 // The ring is sized from the headcount rather than fixed, because the same
@@ -456,8 +464,11 @@ export const SHOVE = {
 // player as his CHOSEN emote, so the end-of-match tableau can pose the victor
 // with the flourish he actually used rather than a default.
 export const EMOTES = ["raise", "boss", "taunt"];
-// Wall-clock, not matchTimer: emotes are legal in the lobby, the intermission
-// and over the summary, where the fight clock does not advance.
+// Spent against the ENGINE's sim clock, not against `matchTimer`: emotes are
+// legal in the lobby, the intermission and over the summary, where the fight
+// clock does not advance and a throttle held against it would never expire.
+// (It was the wall clock, which got the same answer on a live server and the
+// wrong one everywhere else — see the note on `simMs`.)
 const EMOTE_COOLDOWN_MS = 2500;
 
 // ---- the clock ----
@@ -709,14 +720,63 @@ function spawnLayout(sizes, roundIndex) {
   });
 }
 
-function makeEngine() {
+/**
+ * One simulation. Independent of every other one in the process: everything a
+ * match is made of — the rooms, the sessions, the clock, every deadline — lives
+ * in this closure and nothing of it is shared. Call it twice and you have two
+ * arenas that cannot reach each other.
+ *
+ * `docs/PLATFORM-PATH.md` §2 asks for three things this signature is what buys:
+ * a host that owns the frame loop (a console client, a Steam listen server), a
+ * replay that runs a whole match in milliseconds, and more than one engine in a
+ * process (a room orchestrator). All three come down to the same demand — the
+ * sim must not own its own clock.
+ *
+ * @param {{ autoTick?: boolean, epoch?: number }} [options]
+ *
+ *   `autoTick` — true by default, and the default is what `custom-server.mjs`
+ *   and `dev-server.mjs` get: the same 20 Hz `setInterval` this engine has
+ *   always started, unchanged. Pass false and the engine has no timer of any
+ *   kind; time arrives only through `step(dt)`.
+ *
+ *   `epoch` — the wall-clock millisecond that sim time 0 stands for. It is read
+ *   by nothing that decides anything. Its whole job is the two epoch-ms fields
+ *   the wire carries for a client's OWN display clock (`nextRoundAt` and the
+ *   kill feed's `timestamp`, see WIRE-PROTOCOL §9.6), which have to stay
+ *   comparable against the browser's `Date.now()`. Pin it and even those repeat.
+ */
+export function makeEngine(options = {}) {
+  const autoTick = options.autoTick !== false;
   const rooms = new Map();          // code -> room
   const sessions = new Map();       // sid -> { sender, roomCode, playerId|null }
   const TICK_MS = 1000 / TICK_RATE;
   const TICK_DT = 1 / TICK_RATE;
-  // Wall time the simulation has been advanced to. Monotonic, so an NTP step
-  // cannot hand the arena a second of catch-up or a second of stall.
-  let simClock = performance.now();
+
+  // ---- the clock, and it is the sim's only one ----
+  // SIM TIME: milliseconds this simulation has actually been advanced. It moves
+  // by whole TICK_MS and by nothing else, so it is exact (50 is exact in binary
+  // and 1000/20 is 50), monotonic, and identical between two runs of the same
+  // script. EVERY deadline the sim owns is measured against it: the countdown,
+  // the round break, the summary rollback, an input's lapse, an emote's
+  // throttle. None of them may read a wall clock, because a wall clock is what
+  // makes a match take a real minute to test and makes two replays disagree.
+  let simMs = 0;
+  // Sim time owed but not yet worth a whole step. Carried rather than dropped,
+  // so a run of ragged 63 ms wakes averages out exactly instead of losing 13 ms
+  // a time.
+  let arrearsMs = 0;
+  // WALL TIME, and neither of these is a clock the simulation reads.
+  // `wakeAt` is `performance.now()` at the last wake and belongs to the
+  // optional internal timer alone — it is how that timer works out how much sim
+  // time the box owes. An engine built with `autoTick: false` never touches it.
+  let wakeAt = 0;
+  // `epoch` stamps the two display fields described above and nothing else.
+  const epoch = Number.isFinite(options.epoch) ? options.epoch : Date.now();
+  /** Wall-clock ms for the wire, derived from sim time so a replay repeats it. */
+  const wallNow = () => epoch + simMs;
+  /** The phases in which a room is stepped at all. */
+  const isFightState = (room) =>
+    room.state === "fighting" || room.state === "last_stand" || room.state === "heartbeat";
 
   function generateCode() {
     const name = ROOM_NAMES[(Math.random() * ROOM_NAMES.length) | 0];
@@ -1032,7 +1092,13 @@ function makeEngine() {
         if (player.state === "dead") return;
         // Standing intent for the tick to act on; actions fire here and now.
         player.latestInput = data;
-        player.inputAt = Date.now();
+        // Stamped in SIM ms, because the thing that reads it — `currentIntent`,
+        // which lapses a standing intent after INPUT_LAPSE_MS — is a rule, and
+        // a rule may not be decided by a clock the simulation does not own. On
+        // the live server this reads within one tick of what `Date.now()` gave;
+        // under a host driving the sim it is the difference between an intent
+        // that lapses and an intent that never does.
+        player.inputAt = simMs;
         processInput(room, player, data);
       });
       // A victory flourish, relayed rather than trusted: the server validates
@@ -1086,6 +1152,9 @@ function makeEngine() {
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
       bestOf: normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
       roundIndex: 0, roundWins: {}, lastRound: null, nextRoundAt: 0,
+      // See the note on the solo room above: the one phase deadline a room can
+      // be waiting on, in sim ms, and never on the wire.
+      phaseAt: 0,
     };
     const pid = randomUUID();
     const player = createPlayer(pid, name, "warden", data.appearance || null);
@@ -1140,6 +1209,10 @@ function makeEngine() {
       maxPlayers: 1, killFeed: [], lastStandTriggered: false,
       // Training is not a match: it has one endless round and pays nothing out.
       bestOf: 1, roundIndex: 0, roundWins: {}, lastRound: null, nextRoundAt: 0,
+      // Sim-ms deadline for whatever this room's current phase is waiting on;
+      // 0 is "nothing pending". Server scratch — `serializeRoom` publishes a
+      // named list, so it cannot reach a client. See `advancePhase`.
+      phaseAt: 0,
       difficulty, solo: true, autoStart,
     };
     const pid = randomUUID();
@@ -1152,11 +1225,9 @@ function makeEngine() {
     for (let i = 0; i < botCount; i++) addBot(room, i, difficulty);
 
     sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
-    if (autoStart) {
-      setTimeout(() => {
-        if (rooms.get(code) === room && room.state === "lobby") startMatch(room);
-      }, 800);
-    }
+    // On sim time, like every other wait: a headless host that could join a
+    // trial and never be dealt one is not a host of anything.
+    if (autoStart) room.phaseAt = simMs + SOLO_DEAL_DELAY * 1000;
   }
 
   function addBot(room, idx, difficultyOverride) {
@@ -1240,7 +1311,8 @@ function makeEngine() {
       // rejects every swing outside a fight, so there was no blow for it to
       // stop. All it did was drive the client's body strobe, which is why the
       // flashing outlived the countdown that triggered it. The grace is armed
-      // below, on the frame the fight starts, against the clock that runs.
+      // in `advancePhase`, on the frame the fight starts, against the clock
+      // that runs.
       p.invincible = false; p.invincibleTimer = 0;
       // Nobody walks out of the last fight into this one — nor bleeds out of it,
       // nor comes back still swinging the blow that killed him.
@@ -1251,30 +1323,10 @@ function makeEngine() {
       clearBodyMarks(p);
     });
     broadcast(room, { type: "countdown", data: { ...serializeRoom(room), countdown: room.countdown } });
-
-    const ci = setInterval(() => {
-      // A room that has been emptied, or dragged into another state by a
-      // disconnect, must not be counted into a fight by a stale interval.
-      if (rooms.get(room.code) !== room || room.state !== "countdown") return clearInterval(ci);
-      room.countdown--;
-      if (room.countdown <= 0) {
-        clearInterval(ci);
-        room.state = "fighting";
-        // The grace is armed HERE, in the same statement that starts the fight,
-        // because `stepRoom` — the only thing that spends it — starts running
-        // on this transition too. Armed anywhere earlier it is a duration held
-        // against a stopped clock, which is the bug this replaces. Two seconds
-        // now means two seconds of the fight, which is what the constant is
-        // named for.
-        room.players.forEach((p) => {
-          if (p.state === "dead") return;
-          p.invincible = true; p.invincibleTimer = SPAWN_INVINCIBLE;
-        });
-        broadcast(room, { type: "game_state", data: serializeRoom(room) });
-      } else {
-        broadcast(room, { type: "countdown", data: { countdown: room.countdown } });
-      }
-    }, 1000);
+    // ...and the beat that counts it down, on sim time. It was a `setInterval`,
+    // which meant the bell rang on the box's clock rather than on the
+    // simulation's and a host driving the sim itself never heard it at all.
+    room.phaseAt = simMs + 1000;
   }
 
   // ---------------- combat ----------------
@@ -1626,7 +1678,7 @@ function makeEngine() {
       endSwing(target);      // ...and a corpse is not mid-swing
       clearMotion(target);   // the dead stop running
       attacker.kills++; attacker.score += 100;
-      room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: Date.now(), hitZone });
+      room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: wallNow(), hitZone });
       broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy, cause: "blow" } });
       if (room.mode !== "solo") checkRoundEnd(room);
     }
@@ -1719,7 +1771,7 @@ function makeEngine() {
     const killerName = credited ? credited.name : "The Fire";
     room.killFeed.push({
       killer: credited ? credited.id : "", victim: victim.id,
-      killerName, victimName: victim.name, timestamp: Date.now(), hitZone: null,
+      killerName, victimName: victim.name, timestamp: wallNow(), hitZone: null,
     });
     broadcast(room, { type: "kill", data: {
       killerId: credited ? credited.id : "", killerName,
@@ -1743,9 +1795,13 @@ function makeEngine() {
     if (!EMOTES.includes(emote)) return;
     if (player.state === "dead" || isCommitted(player)) return;
     if (player.state === "dodging" || player.state === "staggered") return;
-    const now = Date.now();
-    if (now < (player.emoteUntil || 0)) return;
-    player.emoteUntil = now + EMOTE_COOLDOWN_MS;
+    // SIM ms, not the wall. The throttle is a rule the server enforces against
+    // a client that can spam, and a rule the sim enforces has to be spent out
+    // of the sim's own clock — otherwise a replay throttles differently from
+    // the match it is replaying, and a headless host throttles by how fast the
+    // box happens to be stepping.
+    if (simMs < (player.emoteUntil || 0)) return;
+    player.emoteUntil = simMs + EMOTE_COOLDOWN_MS;
     player.emote = emote;
     broadcast(room, { type: "emote", data: { playerId: player.id, emote } });
   }
@@ -1818,12 +1874,16 @@ function makeEngine() {
     const decided = !!winnerKey && room.roundWins[winnerKey] >= roundsToWin(room);
     const over = decided || room.roundIndex >= (room.bestOf || 1) || room.players.size < 2;
     room.state = over ? "finished" : "intermission";
-    room.nextRoundAt = over ? 0 : Date.now() + ROUND_BREAK * 1000;
+    // `nextRoundAt` is EPOCH ms and stays epoch ms — WIRE-PROTOCOL §9.6 — because
+    // the only thing that reads it is a client counting the break down against
+    // its own `Date.now()`. What changed is where the number comes from: sim
+    // time, not the wall, so it now names the instant the sim will ACTUALLY
+    // deal the round rather than an instant the sim has no opinion about, and a
+    // replay reproduces it.
+    room.nextRoundAt = over ? 0 : wallNow() + ROUND_BREAK * 1000;
     broadcast(room, { type: "round_end", data: { ...serializeRoom(room), ...room.lastRound, matchOver: over } });
     if (over) return endMatch(room);
-    setTimeout(() => {
-      if (rooms.get(room.code) === room && room.state === "intermission") startRound(room);
-    }, ROUND_BREAK * 1000);
+    room.phaseAt = simMs + ROUND_BREAK * 1000;
   }
 
   // Paid ONCE, from the totals the whole match accumulated. Per-round payout
@@ -1854,20 +1914,26 @@ function makeEngine() {
       roundScoreBy: teamMode ? "team" : "player",
       results,
     } });
-    setTimeout(() => {
-      if (!rooms.has(room.code)) return;
-      room.state = "lobby"; room.matchTimer = 0; room.countdown = 0; room.killFeed = []; room.lastStandTriggered = false;
-      room.roundIndex = 0; room.roundWins = {}; room.lastRound = null; room.nextRoundAt = 0;
-      room.players.forEach((p) => {
-        const stats = WARRIOR_STATS[p.warriorClass];
-        p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;
-        p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
-        p.position = { x: 0, y: 0, z: 0 }; p.invincible = false;
-        clearMotion(p);
-        clearBodyMarks(p);
-      });
-      sendLobbyUpdate(room);
-    }, 10000);
+    // The summary stays up for ten seconds and then the room is a lobby again.
+    // On sim time, so a host driving the sim reaches the rematch screen at all —
+    // and so `render/summary.ts`, which stages the victor over a corpse for
+    // exactly this window, gets the same window in a replay.
+    room.phaseAt = simMs + SUMMARY_HOLD * 1000;
+  }
+
+  /** The summary is over. Everything the match left on the room and the men. */
+  function resetToLobby(room) {
+    room.state = "lobby"; room.matchTimer = 0; room.countdown = 0; room.killFeed = []; room.lastStandTriggered = false;
+    room.roundIndex = 0; room.roundWins = {}; room.lastRound = null; room.nextRoundAt = 0;
+    room.players.forEach((p) => {
+      const stats = WARRIOR_STATS[p.warriorClass];
+      p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;
+      p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
+      p.position = { x: 0, y: 0, z: 0 }; p.invincible = false;
+      clearMotion(p);
+      clearBodyMarks(p);
+    });
+    sendLobbyUpdate(room);
   }
 
   // ---------------- bots ----------------
@@ -2210,7 +2276,7 @@ function makeEngine() {
   // forever. Bots are simulated in-process, so their intent is never stale.
   function currentIntent(player) {
     if (!player.latestInput) return null;
-    if (!player.bot && Date.now() - player.inputAt > INPUT_LAPSE_MS) {
+    if (!player.bot && simMs - player.inputAt > INPUT_LAPSE_MS) {
       if (player.state === "blocking") { player.state = "idle"; player.blockTimer = 0; }
       return null;
     }
@@ -2247,23 +2313,136 @@ function makeEngine() {
   //
   // So the step stays fixed at 1/TICK_RATE — every tuning constant then means
   // what it says, a step is too short to tunnel a body through another, and two
-  // runs of the same inputs agree — and the wall clock decides how many steps
-  // are owed. Arrears carry rather than being dropped, so a run of 63 ms wakes
+  // runs of the same inputs agree — and elapsed time decides how many steps are
+  // owed. Arrears carry rather than being dropped, so a run of 63 ms wakes
   // averages out exactly instead of quietly losing 13 ms each time. One
   // broadcast per wake regardless: the packet rate may sag on a starved box, the
   // simulation rate may not.
+  //
+  // WHAT CHANGED, and it is the whole of docs/PLATFORM-PATH.md §2: the wall
+  // clock used to be read HERE, which meant the simulation owned its own clock
+  // and no other host could drive it. It is read in exactly one place now —
+  // `gameTick`, the OPTIONAL internal timer below — and everything under that
+  // takes elapsed milliseconds as an argument. A console frame loop, a replay
+  // or a harness calls `step(dt)` and gets this identical code path with this
+  // identical fixed step; nothing downstream can tell which of the two woke it.
+  function advance(elapsedMs, capMs) {
+    arrearsMs += elapsedMs;
+    // The cap belongs to the WALL clock and to nothing else. A box that was
+    // asleep for a minute must not fast-forward the fight when it wakes; a
+    // caller that deliberately hands the sim a minute is asking for a minute,
+    // and shortening it would make a replay disagree with the match it replays.
+    if (capMs !== undefined && arrearsMs > capMs) arrearsMs = capMs;
+    const steps = Math.floor((arrearsMs + TICK_SLACK_MS) / TICK_MS);
+    if (steps <= 0) return 0;   // owed nothing yet: no simulation, no duplicate snapshot
+    arrearsMs -= steps * TICK_MS;
+
+    // Whoever was fighting when this wake BEGAN is owed exactly one snapshot at
+    // the end of it. The state is tested once, here, and the broadcast below is
+    // unconditional — so the wake whose last substep ends the match still sends
+    // a frame, and it reads `finished`. That is WIRE-PROTOCOL §9.10, it is
+    // permanent, protocoltest holds it, and it is why this test cannot be moved
+    // inside the substep loop.
+    const live = [];
+    rooms.forEach((room) => { if (isFightState(room)) live.push(room); });
+
+    for (let s = 0; s < steps; s++) {
+      simMs += TICK_MS;
+      for (const room of live) stepRoom(room, TICK_DT);
+      // ...and every room's PHASE clock, stepped or not. A room in `countdown`,
+      // `intermission` or `finished` is deliberately not simulated — that is
+      // what those states mean — but its clock still has to run, and it used to
+      // run on `setTimeout` and `setInterval`. That is precisely why a headless
+      // host could get a room to the countdown and then wait forever. Sim time
+      // advances on every step whatever any room is doing, so a phase deadline
+      // is honoured on the same tick under a frame loop as under the timer.
+      rooms.forEach(advancePhase);
+    }
+
+    for (const room of live) broadcast(room, { type: "game_state", data: serializeRoom(room) });
+    return steps;
+  }
+
+  /**
+   * The clocks a room runs while it is NOT being stepped, and the reason this
+   * engine no longer owns a timer of its own.
+   *
+   * Four waits used to be real timers: the 800 ms before a solo trial deals
+   * itself, the one-second beat of the countdown, the five-second round break,
+   * and the ten seconds a summary stays on screen. Every one of them decided
+   * GAMEPLAY — when the bell rings, when the next round starts, when the room
+   * is a lobby again — and not one of them was reachable by a host driving the
+   * simulation itself. A console client could join, ready up, start, watch the
+   * countdown packet arrive, and then step for the rest of the afternoon
+   * without the fight ever beginning.
+   *
+   * They are one field now. A room is in exactly one state and each state waits
+   * on at most one thing, so `room.phaseAt` is that thing's deadline in SIM
+   * milliseconds and 0 means nothing is pending. The switch is on the STATE and
+   * not on the deadline alone: a deadline left behind by a room that was
+   * dragged somewhere else — a disconnect emptying a countdown — is discarded
+   * instead of fired in the wrong phase, which is the re-check each of those
+   * four timers used to have to perform for itself. The other guard they all
+   * carried, "is this room still the room I was armed for", is gone because it
+   * cannot fail: this is only ever called with a room the map still holds.
+   */
+  function advancePhase(room) {
+    if (!room.phaseAt || simMs < room.phaseAt) return;
+    switch (room.state) {
+      // A solo trial deals itself a beat after the join, so a client has a
+      // frame of lobby to draw before the ring is stood up.
+      case "lobby":
+        room.phaseAt = 0;
+        startMatch(room);
+        return;
+      // The bell. Three, two, one — thin packets carrying only the number, see
+      // WIRE-PROTOCOL §9.3 — and then the fight.
+      case "countdown": {
+        room.phaseAt = simMs + 1000;
+        room.countdown--;
+        if (room.countdown > 0) {
+          broadcast(room, { type: "countdown", data: { countdown: room.countdown } });
+          return;
+        }
+        room.phaseAt = 0;
+        room.state = "fighting";
+        // The grace is armed HERE, in the same statement that starts the fight,
+        // because `stepRoom` — the only thing that spends it — starts running
+        // on this transition too. Armed anywhere earlier it is a duration held
+        // against a stopped clock, which is the bug this replaces. Two seconds
+        // now means two seconds of the fight, which is what the constant is
+        // named for. See src/game/grace.mjs.
+        room.players.forEach((p) => {
+          if (p.state === "dead") return;
+          p.invincible = true; p.invincibleTimer = SPAWN_INVINCIBLE;
+        });
+        broadcast(room, { type: "game_state", data: serializeRoom(room) });
+        return;
+      }
+      // The breath between rounds, ROUND_BREAK long.
+      case "intermission":
+        room.phaseAt = 0;
+        startRound(room);
+        return;
+      // The summary has been read; the room becomes a lobby again.
+      case "finished":
+        room.phaseAt = 0;
+        resetToLobby(room);
+        return;
+      default:
+        room.phaseAt = 0;
+    }
+  }
+
+  // The only place in the simulation that reads a wall clock, and it exists
+  // only when the engine was asked to own a timer. It converts "how long since
+  // the last wake" into sim time and hands it to `advance`, which is the same
+  // door `step` comes through.
   function gameTick() {
     const now = performance.now();
-    if (now - simClock > MAX_CATCHUP_MS) simClock = now - MAX_CATCHUP_MS;
-    const steps = Math.floor((now - simClock + TICK_SLACK_MS) / TICK_MS);
-    if (steps <= 0) return;   // owed nothing yet: no simulation, no duplicate snapshot
-    simClock += steps * TICK_MS;
-
-    rooms.forEach((room) => {
-      if (room.state !== "fighting" && room.state !== "last_stand" && room.state !== "heartbeat") return;
-      for (let s = 0; s < steps; s++) stepRoom(room, TICK_DT);
-      broadcast(room, { type: "game_state", data: serializeRoom(room) });
-    });
+    const elapsed = now - wakeAt;
+    wakeAt = now;
+    advance(elapsed, MAX_CATCHUP_MS);
   }
 
   // One fixed step of one room. Never called with anything but TICK_DT — the
@@ -2401,7 +2580,17 @@ function makeEngine() {
   // simulation happens is gameTick's business. A late wake is worked off, not
   // lost, so this being a plain setInterval is now a scheduling detail rather
   // than the thing that sets the game's speed.
-  const tickInterval = setInterval(gameTick, TICK_MS);
+  //
+  // ...and now it is optional. `autoTick: false` starts nothing: no timer, no
+  // `performance.now()`, no way for this engine to advance except a caller
+  // handing it time. That is what a console frame loop, a replay and a test all
+  // need, and the default is untouched so the two servers get exactly the loop
+  // they have always had.
+  let tickInterval = null;
+  if (autoTick) {
+    wakeAt = performance.now();
+    tickInterval = setInterval(gameTick, TICK_MS);
+  }
 
   return {
     connect(sender) {
@@ -2434,6 +2623,46 @@ function makeEngine() {
     },
     disconnectSession,
     has(sid) { return sessions.has(sid); },
+
+    /**
+     * Advance the simulation by `dtSeconds` of SIM time; returns how many fixed
+     * steps that bought. This is the whole of docs/PLATFORM-PATH.md §2 in one
+     * method: a host with its own frame loop calls it instead of leaving a
+     * timer to do it, and gets the identical code path the timer uses.
+     *
+     * Called with nothing it advances by exactly one tick, which is the unit
+     * everything in here is written in. Called with a duration it runs as many
+     * WHOLE fixed steps as that duration owes and carries the remainder to the
+     * next call — a variable frame time is spent on fixed steps, never on a
+     * variable one, or the arena's speeds and cooldowns become a measurement of
+     * the caller's frame rate. That is the bug this file's clock comment is
+     * about and it is not being reintroduced through the front door.
+     *
+     * There is no catch-up cap here, unlike the timer's: a caller asking for
+     * five seconds means five seconds. Broadcasting works exactly as it does
+     * under the timer — one `game_state` per call per room that was fighting
+     * when the call began — so a replay produces the same frames a match did.
+     */
+    step(dtSeconds) {
+      return advance(dtSeconds === undefined ? TICK_MS : Math.max(0, finite(dtSeconds) * 1000));
+    },
+    /**
+     * Milliseconds of simulation advanced so far. Monotonic, exact, and the
+     * only clock any rule in here reads — a harness that wants to know how far
+     * a match has got asks this rather than a wall clock.
+     */
+    simTime() { return simMs; },
+    /** Whether this engine started a timer of its own. */
+    autoTick,
+    /**
+     * Put the internal timer down. A no-op on an `autoTick: false` engine,
+     * which never had one, and the thing that lets a process holding several
+     * engines exit.
+     */
+    stop() { if (tickInterval) { clearInterval(tickInterval); tickInterval = null; } },
+    // Null on an `autoTick: false` engine. `clearInterval(null)` is a no-op, so
+    // the harnesses that clear this to let the process exit still work either
+    // way; `stop()` says the same thing without reaching for the field.
     _tickInterval: tickInterval,
     /**
      * The live room map, for harnesses only.
@@ -2469,6 +2698,37 @@ function makeEngine() {
   }
 }
 
+/**
+ * THE process-wide engine, cached on `globalThis` so `custom-server.mjs` and
+ * the Next API routes serve one set of rooms rather than two. Unchanged: it
+ * still builds a default engine, which still starts its own 20 Hz timer.
+ *
+ * It is a convenience, not the only way in. `makeEngine()` is exported and each
+ * call is a wholly independent simulation — its own rooms, its own sessions,
+ * its own clock — so a room orchestrator, a replay or a test can hold several
+ * at once, and NOTHING in this module keeps mutable state outside the closure
+ * for them to fight over.
+ *
+ * TWO THINGS ARE GENUINELY SHARED, and both are the host process's, not this
+ * module's. Saying so here rather than leaving them to be discovered:
+ *
+ *   1. `Math.random`. Every bot decision, every room code and every bot name is
+ *      drawn from the one global stream, so two engines in a process INTERLEAVE
+ *      their draws and neither is reproducible on its own. It is not made
+ *      per-engine because `tools/seeddie.mjs` pins that stream process-wide to
+ *      make a harness repeatable, and an engine-owned die would take that lever
+ *      away from every tool that uses it. A caller who needs two engines to be
+ *      independently deterministic has to give them separate processes, or this
+ *      is the thing to change first.
+ *   2. `crypto.randomUUID`, for session, player and room ids. Shared, and
+ *      harmless — it is the one source here whose whole job is to collide with
+ *      nothing, in this process or any other.
+ *
+ * Room CODES are per-engine and are checked for collision only within their own
+ * `rooms` map, so two engines can hold the same code. That is correct — a code
+ * only ever means anything to the engine a session is attached to — but a host
+ * routing players between engines has to route by engine and not by code alone.
+ */
 export function getEngine() {
   const g = globalThis;
   if (!g.__bretwaldaEngine) g.__bretwaldaEngine = makeEngine();
