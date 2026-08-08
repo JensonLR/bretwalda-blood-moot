@@ -392,8 +392,8 @@ const GAZE_ASSERTS = [
     "G3 · mm the two axes miss each other by at that closest approach. Not a bar on its own — it is the magnitude whose SIGN structure `skew` carries"],
   ["irisOffAxis", -0.001, 0.05,
     "mm the IRIS disc's centre sits off the PUPIL's own axis, worst of the two eyes. Catches half a fix: a pupil moved onto the gaze while its iris stayed on the socket normal is an eye with the coloured part and the black part in different places"],
-  ["skew", -0.004, 0.004,
-    "G3 · THE TRIPLE PRODUCT. (gA x gB) . b-hat over the interocular direction. Zero exactly when the two axes are coplanar with the line joining the globes, i.e. when they really meet; it CHANGES SIGN if one eye is aimed above the other, which is a hypertropia that sails through G1"],
+  ["skew", -2e-5, 2e-5,
+    "G3 · THE TRIPLE PRODUCT. (gA x gB) . b-hat over the interocular direction. Zero exactly when the two axes are coplanar with the line joining the globes, i.e. when they really meet; it CHANGES SIGN if one eye is aimed above the other, which is a hypertropia that sails through G1. The band is 2e-5 and not 4e-3: on a pair aimed at one point this reads 1e-13, and 4e-3 was set from the size of the defect that was being injected to test it rather than from the noise floor — which is the tolerance mistake this file's header is about. 2e-5 is 0.04 mm of miss at the fixation distance, which agrees with the bar above"],
   ["ipd", 60, 88,
     "mm between the globe centres. Reported so a convergence read on two eyes that have collapsed onto one point cannot pass"],
   ["ahead", 0.985, 1.001,
@@ -406,6 +406,10 @@ console.log("\n\n[head] GAZE GATE — the sign of the convergence, which no dist
 console.log(`[head] ${gazes.length} heads\n`);
 console.log("  assertion                 min      mean       max        allowed      verdict");
 console.log("  " + "-".repeat(84));
+// Three of these live near zero by design and `fmt` would print every one of
+// them as "0.000", which is how a gate stops being readable and then stops being
+// read. Anything under a thousandth goes to one significant figure instead.
+const gfmt = (v) => (v !== 0 && Math.abs(v) < 1e-3 ? v.toExponential(1) : fmt(v));
 let gfails = 0;
 for (const [key, lo, hi, note] of GAZE_ASSERTS) {
   const vals = gazes.map((r) => r[key]);
@@ -413,8 +417,8 @@ for (const [key, lo, hi, note] of GAZE_ASSERTS) {
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const ok = min >= lo && max <= hi;
   if (!ok) gfails++;
-  console.log(`  ${key.padEnd(20)} ${fmt(min).padStart(9)} ${fmt(mean).padStart(9)} ${fmt(max).padStart(9)}` +
-    `  ${`${fmt(lo)}..${fmt(hi)}`.padStart(13)}   ${ok ? "ok" : "FAIL"}`);
+  console.log(`  ${key.padEnd(20)} ${gfmt(min).padStart(9)} ${gfmt(mean).padStart(9)} ${gfmt(max).padStart(9)}` +
+    `  ${`${gfmt(lo)}..${gfmt(hi)}`.padStart(15)}   ${ok ? "ok" : "FAIL"}`);
   console.log(`    ${note}`);
 }
 
