@@ -5250,18 +5250,128 @@ function globePatch(
 const fissure = (f: EyeFrame, tt: number) => f.hA * Math.pow(Math.max(0, 1 - tt * tt), 0.80);
 
 /**
+ * The shell the lid's free edge and its hugging band both lie on: the globe plus
+ * the thickness of the conjunctiva and the lid's own inner face. Hoisted out of
+ * `lidPatch` because `lidMarginPoint` and `eyeClipProbe` are both measured
+ * against it, and a ruler that carries its own copy of a radius is a ruler that
+ * can drift away from the thing it measures.
+ */
+const LID_SHELL = GLOBE + 0.0016;
+
+/**
+ * Rows across the lid's bridge, margin to socket rim.
+ *
+ * It was 2 — three rows of vertices — for as long as the lid ran STRAIGHT from
+ * the margin to the rim, where two rows describe a straight line exactly and a
+ * third is generosity. The lid now lies on the globe for a band above the margin
+ * before it folds back (see `LID_HUG_ARC`), and a curve sampled twice is a
+ * chord: at 2 the hugging band was drawn as a single flat quad cutting straight
+ * across it, which is the defect it exists to fix, redrawn slightly smaller.
+ * `eyeClipProbe` measures the EMITTED TRIANGLES, so it fails at 2 and passes at
+ * 6, and the row count is here rather than at the four call sites because it is
+ * one property of one surface.
+ *
+ * 6 and not more: `LID_HUG_SPAN` is set so that three of the six rows land inside
+ * the hugging band, and on a 16.8 mm shell the chord across the widest of those
+ * gaps stands 0.04 mm off the sphere — a twentieth of the clearance it has to
+ * hold. The rest buys nothing and every lid is drawn four times a head.
+ */
+const LID_ROWS = 6;
+
+/**
+ * The lid margin — the free edge of the lid, lying on the globe at the boundary
+ * of the palpebral fissure.
+ *
+ * Factored out so `lidPatch` builds from it and `eyeClipProbe` measures against
+ * it. `docs/SUTTON-HOO.md` lesson 2 is about rulers pointed at a declaration
+ * rather than at the object; the twin of that mistake is a ruler that reimplements
+ * the formula it is checking, passes, and proves only that the same arithmetic
+ * was typed twice.
+ */
+function lidMarginPoint(f: EyeFrame, upper: boolean, t: number, out: THREE.Vector3): THREE.Vector3 {
+  const sign = upper ? 1 : -1;
+  const tt = sign * (t * 2 - 1);
+  const x = tt * f.wA;
+  const y = f.tilt * tt + sign * fissure(f, tt);
+  const zz = Math.sqrt(Math.max(1e-8, LID_SHELL * LID_SHELL - x * x - y * y));
+  return out.copy(f.c).addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz);
+}
+
+/**
+ * HOW FAR THE LID LIES ON THE EYEBALL BEFORE IT FOLDS BACK — in radians of
+ * `LID_SHELL`, at the middle of the slit.
+ *
+ * "the pupils overlap the upper eyelids slightly."
+ *
+ * The lid used to leave the globe AT its margin and run straight to the socket
+ * rim: `out.lerpVectors(m, rim, w)` with `s0 = 0.12`, so even its first emitted
+ * row had already stepped off the ball. Above the margin there was therefore
+ * open air between globe and lid, and the iris — a FULL disc of 12.2 mm laid out
+ * on `f.gaze` with no reference to the aperture at all — was drawn straight
+ * through it. `eyeclip` measured 5.0 mm of iris standing proud of the lid margin
+ * on a narrow-eyed seed, and 897 of its samples visible there.
+ *
+ * The cause is not the iris's size and must not be paid for out of it: the
+ * palpebral-fissure block and the note over `GLOBE` are both about how much a
+ * small iris in a wide aperture costs, and the answer was the doll's stare they
+ * spent passes removing. The cause is that the aperture is cut on the SOCKET
+ * normal while the eyeball's contents are laid out on the GAZE, and `eyeclip`
+ * reports those two axes 26° apart with 5.6° of that vertical. A disc pushed
+ * 1.5 mm up the ball relative to the hole it looks out of will clear the top of
+ * that hole, and it does — on every seed whose `eyeOpen` is under about 0.9,
+ * which is roughly half of them.
+ *
+ * So the lid does what a lid does: it LIES ON the globe for a band above its own
+ * margin, and only then folds back into the socket. 0.30 rad is 5.0 mm of arc,
+ * which covers the top millimetre or two of the iris in a relaxed eye and rather
+ * more in a narrow one — which is also what a real lid does, and is why this
+ * fixes the narrow-eyed seeds hardest without touching the wide ones.
+ *
+ * It is deliberately NOT a clip of the iris to the aperture. A clip would have
+ * to be solved between the two bases the eye is built in, would only ever be
+ * right for the bearing it was solved at, and would leave the lid still floating
+ * off the ball for every other feature to fall through later.
+ */
+const LID_HUG_ARC = 0.38;
+/** The lower lid does the same, over the shorter band a lower lid actually has. */
+const LID_HUG_ARC_LOWER = 0.12;
+/**
+ * The fraction of the bridge — margin to socket rim — spent on that band.
+ *
+ * Bigger than the arc's share of the LENGTH on purpose. `w` is already
+ * smoothstepped, so rows crowd toward the margin; spending 0.42 of it on the hug
+ * is what puts three emitted rows inside the band rather than one, and a curve
+ * with one row in it is a chord. See `LID_ROWS`.
+ */
+const LID_HUG_SPAN = 0.42;
+const LID_HUG_SPAN_LOWER = 0.22;
+/**
+ * The thickest the lid's shell is allowed to be while it lies on the globe.
+ *
+ * A lid at its full 1.3 mm would carry its back face down to 15.5 mm from the
+ * globe centre, and the pupil's own shell is at 15.9 — so dragging the lid over
+ * the iris at full thickness buries the lid's inside INSIDE the eye's contents,
+ * and two surfaces a twentieth of a millimetre apart interleave wherever the
+ * depth buffer rounds. 0.5 mm keeps 0.4 mm of air between them. It is also what
+ * a palpebral margin is: a blade at the edge that thickens into the tarsus, so
+ * the constraint and the anatomy want the same thing.
+ */
+const LID_HUG_THICK = 0.0005;
+
+/**
  * An eyelid, built as the bridge it actually is: it starts on the globe at the
- * lid margin and ends buried in the socket rim, with a fold of volume in between.
- * Modelling it as a bridge rather than as a cap is what stops the eye reading as
- * a marble dropped into a hole — and the `s0` band is the lash line, which at
- * this scale carries more of the read than the lid itself.
+ * lid margin, LIES ALONG IT for a band above it, and ends buried in the socket
+ * rim with a fold of volume in between. Modelling it as a bridge rather than as
+ * a cap is what stops the eye reading as a marble dropped into a hole — and the
+ * `s0` band is the lash line, which at this scale carries more of the read than
+ * the lid itself.
  */
 function lidPatch(
   K: Skull, f: EyeFrame, upper: boolean,
   nu: number, nv: number, s0: number, s1: number, thick: number,
 ): THREE.BufferGeometry {
   const sign = upper ? 1 : -1;
-  const rL = GLOBE + 0.0016;
+  const rL = LID_SHELL;
   // How far into the socket the lid dies, in latitude. The lower one is shallower
   // than it was: at 0.115 its bridge was 13 mm of up-facing skin below the eye and,
   // with `skin` now carrying a tighter specular lobe, it took the key square on and
@@ -5273,20 +5383,23 @@ function lidPatch(
   // underside, and it rendered as the fat pale almond sitting over each eye in
   // `art/shots/base0/cards/headturn-front_0_.png`.
   const rimDv = upper ? 0.096 : -0.062;
+  const hugArc = upper ? LID_HUG_ARC : LID_HUG_ARC_LOWER;
+  const hugSpan = upper ? LID_HUG_SPAN : LID_HUG_SPAN_LOWER;
   const m = new THREE.Vector3();
   const rim = new THREE.Vector3();
   const n = new THREE.Vector3();
   const d = new THREE.Vector3();
+  const rad = new THREE.Vector3();
+  const tang = new THREE.Vector3();
+  const hug = new THREE.Vector3();
+  const back = new THREE.Vector3();
 
   const at = (t: number, s: number, off: number, out: THREE.Vector3) => {
     // The lower lid runs the other way along the slit. Its `s` climbs downward,
     // so without reversing `t` the surface's own cross product points into the
     // skull and the lid vanishes to backface culling.
     const tt = sign * (t * 2 - 1);
-    const x = tt * f.wA;
-    const y = f.tilt * tt + sign * fissure(f, tt);
-    const zz = Math.sqrt(Math.max(1e-8, rL * rL - x * x - y * y));
-    m.copy(f.c).addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz);
+    lidMarginPoint(f, upper, t, m);
     // Sunk a fraction of a millimetre into the skull, so the lid's own rim strip
     // is buried instead of standing off the cheek as a step.
     //
@@ -5311,8 +5424,58 @@ function lidPatch(
     rim.addScaledVector(n, -0.0018);
     const e = mix(s0, s1, s);
     const w = e * e * (3 - 2 * e);
-    out.lerpVectors(m, rim, w);
-    out.addScaledVector(n, (upper ? 0.0008 : 0.0003) * Math.sin(Math.PI * w) + off);
+
+    // ---- the hug: the lid lying on the eyeball ----
+    //
+    // A great-circle walk of `a` radians from the margin, in the vertical plane
+    // through it, so every point of this band is exactly on `LID_SHELL` — 1.25 mm
+    // outside the iris at the same bearing, whatever the gaze, whatever `eyeOpen`
+    // and from whatever the camera is standing. That last clause is the reason
+    // this is the fix and clipping the disc to the aperture is not: an occlusion
+    // that holds by construction cannot be got round by turning the head.
+    //
+    // The arc tapers to nothing at both canthi. Held level it would carry the
+    // lid's corner up off the canthus, and a lid corner standing above the corner
+    // of the eye is the hard step over each eye that `art/shots/wip/p2-*` was full
+    // of. A lid converges on the canthi — it does that here too.
+    //
+    // The exponent is 0.40 and not the 0.5 the socket rim's `arch` uses, because
+    // the two are tapering for different reasons. `arch` only has to die at the
+    // canthus; this has to die at the canthus AND still be covering the iris two
+    // thirds of the way out, where the disc's shoulder sits. At 0.5 `eyeclip`
+    // found six samples of iris standing 4.99 mm proud at x = −8.1 mm — the disc
+    // clearing the lid's boundary just past the shoulder while the middle of the
+    // slit was covered by millimetres.
+    //
+    // `1 − (1 − r)²` rather than `r`: the walk has to leave the margin FAST, so
+    // that the lash line's own narrow band (w up to 0.044) is a millimetre of lid
+    // on the ball rather than a tenth of one, and it has to arrive at the fold
+    // with zero speed, so that the seam between hugging and folding is a smooth
+    // one. Both ends of the piecewise meet at zero derivative, which is what makes
+    // this a lid crease and not a crimp.
+    const taper = Math.pow(Math.max(0, 1 - tt * tt), 0.40);
+    const r01 = Math.min(1, w / hugSpan);
+    const a = hugArc * taper * (1 - (1 - r01) * (1 - r01));
+    rad.copy(m).sub(f.c).multiplyScalar(1 / rL);
+    tang.copy(f.up).multiplyScalar(sign);
+    tang.addScaledVector(rad, -tang.dot(rad)).normalize();
+    hug.copy(f.c).addScaledVector(rad, rL * Math.cos(a)).addScaledVector(tang, rL * Math.sin(a));
+
+    // And then the fold back into the socket, over what is left of the bridge.
+    const gg = w <= hugSpan ? 0 : (w - hugSpan) / (1 - hugSpan);
+    const g = gg * gg * (3 - 2 * gg);
+    out.lerpVectors(hug, rim, g);
+    // The shell's own thickness, and the direction it is taken in: down the
+    // GLOBE's radial while the lid is on the globe — where the skull's normal is
+    // the wrong axis and would push the back face sideways into the eye — and
+    // back onto the skull normal as it folds. Capped at `LID_HUG_THICK` over the
+    // hug for the reason written there.
+    back.copy(rad).lerp(n, g).normalize();
+    out.addScaledVector(back, mix(Math.max(off, -LID_HUG_THICK), off, g));
+    // The fold's own volume. It rides `g` rather than `w` so that none of it
+    // lands on the hugging band: a bulge there would lift the lid off the ball,
+    // which is the whole thing this is fixing.
+    out.addScaledVector(n, (upper ? 0.0008 : 0.0003) * Math.sin(Math.PI * w) * g);
   };
   return patch({
     nu, nv,
@@ -5433,15 +5596,17 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     }, true);
     p.add(irisGeom, fine ? M.iris : M.dark, place.clone());
     let pupilGeom = irisGeom;
+    let limbalGeom: THREE.BufferGeometry | null = null;
     if (fine) {
       // Limbal ring: the dark rim a real iris has where it meets the sclera. Two
       // hundred triangles, and it is what stops the iris reading as a flat dot at
       // the distance the eye is actually seen from.
-      p.add(globePatch(f, f.gaze, GLOBE + 0.0005, 0.0002, 10, 1, (t, s, out) => {
+      limbalGeom = globePatch(f, f.gaze, GLOBE + 0.0005, 0.0002, 10, 1, (t, s, out) => {
         const a = -t * Math.PI * 2;
         const r = mix(rI * 0.84, rI, s);
         out.set(Math.cos(a) * r, Math.sin(a) * r);
-      }, true), M.dark, place.clone());
+      }, true);
+      p.add(limbalGeom, M.dark, place.clone());
       const rP = 0.0024;
       pupilGeom = globePatch(f, f.gaze, GLOBE + 0.0007, 0.0003, 8, 1, (t, s, out) => {
         const a = -t * Math.PI * 2;
@@ -5477,16 +5642,164 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     // but now it arrives as a gradient with no boundary in it at all, and it
     // carries across the lid, the socket and the cheek as one surface.
     const nu = Math.max(5, lod.shellU - 3);
-    p.add(lidPatch(K, f, true, nu, 2, 0.12, 1, 0.0013), M.skin, place.clone());
-    p.add(lidPatch(K, f, false, nu, 2, 0.1, 1, 0.0011), M.skin, place.clone());
+    const upperLid = lidPatch(K, f, true, nu, LID_ROWS, 0.12, 1, 0.0013);
+    const lowerLid = lidPatch(K, f, false, nu, LID_ROWS, 0.1, 1, 0.0011);
+    p.add(upperLid, M.skin, place.clone());
+    p.add(lowerLid, M.skin, place.clone());
+    let upperLash: THREE.BufferGeometry | null = null;
+    let lowerLash: THREE.BufferGeometry | null = null;
     if (fine) {
       // Lash line: one narrow band in hair, right on the margin. This is the only
       // part of the lid that is allowed a material of its own, because a lash line
       // IS a hard dark edge — it is the one boundary on the eye the eye expects.
-      p.add(lidPatch(K, f, true, nu, 1, 0, 0.13, 0.0009), M.lash, place.clone());
-      p.add(lidPatch(K, f, false, nu, 1, 0, 0.11, 0.0008), M.skin, place.clone());
+      upperLash = lidPatch(K, f, true, nu, 1, 0, 0.13, 0.0009);
+      lowerLash = lidPatch(K, f, false, nu, 1, 0, 0.11, 0.0008);
+      p.add(upperLash, M.lash, place.clone());
+      p.add(lowerLash, M.skin, place.clone());
+    }
+
+    if (_eyeClipSpy) {
+      // Same discipline as `_eyeSpy` above: read AFTER every `add`, so what the
+      // probe gets is the buffer as it finally sits in the head rather than the
+      // shape somebody meant to build. The margin is re-sampled through
+      // `lidMarginPoint` — the identical function the lid itself is built from —
+      // and pushed through the same `place`.
+      const axisOf = (a: THREE.Vector3): number[] =>
+        a.clone().add(f.c).applyMatrix4(place).sub(f.c.clone().applyMatrix4(place)).toArray();
+      const marginOf = (up: boolean): number[] => {
+        const o: number[] = [];
+        const v = new THREE.Vector3();
+        for (let i = 0; i <= 96; i++) {
+          lidMarginPoint(f, up, i / 96, v).applyMatrix4(place);
+          o.push(v.x, v.y, v.z);
+        }
+        return o;
+      };
+      _eyeClipSpy.push({
+        side,
+        disc: triangleSoup([irisGeom, limbalGeom, pupilGeom === irisGeom ? null : pupilGeom]),
+        upper: triangleSoup([upperLid, upperLash]),
+        lower: triangleSoup([lowerLid, lowerLash]),
+        margin: marginOf(true),
+        lowerMargin: marginOf(false),
+        centre: f.c.clone().applyMatrix4(place).toArray(),
+        // The socket frame, carried through `place` as a DIFFERENCE of two placed
+        // points rather than as a rotated vector. `place` is a translation today
+        // and a direction would survive it untouched — but "today" is how a probe
+        // starts lying the first time somebody puts a scale or a tilt on the head.
+        lat: axisOf(f.lat),
+        up: axisOf(f.up),
+        fwd: axisOf(f.fwd),
+        irisR: rI,
+        hA: f.hA,
+        wA: f.wA,
+        lidShell: LID_SHELL,
+      });
     }
   }
+}
+
+// ============================================================
+// THE LID GATE
+//
+// "the pupils overlap the upper eyelids slightly."
+//
+// Every ratio in `headProbe`, every silhouette assertion and every one of the
+// gaze bars passed on the build that drew this, and once again that is not a
+// slack tolerance. `gazeProbe` asks WHERE the iris points and the answer was
+// right; this asks WHAT IS IN FRONT OF IT, and no bearing, distance or angle on
+// a single surface can answer that. Occlusion is a relationship between two
+// surfaces and a camera, so it takes two surfaces and a camera to measure.
+//
+// The mechanism it is pointed at: the iris, the limbal ring and the pupil are
+// FULL DISCS laid out on `f.gaze` with no reference to the aperture at all,
+// while the lid used to leave the globe at its margin and run straight to the
+// socket rim. Between the two there was open air, and a disc of 12.2 mm against
+// an aperture of 13.6 — which shrinks with `eyeOpen` while the disc does not —
+// showed through it.
+//
+// So: `eyeClipProbe` hands back the eye's own emitted triangles, kept apart by
+// role, plus the lid margin re-sampled from the same function the lid is built
+// from. `tools/eyeclip.mjs` puts the portrait camera on them and asks whether
+// any part of the coloured disc survives above the margin. What it deliberately
+// does NOT do is count the brow ridge, the hair or the helm as occluders: an
+// iris hidden behind a brow at one bearing is an iris on show at the next, and
+// covering the top of the iris is the upper lid's job in every frame of the game.
+// ============================================================
+
+/** The eye's emitted surfaces, kept apart by role, for `eyeClipProbe`. */
+export interface EyeClipFit {
+  /** −1 or +1, the sign the orbit's bearing was taken with. */
+  side: number;
+  /** The eyeball's coloured contents — iris, limbal ring, pupil — as triangles. */
+  disc: number[];
+  /** Upper lid and its lash line: the surface whose job is to cover them. */
+  upper: number[];
+  /** Lower lid and its lash line. */
+  lower: number[];
+  /** The upper lid margin, as a polyline of 97 points. */
+  margin: number[];
+  lowerMargin: number[];
+  /** Globe centre, in the same space as everything above. */
+  centre: number[];
+  /** The SOCKET frame — not the gaze frame; the aperture is cut in the skull. */
+  lat: number[];
+  up: number[];
+  fwd: number[];
+  irisR: number;
+  hA: number;
+  wA: number;
+  lidShell: number;
+}
+let _eyeClipSpy: EyeClipFit[] | null = null;
+
+/**
+ * Every triangle of a set of geometries, flattened to nine numbers apiece.
+ *
+ * Flat numbers rather than the geometries themselves because `Part.merge` calls
+ * `dispose()` on each piece the moment the head is assembled, and a probe that
+ * hands out live `BufferGeometry` is handing out something the build has already
+ * finished with.
+ */
+function triangleSoup(geos: Array<THREE.BufferGeometry | null>): number[] {
+  const out: number[] = [];
+  for (const g of geos) {
+    if (!g) continue;
+    const pos = g.getAttribute("position");
+    const idx = g.getIndex();
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i < n; i++) {
+      const j = idx ? idx.getX(i) : i;
+      out.push(pos.getX(j), pos.getY(j), pos.getZ(j));
+    }
+  }
+  return out;
+}
+
+/**
+ * The eyes as the build actually emitted them, in the head mesh's own space,
+ * with the head's world matrix so a caller can stand a camera off the face.
+ *
+ * `materials` is left undefined for the same reason `gazeProbe` leaves it: that
+ * is what switches the merged-geometry cache off, and a cached head never calls
+ * the builder the spy is hooked into.
+ */
+export function eyeClipProbe(cls: WarriorClass, seed: number): { eyes: EyeClipFit[]; headWorld: number[] } {
+  const spy: EyeClipFit[] = [];
+  const prev = _eyeClipSpy;
+  _eyeClipSpy = spy;
+  let root: THREE.Group;
+  try {
+    root = buildCharacter(cls, defaultAppearance(cls), 0x8a6b3f, undefined, "high", seed).group;
+  } finally {
+    _eyeClipSpy = prev;
+  }
+  root.updateMatrixWorld(true);
+  let headWorld = new THREE.Matrix4();
+  root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh && o.name === `${RIG_TAG}head`) headWorld = o.matrixWorld;
+  });
+  return { eyes: spy, headWorld: headWorld.toArray() };
 }
 
 /**
@@ -5979,6 +6292,14 @@ interface BeardCut {
   seatR: number;
   /** How fast that radius grows as the collar drops onto the yoke. */
   seatFlare: number;
+  /**
+   * The THROAT the fall hangs past on its way to that collar: the neck's radius
+   * at the neckline, and how much of it is lost per metre of rise toward the
+   * jaw. The neck tapers upward, so this is the collar's number one layer in and
+   * the other way up.
+   */
+  throatR: number;
+  throatTaper: number;
   hank: (u: number) => number;
   rag: (u: number) => number;
   thick: number;
@@ -6027,18 +6348,44 @@ interface BeardCut {
  *                is no moustache object. There is a beard, and the top of it is
  *                a moustache.
  *   0.4 -> 0.93  THE FALL. Off the jaw, out, down, round the hem and back up the
- *                inside — and pushed out onto `seatR` as it passes the collar,
- *                so it LIES ON the mail instead of through it.
- *   0.93 -> 1    THE TUCK. The inside wall comes back and dies INTO the throat,
- *                60 mm under the jawline, at negative lift. That is the hard
- *                straight cut at the neck, deleted: there is no free edge there
- *                any more, so there is no line to see.
+ *                inside — and pushed out, the whole way down, onto WHATEVER IS
+ *                UNDER IT: the throat first and then the collar, so it hangs
+ *                past the one and lies on the other instead of through either.
+ *   0.93 -> 1    THE TUCK. The inside wall comes back and dies under the jaw at
+ *                negative lift. That is the hard straight cut at the neck,
+ *                deleted: there is no free edge there any more, so there is no
+ *                line to see.
  *
  * Both s boundaries are buried in flesh and both u boundaries pinch shut at the
  * sideburn, so the surface has no visible edge anywhere on it. What separates
  * the five styles is `prof`, `mass` and `reach` — the outline of the fall — and
  * nothing else, which is the axis a price ladder can actually buy and the axis
  * that survives 7.9 mm to a pixel.
+ *
+ * AND THE SECOND BEARD REPORT — "beards also still overlapping the neck &
+ * doesnt look right they need designing better" — was two faults in the fall,
+ * both of them here and neither of them in the construction above.
+ *
+ *   1. IT WAS SEATED ON THE COLLAR AND ON NOTHING ELSE. The section is extruded
+ *      from the jawline contour, and under the chin that contour is NARROWER
+ *      THAN THE THROAT BELOW IT — 47 mm of horizontal radius against 57. So a
+ *      fall that hung straight down off it started inside the neck and stayed
+ *      there for its whole length, and the inner wall crossed the throat's
+ *      surface twice on the way round. What draws is the intersection curve
+ *      between hair and skin: a dark lobe lying down the front of the neck. The
+ *      seat solve ran over a 40 mm band either side of the neckline and no
+ *      further, and the beard never reaches the neckline — `beardSeatProbe`
+ *      reported 0.0 mm through the garment on all sixteen rungs and was right
+ *      to. The 60 mm of throat above it had no floor at all, and no ruler.
+ *   2. THE OUTLINE WAS A BULB. Widest a third of the way down, closing on a
+ *      round hem, with the drop nearly constant across the azimuth: "a rounded
+ *      blob with a narrow tongue down the throat". Hair has weight — it is
+ *      thickest where it is attached, it separates into hanks as it falls, and
+ *      it is wider at the jaw than at the hem. Every `prof` below now puts its
+ *      widest station at the top, `reach` narrows the drop away from the
+ *      midline so the outline is a spade rather than a curtain, `lean` carries
+ *      the mass forward onto the chest instead of down the throat, and `hank`
+ *      and `rag` are correlated so a ridge in the mass also hangs longer.
  */
 function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.BufferGeometry {
   const prof = cut.prof;
@@ -6137,6 +6484,10 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
     let lift: number;
     let o = 0;
     let d = 0;
+    // How much of the "lie on what is under you" solve this station gets. The
+    // face leg gets none — it is on the skin — and the tuck gets none, because
+    // it is on its way back inside the jaw. Everything between is hanging hair.
+    let seatK = 0;
     if (q <= FACE) {
       // ---- down the face ----
       const w = q / FACE;
@@ -6161,13 +6512,46 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
       // gets a dozen highlights instead of one gradient.
       const ridge = 1 + cut.hank(u) * smooth(0, 0.35, k / P) * (oo > 0 ? 1 : 0.35);
       o = oo * m * ridge;
-      d = dd * m * reach(u) * cut.rag(u);
-      // The last station comes back and dies in the throat, 60 mm under the
-      // jawline. That is the "hard straight cut at the neck" deleted: there is
-      // no free edge left there to cut with.
+      // AND THE HANKS HANG LONGER WHERE THEY ARE THICKER, which is the whole of
+      // the difference between hair and felt. `rag` used to modulate the drop
+      // and `hank` the section, independently, so a ridge in the mass and a
+      // tongue of the hem were unrelated events and the eye read the outline as
+      // noise on a smooth blob. Correlating them makes each ridge a HANK: it
+      // stands out of the mass and it reaches further down, so the silhouette
+      // breaks into ropes instead of scalloping.
+      const rope = 1 + 0.30 * cut.hank(u) * smooth(0, 0.5, k / P);
+      d = dd * m * reach(u) * cut.rag(u) * rope;
+      // The last station comes back and dies under the jaw at negative lift.
+      // That is the "hard straight cut at the neck" deleted: there is no free
+      // edge left there to cut with.
+      //
+      // 0.060 IS IN FIELD-Y AND NOT IN METRES, and the note that used to sit
+      // here called it "60 mm under the jawline". The field spans the whole head
+      // over [-1, 1], so 0.060 of it is about 7 mm of drop — the tuck dies just
+      // under the jaw, which is where it wants to be, but nobody reading the
+      // note could have known that. Worse, `jy` at the midline is already
+      // -0.945, so `jy - 0.060` fell OFF THE BOTTOM of the field and `lat`
+      // clamped it to the pole: the whole front of the ring collapsed onto the
+      // head's bottom axis and the inner wall got there by sweeping a 60 mm
+      // shelf across the throat. Clamped inside the field, the ring stays a
+      // ring.
       const tuck = clamp01(k - (P - 1));
-      y = jy - 0.060 * tuck;
+      y = Math.max(-0.988, jy - 0.060 * tuck);
       lift = mix(jLift, -0.0030, tuck);
+      // On from the top of the fall and off again through the tuck. It was gated
+      // on the DROP before — `d > 4 mm` — and a drop gate cannot tell the top of
+      // the fall from the bottom of the tuck, because both of those are within a
+      // few millimetres of the jawline. So either the tuck got seated (and the
+      // beard came out as a bib) or the top of the fall did not (and the first
+      // 20 mm of hair hung inside the throat, which is what it did).
+      //
+      // AND ONLY WHERE THERE IS A FALL. Past the jaw angle `mass` has run out
+      // and the section is a couple of millimetres of nothing; seating that
+      // pushed the beard's own tail out to the throat's radius BEHIND the
+      // mandible, and what drew was a flat tab of hair standing off the side of
+      // the neck with daylight under it. A solve for "lie on what is under you"
+      // has to be weighted by how much of you there is.
+      seatK = smooth(0, 2.2, k) * (1 - tuck) * smooth(0.02, 0.34, m);
     }
 
     const rx = Math.sin(u);
@@ -6185,13 +6569,27 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
       out.y -= d;
     }
 
-    // ---- IT SITS ON THE MAIL, IT DOES NOT PASS THROUGH IT ----
+    // ---- IT HANGS PAST THE THROAT AND LANDS ON THE MAIL ----
     //
-    // A beard is soft and a collar is not, so where the two meet the collar
-    // wins and the hair spreads on it. Below the neckline the section is pushed
-    // out to the radius the garment presents at that height — the neckline's own
-    // radius, flaring at the rate the yoke flares under it — over a 40 mm ramp,
-    // so the spread reads as a curve and not as a shelf.
+    // A beard is soft and a throat and a collar are not, so where the hair meets
+    // either of them the body wins and the hair lies on the outside of it. Below
+    // the jawline the section is pushed out to the radius of whatever is under
+    // it at that height: the neck, and then — over a 45 mm ramp across the
+    // neckline, so the spread reads as a curve and not as a shelf — the garment.
+    //
+    // THE THROAT HALF OF THAT IS THE FIX FOR THE SECOND BEARD REPORT. "beards
+    // also still overlapping the neck & doesnt look right." The fall is
+    // extruded from a contour UNDER THE MANDIBLE, and that contour is narrow —
+    // 47 mm of horizontal radius at 24 deg off the midline, where the throat
+    // 20 mm below it is 57. So a section that hangs straight down off the jaw
+    // starts INSIDE the neck and stays there, and the inner wall crosses the
+    // throat's surface twice on its way round: what draws is the intersection
+    // curve between hair and skin, a lobe of dark lying down the front of the
+    // neck with the throat showing through it. Only the collar was ever solved
+    // for, 40 mm either side of the neckline, and the beard never reaches the
+    // collar — `beardSeatProbe` reports 0.0 mm through the garment on all
+    // sixteen rungs and always did. The 60 mm of throat above it had no floor
+    // at all.
     //
     // Solved on the OUTER wall and then applied to both, which is the whole
     // reason this is computed before the inset rather than after. A clamp
@@ -6200,16 +6598,34 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
     // flat against the collar, with the two walls free to swap sides and turn
     // the normals inside out.
     //
-    // Only the FALL is seated. The face leg and the tuck both finish on skin,
-    // and seating those was the bib: every buried vertex under the jaw was
-    // dragged out to the collar and the beard came out as a scarf.
+    // Only the FALL is seated — see `seatK` above. The face leg and the tuck
+    // both finish on skin, and seating those was the bib: every buried vertex
+    // under the jaw was dragged out to the collar and the beard came out as a
+    // scarf.
+    //
+    // A SMOOTH MAX AGAINST THE FLOOR, and not a clamp that stops 6% short of
+    // it. The old solve moved the section to `r + 0.94 * (want - r)`, which for
+    // a section deep inside the throat lands at 0.94 of the floor — and 6% of
+    // 68 mm is 4 mm, which is most of the clearance the floor was carrying. The
+    // braid's return leg came out grazing the neck by a tenth of a millimetre,
+    // which is a z-fight rather than a beard. `softplus` lands ON the floor
+    // where the section is inside it, leaves the section ALONE where it already
+    // stands clear — so the hanks and the ragged hem are still the silhouette
+    // out there rather than being ironed onto a cylinder — and is smooth across
+    // the handover, which a `min` is not.
     let push = 0;
-    if (d > 0.004) {
+    if (seatK > 0) {
       const drop = Math.max(0, cut.seatY - out.y);
-      const onSeat = smooth(cut.seatY + 0.040, cut.seatY - 0.005, out.y);
-      const want = (cut.seatR + cut.seatFlare * drop) * onSeat;
+      const onSeat = smooth(cut.seatY + 0.045, cut.seatY, out.y);
+      const throat = cut.throatR - cut.throatTaper * Math.max(0, out.y - cut.seatY);
+      const want = mix(throat, cut.seatR + cut.seatFlare * drop, onSeat);
       const r = Math.hypot(out.x, out.z);
-      if (r < want && r > 1e-5) push = (want - r) * 0.94 / r;
+      if (r > 1e-5) {
+        const SOFT = 0.008;
+        const e = (r - want) / SOFT;
+        const rt = want + (e > 16 ? r - want : SOFT * Math.log1p(Math.exp(e)));
+        push = (seatK * (rt - r)) / r;
+      }
     }
 
     out.addScaledVector(_bn, -inset);
@@ -12946,11 +13362,33 @@ export function buildCharacter(
       // 60 mm. A beard long enough to reach that is lying on a shoulder, not
       // hanging beside a throat.
       const seatFlare = 0.80;
+      // AND THE THROAT ABOVE THE COLLAR, which is 60 mm of neck the fall passes
+      // and which nothing used to stand it off. Same two numbers again, one
+      // layer in: the neck shell's widest section is `max(neckHW, neckHD)`, it
+      // presents 0.90 of that at the neckline, and it tapers upward at about a
+      // fifth of a millimetre of radius per millimetre of rise until it
+      // disappears into the jaw. 5 mm of hair clearance on top.
+      //
+      // Authored here from the skeleton and MEASURED by `wearmeasure` section 7
+      // against the neck that is actually built, exactly as the collar pair is
+      // measured against the garment that is actually built. That gate is new
+      // and it is the reason this defect got two rounds: the neck used to be
+      // swept inside the torso, the "pale wedge" pass moved it out to its own
+      // part, and the only ruler pointed at beards has been tabulating
+      // `rig:torso` ever since.
+      const throatR = Math.max(S.neckHW, S.neckHD) * 0.90 + 0.005;
+      const throatTaper = 0.20;
       // Hanks down the fall and a ragged hem. Both are harmonics in u and both
       // stay inside what `nu` columns can carry: the third that used to live
       // here was above Nyquist and drew four triangular bites out of the jaw
       // instead of a broken edge.
-      const hank = (u: number) => 0.17 * Math.cos(u * 7.3 + 0.4) + 0.10 * Math.cos(u * 12.9 - 1.1);
+      // Deeper than they were, because "doesnt look right" is a silhouette
+      // complaint and a beard's silhouette is HANKS. At 0.17 the ridges were a
+      // 17% swell on a smooth blob and the outline read as one curve with a
+      // little noise on it; at 0.30 a ridge stands 30% out of the mass, and —
+      // with the `rope` term in `beardShell` tying drop to section — hangs
+      // proportionally further down, so the outline breaks into ropes.
+      const hank = (u: number) => 0.30 * Math.cos(u * 7.3 + 0.4) + 0.15 * Math.cos(u * 12.9 - 1.1);
       const rag = (u: number) => 1 + 0.125 * Math.cos(u * 5.1 + 2.2) + 0.075 * Math.cos(u * 9.7 - 0.6);
       const nuB = Math.max(30, lod.shellU + 18);
       // A full face mask takes the cheeks, the lip and the philtrum, so hair
@@ -12963,26 +13401,37 @@ export function buildCharacter(
       const onFace = style.mask ? 0.0008 : 1;
 
       const cuts: Record<string, BeardCut> = {
-        // CLOSE CROP, free. A jawline beard with a clipped moustache and 44 mm
+        // CLOSE CROP, free. A jawline beard with a clipped moustache and 46 mm
         // of bulk under the chin — enough to be a beard rather than a shadow,
         // which is what a free rung above Clean Shaven has to be to exist.
+        //
+        // WIDEST AT THE JAW, NARROWEST AT THE HEM, on every rung below. That is
+        // the shape note in the second beard report — "a rounded blob with a
+        // narrow tongue down the throat" — and it is a property of the section,
+        // not of the azimuth: the old outlines put their widest station a third
+        // of the way down and closed on a rounded hem, which is a bulb. Hair
+        // has weight, so the mass is thickest where it is attached, and the hem
+        // is where it has thinned out and separated.
         short: {
           skin: 0.0105 * onFace,
           burnY: Y_EYE - 0.190,
           uEdge: 1.14,
           prof: [
             { o: 0.000, d: 0.000 },
-            { o: 0.014, d: 0.012 },
-            { o: 0.021, d: 0.030 },
-            { o: 0.015, d: 0.044 },
-            { o: 0.003, d: 0.038 },
-            { o: -0.008, d: 0.014 },
-            { o: -0.013, d: 0.002 },
+            { o: 0.011, d: 0.008 },
+            { o: 0.021, d: 0.019 },
+            { o: 0.026, d: 0.031 },
+            { o: 0.022, d: 0.042 },
+            { o: 0.012, d: 0.048 },
+            { o: 0.002, d: 0.036 },
+            { o: -0.008, d: 0.015 },
+            { o: -0.014, d: 0.002 },
           ],
           mass: (u) => Math.pow(1 - smooth(0.50, 1.02, Math.abs(u)), 0.80),
-          lean: 0.20,
-          thick: 0.0034,
-          seatY, seatR, seatFlare, hank, rag,
+          reach: (u) => 0.76 + 0.24 * Math.exp(-Math.pow(u / 0.72, 2)),
+          lean: 0.34,
+          thick: 0.0040,
+          seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
         },
         // FULL, 40 gold. Broadest and shortest — a bush. It spreads PAST the
         // jaw rather than following it down, which is what separates it from
@@ -12993,20 +13442,22 @@ export function buildCharacter(
           uEdge: 1.20,
           prof: [
             { o: 0.000, d: 0.000 },
-            { o: 0.019, d: 0.012 },
-            { o: 0.032, d: 0.030 },
-            { o: 0.036, d: 0.050 },
-            { o: 0.030, d: 0.064 },
-            { o: 0.016, d: 0.071 },
-            { o: 0.002, d: 0.062 },
-            { o: -0.008, d: 0.040 },
-            { o: -0.013, d: 0.015 },
+            { o: 0.015, d: 0.009 },
+            { o: 0.033, d: 0.023 },
+            { o: 0.044, d: 0.040 },
+            { o: 0.044, d: 0.058 },
+            { o: 0.035, d: 0.072 },
+            { o: 0.021, d: 0.080 },
+            { o: 0.007, d: 0.068 },
+            { o: -0.004, d: 0.042 },
+            { o: -0.012, d: 0.016 },
             { o: -0.015, d: 0.002 },
           ],
           mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
-          lean: 0.22,
-          thick: 0.006,
-          seatY, seatR, seatFlare, hank, rag,
+          reach: (u) => 0.72 + 0.28 * Math.exp(-Math.pow(u / 0.70, 2)),
+          lean: 0.42,
+          thick: 0.0068,
+          seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
         },
         // FORKED, 80 gold, and the audit's instruction was to check it against
         // the profile card: "a fork that does not separate in profile is a
@@ -13029,21 +13480,22 @@ export function buildCharacter(
           uEdge: 1.15,
           prof: [
             { o: 0.000, d: 0.000 },
-            { o: 0.020, d: 0.015 },
-            { o: 0.032, d: 0.038 },
-            { o: 0.033, d: 0.064 },
-            { o: 0.025, d: 0.086 },
-            { o: 0.011, d: 0.099 },
-            { o: -0.002, d: 0.088 },
-            { o: -0.009, d: 0.052 },
-            { o: -0.013, d: 0.017 },
+            { o: 0.014, d: 0.011 },
+            { o: 0.031, d: 0.030 },
+            { o: 0.040, d: 0.053 },
+            { o: 0.039, d: 0.075 },
+            { o: 0.030, d: 0.092 },
+            { o: 0.017, d: 0.101 },
+            { o: 0.005, d: 0.088 },
+            { o: -0.005, d: 0.053 },
+            { o: -0.012, d: 0.019 },
             { o: -0.015, d: 0.002 },
           ],
           mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
           reach: (u) => 0.34 + 0.86 * Math.exp(-Math.pow((Math.abs(u) - 0.40) / 0.215, 2)),
-          lean: 0.30,
-          thick: 0.005,
-          seatY, seatR, seatFlare, hank, rag,
+          lean: 0.46,
+          thick: 0.0058,
+          seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
         },
         // RINGED BRAID, 120 gold — the narrowest and by far the longest, so in
         // outline it is a LINE where Full is a wedge and Forked is a wedge with
@@ -13063,9 +13515,9 @@ export function buildCharacter(
           uEdge: 1.13,
           prof: braidProfile(),
           mass: (u) => Math.pow(1 - smooth(0.18, 0.80, Math.abs(u)), 1.20),
-          lean: 0.24,
-          thick: 0.005,
-          seatY, seatR, seatFlare, hank, rag,
+          lean: 0.40,
+          thick: 0.0058,
+          seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
         },
       };
 
@@ -15990,6 +16442,13 @@ export interface BeardSeat {
   overMm: number;
   /** How far the beard falls below the menton, in mm. Descriptive. */
   fallMm: number;
+  /**
+   * How deep the HANGING part of the beard sits inside the NECK's own surface,
+   * in mm. Positive is a beard passing through a throat.
+   */
+  intoNeckMm: number;
+  /** Which class, style, azimuth and height that was. */
+  neckWorst: string;
 }
 
 /**
@@ -16023,6 +16482,31 @@ export interface BeardSeat {
  * A radial field is the right ruler here and a mesh intersection is not: the
  * head turns, so a beard has to clear the collar at every yaw the animation can
  * reach, and a radius about the neck axis is exactly that invariant.
+ *
+ * INTO NECK is the third, and it was added because the first two both said PASS
+ * on a beard the owner had just photographed lying down the front of a throat.
+ * THROUGH read zero for every class and every style, correctly — the fall never
+ * reaches the mail at all — and PIECES read one, correctly. Neither of them was
+ * looking at the neck, because THE NECK IS NOT A GARMENT AND IT IS NOT THE
+ * TORSO. It was swept in the torso once; the "pale wedge" pass moved it out to
+ * its own part on `headSig`, and this probe tabulates `rig:torso` and nothing
+ * else, so from the day the neck moved there was no ruler in the project that
+ * could see a beard intersecting it. That is the same failure as §8's slab in
+ * the back: a gate that measures the right family of question about the wrong
+ * surface.
+ *
+ * So the neck gets its own radial field, and the bar is stated where it can be
+ * checked without knowing anything about `beardShell`'s parametrisation: BELOW
+ * THE MENTON THERE IS NO HEAD LEFT, so every beard vertex down there is hanging
+ * hair, and hanging hair in front of a throat is IN FRONT OF IT. Any vertex
+ * below the menton whose radius is inside the neck's at the same bearing and
+ * height is a beard growing through a neck, and what it draws is the intersection
+ * curve between the two — a lobe of inner wall lying on the throat with the skin
+ * showing through it, which is what "beards also still overlapping the neck" is.
+ *
+ * The field reads a faceted shell at its vertices, so it circumscribes the true
+ * surface by up to a chord; the same 2 mm allowance the collar gets covers that
+ * and nothing larger, since 2 mm is a tessellation artefact and 12 mm is a lobe.
  */
 export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: string): BeardSeat {
   const ap = { ...defaultAppearance(cls), beardStyle, beardColor: 0x1c1712, hairColor: 0x4a3220 };
@@ -16042,9 +16526,9 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
   // bearing, so it has to be reconstructed as one.
   const AZ = 72;
   const YB = 0.006;
-  const rings = new Map<number, Float32Array>();
   const v = new THREE.Vector3();
   const torsoMesh: THREE.Mesh[] = [];
+  const neckMesh: THREE.Mesh[] = [];
   const beardXYZ: number[] = [];
   const beardTri: number[] = [];
   let mentonY = Infinity;
@@ -16061,6 +16545,7 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
     const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
     if (!pos) return;
     if (name === `${RIG_TAG}torso`) { torsoMesh.push(mesh); return; }
+    if (name === `${RIG_TAG}neck`) { neckMesh.push(mesh); return; }
     if (name === `${RIG_TAG}head` && hex === "c99d75") {
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
@@ -16086,7 +16571,7 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
   });
 
   const nV = beardXYZ.length / 3;
-  if (!nV) return { pieces: 0, throughMm: 0, worst: `${cls}/${beardStyle}`, overMm: 0, fallMm: 0 };
+  if (!nV) return { pieces: 0, throughMm: 0, worst: `${cls}/${beardStyle}`, overMm: 0, fallMm: 0, intoNeckMm: 0, neckWorst: `${cls}/${beardStyle}` };
 
   // ---- pieces: weld at 0.1 mm and union the triangles ----
   const weld = new Map<string, number>();
@@ -16133,65 +16618,83 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
     }
     if (seen.size >= AZ * 0.85) bodies.push(mesh);
   }
-  for (const mesh of bodies) {
-    // RASTERISED, NOT SAMPLED AT THE VERTICES. A tunic is swept on seven
-    // stations over 600 mm, so in 6 mm bins fewer than one row in ten has a
-    // vertex in it — and a ring built from vertices alone was mostly empty at
-    // the front and got filled, by the pass below, from whatever was nearest
-    // round the turn, which is the shoulder. The surface between the vertices
-    // is as real as the vertices; this walks it.
-    const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const idxT = mesh.geometry.index;
-    const nT = idxT ? idxT.count : pos.count;
-    const t0 = new THREE.Vector3();
-    const t1 = new THREE.Vector3();
-    const t2 = new THREE.Vector3();
-    for (let t = 0; t < nT; t += 3) {
-      t0.fromBufferAttribute(pos, idxT ? idxT.getX(t) : t).applyMatrix4(mesh.matrixWorld);
-      t1.fromBufferAttribute(pos, idxT ? idxT.getX(t + 1) : t + 1).applyMatrix4(mesh.matrixWorld);
-      t2.fromBufferAttribute(pos, idxT ? idxT.getX(t + 2) : t + 2).applyMatrix4(mesh.matrixWorld);
-      const G = 6;
-      for (let ga = 0; ga <= G; ga++) {
-        for (let gb = 0; ga + gb <= G; gb++) {
-          const wa = ga / G;
-          const wb = gb / G;
-          const wc = 1 - wa - wb;
-          v.set(
-            t0.x * wa + t1.x * wb + t2.x * wc,
-            t0.y * wa + t1.y * wb + t2.y * wc,
-            t0.z * wa + t1.z * wb + t2.z * wc);
-          const yi = Math.round(v.y / YB);
-          let ring = rings.get(yi);
-          if (!ring) { ring = new Float32Array(AZ); rings.set(yi, ring); }
-          const ai = Math.round(((Math.atan2(v.x, v.z) + Math.PI) / (2 * Math.PI)) * AZ) % AZ;
-          const r = Math.hypot(v.x, v.z);
-          if (r > ring[ai]!) ring[ai] = r;
+  /**
+   * A set of shells as one radial height field, read back as `r(x, y, z)`.
+   *
+   * RASTERISED, NOT SAMPLED AT THE VERTICES. A tunic is swept on seven stations
+   * over 600 mm, so in 6 mm bins fewer than one row in ten has a vertex in it —
+   * and a ring built from vertices alone was mostly empty at the front and got
+   * filled, by the pass below, from whatever was nearest round the turn, which
+   * is the shoulder. The surface between the vertices is as real as the
+   * vertices; this walks it.
+   *
+   * Then a bin with no sample in it is not evidence of no surface, so an empty
+   * bin is filled from its neighbours in bearing before it is used. A hole in a
+   * ruler is worse than a gap in its coverage, because the hole reports a
+   * number.
+   */
+  const fieldOf = (meshes: readonly THREE.Mesh[]) => {
+    const rings = new Map<number, Float32Array>();
+    for (const mesh of meshes) {
+      const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+      const idxT = mesh.geometry.index;
+      const nT = idxT ? idxT.count : pos.count;
+      const t0 = new THREE.Vector3();
+      const t1 = new THREE.Vector3();
+      const t2 = new THREE.Vector3();
+      for (let t = 0; t < nT; t += 3) {
+        t0.fromBufferAttribute(pos, idxT ? idxT.getX(t) : t).applyMatrix4(mesh.matrixWorld);
+        t1.fromBufferAttribute(pos, idxT ? idxT.getX(t + 1) : t + 1).applyMatrix4(mesh.matrixWorld);
+        t2.fromBufferAttribute(pos, idxT ? idxT.getX(t + 2) : t + 2).applyMatrix4(mesh.matrixWorld);
+        const G = 6;
+        for (let ga = 0; ga <= G; ga++) {
+          for (let gb = 0; ga + gb <= G; gb++) {
+            const wa = ga / G;
+            const wb = gb / G;
+            const wc = 1 - wa - wb;
+            v.set(
+              t0.x * wa + t1.x * wb + t2.x * wc,
+              t0.y * wa + t1.y * wb + t2.y * wc,
+              t0.z * wa + t1.z * wb + t2.z * wc);
+            const yi = Math.round(v.y / YB);
+            let ring = rings.get(yi);
+            if (!ring) { ring = new Float32Array(AZ); rings.set(yi, ring); }
+            const ai = Math.round(((Math.atan2(v.x, v.z) + Math.PI) / (2 * Math.PI)) * AZ) % AZ;
+            const r = Math.hypot(v.x, v.z);
+            if (r > ring[ai]!) ring[ai] = r;
+          }
         }
       }
     }
-  }
-  for (const ring of rings.values()) {
-    for (let i = 0; i < AZ; i++) {
-      if (ring[i]! > 0) continue;
-      let a = -1;
-      let b = -1;
-      for (let k = 1; k < AZ; k++) { const j = (i - k + AZ) % AZ; if (ring[j]! > 0) { a = k; break; } }
-      for (let k = 1; k < AZ; k++) { const j = (i + k) % AZ; if (ring[j]! > 0) { b = k; break; } }
-      if (a < 0 || b < 0) continue;
-      ring[i] = -mix(ring[(i - a + AZ) % AZ]!, ring[(i + b) % AZ]!, a / (a + b));
+    for (const ring of rings.values()) {
+      for (let i = 0; i < AZ; i++) {
+        if (ring[i]! > 0) continue;
+        let a = -1;
+        let b = -1;
+        for (let k = 1; k < AZ; k++) { const j = (i - k + AZ) % AZ; if (ring[j]! > 0) { a = k; break; } }
+        for (let k = 1; k < AZ; k++) { const j = (i + k) % AZ; if (ring[j]! > 0) { b = k; break; } }
+        if (a < 0 || b < 0) continue;
+        ring[i] = -mix(ring[(i - a + AZ) % AZ]!, ring[(i + b) % AZ]!, a / (a + b));
+      }
+      for (let i = 0; i < AZ; i++) if (ring[i]! < 0) ring[i] = -ring[i]!;
     }
-    for (let i = 0; i < AZ; i++) if (ring[i]! < 0) ring[i] = -ring[i]!;
-  }
-  const radiusAt = (x: number, y: number, z: number): number => {
-    const yi = Math.round(y / YB);
-    const ai = Math.round(((Math.atan2(x, z) + Math.PI) / (2 * Math.PI)) * AZ) % AZ;
-    let best = 0;
-    for (let dy = -1; dy <= 1; dy++) {
-      const ring = rings.get(yi + dy);
-      if (ring && ring[ai]! > best) best = ring[ai]!;
-    }
-    return best;
+    return (x: number, y: number, z: number): number => {
+      const yi = Math.round(y / YB);
+      const ai = Math.round(((Math.atan2(x, z) + Math.PI) / (2 * Math.PI)) * AZ) % AZ;
+      let best = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const ring = rings.get(yi + dy);
+        if (ring && ring[ai]! > best) best = ring[ai]!;
+      }
+      return best;
+    };
   };
+  const radiusAt = fieldOf(bodies);
+  // The neck is its own field and not part of the garment's, because it is not
+  // a garment and the two answer different questions: hair RESTS ON mail, and
+  // hair HANGS CLEAR OF a throat. Maxing them together would let a collar 48 mm
+  // outside the neck hide a beard buried 12 mm in it.
+  const neckAt = fieldOf(neckMesh);
   let through = 0;
   let wx = 0; let wy = 0; let wz = 0; let wg = 0;
   for (let i = 0; i < nV; i++) {
@@ -16207,6 +16710,44 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
     if (d > through) { through = d; wx = x; wy = y; wz = z; wg = g; }
   }
 
+  // ---- into neck: the HANGING beard against the throat ----
+  //
+  // Below the menton the head has ended, so anything of the beard down there is
+  // hanging hair rather than hair on skin. That is why the test can be stated on
+  // a height instead of on a row index: it needs to know nothing about
+  // `beardShell`'s parametrisation, so the two cannot drift apart the next time
+  // the section is re-authored.
+  //
+  // MINUS THE SUBMENTAL BAND, and that exclusion is a measurement rather than a
+  // fudge. At the menton this neck presents 55 to 62 mm of radius where the
+  // mandible presents 18 to 48 — the neck's top stations are BUILT to stand
+  // inside the jaw mass and hand over to it, so through the hollow under the
+  // chin the throat is the wider of the two by up to 38 mm. Hair rooted on the
+  // chin's underside there is inside the neck BY CONSTRUCTION and cannot be
+  // anywhere else; it is also occluded by the neck, so it is not what anybody is
+  // looking at. Twelve millimetres is the deepest the beard's own rooted
+  // geometry reaches below the menton — the growth line's last row and the
+  // tuck's ring — and everything below it is fall.
+  //
+  // The band does not soften the gate: run against the geometry this replaced it
+  // still reports 12 to 25 mm of beard inside the throat on all sixteen rungs,
+  // because that beard was inside the neck the whole way down, not just at its
+  // root.
+  const SUBMENTAL = 0.012;
+  let intoNeck = 0;
+  let nx = 0; let ny = 0; let nz = 0; let nr = 0;
+  for (let i = 0; i < nV; i++) {
+    const x = beardXYZ[i * 3]!;
+    const y = beardXYZ[i * 3 + 1]!;
+    const z = beardXYZ[i * 3 + 2]!;
+    if (y > mentonY - SUBMENTAL) continue;
+    if (Math.abs(Math.atan2(x, z)) > 0.9) continue;
+    const g = neckAt(x, y, z);
+    if (g <= 0) continue;
+    const d = (g - Math.hypot(x, z)) * 1000;
+    if (d > intoNeck) { intoNeck = d; nx = x; ny = y; nz = z; nr = g; }
+  }
+
   const S = skeleton({ ...(BUILD[cls] ?? BUILD.warden), stature: (BUILD[cls] ?? BUILD.warden).stature * (1 + (Math.round(hash(seed, 31) * 2) - 1) * 0.022) });
   return {
     pieces: islands.size,
@@ -16214,5 +16755,7 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
     worst: `${cls}/${beardStyle} at y=${wy.toFixed(3)} az=${Math.atan2(wx, wz).toFixed(2)} r=${Math.hypot(wx, wz).toFixed(3)} garment=${wg.toFixed(3)}`,
     overMm: (S.neckRoot - 0.014 - hemY) * 1000,
     fallMm: (mentonY - hemY) * 1000,
+    intoNeckMm: intoNeck,
+    neckWorst: `${cls}/${beardStyle} at y=${ny.toFixed(3)} az=${Math.atan2(nx, nz).toFixed(2)} r=${Math.hypot(nx, nz).toFixed(3)} neck=${nr.toFixed(3)}`,
   };
 }

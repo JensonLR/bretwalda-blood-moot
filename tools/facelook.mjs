@@ -362,6 +362,16 @@ for (const k of ["dist", "targetY", "eyeY", "fov", "w", "h"]) {
   const v = flag(k, null);
   if (v !== null) lens[k] = parseFloat(v);
 }
+// The armoury frames the man OFF CENTRE, and `aim` is that offset — it is part of
+// the shop's composition, so it stays on by default. But it is 68 mm of it, and
+// once `--dist` is inside half a metre the offset carries the feature you zoomed
+// in on clean out of the frame: at that range it has stopped being composition
+// and become the reason you cannot see the thing. `--aimright 0 --aimfwd 0` puts
+// the lens back on the midline for a magnified look.
+for (const [k, f] of [["aimright", "right"], ["aimfwd", "fwd"]]) {
+  const v = flag(k, null);
+  if (v !== null) lens.aim = { ...lens.aim, [f]: parseFloat(v) };
+}
 const outPath = resolve(ROOT, flag("out", "art/look/look") + ".png");
 mkdirSync(dirname(outPath), { recursive: true });
 
