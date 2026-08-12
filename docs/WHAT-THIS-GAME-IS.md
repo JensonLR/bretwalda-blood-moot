@@ -93,9 +93,13 @@ spine and they become one coherent feature.
 
 ### How the war works — the concrete proposal
 
-* Britain is the heptarchy: **Wessex, Mercia, Northumbria, East Anglia, Kent,
-  Essex, Sussex**, plus the non-Saxon powers the owner already wants — **Picts,
-  Britons/Cymry, Dál Riata, and the Norse** as a later arrival.
+* **SUPERSEDED — see `docs/FACTIONS.md`.** This bullet proposed the heptarchy
+  as the roster. It was wrong: the heptarchy barely exists by 878, seven
+  Anglo-Saxon kingdoms look identical to each other, and seven splits a queue
+  worse than four. The roster is **four peoples** — Anglo-Saxons, Norse,
+  Britons, Picts — with Dál Riata as a spare fifth. The heptarchy's names
+  survive as *territory* on the map, which is what actually moves. The rest
+  of this section stands.
 * A player **swears to a kingdom** on first run. This is the "big decision"
   the owner asked for, and it is big because it is *social and durable*: it
   decides who your allies are for the season, what your flag is, what your
