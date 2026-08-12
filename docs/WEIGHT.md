@@ -165,8 +165,18 @@ probe printed a single number instead of three, 0.117 m would have looked like a
 feature working weakly. Three numbers that are equal is a proof that the
 mechanism is absent.
 
-After: **20/19** — nineteen of the original gates plus one added when the parry
-event grew a field (`node tools/weightprobe.mjs`, 20/20).
+After: **24/24** (`node tools/weightprobe.mjs`) — the nineteen it was written
+with, plus five added as the work found things: the parry message's `window`
+field, the stride channel a floored man must not have, and the three that gate
+WHO owns a riposte window.
+
+**It runs in 0.6 seconds and opens no browser.** That belongs on the record
+next to `docs/GATES.md`'s cost table, which prices `playtest` and `touchtest`
+in minutes and calls them flaky one run in three. Everything in this wave —
+telegraph, impulse, displacement, stagger, knockdown, get-up, parry window,
+riposte window and bonus — is measured by an instrument cheap enough to run on
+every single edit. That is the E3 argument (*measure with the cheapest
+instrument that can see the defect*) landing about as well as it can.
 
 ## The five things, and the reasoning behind each number
 
@@ -271,6 +281,35 @@ duration it will actually deliver.
   in a real browser, tiled into a strip, for eyes. **The owner is still the
   judge**, and the numbers to turn are `KNOCKBACK`, `BALANCE`, `KNOCKDOWN` and
   `RIPOSTE`, all in one block at the top of `engine.mjs`.
+
+## What is left, stated as a handoff rather than as a to-do
+
+Three files this unit does not own now have a server number they can read
+instead of a guess. Naming them precisely, because "add sound to the knockdown"
+is not a handoff and this is:
+
+* **`render/audio.ts`** — `WireHitType` is `light | heavy | blocked |
+  blocked_heavy | parry`. The wire now also sends `shove` and `knockdown`, and
+  every wound carries `riposte: boolean`. Nothing breaks today (`materialFor`
+  falls through), but a riposte lands with the same sound as any other light,
+  and the owner asked for a parry that "really makes you feel it". A riposte
+  and a body hitting the ground are the two loudest new events in the game and
+  neither has a voice.
+* **`render/camera.ts`** — every wound message carries `knockback` in METRES,
+  which is the server's own figure for how far the blow will actually throw the
+  man. `docs/WEIGHT.md` §1 above asks for a camera kick "scaled by the blow";
+  that scale now exists as a number rather than as an inference from damage.
+  Keep it small — §1 says nausea on a phone, and it is right.
+* **`GameCanvas.tsx`** — hit feedback is currently reconstructed from health
+  deltas in the snapshot (`dmg >= 22 ? "heavy" : "light"` at line 990), so the
+  `hit` message's own `type`, `riposte`, `knockback` and `hitZone` are all
+  being re-derived less accurately than they are being sent. That is worth
+  fixing on its own terms and it is the single cheapest way to give the three
+  new events their feedback.
+
+Also worth a line in `docs/GATES.md`, which this unit does not own: the INNER
+tier lists four instruments and `weightprobe` belongs in it. It is 0.6 s and
+opens no browser.
 
 ## What a player can see, and why that was a requirement
 
