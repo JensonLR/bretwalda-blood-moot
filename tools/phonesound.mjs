@@ -74,13 +74,38 @@ const PROBE = () => {
         const tap = ctx.createAnalyser();
         tap.fftSize = 2048;
         w.__ac.tap = tap;
+
+        // A SECOND tap, through a model of the phone's own speaker.
+        //
+        // The first tap says "sound is coming out". It cannot say whether any of
+        // that sound is inside the band a phone can reproduce, and that is the
+        // whole of the mobile audio problem: a micro-speaker is flat from about
+        // 700 Hz to 8 kHz and gone below 400, so a mix whose weight lives at
+        // 60-120 Hz measures loud here and is inaudible in a hand. This chain is
+        // the same shape `soundtest` calibrates in Node — two staggered
+        // highpasses at 500 and 250 Hz and a lowpass at 12 kHz — built here out
+        // of real BiquadFilterNodes so it grades the LIVE app.
+        //
+        // It is a MODEL and it is named as one. docs/MOBILE-AUDIO.md exists
+        // because a Chromium result was once read as an iOS result, and nothing
+        // in this container will ever run iOS Safari.
+        const hp1 = ctx.createBiquadFilter(); hp1.type = "highpass"; hp1.frequency.value = 500;
+        const hp2 = ctx.createBiquadFilter(); hp2.type = "highpass"; hp2.frequency.value = 250;
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 12000;
+        const spk = ctx.createAnalyser(); spk.fftSize = 2048;
+        hp1.connect(hp2); hp2.connect(lp); lp.connect(spk);
+        w.__ac.spk = spk; w.__ac.spkIn = hp1;
+
         const realConnect = Object.getPrototypeOf(ctx.createGain()).connect;
         // Patch on AudioNode itself so every node type is covered.
         let proto = Object.getPrototypeOf(ctx.createGain());
         while (proto && !Object.prototype.hasOwnProperty.call(proto, "connect")) proto = Object.getPrototypeOf(proto);
         (proto || {}).connect = function (dest, ...rest) {
           const out = realConnect.call(this, dest, ...rest);
-          if (dest === ctx.destination) { try { realConnect.call(this, tap); } catch { /* ok */ } }
+          if (dest === ctx.destination) {
+            try { realConnect.call(this, tap); } catch { /* ok */ }
+            try { realConnect.call(this, hp1); } catch { /* ok */ }
+          }
           return out;
         };
       } catch { /* an analyser is a nicety; the count is not */ }
@@ -89,9 +114,7 @@ const PROBE = () => {
     Counted.prototype = Real.prototype;
     w[key] = Counted;
   }
-  /** Peak absolute sample the tap has seen since the last call. */
-  w.__peak = () => {
-    const tap = w.__ac.tap;
+  const peakOf = (tap) => {
     if (!tap) return -1;
     const buf = new Float32Array(tap.fftSize);
     tap.getFloatTimeDomainData(buf);
@@ -99,18 +122,27 @@ const PROBE = () => {
     for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > m) m = a; }
     return m;
   };
+  /** Peak absolute sample the tap has seen since the last call. */
+  w.__peak = () => peakOf(w.__ac.tap);
+  /** The same, but only what a phone's own speaker could reproduce. */
+  w.__spkPeak = () => peakOf(w.__ac.spk);
 };
 
-/** Watches the tap for `ms`, returning the loudest thing it saw. */
+/**
+ * Watches both taps for `ms`, returning the loudest thing each saw: `all` is
+ * everything reaching the destination, `spk` is only the part of it a phone's
+ * own speaker could reproduce.
+ */
 async function listen(page, ms) {
   const until = Date.now() + ms;
-  let peak = 0;
+  let all = 0, spk = 0;
   while (Date.now() < until) {
-    const p = await page.evaluate(() => window.__peak());
-    if (p > peak) peak = p;
+    const p = await page.evaluate(() => [window.__peak(), window.__spkPeak()]);
+    if (p[0] > all) all = p[0];
+    if (p[1] > spk) spk = p[1];
     await page.waitForTimeout(25);
   }
-  return peak;
+  return { all, spk };
 }
 
 async function main() {
@@ -189,7 +221,36 @@ async function main() {
   });
   const loud = await listen(page, 1500);
   check("sound is emitted after the gesture, measured at the destination",
-    loud > 0.01 && loud < 0.99, `peak ${loud.toFixed(4)} against ${idle.toFixed(4)} at rest`);
+    loud.all > 0.01 && loud.all < 0.99, `peak ${loud.all.toFixed(4)} against ${idle.all.toFixed(4)} at rest`);
+
+  // ---- 5: the engine knows it is on a phone ----
+  //
+  // Not a volume tier — `setSpeaker` changes what is SYNTHESISED, because every
+  // gram of weight in this game lives between 46 and 190 Hz and a micro-speaker
+  // reproduces none of it. The sniff is a sniff (there is no Web Audio API that
+  // answers this) so the one thing worth gating is that it FIRES on the device
+  // it was written for: a 390x844 touch viewport is a phone by any definition.
+  const speaker = await page.evaluate(() => window.__bretwaldaAudio?.speaker ?? null);
+  check("the engine detects a phone speaker at 390x844 with touch",
+    speaker === "small", `speaker="${speaker}" (expected "small"; "full" means the phone is being handed the desktop mix)`);
+
+  // ---- 6: and the WEIGHT survives a speaker with no low end ----
+  //
+  // This is the claim `soundtest` phase 4 proves offline against a calibrated
+  // filter, asserted here once more against the LIVE app through real biquads:
+  // a flesh hit — the heaviest, lowest, most important sound in a melee game —
+  // must still be audible after the bottom two octaves are taken away. Before
+  // `body()` existed it lost 22 dB there and landed 19 dB under the parry, which
+  // is a phone getting a fight with the blows deleted and the ringing left in.
+  await page.evaluate(() => {
+    const a = window.__bretwaldaAudio;
+    for (let i = 0; i < 3; i++) a.impact({ material: "flesh", damage: 34, heavy: true, local: true });
+  });
+  const weight = await listen(page, 1200);
+  const carried = weight.spk / Math.max(weight.all, 1e-6);
+  check("a heavy blow still has a body after the phone speaker has taken the bottom off",
+    weight.all > 0.01 && carried >= 0.35,
+    `${(20 * Math.log10(Math.max(carried, 1e-6))).toFixed(1)} dB survives the speaker model (peak ${weight.all.toFixed(4)} -> ${weight.spk.toFixed(4)}; need >= -9.1 dB)`);
 
   // ---- and the mute the player can reach from here ----
   await page.getByRole("button", { name: /Turn sound off/i }).first().tap();
@@ -202,7 +263,7 @@ async function main() {
   const silenced = await listen(page, 900);
   const stored = await page.evaluate(() => localStorage.getItem("bretwalda.audio.muted"));
   check("one tap on the toggle silences it and the device remembers",
-    silenced <= 0.001 && stored === "1", `peak ${silenced.toFixed(4)} muted, localStorage muted=${stored}`);
+    silenced.all <= 0.001 && stored === "1", `peak ${silenced.all.toFixed(4)} muted, localStorage muted=${stored}`);
 
   await browser.close();
   const failed = results.filter((x) => !x.pass);

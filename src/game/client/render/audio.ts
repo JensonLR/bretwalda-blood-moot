@@ -67,6 +67,17 @@ export type UiSound =
 /** The server's `hit` message `type` field, verbatim. */
 export type WireHitType = "light" | "heavy" | "blocked" | "blocked_heavy" | "parry";
 
+/**
+ * The output this mix is being built for.
+ *
+ * `full` is anything with a woofer in it — a desk, headphones, a laptop that at
+ * least tries. `small` is a phone's own speaker: a few millimetres of cone in a
+ * sealed sliver of air, flat from roughly 700 Hz to 8 kHz and gone below 400.
+ * Everything this engine spends on WEIGHT lives between 46 and 190 Hz, which on
+ * `small` is spent on nothing at all.
+ */
+export type SpeakerMode = "full" | "small";
+
 /** Common to every one-shot: where it happened, and whether it happened to us. */
 export interface AudioEvent {
   /** World position. Omitted means "on the camera" — no pan, no attenuation. */
@@ -85,9 +96,19 @@ export interface ImpactEvent extends AudioEvent {
   material: ImpactMaterial;
   /** Drives the body of the hit, not its material. 0 for a parry. */
   damage?: number;
+  /**
+   * A heavy blow, and it is NOT a loud light blow. `heavy` moves the attack, the
+   * decay and the spectrum; it moves the level barely at all. See `impact()`.
+   */
   heavy?: boolean;
   /** Where it landed, when the wire says. Only used to tilt the timbre. */
   zone?: HitZone;
+  /**
+   * What struck. A Dane axe and a seax landing on the same mail are two
+   * different sounds, and until this existed they were one — the whoosh knew
+   * which weapon it was and the blow did not.
+   */
+  weapon?: WarriorClass;
 }
 
 export interface DeathEvent extends AudioEvent {
@@ -116,6 +137,8 @@ export interface AudioHandle {
   readonly voices: number;
   /** Voice ceiling for the current tier, for a harness or a debug overlay. */
   readonly voiceBudget: number;
+  /** Which speaker the mix is being built for. See `setSpeaker`. */
+  readonly speaker: SpeakerMode;
 
   /**
    * Build and start the audio graph. MUST be called from inside a real user
@@ -130,6 +153,17 @@ export interface AudioHandle {
   setMasterVolume(v: number): void;
   readonly masterVolume: number;
   setQuality(q: QualitySettings): void;
+  /**
+   * Which speaker this mix is for. Auto-detected once at construction and
+   * overridable — a harness needs to render both, and a player on a tablet in a
+   * dock is not the device the sniff thinks he is.
+   *
+   * This is not a volume control and not a quality tier. See `body()`: it
+   * changes what is SYNTHESISED, because a phone speaker does not reproduce the
+   * bottom two octaves at all and the weight that lives down there has to be
+   * carried by something a phone can actually move.
+   */
+  setSpeaker(mode: SpeakerMode): void;
 
   // ---- combat ----
   swing(e: SwingEvent): void;
@@ -170,7 +204,7 @@ export interface AudioHandle {
    * message never has to guess the material. Equivalent to `impact()` with
    * `materialFor()` applied.
    */
-  hit(e: AudioEvent & { type: WireHitType; damage?: number; hitZone?: HitZone | null }): void;
+  hit(e: AudioEvent & { type: WireHitType; damage?: number; hitZone?: HitZone | null; weapon?: WarriorClass }): void;
 
   // ---- continuous ----
   /** The arena's hero fire. Pass `null` to take it away. */
@@ -248,6 +282,50 @@ interface WeaponVoice {
   gain: number;
   /** Narrow band = a focused thrust; wide = an airy sweep. */
   q: number;
+}
+
+/**
+ * Head mass behind the edge, normalised 0..1, and it is deliberately NOT reach.
+ *
+ * `weaponVoice` above derives the WHOOSH from reach, and that is right: a whoosh
+ * is tip speed and how much air is moved, and a spear moves the most of both. An
+ * IMPACT is a different question — what is behind the edge when it stops — and
+ * by reach the spear comes out the heaviest weapon in the game, which is exactly
+ * backwards. A spear is three hundred grams of iron on a stick. A Dane axe is a
+ * kilo and a half of head on a metre of haft, and it is the only weapon here
+ * that hits like a hammer.
+ *
+ * This is a second table because it is a second physical quantity, not because
+ * anybody forgot the first. R7: if either is re-cut, say which.
+ */
+const WEAPON_HEAD: Record<WarriorClass, number> = {
+  berserker: 1.00,   // Dane axe — all of it out at the end of the haft
+  huscarl: 0.58,     // pattern-welded sword, mass gathered near the hand
+  warden: 0.34,      // spear — a light head, and every gram of it in a point
+  runekeeper: 0.20,  // twin seaxes
+};
+
+interface WeaponBite {
+  head: number;
+  /** Contact colour. A light head cracks high; an axe lands broad and low. */
+  bright: number;
+  /** How long the struck thing rings: more steel drives lower modes for longer. */
+  ring: number;
+  /** Contact TIME. A seax is in and out; an axe stays in contact and pushes. */
+  bite: number;
+}
+
+function weaponBite(cls?: WarriorClass): WeaponBite {
+  const head = WEAPON_HEAD[cls ?? "huscarl"] ?? WEAPON_HEAD.huscarl;
+  // A spear is the one weapon that THRUSTS: light and concentrated, so it is
+  // the brightest contact in the game even though it is not the fastest.
+  const point = cls === "warden" ? 1 : 0;
+  return {
+    head,
+    bright: (1.55 - 0.85 * head) * (1 + 0.18 * point),
+    ring: 0.72 + 0.62 * head,
+    bite: 0.45 + 1.35 * head,
+  };
 }
 
 function weaponVoice(cls: WarriorClass, heavy: boolean): WeaponVoice {
@@ -462,6 +540,11 @@ interface Voice {
   endsAt: number;
   priority: number;
   out: GainNode;
+  /**
+   * Every source scheduled into this voice, so that stealing it actually STOPS
+   * the work rather than only silencing it. See `claim`.
+   */
+  sources: AudioScheduledSourceNode[];
 }
 
 interface FireBed {
@@ -484,11 +567,41 @@ const MUTE_KEY = "bretwalda.audio.muted";
 const VOLUME_KEY = "bretwalda.audio.volume";
 const UNLOCK_EVENTS = ["pointerdown", "touchend", "keydown", "mousedown"] as const;
 
+/**
+ * Is this a phone speaker?
+ *
+ * There is no Web Audio API that answers this — `AudioContext` will not tell you
+ * what is on the other end of `destination`, and nothing tells you whether
+ * headphones are in. So it is a sniff, and it is deliberately a conservative
+ * one: a touch device with a short side under 950 CSS px is a phone or a small
+ * tablet held in the hand, and that is the population whose only output is a
+ * micro-speaker. Everything else gets the full mix.
+ *
+ * Being WRONG here is cheap in one direction and not the other, which is why
+ * `body()` reinforces rather than replaces: a desk mistaken for a phone gets a
+ * body with extra harmonics on it, which reads as a harder-edged blow. A phone
+ * mistaken for a desk gets no weight at all, which is the bug this exists to
+ * prevent. `setSpeaker` overrides it either way.
+ */
+function detectSpeaker(): SpeakerMode {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return "full";
+  try {
+    const touch = (navigator.maxTouchPoints ?? 0) > 0;
+    const short = Math.min(window.screen?.width ?? 9999, window.screen?.height ?? 9999);
+    return touch && short < 950 ? "small" : "full";
+  } catch { return "full"; }
+}
+
 class AudioEngine implements AudioHandle {
   private ac: BaseAudioContext | null = null;
   private master: GainNode | null = null;
-  private sfx: GainNode | null = null;
+  /** What happened to ME, and the interface. Never ducked, never attenuated. */
+  private near: GainNode | null = null;
+  /** The other seven men. This is what gets out of the way. */
+  private far: GainNode | null = null;
   private fire: GainNode | null = null;
+  /** The one gain that both `far` and `fire` pass through. See `duckNow`. */
+  private duck: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private hasPanner = true;
 
@@ -496,6 +609,9 @@ class AudioEngine implements AudioHandle {
   private fires = new Map<string, FireBed>();
   private budget: AudioBudget = AUDIO_BUDGET.medium;
   private grainCredit = 0;
+  /** Last few firing times per crowd-controlled kind. See `crowded`. */
+  private recent = new Map<string, number[]>();
+  private _speaker: SpeakerMode = "full";
 
   private _muted = false;
   private _volume = 0.8;
@@ -517,6 +633,7 @@ class AudioEngine implements AudioHandle {
         if (Number.isFinite(v)) this._volume = clamp(v, 0, 1);
       }
     } catch { /* private mode; the default stands */ }
+    this._speaker = detectSpeaker();
   }
 
   get ready(): boolean { return this.ac !== null && (this.ac as LiveContext).state !== "suspended"; }
@@ -524,10 +641,13 @@ class AudioEngine implements AudioHandle {
   get masterVolume(): number { return this._volume; }
   get voices(): number { return this.live.length; }
   get voiceBudget(): number { return this.budget.voices; }
+  get speaker(): SpeakerMode { return this._speaker; }
 
   setQuality(q: QualitySettings): void {
     this.budget = AUDIO_BUDGET[q.tier] ?? AUDIO_BUDGET.medium;
   }
+
+  setSpeaker(mode: SpeakerMode): void { this._speaker = mode; }
 
   /**
    * A harness renders this graph in an `OfflineAudioContext`, which is
@@ -625,10 +745,24 @@ class AudioEngine implements AudioHandle {
 
     master.connect(limiter); limiter.connect(shaper); shaper.connect(out); out.connect(ac.destination);
 
-    const sfx = ac.createGain(); sfx.gain.value = 1; sfx.connect(master);
-    const fire = ac.createGain(); fire.gain.value = 0.55; fire.connect(master);
+    // TWO BUSES, and the split is by WHOSE EVENT IT IS rather than by what kind
+    // of sound it is. `near` carries what happened to me and what I pressed;
+    // `far` carries the other seven men and the fire. Only `far` goes through
+    // `duck`, so a blow I have to react to can push the room behind it down for
+    // a fifth of a second and still be the only thing in the game that can.
+    //
+    // A limiter cannot do this job and it is worth saying why, because the graph
+    // already had one and the mix still turned to mud: a limiter ducks
+    // EVERYTHING, including the sound that caused it, so a pile-up gets quieter
+    // without ever getting clearer. Priority is a property of the source, and it
+    // has to be spent somewhere the source can see.
+    const duck = ac.createGain(); duck.gain.value = 1; duck.connect(master);
 
-    this.master = master; this.sfx = sfx; this.fire = fire;
+    const near = ac.createGain(); near.gain.value = 1; near.connect(master);
+    const far = ac.createGain(); far.gain.value = 0.92; far.connect(duck);
+    const fire = ac.createGain(); fire.gain.value = 0.55; fire.connect(duck);
+
+    this.master = master; this.near = near; this.far = far; this.fire = fire; this.duck = duck;
     this.hasPanner = typeof ac.createStereoPanner === "function";
 
     // One two-second bed of white noise, reused by every whoosh, hit, footfall
@@ -668,13 +802,26 @@ class AudioEngine implements AudioHandle {
   // ------------------------------------------------------------ voice pool
 
   /**
-   * Claim a voice, or say no. Past the cap the loudest thing wins: a quieter,
-   * lower-priority voice is ramped out over 15 ms and its slot taken. Nothing is
-   * queued — a sound that arrives late is a lie about when the blow landed.
+   * Claim a voice, or say no.
+   *
+   * Past the cap something has to give, and WHICH thing gives is the whole mix.
+   * The victim is the lowest priority in the pool, and among equals the one
+   * NEAREST ITS END — a blow that has 20 ms of tail left is worth less than the
+   * blow that just landed. Nothing is queued: a sound that arrives late is a lie
+   * about when the blow landed.
+   *
+   * The refusal used to be `>=`, and that one character was a real mix defect.
+   * With eight men in a brawl the pool fills with CRITICAL events, and `>=`
+   * means an arriving CRITICAL — the parry I just landed — finds every slot held
+   * by an equal and is dropped, while a flesh hit from three seconds of tail ago
+   * keeps its voice. The cap was dropping THE NEWEST BLOW, which is always the
+   * one the player is reacting to. `>` fixes it, and `soundtest` phase 5 fires a
+   * parry into a full pool of equals to prove it: before this, that parry
+   * measured 1.03x the same flood without it, which is silence.
    */
-  private claim(priority: number, seconds: number): GainNode | null {
-    const ac = this.ac, sfx = this.sfx;
-    if (!ac || !sfx || this._muted) return null;
+  private claim(priority: number, seconds: number, near = false): GainNode | null {
+    const ac = this.ac, bus = near ? this.near : this.far;
+    if (!ac || !bus || this._muted) return null;
     const now = ac.currentTime;
     for (let i = this.live.length - 1; i >= 0; i--) {
       if (this.live[i].endsAt <= now) this.live.splice(i, 1);
@@ -682,19 +829,83 @@ class AudioEngine implements AudioHandle {
     if (this.live.length >= this.budget.voices) {
       let worst = -1;
       for (let i = 0; i < this.live.length; i++) {
-        if (worst < 0 || this.live[i].priority < this.live[worst].priority) worst = i;
+        const v = this.live[i];
+        if (worst < 0) { worst = i; continue; }
+        const w = this.live[worst];
+        if (v.priority < w.priority || (v.priority === w.priority && v.endsAt < w.endsAt)) worst = i;
       }
-      if (worst < 0 || this.live[worst].priority >= priority) return null;
+      if (worst < 0 || this.live[worst].priority > priority) return null;
       const stolen = this.live[worst];
       stolen.out.gain.cancelScheduledValues(now);
       stolen.out.gain.setTargetAtTime(0, now, 0.005);
+      // AND STOP IT. Ramping the gain to zero silences a voice; it does not
+      // stop an oscillator, which goes on being computed until its own
+      // scheduled stop. The first build of the new stealing rule did only the
+      // ramp, and `soundtest` caught what that costs: the same 60-event storm
+      // rendered 198 source nodes on the LOW tier and 226 on high, so a cap of
+      // 10 and a cap of 24 were doing identical work. A voice budget that bounds
+      // what you can hear and not what the phone has to compute is not a budget.
+      for (const src of stolen.sources) { try { src.stop(now + 0.02); } catch { /* already stopped */ } }
       this.live.splice(worst, 1);
     }
     const out = ac.createGain();
     out.gain.value = 1;
-    out.connect(sfx);
-    this.live.push({ endsAt: now + seconds + 0.05, priority, out });
+    out.connect(bus);
+    const voice: Voice = { endsAt: now + seconds + 0.05, priority, out, sources: [] };
+    this.live.push(voice);
+    this.current = voice;
     return out;
+  }
+
+  /**
+   * The voice being built right now. `tone` and `noiseAt` register into it, so
+   * the pool knows what to stop when it steals. Every public method here claims
+   * once and then builds, so this is only ever the voice the caller is filling.
+   */
+  private current: Voice | null = null;
+
+  /**
+   * Everything that is not mine gets out of the way of what just happened to me.
+   *
+   * `depth` is where the crowd bus lands, `hold` is how long it stays there
+   * before it climbs back. Only the local warrior's own big moments call this —
+   * a parry, a heavy blow taken or landed, his own death — because a duck that
+   * fires for everybody is a duck that fires constantly and is heard as
+   * pumping rather than as emphasis.
+   *
+   * The falsifiable form, and it is the one gate in the whole harness that
+   * nothing else could produce: ADDING a sound to the mix makes the REST of the
+   * mix quieter. Without a duck that is arithmetically impossible.
+   */
+  private duckNow(depth: number, hold: number): void {
+    const ac = this.ac, d = this.duck;
+    if (!ac || !d || this._muted) return;
+    const t = ac.currentTime;
+    d.gain.cancelScheduledValues(t);
+    d.gain.setTargetAtTime(depth, t, 0.006);
+    d.gain.setTargetAtTime(1, t + hold, 0.09);
+  }
+
+  /**
+   * Eight men swinging inside one animation frame is eight whooshes, and eight
+   * whooshes is not a battle, it is a hiss. The voice cap alone does not fix it:
+   * eight copies of the same sound fit inside the cap comfortably and mask each
+   * other completely, and the ear reads the sum as noise rather than as eight
+   * events. So the repetitive kinds get a rate limit as well as a cap.
+   *
+   * The local warrior is never rate-limited. Everything he does he did on
+   * purpose, and his own feedback is the one thing the budget may not thin.
+   */
+  private crowded(kind: string, limit: number, window: number): boolean {
+    const ac = this.ac;
+    if (!ac) return true;
+    const now = ac.currentTime;
+    let times = this.recent.get(kind);
+    if (!times) { times = []; this.recent.set(kind, times); }
+    while (times.length && now - times[0] > window) times.shift();
+    if (times.length >= limit) return true;
+    times.push(now);
+    return false;
   }
 
   /**
@@ -748,8 +959,70 @@ class AudioEngine implements AudioHandle {
     // the same waveform — this is what keeps a synthesised library from sounding
     // machine-gunned, and it costs nothing.
     s.start(t, Math.random() * 1.8, seconds + 0.02);
+    this.current?.sources.push(s);
     return s;
   }
+
+  /**
+   * A LOW BODY NOTE — the weight of a blow — and the one place in this engine
+   * where a phone gets something different rather than something quieter.
+   *
+   * THE PROBLEM. Every gram of weight in this game lives between 46 and 190 Hz:
+   * a flesh hit falls to 62, a shove's drive to 56, a body meeting the ground to
+   * 44. A phone's own speaker is a few millimetres of cone in a sealed sliver of
+   * air and it reproduces none of it — `soundtest`'s calibrated small-speaker
+   * model puts 80 Hz 49 dB down and 200 Hz 21 dB down. Before this existed, a
+   * flesh hit measured 22 dB of loss through that speaker and landed 19 dB under
+   * the parry: on a phone the fight was all ring and no blow. That is not a
+   * volume slider — turning it up turns up the ring too.
+   *
+   * THE ANSWER is the missing fundamental. The ear reconstructs a pitch from a
+   * series of consecutive harmonics whether or not the fundamental is present —
+   * it is why a 60 Hz bass line survives a laptop speaker, and it is what a
+   * phone's own bass enhancement does in DSP. So the body is given two
+   * CONSECUTIVE harmonics, chosen by where they LAND rather than by number: the
+   * pair straddling 560 Hz, which is where a micro-speaker starts working. Their
+   * spacing is f0, so the residue the ear builds is the note that is missing.
+   *
+   * Two design consequences worth stating because they are not obvious:
+   *
+   *  - The fundamental is kept, at 0.45. It is not free — it is inaudible on the
+   *    speaker AND it eats limiter headroom that the audible part of the mix
+   *    needs — but a phone with headphones in is still a phone by every sniff
+   *    available, and taking the bottom octave off a listener who can hear it is
+   *    the worse error. Reinforcement, never replacement.
+   *  - The harmonic number is picked from the GEOMETRIC MEAN of the sweep, not
+   *    from its start. A body note that falls 165 -> 62 Hz would otherwise take
+   *    its harmonics out of the speaker's passband on the way down, which is
+   *    precisely where the weight is.
+   */
+  private body(dest: AudioNode, t: number, f0: number, f1: number, peak: number, attack: number, decay: number, type: OscillatorType = "sine"): void {
+    const ac = this.ac!;
+    const small = this._speaker === "small";
+    const g = ac.createGain();
+    envelope(g.gain, t, peak * (small ? 0.45 : 1), attack, decay);
+    this.tone(type, t, f0, f1, attack + decay + 0.02).connect(g);
+    g.connect(dest);
+    if (!small) return;
+    const n = clamp(Math.round(560 / Math.sqrt(Math.max(f0 * f1, 1))), 3, 12);
+    for (const [k, amp] of [[n, 0.60], [n + 1, 0.42]] as const) {
+      const hg = ac.createGain();
+      envelope(hg.gain, t, peak * amp, attack, decay * 0.9);
+      this.tone("sine", t, f0 * k, f1 * k, attack + decay + 0.02).connect(hg);
+      hg.connect(dest);
+    }
+  }
+
+  /**
+   * Where a body-carrying NOISE band has to sit for the speaker in use. A
+   * lowpassed rumble at 520 Hz is the same nothing as a 62 Hz sine on a phone,
+   * and unlike a tone it has no harmonics to reinforce — the only thing to do
+   * with it is move it up to where the speaker works. Only ever called on
+   * content below the small speaker's corner; the mail's 3 kHz jangle is fine
+   * where it is and must not be touched, or the four materials stop being
+   * ordered and the read goes with them.
+   */
+  private lift(hz: number): number { return this._speaker === "small" ? hz * 2.4 : hz; }
 
   private tone(type: OscillatorType, t: number, f0: number, f1: number, seconds: number): OscillatorNode {
     const ac = this.ac!;
@@ -759,6 +1032,7 @@ class AudioEngine implements AudioHandle {
     if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t + seconds);
     o.start(t);
     o.stop(t + seconds + 0.02);
+    this.current?.sources.push(o);
     return o;
   }
 
@@ -766,8 +1040,11 @@ class AudioEngine implements AudioHandle {
 
   swing(e: SwingEvent): void {
     const s = this.spatial(e); if (!s) return;
+    // Eight men swinging at once is the commonest crowd in the game and the one
+    // that turns a fight into a hiss. Three of them at a time is a battle.
+    if (!e.local && this.crowded("swing", 3, 0.10)) return;
     const w = weaponVoice(e.warriorClass, e.heavy === true);
-    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.NORMAL, w.seconds);
+    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.NORMAL, w.seconds, e.local === true);
     if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime;
     const dest = this.sink(out, s);
@@ -796,36 +1073,90 @@ class AudioEngine implements AudioHandle {
     }
   }
 
+  /**
+   * The blow, and the whole of what the player is told about it.
+   *
+   * FOUR THINGS ARE ENCODED HERE and each of them was measured before it was
+   * believed. `soundtest` phase 3 grades every pair of events against seven
+   * perceptual axes with LEVEL DELIBERATELY EXCLUDED, because the mixer already
+   * spends level on distance and a sound that is only louder is the same sound
+   * closer.
+   *
+   *  1. WHAT WAS STRUCK — flesh, shield, mail, or steel caught on steel. Four
+   *     materials, ordered flesh < shield < mail < parry by brightness.
+   *  2. HOW HARD — and this is the one that had never been built. `heavy` used
+   *     to be `force *= 1.2` and nothing else: a heavy blow was a light blow
+   *     4 dB louder, which measured 0.38-0.83 JND from its own light version,
+   *     i.e. THE SAME SOUND. Weight is not level. It is a slower contact, a
+   *     lower contact, and a longer body — a maul and a tack hammer differ in
+   *     attack and decay far more than they differ in loudness.
+   *  3. WITH WHAT — see `WEAPON_HEAD`. A Dane axe and a seax landing on the same
+   *     mail used to measure 0.25 JND apart, which is one sound with two names.
+   *  4. WHOSE IT IS — a blow on the local warrior takes the near bus, ducks the
+   *     other seven men, and is never the voice that gets stolen.
+   */
   impact(e: ImpactEvent): void {
     const s = this.spatial(e); if (!s) return;
     const ac = this.ac; if (!ac) return;
     const dmg = e.damage ?? 18;
     const heavy = e.heavy === true;
     const mat = e.material;
-    const seconds = mat === "parry" ? 0.62 : mat === "mail" ? 0.34 : mat === "shield" ? 0.30 : 0.20;
-    const prio = e.local ? PRIORITY.CRITICAL : PRIORITY.IMPORTANT;
-    const out = this.claim(prio, seconds);
+    const mine = e.local === true;
+    // A crowd of blows is still a crowd. Mine are never rate-limited.
+    if (!mine && this.crowded("impact", 5, 0.12)) return;
+    const w = weaponBite(e.weapon);
+    // How long the voice is held. Weight lengthens it; so does a heavier head.
+    const base = mat === "parry" ? 0.85 : mat === "mail" ? 0.34 : mat === "shield" ? 0.30 : 0.22;
+    const seconds = base * (heavy ? 1.7 : 1) * (mat === "parry" ? 1 : w.ring);
+    const prio = mine ? PRIORITY.CRITICAL : PRIORITY.IMPORTANT;
+    const out = this.claim(prio, seconds, mine);
     if (!out) return;
     const t = ac.currentTime;
     const dest = this.sink(out, s);
-    const force = clamp(0.55 + dmg / 60, 0.5, 1.35) * (heavy ? 1.2 : 1) * s.gain;
 
-    // The transient. Every material gets one and they differ only in colour —
-    // it is what follows it that says what was struck.
+    // LEVEL is allowed to move a little with the blow and no more. It used to
+    // carry the whole of `heavy` and it is the one axis a player cannot read,
+    // because the same 4 dB is also what four extra metres of distance sounds
+    // like. Everything else below is where the weight actually went.
+    const force = clamp(0.62 + dmg / 90, 0.55, 1.15) * (heavy ? 1.06 : 1) * s.gain;
+
+    // My own blows push the room down behind them. A parry hardest of all: it is
+    // the rarest thing in the fight and the one the whole mechanic is for.
+    if (mine) {
+      if (mat === "parry") this.duckNow(0.30, 0.22);
+      else if (heavy) this.duckNow(0.58, 0.13);
+    }
+
+    // ---- the transient: the instant of contact ----
     //
     // The colour is a BAND, not a shelf, for the three that are not a parry. A
     // highpass leaves white noise open all the way to Nyquist, and a burst of
     // that measures brighter than anything tonal on top of it — which is how
-    // the mail ended up brighter than the parry, the one event in the game
-    // that is supposed to ring highest. Only the parry gets an open top.
+    // the mail once ended up brighter than the parry. Only the parry gets an
+    // open top.
+    //
+    // Two things now bend it. The WEAPON: a seax cracks high and an axe lands
+    // broad and low, `w.bright` being the ratio between them. And WEIGHT: a
+    // heavy blow has a bigger contact patch, which is lower and lasts longer —
+    // this is the physical reason a heavy hit is not a loud light hit, and it is
+    // worth more to the ear than the 1 dB of level it also gets.
+    const heft = heavy ? 1 : 0;
     const tg = ac.createGain();
     const tf = ac.createBiquadFilter();
     tf.type = mat === "flesh" ? "lowpass" : mat === "parry" ? "highpass" : "bandpass";
-    tf.frequency.value = mat === "flesh" ? 900 : mat === "mail" ? 3300 : mat === "parry" ? 5200 : 1250;
+    // The flesh band was 820 and the whole event measured 463 Hz, which is
+    // 1.35x from the interface's own tap at 626 — under the 1.5x this file has
+    // always required, and a menu press that can be mistaken for a blade in a
+    // thigh is a UI fighting the game. A cut into a gap has nothing bright in it
+    // anyway; that is the entire point of it being the darkest of the four.
+    const tHz = (mat === "flesh" ? this.lift(560) : mat === "mail" ? 3300 : mat === "parry" ? 5200 : this.lift(1180))
+      * w.bright * (heavy ? 0.62 : 1.12);
+    tf.frequency.value = clamp(tHz, 120, 12000);
     if (tf.type === "bandpass") tf.Q.value = mat === "mail" ? 1.1 : 0.9;
-    this.noiseAt(t, 0.05).connect(tf);
+    this.noiseAt(t, 0.05 + 0.05 * heft).connect(tf);
     tf.connect(tg); tg.connect(dest);
-    envelope(tg.gain, t, 0.30 * force, 0.001, mat === "flesh" ? 0.05 : 0.09);
+    envelope(tg.gain, t, (mat === "parry" ? 0.10 : 0.26) * force,
+      0.0012 * w.bite, (mat === "flesh" ? 0.045 : 0.085) * (heavy ? 1.9 : 1));
 
     if (mat === "flesh") {
       // Steel finding a gap: no ring at all, a wet low thud and nothing above
@@ -833,28 +1164,62 @@ class AudioEngine implements AudioHandle {
       // An open throat is wetter and higher than an opened thigh; the zone only
       // tilts the body note, it never changes which of the four this is.
       const open = e.zone === "neck" || e.zone === "head" ? 1.18 : 1;
-      const g = ac.createGain();
-      envelope(g.gain, t, 0.42 * force, 0.004, 0.17);
-      this.tone("sine", t, 165 * open, 62, 0.19).connect(g);
-      g.connect(dest);
+      // WEIGHT, and this is the shape of it everywhere below: heavy goes LOWER,
+      // blooms SLOWER and rings LONGER. A light cut is a slap; a heavy one is
+      // a body being moved, and the body takes time to start and time to stop.
+      const f0 = (heavy ? 118 : 178) * open * (1.18 - 0.30 * w.head);
+      this.body(dest, t, f0, f0 * (heavy ? 0.38 : 0.42), (heavy ? 0.52 : 0.36) * force,
+        heavy ? 0.026 : 0.0035, (heavy ? 0.46 : 0.115) * w.ring);
+      // The meat around it. Lifted bodily on a small speaker: unlike a tone this
+      // has no harmonics to reinforce, so the only thing to do is move it.
       const bodyG = ac.createGain();
       const lp = ac.createBiquadFilter();
-      lp.type = "lowpass"; lp.frequency.setValueAtTime(520, t);
-      lp.frequency.exponentialRampToValueAtTime(160, t + 0.15);
-      this.noiseAt(t, 0.16, 0.7).connect(lp);
+      lp.type = "lowpass";
+      lp.frequency.setValueAtTime(this.lift(heavy ? 380 : 470), t);
+      lp.frequency.exponentialRampToValueAtTime(this.lift(heavy ? 120 : 175), t + (heavy ? 0.32 : 0.13));
+      this.noiseAt(t, heavy ? 0.36 : 0.15, heavy ? 0.5 : 0.8).connect(lp);
       lp.connect(bodyG); bodyG.connect(dest);
-      envelope(bodyG.gain, t, 0.26 * force, 0.004, 0.15);
+      envelope(bodyG.gain, t, (heavy ? 0.24 : 0.20) * force, heavy ? 0.02 : 0.004, (heavy ? 0.34 : 0.12) * w.ring);
       return;
     }
 
     if (mat === "shield") {
       // Limewood on an iron boss: a wooden knock with two low partials that die
       // fast, and the boss itself as a short mid ring. Nothing bright.
-      for (const [f, a, d] of [[186, 0.34, 0.24], [279, 0.20, 0.17], [610, 0.11, 0.10]] as const) {
-        const g = ac.createGain();
-        envelope(g.gain, t, a * force, 0.003, d);
-        this.tone("triangle", t, f, f * 0.86, d + 0.05).connect(g);
-        g.connect(dest);
+      //
+      // A HEAVY blow does not rap the boards, it drives them: the partials drop
+      // roughly a fourth, the whole thing takes 20 ms to reach full amplitude
+      // instead of 3, and it rings four times as long. That is the difference
+      // between a shield turning a cut and a shield absorbing an axe, and a
+      // player has to hear which one his arm just did.
+      // Only the BOARDS drop. The boss is a disc of iron and it rings where it
+      // rings whatever hits it — dropping it with the rest made a heavy block
+      // measure 905 Hz, darker than a shoulder-shove, and the two collided at
+      // 2.4 JND. A shield taking an axe is a low boom with a bright rim ON it.
+      for (const [f, a, d, drop] of [
+        [186, 0.34, 0.24, heavy ? 0.70 : 1.06],
+        [279, 0.20, 0.17, heavy ? 0.74 : 1.06],
+        [610, 0.13, 0.10, 1.02],
+      ] as const) {
+        this.body(dest, t, f * drop, f * drop * 0.86, a * force * (heavy ? 1.1 : 0.92),
+          heavy ? 0.021 : 0.0028, d * (heavy ? 3.4 : 0.72) * w.ring, "triangle");
+      }
+      if (heavy) {
+        // The rim, struck hard enough to speak. The only bright thing a block has.
+        for (const [f, a, d] of [[1180, 0.24, 0.30], [1720, 0.17, 0.22], [2480, 0.08, 0.15]] as const) {
+          const rg = ac.createGain();
+          envelope(rg.gain, t, a * force, 0.002, d * w.ring);
+          this.tone("triangle", t, f, f * 0.97, d * w.ring + 0.04).connect(rg);
+          rg.connect(dest);
+        }
+        // And the boards themselves complaining. Only a heavy blow gets this.
+        const cr = ac.createBiquadFilter();
+        cr.type = "bandpass"; cr.Q.value = 1.4;
+        cr.frequency.setValueAtTime(this.lift(420), t + 0.02);
+        cr.frequency.exponentialRampToValueAtTime(this.lift(170), t + 0.36);
+        const cg = ac.createGain();
+        envelope(cg.gain, t + 0.02, 0.15 * force, 0.03, 0.34);
+        this.noiseAt(t + 0.02, 0.4, 0.6).connect(cr); cr.connect(cg); cg.connect(dest);
       }
       return;
     }
@@ -862,43 +1227,155 @@ class AudioEngine implements AudioHandle {
     if (mat === "mail") {
       // Rings driven against each other: inharmonic, bright, and short. The
       // blow is turned, so there is a dull body under it but no sustain.
-      const g = ac.createGain();
-      envelope(g.gain, t, 0.26 * force, 0.002, 0.10);
-      this.tone("sine", t, 210, 120, 0.12).connect(g);
-      g.connect(dest);
+      //
+      // The RING FREQUENCIES track the weapon. More steel behind the edge drives
+      // lower modes of the mail and drives them for longer — `w.ring` is the
+      // whole of the difference between a Dane axe and a seax on the same
+      // hauberk, and before it existed there was none.
+      const scale = 1 / w.ring * (heavy ? 0.80 : 1.0);
+      const bodyHz = (heavy ? 132 : 235) * (1.15 - 0.28 * w.head);
+      // The body is deliberately SMALL even when the blow is heavy. The first
+      // build of this gave heavy mail a body of 0.40 and it measured 0.98 of its
+      // energy below 400 Hz — an axe turned by a hauberk had become a flesh hit
+      // with a jingle on top, and it collided with the shield at 2.5 JND. Mail
+      // TURNS a blow: the ring is the event and the thump is underneath it.
+      this.body(dest, t, bodyHz, bodyHz * 0.56, (heavy ? 0.14 : 0.20) * force,
+        heavy ? 0.024 : 0.002, (heavy ? 0.17 : 0.085) * w.ring);
       const jangle = ac.createGain();
       const bp = ac.createBiquadFilter();
-      bp.type = "bandpass"; bp.Q.value = 2.2; bp.frequency.value = 3200;
-      this.noiseAt(t, 0.24, 1.4).connect(bp);
+      bp.type = "bandpass"; bp.Q.value = 2.2;
+      bp.frequency.value = clamp(3200 * scale, 900, 9000);
+      this.noiseAt(t, 0.24 * w.ring * (heavy ? 1.6 : 1), 1.4).connect(bp);
       bp.connect(jangle); jangle.connect(dest);
-      envelope(jangle.gain, t, 0.20 * force, 0.002, 0.22);
+      envelope(jangle.gain, t, (heavy ? 0.30 : 0.21) * force, heavy ? 0.012 : 0.002, 0.20 * w.ring * (heavy ? 1.7 : 1));
       // Triangles, not squares. A square at 6 kHz puts a harmonic every 6 kHz
       // up the spectrum, which pushed the mail ABOVE the parry — the harness
       // caught that, and it was wrong by ear as well as by measurement: mail is
       // a dull rustle of turned rings, and only the parry rings.
       for (const [f, a] of [[2760, 0.10], [3820, 0.07], [4610, 0.04]] as const) {
         const rg = ac.createGain();
-        envelope(rg.gain, t, a * force, 0.001, 0.14);
-        this.tone("triangle", t, f, f * 0.96, 0.16).connect(rg);
+        const hz = clamp(f * scale, 700, 11000);
+        envelope(rg.gain, t, a * force * (heavy ? 1.5 : 1), 0.001 * w.bite, 0.13 * w.ring * (heavy ? 1.8 : 1));
+        this.tone("triangle", t, hz, hz * 0.96, 0.16 * w.ring * (heavy ? 1.8 : 1) + 0.03).connect(rg);
         rg.connect(dest);
       }
       return;
     }
 
-    // Parry: edge caught on edge and turned. The only event in the game that
-    // RINGS — long, bright and inharmonic, and unmistakable next to a block.
-    // It sits at the top of the material range on purpose: the ordering flesh <
-    // shield < mail < parry is what lets a player read the fight without
-    // looking, and it is measured in `soundtest`, not asserted here.
-    for (const [f, a, d] of [[2093, 0.19, 0.55], [3136, 0.15, 0.46], [4699, 0.12, 0.34], [6270, 0.08, 0.26], [9400, 0.05, 0.18], [1046, 0.07, 0.35]] as const) {
-      const g = ac.createGain();
-      envelope(g.gain, t, a * force, 0.002, d);
-      this.tone("triangle", t, f, f * 0.995, d + 0.05).connect(g);
-      g.connect(dest);
+    // ---------------------------------------------------------------- PARRY
+    //
+    // THE HERO SOUND. It is the hardest thing in the game to do — the server
+    // gives it the longest freeze and the only stagger that takes a swing back
+    // off a man mid-stroke — and the sound is most of what makes landing one
+    // feel earned. So it does not merely sit at the top of the brightness range,
+    // which is a place the mail can and once did compete for. It has a property
+    // NOTHING ELSE IN THE GAME HAS, and it has three of them:
+    //
+    //  1. IT BEATS. Every ring is a PAIR of partials a few Hz apart, so the tail
+    //     shimmers at 6-12 Hz. Two close partials is what a real struck blade
+    //     does and no other event here does it: `soundtest` measures the
+    //     modulation index of every event's tail and the parry has to be at
+    //     least 1.6x the next. Before this it measured 0.02 — less shimmer than
+    //     a whoosh.
+    //  2. IT SCRAPES. Edge dragging along edge before it turns: a fast upward
+    //     sweep, and the only upward sweep in the combat set.
+    //  3. IT DUCKS THE ROOM. Above, before a note is scheduled.
+    //
+    // No `body()` call and no `lift()`: the parry is the one blow with no weight
+    // in it, which is also why it survives a phone speaker untouched.
+
+    // The scrape — 12 ms of steel travelling before it catches.
+    {
+      const sc = ac.createBiquadFilter();
+      sc.type = "bandpass"; sc.Q.value = 3.4;
+      sc.frequency.setValueAtTime(1500 * w.bright, t);
+      sc.frequency.exponentialRampToValueAtTime(7200 * w.bright, t + 0.055);
+      const sg = ac.createGain();
+      envelope(sg.gain, t, 0.24 * force, 0.004, 0.070);
+      this.noiseAt(t, 0.1, 1.5).connect(sc); sc.connect(sg); sg.connect(dest);
+    }
+
+    // The ring. Each partial is TWO oscillators, detuned by `beat` Hz, and the
+    // beat rates differ so the shimmer is a live thing rather than a tremolo
+    // pedal. Amplitudes are halved against the old single-oscillator set so the
+    // pair sums to the same weight.
+    // THREE beating pairs, NOT six, and their rates are SPREAD. Both of those
+    // are the opposite of the obvious answer and both were arrived at by moving
+    // the number and looking at where it landed.
+    //
+    // Clustering the rates near 7 Hz is the obvious way to deepen a shimmer:
+    // every pair starts in phase, because a Web Audio oscillator starts at phase
+    // zero, so near-equal rates stay in step and their modulations add. They do,
+    // and the result is not a shimmer — it is a deep periodic NULL where all six
+    // pairs cancel together, at half a beat period, about 70 ms in. A blade does
+    // not do that. Steel has partials that beat at unrelated rates and the ear
+    // hears a live surface; identical rates are a tremolo pedal with a gap in
+    // it. Measured, twice, the clustered version reads a modulation index of
+    // 0.00 and a ring of 61 ms, because the first null truncates it.
+    //
+    // (The first draft of this comment blamed the master limiter for that
+    // collapse. It was wrong — the peak never got near the threshold — and it is
+    // recorded here rather than deleted, because a comment asserting a mechanism
+    // that is not there is exactly the defect docs/PROCESS.md R7 is about, and
+    // one more run of the same lever is what caught it.)
+    //
+    // The ring is TWO mechanisms and it needs both. Four configurations of the
+    // first one were measured before that was clear, and the failures are the
+    // instructive part.
+    //
+    // DETUNED PAIRS give the TEXTURE. Each partial is two oscillators a few Hz
+    // apart, so each one beats the way a struck blade's partials really do.
+    // What pairs cannot give is DEPTH, and the reason is arithmetic rather than
+    // tuning: partials at unrelated carrier frequencies sum in POWER, so six
+    // pairs each modulating fully produce a composite that modulates about
+    // 1/sqrt(6) as much. Measured — six pairs 0.30; four pairs spread over
+    // 6.3-10.4 Hz 0.17, because every pair starts at phase zero and a wide
+    // spread decorrelates them inside the ring; three loud pairs plus three
+    // plain partials for shape 0.13, because the plain ones had the longest
+    // decays and the whole late tail was unmodulated. Whatever rings longest has
+    // to be what shimmers. And clustering every rate at 7.0 gives the opposite
+    // failure: they null TOGETHER, the ring goes silent 70 ms in and comes back,
+    // which reads 0.00 for shimmer and 61 ms for a ring that is really 400. That
+    // is a broken tremolo pedal, not a blade.
+    //
+    // So the SIGNATURE comes from the second mechanism: one shallow LFO across
+    // the whole ring. Being one modulator it is coherent by construction, so its
+    // depth is its depth with nothing to dilute it, and at 0.44 it never comes
+    // near a null. The pairs are what make it sound like steel; this is what
+    // makes it unmistakable.
+    //
+    // No partial below 2 kHz, and the weight of the set is at the TOP of it.
+    // Lengthening these decays cost the material ordering once already: the tail
+    // is pure tone, so it took the loudest frame off the noisy scrape and the
+    // measured centroid fell from 8119 Hz to 3888 — UNDER the mail, breaking
+    // flesh < shield < mail < parry, which is what the whole read is built on.
+    const shimmer = ac.createGain();
+    shimmer.gain.value = 1;
+    shimmer.connect(dest);
+    {
+      const lfo = ac.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = 7.2;
+      const depth = ac.createGain();
+      depth.gain.value = 0.44;
+      lfo.connect(depth); depth.connect(shimmer.gain);
+      lfo.start(t); lfo.stop(t + 1.0);
+      this.current?.sources.push(lfo);
+    }
+    for (const [f, a, d, beat] of [
+      [2093, 0.034, 0.60, 6.6], [3136, 0.042, 0.52, 7.4], [4699, 0.062, 0.44, 6.9],
+      [6270, 0.088, 0.38, 7.2], [9400, 0.096, 0.32, 7.7], [12400, 0.070, 0.26, 6.3],
+    ] as const) {
+      for (const hz of [f, f + beat]) {
+        const g = ac.createGain();
+        envelope(g.gain, t, a * force, 0.002, d);
+        this.tone("triangle", t, hz, hz * 0.997, d + 0.05).connect(g);
+        g.connect(shimmer);
+      }
     }
   }
 
-  hit(e: AudioEvent & { type: WireHitType; damage?: number; hitZone?: HitZone | null }): void {
+  hit(e: AudioEvent & { type: WireHitType; damage?: number; hitZone?: HitZone | null; weapon?: WarriorClass }): void {
     this.impact({
       position: e.position,
       local: e.local,
@@ -906,6 +1383,10 @@ class AudioEngine implements AudioHandle {
       damage: e.damage,
       heavy: e.type === "heavy" || e.type === "blocked_heavy",
       zone: e.hitZone ?? undefined,
+      // The ATTACKER's class, not the target's. A caller that has the wire's
+      // `attackerId` has this for free; one that does not gets the sword, which
+      // is the middle of the range and the least wrong single answer.
+      weapon: e.weapon,
     });
   }
 
@@ -913,7 +1394,7 @@ class AudioEngine implements AudioHandle {
     if (e.raise) {
       // Leather and a shield rim coming up. Quiet: it happens constantly.
       const s = this.spatial(e); if (!s) return;
-      const out = this.claim(PRIORITY.AMBIENT, 0.14); if (!out || !this.ac) return;
+      const out = this.claim(PRIORITY.AMBIENT, 0.14, e.local === true); if (!out || !this.ac) return;
       const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
       const bp = ac.createBiquadFilter();
       bp.type = "bandpass"; bp.Q.value = 1.1;
@@ -929,22 +1410,26 @@ class AudioEngine implements AudioHandle {
 
   dodge(e: AudioEvent): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.AMBIENT, 0.22);
+    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.AMBIENT, 0.22, e.local === true);
     if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     // Wool and hide dragged through air, plus the scuff of the push-off.
+    // Darker and longer than it was. At 2400 Hz falling to 700 it measured
+    // 1.40 JND from a seax whoosh, which is the same sound: both were bright air
+    // dropping. Wool and hide dragging is a LOWER, slower noise than steel
+    // through air, and separating them is what stops a roll reading as a swing.
     const bp = ac.createBiquadFilter();
-    bp.type = "bandpass"; bp.Q.value = 0.7;
-    bp.frequency.setValueAtTime(2400, t);
-    bp.frequency.exponentialRampToValueAtTime(700, t + 0.2);
+    bp.type = "bandpass"; bp.Q.value = 0.95;
+    bp.frequency.setValueAtTime(this.lift(1450), t);
+    bp.frequency.exponentialRampToValueAtTime(this.lift(430), t + 0.26);
     const g = ac.createGain();
-    envelope(g.gain, t, 0.15 * s.gain, 0.02, 0.19);
-    this.noiseAt(t, 0.24).connect(bp); bp.connect(g); g.connect(dest);
+    envelope(g.gain, t, 0.16 * s.gain, 0.035, 0.25);
+    this.noiseAt(t, 0.3, 0.75).connect(bp); bp.connect(g); g.connect(dest);
   }
 
   shove(e: AudioEvent & { shield?: boolean }): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.NORMAL, 0.75);
+    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.NORMAL, 1.0, e.local === true);
     if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     const g = s.gain;
@@ -953,8 +1438,8 @@ class AudioEngine implements AudioHandle {
     // palette as the dodge, pitched lower and shorter — a grunt, not a rush.
     const bp = ac.createBiquadFilter();
     bp.type = "bandpass"; bp.Q.value = 1.2;
-    bp.frequency.setValueAtTime(1000, t);
-    bp.frequency.exponentialRampToValueAtTime(320, t + 0.22);
+    bp.frequency.setValueAtTime(e.shield === true ? 1000 : 700, t);
+    bp.frequency.exponentialRampToValueAtTime(e.shield === true ? 320 : 240, t + 0.22);
     const bg = ac.createGain();
     envelope(bg.gain, t, 0.16 * g, 0.03, 0.20);
     this.noiseAt(t, 0.26, 0.8).connect(bp); bp.connect(bg); bg.connect(dest);
@@ -962,27 +1447,55 @@ class AudioEngine implements AudioHandle {
     // The drive, 0.30 s later — the same offset the server resolves the
     // contact at (SHOVE.windup), so the thump lands with the impulse. A low
     // body note with a short scuff of boots driving off the turf.
+    //
+    // The local man's shove ducks the room like his heavy blows do: a shove is
+    // the one thing in the game that moves another body and it has to land.
     const hit = t + 0.30;
-    const tg = ac.createGain();
-    envelope(tg.gain, hit, 0.34 * g, 0.005, 0.16);
-    this.tone("sine", hit, 130, 56, 0.2).connect(tg); tg.connect(dest);
+    if (e.local) this.duckNow(0.62, 0.16);
+    // Shoulder or boss, and they are two different events, not one with a
+    // decoration. THIS IS THE NEAREST THING THE GAME HAS TO "a haft into a
+    // body": a huscarl drives with a disc of limewood and iron, everyone else
+    // drives with a shoulder and a forearm. The shoulder is lower, slower and
+    // duller; the boss cracks. Both are on the wire today — `GameCanvas` passes
+    // `shield: !!slot.rig.shield` — which is why they are worth separating and
+    // why a fifth impact MATERIAL for a haft strike is not: no event on the wire
+    // produces one. See docs/SOUND.md.
+    const boss = e.shield === true;
+    this.body(dest, hit, boss ? 168 : 88, boss ? 72 : 38, (boss ? 0.16 : 0.44) * g,
+      boss ? 0.003 : 0.046, boss ? 0.055 : 0.62);
     const scuff = ac.createBiquadFilter();
-    scuff.type = "lowpass"; scuff.frequency.setValueAtTime(900, hit);
-    scuff.frequency.exponentialRampToValueAtTime(260, hit + 0.1);
+    scuff.type = "lowpass";
+    scuff.frequency.setValueAtTime(this.lift(boss ? 1200 : 340), hit);
+    scuff.frequency.exponentialRampToValueAtTime(this.lift(boss ? 360 : 130), hit + 0.1);
     const sg = ac.createGain();
-    envelope(sg.gain, hit, 0.10 * g, 0.004, 0.10);
-    this.noiseAt(hit, 0.14, 0.9).connect(scuff); scuff.connect(sg); sg.connect(dest);
+    envelope(sg.gain, hit, (boss ? 0.10 : 0.06) * g, 0.004, boss ? 0.09 : 0.16);
+    this.noiseAt(hit, 0.2, 0.9).connect(scuff); scuff.connect(sg); sg.connect(dest);
 
-    if (e.shield) {
+    if (boss) {
       // The boss doing the pushing: the shield impact's wooden partials, at a
       // fraction of the blow's weight — this is the disc meeting a chest, not
       // an axe meeting the disc.
-      for (const [f, a, d] of [[186, 0.14, 0.16], [279, 0.08, 0.12]] as const) {
-        const rg = ac.createGain();
-        envelope(rg.gain, hit, a * g, 0.003, d);
-        this.tone("triangle", hit, f, f * 0.86, d + 0.04).connect(rg);
-        rg.connect(dest);
+      for (const [f, a, d] of [[186, 0.16, 0.16], [279, 0.10, 0.12], [610, 0.07, 0.09]] as const) {
+        this.body(dest, hit, f, f * 0.86, a * g, 0.003, d, "triangle");
       }
+      // The rim above the boards. It is the whole of what a phone hears of a
+      // shield shove — everything else is under the speaker's corner — and it is
+      // why a disc and a shoulder stay two events down there and not one.
+      for (const [f, a, d] of [[1180, 0.32, 0.095], [1720, 0.23, 0.07], [2480, 0.15, 0.05]] as const) {
+        const rg = ac.createGain();
+        envelope(rg.gain, hit, a * g, 0.002, d);
+        this.tone("triangle", hit, f, f * 0.97, d + 0.03).connect(rg); rg.connect(dest);
+      }
+    } else {
+      // A shoulder into a chest: no ring at all, just the air going out of him
+      // and cloth over mail. The dullest impact in the game on purpose.
+      const th = ac.createBiquadFilter();
+      th.type = "bandpass"; th.Q.value = 0.8;
+      th.frequency.setValueAtTime(this.lift(330), hit);
+      th.frequency.exponentialRampToValueAtTime(this.lift(110), hit + 0.52);
+      const tgn = ac.createGain();
+      envelope(tgn.gain, hit, 0.17 * g, 0.026, 0.52);
+      this.noiseAt(hit, 0.6, 0.5).connect(th); th.connect(tgn); tgn.connect(dest);
     }
   }
 
@@ -990,7 +1503,7 @@ class AudioEngine implements AudioHandle {
     const s = this.spatial(e); if (!s) return;
     // NORMAL even for the local man: a flourish must never steal a voice from
     // the blow that interrupts it.
-    const out = this.claim(PRIORITY.NORMAL, 1.3); if (!out || !this.ac) return;
+    const out = this.claim(PRIORITY.NORMAL, 1.3, e.local === true); if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     const g = s.gain * (e.local ? 1 : 0.8);
 
@@ -1030,9 +1543,7 @@ class AudioEngine implements AudioHandle {
             }
           } else {
             // The chest: a dull body note, no ring in it.
-            const tg = ac.createGain();
-            envelope(tg.gain, at, 0.20 * g, 0.004, 0.12);
-            this.tone("sine", at, 110, 62, 0.14).connect(tg); tg.connect(dest);
+            this.body(dest, at, 110, 62, 0.20 * g, 0.004, 0.12);
           }
         }
         // A short grunt under the second knock — the effort of the rhythm.
@@ -1050,7 +1561,9 @@ class AudioEngine implements AudioHandle {
 
   footfall(e: FootfallEvent): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(PRIORITY.AMBIENT, 0.13); if (!out || !this.ac) return;
+    // Sixteen boots on the turf in one frame is a gravel avalanche. Four.
+    if (!e.local && this.crowded("footfall", 4, 0.09)) return;
+    const out = this.claim(PRIORITY.AMBIENT, 0.13, e.local === true); if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     // The height field is the terrain description this game already has, so the
     // bank sounds drier and grittier than the ditch without a material map.
@@ -1058,21 +1571,18 @@ class AudioEngine implements AudioHandle {
     const w = clamp(e.weight ?? 0.5, 0, 1);
     const lp = ac.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.setValueAtTime(700 + 2400 * dry, t);
-    lp.frequency.exponentialRampToValueAtTime(220 + 500 * dry, t + 0.1);
+    lp.frequency.setValueAtTime(this.lift(700) + 2400 * dry, t);
+    lp.frequency.exponentialRampToValueAtTime(this.lift(220) + 500 * dry, t + 0.1);
     const g = ac.createGain();
     envelope(g.gain, t, (0.05 + 0.09 * w) * s.gain, 0.004, 0.09 + 0.03 * w);
     this.noiseAt(t, 0.14, 0.8 + 0.5 * dry).connect(lp);
     lp.connect(g); g.connect(dest);
-    const thud = ac.createGain();
-    envelope(thud.gain, t, (0.05 + 0.10 * w) * s.gain, 0.003, 0.08);
-    this.tone("sine", t, 96 - 20 * dry, 52, 0.1).connect(thud);
-    thud.connect(dest);
+    this.body(dest, t, 96 - 20 * dry, 52, (0.05 + 0.10 * w) * s.gain, 0.003, 0.08);
   }
 
   death(e: DeathEvent): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(PRIORITY.CRITICAL, 0.9); if (!out || !this.ac) return;
+    const out = this.claim(PRIORITY.CRITICAL, 0.9, e.local === true); if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     const g = s.gain;
 
@@ -1087,10 +1597,7 @@ class AudioEngine implements AudioHandle {
 
     // The body meeting the ground, a beat later, and the kit with it.
     const fall = t + 0.16;
-    const tg = ac.createGain();
-    envelope(tg.gain, fall, 0.40 * g, 0.006, 0.26);
-    this.tone("sine", fall, 118, 44, 0.3).connect(tg);
-    tg.connect(dest);
+    this.body(dest, fall, 118, 44, 0.40 * g, 0.006, 0.26);
     const clatter = ac.createGain();
     const cf = ac.createBiquadFilter();
     cf.type = "bandpass"; cf.Q.value = 1.6; cf.frequency.value = 2600;
@@ -1100,7 +1607,7 @@ class AudioEngine implements AudioHandle {
 
   sever(e: SeverEvent): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(PRIORITY.CRITICAL, 0.6); if (!out || !this.ac) return;
+    const out = this.claim(PRIORITY.CRITICAL, 0.6, e.local === true); if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     const power = clamp(e.power ?? 1, 0.6, 1.8);
     const g = s.gain * power;
@@ -1115,25 +1622,28 @@ class AudioEngine implements AudioHandle {
     this.noiseAt(t, 0.08, 1.6).connect(crack); crack.connect(cg); cg.connect(dest);
 
     // The tear: a wide band collapsing downwards, which is a rip and not a hit.
+    // The rip runs LOWER than it did, and it is not a detail. At 2600 Hz falling
+    // to 320 the whole severance measured 0.75 JND from a heavy axe turned by
+    // mail — the two loudest events in the game, and a player could not tell
+    // whether he had been blocked or opened up, which is the one thing this
+    // module exists to tell him. Meat tearing is a wet mid-low sound; a hauberk
+    // is a bright one. They had been meeting in the middle.
     const rip = ac.createBiquadFilter();
-    rip.type = "bandpass"; rip.Q.value = 0.9;
-    rip.frequency.setValueAtTime(2600, t + 0.01);
-    rip.frequency.exponentialRampToValueAtTime(320, t + 0.01 + 0.24 * power);
+    rip.type = "bandpass"; rip.Q.value = 0.85;
+    rip.frequency.setValueAtTime(this.lift(1500), t + 0.01);
+    rip.frequency.exponentialRampToValueAtTime(this.lift(240), t + 0.01 + 0.30 * power);
     const rg = ac.createGain();
-    envelope(rg.gain, t + 0.01, 0.28 * g, 0.008, 0.26 * power);
+    envelope(rg.gain, t + 0.01, 0.34 * g, 0.010, 0.32 * power);
     this.noiseAt(t + 0.01, 0.3 * power, 0.6).connect(rip);
     rip.connect(rg); rg.connect(dest);
 
     // And the weight of it hitting the ground.
-    const thud = ac.createGain();
-    envelope(thud.gain, t + 0.02, 0.30 * g, 0.005, 0.22);
-    this.tone("sine", t + 0.02, 132, 46, 0.25).connect(thud);
-    thud.connect(dest);
+    this.body(dest, t + 0.02, 128, 44, 0.40 * g, 0.007, 0.30);
   }
 
   ability(e: AudioEvent & { warriorClass: WarriorClass }): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(PRIORITY.CRITICAL, 1.1); if (!out || !this.ac) return;
+    const out = this.claim(PRIORITY.CRITICAL, 1.1, e.local === true); if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     const g = s.gain * (e.local ? 1 : 0.7);
 
@@ -1141,9 +1651,7 @@ class AudioEngine implements AudioHandle {
       case "huscarl": {
         // SHIELD WALL — iron planted. A low boom and the rim ringing over it,
         // both falling: the sound of something being set down and not moved.
-        const boom = ac.createGain();
-        envelope(boom.gain, t, 0.44 * g, 0.01, 0.55);
-        this.tone("sine", t, 96, 48, 0.6).connect(boom); boom.connect(dest);
+        this.body(dest, t, 96, 48, 0.44 * g, 0.01, 0.55);
         for (const [f, a] of [[330, 0.16], [495, 0.10]] as const) {
           const rg = ac.createGain();
           envelope(rg.gain, t + 0.01, a * g, 0.004, 0.42);
@@ -1278,7 +1786,8 @@ class AudioEngine implements AudioHandle {
     let span = 0;
     for (const n of score.notes) span = Math.max(span, n.at + n.decay);
     span = Math.max(span, score.drone ? score.drone.decay : 0);
-    const out = this.claim(score.priority, span);
+    // The interface is always MINE: I pressed it. Near bus, never ducked.
+    const out = this.claim(score.priority, span, true);
     if (!out) return;
     const t = ac.currentTime;
     const dest = this.sink(out, HERE);
@@ -1356,7 +1865,7 @@ class AudioEngine implements AudioHandle {
 
   /** A single pop out of a fire. Cheap enough to be the thing that sells it. */
   private crackle(bed: FireBed, s: Spatial): void {
-    const out = this.claim(PRIORITY.AMBIENT, 0.09);
+    const out = this.claim(PRIORITY.AMBIENT, 0.09, false);
     if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime;
     const bp = ac.createBiquadFilter();
