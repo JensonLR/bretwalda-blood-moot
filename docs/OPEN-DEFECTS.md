@@ -2707,3 +2707,34 @@ scaled out. Both are shape problems with a ruler already built for them
 (`hairFitProbe`), which is the good position to be in. Neither is a merge fix,
 which is why this is written down rather than attempted at the end of a landing
 pass.
+
+## The beard's cheek boundary is a hard-edged patch — 12 Aug 2026, NEW
+
+Found by eye on `look4/hair-3._Long_Mane_40g_3_4.png` and visible on every
+bearded rung at the three-quarter: a brownish, hard-edged patch sits on the
+cheekbone below the outer eye corner, and a smaller angular mark at the temple.
+
+**Caused by the fix, and worth being precise about why.** The beard's upper
+boundary has always been there — `cut.skin` (0.019 for Full, 0.0105 for Close
+Crop) is the density with which the beard rides onto the face — but while the
+surface was `wool` at 56 repeats it integrated to a flat tone that differed from
+the skin by very little, so a sparse boundary read as a soft shadow. The `hair`
+substance has real contrast between lock and trough, so the same sparse boundary
+now reads as a TEXTURED PATCH with an edge on it. Nothing about the boundary
+changed; what changed is that it became visible.
+
+This is the price of the substance, and it is the right price — a beard that
+reads as hair with one boundary to feather beats a beard that reads as felt. But
+it is a defect and it is on the face, which is the most-looked-at surface in the
+game.
+
+**What it needs:** the beard's face leg has to FEATHER rather than stop. The
+boundary wants a density ramp over about 8-12 mm rather than a step, and the
+albedo needs to converge on the complexion at the top of that ramp instead of
+staying beard-coloured to the last texel. `cut.skin` is the density; the ramp
+does not exist yet.
+
+**What it must not become:** a lower `cut.skin`. That deletes the cheek hair
+instead of blending it, and a beard that starts at the jawline is a chinstrap.
+
+Not fixed in the same pass because `characters.ts` was locked by the rig unit.
