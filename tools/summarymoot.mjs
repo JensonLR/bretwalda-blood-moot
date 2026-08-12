@@ -94,6 +94,24 @@ export async function raiseMoot(page, shape, { port, until, sleep }) {
   await page.getByText(spec.label, { exact: false }).first().click();
   // Best of ONE: the summary under test only rises at the MATCH's end, and a
   // best-of-three would need every round fought again.
+  //
+  // WHAT THAT COSTS, named because it cost a real defect. Every match raised
+  // through here finishes with its entrants SEPARATED ON ROUNDS — one round,
+  // one winner — and that is the single shape in which a ranking keyed on a
+  // man's own kills and a placement keyed on his BAND's cannot be told apart.
+  // A war band that finished level on rounds printed #1 #2 #2 #1 with the purse
+  // running backwards down it, for a whole round of work, and no gate in this
+  // tree could see it because no gate in this tree could produce it.
+  //
+  // Raising a best-of-three would NOT fix that: bands finish level only if a
+  // round is drawn, and `tools/tiebreak.mjs` measures on a real stepped engine
+  // that `checkRoundEnd` never deals a drawn round — it is called after every
+  // single death, so the first band to lose its last man is judged while the
+  // other still has one standing. So the case is covered by
+  // `summaryflow.mjs` `levelOnRoundsPhase`, which fights a real war band here
+  // and then hands the shipped page a ledger `buildLedger` built for a level
+  // round tally. This line stays at ONE; what changed is that its consequence
+  // is written down.
   await page.getByRole("button", { name: /^1\s*ROUND$/ }).click();
   await page.getByText("CREATE ROOM", { exact: false }).first().click();
   const code = await until(

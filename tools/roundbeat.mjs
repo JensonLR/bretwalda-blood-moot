@@ -123,9 +123,25 @@ await until(() => page.evaluate(() => window.__probe?.latest?.state === "fightin
 // `innerText`, never `textContent`: this is a server-rendered React page and
 // `textContent` hands back the whole Flight payload out of the inline scripts,
 // which is how the first cut of this printed a screenful of `self.__next_f`.
+//
+// `card` IS THE BREAK CARD ITSELF, by its own named hook, and the comment that
+// stood here was a defect of the kind PROCESS.md R7 is about. It read: *"the
+// break card's full-viewport scrim, and the ONLY thing that draws it"*, over
+// `document.querySelector(".bg-black\\/55")`. That class is a Tailwind utility
+// and it is on at least three other live elements — every kill-feed row
+// (GameHud.tsx:596), the ability-cooldown pill (GameHud.tsx:623) and an XP
+// track (page.tsx:1931). So the query was true during a FIGHT, which is not a
+// theoretical objection: an adversary run of this file latched BEAT TWO onto a
+// kill-feed row mid-fight, photographed the arena and printed FAIL. It could
+// not have false-PASSED — the text and emote-count assertions under it are
+// specific — but a harness that goes red at random is a harness people learn to
+// re-run, and that is how a real red gets waved through.
+//
+// `[data-break-card]` is on the card in page.tsx and on nothing else. `scrim`
+// keeps its name because what is being asked is still "is the arena covered",
+// but it is now asked of the thing that covers it.
 const look = () => page.evaluate(() => ({
-  // The break card's full-viewport scrim, and the ONLY thing that draws it.
-  scrim: !!document.querySelector(".bg-black\\/55"),
+  scrim: !!document.querySelector("[data-break-card]"),
   emotes: document.querySelectorAll('[aria-label^="Emote:"]').length,
   text: (document.body.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120),
   state: window.__probe?.latest?.state ?? null,
@@ -151,15 +167,20 @@ console.log(`[roundbeat] BEAT ONE  scrim=${beat.scrim} emoteButtons=${beat.emote
 console.log(`[roundbeat]           "${beat.text}"`);
 await page.screenshot({ path: `${OUT}/round-beat-1.png` });
 
-// BEAT TWO — the break card. Found by WAITING FOR THE SCRIM rather than by
+// BEAT TWO — the break card. Found by WAITING FOR THE CARD rather than by
 // counting milliseconds, because the shot above may have cost most of a break.
-// The scrim is drawn by nothing else, so its arrival IS the card arriving, and
-// if this break is already spent the next round's break offers another.
+// If this break is already spent, the next round's break offers another.
+//
+// The room's own state has to agree, and that is not belt-and-braces: this is
+// the exact condition that caught the loose selector out. `[data-break-card]`
+// only mounts in an intermission, so the two can no longer disagree — which is
+// the point. If they ever do, the wait keeps going and times out under a named
+// reason instead of photographing whatever happened to be on screen.
 drive = driveIntoTheFire(wires);
 const card = await until(async () => {
   const l = await look();
-  return l.scrim ? l : null;
-}, "the break card's scrim", 120000);
+  return l.scrim && l.state === "intermission" ? l : null;
+}, "the break card, in an intermission the server agrees is happening", 120000);
 clearInterval(drive);
 console.log(`[roundbeat] BEAT TWO  scrim=${card.scrim} emoteButtons=${card.emotes} state=${card.state}`);
 console.log(`[roundbeat]           "${card.text}"`);

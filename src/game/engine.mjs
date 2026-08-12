@@ -704,11 +704,34 @@ export function decideMatch({ roundWins = {}, entrants = [] }) {
 //
 // Index 0 is first. First place is 50 g / 100 xp because that is EXACTLY what
 // the victor's bonus has always been — a won match pays what it has always
-// paid, and nothing here is a re-balance smuggled in behind a bug fix. What is
-// new is that second and third are no longer worth precisely nothing, and that
-// a man who tops a table nobody won is no longer paid as if he had come last.
-const PLACE_GOLD = [50, 20, 10];
-const PLACE_XP = [100, 40, 20];
+// paid, and nothing here is a re-balance smuggled in behind a bug fix.
+//
+// SECOND AND THIRD ARE ZERO, AND THAT IS A REVERSAL. The first cut of this
+// paid 20 g / 40 xp and 10 g / 20 xp for the podium, on the reasoning that
+// second and third "were worth precisely nothing". That is an ECONOMY CHANGE
+// riding on a bug fix, and `docs/MONETISATION.md` is the only authority for
+// one. It gives none: the gold ladder is calibrated against the Sutton Hoo
+// helm at 2400 g — *"deliberately off the curve — ten matches of earnings —
+// because it is the game's crown"* — and *"gold buys things priced in play"*
+// with no conversion from anywhere else. A new payout tier shortens that ten
+// to something nobody chose, and it does it silently, in a commit whose
+// subject is the results table. The owner asked for the payout to FOLLOW the
+// ranking, which is a question about ORDER; he did not ask for more coin in
+// the world. So the tier is reverted and only its ordering role is kept. The
+// zeros stay written out rather than the array being trimmed to `[50]`,
+// because the shape is the decision: three places, and two of them pay
+// nothing until somebody with a reason changes it.
+//
+// ONE CONSEQUENCE IS STILL A CHANGE, and it is named rather than buried: the
+// purse is now bought by PLACE and not by `isWinner`, so a match that ends in
+// a true draw pays each joint-first man the 50 g the victor used to take
+// alone, where before it paid nobody. That falls straight out of competition
+// ranking — two men who finished dead level are both first — and it cannot be
+// removed without the purse and the place parting company again, which is the
+// whole defect. `tools/tiebreak.mjs` measures it and prints it on its verdict
+// line rather than leaving it to be discovered.
+const PLACE_GOLD = [50, 0, 0];
+const PLACE_XP = [100, 0, 0];
 
 /**
  * The ledger a finished match broadcasts: every man's row, IN PLACEMENT ORDER,
@@ -720,18 +743,52 @@ const PLACE_XP = [100, 40, 20];
  * something `summaryflow` can arrange. `tools/tiebreak.mjs` states them
  * directly against this. It was RED 5/16 on the build this replaced.
  *
- * `score` IS THE RANK KEY NOW, and that is a deliberate widening of a field
- * that was never anything else. Nothing on any screen prints it; its only
- * readers are three `sort((a,b) => b.score - a.score)` calls — this file's own
- * ledger, `render/summary.ts` choosing who stands on the podium, and
- * `summaryflow` checking that those two agree. Leaving it as kills x 100 while
- * sorting the rows by place would have made the picture and the numbers name
- * different men, which is the exact fault `render/summary.ts` documents itself
- * as existing to prevent. So the key carries the rule instead: rounds outrank
- * kills by a factor no kill count reaches, and every consumer that sorts by it
- * — including ones written before this change — lands on the same order.
+ * `score` IS THE RANK KEY, and it is a PROJECTION OF `place` — never a second
+ * opinion about how to rank. That distinction is the whole of this paragraph
+ * and it is what the first cut of this function got wrong.
+ *
+ * THE DEFECT IT REPLACES, in full, because it is the owner's own screenshot
+ * reintroduced by the fix for it. `place` was computed on the BAND's kills
+ * (`rankEntrants` over the band tally) and `score` was computed on the
+ * INDIVIDUAL's: `seat.rounds * STEP + p.kills * 100`. Those two keys agree only
+ * while the bands differ on ROUNDS, where the 1e6 step drowns every kill count.
+ * Level on rounds, the step cancels, the sort collapses to each man's own hands,
+ * and the bands INTERLEAVE while `place` still says otherwise:
+ *
+ *     #1  Rand  7K  RNDS 1  +50g   (crowned)
+ *     #2  Bard  4K  RNDS 1  +0g
+ *     #2  Brun  2K  RNDS 1  +0g
+ *     #1  Rowa  0K  RNDS 1  +50g   <- placed FIRST, crowned, printed LAST,
+ *                                     beneath two men he out-placed
+ *
+ * A table that prints #1 #2 #2 #1 is not a ranking, it is two rankings arguing,
+ * and the purse ran backwards down it. `render/summary.ts` sorted the podium by
+ * the same key, so the wall seated a losing-band man above a winning one too.
+ *
+ * WHY THE FIRST CUT LOOKED RIGHT. `score` was READ as "the rule, restated for
+ * sorting" — and a restatement of a rule is exactly what this repository has
+ * recorded four times in `characters.ts` as its third failure mode. It was not
+ * even a faithful restatement: `rankEntrants` ranks ENTRANTS, and in a war band
+ * an entrant is a BAND, so `p.kills` is not the quantity the rule is about.
+ *
+ * So the key stops restating anything. It is built from the seat's `place` —
+ * the single answer `rankEntrants` already gave — and cannot contradict it by
+ * construction, because there is nothing left in it to disagree with. Within
+ * one place (a band's men, or two entrants genuinely tied) it falls through to
+ * the man's own kills: they share everything the ranking measures, so the only
+ * honest thing left to order them by is what each pair of hands did, and it is
+ * the number printed on the row.
+ *
+ * It also fixes a quieter disagreement. A man with no seat — no side, so no
+ * round and no place — is placed last by `unseated` below, but under the old
+ * key he scored `kills * 100` and so out-sorted every SEATED man on a
+ * round-less table. Place last, printed mid-table. Now he scores below all of
+ * them, because place is what the key is made of.
  */
-const ROUND_RANK_STEP = 1e6;   // 10,000 kills to buy one round. Nobody gets there.
+// One place outranks any kill count: 10,000 kills to buy a place, and nobody
+// gets there. Named for what it steps over — the old name said ROUND, which is
+// no longer the quantity the key is built on.
+const PLACE_RANK_STEP = 1e6;
 
 export function buildLedger({ roundWins = {}, players = [], teamMode = false }) {
   // The entity the match ranks: a man in a free-for-all, a BAND in a war band,
@@ -772,7 +829,11 @@ export function buildLedger({ roundWins = {}, players = [], teamMode = false }) 
       // answer `place` gives, and they must not be able to disagree.
       roundsWon: seat.rounds,
       place: seat.place,
-      score: seat.rounds * ROUND_RANK_STEP + p.kills * 100,
+      // `order.length + 1 - place` so first place is the biggest number and a
+      // man with no seat (place = order.length + 1) scores below every seated
+      // man rather than above them. See the header: this is `place` in a shape
+      // a descending sort can read, and it is not a restatement of the rule.
+      score: (order.length + 1 - seat.place) * PLACE_RANK_STEP + p.kills * 100,
       isWinner: victor,
       xpEarned: Math.floor(xp), goldEarned: Math.floor(gold),
     };
@@ -780,7 +841,8 @@ export function buildLedger({ roundWins = {}, players = [], teamMode = false }) 
   // SORTED HERE, once, on the server. It used to leave in the room's join order
   // and let each screen sort its own copy — page.tsx by score for the ledger,
   // render/summary.ts by score for the podium — which is two chances to disagree
-  // about who won and no authority to settle it.
+  // about who won and no authority to settle it. Both now take the row order as
+  // delivered; this is the only sort left in the ledger's life.
   results.sort((a, b) => b.score - a.score);
   return { results, order, winnerKey, winnerBy };
 }

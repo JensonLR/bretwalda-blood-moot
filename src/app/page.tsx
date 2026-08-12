@@ -2495,7 +2495,17 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
   }
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6">
+    /* `data-break-card` is a NAMED HOOK, and it is here because a harness had
+       been finding this card by its scrim colour — `.bg-black/55` — under a
+       comment claiming that class was "the ONLY thing that draws it". It is
+       also on every kill-feed row (GameHud.tsx:596), the ability-cooldown pill
+       (GameHud.tsx:623) and the XP track above (page.tsx:1931), so the query
+       matched mid-fight and `roundbeat` photographed a fight and called it a
+       break card. A harness that finds a component by a utility class is
+       coupled to the palette; this attribute is what it is allowed to look
+       for. Same arrangement as `data-ledger` on the summary rows. */
+    <div data-break-card
+      className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6">
       <div className="card card-noble card-glow animate-fadeIn flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
         <div className="label-overline">ROUND {r?.index ?? roomState.roundIndex} OF {roomState.bestOf}</div>
         <div className="font-display text-2xl leading-tight text-amber-100" style={{ textShadow: "0 0 26px rgba(217,164,65,0.35)" }}>

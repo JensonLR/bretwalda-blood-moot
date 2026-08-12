@@ -356,8 +356,14 @@ async function scenarioMatch() {
   // `isWinner ? 50 : 0`; it is now the purse for the PLACE he finished in
   // (`PLACE_GOLD` / `PLACE_XP` in engine.mjs), because the owner asked for
   // rounds won to count toward the payout and a place is what rounds buy. So
-  // the loser's arithmetic gained the second-place purse and this line had to
-  // follow it.
+  // the loser's arithmetic follows the PLACE he finished in and not his crown.
+  //
+  // SECOND PLACE IS BACK TO ZERO. The first cut of that change also gave second
+  // and third 20 g / 40 xp, which is a new payout tier riding on a bug fix and
+  // has no authority in `docs/MONETISATION.md` — see the argument written out
+  // beside PLACE_GOLD. So the winner's line is exactly the 50 / 100 it has
+  // always been and the loser's is exactly the nothing it has always been, and
+  // what actually changed is only WHICH man each is handed to.
   //
   // NOT relaxed: the numbers are still written out here by hand rather than
   // imported, or the check would agree with the engine by construction and
@@ -368,8 +374,8 @@ async function scenarioMatch() {
     theirs.isWinner === true && mine.isWinner === false &&
     theirs.xpEarned === Math.floor(50 + theirs.kills * 30 + theirs.damage * 0.5 + 100) &&
     theirs.goldEarned === Math.floor(10 + theirs.kills * 15 + 50) &&
-    mine.xpEarned === Math.floor(50 + mine.kills * 30 + mine.damage * 0.5 + 40) &&
-    mine.goldEarned === Math.floor(10 + mine.kills * 15 + 20) &&
+    mine.xpEarned === Math.floor(50 + mine.kills * 30 + mine.damage * 0.5 + 0) &&
+    mine.goldEarned === Math.floor(10 + mine.kills * 15 + 0) &&
     theirs.place === 1 && mine.place === 2 &&
     theirs.roundsWon === 1 && mine.roundsWon === 0,
     `winner ${theirs.goldEarned}g / ${theirs.xpEarned}xp / #${theirs.place} / ${theirs.roundsWon} rnd,`

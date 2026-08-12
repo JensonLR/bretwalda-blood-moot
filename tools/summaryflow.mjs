@@ -11,7 +11,10 @@
 //           behind the DOM panels, and the phone player (a corpse this round)
 //           is offered no flourish.
 //   team    a 2v2 WAR BAND — the winning SIDE stands whole, the losing side
-//           lies whole. A war band ranks bands, not men.
+//           lies whole. A war band ranks bands, not men. It ends with the two
+//           bands LEVEL ON ROUNDS, on the same real room, because that is the
+//           shape the ranking can get wrong and no played match here can reach
+//           it — see `levelOnRoundsPhase`.
 //
 // Every one of them is fought: wire men walk into the bonfire and an AI does
 // the rest. Nothing here poses anybody.
@@ -21,6 +24,10 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { raiseMoot, driveIntoTheFire } from "./summarymoot.mjs";
+// The engine's own ledger, so the one synthetic fixture in this file is dealt
+// by the code under test rather than authored by the harness. See
+// `levelOnRoundsPhase` for what that does and does not buy.
+import { buildLedger } from "../src/game/engine.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -43,11 +50,17 @@ function waitForServer(url, timeoutMs = 180000) {
 
 const PROBE = () => {
   const w = window;
-  w.__probe = { joinData: null, latest: null, matchEnd: null, playerId: null };
+  w.__probe = { joinData: null, latest: null, matchEnd: null, playerId: null, sock: null };
   const RealWS = window.WebSocket;
   function TappedWS(url, protocols) {
     const ws = protocols === undefined ? new RealWS(url) : new RealWS(url, protocols);
     if (String(url).includes("/ws")) {
+      // Kept so a harness can DELIVER a frame as well as read one. Nothing
+      // about the page's own reading path is bypassed by that: transport.ts
+      // installs `ws.onmessage`, and a MessageEvent dispatched on this object
+      // reaches it exactly as the network's would. `levelOnRoundsPhase` is the
+      // only user and it says why.
+      w.__probe.sock = ws;
       ws.addEventListener("message", (ev) => {
         try {
           const m = JSON.parse(ev.data);
@@ -412,6 +425,98 @@ async function emoteAfterRollback(page, mine, where) {
     + ` should read "gone" for a man the stage left dead and "OFFERED" for one it stood up.`);
 }
 
+/**
+ * TWO WAR BANDS LEVEL ON ROUNDS, ON THE REAL GLASS — the case no gate in this
+ * tree could reach, and the one the adversary broke round one with.
+ *
+ * WHAT WAS MISSING. `raiseMoot` pins every match here to best-of-ONE, on purpose
+ * ("the summary under test only rises at the MATCH's end"), so every band this
+ * file has ever photographed was separated on rounds — the single shape in which
+ * a rank key built on each MAN's kills and a place built on his BAND's cannot be
+ * told apart. Level on rounds they part company and the table prints #1 #2 #2 #1
+ * with the purse running backwards down it. Green because the case was absent.
+ *
+ * WHY IT IS INJECTED AND NOT FOUGHT FOR, stated plainly rather than buried,
+ * because "the harness made the number up" is the right first suspicion. Bands
+ * finish level on rounds only if a round is DRAWN, and `tools/tiebreak.mjs`
+ * measures — with a real stepped engine, printed on its verdict line — that the
+ * sim will not deal one: `burnDeath` calls `checkRoundEnd` after every single
+ * death, so the first band to lose its last man is judged while the other still
+ * has one standing. Waiting for a played match to produce this would be waiting
+ * forever, and a gate that waits forever is the deferral this repo has been
+ * caught hiding three times in one day.
+ *
+ * WHAT IS AND IS NOT SYNTHETIC. The room is real — four men who actually fought,
+ * with the ids, names, teams and kills the server gave them. The verdict is
+ * built by `buildLedger`, the ENGINE'S OWN function, imported here and handed
+ * the same roster with `{red: 1, blue: 1}` for its round tally. Nothing about
+ * the order, the places or the purse is authored by this file; it deals the hand
+ * and the engine plays it. What that buys is the half `tiebreak` cannot see: a
+ * correctly-ranked ledger arriving at a CLIENT that then draws it, which is
+ * exactly where the owner's original defect lived.
+ */
+async function levelOnRoundsPhase(page, real) {
+  const players = await page.evaluate(() => Object.values(window.__probe?.latest?.players ?? {})
+    .map((p) => ({ id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths, damage: p.damage })));
+  const bands = new Set(players.map((p) => p.team));
+  if (players.length < 4 || !bands.has("red") || !bands.has("blue")) {
+    skipped.push("war band level on rounds: the printed ledger is the wire's own order, places and rounds");
+    console.log(`[flow] SKIP war band level on rounds: the room did not end as two bands of two`
+      + ` (${players.length} men, bands ${[...bands].join("/")}). NOT A PASS.`);
+    return;
+  }
+  // THE KILLS ARE DEALT, and this is the part that has to be deliberate rather
+  // than whatever the fight happened to leave. A war band here is decided by
+  // the bonfire, which is nobody's kill, so the room usually ends 0-0 and a
+  // 0-0 table cannot contradict itself — every man ties, every man is first,
+  // and a broken sort and a working one print the same four rows. That is how
+  // an absent case hides inside a present one.
+  //
+  // So the roster is given the ADVERSARY'S OWN NUMBERS — red 7 and 0, blue 4
+  // and 2 — which is the sharpest shape the fixture has: red takes it on 7 band
+  // kills to 6, and the losing band's best man (4) out-kills the winning band's
+  // worst (0). A sort that reads a man's own hands puts blue's 4 above red's 0
+  // and prints #1 #2 #2 #1; a sort that reads his band puts all of red above
+  // all of blue. Nothing below this line is authored here: `buildLedger` is
+  // handed the roster and its answer is what gets delivered and photographed.
+  const HAND = { red: [7, 0], blue: [4, 2] };
+  for (const side of ["red", "blue"]) {
+    players.filter((p) => p.team === side).forEach((p, i) => { p.kills = HAND[side][i] ?? 0; });
+  }
+  const led = buildLedger({ roundWins: { red: 1, blue: 1 }, players, teamMode: true });
+  const doctored = {
+    ...real,
+    winnerKind: led.winnerKey ? "team" : "none",
+    winnerId: null,
+    winnerTeam: led.winnerKey,
+    winnerName: led.winnerKey === "red" ? "Red War Band" : led.winnerKey === "blue" ? "Blue War Band" : "Draw",
+    winnerBy: led.winnerBy,
+    bestOf: 3, roundsPlayed: 3, roundTarget: 2,
+    roundWins: { red: 1, blue: 1 }, roundScoreBy: "team",
+    results: led.results,
+  };
+  // Dispatched on the page's OWN socket, so it arrives through the shipped
+  // `transport.ts` -> page.tsx path and nothing about how the page reads a
+  // verdict is bypassed.
+  const delivered = await page.evaluate((data) => {
+    const sock = window.__probe?.sock;
+    if (!sock) return false;
+    sock.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "match_end", data }) }));
+    return true;
+  }, doctored);
+  if (!delivered) {
+    skipped.push("war band level on rounds: the printed ledger is the wire's own order, places and rounds");
+    console.log("[flow] SKIP war band level on rounds: no tapped socket to deliver on. NOT A PASS.");
+    return;
+  }
+  await sleep(1200);
+  console.log(`[flow] the engine's ledger for two bands level at one round each:`
+    + ` ${led.results.map((r) => `#${r.place} ${r.name} ${r.kills}K ${r.roundsWon}r ${r.goldEarned}g${r.isWinner ? "*" : ""}`).join(" | ")}`
+    + ` (winner ${led.winnerKey} by ${led.winnerBy})`);
+  await ledgerCheck(page, doctored, "war band level on rounds");
+  await page.screenshot({ path: `${OUT}/summary-flow-team-level.png` });
+}
+
 /** A 2v2 WAR BAND: the winning side stands whole, the losing side lies whole. */
 async function teamPhase(browser) {
   const { ctx, page } = await phone(browser);
@@ -436,6 +541,7 @@ async function teamPhase(browser) {
   // not four rows quietly re-ranked by who happened to swing most.
   await ledgerCheck(page, verdict, "war band");
   await page.screenshot({ path: `${OUT}/summary-flow-team.png` });
+  await levelOnRoundsPhase(page, verdict);
   await emoteAfterRollback(page, mine, "war band");
   await vetoCheck(page, "war band");
   await ctx.close();
