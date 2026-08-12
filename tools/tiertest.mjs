@@ -388,6 +388,16 @@ function run(quality, label) {
   check("frame time alone never reaches the tier with no ORM maps", measured() !== "low",
     `measured=${measured()} — packOrm strips roughness, metalness and AO off every surface at low`);
 
+  // A SECOND BAD DAY, and this is the row the floor exists for. One move per
+  // session bounds what a single session can do; it does not stop a device
+  // walking down the enum one reload at a time. `governorFloor` is what makes
+  // `medium` the bottom for a machine detectTier calls `high`, however many bad
+  // afternoons it has.
+  s = session(DESKTOP, LAGGY);
+  check("a second bad session cannot walk it further down",
+    s.tier === "medium" && measured() === "medium" && ceiling() === "medium",
+    `rendered ${s.tier}, measured=${measured()} ceiling=${ceiling()}`);
+
   // Four more sessions, same store, same clean frames. Round one held `low`
   // through all of them. A short clean run must not undo the ratchet either —
   // that is what the ratchet is for — so these first three change nothing.
