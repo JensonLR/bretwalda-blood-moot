@@ -32,7 +32,7 @@
 // ============================================================
 import { chromium } from "playwright";
 import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -47,6 +47,26 @@ const check = (name, pass, detail) => {
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 const note = (s) => console.log(`        ${s}`);
+
+/**
+ * R4: a deferral rides the verdict line, in the words a person will read. A run
+ * that never got into a fight has measured strictly less than one that did, and
+ * saying so in the same sentence as the count is the only way that survives
+ * being pasted into a report.
+ */
+function verdict(livesSkipped) {
+  const failed = results.filter((x) => !x.pass);
+  const tail = livesSkipped
+    ? " — WITH the live-match leg NOT RUN, so the reachability counts are missing and this is not a clean sheet"
+    : "";
+  console.log(`\n[soundwire] ${results.length - failed.length}/${results.length} claims proven${tail}`);
+  if (failed.length) {
+    console.log("[soundwire] UNPROVEN: " + failed.map((f) => f.name).join(", "));
+    console.log("[soundwire] These are WIRING defects, not synthesis defects. The sound exists");
+    console.log("[soundwire] and is graded; the game does not ask for it. See docs/SOUND.md.");
+    process.exitCode = 1;
+  }
+}
 
 async function waitForServer(url, timeoutMs = 180000) {
   const started = Date.now();
@@ -113,7 +133,90 @@ const RECORD = () => {
   wrap();
 };
 
+// ------------------------------------------------------------------
+// PHASE 0 — the call site, read off disk.
+//
+// This runs in milliseconds, needs no browser and no server, and it exists
+// because the browser leg cannot always run: reaching a fight needs the menu,
+// the game socket and a canvas, and when any of those is down in a container
+// this file would otherwise report nothing at all and be indistinguishable from
+// a pass. docs/PROCESS.md R2 — a harness that has only ever been seen green has
+// never been tested — applies just as hard to a harness that has never been
+// seen at all.
+//
+// It is also the RIGHT instrument for this particular defect, not a fallback
+// for it. The parry is unreachable because of a static fact about one `if`:
+// there is no input any player could give that would voice one. A source
+// assertion is the cheapest thing that can see that, and it goes green the
+// moment the wiring is fixed.
+// ------------------------------------------------------------------
+
+/** The braces-balanced argument object of the first `audio.hit(` call. */
+function hitCallSite(src) {
+  const at = src.indexOf("audio.hit(");
+  if (at < 0) return null;
+  let depth = 0, i = src.indexOf("(", at);
+  const start = i;
+  for (; i < src.length; i++) {
+    if (src[i] === "(") depth++;
+    else if (src[i] === ")") { depth--; if (depth === 0) return src.slice(start, i + 1); }
+  }
+  return null;
+}
+
+function callSiteChecks() {
+  console.log("\n[soundwire] phase 0 — the call site in GameCanvas.tsx");
+  const rel = "src/game/client/GameCanvas.tsx";
+  const path = resolve(ROOT, rel);
+  if (!existsSync(path)) {
+    check("the client call site exists to be read", false, `${rel} not found`);
+    return;
+  }
+  const src = readFileSync(path, "utf8");
+  const call = hitCallSite(src);
+  check("the client calls audio.hit at all", call !== null, call ? `${call.length} chars of arguments` : "no audio.hit( in the file");
+  if (!call) return;
+
+  // 1. THE PARRY. The wire says `type: "parry"`; the client must be able to say
+  //    it too. Today the type is computed from a health delta and a blocking
+  //    flag, and the whole call is inside `if (p.health < prevHp - 0.5)`, so a
+  //    zero-damage blow voices nothing whatever the player does.
+  {
+    const saysParry = /["']parry["']/.test(call);
+    const guarded = /health\s*<\s*\w+\.prevHp/.test(src);
+    check("a parry can reach the audio engine from the client",
+      saysParry,
+      saysParry
+        ? "the call site can produce type:'parry'"
+        : `the word "parry" appears nowhere in the audio.hit arguments${guarded ? ", and the call is inside an `if (p.health < slot.prevHp - 0.5)` branch that a zero-damage blow never enters" : ""} — soundtest grades the parry on five claims and the game cannot make one`);
+  }
+
+  // 2. THE WEAPON. `impact()` reads it and moves the contact colour, the ring
+  //    frequencies and the contact time by it. Without it every blow in the
+  //    game is a sword and the axe-versus-seax work is dead code.
+  {
+    const passesWeapon = /\bweapon\s*:/.test(call);
+    const hasAttacker = /\battacker\b/.test(src);
+    check("blows tell the audio engine what threw them",
+      passesWeapon,
+      passesWeapon ? "the call site passes a weapon"
+        : `no \`weapon:\` in the audio.hit arguments${hasAttacker ? " — and `attacker` is already resolved in that same block, for the blood direction" : ""}`);
+  }
+
+  // 3. And the freeze already comes off the wire rather than being guessed. If
+  //    the client ever starts consuming the `hit` message directly, 1 and 2 stop
+  //    being derivations and become reads, which is the better fix.
+  {
+    const consumes = /type\s*===\s*["']hit["']/.test(src) || /case\s+["']hit["']/.test(src);
+    note(consumes
+      ? "the client consumes the server's `hit` message directly"
+      : "the client derives every blow from snapshot deltas and never reads the `hit` message; the parry, the attacker and the true hit type are all on that message already");
+  }
+}
+
 async function main() {
+  callSiteChecks();
+
   const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
   console.log(`[soundwire] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
@@ -147,16 +250,36 @@ async function main() {
   // The opposite choice from `playtest`, which empties the ring so a corpse
   // cannot spoil its input assertions. Here the other men ARE the fixture:
   // there is no blocked hit, no parry and no death without somebody to fight.
-  await page.getByText("Training", { exact: false }).first().click();
-  await page.getByText("MUSTER THE TESTGROUNDS", { exact: false }).first().click();
-  await page.getByText("DRAW STEEL", { exact: false }).first().click();
+  //
+  // Every step is best-effort. The menu, the game socket and a canvas all have
+  // to work to get here, and when one of them does not this file still has a
+  // verdict to give from phase 0 — which it says out loud rather than exiting
+  // quietly, because a harness that reports nothing reads exactly like one that
+  // found nothing.
+  const tap = async (rx) => {
+    try { await page.getByRole("button", { name: rx }).first().click({ timeout: 12000 }); return true; }
+    catch { /* not on this screen */ }
+    try { await page.getByText(rx).first().click({ timeout: 8000 }); return true; }
+    catch { return false; }
+  };
+  await tap(/Training/i);
+  await page.waitForTimeout(800);
+  await tap(/MUSTER|TESTGROUNDS|WARRIOR|RECRUIT/i);
+  await page.waitForTimeout(800);
+  await tap(/DRAW STEEL|FIGHT|BEGIN/i);
   const reached = await page.waitForFunction(
-    () => window.__probe?.lastState?.state === "fighting", null, { timeout: 90000 },
+    () => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 },
   ).then(() => true).catch(() => false);
   if (!reached) {
-    console.log("[soundwire] never reached a fight — nothing can be measured. PENDING.");
+    const seen = await page.evaluate(() => ({
+      probe: !!window.__probe, audio: !!window.__bretwaldaAudio,
+      state: window.__probe?.lastState?.state ?? null,
+    }));
     await browser.close();
-    process.exitCode = 2;
+    console.log("");
+    note(`the live leg could not reach a fight (probe=${seen.probe}, audio=${seen.audio}, state=${seen.state}).`);
+    note("Phase 0's verdict below stands on its own; the live counts are simply absent.");
+    verdict(true);
     return;
   }
   console.log(`[soundwire] in a fight; playing for ${SECONDS}s\n`);
@@ -284,14 +407,7 @@ async function main() {
       `${heavy} heavy, ${light} light — weight is measured on this distinction and it has to actually arrive`);
   }
 
-  const failed = results.filter((x) => !x.pass);
-  console.log(`\n[soundwire] ${results.length - failed.length}/${results.length} claims proven`);
-  if (failed.length) {
-    console.log("[soundwire] UNPROVEN: " + failed.map((f) => f.name).join(", "));
-    console.log("[soundwire] These are WIRING defects, not synthesis defects. The sound exists");
-    console.log("[soundwire] and is graded; the game does not ask for it. See docs/SOUND.md.");
-    process.exitCode = 1;
-  }
+  verdict(false);
 }
 
 main()

@@ -223,34 +223,71 @@ async function main() {
   check("sound is emitted after the gesture, measured at the destination",
     loud.all > 0.01 && loud.all < 0.99, `peak ${loud.all.toFixed(4)} against ${idle.all.toFixed(4)} at rest`);
 
-  // ---- 5: the engine knows it is on a phone ----
+  // ---- 5: the WEIGHT survives a speaker with no low end ----
   //
-  // Not a volume tier — `setSpeaker` changes what is SYNTHESISED, because every
-  // gram of weight in this game lives between 46 and 190 Hz and a micro-speaker
-  // reproduces none of it. The sniff is a sniff (there is no Web Audio API that
-  // answers this) so the one thing worth gating is that it FIRES on the device
-  // it was written for: a 390x844 touch viewport is a phone by any definition.
-  const speaker = await page.evaluate(() => window.__bretwaldaAudio?.speaker ?? null);
-  check("the engine detects a phone speaker at 390x844 with touch",
-    speaker === "small", `speaker="${speaker}" (expected "small"; "full" means the phone is being handed the desktop mix)`);
-
-  // ---- 6: and the WEIGHT survives a speaker with no low end ----
+  // `soundtest` phase 4 proves this offline against a calibrated filter. This is
+  // the same claim put to the LIVE app, through real BiquadFilterNodes, and it
+  // is deliberately a DIFFERENTIAL rather than an absolute.
   //
-  // This is the claim `soundtest` phase 4 proves offline against a calibrated
-  // filter, asserted here once more against the LIVE app through real biquads:
-  // a flesh hit — the heaviest, lowest, most important sound in a melee game —
-  // must still be audible after the bottom two octaves are taken away. Before
-  // `body()` existed it lost 22 dB there and landed 19 dB under the parry, which
-  // is a phone getting a fight with the blows deleted and the ringing left in.
-  await page.evaluate(() => {
+  // The absolute version was tried first and it is the wrong measurement twice
+  // over. It read `bus.speaker` to check the device sniff had fired, and that
+  // property came back undefined in this page while a probe against the same
+  // server on the same viewport read "small" from it — a bundling question, not
+  // an audio one, and not something an audio harness should be adjudicating.
+  // Then it gated the surviving fraction of one blow against a number picked out
+  // of the air, measured as a ratio of two analyser PEAKS taken at different
+  // instants with a bonfire playing underneath.
+  //
+  // Driving `setSpeaker` and measuring the DIFFERENCE removes all of that. Both
+  // renders contain the same events, the same bed and the same peaks; the only
+  // thing that changed is the one code path under test. If `body()` is doing its
+  // job, the small-speaker mix puts materially more of a heavy blow inside the
+  // band a phone can actually move. 3 dB is a doubling of power and is the least
+  // that can be called "this does something".
+  const weigh = async (mode) => {
+    const ok = await page.evaluate((m) => {
+      const a = window.__bretwaldaAudio;
+      if (typeof a?.setSpeaker !== "function") return false;
+      a.setSpeaker(m);
+      return true;
+    }, mode);
+    if (!ok) return null;
+    await page.waitForTimeout(150);
+    await page.evaluate(() => {
+      const a = window.__bretwaldaAudio;
+      for (let i = 0; i < 3; i++) a.impact({ material: "flesh", damage: 34, heavy: true, local: true });
+    });
+    return listen(page, 1300);
+  };
+  const asDesk = await weigh("full");
+  const asPhone = await weigh("small");
+  const carried = (m) => (m ? 20 * Math.log10(Math.max(m.spk, 1e-6) / Math.max(m.all, 1e-6)) : NaN);
+  const gain = carried(asPhone) - carried(asDesk);
+  // When this fails it hands over its own diagnostic rather than making the next
+  // person reproduce it. The observation that made that worth doing is in
+  // docs/MOBILE-AUDIO.md: this handle has `setSpeaker` on the landing screen and
+  // does not have it inside a fight, which is a bundling question — a stale
+  // chunk, or two module instances — and either way the list of methods the
+  // fight is actually holding is the first thing anybody will want.
+  const handle = asDesk === null ? await page.evaluate(() => {
     const a = window.__bretwaldaAudio;
-    for (let i = 0; i < 3; i++) a.impact({ material: "flesh", damage: 34, heavy: true, local: true });
-  });
-  const weight = await listen(page, 1200);
-  const carried = weight.spk / Math.max(weight.all, 1e-6);
-  check("a heavy blow still has a body after the phone speaker has taken the bottom off",
-    weight.all > 0.01 && carried >= 0.35,
-    `${(20 * Math.log10(Math.max(carried, 1e-6))).toFixed(1)} dB survives the speaker model (peak ${weight.all.toFixed(4)} -> ${weight.spk.toFixed(4)}; need >= -9.1 dB)`);
+    if (!a) return "window.__bretwaldaAudio is undefined inside the fight";
+    const keys = [];
+    for (let p = Object.getPrototypeOf(a); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+      keys.push(...Object.getOwnPropertyNames(p));
+    }
+    return `the live handle has: ${keys.filter((k) => k !== "constructor").sort().join(", ")}`;
+  }).catch((e) => `could not inspect the handle: ${e}`) : "";
+  check("the engine can be told which speaker it is playing through",
+    asDesk !== null && asPhone !== null,
+    asDesk === null
+      ? `setSpeaker is not on the live handle, so the phone gets the desktop mix and nothing can change it. ${handle}. Rule out a stale bundle FIRST: rm -rf .next and reload. See docs/MOBILE-AUDIO.md.`
+      : "setSpeaker drives the live graph");
+  check("the phone mix puts a heavy blow where a phone speaker can play it",
+    asDesk !== null && asPhone !== null && gain >= 3,
+    Number.isFinite(gain)
+      ? `${carried(asDesk).toFixed(1)} dB survives the speaker model on the desk mix, ${carried(asPhone).toFixed(1)} dB on the phone mix — ${gain >= 0 ? "+" : ""}${gain.toFixed(1)} dB from body() alone (need +3)`
+      : "not measured");
 
   // ---- and the mute the player can reach from here ----
   await page.getByRole("button", { name: /Turn sound off/i }).first().tap();

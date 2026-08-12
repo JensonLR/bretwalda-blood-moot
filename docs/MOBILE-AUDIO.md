@@ -169,3 +169,51 @@ what your phone sounds like, and the only thing that ever will is the owner
 holding one. The line above this section stands unchanged and now covers two
 claims instead of one: `phonesound` proves the unlock logic and the mix's
 low-end survival **as modelled**, never the platform.
+
+---
+
+## OPEN — the handle inside the fight is not the handle on the landing screen
+
+Found while adding the two checks above, unexplained, and recorded rather than
+rounded off, because if it is real in production it is worse than the thing it
+was found next to.
+
+The observation, and it repeated across two complete `phonesound` runs:
+
+* On the **landing screen**, `window.__bretwaldaAudio` has `speaker` and
+  `setSpeaker` and reports `speaker === "small"` at 390x844 with touch. Verified
+  directly against a running dev server.
+* After tapping into a **fight**, the same global has **neither**.
+  `typeof a.setSpeaker` is `"undefined"`, and `a.speaker` reads undefined too.
+
+Nothing in `audio.ts` removes a method, and the module assigns that global once,
+at import. So one of two things is true and they need different fixes:
+
+1. **A stale compiled chunk.** `GameCanvas` is in a different chunk from the
+   screens layer, and the dev cache served an older compile of `audio.ts` into
+   it. This is the FIRST thing to rule out and it costs nothing: `rm -rf .next`
+   and reload. A stale bundle is already a known cause on this project — it is
+   the whole of the resolution at the top of this file.
+2. **Two module instances.** `src/app/page.tsx` imports
+   `"../game/client/render/audio"` and `GameCanvas.tsx` imports
+   `"./render/audio"`. They resolve to one file and a correct bundler gives one
+   instance — but if they ever did not, the consequence is severe and quiet:
+   **two engines, two AudioContexts, and a mute toggle that silences one of
+   them.** The singleton comment in `getAudio()` says browsers cap how many
+   contexts a document may hold, which is exactly the failure that would follow.
+
+Candidate 1 does not fit cleanly — the cache was cleared and the discrepancy was
+seen again — and candidate 2 does not explain a *missing method*, only a second
+copy of a complete one. So it is genuinely open.
+
+**What would settle it, cheaply:** one line in the fight, in a console —
+`window.__bretwaldaAudio === (await import("/_next/.../audio")).getAudio()` is
+awkward, but `Object.getOwnPropertyNames(Object.getPrototypeOf(window.__bretwaldaAudio))`
+inside a match answers it immediately: if `setSpeaker` is absent from that list,
+the fight is running older code and it is candidate 1; if it is present, the
+harness is reading the wrong moment.
+
+Until it is settled, treat the phone mix as **proven offline and unproven in the
+app**. `soundtest` phase 4 renders both mixes and grades them against a
+calibrated speaker model with no bundler in the path, and that is currently the
+only trustworthy evidence that `body()` does what this document says it does.
