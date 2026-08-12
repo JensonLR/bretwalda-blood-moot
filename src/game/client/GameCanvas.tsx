@@ -418,7 +418,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // by reading the props world.ts has already built, and it lands its blood
           // and its bounces on world.ts's terrain rather than on y = 0, which stopped
           // being the ground the moment the arena got a bank and a ditch.
-          vfx = createVfx(scene, textures, quality, { groundAt: world.heightAt });
+          vfx = createVfx(scene, textures, quality, {
+            groundAt: world.heightAt,
+            // Blood on the glass. `vfx` decides WHEN — it is the module that
+            // knows where every wound and the camera are — and `postfx` draws
+            // it, because a thing in front of the lens can only live in the pass
+            // that owns the frame. `postfx` is built two stages above this one,
+            // so the reference is live rather than deferred through the stage.
+            onLensBlood: (s, u, v) => postfx.lensBlood(s, u, v),
+          });
           disposers.push(() => vfx.dispose());
         },
       },

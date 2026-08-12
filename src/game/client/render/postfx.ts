@@ -472,6 +472,18 @@ export interface PostFxHandle {
    * the frame itself going wrong.
    */
   hurt(intensity: number): void;
+  /**
+   * A wound opened near enough to the lens, and facing it, to put blood on the
+   * glass. `vfx.ts` decides when — it is the module that knows where the wounds
+   * and the camera are — and hands over a strength and the screen point the
+   * wound projected to. Absorption only; see the note above `LENS_SPLATS`.
+   *
+   * @param strength 0..1.4. Damage and section, scaled by how close the wound
+   *                 was and how squarely it was pointed at the lens.
+   * @param u,v      the wound's screen position, 0..1 with v up. Out-of-frame
+   *                 values are clamped to the rim rather than dropped.
+   */
+  lensBlood(strength: number, u: number, v: number): void;
   /** The local warrior's health fraction. Drives the low-health edge pulse. */
   setPressure(fraction: number): void;
   /** Live grade override, merged over whatever the current mood is doing. */
@@ -1522,6 +1534,94 @@ class MeterPass extends Pass {
 // Everything display-side in one pass. The order inside it matters: bloom adds
 // in HDR, the curve runs exactly once, and only after that does anything
 // subjective happen.
+// ---------------------------------------------------------------------------
+// BLOOD ON THE LENS
+// ---------------------------------------------------------------------------
+//
+// The brief asks for spatter that lands "on the ground, on nearby men and on the
+// camera". The first two are `vfx.ts`'s decals and body marks. The third is here,
+// because the camera is not in the scene — it IS the scene's viewpoint, and the
+// only place a thing in front of the lens can live is the pass that owns the
+// frame.
+//
+// IT IS ABSORPTION AND NOTHING ELSE. No emissive, no rim light, no pulse.
+// `docs/DESIGN-SYSTEM.md` §1 adopts a cold Trewhiddle palette on the explicit
+// argument that a cold world makes blood the only warm thing on screen, so blood
+// "needs no glow, no pulse and no siren to read" — and reaching for one here
+// would be the thesis telling us the arena is too warm, not that the blood is
+// too quiet. So the film does what a film of blood actually does: it takes light
+// away, and it takes it away unevenly across the spectrum. Beer–Lambert with
+// σ = (0.55, 3.4, 4.0) is haemoglobin's own shape — red passes almost untouched,
+// green and blue are eaten — which is why the result is deep red rather than
+// grey, without a single unit of light being added to the frame.
+//
+// Over dark turf it is nearly invisible, and that is correct: a film on glass
+// can only darken what was already bright. What it eats is the bonfire, the sky
+// band and the silver, which is exactly what a bloodied lens eats.
+
+/** How many splats the glass can hold. Four taps in the widest pass, guarded. */
+const LENS_SPLATS = 4;
+
+/**
+ * One 256² splat, generated once and shared. Alpha is FILM THICKNESS, not
+ * coverage: a splat is thick in the middle of its blob, thin at the edges and
+ * thinner still in the satellite droplets, and the shader's exponential turns
+ * that into a mark that is nearly opaque at the centre and a red wash at the rim.
+ *
+ * Drawn as a lobed blob with a spatter of satellites rather than a disc — the
+ * same lesson `vfx.ts`'s stain atlas records, that a round mark reads as a decal
+ * and an irregular one reads as a thing that was thrown.
+ */
+let lensTex: THREE.DataTexture | null = null;
+function lensSplatTexture(): THREE.DataTexture {
+  if (lensTex) return lensTex;
+  const N = 256;
+  const data = new Uint8Array(N * N);
+  // A cheap deterministic hash, so the splat is identical on every load and a
+  // capture harness comparing two runs is comparing art and not noise.
+  const h = (i: number, j: number) => {
+    let x = Math.imul(i, 374761393) + Math.imul(j, 668265263);
+    x = Math.imul(x ^ (x >>> 13), 1274126177);
+    return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+  };
+  // Blobs: one main body a little off centre, then satellites thrown off it.
+  const blobs: Array<[number, number, number, number]> = [[0.5, 0.47, 0.22, 1]];
+  for (let k = 0; k < 14; k++) {
+    const a = h(k, 7) * Math.PI * 2;
+    const r = 0.18 + h(k, 11) * 0.26;
+    blobs.push([0.5 + Math.cos(a) * r, 0.47 + Math.sin(a) * r, 0.02 + h(k, 13) * 0.075, 0.35 + h(k, 17) * 0.5]);
+  }
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const u = x / (N - 1);
+      const v = y / (N - 1);
+      let t = 0;
+      for (const [bx, by, br, bw] of blobs) {
+        // Lobed rather than circular: the radius wobbles with the bearing.
+        const dx = u - bx;
+        const dy = v - by;
+        const d = Math.hypot(dx, dy);
+        const ang = Math.atan2(dy, dx);
+        const lobe = br * (1 + 0.34 * Math.sin(ang * 3 + bx * 40) + 0.18 * Math.sin(ang * 7 + by * 30));
+        if (d >= lobe) continue;
+        const f = 1 - d / lobe;
+        t += bw * f * f;
+      }
+      // Every splat must fade to nothing before the cell edge or the clamped
+      // sampler smears its border across the whole frame.
+      const edge = Math.min(1, Math.min(u, 1 - u, v, 1 - v) * 12);
+      data[y * N + x] = Math.max(0, Math.min(255, Math.round(t * 255 * edge)));
+    }
+  }
+  lensTex = new THREE.DataTexture(data, N, N, THREE.RedFormat);
+  lensTex.wrapS = THREE.ClampToEdgeWrapping;
+  lensTex.wrapT = THREE.ClampToEdgeWrapping;
+  lensTex.minFilter = THREE.LinearFilter;
+  lensTex.magFilter = THREE.LinearFilter;
+  lensTex.needsUpdate = true;
+  return lensTex;
+}
+
 const GRADE_FRAG = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tBloom;
@@ -1556,6 +1656,10 @@ uniform float uHurt;
 uniform vec3 uHurtColor;
 uniform float uPressure;
 uniform float uTime;
+uniform sampler2D uLensTex;
+uniform vec4 uLens[ 4 ];
+uniform int uLensN;
+uniform float uAspect;
 varying vec2 vUv;
 
 ${GLSL_TONE}
@@ -1610,6 +1714,35 @@ void main() {
   // signal that knows where the edges are, which is what an AA pass already
   // computes.
   vec3 hdr = texture2D( tDiffuse, vUv ).rgb;
+
+  // Blood on the glass, in scene-linear and BEFORE everything else, because that
+  // is where it is: in front of the lens, taking light away on its way in. Doing
+  // it after the grade would tint the picture; doing it here attenuates the
+  // signal, so the auto-exposure meter downstream opens up under a bloodied lens
+  // exactly as a real one would. Guarded on a uniform, so a clean lens pays one
+  // compare and no taps.
+  if ( uLensN > 0 ) {
+    float film = 0.0;
+    for ( int i = 0; i < 4; i++ ) {
+      if ( i >= uLensN ) break;
+      vec4 sp = uLens[ i ];
+      // Aspect-corrected about the splat's own centre, so a mark is round on a
+      // 21:9 desktop and round on a 390x844 phone rather than smeared with the
+      // viewport. Rotation is hashed off the centre: a free per-splat variation
+      // that costs no uniform and is stable for that splat's whole life.
+      vec2 p = ( vUv - sp.xy ) / max( sp.z, 1e-4 );
+      p.x *= uAspect;
+      float a = fract( sin( dot( sp.xy, vec2( 91.7, 47.3 ) ) ) * 4371.1 ) * 6.2831853;
+      float cs = cos( a );
+      float sn = sin( a );
+      p = vec2( p.x * cs - p.y * sn, p.x * sn + p.y * cs );
+      film += texture2D( uLensTex, p * 0.5 + 0.5 ).r * sp.w;
+    }
+    // Beer-Lambert through haemoglobin. Red is barely touched and green and blue
+    // are eaten, which is the whole of why this reads as blood and not as dirt —
+    // and it is subtractive, so nothing in the frame gets brighter.
+    hdr *= exp( -film * vec3( 0.55, 3.4, 4.0 ) );
+  }
 
   hdr += texture2D( tBloom, vUv ).rgb * uBloomTint * uBloom;
 
@@ -1942,6 +2075,11 @@ const GRADE_SHADER = {
     uHurtColor: { value: new THREE.Vector3(HURT_COLOR[0], HURT_COLOR[1], HURT_COLOR[2]) },
     uPressure: { value: 0 },
     uTime: { value: 0 },
+    // Blood on the glass. See LENS_SPLATS and the note in GRADE_FRAG.
+    uLensTex: { value: lensSplatTexture() },
+    uLens: { value: Array.from({ length: LENS_SPLATS }, () => new THREE.Vector4(0, 0, 1, 0)) },
+    uLensN: { value: 0 },
+    uAspect: { value: 16 / 9 },
   },
   vertexShader: FS_VERT,
   fragmentShader: GRADE_FRAG,
@@ -2428,6 +2566,19 @@ export function createPostFx(
 
   let hurtLevel = 0;
   let pressure = 0;
+
+  /**
+   * Blood on the glass. One slot per splat, oldest reused when they run out —
+   * four is plenty, because a fifth mark on a lens that already has four reads as
+   * exactly the same lens.
+   *
+   * `dry` is the run-off: a wet film on glass slides and thins fast for the first
+   * second and then stops moving and dries slowly, so it is two exponentials
+   * rather than a fade. It never reaches zero on its own clock alone — the mark
+   * is retired when its thickness stops being worth a texture tap.
+   */
+  const lensSplats: Array<{ u: number; v: number; scale: number; thick: number; age: number }> = [];
+  const LENS_LIFE = 7.5;
   let dofWanted = false;
   let dofBlend = 0;
   let dofMaxBlur = 0.006;
@@ -2715,6 +2866,33 @@ export function createPostFx(
       // the player's own flinch, or the flash outlives the blow that caused it.
       hurtLevel = Math.max(0, hurtLevel - ctx.rawDt * 1.9);
 
+      // The lens dries on RAW time, like the hurt flash and for the same reason:
+      // hit-stop slows the world, and a mark on the glass is not in the world.
+      if (lensSplats.length) {
+        for (let i = lensSplats.length - 1; i >= 0; i--) {
+          const sp = lensSplats[i];
+          sp.age += ctx.rawDt;
+          if (sp.age > LENS_LIFE) lensSplats.splice(i, 1);
+        }
+        const arr = grade ? (grade.uniforms.uLens.value as THREE.Vector4[]) : null;
+        if (arr) {
+          const n = Math.min(LENS_SPLATS, lensSplats.length);
+          for (let i = 0; i < n; i++) {
+            const sp = lensSplats[i];
+            const t = sp.age / LENS_LIFE;
+            // Runs off fast, then dries slowly. The first term is the film
+            // sliding down the glass; the second is what is left of it.
+            const wet = Math.exp(-sp.age * 1.9) * 0.55 + Math.exp(-sp.age * 0.28) * 0.45;
+            // And it SPREADS a little as it runs, which is what stops the mark
+            // reading as a decal that was stamped on and then faded out.
+            arr[i].set(sp.u, sp.v, sp.scale * (1 + t * 0.22), sp.thick * wet);
+          }
+          if (grade) grade.uniforms.uLensN.value = n;
+        }
+      } else if (grade && (grade.uniforms.uLensN.value as number) !== 0) {
+        grade.uniforms.uLensN.value = 0;
+      }
+
       if (blend < 1) {
         blend = Math.min(1, blend + dt / MOOD_BLEND);
         lerpLook(blendFrom, looks[mood], THREE.MathUtils.smootherstep(blend, 0, 1), current);
@@ -2764,6 +2942,11 @@ export function createPostFx(
     },
 
     setSize(width, height) {
+      // Ahead of the composer guard: the lens blood's aspect correction is what
+      // keeps a splat round rather than smeared with the viewport, and a phone in
+      // portrait is 0.46 against a desktop's 1.78. It is wanted whether or not a
+      // composer was built.
+      if (grade && height > 0) grade.uniforms.uAspect.value = width / height;
       if (!composer) return;
       const ratio = renderer.getPixelRatio();
       // setPixelRatio re-runs setSize with the stored CSS-pixel size, so it has
@@ -2793,6 +2976,27 @@ export function createPostFx(
       // whole way through and must *not* be reset here — a reset would snap the
       // response at the moment the look starts moving, which is the one moment a
       // viewer is already looking at the frame changing.
+    },
+
+    lensBlood(strength, u, v) {
+      if (!(strength > 0.02) || !grade) return;
+      // Clamped rather than dropped when the wound is off the edge of the frame:
+      // blood thrown past the lens still catches its rim, and the alternative is
+      // that the one place a splat never lands is where a man was killed just off
+      // screen — which is most of the times you are killed.
+      const cu = THREE.MathUtils.clamp(u, -0.15, 1.15);
+      const cv = THREE.MathUtils.clamp(v, -0.15, 1.15);
+      const s = Math.min(1.4, strength);
+      const sp = {
+        u: cu, v: cv,
+        // Closer wounds throw wider marks. 0.13 of the frame at the weakest,
+        // half of it at the strongest.
+        scale: 0.13 + s * 0.34,
+        thick: 0.5 + s * 1.5,
+        age: 0,
+      };
+      if (lensSplats.length >= LENS_SPLATS) lensSplats.shift();
+      lensSplats.push(sp);
     },
 
     hurt(intensity) {

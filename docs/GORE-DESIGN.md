@@ -78,6 +78,9 @@ weaker continuous spray for a beat as the part falls, then pooling. It must
 arc under gravity and land as a decal — the panels have twice noted that
 particles which ignore gravity read as confetti.
 
+See **§ The shape of the spray** below for what "arc" now means as a number,
+and for the elevation ceiling that is the reason it can be thrown hard.
+
 ## Constraints
 
 - **No new binary assets.** Everything procedural, like the rest of the game.
@@ -132,3 +135,238 @@ the air are different bugs and a count cannot tell them apart.
 `node tools/goretest.mjs --blind` runs the whole suite against a client that
 never calls the reset — which is what shipped — and is kept permanently as the
 proof of failure.
+
+---
+
+## The shape of the spray
+
+The owner, 12 Aug: *"Think it's in already but more blood splattering &
+spraying. Really over the top"*.
+
+It was in, and it was quiet. Measured on the code this replaces, a severed
+throat threw a mean of **1.37 m**, a furthest of **2.75 m**, and left **7**
+marks on the ground — blood landing on the man's own boots.
+
+**A count could not see that**, which is why nothing caught it. Sixty droplets
+that go nowhere and sixty that lay a stripe across four metres of turf are the
+same number, and `census()` only ever counted. So `vfx.probe()` reports **raw
+positions, velocities and mark centres — no derived quantity and no verdict** —
+and every statistic is computed in `tools/goretest.mjs`. That separation is the
+point: a module that scored itself would be a module the harness agreed with by
+construction.
+
+### The four properties, and the control
+
+| property | what it catches | now |
+|---|---|---|
+| **reach** | a spray that dribbles down the body | mean 2.8 m, furthest 5.8 m |
+| **direction** | a spray that fans off anywhere | 100% of marks on the wound's side |
+| **elongation** | a *hard* puff, which is still round | 4.4× longer along the axis than across |
+| **rise** | a flat throw with no curve in it | 1.2–1.9 m above the wound |
+| **pulse** | a hose with a wobble in it | falls 96% away between beats |
+
+The **control** is `burst({ kind: "blood" })` with no direction — the
+compatibility shim `BurstOptions` documents, which fans off at a random bearing
+by design. Same module, same frame, same quantity of blood: it must FAIL
+direction and elongation. That is the section's proof that the ruler can tell an
+arc from a puff, and it runs on every invocation.
+
+### The elevation ceiling, and the finding it preserves
+
+`vfx.ts` carries a note recording that an earlier pass threw at
+`3.6 + 4.4·force`, that a gout left the stump at 11 m/s, and that it was "still
+six metres out and three up when the camera took the picture". The throw was cut
+for it, and the note is right.
+
+**That pass was not wrong about the airtime — it was wrong about where the
+airtime came from.** Range goes as *v²* and airtime as *v·sinθ*, so the entire
+cost of a hard spray is paid by the droplets that leave STEEPLY. `RISE_CEIL`
+folds the top of the cone down to 41° above horizontal and blends the folded
+droplet's bearing toward the wound's own axis, so what would have gone up goes
+downrange instead. With it the throw nearly doubled and the arrival time did not
+move: **0.77 s, against 0.92 s for the same spray without the ceiling.**
+
+That constraint is now `goretest`'s **AND IT ARRIVES** claim rather than a
+comment, because a finding that only lives in a comment is a finding the next
+pass undoes. Its bar is arithmetic, not taste: a wound sits about 1.46 m off the
+turf, so **0.40 s is gone to the fall before any throw is added**. The comment
+beside the original finding said "within about half a second"; half a second was
+never physically possible from a wound at chest height, and main measured
+0.76 s. Corrected.
+
+### How long it stays
+
+| mark | was | now | ends because |
+|---|---|---|---|
+| pool | 70 s | **210 s** (100 on low) | `clearBattle` at the round boundary |
+| thrown stain | 26 s | **90 s** (45 on low) | same |
+| blood on skin | 30 s | **120 s** (60 on low) | same |
+
+The brief asks for pooling that "persists for the round", and **a round has no
+clock on it at all** — `endRound` fires when men die, and the duel `goretest`
+drives takes two and a half minutes to get there. A pool that dried at seventy
+seconds was gone before the round it was spilled in had finished. These numbers
+can be longer than a round precisely because the boundary is what ends them.
+
+### Blood on the camera
+
+The brief's third surface — "on the ground, on nearby men and on the camera" —
+and the only one that is not in the scene. `vfx.ts` decides when; `postfx.ts`
+draws it, because a thing in front of the lens can only live in the pass that
+owns the frame.
+
+**It is absorption and nothing else.** `docs/DESIGN-SYSTEM.md` §1 adopts the
+cold Trewhiddle palette on the argument that a cold world makes blood the only
+warm thing on screen, so blood "needs no glow, no pulse and no siren to read".
+So the film does what a film of blood does: Beer–Lambert with σ = (0.55, 3.4,
+4.0), haemoglobin's own shape — red passes almost untouched, green and blue are
+eaten. Deep red, and **not one unit of light added to the frame**. `goretest`
+reads the shader block and fails on any `hdr +=` inside it, which is the design
+law made checkable.
+
+It is triggered **at the wound**, not by a droplet reaching the lens, and the
+number behind that approximation is worth stating: the follow camera sits 4.4 m
+behind the local warrior and a droplet's range from chest height is about 4.7 m,
+so a collision-driven version would fire perhaps once an evening. What the
+feature is about is being opened up in front of the camera, and that is what is
+tested for — within 5 m, and with the spray axis within 76° of the lens. The
+paired negative cases are gated too: twelve metres away, behind you, or spraying
+across the frame all leave the glass clean.
+
+### What the phone loses, said plainly
+
+`decalBudget` is **24 on a phone against 64 on a desktop** (8 on the low tier),
+and `particleScale` is 0.7 and 0.4 against 1. Measured over thirty wounds a tier:
+
+```
+high    12.9 marks a wound (worst 9), furthest 6.01m
+medium  11.2 marks a wound (worst 6), furthest 5.61m
+low      6.3 marks a wound (worst 2), furthest 5.86m
+```
+
+**The reach is the same on all three.** What the phone loses is how much of it
+the ground keeps, and how long: its pool dries at 100 s against 210. What it
+does not lose is a death that reads as a death — no wound on any tier leaves the
+ground clean, and that is a gate rather than an intention.
+
+---
+
+## The death camera
+
+The owner, 12 Aug:
+
+> *"When you die you should be able to see long enough for you body to be
+> stumbling to the floor spraying blood everything before the view moving or
+> changing away from the map, it could move to show best angle of the the
+> severing of the body part / death at point of death."*
+
+Read that sentence in order, because the order is the design: **see first, move
+second.**
+
+### What shipped did neither
+
+`GameCanvas.tsx` had one branch for a dead man:
+
+```
+if (localPlayer && localPlayer.state !== "dead") ... "follow"
+else { focus.set(0,0,0); setMode("spectate") }
+```
+
+so the frame your death lands on is the frame the lens leaves you. Focus snaps
+to the middle of the arena and `camera.ts`'s spectate orbit lerps out to a 15 m
+ring at 7.5 m looking at (0, 1.4, 0). Measured on a real duel: **4.8 m from the
+wound at the instant of death, 10.6 m a second later.** The collapse `anim.ts`
+spends 1.1 s authoring, the stump that runs for 1.8 s and the pool it drops at
+the end of it were all played to an empty house.
+
+### The shape of the hold
+
+| beat | seconds | what the lens does |
+|---|---|---|
+| **fall** | 1.25 | nothing at all. It is where the follow camera left it, and you watch your own body buckle from the view you were playing in a moment ago. **No cut** — a cut here throws away the one thing the player is trying to understand. |
+| **move** | 1.15 | eases round to the side the wound faces and comes in close. This is "it could move to show best angle of the severing". |
+| **linger** | 0.70 | sits there while the stump runs out and the pool spreads. |
+
+**3.10 s, identical on every tier.** The instinct everywhere else in this
+repository is that the phone gets less; here it gets exactly the same, because
+nothing else is on screen — no eight bodies, no input, no swings to resolve. The
+death is the one moment a phone can afford to look expensive. What the phone
+loses is decals and droplets, which is `quality.ts`'s business, not seconds.
+
+### Where it lives, and why that is a separate file
+
+`src/game/deathcam.mjs` — the whole decision, as arithmetic over plain numbers.
+No THREE, no DOM, no React. Same arrangement as `roundreset.mjs` and for the
+same reason: **a decision that only a browser can reach is a decision that
+drifts.** `tools/deathcamtest.mjs` drives the real module, not a model of it.
+
+It exports **no measurement**. Every angle in the harness is computed there,
+from `position`, `target` and `fov`, so a harness that agreed with it by
+construction was never possible.
+
+The rig is aimed through `setSummaryShot` with `from == to`, which is
+`camera.ts`'s "put the lens exactly here and look exactly there" — no shake, no
+bob, no lock reticle, all of which are wrong over a corpse. **`camera.ts` is
+untouched**, and every eased frame belongs to `deathcam.mjs`, where it can be
+asserted.
+
+### It runs during the round break too, and that is the case
+
+`checkRoundEnd` fires on the tick the last man falls, so **in an honour duel the
+very packet that first reports your death is already `intermission`.** A hold
+wired only into the fighting branch would never once run in the mode the owner
+plays. So the predicate is `live` — fighting, last stand or the break — and it is
+false for the countdown (a new round is being dealt and you are standing up
+again) and for the match summary, where `render/summary.ts` owns the lens.
+
+### It costs the living nothing
+
+Three ways, and the third is arithmetic rather than intent:
+
+1. It ends on **any input** — keydown, mousedown, touchstart. Both platforms.
+2. It ends on **its own clock**, and releases the instant the next round is dealt.
+3. It **fits inside the break the server already takes**: 3.10 s of hold inside a
+   break measured at 4.99 s on the harness's own packets — not copied out of
+   `engine.mjs`, because a constant copied into a harness stops tracking the
+   thing it was copied from.
+
+It sends nothing, decides nothing the server decides, and no other client reads
+it. The seven men still fighting cannot tell whether the eighth's lens is on his
+corpse or already back on the arena.
+
+### The two rulers that were wrong
+
+Recorded because both looked right:
+
+* **"In frame" is not "the subject".** The first `heldFor` asked only whether the
+  wound was inside the middle fifth of the frame — and on a run where the man
+  fell near the middle of the ring, the *shipped* orbit held that for 3.98 s. The
+  proof-of-failure PASSED against the defect. A wound thirty pixels tall is in
+  the picture; it is not the subject of it. "Subject" is now two conditions and
+  the second is about size: the body must fill **at least 22% of the frame's
+  height**. Shipped orbit: 18%. End of the hold: the frame.
+* **The head was off-axis and the legs were fine**, which is how a framing fault
+  hides. The aim point followed the severed part weighted by distance alone, so a
+  head on the turf a metre and a half away still pulled the aim a quarter of a
+  metre — 117% of the framing budget on `head` and `neck`, 43% on `legL`, because
+  the drift is proportional to how far the part has got and a leg does not go
+  anywhere. **The part is the subject at the instant of separation, not two
+  seconds later**, so the weight decays with the swing as well as with the gap.
+
+### Known open, and not mine to fix
+
+* **`anim.ts:3809` — the shared one-shot clock.** `motion.actT` is incremented
+  for `dead || rolling || staggered || casting || shoving` and reset only when
+  the warrior is in none of them, so a death that follows a stagger, dodge, cast
+  or shove **inherits that state's elapsed time**. `deathLayer(motion.actT, …)`
+  then starts past its own `rest` window at 1.1 s: the knees never fold, and
+  `settleOnFeet` seats a horizontal body on a nearly straight leg. That is the
+  "corpses float mid-air" defect (BACKLOG 1.3), and it also means
+  `if (dead && motion.actT <= dt) motion.fall = …` on the next line never fires,
+  so the body topples on a stale bearing. The fix is a reset on the transition
+  *into* dead. The death camera aims at the rig's live position, so it frames a
+  floating corpse correctly and cannot hide this.
+* **The `FALLEN — Spectating the survivors…` overlay** lands the instant you die
+  and covers the middle of the screen for the whole hold. It is DOM, not canvas,
+  and it belongs to the HUD layer. The hold is now the thing behind it, so the
+  overlay wants to become small and cornered, or to wait out `DEATH_HOLD.total`.

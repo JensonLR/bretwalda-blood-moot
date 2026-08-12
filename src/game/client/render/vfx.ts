@@ -176,6 +176,26 @@ export interface VfxOptions {
   groundAt?(x: number, z: number): number;
   /** Skip the scene scan that finds the arena's fires. For tests. */
   autoFires?: boolean;
+  /**
+   * A wound opened close enough to the lens, and pointing squarely enough at it,
+   * to put blood on the glass. `postfx.ts` draws it; this module decides when,
+   * because it is the one that knows where every wound and the camera are.
+   *
+   * IT IS TRIGGERED AT THE SOURCE AND NOT BY A DROPLET REACHING THE LENS, and
+   * that is a deliberate approximation with a number behind it. The follow
+   * camera sits 4.4 m behind the local warrior; blood leaves a wound at up to
+   * 12 m/s under a gravity of 18.5 and an elevation ceiling of 41°, which is a
+   * range of about 4.7 m from a wound at chest height. So a droplet CAN just
+   * about reach the lens and almost never does, and a lens-blood effect built on
+   * a particle collision would fire perhaps once an evening — which is not the
+   * feature. What the feature is about is being opened up right in front of the
+   * camera, and that is exactly what this tests for.
+   *
+   * @param strength 0..1.4, off damage or section, distance and how squarely the
+   *                 spray axis is pointed at the lens.
+   * @param u,v      where the wound projected to on screen, 0..1 with v up.
+   */
+  onLensBlood?(strength: number, u: number, v: number): void;
 }
 
 /**
@@ -3179,6 +3199,43 @@ export function createVfx(
     return zone === "head" || zone === "neck" || zone === "waist";
   }
 
+  // ---- blood on the lens ---------------------------------------------------
+  //
+  // See `VfxOptions.onLensBlood` for why this is triggered at the wound rather
+  // than by a droplet arriving. The camera is cached off the last frame's
+  // `FrameContext`, because a wound is opened from the packet loop and not from
+  // `update` — one frame of lag on a mark that lives seven seconds.
+
+  /** Past this the wound is somebody else's business. Metres. */
+  const LENS_RANGE = 5.0;
+  /** How squarely the spray has to be pointed at the lens. cos of ~76°. */
+  const LENS_FACING = 0.24;
+  let lastCamera: THREE.Camera | null = null;
+
+  function lensBlood(
+    x: number, y: number, z: number,
+    dx: number, dy: number, dz: number,
+    power: number,
+  ): void {
+    const hit = opts.onLensBlood;
+    if (!hit || !lastCamera) return;
+    const ox = camPos.x - x;
+    const oy = camPos.y - y;
+    const oz = camPos.z - z;
+    const dist = Math.hypot(ox, oy, oz);
+    if (dist > LENS_RANGE || dist < 1e-3) return;
+    const facing = (ox * dx + oy * dy + oz * dz) / dist;
+    if (facing < LENS_FACING) return;
+    tmpA.set(x, y, z).project(lastCamera);
+    // Behind the lens: `project` mirrors a point behind the camera through the
+    // origin, so without this a wound at your back paints the front of the glass.
+    if (tmpA.z > 1) return;
+    // Falls off with distance and with how far off the axis the lens sits, so
+    // being opened at arm's length facing you is the loudest case by a long way.
+    const s = power * facing * (1 - dist / LENS_RANGE) * 1.6;
+    hit(s, tmpA.x * 0.5 + 0.5, tmpA.y * 0.5 + 0.5);
+  }
+
   function woundBlood(o: WoundOptions): void {
     // Normalised against a heavy: the berserker's is 50, and the sim's own
     // multipliers put the very worst blow in the game a little over 70. A graze
@@ -3227,6 +3284,11 @@ export function createVfx(
       tmpColor.copy(hot ? PALETTE.bloodArterial : PALETTE.bloodFresh).lerp(PALETTE.bloodDark, k * 0.2),
     );
     if (k > 0.22) bloodMist(o.position.x, o.position.y, o.position.z, Math.max(1, Math.round(count * 0.28)), 0.7 + k * 0.5);
+    // On the glass, if the lens was close enough and in the way. Scaled off the
+    // same `k` everything else here is, so a graze mists it and a cleaving heavy
+    // to the throat covers it.
+    lensBlood(o.position.x, o.position.y, o.position.z, dx * inv, dy * inv, dz * inv,
+      k * (hot ? 1.15 : 0.85));
 
     // A kill that took nothing off still empties out. Pinned to the world rather
     // than to a node, because this path has no cut and therefore no stump to
@@ -3250,11 +3312,19 @@ export function createVfx(
   /**
    * Droplets a second at full pressure, before scale, pulse and crowding. It
    * decays as (1 − t)^1.6 over the jet's life, so a stump spends about a third
-   * of this in total: thirty-odd droplets across three visible spurts, against
-   * the twenty-six the separation burst throws in one frame. The running spray
-   * is meant to be the weaker half of the effect and this is where that is said.
+   * of this in total: fifty-odd droplets across three visible spurts, against
+   * the thirty-four the separation burst throws in one frame.
+   *
+   * 84, not 58, and the render is what asked for it. `sin^1.6` is a narrow peak:
+   * with a 0.18 floor the jet was genuinely idle for about two thirds of every
+   * beat, which is what a real artery does and is not what "really over the top"
+   * means — a still taken anywhere in the quiet part showed a scatter of flecks.
+   * The floor went to 0.26 and the rate up by half, so diastole is now about
+   * twenty droplets a second rather than ten and systole is eighty-odd. The
+   * PULSE claim in `goretest` is what stops that turning back into a hose: the
+   * spray still has to fall at least 60% away between beats.
    */
-  const JET_RATE = 58;
+  const JET_RATE = 84;
 
   const jets: Jet[] = [];
   let jetSerial = 0;
@@ -3398,6 +3468,18 @@ export function createVfx(
       );
       bloodMist(x, y, z, Math.max(2, Math.round(count * 0.3)), 1 + radius * 2);
     }
+    // A limb coming off in front of you is the loudest case this effect has, and
+    // it is the one the owner is describing. Outside the budget guard on purpose:
+    // a severance the particle ceiling refused still happened, and the glass
+    // should still know about it.
+    // force·1.25, not force·0.85, and the gate is what caught it: a NECK
+    // SEVERANCE was reaching the glass at 1.04 while a survivable heavy to the
+    // same throat reached it at 1.15, because `force` tops out near 1.2 for a
+    // neck and `woundBlood`'s own scale tops out at 1.15 on a straight multiple
+    // of damage. Two call sites deriving "how loud is this" from two different
+    // quantities and never compared — a limb coming off has to be the loudest
+    // thing this effect has, and it was not.
+    lensBlood(x, y, z, dx, dy, dz, Math.min(1.6, force * 1.25));
 
     const life = JET_LIFE * (0.75 + force * 0.4);
     const body = startJet(o.stump ?? null, x, y, z, dx, dy, dz, radius, force, life, true);
@@ -3479,7 +3561,7 @@ export function createVfx(
       // heart. 9.2 rad/s is 88 beats a minute and stays; what changed is the
       // DEPTH, here and in the speed below, because the pulse is only legible
       // if diastole nearly stops.
-      const pulse = 0.18 + 0.82 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
+      const pulse = 0.26 + 0.74 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
       j.acc += JET_RATE * j.power * Math.pow(1 - t, 1.6) * pulse * settings.particleScale * headroom * crowd * dt;
       if (j.acc < 1) continue;
       const n = Math.min(6, Math.floor(j.acc));
@@ -4437,6 +4519,10 @@ export function createVfx(
       camRight.set(m[0], m[1], m[2]);
       camUp.set(m[4], m[5], m[6]);
       camPos.set(m[12], m[13], m[14]);
+      // Kept for `lensBlood`, which runs from the packet loop rather than from
+      // here and needs a projection. The rig hands out one camera for the life
+      // of a stage, so this is the same object every frame.
+      lastCamera = ctx.camera;
 
       // A breeze that turns slowly. Everything airborne reads the same vector,
       // which is what stops smoke, embers and motes drifting three ways at once.
