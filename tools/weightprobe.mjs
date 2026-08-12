@@ -65,7 +65,14 @@
  * Five zeroes. That is what "a hit is a number leaving a health bar" looks like
  * when you point a ruler at it.
  */
-import { makeEngine, WARRIOR_STATS } from "../src/game/engine.mjs";
+// SWING_PHASES and swingDurationOf are imported rather than restated, and that
+// is deliberate. This file schedules the defender's guard by counting back from
+// the tick contact is due, which needs the windup fraction and the heavy scale
+// — and writing `0.40` and `1.25` here would have been the mirrored-definition
+// fault PROCESS.md records five times, in the one file whose entire job is to
+// not have it. The IMPORTS are scheduling only; nothing asserted below reads
+// them, so a wrong constant here shifts the sweep and the sweep says so.
+import { makeEngine, SWING_PHASES, swingDurationOf } from "../src/game/engine.mjs";
 
 const REPORT_ONLY = process.argv.includes("--report");
 const TICK = 0.05;
@@ -158,8 +165,8 @@ const at = (p) => ({ x: p.position.x, z: p.position.z });
 function throwBlow(d, { heavy = false, blockAt = null, holdBlock = false, aimYaw = 0 } = {}) {
   const { A, B, a, b, step } = d;
   A.aimYaw = aimYaw;
-  const dur = WARRIOR_STATS[A.warriorClass].attackSpeed * (heavy ? 1.25 : 1);
-  const windupTicks = Math.ceil((dur * 0.40) / TICK);
+  const dur = swingDurationOf(A.warriorClass, heavy);
+  const windupTicks = Math.ceil((dur * SWING_PHASES.windup) / TICK);
 
   let telegraph = 0, contactTick = -1, tick = 0;
   let posAtContact = null, aPosAtContact = null;
