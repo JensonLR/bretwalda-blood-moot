@@ -577,13 +577,25 @@ export function createWarriorRig(
     // in `blockLayer` is an elbow — the elbow is what puts a shield in front of
     // a face. `applyPose` writes the position every frame; see `SHIELD_GRIP_Z`.
     //
-    // Re-measured on the built rig at rest rather than taken on trust, because
-    // `buildShield`'s own doc comment still describes the mount this replaced:
-    // the off fist now sits at (-2.7, +0.6, +39.9) mm from the shield's origin
-    // on a disc that spans ±402 mm in both axes, i.e. dead centre laterally and
-    // exactly the 40 mm of grip-bar standoff, against the 260 mm of rise the old
-    // entry recorded. That defect is gone; the note in `characters.ts` is stale.
-    shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226, materials);
+    // Re-measured on the built rig at rest rather than taken on trust: the off
+    // fist sits at (-2.7, +0.6, +39.9) mm from the shield's origin on a disc that
+    // spans ±402 mm in both axes, i.e. dead centre laterally and exactly the
+    // 40 mm of grip-bar standoff, against the 260 mm of rise the old entry
+    // recorded. The last line here used to read "the note in `characters.ts` is
+    // stale" — it is not, and has not been since `buildShield`'s doc comment was
+    // rewritten to carry these same three numbers. A comment asserting another
+    // file is wrong is worth exactly as much as a comment asserting a value, and
+    // this one had gone the same way: see `docs/PROCESS.md` R7.
+    //
+    // "Shield colours on huscarl should match armour finish I think."
+    //
+    // The third argument is the whole of that. It carries the finish the man
+    // bought so the shield's boss, its rivets and its rim clamps come out of the
+    // same smithy as his mail — see `buildShield`, which also says why the BOARDS
+    // deliberately do not follow it. The first argument is unchanged and is still
+    // the painted board: this is the one call site, and it is the only place that
+    // knows a cloaked huscarl gets the red board.
+    shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226, materials, ap.armorColor);
     joints.elbowL.add(shield);
   }
 

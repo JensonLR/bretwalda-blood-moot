@@ -520,10 +520,47 @@ console.log(`[wear] ${bfails.length ? "FAIL" : "PASS"}: ` +
   `${CLASSES.length * CLOAK_VALUES.length - bfails.length}/${CLASSES.length * CLOAK_VALUES.length} kits with every fitting on the body`);
 
 // ============================================================
-// 6. HANDS — which one is on which arm
+// 6. HANDS — which one is on which arm, AND WHICH WAY THE BIT LEADS
 // ============================================================
 //
 // "The beserkers hands are backwards they look broken haha."
+// "Hands / wrist of all characters need to be rotated the complete opposite way,
+//  they look broken & twisted 180°"
+// "axe needs to turn 90° anticlockwise too"
+//
+// THIS SECTION PASSED THE SECOND OF THOSE FOR AS LONG AS IT WAS WRONG, AND THAT
+// IS INSTANCE ELEVEN. The bars below are the right bars. The ruler feeding them
+// was not: `handProbe` took the palm's outward normal to be the knuckle line's
+// radial offset from the grip axis, which is the DORSAL normal — the exact
+// negative of the palm normal. Negating one vector inside (D x P) . T flips the
+// chirality sign, and taking `p.x` of it flips `palmMedial`, so BOTH columns
+// were inverted and both bars were met by a build with a left hand on the right
+// arm and its palm turned to the open air. Two sign errors that cancel are
+// indistinguishable from a correct build, which is `docs/PROCESS.md` failure
+// mode 1 committed by the ruler rather than by the code.
+//
+// THE CORRECTION IS NOT A SIGN FLIP, and that matters. Negating the old vector
+// would have failed the broken build and left the disease exactly where it was:
+// a ruler whose palm sits wherever its author believed the palm sat. Every
+// landmark `handProbe` had was a formula restating what the builder had been
+// told to do, so it could confirm the builder's intent and nothing else — and
+// when the intent was wrong, it did.
+//
+// So `fistGeometry` now hands over a fourth landmark that is MEASURED: the
+// centroid of the four fingertips, off the built vertices, carried through the
+// same reflections the mesh takes. A FINGER CLOSES ACROSS ITS OWN PALM AND NEVER
+// ACROSS ITS DORSUM, and on this mesh 104 fingertip vertices sit at z = -26 mm
+// against the thumb pad's 26 at z = +33, so the knuckle-to-tip vector — with the
+// along-the-hand component removed — IS the palm's outward normal. Cross-checked
+// against a second, independent reading: the metacarpal wedge is a slab lying on
+// the +Z face of a shaft that runs along +X, so the face bearing on the wood
+// looks toward -Z. Same sign, same verdict, no comment consulted.
+//
+// Run against the build that shipped, the corrected ruler failed 8 arms of 8
+// before the one-token fix at the `mirror:` call site was applied, and putting
+// that token back fails it again — the landmark moves with the mesh, so the
+// defect cannot be reintroduced under a green light. That demonstration, and not
+// this paragraph, is the reason to believe this section.
 //
 // A right hand and a left hand are mirror images, and a mirror image is the one
 // thing a rendering pipeline will happily give you without complaining: the
@@ -564,7 +601,135 @@ for (const cls of CLASSES) {
 console.log("");
 console.log(`[wear] bars: the right hand is a right hand, palm-medial >= ${PALM_MIN}`);
 for (const f of handfails) console.log(`[wear] FAIL ${f}`);
-console.log(`[wear] ${handfails.length ? "FAIL" : "PASS"}: hands`);
+
+// ------------------------------------------------------------
+// 6b. THE BIT — which way the cutting edge leads
+// ------------------------------------------------------------
+//
+// "axe needs to turn 90° anticlockwise too."
+//
+// No ruler in this repository could see this one either, and the reason is the
+// same shape as the hand: it is a ROTATION of a part about its own mount, so
+// every LENGTH on the weapon is unchanged and every ruler here measures lengths.
+// `rig.reach` reads a bounding box in y and cannot see a turn about y — 997 mm
+// before the fix and 997 mm after. §9's rest carry CAN move, since the head
+// swings from the man's side to his front, so it was re-run rather than assumed:
+// still PASS, and the berserker's closest approach is 141.3 mm to his own torso
+// and 155.1 mm to the tightest cloak, against a 3 mm bar. The axe pointed its
+// 204 mm head
+// out of the side of the man, and no number in this file was shaped to notice.
+//
+// The mechanism: every weapon in `characters.ts` draws its blade in local XY with
+// the flat on local Z, and `handMount`'s only rotation is `Rx(GRIP_PITCH)` —
+// and Rx leaves X alone. So local +X lands on the body's LATERAL axis and a
+// one-sided head cuts sideways.
+//
+// MEASURED, NOT ASSUMED, AND SELF-SELECTING. Two numbers per class, both taken
+// off the posed rig:
+//
+//   OFFSET  how one-sided the head is: the length of the mean radial offset of
+//           the weapon's vertices from the haft axis, over the largest radial
+//           extent. A Dane axe is all on one side and reads high; a sword, a
+//           spear and a seax are symmetric about the haft and read near zero.
+//   LEAD    the cosine between the bit's direction and the way the man faces.
+//
+// LEAD is only gated where OFFSET says there is a bit to point. That is NOT the
+// carve-out this file's §2 note warns about: on a symmetric head the direction of
+// "the furthest vertex from the haft" is a coin toss between two identical horns,
+// so a bar on it would be a bar on noise, and R4 wants the reason on the line
+// rather than a threshold quietly tuned until everything is green. The OFFSET
+// column is printed for all four so a reader can check the selection himself.
+const OFFSET_MIN = 0.15;
+const LEAD_MIN = 0.7;
+console.log("");
+console.log("[wear] 6b. THE BIT — is the cutting edge leading the swing, or crossing it?");
+console.log("");
+console.log("[wear] class        offset    lead    across   gated  verdict");
+console.log("[wear] ---------------------------------------------------------------------");
+// A missing instrument is a FAILURE, not a quiet skip — §9 takes the same line
+// for the same reason. This measurement needs the POSED rig, so without
+// `render/anim.js` there is no bearing to read and the honest report is that
+// nobody looked, printed on the verdict line where R4 wants it.
+if (!anim) handfails.push("bit: render/anim.js was not emitted — the bit's bearing is not being measured at all");
+for (const cls of anim ? CLASSES : []) {
+  const player = {
+    id: "bit", name: "", warriorClass: cls, team: "none", ready: true,
+    position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+    health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
+    attackDir: "right", blockDir: "right",
+    attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+    abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+    kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+    comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
+    appearance: defaultAppearance(cls),
+  };
+  const parent = new THREE.Group();
+  const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+  const motion = anim.createMotion(player);
+  const ctx = {
+    dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
+    focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",
+    quality: { tier: "high", shadows: false },
+  };
+  for (let i = 0; i < 180; i++) { ctx.time = i / 60; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+  parent.updateMatrixWorld(true);
+
+  // The haft axis is the weapon group's own local +Y taken into the world, and
+  // the origin is where the fist holds it. Everything below is radial about that
+  // line, so a roll of the whole weapon is the only thing that can move it.
+  const wq = new THREE.Quaternion();
+  rig.weapon.getWorldQuaternion(wq);
+  const haft = new THREE.Vector3(0, 1, 0).applyQuaternion(wq).normalize();
+  const origin = new THREE.Vector3();
+  rig.weapon.getWorldPosition(origin);
+  const rel = new THREE.Vector3();
+  const rad = new THREE.Vector3();
+  const mean = new THREE.Vector3();
+  // The furthest vertex from the haft line IS the tip of the bit on a one-sided
+  // head, so the same sweep gives both the bearing and the scale to judge the
+  // mean offset against.
+  let n = 0;
+  let tip = null, tipR = -1;
+  rig.weapon.traverse((o) => {
+    if (!o.isMesh) return;
+    const p = o.geometry.getAttribute("position");
+    for (let i = 0; i < p.count; i++) {
+      rel.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld).sub(origin);
+      rad.copy(rel).addScaledVector(haft, -rel.dot(haft));
+      const r = rad.length();
+      if (r > tipR) { tipR = r; tip = rad.clone(); }
+      mean.add(rad); n++;
+    }
+  });
+  const offset = n && tipR > 0 ? mean.divideScalar(n).length() / tipR : 0;
+  // The man's own axes. Taken off the rig's outermost group, which is the one
+  // node in the chain without `scale.x = -1` on it — a decomposed quaternion
+  // silently drops a reflection, and this ruler has no business guessing.
+  const rq = new THREE.Quaternion();
+  rig.group.getWorldQuaternion(rq);
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(rq).normalize();
+  const lat = new THREE.Vector3(1, 0, 0).applyQuaternion(rq).normalize();
+  const dir = tip ? tip.normalize() : new THREE.Vector3();
+  const lead = Math.abs(dir.dot(fwd));
+  const across = Math.abs(dir.dot(lat));
+  const gated = offset > OFFSET_MIN;
+  const bad = [];
+  if (gated && lead < LEAD_MIN) {
+    bad.push(`the bit leads ${lead.toFixed(2)} fore-and-aft against ${across.toFixed(2)} across — ` +
+      "it is pointing out of his side and the swing cuts with the flat");
+  }
+  // Keyed "bit" and not "axe": the gate is on one-sidedness, not on a class, so
+  // the day a second weapon grows an asymmetric head this line still names it.
+  if (bad.length) handfails.push(`${cls} bit: ${bad.join("; ")}`);
+  console.log(
+    `[wear] ${cls.padEnd(12)} ${offset.toFixed(3).padStart(6)}  ${lead.toFixed(3).padStart(6)}  ` +
+    `${across.toFixed(3).padStart(6)}  ${(gated ? "yes" : "no").padStart(6)}  ` +
+    `${bad.length ? "<-- FAIL" : gated ? "ok" : "- symmetric head, nothing to point"}`);
+}
+console.log("");
+console.log(`[wear] bars: a head one-sided past offset ${OFFSET_MIN} must lead >= ${LEAD_MIN} fore-and-aft.`);
+for (const f of handfails) if (f.includes("bit:")) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${handfails.length ? "FAIL" : "PASS"}: hands and the bit`);
 
 
 // ============================================================

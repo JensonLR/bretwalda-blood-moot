@@ -7143,17 +7143,36 @@ function reflectAxis(geo: THREE.BufferGeometry, axis: "x" | "z"): THREE.BufferGe
  * wrong hand. The thumb sat on the ulnar side of the fist, which is what "broken"
  * looks like at portrait range.
  *
- * The fist below is authored as a RIGHT hand: fingers distal at −Y, palm facing
- * +Z, thumb metacarpal off the −X edge, and (−Y × +Z) · (−X) = +1 is what makes
- * that a right hand rather than a left one. Reflecting it in X is the only axis
- * that flips that triple product while leaving the palm (+Z) and the wrist (+Y)
- * exactly where `fistPlacement` expects them — so the medial-facing palm that
- * note is about is untouched, and the thumb moves to the other end of the finger
- * stack, which is the entire anatomical difference between the two hands.
+ * THE PARAGRAPH THAT STOOD HERE HAD THE PALM ON THE WRONG FACE, AND IT IS THE
+ * PARAGRAPH THE NEXT DEFECT WAS REASONED FROM. It read "the fist below is
+ * authored as a RIGHT hand: fingers distal at −Y, palm facing +Z, thumb
+ * metacarpal off the −X edge, and (−Y × +Z) · (−X) = +1". The arithmetic is
+ * sound and the palm is not: the fist's palm is its **−Z** face. `fistGeometry`
+ * lays the metacarpal wedge on the +Z face of a shaft that runs along +X through
+ * the origin, so the surface bearing on the wood looks toward −Z; the distal
+ * phalanges measure 104 vertices at z = −26 mm against 26 at z = +33 mm, so the
+ * four fingertips are at −Z and only the thumb pad is at +Z, and a finger flexes
+ * toward its own palm and never toward its dorsum. `fistGeometry`'s own header
+ * has said so all along — "the palm presses on the +Z face of it", the +Z face
+ * being the shaft's, not the hand's.
+ *
+ * Corrected, the triple product is (−Y × −Z) · (−X) = −1, so the fist below is
+ * authored as a **LEFT** hand. Reflecting it in X is still the right move and
+ * still the only axis that does the job — it flips the triple product while
+ * leaving the palm (−Z) and the wrist (+Y) exactly where `fistPlacement` expects
+ * them, and it walks the thumb to the other end of the finger stack, which is
+ * the entire anatomical difference between the two hands. What changes is what
+ * comes out: authored LEFT → reflected RIGHT → through `BODY_MIRROR_X` → LEFT in
+ * the frame. Reflecting in X is necessary and it is NOT sufficient.
  *
  * Applied to BOTH fists, unconditionally, because both go through the same node.
- * The per-side `mirrorZ` above it stays exactly as it was: that one is about
- * which way the palm faces, not about which hand it is.
+ * The per-side `mirrorZ` above it is the second reflection, and the claim that
+ * used to sit here — "that one is about which way the palm faces, not about
+ * which hand it is" — is false twice over. A reflection cannot leave chirality
+ * alone; `mirrorZ` turns the frame's left hand back into a right one, and it
+ * turns the palm to the midline, and it is the SAME operation doing both. That
+ * is why the fix for the owner's "twisted 180°" is one token at the call site
+ * and not two: see `mirror:` in the arm builder.
  */
 const reflectChirality = (geo: THREE.BufferGeometry) => reflectAxis(geo, "x");
 const mirrorZ = (geo: THREE.BufferGeometry) => reflectAxis(geo, "z");
@@ -7311,7 +7330,17 @@ function fingerPath(
  * been bitten by that twice, and `docs/GATES.md` calls it "a passing test can
  * measure the wrong thing".
  */
-interface FistMarks { wrist: THREE.Vector3; knuckle: THREE.Vector3; thumb: THREE.Vector3 }
+interface FistMarks {
+  wrist: THREE.Vector3;
+  knuckle: THREE.Vector3;
+  thumb: THREE.Vector3;
+  /**
+   * The centroid of the four fingertips, off the BUILT vertices. The only
+   * landmark here that is a measurement rather than a restatement of the recipe,
+   * and the only one that can tell `handProbe` which face is the palm.
+   */
+  tip: THREE.Vector3;
+}
 
 /**
  * A hand on a shaft, built in a canonical frame: the shaft runs along +X through
@@ -7389,6 +7418,32 @@ function fistGeometry(
     { y: -0.05 * s, hw: 0.037 * s, hd: 0.015 * s, z: 0.028 * s + lift },
   ], ring + 2, { power: 2.5, capTop: true, capBottom: true }));
 
+  /**
+   * The centroid of a built piece, off its own vertices.
+   *
+   * `handProbe` needs the fingertips MEASURED and not described. Every landmark
+   * this function used to hand it was a formula re-stating what the builder had
+   * been told to do, so a ruler reading them could only ever confirm the
+   * builder's intent — and when that intent was wrong, it did.
+   */
+  const centroidOf = (geo: THREE.BufferGeometry, into: THREE.Vector3): THREE.Vector3 => {
+    const a = geo.getAttribute("position") as THREE.BufferAttribute;
+    into.set(0, 0, 0);
+    for (let i = 0; i < a.count; i++) into.x += a.getX(i), into.y += a.getY(i), into.z += a.getZ(i);
+    return a.count ? into.divideScalar(a.count) : into;
+  };
+  /**
+   * Where the four fingertips end up, which is the one thing on this mesh that
+   * settles which face is the palm: A FINGER CLOSES ACROSS ITS OWN PALM AND
+   * NEVER ACROSS ITS DORSUM. Accumulated over the distal geometry of the four
+   * fingers only — the thumb is excluded deliberately, because it opposes them,
+   * and it is the whole 26 vertices at +Z against their 104 at -Z. Averaging it
+   * in would halve the signal it exists to contradict.
+   */
+  const tipC = new THREE.Vector3();
+  const acc = new THREE.Vector3();
+  let tipN = 0;
+
   if (lod.fingers) {
     // Joint / shaft alternation down the length. The dips are the creases.
     const swell = [1.04, 0.9, 1.0, 0.87, 0.96, 0.84, 0.62];
@@ -7406,7 +7461,10 @@ function fistGeometry(
       // per finger, and the single cheapest thing that stops a hand reading grey.
       const cut = nodes - 3;
       body.push(digit(path.slice(0, cut + 1), ring));
-      tips.push(digit(path.slice(cut), ring));
+      const tipGeo = digit(path.slice(cut), ring);
+      tips.push(tipGeo);
+      tipC.add(centroidOf(tipGeo, acc));
+      tipN++;
     }
 
     // Thumb: metacarpal off the radial edge of the palm, then a phalanx laid
@@ -7452,7 +7510,20 @@ function fistGeometry(
     // silhouette still closes on the grip and still has an opposed thumb —
     // what goes is the crease detail, not the anatomy.
     const span = Math.min((open ? 0.058 : 0.093) * s, curl * 4.0);
-    body.push(digit(fingerPath(0, wrap, curl, phi0, span, 5, 0.042 * s, 0.0095 * s, [1]), ring));
+    const collar = fingerPath(0, wrap, curl, phi0, span, 5, 0.042 * s, 0.0095 * s, [1]);
+    body.push(digit(collar, ring));
+    // The collar stands in for four digits, so its DISTAL END is the fingertip
+    // line. Its centroid is not — it runs the whole way from the knuckle round
+    // the shaft, and averaging that would put the "tip" back on the palm side and
+    // invert the very sign `handProbe` reads. Last two nodes only.
+    //
+    // Built, measured and thrown away: it is a ruler's landmark, not a part of
+    // the man, and adding it to `body` would put a second skin over the collar's
+    // last 20 mm on the tier that exists to save triangles.
+    const tipGeo = digit(collar.slice(-2), ring);
+    tipC.add(centroidOf(tipGeo, acc));
+    tipGeo.dispose();
+    tipN++;
     body.push(digit(open ? [
       { x: -0.048 * s, y: 0.006 * s, z: 0.020 * s, a: 0.012 * s, b: 0.012 * s },
       { x: -0.058 * s, y: -0.030 * s, z: 0.024 * s, a: 0.0102 * s, b: 0.01 * s },
@@ -7480,9 +7551,17 @@ function fistGeometry(
     return place(merged);
   };
   const skin = join(body);
-  // The three landmarks the ruler reads the hand's chirality off, carried through
-  // the same two reflections the mesh just took rather than re-derived from the
-  // sign of a flag — `handProbe` cannot then agree with a build it disagrees with.
+  // The landmarks the ruler reads the hand's chirality off, carried through the
+  // same two reflections the mesh just took rather than re-derived from the sign
+  // of a flag — `handProbe` cannot then agree with a build it disagrees with.
+  //
+  // `tip` is the one that is MEASURED rather than described: the other three are
+  // formulas restating what this function was told to build, and a ruler fed only
+  // those can confirm the builder's intent and nothing else. When that intent was
+  // wrong — the palm believed to be on +Z — the ruler agreed with it and passed a
+  // left hand on a right arm for the whole life of the fix it was written to
+  // prove. `tip` comes off the built fingertip vertices, so it disagrees.
+  if (tipN) tipC.divideScalar(tipN);
   const mark = (x: number, y: number, z: number): THREE.Vector3 =>
     new THREE.Vector3(-x, y, opts.mirror ? -z : z);
   return {
@@ -7492,6 +7571,7 @@ function fistGeometry(
       wrist: mark(0, opts.reach, opts.lead),
       knuckle: mark(0, -0.018 * s, wrap),
       thumb: mark(-0.046 * s, -0.010 * s, wrap * 0.8),
+      tip: mark(tipC.x, tipC.y, tipC.z),
     },
   };
 }
@@ -7789,7 +7869,11 @@ export function backCarryProbe(cls: WarriorClass, seed: number, cloak: string): 
   return out;
 }
 
-/** What `tools/wearmeasure.mjs` §4 reads to decide the hands are on right. */
+/**
+ * What `tools/wearmeasure.mjs` §6 reads to decide the hands are on right. (It
+ * said §4 until this pass; two other notes in this file already said §6, and the
+ * section has been §6 for as long as it has had a number.)
+ */
 export interface HandFit {
   /** "right" / "left" — which of the man's own hands this is, after the mirror. */
   hand: string;
@@ -7828,14 +7912,52 @@ export function handProbe(cls: WarriorClass, seed: number): HandFit[] {
   const t = new THREE.Vector3();
   const cross = new THREE.Vector3();
   const basis = new THREE.Matrix3();
+  /** The distal axis in the FIST's own frame, before the placement basis. */
+  const dRaw = new THREE.Vector3();
   return spy.map((f) => {
     basis.setFromMatrix4(f.place);
     const m = f.marks;
     d.copy(m.knuckle).sub(m.wrist).applyMatrix3(basis);
-    // The palm's outward normal, taken as the knuckle line's own radial offset
-    // from the grip axis — the fist is built around a shaft on +X, so the
-    // knuckle's (y, z) IS how far out of that axis the palm sits.
-    p.set(0, m.knuckle.y, m.knuckle.z).applyMatrix3(basis);
+    // THE PALM'S OUTWARD NORMAL, AND THIS IS WHY THIS RULER PASSED A BACKWARDS
+    // HAND FOR THE WHOLE LIFE OF THE FIX IT WAS WRITTEN TO PROVE.
+    //
+    // It used to be `(0, knuckle.y, knuckle.z)` — the knuckle line's radial
+    // offset from the grip axis, pointing from the shaft OUT to the knuckle.
+    // That is the direction the BACK of the hand faces. It is the DORSAL normal,
+    // the exact negative of the palm normal, and negating one vector inside
+    // (D × P) · T flips the chirality sign while taking `p.x` of it flips
+    // `palmMedial`. Both columns inverted at once, and two sign errors that
+    // cancel are indistinguishable from a build that is right — which is
+    // `docs/PROCESS.md` failure mode 1 committed by the ruler rather than by
+    // the code.
+    //
+    // Merely negating it would have been enough to fail the broken build, and it
+    // would have left the same disease in place: a ruler whose palm is wherever
+    // its author believed the palm was. So the palm is MEASURED instead, off the
+    // one landmark in `FistMarks` that is not a restatement of the recipe.
+    //
+    // A FINGER CLOSES ACROSS ITS OWN PALM AND NEVER ACROSS ITS DORSUM. The four
+    // fingers wrap the shaft through about 200° and finish on the far side of it
+    // from the metacarpal mass, so the vector from the knuckle line to the
+    // fingertip centroid — with the component along the hand's own length taken
+    // out, so that "further down the finger" cannot masquerade as "across the
+    // grip" — runs from the back of the hand THROUGH the palm and out the other
+    // side. That is the palm's outward normal, measured.
+    //
+    // It is NOT negated, and the first draft of this line was: the argument
+    // "a finger flexes toward the palm, so negate" sounds right and is wrong
+    // here, because these fingertips do not stop at the palm, they overshoot it.
+    // The mesh said so immediately — every arm came back inverted — which is the
+    // whole reason the palm is taken off vertices now instead of off a sign
+    // somebody reasoned out. Cross-checked against the independent slab reading
+    // (the metacarpal wedge's inner face, -Z): same sign, same verdict.
+    //
+    // Nothing here can be satisfied by editing a comment, and reintroducing the
+    // defect at the `mirror:` call site moves `tip` with the mesh and fails this
+    // the way it should have failed the first time.
+    dRaw.copy(m.knuckle).sub(m.wrist).normalize();
+    p.copy(m.tip).sub(m.knuckle);
+    p.addScaledVector(dRaw, -p.dot(dRaw)).applyMatrix3(basis);
     t.copy(m.thumb).sub(m.knuckle).applyMatrix3(basis);
     // The body mirror, applied to the three vectors and to the shoulder alike.
     d.x *= BODY_MIRROR_X; p.x *= BODY_MIRROR_X; t.x *= BODY_MIRROR_X;
@@ -8221,9 +8343,21 @@ export function buildAxe(materials?: CharacterMaterials): THREE.Group {
 
   // Haft with an oval section — and the oval's long axis runs **along the cut**,
   // which is the way round a real haft is shaped so the hand knows where the edge
-  // is without looking. It was the other way round, which cost twice: the haft
-  // presented its narrow 42 mm face to a camera that is nearly always in front of
-  // the warrior, and the section disagreed with the head it carries.
+  // is without looking. It was the other way round, and the section disagreed
+  // with the head it carries.
+  //
+  // THE SECOND HALF OF THAT NOTE IS NO LONGER TRUE AND IS RECORDED HERE RATHER
+  // THAN DELETED. It used to add "the haft presented its narrow face to a camera
+  // that is nearly always in front of the warrior", and that was an argument
+  // about an ABSOLUTE bearing, made while the whole head was pointing out of the
+  // man's side. The `roll` group at the end of this function turns the entire
+  // axe, haft and head together, so the relationship this paragraph is actually
+  // about — long axis along the cut — is untouched, while the bearing that
+  // sentence appealed to is now 90° round: a camera in front sees the 32 mm face
+  // of a 41 x 32 mm haft rather than the 41 mm one. Nine millimetres on a stick,
+  // against a 204 mm head that was cutting sideways. Worth saying out loud
+  // because the next reader will otherwise find two comments disagreeing and
+  // trust the wrong one.
   //
   // Waisted where the hand closes, and that is the other half of the grip
   // defect. Over the binding the haft measured **64 mm across** at the fist —
@@ -8312,7 +8446,35 @@ export function buildAxe(materials?: CharacterMaterials): THREE.Group {
     { y: -0.09, hw: 0.0240, hd: 0.0195 },
   ], 8, { wall: 0.004 }), leather, xf(0, 0.02, 0));
 
-  for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
+  // THE BIT WAS POINTING OUT OF THE MAN'S SIDE. "axe needs to turn 90°
+  // anticlockwise too."
+  //
+  // Every weapon in this file draws its blade in local XY with the flat on local
+  // Z, and the hand mount's only rotation is `Rx(GRIP_PITCH)` — and Rx leaves X
+  // alone. So local +X lands on the body's LATERAL axis, and a blade whose
+  // cutting direction is +X cuts sideways. The sword, the spear and the seax are
+  // symmetric about the haft, so on them the fault has nothing to show; the Dane
+  // axe's head is 204 mm of steel on ONE side, and measured on the posed rig it
+  // pointed 0.96 along the man's lateral axis against 0.26 along his forward. A
+  // man carrying it was carrying a flag on a pole, and the swing cut with the
+  // flat of the blade.
+  //
+  // Ry(-π/2) takes local +X onto local +Z, which is the way the man faces, so the
+  // edge leads the arc instead of crossing it. It goes on an inner group and NOT
+  // on the returned one, because `anim.ts` does
+  // `rig.weapon.rotation.set(wrist, 0, P.wz)` every frame — it writes all three
+  // Euler channels and hard-zeroes Y, so a roll written on the group this
+  // function returns survives exactly until the first pose. `rig.reach` is safe
+  // either way: it reads `geometry.boundingBox.max.y`, and a turn about Y cannot
+  // move a bound in Y. Measured before and after: 997 mm, unchanged.
+  //
+  // ONLY the axe. Rolling the sword would turn its 62 mm face away from a camera
+  // that is nearly always in front of the warrior and present the 8 mm edge
+  // instead, which trades a real silhouette for a symmetry that costs nothing.
+  const roll = new THREE.Group();
+  roll.rotation.y = -Math.PI / 2;
+  for (const { geo, mat } of part.merge()) roll.add(new THREE.Mesh(geo, mat));
+  g.add(roll);
   return g;
 }
 
@@ -8408,11 +8570,40 @@ export function buildSpear(materials?: CharacterMaterials): THREE.Group {
  * exactly the grip bar below. The fist that closes on that bar is sized to it —
  * see `HAND_GRIP.huscarl.off`.
  */
-export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): THREE.Group {
+export function buildShield(
+  color = 0x6b4226,
+  materials?: CharacterMaterials,
+  armorColor = 0x5f6b7a,
+): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   const board = M.timber(color);
+  // "Shield colours on huscarl should match armour finish I think."
+  //
+  // They could not. This function took ONE colour and it drove the planks; every
+  // piece of metal on the shield was a literal, so a man in Bretwalda Gold or
+  // Blackened Steel carried the same grey iron boss as a man in the issued kit,
+  // and the one object he holds in front of his chest was the one object that
+  // ignored the thing he paid for.
+  //
+  // WHAT FOLLOWS THE FINISH: the metal furniture, and only that. A shield's boss
+  // and rim clamps came off the same stock and out of the same smithy as a man's
+  // mail and his helm, so they are `kit.mail` — literally the shirt's own metal,
+  // not the `fitting` bronze, which is for cast buckles and brooch bezels rather
+  // than for forged plate.
+  //
+  // WHAT DOES NOT: the boards. A shield board was limewood and it was PAINTED,
+  // and what it was painted was the one choice on a warrior that was his own
+  // rather than his armourer's — the call site is already using it to say
+  // something else, red for a cloaked man and plain oak for a bare one. Dragging
+  // the planks onto the mail hex would make a Blackened Steel huscarl carry a
+  // charcoal board, which is not a shield, it is a hole. Nor does the rawhide
+  // binding follow: it is deliberately the palest thing on the object because it
+  // is the outline, and an outline in `kit.hide` — near-black on four of the
+  // seven finishes — draws nothing at fifty metres. Both of those are notes
+  // already in this function and both survive.
+  const kit = finishKit(armorColor);
   // A painted board is timber under paint, not cloth. `M.tunic` dressed these
   // quarters in wool at a fixed five repeats — a ~60 mm tile on a 105 mm plank —
   // and that is the basket in `art/shots/v7/portrait.png`: the pale quarters read
@@ -8420,11 +8611,42 @@ export function buildShield(color = 0x6b4226, materials?: CharacterMaterials): T
   // wood. Same substance as the board now, so the grain runs through the paint
   // the way it does on a real limewood shield.
   const paint = M.timber(0xb8a276);
-  const iron = M.tinted("iron", 0x5f666f, { roughness: 0.5 });
-  // 0.42 rather than 0.32: the boss is the one convex metal shape on the shield and
-  // at close roughness it returned a single clipped dot instead of a rolled
-  // highlight across the dome.
-  const steel = M.blade(0x9aa2ac, 0.42);
+  // The rim clamps: forged strap off the same bar as the mail, so `kit.mail`
+  // with nothing done to it. On the issued finish this is 0x5f6b7a against the
+  // 0x5f666f literal it replaces — five points of green and eleven of blue, i.e.
+  // the clamps were already trying to be the mail and missing.
+  const iron = M.tinted("iron", kit.mail, { roughness: 0.5 });
+  // The boss is the same metal GROUND AND POLISHED, which is a lighter albedo and
+  // not a different substance: 38% of the way to white, which on the issued
+  // finish reproduces the 0x9aa2ac literal that shipped here to within two points
+  // a channel. Lifted rather than multiplied because a multiply clips the top of
+  // Bretwalda Gold and turns a gilt boss into a white disc.
+  //
+  // DONE ON THE BYTES AND NOT WITH `THREE.Color.lerp`, and this is not a style
+  // preference. `THREE.Color` decodes sRGB on the way in, so `lerp` mixes in
+  // LINEAR space, where 38% toward white is a far bigger step for a dark colour
+  // than for a bright one. Measured on the built materials, `lerp` gave the seven
+  // finishes bosses of 0xb3b7bc, 0xc2c7cd, 0xa9a9aa, 0xc2b6ab, 0xbca9a9, 0xa9aeb6
+  // and 0xc8bca9 — Blackened Steel's had no blackening left in it, and every one
+  // of the seven had converged on the same pale neutral, so the feature was
+  // shipping a single boss under seven names. The same 38% on the bytes gives
+  // 0x9ca3ad, 0xb6bfc7, 0x7b7e84, 0xb6a385, 0xad7e7b, 0x7e8fa3 and 0xc0ad7b:
+  // still seven metals, each still recognisably its own finish, and the first of
+  // them still the literal this line replaced.
+  //
+  // The 0.42 roughness stays exactly as it was, and the reason it was written
+  // down still holds: the boss is the one convex metal shape on the shield and at
+  // close roughness it returned a single clipped dot instead of a rolled
+  // highlight across the dome. THE FINISH MOVES THE COLOUR, NOT THE SUBSTANCE.
+  const polish = (c: number, t: number): number => {
+    let out = 0;
+    for (let i = 16; i >= 0; i -= 8) {
+      const ch = (c >> i) & 0xff;
+      out |= Math.round(ch + (255 - ch) * t) << i;
+    }
+    return out;
+  };
+  const steel = M.blade(polish(kit.mail, 0.38), 0.42);
   const leather = M.hide(0x3a2a1a);
   // Rawhide, not black leather. The binding is the shield's outline, and an outline
   // in the darkest material on the object draws nothing — this is the cheapest way
@@ -11712,7 +11934,26 @@ export function buildCharacter(
         // wrist station is a cone, not a joint.
         reach: sp * S.gripDrop + cp * 0.028,
         lead: 0.006,
-        mirror: side < 0,
+        // "Hands / wrist of all characters need to be rotated the complete
+        // opposite way, they look broken & twisted 180°."
+        //
+        // This token was `side < 0` and it is the whole of that sentence. The
+        // canonical fist's palm is its -Z face — the metacarpal slab lies on the
+        // +Z face of the shaft, so the surface touching the wood looks toward -Z,
+        // and the four fingertips measure at z = -26 mm while only the thumb pad
+        // is at +Z. `fistPlacement` maps the fist's +Z onto the body's MEDIAL
+        // axis. So an unmirrored fist on the weapon arm turns its DORSUM to the
+        // midline and its palm to the open air: the 180° roll the owner sees.
+        // Mirroring in Z is also a reflection, so it fixes the chirality in the
+        // same stroke — unmirrored, the weapon arm carried a LEFT hand, which is
+        // the "look broken" half. Both halves, one token.
+        //
+        // It read as correct for as long as it did because `handProbe` took the
+        // dorsal normal for the palm normal (see the note there): two sign errors
+        // that cancel, so the ruler certified the build it should have condemned.
+        // The ruler was fixed first and shown FAILING on this build, 8 arms of 8,
+        // before this line was touched.
+        mirror: side > 0,
         // `armPivots[0]` is the weapon arm; the off hand gets whatever that class
         // carries there, or an open hand when it carries nothing. A hand with
         // nothing in it clenched on the same imaginary shaft as the weapon hand
