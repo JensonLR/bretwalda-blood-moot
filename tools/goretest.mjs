@@ -1,24 +1,42 @@
 #!/usr/bin/env node
 // ============================================================
-// GORETEST — is the arena clean when the second round starts?
+// GORETEST — is the arena clean when the second round starts, and does the
+//            blood look like blood while it is there?
 //
 //   node tools/goretest.mjs
-//   node tools/goretest.mjs --blind      # the client this change replaces
+//   node tools/goretest.mjs --blind      # the client the reset replaced
 //   node tools/goretest.mjs --tier low
 //
+// TWO HALVES. Claims 1–7 are the round boundary; claims 8–10 are the shape of
+// the spray, which is a different question and needs a different instrument.
+//
+// ---- the boundary ----
 // The owner's report: "while playing ive also seen when loading into a second
 // round blood floating in mid air."
 //
 // It is the countdown flash again, in a different organ. A client-owned effect
 // whose ending condition is owned by the server: `engine.mjs` ends a round,
 // waits five seconds, stands every warrior up on a fresh ring and starts the
-// next one — and `vfx.ts` was never told. A ground stain lives 26 s and a pool
-// 70 s; a mark of blood stuck to a man's skin lives 30 s and is stored in the
+// next one — and `vfx.ts` was never told. A ground stain lives 90 s and a pool
+// 210 s; a mark of blood stuck to a man's skin lives 120 s and is stored in the
 // local frame of his SPINE, so it is drawn at chest height wherever that bone
 // now is; a stump keeps running; a man alight stays alight. The round break is
 // five seconds. Every one of those numbers is bigger than the gap, so round two
 // opens on round one's blood, and the half of it that is anchored to bodies is
-// the half that is in the air.
+// the half that is in the air. (Those three lifetimes were 26 s, 70 s and 30 s
+// when this file was written and are now two to four times longer, because
+// "pooling that persists for the round" needs a number bigger than the round
+// and a round has no clock on it. The boundary is what ends them, not a timer —
+// which is the whole argument of the claims below.)
+//
+// ---- the shape ----
+// The second owner request this file answers: "more blood splattering &
+// spraying. Really over the top". A COUNT CANNOT SEE THAT. Sixty droplets that
+// land on a man's own boots and sixty that lay a stripe across four metres of
+// turf are the same number, and the first of them is what two visual panels
+// called confetti. So claims 8 onward measure where blood ENDS UP, through
+// `vfx.probe()` — raw positions and velocities, no verdict — with every
+// statistic computed in this file.
 //
 // No browser. `vfx.ts` allocates buffers, textures and materials as plain
 // objects and only needs a GL context to *draw*, so the whole module runs on the
@@ -345,6 +363,14 @@ function replay({ blind = false, load = false, tier = TIER, fps = 60 } = {}) {
     }
 
     stage.ctx.time += dt;
+    // The decals, the marks on skin and the flashes all age on `ctx.rawDt`, not
+    // on the `dt` handed to `update` — so a harness that steps at anything other
+    // than sixty and leaves `makeStage`'s default in place is aging half of vfx
+    // at the wrong rate. It cost this file a claim: pool life came back at 211s
+    // against a declared 70s, because the loop was stepping at 1/20 and the
+    // decals were aging at 1/60.
+    stage.ctx.dt = dt;
+    stage.ctx.rawDt = dt;
     stage.vfx.update(dt, stage.ctx);
 
     if (ms < boundaryAt) {
@@ -386,11 +412,22 @@ check("THE DEFECT REPRODUCES: without the reset, round one's blood is still ther
 // The owner said mid-air, and that is the half of it that is anchored to bodies:
 // a mark on skin is stored in the SPINE's local frame, so it is drawn at chest
 // height wherever that bone has got to. Height is the measurement, not a count.
+//
+// LOADED, and it has to be. This claim used to run against the bare duel, and
+// the bare duel does not reliably put blood on a body: whether the killing blow
+// sprayed across a capsule at all is luck, and the claim duly came back red on a
+// run where nothing had changed but the dice — "highest leftover at y=0.01m,
+// 0 marks on skin, 0 stumps", which is a clean sheet reported as a defect. An
+// assertion whose case the fixture cannot guarantee is the same fault whichever
+// colour it happens to land on. `load: "fight"` cuts a man in half and opens a
+// running wound on the last fighting frame, so the airborne half of the defect
+// is there to be found every time.
+const blindAir = replay({ blind: true, load: "fight" });
 check("THE DEFECT IS AIRBORNE: some of what survives is not on the ground",
-  blind.r2 !== null && (blind.r2.bodyMarks > 0 || blind.r2.jets > 0 || blind.r2.combatParticles > 0 ||
-    blind.r2.highestBloodY > 0.5),
-  `highest leftover at y=${blind.r2 ? blind.r2.highestBloodY.toFixed(2) : "?"}m ` +
-  `(${blind.r2 ? blind.r2.bodyMarks : 0} marks on skin, ${blind.r2 ? blind.r2.jets : 0} stumps)`);
+  blindAir.r2 !== null && (blindAir.r2.bodyMarks > 0 || blindAir.r2.jets > 0 || blindAir.r2.combatParticles > 0 ||
+    blindAir.r2.highestBloodY > 0.5),
+  `highest leftover at y=${blindAir.r2 ? blindAir.r2.highestBloodY.toFixed(2) : "?"}m ` +
+  `(${blindAir.r2 ? blindAir.r2.bodyMarks : 0} marks on skin, ${blindAir.r2 ? blindAir.r2.jets : 0} stumps)`);
 
 // ============================================================
 // 2. THE FIX. Every pool, zero, on the first frame of round two.
@@ -497,6 +534,388 @@ const canvas = readFileSync(resolve(ROOT, "src/game/client/GameCanvas.tsx"), "ut
 const wired = /roundBoundary/.test(canvas) && /clearBattle\(\)/.test(canvas);
 check("GameCanvas.tsx imports the shared predicate and calls clearBattle", wired,
   wired ? "wired" : "the renderer is not on the seam this harness tests");
+
+// ============================================================
+// 8. THE SHAPE OF THE BLOOD — does it ARC, or does it PUFF?
+//
+// Claims 1–7 are about the arena being clean. They would all pass over a spray
+// that was a red cloud falling on the man's own boots, which is what the visual
+// panels have twice called confetti, and which is what the owner is answering
+// with "more blood splattering & spraying. Really over the top".
+//
+// A COUNT CANNOT SEE THIS. Sixty droplets that go nowhere and sixty that leave
+// a two-metre stripe of ground are the same number. So the measurement is where
+// the blood ENDS UP: `vfx.probe()` reports raw positions and velocities and no
+// derived quantity at all, and every statistic below is computed here.
+//
+// The four properties, and each is a different way for a spray to be wrong:
+//
+//   REACH        it travels. A puff lands inside half a metre.
+//   DIRECTION    it goes where the wound points, rather than fanning off in
+//                every direction at once.
+//   ELONGATION   the landing pattern is a STRIPE and not a DISC. This is the
+//                one that actually separates an arc from a strong puff: a puff
+//                thrown hard is still round.
+//   RISE         it goes up before it comes down, so there is a curve in it.
+//
+// THE CONTROL IS A REAL CODE PATH, not a flag. `burst({kind:"blood"})` with no
+// direction is the compatibility shim `vfx.ts` documents in `BurstOptions` —
+// what a call site that predates hit zones gets — and it fans off at a random
+// horizontal bearing by design. So the same module, on the same frame, throwing
+// the same quantity of blood, is measured both ways: the shim must FAIL reach,
+// direction and elongation, and `severed()` must pass all four. A ruler that
+// cannot tell those two apart is a ruler that cannot see the defect, and this
+// is the section's proof that it can.
+// ============================================================
+
+/**
+ * One wound, thrown and followed until every droplet has landed.
+ *
+ * REPEATED, and that is not padding. `mergeStain` deliberately collapses blood
+ * that lands on blood into one mark, so a single severance leaves a handful of
+ * marks and a single undirected puff leaves ONE — and the first run of this
+ * section computed a "stripe" out of that one mark, called it 2.02 m long, and
+ * failed the control for the wrong reason. A spray is a distribution and one
+ * sample is not one. The bearing is rotated between repeats as well, so a
+ * statistic that only holds along +x cannot pass.
+ */
+function bleedShape(kind, tier = TIER, repeats = 10) {
+  const spatter = [];
+  let apex = -Infinity;
+  let airborne = 0;
+  let peaks = 0;
+  let pulseDepth = 0;
+  let marksTotal = 0;
+  let marksMin = Infinity;
+
+  for (let rep = 0; rep < repeats; rep++) {
+    const stage = makeStage(tier);
+    const rig = stage.ensure("subject");
+    rig.group.position.set(0, 0, 0);
+    stage.scene.updateMatrixWorld(true);
+    const at = { x: 0, y: 1.46, z: 0 };
+    // A neck opened along a bearing that moves with the repeat, lifted — the
+    // shape of axis `characters.ts` hands over for a throat, and the case the
+    // owner's "spraying" is about.
+    const bearing = (rep / repeats) * Math.PI * 2;
+    const axis = { x: Math.cos(bearing) * 0.89, y: 0.45, z: Math.sin(bearing) * 0.89 };
+    const al = Math.hypot(axis.x, axis.y, axis.z);
+    axis.x /= al; axis.y /= al; axis.z /= al;
+
+    if (kind === "arc") {
+      const stump = new THREE.Group();
+      stump.position.set(0, 0.44, 0);
+      // ORIENTED, and the first cut of this was not. `stepJets` re-reads the
+      // spray axis off the stump node's own local +Y every frame — that is the
+      // mechanism that keeps a wound spraying the right way as a corpse rolls —
+      // so a stump Group left at identity sprays STRAIGHT UP whatever direction
+      // was passed to `severed()`. The separation burst went downrange and the
+      // running jet, which throws most of the blood, rained on the man's head.
+      // It read as 71% of marks downrange and looked like a defect in the code.
+      // `characters.ts` builds the seam node oriented; so does this now.
+      stump.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(axis.x, axis.y, axis.z));
+      rig.spine.add(stump);
+      stage.scene.updateMatrixWorld(true);
+      // NO `piece`, and that is the difference between a statistic and a
+      // muddle. `severed()` starts a SECOND jet on the severed part, pointing
+      // the other way — correctly, because a head bleeds from its own face too —
+      // and the first cut of this section left the piece standing thirty
+      // centimetres from the wound, so a quarter of the "arc" was a second
+      // emitter spraying backwards and the direction claim read 75%. It is the
+      // real low-tier path (`tier === "low"` skips the piece jet outright) and
+      // the piece's counter-jet is still exercised by claims 3 and 3b, which
+      // load it deliberately. One wound, one axis, one statistic.
+      stage.vfx.severed({ position: at, direction: axis, radius: 0.075, stump, zone: "neck", power: 1 });
+    } else if (kind === "hit") {
+      // A blow that broke skin and did not kill. No stump, so no running jet —
+      // which makes it the only clean instrument for "how long is blood in the
+      // air", because a severance is still emitting for the best part of two
+      // seconds and there is always something up there.
+      stage.vfx.wound({ position: at, damage: 45, direction: axis, zone: "neck" });
+    } else {
+      // The shim. Same blood, same module, same quantity, NO DIRECTION — which
+      // is the whole of the difference, and it is `vfx.ts`'s own documented
+      // fallback for a call site that predates hit zones.
+      stage.vfx.burst({ position: at, color: 0xd42a1a, count: 26, kind: "blood" });
+    }
+
+    const dt = 1 / 120;
+    const perFrame = [];
+    for (let f = 0; f < Math.round(3.4 / dt); f++) {
+      stage.ctx.time += dt;
+      stage.ctx.dt = dt;
+      stage.ctx.rawDt = dt;
+      stage.vfx.update(dt, stage.ctx);
+      const p = stage.vfx.probe();
+      for (const d of p.drops) if (d.y - at.y > apex) apex = d.y - at.y;
+      if (p.drops.length) airborne = Math.max(airborne, f * dt);
+      perFrame.push({ t: f * dt, n: p.drops.length });
+    }
+    const marks = stage.vfx.probe().marks;
+    marksTotal += marks.length;
+    marksMin = Math.min(marksMin, marks.length);
+
+    // Where it landed, in this repeat's own horizontal frame: `along` is
+    // downrange of the spray axis, `across` is to the side of it.
+    const h = Math.hypot(axis.x, axis.z) || 1;
+    const ax = axis.x / h;
+    const az = axis.z / h;
+    for (const m of marks) {
+      if (m.pool) continue;
+      spatter.push({
+        r: Math.hypot(m.x - at.x, m.z - at.z),
+        along: (m.x - at.x) * ax + (m.z - at.z) * az,
+        across: -(m.x - at.x) * az + (m.z - at.z) * ax,
+      });
+    }
+
+    // Spurts, over the jet's own life once the separation burst has fallen out
+    // of it. Counted on the first repeat only — it is a property of one wound's
+    // clock, not of the sample.
+    //
+    // THE FIRST VERSION OF THIS COUNTED NOISE AND IS RECORDED HERE RATHER THAN
+    // QUIETLY REPLACED. It counted local maxima and demanded three of them
+    // between 0.55 s and 2.1 s — but the pulse runs at 9.2 rad/s, which is
+    // 1.46 Hz, which is 2.3 beats in that window. Three was never reachable by
+    // the heart; it was reachable by the jitter on a shallow pulse, and it duly
+    // reported five. Then the pulse was made DEEPER — the thing the gate exists
+    // to want — the jitter went away with the plateau it rode on, and the count
+    // fell to two. A metric that goes DOWN when the property improves is
+    // measuring something else.
+    //
+    // So the peaks are still counted, against a bar the physics allows, and the
+    // real claim is about DEPTH: a spurt has almost nothing coming out between
+    // beats, and a hose does not. `1 - min/max` over the window is that, and it
+    // cannot be satisfied by noise in either direction.
+    if (rep === 0) {
+      const win = perFrame.filter((s) => s.t > 0.55 && s.t < 2.1);
+      const gap = Math.round(0.18 / dt);
+      for (let i = 3; i < win.length - 3; i++) {
+        if (win[i].n > win[i - 3].n && win[i].n >= win[i + 3].n && win[i].n > 2) {
+          peaks++;
+          i += gap;
+        }
+      }
+      const hi = win.reduce((m, s) => Math.max(m, s.n), 0);
+      const lo = win.reduce((m, s) => Math.min(m, s.n), Infinity);
+      pulseDepth = hi > 0 ? 1 - lo / hi : 0;
+    }
+  }
+
+  const mean = (a, f) => (a.length ? a.reduce((s, v) => s + f(v), 0) / a.length : 0);
+  const rms = (a, f) => Math.sqrt(mean(a, (v) => f(v) * f(v)));
+  return {
+    spatter: spatter.length,
+    marksPerWound: marksTotal / repeats,
+    marksWorst: marksMin === Infinity ? 0 : marksMin,
+    apex: apex > -Infinity ? apex : 0,
+    airborne,
+    meanReach: mean(spatter, (l) => l.r),
+    maxReach: spatter.reduce((m, l) => Math.max(m, l.r), 0),
+    meanAlong: mean(spatter, (l) => l.along),
+    // What share of the marks landed on the wound's side at all. See the note
+    // at the DIRECTION claim: this is direction, and the mean is reach.
+    downrangeShare: spatter.length ? spatter.filter((l) => l.along > 0).length / spatter.length : 0,
+    alongRms: rms(spatter, (l) => l.along),
+    acrossRms: rms(spatter, (l) => l.across),
+    peaks,
+    pulseDepth,
+  };
+}
+
+const arc = bleedShape("arc");
+// FORTY repeats for the control, against ten for the arc, because the shim's
+// randomness is ONE BEARING PER WOUND — `woundBlood` picks a single angle for
+// the whole burst — so ten repeats is ten samples, not sixty, and its mean
+// downrange wandered between -0.22 m and +0.83 m across consecutive runs of
+// this file. A control that is noisier than the effect it is controlling for
+// proves nothing.
+const puff = bleedShape("puff", TIER, 40);
+const shapeLine = (s) => `${s.marksPerWound.toFixed(1)} marks a wound, mean reach ${s.meanReach.toFixed(2)}m, `
+  + `furthest ${s.maxReach.toFixed(2)}m, downrange ${s.meanAlong.toFixed(2)}m, `
+  + `stripe ${s.alongRms.toFixed(2)}m along vs ${s.acrossRms.toFixed(2)}m across, `
+  + `apex ${s.apex.toFixed(2)}m above the wound`;
+
+// The control's failure mode is DIRECTION, not distance — and the first run of
+// this section got that wrong and said so out loud. The shim throws at
+// 2.2 + 3.1k m/s, so it carries perfectly well; what it does not do is carry
+// anywhere in particular. Over ten wounds its mean downrange displacement is
+// near zero, because "downrange" is a direction it was never given.
+check("THE CONTROL IS UNDIRECTED: the shim throws blood at no particular bearing",
+  Math.abs(puff.meanAlong) < 0.35 && puff.alongRms < puff.acrossRms * 1.6,
+  shapeLine(puff));
+
+// THE BARS BELOW ARE STATED FROM THE DESIGN, NOT FROM A MEASUREMENT. That order
+// matters: three of these six were already true of `severed()` before this pass
+// and are here to LOCK a property nobody had ever asserted, and three were not,
+// and reading a number off the code and then writing it down as the bar is how
+// a gate ends up certifying whatever the code happens to do.
+//
+//   REACH      "really over the top" means the blood reaches the men standing
+//              round him. Two metres of mean reach and four at the far edge is
+//              a body's length in every direction, on an arena that reads at
+//              roughly half real scale.
+//   DIRECTION  a metre and a half downrange. Less than that and the axis is a
+//              hint rather than a statement.
+//   QUANTITY   nine marks a wound on a desktop. The ground has to record that a
+//              man died on it.
+check("REACH: an arterial spray carries, rather than dribbling down the body",
+  arc.meanReach >= 1.9 && arc.maxReach >= 4.0,
+  shapeLine(arc));
+// DIRECTION WAS BEING MEASURED AS DISTANCE, which is this repository's signature
+// fault in miniature and is recorded rather than quietly corrected. The claim
+// was `meanAlong >= 1.5` — the mean downrange displacement of every mark — and
+// it FELL from 2.32 m to 1.17 m across a change that made the spray strictly
+// more directional. The reason is that the pulse got deeper: a stump now nearly
+// stops between beats, the diastolic dribble lands on the man's own boots, and
+// fifteen marks a wound with a proper quiet phase have more near-field marks
+// than seven did. Every one of those near marks is CORRECT and every one of them
+// drags a mean down.
+//
+// A distribution with 92% of its marks downrange and a mean of 1.2 m goes
+// exactly where the wound points. One with a mean of 1.5 m and a third of its
+// marks behind the man does not. So direction is the SHARE that landed on the
+// wound's side, and the distance it travelled is REACH's claim, which is
+// directly above and is where it belonged all along. The shim is the control:
+// with no direction to point in, it puts half its marks either side.
+check("DIRECTION: it goes where the wound points",
+  arc.downrangeShare >= 0.82 && arc.meanAlong > Math.abs(puff.meanAlong) + 0.6,
+  `${(arc.downrangeShare * 100).toFixed(0)}% of marks land on the wound's side `
+  + `(the undirected shim: ${(puff.downrangeShare * 100).toFixed(0)}%), `
+  + `mean ${arc.meanAlong.toFixed(2)}m downrange against the shim's ${puff.meanAlong.toFixed(2)}m`);
+check("ELONGATION: what lands is a STRIPE, not a disc — the property a hard puff still fails",
+  arc.alongRms > arc.acrossRms * 1.8,
+  `${arc.alongRms.toFixed(2)}m along the axis against ${arc.acrossRms.toFixed(2)}m across it, `
+  + `ratio ${(arc.alongRms / Math.max(1e-3, arc.acrossRms)).toFixed(2)}x (the shim: ${(puff.alongRms / Math.max(1e-3, puff.acrossRms)).toFixed(2)}x)`);
+check("RISE: there is a curve in it — it goes up before it comes down",
+  arc.apex >= 0.5,
+  `highest droplet ${arc.apex.toFixed(2)}m above the wound`);
+check("PULSE: a stump spurts rather than pours",
+  arc.peaks >= 2 && arc.pulseDepth >= 0.6,
+  `${arc.peaks} spurts between 0.55s and 2.1s (1.46 Hz allows 2.3), `
+  + `and the spray falls ${(arc.pulseDepth * 100).toFixed(0)}% away between beats — a hose does not`);
+
+// AND IT ARRIVES. This one exists to stop the claim above being satisfied the
+// easy way. `vfx.ts` carries a comment recording that an earlier pass threw at
+// 3.6 + 4.4·force, a gout left the stump at 11 m/s, and it was "still six metres
+// out and three up when the camera took the picture" — spray that never lands is
+// exactly what the panels called confetti, and the throw was cut for it. A
+// finding that only lives in a comment is a finding the next pass undoes.
+//
+// 0.85 s, AND THE NUMBER IS ARITHMETIC RATHER THAN TASTE, because the comment
+// beside that finding said "within about half a second" and half a second was
+// never possible. A wound sits about 1.46 m off the turf, so a droplet thrown
+// perfectly FLAT is already 0.40 s in the air just falling; add a 41° launch at
+// the speeds this module uses and the last one down is at 0.77 s. Main measured
+// 0.76 s against its own comment's 0.5 s. So the bar is the physics plus a
+// tenth: 0.85 s. What it actually catches is the thing that failed here — the
+// same spray without `RISE_CEIL` measured 0.92 s, because the top of a 34° cone
+// around a 40° axis is 74° and that is where all the airtime lives.
+const hit = bleedShape("hit");
+check("AND IT ARRIVES: a blow's spray is down inside 0.85s — 0.40s of which is the fall alone",
+  hit.airborne <= 0.85 && hit.airborne > 0.2,
+  `last droplet in the air at ${hit.airborne.toFixed(2)}s; it reached ${hit.maxReach.toFixed(2)}m and rose ${hit.apex.toFixed(2)}m`);
+check("QUANTITY: a severance leaves the ground marked, not sprinkled",
+  arc.marksPerWound >= 9,
+  `${arc.marksPerWound.toFixed(1)} marks a wound on ${TIER}, worst of ten wounds ${arc.marksWorst}`);
+
+// ============================================================
+// 9. IT PERSISTS FOR THE ROUND. A pool that has dried out before the round it
+//    was spilled in has ended is a pool the player never sees. The number is
+//    stated against a real round: `endRound` fires only when men die, and the
+//    duel above ran a hundred and sixty seconds of match time to get there.
+// ============================================================
+function poolLife(tier) {
+  const stage = makeStage(tier);
+  const rig = stage.ensure("subject");
+  stage.scene.updateMatrixWorld(true);
+  const stump = new THREE.Group();
+  stump.position.set(0, 0.44, 0);
+  rig.spine.add(stump);
+  stage.scene.updateMatrixWorld(true);
+  stage.vfx.severed({ position: { x: 0, y: 1.46, z: 0 }, direction: { x: 0.8, y: 0.5, z: 0.3 },
+    radius: 0.075, stump, zone: "neck", power: 1 });
+  const dt = 1 / 20;
+  let lastPool = 0;
+  let lastAny = 0;
+  for (let t = 0; t < 300; t += dt) {
+    stage.ctx.time += dt;
+    stage.ctx.dt = dt;
+    stage.ctx.rawDt = dt;
+    stage.vfx.update(dt, stage.ctx);
+    const m = stage.vfx.probe().marks;
+    if (m.some((k) => k.pool)) lastPool = t;
+    if (m.length) lastAny = t;
+  }
+  return { lastPool, lastAny };
+}
+const lifeHigh = poolLife("high");
+const lifeLow = poolLife("low");
+check("a pool outlasts a three-minute round on the desktop tier",
+  lifeHigh.lastPool >= 180,
+  `pool still on the ground at ${lifeHigh.lastPool.toFixed(0)}s, last mark of any kind at ${lifeHigh.lastAny.toFixed(0)}s`);
+check("and outlasts a ninety-second one on the phone, WHICH IS LESS AND IS SAID SO",
+  lifeLow.lastPool >= 90,
+  `phone pool gone by ${lifeLow.lastPool.toFixed(0)}s against the desktop's ${lifeHigh.lastPool.toFixed(0)}s — `
+  + `the phone keeps 8 decal slots against 64 and drops its pool sooner, which is a real loss and not a rounding`);
+
+// ============================================================
+// 10. THE PHONE'S SHARE. `decalBudget` is 24 on a phone against 64 on a
+//     desktop, so "really over the top" has to survive being divided by three.
+//     What the phone must NOT do is come out with nothing: a death that leaves
+//     one mark is a death that did not happen.
+// ============================================================
+// ============================================================
+// 9b. IT LANDS ON THE MEN STANDING ROUND HIM. The brief asks for spatter that
+//     lands "on the ground, on nearby men and on the camera", and the men were
+//     the half with no assertion anywhere: `vfx.ts` grew a capsule test and a
+//     body-mark pool for exactly this and nothing has ever checked it fires.
+//
+//     It is also the property most at risk from a faster spray. The capsule test
+//     is ENTER-ONLY — the previous position must be outside and the new one
+//     inside — so a droplet that crosses the whole 0.56 m of a man inside one
+//     step passes straight through him. A blow now throws at up to 12 m/s, which
+//     is 0.2 m a frame at sixty and 0.4 m at thirty, so this is checked at three
+//     frame rates and at three distances rather than at the one the desktop
+//     happens to run at.
+// ============================================================
+function bystander(fps, dist, tier = TIER) {
+  const stage = makeStage(tier);
+  stage.ensure("victim").group.position.set(0, 0, 0);
+  stage.ensure("near").group.position.set(dist, 0, 0);
+  stage.scene.updateMatrixWorld(true);
+  stage.vfx.wound({ position: { x: 0, y: 1.4, z: 0 }, damage: 45, direction: { x: 1, y: 0.1, z: 0 }, zone: "neck" });
+  let peak = 0;
+  const dt = 1 / fps;
+  for (let f = 0; f < Math.round(3 * fps); f++) {
+    stage.ctx.time += dt;
+    stage.ctx.dt = dt;
+    stage.ctx.rawDt = dt;
+    stage.vfx.update(dt, stage.ctx);
+    peak = Math.max(peak, stage.vfx.census().bodyMarks);
+  }
+  return peak;
+}
+const bystanders = [];
+for (const fps of [120, 60, 30]) {
+  for (const d of [1.2, 2.0]) {
+    let tot = 0;
+    const runs = 6;
+    for (let i = 0; i < runs; i++) tot += bystander(fps, d);
+    bystanders.push({ fps, d, mean: tot / runs });
+  }
+}
+check("blood lands on the man standing next to him, at every frame rate",
+  bystanders.every((b) => b.mean >= 1),
+  bystanders.map((b) => `${b.fps}fps @${b.d}m: ${b.mean.toFixed(1)}`).join(", ")
+  + " marks on skin, mean of six wounds each");
+
+const tierRows = ["high", "medium", "low"].map((t) => ({ t, s: bleedShape("arc", t) }));
+check("EVERY tier gets a spray that reaches, and NO wound on any tier leaves the ground clean",
+  tierRows.every((r) => r.s.marksPerWound >= 4 && r.s.marksWorst >= 2 && r.s.maxReach >= 3.0),
+  tierRows.map((r) => `${r.t}: ${r.s.marksPerWound.toFixed(1)} marks a wound (worst ${r.s.marksWorst}), `
+    + `furthest ${r.s.maxReach.toFixed(2)}m, apex ${r.s.apex.toFixed(2)}m`).join("; "));
 
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

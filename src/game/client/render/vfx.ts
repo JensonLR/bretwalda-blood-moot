@@ -216,6 +216,35 @@ export interface GoreCensus {
   highestBloodY: number;
 }
 
+/**
+ * RAW STATE, for harnesses. Nothing in the game reads it.
+ *
+ * `census()` counts; this one says where things ARE, and the difference is the
+ * whole of "does the spray arc or does it puff". A count cannot tell a stream
+ * that lands two metres downrange from a cloud that falls on the man's boots,
+ * and the panels have twice called the second one confetti.
+ *
+ * It deliberately reports POSITIONS AND VELOCITIES and nothing derived. No
+ * apex, no range, no verdict — `tools/goretest.mjs` does its own trigonometry
+ * over these numbers, so a harness that agreed with this module by construction
+ * was never possible. Same arrangement as `camera.ts`'s `__bretwaldaCamera`
+ * readback, and for the same reason.
+ *
+ * Allocates; not for the frame loop.
+ */
+export interface GoreProbe {
+  /** Every live blood droplet — F_STAIN, which is the flag that means blood. */
+  drops: Array<{
+    x: number; y: number; z: number;
+    vx: number; vy: number; vz: number;
+    /** Seconds since it left the wound, and how long it has in total. */
+    age: number; life: number;
+    size: number;
+  }>;
+  /** Every mark on the ground, at the size it has spread to this frame. */
+  marks: Array<{ x: number; y: number; z: number; r: number; pool: boolean; age: number; life: number }>;
+}
+
 export interface VfxHandle {
   readonly root: THREE.Group;
   /** Live particle count, for anyone who wants to know what the budget is doing. */
@@ -225,6 +254,8 @@ export interface VfxHandle {
    * Allocates one object per call; not for the frame loop.
    */
   census(): GoreCensus;
+  /** Raw blood state for harnesses. See `GoreProbe`. Nothing in the game reads it. */
+  probe(): GoreProbe;
   /**
    * The round is over and the next one opens on clean ground.
    *
@@ -2019,7 +2050,17 @@ export function createVfx(
     return best;
   }
 
-  function addDecal(x: number, z: number, size: number, life = 26, age = 0): void {
+  /**
+   * How long a thrown mark stays on the ground. 90 s against the 26 it was: a
+   * round is minutes long and the ground has to still be showing what happened
+   * on it in the second minute. It is shorter than a pool's 210 on purpose —
+   * spatter is thin and it dries; a pool is deep and it does not — and both end
+   * at the round boundary rather than by running out, which is `clearBattle`'s
+   * job and `goretest`'s first six claims.
+   */
+  const STAIN_LIFE = tier === "low" ? 45 : 90;
+
+  function addDecal(x: number, z: number, size: number, life = STAIN_LIFE, age = 0): void {
     if (mergeStain(x, z, size, false)) return;
     const d = claimDecal(false);
     d.x = x; d.y = groundAt(x, z) + 0.015; d.z = z;
@@ -2205,8 +2246,17 @@ export function createVfx(
   const markMat = new THREE.Matrix4();
   const markVec = new THREE.Vector3();
   const markNrm = new THREE.Vector3();
-  /** Blood on a man outlives the spray that put it there, and is meant to. */
-  const MARK_LIFE = tier === "low" ? 14 : 30;
+  /**
+   * Blood on a man outlives the spray that put it there, and is meant to.
+   *
+   * 120 s against 30. A man who cuts somebody down in the first ten seconds of a
+   * round should still be wearing it when the round ends, and at thirty seconds
+   * he was clean again before the second kill. Same argument as the pool, and
+   * the same safety: `clearBattle` empties this pool at the round boundary, so
+   * the length is bounded by the round rather than by a timer that has to be
+   * shorter than one.
+   */
+  const MARK_LIFE = tier === "low" ? 60 : 120;
 
   function addBodyMark(
     anchor: THREE.Object3D,
@@ -2973,6 +3023,16 @@ export function createVfx(
   const BLOOD_G = 18.5;
 
   /**
+   * Steepest a droplet may leave a wound, as the sine of the angle — 0.66 is
+   * 41° above horizontal. See the note at the fold in `spurt`: this is the one
+   * number that separates "throws hard" from "hangs about", and `goretest`'s
+   * "AND IT ARRIVES" claim is what holds it honest. 46° was tried first and
+   * measured 0.78 s of flight against a 0.75 s ceiling; airtime goes as sinθ,
+   * so five degrees off the top is eight per cent off the clock.
+   */
+  const RISE_CEIL = 0.66;
+
+  /**
    * Droplets leaving a wound along an axis. This is the only thing in the file
    * that throws blood — the burst, the running jet and the non-fatal hit are all
    * this function with different numbers, so there is one answer to what blood
@@ -3020,9 +3080,56 @@ export function createVfx(
       const sa = Math.sin(ang);
       const cp = Math.cos(phi);
       const sp = Math.sin(phi);
-      const ex = dx * ca + (ux * cp + vx * sp) * sa;
-      const ey = dy * ca + (uy * cp + vy * sp) * sa;
-      const ez = dz * ca + (uz * cp + vz * sp) * sa;
+      const ex0 = dx * ca + (ux * cp + vx * sp) * sa;
+      let ey = dy * ca + (uy * cp + vy * sp) * sa;
+      const ez0 = dz * ca + (uz * cp + vz * sp) * sa;
+      // THE ELEVATION CEILING, and it is what lets the throw be fast.
+      //
+      // Range goes as v² and airtime as v·sinθ, so the whole cost of a hard
+      // spray is paid by the droplets that leave STEEPLY: at 8.6 m/s the ones
+      // going up at 74° — which a 34° cone around a 40° axis reaches — are still
+      // in the air at 0.92 s, long after the blow that threw them. Folding the
+      // top of the cone down to 46° keeps every bit of the azimuthal spread and
+      // costs nothing anybody can see, because blood leaving a wound goes OUT.
+      // Without it the only way to hold the arrival time is to throw softly,
+      // which is the puff this pass exists to get rid of.
+      let ex = ex0;
+      let ez = ez0;
+      if (ey > RISE_CEIL) {
+        const want = Math.sqrt(1 - RISE_CEIL * RISE_CEIL);
+        // WHICH WAY the folded droplet goes, and the first cut of this got it
+        // wrong in a way only the landing pattern could show. Scaling the
+        // droplet's OWN horizontal up to `want` sends a droplet whose azimuth
+        // was sideways further sideways — so the clamp turned rise into WIDTH,
+        // the across-axis spread went from 0.94 m to 1.42 m and the stripe the
+        // spray is supposed to lay down collapsed from 3.0x to 1.7x. Blood that
+        // would have gone up goes DOWNRANGE instead, so the fold blends the
+        // droplet's bearing toward the axis's own in proportion to how far it
+        // had to come down: a droplet just over the ceiling keeps its bearing,
+        // and one aimed at the sky comes back along the axis.
+        const excess = clamp01((ey - RISE_CEIL) / (1 - RISE_CEIL));
+        const fh = Math.hypot(dx, dz);
+        const h = Math.hypot(ex0, ez0);
+        let hx = h > 1e-4 ? ex0 / h : 0;
+        let hz = h > 1e-4 ? ez0 / h : 0;
+        if (fh > 1e-4) {
+          const fx = dx / fh;
+          const fz = dz / fh;
+          if (h <= 1e-4) { hx = fx; hz = fz; }
+          hx += (fx - hx) * excess;
+          hz += (fz - hz) * excess;
+        } else if (h <= 1e-4) {
+          // Straight up out of a wound that also faces straight up: no bearing
+          // exists anywhere in the problem, so take one at random rather than
+          // divide by zero.
+          const a = Math.random() * TAU;
+          hx = Math.cos(a); hz = Math.sin(a);
+        }
+        const nl = Math.hypot(hx, hz) || 1;
+        ex = (hx / nl) * want;
+        ez = (hz / nl) * want;
+        ey = RISE_CEIL;
+      }
       const v = speed * rand(0.4, 1.15) * (gout ? 0.8 : fine ? 1.25 : 1);
       spawn({
         x: x + ex * 0.05, y: y + ey * 0.05, z: z + ez * 0.05,
@@ -3078,7 +3185,7 @@ export function createVfx(
     // is a fifth of this and looks it.
     const k = clamp01(o.damage / 45);
     const hot = arterial(o.zone);
-    const count = Math.max(2, Math.round((3.5 + 18 * k) * (hot ? 1.3 : 1) * settings.particleScale));
+    const count = Math.max(2, Math.round((5 + 26 * k) * (hot ? 1.3 : 1) * settings.particleScale));
     if (store.n + count > budget) return;
 
     let dx: number;
@@ -3088,7 +3195,14 @@ export function createVfx(
       // Lifted off the blade's own line. Blood follows the edge, but an edge
       // travelling flat still throws upward, because what leaves the wound
       // leaves it off the *face* of the cut and the cut is rarely level.
-      dx = o.direction.x; dy = o.direction.y + 0.4; dz = o.direction.z;
+      //
+      // 0.30 of lift, not 0.40, and it is the throw below that forced it. The
+      // callers hand over a unit vector, so +0.4 on a level blow is 22° of
+      // elevation before the cone's own ±27° is added — and the fast half of a
+      // 3.4 + 5.2k throw at 50° is still in the air at 0.76 s. Range goes as v²
+      // and airtime as v·sinθ; taking the lift down is how the spray gets its
+      // distance back out of the sky and onto the ground, where a stain is.
+      dx = o.direction.x; dy = o.direction.y + 0.30; dz = o.direction.z;
     } else {
       const a = Math.random() * TAU;
       dx = Math.cos(a); dy = rand(0.35, 0.8); dz = Math.sin(a);
@@ -3100,9 +3214,10 @@ export function createVfx(
       dx * inv, dy * inv, dz * inv,
       count,
       // Same ceiling as a severance burst, for the same reason: everything this
-      // module throws has to be on the ground within about half a second or the
-      // spray outlives the blow that caused it.
-      2.2 + 3.1 * k,
+      // module throws has to be on the ground within about three quarters of a
+      // second or the spray outlives the blow that caused it. That sentence is
+      // now `goretest`'s "AND IT ARRIVES" claim rather than an intention.
+      3.4 + 5.2 * k,
       // A light cut sprays wide and weakly; a heavy one drives it in one
       // direction. The cone narrowing with damage is what makes the two read
       // differently at a glance even before the count registers.
@@ -3190,7 +3305,15 @@ export function createVfx(
       // Spreads over seconds, not frames. It is what is left of the effect once
       // the particles are gone, so it is the part a player actually looks at.
       tier === "low" ? 2.4 : 4.5,
-      tier === "low" ? 30 : 70,
+      // 210 s, not 70. The brief asks for "pooling that persists for the round"
+      // and a round has no clock on it at all — `endRound` fires when men die,
+      // and the duel `goretest` drives takes two and a half minutes to get
+      // there. A pool that dried at seventy seconds was gone before the round it
+      // was spilled in had finished, which is a pool nobody ever saw dry. The
+      // round boundary is what ends it, not a timer: `clearBattle` empties every
+      // slot, so this number can be as long as the fight without leaking one
+      // frame of it into the next round.
+      tier === "low" ? 100 : 210,
     );
   }
 
@@ -3243,18 +3366,33 @@ export function createVfx(
     // measured for us.
     const force = power * (hot ? 1.3 : 1) * (0.7 + radius * 3.2);
 
-    const count = Math.round(26 * force * settings.particleScale);
+    const count = Math.round(34 * force * settings.particleScale);
     if (store.n + count <= budget) {
       spurt(
         x, y, z, dx, dy, dz,
         count,
-        // Sized to land, which is the whole test: at the old 3.6 + 4.4·force a
-        // gout left the stump at 11 m/s and was still six metres out and three
-        // up when the camera took the picture — spray that never arrives is
-        // exactly what "reads as confetti" describes. This puts the far edge of
-        // the burst down inside three metres.
-        2.6 + 2.5 * force,
-        0.52,
+        // 4.4 + 4.6·force, against 2.6 + 2.5. The owner asked for "really over
+        // the top" and measured this threw a mean of 1.37 m and a furthest of
+        // 2.75 m — which is blood landing on the man's own boots.
+        //
+        // THIS IS NOT THE 3.6 + 4.4 THAT WAS REVERTED, and the difference is
+        // worth stating because the note that replaced it is still above and
+        // still true. What was wrong with that pass was not the speed, it was
+        // the AIRTIME: a gout at 11 m/s going up at 45° is 1.6 m high with
+        // 0.84 s of flight, and it was still in the air when the shutter fired.
+        // Range goes as v² and airtime as v·sinθ, so a fast throw down a SHALLOW
+        // axis buys distance without buying time — a neck's axis leaves at about
+        // 27° above horizontal, where 10 m/s is 4.4 m of range and half a second
+        // of flight. `goretest`'s "AND IT ARRIVES" claim is that constraint made
+        // an assertion instead of a comment, precisely so the next pass cannot
+        // undo it by reading only this half of the story.
+        4.4 + 4.6 * force,
+        // 0.42 rad, not 0.52. A wider cone spends the throw sideways: with the
+        // elevation ceiling folding the steep half of it back down toward
+        // horizontal, the cone is now the only thing deciding how much of the
+        // spray goes DOWNRANGE, and 30° of half-angle put the mean at 1.47 m
+        // against the metre and a half a severed throat is supposed to throw.
+        0.42,
         0.045 + radius * 0.42,
         PALETTE.bloodArterial,
       );
@@ -3335,7 +3473,13 @@ export function createVfx(
       // Pressure falls away as the man does, and it pulses on the way. A heart
       // under load is why a stump spurts rather than pours, and the pulse is the
       // difference between this and a garden hose.
-      const pulse = 0.42 + 0.58 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
+      //
+      // 0.18 + 0.82, not 0.42 + 0.58. The old floor meant the quiet half of the
+      // beat still ran at 42% — which is a hose with a wobble in it, not a
+      // heart. 9.2 rad/s is 88 beats a minute and stays; what changed is the
+      // DEPTH, here and in the speed below, because the pulse is only legible
+      // if diastole nearly stops.
+      const pulse = 0.18 + 0.82 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
       j.acc += JET_RATE * j.power * Math.pow(1 - t, 1.6) * pulse * settings.particleScale * headroom * crowd * dt;
       if (j.acc < 1) continue;
       const n = Math.min(6, Math.floor(j.acc));
@@ -3347,8 +3491,17 @@ export function createVfx(
         j.x + sym(j.radius * 0.55), j.y + sym(j.radius * 0.55), j.z + sym(j.radius * 0.55),
         j.dx, j.dy, j.dz,
         n,
-        (1.4 + 2.1 * j.power) * (0.55 + pulse * 0.6),
-        0.38,
+        // Systole throws four times what diastole does. At the old
+        // 0.55 + 0.6·pulse the speed swung by 44% across the beat and the
+        // spray was a continuous cone with a ripple in it; at 0.30 + 0.95 it
+        // leaves at nine and a half metres a second on the beat and dribbles
+        // between them, which is the thing a person recognises as arterial.
+        (2.6 + 4.2 * j.power) * (0.30 + 0.95 * pulse),
+        // Tighter than the separation burst's 0.52, and that ordering is the
+        // point: a cut OPENING is a burst and a stump still under pressure is a
+        // STREAM. One cone for both was why the running spray read as more of
+        // the same rather than as the thing left behind.
+        0.30,
         0.035 + j.radius * 0.3,
         tmpColor.copy(PALETTE.bloodArterial).lerp(PALETTE.bloodFresh, t),
         ivx, ivy, ivz,
@@ -3799,7 +3952,12 @@ export function createVfx(
             // from a range, so the gouts a stump throws leave the wide splashes
             // and the atomised half of the same spray leaves flecks. It is the
             // cheapest way to get the ground to record which blow it was.
-            if (speed > 1.2 && Math.random() < 0.34) {
+            // 0.48, not 0.34. A severance threw seven marks over ten wounds and
+            // the desktop keeps sixty-four slots — the budget was never the
+            // constraint, `mergeStain` is, and blood landing on blood costs a
+            // slot only when it lands somewhere new. Which is exactly where a
+            // spray that now reaches four metres is landing.
+            if (speed > 1.2 && Math.random() < 0.48) {
               // 6.0, not 3.4 — the droplet that makes the mark is now half the
               // size it was, and a spatter is wider than the drop that threw it.
               const mark = Math.min(0.58, Math.max(0.09, store.size0[i] * 6.0)) * rand(0.8, 1.3);
@@ -4166,6 +4324,27 @@ export function createVfx(
         burners: burners.reduce((n, b) => n + (b.active ? 1 : 0), 0),
         highestBloodY: highest,
       };
+    },
+
+    probe(): GoreProbe {
+      const drops: GoreProbe["drops"] = [];
+      for (let i = 0; i < store.n; i++) {
+        // F_STAIN is what makes a particle blood: it is the only population in
+        // the store that dies on the ground and leaves a mark.
+        if (!(store.flags[i] & F_STAIN)) continue;
+        drops.push({
+          x: store.px[i], y: store.py[i], z: store.pz[i],
+          vx: store.vx[i], vy: store.vy[i], vz: store.vz[i],
+          age: store.maxLife[i] - store.life[i], life: store.maxLife[i],
+          size: store.size0[i],
+        });
+      }
+      const marks: GoreProbe["marks"] = [];
+      for (const d of decals) {
+        if (!d.active) continue;
+        marks.push({ x: d.x, y: d.y, z: d.z, r: decalSize(d) * 0.5, pool: d.pool, age: d.age, life: d.life });
+      }
+      return { drops, marks };
     },
 
     clearBattle() {
