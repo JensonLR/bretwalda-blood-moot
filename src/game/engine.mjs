@@ -566,7 +566,56 @@ export const WARRIOR_STATS = {
   berserker: { maxHealth: 110, moveSpeed: 4.7, sprintSpeed: 7.2, attackDamage: 28, heavyDamage: 50, attackSpeed: 1.33, blockReduction: 0.3, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
 };
 
-/** Seconds a whole swing takes for this class, heavy or light. */
+/**
+ * THE WHOLE FIELD IN ORDER — and the ONE definition of that order.
+ *
+ * The owner, on the results table: *"In the end of game results rounds won
+ * should be recorded somehow for all to see in the table, that should also take
+ * into account for ranking & payout, I've seen same kills & rounds won more be
+ * snubbed on coins & ranking placement from 1st to 2nd due to alphabetical
+ * order names"*.
+ *
+ * He was reading a table sorted by `score`, which is exactly kills x 100. Two
+ * men level on kills therefore tied EXACTLY, the sort was stable, and the order
+ * fell through to whatever order the room happened to hold — so a man who had
+ * won an extra round was printed second, under a man he had beaten, and next to
+ * a smaller pile of coins than the man below him. `decideMatch` had had the
+ * right rule since the day the tiebreak went in; nothing but the single match
+ * winner was ever asked to use it.
+ *
+ * This is that rule applied to everybody, and it is written ONCE: `decideMatch`
+ * is now a reading of this function rather than a second copy of it. Mirrored
+ * definitions are this repository's third named failure mode with four recorded
+ * instances in `characters.ts` alone, and a ranking that exists twice is one
+ * edit away from a summary whose picture and whose numbers name different men.
+ *
+ * `place` is COMPETITION ranking: two entrants level on rounds AND on kills are
+ * both `place: 1` and the next man is `place: 3`. That is the honest answer to a
+ * true tie, and it is what lets the payout below be equal for it. The tempting
+ * alternative — pick one of them — is precisely the defect, because the only
+ * things left to pick on are arrival and the alphabet, and neither of them
+ * fought.
+ */
+export function rankEntrants({ roundWins = {}, entrants = [] }) {
+  const kills = new Map(entrants.map((e) => [e.key, e.kills || 0]));
+  // Anyone who won a round is a contender even if they have since left, so a
+  // man cannot be denied a match he won by disconnecting after winning it.
+  for (const k of Object.keys(roundWins)) if (!kills.has(k)) kills.set(k, 0);
+  const rows = [...kills].map(([key, k]) => ({ key, rounds: roundWins[key] || 0, kills: k, place: 1 }));
+  // Rounds, then kills, and NOTHING ELSE — no name, no id, no arrival. `sort` is
+  // stable everywhere this runs, so a genuine tie comes out in the order it went
+  // in; `place` then makes that order weightless, which is the point. Sorting on
+  // anything a man did not do is how the owner ended up second.
+  rows.sort((a, b) => (b.rounds - a.rounds) || (b.kills - a.kills));
+  let place = 1;
+  rows.forEach((r, i) => {
+    const above = rows[i - 1];
+    if (i > 0 && (r.rounds !== above.rounds || r.kills !== above.kills)) place = i + 1;
+    r.place = place;
+  });
+  return rows;
+}
+
 /**
  * WHO TOOK THE MATCH, AND THE TIEBREAK THAT WAS MISSING.
  *
@@ -591,6 +640,11 @@ export const WARRIOR_STATS = {
  *      kill feed has been showing all match, and a player can count them.
  *   3. Level on both: a draw, and nobody is the victor.
  *
+ * Those three lines are now `rankEntrants` above, and this function READS it
+ * rather than restating it. It used to hold the only copy, which is how the rule
+ * came to decide one thing (the victor) while the table, the podium and the
+ * purse were decided by kills alone.
+ *
  * A pure function of a tally rather than a method on a room, because the cases
  * that matter are the rare ones — three-way ties, a man who won a round and
  * quit, a match where every round was drawn — and they are unreachable by
@@ -606,14 +660,9 @@ export const WARRIOR_STATS = {
  * "draw".
  */
 export function decideMatch({ roundWins = {}, entrants = [] }) {
-  const kills = new Map(entrants.map((e) => [e.key, e.kills || 0]));
-  // Anyone who won a round is a contender even if they have since left, so a
-  // man cannot be denied a match he won by disconnecting after winning it.
-  for (const k of Object.keys(roundWins)) if (!kills.has(k)) kills.set(k, 0);
-  if (kills.size === 0) return { key: null, by: "draw" };
-
-  let best = 0;
-  for (const k of kills.keys()) best = Math.max(best, roundWins[k] || 0);
+  const rows = rankEntrants({ roundWins, entrants });
+  if (rows.length === 0) return { key: null, by: "draw" };
+  const top = rows[0];
   // NOBODY WON A ROUND AT ALL — every round was a mutual wipe. That is a draw,
   // and the kill count does NOT get to break it.
   //
@@ -624,18 +673,188 @@ export function decideMatch({ roundWins = {}, entrants = [] }) {
   // stood a band up over a match nobody had won. The ask was about ties BETWEEN
   // ROUND WINNERS; a match with no round winner is not that, and inventing a
   // victor for it changes what the format means.
-  if (best === 0) return { key: null, by: "draw" };
-  let top = [...kills.keys()].filter((k) => (roundWins[k] || 0) === best);
-  if (top.length === 1) return { key: top[0], by: "rounds" };
-
-  let mostKills = -1;
-  for (const k of top) mostKills = Math.max(mostKills, kills.get(k) || 0);
-  top = top.filter((k) => (kills.get(k) || 0) === mostKills);
-  // Level on rounds AND on kills. A draw, and it is reported as one — the wire
-  // says winnerKind "none" and the stage stands nobody up.
-  return top.length === 1 ? { key: top[0], by: "kills" } : { key: null, by: "draw" };
+  //
+  // This is also the ONE point where the verdict and the placement part company,
+  // and deliberately. `rankEntrants` still orders a roundless match by kills,
+  // because the table has to print SOMETHING and "who killed most" is the honest
+  // answer to "who is top of this list". Being top of a table nobody won is not
+  // winning, so the verdict below still says draw and nobody is stood up.
+  if (top.rounds === 0) return { key: null, by: "draw" };
+  // Level on rounds AND on kills — competition ranking gives every man in that
+  // knot place 1. A draw, and it is reported as one: the wire says winnerKind
+  // "none" and the stage stands nobody up.
+  if (rows.filter((r) => r.place === 1).length > 1) return { key: null, by: "draw" };
+  // Alone at the top. `by` is whether the rounds column settled it outright or
+  // whether it took the kills to separate him from the men level with him.
+  const levelOnRounds = rows.filter((r) => r.rounds === top.rounds).length > 1;
+  return { key: top.key, by: levelOnRounds ? "kills" : "rounds" };
 }
 
+// ---- what a place on the table is worth ----
+//
+// The owner asked for rounds won to "take into account for ranking & payout".
+// The obvious reading — pay a man per round he won — is the one thing
+// `docs/ROUNDS-AND-SPAWNS.md` forbids in as many words: *"Do not pay out per
+// round; a best-of-5 would then be worth five times a best-of-1 for the same
+// wall-clock and the economy would tilt toward whoever picks the longest
+// format."* So the rounds are paid THROUGH THE PLACE they bought. A place is
+// worth the same in a best-of-1 and a best-of-5, and it is the number the
+// rounds decide, so the pay reads the ranking without the format leaking into
+// the economy.
+//
+// Index 0 is first. First place is 50 g / 100 xp because that is EXACTLY what
+// the victor's bonus has always been — a won match pays what it has always
+// paid, and nothing here is a re-balance smuggled in behind a bug fix.
+//
+// SECOND AND THIRD ARE ZERO, AND THAT IS A REVERSAL. The first cut of this
+// paid 20 g / 40 xp and 10 g / 20 xp for the podium, on the reasoning that
+// second and third "were worth precisely nothing". That is an ECONOMY CHANGE
+// riding on a bug fix, and `docs/MONETISATION.md` is the only authority for
+// one. It gives none: the gold ladder is calibrated against the Sutton Hoo
+// helm at 2400 g — *"deliberately off the curve — ten matches of earnings —
+// because it is the game's crown"* — and *"gold buys things priced in play"*
+// with no conversion from anywhere else. A new payout tier shortens that ten
+// to something nobody chose, and it does it silently, in a commit whose
+// subject is the results table. The owner asked for the payout to FOLLOW the
+// ranking, which is a question about ORDER; he did not ask for more coin in
+// the world. So the tier is reverted and only its ordering role is kept. The
+// zeros stay written out rather than the array being trimmed to `[50]`,
+// because the shape is the decision: three places, and two of them pay
+// nothing until somebody with a reason changes it.
+//
+// ONE CONSEQUENCE IS STILL A CHANGE, and it is named rather than buried: the
+// purse is now bought by PLACE and not by `isWinner`, so a match that ends in
+// a true draw pays each joint-first man the 50 g the victor used to take
+// alone, where before it paid nobody. That falls straight out of competition
+// ranking — two men who finished dead level are both first — and it cannot be
+// removed without the purse and the place parting company again, which is the
+// whole defect. `tools/tiebreak.mjs` measures it and prints it on its verdict
+// line rather than leaving it to be discovered.
+const PLACE_GOLD = [50, 0, 0];
+const PLACE_XP = [100, 0, 0];
+
+/**
+ * The ledger a finished match broadcasts: every man's row, IN PLACEMENT ORDER,
+ * with the place, the rounds his side won, and the pay that placement bought.
+ *
+ * Pulled out of `endMatch` as a pure function of a tally because the cases that
+ * decide it are the ones a played match will not hand you on demand — two men
+ * finishing level on kills a round apart is the owner's report and it is not
+ * something `summaryflow` can arrange. `tools/tiebreak.mjs` states them
+ * directly against this. It was RED 5/16 on the build this replaced.
+ *
+ * `score` IS THE RANK KEY, and it is a PROJECTION OF `place` — never a second
+ * opinion about how to rank. That distinction is the whole of this paragraph
+ * and it is what the first cut of this function got wrong.
+ *
+ * THE DEFECT IT REPLACES, in full, because it is the owner's own screenshot
+ * reintroduced by the fix for it. `place` was computed on the BAND's kills
+ * (`rankEntrants` over the band tally) and `score` was computed on the
+ * INDIVIDUAL's: `seat.rounds * STEP + p.kills * 100`. Those two keys agree only
+ * while the bands differ on ROUNDS, where the 1e6 step drowns every kill count.
+ * Level on rounds, the step cancels, the sort collapses to each man's own hands,
+ * and the bands INTERLEAVE while `place` still says otherwise:
+ *
+ *     #1  Rand  7K  RNDS 1  +50g   (crowned)
+ *     #2  Bard  4K  RNDS 1  +0g
+ *     #2  Brun  2K  RNDS 1  +0g
+ *     #1  Rowa  0K  RNDS 1  +50g   <- placed FIRST, crowned, printed LAST,
+ *                                     beneath two men he out-placed
+ *
+ * A table that prints #1 #2 #2 #1 is not a ranking, it is two rankings arguing,
+ * and the purse ran backwards down it. `render/summary.ts` sorted the podium by
+ * the same key, so the wall seated a losing-band man above a winning one too.
+ *
+ * WHY THE FIRST CUT LOOKED RIGHT. `score` was READ as "the rule, restated for
+ * sorting" — and a restatement of a rule is exactly what this repository has
+ * recorded four times in `characters.ts` as its third failure mode. It was not
+ * even a faithful restatement: `rankEntrants` ranks ENTRANTS, and in a war band
+ * an entrant is a BAND, so `p.kills` is not the quantity the rule is about.
+ *
+ * So the key stops restating anything. It is built from the seat's `place` —
+ * the single answer `rankEntrants` already gave — and cannot contradict it by
+ * construction, because there is nothing left in it to disagree with. Within
+ * one place (a band's men, or two entrants genuinely tied) it falls through to
+ * the man's own kills: they share everything the ranking measures, so the only
+ * honest thing left to order them by is what each pair of hands did, and it is
+ * the number printed on the row.
+ *
+ * It also fixes a quieter disagreement. A man with no seat — no side, so no
+ * round and no place — is placed last by `unseated` below, but under the old
+ * key he scored `kills * 100` and so out-sorted every SEATED man on a
+ * round-less table. Place last, printed mid-table. Now he scores below all of
+ * them, because place is what the key is made of.
+ */
+// One place outranks any kill count: 10,000 kills to buy a place, and nobody
+// gets there. Named for what it steps over — the old name said ROUND, which is
+// no longer the quantity the key is built on.
+const PLACE_RANK_STEP = 1e6;
+
+export function buildLedger({ roundWins = {}, players = [], teamMode = false }) {
+  // The entity the match ranks: a man in a free-for-all, a BAND in a war band,
+  // because a war band ranks bands and not men.
+  const keyOf = (p) => (teamMode ? p.team : p.id);
+  const tally = new Map();
+  for (const p of players) {
+    const key = keyOf(p);
+    if (!key || key === "none") continue;
+    tally.set(key, (tally.get(key) || 0) + (p.kills || 0));
+  }
+  for (const key of Object.keys(roundWins)) if (!tally.has(key)) tally.set(key, 0);
+  const entrants = [...tally].map(([key, kills]) => ({ key, kills }));
+  const order = rankEntrants({ roundWins, entrants });
+  const { key: winnerKey, by: winnerBy } = decideMatch({ roundWins, entrants });
+  const seats = new Map(order.map((r) => [r.key, r]));
+  // A man with no seat has no side — he cannot have won a round or a place, so
+  // he sits below everyone who could and is paid for his own hands only.
+  const unseated = { place: order.length + 1, rounds: 0 };
+  // A CONSEQUENCE WORTH KNOWING ABOUT: `rankEntrants` seats everyone who won a
+  // round, including men who have since left, because `decideMatch` refuses to
+  // deny a man a match he won by disconnecting after winning it. So a table can
+  // legitimately open at #2 — the #1 is a man who is no longer in the room. That
+  // is the honest reading and it is deliberately not papered over by renumbering
+  // the survivors: doing so would hand somebody a first place he did not take.
+
+  const results = players.map((p) => {
+    const seat = seats.get(keyOf(p)) || unseated;
+    const victor = !!winnerKey && (teamMode ? p.team === winnerKey : p.id === winnerKey);
+    const purseXp = PLACE_XP[seat.place - 1] || 0;
+    const purseGold = PLACE_GOLD[seat.place - 1] || 0;
+    const xp = 50 + p.kills * 30 + p.damage * 0.5 + purseXp;
+    const gold = 10 + p.kills * 15 + purseGold;
+    return {
+      id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, damage: p.damage,
+      // Rounds his SIDE won. In a free-for-all that is his own; in a war band it
+      // is the band's, and every man on the band carries it — which is the same
+      // answer `place` gives, and they must not be able to disagree.
+      roundsWon: seat.rounds,
+      place: seat.place,
+      // `order.length + 1 - place` so first place is the biggest number and a
+      // man with no seat (place = order.length + 1) scores below every seated
+      // man rather than above them. See the header: this is `place` in a shape
+      // a descending sort can read, and it is not a restatement of the rule.
+      score: (order.length + 1 - seat.place) * PLACE_RANK_STEP + p.kills * 100,
+      isWinner: victor,
+      xpEarned: Math.floor(xp), goldEarned: Math.floor(gold),
+    };
+  });
+  // SORTED HERE, once, on the server. It used to leave in the room's join order
+  // and let each screen sort its own copy — page.tsx by score for the ledger,
+  // render/summary.ts by score for the podium — which is two chances to disagree
+  // about who won and no authority to settle it. Both now take the row order as
+  // delivered; this is the only sort left in the ledger's life.
+  results.sort((a, b) => b.score - a.score);
+  return { results, order, winnerKey, winnerBy };
+}
+
+/**
+ * Seconds a whole swing takes for this class, heavy or light.
+ *
+ * This line was stranded three functions up the file, sitting above the
+ * tiebreak's header where it read as a description of `decideMatch`. Moved back
+ * onto the function it describes: a comment attached to the wrong code is the
+ * same defect as a comment asserting the wrong value.
+ */
 export function swingDurationOf(warriorClass, isHeavy) {
   const stats = WARRIOR_STATS[warriorClass] ?? WARRIOR_STATS.huscarl;
   return stats.attackSpeed * (isHeavy ? HEAVY_SWING_SCALE : 1);
@@ -1065,25 +1284,12 @@ export function makeEngine(options = {}) {
     return p ? p.name : "Draw";
   }
 
-  /** The key with the most round wins, or null if nobody leads alone. */
-  function roundLeader(room) {
-    const teamMode = isTeamMode(room);
-    // Every side that could win, with the kills it is carrying. In a war band
-    // that is the band's kills summed, because a war band ranks bands, not men.
-    const tally = new Map();
-    room.players.forEach((p) => {
-      const key = teamMode ? p.team : p.id;
-      if (!key || key === "none") return;
-      tally.set(key, (tally.get(key) || 0) + (p.kills || 0));
-    });
-    for (const key of Object.keys(room.roundWins || {})) {
-      if (!tally.has(key)) tally.set(key, 0);   // won a round then left
-    }
-    return decideMatch({
-      roundWins: room.roundWins || {},
-      entrants: [...tally].map(([key, kills]) => ({ key, kills })),
-    });
-  }
+  // `roundLeader` stood here: it summed the room into entrants and asked
+  // `decideMatch` for the one man who took the match, and nothing else in the
+  // building ever saw the ordering that answer came out of. That is why the
+  // table, the podium and the purse were all still reading kills. The summing is
+  // now inside `buildLedger`, which returns the WHOLE field in order and the
+  // verdict from the same pass — one tally, one rule, one answer.
 
   const sendLobbyUpdate = (room) => broadcast(room, { type: "lobby_update", data: serializeRoom(room) });
 
@@ -1988,18 +2194,19 @@ export function makeEngine(options = {}) {
 
   // Paid ONCE, from the totals the whole match accumulated. Per-round payout
   // would make a best-of-5 worth five times a best-of-1 for the same evening,
-  // and the format a player picks is not supposed to be an economic decision.
+  // and the format a player picks is not supposed to be an economic decision —
+  // which is why `buildLedger` pays the PLACE the rounds bought rather than the
+  // rounds themselves. See PLACE_GOLD.
   function endMatch(room) {
     room.state = "finished";
     const teamMode = isTeamMode(room);
-    const { key: winnerKey, by: winnerBy } = roundLeader(room);
-    const won = (p) => !!winnerKey && (teamMode ? p.team === winnerKey : p.id === winnerKey);
-    const results = [];
-    room.players.forEach((p) => {
-      const victor = won(p);
-      const xp = 50 + p.kills * 30 + p.damage * 0.5 + (victor ? 100 : 0);
-      const gold = 10 + p.kills * 15 + (victor ? 50 : 0);
-      results.push({ id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, damage: p.damage, score: p.score, isWinner: victor, xpEarned: Math.floor(xp), goldEarned: Math.floor(gold) });
+    const roster = [];
+    room.players.forEach((p) => roster.push(p));
+    // Ranked, placed, paid and sorted in one pass, so the row order the client
+    // prints, the podium `render/summary.ts` builds and the coins each man is
+    // handed cannot come from three different opinions about who won.
+    const { results, winnerKey, winnerBy } = buildLedger({
+      roundWins: room.roundWins || {}, players: roster, teamMode,
     });
     broadcast(room, { type: "match_end", data: {
       // `winnerId` stays what it was so nothing already reading it breaks, but a

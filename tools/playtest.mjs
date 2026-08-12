@@ -946,10 +946,61 @@ async function main() {
 
   await page.waitForTimeout(500);
   await rec();
+  /**
+   * A BASELINE SAMPLE MUST EXIST BEFORE THE FLICK, AND THIS IS A FIXED RULER
+   * RATHER THAN A RELAXED ONE.
+   *
+   * `peakTurnRate` is a difference between consecutive recorded snapshots. A
+   * FREE turn is not slewed — the server adopts the client's yaw on the next
+   * tick — so the whole 2.53 rad arrives inside a single 50 ms step. This line
+   * used to open the recorder and dispatch the flick in the very next
+   * statement, which left it a race: if the first snapshot to reach the page
+   * was already the post-flick one, every sample in the window carried the SAME
+   * rotation and the peak came out at exactly 0.00.
+   *
+   * That is the harness answering a different question from the one it asks in
+   * its own name — docs/PROCESS.md failure mode 1, and the eleven instances
+   * before it. It is not a threshold that was too tight: 0.00 rad/s reads as
+   * "free look is dead", and it was measured on a build where the committed
+   * sweep three seconds later turned the body 0.90 rad at a peak of 1.80 rad/s
+   * through the IDENTICAL synthetic-mousemove path, and where "mouse turns the
+   * camera" had just passed at rotation -1.57 -> 0.06. Free look was working
+   * every time; the window simply opened too late to contain the event.
+   *
+   * The fix is to make the window provably straddle the flick: wait for two
+   * snapshots to be in the recorder before asking for any turn at all. Then the
+   * jump cannot land before the first sample, and the rate it produces is the
+   * simulation's rather than the scheduler's.
+   */
+  await page.waitForFunction(() => (window.__probe.rec || []).length >= 2, null, { timeout: 15000 });
   const freeInfo = await sweepLook(false);
   await page.waitForTimeout(600);
   const freeSamples = await stopRec();
-  const freePeak = peakTurnRate(freeSamples.filter((s) => s.phase === null));
+  const freeFree = freeSamples.filter((s) => s.phase === null);
+  const freePeak = peakTurnRate(freeFree);
+  /**
+   * WHY THIS IS PRINTED AND NOT JUST THE RATE.
+   *
+   * `peakTurnRate` returns 0.00 for three completely different worlds: no
+   * samples reached the recorder, samples reached it but the server's clock did
+   * not advance between them, or the man genuinely did not turn. The check
+   * below printed the bare `0.00 rad/s` for all three, and a `0.00` that cannot
+   * say which is the ruler failing to answer the question it was asked — the
+   * exact fault docs/PROCESS.md counts eleven of.
+   *
+   * It cost a full attribution cycle on 12 Aug: a run scored 0.00 here, a clean
+   * checkout scored 50.69, and there was no way to tell from the output whether
+   * the build had broken free look or the box had simply starved the page — so
+   * the whole harness had to be run three more times to find out. These three
+   * numbers answer it in one line.
+   */
+  const freeSpan = freeFree.length > 1
+    ? { n: freeFree.length, rot: Math.abs(wrapPi(freeFree[freeFree.length - 1].rot - freeFree[0].rot)), t: freeFree[freeFree.length - 1].t - freeFree[0].t }
+    : { n: freeFree.length, rot: 0, t: 0 };
+  const freeWhy = freeSpan.n < 2 ? "THE RECORDER CAUGHT NOTHING — the page never processed two snapshots in the window"
+    : freeSpan.t <= 1e-6 ? "THE SERVER CLOCK DID NOT ADVANCE between the samples — every dt was zero"
+      : freeSpan.rot < 1e-3 ? "THE MAN GENUINELY DID NOT TURN — samples arrived, time passed, rotation did not"
+        : "";
 
   await page.waitForTimeout(800);
   await rec();
@@ -978,7 +1029,9 @@ async function main() {
 
   check("free turning is faster than the committed cap", freePeak > SWING_TURN_RATE,
     `${freePeak.toFixed(2)} rad/s under the same sweep (${freeInfo.sent}/${SWEEP_STEPS} steps, ${freeInfo.why}), ` +
-    `against a cap of ${SWING_TURN_RATE}`);
+    `against a cap of ${SWING_TURN_RATE}` +
+    ` — ${freeSpan.n} free samples spanning ${freeSpan.rot.toFixed(2)} rad over ${freeSpan.t.toFixed(2)} s of sim` +
+    (freeWhy ? `; ${freeWhy}` : ""));
   // Three teeth, and the first two are what keep this from measuring itself.
   //   `asked` — the demand actually reached the wire DURING the stroke. Below
   //     1.5 rad the sweep missed its window and the run proves nothing; it is

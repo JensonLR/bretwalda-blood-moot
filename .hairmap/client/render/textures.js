@@ -4,9 +4,15 @@
 // runtime out of a small bank of shared noise fields, so the game stays a
 // single instant-play link with no download step.
 //
-// Against VISUAL-BAR §4's ~250 ms / ~40 MB: all nineteen surfaces at the high
-// tier come to 28 MB, comfortably inside, and memory has not moved in a while —
-// it is a function of the tier's resolutions and nothing else. Time is the
+// Against VISUAL-BAR §4's ~250 ms / ~40 MB: all twenty-one surfaces at the high
+// tier come to 33 MB (four `hero` at 512² and seventeen `prop` at 256², through
+// this file's own `texels * 4 * 3 * 1.34`), plus 0.4 MB of sprites. Comfortably
+// inside, and memory has not moved in a while — it is a function of the tier's
+// resolutions and nothing else. The count said "nineteen" and the figure said
+// "28 MB"; both were stale, and see `createTextureLibrary` for the larger
+// version of the same slip. `medium` now holds the same 33 MB as `high`, because
+// `textureSize` was already identical on the two tiers and `spriteSize` has come
+// to parity — texture resolution was never the mobile gap. Time is the
 // tighter one. Twelve surfaces are what materials.ts's catalog and world.ts's
 // tinted() calls actually pull while the arena is being built, and that set is
 // what the load-time budget means; the other seven are characters and decals and
@@ -2797,10 +2803,25 @@ mips) {
 }
 export function createTextureLibrary(renderer, settings) {
     const maxAniso = Math.min(settings.anisotropy, renderer.capabilities.getMaxAnisotropy());
-    // 512 is the ceiling regardless of tier. Eighteen full PBR sets at 1024²
-    // would be ~290 MB against a 40 MB budget, and these patterns are analytic —
+    // 512 is the ceiling regardless of tier, because these patterns are analytic —
     // the detail lives in the normal map, not in the texel count, so 1024 buys
     // memory pressure and nothing a player can see.
+    //
+    // The number that used to carry this paragraph was "eighteen full PBR sets at
+    // 1024² would be ~290 MB", and it was wrong twice. There are TWENTY-ONE
+    // recipes, not eighteen; and only four of them are `hero`, with `propSize`
+    // pinned at `heroSize >> 1`, so lifting `textureSize` to 1024 puts four
+    // surfaces at 1024² and seventeen at 512² — never twenty-one at 1024². By this
+    // function's own accounting two lines down (`texels * 4 * 3 * 1.34`) that is
+    // 4 x 16.1 MB + 17 x 4.0 MB = **133 MB**, and the shipped 512/256 build is
+    // 4 x 4.0 + 17 x 1.0 = **33 MB**. Against §4's 40 MB the ceiling still holds
+    // comfortably; it just holds by 3.3x rather than by the 7x this claimed.
+    //
+    // Corrected rather than deleted because a figure that overstates its own case
+    // is how a real decision gets taken for a fake reason, and the next person to
+    // ask "could mobile have sharper textures?" deserves the true margin. (It is
+    // also the wrong question: `textureSize` is already 512 on BOTH `medium` and
+    // `high`, so texture resolution is not the mobile gap. It only bites at `low`.)
     const heroSize = Math.max(128, Math.min(settings.textureSize, 512));
     const propSize = Math.max(64, heroSize >> 1);
     const bankSize = heroSize <= 256 ? 128 : 256;

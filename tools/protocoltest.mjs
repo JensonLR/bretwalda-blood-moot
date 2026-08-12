@@ -351,12 +351,39 @@ async function scenarioMatch() {
     me.results.length === 2 && [mine, theirs].every((r) =>
       typeof r.name === "string" && Number.isInteger(r.kills) && Number.isInteger(r.deaths) &&
       Number.isInteger(r.xpEarned) && Number.isInteger(r.goldEarned) && typeof r.isWinner === "boolean"));
+  // CHANGED, AND SAID OUT LOUD, because a harness quietly edited to fit a new
+  // build is how a defect gets certified. The bonus a man is paid used to be
+  // `isWinner ? 50 : 0`; it is now the purse for the PLACE he finished in
+  // (`PLACE_GOLD` / `PLACE_XP` in engine.mjs), because the owner asked for
+  // rounds won to count toward the payout and a place is what rounds buy. So
+  // the loser's arithmetic follows the PLACE he finished in and not his crown.
+  //
+  // SECOND PLACE IS BACK TO ZERO. The first cut of that change also gave second
+  // and third 20 g / 40 xp, which is a new payout tier riding on a bug fix and
+  // has no authority in `docs/MONETISATION.md` — see the argument written out
+  // beside PLACE_GOLD. So the winner's line is exactly the 50 / 100 it has
+  // always been and the loser's is exactly the nothing it has always been, and
+  // what actually changed is only WHICH man each is handed to.
+  //
+  // NOT relaxed: the numbers are still written out here by hand rather than
+  // imported, or the check would agree with the engine by construction and
+  // measure nothing. And it is STRICTER than it was — it now also pins `place`
+  // and `roundsWon` on a real match driven through the whole wire, which the
+  // fixtures in `tiebreak.mjs` cannot do because they never reach `endMatch`.
   check("the payout is the engine's own arithmetic, not the client's",
     theirs.isWinner === true && mine.isWinner === false &&
     theirs.xpEarned === Math.floor(50 + theirs.kills * 30 + theirs.damage * 0.5 + 100) &&
     theirs.goldEarned === Math.floor(10 + theirs.kills * 15 + 50) &&
-    mine.goldEarned === Math.floor(10 + mine.kills * 15),
-    `winner ${theirs.goldEarned}g / ${theirs.xpEarned}xp, loser ${mine.goldEarned}g / ${mine.xpEarned}xp`);
+    mine.xpEarned === Math.floor(50 + mine.kills * 30 + mine.damage * 0.5 + 0) &&
+    mine.goldEarned === Math.floor(10 + mine.kills * 15 + 0) &&
+    theirs.place === 1 && mine.place === 2 &&
+    theirs.roundsWon === 1 && mine.roundsWon === 0,
+    `winner ${theirs.goldEarned}g / ${theirs.xpEarned}xp / #${theirs.place} / ${theirs.roundsWon} rnd,`
+    + ` loser ${mine.goldEarned}g / ${mine.xpEarned}xp / #${mine.place} / ${mine.roundsWon} rnd`);
+  check("the results leave the server already in placement order",
+    me.results[0]?.id === bid && me.results[0]?.place === 1,
+    `order=${me.results.map((r) => `${r.name}#${r.place}`).join(" > ")} — the row order is the`
+    + ` server's answer now, not three screens each sorting their own copy`);
   check("a man who died still gets a row", mine.deaths === 1);
 
   const b = host.bytes("game_state");

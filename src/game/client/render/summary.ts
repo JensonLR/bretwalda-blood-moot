@@ -644,12 +644,24 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     // Who remains: disconnected men have no record and no rig, and the stage
     // holds who is actually here rather than who the results table remembers.
     const here = Object.values(room.players).filter((p) => warriors.has(p.id));
-    // The results arrive in the room's JOIN order — the server never sorts
-    // them (page.tsx sorts its own copy for the ledger). Rank here has to
-    // mean merit, or "the side's best leads the wall" quietly becomes "the
-    // host leads the wall".
-    const rank = new Map(
-      [...verdict.results].sort((a, b) => b.score - a.score).map((r, i) => [r.id, i]));
+    // THE RESULTS ARRIVE RANKED. `buildLedger` in engine.mjs places, pays and
+    // SORTS them on the server, and the row order it sends is the row order
+    // page.tsx prints. Rank here has to mean merit, or "the side's best leads
+    // the wall" quietly becomes "the host leads the wall" — and it has to mean
+    // the SAME merit the table beside the picture is printing, or the wall and
+    // the numbers name different men.
+    //
+    // BOTH CLAUSES OF THE COMMENT THAT STOOD HERE WERE FALSE (PROCESS.md R7):
+    // it said the server never sorts and that page.tsx sorts its own copy.
+    // Neither had been true since the ledger moved onto the server, and the
+    // line it justified — `[...results].sort((a, b) => b.score - a.score)` —
+    // was the second opinion it warned about. It was also actively wrong for a
+    // war band: `score` carried each MAN's kills while `place` carried his
+    // BAND's, so on a match where the bands finished level on rounds this sort
+    // seated a losing-band man above a winning-band man while the table beside
+    // him printed the opposite. Taking the order as delivered is the fix, and
+    // it is also one less place for the two to ever disagree again.
+    const rank = new Map(verdict.results.map((r, i) => [r.id, i]));
     here.sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
 
     let victor: GamePlayer | null = null;
