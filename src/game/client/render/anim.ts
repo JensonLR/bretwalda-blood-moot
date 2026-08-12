@@ -2909,11 +2909,24 @@ function knockLayer(elapsed: number, downLeft: number, riseLen: number, fall: nu
   P.olz = -0.60 * lie - 0.35 * plant;
   P.olb = -0.25 - 0.40 * lie - 0.75 * plant;
 
-  // Legs. Folded under him on the ground, then one knee comes up and takes him.
-  P.lrb = 0.55 * lie + 1.35 * legsUp * (1 - legsUp) * 2 + 0.18;
-  P.llb = 1.05 * lie + 0.55 * legsUp * (1 - legsUp) * 2 + 0.14;
-  P.lrx = -0.42 * lie - 0.55 * legsUp * (1 - legsUp) * 2;
-  P.llx = 0.30 * lie;
+  // Legs. The knees BUCKLE as he goes over and STRAIGHTEN as he lands, and the
+  // second half of that is not decoration — it is the difference between a man
+  // lying down and a man with his shins in the air.
+  //
+  // `rig.body` pivots at the FEET (the same geometry `deathLayer` relies on), so
+  // a straight body pitched a right angle is a body lying flat. Folded knees
+  // under that rotation put the shins vertically above the pelvis: the first
+  // capture of this strip showed exactly that in frames 3-5, a man on his
+  // shoulder blades with his legs in the air, which reads as a backwards roll
+  // rather than as a fall. `deathLayer` had already solved it the same way and
+  // says so in its own comment — the knees are the first beat of the collapse
+  // and they straighten again as the body goes flat.
+  const settled = smooth(clamp01((elapsed - 0.18) / 0.28));
+  const fold = lie * mix(1.25, 0.10, settled);
+  P.lrb = fold + 1.35 * legsUp * (1 - legsUp) * 2 + 0.18;
+  P.llb = fold * 0.82 + 0.55 * legsUp * (1 - legsUp) * 2 + 0.14;
+  P.lrx = -0.42 * lie * (1 - settled * 0.7) - 0.55 * legsUp * (1 - legsUp) * 2;
+  P.llx = 0.30 * lie * (1 - settled * 0.7);
   P.lrz = 0.24 * lie;
   P.llz = -0.20 * lie;
 
