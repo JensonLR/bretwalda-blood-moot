@@ -655,9 +655,22 @@ function drawTracked(ctx: CanvasRenderingContext2D, text: string, x: number, y: 
 // Sized so the type nearly fills the canvas, leaving only enough margin for the
 // halo. Padding here is not free: the quad is a fixed aspect, so every wasted
 // row of canvas is glyph height thrown away on screen at the same world size.
+//
+// `medium` carries `high`'s canvas, and that is the whole of the change. This is
+// a ONE-TIME CanvasTexture per distinct name — 512x112 RGBA is 229 KB against
+// 129 KB, it is drawn once and cached, and it costs the frame nothing: the quad,
+// the draw call and the aspect are identical either way. The old `medium` row
+// was 75% of the glyph height on the tier EVERY PHONE RENDERS AT, so a
+// nameplate — the one piece of type a player reads in a fight — was soft on
+// mobile and crisp on desktop for a saving of 100 KB. That is exactly the
+// "quality of visuals is much lower on mobile" the owner reported, and it is the
+// cheapest instance of it in the renderer.
+//
+// `low` still steps down: it is the tier for devices that are genuinely short of
+// memory, and there the 100 KB is a real answer rather than an excuse.
 const NAME_CANVAS: Record<QualityTier, { w: number; h: number; size: number }> = {
   high: { w: 512, h: 112, size: 60 },
-  medium: { w: 384, h: 84, size: 45 },
+  medium: { w: 512, h: 112, size: 60 },
   low: { w: 256, h: 56, size: 30 },
 };
 
@@ -769,9 +782,14 @@ function buildNameGlyphs(key: string, name: string, isLocal: boolean, tier: Qual
   return { texture: tex, aspect: spec.w / spec.h, ink: width / spec.w, key, refs: 0 };
 }
 
+// Same argument as NAME_CANVAS, and a smaller number: 192x128 is 98 KB against
+// 68 KB, cached per distinct amount, and damage numbers are the fastest-moving
+// type in the game — the tier that gets them soft is the tier where they are
+// hardest to read. The aspect moves 1.509 -> 1.5, which is 0.6% of plate width
+// and below anything a layout in this file depends on.
 const DMG_CANVAS: Record<QualityTier, { w: number; h: number; size: number }> = {
   high: { w: 192, h: 128, size: 76 },
-  medium: { w: 160, h: 106, size: 64 },
+  medium: { w: 192, h: 128, size: 76 },
   low: { w: 112, h: 74, size: 44 },
 };
 

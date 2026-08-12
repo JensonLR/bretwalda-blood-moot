@@ -13,8 +13,11 @@
 // canvas, so the flick that aims the cut has to be read here. The two halves
 // meet at the swing gesture that input.ts owns.
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Swords, Hammer, Shield, Wind, Sparkles, Zap, KeyRound, RotateCcw, X, Plus, Hand } from "lucide-react";
+import { Swords, Hammer, Shield, Wind, Sparkles, Zap, KeyRound, RotateCcw, X, Plus, Hand, Gauge, Check } from "lucide-react";
 import type { AttackDirection, GamePlayer } from "../types";
+// Types only — erased at compile time. The values come through `loadQualityApi`
+// below, and the comment there is the whole reason this line says `type`.
+import type { QualityChoice, QualityStatus, QualityTier } from "./render/quality";
 import { WARRIOR_STATS } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
@@ -365,6 +368,201 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// GRAPHICS — the release valve on quality.ts, and a blocking control rather
+// than a nicety.
+//
+// quality.ts can DEMOTE a device on measured frame time and persist that
+// verdict across loads. Round one shipped that governor with the escape hatch
+// written, documented and called by nothing: repo-wide, `setQualityPreference`
+// appeared only in tools/tiertest.mjs and in build output. So a device demoted
+// on one hot afternoon had exactly one way back — clear site data — and a
+// harness row certifying "choosing Automatic clears a stale demotion" was green
+// on a path the shipped app could not reach.
+//
+// One panel for both platforms, because the owner has twice asked that an
+// upgrade be for mobile AND desktop, and because a phone is where this matters
+// most: it is the device the governor is likeliest to act on and the device
+// whose player has no `?quality=` to type. It opens from inside a fight on
+// both — a gear on the movement thumb's side of a phone, a button beside KEYS
+// on a desktop — because "change your graphics" is a thing a player wants at
+// the moment the fight looks wrong, not at the moment he next sees a menu.
+// ---------------------------------------------------------------------------
+
+/**
+ * quality.ts is loaded ON DEMAND and never at import time, and that is a bundle
+ * decision rather than a taste: page.tsx `dynamic()`-imports `KeyBindingsPanel`
+ * out of THIS FILE to put key bindings on the MENU screens, and quality.ts
+ * imports three. A static import here would therefore hang the entire renderer
+ * off the landing page's settings dialog, on a phone, to draw four buttons.
+ *
+ * Inside a fight — the only place this panel opens from — three is already
+ * loaded, so the import resolves out of the module registry in the same tick.
+ * Same registry entry, too, which is the load-bearing half: QUALITY_GOVERNOR is
+ * a singleton and `chooseQuality` has to reach the LIVE one, not a second copy.
+ */
+type QualityApi = typeof import("./render/quality");
+let qualityApi: QualityApi | null = null;
+function loadQualityApi(): Promise<QualityApi> {
+  return qualityApi
+    ? Promise.resolve(qualityApi)
+    : import("./render/quality").then((m) => (qualityApi = m));
+}
+
+/** What each tier costs, in the words of the thing a player would notice. */
+const QUALITY_BLURB: Record<QualityChoice, string> = {
+  high: "Everything on. Full-size shadows, depth of field, every torch a real light.",
+  medium: "Desktop sharpness with fewer pixels in it, a softer shadow, no depth of field.",
+  low: "For a phone that is struggling. Also drops the roughness, metal and ambient-occlusion maps off every surface — the largest single step down in the game.",
+  auto: "Measure this device and decide. Clears anything measured before.",
+};
+
+const TIER_WORD: Record<QualityTier, string> = { high: "High", medium: "Balanced", low: "Fast" };
+
+export function GraphicsPanel({ onClose }: { onClose: () => void }) {
+  const [api, setApi] = useState<QualityApi | null>(qualityApi);
+  const [status, setStatus] = useState<QualityStatus | null>(null);
+  const list = useRef<HTMLDivElement | null>(null);
+
+  // KEEP THE CHOSEN ROW ON SCREEN, and this is a capture finding rather than a
+  // precaution. "Automatic" is last in QUALITY_CHOICES and it is also the row
+  // that undoes a demotion — so on a 1280x800 window the first shot of this
+  // panel had the release valve sliced in half by the DONE button, and choosing
+  // it pushed what was left behind the "Kept" block. Nothing in the DOM was
+  // wrong and nothing measured it; it was visible in one PNG.
+  useEffect(() => {
+    if (!status) return;
+    list.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [status]);
+
+  useEffect(() => {
+    let live = true;
+    void loadQualityApi().then((m) => {
+      if (!live) return;
+      setApi(m);
+      setStatus(m.readQualityStatus());
+    });
+    return () => { live = false; };
+  }, []);
+
+  const pick = useCallback((choice: QualityChoice) => {
+    if (!api) return;
+    api.chooseQuality(choice);
+    // Re-read rather than assume: what "Automatic" resolves to is the governor's
+    // business, and the point of the button is to SHOW that it cleared.
+    setStatus(api.readQualityStatus());
+  }, [api]);
+
+  const choices = api?.QUALITY_CHOICES ?? (["high", "medium", "low", "auto"] as const);
+  const labels = api?.QUALITY_CHOICE_LABELS;
+  // What the store now says, against what the renderer was actually forged at.
+  // Everything but the pixel ratio is built once, so a choice made here is
+  // half-applied until the arena is next built — `QualityStatus.forged` is the
+  // field that lets this panel say which half rather than claiming it all
+  // landed. It comes from quality.ts because that module is the only thing that
+  // knows what was handed to the forge.
+  const pending = Boolean(status && status.forged !== null && status.active !== status.forged);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-3 backdrop-blur-sm"
+      role="dialog" aria-modal="true" aria-label="Graphics quality">
+      <div className="card card-noble card-glow flex max-h-[92vh] w-full max-w-md flex-col gap-3 p-4 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="label-overline">SETTINGS</div>
+            <div className="font-display text-xl tracking-wider text-amber-100 sm:text-2xl">GRAPHICS</div>
+          </div>
+          <button onClick={onClose} aria-label="Close graphics settings"
+            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-stone-300 transition hover:border-amber-600/70 hover:text-amber-200">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="knot-band w-full" />
+
+        {/* What is happening RIGHT NOW, and why. A player looking at a soft
+            picture he never asked for is owed the reason in a sentence. */}
+        <div className="rounded-lg border border-stone-700/70 bg-black/40 px-3 py-2">
+          <div className="text-[10px] font-bold tracking-[0.18em] text-stone-400">NOW RENDERING</div>
+          <div className="font-display text-lg tracking-wider text-amber-100">
+            {status ? TIER_WORD[status.active] : "…"}
+          </div>
+          <div className="mt-0.5 text-[11px] leading-relaxed text-stone-400">
+            {!status ? "Reading this device…"
+              : status.pinned ? `Pinned by ?quality=${status.pinned} on the address bar — that beats this control, and clearing it needs the address bar too.`
+              : status.choice !== "auto" ? "Your choice, kept for this browser."
+              : status.measured ? "Automatic, from frame time measured on this device."
+              : "Automatic, from what this device reports about itself."}
+          </div>
+        </div>
+
+        {/* THE STALE DEMOTION, IN WORDS. This is the state that was permanent
+            and unsayable: the governor holding a device below its own guess,
+            with nothing on screen admitting it and no way to undo it. */}
+        {status?.demoted && (
+          <div className="animate-fadeIn rounded-lg border border-amber-600/70 bg-amber-950/50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-100">
+            <span className="font-bold">This device stuttered once. </span>
+            It has been held at {TIER_WORD[status.active]}, though on its own reckoning it is
+            a {TIER_WORD[status.detected]} device. Choose <span className="font-bold">Automatic</span> to
+            throw that away and measure again, or pick a tier yourself.
+          </div>
+        )}
+
+        <div ref={list} className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+          {choices.map((c) => {
+            const on = status?.choice === c;
+            return (
+              <button key={c} onClick={() => pick(c)} disabled={!api}
+                aria-pressed={on}
+                className={`mb-2 flex w-full items-start gap-3 rounded-lg border px-3 py-3 text-left transition disabled:opacity-50 ${
+                  on ? "border-amber-500/80 bg-amber-950/40" : "border-stone-700/70 bg-stone-900/60 hover:border-amber-700/70"
+                }`}>
+                <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                  on ? "border-amber-400 bg-amber-500/25 text-amber-200" : "border-stone-600 text-transparent"
+                }`}>
+                  <Check size={12} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-bold tracking-wider text-amber-200">
+                    {labels?.[c] ?? c.toUpperCase()}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-stone-400">{QUALITY_BLURB[c]}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* The honest half of a mid-fight change. Pixel ratio is the one knob
+            three re-honours live; everything else is forge-time. Reloading is
+            offered and never taken automatically, because page.tsx joins its
+            room from memory and rejoins nothing — a reload mid-match is a
+            forfeit, and a settings panel must not spend a player's fight. */}
+        {pending && (
+          <div className="animate-fadeIn rounded-lg border border-stone-600/70 bg-stone-900/80 px-3 py-2.5">
+            {/* Two wordings, because two different things are true. Picking a
+                TIER moves the pixel ratio at once (`QUALITY_GOVERNOR.adopt`);
+                picking Automatic only throws the stored verdict away, and the
+                measuring starts again on the next load. One sentence covering
+                both would have to be false for one of them. */}
+            <div className="text-[11px] leading-relaxed text-stone-300">
+              <span className="font-bold text-amber-200">Kept. </span>
+              {status?.choice === "auto"
+                ? "This device gets measured again from the next load; what is on the screen right now is still the tier it was forged at."
+                : "The pixel count has already changed. Shadow maps, bloom, ambient occlusion and the texture maps are built when the arena is forged, so those land the next time it is — rebuilding now would leave this fight."}
+            </div>
+            <button onClick={() => status && api?.applyQualityPreference(status.choice)}
+              className="btn-ghost mt-2 !min-h-[2.5rem] w-full !text-[11px]">
+              REBUILD NOW — LEAVES THE FIGHT
+            </button>
+          </div>
+        )}
+
+        <button onClick={onClose} className="btn-primary !min-h-[3rem] w-full !text-[12px]">DONE</button>
+      </div>
+    </div>
+  );
+}
+
 export default function GameHud({
   playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos,
 }: GameHudProps) {
@@ -392,6 +590,10 @@ export default function GameHud({
   const [taught, setTaught] = useState(false);
   // Rebinding mid-fight, which is when anyone wants it.
   const [keysOpen, setKeysOpen] = useState(false);
+  // And changing the picture mid-fight, which is the same argument: the moment
+  // a player wants this is the moment the fight is stuttering or has gone soft
+  // on him, and quality.ts can put it there without being asked.
+  const [gfxOpen, setGfxOpen] = useState(false);
   // POINTER LOCK, AS RENDER STATE AND NOT ONLY AS A REF.
   //
   // The KEYS button used to call `document.exitPointerLock()` from its onClick,
@@ -786,6 +988,35 @@ export default function GameHud({
       </>
     )}
 
+    {/* GRAPHICS, on a phone, from inside the fight — the mobile half of the
+        release valve described above GraphicsPanel.
+
+        WHERE IT SITS, and none of it is taste. It is on the MOVEMENT thumb's
+        side: touchtest measured 80 sampled points that an opaque control parked
+        in the free-look half swallows, and free look is a drag anywhere on that
+        half (docs/MOBILE-CONTROLS.md). On this side the neighbours are RUN at
+        24, HAND at 92 and page.tsx's ability readout at 152–196, so 212 is the
+        first clear shelf above them.
+
+        It is NOT inside the cluster block above, which is gated on the player
+        being alive. A man who is dead is spectating, not gone, and spectating a
+        stuttering fight is exactly when he would reach for this.
+
+        onClick, not onTouchStart: every button in the cluster fires on
+        touchstart because a swing that waits for a click is a swing that lands
+        late, and none of that applies to opening a dialog. A click also cannot
+        deliver a ghost tap into the panel it just opened. */}
+    {isMobile.current && isFighting && (
+      <button
+        style={far(16, 212)}
+        onClick={() => setGfxOpen(true)}
+        aria-label="Graphics quality"
+        className="absolute z-20 w-[48px] h-[48px] rounded-full bg-stone-800/90 active:bg-stone-600 text-amber-100 border-2 border-amber-700/60 flex flex-col items-center justify-center gap-px shadow-lg shadow-black/50">
+        <Gauge size={16} />
+        <span className="text-[7px] tracking-[0.12em] leading-none text-amber-200/70">QUALITY</span>
+      </button>
+    )}
+
     {!isMobile.current && isFighting && !locked && !keysOpen && (
       <div className="absolute inset-0 flex items-center justify-center bg-black/45 z-10 pointer-events-none">
         <div className="text-white text-lg bg-black/70 px-7 py-3.5 rounded-lg border border-amber-900/60 tracking-wide font-display">
@@ -812,15 +1043,28 @@ export default function GameHud({
         <span>FOR KEYS</span>
       </div>
     ) : (
-      <button
-        onClick={() => { document.exitPointerLock?.(); setKeysOpen(true); }}
-        aria-label="Key bindings"
-        className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-amber-700/70 bg-stone-900/85 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-amber-200 backdrop-blur transition hover:border-amber-500 hover:text-amber-100">
-        <KeyRound size={13} /> KEYS
-      </button>
+      // Two controls, one shelf. GRAPHICS is the desktop half of the release
+      // valve — the note above keeps saying FOR KEYS on purpose, because that
+      // is the wording docs/KEYBINDS.md describes and Escape now frees the
+      // cursor for both of them anyway.
+      <div className="absolute bottom-3 right-3 z-30 flex items-center gap-2">
+        <button
+          onClick={() => { document.exitPointerLock?.(); setGfxOpen(true); }}
+          aria-label="Graphics quality"
+          className="flex items-center gap-1.5 rounded-lg border border-amber-700/70 bg-stone-900/85 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-amber-200 backdrop-blur transition hover:border-amber-500 hover:text-amber-100">
+          <Gauge size={13} /> GRAPHICS
+        </button>
+        <button
+          onClick={() => { document.exitPointerLock?.(); setKeysOpen(true); }}
+          aria-label="Key bindings"
+          className="flex items-center gap-1.5 rounded-lg border border-amber-700/70 bg-stone-900/85 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-amber-200 backdrop-blur transition hover:border-amber-500 hover:text-amber-100">
+          <KeyRound size={13} /> KEYS
+        </button>
+      </div>
     ))}
 
     {keysOpen && <KeyBindingsPanel onClose={() => setKeysOpen(false)} />}
+    {gfxOpen && <GraphicsPanel onClose={() => setGfxOpen(false)} />}
     </>
   );
 }
