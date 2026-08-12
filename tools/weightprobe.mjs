@@ -321,6 +321,51 @@ check("a stagger is shorter than a knockdown — they are two different punishme
   staggerTicks > 0 && downTicks + riseTicks > staggerTicks,
   `stagger ${staggerTicks * 50} ms vs down+rise ${(downTicks + riseTicks) * 50} ms`);
 
+// A MAN ON THE FLOOR DOES NOT STEER.
+//
+// This gate exists because the fix that added the floor did not add it to
+// `integrateMovement`'s `committed` set — the list of states in which a body is
+// spent and steers for nobody (attacking, dodging, staggered, shoving). A
+// knocked man holding W therefore walked across the arena on his back at full
+// stride, which no number in this file could see: every other assertion here
+// measures a duration or a displacement CAUSED BY A BLOW, and this is travel
+// under his own power during one.
+//
+// It is the same shape as the four mirrored-definition faults PROCESS.md
+// records: a new member of a set, and a second list of that set nobody updated.
+console.log("\n  THE FLOOR TAKES THE LEGS");
+{
+  const d = duel({ attacker: "berserker", target: "warden", gap: 1.2 });
+  d.B.state = "staggered"; d.B.staggerTimer = 0.4;
+  hold(d.a, { shove: true });
+  d.step();
+  hold(d.a, {});
+  // Down him, then hold FULL FORWARD on the man who is down for the whole fall.
+  //
+  // MEASURED ON `moveVel`, NOT ON DISTANCE, and the first cut of this gate got
+  // that wrong in the way rule 3 warns about. It waited for the shove's impulse
+  // to bleed off before it started measuring travel — but the slide decays over
+  // 1.40 s and the whole fall lasts 1.30 s, so the measurement window never
+  // opened, `travelled` stayed at its initial 0, and the gate went green over
+  // the live defect. The engine already splits the two channels exactly:
+  // `moveVel` is stride and `impulse` is the burst. Ask the stride channel.
+  let stride = 0, sawDown = false;
+  for (let i = 0; i < 60; i++) {
+    hold(d.b, { moveX: 0, moveZ: 1, rotationY: 0 });
+    hold(d.a, {});
+    d.step();
+    if (isDown(d.B)) {
+      sawDown = true;
+      stride = Math.max(stride, Math.hypot(d.B.moveVel.x, d.B.moveVel.z));
+    } else if (sawDown) break;
+  }
+  console.log(`    peak stride while down, holding full forward     ${stride.toFixed(3)} u/s`);
+  check("a man on the floor does not steer — the fall takes his legs, not only his turn",
+    sawDown && stride < 0.15,
+    sawDown ? `${stride.toFixed(3)} u/s of stride while knocked (a warden walks at 4.5)` : "he was never floored — fixture broken");
+  d.sim.stop();
+}
+
 // ------------------------------------------------------------- 4. parry window
 //
 // SWEPT, not read. The guard goes up N ticks before contact for every N and we

@@ -2870,9 +2870,23 @@ export function makeEngine(options = {}) {
   // shield.
   function integrateMovement(player, dt) {
     const stats = WARRIOR_STATS[player.warriorClass];
-    // Committed: the body is spent on a swing, a roll or a stagger, and steers
-    // for nobody — but it keeps the momentum it already had.
-    const committed = player.state === "attacking" || player.state === "dodging" || player.state === "staggered" || player.state === "shoving";
+    // Committed: the body is spent on a swing, a roll, a stagger or a fall, and
+    // steers for nobody — but it keeps the momentum it already had.
+    //
+    // THE FLOOR IS IN THIS LIST BECAUSE IT WAS NOT, AND THAT SHIPPED FOR AN
+    // HOUR. `processInput` refuses a knocked man his swing, his guard and his
+    // turn; it does not touch his stride, because stride is standing intent
+    // that `integrateMovement` reads later off `latestInput`. So a floored man
+    // holding forward walked at his full 4.5 u/s — on his back — and every gate
+    // in `weightprobe` stayed green, because all of them measure a duration or
+    // a displacement CAUSED BY A BLOW and this was travel under his own power
+    // during one. It is the mirrored-definition fault this repository has
+    // recorded four times: a new member of a set, and a second list of that set
+    // nobody updated. `weightprobe` now measures the STRIDE CHANNEL directly
+    // (`moveVel`, which is steering, as against `impulse`, which is the burst)
+    // and read 4.497 u/s before this line changed.
+    const committed = player.state === "attacking" || player.state === "dodging"
+      || player.state === "staggered" || player.state === "shoving" || isDown(player);
     const intent = currentIntent(player);
 
     let wantX = 0, wantZ = 0, sprinting = false;
