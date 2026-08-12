@@ -283,10 +283,11 @@ async function main() {
       // not milliseconds.
       await page.evaluate(() => new Promise((done) => {
         let n = 0;
-        const tick = () => (++n >= 6 ? done() : requestAnimationFrame(tick));
+        const cap = setTimeout(done, 6000);   // a page that has stopped painting
+        const tick = () => (++n >= 3 ? (clearTimeout(cap), done()) : requestAnimationFrame(tick));
         requestAnimationFrame(tick);
       }));
-      await sleep(250);
+      await sleep(200);
       // Cropped to the warrior and doubled. Uncropped, at a size this box can
       // rasterise, the man is 150 px tall in the corner of a screen mostly full
       // of interface — which is a photograph of the HUD, not of the animation.

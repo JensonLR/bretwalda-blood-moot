@@ -489,6 +489,63 @@ if (!rip.ok) {
     `parry hit.window = ${JSON.stringify(rip.parryEvent?.window)}`);
 }
 
+// --------------------------------------------- 6. the window a player can SEE
+//
+// `docs/DESIGN-SYSTEM.md` §3 puts the parry tell on the OPPONENT's brackets for
+// the window's real duration. That is a CLIENT rule, and this file cannot open
+// a browser — but it can gate the two server-side preconditions without which
+// the client rule is undrawable, and both of them are things a refactor could
+// silently take away:
+//
+//   1. The window is on the PARRIED man, not on the parrier. If it were written
+//      onto the parrier, the tell would light his own brackets — a bar on your
+//      own HUD, which is the thing the rule forbids.
+//   2. It names WHO collects. Without `vulnerableTo` the client cannot tell "I
+//      earned this" from "somebody across the ring earned this", and would
+//      light the mark for every player watching.
+console.log("\n  THE WINDOW A PLAYER CAN SEE");
+{
+  const d = duel({ attacker: "huscarl", target: "huscarl", gap: 1.2 });
+  const r = throwBlow(d, { heavy: false, blockAt: 1, holdBlock: true });
+  const parried = d.a.snapshot?.players?.[d.A.id];      // the man who was read
+  const parrier = d.a.snapshot?.players?.[d.B.id];      // the man who read him
+  console.log(`    parried man   vulnerableTimer ${parried?.vulnerableTimer?.toFixed(2)}  vulnerableTo ${parried?.vulnerableTo === d.B.id ? "the parrier" : JSON.stringify(parried?.vulnerableTo)}`);
+  console.log(`    parrier       vulnerableTimer ${parrier?.vulnerableTimer?.toFixed(2)}`);
+  check("the window is written on the man who was PARRIED, not on the man who parried",
+    r.hitType === "parry" && (parried?.vulnerableTimer ?? 0) > 0 && (parrier?.vulnerableTimer ?? 0) === 0,
+    `parried ${parried?.vulnerableTimer?.toFixed(2)}s, parrier ${parrier?.vulnerableTimer?.toFixed(2)}s`
+    + " — the tell lights HIS brackets, so it must live on HIM");
+  check("the window names the one man who collects it",
+    parried?.vulnerableTo === d.B.id,
+    `vulnerableTo = ${parried?.vulnerableTo === d.B.id ? "the parrier's id" : JSON.stringify(parried?.vulnerableTo)}`);
+  d.sim.stop();
+}
+
+// A third man's blow must NOT cash somebody else's parry. If it did, the mark
+// on screen would be a lie to everyone but the man who earned it.
+{
+  const d = duel({ attacker: "huscarl", target: "huscarl", gap: 1.2 });
+  const r = throwBlow(d, { heavy: false, blockAt: 1, holdBlock: true });
+  // A is the parried man, B the parrier. Give the window to a stranger's id and
+  // check B's own blow stops being a riposte — the id is the whole gate.
+  d.A.vulnerableTo = "somebody-else";
+  d.A.staggerTimer = 99; d.A.state = "staggered";
+  d.B.rotation = Math.PI; d.B.aimYaw = Math.PI;
+  const before = d.b.got("hit").length;
+  for (let i = 0; i < 60; i++) {
+    hold(d.b, { attack: true, rotationY: Math.PI });
+    hold(d.a, {});
+    d.step();
+    if (d.b.got("hit").length > before) break;
+  }
+  const h = d.b.got("hit").slice(before)[0];
+  console.log(`    a window owed to somebody else   ${h ? `${h.damage} dmg, riposte=${h.riposte}` : "(no blow landed)"}`);
+  check("a window owed to another man is not the parrier's to cash",
+    r.hitType === "parry" && !!h && h.riposte === false,
+    h ? `riposte=${h.riposte}, ${h.damage} dmg` : "no blow landed — fixture broken");
+  d.sim.stop();
+}
+
 // ----------------------------------------------------------------- the verdict
 const passed = results.filter((r) => r.pass).length;
 const line = `\n[weightprobe] ${passed}/${results.length} passed`
