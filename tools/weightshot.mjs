@@ -259,9 +259,18 @@ async function main() {
   await step("DRAW STEEL");
   await page.waitForFunction(() => window.__probe?.lastState?.state === "fighting", null, { timeout: 180000 });
   console.log("[weightshot] in the ring");
-  // Take up the weapon: the click-to-lock banner sits exactly across the man
+  // Take up the weapon: the click-to-lock banner sits across the top of the man
   // this harness exists to photograph, and the first run came back with eight
   // frames of CLICK TO TAKE UP YOUR WEAPON printed over the warrior's chest.
+  //
+  // NOT RELIABLE, and saying so rather than pretending. Pointer lock needs a
+  // user gesture the browser accepts, and headless Chromium refuses it often
+  // enough that the banner is still in about half the captures — it sits over
+  // his HEAD rather than his body under the current CROP, so the fall is still
+  // readable and the strip is still worth taking. Whoever fixes this properly
+  // should hide the banner rather than fight the lock: `docs/KEYBINDS.md`
+  // documents the same "a control that cannot work yet must say so" problem
+  // from the other side.
   await page.mouse.click(SCREEN.width / 2, SCREEN.height / 2);
   await sleep(2500);
 
