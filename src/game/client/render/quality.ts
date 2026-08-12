@@ -301,6 +301,12 @@ const step = (t: QualityTier, by: number): QualityTier =>
  * which is a real measurement where `deviceMemory` is a rumour. Degrade on
  * evidence; never on a rounding rule.
  *
+ * AND NOT EVEN ON EVIDENCE, PAST A POINT. This predicate is also the governor's
+ * floor (`governorFloor`): frame time may walk a device down to `medium`, and
+ * only a device this function already calls `low` can be taken below that. What
+ * a stopwatch cannot tell apart is a slow GPU and a hot phone, and the price of
+ * getting it wrong is every roughness, metalness and AO map in the game.
+ *
  * WHY THERE IS STILL NO PATH TO `high` ON TOUCH, and this is deliberate. The
  * owner tested his own handset with `?quality=` pinned: `high` is laggy,
  * `medium` is smooth; on desktop `high` is fine. That is the only real-hardware
@@ -335,7 +341,13 @@ export function detectTier(probe: DeviceProbe = probeDevice()): QualityTier {
   //                   so the most common phone in the world was pinned to the
   //                   lowest tier on a number that says nothing about its GPU.
   //
-  // Everything else starts at `medium` and has to EARN `low` by stuttering.
+  // Everything else starts at `medium` and STAYS there unless the player says
+  // otherwise. Round one's comment here said such a device "has to EARN `low` by
+  // stuttering", and that was true of the code and wrong as a policy: it is the
+  // sentence that let a bad twenty seconds strip the ORM maps off a whole game.
+  // This predicate is now the ONLY route to `low` that does not go through the
+  // GRAPHICS panel — the governor may not demote past `governorFloor`, and this
+  // function is what that floor asks.
   const ancient = probe.cores <= 2 || probe.memoryGb <= 2 || Math.min(probe.width, probe.height) <= 320;
   return ancient ? "low" : "medium";
 }
