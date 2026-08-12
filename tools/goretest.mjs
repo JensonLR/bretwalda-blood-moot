@@ -731,20 +731,37 @@ const arc = bleedShape("arc");
 // downrange wandered between -0.22 m and +0.83 m across consecutive runs of
 // this file. A control that is noisier than the effect it is controlling for
 // proves nothing.
-const puff = bleedShape("puff", TIER, 40);
+const puff = bleedShape("puff", TIER, 60);
 const shapeLine = (s) => `${s.marksPerWound.toFixed(1)} marks a wound, mean reach ${s.meanReach.toFixed(2)}m, `
   + `furthest ${s.maxReach.toFixed(2)}m, downrange ${s.meanAlong.toFixed(2)}m, `
   + `stripe ${s.alongRms.toFixed(2)}m along vs ${s.acrossRms.toFixed(2)}m across, `
   + `apex ${s.apex.toFixed(2)}m above the wound`;
 
-// The control's failure mode is DIRECTION, not distance — and the first run of
-// this section got that wrong and said so out loud. The shim throws at
-// 2.2 + 3.1k m/s, so it carries perfectly well; what it does not do is carry
-// anywhere in particular. Over ten wounds its mean downrange displacement is
-// near zero, because "downrange" is a direction it was never given.
-check("THE CONTROL IS UNDIRECTED: the shim throws blood at no particular bearing",
-  Math.abs(puff.meanAlong) < 0.35 && puff.alongRms < puff.acrossRms * 1.6,
-  shapeLine(puff));
+// WHAT THE CONTROL IS FOR, said exactly, because the first three versions of
+// this claim were all about the wrong thing.
+//
+// Its job is to prove the RULER CAN SEE THE DEFECT — that the statistics below
+// distinguish a directed arc from an undirected one, rather than reporting a
+// large number for any spray at all. Its first form asked whether the shim's
+// blood landed near the man ("mean reach < 0.9 m"), and the shim throws at
+// 2.2 + 3.1k so it carries perfectly well and that clause was simply false. Its
+// second form asked whether the shim's MEAN DOWNRANGE was small — which it is,
+// in expectation, and which wandered between -0.22 m and +0.83 m run to run,
+// because the shim's randomness is ONE BEARING PER WOUND and sixty wounds is
+// sixty samples of an angle, not four hundred samples of a droplet.
+//
+// So the claim is now a COMPARISON on all three direction statistics at once.
+// It cannot be satisfied by an undirected arc, it cannot be broken by the
+// control drawing an unlucky run of bearings, and it says the thing the control
+// exists to say.
+const stripe = (x) => x.alongRms / Math.max(1e-3, x.acrossRms);
+check("THE RULER DISCRIMINATES: the arc beats the undirected shim on every direction statistic",
+  arc.downrangeShare > puff.downrangeShare + 0.3
+  && arc.meanAlong > Math.abs(puff.meanAlong) * 3
+  && stripe(arc) > stripe(puff) * 2,
+  `share ${(arc.downrangeShare * 100).toFixed(0)}% vs ${(puff.downrangeShare * 100).toFixed(0)}%, `
+  + `downrange ${arc.meanAlong.toFixed(2)}m vs ${puff.meanAlong.toFixed(2)}m, `
+  + `stripe ${stripe(arc).toFixed(2)}x vs ${stripe(puff).toFixed(2)}x   [shim: ${shapeLine(puff)}]`);
 
 // THE BARS BELOW ARE STATED FROM THE DESIGN, NOT FROM A MEASUREMENT. That order
 // matters: three of these six were already true of `severed()` before this pass

@@ -370,3 +370,61 @@ Recorded because both looked right:
   and covers the middle of the screen for the whole hold. It is DOM, not canvas,
   and it belongs to the HUD layer. The hold is now the thing behind it, so the
   overlay wants to become small and cornered, or to wait out `DEATH_HOLD.total`.
+  Found by `tools/goreshot.mjs`, which is the only instrument in the repository
+  that photographs a real death with the real HUD over it.
+
+---
+
+## What was looked at, and what the frames still say
+
+Three captures were read with eyes, not just measured:
+
+* `art/shots/gore/gorehead.png` — a beheading. The head is off and on the turf,
+  and the ground carries the blood across several metres.
+* `art/shots/gore/goresplit.png` — the waist bisection. The best of the three:
+  a **directional fan of elongated droplets** in the air, clearly along one axis,
+  and half a dozen deep red ground marks spread over metres.
+* `art/shots/gore/strip-*.png` — a real death in a real browser (see below).
+
+**Two things the frames say that no number in `goretest` does.**
+
+1. **The jet was idle two thirds of the time.** The first `gorehead` capture, at
+   a 0.95 s settle, was a scatter of flecks — because `sin^1.6` is a narrow peak
+   and a 0.18 floor meant most instants fell in the quiet part of the beat. That
+   is what a real artery does and it is not what "over the top" means. The floor
+   and `JET_RATE` were raised off that capture and nothing else.
+2. **The ground marks read as mud until they were made bigger.** The count was
+   already right — thirteen a wound — and the coverage was not. The decal budget
+   caps how MANY marks there are and not how big each one is, so the mark size
+   went from `size0 × 6.0` (ceiling 0.58 m) to `× 8.5` (ceiling 0.85 m), which
+   costs nothing. Marks per wound fell to 9.4 as bigger marks merge more readily,
+   and that is the better picture: a smear rather than a line of dots.
+
+**And one the frames say that is still open.** The marks are matte. The decal
+layer is a multiply blend with no specular term, so a fresh pool cannot be WET —
+it can only be dark. Wet blood catching the bonfire is the single largest
+remaining gain in this feature and it is a material change rather than a number.
+
+### On `tools/goreshot.mjs` and its timings
+
+It drives a real training match, waits for the arena to clear the forge, locks
+onto the first death it can actually see, and takes a strip across it. It found
+the `FALLEN` overlay and it is the right instrument.
+
+**Its timings are not yet trustworthy on a software rasteriser.** A single CDP
+screenshot took 20–40 s on this box, so a 3.10 s hold cannot be sampled: the
+strip's frames land at t+17 s, t+60 s, t+79 s rather than at the beats they ask
+for, and each caption honestly says so. Two faults were fixed on the way and are
+worth keeping in mind for whoever runs it on a real GPU:
+
+* Training respawns every five seconds, so an unlocked death stamp is re-pointed
+  at the newest death between one shot and the next. The first run captioned six
+  frames with a clock running BACKWARDS — t+34.87 s, t+16.63 s, t+9.04 s — because
+  each caption was about a different man's death.
+* The forge takes ~8 s to raise the sky and the fight starts behind it, so with
+  three jarl bots the local man is dead before the loader clears. The second run
+  locked onto that death and photographed the aftermath of two respawns later.
+
+On a machine that can render this at thirty frames a second the strip is the
+verdict for the hold. Here, the hold's evidence is `deathcamtest`'s twenty
+claims and the frames are the evidence for the blood.

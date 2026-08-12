@@ -4040,9 +4040,16 @@ export function createVfx(
             // slot only when it lands somewhere new. Which is exactly where a
             // spray that now reaches four metres is landing.
             if (speed > 1.2 && Math.random() < 0.48) {
-              // 6.0, not 3.4 — the droplet that makes the mark is now half the
-              // size it was, and a spatter is wider than the drop that threw it.
-              const mark = Math.min(0.58, Math.max(0.09, store.size0[i] * 6.0)) * rand(0.8, 1.3);
+              // 8.5, not 6.0, and the ceiling 0.85 rather than 0.58 — asked for
+              // by a capture and not by a number. At the old size a severance
+              // left thirteen marks that read on grass as dark spots rather than
+              // as blood: the COUNT was right and the coverage was not, and the
+              // decal budget limits how many marks there are and not how big
+              // they are, so this costs nothing at all. Bigger marks also merge
+              // more readily, which turns a line of dots into a smear — see
+              // `mergeStain`, which caps the result at MERGE_CEIL so a fight in
+              // one place cannot turn the whole floor one colour.
+              const mark = Math.min(0.85, Math.max(0.11, store.size0[i] * 8.5)) * rand(0.8, 1.3);
               addDecal(px, pz, mark);
             }
             kill(i);
