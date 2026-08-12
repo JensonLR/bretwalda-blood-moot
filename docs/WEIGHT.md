@@ -311,6 +311,37 @@ Also worth a line in `docs/GATES.md`, which this unit does not own: the INNER
 tier lists four instruments and `weightprobe` belongs in it. It is 0.6 s and
 opens no browser.
 
+## What is NOT proven, stated on the verdict line rather than under it
+
+PROCESS.md R4: declining to rule is often correct, hiding it never is.
+
+**`touchtest` did not produce a clean run on this box, and it is not this
+wave's doing.** Three runs on the same build gave three different results, all
+of them in ACT ONE's opening pair — run 1 `left stick moves the warrior` FAIL
+(0.00 units), run 2 `left stick never turns the camera` FAIL (90.01°), run 3
+`moves` FAIL again (0.00 units). `docs/GATES.md` already prices this suite as
+"flaky 1 in 3" and the box was rasterising a second browser for most of it; the
+lock act in one run reported a 4404 ms main-thread block, "which is the box and
+not the lock".
+
+What CAN be said with certainty rather than by appeal to flakiness: **act one
+musters an EMPTY ring** (`Fewer AI` eight times, no `More AI`, and the comment
+says why — "an AI that kills the test warrior takes every assertion with it").
+With no enemy present, both of this wave's changes that could possibly reach
+those two assertions are unreachable:
+
+* `input.ts`'s riposte lock override requires a player carrying
+  `vulnerableTimer > 0`, which requires a parry, which requires somebody to
+  parry.
+* `engine.mjs` adding `isDown(player)` to `integrateMovement`'s committed set
+  requires a knockdown, which requires poise loss, which requires a blow or a
+  shove.
+
+Neither exists in an empty ring. That is an argument from the fixture rather
+than a green run, and it is offered as exactly that. **The next person to touch
+this should get one clean `touchtest` on an unloaded box before trusting the
+suite again.**
+
 ## What a player can see, and why that was a requirement
 
 A window nobody can see is not a mechanic, it is a dice roll. `docs/DESIGN-SYSTEM.md`
