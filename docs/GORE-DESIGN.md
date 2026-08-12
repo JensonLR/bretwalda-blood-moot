@@ -428,3 +428,44 @@ worth keeping in mind for whoever runs it on a real GPU:
 On a machine that can render this at thirty frames a second the strip is the
 verdict for the hold. Here, the hold's evidence is `deathcamtest`'s twenty
 claims and the frames are the evidence for the blood.
+
+---
+
+## The gates, and the two that go red for reasons that are not ours
+
+| harness | claims | verdict |
+|---|---|---|
+| `tools/goretest.mjs` | 36 | green (15 before this work) |
+| `tools/deathcamtest.mjs` | 20 | green |
+| `tools/gracetest.mjs` | 15 | green, unchanged |
+| `tools/protocoltest.mjs` | 75 | green — there is no wire change |
+| `tools/touchtest.mjs` | 27 | green on the second run; **24/2 on the first** |
+| `tools/cheattest.mjs` | 7 of ~12 | **red, and red identically on the commit before this work** |
+
+**Both of the awkward ones were measured against the base rather than argued
+away**, because this repository has eleven recorded instances of an argument
+beating a measurement.
+
+**`cheattest`.** Run four times. Three on this change: two died on a `LEAVE`
+click that never became "stable", one on a `page.goto` timeout — all in browser
+plumbing, all after every cheating assertion that had run had passed, and at two
+different places, which is not the signature of a defect. Then commit `2117bf7`
+— the state before any of this work — was checked out, rebuilt and run:
+`EXIT=1, 7 PASS, page.goto: Timeout 30000ms exceeded`, byte-identical to the run
+on this change.
+
+**`touchtest`.** The first run on this change came back **24 pass, 2 fail** —
+"left stick never turns the camera (yaw moved 1.5708 rad while walking)" and "a
+committed swing still cannot follow the man the lock was handed" — against
+**27/0 on the base**. That is what a real phone regression looks like and it was
+treated as one. A second run on the same commit, same build: **27/0, exit 0.**
+Not reproducible, and both numbers are recorded here rather than only the
+convenient one. `1.5708 rad` is exactly π/2, which is the shape of a lock assist
+snapping onto a target and not of anything in this unit — the death camera
+cannot take the lens for a living warrior, because `createDeathCamera().update`
+returns null unless `dead` is true.
+
+The cause of all of it is the same: **this container rasterises WebGL in
+software**. A single CDP screenshot takes 20–40 s, and Playwright's stability and
+navigation waits are 30 s. Nothing in this unit touches `engine.mjs`, the wire,
+or any server decision.
