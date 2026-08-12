@@ -2,7 +2,7 @@
 // ============================================================
 // TIERTEST — does the quality tier a device gets describe the device?
 //
-//   node tools/tiertest.mjs            # the working tree
+//   npm run tiertest                   # the working tree
 //   node tools/tiertest.mjs --rev=HEAD # the same checks against a git revision
 //
 // ------------------------------------------------------------
@@ -37,16 +37,40 @@
 // src/, transpiled in memory, with `three` stubbed and a synthetic `window`.
 // Nothing is mocked except the device.
 //
+// ------------------------------------------------------------
+// ROUND TWO — WHAT THIS FILE COULD NOT SEE, AND NOW CAN
+//
+// The first version of this harness passed 27/0 while the code it certified
+// could permanently pin a DESKTOP to `low`. An adversary drove it and found
+// three things this file was structurally unable to notice:
+//
+//   1. Every fixture started from an empty localStorage and ran ONE session. A
+//      persisted verdict is by definition about the NEXT load, so the harness
+//      could not see a demotion cascade within a session, and could not see it
+//      survive five clean sessions afterwards. `installDevice(dev, {keep:true})`
+//      and `openSession` are the fix: a reload is a reload now.
+//   2. It never drove a SECOND demotion, so it could not catch that judge()
+//      reset `bad` but not `warmup` and went straight back to judging frames
+//      still being rendered by the tier it had just left.
+//   3. Its row for "choosing Automatic clears a stale demotion" was green on a
+//      function with ZERO CALLERS in the shipped app. A gate that is green
+//      because the case is absent is not a gate. Those rows now go through
+//      `readQualityStatus`, which is the exact call GameHud's GRAPHICS panel
+//      renders from.
+//
 // PROOF OF FAILURE — required by PROCESS.md R2, a harness that has only ever
-// been seen green has never been tested:
+// been seen green has never been tested. Both revisions still go red:
 //
-//     node tools/tiertest.mjs --rev=<the commit before the fix>
+//     node tools/tiertest.mjs --rev=411f427            11 passed /  8 failed
+//         the pre-fix build: a 6 GB Galaxy A54, a 6 GB Redmi Note 12 and a
+//         hardened browser reporting four cores all sent to the tier with no
+//         ORM maps in it; three sampling knobs `medium` gave up for nothing; no
+//         player control; no measurement anywhere.
 //
-// went RED with 11 passed / 8 failed: three device rows (a 6 GB Galaxy A54, a
-// 6 GB Redmi Note 12 and a hardened browser reporting four cores — every one of
-// them a current handset sent to the tier with no ORM maps in it), the three
-// sampling knobs `medium` was giving up for nothing, the absence of any player
-// control, and the absence of any measurement at all.
+//     node tools/tiertest.mjs --rev=mobile-quality-tier 26 passed / 10 failed
+//         round one, on the ten rows above: "rendered low,low,low" three clean
+//         sessions after one bad twenty seconds, ceiling `low`, and no panel
+//         able to say so or undo it.
 // ============================================================
 import { readFileSync } from "fs";
 import { execFileSync } from "child_process";
@@ -82,20 +106,32 @@ function loadQuality(source) {
   const js = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
-  const module = { exports: {} };
+  // `mod`, not `module`: this file is linted by eslint-config-next, and
+  // `@next/next/no-assign-module-variable` is right to object even here — the
+  // name shadows the CommonJS binding that the transpiled source is about to be
+  // handed. Round two added the tenth eslint error in the repo by writing it.
+  const mod = { exports: {} };
   const require_ = (id) => {
     if (id === "three") return THREE_STUB;
     throw new Error(`tiertest does not stub ${id}; quality.ts grew a dependency`);
   };
-  new Function("exports", "require", "module", js)(module.exports, require_, module);
-  return module.exports;
+  new Function("exports", "require", "module", js)(mod.exports, require_, mod);
+  return mod.exports;
 }
 
 // ------------------------------------------------------------
 // A synthetic device. Everything `probeDevice` and the governor read.
+//
+// `keep` is what makes a RELOAD a reload: localStorage is the only thing that
+// survives one, and every interesting governor fault is a fault about what one
+// session writes into the next. Round one could not express that at all — every
+// call started from an empty store — which is exactly why it could not see a
+// demotion cascade or a permanent pin.
 // ------------------------------------------------------------
-function installDevice(d) {
-  const store = new Map();
+let lastStore = null;
+function installDevice(d, opts = {}) {
+  const store = opts.keep && lastStore ? lastStore : new Map();
+  lastStore = store;
   const win = {
     innerWidth: d.width,
     innerHeight: d.height,
@@ -104,6 +140,7 @@ function installDevice(d) {
     dispatchEvent: () => true,
   };
   if (d.touch) win.ontouchstart = null;
+  if (d.governor) win.__governor = d.governor;
   const define = (name, value) =>
     Object.defineProperty(globalThis, name, { value, writable: true, configurable: true });
   define("window", win);
@@ -214,6 +251,17 @@ function run(quality, label) {
 
   // --------------------------------------------------------
   // The governor. Feed it frame intervals and see what it concludes.
+  //
+  // Everything below drives the REAL state machine: the intervals go in through
+  // a stubbed requestAnimationFrame and the tier comes out through
+  // `resolveQuality`, which is the same call GameCanvas makes. Nothing is faked
+  // but the clock and the device.
+  //
+  // WHAT IS STILL NOT MEASURED, and it rides this file's verdict line: the
+  // thresholds themselves. 22 ms p50 and 50 ms p95 are chosen numbers, not
+  // observed ones — see the note above them in quality.ts. What follows tests
+  // what the machine DOES with them, not whether they are the right numbers for
+  // real silicon, and nothing in this repository tests the latter.
   // --------------------------------------------------------
   console.log("\nthe frame-time governor");
   if (!quality.QUALITY_GOVERNOR) {
@@ -222,85 +270,217 @@ function run(quality, label) {
     return;
   }
 
-  // A fake rAF clock, so 400 frames take no time at all.
-  const drive = (gov, intervals) => {
+  const gov = quality.QUALITY_GOVERNOR;
+  const rep = (n, v) => Array.from({ length: n }, () => v);
+  const measured = () => localStorage.getItem("bbm.quality.measured");
+  const ceiling = () => localStorage.getItem("bbm.quality.ceiling");
+
+  check("the governor can be returned to a cold start", typeof gov.reset === "function",
+    "no QUALITY_GOVERNOR.reset — a harness cannot simulate the reload that every " +
+    "persisted verdict is about, so nothing here can see a cascade or a permanent pin");
+
+  /**
+   * ONE PAGE LOAD, end to end. Installs the device (keeping localStorage unless
+   * asked for a clean profile), returns the governor to the state a fresh module
+   * would be in, stubs rAF, resolves quality the way the app does — which is
+   * what arms the governor — and then feeds it frames.
+   *
+   * Returns the tier the load actually rendered and how many frames the governor
+   * consumed before it let go of the clock. That second number is the assertion
+   * that matters for a cascade: a governor that has stopped stops asking.
+   */
+  const openSession = (dev, opts = {}) => {
+    installDevice(dev, { keep: !opts.fresh });
+    // The fallback is for `--rev=` runs against a revision that predates
+    // `reset`. It clears what it can reach from outside so those runs go red on
+    // the defects and not on the harness: an uncleared `windows` would fail the
+    // Playwright row, which round one actually got right.
+    if (gov.reset) gov.reset(); else { gov.stop(); gov.windows = 0; }
     let t = 0;
     let cb = null;
     globalThis.requestAnimationFrame = (fn) => { cb = fn; return 1; };
     globalThis.cancelAnimationFrame = () => { cb = null; };
-    gov.stop(); // the governor is a singleton; stop() releases its rAF handle
-    return { pump: () => { for (const dt of intervals) { if (!cb) break; const f = cb; cb = null; t += dt; f(t); } } };
+    const tier = quality.resolveQuality().tier;
+    /** Feeds frames until they run out or the governor lets go of the clock. */
+    const pump = (intervals) => {
+      let frames = 0;
+      for (const dt of intervals) {
+        if (!cb) break;
+        const f = cb; cb = null; t += dt; frames++; f(t);
+      }
+      return frames;
+    };
+    return { tier, pump };
   };
 
-  const gov = quality.QUALITY_GOVERNOR;
-  const rep = (n, v) => Array.from({ length: n }, () => v);
+  const session = (dev, intervals, opts = {}) => {
+    const s = openSession(dev, opts);
+    const frames = s.pump(intervals);
+    return { tier: s.tier, frames, windows: gov.windows, p50: gov.p50 };
+  };
+
+  const PHONE = { touch: true, cores: 8, memoryGb: 4, width: 393, height: 873 };
+  const ANCIENT = { touch: true, cores: 2, memoryGb: 1, width: 360, height: 640 };
+  const DESKTOP = { touch: false, cores: 8, memoryGb: 8, width: 1920, height: 1080 };
+  const CLEAN = rep(1200, 16.7);
+  /** 25 fps — the "laggy" the owner reported, held for twenty seconds. */
+  const LAGGY = rep(1200, 40);
 
   // Steady 60 fps on a phone that started at `medium`: nothing moves.
-  installDevice({ touch: true, cores: 8, memoryGb: 4, width: 393, height: 873 });
-  gov.stop(); gov.windows = 0;
-  let d = drive(gov, rep(1200, 16.7));
-  gov.arm("medium");
-  d.pump();
-  check("60 fps on medium is left alone", gov.windows > 0 && localStorage.getItem("bbm.quality.measured") === null,
-    `windows=${gov.windows} measured=${localStorage.getItem("bbm.quality.measured")} — a clean phone must not be promoted onto the tier the owner measured as laggy`);
-
-  // 25 fps: the "laggy" the owner reported. Two windows and it must give way.
-  installDevice({ touch: true, cores: 8, memoryGb: 4, width: 393, height: 873 });
-  gov.stop(); gov.windows = 0;
-  d = drive(gov, rep(1200, 40));
-  gov.arm("medium");
-  d.pump();
-  check("25 fps on medium demotes to low", localStorage.getItem("bbm.quality.measured") === "low",
-    `measured=${localStorage.getItem("bbm.quality.measured")} p50=${gov.p50}`);
+  let s = session(PHONE, CLEAN, { fresh: true });
+  check("60 fps on medium is left alone", s.windows > 0 && measured() === null,
+    `windows=${s.windows} measured=${measured()} — a clean phone must not be promoted onto the tier the owner measured as laggy`);
 
   // A single hitch in an otherwise clean run must not cost a tier.
-  installDevice({ touch: true, cores: 8, memoryGb: 4, width: 393, height: 873 });
-  gov.stop(); gov.windows = 0;
   const hitched = rep(1200, 16.7);
   hitched[300] = 180;
   hitched[700] = 210;
-  d = drive(gov, hitched);
-  gov.arm("medium");
-  d.pump();
-  check("two hitches in twenty seconds cost nothing", localStorage.getItem("bbm.quality.measured") === null,
-    `measured=${localStorage.getItem("bbm.quality.measured")} — one GC storm must not cost a tier`);
+  s = session(PHONE, hitched, { fresh: true });
+  check("two hitches in twenty seconds cost nothing", measured() === null,
+    `measured=${measured()} — one GC storm must not cost a tier`);
 
   // The rescue: a device `detectTier` had to assume was ancient, rendering clean.
-  installDevice({ touch: true, cores: 2, memoryGb: 1, width: 360, height: 640 });
-  gov.stop(); gov.windows = 0;
-  d = drive(gov, rep(1200, 16.7));
-  gov.arm("low");
-  d.pump();
-  check("a clean 'low' device is rescued to medium", localStorage.getItem("bbm.quality.measured") === "medium",
-    `measured=${localStorage.getItem("bbm.quality.measured")} — this is the quantised-deviceMemory case, measured instead of guessed`);
+  s = session(ANCIENT, CLEAN, { fresh: true });
+  check("a clean 'low' device is rescued to medium", measured() === "medium",
+    `measured=${measured()} — this is the quantised-deviceMemory case, measured instead of guessed`);
+
+  // ...and the rescue is reversible, because for THIS device `detectTier` agrees
+  // it is weak. It is the one shape of device the floor lets back down to `low`.
+  s = session(ANCIENT, LAGGY);
+  check("a rescued ancient device can be put back", s.tier === "medium" && measured() === "low",
+    `rendered ${s.tier}, measured=${measured()} — the floor is reachable where the device itself looks weak`);
 
   // Under automation it must not run at all: this box has no GPU, and a governor
   // that armed here would persist a SwiftShader verdict into every capture the
   // repository takes and every sheet would still look plausible.
-  installDevice({ touch: false, cores: 8, memoryGb: 8, width: 1280, height: 720, webdriver: true });
-  gov.stop(); gov.windows = 0;
-  d = drive(gov, rep(1200, 900));
-  gov.arm("high");
-  d.pump();
-  check("disarmed under Playwright", gov.windows === 0 && localStorage.getItem("bbm.quality.measured") === null,
-    `windows=${gov.windows} measured=${localStorage.getItem("bbm.quality.measured")} — SwiftShader is not a phone`);
+  s = session({ ...DESKTOP, webdriver: true }, rep(1200, 900), { fresh: true });
+  check("disarmed under Playwright", s.windows === 0 && measured() === null,
+    `windows=${s.windows} measured=${measured()} — SwiftShader is not a phone`);
 
-  // The ratchet has to be escapable. A device demoted once — a hot phone, a bad
-  // browser build, a tab with forty other tabs behind it — must not be pinned to
-  // the worst thing it ever did for the life of the install. Choosing "Automatic"
-  // in the settings is the player asking to be measured again, and if the stored
-  // ceiling outlived that, it would not be.
-  installDevice({ touch: true, cores: 8, memoryGb: 4, width: 393, height: 873 });
-  gov.stop(); gov.windows = 0;
-  d = drive(gov, rep(1200, 40));
-  gov.arm("medium");
-  d.pump();
-  const ratcheted = localStorage.getItem("bbm.quality.ceiling");
-  quality.setQualityPreference("auto");
-  check("choosing Automatic clears a stale demotion",
-    ratcheted === "low" && localStorage.getItem("bbm.quality.ceiling") === null
-      && localStorage.getItem("bbm.quality.measured") === null,
-    `ceiling was ${ratcheted}, is now ${localStorage.getItem("bbm.quality.ceiling")}`);
+  // But a harness that MEANS to drive it — a real phone on a real GL context —
+  // has a way in, and it has to be a way nothing takes by accident. Without this
+  // the state machine could never be exercised in a browser at all, which is how
+  // its thresholds came to rest on nothing.
+  s = session({ ...DESKTOP, webdriver: true, governor: "measure" }, CLEAN, { fresh: true });
+  check("a harness can opt in to driving it by name", s.windows > 0,
+    `windows=${s.windows} — window.__governor = "measure" is the only door and it must open`);
+
+  // --------------------------------------------------------
+  // THE CASCADE — the round-one defect, reproduced in the shape the adversary
+  // reported it. A DESKTOP on a brand-new profile that renders at 40 ms for
+  // twenty seconds in ONE session came out of round one measured `low`, ceiling
+  // `low`, and stayed there through five clean sessions afterwards while
+  // detectTier went on saying `high`. `low` is the tier with no ORM maps.
+  //
+  // Two faults made it: judge() demoted, reset `bad` but not `warmup`, and went
+  // straight back to judging frames that were still being rendered by the tier
+  // it had just left; and the floor was the bottom of the enum rather than
+  // anything about the device.
+  // --------------------------------------------------------
+  console.log("\na demotion that cannot cascade (the desktop the adversary drove)");
+
+  s = session(DESKTOP, LAGGY, { fresh: true });
+  check("a stuttering desktop steps DOWN ONE, not two", s.tier === "high" && measured() === "medium",
+    `rendered ${s.tier}, measured=${measured()} — round one made this 'low' in the same session`);
+  check("it stops counting the moment it moves", s.windows === 2 && s.frames < 1200,
+    `windows=${s.windows} frames=${s.frames} of 1200 — after applyLive only the pixel ratio has ` +
+    `changed, so every later frame is the OLD build and judging it is a measurement error`);
+  check("frame time alone never reaches the tier with no ORM maps", measured() !== "low",
+    `measured=${measured()} — packOrm strips roughness, metalness and AO off every surface at low`);
+
+  // Four more sessions, same store, same clean frames. Round one held `low`
+  // through all of them. A short clean run must not undo the ratchet either —
+  // that is what the ratchet is for — so these first three change nothing.
+  let held = [];
+  for (let i = 0; i < 3; i++) held.push(session(DESKTOP, rep(600, 16.7)).tier);
+  check("three clean sessions later it is still medium, not low", held.join(",") === "medium,medium,medium",
+    `rendered ${held.join(",")} — measured=${measured()} ceiling=${ceiling()}`);
+
+  // And the way back. Thirty seconds of unbroken clean frames is four times the
+  // evidence a demotion asks for, and it lifts the ratchet one step.
+  s = session(DESKTOP, rep(1800, 16.7));
+  check("a sustained clean run climbs back out", measured() === "high" && ceiling() === "high",
+    `measured=${measured()} ceiling=${ceiling()} — a device demoted on one bad afternoon must not be pinned for the life of the install`);
+  s = session(DESKTOP, rep(600, 16.7));
+  check("and the next load renders it", s.tier === "high", `rendered ${s.tier}`);
+
+  // The same shape one tier down, on the device this unit is actually about: a
+  // mid-range phone that stutters is held at `medium` and NOT stripped. There is
+  // no honest way to tell a slow GPU from a hot phone or a browser mid-update
+  // from frame time, and the cost of being wrong is the whole game's ORM maps.
+  s = session(PHONE, LAGGY, { fresh: true });
+  check("a stuttering phone is held, not stripped", s.tier === "medium" && measured() === null,
+    `rendered ${s.tier}, measured=${measured()} — the answer for this player is the GRAPHICS panel, not a silent one-way demotion`);
+
+  // --------------------------------------------------------
+  // THE RELEASE VALVE. Round one documented one and shipped no caller: repo-wide,
+  // setQualityPreference / applyQualityPreference / QUALITY_CHOICES appeared only
+  // in this file and in .next build output. So the row below — "choosing
+  // Automatic clears a stale demotion" — was green on a code path the app could
+  // not reach, which is a gate that is green because the case is absent.
+  //
+  // These rows now assert against `readQualityStatus`, which is the exact
+  // function GameHud's GRAPHICS panel renders from, so what is tested is what a
+  // player is shown.
+  // --------------------------------------------------------
+  console.log("\nthe release valve (what the GRAPHICS panel reads and writes)");
+
+  if (!quality.readQualityStatus || !quality.chooseQuality) {
+    check("a panel can tell the player what is happening to him", false,
+      "no readQualityStatus/chooseQuality export — the only control is ?quality= and it has no UI");
+  } else {
+    session(DESKTOP, LAGGY, { fresh: true });
+    let st = quality.readQualityStatus();
+    check("a demotion is visible to the panel that has to explain it",
+      st.demoted === true && st.active === "medium" && st.detected === "high",
+      `active=${st.active} detected=${st.detected} demoted=${st.demoted}`);
+
+    quality.chooseQuality("auto");
+    st = quality.readQualityStatus();
+    check("choosing Automatic clears a stale demotion",
+      st.demoted === false && st.active === "high" && measured() === null && ceiling() === null,
+      `active=${st.active} demoted=${st.demoted} measured=${measured()} ceiling=${ceiling()}`);
+
+    // A player who picks a tier has taken the wheel MID-FIGHT, and a governor
+    // still counting underneath him would go on writing verdicts and ratchets
+    // that outlive his choice. So: one bad window in (not yet enough to act),
+    // the player picks High, and then twenty more seconds of terrible frames.
+    // Nothing may move, and the governor must have let go of the clock — which
+    // `left` measures, because a stopped governor stops asking for frames.
+    const live = openSession(DESKTOP, { fresh: true });
+    live.pump(rep(400, 40));
+    quality.chooseQuality("high");
+    const left = live.pump(rep(1200, 40));
+    check("a player's choice takes the governor off the wheel mid-fight",
+      left === 0 && measured() === null && ceiling() === null
+        && quality.readQualityStatus().active === "high",
+      `${left} frames still consumed, measured=${measured()} ceiling=${ceiling()}`);
+
+    // And the player may choose the tier the governor is not allowed to choose
+    // for him. This is the whole reason the floor above can be as conservative
+    // as it is.
+    // The player may choose the tier the governor is not allowed to choose for
+    // him. This is what lets the floor above be as conservative as it is.
+    openSession(DESKTOP, { fresh: true });
+    quality.chooseQuality("low");
+    st = quality.readQualityStatus();
+    check("the player may still ask for Fast himself", st.active === "low" && st.choice === "low",
+      `active=${st.active} choice=${st.choice}`);
+
+    // And the panel must not claim the whole change landed. Everything but the
+    // pixel ratio is forged once from QualitySettings, so `forged` is what the
+    // frame on screen is made of and `active` is what the store now says. The
+    // gap between them is the "Kept — rebuilds when the arena is next built"
+    // row; without this field the panel would be lying politely.
+    check("a mid-fight change knows it is only half applied",
+      st.forged === "high" && st.active === "low",
+      `forged=${st.forged} active=${st.active}`);
+    const reloaded = session(DESKTOP, []);
+    check("and the next load closes the gap",
+      reloaded.tier === "low" && quality.readQualityStatus().forged === "low",
+      `rendered ${reloaded.tier}, forged=${quality.readQualityStatus().forged}`);
+    quality.chooseQuality("auto");
+  }
 }
 
 const source = REV

@@ -137,6 +137,25 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
   // renders is a desktop frame at desktop sharpness with fewer pixels in it and
   // a softer shadow, which is a completely different complaint from the one the
   // owner made.
+  //
+  // AND HERE IS WHAT THAT SENTENCE IS NOT. Round one's report claimed `medium`
+  // after the fix and `high` "read as the same picture". They do not, and the
+  // rows below say so in numbers — seven of them:
+  //
+  //   particleScale 0.7   particleBudget 1200/3000   moteCount 140/220
+  //   decalBudget 24/64   damageNumberBudget 24/48
+  //   propDensity 0.8     dynamicLights 3/5
+  //
+  // The first five are effect DENSITY, and a phone giving up a third of its
+  // sparks is a defensible trade. THE LAST TWO ARE SCENE CONTENT. `propDensity`
+  // decides how many rocks, tufts and pieces of debris are scattered on the
+  // ground, and `dynamicLights` decides how many of the arena's torches are real
+  // PointLights rather than painted glow — a player on `medium` is standing in a
+  // barer arena, lit by two fewer fires, and that is visible without a
+  // side-by-side. Calling that "the same picture" was the comfortable reading of
+  // one's own work. What is actually true is narrower and still worth having:
+  // per-fragment SHARPNESS is now at parity, and the gap that remains is density
+  // and content, which is a smaller and much more honest claim.
   medium: {
     tier: "medium",
     maxPixelRatio: 1.5,
@@ -289,10 +308,13 @@ const step = (t: QualityTier, by: number): QualityTier =>
  * cannot honestly overturn it either: without `EXT_disjoint_timer_query` (which
  * mobile Safari does not expose) a vsync-locked 60 fps is indistinguishable from
  * a vsync-locked 60 fps with 5% headroom, so "smooth on medium" is not evidence
- * of "affordable on high". A player who knows better has the control — see
- * `setQualityPreference` — and that is the honest way past a ceiling we cannot
- * measure our way over. What closed the gap instead was raising `medium` itself
- * to `high`'s sampling numbers; see the note on the preset.
+ * of "affordable on high". A player who knows better has the control — GameHud's
+ * GRAPHICS panel, the thing that calls `chooseQuality`, reachable from inside a
+ * fight — and that is the honest way past a ceiling we cannot measure our way
+ * over. Round one wrote that sentence with no such panel in existence, which
+ * made it a promise rather than a description; it is a description now. What
+ * closed the gap instead was raising `medium` itself to `high`'s sampling
+ * numbers; see the note on the preset.
  */
 export function detectTier(probe: DeviceProbe = probeDevice()): QualityTier {
   // Desktop-class machines only step down for a cramped window, and never on a
@@ -387,6 +409,14 @@ export function readQualityPreference(): QualityChoice {
  * blunt version.
  */
 export function setQualityPreference(choice: QualityChoice): void {
+  // ROUND ONE SHIPPED THIS FUNCTION WITH NO CALLERS, and the comment below
+  // described a release valve nobody could reach: repo-wide, `setQualityPreference`,
+  // `applyQualityPreference` and `QUALITY_CHOICES` appeared only in tiertest and
+  // in build output. So the harness proved that choosing "Automatic" clears a
+  // stale demotion, on a code path the shipped app had no way into — a green
+  // gate over an absent case, which is this project's signature failure wearing
+  // its newest hat. The caller is GameHud's GRAPHICS panel, reachable from
+  // inside a fight on a phone and on a desktop both.
   writeStore(PREF_KEY, choice === "auto" ? null : choice);
   // Touching this control at all discards the automatic story, including the
   // ratchet. Both directions matter and the second one is a trap that was in
@@ -399,9 +429,25 @@ export function setQualityPreference(choice: QualityChoice): void {
   writeStore(CEILING_KEY, null);
 }
 
+/**
+ * What the settings control calls when a choice is tapped: persist it, take the
+ * governor off the wheel, and move the one knob that moves without a rebuild.
+ *
+ * It deliberately does NOT reload. A reload in this game is not a refresh, it is
+ * a forfeit — page.tsx joins its room from memory and rejoins nothing, so a
+ * player who changes quality mid-fight would be thrown out of the fight. The
+ * pixel ratio changes now, the panel says plainly that the rest lands when the
+ * arena is next built, and `applyQualityPreference` is there for the player who
+ * wants that immediately and is told what it costs.
+ */
+export function chooseQuality(choice: QualityChoice): void {
+  setQualityPreference(choice);
+  QUALITY_GOVERNOR.adopt(choice);
+}
+
 /** Persist the choice and rebuild the renderer the only way it can be rebuilt. */
 export function applyQualityPreference(choice: QualityChoice): void {
-  setQualityPreference(choice);
+  chooseQuality(choice);
   if (typeof window !== "undefined") window.location.reload();
 }
 
@@ -409,6 +455,68 @@ export function applyQualityPreference(choice: QualityChoice): void {
 function readMeasuredTier(): QualityTier | null {
   const v = readStore(MEASURED_KEY);
   return isTier(v) ? v : null;
+}
+
+/**
+ * Everything a settings control has to be able to SAY, in one read. It exists
+ * because the interesting state is not the player's choice — it is the argument
+ * between four sources, and a panel that shows only the choice cannot explain
+ * why a player who never touched anything is looking at a soft picture.
+ *
+ * Pure reads. Unlike `resolveQuality` this never arms the governor: a panel
+ * opening must not start a measurement, and drawing a menu is not evidence.
+ */
+export interface QualityStatus {
+  /** What the player picked, `"auto"` if he never has. */
+  choice: QualityChoice;
+  /** The tier this load is actually rendering, pin included. */
+  active: QualityTier;
+  /** What `detectTier` says about the device, ignoring all stored history. */
+  detected: QualityTier;
+  /** The governor's stored verdict, or null if it has never reached one. */
+  measured: QualityTier | null;
+  /** The ratchet the governor wrote when it demoted, if it has. */
+  ceiling: QualityTier | null;
+  /** `?quality=` or `window.__quality`; beats everything, and must say so. */
+  pinned: QualityTier | null;
+  /**
+   * A stored measurement is holding this device BELOW its own cold-start guess.
+   * This is the state that was permanent and invisible, and it is the one the
+   * panel has to put on screen in words before "Automatic" can honestly claim
+   * to clear anything.
+   */
+  demoted: boolean;
+  /**
+   * The tier the renderer on screen was actually FORGED at — the last thing
+   * `resolveQuality` handed out — or null if nothing has been built yet.
+   *
+   * It is not the same fact as `active`, and the difference is the honest half
+   * of a mid-fight change: `active` is what the store now says, while the
+   * texture library, the materials, the shadow maps, the bloom chain and every
+   * tier-branched shader are whatever they were built as. When these two
+   * disagree, a rebuild is owed, and a panel that did not know that would tell
+   * a player his choice had landed when a third of it had.
+   */
+  forged: QualityTier | null;
+}
+
+export function readQualityStatus(): QualityStatus {
+  const pinned = readQualityOverride();
+  const choice = readQualityPreference();
+  const detected = detectTier();
+  const measured = readMeasuredTier();
+  const stored = readStore(CEILING_KEY);
+  const auto = measured ?? detected;
+  return {
+    choice,
+    active: pinned ?? (choice === "auto" ? auto : choice),
+    detected,
+    measured,
+    ceiling: isTier(stored) ? stored : null,
+    pinned,
+    demoted: measured !== null && TIER_ORDER.indexOf(measured) < TIER_ORDER.indexOf(detected),
+    forged: forgedTier,
+  };
 }
 
 /**
@@ -428,10 +536,19 @@ export function readQualityOverride(): QualityTier | null {
   return null;
 }
 
+/**
+ * The tier the renderer currently on screen was forged at. Written here because
+ * this is the only place that decides it, and read by `readQualityStatus` so a
+ * settings panel can tell "what the store says" from "what was actually built"
+ * — see `QualityStatus.forged`.
+ */
+let forgedTier: QualityTier | null = null;
+
 export function resolveQuality(override?: QualityTier | null): QualitySettings {
   const pin = override ?? readQualityOverride();
   const pref = readQualityPreference();
   const tier = pin ?? (pref === "auto" ? readMeasuredTier() ?? detectTier() : pref);
+  forgedTier = tier;
   // The governor only ever runs against a tier nobody pinned. Under `?quality=`
   // the whole point is that the tier stays put — a capture harness that got
   // silently demoted mid-run would be measuring a build nobody ships.
@@ -453,25 +570,54 @@ export function configureRenderer(renderer: THREE.WebGLRenderer, settings: Quali
 }
 
 // ---------------------------------------------------------------------------
-// THE GOVERNOR — the only honest instrument on this side of the wire.
+// THE GOVERNOR — the only instrument on this side of the wire that measures
+// anything, and the one thing here most able to do harm.
 //
 // The tier used to be decided entirely by `navigator.deviceMemory` and
 // `hardwareConcurrency`, neither of which measures anything (see `detectTier`).
 // This does: it counts the interval between presented frames, which is the exact
 // quantity the owner is describing when he says a build is "laggy".
 //
-// WHAT IT WILL AND WILL NOT DO
+// THE THREE BRAKES, AND WHAT HAPPENED WITHOUT THEM
 //
-//   demote   on two consecutive bad windows, at any tier. Takes effect at once
-//            through pixel ratio — "the single biggest fill-rate lever we have"
-//            — and is persisted so the next load starts from the right place.
-//   promote  at most as far as `autoCeiling`, and only after a demotion has NOT
-//            already ratcheted the ceiling down. This exists for one case: a
-//            privacy-hardened browser that under-reports cores, whose device
-//            `detectTier` had to assume was ancient and which then renders three
-//            clean seconds at 60. It cannot cross `medium` on a touch device —
-//            see `detectTier` for why that is a measurement problem and not
-//            timidity.
+// Round one shipped the demote path with none of them, and an adversary drove
+// it. A desktop, brand-new profile, rendering at 40 ms for twenty seconds in ONE
+// session:
+//
+//     session 1 (clean)                     -> high, store empty
+//     session 2 (25 ms frames)              -> demoted TWICE, measured = low
+//     sessions 3,4,5 (1800 clean frames)    -> low, low, low
+//     detectTier, throughout                -> high
+//
+// A permanent, one-way regression to the worst tier in the game, on hardware
+// this unit was never about. Three faults, each now a rule:
+//
+//   1. IT JUDGED A TIER IT WAS NOT RENDERING. `applyLive` moves the pixel ratio
+//      and nothing else — the shadow map, the bloom chain, AO, DoF and every
+//      tier-branched shader are built once, at load, from `QualitySettings`. So
+//      the window after a demotion is still frames of the OLD build, and judging
+//      those against the new tier demoted again three seconds later. `bad` was
+//      reset on demote; `warmup` was not, so not one frame of settling was
+//      allowed either. THE GOVERNOR NOW MOVES THE TIER AT MOST ONCE PER SESSION,
+//      up or down, and then stops. Anything it could learn afterwards is about a
+//      build that no longer matches the tier it is holding. The next load
+//      rebuilds at the stored tier, and the measurement resumes against what is
+//      actually on the screen.
+//   2. IT COULD REACH `low` ON FRAME TIME ALONE. `low` is where `packOrm`
+//      (textures.ts) strips roughness, metalness and AO off every surface in the
+//      game — this file calls that the single largest quality cliff it owns, and
+//      then let twenty seconds of stutter walk a desktop off it. Frame time
+//      cannot tell a slow GPU from a hot phone, a tab that has just come back, a
+//      browser mid-update or another process eating the machine. So the floor
+//      now requires the device to look weak to `detectTier` as WELL as to have
+//      stuttered; everything else stops at `medium`. A player who wants `low`
+//      has the settings control. The governor is not allowed to want it for him.
+//   3. IT WAS A ONE-WAY DOOR. The ratchet — right in itself, it stops a device
+//      oscillating — had no way back, and the escape hatch documented in
+//      `setQualityPreference` had ZERO CALLERS in the shipped app. It has one
+//      now (GameHud's GRAPHICS panel), and a device that then renders clean for
+//      a sustained stretch lifts the ratchet a step on its own: see
+//      GOVERNOR_RECLAIM.
 //
 // WHY A TIER CHANGE CANNOT LAND MID-SESSION. Everything downstream of
 // `QualitySettings` is built once: the texture library sizes its maps from it,
@@ -484,11 +630,13 @@ export function configureRenderer(renderer: THREE.WebGLRenderer, settings: Quali
 // WHY IT IS OFF UNDER AUTOMATION. `navigator.webdriver` is true in every
 // Playwright page, and every harness in tools/ is a Playwright page. This box
 // has no GPU and rasterises through SwiftShader at around one frame a second, so
-// an armed governor would demote to `low` within three seconds and then PERSIST
-// that verdict into the profile the next capture reuses. Every render in this
-// repository would quietly become a `low` render and the sheets would still look
-// plausible. That is the eleven-instances failure exactly: a measurement
-// answering a question nobody asked.
+// an armed governor would demote within three seconds and then PERSIST that
+// verdict into the profile the next capture reuses. Every render in this
+// repository would quietly become a demoted render and the sheets would still
+// look plausible. That is the signature failure exactly: a measurement answering
+// a question nobody asked. A harness that genuinely means to drive this — on a
+// real device, with a real GL context — opts in by name (`window.__governor =
+// "measure"`), which is a thing no capture tool does by accident.
 // ---------------------------------------------------------------------------
 
 /** Frames thrown away before sampling: shader links and first-touch uploads. */
@@ -497,27 +645,79 @@ const GOVERNOR_WARMUP = 120;
 const GOVERNOR_WINDOW = 180;
 /** Consecutive windows that must agree. One GC storm must not cost a tier. */
 const GOVERNOR_AGREE = 2;
+/**
+ * Consecutive clean windows needed to lift a ratcheted ceiling — 8 is about
+ * twenty-four seconds of unbroken good frames, four times what a demotion asks
+ * for. The asymmetry is the whole point of a ratchet: coming down is a safety
+ * move on cheap evidence, going back up costs a device something to prove. It
+ * is what stops "demoted on a hot afternoon" from meaning "demoted for the life
+ * of the install" without turning the tier into a thing that flickers.
+ */
+const GOVERNOR_RECLAIM = 8;
 /** Above this the tab was backgrounded or the process was suspended. Not a frame. */
 const GOVERNOR_MAX_SANE_MS = 1000;
-/** Sustained median worse than this is the "laggy" the owner reported: ~45 fps. */
+/**
+ * WHAT THE NEXT FOUR NUMBERS REST ON, PLAINLY: nothing measured. They are
+ * chosen, and a reader is owed that in the same place as the values.
+ *
+ * The only real-hardware datum this project owns about frame cost is the
+ * owner's own session — `high` stutters on his handset, `medium` is smooth —
+ * and it names no milliseconds at all. `22` is a way of writing "worse than
+ * about 45 fps"; `50` is "a hitch a person can see". Both are reasonable and
+ * neither is observed. Calibrating them honestly needs a GPU timer
+ * (`EXT_disjoint_timer_query`, which mobile Safari does not expose) or a phone
+ * and a stopwatch; this box has neither, it has no GPU at all, and the governor
+ * is deliberately disarmed under the automation that runs here.
+ *
+ * tools/tiertest.mjs injects frame intervals straight into the state machine, so
+ * WHAT THE MACHINE DOES with these numbers is tested end to end, across
+ * simulated reloads. WHAT THE NUMBERS MEAN on real silicon is not tested by
+ * anything, and per PROCESS.md R4 that is a deferral and not a clean sheet.
+ */
 const GOVERNOR_BAD_P50_MS = 22;
-/** One frame in twenty over 50 ms reads as hitching even at a fine median. */
 const GOVERNOR_BAD_P95_MS = 50;
 /** Clean enough to be worth promoting out of a guessed floor: 50 fps, no tail. */
 const GOVERNOR_GOOD_P50_MS = 20;
 const GOVERNOR_GOOD_P95_MS = 33;
 
+const touchDevice = (): boolean =>
+  typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
 /**
- * The highest tier the governor may promote *to*. Touch stops at `medium`
+ * The highest tier NO amount of evidence may cross. Touch stops at `medium`
  * because that is where the owner's real-hardware test put it and nothing here
  * can measure its way past that — see `detectTier`.
  */
+function hardCeiling(): QualityTier {
+  return touchDevice() ? "medium" : "high";
+}
+
+/**
+ * The highest tier the governor may promote *to* right now: the ratchet if a
+ * demotion has written one, else the hard ceiling. Crossing the ratchet is
+ * allowed but expensive — GOVERNOR_RECLAIM windows of clean frames — which is
+ * the way back that round one did not have.
+ */
 function autoCeiling(): QualityTier {
   const stored = readStore(CEILING_KEY);
-  if (isTier(stored)) return stored;
-  return typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)
-    ? "medium"
-    : "high";
+  return isTier(stored) ? stored : hardCeiling();
+}
+
+/**
+ * The lowest tier the governor may demote *to*, and the answer to the second
+ * fault in the block above. `low` is the tier with no ORM maps in it, so frame
+ * time alone is not allowed to reach it: the device has to look weak to
+ * `detectTier` as well — a real 2-core, a real sub-4 GB report, a 320 px
+ * screen — which are the signals that survive quantisation. Everything else
+ * bottoms out at `medium`, whatever it does to the frame clock.
+ *
+ * This is not the same as saying `low` is unreachable. `detectTier` still hands
+ * it to those devices cold, and a player can pick "Fast" himself in GameHud's
+ * GRAPHICS panel. What is gone is the governor choosing it FOR a device that
+ * merely had a bad twenty seconds.
+ */
+function governorFloor(): QualityTier {
+  return detectTier() === "low" ? "low" : "medium";
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -536,6 +736,13 @@ class QualityGovernor {
   private good = 0;
   private running = false;
   private raf = 0;
+  /**
+   * Whether the tier has already moved this session. Brake 1 from the block
+   * above, and it lives on the object rather than in `running` because `arm` is
+   * called again by every entry point that resolves quality — GameCanvas and
+   * armouryStage both — and a plain `stop()` would be undone by the next one.
+   */
+  private moved = false;
 
   /** Last window's statistics, so a harness or a debug overlay can read them. */
   p50 = 0;
@@ -544,13 +751,19 @@ class QualityGovernor {
 
   arm(tier: QualityTier): void {
     this.tier = tier;
-    if (this.running) return;
+    if (this.running || this.moved) return;
     if (typeof window === "undefined" || typeof requestAnimationFrame !== "function") return;
     // See the module note: an armed governor under Playwright would persist a
-    // SwiftShader verdict into every capture this repository takes.
-    if (typeof navigator !== "undefined" && navigator.webdriver) return;
+    // SwiftShader verdict into every capture this repository takes. A harness
+    // that means to drive this on real hardware asks for it by name.
+    const optedIn = (window as unknown as Record<string, unknown>).__governor === "measure";
+    if (typeof navigator !== "undefined" && navigator.webdriver && !optedIn) return;
     this.running = true;
     this.last = 0;
+    this.warmup = GOVERNOR_WARMUP;
+    this.frames.length = 0;
+    this.bad = 0;
+    this.good = 0;
     this.raf = requestAnimationFrame(this.tick);
   }
 
@@ -562,6 +775,49 @@ class QualityGovernor {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+  }
+
+  /**
+   * Back to the state a page load builds this in. A browser gets that for free
+   * by throwing the module away; tools/tiertest.mjs needs it to drive a SECOND
+   * session against the same localStorage, which is the only way to see that a
+   * demotion persisted, did not cascade, and can be climbed back out of.
+   */
+  reset(): void {
+    this.stop();
+    this.tier = null;
+    this.renderer = null;
+    this.frames.length = 0;
+    this.last = 0;
+    this.warmup = GOVERNOR_WARMUP;
+    this.bad = 0;
+    this.good = 0;
+    this.moved = false;
+    this.p50 = 0;
+    this.p95 = 0;
+    this.windows = 0;
+  }
+
+  /**
+   * The player has taken the wheel in GameHud's GRAPHICS panel. Two things
+   * follow, and the first is not optional: a governor still counting frames
+   * against `auto` would go on writing verdicts and ratchets underneath a player
+   * who has just overruled it. So it stops. The second is the courtesy half —
+   * pixel ratio is the one knob that moves without a rebuild, so the choice
+   * shows up in the frame immediately instead of only after the reload.
+   *
+   * "Automatic" does NEITHER, deliberately. `setQualityPreference` has already
+   * cleared the stored verdict, so the tier this device gets is decided fresh on
+   * the next load and measured from that load's own frames; raising the pixel
+   * ratio here instead would push a device that has just been demoted straight
+   * back up mid-fight with the governor stopped and unable to answer for it. The
+   * panel says which of the two happened rather than claiming both.
+   */
+  adopt(choice: QualityChoice): void {
+    if (choice === "auto") return;
+    this.moved = true;
+    this.stop();
+    this.applyLive(choice);
   }
 
   private tick = (now: number): void => {
@@ -606,38 +862,68 @@ class QualityGovernor {
       if (++this.bad < GOVERNOR_AGREE) return;
       this.bad = 0;
       const next = step(tier, -1);
-      if (next === tier) { this.stop(); return; }   // already on the floor
+      // Brake 2. `next === tier` is the top of the enum running out; the floor
+      // check is the one that matters, and it is the difference between a
+      // desktop that hitched for twenty seconds keeping its ORM maps and losing
+      // them for the life of the install.
+      if (next === tier || TIER_ORDER.indexOf(next) < TIER_ORDER.indexOf(governorFloor())) {
+        this.stop();
+        return;
+      }
       this.tier = next;
       writeStore(MEASURED_KEY, next);
       // Ratchet. A device that has proved it cannot hold this tier must not be
-      // handed back to it three clean seconds later and start oscillating.
+      // handed back to it three clean seconds later and start oscillating. It is
+      // not a life sentence: GOVERNOR_RECLAIM lifts it, and the GRAPHICS panel
+      // clears it outright.
       writeStore(CEILING_KEY, next);
       this.applyLive(next);
+      // Brake 1, and the reason the adversary's desktop reached `low`: from here
+      // the frames on screen are a `high` build with a `medium` pixel ratio, and
+      // judging those against `medium` demoted it again three seconds later.
+      // There is nothing left this session that can honestly be measured.
+      this.finish();
       return;
     }
 
     if (this.p50 <= GOVERNOR_GOOD_P50_MS && this.p95 <= GOVERNOR_GOOD_P95_MS) {
       this.bad = 0;
-      if (++this.good < GOVERNOR_AGREE) return;
-      this.good = 0;
+      this.good++;
       const next = step(tier, 1);
-      if (next === tier || TIER_ORDER.indexOf(next) > TIER_ORDER.indexOf(autoCeiling())) {
+      if (next === tier || TIER_ORDER.indexOf(next) > TIER_ORDER.indexOf(hardCeiling())) {
         // Nothing left to win here. Stop counting rather than burn a callback a
         // frame for the rest of the match.
         this.stop();
         return;
       }
+      // Climbing past a ratchet is a different act from climbing inside it, and
+      // it costs four times as much clean evidence. See GOVERNOR_RECLAIM.
+      const reclaiming = TIER_ORDER.indexOf(next) > TIER_ORDER.indexOf(autoCeiling());
+      if (this.good < (reclaiming ? GOVERNOR_RECLAIM : GOVERNOR_AGREE)) return;
+      this.good = 0;
       this.tier = next;
+      if (reclaiming) writeStore(CEILING_KEY, next);
       // Persisted only. Raising the tier means rebuilding the texture library,
       // the materials and every tier-branched shader — that is a load, and a
       // load in the middle of a fight to make the fight prettier is a bad trade.
       writeStore(MEASURED_KEY, next);
+      // Brake 1 again, and it is the same fault in the safe direction: these
+      // frames were rendered by the tier BELOW the one now stored, so they are
+      // no evidence at all about the one above it. The next load builds what was
+      // just written and gets judged on its own frames.
+      this.finish();
       return;
     }
 
     // In between: neither bad enough to act on nor clean enough to bank.
     this.bad = 0;
     this.good = 0;
+  }
+
+  /** One tier move per session, then silence until the next load. */
+  private finish(): void {
+    this.moved = true;
+    this.stop();
   }
 
   /**

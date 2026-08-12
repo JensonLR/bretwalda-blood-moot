@@ -30,7 +30,8 @@
     "wearmeasure": "node tools/wearmeasure.mjs",
     "phonesound": "node tools/phonesound.mjs",
     "summaryflow": "node tools/summaryflow.mjs",
-    "hairmap": "node tools/hairmap.mjs"
+    "hairmap": "node tools/hairmap.mjs",
+    "tiertest": "node tools/tiertest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
