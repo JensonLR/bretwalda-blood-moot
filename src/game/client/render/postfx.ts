@@ -1949,8 +1949,29 @@ const GRADE_SHADER = {
 
 // ---------------------------------------------------------------------------
 
-/** Bloom pyramid depth per tier. Fewer levels, tighter skirt, less bandwidth. */
-const BLOOM_LEVELS: Record<QualityTier, number> = { high: 5, medium: 4, low: 3 };
+/**
+ * Bloom pyramid depth per tier. Fewer levels, tighter skirt, less bandwidth.
+ *
+ * `medium` was 4 and is now 5, i.e. the same pyramid `high` gets, and the reason
+ * is that the level being cut was the cheapest one in the chain. Level 0 is half
+ * the composer buffer and every level halves again, so on a 390 CSS-px phone at
+ * `medium`'s 1.5 pixel ratio the pyramid runs 292x633, 146x316, 73x158, 37x79 —
+ * and the level this used to refuse is **18x40, seven hundred pixels**. It costs
+ * two blits and two framebuffer binds a frame and no measurable fill.
+ *
+ * What it buys is the only thing bloom is for. The skirt's reach in SCREEN space
+ * is set by the coarsest mip, so a phone was getting a glow that stopped about a
+ * sixteenth of the way across the frame while a desktop got one that carried
+ * twice that. The bonfire is the light source this whole arena is lit by; on
+ * `medium` it was blooming like a torch behind glass. And the phone starts from
+ * a smaller buffer than the desktop does, so a matched LEVEL COUNT is still a
+ * tighter absolute skirt — dropping one on top of that was doubling the deficit.
+ *
+ * `low` keeps 3 and it is dead weight there: the preset sets `bloom: false`, so
+ * `BloomChain` is never built and this row is never read. It stays as the answer
+ * for the day someone gives `low` its glow back.
+ */
+const BLOOM_LEVELS: Record<QualityTier, number> = { high: 5, medium: 5, low: 3 };
 
 /**
  * Coverage samples on the composer's colour buffers, per tier.

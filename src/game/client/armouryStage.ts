@@ -839,9 +839,23 @@ function pumpThumbs(forge: Forge): void {
   // `medium`, not the tier. A card is 132 px square and a desktop's `high`
   // build is the single most expensive thing this file does — ten of them at
   // one a frame is what made the first capture of this screen come back with
-  // three cards filled in and seven spinners. `low` is refused because it
-  // drops the head to 14x10 sampling rows, and six of the eight slots in this
-  // shop sell something on a face.
+  // three cards filled in and seven spinners.
+  //
+  // `low` is refused, and the reason written here used to be that it "drops the
+  // head to 14x10 sampling rows". It does not, and has not since the Nyquist
+  // note went into characters.ts: `LOD.low` is `headU: 30, headV: 30`, and that
+  // note exists precisely to explain that the head's row count is a correctness
+  // number that no tier is allowed to cut. 14x10 was the value BEFORE that fix —
+  // this comment was arguing from a build that had already been repaired, which
+  // is the `cheekOut` defect (PROCESS.md R7) in another file.
+  //
+  // The real reason `low` is wrong for a shop card survives the correction and
+  // is stronger: `low` is the one tier where `packOrm` is false, so every
+  // surface loses its roughness, metalness and AO maps and falls back to the
+  // recipe's scalars. Six of the eight slots here sell something metal and six
+  // sell something on a face; a helm with no roughness map is a grey blob and a
+  // cheek with no cavity AO is an egg. A shop card's entire job is to show the
+  // thing you are being asked to pay for.
   const built = buildCharacter(
     cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, forge.materials, "medium", job.spec.faceSeed,
   );
