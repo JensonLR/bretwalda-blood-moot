@@ -455,6 +455,25 @@ function pickTarget(yaw: number, players: Record<string, GamePlayer>, local: Gam
   applySwitch(players, local, localId);
   if (lock.id && lock.sticky > 0) return;
 
+  // THE MAN YOU JUST PARRIED TAKES THE LOCK.
+  //
+  // `docs/DESIGN-SYSTEM.md` §3 puts the parry tell on the OPPONENT's brackets
+  // for the window's real duration rather than on a bar on your own HUD, and
+  // that rule has a precondition nobody had stated: the brackets have to be ON
+  // him. In an eight-man moot the scoring can perfectly well be holding a
+  // different man at the moment you read a blow, and then the window you earned
+  // is drawn on nobody and the mechanic is invisible — which is the same as not
+  // existing (`docs/WEIGHT.md`).
+  //
+  // So the riposte window overrides the scoring outright rather than adding a
+  // weight to it. It is the one moment in a fight where the game knows for
+  // certain which man you care about, because you proved it 50 ms ago.
+  const owed = liveEnemies(players, localId, local).find((id) => {
+    const e = players[id];
+    return (e.vulnerableTimer ?? 0) > 0 && e.vulnerableTo === localId;
+  });
+  if (owed && owed !== lock.id) { lock.id = owed; lock.reason = "you parried him"; return; }
+
   let best: string | null = null;
   let bestScore = Infinity;
   let inRange = 0;

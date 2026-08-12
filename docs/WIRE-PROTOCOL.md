@@ -144,7 +144,7 @@ it; the touch client never sends it, so it is optional.
 | `lobby_update` | room | Any lobby mutation, and 10 s after `match_end` when the room rolls back. Full snapshot. |
 | `countdown` | room | Once at round start with a **full snapshot plus `countdown`**, then once a second with **`{countdown}` and nothing else**. See §9.3. |
 | `game_state` | room | Once per server wake during `fighting` / `last_stand`, and once on the countdown→fighting transition. Full snapshot. |
-| `hit` | room | Every resolved blow, parry, block and shove. |
+| `hit` | room | Every resolved blow, parry, block, shove and knockdown. |
 | `kill` | room | Every death. |
 | `ability_used` | room | `{playerId, ability, warriorClass}`. |
 | `last_stand` | room | Once per round, when exactly two men remain of more than two, free-for-all only. `{players:[{id,name}]}` — **not** a snapshot. |
@@ -186,10 +186,10 @@ Every player object is the server's own record **minus a denylist**,
 `blockUntil`, `isBlocking`, `yaw`, `baseName`, `aimYaw`, `pendingSwing`,
 `shovePending`, `shoveCooldown`, `emoteUntil`.
 
-That leaves 48 published fields, and it is a **denylist, not an allowlist** —
+That leaves 53 published fields, and it is a **denylist, not an allowlist** —
 see §9.5, this is the most fragile line in the protocol.
 
-The 48, grouped by what a client does with them:
+The 53, grouped by what a client does with them:
 
 - **Identity** `id, name, warriorClass, team, ready, appearance, bot?,
   difficulty?`
@@ -198,9 +198,35 @@ The 48, grouped by what a client does with them:
   extrapolates on. It is forced to zero during hitstop (2278).
 - **Vitals** `health, maxHealth, stamina, maxStamina`
 - **State** `state, attackDir, blockDir, attackTimer, blockTimer, dodgeTimer,
-  staggerTimer`
+  staggerTimer` — `state` is `idle | walking | running | sprinting | attacking |
+  blocking | dodging | rolling | staggered | knocked | rising | dead | ability |
+  shoving`.
 - **Swing** `attackPhase (null|windup|contact|recovery), attackPhaseT, swingT,
   swingDuration, swingHeavy, hitstop, shoveTimer`
+- **Weight** `balance, maxBalance, downTimer, vulnerableTimer, vulnerableTo` —
+  the five fields the weight wave added, and every one of them is public
+  because a player has to be able to SEE it:
+  - `balance` / `maxBalance` are POISE. Every blow that lands takes some, scaled
+    by the weapon's mass and doubled when the man was caught off guard (already
+    reeling, on the floor, rising, or struck from behind). It refills at
+    `BALANCE.regen` (26/s) whenever he is neither staggered nor down. **At zero
+    he is knocked over.** `maxBalance` is per class — huscarl 100, berserker 86,
+    warden 78, runekeeper 58 — which is what makes the huscarl the hardest man
+    in the game to floor.
+  - `downTimer` is **the whole floor sequence in one clock**: it starts at
+    `KNOCKDOWN.down + KNOCKDOWN.rise` (1.30 s) and `state` is derived from it —
+    `knocked` above `KNOCKDOWN.rise` (0.55 s), `rising` below it, and neither
+    once it reaches 0. A client phases a fall off this exactly the way it phases
+    a swing off `swingT`, and the two cannot disagree because there is only one
+    number. 0 whenever he is on his feet.
+  - `vulnerableTimer` / `vulnerableTo` are **the riposte window**, written onto
+    the man who was PARRIED. Above zero he is open, and `vulnerableTo` is the id
+    of the one man who collects: that player's next blow does `RIPOSTE.bonus`
+    (1.6x) damage, throws him `RIPOSTE.knockbackScale` (1.7x) further, and
+    **closes the window**. One parry buys one blow. Anybody else's blow lands at
+    its ordinary weight. `vulnerableTo` is `""` whenever the timer is 0.
+    The window is 0.90 s = 18 ticks; the reasoning at 20 Hz is in
+    `docs/WEIGHT.md`.
 - **Ability** `abilityCooldown, abilityActive, abilityTimer`
 - **Score** `kills, deaths, damage, score, lastHitBy, comboCount, comboTimer,
   deadAt`
@@ -213,18 +239,29 @@ The 48, grouped by what a client does with them:
   watched drop.
 - **Flourish** `emote` — his *chosen* emote, kept so the summary can pose him.
 
-### `hit` — six kinds under one type
+### `hit` — seven kinds under one type
 
-`{type, attackerId, targetId, damage, health?, direction?, hitZone?, hitstop}`
+`{type, attackerId, targetId, damage, health?, direction?, hitZone?, hitstop,
+riposte?, knockback?, window?}`
 
 | `data.type` | Carries `health`/`direction`/`hitZone`? | Meaning |
 |---|---|---|
 | `light` | yes | Clean blow. |
-| `heavy` | yes | Clean heavy. |
+| `heavy` | yes | Clean heavy. The target is rocked for `HEAVY_CLEAN_STAGGER` (0.30 s). |
 | `blocked` | yes | Shield ate `blockReduction` of it. |
-| `blocked_heavy` | yes | Guard broken: half reduction, and the target staggers. |
-| `parry` | **no** — `damage:0` | Guard raised inside `PARRY_WINDOW`; the *attacker* staggers. |
+| `blocked_heavy` | yes | Guard broken: half reduction, and the target staggers for 0.6 s. |
+| `parry` | **no** — `damage:0` | Guard raised inside `PARRY_WINDOW`; the *attacker* staggers, and a riposte window opens on him. Carries `window` (seconds). |
 | `shove` | **no** — `damage:0` | Position, not damage. Sets `lastHitBy` so the bonfire pays the shover. |
+| `knockdown` | **no** — `damage:0` | His poise ran out and he is on the ground. `attackerId` is whoever spent the last of it. **Always arrives AFTER the `hit` that caused it** — cause then effect, in the order they left the server. |
+
+The four wounding kinds also carry:
+
+- **`riposte`** (boolean, always present on a wound) — this blow landed inside a
+  window its attacker had earned by parrying, so its damage already includes
+  `RIPOSTE.bonus`. A client sounds and shakes on this; it is not optional.
+- **`knockback`** (number, metres, always present on a wound) — how far the blow
+  will actually carry the struck man, rounded to millimetres. 0 on a killing
+  blow, because the corpse is the gore system's to move.
 
 A native client must not assume `hitZone` is present. `hitstop` is `0.06` light
 / `0.11` heavy and a parry uses the heavy value.
@@ -436,8 +473,14 @@ that is not a Node builtin or a sibling `.mjs`.
 
 | Room | `game_state` bytes, median | Per client at 20 Hz |
 |---|---|---|
-| 2 players | ~2.4 KB | ~48 KiB/s (0.39 Mbit/s) |
-| 8 players | ~9.9 KB | ~193 KiB/s (**1.58 Mbit/s**) |
+| 2 players | ~2.6 KB | ~51 KiB/s (0.42 Mbit/s) |
+| 8 players | ~10.4 KB | ~203 KiB/s (**1.66 Mbit/s**) |
+
+Re-measured 12 Aug 2026 after the weight wave added five public fields per
+player (`balance, maxBalance, downTimer, vulnerableTimer, vulnerableTo`). The
+eight-man snapshot went 9.9 KB → 10.4 KB, about 60 bytes a man, and every one
+of those bytes is something the player has to be able to see. `protocoltest`
+gates the total at 20 KB so the next growth is noticed rather than discovered.
 
 Two consequences that belong in `docs/PLATFORM-PATH.md`:
 
@@ -450,7 +493,7 @@ Two consequences that belong in `docs/PLATFORM-PATH.md`:
    reassembles for us. This is a measured technical argument for Tauri, not an
    aesthetic one.
 2. **A Steam listen server is free for us and expensive for the host.** Eight
-   clients × 193 KiB/s is ~12.3 Mbit/s of *upstream* off one player's domestic
+   clients × 203 KiB/s is ~13.3 Mbit/s of *upstream* off one player's domestic
    connection. §4 of `PLATFORM-PATH.md` treats "the host pays nothing but
    latency" as the only cost of a listen server. It is not.
 

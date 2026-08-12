@@ -25,6 +25,19 @@ const COMBO_WINDOW = 0.8;
 const DODGE_DURATION = 0.35;
 const DODGE_COOLDOWN = 0.8;
 const STAGGER_DURATION = 0.6;
+// A CLEAN heavy — one that reached an unguarded body — used to stagger nobody.
+// Only a BLOCKED heavy did, which meant the game's answer to "you took thirty
+// damage to the head from an axe" was that your tempo was untouched, while the
+// man who successfully got his shield up lost 0.6 s. `weightprobe` measured the
+// open heavy at 0 ms of stagger and that number is what found it.
+//
+// 0.30 s, and the number is chosen against the fastest contact in the game: a
+// huscarl light reaches contact 0.408 s after the press. So a clean heavy rocks
+// a man visibly and does NOT hand the striker a free follow-up — the reward for
+// landing it is the 30-50 damage, and the stagger is the READABILITY, not a
+// second helping. The blocked heavy keeps the longer 0.6 s because there the
+// stagger IS the price: the shield traded health for tempo.
+const HEAVY_CLEAN_STAGGER = 0.30;
 const MATCH_COUNTDOWN = 3;
 const SPAWN_INVINCIBLE = 2.0;
 const ARENA_RADIUS = 18;
@@ -452,6 +465,140 @@ export const SHOVE = {
   stagger: 0.55,   // he lands unbalanced; not long enough to be a free blow
                    // for anything slower than a runekeeper light
   cooldown: 1.5,   // from press to press, so a wall of shoves is not a build
+};
+
+// ---- the blow that moves a body ----
+// Before this, `applyDamage` subtracted a number and applied hitstop, and that
+// was the whole of an impact. `tools/weightprobe.mjs` was pointed at the build
+// and measured a light blow moving the struck man 0.117 m and a heavy moving
+// him 0.121 m — and those two numbers being equal is the proof, because neither
+// was knockback at all. It was the soft body-separation push in `gameTick`
+// shoving two overlapping men apart by exactly as much for any blow, or none.
+//
+// So: metres of ground the struck man covers, by blow. These go through
+// `applyImpulse`, which converts a DISTANCE into the speed whose decay over
+// IMPULSE_TAU covers exactly that distance — so the numbers below are the
+// travel you can measure, not a gain constant nobody can picture.
+//
+// The shield is the interesting one. A guard does not stop a blow's momentum,
+// it stops its edge: a blocked heavy still shifts a man, and that is the whole
+// argument for the shove existing as a separate guard-break. Blocked travel is
+// therefore a third of open travel rather than zero.
+const KNOCKBACK = {
+  light: 0.42,
+  heavy: 0.95,
+  blocked: 0.14,
+  blocked_heavy: 0.30,
+  // The striker's own share. A blow that sweeps through a man weighs nothing;
+  // one that stops against him puts the striker back on his heels. Small, and
+  // one-sixth of what the target takes — it is a check on the swing, not a
+  // second knockback pointed the wrong way.
+  recoil: 1 / 6,
+};
+
+// Weapon mass, as a multiplier on everything above. This is what makes a
+// berserker's axe feel like an axe and a runekeeper's stave feel like a stave,
+// and it is the same ordering as `attackSpeed` because in this game the slow
+// weapon IS the heavy weapon.
+const WEAPON_MASS = { runekeeper: 0.72, warden: 0.92, huscarl: 1.06, berserker: 1.28 };
+const DEFAULT_WEAPON_MASS = 1;
+
+// ---- balance, and the ground ----
+// The owner: *"being able to fall over if caught off guard / shoved & get back
+// up"*. Three routes to the floor in one sentence — accumulated force, being
+// caught off guard, and a shove — so they are one number rather than three
+// special cases.
+//
+// BALANCE is poise. Every blow that lands takes some; it comes back on its own;
+// at zero the man goes down and it is refilled when he stands. That makes a
+// knockdown something a fight EARNS rather than something a die rolls, and it
+// is legible: the huscarl is the hardest man in the game to floor and the
+// runekeeper the easiest, which is what those two classes are supposed to be.
+const BALANCE = {
+  // Per class, and deliberately NOT proportional to health — the runekeeper is
+  // squishy AND flighty, the huscarl is tough AND rooted. One axis, stated
+  // twice, is how a class reads as a body rather than as a stat block.
+  max: { huscarl: 100, warden: 78, runekeeper: 58, berserker: 86 },
+  regen: 26,          // per second, so a full bar refills in 2.2-3.8 s
+  // What a blow costs, before the weapon's mass and the off-guard multiplier.
+  cost: { light: 20, heavy: 42, blocked: 6, blocked_heavy: 16 },
+  // A shove is the guard-break, and its currency is where a man ends up, so it
+  // is the single biggest bite in the game: two clean shoves floor anybody, one
+  // floors a man who was already reeling.
+  shove: 46,
+  // CAUGHT OFF GUARD, which is the owner's phrase and the reason this
+  // multiplier exists rather than a flat cost. A man is off guard when he is
+  // staggered, already on the floor, rising, or struck from behind — the
+  // states in which he could not have set his feet. Doubling is enough that a
+  // single heavy from behind floors a warden (42*1.06*2 = 89 > 78) and does not
+  // floor a huscarl (89 < 100), which is exactly the separation those two
+  // classes are for.
+  offGuard: 2.0,
+};
+
+// The floor sequence. ONE clock (`downTimer`) and two states read off it, the
+// same shape as the swing's one clock and three phases — a client that can
+// phase a swing can phase this without new machinery.
+//
+// KNOCKED   he is down and he is not getting up yet. Vulnerable: a blow lands
+//           on him at full weight and he cannot answer.
+// RISING    he is getting his feet back. Still cannot act, but the punishment
+//           is ending and he can see it ending.
+//
+// The numbers. 0.75 s down and 0.55 s rising is 1.30 s of nothing, which is
+// long enough to be the worst thing that can happen to you in a fight and
+// short enough that it is not simply death: a huscarl light takes 0.408 s to
+// reach contact, so the man who floored you gets ONE blow and a second only if
+// he was already in reach and swung immediately. The brief's words were "long
+// enough to matter and short enough not to be a death sentence"; this is where
+// that lands at 20 Hz, and both halves are whole tick counts (15 and 11) so
+// neither is a fraction of a tick away from being a different feature.
+export const KNOCKDOWN = {
+  down: 0.75,
+  rise: 0.55,
+  // He does not land where he was standing. A floored man slides, and this is
+  // what makes a knockdown read as force rather than as a status effect.
+  slide: 1.05,
+  // Back up with a third of a bar, not a full one. A man dragged to his feet is
+  // not fresh, and the alternative — full poise on standing — makes the second
+  // knockdown of a fight cost the same as the first, which is not how a beating
+  // works.
+  balanceOnRise: 0.34,
+};
+
+// ---- the parry, the window it opens, and the riposte ----
+//
+// The owner, and this is the ask verbatim: *"there needs to be a window to
+// capitalise on the party too so you can attack & do more damage because of the
+// parry"*. Before this the parry staggered the attacker for 0.9 s and stopped.
+// The stagger is a punishment; a window is a mechanic, and the difference is
+// that a window is REPLICATED and can be seen, aimed at and lost.
+//
+// THE WINDOW AT 20 Hz, and this is the number that had to be argued rather than
+// picked. The parry itself is 3 ticks wide (150 ms) — `weightprobe` sweeps it
+// rather than reading it, and 3 ticks is what the sweep finds. That is the
+// input the DEFENDER must hit and it is deliberately tight. The riposte window
+// is the opposite kind of number: it is not an input test, it is a licence, so
+// it has to survive a round trip. 0.90 s is 18 whole ticks; a 120 ms round trip
+// costs a player 2.4 ticks of it at each end, leaving 13 ticks (650 ms) of
+// genuinely usable window on a bad connection — still more than the 408 ms a
+// huscarl light needs to reach contact from a standing start. A 0.45 s window
+// would have looked tidier and would have been a LAN-only feature.
+//
+// It is also exactly the length of the stagger the parry deals (STAGGER_DURATION
+// * 1.5 = 0.90 s), and that is not a coincidence: the window is precisely as
+// long as the punishment it is the reward for, so what a player learns is "he is
+// reeling, therefore he is open", rather than two clocks he has to hold apart.
+export const RIPOSTE = {
+  window: 0.90,
+  // 1.6x. Enough that a riposte is the biggest single blow available to any
+  // class — a huscarl riposte heavy is 30 * 1.6 = 48, above a berserker's open
+  // heavy — and not so much that one read ends a fight from full health.
+  bonus: 1.6,
+  // A riposte hits like a heavier weapon than the one throwing it. Same reason
+  // the damage is up: the man is open, so nothing is absorbing it.
+  knockbackScale: 1.7,
+  balanceScale: 1.8,
 };
 
 // ---- emotes ----
@@ -1117,6 +1264,22 @@ export function makeEngine(options = {}) {
       attackPhase: null, attackPhaseT: 0, swingT: 0, swingDuration: 0, swingHeavy: false,
       // Seconds of freeze left. Both fighters carry it after a landed blow.
       hitstop: 0,
+      // POISE. Spent by every blow that lands on him, refilled on its own, and
+      // when it reaches zero he goes on the floor. Public, because it is the
+      // one number that tells a player how close he is to being floored and a
+      // knockdown he could not see coming is a knockdown that feels unfair.
+      balance: BALANCE.max[warriorClass] ?? 80,
+      maxBalance: BALANCE.max[warriorClass] ?? 80,
+      // THE FLOOR, as one clock. `downTimer` counts the whole sequence down;
+      // above `KNOCKDOWN.rise` he is `knocked`, below it he is `rising`. Zero
+      // whenever he is on his feet.
+      downTimer: 0,
+      // THE OPENING A PARRY BUYS. Seconds left of the window during which
+      // `vulnerableTo` — and only he — lands a riposte on this man. Both are on
+      // the wire: the man who earned the window has to be able to SEE it, and
+      // `docs/DESIGN-SYSTEM.md` puts that tell on the opponent's brackets for
+      // the window's real duration, which needs the real duration on the wire.
+      vulnerableTimer: 0, vulnerableTo: "",
       // The shove's own clock, on the wire so a late joiner can phase it.
       // Meaningful only while state === "shoving".
       shoveTimer: 0,
@@ -1626,6 +1789,7 @@ export function makeEngine(options = {}) {
       p.abilityActive = false; p.abilityTimer = 0; p.abilityCooldown = 0;
       p.comboCount = 0; p.comboTimer = 0; p.lastHitBy = ""; p.deadAt = 0;
       clearMotion(p);
+      clearStance(p);
       clearBodyMarks(p);
     });
     broadcast(room, { type: "countdown", data: { ...serializeRoom(room), countdown: room.countdown } });
@@ -1665,6 +1829,12 @@ export function makeEngine(options = {}) {
     // Frozen on contact: he is not turning, striking, guarding or rolling. The
     // aim above is still taken, so the freeze ends pointing where he asked.
     if (player.hitstop > 0) return;
+    // A man on the ground does not turn either — a body that pirouettes on its
+    // back while it cannot act is the exact thing that made the old stagger
+    // read as a status effect rather than as a fall. The yaw is still recorded
+    // above, so he stands up facing where he asked to face, which is the one
+    // piece of agency a knockdown should not take.
+    if (isDown(player)) return;
     if (!isCommitted(player)) player.rotation = player.aimYaw;
     if (player.state === "staggered") return;
 
@@ -1726,6 +1896,89 @@ export function makeEngine(options = {}) {
 
   /** Mid-stroke or mid-shove: the body is spent, and the turn cap binds. */
   const isCommitted = (player) => player.state === "attacking" || player.state === "shoving";
+
+  /** On the floor — down, or getting his feet back. Neither can act. */
+  const isDown = (player) => player.state === "knocked" || player.state === "rising";
+
+  /**
+   * CAUGHT OFF GUARD — the owner's own phrase, and the thing that decides
+   * whether a blow costs single or double poise.
+   *
+   * A man is off guard when he could not have set his feet against the blow:
+   * he is already reeling, already on the floor, getting up, or it came from
+   * behind him. Note what is NOT here — a man mid-swing is committed but he is
+   * braced, and a man walking is walking. Off guard is about BALANCE, not about
+   * whether he could answer, or every blow in the game would double.
+   *
+   * `angleDiff` is the bearing of the target off the ATTACKER's facing, which
+   * is what `processAttack` already computed; the rear test has to be against
+   * the TARGET's facing, so it is rebuilt here the same way `deriveHitZone`
+   * does it, and REAR_ARC is the same constant both use.
+   */
+  function isOffGuard(attacker, target, angleDiff) {
+    if (target.state === "staggered" || isDown(target)) return true;
+    const approach = wrapPi(angleDiff + attacker.rotation + Math.PI - target.rotation);
+    return Math.abs(approach) > REAR_ARC;
+  }
+
+  /**
+   * Drive a man along a line, in metres of ground he will actually cover.
+   *
+   * The stride is spent first, exactly as the roll and the shove already do it:
+   * a knockback that adds to a full sprint is a knockback nobody can read,
+   * because the man who was running away goes further than the man who stood
+   * his ground. Force decides where he goes; his legs get a say again when the
+   * impulse has bled off.
+   */
+  function applyKnockback(target, fromX, fromZ, metres) {
+    if (metres <= 0) return 0;
+    let nx = target.position.x - fromX, nz = target.position.z - fromZ;
+    const len = Math.hypot(nx, nz);
+    if (len > 0.001) { nx /= len; nz /= len; }
+    else { nx = 0; nz = 1; }
+    target.moveVel.x = 0; target.moveVel.z = 0;
+    applyImpulse(target, nx, nz, metres, true);
+    return metres;
+  }
+
+  /**
+   * Take poise, and put him on the ground if it runs out.
+   *
+   * Returns true if this is the blow that floored him, so the caller can say so
+   * on the wire — a knockdown the client has to infer from a state change it
+   * might have missed a snapshot of is a knockdown that does not get a sound.
+   */
+  function spendBalance(room, attacker, target, cost, fromX, fromZ) {
+    if (isDown(target) || target.state === "dead") return false;
+    target.balance -= cost;
+    if (target.balance > 0) return false;
+    knockDown(room, attacker, target, fromX, fromZ);
+    return true;
+  }
+
+  /**
+   * Down he goes. One clock, two states, and a slide away from whatever put him
+   * there so it reads as force rather than as a status effect.
+   *
+   * Everything he was doing is taken off him — the swing, the guard, the shove,
+   * the roll's invincibility. A knockdown that let a man keep his i-frames
+   * would be the safest place in the game to be.
+   */
+  function knockDown(room, attacker, target, fromX, fromZ) {
+    if (target.state === "dead") return;
+    endSwing(target);
+    target.state = "knocked";
+    target.downTimer = KNOCKDOWN.down + KNOCKDOWN.rise;
+    target.staggerTimer = 0;
+    target.attackTimer = 0;
+    target.blockTimer = 0;
+    target.shoveTimer = 0; target.shovePending = false;
+    target.dodgeTimer = 0;
+    target.invincible = false; target.invincibleTimer = 0;
+    target.balance = 0;
+    applyKnockback(target, fromX, fromZ, KNOCKDOWN.slide);
+    broadcast(room, { type: "hit", data: { type: "knockdown", attackerId: attacker ? attacker.id : "", targetId: target.id, damage: 0, hitstop: HITSTOP.heavy } });
+  }
 
   /**
    * Start a stroke. Nothing is resolved here any more — the blow is parked on
@@ -1877,16 +2130,24 @@ export function makeEngine(options = {}) {
     // Pushed along the line between the two bodies, not along the aim: hands on
     // a chest send a man where the chest was going, and it is the line the
     // shover actually chose by standing where he stood.
-    let nx = best.position.x - attacker.position.x;
-    let nz = best.position.z - attacker.position.z;
-    const len = Math.hypot(nx, nz);
-    if (len > 0.001) { nx /= len; nz /= len; }
-    else { nx = Math.sin(attacker.rotation); nz = Math.cos(attacker.rotation); }
-    // The push owns the body the way a roll does: stride is spent on it.
-    best.moveVel.x = 0; best.moveVel.z = 0;
-    applyImpulse(best, nx, nz, SHOVE.push, true);
-    best.state = "staggered";
-    best.staggerTimer = SHOVE.stagger;
+    //
+    // POISE FIRST, and the order matters. `spendBalance` may floor him, and a
+    // knockdown lays down its OWN slide from the same line — so a shove that
+    // fells a man must not also stack the standing push on top of it, or the
+    // hardest-hitting shove in the game is the one that fails to knock anybody
+    // over. A shove takes the single biggest bite of poise in the sim
+    // (BALANCE.shove), doubled if it caught him off guard, so one shove floors
+    // a reeling man and two floor anybody.
+    const offGuard = best.state === "staggered"
+      || Math.abs(wrapPi(Math.atan2(best.position.x - attacker.position.x, best.position.z - attacker.position.z)
+        + Math.PI - best.rotation)) > REAR_ARC;
+    const felled = spendBalance(room, attacker, best, BALANCE.shove * (offGuard ? BALANCE.offGuard : 1),
+      attacker.position.x, attacker.position.z);
+    if (!felled) {
+      applyKnockback(best, attacker.position.x, attacker.position.z, SHOVE.push);
+      best.state = "staggered";
+      best.staggerTimer = SHOVE.stagger;
+    }
     best.blockTimer = 0;
     // The credit trail, without a wound. This is the whole reason the fire pays
     // the shover.
@@ -1924,28 +2185,69 @@ export function makeEngine(options = {}) {
       const hitZone = deriveHitZone(attacker, target, angleDiff, arc, isHeavy);
       const zoned = Math.floor(dmg * (ZONE_DAMAGE[hitZone] ?? 1));
 
+      // Caught off guard doubles what the blow costs his balance, and it is
+      // decided here because this is the only place that still knows the
+      // bearing the blow came in on.
+      const offGuard = isOffGuard(attacker, target, angleDiff);
+
+      // THE RIPOSTE. This blow is a riposte if this man is inside a window THIS
+      // attacker opened by parrying him. Checked before the block branch on
+      // purpose: a man who parries and then hides behind his shield does not
+      // get to keep the opening he gave away, and a riposte should not be
+      // cancellable by the parried man simply raising his guard again.
+      const isRiposte = target.vulnerableTimer > 0 && target.vulnerableTo === attacker.id;
+
       if (target.state === "blocking") {
         const blockStats = WARRIOR_STATS[target.warriorClass];
         const shieldWall = target.abilityActive && target.warriorClass === "huscarl";
         const eff = shieldWall ? 0.95 : blockStats.blockReduction;
-        if (target.blockTimer > 0 && target.blockTimer < PARRY_WINDOW) {
+        if (!isRiposte && target.blockTimer > 0 && target.blockTimer < PARRY_WINDOW) {
           attacker.state = "staggered"; attacker.staggerTimer = STAGGER_DURATION * 1.5;
+          // THE WINDOW. The parried man is open, to THIS parrier and nobody
+          // else, for exactly as long as the stagger that proves he is open —
+          // see the RIPOSTE note above for why 0.90 s is the number a 20 Hz
+          // server can honestly promise. It is written onto the PARRIED man,
+          // and it is public, because the player who earned it has to be able
+          // to see it on the man he earned it against.
+          attacker.vulnerableTimer = RIPOSTE.window;
+          attacker.vulnerableTo = target.id;
+          // A parry is a total loss of balance for the man read, not merely a
+          // dent: it is the one thing in the game that takes a swing back off
+          // him, and the poise price says so. He is not floored by it — being
+          // floored by a parry would make the riposte impossible to land on a
+          // standing man — so this is a bite, not a knockdown.
+          attacker.balance = Math.max(1, attacker.balance - BALANCE.cost.heavy);
           // A parry is the hardest thing in the game to do and gets the longest
           // freeze. Both men: the one who read it and the one who was read.
           applyHitstop(attacker, target, HITSTOP.heavy);
-          broadcast(room, { type: "hit", data: { type: "parry", attackerId: attacker.id, targetId: target.id, damage: 0, hitstop: HITSTOP.heavy } });
+          broadcast(room, { type: "hit", data: { type: "parry", attackerId: attacker.id, targetId: target.id, damage: 0, hitstop: HITSTOP.heavy, window: RIPOSTE.window } });
           return;
         }
         if (isHeavy && !shieldWall) {
           target.state = "staggered"; target.staggerTimer = STAGGER_DURATION;
-          applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff * 0.5)), "blocked_heavy", hitZone);
+          applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff * 0.5)), "blocked_heavy", hitZone, { offGuard, riposte: isRiposte });
         } else {
           target.stamina -= 10;
-          applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff)), "blocked", hitZone);
+          applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff)), "blocked", hitZone, { offGuard, riposte: isRiposte });
         }
         return;
       }
-      applyDamage(room, attacker, target, zoned, isHeavy ? "heavy" : "light", hitZone);
+      // A clean heavy rocks him. Applied BEFORE the blow resolves, because
+      // `applyDamage` may floor him outright and a knockdown must not be
+      // overwritten by a stagger that arrived first in the source and second in
+      // the fight.
+      // The timer is set FIRST and the state only if the timer is positive.
+      // `tools/leversweep.mjs` found the reason: turning HEAVY_CLEAN_STAGGER
+      // down to 0 — the obvious way to switch this off while tuning — left the
+      // state as "staggered" with a zero clock, and the only thing that clears
+      // it is `if (staggerTimer > 0)` in the step. Every man hit by a heavy
+      // would have frozen permanently, unable to act for the rest of the round.
+      // A constant that turns a feature off must turn it off, not brick the sim.
+      if (isHeavy && !isDown(target) && HEAVY_CLEAN_STAGGER > 0) {
+        target.staggerTimer = Math.max(target.staggerTimer, HEAVY_CLEAN_STAGGER);
+        target.state = "staggered";
+      }
+      applyDamage(room, attacker, target, zoned, isHeavy ? "heavy" : "light", hitZone, { offGuard, riposte: isRiposte });
     });
   }
 
@@ -1960,8 +2262,27 @@ export function makeEngine(options = {}) {
     if (target.state !== "dead") target.hitstop = Math.max(target.hitstop, seconds);
   }
 
-  function applyDamage(room, attacker, target, damage, hitType, hitZone = "torso") {
+  /**
+   * A blow lands: the wound, the push, the poise, and the message.
+   *
+   * `weight` carries what only `processAttack` could know — whether the man was
+   * caught off guard, and whether this is a riposte inside a window the
+   * attacker earned. Both change what the blow WEIGHS rather than only what it
+   * takes off, which is the whole point of this wave.
+   */
+  function applyDamage(room, attacker, target, damage, hitType, hitZone = "torso", weight = {}) {
     const heavy = hitType === "heavy" || hitType === "blocked_heavy";
+    const riposte = Boolean(weight.riposte);
+    // THE RIPOSTE BONUS, applied here so that every path into a wound — open,
+    // blocked, blocked heavy — is worth more inside the window. A riposte the
+    // parried man can shrug off by raising his shield again is not a reward.
+    if (riposte) {
+      damage = Math.floor(damage * RIPOSTE.bonus);
+      // Spent. One window buys one blow, and it closes the instant it is
+      // cashed, or a single parry would be worth a whole combo.
+      target.vulnerableTimer = 0;
+      target.vulnerableTo = "";
+    }
     target.health -= damage; target.lastHitBy = attacker.id; attacker.damage += damage;
     // When, not only by whom. A burn death seconds later has to know whether this
     // blow is close enough behind it to have caused it — see burnDeath.
@@ -1970,7 +2291,33 @@ export function makeEngine(options = {}) {
     // still standing at this line, and the freeze is the attacker's either way.
     const stop = heavy ? HITSTOP.heavy : HITSTOP.light;
     applyHitstop(attacker, target, stop);
-    broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir, hitZone, hitstop: stop } });
+
+    // ---- the push, and it is the thing this function did not used to do ----
+    //
+    // Scaled by three things and no more: the blow, the weapon carrying it, and
+    // whether a shield was in the way. A riposte pushes like a heavier weapon
+    // because nothing is absorbing it.
+    const mass = WEAPON_MASS[attacker.warriorClass] ?? DEFAULT_WEAPON_MASS;
+    const push = (KNOCKBACK[hitType] ?? KNOCKBACK.light) * mass * (riposte ? RIPOSTE.knockbackScale : 1);
+    const ax = attacker.position.x, az = attacker.position.z;
+    let travelled = 0;
+    if (target.health > 0) travelled = applyKnockback(target, ax, az, push);
+
+    // ...and the striker's own share. The blow stops against mass, so it puts
+    // him back the way he came — away from the man he just hit. Applied to the
+    // ATTACKER from the TARGET's position, which is the same line reversed.
+    applyKnockback(attacker, target.position.x, target.position.z, push * KNOCKBACK.recoil);
+
+    broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir, hitZone, hitstop: stop, riposte, knockback: Number(travelled.toFixed(3)) } });
+
+    // ---- and the poise ----
+    // AFTER the wound's own message, deliberately. `spendBalance` broadcasts a
+    // `knockdown` of its own when the bar runs out, and a client that heard the
+    // fall BEFORE it heard the blow that caused it would have to reorder two
+    // messages to play one sound. Cause, then effect, in the order they left.
+    const cost = (BALANCE.cost[hitType] ?? BALANCE.cost.light) * mass
+      * (weight.offGuard ? BALANCE.offGuard : 1) * (riposte ? RIPOSTE.balanceScale : 1);
+    if (target.health > 0) spendBalance(room, attacker, target, cost, ax, az);
     if (target.health <= 0) {
       target.health = 0; target.state = "dead"; target.deaths++;
       target.deadAt = room.matchTimer;
@@ -2240,6 +2587,7 @@ export function makeEngine(options = {}) {
       p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
       p.position = { x: 0, y: 0, z: 0 }; p.invincible = false;
       clearMotion(p);
+      clearStance(p);
       clearBodyMarks(p);
     });
     sendLobbyUpdate(room);
@@ -2600,6 +2948,28 @@ export function makeEngine(options = {}) {
     player.inputAt = 0;
   }
 
+  /**
+   * On his feet, with his poise back, and owing nobody a riposte.
+   *
+   * Kept separate from `clearMotion` on purpose: that one is about travel and
+   * this one is about STANCE, and a round start needs both while the wall
+   * needs neither. Called wherever a warrior is handed a fresh body — round
+   * start, solo respawn, the lobby reset — because every one of these is a
+   * field that would otherwise leak across a boundary. A man who died on the
+   * floor mid-riposte-window and came back still `knocked`, unable to move and
+   * with somebody else's licence hanging over him, is the exact shape of leak
+   * `clearBodyMarks` exists to prevent for burning and severance.
+   */
+  function clearStance(player) {
+    player.state = "idle";
+    player.downTimer = 0;
+    player.staggerTimer = 0;
+    player.vulnerableTimer = 0;
+    player.vulnerableTo = "";
+    player.maxBalance = BALANCE.max[player.warriorClass] ?? 80;
+    player.balance = player.maxBalance;
+  }
+
   // ---------------- tick ----------------
   // THE CLOCK, and the movement bug's real home. Every quantity in the
   // simulation is a rate times this function's dt, so if dt is a fiction then
@@ -2790,6 +3160,7 @@ export function makeEngine(options = {}) {
           player.invincible = true; player.invincibleTimer = 1.5;
           player.deadAt = -999;
           clearMotion(player);      // you come back standing, not still running
+          clearStance(player);      // ...and on your feet, with your poise back
           clearBodyMarks(player);   // ...and whole, and not on fire. This is the
                                     // leak the client would otherwise inherit:
                                     // solo respawns run every five seconds, forever.
@@ -2826,6 +3197,40 @@ export function makeEngine(options = {}) {
         if (player.dodgeTimer <= 0 && player.state === "dodging") player.state = "idle";
       }
       if (player.staggerTimer > 0) { player.staggerTimer -= dt; if (player.staggerTimer <= 0 && player.state === "staggered") player.state = "idle"; }
+
+      // ---- the floor: one clock, two states, and back on his feet ----
+      //
+      // Read off `downTimer` rather than held in two timers, so a client that
+      // has the number has the phase and cannot disagree with the server about
+      // which half of the fall he is in. `>` and not `>=` at the boundary, so
+      // the tick that lands exactly on KNOCKDOWN.rise is already RISING — a
+      // knockdown that spends one tick longer down than it says it does is the
+      // kind of off-by-a-tick that a 20 Hz gate has to be written to catch.
+      if (player.downTimer > 0) {
+        player.downTimer -= dt;
+        if (player.downTimer <= 0) {
+          player.downTimer = 0;
+          player.state = "idle";
+          // Up with a third of a bar, not a full one. See KNOCKDOWN.
+          player.balance = player.maxBalance * KNOCKDOWN.balanceOnRise;
+        } else {
+          player.state = player.downTimer > KNOCKDOWN.rise ? "knocked" : "rising";
+        }
+      }
+
+      // ---- poise comes back, but not while he is being taken apart ----
+      // A man reeling or on the floor does not recover his feet; that is what
+      // makes a chain of blows a chain rather than a series of independent
+      // events, and it is the difference between a poise bar and a cooldown.
+      if (player.balance < player.maxBalance && player.state !== "staggered" && !isDown(player)) {
+        player.balance = Math.min(player.maxBalance, player.balance + BALANCE.regen * dt);
+      }
+
+      // ---- the riposte window drains ----
+      if (player.vulnerableTimer > 0) {
+        player.vulnerableTimer -= dt;
+        if (player.vulnerableTimer <= 0) { player.vulnerableTimer = 0; player.vulnerableTo = ""; }
+      }
       if (player.invincibleTimer > 0) { player.invincibleTimer -= dt; if (player.invincibleTimer <= 0) player.invincible = false; }
       if (player.comboTimer > 0) { player.comboTimer -= dt; if (player.comboTimer <= 0) player.comboCount = 0; }
       if (player.abilityCooldown > 0) player.abilityCooldown -= dt;
