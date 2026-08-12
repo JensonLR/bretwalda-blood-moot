@@ -49,7 +49,10 @@ const KIT = [
   { helm: "crowned", cloak: "gold", hairStyle: "short", beardStyle: "forked", warPaint: "half", cls: "berserker" },
 ];
 
-function dress(w, i) {
+// Exported for `tools/roundbeat.mjs`, which raises its own best-of-three rather
+// than going through `raiseMoot` (that one pins every match to a single round,
+// so it can never produce an intermission to photograph).
+export function dress(w, i) {
   const k = KIT[i % KIT.length];
   w.send("select_class", { warriorClass: k.cls });
   w.send("set_appearance", {

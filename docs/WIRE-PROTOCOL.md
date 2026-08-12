@@ -250,16 +250,37 @@ band, both null on a draw. Then either `match_end` follows immediately, or
 ### `match_end`
 
 ```
-{ winnerKind: "player"|"team"|"none", winnerId, winnerTeam, winnerName,
+{ winnerKind: "player"|"team"|"none", winnerId, winnerTeam, winnerName, winnerBy,
   bestOf, roundsPlayed, roundTarget, roundWins, roundScoreBy,
   results: [{id, name, kills, deaths, damage, score, isWinner,
-             xpEarned, goldEarned}] }
+             place, roundsWon, xpEarned, goldEarned}] }
 ```
 
-Paid **once**, from whole-match totals: `xp = 50 + kills*30 + damage*0.5 +
-(winner ? 100 : 0)`, `gold = 10 + kills*15 + (winner ? 50 : 0)` (1805-1806).
-Per-round payout is deliberately absent so the format a player picks is not an
-economic decision.
+**`results` arrives SORTED, and the order is the answer.** It used to leave in
+the room's join order and every screen sorted its own copy; the owner reported
+the consequence — *"I've seen same kills & rounds won more be snubbed on coins &
+ranking placement from 1st to 2nd due to alphabetical order names"*. `place` and
+the row order both come from `rankEntrants` in `engine.mjs`, which is the same
+rule `decideMatch` uses to name the winner: **rounds won, then kills, and nothing
+else.** A client must not re-rank it.
+
+* `place` is **competition ranking** — two entrants level on rounds AND on kills
+  are both `place: 1` and the next man is `place: 3`. In a war band it is the
+  BAND's place, so every man on a side carries the same number.
+* `roundsWon` is the rounds that man's SIDE won: his own in a free-for-all, the
+  band's in a war band. It is the column the results table prints.
+* `score` is **the rank key, not a display number** — `roundsWon * 1e6 +
+  kills * 100`. Nothing renders it; it exists so that any consumer sorting by it
+  descending reproduces the server's order exactly.
+
+Paid **once**, from whole-match totals plus the purse the PLACE bought:
+`xp = 50 + kills*30 + damage*0.5 + PLACE_XP[place-1]`,
+`gold = 10 + kills*15 + PLACE_GOLD[place-1]`, with
+`PLACE_GOLD = [50, 20, 10]` and `PLACE_XP = [100, 40, 20]` and nothing beyond
+third. First place is what the winner's bonus has always been, so a won match
+pays what it always paid. Per-round payout is still deliberately absent — the
+rounds are paid *through the place they bought*, so the format a player picks is
+not an economic decision.
 
 Ten seconds later the room resets and a `lobby_update` arrives (1822-1835).
 Solo rooms never emit `round_end` or `match_end` at all — training is not a

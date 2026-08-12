@@ -30,6 +30,8 @@
     "wearmeasure": "node tools/wearmeasure.mjs",
     "phonesound": "node tools/phonesound.mjs",
     "summaryflow": "node tools/summaryflow.mjs",
+    "tiebreak": "node tools/tiebreak.mjs",
+    "roundbeat": "node tools/roundbeat.mjs",
     "hairmap": "node tools/hairmap.mjs"
   },
   "dependencies": {

@@ -234,11 +234,20 @@ async function ffaPhase(browser) {
     lying.map((m) => m.state).join(","));
   // The picture and the numbers must name the same three men, or the podium
   // is a second opinion about who won.
-  const top3 = [...(verdict?.results ?? [])].sort((a, b) => b.score - a.score).slice(0, 3);
+  //
+  // TAKEN AS DELIVERED, not re-sorted. This line used to read
+  // `[...results].sort((a, b) => b.score - a.score).slice(0, 3)`, which is the
+  // SAME sort `render/summary.ts` uses to choose who stands — so the harness and
+  // the thing under test were computing the podium the same way and could only
+  // ever agree. The server ranks the ledger now (engine.mjs `buildLedger`), so
+  // the honest question is whether the STAGE agrees with the order that was sent,
+  // and that question is only asked by not sorting here.
+  const top3 = (verdict?.results ?? []).slice(0, 3);
   const winnerUp = stood.some((m) => m.id === verdict?.winnerId);
   check("the podium is the ledger's own top three, victor included",
     winnerUp && top3.every((r) => stood.some((m) => m.id === r.id)),
     `ledger=${top3.map((r) => r.name).join("/")} winnerStanding=${winnerUp}`);
+  await ledgerCheck(page, verdict, "free-for-all");
   // Nothing behind the ledger panel and nothing off the sides. `band` is the
   // slot of glass the stage measured the DOM leaving free.
   const band = stage?.band ?? [-1, 1];
@@ -260,6 +269,56 @@ async function ffaPhase(browser) {
   await page.screenshot({ path: `${OUT}/summary-flow-ffa.png` });
   await emoteAfterRollback(page, mine, "free-for-all");
   await ctx.close();
+}
+
+/**
+ * THE PRINTED TABLE, READ BACK OFF THE GLASS AND HELD AGAINST THE WIRE.
+ *
+ * The owner, on the results table: *"In the end of game results rounds won
+ * should be recorded somehow for all to see in the table, that should also take
+ * into account for ranking & payout, I've seen same kills & rounds won more be
+ * snubbed on coins & ranking placement from 1st to 2nd due to alphabetical order
+ * names"*. `tools/tiebreak.mjs` gates the half of that the ENGINE owns — that
+ * the ledger leaves the server ranked by rounds and then kills, placed and paid.
+ * It cannot see this half. The defect the owner photographed was a client that
+ * took a correctly-ranked ledger and sorted its own copy by kills before drawing
+ * it, and a client that started doing that again would leave `tiebreak` green.
+ *
+ * So this reads the rows the browser actually painted:
+ *
+ *   ORDER      the printed rows are the wire's rows, in the wire's order. Not
+ *              "the same men" — the same SEQUENCE. That is the assertion the
+ *              old `sort((a, b) => b.score - a.score)` in page.tsx fails.
+ *   PLACE      the "#N" beside each man is the server's `place`, so a true tie
+ *              prints two #1s instead of demoting one of them.
+ *   ROUNDS     every row carries its rounds-won number, on screen, for all to
+ *              see. A number that decides the payout and is invisible is worse
+ *              than no number.
+ */
+async function ledgerCheck(page, verdict, where) {
+  const printed = await page.evaluate(() => [...document.querySelectorAll("[data-ledger]")]
+    .map((el) => ({
+      id: el.getAttribute("data-ledger"),
+      place: Number(el.getAttribute("data-place")),
+      rounds: Number(el.getAttribute("data-rounds")),
+    })));
+  const wire = verdict?.results ?? [];
+  // Not judgeable if the panel never drew — the same main-thread stall the emote
+  // check documents. A skip is not a pass, so it is named and counted.
+  if (printed.length === 0) {
+    skipped.push(`${where}: the printed ledger is the wire's own order, places and rounds`);
+    console.log(`[flow] SKIP ${where}: no ledger rows were on the glass to read. NOT A PASS.`);
+    return;
+  }
+  const sameOrder = printed.length === wire.length
+    && printed.every((row, i) => row.id === wire[i].id);
+  const samePlaces = printed.every((row, i) => row.place === wire[i]?.place);
+  const sameRounds = printed.every((row, i) => row.rounds === wire[i]?.roundsWon);
+  const rising = printed.every((row, i) => i === 0 || row.place >= printed[i - 1].place);
+  check(`${where}: the printed ledger is the wire's own order, places and rounds`,
+    sameOrder && samePlaces && sameRounds && rising,
+    `printed=${printed.map((r) => `${r.id}#${r.place}/${r.rounds}r`).join(" ")}`
+    + ` wire=${wire.map((r) => `${r.id}#${r.place}/${r.roundsWon}r`).join(" ")}`);
 }
 
 /**
@@ -372,6 +431,10 @@ async function teamPhase(browser) {
   check("the winning side stands whole and the losing side lies whole",
     men.length === 4 && wrong.length === 0 && stage?.kind === "warband",
     `cast=${men.length} winner=${verdict?.winnerTeam} misplaced=${wrong.length} kind=${stage?.kind}`);
+  // A war band ranks BANDS, so every man on a side shares its place and its
+  // rounds. This is where that has to be visible: four rows reading #1 #1 #2 #2,
+  // not four rows quietly re-ranked by who happened to swing most.
+  await ledgerCheck(page, verdict, "war band");
   await page.screenshot({ path: `${OUT}/summary-flow-team.png` });
   await emoteAfterRollback(page, mine, "war band");
   await vetoCheck(page, "war band");

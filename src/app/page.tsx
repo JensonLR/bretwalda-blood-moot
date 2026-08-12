@@ -2364,9 +2364,12 @@ function RoundTally({ roomState, playerId, noRound }: { roomState: RoomState; pl
 
 /**
  * The three victory emotes, as a row of buttons. This is the touch path — the
- * bound keys are the desktop's — and it lives on the round-break and summary
- * surfaces rather than the combat HUD: mid-fight both thumbs are spoken for,
- * and a flourish is something you do over a man, not instead of blocking one.
+ * bound keys are the desktop's — and it lives on the two surfaces where a man
+ * can be SEEN performing it: the round-end beat with the arena still up, and
+ * the summary tableau. Never the combat HUD (mid-fight both thumbs are spoken
+ * for, and a flourish is something you do over a man rather than instead of
+ * blocking one) and never over the break card's scrim, which is where it used
+ * to be and where nobody could see a thing.
  * The server validates and throttles every press, so these can be plain.
  */
 function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
@@ -2388,11 +2391,67 @@ function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
   );
 }
 
-// The breath between rounds. The sim is stopped and the dead are lying where
-// they fell, so this is the only thing on screen that moves — hence the count,
-// which is also the promise that the match has not simply hung.
+/**
+ * HOW LONG THE ARENA IS LEFT ALONE after a round before the break card covers
+ * it. `ROUND_BREAK` in engine.mjs is five seconds, so this spends the first two
+ * of them on the fight that just finished and leaves the card its countdown.
+ *
+ * Not read from the wire and deliberately not mirrored from the server's five:
+ * this is a beat in the client's presentation, and the only thing it must not do
+ * is outlive the break. The `left > 2` guard below is what enforces that, so a
+ * late joiner or a slow socket gets the card immediately rather than a hold that
+ * runs past the bell.
+ */
+const ROUND_HOLD_MS = 2200;
+
+/**
+ * The end of a round, in two beats.
+ *
+ * IT WAS ONE, AND THE FLOURISH WAS IN THE WRONG ONE. The owner: *"Emote option
+ * is in next round coming screen where you can't actually really see any players
+ * or even emote & even if you don't win the round you see it"*. Every word of
+ * that was literally true. The row was inside the break card below, which is
+ * drawn over a full-viewport `bg-black/55` scrim, at the moment `GameCanvas` has
+ * already put the camera on the wide lobby establishing orbit. The press DID
+ * reach the rig and the man DID perform it — `GameCanvas` drains emotes through
+ * the whole intermission and poses the bodies for exactly this reason — and
+ * there was no one able to see any of it, including the man pressing. And it was
+ * offered to the men who had just lost the round as readily as the one who won.
+ *
+ * `docs/WHAT-THIS-GAME-IS.md` §5.4 names what it was supposed to be: *"the
+ * round-end beat where the victor emotes and everyone watches"* — one of three
+ * things it files under **being seen**. So the fix is not to delete the row:
+ *
+ *   BEAT ONE — the arena, unscrimmed. The dead are lying where they fell, the
+ *     standing are breathing, the verdict is one line across the top and nothing
+ *     else is drawn. ONLY the man (or the band) who took the round is offered
+ *     the flourish, and only while he is on his feet.
+ *   BEAT TWO — the break card, as it always was, with the countdown. No emote
+ *     row: by then the scrim is down and there is nothing to see.
+ *
+ * WHAT THIS DOES NOT DO, and it is HALF THE ASK, so it is written down rather
+ * than left to be discovered. `tools/roundbeat.mjs` was written to photograph
+ * this screen — nothing in the repo could, because `raiseMoot` pins every
+ * harness match to a single round and a single round has no intermission — and
+ * the pictures say the camera is still wrong. Through beat one the rig is
+ * easing out of the fight's follow-cam toward the lobby orbit, which is aimed at
+ * the WORLD ORIGIN, and the world origin is where the bonfire is. Two of three
+ * captures came back as a screenful of flame with one corpse's arm in it; the
+ * third happened to catch a body. Nothing is aimed at the victor, and "the men
+ * are in frame" would have been a comfortable thing to write and untrue.
+ *
+ * So: this beat fixes WHO is offered the flourish and WHETHER anything covers
+ * the arena while it plays. It does NOT fix what the lens is pointed at, and
+ * until it does, "everyone watches" is not delivered. That needs a rig mode
+ * that holds on the round's victor, which lives in `GameCanvas`/`render` —
+ * another unit's files this pass — so it is NOT BUILT and is the next step.
+ */
 function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; playerId: string; onEmote: (emote: EmoteId) => void }) {
   const [now, setNow] = useState(() => Date.now());
+  // When THIS round ended, by the client's own clock. The component is mounted
+  // by the flip into "intermission" and unmounted by the countdown that follows,
+  // so it is a fresh mount every round and this needs no reset.
+  const [endedAt] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
@@ -2400,19 +2459,50 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
   const r = roomState.lastRound;
   const left = Math.max(0, Math.ceil(((roomState.nextRoundAt || 0) - now) / 1000));
   const won = r && !r.draw && (r.winnerId === playerId || (r.winnerTeam && roomState.players[playerId]?.team === r.winnerTeam));
+  const standing = roomState.players[playerId]?.state !== "dead";
+  const verdict = !r || r.draw ? "NO MAN LEFT STANDING" : won ? "THE ROUND IS YOURS" : `${r.winnerName} TAKES IT`;
+
+  // The card never gets less than its countdown: if the break is already nearly
+  // spent when this mounts, there is no beat to hold and we go straight to it.
+  if (now - endedAt < ROUND_HOLD_MS && left > 2) {
+    return (
+      /* `pt-[6.6rem]` clears the round tally the game screen keeps pinned at
+         top-[4.6rem] — a `.round-hud` pill is about 1.4rem tall, so the verdict
+         starts just under it and the two read as one column: the score, then
+         what just happened. The bottom is free by construction: `GameHud` only
+         raises the touch cluster while `isFighting`, and this is an
+         intermission, so the flourish row has the thumb to itself. */
+      <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-[6.6rem]">
+        <div className="animate-fadeIn flex flex-col items-center gap-1 text-center">
+          <div className="label-overline">ROUND {r?.index ?? roomState.roundIndex} OF {roomState.bestOf}</div>
+          <div className="font-display text-xl leading-tight text-amber-100 sm:text-2xl"
+            style={{ textShadow: "0 2px 24px rgba(0,0,0,0.9), 0 0 26px rgba(217,164,65,0.35)" }}>
+            {verdict}
+          </div>
+        </div>
+        {/* THE VICTOR ONLY, AND ONLY ON HIS FEET. A war band's round is won by a
+            side, so `won` is true for every man on it — the band celebrates
+            together, which is what the wall in the summary tableau is also for.
+            A corpse is refused by the server anyway (`handleEmote`), so offering
+            him a button would be offering him a dead one. */}
+        {won && standing && (
+          <div className="animate-fadeIn mx-auto w-full max-w-md">
+            <EmoteRow onEmote={onEmote} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6">
       <div className="card card-noble card-glow animate-fadeIn flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
         <div className="label-overline">ROUND {r?.index ?? roomState.roundIndex} OF {roomState.bestOf}</div>
         <div className="font-display text-2xl leading-tight text-amber-100" style={{ textShadow: "0 0 26px rgba(217,164,65,0.35)" }}>
-          {!r || r.draw ? "NO MAN LEFT STANDING" : won ? "THE ROUND IS YOURS" : `${r.winnerName} TAKES IT`}
+          {verdict}
         </div>
         <div className="knot-band w-full max-w-[13rem]" />
         <RoundTally roomState={roomState} playerId={playerId} noRound />
-        {/* Only a man still standing celebrates — the server refuses the dead,
-            so the buttons do not offer what the round did not earn. */}
-        {roomState.players[playerId]?.state !== "dead" && <EmoteRow onEmote={onEmote} />}
         <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-stone-400">
           <Hourglass size={12} className="text-amber-400" />
           NEXT ROUND IN {left}
@@ -2423,11 +2513,31 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
 }
 
 /**
+ * A ledger row as the server now sends it.
+ *
+ * `place` and `roundsWon` are put on every row by `buildLedger` in engine.mjs,
+ * which is also what puts `results` in placement order before it leaves. They
+ * are widened in here rather than added to `MatchResult` in `game/types.ts`
+ * because that file belongs to another unit this pass; folding these two fields
+ * into the shared interface is the tidy-up this leaves behind.
+ */
+type LedgerRow = MatchEndData["results"][number] & { place: number; roundsWon: number };
+
+/**
  * The end-of-match summary, over the staged tableau. Rocket League's trick,
  * kept whole: the picture behind this is the GAME — the victor and the wall,
  * or the duel's corpse — so this overlay owns only the top and bottom bands of
  * the screen and leaves the middle to the stage. Designed at 390x844 first:
  * the verdict up top, a compact ledger and the two ways out under the thumb.
+ *
+ * THE ROWS ARE NOT SORTED HERE ANY MORE. They used to be — `sort((a, b) =>
+ * b.score - a.score)`, with score exactly kills x 100 — and that single line is
+ * what the owner photographed: two men level on kills tied exactly, the sort was
+ * stable, and the man who had won the extra round was printed second under a man
+ * he had beaten and beside a smaller pile of coins. The order is the server's
+ * answer now (engine.mjs `buildLedger`), arrived at by the same rule that names
+ * the match winner, and `place` rides on the row so a genuine tie can print two
+ * #1s instead of inventing a loser.
  */
 function MatchSummary({ data, playerId, payState, waiting, onEmote, onFightAgain, onLeave }: {
   data: MatchEndData;
@@ -2439,8 +2549,8 @@ function MatchSummary({ data, playerId, payState, waiting, onEmote, onFightAgain
   onFightAgain: () => void;
   onLeave: () => void;
 }) {
-  const mine = data.results.find((r) => r.id === playerId);
-  const rows = [...data.results].sort((a, b) => b.score - a.score);
+  const rows = data.results as LedgerRow[];
+  const mine = rows.find((r) => r.id === playerId);
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-7 sm:p-6">
       <div className="animate-fadeIn flex flex-col items-center gap-1.5 text-center">
@@ -2475,36 +2585,69 @@ function MatchSummary({ data, playerId, payState, waiting, onEmote, onFightAgain
         {/* The flourish, performed live on the tableau behind these numbers.
             The stage shares the fight's rigs, so the press plays mid-portrait. */}
         {onEmote && <EmoteRow onEmote={onEmote} />}
-        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col gap-1 overflow-y-auto p-2 backdrop-blur">
-          {rows.map((r, i) => (
-            <div key={r.id} className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 ${
-              r.isWinner ? "bg-amber-900/30" : r.id === playerId ? "bg-sky-950/40" : ""
-            }`}>
-              <div className="font-display w-6 shrink-0 text-lg leading-none text-stone-500">#{i + 1}</div>
-              <div className="min-w-0 flex-1">
-                <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
-                  <span className="truncate">{r.name}</span>
-                  {r.isWinner && <Crown size={12} className="shrink-0 text-amber-400" />}
+        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col p-2 backdrop-blur">
+          {/* THE COLUMN HEADS, AND THEY ARE HERE FOR THE MIDDLE ONE. The owner:
+              "rounds won should be recorded somehow for all to see in the
+              table". A bare number in a column nobody has named is not
+              recorded, it is decoration — and this one decides the placement
+              and the purse to its right, so it is the column that most needs
+              saying out loud. Outside the scroller so it does not slide away
+              under an eight-man moot. */}
+          <div className="flex items-center gap-2.5 border-b border-amber-900/40 px-2.5 pb-1 text-[8px] font-bold uppercase leading-none tracking-[0.16em] text-stone-500">
+            <div className="w-6 shrink-0">#</div>
+            <div className="min-w-0 flex-1">WARRIOR</div>
+            <div className="w-7 shrink-0 text-center">RNDS</div>
+            <div className="w-16 shrink-0 text-right">PAY</div>
+          </div>
+          <div className="flex flex-col gap-1 overflow-y-auto pt-1">
+            {rows.map((r) => (
+              /* The three data hooks are for `summaryflow`, and they exist
+                 because the engine-side gate (`tools/tiebreak.mjs`) cannot see
+                 this file at all: it proves the SERVER ranks correctly, and a
+                 client that quietly re-sorted its own copy — which is exactly
+                 what this component did until today — would sail straight past
+                 it. They let the harness read the printed table back and hold it
+                 against the wire. */
+              <div key={r.id} data-ledger={r.id} data-place={r.place} data-rounds={r.roundsWon}
+                className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 ${
+                  r.isWinner ? "bg-amber-900/30" : r.id === playerId ? "bg-sky-950/40" : ""
+                }`}>
+                {/* The server's `place`, not the row index. They differ exactly
+                    when two men are level on rounds AND on kills: both are #1,
+                    both are paid the same, and the table says so rather than
+                    picking one of them out of the room's join order. */}
+                <div className="font-display w-6 shrink-0 text-lg leading-none text-stone-500">#{r.place}</div>
+                <div className="min-w-0 flex-1">
+                  <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-stone-100"}`}>
+                    <span className="truncate">{r.name}</span>
+                    {r.isWinner && <Crown size={12} className="shrink-0 text-amber-400" />}
+                  </div>
+                  <div className="text-[10px] leading-tight text-stone-400">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>
                 </div>
-                <div className="text-[10px] leading-tight text-stone-400">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>
+                {/* Gilt when he won any, and dead stone when he won none — the
+                    column has to read at a glance as the reason the row is where
+                    it is, which is the whole of what the owner asked for. */}
+                <div className={`font-display w-7 shrink-0 text-center text-base leading-none ${
+                  r.roundsWon > 0 ? "text-amber-300" : "text-stone-600"
+                }`}>{r.roundsWon}</div>
+                <div className="w-16 shrink-0 text-right text-[11px] font-bold leading-tight">
+                  <div className="text-amber-300">+{r.xpEarned} XP</div>
+                  <div className="flex items-center justify-end gap-1 text-yellow-500"><Coins size={9} />+{r.goldEarned}</div>
+                </div>
               </div>
-              <div className="shrink-0 text-right text-[11px] font-bold leading-tight">
-                <div className="text-amber-300">+{r.xpEarned} XP</div>
-                <div className="flex items-center justify-end gap-1 text-yellow-500"><Coins size={9} />+{r.goldEarned}</div>
+            ))}
+            {/* The pay is the server's to give. When it does not arrive the
+                honest thing is to say so on the screen that shows the number,
+                not to quietly print a total that includes it. */}
+            {payState === "unpaid" && (
+              <div className="px-2.5 py-1 text-[11px] leading-snug text-red-300/90">
+                This pay has not reached the war rolls — your hoard is unchanged.
               </div>
-            </div>
-          ))}
-          {/* The pay is the server's to give. When it does not arrive the
-              honest thing is to say so on the screen that shows the number,
-              not to quietly print a total that includes it. */}
-          {payState === "unpaid" && (
-            <div className="px-2.5 py-1 text-[11px] leading-snug text-red-300/90">
-              This pay has not reached the war rolls — your hoard is unchanged.
-            </div>
-          )}
-          {payState === "asking" && (
-            <div className="animate-pulse px-2.5 py-1 text-[10px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
-          )}
+            )}
+            {payState === "asking" && (
+              <div className="animate-pulse px-2.5 py-1 text-[10px] tracking-[0.18em] text-stone-400">WEIGHING THE PAY…</div>
+            )}
+          </div>
         </div>
         <div className="flex gap-2.5">
           <button onClick={onFightAgain} disabled={waiting} data-snd="confirm"
