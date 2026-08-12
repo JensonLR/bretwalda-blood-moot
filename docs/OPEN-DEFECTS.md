@@ -2738,3 +2738,34 @@ does not exist yet.
 instead of blending it, and a beard that starts at the jawline is a chinstrap.
 
 Not fixed in the same pass because `characters.ts` was locked by the rig unit.
+
+## Three caveats on the rig fix, surfaced by its adversary — 12 Aug 2026
+
+The hands/axe/shield unit was adversarially verified and NOT refuted. These are
+the things its adversary found that do not refute it but are real:
+
+**1. The axe roll is a trade, and the unit did not name it.** At the fight-
+distance lens the head goes from an edge-on sliver to a proper axe. At the
+frontal `lineup` camera the reverse happens: the head is now edge-on and reads
+as a torch flame. `buildAxe`'s own haft comment declines to roll the SWORD on
+exactly this silhouette argument — "a camera that is nearly always in front of
+the warrior" — and that argument was not applied to the axe. The functional case
+(a one-sided head must cut in the swing plane) is sound and the call is
+defensible, but it IS a call. If the lineup silhouette matters more than the
+fight-distance read, this is the number to revisit.
+
+**2. `wearmeasure` §6b cannot catch a 180-degree bit error.** It scores
+`lead = Math.abs(dir.dot(fwd))`, so a bit pointing BACKWARD scores identically
+to one pointing forward. The build happens to be right (+0.967 signed), but the
+gate is blind to the half of the owner's sentence that said "anticlockwise". Make
+the dot product signed.
+
+**3. The low-tier `tip` landmark is never exercised.** `handProbe` builds "high"
+only, so the `collar.slice(-2)` branch added for the low tier has no gate over
+it. Ruler-only data, so low risk, but untested.
+
+Also unresolved rather than attributed: `cosmetictest` printed one self-check
+FAIL about two captures of one subject not being byte-identical (0.75% mean, on
+the facecard portrait lens) during the adversary's run, which was killed before
+finishing. That is renderer determinism on faces and nothing the rig unit
+touched, but it was not confirmed pre-existing.
