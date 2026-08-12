@@ -1337,7 +1337,17 @@ function buildHair(g) {
     // sun-bleached ends. `characters.ts` tints the whole map, so these are ratios
     // rather than colours — what matters is the spread between them.
     const body = col(0x8b8177);
-    const deep = col(0x2e2a26);
+    // 0x4a433c, not 0x2e2a26. The first render of this recipe is the reason and it
+    // is worth keeping: a trough three times darker than the body, multiplied by a
+    // gain that swung another 31% on top, produced a head of bold light-and-dark
+    // banding that read as CARVED WOOD GRAIN rather than as hair
+    // (`art/look/beards-3` at the three-quarter, first pass). The lay was right,
+    // the direction was right, and the amplitude was wrong by about a factor of
+    // three. A lock is not a stripe of a different colour; it is the same colour
+    // with the light falling off it differently, which is what the relief and the
+    // sheen band are for. The albedo's job here is only to keep the shadow between
+    // locks from filling in under a flat ambient.
+    const deep = col(0x4a433c);
     const crown = col(0xcfc6b8);
     const sun = col(0xa89a80);
     // TWO ARITHMETIC RULES GOVERN EVERY TAP BELOW, and the first draft of this
@@ -1453,16 +1463,23 @@ function buildHair(g) {
         // the shadow between locks is a real occlusion and not a dye blotch. This
         // is the term that gives a beard depth from the front, where its outline
         // says nothing.
-        mix(c, i, deep, body, clamp01(hank * 1.55));
-        toward(c, i, crown, clamp01((hank - 0.58) * 2.6) * 0.72 + fly * 0.5);
-        // The parting again, in colour this time and harder than in the relief. A
-        // groove that is only geometry disappears under the flat ambient this game
-        // lights heads with; a groove that is also dark survives it.
-        toward(c, i, deep, part * 0.7);
-        // Sun-bleach on the standing hair, so a black beard is not one value. Kept
-        // off the troughs — bleaching happens where the light reaches.
-        toward(c, i, sun, clamp01((hank - 0.7) * 2.2) * 0.3);
-        gain(c, i, 0.72 + hank * 0.62 + (fibre - 0.5) * 0.22 - part * 0.2);
+        // EVERY TERM BELOW IS ABOUT A THIRD OF WHAT IT WAS, and the first render is
+        // why — see the note on `deep`. These five lines compound: a wide mix, a
+        // bright crown, a dark parting, a bleach and then a multiplicative gain over
+        // the top of all of them. Sized individually each looked reasonable; stacked,
+        // they took a head of hair from near-black to near-white across one lock.
+        // The floor on the mix is what stops the trough bottoming out at all.
+        mix(c, i, deep, body, clamp01(0.30 + hank * 0.85));
+        toward(c, i, crown, clamp01((hank - 0.62) * 2.4) * 0.30 + fly * 0.35);
+        // The parting, in colour as well as in the relief. A groove that is only
+        // geometry disappears under the flat ambient this game lights heads with; a
+        // groove that is also darker survives it. Gently — this is a parting between
+        // locks, not a shaved line.
+        toward(c, i, deep, part * 0.34);
+        // Sun-bleach on the standing hair, so a black beard is not one flat value.
+        // Kept off the troughs — bleaching happens where the light reaches.
+        toward(c, i, sun, clamp01((hank - 0.72) * 2.2) * 0.16);
+        gain(c, i, 0.88 + hank * 0.26 + (fibre - 0.5) * 0.14 - part * 0.1);
         // THE ANISOTROPIC BAND, and the reason this file has a hair recipe at all.
         // A bundle of parallel cylinders returns a band of light across the lay,
         // `MeshStandard` has no anisotropy term to draw one with, and a roughness
