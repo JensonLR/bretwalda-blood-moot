@@ -99,6 +99,7 @@ export type SurfaceName =
   | "interlace" // tinned sheet, die-stamped ribbon plait
   // cloth and hide
   | "wool"      // coarse plain weave, fibrous
+  | "hair"      // parallel strands in locks — anisotropic, v runs down the fall
   | "linen"     // fine plain weave with slubs
   | "leather"   // tanned hide: pebbled grain and stretch creases
   | "rope"      // three-strand twisted hemp
@@ -1512,6 +1513,203 @@ function buildWool(g: Gen): void {
   });
 }
 
+// ---- hair -----------------------------------------------------------------
+// THE SUBSTANCE THIS LIBRARY NEVER HAD, and its absence is a defect with a
+// paper trail. `characters.ts` dressed every beard, every hairstyle and both
+// brows in `wool`, and said so in a comment: "there is no hair substance in the
+// library and there is no budget for one". The budget argument was the wrong
+// one to have won. The owner has reported the beards four separate times — "the
+// beards also still feel flat", then "really sharp & thin / folded in areas ...
+// the design & display of the beards is really broken & poor" — and every pass
+// answered with geometry, because geometry is what a beard looks like it is
+// made of. `art/look/beards-*.png` at the three-quarter is the disproof: the
+// 120-gold Ringed Braid is a smooth brown paddle with no rings on it, hanging
+// beside a hauberk whose every link resolves. The shape was not the problem.
+// The beard had no surface.
+//
+// WHY WOOL CANNOT BE HAIR, in one property. Wool's own comment is proud that
+// "the structure is fibre and it has no axis" — two crossed nap fields choosing
+// between each other, so nothing holds a straight line for more than a few
+// millimetres. That is exactly right for a fulled cloak and exactly wrong here,
+// because a head of hair is nothing BUT axis. Every strand on a skull leaves
+// the scalp and runs the same way as the strand beside it, and the optical
+// consequence is the one thing that says "hair" before any other cue resolves:
+// a bundle of parallel cylinders does not scatter light evenly, it returns a
+// bright band ACROSS the lay, at the angle where the cylinders' surface normals
+// sweep past the light. Isotropic fibre has no such band. It integrates to a
+// flat tone, and a flat tone on a solid outline is a slab — which is the word
+// the owner reached for twice without seeing the code.
+//
+// So every tap below is narrow across the lay and long along it, and the recipe
+// is authored on the promise that the caller's v runs DOWN THE FALL.
+// `beardShell` and `headWear` both parameterise that way — v is the station
+// along the section, u the azimuth around it — so a strand drawn long in v is a
+// strand running the way the hair actually grows, on the scalp, down the jaw
+// and out along a plait. Nothing here works if that promise is broken; a hair
+// map on a surface whose v runs across the lay is corduroy.
+//
+// AND THE SHEEN IS THE POINT. Roughness swings by 0.69 between a trough and a
+// hank's crown — a spread nothing else in this library carries, because nothing
+// else in this library is a bundle of parallel cylinders. Wool's crowns move it
+// 0.13 and its comment is careful to say that must never read as gloss. Here it
+// must. A dark head of hair with no specular is a hole cut in the frame, and
+// "just a hole in it" is, word for word, the fourth thing the owner said about
+// the beards.
+function buildHair(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  // Four tones off one dye. Hair is not one colour even when it is: the light
+  // side of a lock, the body, the shadow between locks, and the dusty
+  // sun-bleached ends. `characters.ts` tints the whole map, so these are ratios
+  // rather than colours — what matters is the spread between them.
+  const body = col(0x8b8177);
+  const deep = col(0x2e2a26);
+  const crown = col(0xcfc6b8);
+  const sun = col(0xa89a80);
+
+  // TWO ARITHMETIC RULES GOVERN EVERY TAP BELOW, and the first draft of this
+  // recipe broke both. `tools/hairmap.mjs` measured the result at a lay ratio of
+  // 0.99 — literally no axis, the exact property the recipe exists to add —
+  // which is worth recording because the code *looked* anisotropic and read
+  // convincingly in its own comments.
+  //
+  //   ONE: a tap's argument is a COORDINATE, not a frequency. `sampleField(f,
+  //   u * S, ...)` traverses `S * cells(f)` features across the tile, where
+  //   `cells` is the field's own base lattice — 3 for `soft`, 12 for `grain`,
+  //   32 for `fine`, 8 for `warp`, 44 for `micro`. The first draft asked `fine`
+  //   for strands at `u * 32` and got 1024 of them across a 512-texel map: two
+  //   features per texel, which is not hair, it is uncorrelated noise. And
+  //   uncorrelated noise is isotropic BY DEFINITION, so it swamped the lay in
+  //   every field it touched. That is the same Nyquist trap the header of this
+  //   file spends four paragraphs on; the header is about the *normal map* and
+  //   the trap turns out to be wider than that.
+  //
+  //   TWO: the scale has to be an INTEGER, in both axes, or the map does not
+  //   tile. The bank's fields have period 1, so a non-integer scale lands the
+  //   wrap mid-feature and draws a seam — down the middle of a beard, at every
+  //   repeat. This is why the anisotropy cannot come from "a small number in v":
+  //   there is no integer between 0 and 1. It has to come from the RATIO of two
+  //   integers, or from a v tap that is constant.
+  //
+  // So the lay is built the way wool builds its drape, with the axes committed
+  // rather than crossed: the hank terms are CONSTANT in v — a stripe of
+  // unlimited length, which is the strongest anisotropy available — and they
+  // are bent by `sway`, a sideways displacement read off the 2D warp field and
+  // therefore varying down the fall. A stripe that is constant in v but whose
+  // position wanders in v is a lock. The strand terms use an integer ratio
+  // instead, 3:1 and 4:1, because a strand does want some variation along its
+  // own length.
+  forEachTexel(size, (i, u, v) => {
+    // Across the lay only — which is all `warpUV` can do, and here that
+    // limitation is the feature. Hair wanders sideways as it falls; it does not
+    // wander along itself.
+    //
+    // 0.05, AND THIS NUMBER IS THE WHOLE RECIPE. The second draft ran it at
+    // 0.19 with the multiplier below at 4, and `tools/hairmap.mjs` read the lay
+    // at 1.04 — no axis, again, after the Nyquist fault above had already been
+    // found and fixed. The cause is worth writing down because it is invisible
+    // in the source: the warp field varies in v at eight to sixteen cycles per
+    // tile, so `sway` is not a static offset, it is a sideways WHIP that swings
+    // as you move down the fall. At 0.19 x 4 the stripes below were dragged
+    // more than two field-widths sideways over the height of the tile — twenty
+    // features of lateral travel — which changes the map exactly as fast down
+    // as across. A "constant in v" tap is only a stripe if the thing displacing
+    // it is gentle. Wool runs 0.07 x 5 and its drape reads as combed fibre;
+    // this runs 0.05 x 2, which is about one feature of wander over the whole
+    // fall, and that is a lock.
+    warpUV(bank, u, v, 0.05);
+    const wu = WARP[0];
+    const wv = WARP[1];
+    // The lay's sideways drift. Reused from the warp rather than taken as a
+    // second tap — wool's trick, and free. This is the term that turns the
+    // constant-in-v stripes below into locks rather than ruled lines: it varies
+    // in v, so a stripe holds its identity all the way down the tile while
+    // wandering as it goes.
+    const sway = (wu - u) * 2;
+
+    // ---- the hank ----
+    // Nine stripes and eight stripes. COPRIME, so the two fields come back into
+    // step once per tile and never sooner — the detiling rule at the head of
+    // this file met by incommensurability rather than by fineness, which is
+    // what a feature that must stay legible at the tile scale needs. Both
+    // constant in v (the second argument is a fixed row, chosen only to be
+    // uncorrelated with the other) and both bent by `sway`.
+    const hankA = sampleField(bank.soft, (u + sway + 1) * 3, 0.17);
+    const hankB = sampleField(bank.warp, (u + sway * 0.75 + 1) * 1, 0.61);
+    // Expanded for the same reason wool expands its drape: `soft` is five
+    // octaves normalised and piles up around 0.5, so left alone this lands a
+    // third of the relief it reads as.
+    const hank = contrast(hankA * 0.6 + hankB * 0.4, 1.75);
+
+    // ---- the parting ----
+    // Three per tile, wandering hardest of anything here. Where two locks part
+    // there is no hair for a millimetre and what shows is the dark underneath,
+    // so this cuts into the height and drives the albedo toward `deep`. Squared
+    // to keep it narrow — a wide parting is a bald patch, not a parting.
+    const partF = sampleField(bank.soft, (u + sway * 1.5 + 1) * 1, 0.83);
+    const part = Math.pow(clamp01(1 - Math.abs(partF - 0.5) * 4.4), 2);
+
+    // ---- the strand ----
+    // 96 across against 32 down, and 48 against 12: a 3:1 and a 4:1 ratio, so a
+    // strand is three or four times longer than it is wide and still varies
+    // along itself, which a constant-in-v tap could not do. At 512 texels that
+    // is about five texels a strand — under the framing a head is seen at,
+    // which is the point. `bandLimit` drops it out of the normal map and
+    // `slopeVariance` folds it into roughness, which is where relief finer than
+    // a texel belongs; it is not here to be counted, it is here to make the
+    // sheen band grainy rather than glassy.
+    const strand = sampleField(bank.fine, (u + sway + 1) * 3, (wv + 1) * 1);
+    const strandB = sampleField(bank.grain, (u + sway * 1.2 + 1) * 4, (wv + 1) * 1);
+    const fibre = clamp01(strand * 0.58 + strandB * 0.42);
+
+    // ---- fly-aways ----
+    // The broken ends that stand out of any real head of hair and catch the key
+    // light. 88 cells across against 44 down, so each one is a short hair
+    // rather than a speck, and sparse — a surface of them is a fright wig. This
+    // is the only term allowed to be brighter than a crown, and it earns that:
+    // a silhouette with nothing crossing it reads as cut from card, which is
+    // half of the "really sharp & thin" report.
+    const flyD = sampleCell(bank.micro, (u + sway) * 2, v * 1);
+    const fly = sampleCellId(bank.micro, (u + sway) * 2, v * 1) > 0.88
+      ? (1 - smoothstep(0.05, 0.34, flyD)) * 0.9
+      : 0;
+
+    // Height. The hank carries most of it — it is the only term coarse enough
+    // to survive into the normal map at the framings a head is seen at — and
+    // the parting cuts into it. The strand is deliberately a small share: it is
+    // below Nyquist and the pipeline is going to move it into roughness anyway,
+    // so spending height on it only costs tilt at every footprint.
+    h[i] = clamp01(0.46 + (hank - 0.5) * 0.72 + (fibre - 0.5) * 0.22
+      - part * 0.42 + fly * 0.3);
+
+    // Albedo. The swing from trough to crown is far wider than wool's, because
+    // the shadow between locks is a real occlusion and not a dye blotch. This
+    // is the term that gives a beard depth from the front, where its outline
+    // says nothing.
+    mix(c, i, deep, body, clamp01(hank * 1.55));
+    toward(c, i, crown, clamp01((hank - 0.58) * 2.6) * 0.72 + fly * 0.5);
+    // The parting again, in colour this time and harder than in the relief. A
+    // groove that is only geometry disappears under the flat ambient this game
+    // lights heads with; a groove that is also dark survives it.
+    toward(c, i, deep, part * 0.7);
+    // Sun-bleach on the standing hair, so a black beard is not one value. Kept
+    // off the troughs — bleaching happens where the light reaches.
+    toward(c, i, sun, clamp01((hank - 0.7) * 2.2) * 0.3);
+    gain(c, i, 0.72 + hank * 0.62 + (fibre - 0.5) * 0.22 - part * 0.2);
+
+    // THE ANISOTROPIC BAND, and the reason this file has a hair recipe at all.
+    // A bundle of parallel cylinders returns a band of light across the lay,
+    // `MeshStandard` has no anisotropy term to draw one with, and a roughness
+    // that swings with the lay is the closest an isotropic BRDF gets — the
+    // crowns go glossy in a stripe that runs down the fall, which is a hair
+    // highlight in everything but name. The fine fibre breaks it up so it
+    // grains instead of mirroring, and the parting stays matte because the
+    // bottom of a parting is shadow.
+    r[i] = clamp01(0.86 - clamp01((hank - 0.30) * 1.5) * 0.62
+      + (fibre - 0.5) * 0.14 + part * 0.1 - fly * 0.12);
+    m[i] = 0;
+  });
+}
+
 // ---- fine plain-weave linen ---------------------------------------------
 // The one cloth in the set that keeps a lattice, because linen is the one cloth
 // that shows one: flax is hard-spun, smooth and does not full, so the crossings
@@ -2723,6 +2921,28 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   bronze:  { detail: "prop", tint: 0x9a7038, roughness: 0.38, metalness: 0.92, normalScale: 0.95, aoIntensity: 0.95, bump: 1.7, cavity: 1,   repeat: 2, build: buildBronze },
 
   wool:    { detail: "prop", tint: 0x8d8478, roughness: 0.95, metalness: 0, normalScale: 1,    aoIntensity: 1.15, bump: 2.2, cavity: 1.25, repeat: 4, build: buildWool },
+  // `hero` rather than `prop`, and it is the one substance in the set that has
+  // to argue for it. Hair is worn on the head — the part of a warrior a player
+  // spends the match looking at, the whole subject of the portrait framing, and
+  // the only place in the game where two paid options differ by nothing but
+  // surface. The hank has to survive to mip 0 at closeup or the spread this
+  // recipe spends on it averages back to the flat tone it was written to
+  // replace. `skin` already earns `hero` on the same head for the same reason.
+  //
+  // `roughness` is the recipe's own mean, not a round number: materials.ts
+  // divides the caller's request by it, so a bias that is not the measured mean
+  // silently rescales the sheen band this recipe exists for. 0.728 is the
+  // measured mean of `buildHair`'s `r[i]` over the built map at its shipping
+  // size. `grass` and `groundDetail` carry the same footnote asking for a
+  // re-measure if the line changes and nothing ever enforced one; here
+  // `tools/hairmap.mjs` check 3 does, to a tolerance of 0.03.
+  //
+  // `normalScale` above one and a high `bump`, because a lock stands a real
+  // couple of millimetres proud of the one beside it and this is the only cue
+  // that survives the flat ambient a head is lit with. `cavity` high for the
+  // partings: they are occlusion, and occlusion is what stops a mass of hair
+  // reading as a painted silhouette.
+  hair:    { detail: "hero", tint: 0x8b8177, roughness: 0.728, metalness: 0, normalScale: 1.25, aoIntensity: 1.3,  bump: 2.5, cavity: 1.35, repeat: 3, build: buildHair },
   linen:   { detail: "prop", tint: 0xb0a48c, roughness: 0.86, metalness: 0, normalScale: 0.85, aoIntensity: 1,    bump: 1.9, cavity: 1.1,  repeat: 6, build: buildLinen },
   leather: { detail: "prop", tint: 0x64411f, roughness: 0.62, metalness: 0, normalScale: 1.05, aoIntensity: 1,    bump: 2,   cavity: 1,    repeat: 3, build: buildLeather },
   rope:    { detail: "prop", tint: 0x9a8455, roughness: 0.95, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.4, cavity: 1.1,  repeat: 4, build: buildRope },
@@ -2753,6 +2973,51 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   bone:    { detail: "prop", tint: 0xcfc2a6, roughness: 0.62, metalness: 0, normalScale: 0.9,  aoIntensity: 0.95, bump: 1.6, cavity: 1,   repeat: 2, build: buildBone },
   blood:   { detail: "prop", tint: 0x4a0a08, roughness: 0.2,  metalness: 0, normalScale: 0.8,  aoIntensity: 0.7,  bump: 1.4, cavity: 0.7, repeat: 1, cutout: true, build: buildBlood },
 };
+
+/**
+ * THE PROBE SEAM. Runs one recipe into fresh scratch buffers and hands them
+ * back, with no GL context, no library and no texture upload — so a harness can
+ * measure what a recipe actually draws rather than what its comment says it
+ * draws.
+ *
+ * It exists because of a specific failure. Hair and beard were dressed in
+ * `wool` for the life of this project, the owner reported them flat four times,
+ * and four passes answered by moving geometry — because every ruler this repo
+ * owns measures a POSITION or a VOLUME and not one of them can see that a
+ * surface has no direction in it. `tools/hairmap.mjs` is the ruler that can,
+ * and this is the only door it needs.
+ *
+ * `declared` comes with it for a second reason. `materials.ts` DIVIDES a
+ * caller's requested roughness by the recipe's own `roughness` field, so that
+ * field has to be the built map's real mean or every caller is silently
+ * rescaled. Three recipes already carry a "re-measure this if the line changes"
+ * footnote and nothing has ever enforced one.
+ *
+ * Not called from the game. The bundler drops it; it costs a name.
+ */
+export function __probeSubstance(name: SurfaceName, size?: number): Gen {
+  const recipe = RECIPES[resolve(name)];
+  // THE SIZE THE RECIPE ACTUALLY SHIPS AT, not a round number.
+  // `createTextureLibrary` draws `hero` at up to 512 and `prop` at half that,
+  // off a bank of 256 — and a Nyquist fault is a function of the ratio between
+  // a tap's feature count and the texel grid, so a probe at the wrong size
+  // measures a different recipe. The first draft of `buildHair` was tuned
+  // against a 256 probe and shipped 1024-feature taps into a 512 map.
+  const n = size ?? (recipe.detail === "hero" ? 512 : 256);
+  const g: Gen = {
+    size: n,
+    bank: createBank(256, 0x5e17a1),
+    rng: mulberry32(0x5e17a1),
+    h: new Float32Array(n * n),
+    r: new Float32Array(n * n),
+    m: new Float32Array(n * n),
+    c: new Float32Array(n * n * 3),
+    a: recipe.cutout ? new Float32Array(n * n) : null,
+  };
+  recipe.build(g);
+  return g;
+}
+__probeSubstance.declared = (name: SurfaceName): number => RECIPES[resolve(name)].roughness;
 
 const ALIAS: Record<"ground" | "wood" | "stone" | "cloth", BaseSurface> = {
   ground: "dirt",

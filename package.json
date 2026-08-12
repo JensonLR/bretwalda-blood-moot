@@ -29,7 +29,8 @@
     "cosmetictest": "node tools/cosmetictest.mjs",
     "wearmeasure": "node tools/wearmeasure.mjs",
     "phonesound": "node tools/phonesound.mjs",
-    "summaryflow": "node tools/summaryflow.mjs"
+    "summaryflow": "node tools/summaryflow.mjs",
+    "hairmap": "node tools/hairmap.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

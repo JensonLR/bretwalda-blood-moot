@@ -1,5 +1,138 @@
 # The development list
 
+> **RE-SEQUENCED 12 Aug 2026 against `docs/WHAT-THIS-GAME-IS.md`.** Read that
+> document first. It decides what this game is — *a persistent war for Britain,
+> settled in three-minute melee rounds* — and everything below is ordered
+> against it rather than against how loud each item is. `docs/PROCESS.md` says
+> how the work is done. The waves lettered A–H further down predate this
+> re-sequencing and are kept as the historical record; where they disagree with
+> the numbered waves below, the numbered waves win.
+
+---
+
+## THE MASTER LIST — 12 Aug 2026
+
+The owner delivered ~40 items during the usage outage. **Nine of them were
+already raised** and are marked `[ALREADY RAISED]` with where; they stay on the
+list because they are still open and still relevant. The rest are new.
+
+Sequencing principle, from `WHAT-THIS-GAME-IS.md` §5: *the fight has to feel
+heavy before a war fought with it means anything.* So broken-illusion defects
+first, then feel, then balance and AI, then the war layer, then surface polish.
+
+### WAVE 0 — in flight, merge first
+
+| # | Item | State |
+|---|---|---|
+| 0.1 | Hair and beard were `wool`; there is now a `hair` substance with a real lay and sheen | DONE, `tools/hairmap.mjs` green 3/3 |
+| 0.2 | Helm flank "bald spots": hairline drops 0.30 rad not 0.12 under open-faced rungs | DONE, `wearmeasure` 30/30 held |
+| 0.3 | Beard shell under its own declared `cut.thick` on 8 of 16 style/class pairs | OPEN |
+| 0.4 | Shadow Hood swallows the Long Mane and War-locks (`cosmetictest` 15/16) | OPEN |
+| 0.5 | Wyrm-Crest's deep cheek guard, spread 28.8 vs Spectacle's 4.2 | OPEN |
+
+### WAVE 1 — defects that break the illusion
+
+These are the things that make a player think "this is unfinished" in the first
+minute. They are cheap and they are all visible.
+
+| # | Item | Note |
+|---|---|---|
+| 1.1 | **Hands/wrists on all four classes rotated ~180°** — look broken and twisted | NEW, and the loudest one on the list |
+| 1.2 | **Axe needs 90° anticlockwise** | NEW, same fix area |
+| 1.3 | **Corpses float mid-air** when a round is still running | NEW |
+| 1.4 | **Long Mane + huscarl + helm** → two front strands only; other classes bald at the sides and nothing at the back | NEW, and it is 0.2/0.4's neighbourhood |
+| 1.5 | **Results table snubs equal players by alphabetical order** — same kills, more rounds won, still placed 2nd for coins and rank | NEW, and it is a fairness bug, not a display bug |
+| 1.6 | **Rounds won must be recorded in the end-of-game table** and must feed ranking and payout | NEW |
+| 1.7 | **Eyes read as East Asian; chin too pointed; lips need work; moustache placement near the lips** | NEW — face proportion pass |
+| 1.8 | **Huscarl shield colours should follow the armour finish** | NEW |
+| 1.9 | **Emote option appears on the next-round screen** where no players are visible, and shows even when you lost | NEW — misplaced UI |
+| 1.10 | Pupils overlap the upper eyelids | [ALREADY RAISED] 8 Aug |
+
+### WAVE 2 — weight, and being seen
+
+`WHAT-THIS-GAME-IS.md` §5 items 2–4. This is what a Steam audience judges in
+ninety seconds, and it is the foundation the war layer sits on.
+
+| # | Item | Note |
+|---|---|---|
+| 2.1 | **Weight in animations and attacks** — readable wind-up, impact that moves both bodies, fluid and heavy | NEW; `docs/WEIGHT.md` exists but is unbuilt |
+| 2.2 | **Shoving; being knocked over if caught off guard; a get-up** | NEW |
+| 2.3 | **Parry upgrade: animation you feel, plus a real riposte window** to capitalise with extra damage | NEW — the mastery ceiling |
+| 2.4 | **Satisfying combat sound** that complements the fighting | [ALREADY RAISED] `docs/SOUND.md`, still unbuilt |
+| 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | NEW |
+| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | [PARTLY RAISED] round flow; the beat is new |
+| 2.7 | **More blood, over the top** — spray and splatter | [ALREADY RAISED] `docs/GORE-DESIGN.md` |
+| 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | NEW, and it is the loudest "student project" tell in the build |
+
+### WAVE 3 — balance and the enemy
+
+| # | Item | Note |
+|---|---|---|
+| 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | NEW |
+| 3.2 | **AI fighting quality and difficulty scaling** | [ALREADY RAISED], still unbuilt |
+| 3.3 | **Weapon styles and looks as armoury purchases** | NEW |
+
+### WAVE 4 — THE WAR (the spine)
+
+This is the project from `WHAT-THIS-GAME-IS.md` §3. It is what makes people come
+back and it is where the owner's scattered items become one feature.
+
+| # | Item | Note |
+|---|---|---|
+| 4.1 | **Persistent territory: the map moves and is shared by everyone** | NEW as a system; the map screen exists |
+| 4.2 | **Make picking a starting kingdom a big decision** | NEW |
+| 4.3 | **Faction scope and plan** — how characters, weapons and colours differ per kingdom | [PARTLY RAISED] `docs/PROFILES-AND-FLAGS.md` |
+| 4.4 | **Clans pick a base kingdom** and inherit its variant characters | NEW, and it is the right instinct |
+| 4.5 | **Team colours override cosmetics in team modes** — red and blue across armour finish and cloaks; clan colours later | NEW |
+| 4.6 | **Ranked: win/loss, a top-50 leaderboard, historically accurate titles by rating** | [PARTLY RAISED] as ranked; titles and leaderboard are new |
+| 4.7 | **Matchmaking; clans queueing as 2–4** (4 is the right clan size — it matches the warband) | [PARTLY RAISED] |
+| 4.8 | **A campaign worth playing** that uses the kingdoms and good AI, not the same match repeatedly | [ALREADY RAISED] `docs/CAMPAIGN.md` |
+| 4.9 | **Other game modes** | NEW — open question |
+| 4.10 | **Historically accurate flags and colours** | [PARTLY RAISED] |
+
+### WAVE 5 — surface and platform
+
+| # | Item | Note |
+|---|---|---|
+| 5.1 | **Every screen upgraded** — the armoury UI/UX is liked; make all of it more satisfying, engaging, ergonomic, in-your-face | [PARTLY RAISED] |
+| 5.2 | **Mobile visual quality is well below desktop** — close the gap as far as gameplay allows | NEW, and it is a real regression risk |
+| 5.3 | **Ergonomics for both mobile and desktop, including a left-handed control flip** | [PARTLY RAISED] `docs/MOBILE-CONTROLS.md`; the flip is new |
+| 5.4 | **Symbols across the game — historically accurate, polished, on-vibe** | NEW |
+| 5.5 | **Unlockable profile symbols** earned by achievement or bought | NEW |
+| 5.6 | **Taglines and grey helper text** updated to the current plan | NEW |
+| 5.7 | **Creative, distinctive map locations** built to the standard | [PARTLY RAISED] `docs/MAPS.md` |
+| 5.8 | **Steam, then mobile, then console** — one account, two doors, from the first Steam build | NEW; supersedes `docs/DISTRIBUTION.md` ordering |
+
+### WAVE 6 — engineering hygiene and tooling
+
+| # | Item | Note |
+|---|---|---|
+| 6.1 | **Redundant code sweep**, when deemed necessary and verified | NEW |
+| 6.2 | **Agent graph architecture** — build the agents properly with graphs and loops, documented, reusable across projects | NEW |
+| 6.3 | **Orchestrator stays under 50% context** | NEW — now `docs/PROCESS.md` E2 |
+| 6.4 | Rotate the exposed Neon password; delete the old Render Postgres | [ALREADY RAISED], still open, still a credential |
+
+---
+
+## Standing answers to two of the owner's open questions
+
+**"Is 4 optimal for a clan/faction?"** Yes, for the queue. The warband mode is
+4v4, so a clan of 4 is exactly one side — it can queue as a complete team
+without ever needing a stranger. Let a *clan* have unlimited membership and cap
+the *queueing party* at 4.
+
+**"Are there other game modes we could add?"** The three that fit the war layer,
+in order of cheapness: **Last Man Standing** (no respawn, one life, the current
+FFA with the round rules changed — nearly free); **Hold the Moot** (a contested
+centre ground, which teaches the map objects from 2.8); and **Shield Wall**
+(5v5 line combat where breaking formation loses it — the most Anglo-Saxon mode
+possible and the one nothing else on Steam has). Deferred until Wave 2 lands,
+because all three are made or ruined by whether the fighting has weight.
+
+---
+
+## The historical record — waves A–H
+
 Everything this project has decided, started, finished, or refused, in one
 place, ordered, sized, and with an honest state against each.
 
@@ -543,81 +676,3 @@ E  map three         (BLOCKED on the sim being flat: no jump, x/z only,
 F  matchmaking       (REJECTED until concurrent strangers exist)
 F  flags             (needs profiles — profiles are DONE)
 ```
-
----
-
-# 7. The owner's list of 2026-08-07
-
-Nine items, sent after playing the live build. Marked **NEW** or **ALREADY
-RECORDED** against everything above, because he asked to be told which is which.
-
-## 7.1 Bugs, with a diagnosis where I have one
-
-| # | Item | State |
-|---|---|---|
-| a | **Custom keybinds do not bind in game.** Adding an additional custom key has no effect. | **NEW.** The remap screen writes, but the bound key never reaches `sampleInput`. `bindings.ts` holds `DEFAULTS` and the profile carries a `bindings` jsonb; `bindsynctest` proves the *round trip to the database*, not that a rebound key moves the man. That is the third instrument in this project to measure the wrong quantity. |
-| b | **Ctrl to crouch does not work on a MacBook.** | **NEW, and diagnosed.** `bindings.ts:88` binds crouch to `["ControlLeft","ControlRight"]`. On macOS **Ctrl is the right-click modifier** — the browser consumes it before the game sees a keydown, and Ctrl-drag is a system gesture. This was never a Mac-safe default. Rebind (`C`, or `Alt`), and add a rule that no default may be a platform modifier. |
-| c | **Berserker has a wooden board through his back and cloak.** | **NEW.** Almost certainly his weapon's rest-carry: the haft is parented to a spine point at a fixed offset instead of being slung, so it passes through the cloak. Sibling to the fittings work already landed — the seating machinery exists, the weapon carry never used it. |
-| d | **Helmets, six faults in one report.** Crown helm overlaps at the back so the gold is hidden; some helms overlap the huscarl's chainmail neck; the Shadow Hood does not connect to its base; ears and hair still overlap helms; **large gaps at the sides of the helms** that need to line up with the ear or be closed; **the Boar and Wyrm crest ornaments are generic and unreadable as animals**. | **PART NEW.** The hair/helm layering and the hair-swallowing regression are recorded above; the crown occlusion, the hood base, the side gaps and the crest legibility are NEW. |
-
-## 7.2 The screens
-
-| # | Item | State |
-|---|---|---|
-| e | **The main menu background is basic and generic** and carries none of the game's identity. | **NEW.** |
-| f | **Every screen is boring.** The armoury is better than it was, but the whole set needs an upgrade — and **any design change must run end to end through the whole journey**. Consistency is the requirement, not a nice-to-have. | **NEW, and it is the largest item here.** Landing screen, lobby, countdown, HUD, round break, summary, armoury, recovery-code screen. A design system, not a reskin: one type scale, one palette, one card, one button, one panel, applied everywhere at once. |
-
-## 7.3 Features
-
-| # | Item | State |
-|---|---|---|
-| g | **Emotes need a big pass** — currently "barely functional, static, robotic". Make them **purchasable in the armoury**, give the player **a loadout of three** to swap for round-end and match-end, and **allow emoting during a fight to taunt an opponent** — "this would compliment the severing limbs aspect". | **PART NEW.** Three emotes exist, server-relayed and rate-limited (`emoteUntil`, the `emote` relay). Purchasable, loadout-of-three and in-fight taunting are all NEW, and they connect directly to the colosseum idea in `docs/GAUNTLET-BRIEF.md` — a taunt over a man you have just dismembered is the same design as mercy-or-finish. **In-fight emoting needs a rule so it cannot be spammed or used to cancel recovery frames.** |
-| h | **New maps.** | **ALREADY RECORDED** — `docs/MAPS.md` has three designed and one built. §0 of this file corrects the record: the `world.ts` ground registry **is in the tree** (`registerGround`, `groundIds`, `GroundDef`, and `grounds.mjs` server-side), so map two is a new module rather than a refactor. It is the single largest cost reduction on this list. |
-| i | **A whole-game review of ergonomics, engagement, deployability and addictiveness.** And: *can Blender be used, and would we benefit?* | **NEW.** The review overlaps `docs/GAUNTLET-BRIEF.md`, which already commissions nine specialists and a critic. The Blender question is answered below. |
-
-## 7.4 Can Blender be used, and would we benefit?
-
-Asked directly, so answered directly.
-
-**For runtime assets: no, and the reason is the product, not the tooling.**
-Everything in this game is generated in code because the pitch is a link in a
-group chat that plays instantly. A Blender export is a binary mesh — glTF, a
-few hundred KB to a few MB — and the moment one ships, "it just opened"
-becomes "it's loading". That rule also protects the art direction: every
-surface in the game is mixed from one palette and one material library, and an
-imported mesh arrives with its own topology, its own UVs and its own idea of
-scale.
-
-**The honest counter-argument, which deserves stating.** The head took **nine
-passes**. An artist in Blender would have had a better one in an afternoon. If
-that pattern repeated across every asset, the rule would be indefensible. It
-did not repeat: the head is now authored as a section stack with a silhouette
-gate that holds at 0 failures, and the remaining faults — layering, seating,
-occlusion — are *integration* problems that a Blender mesh would have too.
-Switching now would throw away a working system to buy a different set of
-problems.
-
-**Where Blender genuinely would help, and costs nothing:** as a **reference and
-measurement tool**, never as a shipping pipeline. Model a helmet, measure it,
-and feed the numbers into the procedural builder. That is exactly what
-`headmeasure` and `wearmeasure` already do with anthropometry — a modeller's
-eye upstream of a generator, with no binary in the repo.
-
-**What would change my mind:** a portal deal (`docs/DISTRIBUTION.md`) where the
-host serves the bundle and load time stops being the differentiator, or a
-second product where the tech matters more than the instant link.
-
-## 7.5 The order I would build these in
-
-1. **(b) the Mac crouch bind** and **(a) custom binds not binding** — a control
-   that does nothing is worse than a control that does not exist, and (a) needs
-   a harness that moves the man, not one that round-trips the database.
-2. **(d) the helmets** and **(c) the berserker's board** — visible on the screen
-   he looks at most, and the seating machinery to fix them already exists.
-3. **(e/f) the screens, as one design system** — the biggest single lift to how
-   the game *feels*, and the one thing that must not be done piecemeal.
-4. **(g) emotes** — purchasable, loadout, in-fight. Ties the shop to the fight
-   and feeds the colosseum design.
-5. **(h) map two** — cheaper than the record claimed.
-6. **(i) the gauntlet review** — it is the frame the rest hangs on, and it is
-   already written up in `docs/GAUNTLET-BRIEF.md`.

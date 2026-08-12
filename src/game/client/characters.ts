@@ -710,7 +710,7 @@ const helmStyle = (value: string): HelmStyle => HELM[value] ?? BARE_HEAD;
 // list a warrior actually wears.
 export type CharacterSurface =
   | "mail" | "iron" | "steel" | "bronze" | "interlace"
-  | "wool" | "linen" | "leather" | "rope"
+  | "wool" | "hair" | "linen" | "leather" | "rope"
   | "oak" | "bone" | "skin";
 
 export interface CharacterTint {
@@ -10152,25 +10152,44 @@ export function buildCharacter(
   // the map is only read at mesh time, in `emit`.
   if (tone !== canon) reskin.set(sclera, M.standard(tone.sclera, 0.34));
   const iris = M.standard(IRIS_COLORS[face.iris], 0.09);
-  // Hair and beard are wool — there is no hair substance in the library and there
-  // is no budget for one — so what matters is the density it is tiled at. `cloth`
-  // would give a skull-sized patch twelve repeats, at which the tile's weave is
-  // still resolvable and a warrior's crop reads as a knitted cap. At twenty the
-  // individual yarns are about a millimetre and average out to fibre, which is what
-  // hair does at any distance a player sees it from.
-  // 48, not 20. `repeat` here is tiles across the *patch's own* 0..1 UV, and a
-  // crop's shell spans about 500 mm of skull — so twenty tiles put the wool
-  // weave at 25 mm, which resolves as knitting at every distance a head is seen
-  // from and is most of why every frame of this build reads the hair as a
-  // bathing cap. At 48 a yarn is about a millimetre and averages to fibre, which
-  // is what hair does. The brows ride the same material and want it finer still.
-  const hair = M.tinted("wool", ap.hairColor, { repeat: 48 });
-  // 26, not 18. The beard patch is the largest single area of hair on the head
-  // and at 18 repeats the wool tile's weave was resolving as a grid — the "flat
-  // waffle panel" both panels named. It is the same tile as the hair; what makes
-  // hair read as fibre rather than as knitting is only ever the density it is
-  // tiled at, and a beard covers less skull than a crop does, so it needs more.
-  const beard = M.tinted("wool", ap.beardColor, { repeat: 56 });
+  // HAIR IS HAIR NOW, and this line is the whole of a defect the owner reported
+  // four times. What stood here was `wool` at 48 and 56 repeats, under a comment
+  // that said in as many words: "there is no hair substance in the library and
+  // there is no budget for one — so what matters is the density it is tiled at."
+  //
+  // Density was never what mattered. Wool's own recipe is built on the promise
+  // that "the structure is fibre and it HAS NO AXIS" — two crossed nap fields
+  // choosing between each other so nothing holds a line — which is right for a
+  // fulled cloak and is the exact opposite of hair. Tiling an axis-less fibre
+  // finer does not give it an axis; it gives it a smaller axis-less fibre,
+  // which integrates to a flat tone that much sooner. Every raise of this
+  // number — 18 to 26 to 56, each with a paragraph explaining why the last one
+  // was too coarse — was pushing the same surface further toward the flat tone
+  // the owner kept reporting. `art/look/beards-5.png` is where that argument
+  // ended: a 120-gold Ringed Braid rendered as a smooth brown paddle with no
+  // rings on it, beside a hauberk whose every link resolves.
+  //
+  // `buildHair` in textures.ts is the substance that was missing. Every tap in
+  // it is narrow across the lay and long down it, and it spends 0.69 of
+  // roughness on the sheen band a bundle of parallel cylinders returns — the
+  // one optical cue that says "hair" before shape or colour resolve.
+  //
+  // AND THE REPEATS COLLAPSE, which is the lever that has to move with the
+  // substance. `buildHair`'s locks are 9 and 8 stripes across a tile, so at 48
+  // repeats there would be some four hundred of them round one skull: back to
+  // an average, and the whole recipe wasted. `repeat` is tiles across the
+  // patch's own 0..1 UV; a scalp shell spans about 560 mm of skull, so 5 puts a
+  // lock at roughly 12 mm, which is what a lock is. The brows and the lash line
+  // ride this material too and they are small enough that the same number lands
+  // their strands at about a millimetre, which is what a brow hair is.
+  const hair = M.tinted("hair", ap.hairColor, { repeat: 5 });
+  // 3, not 5, and lower than the hair on purpose. The beard's patch spans about
+  // 200 mm of jaw against the scalp's 560, so the same repeat would draw a lock
+  // a third the width down here — and a beard's hanks are the COARSEST hair on
+  // a man, not the finest. This is the number that decides whether a beard reads
+  // as a mass with locks in it or as a slab, so it is the one to move first if
+  // the cards say the beard is still flat.
+  const beard = M.tinted("hair", ap.beardColor, { repeat: 3 });
   // Fur goes the other way from hair: the wool tile's dye blotches are the one
   // thing in the library that reads as clumps of pelt, so this wants them large.
   // Six repeats over a shoulder ruff puts a clump every 40 mm, which is a fleece.
@@ -12599,13 +12618,57 @@ export function buildCharacter(
         + 0.020 * Math.cos(u * 17 + 2.3)
         - sideDrop * Math.pow(Math.sin(u), 2)
         - napeDrop * clamp01(-Math.cos(u))
-        // Under a helm the hairline drops 0.12 rad at the sides and the nape —
-        // about 16 mm — so hair emerges below the brow band's rim instead of the
-        // iron meeting bare scalp all the way round. A helmet on a man who has
-        // no hair anywhere it can be seen is a helmet on a mannequin, and it is
-        // half of what "a helmet must look WORN" means. Nothing changes at the
-        // front, where the band is meant to bear on the frontal bone.
-        - (helmed ? 0.12 * smooth(0.55, 1.25, awayFromFace(u)) : 0);
+        // Under a helm the hairline drops at the sides and the nape, so hair
+        // emerges below the brow band's rim instead of the iron meeting bare
+        // scalp all the way round. A helmet on a man who has no hair anywhere it
+        // can be seen is a helmet on a mannequin, and it is half of what "a
+        // helmet must look WORN" means. Nothing changes at the front, where the
+        // band is meant to bear on the frontal bone.
+        //
+        // 0.30 AT THE FLANK, NOT 0.12, AND THAT IS THE OWNER'S FOURTH FAULT:
+        //
+        //   "the sides of helmets are missing too with leaves bald spots or
+        //    ears exposed & looks wrong."
+        //
+        // Both halves of that sentence are one defect and it is THIS number.
+        // `wearmeasure` measures a window in the flank of the three open-faced
+        // rungs — Spectacle 5.2%, Boar-Crest 4.6%, Jarl's Crowned 6.5% — sitting
+        // 38 to 65 mm off the ear, bounded in front by the cheek guard's rear
+        // edge and behind by the nape fall's front edge. That window is not the
+        // fault. An open-faced war helm is SUPPOSED to be open between its guard
+        // and its flange; every Vendel and Valsgarde find is. The fault is WHAT
+        // IS BEHIND IT, and `art/look/fc-crowned.png` draws it in one colour:
+        // bare scalp, with the ear sitting in the middle of it.
+        //
+        // A previous pass read the same measurement and tried to close the
+        // opening with metal. It was right to be reverted — the note beside
+        // `lapU` records that it turned 55 degrees of the side of the head into
+        // one flat slab. But closing it was never the only option, and it was
+        // the wrong one: the hole was always fine. What is missing is the man's
+        // hair, and 0.12 rad is 16 mm of drop against a window whose centre is
+        // three to four times further down than that.
+        //
+        // 0.30 rad is about 40 mm, which carries the hairline from above the
+        // helix to just under it. Hair then fills the gap between the two plates
+        // and FRAMES the ear rather than leaving it stuck on a bald head — and
+        // nothing else has to move, because `hairCeil` already owns every place
+        // there is metal: a liner's thickness under a cheek plate, negative
+        // under a nape fall, the aventail's own rings under mail. The one place
+        // it leaves hair its full volume is the window, which is exactly where
+        // hair should be standing proud.
+        //
+        // EXCEPT UNDER THE MASK, and that exception was measured rather than
+        // foreseen. At a flat 0.30 on every rung `wearmeasure` dropped from
+        // 30/30 to 28/30: 14 mm of Long Mane and of Braided War-locks standing
+        // outside the Sutton Hoo on the berserker at 101/-49 degrees. The mask
+        // rung is the one helmet in the shop with no opening anywhere — a formed
+        // face, deep guards and mail from 1.46 back and down onto the shoulder —
+        // so there is no window to fill, and a hairline carried 40 mm down the
+        // side of the head under it is 40 mm of hair rooted inside somebody's
+        // own aventail. The fault this change exists to fix is a hole with bare
+        // scalp behind it; a helmet with no hole does not have it, and does not
+        // want the cure.
+        - (helmed ? (style.mask ? 0.12 : 0.30) * smooth(0.55, 1.25, awayFromFace(u)) : 0);
       // The shell. Under a helm it flattens to a liner's thickness — a helm
       // flattens hair, and 24 mm of crown volume would push straight through a
       // bowl that now sits on the skull.
