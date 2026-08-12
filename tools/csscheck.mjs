@@ -191,5 +191,45 @@ while (i < css.length) {
   }
 }
 
+// ---- 5. every var(--x) resolves to a declaration of --x --------------------
+//
+// A CSS custom property that does not resolve DOES NOT THROW. It does not warn,
+// it does not fall back to anything visible, and the build succeeds. The rule
+// simply does nothing, forever, silently — which is the exact failure mode this
+// whole file exists for.
+//
+// WRITTEN BECAUSE SOMEBODY ELSE HIT IT. The Bretwalda design system delivered on
+// 12 Aug 2026 declared a grain overlay on `var(--noise-url)` in both Panel and
+// Dialog. The token had been renamed `--grain-url` during a pivot and the two
+// components were never updated, so the system's own material law — the grain
+// that every panel and every dialog is supposed to carry — failed on every
+// panel and every dialog, in a bundle that was typechecked and render-proved.
+// Nothing caught it because nothing can: there is no error to catch.
+//
+// That is the same shape as this repository's own recorded faults — the
+// malformed comment that silently discarded a media query, and four mirrored
+// definitions where editing one constant moved nothing. The lesson each time is
+// that a thing which fails by doing nothing needs a ruler that counts.
+//
+// Scoped to what the source declares rather than to the built CSS, because the
+// build inlines third-party and framework properties this file has no business
+// ruling on. `--tw-*` is Tailwind's own machinery and is exempt by prefix.
+{
+  const declared = new Set();
+  for (const hit of stripped.matchAll(/(--[a-zA-Z][\w-]*)\s*:/g)) declared.add(hit[1]);
+  const used = new Map();
+  for (const hit of stripped.matchAll(/var\(\s*(--[a-zA-Z][\w-]*)/g)) {
+    used.set(hit[1], (used.get(hit[1]) ?? 0) + 1);
+  }
+  const orphan = [...used.keys()]
+    .filter((v) => !declared.has(v) && !v.startsWith("--tw-"));
+  if (orphan.length) {
+    fail(`${orphan.length} custom propert(ies) are read by var() and never declared — those rules silently do nothing`);
+    orphan.slice(0, 20).forEach((v) => console.log(`        var(${v}) — read ${used.get(v)}x, declared 0x`));
+  } else {
+    pass(`all ${used.size} custom properties read by var() are declared somewhere in the source`);
+  }
+}
+
 console.log(failures ? `[csscheck] ${failures} FAILED` : "[csscheck] the stylesheet parses and survives the build");
 process.exit(failures ? 1 : 0);

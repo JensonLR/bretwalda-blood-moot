@@ -71,6 +71,7 @@ ninety seconds, and it is the foundation the war layer sits on.
 | 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | NEW |
 | 3.2 | **AI fighting quality and difficulty scaling** | [ALREADY RAISED], still unbuilt |
 | 3.3 | **Weapon styles and looks as armoury purchases** | NEW |
+| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | NEW, from the design review. It is a MECHANIC, not the screen it arrived as — see `docs/DESIGN-SYSTEM.md` §8 |
 
 ### WAVE 4 — THE WAR (the spine)
 
@@ -97,7 +98,12 @@ back and it is where the owner's scattered items become one feature.
 | 5.1 | **Every screen upgraded** — the armoury UI/UX is liked; make all of it more satisfying, engaging, ergonomic, in-your-face | [PARTLY RAISED] |
 | 5.2 | **Mobile visual quality is well below desktop** — close the gap as far as gameplay allows | NEW, and it is a real regression risk |
 | 5.3 | **Ergonomics for both mobile and desktop, including a left-handed control flip** | [PARTLY RAISED] `docs/MOBILE-CONTROLS.md`; the flip is new |
-| 5.4 | **Symbols across the game — historically accurate, polished, on-vibe** | NEW |
+| 5.4 | **Symbols across the game — historically accurate, polished, on-vibe** | NEW. The design system's 24-glyph set answers this — devices sourced to real finds (the seax, a York Mjölnir of this decade, the triskele, the Pictish crescent-and-V-rod) |
+| 5.9 | **Adopt the Trewhiddle thesis across every screen** — dark-on-metal ornament, compartmented never full-length, light plates in menus and niello-side-out in combat | NEW, `docs/DESIGN-SYSTEM.md` §1–2 |
+| 5.10 | **The thumb-zone law as a GATE** — 44 px floor on every control including desktop, 56 px for anything pressed mid-fight, a 132 px reach band that combat controls sit inside and confirmations deliberately do not. `tools/touchtest.mjs` currently gates layout and dead zones but has NO size floor at all | NEW, and the cheapest real win in Wave 5 |
+| 5.11 | **Body face: Alegreya Sans → Alegreya** (the serif sibling). One word in `layout.tsx:60`; both faces already load from Google Fonts, so nothing is imported | NEW |
+| 5.12 | **Wire `WarStandings` to the coastline we already own** — `factionMap/britain.ts`, 1,655 baked points. The review shipped an honest empty map well not knowing the geometry exists | NEW |
+| 5.13 | **The "while you slept" dispatch strip on the title screen** — promote from decoration to requirement. It is the only visible surface of the game's whole retention thesis | NEW |
 | 5.5 | **Unlockable profile symbols** earned by achievement or bought | NEW |
 | 5.6 | **Taglines and grey helper text** updated to the current plan | NEW |
 | 5.7 | **Creative, distinctive map locations** built to the standard | [PARTLY RAISED] `docs/MAPS.md` |
