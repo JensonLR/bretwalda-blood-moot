@@ -49,6 +49,9 @@ import { secretMatches } from "./credentials";
  */
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+/** A drizzle transaction handle. Reads work on either; writes below say which. */
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type Reader = Db | Tx;
 
 const isPeople = (v: unknown): v is PeopleId =>
   typeof v === "string" && (PEOPLES as readonly string[]).includes(v);
@@ -76,55 +79,150 @@ interface SeasonRow {
 }
 
 /**
+ * How many times a caller will re-read and retry the rollover before giving
+ * up. Three is a lot: each pass either finds a running season or advances the
+ * world by one settled season, so the only way to spend them is to race an
+ * unlucky number of times against an unlucky number of processes.
+ */
+const ROLLOVER_ATTEMPTS = 3;
+
+/**
  * The season that is running, opening one if there is not one, and settling
  * the old one first if its time is up.
  *
- * Concurrency is handled by the two unique indexes rather than by a lock: two
- * processes racing to open season 4 both try `INSERT ... index = 4`, one wins,
- * the loser reads the winner's row. Same for the sixteen territory rows.
+ * THIS FUNCTION USED TO RACE, AND THE RACE DELETED THE RESET MECHANIC.
+ *
+ * Under concurrent callers at the 35-day boundary an adversary got THREE
+ * seasons opened — indexes 2, 3 and 4 — each with its own sixteen territory
+ * rows, permanently orphaned because the only reader takes the highest index.
+ * And in EVERY concurrent run the new season opened dead even, 4/4/4/4 with
+ * thresholds 240/320, so the champion's fifth territory and the 0.75 target
+ * discount — `docs/WHAT-THIS-GAME-IS.md` §3, `openingHoldings` in `war.mjs` —
+ * SILENTLY DID NOT HAPPEN. The reward for winning a season was quietly nothing,
+ * and no number in the repository would have said so.
+ *
+ * There were two races and they were different bugs wearing one symptom:
+ *
+ *   THE VERDICT RACE. `settleSeason` claimed the season with one UPDATE and
+ *   wrote the verdict with a SECOND one. Between them the row said "ended" and
+ *   carried no verdict. The claim's LOSER returned immediately and read exactly
+ *   that row, saw `verdict = null`, concluded there was no champion, and built
+ *   an even map. Whichever caller reached the territory INSERT first won, and
+ *   it was usually a loser.
+ *
+ *   THE INDEX RACE. `openSeason` derived the next index from `MAX(index)` at
+ *   the moment it looked. Three callers that look at three different moments
+ *   compute 2, 3 and 4 — so the unique index on `seasons.index` never fires,
+ *   because nobody is inserting the same number. The guard was real and it was
+ *   guarding the wrong quantity.
+ *
+ * Both are now closed IN THE DATABASE rather than by hoping about timing:
+ *
+ *   1. The settle is ONE TRANSACTION around `SELECT ... FOR UPDATE`. A second
+ *      caller blocks on the row lock and, when it is released, reads a season
+ *      that is ended AND carries its verdict. There is no instant at which a
+ *      half-settled season is observable, so no caller can read one.
+ *   2. The next index is `settled.index + 1` — derived from the season being
+ *      REPLACED, never from a running maximum — so every racing caller aims at
+ *      the same number and `seasons_index_idx` finally has something to refuse.
+ *   3. `seasons_one_running_idx`, a partial unique index on `state = 'running'`,
+ *      makes "there is exactly one running season" a fact Postgres enforces
+ *      rather than a sentence in a comment. A second one cannot be inserted
+ *      even by a caller that has gone wrong in a way nobody has thought of.
+ *
+ * Gated by `tools/warrace.mjs`, which was written first and shown red first: it
+ * printed `1:ended, 2:running, 3:running`, a map of 4/4/4/4 and a minimum
+ * threshold of 240 against the code this comment replaces.
  */
 async function currentSeason(db: Db): Promise<SeasonRow | null> {
-  const running = await db.select().from(seasons)
-    .where(eq(seasons.state, "running")).orderBy(desc(seasons.index)).limit(1);
-  const row = running[0] as SeasonRow | undefined;
+  for (let attempt = 0; attempt < ROLLOVER_ATTEMPTS; attempt++) {
+    const running = await db.select().from(seasons)
+      .where(eq(seasons.state, "running")).orderBy(desc(seasons.index)).limit(1);
+    const row = running[0] as SeasonRow | undefined;
+    if (row && row.endsAt.getTime() > Date.now()) return row;
 
-  if (row && row.endsAt.getTime() > Date.now()) return row;
-  if (row) {
-    // Its time is up. Crown it, then fall through and open the next.
-    await settleSeason(db, row);
+    // THE ANCHOR. Whatever we open next follows a SPECIFIC season and carries
+    // ITS verdict — not "the highest index that happens to exist right now",
+    // which is what let three callers open three seasons.
+    let anchorIndex: number;
+    let verdict: SeasonVerdict | null;
+    if (row) {
+      verdict = await settleSeason(db, row);
+      anchorIndex = row.index;
+    } else {
+      const last = await db.select().from(seasons).orderBy(desc(seasons.index)).limit(1);
+      const previous = last[0] as SeasonRow | undefined;
+      anchorIndex = previous ? previous.index : 0;
+      verdict = (previous?.verdict as SeasonVerdict | null) ?? null;
+    }
+
+    const opened = await openSeason(db, anchorIndex + 1, verdict);
+    if (opened) return opened;
+    // Somebody else got there first and the world has moved. Look again.
   }
-  return openSeason(db);
+  return null;
 }
 
-/** Opens the next season on the map the last one's winner earned. */
-async function openSeason(db: Db): Promise<SeasonRow | null> {
-  const last = await db.select().from(seasons).orderBy(desc(seasons.index)).limit(1);
-  const previous = last[0] as SeasonRow | undefined;
-  const index = previous ? previous.index + 1 : 1;
-  const winner = previous?.verdict && isPeople((previous.verdict as Record<string, unknown>).people)
-    ? ((previous.verdict as Record<string, unknown>).people as PeopleId) : null;
+/**
+ * Opens ONE named season on the map the last one's winner earned.
+ *
+ * The index is an argument rather than a lookup, and that is the whole fix for
+ * the index race: every caller racing the same boundary asks for the same
+ * number, so `seasons_index_idx` refuses all but one of them and the losers
+ * read the winner's row.
+ *
+ * The verdict is an argument too, for the same reason in a different clothing:
+ * the sixteen territory rows are computed from it, so two callers holding two
+ * different opinions about who won would write two different maps and the one
+ * that got there first would stand. `settleSeason` now hands every caller the
+ * SAME verdict, so the map they each compute is byte-identical and it no longer
+ * matters who wins the insert.
+ *
+ * Answers `null` — never a wrong season — when the row it opened is not the
+ * one now running. The caller looks again.
+ */
+async function openSeason(
+  db: Db, index: number, previousVerdict: SeasonVerdict | null,
+): Promise<SeasonRow | null> {
+  const winner = previousVerdict && isPeople((previousVerdict as unknown as Record<string, unknown>).people)
+    ? ((previousVerdict as unknown as Record<string, unknown>).people as PeopleId) : null;
 
   const { holdings, thresholds } = openingHoldings(winner);
   const startedAt = new Date();
   const endsAt = new Date(startedAt.getTime() + SEASON_DAYS * 86_400_000);
 
-  await db.insert(seasons).values({ index, state: "running", startedAt, endsAt })
-    .onConflictDoNothing();
-  const found = await db.select().from(seasons).where(eq(seasons.index, index)).limit(1);
-  const season = found[0] as SeasonRow | undefined;
-  if (!season) return null;
+  try {
+    return await db.transaction(async (tx) => {
+      // Bare `ON CONFLICT DO NOTHING` — no target — so it swallows BOTH unique
+      // indexes: a second season 4, and a second running season of any index.
+      await tx.insert(seasons).values({ index, state: "running", startedAt, endsAt })
+        .onConflictDoNothing();
+      // FOR UPDATE, so the sixteen territory rows are written under the same
+      // lock whoever wins the insert, and a reader cannot catch a season with
+      // half a map under it.
+      const found = await tx.select().from(seasons)
+        .where(eq(seasons.index, index)).limit(1).for("update");
+      const season = found[0] as SeasonRow | undefined;
+      if (!season || season.state !== "running") return null;
 
-  await db.insert(territories).values(TERRITORIES.map((t) => ({
-    seasonId: season.id,
-    territoryId: t.id,
-    holder: holdings[t.id] || t.people,
-    threshold: thresholds[t.id] || t.threshold,
-    epoch: 0,
-    contest: readContest(null),
-    cleared: 0,
-  }))).onConflictDoNothing();
+      await tx.insert(territories).values(TERRITORIES.map((t) => ({
+        seasonId: season.id,
+        territoryId: t.id,
+        holder: holdings[t.id] || t.people,
+        threshold: thresholds[t.id] || t.threshold,
+        epoch: 0,
+        contest: readContest(null),
+        cleared: 0,
+      }))).onConflictDoNothing();
 
-  return season;
+      return season;
+    });
+  } catch {
+    // A unique violation Postgres would not swallow, or a serialisation
+    // failure. Both mean "somebody else opened it" — answer null and let the
+    // caller re-read rather than inventing a season.
+    return null;
+  }
 }
 
 /**
@@ -134,7 +232,7 @@ async function openSeason(db: Db): Promise<SeasonRow | null> {
  * total anywhere. A total kept beside the rows it totals is a total that will
  * one day disagree with them, and the season's crown is settled from it.
  */
-async function loadWarState(db: Db, season: SeasonRow): Promise<WarState> {
+async function loadWarState(db: Reader, season: SeasonRow): Promise<WarState> {
   const state = newWar({ seasonIndex: season.index, startedAt: season.startedAt.getTime() });
   state.endsAt = season.endsAt.getTime();
   state.state = season.state === "ended" ? "ended" : "running";
@@ -177,38 +275,74 @@ async function loadWarState(db: Db, season: SeasonRow): Promise<WarState> {
 }
 
 /**
- * End a season and crown exactly one Bretwalda.
+ * End a season and crown exactly one Bretwalda — and hand EVERY caller the
+ * same verdict, whether it did the crowning or merely waited for it.
  *
- * The conditional update is what makes "exactly one" true across processes:
- * `WHERE state = 'running'` returns a row to precisely one caller, and only
- * that caller writes a verdict or marks a profile. Everybody else finds the
- * season already ended and reads the verdict it left.
+ * THE OLD SHAPE, AND WHY IT WAS THE DEFECT. This used to claim the season with
+ * one UPDATE (`SET state='ended' WHERE state='running'`), return `null`
+ * immediately to whoever lost that claim, and write the verdict in a SECOND
+ * statement afterwards. Two things follow, and both of them bit:
+ *
+ *   * Between the two statements the row is ENDED WITH NO VERDICT. That is a
+ *     state the schema permits, the code produced, and nothing forbade — so a
+ *     concurrent reader read it and correctly concluded there was no champion.
+ *   * The loser's `null` was indistinguishable from "there was genuinely no
+ *     winner". `openSeason` took it at face value and dealt an even map.
+ *
+ * The whole settle is now ONE TRANSACTION, opened by `SELECT ... FOR UPDATE`
+ * on the season row. A second caller BLOCKS on that lock instead of guessing,
+ * and when it is released it re-reads under the lock, finds the season already
+ * ended, and returns THE VERDICT THAT IS THERE. A season has one verdict and
+ * now every caller sees it — which is what makes the map they each compute in
+ * `openSeason` identical, and therefore what makes it not matter who wins the
+ * insert.
+ *
+ * "Exactly one crowning" is unchanged and is now stronger: the row lock, not a
+ * conditional update, is what serialises it, and the crown is written inside
+ * the same transaction as the verdict that justifies it.
  */
 async function settleSeason(db: Db, season: SeasonRow): Promise<SeasonVerdict | null> {
-  const claimed = await db.update(seasons)
-    .set({ state: "ended", endedAt: new Date() })
-    .where(and(eq(seasons.id, season.id), eq(seasons.state, "running")))
-    .returning({ id: seasons.id });
-  if (!claimed.length) return null;
+  try {
+    return await db.transaction(async (tx) => {
+      const locked = await tx.select().from(seasons)
+        .where(eq(seasons.id, season.id)).limit(1).for("update");
+      const row = locked[0] as SeasonRow | undefined;
+      if (!row) return null;
+      // Somebody settled it while we waited on the lock. Theirs is the verdict.
+      if (row.state !== "running") return (row.verdict as SeasonVerdict | null) ?? null;
 
-  const state = await loadWarState(db, { ...season, state: "running" });
-  const verdict = endSeason(state, Date.now());
-  await db.update(seasons).set({ verdict: verdict as unknown as Record<string, unknown> })
-    .where(eq(seasons.id, season.id));
+      const state = await loadWarState(tx, { ...row, state: "running" });
+      const verdict = endSeason(state, Date.now());
 
-  // THE PERMANENT, UNBUYABLE MARK. Written here and in no other place in the
-  // repository, which is what "unbuyable" has to mean in code.
-  const crowned = verdict.bretwalda;
-  if (crowned && typeof crowned.profileId === "number") {
-    await db.update(players).set({
-      bretwaldaSeasons: sql`
-        CASE WHEN ${players.bretwaldaSeasons} @> ${JSON.stringify([season.index])}::jsonb
-             THEN ${players.bretwaldaSeasons}
-             ELSE ${players.bretwaldaSeasons} || ${JSON.stringify([season.index])}::jsonb END`,
-      updatedAt: new Date(),
-    }).where(eq(players.id, crowned.profileId));
+      // ONE STATEMENT for the state AND the verdict. This is the line the bug
+      // was in: two statements leave a window, and a window is a thing another
+      // process will stand in.
+      await tx.update(seasons).set({
+        state: "ended", endedAt: new Date(),
+        verdict: verdict as unknown as Record<string, unknown>,
+      }).where(eq(seasons.id, season.id));
+
+      // THE PERMANENT, UNBUYABLE MARK. Written here and in no other place in
+      // the repository, which is what "unbuyable" has to mean in code.
+      const crowned = verdict.bretwalda;
+      if (crowned && typeof crowned.profileId === "number") {
+        await tx.update(players).set({
+          bretwaldaSeasons: sql`
+            CASE WHEN ${players.bretwaldaSeasons} @> ${JSON.stringify([season.index])}::jsonb
+                 THEN ${players.bretwaldaSeasons}
+                 ELSE ${players.bretwaldaSeasons} || ${JSON.stringify([season.index])}::jsonb END`,
+          updatedAt: new Date(),
+        }).where(eq(players.id, crowned.profileId));
+      }
+      return verdict;
+    });
+  } catch {
+    // The settle failed outright. Answer with whatever verdict is on the row —
+    // never with a confident `null`, which is the value that produced an even
+    // map the last time this function guessed.
+    const found = await db.select().from(seasons).where(eq(seasons.id, season.id)).limit(1);
+    return ((found[0] as SeasonRow | undefined)?.verdict as SeasonVerdict | null) ?? null;
   }
-  return verdict;
 }
 
 /* ==========================================================================

@@ -23,15 +23,49 @@
 //      profile row, and a man who never swore banks nothing.
 //   3. THE UNIQUE INDEX IS REAL. A duplicated ledger row is refused by
 //      Postgres and not by a Map that a restart would empty.
+//   4. THE REPLAY GUARD HOLDS THROUGH `bankMatch` ITSELF — see below.
+//
+// ---------------------------------------------------------------------------
+// WHY 4 WAS ADDED, AND WHAT WAS WRONG WITH 3 ON ITS OWN.
+//
+// An adversary deleted one line from `bankOne` in `src/db/war.ts` —
+//
+//     if (!inserted.length) return false;
+//
+// — which is the entire replay guard, and BOTH suites stayed green: `wartest`
+// 79/79 and this file 22/22. Its own probe then showed the map moving on every
+// retry, norse 14 -> 42, while the ledger stayed at two rows: silent
+// conservation breakage, shipped under two passing harnesses.
+//
+// The reason is exactly `docs/PROCESS.md` failure mode 1. Check 3 asserts that
+// POSTGRES REFUSES A HAND-WRITTEN DUPLICATE INSERT. That is a true and useful
+// fact about the unique index and it says nothing whatever about whether
+// `bankMatch` CONSULTS it. The guard lives in the branch after the insert, and
+// no assertion in this file had ever executed that branch, because nothing here
+// could fire the same report twice — the wire only ever delivers a match end
+// once. Green because the case was absent.
+//
+// So the probe now imports the server's own `src/db/war.ts` — the real module,
+// through `tools/lib/tsresolve.mjs`, no reimplementation — and calls
+// `bankMatch` with one identical report three times over. It carries its own
+// POSITIVE CONTROL first: a report that has never been banked MUST move the map
+// by exactly its points, in this process, before "it did not move" is allowed
+// to mean anything. A probe whose bank is inert would otherwise pass the replay
+// assertion by doing nothing at all, which is the same failure one level up.
+//
+// It also happens to prove the cross-process case the schema comment claims:
+// this is a SECOND process banking against the same database, which is the two
+// server instances `db/README.md` warns about, not a retry inside one memory.
 //
 // Requires a database. Without WAR_TEST_DB it says so and exits 0, because a
 // harness that fails for want of a fixture teaches a team to ignore it.
 // ============================================================
 import { spawn, execFileSync } from "child_process";
-import { existsSync } from "fs";
+import { register } from "node:module";
 import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { WebSocket } from "ws";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DB = process.env.WAR_TEST_DB || process.env.PROFILE_TEST_DB || "";
@@ -69,11 +103,18 @@ async function post(path, body) {
   return { status: res.status, json };
 }
 
+let serverNote = "";
 async function boot() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  // `existsSync(".next/BUILD_ID")` used to be the whole of this decision, and
+  // in the worktree the war spine was written in that bundle was seven minutes
+  // OLDER than the commit — so two source mutations had no effect under this
+  // harness and it reported 22/22 about a build nobody had made. See
+  // `tools/lib/freshbuild.mjs`; the mode it chose rides the verdict line below.
+  const choice = chooseServer(ROOT, "warflow");
+  serverNote = choice.note;
+  server = spawn("node", [choice.script], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development", DATABASE_URL: DB },
+    env: { ...process.env, PORT: String(PORT), NODE_ENV: choice.prod ? "production" : "development", DATABASE_URL: DB },
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
@@ -224,7 +265,7 @@ async function main() {
     `${JSON.stringify(contest)} vs ${owed} promised`);
 
   // ---- the unique index ------------------------------------------------
-  console.log("\n[warflow] the replay guard");
+  console.log("\n[warflow] the replay guard — the index");
   const one = sql("SELECT match_key, player_id FROM war_ledger LIMIT 1").split("\t");
   let refused = false;
   try {
@@ -326,6 +367,84 @@ async function main() {
   check("across the whole map: every point banked is on a border or was cleared by a flip",
     audit[0] === audit[1], `${audit[0]} banked, ${audit[1]} accounted for`);
 
+  // ---- THE REPLAY GUARD, THROUGH bankMatch ------------------------------
+  //
+  // The check above proves the INDEX. This proves that `bankMatch` OBEYS it,
+  // which is a different sentence and is the one that was never asserted. See
+  // the header: deleting `if (!inserted.length) return false;` left both suites
+  // green while every retry moved the map.
+  console.log("\n[warflow] the replay guard — the same report, fired three times");
+  process.env.DATABASE_URL = DB;   // read at module load by src/db/index.ts
+  register(pathToFileURL(resolve(ROOT, "tools/lib/tsresolve.mjs")).href, { data: { root: ROOT } });
+  const { bankMatch } = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
+  const { bindPlayer } = await import(pathToFileURL(resolve(ROOT, "src/db/matchLedger.ts")).href);
+
+  // This process has its own bind table — it is a second server instance, and
+  // that is the case worth testing. The player ids are the ones the wire used.
+  bindPlayer(m1.playerA, A.id);
+  bindPlayer(m1.playerB, B.id);
+
+  const mapTotal = () => Number(sql(`
+    SELECT coalesce(sum((contest->>'saxon')::int + (contest->>'norse')::int
+                      + (contest->>'briton')::int + (contest->>'pict')::int + cleared), 0)
+      FROM territories`));
+  const ledgerRows = () => Number(sql("SELECT count(*) FROM war_ledger"));
+
+  // THE POSITIVE CONTROL, and it is not optional. "The map did not move" is
+  // satisfied perfectly by a `bankMatch` that cannot move anything — a missing
+  // DATABASE_URL, an unbound player, a swallowed throw. So the same call, in
+  // the same process, with the same shape of report, is made to move the map
+  // FIRST. If this check is red, every assertion under it is meaningless and
+  // says so rather than passing.
+  const REPORT = {
+    matchKey: `warflow-replay-${Date.now()}`,
+    territoryId: ground,
+    entries: [
+      { playerId: m1.playerA, name: "Aethelred", points: 7 },
+      { playerId: m1.playerB, name: "Guthrum", points: 5 },
+    ],
+    at: Date.now(),
+  };
+  const preBank = { map: mapTotal(), rows: ledgerRows() };
+  const first = await bankMatch(REPORT);
+  const afterFirst = { map: mapTotal(), rows: ledgerRows() };
+  check("POSITIVE CONTROL: a report this database has never seen DOES move the map, from this process",
+    first === 2 && afterFirst.rows === preBank.rows + 2 && afterFirst.map === preBank.map + 12,
+    `banked ${first}, ledger ${preBank.rows}->${afterFirst.rows}, map ${preBank.map}->${afterFirst.map} (+12 owed)`);
+
+  const second = await bankMatch(REPORT);
+  const third = await bankMatch(REPORT);
+  const afterRetries = { map: mapTotal(), rows: ledgerRows() };
+  check("the SAME report fired twice more banks nothing at all",
+    second === 0 && third === 0, `second banked ${second}, third banked ${third}`);
+  check("...and THE MAP DID NOT MOVE — not one point on any border",
+    afterRetries.map === afterFirst.map,
+    `${afterFirst.map} after the first, ${afterRetries.map} after three`);
+  check("...and the ledger gained no rows either",
+    afterRetries.rows === afterFirst.rows,
+    `${afterFirst.rows} rows, still ${afterRetries.rows}`);
+
+  // The same report with the points INFLATED. The replay guard is keyed on
+  // (match_key, player_id) and not on the payload, so a forged retry that
+  // claims forty points a man must move nothing — the row already exists and
+  // the guard never reads what the caller asked for.
+  const inflated = await bankMatch({ ...REPORT, entries: REPORT.entries.map((e) => ({ ...e, points: 40 })) });
+  check("...and a forged retry claiming forty points a man moves nothing",
+    inflated === 0 && mapTotal() === afterFirst.map,
+    `banked ${inflated}, map ${mapTotal()}`);
+
+  // AND THE WHOLE MAP RECONCILES AGAIN, AFTER the retries. This is the exact
+  // shape of the breakage the deleted line produced — ledger flat, map
+  // climbing — so the identity is re-asserted here rather than only before the
+  // replays, where it could not have seen it.
+  const reaudit = sql(`
+    SELECT (SELECT coalesce(sum(points),0) FROM war_ledger),
+           (SELECT coalesce(sum((contest->>'saxon')::int + (contest->>'norse')::int
+                              + (contest->>'briton')::int + (contest->>'pict')::int + cleared), 0)
+            FROM territories)`).split("\t");
+  check("and after four replays the ledger and the map still agree to the point",
+    reaudit[0] === reaudit[1], `${reaudit[0]} banked, ${reaudit[1]} accounted for`);
+
   // ---- the oath locks --------------------------------------------------
   console.log("\n[warflow] the oath, once he has fought");
   const turn = await post("/api/war/swear", { id: A.id, secret: A.secret, people: "pict" });
@@ -334,9 +453,10 @@ async function main() {
   check("...and his oath is untouched by the attempt",
     sql(`SELECT allegiance FROM players WHERE id = ${A.id}`) === "norse");
 
-  console.log("\n" + "=".repeat(64));
+  console.log("\n" + "=".repeat(70));
   console.log(`${fail === 0 ? "PASS" : "FAIL"}: the war, end to end — ${pass}/${pass + fail}`);
-  console.log("=".repeat(64));
+  console.log(`      measured against: ${serverNote}`);
+  console.log("=".repeat(70));
   if (!KEEP) { server.kill("SIGKILL"); }
   else console.log(`[warflow] server left up on ${BASE} (--keep)`);
   process.exit(fail === 0 ? 0 : 1);

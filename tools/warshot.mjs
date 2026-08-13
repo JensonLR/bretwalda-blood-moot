@@ -20,6 +20,7 @@ import { spawn } from "child_process";
 import { mkdirSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "art/ui");
@@ -35,12 +36,18 @@ const VIEWPORTS = [
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  const server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  // A PHOTOGRAPH OF A STALE BUNDLE IS A PHOTOGRAPH OF THE WRONG BUILD, and it
+  // is worse than no photograph because it is evidence. This chose its server
+  // on `existsSync(".next/BUILD_ID")` alone, and in the worktree the map was
+  // authored in that bundle predated the commit by seven minutes — so the PNGs
+  // filed as proof of the map screen were pictures of the code before it. See
+  // `tools/lib/freshbuild.mjs`.
+  const choice = chooseServer(ROOT, "warshot");
+  const server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: {
       ...process.env, PORT: String(PORT),
-      NODE_ENV: useProd ? "production" : "development",
+      NODE_ENV: choice.prod ? "production" : "development",
       ...(DB ? { DATABASE_URL: DB } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -53,6 +60,7 @@ async function main() {
     await sleep(400);
   }
   console.log(`[warshot] server up on ${PORT}${DB ? " with a war database" : " with NO database"}`);
+  console.log(`[warshot] photographing: ${choice.note}`);
 
   const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({

@@ -91,6 +91,7 @@ CREATE UNIQUE INDEX "legacy_claims_fingerprint_idx" ON "legacy_claims" USING btr
 CREATE INDEX "legacy_claims_player_idx" ON "legacy_claims" USING btree ("player_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "players_recovery_code_idx" ON "players" USING btree ("recovery_code");--> statement-breakpoint
 CREATE UNIQUE INDEX "seasons_index_idx" ON "seasons" USING btree ("index");--> statement-breakpoint
+CREATE UNIQUE INDEX "seasons_one_running_idx" ON "seasons" USING btree ("state") WHERE "seasons"."state" = 'running';--> statement-breakpoint
 CREATE UNIQUE INDEX "territories_season_ground_idx" ON "territories" USING btree ("season_id","territory_id");--> statement-breakpoint
 CREATE INDEX "war_flips_season_idx" ON "war_flips" USING btree ("season_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "war_ledger_match_player_idx" ON "war_ledger" USING btree ("match_key","player_id");--> statement-breakpoint

@@ -1,4 +1,5 @@
 import { pgTable, text, integer, timestamp, serial, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { Appearance } from "../game/client/characters";
 
 /**
@@ -118,6 +119,22 @@ export const seasons = pgTable("seasons", {
   verdict: jsonb("verdict").$type<Record<string, unknown> | null>(),
 }, (t) => [
   uniqueIndex("seasons_index_idx").on(t.index),
+  /**
+   * EXACTLY ONE RUNNING SEASON, enforced by Postgres and not by a comment.
+   *
+   * `seasons_index_idx` above reads like it already covers this and it does
+   * not. The rollover race did not insert two rows with the same index; it
+   * inserted 2, 3 and 4, because each racing caller derived "next" from its own
+   * snapshot of `MAX(index)`. Three callers colliding on nothing pass a unique
+   * index on `index` without touching it. This partial index is on the property
+   * that was actually violated, and with it the corruption is unrepresentable:
+   * the second `INSERT ... state = 'running'` is refused by the database.
+   *
+   * `src/db/index.ts` marks pre-existing duplicates `orphaned` before creating
+   * it, because a database that already ran the buggy code cannot be indexed
+   * until it has been repaired.
+   */
+  uniqueIndex("seasons_one_running_idx").on(t.state).where(sql`${t.state} = 'running'`),
 ]);
 
 /**
