@@ -172,48 +172,69 @@ low-end survival **as modelled**, never the platform.
 
 ---
 
-## OPEN — the handle inside the fight is not the handle on the landing screen
+## SETTLED — the handle inside the fight is the same handle, and the probe was the bug
 
-Found while adding the two checks above, unexplained, and recorded rather than
-rounded off, because if it is real in production it is worse than the thing it
-was found next to.
+This section was **OPEN** for a wave. It recorded that
+`window.__bretwaldaAudio` had `setSpeaker` on the landing screen and that
+`typeof a.setSpeaker` read `"undefined"` inside a fight, and it offered two
+candidates. The second one — quoted here as it stood, because a doc that hides
+what it used to say is worse than one that was wrong —
 
-The observation, and it repeated across two complete `phonesound` runs:
+> **Two module instances.** `src/app/page.tsx` imports
+> `"../game/client/render/audio"` and `GameCanvas.tsx` imports
+> `"./render/audio"`. They resolve to one file and a correct bundler gives one
+> instance — but if they ever did not, the consequence is severe and quiet:
+> **two engines, two AudioContexts, and a mute toggle that silences one of
+> them.**
 
-* On the **landing screen**, `window.__bretwaldaAudio` has `speaker` and
-  `setSpeaker` and reports `speaker === "small"` at 390x844 with touch. Verified
-  directly against a running dev server.
-* After tapping into a **fight**, the same global has **neither**.
-  `typeof a.setSpeaker` is `"undefined"`, and `a.speaker` reads undefined too.
+**was wrong, and it should have been condemned when it was written.** The
+section itself says so two paragraphs later — *"candidate 2 does not explain a
+missing method, only a second copy of a complete one"* — and that sentence is
+the whole answer. Two contexts explain a duplicate. Nothing about them removes a
+method from an object.
 
-Nothing in `audio.ts` removes a method, and the module assigns that global once,
-at import. So one of two things is true and they need different fixes:
+**What actually happened.** `window.__bretwaldaAudio` is a **class instance**.
+Every method on it lives on its prototype and is non-enumerable, so the
+instance's own enumerable keys are its fields and nothing else. Any probe that
+carries that object **out of the page** — `page.evaluate(() => window.__bretwaldaAudio)`
+returns a structured clone, and `Object.keys()` returns own enumerable names —
+sees the fields and none of the methods. Demonstrated on a two-line stand-in
+with no app, no bundler and no browser in the path:
 
-1. **A stale compiled chunk.** `GameCanvas` is in a different chunk from the
-   screens layer, and the dev cache served an older compile of `audio.ts` into
-   it. This is the FIRST thing to rule out and it costs nothing: `rm -rf .next`
-   and reload. A stale bundle is already a known cause on this project — it is
-   the whole of the resolution at the top of this file.
-2. **Two module instances.** `src/app/page.tsx` imports
-   `"../game/client/render/audio"` and `GameCanvas.tsx` imports
-   `"./render/audio"`. They resolve to one file and a correct bundler gives one
-   instance — but if they ever did not, the consequence is severe and quiet:
-   **two engines, two AudioContexts, and a mute toggle that silences one of
-   them.** The singleton comment in `getAudio()` says browsers cap how many
-   contexts a document may hold, which is exactly the failure that would follow.
+```
+typeof a.setSpeaker  = function
+Object.keys(a)       = ["ready","_speaker"]
+prototype own names  = ["constructor","setSpeaker","speaker","hit"]
+after a structured clone: typeof clone.setSpeaker = undefined
+```
 
-Candidate 1 does not fit cleanly — the cache was cleared and the discrepancy was
-seen again — and candidate 2 does not explain a *missing method*, only a second
-copy of a complete one. So it is genuinely open.
+The last line **is the reported symptom, verbatim**, produced by a correct
+single-instance engine. The reading was taken in Node about a copy of an object
+whose prototype chain had been cut off on the way out of the browser. This is the
+same family as everything else in `docs/PROCESS.md` part 1: **the ruler measured
+the wrong quantity**, and the quantity here was "what survives serialisation"
+rather than "what the fight is holding".
 
-**What would settle it, cheaply:** one line in the fight, in a console —
-`window.__bretwaldaAudio === (await import("/_next/.../audio")).getAudio()` is
-awkward, but `Object.getOwnPropertyNames(Object.getPrototypeOf(window.__bretwaldaAudio))`
-inside a match answers it immediately: if `setSpeaker` is absent from that list,
-the fight is running older code and it is candidate 1; if it is present, the
-harness is reading the wrong moment.
+**And it is a gate now, not a note** (`docs/PROCESS.md` R6). `phonesound` asks
+the question **inside the page**, where a prototype still exists, and fails if
+the answer is ever really no:
 
-Until it is settled, treat the phone mix as **proven offline and unproven in the
-app**. `soundtest` phase 4 renders both mixes and grades them against a
-calibrated speaker model with no bundler in the path, and that is currently the
-only trustworthy evidence that `body()` does what this document says it does.
+```
+PASS  the fight holds the same audio module the landing screen does
+      setSpeaker is a function inside the fight and speaker reads "small";
+      the instance has N own enumerable keys and M prototype methods — a probe
+      reading Object.keys(), or one that carries this object out of the page,
+      sees NONE of them
+```
+
+If the bundler ever really does hand the fight a second module instance, that
+check goes red and the two-context hypothesis comes back with evidence behind
+it. Until then it has none, and this document no longer asserts one.
+
+**What is still true and unchanged.** The phone mix is **proven offline and
+unproven on iOS**. `soundtest` phase 4 renders both mixes and grades them
+against a calibrated small-speaker model with no bundler in the path, and
+`phonesound` measures the live app through real biquad filters of the same
+shape. Both are **models of a small speaker running in Chromium on Linux**. They
+say what a speaker with no low end cannot reproduce. **Only the owner holding a
+phone can say what a phone sounds like.**

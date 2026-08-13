@@ -1465,9 +1465,16 @@ async function phone(page, rel, desktop) {
     level[name] = per.map((p) => dB(p.f.rms));
   }
 
+  // The same table phase 3 prints, taken AFTER the speaker. Without it a phone
+  // failure is a verdict line and nothing else, and the axes a phone leaves
+  // standing are not the axes a desk leaves standing — everything under 400 Hz
+  // is simply gone, so a pair held apart by body weight on a desk can be one
+  // sound in a hand and the numbers that say so live here.
+  console.log("        through the speaker  centroid  flat  attack   decay   <400Hz  >3kHz   loss   dBFS");
   for (const name of BLOWS) {
     if (!feat[name]) continue;
-    note(`${name.padEnd(16)} loses up to ${loss[name].toFixed(1).padStart(6)} dB through the speaker, leaving ${Math.min(...level[name]).toFixed(1)} to ${Math.max(...level[name]).toFixed(1)} dBFS`);
+    const f = meanFeat(feat[name]);
+    note(`${name.padEnd(19)} ${f.centroid.toFixed(0).padStart(7)}  ${f.flatness.toFixed(2)}  ${f.attack.toFixed(1).padStart(5)}ms ${f.decay.toFixed(0).padStart(5)}ms  ${f.low.toFixed(2).padStart(5)}  ${f.high.toFixed(2).padStart(5)}  ${loss[name].toFixed(1).padStart(5)}  ${Math.min(...level[name]).toFixed(1).padStart(6)}`);
   }
 
   // 1. Nothing may be TAKEN AWAY by the speaker, and this gate had to be

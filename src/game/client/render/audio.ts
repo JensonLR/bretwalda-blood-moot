@@ -1700,7 +1700,7 @@ class AudioEngine implements AudioHandle {
     // why a fifth impact MATERIAL for a haft strike is not: no event on the wire
     // produces one. See docs/SOUND.md.
     const boss = e.shield === true;
-    // THE SHOULDER'S DRIVE IS SHORT NOW — 0.62 s of low body became 0.17 — and
+    // THE SHOULDER'S DRIVE IS SHORT NOW — 0.62 s of low body became 0.24 — and
     // that number is the fix for the closest pair in the game.
     //
     // A shoulder shove and a shield taking a heavy axe were 2.84 JND apart on a
@@ -1714,9 +1714,12 @@ class AudioEngine implements AudioHandle {
     // decay for 0.82 s deliberately. A shoulder into a mailed chest does not
     // ring at all: the air goes out of him and it is over. Both sides of that
     // comparison are `body()` tone decays, so it is a difference a noise draw
-    // cannot move, and it takes the pair from 0.60 JND on decay to over 2.
+    // cannot move, and it takes the pair from 2.84 JND on its worst draw to
+    // 3.37 against a bar of 3.0. It was 0.17 first, which read better still on a
+    // desk and cost a phone the OTHER shove pair — see the fourth rim partial
+    // above. 0.24 is where both hold.
     this.body(dest, hit, boss ? 168 : 88, boss ? 72 : 38, (boss ? 0.16 : 0.44) * g,
-      boss ? 0.003 : 0.030, boss ? 0.055 : 0.17);
+      boss ? 0.003 : 0.030, boss ? 0.055 : 0.24);
     const scuff = ac.createBiquadFilter();
     scuff.type = "lowpass";
     scuff.frequency.setValueAtTime(this.lift(boss ? 1200 : 340), hit);
@@ -1735,7 +1738,18 @@ class AudioEngine implements AudioHandle {
       // The rim above the boards. It is the whole of what a phone hears of a
       // shield shove — everything else is under the speaker's corner — and it is
       // why a disc and a shoulder stay two events down there and not one.
-      for (const [f, a, d] of [[1180, 0.32, 0.095], [1720, 0.23, 0.07], [2480, 0.15, 0.05]] as const) {
+      //
+      // THE FOURTH PARTIAL IS ABOVE 3 kHz AND IT IS THERE FOR THE PHONE.
+      // Shortening the shoulder's drive fixed the closest pair on a desk and
+      // broke a different one in a hand: on a desk the two shoves are 5.75 JND
+      // apart and 4.58 of that is body below 400 Hz, which is exactly the band a
+      // micro-speaker does not have. Through the speaker model they collapsed to
+      // 0.93 JND — one sound — with the best axis a 1.22x difference in
+      // brightness. Everything holding them apart had been the thing the phone
+      // deletes. An iron edge speaks up here and a shoulder in wool cannot, so
+      // the disc gets a partial the speaker reproduces perfectly and the
+      // separation stops depending on a band the listener may not own.
+      for (const [f, a, d] of [[1180, 0.32, 0.095], [1720, 0.23, 0.07], [2480, 0.15, 0.05], [3620, 0.34, 0.05]] as const) {
         const rg = ac.createGain();
         envelope(rg.gain, hit, a * g, 0.002, d);
         this.tone("triangle", hit, f, f * 0.97, d + 0.03).connect(rg); rg.connect(dest);
@@ -1748,9 +1762,9 @@ class AudioEngine implements AudioHandle {
       const th = ac.createBiquadFilter();
       th.type = "bandpass"; th.Q.value = 0.8;
       th.frequency.setValueAtTime(this.lift(330), hit);
-      th.frequency.exponentialRampToValueAtTime(this.lift(110), hit + 0.20);
+      th.frequency.exponentialRampToValueAtTime(this.lift(110), hit + 0.28);
       const tgn = ac.createGain();
-      envelope(tgn.gain, hit, 0.17 * g, 0.020, 0.19);
+      envelope(tgn.gain, hit, 0.17 * g, 0.020, 0.26);
       this.noiseAt(hit, 0.26, 0.5).connect(th); th.connect(tgn); tgn.connect(dest);
     }
   }

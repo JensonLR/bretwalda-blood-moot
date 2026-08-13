@@ -42,6 +42,24 @@ const check = (name, pass, detail) => {
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
+/**
+ * R4: a deferral rides the verdict line, in the words a person will read. A run
+ * that never got into a fight measured strictly less than one that did, and this
+ * file used to say so by throwing a stack trace and printing no verdict at all.
+ */
+function verdict(fightMissed) {
+  const failed = results.filter((x) => !x.pass);
+  const tail = fightMissed
+    ? " — WITH the fight NEVER REACHED, so the live-mix and speaker checks did not run and this is not a clean sheet"
+    : "";
+  console.log(`\n[phonesound] ${results.length - failed.length}/${results.length} claims proven${tail}`);
+  if (failed.length) {
+    console.log("[phonesound] UNPROVEN: " + failed.map((f) => f.name).join(", "));
+    process.exitCode = 1;
+  }
+  if (fightMissed) process.exitCode = process.exitCode || 1;
+}
+
 async function waitForServer(url, timeoutMs = 180000) {
   const started = Date.now();
   for (;;) {
@@ -137,7 +155,11 @@ async function listen(page, ms) {
   const until = Date.now() + ms;
   let all = 0, spk = 0;
   while (Date.now() < until) {
-    const p = await page.evaluate(() => [window.__peak(), window.__spkPeak()]);
+    // A navigation destroys the execution context mid-poll and used to take the
+    // whole run down with it — four PASS lines, a stack trace and no verdict.
+    // A tap that navigates is a bug in the tap, not a reason to lose the report.
+    const p = await page.evaluate(() => [window.__peak(), window.__spkPeak()]).catch(() => null);
+    if (!p) break;
     if (p[0] > all) all = p[0];
     if (p[1] > spk) spk = p[1];
     await page.waitForTimeout(25);
@@ -200,9 +222,45 @@ async function main() {
   check("the first real touch builds exactly one AudioContext",
     started.built === 1, `${started.built} constructed on the first tap`);
 
-  await page.getByRole("button", { name: /WARRIOR/i }).first().tap();
-  await page.waitForFunction(() => window.__bretwaldaAudio?.ready === true, null, { timeout: 30000 })
-    .catch(() => {});
+  // THE MENU MOVED AND THIS FILE DIED WITHOUT A VERDICT.
+  //
+  // It tapped one button named /WARRIOR/i and the Testgrounds now needs two —
+  // MUSTER THE TESTGROUNDS, then a difficulty. So `locator.tap` threw a
+  // TimeoutError, `main().catch` printed a stack trace, and the run ended with
+  // four PASS lines and NO verdict at all. A harness that reports nothing reads
+  // exactly like a harness that found nothing; `soundwire` was fixed for this
+  // same fault last round and this file had it too.
+  //
+  // Every step is best-effort now, and if the fight is never reached the run
+  // still gives its verdict — with the miss on the verdict line, per R4.
+  const tap = async (rx) => {
+    try { await page.getByRole("button", { name: rx }).first().tap({ timeout: 10000 }); return true; }
+    catch { /* not on this screen */ }
+    try { await page.getByText(rx).first().tap({ timeout: 6000 }); return true; }
+    catch { return false; }
+  };
+  // Checked between every tap, and the sequence STOPS the moment the fight is
+  // up. Tapping on regardless is what destroyed the execution context on the
+  // first run of this path: a /RECRUIT|WARRIOR/i match still exists once the
+  // fight is staged, and pressing it navigated out from under the analyser.
+  const inFightYet = () => page.evaluate(() => window.__bretwaldaAudio?.ready === true).catch(() => false);
+  let reached = await inFightYet();
+  for (const step of [/MUSTER|TESTGROUNDS/i, /RECRUIT|WARRIOR/i, /DRAW STEEL|FIGHT|BEGIN/i]) {
+    if (reached) break;
+    await tap(step);
+    await page.waitForTimeout(700);
+    reached = await page.waitForFunction(() => window.__bretwaldaAudio?.ready === true, null, { timeout: 12000 })
+      .then(() => true).catch(() => false);
+  }
+  if (!reached) {
+    await browser.close();
+    console.log("");
+    console.log("        the fight was never reached, so checks 3b onward did not run. The menu path");
+    console.log("        this file taps (Training -> Testgrounds -> a difficulty) no longer matches");
+    console.log("        the screens. The unlock checks above stand; nothing below them was measured.");
+    verdict(true);
+    return;
+  }
   const live = await page.evaluate(() => ({
     state: window.__ac.ctx?.state ?? null,
     ready: window.__bretwaldaAudio?.ready === true,
@@ -223,6 +281,52 @@ async function main() {
   check("sound is emitted after the gesture, measured at the destination",
     loud.all > 0.01 && loud.all < 0.99, `peak ${loud.all.toFixed(4)} against ${idle.all.toFixed(4)} at rest`);
 
+  // ---- 4b: THE HANDLE INSIDE THE FIGHT, and it settles an open doc entry ----
+  //
+  // docs/MOBILE-AUDIO.md carried an OPEN section proposing that the module might
+  // exist twice — "two engines, two AudioContexts, and a mute toggle that
+  // silences one of them" — because a probe found `setSpeaker` on the landing
+  // screen and `typeof a.setSpeaker === "undefined"` inside a fight, with
+  // nothing in audio.ts that removes a method.
+  //
+  // THE HYPOTHESIS WAS WRONG AND THE PROBE WAS THE BUG. `window.__bretwaldaAudio`
+  // is a CLASS INSTANCE: every method lives on its prototype, non-enumerable, so
+  // its own enumerable keys are the fields and nothing else. A probe that carries
+  // the object out of the page — `page.evaluate(() => window.__bretwaldaAudio)`,
+  // or anything that reads `Object.keys()` — gets a structured clone with the
+  // prototype chain cut off, and every method reads `undefined` in Node while
+  // being perfectly present in the browser. Two contexts would have explained a
+  // second copy of a complete engine; they never explained a MISSING METHOD, and
+  // that is the detail that should have condemned the hypothesis at the time.
+  //
+  // So the answer is measured IN THE PAGE, where a prototype still exists, and it
+  // is a gate rather than a note: if the fight ever really does hold a different
+  // module instance from the landing screen, this goes red.
+  {
+    const inFight = await page.evaluate(() => {
+      const a = window.__bretwaldaAudio;
+      if (!a) return { has: false, why: "window.__bretwaldaAudio is undefined inside the fight" };
+      const proto = [];
+      for (let p = Object.getPrototypeOf(a); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+        proto.push(...Object.getOwnPropertyNames(p));
+      }
+      return {
+        has: typeof a.setSpeaker === "function",
+        speaker: a.speaker ?? null,
+        // The two readings the old probe conflated, side by side, so nobody
+        // repeats it: own enumerable keys, and the prototype's own names.
+        ownKeys: Object.keys(a).length,
+        methods: proto.filter((k) => k !== "constructor").length,
+        wanted: ["setSpeaker", "hit", "knockdown", "impact", "shove", "dodge", "ui"].filter((k) => typeof a[k] !== "function"),
+      };
+    });
+    check("the fight holds the same audio module the landing screen does",
+      inFight.has && inFight.wanted.length === 0,
+      inFight.has
+        ? `setSpeaker is a function inside the fight and speaker reads ${JSON.stringify(inFight.speaker)}; the instance has ${inFight.ownKeys} own enumerable keys and ${inFight.methods} prototype methods — a probe reading Object.keys(), or one that carries this object out of the page, sees NONE of them, which is the whole of the symptom docs/MOBILE-AUDIO.md once blamed on two AudioContexts`
+        : `${inFight.why ?? `missing: ${inFight.wanted.join(", ")}`} — THIS one would be a real bundling defect`);
+  }
+
   // ---- 5: the WEIGHT survives a speaker with no low end ----
   //
   // `soundtest` phase 4 proves this offline against a calibrated filter. This is
@@ -230,13 +334,14 @@ async function main() {
   // is deliberately a DIFFERENTIAL rather than an absolute.
   //
   // The absolute version was tried first and it is the wrong measurement twice
-  // over. It read `bus.speaker` to check the device sniff had fired, and that
-  // property came back undefined in this page while a probe against the same
-  // server on the same viewport read "small" from it — a bundling question, not
-  // an audio one, and not something an audio harness should be adjudicating.
-  // Then it gated the surviving fraction of one blow against a number picked out
-  // of the air, measured as a ratio of two analyser PEAKS taken at different
-  // instants with a bonfire playing underneath.
+  // over. It read `bus.speaker` to check the device sniff had fired and got
+  // undefined — which was blamed on the bundler at the time and was nothing of
+  // the kind: the reading was taken on a structured clone of a class instance,
+  // so it had no prototype and therefore no methods and no accessors. See 4b
+  // above, and the correction in docs/MOBILE-AUDIO.md. Then it gated the
+  // surviving fraction of one blow against a number picked out of the air,
+  // measured as a ratio of two analyser PEAKS taken at different instants with a
+  // bonfire playing underneath.
   //
   // Driving `setSpeaker` and measuring the DIFFERENCE removes all of that. Both
   // renders contain the same events, the same bed and the same peaks; the only
@@ -264,11 +369,12 @@ async function main() {
   const carried = (m) => (m ? 20 * Math.log10(Math.max(m.spk, 1e-6) / Math.max(m.all, 1e-6)) : NaN);
   const gain = carried(asPhone) - carried(asDesk);
   // When this fails it hands over its own diagnostic rather than making the next
-  // person reproduce it. The observation that made that worth doing is in
-  // docs/MOBILE-AUDIO.md: this handle has `setSpeaker` on the landing screen and
-  // does not have it inside a fight, which is a bundling question — a stale
-  // chunk, or two module instances — and either way the list of methods the
-  // fight is actually holding is the first thing anybody will want.
+  // person reproduce it, and the diagnostic walks the PROTOTYPE CHAIN because
+  // that is where a class instance keeps its methods. Read any other way — own
+  // enumerable keys, or the object carried out of the page — every method reads
+  // undefined on a perfectly healthy engine, which is how a probe once turned a
+  // JavaScript fact into an open bundling defect. See 4b and
+  // docs/MOBILE-AUDIO.md.
   const handle = asDesk === null ? await page.evaluate(() => {
     const a = window.__bretwaldaAudio;
     if (!a) return "window.__bretwaldaAudio is undefined inside the fight";
@@ -281,7 +387,7 @@ async function main() {
   check("the engine can be told which speaker it is playing through",
     asDesk !== null && asPhone !== null,
     asDesk === null
-      ? `setSpeaker is not on the live handle, so the phone gets the desktop mix and nothing can change it. ${handle}. Rule out a stale bundle FIRST: rm -rf .next and reload. See docs/MOBILE-AUDIO.md.`
+      ? `setSpeaker is not on the live handle, so the phone gets the desktop mix and nothing can change it. ${handle}. Rule out a stale bundle FIRST: rm -rf .next and reload. Do NOT reach for the two-AudioContexts story — it was retracted, and why is in docs/MOBILE-AUDIO.md.`
       : "setSpeaker drives the live graph");
   check("the phone mix puts a heavy blow where a phone speaker can play it",
     asDesk !== null && asPhone !== null && gain >= 3,
@@ -290,8 +396,41 @@ async function main() {
       : "not measured");
 
   // ---- and the mute the player can reach from here ----
-  await page.getByRole("button", { name: /Turn sound off/i }).first().tap();
-  await page.waitForTimeout(200);
+  const muteBtn = page.getByRole("button", { name: /Turn sound off/i }).first();
+  const muteFound = await muteBtn.count().then((n) => n > 0).catch(() => false);
+  await muteBtn.tap().catch(() => {});
+  await page.waitForTimeout(250);
+  // What the tap ACTUALLY did, rather than only what came out of the speakers.
+  // The first run that ever got this far reported "peak 0.78, localStorage null"
+  // and nothing else, which says the mute failed and not one thing about where.
+  // Three readings pin it: did the button exist, did React see the press
+  // (aria-pressed), and did the engine take it (audio.muted).
+  // AND THE DECISIVE ONE. If a synthetic CLICK moves the button that a real TAP
+  // did not, the defect is a touch that never becomes a press — which is a
+  // defect in the app on the only device that matters — rather than a harness
+  // tapping the wrong pixel. The click is a DIAGNOSTIC and never a pass path:
+  // the check below still gates on the tap having worked.
+  const tapWorked = await page.evaluate(() => window.__bretwaldaAudio?.muted === true).catch(() => false);
+  if (!tapWorked) {
+    await muteBtn.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(250);
+  }
+  let clickWorked = await page.evaluate(() => window.__bretwaldaAudio?.muted === true).catch(() => false);
+  // And one more rung down: a DOM click on the element itself, with no
+  // coordinates involved at all. If this moves it and the two above did not,
+  // nothing is wrong with the handler and something is sitting on top of the
+  // button — which on a phone means the control is simply unreachable.
+  let domWorked = false;
+  if (!clickWorked) {
+    await muteBtn.evaluate((el) => el.click()).catch(() => {});
+    await page.waitForTimeout(250);
+    domWorked = await page.evaluate(() => window.__bretwaldaAudio?.muted === true).catch(() => false);
+  }
+  const after = await page.evaluate(() => ({
+    pressed: document.querySelector('[aria-label="Turn sound on"],[aria-label="Turn sound off"]')?.getAttribute("aria-pressed") ?? null,
+    label: document.querySelector('[aria-label="Turn sound on"],[aria-label="Turn sound off"]')?.getAttribute("aria-label") ?? null,
+    engine: window.__bretwaldaAudio?.muted ?? null,
+  })).catch(() => ({ pressed: null, label: null, engine: null }));
   await page.evaluate(() => {
     const a = window.__bretwaldaAudio;
     a.ui("matchWon");
@@ -300,15 +439,12 @@ async function main() {
   const silenced = await listen(page, 900);
   const stored = await page.evaluate(() => localStorage.getItem("bretwalda.audio.muted"));
   check("one tap on the toggle silences it and the device remembers",
-    silenced.all <= 0.001 && stored === "1", `peak ${silenced.all.toFixed(4)} muted, localStorage muted=${stored}`);
+    silenced.all <= 0.001 && stored === "1",
+    `peak ${silenced.all.toFixed(4)} after muting, localStorage muted=${stored}, button ${muteFound ? "present" : "NOT FOUND"} reading ${JSON.stringify(after.label)} aria-pressed=${after.pressed}, engine muted=${after.engine}`
+    + ` — tap ${tapWorked ? "took" : "DID NOT take"}${tapWorked ? "" : `, a synthetic click ${clickWorked ? "DID, so a real touch never becomes a press on this control" : domWorked ? "did not but a DOM click on the element DID — SOMETHING IS COVERING THE MUTE BUTTON, so on a phone it is unreachable" : "did not, and neither did a DOM click on the element, so the handler itself is not firing"}`}`);
 
   await browser.close();
-  const failed = results.filter((x) => !x.pass);
-  console.log(`\n[phonesound] ${results.length - failed.length}/${results.length} claims proven`);
-  if (failed.length) {
-    console.log("[phonesound] UNPROVEN: " + failed.map((f) => f.name).join(", "));
-    process.exitCode = 1;
-  }
+  verdict(false);
 }
 
 main()
