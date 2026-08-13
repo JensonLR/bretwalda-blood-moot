@@ -11,16 +11,34 @@
 // agree. The server decides where warriors stand and what burns them; the
 // client decides what that looks like. Both are describing one surface, and
 // the only way two programs describe one surface identically is if there is
-// one description. `engine.mjs` used to carry a hand-copy of the renderer's
-// terrain field with a comment asking the next person to re-copy it if the
-// field was ever re-cut — which is a promise nothing can keep across three
-// grounds. It imports this instead.
+// one description. `engine.mjs` carries a hand-copy of the renderer's terrain
+// field with a comment asking the next person to re-copy it if the field is
+// ever re-cut — which is a promise nothing can keep across three grounds. This
+// file is where that copy is meant to come to rest.
 //
 // Nothing here may import three.js, or the server cannot load it. That is the
 // whole constraint, and it is why the noise kit lives at the top of this file
 // rather than in the renderer: a height field is arithmetic, and arithmetic is
 // the part both sides need.
+//
+// A CORRECTION, BECAUSE THIS HEADER USED TO SAY THE SERVER "IMPORTS THIS
+// INSTEAD" AND IT DOES NOT. Measured 13 Aug 2026 by grepping every importer in
+// the repository: `render/world.ts` is the ONLY one. `engine.mjs` still carries
+// its own `clamp01`, `smoothstep`, `hash2`, `noise2`, `fbm`, its own copy of
+// `GATE_ANGLES` and `pathMask`, its own `groundHeight`, its own
+// `ARENA_RADIUS = 18` and its own `FIRE_GEOMETRY_RADIUS = 2.0`. Its comment
+// gives the reason as "that module is the renderer's and pulls three.js in with
+// it" — which was true of `world.ts` and has never been true of this file.
+//
+// So the split described above is REAL on the renderer's side and still
+// ASPIRATIONAL on the server's, and the sentence claiming otherwise was this
+// repository's own recorded fault — a comment asserting a fix that is not
+// present — sitting in the file whose entire job is to end that fault. The
+// numbers agree today; nothing makes them agree tomorrow. Wiring the server to
+// this file is open work and `docs/MAPS.md` carries it.
 // ============================================================
+
+import { rick, raisedStone, passable } from "./solidground.mjs";
 
 // ---------------------------------------------------------------------------
 // Noise. Value noise off an integer lattice, hashed — no tables, no allocation,
@@ -33,6 +51,27 @@
 // ---------------------------------------------------------------------------
 
 export const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+/**
+ * Fixed-seed PRNG (mulberry32). The seed is arbitrary; that it never changes is
+ * the point — a prop laid out from one of these stands in the same place on
+ * every load, so an A/B against `art/shots/baseline` is measuring the change
+ * rather than the scatter.
+ *
+ * It lives here, with the noise kit, because it is arithmetic and BOTH SIDES
+ * NEED IT: the woodpile's billets are jittered by one of these, and since the
+ * sim now has to collide with the pile the sim has to be able to lay out the
+ * same billets. `render/world.ts` imports this one rather than keeping its own.
+ */
+export function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 export function smoothstep(e0, e1, x) {
   const t = clamp01((x - e0) / (e1 - e0));
@@ -433,6 +472,94 @@ function heightAt(x, z) {
   return h;
 }
 
+// ---------------------------------------------------------------------------
+// What stands on the floor, and which half of the owner's line it falls on
+//
+//   > "any 'larger' objects (wood pile, wood fire structure, fence, larger
+//   > rocks or boulders, buildings or structures, castles or formations, that
+//   > are deemed as more of an obstacle decoration rather than a 'decoration
+//   > decoration' (sword in ground, helmet on floor, blood on floor etc.)"
+//
+// The rule this ground is built on, and the one `docs/MAPS.md` asks every
+// future ground to follow:
+//
+//   A SOLID IS PLACED BY THE GROUND. A DECORATION IS SCATTERED BY THE RENDERER.
+//
+// Declaration IS placement. Everything below owns its own position, and
+// `render/world.ts` reads it from here — so there is one woodpile in this
+// repository, not a drawn one and a collided one. Everything the renderer draws
+// out of `scatter()` is decoration by construction: the sim never learns where
+// those went, and the arrows, bones, helms, broken boards and loose rocks are
+// exactly the "sword in ground, helmet on floor" the owner exempted.
+//
+// A prop that wants to become solid has to move its placement up here. That is
+// deliberate friction: it is the difference between a decision and a default.
+// ---------------------------------------------------------------------------
+
+/**
+ * The firewood rick beside the bonfire. The owner's own example — "the wooden
+ * stick pile on current map" — and the reason this whole unit exists.
+ *
+ * Knee-high, and solid anyway: the sim is 2-D, a man cannot step over anything,
+ * and a warrior driven backwards into a stacked rick should be stopped by it
+ * rather than standing in the middle of it. Its two spilled billets are NOT
+ * part of it; see `rick`.
+ */
+export const VILLAGE_WOODPILE = rick({
+  id: "woodpile",
+  x: -5.4, z: -4.1, rot: 0.4,
+  // The rick's own stream, not the arena's — the renderer's every scatter after
+  // this block draws from the shared `rng` in order, so spending twenty-two
+  // extra numbers there would move every arrow, bone and barrel in the moot and
+  // an A/B against a previous capture would be measuring the debris. Handed in
+  // rather than imported: see the header of `solidground.mjs`.
+  seeded, seed: 0x1f0a3c7d,
+  why:"The owner named it: a coursed rick of split billets between driven crib stakes, waist-deep and a metre and a half long. It is the largest built thing standing on the fighting floor and a man walked through it.",
+});
+
+/**
+ * The runestone. Four metres of raised slab at r = 17.7, which is INSIDE the
+ * play radius of 18 by a quarter of a metre — so a man driven to the south edge
+ * of the ring meets it, and until now walked through it.
+ *
+ * It is also the awkward case that shaped `resolveSolids`: its far corner
+ * reaches past the play bound, so the ring and the stone can each push a body
+ * into the other. They are solved together for that reason.
+ */
+export const VILLAGE_RUNESTONE = raisedStone({
+  id: "runestone",
+  x: -3.4, z: -17.4, rot: 0.34,
+  noise: noise2,
+  why:"A raised stone: an irregular slab a metre and a half wide and four high, packed upright at the foot with stones. The owner's 'larger rocks or boulders ... or formations', and the only thing in the moot older than the moot.",
+});
+
+/**
+ * The props that do NOT block, each with the reason, because the owner's
+ * distinction is only worth anything if the answer is written down for both
+ * halves. No geometry here on purpose: a decoration has no collision shape, so
+ * there is nothing on this list that can drift out of step with the render.
+ *
+ * Nothing in the sim reads this. It is documentation with a constructor that
+ * refuses to build an entry without a reason, which is the only kind of
+ * documentation this repository has managed to keep true.
+ */
+export const VILLAGE_PASSABLE = Object.freeze([
+  passable("bonfire",
+    "THE ONE DELIBERATE EXCEPTION, and it is the exception that proves the rule. A wood fire structure is exactly what the owner listed as an obstacle — but this one is the arena's only hazard, and the entire point of it is that men are shoved INTO it. Make it solid and the fire stops killing anybody. Its kerb of hearth stones is passable for the same reason: fenced off, the hazard is decoration."),
+  passable("hearthstones",
+    "Sixteen ankle-high stones ringing the fire at 1.75 m. Solid, they would be a fence around the hazard — see the bonfire."),
+  passable("woodpile-spill",
+    "Two billets rolled off the end of the rick and lying flat in the mud. A log on the ground is a thing you step over, and the owner's line puts it with the sword in the ground."),
+  passable("runestone-packing",
+    "Eleven packing stones round the foot of the raised stone, none more than 0.6 m across and all half-sunk. Kerb, not obstacle."),
+  passable("fallen-shield",
+    "One board shield left leaning inside the ring at (-12.6, 10.4). Gear on the floor: decoration decoration."),
+  passable("battlefield-debris",
+    "Arrows standing in the mud, broken boards, a lost helm, bones. Scattered by the renderer, never placed by the ground, and named by the owner as the case that should NOT block."),
+  passable("beyond-the-floor",
+    "Huts, the hall, the palisade, banner poles, shield racks, spear bundles, barrels and the loose rocks all stand outside the play bound at 18 m, which stops a man 1.6 m short of the palisade. They are unreachable rather than passable, and every one of them would be declared solid on a ground whose floor reached them. A ground that opens its gates has to declare them."),
+]);
+
 export const SAXON_VILLAGE = {
   id: "saxon_village",
   name: "The Saxon Village",
@@ -459,11 +586,17 @@ export const SAXON_VILLAGE = {
     { id: "bonfire", kind: "fire", x: 0, z: 0, radius: 2.0 },
   ],
 
-  // Standing geometry a spawn or a path may not be solved into. Empty here:
-  // the village's only obstruction is the fire, which is already a hazard, and
-  // everything else stands outside the play radius. A ground with broken walls
-  // across its floor fills this in.
-  obstacles: [],
+  // Standing geometry a man cannot walk through — and, therefore, geometry a
+  // spawn or a path may not be solved into either. `resolveSolids` in
+  // `solidground.mjs` is what turns this list into a wall; `VILLAGE_PASSABLE`
+  // above is the other half of the same decision and says what is NOT here.
+  //
+  // Two, and that is not an oversight: the village's floor is nearly bare by
+  // design. `CLEAR_RADIUS` in the renderer keeps everything but the fire out of
+  // the middle 6.2 m, the fire itself must stay walk-into-able or it stops
+  // killing anyone, and everything else in the moot stands outside the play
+  // bound. These two stand on the floor, and both of them were holograms.
+  obstacles: [VILLAGE_WOODPILE, VILLAGE_RUNESTONE],
 
   heightAt,
 
