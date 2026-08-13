@@ -419,6 +419,98 @@ function separation(p, q) {
   return { dist: Math.sqrt(sum), axis: best, axisName: bestAxis, per };
 }
 
+// ------------------------------------------------------------------
+// THE SEED SWEEP — the honest instrument for a stochastic synth.
+//
+// The defect this replaces is the thirteenth "ruler measures the wrong
+// quantity" on this project and it is the purest of them. Every pairwise number
+// below used to be taken from ONE render, under ONE pinned seed, and printed as
+// a property of the engine. The engine draws a fresh `noiseAt` offset on every
+// blow, so that number was a sample of size one from a distribution the file
+// never looked at — and the distribution straddled the bar:
+//
+//     seed        worst blow pair (shield heavy / shove shoulder)
+//     0x12345678  2.86   <- FAILS the 3.0 bar, and takes "no two events are
+//                            one sound" down with it (swing sword / dodge,
+//                            no single axis reaching 1.0)
+//     0x9e3779b9  3.20   <- the one that was committed
+//     0xdeadbeef  3.27
+//     0x0badf00d  3.30
+//
+// Margin over the bar 0.20; spread between draws 0.44. About one realisation in
+// four of the SHIPPED synth failed a claim printed as proven.
+//
+// THE MEASUREMENT, NOT THE BAR. No bar moves here and no seed is hunted for.
+// Every event is rendered under `SEEDS.length` seeds, and a pair's separation is
+// then taken over the FULL CROSS PRODUCT of those draws — event A on draw i
+// against event B on draw j, for every i and j. That is the right sample space
+// because in a real fight the two blows being told apart are two independent
+// draws; only comparing i against i (the diagonal) would sample N of the N*N
+// combinations and would keep a correlation the game does not have.
+//
+// The statistic gated is the WORST case in that sample, at the bars that were
+// already there. A player hears one draw per blow and hundreds of blows per
+// match, so the claim "he can read every blow" is a claim about the worst draw,
+// not the average one. The verdict line carries worst / median / best and the
+// sample size, so a future reader sees the variance instead of one lucky number.
+// ------------------------------------------------------------------
+
+/**
+ * The seeds. FOUR ARE THE ADVERSARY'S OWN, pinned so the refutation above stays
+ * reproducible for ever and cannot be quietly retuned away; the rest are drawn
+ * by splitmix32 from a fixed constant, which is arbitrary in the only sense that
+ * matters — nobody chose them for the answers they give. `SOUND_SEEDS=n` sets
+ * the count for iteration and is printed on the verdict line when it is not the
+ * default, because a sweep of 2 is not a sweep.
+ */
+const SEED_COUNT = Math.max(1, parseInt(process.env.SOUND_SEEDS || "12", 10));
+const SEEDS = (() => {
+  const out = [0x9e3779b9, 0x12345678, 0xdeadbeef, 0x0badf00d];
+  let x = 0x243f6a88;
+  while (out.length < SEED_COUNT) {
+    x = (x + 0x9e3779b9) >>> 0;
+    let z = x;
+    z = Math.imul(z ^ (z >>> 16), 0x21f0aaad) >>> 0;
+    z = Math.imul(z ^ (z >>> 15), 0x735a2d97) >>> 0;
+    z = (z ^ (z >>> 15)) >>> 0;
+    if (z && !out.includes(z)) out.push(z);
+  }
+  return out.slice(0, SEED_COUNT);
+})();
+
+/**
+ * Every draw of A against every draw of B. Returns the worst, median and best
+ * `dist`, and the worst single-axis maximum — which is a SEPARATE order
+ * statistic on purpose: the pair that fails is not always the pair whose
+ * Euclidean distance is smallest, and "seven inaudible differences do not add
+ * up to an audible one" has to hold on the worst draw too.
+ */
+function crossPair(drawsA, drawsB) {
+  const dists = [], axes = [];
+  let worstAt = null;
+  for (const a of drawsA) {
+    for (const b of drawsB) {
+      const s = separation(a, b);
+      dists.push(s.dist);
+      axes.push(s.axis);
+      if (!worstAt || s.dist < worstAt.dist) worstAt = s;
+    }
+  }
+  dists.sort((p, q) => p - q);
+  axes.sort((p, q) => p - q);
+  return {
+    dist: dists[0],                       // the gated statistic: the worst draw
+    median: dists[Math.floor(dists.length / 2)],
+    best: dists[dists.length - 1],
+    axis: axes[0],                        // worst best-axis across the draws
+    axisName: worstAt.axisName,
+    n: dists.length,
+  };
+}
+
+/** The spread of the gated statistic, in the words a verdict line needs. */
+const spreadOf = (r) => `worst ${r.dist.toFixed(2)} / median ${r.median.toFixed(2)} / best ${r.best.toFixed(2)} JND over ${r.n} draws`;
+
 /**
  * Max simultaneously-sounding source nodes, from the start/stop log the page
  * keeps, counted only from `from` seconds onward.
@@ -532,21 +624,34 @@ function serveModule(relPath) {
 // OfflineAudioContext. Returns rendered samples and the voice log to Node,
 // where all the measuring is done.
 // ------------------------------------------------------------------
-const PAGE = () => {
+const PAGE = (seed0) => {
   const w = window;
 
-  // DETERMINISM. `noiseAt` starts every burst at a random offset in the shared
-  // noise bed, deliberately — it is what keeps a synthesised library from
-  // sounding machine-gunned. It also means a different slice of white noise per
-  // run, and for a noise-dominated event that is a different spectrum: the same
+  // DETERMINISM, AND THE TRAP UNDER IT.
+  //
+  // `noiseAt` starts every burst at a random offset in the shared noise bed,
+  // deliberately — it is what keeps a synthesised library from sounding
+  // machine-gunned. It also means a different slice of white noise per run, and
+  // for a noise-dominated event that is a different spectrum: the same
   // unchanged shield block measured 2.93 and 3.05 JND from the same unchanged
-  // shove on two consecutive runs of this file. A gate whose verdict is a dice
-  // roll is not a gate, and this project has already paid for that lesson once
-  // in the UI family, where a single unchanged sound read 856 Hz and then
-  // 1567 Hz. So the page gets a seeded PRNG before any module is imported. The
-  // randomness under test is still exercised — it is simply the same randomness
-  // every time, which is the only kind that can be compared.
-  let seed = 0x9e3779b9;
+  // shove on two consecutive runs of this file. So the page gets a seeded PRNG
+  // before any module is imported, and the randomness under test is still
+  // exercised — it is simply the same randomness every time.
+  //
+  // THAT WAS ONLY HALF THE JOB, AND THE HALF THAT WAS LEFT WAS THE DEFECT.
+  // Pinning ONE seed makes the reading repeatable; it does not make it TRUE.
+  // The shipped game draws a fresh offset on every blow, so what this file
+  // measured was one realisation of a stochastic process, printed as a property
+  // of the system. An adversary re-ran phases 3-5 under other arbitrary seeds
+  // and the worst blow pair read 2.86 / 3.20 / 3.27 / 3.30 JND against a bar of
+  // 3.0: the committed margin (0.20) was SMALLER than the draw-to-draw spread
+  // (0.44), so roughly one realisation in four failed a claim this file printed
+  // as proven. A pinned seed that passes is the bug, and hunting for a luckier
+  // one would have been the same bug with a different number.
+  //
+  // So the seed is now an ARGUMENT and the gates sample the distribution. See
+  // SEEDS and `sweep()`.
+  let seed = (seed0 >>> 0) || 1;
   Math.random = () => {
     seed ^= seed << 13; seed >>>= 0;
     seed ^= seed >> 17;
@@ -809,6 +914,12 @@ window.__bind = async (ctx, mod, presets, tier, doAdopt, speaker) => {
       case "sever": return call("sever", { zone: s.zone || "armR", power: s.power ?? 1, local, ...at });
       case "block": return call("block", { local, raise: !!s.raise, ...at });
       case "dodge": return call("dodge", { local, ...at });
+      // THE WIRE'S OWN DOOR. Not impact() with a material worked out here:
+      // hit() is the method the client calls with the server's payload, and the
+      // whole of phase 6 is the claim that every kind coming through it arrives
+      // somewhere. Anything this harness maps itself is a mapping the game is
+      // not obliged to have. (No backticks: this is inside a template literal.)
+      case "wire": return call("hit", { type: s.type, damage: s.damage ?? 0, hitZone: s.zone ?? null, weapon: s.weapon, riposte: s.riposte === true, shield: !!s.shield, local, ...at });
       case "shove": return call("shove", { local, shield: !!s.shield, ...at });
       case "footfall": return call("footfall", { ground: s.ground ?? 0, weight: 0.7, local, ...at });
       case "ability": return call("ability", { warriorClass: s.cls || "berserker", local, ...at });
@@ -844,9 +955,9 @@ window.__bind = async (ctx, mod, presets, tier, doAdopt, speaker) => {
  * every envelope reading a lie.
  */
 async function auditRender(page, rel, seconds, opts) {
-  const { tier = "high", adopt = true, speaker = null, body } = opts;
+  const { tier = "high", adopt = true, speaker = null, seed = SEEDS[0], body } = opts;
   await page.goto(`${ORIGIN}/`, { waitUntil: "domcontentloaded" });
-  await page.evaluate(PAGE);
+  await page.evaluate(PAGE, seed);
   await page.evaluate(BIND);
   return page.evaluate(async (a) => {
     const mod = await import(a.url);
@@ -937,19 +1048,36 @@ async function audit(page, rel) {
   // The module's own header claims flesh sits lowest, then shield, then mail,
   // then the parry's bright ring on top. That is a falsifiable claim and this
   // is where it gets falsified.
+  //
+  // Swept over the seeds for the same reason phases 3-5 are: a centroid taken
+  // off a noise-dominated event is a reading of one draw. An ORDERING that only
+  // holds on the median draw is not an ordering — the player gets whichever draw
+  // the engine hands him — so the ordering is checked draw by draw, and the
+  // brightness ratio is gated on its worst.
   {
     const cen = {};
     for (const material of ["flesh", "shield", "mail", "parry"]) {
-      const r = await auditRender(page, rel, 2.0, { body: `fire({ k: "impact", material: ${JSON.stringify(material)}, damage: ${material === "parry" ? 0 : 20} });` });
-      cen[material] = centroidHz(r.samples);
+      cen[material] = [];
+      for (const seed of SEEDS) {
+        const r = await auditRender(page, rel, 2.0, { seed, body: `fire({ k: "impact", material: ${JSON.stringify(material)}, damage: ${material === "parry" ? 0 : 20} });` });
+        cen[material].push(centroidHz(r.samples));
+      }
     }
-    note(`centroids — ${Object.entries(cen).map(([k, v]) => `${k} ${v.toFixed(0)} Hz`).join(", ")}`);
-    const ratio = Math.max(cen.shield, cen.flesh) / Math.max(1, Math.min(cen.shield, cen.flesh));
+    note(`centroids over ${SEEDS.length} seeds — ${Object.entries(cen).map(([k, v]) => `${k} ${Math.min(...v).toFixed(0)}-${Math.max(...v).toFixed(0)} Hz`).join(", ")}`);
+    // Every draw of one against every draw of the other, same product space as
+    // `crossPair`: two blows in a fight are two independent draws.
+    let ratio = Infinity;
+    for (const a of cen.shield) for (const b of cen.flesh) ratio = Math.min(ratio, Math.max(a, b) / Math.max(1, Math.min(a, b)));
     check("a shield block and a flesh hit do not land in the same place", ratio >= 1.5,
-      `${ratio.toFixed(2)}x apart (need 1.5x) — a player must tell them apart without looking`);
+      `${ratio.toFixed(2)}x apart on the closest of ${SEEDS.length * SEEDS.length} draw pairs (need 1.5x) — a player must tell them apart without looking`);
+    const ordered = ["flesh", "shield", "mail", "parry"];
+    let breaks = 0;
+    for (let i = 0; i + 1 < ordered.length; i++) {
+      for (const a of cen[ordered[i]]) for (const b of cen[ordered[i + 1]]) if (!(a < b)) breaks++;
+    }
     check("the four materials are ordered flesh < shield < mail < parry, as the module claims",
-      cen.flesh < cen.shield && cen.shield < cen.mail && cen.mail < cen.parry,
-      `${["flesh", "shield", "mail", "parry"].map((k) => `${k} ${cen[k].toFixed(0)}`).join(" < ")}`);
+      breaks === 0,
+      breaks ? `${breaks} draw pair(s) out of order` : `${ordered.map((k) => `${k} ${Math.min(...cen[k]).toFixed(0)}-${Math.max(...cen[k]).toFixed(0)}`).join(" < ")}, on every one of ${SEEDS.length * SEEDS.length} draw pairs per step`);
   }
 
   // ---- 3b. the screen family ----
@@ -1120,28 +1248,62 @@ const BLOWS = ["flesh light", "flesh heavy", "mail light", "mail heavy", "shield
 const READ_BAR = 3.0;
 const REST_BAR = 1.5;
 
+/**
+ * The whole profile, rendered once per seed. Returns `{ name: [samples, ...] }`
+ * — one entry per draw, in SEEDS order — or `null` for an event the module does
+ * not voice at all.
+ *
+ * This is the expensive part of the file and it is where the cost of the fixed
+ * measurement lands: 18 events by `SEEDS.length` renders. It is worth it. The
+ * alternative is the 18 renders it used to cost and a verdict that is a coin
+ * toss, which is worth nothing at all.
+ */
 async function hearing(page, rel, speaker) {
   const out = {};
   for (const [name, spec] of PROFILE) {
-    const r = await auditRender(page, rel, 1.9, { speaker, body: `if (!fire(${JSON.stringify(spec)})) window.__unvoiced = true;` });
-    if (await page.evaluate(() => window.__unvoiced === true)) { out[name] = null; continue; }
-    out[name] = r.samples;
+    const draws = [];
+    for (const seed of SEEDS) {
+      const r = await auditRender(page, rel, 1.9, { speaker, seed, body: `if (!fire(${JSON.stringify(spec)})) window.__unvoiced = true;` });
+      if (await page.evaluate(() => window.__unvoiced === true)) { draws.length = 0; break; }
+      draws.push(r.samples);
+    }
+    out[name] = draws.length ? draws : null;
   }
   return out;
 }
 
-/** Every pair, its distance, and the axis it separates on. Sorted worst first. */
+/** Features for every draw of every event. */
+function featureDraws(raw) {
+  const feat = {};
+  for (const [name, draws] of Object.entries(raw)) if (draws) feat[name] = draws.map(features);
+  return feat;
+}
+
+/**
+ * Every pair, over every draw of each side. Sorted by the gated statistic —
+ * the worst draw — so `rows[0]` is the pair that decides the verdict.
+ */
 function pairs(feat, names) {
   const rows = [];
   for (let i = 0; i < names.length; i++) {
     for (let j = i + 1; j < names.length; j++) {
       if (!feat[names[i]] || !feat[names[j]]) continue;
-      const s = separation(feat[names[i]], feat[names[j]]);
-      rows.push({ a: names[i], b: names[j], ...s });
+      rows.push({ a: names[i], b: names[j], ...crossPair(feat[names[i]], feat[names[j]]) });
     }
   }
   rows.sort((p, q) => p.dist - q.dist);
   return rows;
+}
+
+/** The mean of a feature across its draws — for the table, never for a gate. */
+function meanFeat(draws) {
+  const out = {};
+  for (const k of Object.keys(draws[0])) {
+    let s = 0;
+    for (const d of draws) s += d[k];
+    out[k] = s / draws.length;
+  }
+  return out;
 }
 
 async function distinguishable(page, rel) {
@@ -1149,30 +1311,41 @@ async function distinguishable(page, rel) {
   note(`level is NOT one of the ${AXES.length} axes: the mixer already spends level on distance, so a`);
   note(`sound that is only louder is the same sound closer. "A heavy blow is not a loud light blow."`);
 
+  note(`every event is rendered under ${SEEDS.length} seeds and every pair is taken over all ${SEEDS.length * SEEDS.length}`);
+  note(`combinations of those draws. The gate is the WORST draw, because the player hears one.`);
+
   const raw = await hearing(page, rel, null);
   const missing = Object.entries(raw).filter(([, v]) => v === null).map(([k]) => k);
   check("every event in the profile is voiced by the module at all", missing.length === 0,
     missing.length ? `not voiced: ${missing.join(", ")}` : `${PROFILE.length}/${PROFILE.length} voiced`);
 
-  const feat = {};
-  for (const [name, s] of Object.entries(raw)) if (s) feat[name] = features(s);
+  const feat = featureDraws(raw);
 
+  // The table is the MEAN of each feature across the draws, and the +/- is the
+  // full range. A single column of numbers is what made the old verdict look
+  // solid; the range is the thing a reader has to be able to see.
   console.log("        event            centroid  flat  attack   decay   <400Hz  >3kHz  shimmer   peak");
-  for (const [name, f] of Object.entries(feat)) {
-    note(`${name.padEnd(16)} ${f.centroid.toFixed(0).padStart(7)}  ${f.flatness.toFixed(2)}  ${f.attack.toFixed(1).padStart(5)}ms ${f.decay.toFixed(0).padStart(5)}ms  ${f.low.toFixed(2).padStart(5)}  ${f.high.toFixed(2).padStart(5)}    ${f.beat.toFixed(2)}  ${f.peak.toFixed(3)}`);
+  for (const [name, draws] of Object.entries(feat)) {
+    const f = meanFeat(draws);
+    const rng = (k, d = 0) => {
+      const v = draws.map((x) => x[k]);
+      return `${Math.min(...v).toFixed(d)}-${Math.max(...v).toFixed(d)}`;
+    };
+    note(`${name.padEnd(16)} ${f.centroid.toFixed(0).padStart(7)}  ${f.flatness.toFixed(2)}  ${f.attack.toFixed(1).padStart(5)}ms ${f.decay.toFixed(0).padStart(5)}ms  ${f.low.toFixed(2).padStart(5)}  ${f.high.toFixed(2).padStart(5)}    ${f.beat.toFixed(2)}  ${f.peak.toFixed(3)}   [centroid ${rng("centroid")}, attack ${rng("attack", 1)}]`);
   }
 
   // ---- the blows ----
   const blowRows = pairs(feat, BLOWS.filter((n) => feat[n]));
   const worstBlows = blowRows.filter((r) => r.dist < READ_BAR || r.axis < 1.0);
   for (const r of blowRows.slice(0, 6)) {
-    note(`${r.dist < READ_BAR || r.axis < 1.0 ? "TOO CLOSE" : "ok       "} ${r.a} / ${r.b}: ${r.dist.toFixed(2)} JND apart, best axis ${r.axis.toFixed(2)} (${r.axisName})`);
+    note(`${r.dist < READ_BAR || r.axis < 1.0 ? "TOO CLOSE" : "ok       "} ${r.a} / ${r.b}: ${spreadOf(r)}, worst best-axis ${r.axis.toFixed(2)} (${r.axisName})`);
   }
   check(`a player can read every blow without looking (${READ_BAR} JND apart, ${blowRows.length} pairs)`,
     worstBlows.length === 0,
-    worstBlows.length
-      ? `${worstBlows.length} pair(s) too close — worst: ${blowRows[0].a} / ${blowRows[0].b} at ${blowRows[0].dist.toFixed(2)} JND`
-      : `worst pair ${blowRows[0].a} / ${blowRows[0].b} at ${blowRows[0].dist.toFixed(2)} JND`);
+    (worstBlows.length
+      ? `${worstBlows.length} pair(s) too close — worst: ${blowRows[0].a} / ${blowRows[0].b}, `
+      : `worst pair ${blowRows[0].a} / ${blowRows[0].b}, `)
+      + spreadOf(blowRows[0]) + ` from ${SEEDS.length} seeds`);
 
   // ---- weight, in the owner's own words ----
   //
@@ -1182,21 +1355,24 @@ async function distinguishable(page, rel) {
   {
     const rows = [["flesh light", "flesh heavy"], ["mail light", "mail heavy"], ["shield light", "shield heavy"]]
       .filter(([a, b]) => feat[a] && feat[b])
-      .map(([a, b]) => ({ a, b, ...separation(feat[a], feat[b]), dLevel: dB(feat[b].rms) - dB(feat[a].rms) }));
+      .map(([a, b]) => ({
+        a, b, ...crossPair(feat[a], feat[b]),
+        dLevel: dB(meanFeat(feat[b]).rms) - dB(meanFeat(feat[a]).rms),
+      }));
     for (const r of rows) {
-      note(`${r.dist >= READ_BAR ? "ok  " : "BAD "} ${r.a} -> ${r.b}: ${r.dist.toFixed(2)} JND on timbre and time, and ${r.dLevel >= 0 ? "+" : ""}${r.dLevel.toFixed(1)} dB of level that does not count`);
+      note(`${r.dist >= READ_BAR ? "ok  " : "BAD "} ${r.a} -> ${r.b}: ${spreadOf(r)} on timbre and time, and ${r.dLevel >= 0 ? "+" : ""}${r.dLevel.toFixed(1)} dB of level that does not count`);
     }
     check("a heavy blow is not a loud light blow", rows.length > 0 && rows.every((r) => r.dist >= READ_BAR),
-      rows.length ? rows.map((r) => `${r.a.split(" ")[0]} ${r.dist.toFixed(2)}`).join(", ") + ` JND (need ${READ_BAR})` : "no heavy/light pair was voiced");
+      rows.length ? rows.map((r) => `${r.a.split(" ")[0]} ${r.dist.toFixed(2)}`).join(", ") + ` JND on the worst of ${rows[0].n} draws (need ${READ_BAR})` : "no heavy/light pair was voiced");
   }
 
   // ---- the weapon ----
   {
     const a = feat["axe on mail"], b = feat["seax on mail"];
-    const s = a && b ? separation(a, b) : null;
+    const s = a && b ? crossPair(a, b) : null;
     check("an axe and a seax do not share a spectrum, at the moment of impact",
       s !== null && s.dist >= REST_BAR,
-      s ? `${s.dist.toFixed(2)} JND apart on the same target (need ${REST_BAR}), best axis ${s.axis.toFixed(2)} (${s.axisName})`
+      s ? `${spreadOf(s)} on the same target (need ${REST_BAR}), worst best-axis ${s.axis.toFixed(2)} (${s.axisName})`
         : "one of them was not voiced");
   }
 
@@ -1206,14 +1382,20 @@ async function distinguishable(page, rel) {
   // property nothing else in the game has, or it is just the brightest one — and
   // brightness is a thing the mail already competes for. Beating is that
   // property: two partials a few Hz apart shimmer, and a decay does not.
+  //
+  // Swept like everything else, and at the WORST end of each side: the parry's
+  // quietest shimmer against the loudest shimmer anything else managed on any
+  // draw. A hero sound that is only a hero on a good draw is not one.
   {
     const p = feat.parry;
-    const others = Object.entries(feat).filter(([k]) => k !== "parry").map(([k, f]) => ({ k, beat: f.beat }));
+    const pMin = p ? Math.min(...p.map((f) => f.beat)) : null;
+    const others = Object.entries(feat).filter(([k]) => k !== "parry")
+      .map(([k, draws]) => ({ k, beat: Math.max(...draws.map((f) => f.beat)) }));
     others.sort((x, y) => y.beat - x.beat);
     check("the parry has a signature no other sound in the game has",
-      p != null && p.beat >= 0.35 && p.beat >= others[0].beat * 1.6,
-      p == null ? "parry not voiced"
-        : `parry shimmers ${p.beat.toFixed(2)}, next loudest shimmer is ${others[0].k} at ${others[0].beat.toFixed(2)}`);
+      pMin != null && pMin >= 0.35 && pMin >= others[0].beat * 1.6,
+      pMin == null ? "parry not voiced"
+        : `the parry's WEAKEST shimmer across ${p.length} draws is ${pMin.toFixed(2)}; the strongest shimmer anything else reached on any draw is ${others[0].k} at ${others[0].beat.toFixed(2)}`);
   }
 
   // ---- and everything else ----
@@ -1235,11 +1417,12 @@ async function distinguishable(page, rel) {
     const all = pairs(feat, Object.keys(feat));
     const graded = all.filter((r) => !variant(r));
     const bad = graded.filter((r) => r.dist < REST_BAR || r.axis < 1.0);
-    for (const r of bad.slice(0, 6)) note(`TOO CLOSE ${r.a} / ${r.b}: ${r.dist.toFixed(2)} JND, best axis ${r.axis.toFixed(2)} (${r.axisName})`);
+    for (const r of bad.slice(0, 6)) note(`TOO CLOSE ${r.a} / ${r.b}: ${spreadOf(r)}, worst best-axis ${r.axis.toFixed(2)} (${r.axisName})`);
     check(`no two events in the whole game are one sound (${REST_BAR} JND, ${graded.length} pairs)`,
       bad.length === 0,
-      (bad.length ? `${bad.length} pair(s) — worst: ${graded[0].a} / ${graded[0].b} at ${graded[0].dist.toFixed(2)} JND`
-        : `worst pair ${graded[0].a} / ${graded[0].b} at ${graded[0].dist.toFixed(2)} JND`)
+      (bad.length ? `${bad.length} pair(s) — worst: ${graded[0].a} / ${graded[0].b}, `
+        : `worst pair ${graded[0].a} / ${graded[0].b}, `)
+      + spreadOf(graded[0]) + `, worst best-axis ${graded[0].axis.toFixed(2)}`
       + ` — WITH ${all.length - graded.length} same-event-different-weapon pair(s) excluded, which is a deferral and not a clean sheet`);
   }
 
@@ -1265,19 +1448,26 @@ async function phone(page, rel, desktop) {
   console.log("\n[soundtest] phase 4 — the phone: does the weight survive a speaker with no low end?");
 
   const raw = await hearing(page, rel, "small");
-  const feat = {}, loss = {};
-  for (const [name, s] of Object.entries(raw)) {
-    if (!s) continue;
-    const [a, b] = sounding(s);
-    const body = Array.prototype.slice.call(s, a, b);
-    const thin = phoneSpeaker(body);
-    feat[name] = features(thin);
-    loss[name] = dB(rms(thin)) - dB(rms(body));
+  // Swept like phase 3. `loss` and `level` become the WORST draw of each event,
+  // not one of them: a phone that deletes a flesh hit one time in twelve deletes
+  // it in the fight the player is actually in.
+  const feat = {}, loss = {}, level = {};
+  for (const [name, draws] of Object.entries(raw)) {
+    if (!draws) continue;
+    const per = draws.map((s) => {
+      const [a, b] = sounding(s);
+      const body = Array.prototype.slice.call(s, a, b);
+      const thin = phoneSpeaker(body);
+      return { f: features(thin), loss: dB(rms(thin)) - dB(rms(body)) };
+    });
+    feat[name] = per.map((p) => p.f);
+    loss[name] = Math.min(...per.map((p) => p.loss));       // the most the speaker ever took
+    level[name] = per.map((p) => dB(p.f.rms));
   }
 
   for (const name of BLOWS) {
     if (!feat[name]) continue;
-    note(`${name.padEnd(16)} loses ${loss[name].toFixed(1).padStart(6)} dB through the speaker, leaving ${dB(feat[name].rms).toFixed(1)} dBFS`);
+    note(`${name.padEnd(16)} loses up to ${loss[name].toFixed(1).padStart(6)} dB through the speaker, leaving ${Math.min(...level[name]).toFixed(1)} to ${Math.max(...level[name]).toFixed(1)} dBFS`);
   }
 
   // 1. Nothing may be TAKEN AWAY by the speaker, and this gate had to be
@@ -1299,16 +1489,19 @@ async function phone(page, rel, desktop) {
     const worst = rows[0], best = rows[rows.length - 1];
     check("the speaker takes the same amount off every blow, so it thins the fight instead of editing it",
       rows.length > 0 && worst.v >= -6 && best.v - worst.v <= 6,
-      `worst loss ${worst?.n} ${worst?.v.toFixed(1)} dB, best ${best?.n} ${best?.v.toFixed(1)} dB, spread ${(best?.v - worst?.v).toFixed(1)} dB (need each >= -6 and the spread <= 6)`);
+      `worst loss ${worst?.n} ${worst?.v.toFixed(1)} dB, best ${best?.n} ${best?.v.toFixed(1)} dB, spread ${(best?.v - worst?.v).toFixed(1)} dB over ${SEEDS.length} seeds (need each >= -6 and the spread <= 6)`);
 
     // And the mix balance, stated separately because it is a separate question
     // and it is true on a desk as well. A graze may be quieter than a killing
-    // blow; it may not be inaudible under seven other men.
-    const lv = BLOWS.filter((n) => feat[n]).map((n) => ({ n, v: dB(feat[n].rms) }));
-    lv.sort((a, b) => a.v - b.v);
-    const spread = lv[lv.length - 1].v - lv[0].v;
+    // blow; it may not be inaudible under seven other men. Taken across draws:
+    // the loudest thing anything ever got against the quietest anything ever
+    // got, which is the widest gap a player can actually be handed.
+    const names = BLOWS.filter((n) => feat[n]);
+    const lo = names.map((n) => ({ n, v: Math.min(...level[n]) })).sort((a, b) => a.v - b.v)[0];
+    const hi = names.map((n) => ({ n, v: Math.max(...level[n]) })).sort((a, b) => b.v - a.v)[0];
+    const spread = hi.v - lo.v;
     check("the blows sit inside one dynamic range on a phone", spread <= 20,
-      `${spread.toFixed(1)} dB from ${lv[lv.length - 1].n} down to ${lv[0].n} (need <= 20 dB)`);
+      `${spread.toFixed(1)} dB from ${hi.n} at its loudest draw down to ${lo.n} at its quietest (need <= 20 dB)`);
   }
 
   // 2. And the read has to survive it. A phone is allowed to be a harder listen.
@@ -1316,28 +1509,34 @@ async function phone(page, rel, desktop) {
   {
     const rows = pairs(feat, BLOWS.filter((n) => feat[n]));
     const bad = rows.filter((r) => r.dist < 2.0 || r.axis < 1.0);
-    for (const r of bad.slice(0, 5)) note(`TOO CLOSE on a phone: ${r.a} / ${r.b}: ${r.dist.toFixed(2)} JND, best axis ${r.axis.toFixed(2)} (${r.axisName})`);
+    for (const r of bad.slice(0, 5)) note(`TOO CLOSE on a phone: ${r.a} / ${r.b}: ${spreadOf(r)}, worst best-axis ${r.axis.toFixed(2)} (${r.axisName})`);
     check("a player can still read every blow through a phone speaker (2.0 JND)",
       bad.length === 0,
-      bad.length ? `${bad.length} pair(s) collapse — worst: ${rows[0].a} / ${rows[0].b} at ${rows[0].dist.toFixed(2)} JND`
-        : `worst pair ${rows[0].a} / ${rows[0].b} at ${rows[0].dist.toFixed(2)} JND`);
+      (bad.length ? `${bad.length} pair(s) collapse — worst: ${rows[0].a} / ${rows[0].b}, ` : `worst pair ${rows[0].a} / ${rows[0].b}, `)
+        + spreadOf(rows[0]));
   }
 
   // 3. The engine has to KNOW it is on a phone and do something about it. If the
   //    small-speaker render is byte-identical to the desktop one, the phone is
   //    getting the desktop mix with its bottom octave cut off and nothing put in
   //    its place, which is the state this phase was written to end.
+  //
+  //    Swept at the OTHER end from every other gate here: a blow counts as
+  //    re-voiced only if its NEAREST desk-versus-phone draw still moved, so a
+  //    difference that is really just two noise draws cannot be mistaken for the
+  //    engine having done something. This is the one gate where the worst case
+  //    is the largest number, and it is the same principle either way — take the
+  //    draw that most nearly falsifies the claim.
   {
     const changed = [];
     for (const name of BLOWS) {
       if (!raw[name] || !desktop[name]) continue;
-      const a = features(desktop[name]), b = features(raw[name]);
-      const s = separation(a, b);
-      if (s.dist > 0.25) changed.push(name);
+      const d = crossPair(desktop[name].map(features), raw[name].map(features));
+      if (d.dist > 0.25) changed.push(name);
     }
     check("the engine renders a different mix for a small speaker than for a desk",
       changed.length >= 4,
-      changed.length ? `${changed.length}/${BLOWS.length} blows re-voiced for the phone: ${changed.join(", ")}`
+      changed.length ? `${changed.length}/${BLOWS.length} blows re-voiced for the phone on every draw: ${changed.join(", ")}`
         : "identical render — the phone is getting the desktop mix with its bottom octave missing");
   }
 }
@@ -1377,20 +1576,27 @@ async function brawl(page, rel) {
       const p = { x: Math.cos(i * 0.9) * 9, y: 1.4, z: 7 + Math.sin(i * 0.9) * 9 };
       fire({ k: "impact", material: i % 2 ? "shield" : "flesh", damage: 16, position: p, local: false });
     }`;
-  const alone = await auditRender(page, rel, 1.6, { body: bed });
-  const withParry = await auditRender(page, rel, 1.6, { body: `${bed}\n fire({ k: "impact", material: "parry", damage: 0 });` });
+  // Both renders of a comparison share a seed — the question is what ADDING the
+  // parry did, so the bed under it has to be the same bed. The seed then sweeps,
+  // and the gated number is the worst of the sweep.
   const LO = [120, 700];
-  const eAlone = bandEnergy(alone.samples, LO[0], LO[1]);
-  const eWith = bandEnergy(withParry.samples, LO[0], LO[1]);
-  const drop = dB(Math.sqrt(eWith)) - dB(Math.sqrt(eAlone));
   const LIMIT = Math.pow(10, -7 / 20); // the limiter's threshold, from audio.ts
-  note(`bed alone peaks ${peak(alone.samples).toFixed(3)}, bed + local parry ${peak(withParry.samples).toFixed(3)}, limiter threshold ${LIMIT.toFixed(3)}`);
+  const drops = [], peaks = [];
+  for (const seed of SEEDS) {
+    const alone = await auditRender(page, rel, 1.6, { seed, body: bed });
+    const withParry = await auditRender(page, rel, 1.6, { seed, body: `${bed}\n fire({ k: "impact", material: "parry", damage: 0 });` });
+    drops.push(dB(Math.sqrt(bandEnergy(withParry.samples, LO[0], LO[1]))) - dB(Math.sqrt(bandEnergy(alone.samples, LO[0], LO[1]))));
+    peaks.push(peak(alone.samples), peak(withParry.samples));
+  }
+  drops.sort((a, b) => b - a);   // worst = the least ducking
+  const drop = drops[0];
+  note(`bed peaks ${Math.min(...peaks).toFixed(3)}-${Math.max(...peaks).toFixed(3)} across ${SEEDS.length} seeds, limiter threshold ${LIMIT.toFixed(3)}`);
   check("the limiter is not engaged, so anything measured below is the mix and not gain reduction",
-    peak(alone.samples) < LIMIT && peak(withParry.samples) < LIMIT,
-    `${peak(alone.samples).toFixed(3)} and ${peak(withParry.samples).toFixed(3)} against ${LIMIT.toFixed(3)}`);
+    Math.max(...peaks) < LIMIT,
+    `loudest of ${peaks.length} renders ${Math.max(...peaks).toFixed(3)} against ${LIMIT.toFixed(3)}`);
   check("my own parry ducks the eight men behind it",
     drop <= -1.5,
-    `adding one local parry moved the 120-700 Hz bed by ${drop >= 0 ? "+" : ""}${drop.toFixed(2)} dB (need <= -1.5 dB; adding a sound can only RAISE this without a duck)`);
+    `adding one local parry moved the 120-700 Hz bed by ${drop >= 0 ? "+" : ""}${drop.toFixed(2)} dB on its WEAKEST draw (best ${drops[drops.length - 1].toFixed(2)} dB, ${SEEDS.length} seeds; need <= -1.5 dB, and adding a sound can only RAISE this without a duck)`);
 
   // ---- the newest blow ----
   //
@@ -1400,14 +1606,141 @@ async function brawl(page, rel) {
   // blow is a cap that turns the fight into whatever was already ringing.
   const flood = `
     for (let i = 0; i < 30; i++) fire({ k: "impact", material: "flesh", damage: 20 });`;
-  const noParry = await auditRender(page, rel, 1.6, { body: flood });
-  const lastParry = await auditRender(page, rel, 1.6, { body: `${flood}\n fire({ k: "impact", material: "parry", damage: 0 });` });
   const HI = [2000, 11000];
-  const ring = Math.sqrt(bandEnergy(lastParry.samples, HI[0], HI[1]));
-  const none = Math.sqrt(bandEnergy(noParry.samples, HI[0], HI[1]));
+  const ratios = [];
+  for (const seed of SEEDS) {
+    const noParry = await auditRender(page, rel, 1.6, { seed, body: flood });
+    const lastParry = await auditRender(page, rel, 1.6, { seed, body: `${flood}\n fire({ k: "impact", material: "parry", damage: 0 });` });
+    const ring = Math.sqrt(bandEnergy(lastParry.samples, HI[0], HI[1]));
+    const none = Math.sqrt(bandEnergy(noParry.samples, HI[0], HI[1]));
+    ratios.push(ring / Math.max(none, 1e-9));
+  }
+  ratios.sort((a, b) => a - b);
   check("a parry arriving into a full voice pool is still heard",
-    ring > none * 1.5,
-    `2-11 kHz ring is ${(ring / Math.max(none, 1e-9)).toFixed(2)}x the same flood without it (need 1.5x) — a pool that will not steal from an equal priority drops the newest blow, which is mine`);
+    ratios[0] > 1.5,
+    `2-11 kHz ring is ${ratios[0].toFixed(2)}x the same flood without it on its worst draw (best ${ratios[ratios.length - 1].toFixed(2)}x, ${SEEDS.length} seeds; need 1.5x) — a pool that will not steal from an equal priority drops the newest blow, which is mine`);
+}
+
+// ------------------------------------------------------------------
+// PHASE 6 — THE WIRE'S VOCABULARY.
+//
+// Every phase above this one grades SYNTHESIS: fire an event at the engine and
+// measure what comes out. Not one of them can say whether the event is one the
+// game is able to ask for, and that blind spot is precisely what shipped a game
+// whose hero sound had never played. The parry was graded on five claims here —
+// its envelope window, its place in the material ordering, its shimmer, its duck
+// of the whole mix, its survival of a full voice pool — every one of them green,
+// and no player had ever heard it, because `GameCanvas` derived blows from a
+// health delta and a parry takes nothing off.
+//
+// This phase closes the half of that hole which lives in the audio module. It
+// drives `hit()` — the method the client calls with the server's payload,
+// verbatim — with every kind the module DECLARES in `WIRE_HIT_TYPES`, and it
+// takes that list off the module rather than keeping its own copy, so a kind the
+// module adds and never routes cannot be the one kind nobody graded.
+//
+// The other half — that the module's list matches the kinds `engine.mjs`
+// actually broadcasts, and that `GameCanvas` and `page.tsx` carry the message
+// from the socket to this door — is `tools/soundwire.mjs` phase 0, which reads
+// all three files off disk. Neither file can prove the claim alone.
+// ------------------------------------------------------------------
+
+/**
+ * What a kind needs alongside its name for the call to be the call the game
+ * makes. Damage and a zone ride the four wounding kinds and nothing else — see
+ * docs/WIRE-PROTOCOL.md — so sending them on a parry would be testing a message
+ * the server never sends.
+ */
+const WIRE_EXTRA = {
+  light: { damage: 13, zone: "torso" },
+  heavy: { damage: 34, zone: "torso" },
+  blocked: { damage: 6, zone: "torso" },
+  blocked_heavy: { damage: 19, zone: "torso" },
+  parry: {},
+  shove: {},
+  knockdown: {},
+};
+
+async function vocabulary(page, rel) {
+  console.log("\n[soundtest] phase 6 — the wire's vocabulary: can the game ASK for each of these?");
+
+  const declared = await page.evaluate(async (u) => {
+    const m = await import(u);
+    return m.WIRE_HIT_TYPES ? [...m.WIRE_HIT_TYPES] : null;
+  }, `${ORIGIN}/mod/${rel}`).catch(() => null);
+
+  check("the module declares the wire's hit kinds as a list a harness can read",
+    Array.isArray(declared) && declared.length > 0,
+    declared ? `WIRE_HIT_TYPES = ${declared.join(", ")}` : "no WIRE_HIT_TYPES export — this phase cannot grade what it cannot enumerate, and a list kept in this file instead would be a list of the kinds I remembered");
+  if (!declared) return;
+
+  const unknown = declared.filter((k) => !WIRE_EXTRA[k]);
+  check("every kind the module declares has a payload this file drives it with",
+    unknown.length === 0,
+    unknown.length ? `no payload for: ${unknown.join(", ")}` : `${declared.length} kinds, ${declared.length} driven`);
+
+  // Each kind, swept, through `hit()` and nothing else.
+  const raw = {};
+  for (const kind of declared) {
+    const spec = { k: "wire", type: kind, weapon: "huscarl", ...(WIRE_EXTRA[kind] ?? {}) };
+    const draws = [];
+    for (const seed of SEEDS) {
+      const r = await auditRender(page, rel, 2.2, { seed, body: `if (!fire(${JSON.stringify(spec)})) window.__unvoiced = true;` });
+      if (await page.evaluate(() => window.__unvoiced === true)) { draws.length = 0; break; }
+      draws.push({ samples: r.samples, voices: r.voices.length });
+    }
+    raw[kind] = draws.length ? draws : null;
+  }
+
+  // 1. Every kind must make a SOUND. Silence and "the module has no such
+  //    method" are the same thing to a player, so both fail here.
+  {
+    const dead = declared.filter((k) => !raw[k] || raw[k].some((d) => peak(d.samples) <= 0 || d.voices === 0));
+    for (const k of declared) {
+      if (!raw[k]) { note(`DEAD ${k}: hit() does not voice it at all`); continue; }
+      const pk = raw[k].map((d) => peak(d.samples));
+      note(`${pk.every((v) => v > 0) ? "ok  " : "DEAD"} ${k.padEnd(14)} peak ${Math.min(...pk).toFixed(3)}-${Math.max(...pk).toFixed(3)}, ${raw[k][0].voices} sources`);
+    }
+    check("every hit kind the wire can carry reaches the mixer as a sound",
+      dead.length === 0,
+      dead.length ? `SILENT: ${dead.join(", ")} — the game can send these and nobody hears them`
+        : `${declared.length}/${declared.length} voiced through hit(), over ${SEEDS.length} seeds each`);
+  }
+
+  // 2. And each must reach a DIFFERENT sound. A router that quietly collapses
+  //    three kinds onto one voice passes check 1 and tells the player nothing —
+  //    which is what `materialFor` did before this round, mapping a shove and a
+  //    knockdown onto whatever `damage: 0` happened to select.
+  {
+    const feat = {};
+    for (const [k, draws] of Object.entries(raw)) if (draws) feat[k] = draws.map((d) => features(d.samples));
+    const rows = pairs(feat, Object.keys(feat));
+    const bad = rows.filter((r) => r.dist < REST_BAR || r.axis < 1.0);
+    for (const r of bad.slice(0, 6)) note(`TOO CLOSE ${r.a} / ${r.b}: ${spreadOf(r)}, worst best-axis ${r.axis.toFixed(2)} (${r.axisName})`);
+    check(`no two hit kinds arrive as the same sound (${REST_BAR} JND, ${rows.length} pairs)`,
+      bad.length === 0 && rows.length > 0,
+      rows.length ? (bad.length ? `${bad.length} pair(s) collapse — worst: ${rows[0].a} / ${rows[0].b}, ` : `worst pair ${rows[0].a} / ${rows[0].b}, `) + spreadOf(rows[0])
+        : "nothing to compare");
+  }
+
+  // 3. THE RIPOSTE. It is not a kind of its own — it is a flag the wire sets on
+  //    any of the four wounds, and the engine pays it in damage, knockback and
+  //    poise. If the ear is paid nothing, the biggest single blow in the game
+  //    arrives sounding like any other and the hardest input in the game has no
+  //    reward. Same blow, same seed, flag on and off: it has to move.
+  {
+    const on = [], off = [];
+    for (const seed of SEEDS) {
+      const spec = (rip) => ({ k: "wire", type: "heavy", damage: 34, zone: "torso", weapon: "huscarl", riposte: rip });
+      const a = await auditRender(page, rel, 2.2, { seed, body: `fire(${JSON.stringify(spec(false))});` });
+      const b = await auditRender(page, rel, 2.2, { seed, body: `fire(${JSON.stringify(spec(true))});` });
+      off.push(features(a.samples)); on.push(features(b.samples));
+    }
+    const s = crossPair(off, on);
+    check("a riposte does not sound like the same blow thrown for free",
+      s.dist >= REST_BAR,
+      `${spreadOf(s)} between a heavy wound with the wire's riposte flag and one without (need ${REST_BAR}), worst best-axis ${s.axis.toFixed(2)} (${s.axisName})`);
+  }
 }
 
 // ------------------------------------------------------------------
@@ -1437,7 +1770,7 @@ async function main() {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[page-error] ${e}`));
   await page.goto(`${ORIGIN}/`, { waitUntil: "domcontentloaded" });
-  await page.evaluate(PAGE);
+  await page.evaluate(PAGE, SEEDS[0]);
 
   // SOUND_PHASE=3,4 runs a subset. Iteration cost is the reason: the whole file
   // is ~70 page reloads, and E3 says go DOWN the instrument table to iterate and
@@ -1461,6 +1794,7 @@ async function main() {
         await phone(page, rel, base.raw);
       }
       if (wants(5)) await brawl(page, rel);
+      if (wants(6)) await vocabulary(page, rel);
     } else {
       console.log("\n[soundtest] phase 2 — audit: SKIPPED, there is no audio module yet.");
       console.log("[soundtest] looked for: " + MODULE_CANDIDATES.join(", "));
@@ -1473,7 +1807,14 @@ async function main() {
 
   const failed = results.filter((x) => !x.pass);
   // R4: the deferral rides the verdict line, in the words a person will read.
-  const partial = only.length ? ` — PARTIAL RUN, only phase(s) ${only.join(",")}, which is not a clean sheet` : "";
+  const partial = (only.length ? ` — PARTIAL RUN, only phase(s) ${only.join(",")}, which is not a clean sheet` : "")
+    // R4 again, and it is the deferral this round exists to end. The pairwise
+    // claims are gated on the worst of a SAMPLE of the engine's own randomness,
+    // so the sample size is part of the verdict: a sweep of 2 proves close to
+    // nothing and must not be readable as a sweep of 12.
+    + (SEEDS.length < 12
+      ? ` — SWEPT OVER ONLY ${SEEDS.length} SEED(S), which is an iteration run and not a verdict`
+      : ` (pairwise claims swept over ${SEEDS.length} seeds, gated on the worst draw)`);
   console.log(`\n[soundtest] ${results.length - failed.length}/${results.length} claims proven${partial}`);
   if (failed.length) {
     console.log("[soundtest] UNPROVEN: " + failed.map((f) => f.name).join(", "));

@@ -151,21 +151,76 @@ const RECORD = () => {
 // moment the wiring is fixed.
 // ------------------------------------------------------------------
 
-/** The braces-balanced argument object of the first `audio.hit(` call. */
+/**
+ * The braces-balanced argument object of the `audio.hit(` CALL.
+ *
+ * It takes the first occurrence whose arguments open with `({`, not simply the
+ * first occurrence — because this file's own fix introduced a comment reading
+ * "this block used to call `audio.hit()`", and the old version happily returned
+ * those two characters and then graded THEM. Every check below went red against
+ * a file that had been fixed, for the sole reason that somebody wrote the
+ * method's name in prose. A reader that cannot tell a call from a mention is a
+ * reader of comments, which is the wrong quantity.
+ */
 function hitCallSite(src) {
-  const at = src.indexOf("audio.hit(");
-  if (at < 0) return null;
-  let depth = 0, i = src.indexOf("(", at);
-  const start = i;
-  for (; i < src.length; i++) {
-    if (src[i] === "(") depth++;
-    else if (src[i] === ")") { depth--; if (depth === 0) return src.slice(start, i + 1); }
+  let from = 0;
+  for (;;) {
+    const at = src.indexOf("audio.hit(", from);
+    if (at < 0) return null;
+    let depth = 0, i = src.indexOf("(", at);
+    const start = i;
+    let text = null;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") { depth--; if (depth === 0) { text = src.slice(start, i + 1); break; } }
+    }
+    if (text && /^\(\s*\{/.test(text)) return text;
+    from = at + 10;
   }
-  return null;
+}
+
+/**
+ * THE KINDS THE ENGINE ACTUALLY BROADCASTS, read off `engine.mjs`.
+ *
+ * Two shapes, and both have to be found or the answer is a guess. Three of the
+ * four `broadcast(... {type:"hit", data:{type: X` sites name X as a literal
+ * ("shove", "parry", "knockdown"); the fourth passes the variable `hitType`,
+ * whose values are the literals handed to `applyDamage` at the same position —
+ * "light", "heavy", "blocked", "blocked_heavy".
+ *
+ * This is deliberately read from the ENGINE and not from the docs and not from
+ * a list in this file. docs/PROCESS.md failure mode 3 is the mirrored
+ * definition, and a hand-kept copy of the wire's vocabulary here would be the
+ * fifth instance of it: it would agree with the engine until the day somebody
+ * added a kind, which is the exact day this check would need to fail.
+ */
+function engineHitKinds(src) {
+  const kinds = new Set();
+  const vars = new Set();
+  for (const m of src.matchAll(/type:\s*"hit"\s*,\s*data:\s*\{\s*type:\s*(?:"([^"]+)"|([A-Za-z_$][\w$]*))/g)) {
+    if (m[1]) kinds.add(m[1]);
+    else if (m[2]) vars.add(m[2]);
+  }
+  // Resolve the variable case: every string literal passed to `applyDamage`.
+  // Its signature puts the hit type there and nothing else in the call is a
+  // string, so this reads the four wounding kinds without knowing their names.
+  if (vars.size) {
+    for (const m of src.matchAll(/\bapplyDamage\s*\(([^;]*?)\)\s*;/g)) {
+      for (const q of m[1].matchAll(/"([a-z_]+)"/g)) kinds.add(q[1]);
+    }
+  }
+  return { kinds: [...kinds].sort(), vars: [...vars] };
+}
+
+/** The `X` of every `export const WIRE_HIT_TYPES = [...]` entry in audio.ts. */
+function moduleHitKinds(src) {
+  const m = src.match(/WIRE_HIT_TYPES\s*=\s*\[([\s\S]*?)\]/);
+  if (!m) return null;
+  return [...m[1].matchAll(/"([a-z_]+)"/g)].map((q) => q[1]).sort();
 }
 
 function callSiteChecks() {
-  console.log("\n[soundwire] phase 0 — the call site in GameCanvas.tsx");
+  console.log("\n[soundwire] phase 0 — engine to client to synth, all three read off disk");
   const rel = "src/game/client/GameCanvas.tsx";
   const path = resolve(ROOT, rel);
   if (!existsSync(path)) {
@@ -177,45 +232,106 @@ function callSiteChecks() {
   check("the client calls audio.hit at all", call !== null, call ? `${call.length} chars of arguments` : "no audio.hit( in the file");
   if (!call) return;
 
-  // 1. THE PARRY. The wire says `type: "parry"`; the client must be able to say
-  //    it too. Today the type is computed from a health delta and a blocking
-  //    flag, and the whole call is inside `if (p.health < prevHp - 0.5)`, so a
-  //    zero-damage blow voices nothing whatever the player does.
+  // ---- 0. THE VOCABULARY, END TO END ----
+  //
+  // This is the check that would have caught the whole defect, and it is the one
+  // that did not exist. `soundtest` proves each kind SOUNDS like something;
+  // this proves the set of kinds the server can send is the set the client can
+  // route and the set the synth declares. A kind that falls out of any one of
+  // the three is a sound the game cannot make, and every gate over it is green
+  // because the case is absent.
   {
-    const saysParry = /["']parry["']/.test(call);
-    const guarded = /health\s*<\s*\w+\.prevHp/.test(src);
-    check("a parry can reach the audio engine from the client",
-      saysParry,
-      saysParry
-        ? "the call site can produce type:'parry'"
-        : `the word "parry" appears nowhere in the audio.hit arguments${guarded ? ", and the call is inside an `if (p.health < slot.prevHp - 0.5)` branch that a zero-damage blow never enters" : ""} — soundtest grades the parry on five claims and the game cannot make one`);
+    const enginePath = resolve(ROOT, "src/game/engine.mjs");
+    const audioPath = resolve(ROOT, "src/game/client/render/audio.ts");
+    const eng = existsSync(enginePath) ? engineHitKinds(readFileSync(enginePath, "utf8")) : null;
+    const mod = existsSync(audioPath) ? moduleHitKinds(readFileSync(audioPath, "utf8")) : null;
+    if (eng) note(`engine.mjs broadcasts hit kinds: ${eng.kinds.join(", ")}${eng.vars.length ? ` (via literals and ${eng.vars.join("/")})` : ""}`);
+    check("the audio module declares the wire's hit kinds as a list, instead of a harness keeping one",
+      Array.isArray(mod) && mod.length > 0,
+      mod ? `WIRE_HIT_TYPES = ${mod.join(", ")}` : "no WIRE_HIT_TYPES in audio.ts");
+    if (eng && mod) {
+      const unrouted = eng.kinds.filter((k) => !mod.includes(k));
+      const phantom = mod.filter((k) => !eng.kinds.includes(k));
+      check("every hit kind the server can send is one the audio module knows about",
+        unrouted.length === 0,
+        unrouted.length ? `THE ENGINE SENDS AND THE SYNTH HAS NEVER HEARD OF: ${unrouted.join(", ")}`
+          : `all ${eng.kinds.length} accounted for`);
+      // R3 in the other direction, and it is the rule this whole round is about:
+      // a kind graded by soundtest that the engine cannot send is five green
+      // claims about a sound nobody will ever hear.
+      check("the audio module declares no hit kind the server cannot send",
+        phantom.length === 0,
+        phantom.length ? `GRADED BUT UNREACHABLE: ${phantom.join(", ")} — soundtest grades these and no fight can produce one`
+          : `no phantom kinds`);
+    }
   }
 
-  // 2. THE WEAPON. `impact()` reads it and moves the contact colour, the ring
-  //    frequencies and the contact time by it. Without it every blow in the
+  // ---- 1. THE MESSAGE ITSELF ----
+  //
+  // The client used to derive every blow from a snapshot delta and never read
+  // the `hit` message at all. That single fact is why the parry had never
+  // played: the derivation lives inside `if (p.health < slot.prevHp - 0.5)`, and
+  // three of the seven kinds carry damage 0.
+  {
+    const routed = /case\s+["']hit["']/.test(readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8"));
+    const drained = /hitFeed/.test(src);
+    check("the server's hit message reaches the canvas at all",
+      routed && drained,
+      routed && drained
+        ? "page.tsx routes case \"hit\" into a feed and GameCanvas drains it"
+        : `page.tsx ${routed ? "routes" : "DROPS"} the hit message; GameCanvas ${drained ? "has" : "has NO"} drain for it — every blow is derived from a health delta, which a parry, a shove and a knockdown never produce`);
+  }
+
+  // ---- 2. THE TYPE IS READ, NOT GUESSED ----
+  //
+  // The old call site computed `dmg >= 22 ? "heavy" : "light"` from the delta
+  // while the server had already said which of seven kinds it was. A derived
+  // type can never be "parry", and it is wrong about the other six whenever the
+  // damage numbers move.
+  {
+    const guesses = /type:\s*\w+\s*\?\s*\(?\s*\w+\s*>=?\s*\d+\s*\?/.test(call)
+      || /type:\s*\w+\s*>=?\s*\d+\s*\?/.test(call);
+    const readsWire = /\btype:\s*m\.type\b/.test(call) || /\btype:\s*\w+\.type\b/.test(call);
+    check("the client passes the server's own hit type through instead of deriving one",
+      readsWire && !guesses,
+      readsWire && !guesses ? "the wire's `type` is handed to audio.hit() unchanged"
+        : guesses ? "the type is computed from the damage number — that expression can never produce 'parry', 'shove' or 'knockdown'"
+          : "no `type: <message>.type` in the audio.hit arguments");
+  }
+
+  // ---- 3. THE WEAPON. `impact()` reads it and moves the contact colour, the
+  //    ring frequencies and the contact time by it. Without it every blow in the
   //    game is a sword and the axe-versus-seax work is dead code.
   {
     const passesWeapon = /\bweapon\s*:/.test(call);
-    const hasAttacker = /\battacker\b/.test(src);
+    const fromAttacker = /attackerId/.test(call);
     check("blows tell the audio engine what threw them",
-      passesWeapon,
-      passesWeapon ? "the call site passes a weapon"
-        : `no \`weapon:\` in the audio.hit arguments${hasAttacker ? " — and `attacker` is already resolved in that same block, for the blood direction" : ""}`);
+      passesWeapon && fromAttacker,
+      passesWeapon
+        ? (fromAttacker ? "the weapon is looked up from the message's attackerId" : "a weapon is passed but not from the wire's attackerId, so it is a guess about who swung")
+        : "no `weapon:` in the audio.hit arguments — every blow in the game is synthesised as a sword");
   }
 
-  // 3. And the freeze already comes off the wire rather than being guessed. If
-  //    the client ever starts consuming the `hit` message directly, 1 and 2 stop
-  //    being derivations and become reads, which is the better fix.
+  // ---- 4. AND THE RIPOSTE, which is a flag and not a kind, so the vocabulary
+  //    check above cannot see it. The engine sets it on every wound and pays it
+  //    in damage, knockback and poise; the ear has to be paid too.
   {
-    const consumes = /type\s*===\s*["']hit["']/.test(src) || /case\s+["']hit["']/.test(src);
-    note(consumes
-      ? "the client consumes the server's `hit` message directly"
-      : "the client derives every blow from snapshot deltas and never reads the `hit` message; the parry, the attacker and the true hit type are all on that message already");
+    const passes = /\briposte\s*:/.test(call);
+    check("a riposte arrives at the mixer marked as one",
+      passes,
+      passes ? "the wire's riposte flag is handed to audio.hit()"
+        : "no `riposte:` in the audio.hit arguments — the biggest single blow any class can throw sounds like an ordinary one");
   }
 }
 
 async function main() {
   callSiteChecks();
+
+  // SOUNDWIRE_PHASE=0 stops here. Phase 0 needs no browser, no server and no
+  // canvas and answers in milliseconds; the live leg needs all three and often
+  // cannot run in a container at all. E3 — go DOWN the instrument table to
+  // iterate — and the deferral rides the verdict line either way.
+  if (process.env.SOUNDWIRE_PHASE === "0") { verdict(true); return; }
 
   const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
   console.log(`[soundwire] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);

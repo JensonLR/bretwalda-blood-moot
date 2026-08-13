@@ -64,8 +64,48 @@ export type UiSound =
   | "countdown" | "roundWon" | "roundLost" | "levelUp"
   | "matchWon" | "matchLost";
 
-/** The server's `hit` message `type` field, verbatim. */
-export type WireHitType = "light" | "heavy" | "blocked" | "blocked_heavy" | "parry";
+/**
+ * The server's `hit` message `type` field, VERBATIM AND COMPLETE — all seven
+ * kinds `engine.mjs` broadcasts under `{type:"hit"}`, not the five this module
+ * used to know about. See docs/WIRE-PROTOCOL.md, "`hit` — seven kinds under one
+ * type", and `tools/soundwire.mjs`, which reads the engine's own broadcasts off
+ * disk and fails if this list and that list ever stop matching.
+ *
+ * The four WOUNDING kinds carry `health`/`direction`/`hitZone`; `parry`, `shove`
+ * and `knockdown` carry `damage: 0` and no zone, which is exactly why they were
+ * inaudible: the client derived the blow from a health delta, and a blow that
+ * takes nothing off produces no delta to derive from.
+ *
+ * It is a RUNTIME array and the type is derived from it, not the other way
+ * round, so a harness can iterate the list the module actually believes in
+ * rather than keeping its own copy — the `UI_SOUNDS` pattern, and for the same
+ * reason: a kind with no copy in the harness is the one kind nobody graded.
+ */
+export const WIRE_HIT_TYPES = [
+  "light", "heavy", "blocked", "blocked_heavy",
+  "parry", "shove", "knockdown",
+] as const;
+
+export type WireHitType = (typeof WIRE_HIT_TYPES)[number];
+
+/** The four that take health off. The other three are position and posture. */
+export const WOUNDING: readonly WireHitType[] = ["light", "heavy", "blocked", "blocked_heavy"];
+
+/**
+ * Everything `hit()` reads off the wire's `hit` payload, plus the two things
+ * only the client can know: WHERE the struck man is standing and WHOSE ears
+ * this is. `weapon` is the ATTACKER's class, looked up from `attackerId`.
+ */
+export type WireHit = AudioEvent & {
+  type: WireHitType;
+  damage?: number;
+  hitZone?: HitZone | null;
+  weapon?: WarriorClass;
+  /** The attacker had earned this blow with a parry. On wounds only. */
+  riposte?: boolean;
+  /** The shover was carrying a shield, so it is a boss and not a shoulder. */
+  shield?: boolean;
+};
 
 /**
  * The output this mix is being built for.
@@ -109,6 +149,13 @@ export interface ImpactEvent extends AudioEvent {
    * which weapon it was and the blow did not.
    */
   weapon?: WarriorClass;
+  /**
+   * This blow was thrown inside a window its attacker EARNED by parrying, and
+   * the wire says so on every wound (`riposte`, always present). The engine
+   * already pays it in damage and knockback; the ear has to be paid too, or the
+   * biggest single blow in the game arrives sounding like any other.
+   */
+  riposte?: boolean;
 }
 
 export interface DeathEvent extends AudioEvent {
@@ -177,7 +224,14 @@ export interface AudioHandle {
    * inside the synth, so it lands with the server's contact. `shield` adds the
    * boss knock a huscarl's disc makes doing the same job.
    */
-  shove(e: AudioEvent & { shield?: boolean }): void;
+  /**
+   * `phase` follows the engine's two moments. `"windup"` is the grunt, on the
+   * SHOVER, at his state edge — it fires on a whiff too, because the tell is the
+   * point of it. `"contact"` is the drive, on the man who took it, only when the
+   * wire says one landed. Omitted means both, 0.30 s apart, which is what a
+   * whole shove sounds like and what `soundtest` grades.
+   */
+  shove(e: AudioEvent & { shield?: boolean; phase?: "windup" | "contact" }): void;
   /**
    * A victory emote, fired on the server's relay so every phone in the room
    * hears the same flourish it sees. Three voices from the palette the module
@@ -200,11 +254,18 @@ export interface AudioHandle {
   ui(kind: UiSound): void;
 
   /**
-   * Straight off the server's `hit` payload, so a caller that has the real
-   * message never has to guess the material. Equivalent to `impact()` with
-   * `materialFor()` applied.
+   * THE ONE DOOR FROM THE WIRE. Hand it the server's `hit` payload and it
+   * decides which voice that is; the caller never maps a type to a material and
+   * never has to know that a parry is a parry.
+   *
+   * It used to be `impact()` with `materialFor()` applied and nothing else,
+   * which meant three of the seven kinds had no route at all — and the client
+   * did not call it off the wire anyway. See the comment on the method.
    */
-  hit(e: AudioEvent & { type: WireHitType; damage?: number; hitZone?: HitZone | null; weapon?: WarriorClass }): void;
+  hit(e: WireHit): void;
+
+  /** A man's full weight going down in mail. Not a death and not a roll. */
+  knockdown(e: AudioEvent): void;
 
   // ---- continuous ----
   /** The arena's hero fire. Pass `null` to take it away. */
@@ -358,6 +419,10 @@ function weaponVoice(cls: WarriorClass, heavy: boolean): WeaponVoice {
 export function materialFor(type: WireHitType, zone?: HitZone | null, damage = 0): ImpactMaterial {
   if (type === "parry") return "parry";
   if (type === "blocked" || type === "blocked_heavy") return "shield";
+  // `shove` and `knockdown` are not impacts on a material at all — they are a
+  // body being moved — and `hit()` routes them away before they reach here. If
+  // one ever arrives, a shoulder into a chest is flesh, not a hole in the map.
+  if (type === "shove" || type === "knockdown") return "flesh";
   const armoured: HitZone[] = ["torso", "waist", "armL", "armR", "head"];
   if (zone) return armoured.includes(zone) ? "mail" : "flesh";
   return damage >= 22 ? "flesh" : "mail";
@@ -1127,6 +1192,30 @@ class AudioEngine implements AudioHandle {
       else if (heavy) this.duckNow(0.58, 0.13);
     }
 
+    // THE RIPOSTE. The wire marks it on every wound and the engine already pays
+    // it in damage, knockback and poise — `RIPOSTE.bonus` makes it the biggest
+    // single blow any class can throw. The ear got nothing, so the payoff for
+    // the hardest input in the game sounded like an ordinary hit.
+    //
+    // It is a LAYER and not a fifth material, and that is the whole design: the
+    // player still has to hear WHAT he hit — flesh, shield or mail — with the
+    // riposte's steel on top of it. A high, tight, doubled ring, tuned a
+    // deliberate fifth above the parry's own shimmer band so the two read as the
+    // same steel answering itself.
+    if (e.riposte === true) {
+      // The lever, and where it landed (R1). 0.15/0.10 put the flagged blow only
+      // 0.52 JND from the unflagged one, which is nothing anybody would notice
+      // mid-fight; 0.34/0.22 reached 1.31, still under the bar; 0.60/0.40 took
+      // it to 2.39 and turned a cut into a bell. These are the compromise, and
+      // the ring still sits UNDER the blow it decorates rather than over it.
+      for (const [f, a, d] of [[3140, 0.46, 0.22], [4710, 0.30, 0.15]] as const) {
+        const rg = ac.createGain();
+        envelope(rg.gain, t, a * force, 0.0015, d);
+        this.tone("triangle", t, f, f * 0.988, d + 0.03).connect(rg);
+        rg.connect(dest);
+      }
+    }
+
     // ---- the transient: the instant of contact ----
     //
     // The colour is a BAND, not a shelf, for the three that are not a parry. A
@@ -1375,7 +1464,36 @@ class AudioEngine implements AudioHandle {
     }
   }
 
-  hit(e: AudioEvent & { type: WireHitType; damage?: number; hitZone?: HitZone | null; weapon?: WarriorClass }): void {
+  /**
+   * THE ONE DOOR FROM THE WIRE, and until this round three of the seven kinds
+   * that come through it had no route on the other side.
+   *
+   * WHAT WAS WRONG. This method mapped a hit type onto an impact MATERIAL and
+   * stopped. `parry`, `shove` and `knockdown` all carry `damage: 0`, and the
+   * client never called this method off the wire at all — it derived a blow from
+   * a health delta inside `if (p.health < prevHp - 0.5)`. A blow that takes
+   * nothing off produces no delta, so the parry — the hero sound, the one event
+   * with a dedicated shimmer, a duck of the whole mix behind it and five graded
+   * claims in `soundtest` — HAD NEVER PLAYED. Not once, for any player, on any
+   * input. Neither had a shove that came from the wire rather than from a state
+   * flag, and a knockdown had no sound to reach.
+   *
+   * A gate on the synthesis alone is what let that ship: every claim `soundtest`
+   * makes is of the form "IF this is fired, it sounds like this", and not one of
+   * them can say whether the game ever fires it. `tools/soundwire.mjs` now reads
+   * the engine's own `broadcast(... type: "hit" ...)` calls off disk and fails
+   * if any kind it finds there has no route through this switch.
+   */
+  hit(e: WireHit): void {
+    // The three that are not wounds. Each is its own event, not an impact with
+    // the damage set to zero.
+    if (e.type === "parry") {
+      this.impact({ position: e.position, local: e.local, material: "parry", damage: 0, weapon: e.weapon });
+      return;
+    }
+    if (e.type === "shove") { this.shove({ position: e.position, local: e.local, shield: e.shield === true, phase: "contact" }); return; }
+    if (e.type === "knockdown") { this.knockdown({ position: e.position, local: e.local }); return; }
+
     this.impact({
       position: e.position,
       local: e.local,
@@ -1387,7 +1505,53 @@ class AudioEngine implements AudioHandle {
       // `attackerId` has this for free; one that does not gets the sword, which
       // is the middle of the range and the least wrong single answer.
       weapon: e.weapon,
+      riposte: e.riposte === true,
     });
+  }
+
+  /**
+   * A MAN GOING DOWN AND NOT GETTING UP THIS SECOND.
+   *
+   * The engine broadcasts `type:"knockdown"` the tick a man's poise runs out,
+   * separately from the blow that spent it and always after it — its own comment
+   * says a knockdown the client has to infer from a state change it might have
+   * missed a snapshot of is a knockdown that does not get a sound. It did not
+   * get one, because nothing on the client read the message.
+   *
+   * It is deliberately NOT a death and NOT a roll. A death has the breath going
+   * out of him first and the body arriving a beat later; a roll is cloth and
+   * turf with a man's weight travelling THROUGH it. This is weight arriving all
+   * at once with no wind-up at all — he is dropped — and then thirty pounds of
+   * mail and kit settling on top of him, which is the part nothing else has.
+   */
+  knockdown(e: AudioEvent): void {
+    const s = this.spatial(e); if (!s) return;
+    const out = this.claim(PRIORITY.IMPORTANT, 0.8, e.local === true); if (!out || !this.ac) return;
+    const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
+    const g = s.gain;
+
+    // The ground taking all of him at once. Low, immediate, and long.
+    this.body(dest, t, 104, 41, 0.46 * g, 0.004, 0.42);
+    // Turf and the flat of his back.
+    const th = ac.createBiquadFilter();
+    th.type = "lowpass";
+    th.frequency.setValueAtTime(this.lift(520), t);
+    th.frequency.exponentialRampToValueAtTime(this.lift(160), t + 0.24);
+    const tg = ac.createGain();
+    envelope(tg.gain, t, 0.20 * g, 0.003, 0.22);
+    this.noiseAt(t, 0.3, 0.7).connect(th); th.connect(tg); tg.connect(dest);
+
+    // THE KIT. Mail, a scabbard, a shield rim and a helm all arriving after the
+    // man does and going on rattling once he has stopped. The long bright tail
+    // is the whole signature: it is the only event in the game where the noise
+    // OUTLASTS the thump instead of being its transient.
+    const kit = ac.createBiquadFilter();
+    kit.type = "bandpass"; kit.Q.value = 1.5;
+    kit.frequency.setValueAtTime(4200, t + 0.03);
+    kit.frequency.exponentialRampToValueAtTime(2200, t + 0.55);
+    const kg = ac.createGain();
+    envelope(kg.gain, t + 0.03, 0.17 * g, 0.010, 0.52);
+    this.noiseAt(t + 0.03, 0.6, 1.25).connect(kit); kit.connect(kg); kg.connect(dest);
   }
 
   block(e: AudioEvent & { raise?: boolean }): void {
@@ -1408,49 +1572,124 @@ class AudioEngine implements AudioHandle {
     this.impact({ position: e.position, local: e.local, material: "shield", damage: 14 });
   }
 
+  /**
+   * A ROLL IS A MAN HITTING THE GROUND, NOT AIR MOVING, and until this round it
+   * was synthesised as air moving. That is why it was the closest thing in the
+   * game to a sword swing, and — worse — why the two were only ever told apart
+   * ON A LUCKY DRAW.
+   *
+   * Both were a single band of white noise. The only axes separating them were
+   * attack (67 ms of whoosh against 20 ms of rustle) and brightness, and BOTH of
+   * those are readings taken off one slice of the shared noise bed: the roll's
+   * measured attack wandered between 14 and 32 ms across seeds while the swing's
+   * sat at 65-71, so on a bad draw the ratio fell to 2.0x and the best single
+   * axis between them dropped to 0.96 JND — under the 1.0 the gate requires,
+   * with the shipped synth unchanged. `soundtest` reported 2.42 JND and called
+   * it proven, because it had only ever looked at one draw.
+   *
+   * Two things move, and both of them are things a noise draw cannot touch:
+   *
+   *  1. A FIXED CORNER OVER THE BAND. A bandpass biquad falls at 6 dB/octave, so
+   *     white noise through the 1450 Hz band below was still open to Nyquist and
+   *     the event measured 3889 Hz — the identical fault the mail's transient
+   *     was fixed for, and the identical fault that made the UI mallet
+   *     unmeasurable. What the ear got was a bright hiss, not wool.
+   *  2. THE MAN. A low body at the push-off and the landing, plus a turf scuff.
+   *     `body()` is a tone: it lands the same every time, it puts a third of the
+   *     event's energy under 400 Hz where a swing has two per cent, and it is
+   *     the reason a roll now reads as weight moving rather than as a miss.
+   */
   dodge(e: AudioEvent): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.AMBIENT, 0.22, e.local === true);
+    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.AMBIENT, 0.5, e.local === true);
     if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
-    // Wool and hide dragged through air, plus the scuff of the push-off.
-    // Darker and longer than it was. At 2400 Hz falling to 700 it measured
-    // 1.40 JND from a seax whoosh, which is the same sound: both were bright air
-    // dropping. Wool and hide dragging is a LOWER, slower noise than steel
-    // through air, and separating them is what stops a roll reading as a swing.
+    // Wool and hide dragged through air, under a fixed lid. See 1 above.
     const bp = ac.createBiquadFilter();
     bp.type = "bandpass"; bp.Q.value = 0.95;
     bp.frequency.setValueAtTime(this.lift(1450), t);
     bp.frequency.exponentialRampToValueAtTime(this.lift(430), t + 0.26);
+    const lid = ac.createBiquadFilter();
+    lid.type = "lowpass"; lid.Q.value = 0.707;
+    lid.frequency.value = this.lift(3100);
     const g = ac.createGain();
-    envelope(g.gain, t, 0.16 * s.gain, 0.035, 0.25);
-    this.noiseAt(t, 0.3, 0.75).connect(bp); bp.connect(g); g.connect(dest);
+    // The lever was pulled on this one (R1) and it barely moved the reading:
+    // 0.26 -> 0.60 shifted the whole event's centroid 449 -> 568 Hz. That is not
+    // a broken knob, it is the band — 1450 Hz falling to 430 puts most of the
+    // cloth's own energy under 400 Hz by the end of the sweep, so louder cloth
+    // is not brighter cloth. Worth recording, because the obvious reading of a
+    // dead knob here would have been "the rustle is not connected".
+    envelope(g.gain, t, 0.34 * s.gain, 0.035, 0.25);
+    this.noiseAt(t, 0.3, 0.75).connect(bp); bp.connect(lid); lid.connect(g); g.connect(dest);
+
+    // The push-off, and then the shoulder and hip taking the turf 90 ms later.
+    // Two body notes rather than one: a roll has a departure and an arrival, and
+    // that pair of thumps is what nothing else in the game sounds like.
+    //
+    // Their WEIGHT is set against the rustle above rather than for its own sake.
+    // The first build of this put 0.20/0.34 under a 1900 Hz lid and the event
+    // came out at 288 Hz with all of its energy below 400 — a roll that measured
+    // like a body being opened up, 2.11 JND from a heavy cut. A man rolling is
+    // mostly cloth and turf with weight under it, not weight with cloth on top.
+    this.body(dest, t, 132, 88, 0.13 * s.gain, 0.010, 0.14);
+    this.body(dest, t + 0.09, 84, 47, 0.22 * s.gain, 0.016, 0.34);
+
+    // Turf and grit under the shoulder. Short, dark, and the only noise in the
+    // event that is allowed to be broadband.
+    const scuff = ac.createBiquadFilter();
+    scuff.type = "lowpass";
+    scuff.frequency.setValueAtTime(this.lift(760), t + 0.09);
+    scuff.frequency.exponentialRampToValueAtTime(this.lift(240), t + 0.30);
+    const sg = ac.createGain();
+    envelope(sg.gain, t + 0.09, 0.13 * s.gain, 0.006, 0.22);
+    this.noiseAt(t + 0.09, 0.34, 0.85).connect(scuff); scuff.connect(sg); sg.connect(dest);
   }
 
-  shove(e: AudioEvent & { shield?: boolean }): void {
+  /**
+   * TWO MOMENTS, AND THE ENGINE HAS ALWAYS HAD BOTH.
+   *
+   * `state === "shoving"` begins at the WIND-UP; `broadcast({type:"hit", data:
+   * {type:"shove"}})` goes out `SHOVE.windup` later and only if somebody was
+   * actually inside the arc. This method used to fire both halves off the state
+   * edge alone, which meant a shove that hit nothing still drove a body note
+   * into a man who was never touched — the same fault as deriving a blow from a
+   * health delta, in the other direction.
+   *
+   * So `phase` splits them, and the split also puts each half where it belongs
+   * in the world: the grunt comes from the man shoving, the thump from the man
+   * being shoved. Default is both, which is what one shove sounds like end to
+   * end and what `soundtest` grades as "shove shoulder" / "shove boss".
+   */
+  shove(e: AudioEvent & { shield?: boolean; phase?: "windup" | "contact" }): void {
     const s = this.spatial(e); if (!s) return;
-    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.NORMAL, 1.0, e.local === true);
+    const wantsWindup = e.phase !== "contact";
+    const wantsContact = e.phase !== "windup";
+    const out = this.claim(e.local ? PRIORITY.IMPORTANT : PRIORITY.NORMAL, wantsContact ? 1.0 : 0.3, e.local === true);
     if (!out || !this.ac) return;
     const ac = this.ac, t = ac.currentTime, dest = this.sink(out, s);
     const g = s.gain;
 
     // The effort: breath forced out through the coil. Same cloth-and-air
     // palette as the dodge, pitched lower and shorter — a grunt, not a rush.
-    const bp = ac.createBiquadFilter();
-    bp.type = "bandpass"; bp.Q.value = 1.2;
-    bp.frequency.setValueAtTime(e.shield === true ? 1000 : 700, t);
-    bp.frequency.exponentialRampToValueAtTime(e.shield === true ? 320 : 240, t + 0.22);
-    const bg = ac.createGain();
-    envelope(bg.gain, t, 0.16 * g, 0.03, 0.20);
-    this.noiseAt(t, 0.26, 0.8).connect(bp); bp.connect(bg); bg.connect(dest);
+    if (wantsWindup) {
+      const bp = ac.createBiquadFilter();
+      bp.type = "bandpass"; bp.Q.value = 1.2;
+      bp.frequency.setValueAtTime(e.shield === true ? 1000 : 700, t);
+      bp.frequency.exponentialRampToValueAtTime(e.shield === true ? 320 : 240, t + 0.22);
+      const bg = ac.createGain();
+      envelope(bg.gain, t, 0.16 * g, 0.03, 0.20);
+      this.noiseAt(t, 0.26, 0.8).connect(bp); bp.connect(bg); bg.connect(dest);
+    }
+    if (!wantsContact) return;
 
-    // The drive, 0.30 s later — the same offset the server resolves the
-    // contact at (SHOVE.windup), so the thump lands with the impulse. A low
-    // body note with a short scuff of boots driving off the turf.
+    // The drive. When both halves are voiced together it sits 0.30 s later — the
+    // same offset the server resolves the contact at (SHOVE.windup) — so the
+    // thump lands with the impulse. Fired from the wire on its own, the wire IS
+    // the impulse and there is nothing left to wait for.
     //
     // The local man's shove ducks the room like his heavy blows do: a shove is
     // the one thing in the game that moves another body and it has to land.
-    const hit = t + 0.30;
+    const hit = t + (wantsWindup ? 0.30 : 0);
     if (e.local) this.duckNow(0.62, 0.16);
     // Shoulder or boss, and they are two different events, not one with a
     // decoration. THIS IS THE NEAREST THING THE GAME HAS TO "a haft into a
@@ -1461,8 +1700,23 @@ class AudioEngine implements AudioHandle {
     // why a fifth impact MATERIAL for a haft strike is not: no event on the wire
     // produces one. See docs/SOUND.md.
     const boss = e.shield === true;
+    // THE SHOULDER'S DRIVE IS SHORT NOW — 0.62 s of low body became 0.17 — and
+    // that number is the fix for the closest pair in the game.
+    //
+    // A shoulder shove and a shield taking a heavy axe were 2.84 JND apart on a
+    // bad noise draw against a bar of 3.0, and everything holding them apart was
+    // draw-dependent: brightness (both are pure low end, 0.99 of their energy
+    // under 400 Hz) and attack, whose reading on the shield wandered 39-54 ms
+    // between seeds. Five of the seven axes were dead between them.
+    //
+    // DECAY was the axis to open, because it is the one that is TRUE. A limewood
+    // shield is a sprung board on an iron boss and it rings on — the boards here
+    // decay for 0.82 s deliberately. A shoulder into a mailed chest does not
+    // ring at all: the air goes out of him and it is over. Both sides of that
+    // comparison are `body()` tone decays, so it is a difference a noise draw
+    // cannot move, and it takes the pair from 0.60 JND on decay to over 2.
     this.body(dest, hit, boss ? 168 : 88, boss ? 72 : 38, (boss ? 0.16 : 0.44) * g,
-      boss ? 0.003 : 0.046, boss ? 0.055 : 0.62);
+      boss ? 0.003 : 0.030, boss ? 0.055 : 0.17);
     const scuff = ac.createBiquadFilter();
     scuff.type = "lowpass";
     scuff.frequency.setValueAtTime(this.lift(boss ? 1200 : 340), hit);
@@ -1488,14 +1742,16 @@ class AudioEngine implements AudioHandle {
       }
     } else {
       // A shoulder into a chest: no ring at all, just the air going out of him
-      // and cloth over mail. The dullest impact in the game on purpose.
+      // and cloth over mail. The dullest impact in the game on purpose — and now
+      // the SHORTEST of the low events too, for the reason on the `body()` call
+      // above. It was 0.52 s of falling rumble, which is a drum and not a barge.
       const th = ac.createBiquadFilter();
       th.type = "bandpass"; th.Q.value = 0.8;
       th.frequency.setValueAtTime(this.lift(330), hit);
-      th.frequency.exponentialRampToValueAtTime(this.lift(110), hit + 0.52);
+      th.frequency.exponentialRampToValueAtTime(this.lift(110), hit + 0.20);
       const tgn = ac.createGain();
-      envelope(tgn.gain, hit, 0.17 * g, 0.026, 0.52);
-      this.noiseAt(hit, 0.6, 0.5).connect(th); th.connect(tgn); tgn.connect(dest);
+      envelope(tgn.gain, hit, 0.17 * g, 0.020, 0.19);
+      this.noiseAt(hit, 0.26, 0.5).connect(th); th.connect(tgn); tgn.connect(dest);
     }
   }
 

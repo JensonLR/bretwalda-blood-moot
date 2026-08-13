@@ -30,7 +30,7 @@ import {
   getBindings, getServerBindings, subscribeBindings,
   bindingsAreDefault, hydrateBindings, setBindingsPersister, bindingsTouchedHere,
 } from "../game/client/bindings";
-import type { ForgeProgress } from "../game/client/GameCanvas";
+import type { ForgeProgress, WireHitMessage } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
   syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, LEGACY_KEY, type ServerProfile,
@@ -195,6 +195,12 @@ export default function Page() {
   // Emote relays from the server, queued for the canvas's frame loop — the
   // only thing that can reach the rigs. Drained there, pushed here.
   const emoteFeedRef = useRef<Array<{ playerId: string; emote: EmoteId }>>([]);
+  // The server's `hit` messages, queued for the same frame loop and for the same
+  // reason. This page routed every other event on the wire and dropped this one
+  // on the floor, so the canvas derived blows from health deltas instead — and a
+  // parry, a shove and a knockdown all take nothing off, so three of the seven
+  // kinds the engine sends had never made a sound. See GameCanvas's `hitFeed`.
+  const hitFeedRef = useRef<WireHitMessage[]>([]);
   // A held emote key auto-repeats messages the server would only drop; this
   // spares the wire, nothing more — the real cooldown is the server's.
   const emoteSentRef = useRef(0);
@@ -583,6 +589,18 @@ export default function Page() {
           if (!prev?.players?.[pid]) return prev;
           return { ...prev, players: { ...prev.players, [pid]: { ...prev.players[pid], emote } } };
         });
+        break;
+      }
+      // Every resolved blow, parry, block, shove and knockdown. Queued only —
+      // the canvas's frame loop is the one thing that can place a sound on the
+      // man it happened to, and a blow must not rebuild that callback. Bounded
+      // because a tab in the background stops draining while the fight goes on.
+      case "hit": {
+        const d = msg.data as unknown as WireHitMessage | undefined;
+        if (!d || typeof d.type !== "string") break;
+        const feed = hitFeedRef.current;
+        if (feed.length > 64) feed.splice(0, feed.length - 64);
+        feed.push(d);
         break;
       }
       case "error": {
@@ -979,7 +997,7 @@ export default function Page() {
     return (
       <div className="fixed inset-0 bg-black">
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} matchEnd={matchResults} onForge={setForge}
-          onEmote={sendEmote} onCanEmote={setCanEmote} emoteFeed={emoteFeedRef} />
+          onEmote={sendEmote} onCanEmote={setCanEmote} emoteFeed={emoteFeedRef} hitFeed={hitFeedRef} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
