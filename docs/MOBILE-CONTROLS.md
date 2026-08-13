@@ -139,6 +139,51 @@ arguing with the player, so:
   where he had been, and the lock came up empty and handed the camera back. A
   man close enough to hit you is the fight, whichever way he is standing.
 
+## The weight wave, on a phone — 12 August 2026
+
+Four things arrived in one wave (`docs/WEIGHT.md`): knockback on every blow, a
+poise bar, a knockdown with a get-up, and a riposte window a parry opens. All
+four had to be designed for a thumb as well as a mouse, because the owner has
+now said three times that every upgrade is for both.
+
+**The shove already had its pad and it is inside the law.** 56 px, which is the
+`docs/DESIGN-SYSTEM.md` §3 floor for anything pressed mid-fight, sitting
+outboard of DODGE at `near(124, 200)` — inside the 132 px thumb band, clear of
+every other footprint, on the aiming side and mirrored by the one
+`bretwalda.hand` store like everything else. **The layout did not grow a ninth
+button for this wave and it must not**, which is the constraint that decided the
+next two entries.
+
+**The parry needs no control at all, on either platform, and that is the whole
+point.** It is BLOCK, pressed inside the 150 ms before a blow lands — a tap
+where a hold would have been. A phone player parries with the pad he already
+has and a desktop player with the button he already has. Had the parry been
+given its own control, the touch layout would have needed a ninth pad in a
+cluster that has no room for one, and the mechanic would have been *easier* on
+desktop than on a phone, which is the half-a-feature failure this document
+exists to prevent.
+
+**A knockdown takes the controls away and hands them back, which is a touch
+problem desktop does not have.** A man who is `knocked` or `rising` is refused
+by `processInput` — no turn, no swing, no guard. On a phone the buttons are
+still on the glass and still under his thumb, so a player will press them and
+nothing will happen. That is handled the way the death case already is: the
+cluster's held flags are released whenever it is not `clusterUp`, so a BLOCK
+held at the moment he is floored does not come back set when he stands. The
+pads themselves are deliberately left ON SCREEN rather than hidden — a control
+cluster that vanishes and reappears in 1.3 s is a flicker, and the man on the
+ground has enough to read.
+
+**The riposte window is drawn on the opponent, not on the HUD, and on a phone
+that is the difference between a mechanic and a rumour.** `DESIGN-SYSTEM.md` §3
+already required it (his brackets, the window's real duration, never a bar on
+mine) and the phone is the reason it is the right rule rather than merely a
+tasteful one: at 390×844 there is no room for a fifth meter, and a player whose
+eye leaves the fight to read one has lost the fight. So the lock's jaws go warm
+and close over `vulnerableTimer`, and `input.ts` hands the lock to the man you
+just parried so the jaws are guaranteed to be on him. Nothing was added to the
+thumb band at all.
+
 ## It must not become an aimbot
 
 The weight pass caps a committed body at `SWING_TURN_RATE = 1.8 rad/s` so a blow

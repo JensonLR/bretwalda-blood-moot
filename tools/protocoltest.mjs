@@ -188,7 +188,7 @@ const NEUTRAL = {
   block: false, dodge: false, crouch: false, ability: false, shove: false, attackDir: "right",
 };
 
-// The 48 fields serializeRoom publishes for a human warrior. Held exactly, in
+// The 53 fields serializeRoom publishes for a human warrior. Held exactly, in
 // both directions: a leak of server scratch fails here, and so does a field
 // quietly removed from under a client. See WIRE-PROTOCOL.md §9.5 — this is a
 // denylist upstream, so this assertion is the only thing standing under it.
@@ -198,6 +198,11 @@ const PUBLISHED = [
   "health", "maxHealth", "stamina", "maxStamina",
   "state", "attackDir", "blockDir", "attackTimer", "blockTimer", "dodgeTimer", "staggerTimer",
   "attackPhase", "attackPhaseT", "swingT", "swingDuration", "swingHeavy", "hitstop", "shoveTimer",
+  // The weight wave: poise, the floor, and the opening a parry buys. All five
+  // are public because all five are things a player has to be able to SEE —
+  // how close he is to being floored, which half of the fall he is in, and the
+  // window he earned on the man he read. See WIRE-PROTOCOL.md §2.
+  "balance", "maxBalance", "downTimer", "vulnerableTimer", "vulnerableTo",
   "emote", "abilityCooldown", "abilityActive", "abilityTimer",
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",
@@ -293,7 +298,7 @@ async function scenarioMatch() {
     const k = Object.keys(p).sort();
     return k.length === PUBLISHED.length && k.every((n, i) => n === [...PUBLISHED].sort()[i]);
   });
-  check("the published player is exactly the 48 documented fields", keysOk,
+  check("the published player is exactly the 53 documented fields", keysOk,
     keysOk ? "" : `saw ${JSON.stringify(Object.keys(humans[0]).filter((k) => !PUBLISHED.includes(k)))}`);
   check("every frame is JSON with `type` as its first key",
     host.frames.every((f) => f.startsWith('{"type":"')),
@@ -418,11 +423,19 @@ async function scenarioMelee() {
     hits.every((h) => typeof h.attackerId === "string" && typeof h.targetId === "string" &&
       Number.isFinite(h.damage) && Number.isFinite(h.hitstop)),
     `${hits.length} blows, kinds: ${[...new Set(hits.map((h) => h.type))].join("/")}`);
-  check("a blow that wounds carries where it landed; a parry or a shove does not",
+  check("a blow that wounds carries where it landed; a parry, a shove or a fall does not",
     hits.every((h) => ["light", "heavy", "blocked", "blocked_heavy"].includes(h.type)
       ? (Number.isFinite(h.health) && HIT_ZONES.includes(h.hitZone) && typeof h.direction === "string")
       : (h.damage === 0 && h.hitZone === undefined)),
-    "WIRE-PROTOCOL §3 — six kinds under one type");
+    "WIRE-PROTOCOL §3 — seven kinds under one type");
+  check("a wound says how far it threw him and whether it was a riposte",
+    hits.filter((h) => ["light", "heavy", "blocked", "blocked_heavy"].includes(h.type))
+      .every((h) => Number.isFinite(h.knockback) && h.knockback >= 0 && typeof h.riposte === "boolean"),
+    "WIRE-PROTOCOL §3 — the client sounds and shakes on these, so they may not be optional");
+  // The parry's `window` field is NOT asserted here, and deliberately: a room
+  // of bots parries when the dice say so, and an assertion that is green
+  // because the case is absent is not a gate. `tools/weightprobe.mjs` owns it,
+  // against a fixture that lands a parry on purpose every run.
   check("the hit zone is always one the client can draw",
     hits.every((h) => h.hitZone === undefined || HIT_ZONES.includes(h.hitZone)));
   const blow = c.got("kill").find((k) => k.cause === "blow");

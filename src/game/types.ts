@@ -31,7 +31,21 @@ export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "tor
  * the body falls whole. Null on a man who is still standing.
  */
 export type DeathCause = "blow" | "fire";
-export type PlayerState = "idle" | "walking" | "running" | "sprinting" | "attacking" | "blocking" | "dodging" | "rolling" | "staggered" | "dead" | "ability" | "shoving";
+/**
+ * What a warrior's body is doing. The server owns every one of these and a
+ * client may present them but never decide them.
+ *
+ * The two floor states are read off ONE clock (`downTimer`), the same way the
+ * three swing phases are read off `attackTimer` — so a renderer that can phase
+ * a swing can phase a fall without new machinery, and the server and the client
+ * cannot disagree about which half of it a man is in:
+ *
+ *   "knocked"   flat, and not getting up yet. He cannot act, cannot turn, and
+ *               keeps no invincibility. `downTimer > KNOCKDOWN.rise`.
+ *   "rising"    getting his feet back. Still cannot act, but the punishment is
+ *               visibly ending. `0 < downTimer <= KNOCKDOWN.rise`.
+ */
+export type PlayerState = "idle" | "walking" | "running" | "sprinting" | "attacking" | "blocking" | "dodging" | "rolling" | "staggered" | "knocked" | "rising" | "dead" | "ability" | "shoving";
 // "intermission" is the breath between rounds: everyone still dead where they
 // fell, the round result on screen, the next countdown already scheduled.
 export type MatchState = "lobby" | "countdown" | "fighting" | "last_stand" | "intermission" | "finished";
@@ -236,6 +250,45 @@ export interface GamePlayer {
    * freeze him too rather than sliding him through it. 0 the rest of the time.
    */
   hitstop?: number;
+  // ---- poise, the floor, and the opening a parry buys ----
+  // Optional on the same terms as the swing fields above: a fabricated portrait
+  // warrior has none of them, and anything out of `serializeRoom` has all five.
+  /**
+   * POISE. Spent by every blow that lands on him — scaled by the weapon's mass,
+   * doubled when he was caught off guard — and refilled at `BALANCE.regen` per
+   * second whenever he is neither staggered nor on the floor. At zero he goes
+   * down. Public because a knockdown a player could not see coming is a
+   * knockdown that reads as the server being unfair.
+   */
+  balance?: number;
+  /** What `balance` refills to. Per class; the huscarl is the hardest to floor. */
+  maxBalance?: number;
+  /**
+   * Seconds left of the WHOLE floor sequence — down, then rising. 0 whenever he
+   * is on his feet. `state` is derived from it (see `PlayerState`), so a
+   * renderer needs this only for the phase fraction and for a late joiner
+   * arriving mid-fall.
+   */
+  downTimer?: number;
+  /**
+   * Seconds left of the riposte window this man is caught in. Above zero means
+   * he was parried and is open: the parrier's next blow will do `RIPOSTE.bonus`
+   * damage and throw him `RIPOSTE.knockbackScale` further.
+   *
+   * ON THE WIRE, and that is the point of it. `docs/DESIGN-SYSTEM.md` §3 keeps
+   * the rule that the parry tell lights the OPPONENT's brackets for the
+   * window's real duration rather than putting a bar on the parrier's own HUD —
+   * which requires the real duration to be replicated. A window nobody can see
+   * is not a mechanic, it is a dice roll.
+   */
+  vulnerableTimer?: number;
+  /**
+   * Whose window it is. Only this player id collects the riposte; everybody
+   * else's blow lands at its ordinary weight, so a parry is a reward for the
+   * man who read it and not a free-for-all on the man who was read. Empty
+   * string when `vulnerableTimer` is 0.
+   */
+  vulnerableTo?: string;
   // The four fire fields are optional only because a warrior is not always a
   // warrior off the wire: `shot/page.tsx` fabricates one to stand in front of a
   // camera, and a portrait has no arena to be burning in. Anything that came
@@ -365,6 +418,57 @@ export const SWING_PHASES = { windup: 0.40, contact: 0.15, recovery: 0.45 } as c
  * A parry uses the heavy value.
  */
 export const HITSTOP = { light: 0.06, heavy: 0.11 } as const;
+
+/**
+ * THE FLOOR, mirrored from `engine.mjs`, which is the authority — nothing here
+ * decides anything. One clock (`GamePlayer.downTimer`) and two states read off
+ * it, so a renderer phases a fall the way it phases a swing.
+ *
+ * 0.75 s flat and 0.55 s rising is 1.30 s of being unable to answer — long
+ * enough to be the worst thing that can happen in a fight, short enough that
+ * it is not simply death. A huscarl light takes 0.408 s to reach contact, so
+ * the man who floored you gets one blow, and a second only if he was already
+ * in reach.
+ */
+export const KNOCKDOWN = {
+  /** Seconds flat on his back before the get-up starts. */
+  down: 0.75,
+  /** Seconds spent getting his feet back. `downTimer <= this` means "rising". */
+  rise: 0.55,
+  /** Metres the fall carries him away from whatever put him there. */
+  slide: 1.05,
+  /** Fraction of `maxBalance` he stands up with. A beaten man is not fresh. */
+  balanceOnRise: 0.34,
+} as const;
+
+/**
+ * THE RIPOSTE, mirrored from `engine.mjs`, which is the authority — nothing
+ * here decides anything.
+ *
+ * A parry writes `vulnerableTimer = window` and `vulnerableTo = <the parrier>`
+ * onto the man who was read. Inside that window the parrier's next blow — and
+ * only his — does `bonus` damage, throws him `knockbackScale` further, and
+ * costs him `balanceScale` more poise. Landing it CLOSES the window: one parry
+ * buys one blow.
+ *
+ * WHY 0.90 s AND NOT LESS, at a 20 Hz tick. The parry itself is 3 ticks wide
+ * (150 ms) and that is an INPUT test, deliberately tight. The riposte window is
+ * a LICENCE, so it has to survive a round trip: a 120 ms ping costs a player
+ * ~2.4 ticks at each end, leaving 13 of the 18 ticks genuinely usable — still
+ * more than the 408 ms a huscarl light needs to reach contact from a standing
+ * start. It is also exactly the length of the stagger the parry deals, so what
+ * a player learns is "he is reeling, therefore he is open" and not two clocks.
+ */
+export const RIPOSTE = {
+  /** Seconds the parried man stays open, and what `vulnerableTimer` starts at. */
+  window: 0.90,
+  /** Damage multiplier on the riposte blow. */
+  bonus: 1.6,
+  /** Knockback multiplier on the riposte blow. */
+  knockbackScale: 1.7,
+  /** Poise-cost multiplier on the riposte blow. */
+  balanceScale: 1.8,
+} as const;
 
 /**
  * Commitment. Free turning is instantaneous — the server adopts the client's

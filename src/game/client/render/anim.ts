@@ -73,7 +73,7 @@
 
 import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
-import { WARRIOR_STATS, SWING_PHASES, SHOVE, EMOTE_SECONDS, type EmoteId } from "../../types";
+import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -1385,6 +1385,12 @@ const ZERO: Readonly<Pose> = Object.freeze({
  */
 const POSE_GROUP: Record<string, string> = {
   walking: "move", running: "move", sprinting: "move", rolling: "dodging",
+  // The fall and the get-up are ONE move, not two. The server changes `state`
+  // from "knocked" to "rising" halfway through it, and a crossfade fired at
+  // that boundary would blend the middle of a man pushing off the ground into
+  // the middle of a man lying on it — a hitch in the exact frame the animation
+  // exists to sell. One group, one clock, no seam.
+  knocked: "down", rising: "down",
 };
 
 const P: Pose = { ...ZERO };
@@ -2838,6 +2844,97 @@ function staggerLayer(t: number, phase: number, motion: WarriorMotion, w: number
   P.wx += 0.5 * w;
 }
 
+/**
+ * FLOORED, AND GETTING BACK UP. The owner's ask, verbatim: *"being able to fall
+ * over if caught off guard / shoved & get back up"*.
+ *
+ * Driven by the SERVER's own clock. `downTimer` counts the whole sequence —
+ * `KNOCKDOWN.down` flat then `KNOCKDOWN.rise` getting up — and both halves are
+ * read off it here rather than off a client timer, so a man who joins mid-fall,
+ * or whose packet was late, is drawn exactly as far through it as the sim says
+ * he is. This is the same trick `readSwing` plays with `swingT` and it is the
+ * reason the floor was built as one clock and two states.
+ *
+ * The shape, and every beat of it is a thing a body actually does:
+ *
+ *   GO OVER   0.26 s. The legs leave, the trunk goes with the blow, the arms
+ *             go out behind to catch nothing. He pivots about his feet, which
+ *             is why the pitch alone lays him out — `rig.body` is rooted on the
+ *             ground, the same geometry `deathLayer` uses.
+ *   FLAT      the rest of `down`. Not a corpse: a corpse goes to a right angle
+ *             and stays, a living man holds 0.82 of one and his head is up,
+ *             because a man on the ground is looking at whoever put him there.
+ *   ROLL      the first third of the rise. Onto the hip the blow turned him
+ *             onto, the off hand planted.
+ *   PUSH      the middle third. Up on that hand and one knee — the beat that
+ *             makes it a get-up rather than a rewind of the fall.
+ *   STAND     the last third, weapon coming back to the carry.
+ *
+ * `fall` is +1 for a blow taken from behind and -1 from the front, the same
+ * convention `deathLayer` uses, so a man shoved in the back lands on his face.
+ */
+function knockLayer(elapsed: number, downLeft: number, riseLen: number, fall: number, side: number): void {
+  // How far over he is: 1 flat on the ground, 0 upright.
+  const over = smooth(clamp01(elapsed / 0.26));
+  const riseT = downLeft < riseLen ? clamp01(1 - downLeft / riseLen) : 0;
+  // Standing is not the fall run backwards. The trunk comes up early and the
+  // legs come under him late, which is what a push-up off one hand looks like;
+  // easing them on one curve would read as a man being winched upright.
+  const trunkUp = smooth(clamp01(riseT / 0.72));
+  const legsUp = smooth(clamp01((riseT - 0.30) / 0.70));
+  const lie = over * (1 - trunkUp);
+  const plant = Math.sin(clamp01(riseT / 0.62) * Math.PI);   // the hand on the turf
+
+  // A LIVING body, not a corpse: 0.82 of a right angle, and it is the whole
+  // difference between "he is down" and "he is dead" at a glance.
+  const flat = (Math.PI / 2) * 0.82;
+  P.prx = fall * flat * lie;
+  P.prz = side * 0.34 * lie;
+  P.pry = side * 0.30 * lie * (0.4 + riseT * 0.6);   // he turns onto a hip to rise
+  P.py = 0.10 * Math.abs(Math.sin(P.prx));
+  P.pz = -fall * 0.10 * lie;
+
+  // Head up. He is looking at the man who put him there, and it is the one
+  // thing that keeps a knockdown from reading as a death.
+  P.crx = -fall * 0.30 * lie + 0.42 * legsUp * (1 - legsUp) * 2;
+  P.crz = -side * 0.20 * lie;
+  P.hrx = -fall * 0.46 * lie;
+  P.hrz = side * 0.24 * lie;
+
+  // Arms. Out behind him going over, then one of them takes his weight.
+  P.arx = (0.70 * over - 0.30 * trunkUp) * (1 - riseT * 0.5);
+  P.arz = 0.55 * lie;
+  P.arb = -0.30 - 0.55 * lie;
+  P.olx = 0.55 * over + 0.85 * plant;
+  P.olz = -0.60 * lie - 0.35 * plant;
+  P.olb = -0.25 - 0.40 * lie - 0.75 * plant;
+
+  // Legs. The knees BUCKLE as he goes over and STRAIGHTEN as he lands, and the
+  // second half of that is not decoration — it is the difference between a man
+  // lying down and a man with his shins in the air.
+  //
+  // `rig.body` pivots at the FEET (the same geometry `deathLayer` relies on), so
+  // a straight body pitched a right angle is a body lying flat. Folded knees
+  // under that rotation put the shins vertically above the pelvis: the first
+  // capture of this strip showed exactly that in frames 3-5, a man on his
+  // shoulder blades with his legs in the air, which reads as a backwards roll
+  // rather than as a fall. `deathLayer` had already solved it the same way and
+  // says so in its own comment — the knees are the first beat of the collapse
+  // and they straighten again as the body goes flat.
+  const settled = smooth(clamp01((elapsed - 0.18) / 0.28));
+  const fold = lie * mix(1.25, 0.10, settled);
+  P.lrb = fold + 1.35 * legsUp * (1 - legsUp) * 2 + 0.18;
+  P.llb = fold * 0.82 + 0.55 * legsUp * (1 - legsUp) * 2 + 0.14;
+  P.lrx = -0.42 * lie * (1 - settled * 0.7) - 0.55 * legsUp * (1 - legsUp) * 2;
+  P.llx = 0.30 * lie * (1 - settled * 0.7);
+  P.lrz = 0.24 * lie;
+  P.llz = -0.20 * lie;
+
+  // The weapon hangs while he is down and comes back to the carry as he stands.
+  P.wx = -0.85 * lie;
+  P.cloak = 0.45 * lie + 0.25 * plant;
+}
+
 /** Dodge: drop under it, drive off the back leg, catch the landing. */
 function dodgeLayer(phase: number, side: number, w: number): void {
   const dip = Math.sin(clamp01(phase) * Math.PI);
@@ -3804,10 +3901,14 @@ export function poseWarrior(
   const staggered = player.state === "staggered";
   const casting = player.state === "ability";
   const shoving = player.state === "shoving";
+  const floored = player.state === "knocked" || player.state === "rising";
   // One clock for whatever one-shot the warrior is in the middle of. Elapsed
   // time is the client's to keep; the server owns when the state ends.
-  motion.actT = dead || rolling || staggered || casting || shoving ? motion.actT + dt : 0;
-  if (dead && motion.actT <= dt) motion.fall = motion.hitFwd >= 0 ? 1 : -1;
+  motion.actT = dead || rolling || staggered || casting || shoving || floored ? motion.actT + dt : 0;
+  // Which way he goes over, taken once on the edge and held for the whole fall
+  // — reading `hitFwd` every frame would spin a man on the ground the moment a
+  // second blow landed on him from a different bearing.
+  if ((dead || floored) && motion.actT <= dt) motion.fall = motion.hitFwd >= 0 ? 1 : -1;
   // Every road back to standing goes through here: the server clears the death
   // mark on a respawn, on a countdown and on the lobby reset, and a warrior who
   // is not dead is a warrior whose limbs are back on him. Cheap on the frames it
@@ -3848,6 +3949,37 @@ export function poseWarrior(
     // one was drawing a CORPSE flickering in and out of existence, because a
     // dead man in solo keeps his respawn grace flag until the tick clears it.
     fadeBlob(rig, 1);
+    return;
+  }
+
+  // ---- ON THE GROUND ----
+  //
+  // Its own branch, and it takes the same shape as the death branch above for
+  // the same reason: a man on the floor has no stance, no idle sway and no
+  // gait, and letting those layers run underneath would have the pose fighting
+  // a body that is trying to stand up. The one thing that DOES still run is the
+  // travel — `settleOnFeet` is called with the fall's own hip angle, so a man
+  // slid across the turf by the blow that floored him arrives lying down rather
+  // than skating on his heels.
+  if (floored) {
+    motion.emote = null;
+    const total = KNOCKDOWN.down + KNOCKDOWN.rise;
+    const left = player.downTimer ?? 0;
+    knockLayer(total - left, left, KNOCKDOWN.rise, motion.fall, motion.hitSide);
+    stops();
+    settleOnFeet(legLen, 0);
+    // The layer weights are bled off while he is down, not left where the fall
+    // caught them. Without this a man floored mid-stride stands back up with
+    // `wMove` still at 1 and takes a phantom step on the frame he arrives —
+    // which is the glide bug in miniature, and it would have shipped invisible
+    // in a still and obvious in a strip.
+    motion.wMove = approach(motion.wMove, 0, dt, 9);
+    motion.wAction = approach(motion.wAction, 0, dt, 9);
+    motion.wBlock = approach(motion.wBlock, 0, dt, 9);
+    motion.flinch = Math.max(0, motion.flinch - dt * 4);
+    commit(rig, piv, st, motion.blend, 0);
+    drapeCloak(rig, motion, dt, t, P.cloak);
+    fadeBlob(rig, player.invincible ? 0.5 : 1);
     return;
   }
 

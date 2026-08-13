@@ -33,7 +33,9 @@
     "tiebreak": "node tools/tiebreak.mjs",
     "roundbeat": "node tools/roundbeat.mjs",
     "hairmap": "node tools/hairmap.mjs",
-    "tiertest": "node tools/tiertest.mjs"
+    "tiertest": "node tools/tiertest.mjs",
+    "weightprobe": "node tools/weightprobe.mjs",
+    "weightshot": "node tools/weightshot.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

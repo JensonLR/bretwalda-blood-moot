@@ -18,7 +18,7 @@ import type { AttackDirection, GamePlayer } from "../types";
 // Types only — erased at compile time. The values come through `loadQualityApi`
 // below, and the comment there is the whole reason this line says `type`.
 import type { QualityChoice, QualityStatus, QualityTier } from "./render/quality";
-import { WARRIOR_STATS } from "../types";
+import { WARRIOR_STATS, RIPOSTE } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
@@ -580,8 +580,36 @@ export default function GameHud({
   // never comes through here: render/camera.ts writes that onto the element's
   // transform directly, because that does move every frame.
   const lockSnap = useSyncExternalStore(subscribeLock, getLockSnapshot, getServerLockSnapshot);
-  const lockedOn = lockSnap.split("|")[0] !== "";
+  const lockedId = lockSnap.split("|")[0];
+  const lockedOn = lockedId !== "";
   const hasSwitched = lockSnap.split("|")[1] !== "0";
+
+  // THE RIPOSTE WINDOW, ON THE MAN IT IS OPEN ON.
+  //
+  // `docs/DESIGN-SYSTEM.md` §3: the parry tell lights the OPPONENT's brackets
+  // for the window's real duration, rather than putting a bar on my own HUD.
+  // Both halves of that rule are load-bearing and both are honoured here.
+  //
+  //   HIS brackets, not mine — so the thing a player is already looking at
+  //   (the man) is the thing that carries the information, and the eye never
+  //   has to leave the fight to read it. `input.ts` makes the man you parried
+  //   take the lock outright, so the brackets are guaranteed to be on him.
+  //
+  //   The window's REAL duration — so the mark cannot lie. `vulnerableTimer`
+  //   is the server's own remaining seconds, replicated (see types.ts), and the
+  //   jaws close over exactly that: when they meet, the window is gone. It is a
+  //   DRAIN and not a countdown, which is the rule §8 praises for the mercy
+  //   window — a number invites you to watch the number instead of the man.
+  //
+  // `vulnerableTo` is checked against this player: somebody else's parry is
+  // somebody else's reward and must not be drawn as mine.
+  const marked = lockedId ? roomState?.players[lockedId] : undefined;
+  const riposteLeft = marked && marked.vulnerableTo === playerId ? (marked.vulnerableTimer ?? 0) : 0;
+  const riposteOn = riposteLeft > 0;
+  // Closed fraction, 0 the instant it opens and 1 as it expires. Recomputed
+  // from the wire every snapshot rather than run off a local timer, so a
+  // dropped packet cannot leave a window drawn open after the server shut it.
+  const ripClose = riposteOn ? Math.min(1, 1 - riposteLeft / RIPOSTE.window) : 0;
 
   // What a tap would cut with right now. It is feedback, not state the sim
   // reads — input.ts holds the direction itself — but a player needs to be able
@@ -716,13 +744,21 @@ export default function GameHud({
                   on the glass that the old gunsight did. */}
               {[
                 { grow: 2.0, c: "rgba(10,7,4,0.55)" },
-                { grow: 0, c: "rgba(240,229,203,0.94)" },
+                { grow: 0, c: riposteOn ? "rgba(224,84,52,0.98)" : "rgba(240,229,203,0.94)" },
               ].map((p, i) => (
                 <path key={i}
                   d="M 10.40 -8.13 Q 17.60 0 10.40 8.13 Q 14.40 0 10.40 -8.13 Z
                      M -10.40 -8.13 Q -17.60 0 -10.40 8.13 Q -14.40 0 -10.40 -8.13 Z"
                   fill={p.c} stroke={p.grow ? p.c : "none"} strokeWidth={p.grow}
-                  strokeLinejoin="round" />
+                  strokeLinejoin="round"
+                  /* THE WINDOW, DRAWN AS THE JAWS CLOSING ON HIM.
+                     The one warm colour on a cold screen (DESIGN-SYSTEM §1 —
+                     blood is the only heat, so it needs no glow to read), and
+                     the jaws travel inward by `ripClose`, which is the server's
+                     own remaining seconds. When they meet, it is over. No box,
+                     no rotating reticle, no mark over his face — the same two
+                     strokes that were already there, saying one more thing. */
+                  transform={riposteOn ? `scale(${(1 - ripClose * 0.42).toFixed(3)})` : undefined} />
               ))}
             </svg>
           </div>
@@ -742,7 +778,11 @@ export default function GameHud({
             <svg width="46" height="14" viewBox="-23 -7 46 14" className="block overflow-visible">
               {[
                 { w: 3.0, c: "rgba(10,7,4,0.52)" },
-                { w: 1.25, c: "rgba(240,229,203,0.68)" },
+                // The ground he stands on goes warm with the jaws — the same
+                // one signal in two places rather than a second device, so the
+                // window reads from the corner of the eye at fight distance
+                // where 34 px of bracket might not.
+                { w: 1.25, c: riposteOn ? "rgba(224,84,52,0.85)" : "rgba(240,229,203,0.68)" },
               ].map((p, i) => (
                 <ellipse key={i} cx="0" cy="0" rx="19" ry="3.8"
                   fill="none" stroke={p.c} strokeWidth={p.w} />

@@ -145,10 +145,43 @@ that stops appearing when the cursor is free fails the gate.
   rather than repeating the literals, or it will lie the first time anyone
   remaps.
 - **Mobile must not regress.** The touch path does not read `keys` at all, but
-  it shares `sampleInput`. `npm run touchtest` is the guard at 19/19.
+  it shares `sampleInput`. `npm run touchtest` is the guard at 19/19. Every
+  action in the table above has a touch equivalent except crouch — including
+  the shove, which is a 56 px pad inside the thumb band (`docs/MOBILE-CONTROLS.md`).
 - **Crouch is desktop-only** and the touch path never sends it — that is
   deliberate and documented in the hit-zone work. A remap screen must not imply
   a phone player can crouch.
+
+## The table as it stands, 12 August 2026
+
+`src/game/client/bindings.ts` is the authority; this is what it holds, and the
+list is here because a document that describes bindings and does not name them
+is a document nobody can check.
+
+| Action | Default | Notes |
+|---|---|---|
+| Forward / back / left / right | `KeyW` `KeyS` `KeyA` `KeyD` + arrows | Physical codes; AZERTY and Dvorak get the same shape. |
+| Sprint | `ShiftLeft` | Held. |
+| Dodge | `Space` | One-shot, `DODGE_COOLDOWN` 0.8 s. |
+| Crouch | `KeyC` | **Desktop only.** Was `ControlLeft`; macOS ate the chord. |
+| Attack | left mouse | |
+| Heavy | right mouse / `KeyE` / `KeyV` | |
+| Block | right mouse (hold) | The parry is a **timed raise**, not a held state — see below. |
+| Ability | `KeyQ` | |
+| **Shove** | **`KeyF`** | One-shot. Beats a raised shield; a dodge beats it; costs 25 stamina and 1.5 s of cooldown. |
+
+**The parry needs no binding of its own, and that is a decision rather than an
+omission.** It is the block, raised inside the 150 ms before a blow lands
+(`PARRY_WINDOW`, 3 ticks at 20 Hz — `tools/weightprobe.mjs` sweeps it). Giving
+it a separate key would make it a *different act* from guarding, and the reason
+a parry is skilful is precisely that it is the same act performed at the right
+moment. A player who holds block gets a block; a player who taps it on the beat
+gets a parry, staggers the man, and opens a 0.90 s riposte window on him — see
+`docs/WEIGHT.md`.
+
+What that costs the remap screen: nothing today, and one thing to remember. If
+block is ever moved off the mouse, the parry moves with it, because they are one
+binding. The screen must not grow a second row called "parry".
 
 ## How it gets judged
 
