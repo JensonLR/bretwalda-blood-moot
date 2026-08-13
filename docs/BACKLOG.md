@@ -71,6 +71,7 @@ ninety seconds, and it is the foundation the war layer sits on.
 | 2b.1 | **"Flick screen to change foe" never goes away** — the hint is permanent and must fade | NEW. A hint that never leaves is not a hint, it is furniture |
 | 2b.2 | **The match starts before everyone has loaded** — "a lot of the time the game starts before fully loading in which is a poor experience, we shouldn't start until everyone is fully loaded in" | NEW, and it needs `engine.mjs`: the server must hold the countdown until every client reports ready, with an honest timeout so one bad connection cannot hang seven people |
 | 2b.3 | **The death camera only fires for the last man to die** — "everyone should see death camera for final death winner & all losers" | NEW, and it is a gap in what shipped. `deathcam.update()` returns null unless `dead && live`, which is right for your own death and means a WINNER never sees the round's final death. The final death of a round is the one everybody should watch — it is the round-end beat (2.6) and "being seen" (`WHAT-THIS-GAME-IS.md` §5.4) meeting |
+| 2b.4 | **The quality control is in the way** — "i like that feature but its a bit in the way where it currently is on screen". The feature is wanted; the placement is not | NEW. It shipped in the mobile unit as a blocking item and its placement was never reviewed on screen by an eye |
 
 ### WAVE 3 — balance and the enemy
 
