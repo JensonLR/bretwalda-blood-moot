@@ -4,6 +4,13 @@
 // routes share the same rooms in one process.
 // ============================================================
 import { randomUUID } from "crypto";
+// THE ARENA STOPS BEING A HOLOGRAM. `solidground.mjs` owns the collision maths
+// and `grounds.mjs` declares which props are on which side of the owner's line
+// — "obstacle decoration" blocks, "decoration decoration" does not. This module
+// contributes the tick order and nothing else; see the wiring note in
+// `gameTick`, and `tools/solidtest.mjs` for the gate on it.
+import { getGround } from "./grounds.mjs";
+import { resolveSolids } from "./solidground.mjs";
 
 const TICK_RATE = 20;
 
@@ -40,7 +47,17 @@ const STAGGER_DURATION = 0.6;
 const HEAVY_CLEAN_STAGGER = 0.30;
 const MATCH_COUNTDOWN = 3;
 const SPAWN_INVINCIBLE = 2.0;
-const ARENA_RADIUS = 18;
+// `const ARENA_RADIUS = 18` USED TO LIVE HERE AND IT IS DELIBERATELY GONE.
+//
+// The ring is `ground.play.radius` and `resolveSolids` enforces it, together
+// with the props, in one solve — it has to be one solve, because the runestone's
+// far corner reaches 0.53 m past the ring and two rules that can each push a
+// body into the other will do it forever. Keeping the old constant "for
+// reference" would have left this file asserting where the wall is while
+// something else decided, which is a mirrored definition with a fuse on it, and
+// this repository has recorded five. `tools/solidtest.mjs` claim 11 now fails if
+// it comes back.
+
 // Centre-to-centre gap two warriors are held apart at. It is the only statement
 // the sim makes about how wide a man is, which is why the fire borrows it below.
 const BODY_MIN_SEP = 1.05;
@@ -133,7 +150,7 @@ const SPAWN_GAP = 7.5;
 // geometry reaches 2 m and the hearth stones a little past that — and stops two
 // duellists from being solved onto opposite sides of a hearth six paces wide.
 const SPAWN_MIN_RADIUS = 6;
-// The ceiling keeps everyone a good six metres inside the palisade at ARENA_RADIUS,
+// The ceiling keeps everyone a good six metres inside the palisade at the play bound,
 // so nobody opens a round with his back already against the timber.
 const SPAWN_MAX_RADIUS = 12;
 // A shield wall is a line. Men of one team stand this far apart along their own
@@ -855,23 +872,77 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 // carries the second-largest health bar in the game and still the worst guard in
 // it, so he soaks and he swings and he cannot do anything else.
 //
-// WHAT IT MEASURES AT — the same instrument, 250 bouts per ordered matchup,
-// 4,000 duels, run against THIS TABLE AS COMMITTED rather than against the
-// lever stack it was tuned with (the lever sweep could not move `sprintSpeed`,
-// so its numbers describe a roster that runs at the old speeds and are not the
-// ones to quote):
+// WHAT IT MEASURES AT — 1,000 bouts per ordered matchup, 16,000 duels a run,
+// against THIS TABLE AS COMMITTED. Master seed 20260813:
 //
-//   huscarl     53.3%  [49.8-56.9]
-//   runekeeper  50.4%  [46.8-54.0]
-//   berserker   45.7%  [42.2-49.3]
-//   warden      43.7%  [40.2-47.3]
+//   huscarl     53.8%  [52.0-55.6]
+//   runekeeper  51.6%  [49.8-53.4]
+//   berserker   46.8%  [45.0-48.6]
+//   warden      45.2%  [43.4-47.0]
 //
-// A 54.9-point spread became a 9.6-point one, no ordered matchup is outside
-// 30-70%, and the ring is legible: huscarl beats warden beats runekeeper beats
-// huscarl, with the berserker cutting across — he takes the warden and the
-// runekeeper and is broken by the shield. The owner's instinct that the huscarl
-// is the best man in the game is now TRUE and is now only worth four points,
-// and it comes with a hard counter he can see coming.
+//   SPREAD      8.6 points  [5.0-12.2]
+//
+// THE SPREAD IS QUOTED WITH ITS INTERVAL AND THE PREVIOUS VERSION OF THIS
+// COMMENT WAS NOT, AND THAT MATTERED. It said "a 54.9-point spread became a
+// 9.6-point one", measured at 250 bouts — and an adversary reading the identical
+// roster at the identical n got 13.1 and 13.9. Nobody was wrong; a difference of
+// two noisy quantities is itself noisy, and the shipped figure was the
+// friendliest of four draws written down as a fact. A spread is a range.
+//
+// AND THE BAND CLAIM IT SHIPPED — "no ordered matchup is outside 30-70%" — WAS A
+// COIN TOSS, WHICH IS THE OTHER THING THAT CHANGED. The same adversary ran ten
+// master seeds at 250 bouts: eight green, two red. This pass reproduced both red
+// seeds exactly and then spent 26,000 duels finding out what the roster actually
+// is. The ring is REAL and it is calibrated ON THE BAR — the huscarl beats the
+// warden at the top of the band and loses to the runekeeper at the bottom of it,
+// and both of those are within a point and a half of the bar.
+//
+// So the honest statement is not "every ordered matchup is inside 30-70%". It is
+// THE RING SITS ON THE BAND EDGE, and `classmatrix` now says exactly that: it
+// rules three ways — INSIDE, EDGE, OUTSIDE — pools both orderings of a matchup
+// instead of judging each half separately, and puts every EDGE matchup on the
+// verdict line as a deferral rather than counting it as a pass.
+//
+// Pooled over both orderings, 2,000 duels a matchup, on the default seed and on
+// BOTH of the seeds the adversary used to break the old claim — all three return
+// the same verdict, which is the thing that was actually wrong before:
+//
+//                          20260813            424242              90210
+//   huscarl v warden       69.1 [67.0-71.1]    69.8 [67.8-71.8]    68.4 [66.3-70.4]   EDGE
+//   huscarl v runekeeper   29.7 [27.7-31.7]    31.6 [29.6-33.7]    28.3 [26.4-30.4]   EDGE
+//   huscarl v berserker    66.1 [64.0-68.2]                        65.8 [63.7-67.8]   inside
+//   warden v runekeeper    63.7 [61.6-65.8]                        63.7 [61.6-65.8]   inside
+//   warden v berserker     42.4 [40.3-44.6]                        43.1 [41.0-45.3]   inside
+//   rune v berserker       48.2 [46.0-50.4]                        51.6 [49.4-53.8]   inside
+//
+// WHY THE ROSTER IS NOT BEING NUDGED OFF THE BAR IN THIS PASS, measured rather
+// than asserted. Three levers were pulled at the huscarl, who is in both edge
+// matchups — he beats the warden at the top of the band and loses to the
+// runekeeper at the bottom of it:
+//
+//   blockReduction 0.80 -> 0.00   huscarl vs warden  69% -> 69%   INERT
+//   staminaMax/Regen +43%/+100%   huscarl vs rune    30% -> 30%   INERT
+//   attackSpeed 1.02 -> 0.86      huscarl vs rune    30% -> 82%   the stroke is king
+//   maxHealth 158 -> 175          vs warden +13, vs runekeeper +7
+//   attackDamage 17 -> 22         vs warden +16, vs runekeeper +21
+//
+// The first result is the important one and it is a hole in the RULER: taking the
+// best shield in the game down to no shield at all moves nothing, because bots
+// raise a guard when a windup becomes readable and almost every such blow lands
+// inside the PARRY window instead — 5.8-6.0% of all damage in a full matrix
+// ever meets a raised guard (three seeds: 6.0, 5.9, 5.8; it is a measurement,
+// so it is a range). DEFENCE, one of the four card axes and one of this
+// class's two certified strengths, is very nearly unmeasured here. That is now on
+// `classmatrix`'s verdict line every run.
+//
+// The last two lines are the fix if it is wanted: health and damage move the
+// huscarl's two edge matchups in DIFFERENT ratios (1.85 and 0.76), so the pair
+// of them can move one up and the other down. Solved, it wants roughly
+// `maxHealth 158 -> 135, attackDamage 17 -> 21`. It is not being taken here,
+// because it turns the wall into a bruiser — a 135 bar is nine points over the
+// berserker's rather than thirty-two — to satisfy a bar drawn by an instrument
+// that cannot see his shield. That is a decision about what the huscarl IS, it
+// belongs to the owner, and it is filed in docs/BACKLOG.md with these numbers.
 //
 // `sprintSpeed` moves with `moveSpeed` and is not an independent lever: every
 // class runs at ~1.5x its walk (huscarl 1.59, warden 1.50, runekeeper 1.48,
@@ -894,9 +965,19 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 // Readability is deliberately not uniform and it is load-bearing in the matrix
 // above. 232 ms is under a human reaction and under a `warrior` bot's: a
 // runekeeper's light is meant to be read from his stance, not answered after it
-// starts, and the measured consequence is that he takes the huscarl 68-28 — the
-// fastest man in the game beats the best shield in it precisely BECAUSE the
-// shield never goes up in time. Every other class telegraphs at 340 ms or more.
+// starts, and the measured consequence is that he takes the huscarl 70.3%
+// [68.3-72.3] over 2,000 duels on the default seed — the fastest man in the game
+// beats the best shield in it. Every other class telegraphs at 340 ms or more.
+//
+// THE "BECAUSE THE SHIELD NEVER GOES UP IN TIME" HALF OF THAT SENTENCE HAS BEEN
+// CUT, because it was a story and the story is not supported. If the shield were
+// the mechanism, taking the huscarl's `blockReduction` from 0.80 to 0.00 would
+// move the matchup; measured, it moves it by zero points. Only 5.8-6.0% of the
+// damage in a full matrix ever meets a raised guard at all — bots parry far more
+// often than they block — so the guard is barely in this measurement in either
+// direction, and the reason the runekeeper wins is his 24.1/s against the
+// huscarl's 16.7/s, not a shield that fails to arrive. R7: the comment and the
+// code are one artefact, and that includes the explanation attached to a number.
 //
 // The two tables are held together on every column now, not only this one.
 // `src/game/types.ts` carried a second copy that disagreed on eight of twelve
@@ -3635,6 +3716,12 @@ export function makeEngine(options = {}) {
   function stepRoom(room, dt) {
     room.matchTimer += dt;
 
+    // The ground this room is fought on, looked up once a tick rather than once
+    // a body: `getGround` falls back to the village on an id nobody knows, so a
+    // client and a server disagreeing about arenas costs a wrong floor and not
+    // a crash. `room.arena` is the id already on the wire.
+    const ground = getGround(room.arena);
+
     room.players.forEach((player) => {
       // The fire first, because it can kill: a man it kills has to drop out of
       // the rest of this step exactly the way a man cut down last step does, and
@@ -3744,7 +3831,9 @@ export function makeEngine(options = {}) {
         if (player.abilityTimer <= 0) { player.abilityActive = false; if (player.state === "ability") player.state = "idle"; }
         if (player.warriorClass === "berserker") { player.health -= 3 * dt; if (player.health < 1) player.health = 1; }
       }
+      const wasX = player.position.x, wasZ = player.position.z;
       integrateMovement(player, dt);
+      resolveInto(ground, player, wasX, wasZ);
 
       const stats = WARRIOR_STATS[player.warriorClass];
       if (player.state !== "sprinting" && player.state !== "attacking" && player.state !== "shoving") {
@@ -3752,28 +3841,64 @@ export function makeEngine(options = {}) {
       }
       if (player.stamina < 0) player.stamina = 0;
 
-      // The palisade. The projection is radial, so it only ever costs the
-      // outward part of a step — a warrior meeting the wall at an angle keeps
-      // every bit of his tangential travel and slides along it, which is why
-      // this is not a displacement leak on the way to it. What it must also do
-      // is take the outward velocity with it: leaving 4.5 u/s pointed into the
-      // timber makes the client extrapolate through the wall and snap back on
-      // every packet, and hands the stride straight back the instant the body
-      // turns away.
-      const r = Math.hypot(player.position.x, player.position.z);
-      if (r > ARENA_RADIUS) {
-        const nx = player.position.x / r, nz = player.position.z / r;
-        player.position.x = nx * ARENA_RADIUS;
-        player.position.z = nz * ARENA_RADIUS;
-        killComponent(player, nx, nz);
-      }
+      // The palisade used to be enforced here, as eight lines of radial clamp.
+      // It has moved INTO `resolveInto` above — not deleted, solved together
+      // with the props, because the runestone's far corner reaches past the
+      // ring and a man clamped inward by one rule and pushed outward by the
+      // other is a man the two rules pass back and forth forever. One
+      // constraint set, one solver, one answer. See the header of
+      // `solidground.mjs`, which says the same thing from the other side.
     });
 
     // Soft body collision — warriors cannot stack on each other. The push is
     // positional and symmetric, and it eats displacement only while two bodies
     // are actually overlapping, which is the point of it.
+    //
+    // ---- AND THIS IS WHY THE SOLIDS ARE RESOLVED A SECOND TIME ----
+    //
+    // This pass runs AFTER the movement step and it moves bodies. So on the
+    // engine's real tick order it takes men the resolver has just placed
+    // legally against the woodpile and shoves them straight back into it, every
+    // tick, with nothing downstream to undo it.
+    //
+    // MEASURED HERE, by turning the `if (pushed)` below off and on and changing
+    // nothing else — `tools/solidtest.mjs` claim 12, which anyone can re-run:
+    //
+    //   eight-man scrum, resolve at the movement step only ... 374 of 48,000
+    //                                    man-ticks inside the rick, deepest 258 mm
+    //   ...and resolved again after the separation pass ..... 0 of 48,000
+    //   plain duel, EITHER build ............................ 0 of 12,000
+    //
+    // The duel row is the whole warning. The defect is invisible in the case a
+    // one-man harness tests and continuous in a crowd, so a fix gated on a duel
+    // would have shipped looking finished. (The unit's own adversary reported the
+    // same fault at a larger n and a different fixture — 62,381 of 718,800
+    // man-ticks, deepest 199 mm — which is that fixture's number and not this
+    // one's; both are quoted here as what they are, because a figure copied from
+    // somebody else's run and printed as your own measurement is how this
+    // repository has been wrong before.)
+    // A scrum renders men CONTINUOUSLY standing in the rick, which is the
+    // artefact the owner reported and the one this work exists to end.
+    //
+    // TWO WAYS TO FIX IT AND THIS IS THE ONE, with reasons. The alternative is a
+    // "solid-aware push": teach the separation loop to pick a push direction
+    // that does not enter a prop. That means a second piece of code that knows
+    // what a solid is and how to get out of one — a second definition of
+    // collision, living in the file that already has the least reason to own
+    // one. This repository has recorded the mirrored-definition fault five
+    // times and it is the most expensive fault it has. So instead the push
+    // stays exactly as naive as it was, and its output is fed back through the
+    // SAME resolver that placed the body in the first place, from a base point
+    // that is known legal because the resolver returned it four lines ago.
+    // `resolveSolids` is pure and cheap; it is the one call, twice.
     const arr = [];
     room.players.forEach((p) => { if (p.state !== "dead") arr.push(p); });
+    // Where everybody legally stood before the shoving started. This is the
+    // `from` the second resolve falls back to, and it has to be captured before
+    // ANY pair is pushed: taking it per-body inside the loop would hand the
+    // resolver a base that an earlier pair had already made illegal.
+    const beforeSep = arr.map((p) => ({ x: p.position.x, z: p.position.z }));
+    let pushed = false;
     for (let i = 0; i < arr.length; i++) {
       for (let j = i + 1; j < arr.length; j++) {
         const a = arr[i], b = arr[j];
@@ -3784,11 +3909,48 @@ export function makeEngine(options = {}) {
           const push = (BODY_MIN_SEP - d) * 0.5;
           const nx = dx / d, nz = dz / d;
           // A roll goes through the scrum rather than being sorted by it.
-          if (a.state !== "dodging") { a.position.x -= nx * push; a.position.z -= nz * push; killComponent(a, nx, nz); }
-          if (b.state !== "dodging") { b.position.x += nx * push; b.position.z += nz * push; killComponent(b, -nx, -nz); }
+          if (a.state !== "dodging") { a.position.x -= nx * push; a.position.z -= nz * push; killComponent(a, nx, nz); pushed = true; }
+          if (b.state !== "dodging") { b.position.x += nx * push; b.position.z += nz * push; killComponent(b, -nx, -nz); pushed = true; }
         }
       }
     }
+    // Only when somebody was actually moved: a round where nobody touches
+    // anybody pays nothing for this at all.
+    if (pushed) {
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i];
+        if (p.position.x === beforeSep[i].x && p.position.z === beforeSep[i].z) continue;
+        resolveInto(ground, p, beforeSep[i].x, beforeSep[i].z);
+      }
+    }
+  }
+
+  /**
+   * Put a body where it may actually stand, after something has moved it.
+   *
+   * The whole of this engine's knowledge of solid props, and deliberately the
+   * whole: `solidground.mjs` owns the maths and `grounds.mjs` owns the
+   * declarations, so what lives here is the tick order and the velocity
+   * bookkeeping — the two things that are this file's business.
+   *
+   * `fromX/fromZ` must be a place the body could legally BE. It normally is,
+   * because it is this function's own output from the previous call. When it is
+   * not — a spawn solved into the woodpile, a prop declared under a standing man
+   * — the resolver ejects him by the nearest face rather than trapping him, and
+   * `tools/solidtest.mjs` gates that it takes at most two ticks.
+   *
+   * `blockedX/blockedZ` is the same quantity the palisade clamp used to hand
+   * `killComponent`: the direction that has just turned solid. Only the part of
+   * the stride pointed into the timber is spent, so a warrior meeting a face at
+   * an angle keeps his tangential travel and slides — and the client, which
+   * extrapolates the server's velocity and has no collision of its own, is not
+   * told to keep walking into a prop.
+   */
+  function resolveInto(ground, player, fromX, fromZ) {
+    const s = resolveSolids(ground, fromX, fromZ, player.position.x, player.position.z, BODY_MIN_SEP / 2);
+    player.position.x = s.x;
+    player.position.z = s.z;
+    if (s.hit) killComponent(player, s.blockedX, s.blockedZ);
   }
 
   // `blockedX/blockedZ` is a unit direction that has just turned solid — the

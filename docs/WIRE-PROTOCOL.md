@@ -743,12 +743,24 @@ Asserted by `protocoltest` so it cannot change silently.
   a native client should read `warriorStats` off the wire rather than hard-code
   a table; the second copy exists only because `anim.ts` needs `attackSpeed`
   synchronously and the class card is drawn before a room exists.
-- `src/game/grounds.mjs:14-19` states that `engine.mjs` imports it instead of
-  carrying a hand-copy of the terrain field. On `origin/main` **it does not** —
-  `engine.mjs:576-641` still carries `GATE_ANGLES`, `pathMask` and
-  `groundHeight` by hand, and `grounds.mjs` is imported only by
-  `render/world.ts`. The comment describes an intention, not the code. Left
-  alone: `grounds.mjs` belongs to another unit.
+- ~~`src/game/grounds.mjs:14-19` states that `engine.mjs` imports it instead of
+  carrying a hand-copy of the terrain field. On `origin/main` **it does not**.~~
+  **HALF FIXED, and the honest half is worth stating.** `engine.mjs` now imports
+  `grounds.mjs` for real — `getGround(room.arena)` in the tick — and its own
+  `ARENA_RADIUS = 18` has been **deleted**, so the play bound exists once, in
+  `SAXON_VILLAGE.play.radius`, and `resolveSolids` enforces it together with the
+  props. What is still a hand-copy is the terrain field: `GATE_ANGLES`,
+  `pathMask` and `groundHeight` remain written out in `engine.mjs`. That is a
+  live mirrored definition and it decides where men spawn.
+- **The class card drew its stat bars against maxima typed in beside the
+  roster** — `page.tsx` had `HP max={150}` while the huscarl carries 158, and
+  `SPD max={100}` while both the warden's 5.0 and the runekeeper's 5.6 exceeded
+  it, so two different warriors drew the same full bar and `StatBar`'s
+  `Math.min(100, ...)` hid it. *Fixed*: `src/game/statshape.mjs` is the one
+  definition of the four axes and derives every ceiling from the roster, and
+  `tools/classmatrix.mjs` fails if a numeric `max=` reappears on a stat bar, if
+  two classes that differ on an axis draw the same length, or if the card and the
+  shape gate disagree about which two stats a class is strong on.
 
 ---
 

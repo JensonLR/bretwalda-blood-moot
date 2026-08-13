@@ -174,25 +174,51 @@ move the sim first, not the collision.
    without pockets or a real planner, and that decision belongs with the map
    rather than after it.
 
-### The one call the server has to make
+### The two calls the server makes — and it was ONE for a day, which was wrong
 
-`engine.mjs` does not make it yet — another agent owns that file — and this is
-the whole of it, in the movement step, immediately after `integrateMovement`:
+`engine.mjs` makes them now. The first is at the movement step, immediately after
+`integrateMovement`, and it **replaces** the palisade clamp that used to follow —
+the play bound is part of the same solve, so the eight-line radial clamp is gone
+rather than left as a no-op:
 
 ```js
-import { resolveSolids } from "./solidground.mjs";
-
 const wasX = player.position.x, wasZ = player.position.z;   // before the stride
 integrateMovement(player, dt);
-const s = resolveSolids(ground, wasX, wasZ, player.position.x, player.position.z, BODY_MIN_SEP / 2);
-player.position.x = s.x;
-player.position.z = s.z;
-if (s.hit) killComponent(player, s.blockedX, s.blockedZ);
+resolveInto(ground, player, wasX, wasZ);   // resolveSolids + killComponent
 ```
 
-It **replaces** the palisade block that follows it today: the play bound is part
-of the same solve. A second clamp afterwards is a harmless no-op, but it is dead
-code.
+**THE SECOND CALL IS THE ONE THIS DOCUMENT USED TO BE MISSING, AND IT IS THE
+DIFFERENCE BETWEEN A DUEL AND A SCRUM.** The engine does not stop after the
+movement step. It then runs a **soft body-separation pass** that holds warriors
+1.05 m apart by writing `player.position` directly — and that pass runs *after*
+the resolve, so it pushes bodies straight back into the props the resolver had
+just cleared, with nothing behind it to undo that:
+
+```js
+// ...the separation loop, unchanged and deliberately still naive...
+if (pushed) {
+  for (let i = 0; i < arr.length; i++) {
+    if (unmoved) continue;
+    resolveInto(ground, arr[i], beforeSep[i].x, beforeSep[i].z);
+  }
+}
+```
+
+Measured on the real engine, the two builds differing by that one `if`:
+**374 of 48,000 man-ticks ended with a body inside the woodpile, deepest 258 mm**,
+in an eight-man scrum. In a plain duel: **0 of 12,000, on both builds.** So the
+defect is invisible in the case a single-body harness tests and continuous in the
+case the owner reported, and the fix that only holds in a duel is not a fix.
+`tools/solidtest.mjs` claim 12 runs `engine.mjs` itself — real room, real bots,
+real tick order — and gates it.
+
+The alternative was a *solid-aware push*: teach the separation loop to choose a
+direction that does not enter a prop. That is a second piece of code that knows
+what a solid is, in the file with the least reason to own one, and this
+repository has recorded the mirrored-definition fault five times. So the push
+stays naive and its output goes back through the same resolver. **A new pass that
+moves bodies must be followed by a resolve, or it is a hole** — that is the rule
+this section exists to carry forward.
 
 Two optional hooks, neither on the movement path: `steerAroundSolids` for bots —
 without it a bot walking dead-on into a flat face stops there for the rest of the

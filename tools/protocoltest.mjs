@@ -459,11 +459,21 @@ async function scenarioMelee() {
   // one picked the first `blow` out of the list and would have been satisfied
   // by one good message among a dozen malformed ones. The property is that a
   // death by steel always says where it landed, however it was reached.
+  //
+  // `startsWith("bot_")` IS BACK, AND IT SHOULD NEVER HAVE GONE. Widening the
+  // claim from one death to all of them was right; loosening the killer to
+  // "some non-empty string" came along with it and was not, because in THIS
+  // fixture the killer is knowably a bot — the only human in the room is the
+  // corpse — and `"a non-empty string"` is satisfied by every id the engine
+  // could possibly emit, including the victim's own. An assertion that cannot
+  // fail is not an assertion. Both halves were re-run before this line: strict,
+  // protocoltest is 76/76; the empty-string case the `fire` check above relies
+  // on is a different cause and is unaffected.
   const steel = c.got("kill").filter((k) => k.cause === "blow" || k.cause === "finish");
   check("a killing blow says which limb and which stroke took him",
     steel.length > 0 && steel.every((k) => HIT_ZONES.includes(k.hitZone) &&
       typeof k.direction === "string" && typeof k.heavy === "boolean" &&
-      typeof k.killerId === "string" && k.killerId.length > 0),
+      typeof k.killerId === "string" && k.killerId.startsWith("bot_")),
     `${steel.length} weapon death(s), causes: ${[...new Set(steel.map((k) => k.cause))].join("/")}`);
   check("the corpse carries its own death on every later snapshot",
     c.got("game_state").some((d) => d.players[me] && d.players[me].state === "dead" &&

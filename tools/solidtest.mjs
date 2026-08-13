@@ -25,13 +25,13 @@
 // This repository has thirteen recorded instances of a ruler answering the
 // wrong question, so here is this one's answer in advance.
 //
-// IT DRIVES A MOVEMENT LOOP OF ITS OWN, NOT `engine.mjs`. It has to: `engine.mjs`
-// belongs to another agent this round and does not yet make the one call this
-// unit exists to be called by, so there is no build in which the engine's own
-// loop could go green. The loop below is `integrateMovement`'s arithmetic —
-// the acceleration term, the impulse integral, the order of the two — followed
-// by the resolve and `killComponent`, which is the shape of the wiring written
-// at the top of `src/game/solidground.mjs`.
+// CLAIMS 1-11 DRIVE A MOVEMENT LOOP OF THEIR OWN; CLAIM 12 DRIVES THE ENGINE.
+// The loop is `integrateMovement`'s arithmetic — the acceleration term, the
+// impulse integral, the order of the two — followed by the resolve and
+// `killComponent`, which is the shape of the wiring written at the top of
+// `src/game/solidground.mjs`. It is fast, it sweeps twenty-four bearings against
+// every solid on two grounds, and it is the right instrument for asking whether
+// the COLLISION is correct.
 //
 // The obvious way for that to be a lie is for the driver's constants to drift
 // from the engine's, at which point this measures a game nobody plays. So it
@@ -40,10 +40,14 @@
 // no longer the two lines that are there. Pull `MOVE_ACCEL_TAU` in the engine
 // and this harness moves with it or stops.
 //
-// WHAT IT THEREFORE CANNOT SEE: whether the engine actually makes the call. It
-// cannot — that edit is another agent's — and claim ELEVEN reports the wiring's
-// absence on the verdict line rather than under it, because a deferral nobody
-// has to look at is a deferral nobody looks at.
+// AND IT IS STILL NOT ENOUGH, WHICH IS WHY CLAIM 12 EXISTS. A model of a
+// movement step cannot contain a pass the model does not know about, and the
+// engine runs one: a positional body-separation sweep AFTER the movement step,
+// which shoves warriors into the props the resolver just cleared. Every claim
+// here was green while that was happening. Claim 12 therefore runs `engine.mjs`
+// itself — a real room, real bots, the real tick order — and gates on it, and
+// the first time it was run it was RED. A harness that models the thing it is
+// checking has to be joined by one that does not.
 //
 // A GATE GREEN BECAUSE THE CASE IS ABSENT IS NOT A GATE. The village's fighting
 // floor has exactly two solids on it, and neither is thin. So every claim also
@@ -56,6 +60,10 @@ import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { SAXON_VILLAGE, seeded, noise2 } from "../src/game/grounds.mjs";
+// Claim 12 runs the real thing. Every other claim drives a model of the movement
+// step; this one is here because a model of a tick ORDER cannot contain the pass
+// it does not know about. See the note on claim 12.
+import { makeEngine } from "../src/game/engine.mjs";
 import {
   resolveSolids, steerAroundSolids, clearanceAt, isClear,
   solid, passable, solidDistance, rick, raisedStone, footprintEncloses, SOLID_TOLERANCE,
@@ -112,7 +120,13 @@ const TICK_RATE = engineConst("TICK_RATE");
 const DT = 1 / TICK_RATE;
 const BODY_MIN_SEP = engineConst("BODY_MIN_SEP");
 const BODY_RADIUS = BODY_MIN_SEP / 2;
-const ARENA_RADIUS = engineConst("ARENA_RADIUS");
+// THE RING COMES OFF THE GROUND, NOT OUT OF THE ENGINE. It used to be
+// `engineConst("ARENA_RADIUS")`, and claim 11 checked that the engine's copy and
+// the ground's agreed — which is the shape of a check you write when there are
+// two of something. There is one now: the engine's constant is deleted and
+// `resolveSolids` enforces `play.radius` along with the props, so this harness
+// reads the same single number the server does.
+const ARENA_RADIUS = SAXON_VILLAGE.play.radius;
 const MOVE_ACCEL_TAU = engineConst("MOVE_ACCEL_TAU");
 const MOVE_STOP_TAU = engineConst("MOVE_STOP_TAU");
 const IMPULSE_TAU = engineConst("IMPULSE_TAU");
@@ -244,6 +258,13 @@ const PROVING_GROUND = {
 };
 
 const GROUNDS = [SAXON_VILLAGE, PROVING_GROUND];
+
+/**
+ * Nothing on it and no bound. Used to MEASURE the driver's own largest
+ * single-tick travel, rather than to test anything: a number about how far a
+ * roll goes must not be taken on a floor that can stop it.
+ */
+const PROVING_GROUND_EMPTY = { id: "empty", name: "Open ground (fixture)", obstacles: [] };
 
 // The lever. R1: change the constant you believe controls the number, BY A LOT,
 // and check the number MOVES — and that it moved somewhere the feature does
@@ -555,10 +576,43 @@ console.log(`  fastest legs ${TOP_SPRINT} u/s, longest roll ${TOP_ROLL} m\n`);
 // CLAIM 5 — a roll cannot tunnel
 // ===========================================================================
 {
-  // The largest single-tick displacement the game can produce: the longest
-  // roll, launched at distance / IMPULSE_TAU, on its first tick, plus a sprint
-  // already in the legs. Against a 12 cm fence rail.
-  const firstTick = (TOP_ROLL / IMPULSE_TAU) * IMPULSE_TAU * (1 - Math.exp(-DT / IMPULSE_TAU)) + TOP_SPRINT * DT;
+  // WHAT THIS CLAIM USED TO SAY, AND WHY IT WAS THEATRE.
+  //
+  // It printed "1.18 m of travel in the first tick", computed as the roll's
+  // first-tick impulse PLUS a full sprint in the legs. The engine does not do
+  // that and neither does this file's own driver: a dodge sets
+  // `player.moveVel.x = 0` — "the roll owns the body", `engine.mjs` — and
+  // `roll()` above reproduces it faithfully. So the number beside the claim was
+  // 54% larger than the thing the claim was measuring, which is rule R7's fault
+  // exactly: a comment describing a value the code does not have, and trusted
+  // because it is written down.
+  //
+  // Worse, the number it should have said is 0.766 m, which is BELOW the body's
+  // own 1.050 m diameter. A body cannot pass through a solid in one step unless
+  // it travels further than its own width plus the solid's — so at today's
+  // numbers this claim CANNOT FAIL, and an adversary duly set `steps = 1`,
+  // deleting the substepping the claim exists to protect, and watched it stay
+  // green.
+  //
+  // So the claim is now three measurements instead of one slogan:
+  //   * the real largest single-tick travel, taken off the driver rather than
+  //     from a formula written next to it;
+  //   * the live case, which is what the game can actually produce;
+  //   * a HEADROOM case that proves the substepping is load-bearing, by driving
+  //     the resolver at a jump the game cannot reach yet and showing that
+  //     endpoint-only resolution goes clean through the rail while the real call
+  //     stops at it. That is the difference between a guarantee and a coincidence.
+  //
+  // MEASURED, not asserted: the largest displacement the driver produces in one
+  // tick, over the same rolls the live case fires.
+  let firstTick = 0;
+  {
+    const probe = newMan(0, 0);
+    roll(probe, 1, 0, TOP_ROLL);
+    const was = probe.x;
+    tick(PROVING_GROUND_EMPTY, probe, 0, 0, 0);
+    firstTick = Math.abs(probe.x - was);
+  }
   let bad = 0, cases = 0, deepest = 0, worstId = "";
   for (const ground of GROUNDS) {
     for (const s of ground.obstacles) {
@@ -580,9 +634,42 @@ console.log(`  fastest legs ${TOP_SPRINT} u/s, longest roll ${TOP_ROLL} m\n`);
       }
     }
   }
+  // THE HEADROOM CASE — and the proof that the substepping is not dead code.
+  //
+  // A body of diameter D cannot cross a solid of thickness T in one step unless
+  // it travels further than D + T. The rail is 0.12 m and a body is 1.05 m, so
+  // the crossing threshold is 1.17 m and the game's largest step is 0.766 m: at
+  // today's numbers endpoint-only resolution would be enough, which is precisely
+  // why the live case above proves nothing about substepping.
+  //
+  // This drives the resolver at a jump well past that threshold and compares two
+  // calls on the SAME destination:
+  //   * `resolveSolids(from -> to)` — the real call, which sweeps the path;
+  //   * `resolveSolids(to -> to)` — a zero-length step at the destination, which
+  //     is exactly what "resolve the endpoint only" means.
+  // If the second one lands past the rail and the first does not, the sweep is
+  // the thing doing the work and deleting it would be felt.
+  const rail = PROVING_GROUND.obstacles.find((s) => s.id === "fence");
+  const nx = -Math.sin(rail.rot), nz = Math.cos(rail.rot);   // the rail's own normal
+  const JUMP = 2.0;   // metres, comfortably past D + T = 1.17
+  const fromX = rail.x - nx * (JUMP / 2), fromZ = rail.z - nz * (JUMP / 2);
+  const toX = rail.x + nx * (JUMP / 2), toZ = rail.z + nz * (JUMP / 2);
+  const swept = resolveSolids(PROVING_GROUND, fromX, fromZ, toX, toZ, BODY_RADIUS);
+  const endpointOnly = resolveSolids(PROVING_GROUND, toX, toZ, toX, toZ, BODY_RADIUS);
+  // "Past the rail" is measured on the rail's own normal, signed from its centre.
+  const sideOf = (p) => (p.x - rail.x) * nx + (p.z - rail.z) * nz;
+  const sweptStopped = sideOf(swept) < BODY_RADIUS;
+  const endpointTunnelled = sideOf(endpointOnly) > BODY_RADIUS;
+  const crossing = 2 * BODY_RADIUS + 2 * 0.06;
+
   check("a dodge roll cannot tunnel — the longest roll in the game against the thinnest rail",
-    bad === 0,
-    `${cases} rolls fired from point-blank with the legs already sprinting, ${firstTick.toFixed(2)} m of travel in the first tick alone (${TOP_ROLL} m roll + ${TOP_SPRINT} u/s legs, against a rail ${(2 * 0.06 * 100).toFixed(0)} cm thick); ${bad} put a body inside, deepest ${(deepest * 1000).toFixed(1)} mm${deepest > SOLID_TOLERANCE ? ` (${worstId})` : ""}`);
+    bad === 0 && sweptStopped && endpointTunnelled,
+    `${cases} rolls fired point-blank from ${BEARINGS} bearings with the legs already sprinting: ${bad} put a body inside, deepest ${(deepest * 1000).toFixed(1)} mm${deepest > SOLID_TOLERANCE ? ` (${worstId})` : ""}. `
+    + `LARGEST SINGLE-TICK TRAVEL THE DRIVER PRODUCES, measured: ${firstTick.toFixed(3)} m (a ${TOP_ROLL} m roll — the legs are zeroed by the dodge, so no sprint adds to it), `
+    + `against a crossing threshold of ${crossing.toFixed(3)} m (body ${(2 * BODY_RADIUS).toFixed(3)} + rail ${(2 * 0.06).toFixed(2)}). `
+    + `HEADROOM: a ${JUMP.toFixed(1)} m jump through the rail stops at ${sideOf(swept).toFixed(3)} m off its centre (${sweptStopped ? "stopped" : "WENT THROUGH"}), while resolving the endpoint alone lands at ${sideOf(endpointOnly).toFixed(3)} m (${endpointTunnelled ? "tunnelled — so the sweep is what stops it" : "ALSO STOPPED, so this case proves nothing"})`);
+
+  note(`the live case cannot tunnel at today's numbers (${firstTick.toFixed(3)} m < ${crossing.toFixed(3)} m) — the substepping is HEADROOM, and the headroom clause above is what proves it works`);
 }
 
 // ===========================================================================
@@ -796,21 +883,150 @@ console.log(`  fastest legs ${TOP_SPRINT} u/s, longest roll ${TOP_ROLL} m\n`);
 {
   const wired = /resolveSolids\s*\(/.test(ENGINE_SRC) && /solidground\.mjs/.test(ENGINE_SRC);
   const killOk = KILL_SHAPE.test(ENGINE_SRC);
-  const ringMatches = ARENA_RADIUS === SAXON_VILLAGE.play.radius;
-  check("the model matches the engine it models — constants and killComponent parsed, not copied",
-    killOk && ringMatches,
-    `killComponent still has the shape this driver models: ${killOk}; engine ARENA_RADIUS ${ARENA_RADIUS} vs ground play radius ${SAXON_VILLAGE.play.radius}: ${ringMatches ? "agree" : "DISAGREE — the engine holds its own copy"}`);
-  void wired;   // reported on the verdict line as a deferral, not here.
+  // NOT "the two copies agree" — "there is only one". The engine's own
+  // `ARENA_RADIUS` is deleted; a reappearing `const ARENA_RADIUS = ...` is a
+  // second statement of where the wall is, and the two would drift the way
+  // `types.ts` and `engine.mjs` drifted on eight of twelve stat columns.
+  const engineKeepsRing = /^const ARENA_RADIUS\s*=/m.test(ENGINE_SRC);
+  check("the model matches the engine it models — killComponent parsed, and the ring exists once",
+    killOk && !engineKeepsRing,
+    `killComponent still has the shape this driver models: ${killOk}; engine declares its own ARENA_RADIUS: ${engineKeepsRing ? "YES — two definitions of the ring are back" : "no, it reads ground.play.radius"}; the ring under test is ${ARENA_RADIUS} m, from SAXON_VILLAGE.play`);
+  void wired;   // claim 12 now rules on it directly.
+}
+
+// ===========================================================================
+// CLAIM 12 — THE ENGINE'S OWN TICK ORDER, WITH A SCRUM ON THE WOODPILE
+// ===========================================================================
+{
+  // WHY THIS CLAIM EXISTS, AND WHAT EVERY CLAIM ABOVE IT COULD NOT SEE.
+  //
+  // Claims 1-11 drive a movement loop that REPRODUCES `integrateMovement` and
+  // then resolves. That was honest when the engine belonged to another agent,
+  // and it was also blind in one specific direction: the engine does not stop
+  // after the movement step. It runs a SOFT BODY-SEPARATION PASS afterwards,
+  // which is positional — it writes `player.position` directly to hold two
+  // warriors 1.05 m apart — and the driver above has no such pass at all.
+  //
+  // So wiring `resolveSolids` at the documented integration point alone leaves
+  // this: the resolver places a body legally against the woodpile, and the
+  // separation pass then shoves it back INTO the timber, with nothing after it
+  // to undo that. It is invisible in a duel and continuous in a scrum, because a
+  // push only happens when bodies overlap and two men rarely crowd one prop.
+  //
+  // MEASURED ON THE REAL ENGINE, both orders, same fixture, same seeds. The two
+  // runs differ by one line — `if (pushed)` in `gameTick` turned off and on:
+  //
+  //   resolve at the movement step ONLY  ... 374 of 48,000 man-ticks ended with
+  //                                          a body inside the prop, deepest 258 mm
+  //   ...and again after the separation  ... 0 of 48,000
+  //
+  // And the duel control, on both builds: 0 of 12,000. THAT IS THE POINT. The
+  // defect is invisible in a duel and 258 mm deep in a scrum, so a harness that
+  // walked one man at the woodpile would have called this fixed and shipped it.
+  // The owner's report is that he can walk through a woodpile; a fix that only
+  // holds when nobody is standing next to him is not an answer to it.
+  //
+  // THE FIXTURE, and what is real about it. Eight bodies are PLACED in a ring
+  // tight around the woodpile — a state the game can genuinely reach, since the
+  // village's spawn ring is 6-12 m and the pile centre is at r 6.8, which
+  // `solidground.mjs` names in its own header as a round that can open inside
+  // the firewood. After the placement, EVERY TICK IS THE ENGINE'S: its bots, its
+  // movement step, its separation pass, its resolve, in its order. Health is
+  // topped up each tick so the scrum lasts the whole run rather than thinning
+  // out into a duel — the claim is about the tick order, and the tick order does
+  // not care how much health anybody has.
+  //
+  // A body is "inside" if its centre is nearer a solid than its own radius, read
+  // at the END of a tick — which is the position the snapshot carries and
+  // therefore the position a player sees.
+  const TICKS = 600;
+  const RUNS = 10;
+  const BOTS = 7;   // plus the session player, who leans into the pile: eight.
+  let manTicks = 0, insideTicks = 0, deepest = 0, duelManTicks = 0, duelInside = 0;
+
+  const scrum = (nBots, seed, place) => {
+    let a = (seed >>> 0) || 1;
+    const real = Math.random;
+    Math.random = function m32() {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const engine = makeEngine({ autoTick: false });
+    let latest = null;
+    const sid = engine.connect((str) => {
+      const m = JSON.parse(str);
+      if ((m.type === "game_state" || m.type === "lobby_update" || m.type === "countdown"
+        || m.type === "round_end") && m.data.players) latest = m.data;
+    });
+    engine.message(sid, { type: "create", data: { name: "Steward", mode: "blood_moot", bestOf: 1 } });
+    for (let i = 0; i < nBots; i++) {
+      engine.message(sid, { type: "add_bot", data: { difficulty: "warrior", warriorClass: CLASSES[i % CLASSES.length] } });
+    }
+    engine.message(sid, { type: "start", data: {} });
+    let settle = 0;
+    while (settle < 30 && latest?.state !== "fighting") { engine.step(DT); settle += DT; }
+    const room = [...engine._rooms.values()][0];
+    if (!room) { Math.random = real; engine.stop(); return { manTicks: 0, inside: 0, deepest: 0 }; }
+    const bodies = [...room.players.values()];
+    if (place) {
+      const ring = place.bound + BODY_RADIUS - 0.20;   // shoulder to shoulder, pressed in
+      bodies.forEach((p, i) => {
+        const th = (i / bodies.length) * Math.PI * 2;
+        p.position.x = place.x + Math.cos(th) * ring;
+        p.position.z = place.z + Math.sin(th) * ring;
+      });
+    }
+    let mt = 0, ins = 0, deep = 0;
+    for (let t = 0; t < TICKS; t++) {
+      // Nobody falls: the scrum has to last, and health is not what this measures.
+      bodies.forEach((p) => { if (p.state !== "dead") p.health = p.maxHealth; });
+      engine.step(DT);
+      for (const p of bodies) {
+        if (p.state === "dead") continue;
+        mt++;
+        const d = overlap(SAXON_VILLAGE, p.position.x, p.position.z);
+        if (d > SOLID_TOLERANCE) ins++;
+        if (d > deep) deep = d;
+      }
+    }
+    Math.random = real;
+    engine.stop();
+    return { manTicks: mt, inside: ins, deepest: deep };
+  };
+
+  const pile = SAXON_VILLAGE.obstacles.find((s) => s.id === "woodpile");
+  for (let r = 0; r < RUNS; r++) {
+    const s = scrum(BOTS, 90210 + r * 7919, pile);
+    manTicks += s.manTicks; insideTicks += s.inside; if (s.deepest > deepest) deepest = s.deepest;
+    // The control on the control: the SAME measurement on a plain duel, which is
+    // what a scrum has to be compared against. A gate that only ever sees the
+    // easy case is a gate green because the case is absent.
+    const d = scrum(1, 424242 + r * 7919, null);
+    duelManTicks += d.manTicks; duelInside += d.inside;
+  }
+
+  check("the ENGINE's tick order — an eight-man scrum on the woodpile never ends a tick inside it",
+    insideTicks === 0,
+    `${RUNS} runs of ${TICKS} ticks, eight bodies jammed around the rick: ${insideTicks} of ${manTicks} man-ticks ended inside a prop, deepest ${(deepest * 1000).toFixed(1)} mm. `
+    + `CONTROL, the same measurement on an undisturbed duel: ${duelInside} of ${duelManTicks}. `
+    + `This runs engine.mjs itself — its bots, its movement step, its separation pass, its resolve, in its order — not the driver the claims above use.`);
 }
 
 // ---------------------------------------------------------------------------
 const failed = results.filter((r) => !r.pass);
 const wiredNow = /resolveSolids\s*\(/.test(ENGINE_SRC) && /solidground\.mjs/.test(ENGINE_SRC);
 console.log("");
+// The wiring is a FAILURE now, not a deferral. It was a deferral while
+// `engine.mjs` belonged to another agent and no build existed in which the
+// server could go green; it is wired, claim 12 fights in a real room, and an
+// engine that stopped calling the resolver would make every claim above a
+// measurement of a game nobody plays. So it goes red rather than riding the
+// verdict line — a deferral whose reason has expired is just a hole.
 if (!wiredNow) {
-  DEFERRALS.push("engine.mjs does not call resolveSolids — that file belongs to another agent this round — so "
-    + "every claim above is measured on a driver that reproduces its movement step, and NOTHING above proves "
-    + "the server does this in a match. The one call is written out at the top of src/game/solidground.mjs.");
+  results.push({ name: "engine.mjs calls resolveSolids", pass: false });
+  console.log("  FAIL  engine.mjs no longer calls resolveSolids — claims 1-11 model a movement step the server does not run, and claim 12's room is fighting on a hologram");
 }
 console.log(`${failed.length ? "FAIL" : "PASS"}: solid ground — ${results.length - failed.length}/${results.length} claims`
   + (DEFERRALS.length ? `, WITH ${DEFERRALS.length} deferral(s) below, which is not a clean sheet` : ""));
@@ -820,12 +1036,16 @@ for (const d of DEFERRALS) {
 }
 if (HOLLOW) {
   console.log("");
-  console.log("  --hollow is the CONTROL and it is supposed to be red. It runs the identical");
-  console.log("  claims with the resolver taken out and only the palisade ring left, which is");
-  console.log("  what engine.mjs does today. The claims that stay green in it are the ones that");
-  console.log("  are not about solidity: 'never stuck' and 'bots' pass because a man who walks");
-  console.log("  through everything is never stopped by anything, and the last three are about");
-  console.log("  the declarations and the model rather than the collision.");
+  console.log("  --hollow is the CONTROL and it is supposed to be red. It takes the resolver");
+  console.log("  out of THIS FILE'S DRIVER and leaves only the palisade ring, which is what");
+  console.log("  engine.mjs did before this unit was wired. The claims that stay green in it");
+  console.log("  are the ones that are not about solidity: 'never stuck' and 'bots' pass");
+  console.log("  because a man who walks through everything is never stopped by anything, and");
+  console.log("  'one definition', 'declared' and 'the model' are about the declarations rather");
+  console.log("  than the collision. CLAIM 12 ALSO STAYS GREEN, and that is not a hole: it");
+  console.log("  drives engine.mjs itself, which this flag cannot reach. Its own control is the");
+  console.log("  duel count printed beside it, and its proof-of-failure is in its comment —");
+  console.log("  374 of 48,000 man-ticks inside the rick with the engine's second resolve off.");
 }
 console.log("");
 process.exit(failed.length ? 1 : 0);

@@ -57,8 +57,9 @@
  * where a third body joined in would be measuring a brawl and calling it a duel.
  *
  * Usage:
- *   node tools/classmatrix.mjs                 200 bouts per ordered pair
- *   node tools/classmatrix.mjs --bouts=60      quicker, wider intervals
+ *   node tools/classmatrix.mjs                 1000 bouts per ordered pair, ~4.5 min
+ *   node tools/classmatrix.mjs --bouts=60      quicker, wider intervals, NOT a verdict
+ *   node tools/classmatrix.mjs --only=huscarl,warden   one pair and its mirrors
  *   node tools/classmatrix.mjs --seed=12345    reproduce an exact run
  *   node tools/classmatrix.mjs --entropy       master seed from the clock
  *   node tools/classmatrix.mjs --difficulty=jarl
@@ -66,6 +67,7 @@
 
 import { readFileSync } from "node:fs";
 import { makeEngine, WARRIOR_STATS, WEAPON_REACH, SWING_ARC } from "../src/game/engine.mjs";
+import { AXES, AXIS_LABEL, cardBars, strengthsOf, valuesOn } from "../src/game/statshape.mjs";
 
 /**
  * Every table a matchup can be decided by, in one place, so the lever can pull
@@ -76,14 +78,50 @@ import { makeEngine, WARRIOR_STATS, WEAPON_REACH, SWING_ARC } from "../src/game/
  */
 const TABLES = { stats: WARRIOR_STATS, reach: WEAPON_REACH, arc: SWING_ARC };
 
-const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
+const ROSTER = ["huscarl", "warden", "runekeeper", "berserker"];
 
 const argv = process.argv.slice(2);
 const argOf = (name, dflt) => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
   return hit === undefined ? dflt : hit.slice(name.length + 3);
 };
-const BOUTS = Math.max(10, Number(argOf("bouts", 200)));
+
+/**
+ * `--only=warden,huscarl` — measure a SUB-MATRIX instead of all sixteen cells.
+ *
+ * This exists because of what the full matrix cost to settle. `huscarl vs
+ * warden` sits so close to the 70% bar that a 250-bout run rejected it about one
+ * time in five, and finding that out took 16,000 duels and four and a half
+ * minutes. Probing ONE pair is a 2x2 — the two ordered cells and both mirrors,
+ * so the harness's own control comes with it — which is a quarter of the work,
+ * and that is the difference between "widen n until the answer is decisive" being
+ * a sentence and being something you can actually do before lunch.
+ *
+ * A subset run is NOT a roster verdict and says so in as many words: the field
+ * band and the shape check are printed and NOT ruled on, because a class's rate
+ * "against the field" measured against half a field is a different number that
+ * looks like the same one.
+ */
+const ONLY = (argOf("only", "") || "").split(",").map((s) => s.trim()).filter(Boolean);
+for (const c of ONLY) {
+  if (!ROSTER.includes(c)) { process.stderr.write(`classmatrix: no such class "${c}"\n`); process.exit(2); }
+}
+const CLASSES = ONLY.length ? ROSTER.filter((c) => ONLY.includes(c)) : ROSTER;
+const SUBSET = CLASSES.length !== ROSTER.length;
+
+/**
+ * A THOUSAND, NOT TWO HUNDRED, AND THE NUMBER IS THE GATE.
+ *
+ * The old default was 200 and the shipped claim was measured at 250. At that n a
+ * cell's 95% interval is about twelve points wide, which is wider than the
+ * distance from this roster's sharpest matchup to the bar it is being judged
+ * against — so the verdict was a draw from a distribution rather than a reading
+ * of the roster, and an adversary duly found two master seeds out of ten that
+ * flipped it. Ten times the bouts is a quarter of the interval; the run costs
+ * about four and a half minutes and it is the cheapest thing in this repository
+ * that can tell a roster from a coin.
+ */
+const BOUTS = Math.max(10, Number(argOf("bouts", 1000)));
 const DIFFICULTY = argOf("difficulty", "warrior");
 const ENTROPY = argv.includes("--entropy");
 const MASTER = ENTROPY ? (Date.now() % 1e9) : Number(argOf("seed", 20260813));
@@ -299,24 +337,56 @@ function runBout(left, right, seed, swapSides) {
     right: seen.latest?.players?.[rightId]?.health ?? null,
   };
 
+  // HOW MUCH OF THIS FIGHT WAS EVER DECIDED BY A GUARD. Off the wire, not
+  // assumed: a `blocked`/`blocked_heavy` hit is one that met a raised shield and
+  // therefore one where `blockReduction` did any work at all. See the note on
+  // GUARD_SHARE below for why this number is on the verdict line.
+  let dmgAll = 0, dmgGuarded = 0;
+  for (const h of seen.hits.slice(hitsAtBell)) {
+    if (!["light", "heavy", "blocked", "blocked_heavy"].includes(h.type)) continue;
+    dmgAll += h.damage;
+    if (h.type === "blocked" || h.type === "blocked_heavy") dmgGuarded += h.damage;
+  }
+
   engine.message(sid, { type: "leave" });
   engine.stop();
   releaseStream();
-  return { winner, ttk, thirdMan, stalemate: winner === null, health };
+  return { winner, ttk, thirdMan, stalemate: winner === null, health, dmgAll, dmgGuarded };
 }
 
 // ---------------------------------------------------------------------------
 // THE MATRIX.
 // ---------------------------------------------------------------------------
+/**
+ * THE AXIS THIS INSTRUMENT CANNOT SEE, MEASURED RATHER THAN GUESSED AT.
+ *
+ * `blockReduction` is one of the four card axes and it is one of the huscarl's
+ * two certified strengths — and pulling it from 0.80 to 0.00, from the best
+ * shield in the game to no shield at all, moved `huscarl vs warden` from 69% to
+ * 69%. R1 says that when the lever does not move the number you are not editing
+ * the thing you think you are editing, so this was chased down: across 40 bot
+ * duels, 8 of 769 blows met a raised guard and 0.5% of all damage was reduced by
+ * one. The bots raise a shield when a windup becomes readable, which puts almost
+ * every one of those blows inside the PARRY window instead — 44 parries against
+ * 8 blocks — so DEFENCE is very nearly unmeasured by this harness.
+ *
+ * That is a real hole in the ruler and it rides the verdict line rather than
+ * sitting in a comment, because it is the reason the two band-edge cells cannot
+ * simply be tuned off the line: the stat a human would break that tie with is
+ * the one this instrument is blind to. Accumulated over the whole matrix so the
+ * number is this run's, not a remembered one.
+ */
 function runMatrix() {
   const cells = new Map();   // "left>right" -> { wins, n, ttks }
   let discarded = 0, stalemates = 0, bout = 0;
+  let dmgAll = 0, dmgGuarded = 0;
 
   for (const left of CLASSES) {
     for (const right of CLASSES) {
       const cell = { wins: 0, n: 0, ttks: [] };
       for (let i = 0; i < BOUTS; i++) {
         const r = runBout(left, right, MASTER + (bout++) * 7919, i % 2 === 1);
+        dmgAll += r.dmgAll; dmgGuarded += r.dmgGuarded;
         if (r.thirdMan) { discarded++; continue; }
         if (r.stalemate) { stalemates++; cell.n++; continue; }  // counted, won by nobody
         cell.n++;
@@ -330,7 +400,7 @@ function runMatrix() {
       }
     }
   }
-  return { cells, discarded, stalemates };
+  return { cells, discarded, stalemates, dmgAll, dmgGuarded };
 }
 
 // ---------------------------------------------------------------------------
@@ -342,9 +412,41 @@ function runMatrix() {
 //   demand that the classes be the same — 30/70 is a very lopsided matchup and
 //   it is deliberately allowed, because four shapes that beat each other
 //   differently is the ASK. What it forbids is a matchup nobody would pick the
-//   losing side of. The test is on the interval, not the point: a cell fails
-//   only when the whole 95% interval is outside the band, so a wide cell from a
-//   short run cannot fail a class on noise.
+//   losing side of.
+//
+//   IT IS RULED THREE WAYS, NOT TWO, AND THAT IS THE REPAIR THIS ROUND.
+//
+//   The old rule failed a cell only when its WHOLE 95% interval was outside the
+//   band, and passed it otherwise. Read carefully, that is not a test of "the
+//   matchup is inside the band" at all — it is a test of "the run does not PROVE
+//   the matchup is outside the band", and those are opposite burdens of proof.
+//   A cell whose true rate is 30.4% clears it about four times in five at 250
+//   bouts, so the verdict line was reporting a coin toss as a property. An
+//   adversary demonstrated exactly that: ten master seeds at 250 bouts, eight
+//   green and two red, with `warden vs huscarl` red on both of the two. This
+//   pass reproduced it and quotes what its OWN run printed rather than what it
+//   was told: at 250 bouts the ordered cell reads 24% [19-30] on seed 424242 and
+//   24% [19-30] on seed 90210. Then 2,000 duels a matchup, pooled over both
+//   orderings, on three master seeds, to find what the cell actually is —
+//   `huscarl vs warden` 69.1 / 69.8 / 68.4, i.e. the warden's side of it is
+//   30.9 / 30.2 / 31.6. It is ON THE LINE, and no amount of n resolves a value
+//   that sits on the bar, which is why "just widen n" could not have finished
+//   this on its own.
+//
+//   So each cell gets one of three rulings, and the difference between them is
+//   what the interval and the band actually say to each other:
+//
+//     INSIDE  — the whole interval is within the band. The claim on the verdict
+//               line is TRUE of this cell and was measured, not survived.
+//     EDGE    — the interval straddles a band edge. The harness cannot tell, and
+//               it says so: an EDGE cell is a DEFERRAL and rides the verdict
+//               line (rule R4). It is not counted as a pass in the sentence
+//               "every ordered matchup inside 30-70%", because it is not one.
+//     OUTSIDE — the whole interval is outside. FAIL, as before.
+//
+//   The verdict line then reports the count of each, so a roster that has drifted
+//   to the bar shows up as cells moving from INSIDE to EDGE long before anything
+//   goes red — which is the early warning the two-way rule could never give.
 //
 //   OVERALL SPREAD. Each class's win rate against the FIELD (its row, mirror
 //   excluded) must sit inside 40-60%. A class can be a rock-paper-scissors
@@ -390,7 +492,10 @@ function sheetsAgree() {
   const block = /export const WARRIOR_STATS[^=]*=\s*\{([\s\S]*?)\n\};/.exec(src);
   if (!block) return ["could not find WARRIOR_STATS in src/game/types.ts at all"];
   const drift = [];
-  for (const cls of CLASSES) {
+  // ROSTER, not CLASSES: `--only` narrows what is FOUGHT, never what has to
+  // agree. A subset run that skipped two rows would let the sheets drift on
+  // exactly the classes it was not looking at.
+  for (const cls of ROSTER) {
     const body = new RegExp(`\\b${cls}:\\s*\\{([\\s\\S]*?)\\n\\s*\\},`).exec(block[1]);
     if (!body) { drift.push(`types.ts has no ${cls} row`); continue; }
     for (const [col, want] of Object.entries(WARRIOR_STATS[cls])) {
@@ -432,46 +537,139 @@ function sheetsAgree() {
  * roster takes on its way to being four averages, and it is caught before the
  * ranking can paper over it.
  */
-const AXES = ["HEALTH", "DEFENCE", "SPEED", "DAMAGE"];
-function axisValues(axis) {
-  const dps = (c) => WARRIOR_STATS[c].attackDamage / WARRIOR_STATS[c].attackSpeed;
-  const maxDps = Math.max(...CLASSES.map(dps));
-  const maxBlow = Math.max(...CLASSES.map((c) => WARRIOR_STATS[c].heavyDamage));
-  return Object.fromEntries(CLASSES.map((c) => [c,
-    axis === "HEALTH" ? WARRIOR_STATS[c].maxHealth
-      : axis === "DEFENCE" ? WARRIOR_STATS[c].blockReduction
-        : axis === "SPEED" ? WARRIOR_STATS[c].moveSpeed
-          : Math.max(dps(c) / maxDps, WARRIOR_STATS[c].heavyDamage / maxBlow)]));
-}
-
+// The axes themselves are NOT defined here any more. They live in
+// `src/game/statshape.mjs`, which the class card imports too, precisely so that
+// the shape this gate certifies and the shape the player is shown cannot be two
+// different shapes — see `cardIsLegible` below, which is the gate on that.
 function shapesAreDistinct() {
   const problems = [];
-  const strengths = Object.fromEntries(CLASSES.map((c) => [c, []]));
+  const strengths = strengthsOf(WARRIOR_STATS, "sheet");
   const table = [];
   for (const axis of AXES) {
-    const v = axisValues(axis);
-    const sorted = [...CLASSES].sort((a, b) => v[b] - v[a]);
+    const v = valuesOn(WARRIOR_STATS, axis, "sheet");
+    const sorted = [...ROSTER].sort((a, b) => v[b] - v[a]);
     const spread = v[sorted[0]] - v[sorted[3]];
     const gap = v[sorted[1]] - v[sorted[2]];
     if (spread <= 0 || gap < spread * 0.04) {
       problems.push(`${axis} has CONVERGED — 2nd (${sorted[1]}) and 3rd (${sorted[2]}) are ${gap.toFixed(3)} apart across a spread of ${spread.toFixed(3)}, so "high on this stat" does not mean anything`);
     }
-    strengths[sorted[0]].push(axis);
-    strengths[sorted[1]].push(axis);
     table.push(`  ${axis.padEnd(9)} ${sorted.map((c) => `${c} ${v[c].toFixed(2)}`).join("   ")}`);
   }
-  for (const c of CLASSES) {
+  for (const c of ROSTER) {
     if (strengths[c].length !== 2) {
       problems.push(`${c} is high on ${strengths[c].length} stat(s) (${strengths[c].join("+") || "none"}) — the ask is exactly two`);
     }
   }
   const pairs = new Map();
-  for (const c of CLASSES) {
+  for (const c of ROSTER) {
     const key = [...strengths[c]].sort().join("+");
     if (pairs.has(key)) problems.push(`${c} and ${pairs.get(key)} are the same shape — both are ${key}`);
     else pairs.set(key, c);
   }
   return { problems, strengths, table };
+}
+
+/**
+ * THE CARD MUST SHOW THE SHAPE THE SHEET WAS GATED ON.
+ *
+ * The other half of this round's refutation, and it is the half nobody had
+ * looked at. `shapesAreDistinct` above certifies that each warrior is high on
+ * exactly two of four axes — and the ONLY place a player ever meets that claim
+ * is the class-select card in `src/app/page.tsx`. That card drew its four bars
+ * against maxima typed in beside the roster (`HP max={150}`,
+ * `SPD value={moveSpeed * 20} max={100}`) and clamped the overflow with
+ * `Math.min(100, ...)`. After the rework the huscarl's 158 health clamped at
+ * 150, and BOTH the runekeeper's 5.6 stride and the warden's 5.0 clamped at
+ * 100 — so the two of them drew IDENTICAL FULL SPEED BARS while the runekeeper
+ * is 12% faster and speed is his headline stat. Every gate in this file was
+ * green through all of it, because not one of them had ever looked at the
+ * screen the claim is made on.
+ *
+ * Three things are checked, and each is a thing that can be false:
+ *
+ *  1. NO CEILING IS WRITTEN DOWN. `page.tsx` may not carry a numeric `max=` on
+ *     a stat bar and may not clamp one. A typed-in maximum is a mirrored
+ *     definition — this repository's third named failure mode, five recorded
+ *     instances — and the clamp is what let the stale one go unnoticed.
+ *  2. NOBODY IS DRAWN FULL WHO IS NOT THE LEADER, and no two classes that
+ *     differ on an axis are drawn the same length. This is the defect itself,
+ *     measured rather than argued: it fails on the old card and passes on this
+ *     one.
+ *  3. THE CARD AND THE SHEET NAME THE SAME TWO STRENGTHS for every class. The
+ *     card reads damage as a rate and the sheet as the better of a rate and a
+ *     blow — deliberately two readings of one axis, documented in
+ *     `statshape.mjs` — so what is gated is that they AGREE ABOUT THE ROSTER.
+ *     A card that flattered a warrior the sheet calls weak, or hid a strength
+ *     the sheet certifies, goes red here.
+ *
+ * SHOWN FAILING FIRST, AND EACH HALF AGAINST THE MUTATION IT ACTUALLY GUARDS —
+ * because "it went red on the old build" is not the same claim for both halves
+ * and saying so loosely would hide which file each one is watching:
+ *
+ *   * the SOURCE half (1) was run against `page.tsx` as it stood before this
+ *     round and reported SIX findings — the four typed maxima, the
+ *     `Math.min(100, ...)` clamp, and the missing `statshape.mjs` import;
+ *   * the DRAWN half (2) cannot be moved by `page.tsx` at all, and that is
+ *     worth being exact about: it is computed from `cardBars`, so what it
+ *     guards is `statshape.mjs`. Levered — putting the old ceilings back INSIDE
+ *     `cardBars` (`HEALTH 150`, `SPEED 5.0`) — it fires with "huscarl's HP bar
+ *     is 105% of its track" and "runekeeper's SPD bar is 112%". Add the old
+ *     clamp on top of those ceilings, which is exactly the build that shipped,
+ *     and it prints the refutation itself: *"warden and runekeeper draw the SAME
+ *     SPD bar (100%) on different numbers (5 vs 5.6)"*.
+ *
+ * A gate whose two halves watch two files, only one of which has ever been
+ * shown red, is half a gate. Both halves have been seen red on this roster.
+ */
+const CARD_SRC_PATH = new URL("../src/app/page.tsx", import.meta.url);
+function cardIsLegible() {
+  const problems = [];
+  const src = readFileSync(CARD_SRC_PATH, "utf8");
+
+  const hardMax = [...src.matchAll(/<StatBar[^/]*?\bmax=\{\s*[\d.]+\s*\}/g)].map((m) => m[0].trim());
+  for (const h of hardMax) problems.push(`page.tsx still types a maximum into a stat bar: \`${h}\` — derive it from the roster`);
+  // Scoped to `StatBar`'s own body, and deliberately: the XP bar a few hundred
+  // lines up clamps too and SHOULD — experience really can run past the next
+  // level's threshold, so there the clamp is the truth rather than a cover for
+  // one. A check that failed the whole file on the string would have been a
+  // check somebody deleted the first time it cried wolf.
+  const bodyOf = /function StatBar\([\s\S]*?\n\}/.exec(src);
+  if (!bodyOf) problems.push("page.tsx has no StatBar function any more — this gate is reading a screen that has moved");
+  else if (/Math\.min\(\s*100\s*,/.test(bodyOf[0])) {
+    problems.push("StatBar still clamps with Math.min(100, ...) — a bar that cannot overflow needs no clamp, and the clamp is how the stale ceiling stayed invisible for a release");
+  }
+  if (!/cardBars\(/.test(src) || !/statshape\.mjs/.test(src)) {
+    problems.push("page.tsx does not build its bars from statshape.mjs — the card and this gate are reading two different rosters again");
+  }
+
+  // What the card actually draws, computed by the card's own function.
+  const bars = Object.fromEntries(ROSTER.map((c) => [c, cardBars(WARRIOR_STATS, c)]));
+  const drawn = [];
+  for (const axis of AXES) {
+    const row = ROSTER.map((c) => ({ c, b: bars[c].find((x) => x.axis === axis) }));
+    drawn.push(`  ${AXIS_LABEL[axis].padEnd(4)} ${row.map(({ c, b }) => `${c} ${(b.frac * 100).toFixed(0)}%`).join("   ")}`);
+    for (const { c, b } of row) {
+      if (b.frac > 1 + 1e-9) problems.push(`${c}'s ${AXIS_LABEL[axis]} bar is ${(b.frac * 100).toFixed(0)}% of its track — it would clamp, and a clamped bar is a lie about the roster`);
+    }
+    for (let i = 0; i < row.length; i++) {
+      for (let j = i + 1; j < row.length; j++) {
+        const a = row[i], b = row[j];
+        const same = Math.abs(a.b.frac - b.b.frac) < 1e-6;
+        const differ = Math.abs(a.b.value - b.b.value) > 1e-9;
+        if (same && differ) {
+          problems.push(`${a.c} and ${b.c} draw the SAME ${AXIS_LABEL[axis]} bar (${(a.b.frac * 100).toFixed(0)}%) on different numbers (${a.b.value} vs ${b.b.value}) — the screen cannot tell them apart`);
+        }
+      }
+    }
+  }
+
+  const onCard = strengthsOf(WARRIOR_STATS, "card");
+  const onSheet = strengthsOf(WARRIOR_STATS, "sheet");
+  for (const c of ROSTER) {
+    const a = [...onCard[c]].sort().join("+"), b = [...onSheet[c]].sort().join("+");
+    if (a !== b) problems.push(`${c} is ${b} on the sheet this gate rules on and ${a || "NOTHING"} on the card a player reads`);
+  }
+  return { problems, drawn };
 }
 
 function main() {
@@ -489,9 +687,10 @@ function main() {
       return;
     }
   }
-  process.stderr.write(`classmatrix: ${BOUTS} bouts x 16 ordered matchups, ${DIFFICULTY} bots, master seed ${MASTER}${ENTROPY ? " (from the clock)" : ""}\n`);
+  process.stderr.write(`classmatrix: ${BOUTS} bouts x ${CLASSES.length * CLASSES.length} ordered matchups, ${DIFFICULTY} bots, master seed ${MASTER}${ENTROPY ? " (from the clock)" : ""}\n`);
   if (LEVERS.length) process.stderr.write(`classmatrix: LEVER RUN, not a baseline — ${LEVERS.join(", ")}\n`);
-  const { cells, discarded, stalemates } = runMatrix();
+  if (SUBSET) process.stderr.write(`classmatrix: SUBSET RUN — ${CLASSES.join(" and ")} only, so the field band and the shape are printed and NOT ruled on\n`);
+  const { cells, discarded, stalemates, dmgAll, dmgGuarded } = runMatrix();
 
   // ---- the table ----
   const pad = (s, n) => String(s).padEnd(n);
@@ -540,6 +739,23 @@ function main() {
     const w = field.get(c);
     lines.push(`  ${pad(c, 12)} ${(w.p * 100).toFixed(1)}%  [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}]`);
   }
+  // THE SPREAD, WITH ITS OWN UNCERTAINTY ON IT. This is the number the class
+  // rework is quoted on in `engine.mjs` and `docs/BACKLOG.md`, and it was quoted
+  // as a bare point estimate off a 250-bout run — which is the friendliest
+  // reading of a quantity that is a difference of two noisy things. An adversary
+  // reading the identical roster at the same n got 13.1 and 13.9 where the doc
+  // said 9.6. Neither number was wrong; the SHIPPED ONE WAS A DRAW, and a doc
+  // that commits a draw to the repository as a fact is worse than no doc. The
+  // range printed here is the honest one: best case the two intervals barely
+  // clear each other, worst case they are as far apart as they could be.
+  {
+    const rates = CLASSES.map((c) => field.get(c));
+    const top = rates.reduce((a, b) => (b.p > a.p ? b : a));
+    const bot = rates.reduce((a, b) => (b.p < a.p ? b : a));
+    lines.push(`  ${pad("SPREAD", 12)} ${((top.p - bot.p) * 100).toFixed(1)} points`
+      + `  [${(Math.max(0, top.lo - bot.hi) * 100).toFixed(1)}-${((top.hi - bot.lo) * 100).toFixed(1)}]`
+      + `  — quote the interval, never the point`);
+  }
 
   // ---- the failures ----
   const failures = [];
@@ -558,19 +774,68 @@ function main() {
   lines.push("THE MIRROR DIAGONAL — this harness's own control, 50% by construction");
   lines.push(...mirrors);
 
-  for (const left of CLASSES) {
-    for (const right of CLASSES) {
-      if (left === right) continue;
-      const c = cells.get(`${left}>${right}`);
-      const w = wilson(c.wins, c.n);
-      if (w.hi < BAND.lo) failures.push(`${left} vs ${right}: ${(w.p * 100).toFixed(0)}% [${(w.lo * 100).toFixed(0)}-${(w.hi * 100).toFixed(0)}] — the whole interval is under ${BAND.lo * 100}%`);
-      else if (w.lo > BAND.hi) failures.push(`${left} vs ${right}: ${(w.p * 100).toFixed(0)}% [${(w.lo * 100).toFixed(0)}-${(w.hi * 100).toFixed(0)}] — the whole interval is over ${BAND.hi * 100}%`);
+  // THE BAND IS RULED ON THE MATCHUP, NOT ON THE ORDERED CELL — and that is the
+  // second half of this round's repair.
+  //
+  // `huscarl > runekeeper` and `runekeeper > huscarl` are not two facts. They are
+  // ONE matchup measured twice, and each cell already balances the room's
+  // insertion order internally (see `swapSides`), so the two are simply 2n
+  // independent bouts of the same thing. Ruling on each half separately threw
+  // away half the sample and then judged each half against a hard bar — which is
+  // how a matchup whose true rate is 29.8% produced a PASS on one master seed, a
+  // deferral on another and a FAIL on a third. Pooled, the same three seeds all
+  // say the same thing, and they say it at half the interval width for no extra
+  // duels at all.
+  //
+  // The two halves ARE still compared, below, as a control on the ruler: if the
+  // same matchup reads very differently depending on which man was inserted
+  // first, that is a bias in this harness and it must be seen, not averaged away.
+  const edges = [];
+  let inside = 0;
+  const pairs = [];
+  for (let i = 0; i < CLASSES.length; i++) {
+    for (let j = i + 1; j < CLASSES.length; j++) {
+      const a = CLASSES[i], b = CLASSES[j];
+      const ab = cells.get(`${a}>${b}`), ba = cells.get(`${b}>${a}`);
+      // `a`'s wins over `b`, pooled: the ones it won as the left-hand class plus
+      // the ones the right-hand class failed to win.
+      const wins = ab.wins + (ba.n - ba.wins);
+      const n = ab.n + ba.n;
+      const w = wilson(wins, n);
+      const forward = wilson(ab.wins, ab.n), reverse = wilson(ba.n - ba.wins, ba.n);
+      pairs.push({ a, b, w, n, forward, reverse });
+      const say = `${a} vs ${b}: ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}] over ${n} duels`;
+      if (w.hi < BAND.lo || w.lo > BAND.hi) {
+        failures.push(`${say} — the WHOLE interval is outside ${BAND.lo * 100}-${BAND.hi * 100}%`);
+      } else if (w.lo < BAND.lo || w.hi > BAND.hi) {
+        edges.push(`${say} — straddles the ${w.lo < BAND.lo ? BAND.lo * 100 : BAND.hi * 100}% bar, so this run cannot say which side of it the matchup is on`);
+      } else inside++;
+      // The ruler's control: the same matchup read from either side. Ruled on
+      // the INTERVALS and not on the points, for the reason the mirror check
+      // learned the hard way — two halves of a short run differ by ten points
+      // all the time and that is sampling, not bias. It fires only when the two
+      // readings cannot both be true AND the gap is big enough to move a cell
+      // across a forty-point band.
+      const disjoint = forward.lo > reverse.hi || reverse.lo > forward.hi;
+      if (disjoint && Math.abs(forward.p - reverse.p) > 0.10) {
+        failures.push(`THE RULER, not the roster — ${a} vs ${b} reads ${(forward.p * 100).toFixed(1)}% with ${a} inserted first and ${(reverse.p * 100).toFixed(1)}% with ${b} first. One matchup cannot have two answers; this harness has an order bias.`);
+      }
     }
   }
-  for (const c of CLASSES) {
-    const w = field.get(c);
-    if (w.hi < FIELD_BAND.lo) failures.push(`${c} against the field: ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}] — cannot win`);
-    else if (w.lo > FIELD_BAND.hi) failures.push(`${c} against the field: ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}] — beats everybody`);
+  lines.push("");
+  lines.push(`THE SIX MATCHUPS, POOLED — both orderings are one matchup, so both count (${2 * BOUTS} duels each)`);
+  for (const p of pairs) {
+    lines.push(`  ${pad(`${p.a} v ${p.b}`, 26)} ${(p.w.p * 100).toFixed(1)}%  [${(p.w.lo * 100).toFixed(1)}-${(p.w.hi * 100).toFixed(1)}]`
+      + `   (read from either side: ${(p.forward.p * 100).toFixed(1)} / ${(p.reverse.p * 100).toFixed(1)})`);
+  }
+  // The field band is a claim about the WHOLE roster, so a subset run has
+  // nothing to say about it: three quarters of a field is not a field.
+  if (!SUBSET) {
+    for (const c of CLASSES) {
+      const w = field.get(c);
+      if (w.hi < FIELD_BAND.lo) failures.push(`${c} against the field: ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}] — cannot win`);
+      else if (w.lo > FIELD_BAND.hi) failures.push(`${c} against the field: ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}] — beats everybody`);
+    }
   }
 
   // FOUR SHAPES, NOT FOUR AVERAGES. Ruled on the sheet rather than on the
@@ -578,12 +843,18 @@ function main() {
   // be perfectly balanced and completely characterless, and that is the one
   // outcome the brief rules out by name.
   const shape = shapesAreDistinct();
+  const card = cardIsLegible();
   lines.push("");
   lines.push("TWO HIGH STATS EACH — the owner's ask, ruled on the sheet (ranked, best first)");
   lines.push(...shape.table);
   lines.push("");
-  for (const c of CLASSES) lines.push(`  ${pad(c, 12)} ${shape.strengths[c].join(" + ") || "NOTHING"}`);
-  failures.push(...shape.problems);
+  for (const c of ROSTER) lines.push(`  ${pad(c, 12)} ${shape.strengths[c].join(" + ") || "NOTHING"}`);
+  lines.push("");
+  lines.push("...AND AS THE CLASS CARD DRAWS IT — bar fill, against maxima taken off the roster");
+  lines.push(...card.drawn);
+  // The shape and the card are only ruled on when the whole roster is in the
+  // room. On a subset run they are printed as context.
+  if (!SUBSET) { failures.push(...shape.problems); failures.push(...card.problems); }
 
   lines.push("");
   lines.push("THE SHEET AS FOUGHT");
@@ -594,17 +865,31 @@ function main() {
   process.stdout.write(lines.join("\n") + "\n\n");
 
   const secs = ((Date.now() - started) / 1000).toFixed(0);
+  const guardShare = dmgAll > 0 ? dmgGuarded / dmgAll : 0;
   const deferral = `WITH ${discarded} bout(s) discarded for third-man interference and ${stalemates} stalemate(s) at the ${BOUT_CAP}s cap counted as losses for nobody`;
   const limit = "and it measures the SHEET under the engine's own bot brain, not the ceiling a human reaches with it";
+  // The blind axis, measured this run. See the note on runMatrix.
+  const guardNote = `, and WITH only ${(guardShare * 100).toFixed(1)}% of the damage in these duels meeting a raised guard — so DEFENCE is very nearly unmeasured here, which is a hole in the ruler and not a fact about the roster`;
+  // R4: every deferral rides the verdict line, in the same sentence, in the
+  // words a person will read. An EDGE cell is a deferral — the harness declined
+  // to rule — and the previous version of this file counted it as a pass and
+  // wrote "every ordered matchup inside 30-70%" over the top of it.
+  const edgeNote = edges.length
+    ? `, WITH ${edges.length} matchup(s) SITTING ON THE BAND EDGE which this run cannot place and which are listed below — that is a deferral and not a clean sheet`
+    : "";
+  const scope = SUBSET ? `the ${CLASSES.join("/")} sub-matrix — NOT a roster verdict` : "the roster";
   if (failures.length) {
-    process.stdout.write(`FAIL: the roster — ${failures.length} matchup(s) outside the band, ${deferral}, ${limit}\n`);
+    process.stdout.write(`FAIL: ${scope} — ${failures.length} finding(s), ${inside} matchup(s) decisively inside the band${edgeNote}, ${deferral}${guardNote}, ${limit}\n`);
     for (const f of failures) process.stdout.write(`  ${f}\n`);
-    process.stdout.write(`(${secs}s, seed ${MASTER})\n`);
+    for (const e of edges) process.stdout.write(`  EDGE: ${e}\n`);
+    process.stdout.write(`(${secs}s, seed ${MASTER}, ${BOUTS} bouts a cell)\n`);
     process.exitCode = 1;
     return;
   }
-  process.stdout.write(`PASS: the roster — every ordered matchup inside ${BAND.lo * 100}-${BAND.hi * 100}% and every class inside ${FIELD_BAND.lo * 100}-${FIELD_BAND.hi * 100}% against the field, ${deferral}, ${limit}\n`);
-  process.stdout.write(`(${secs}s, seed ${MASTER})\n`);
+  process.stdout.write(`PASS: ${scope} — ${inside} of ${CLASSES.length * (CLASSES.length - 1) / 2} matchups measured DECISIVELY inside ${BAND.lo * 100}-${BAND.hi * 100}% (whole interval, not just the point)`
+    + `${SUBSET ? "" : ` and every class inside ${FIELD_BAND.lo * 100}-${FIELD_BAND.hi * 100}% against the field`}${edgeNote}, ${deferral}${guardNote}, ${limit}\n`);
+  for (const e of edges) process.stdout.write(`  EDGE: ${e}\n`);
+  process.stdout.write(`(${secs}s, seed ${MASTER}, ${BOUTS} bouts a cell)\n`);
 }
 
 main();
