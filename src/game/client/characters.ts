@@ -6453,17 +6453,56 @@ interface BeardCut {
    * hanging fall the skull's normal at `lat(-0.945)` points steeply DOWNWARD, so
    * most of one of the two displacements slides ALONG the wall instead of across
    * it, and near the hem the section's outer and inner legs converge by
-   * construction. Measured across a doubling, the realised median comes out at
-   * 0.34 to 0.78 of this depending on the style's own section:
+   * construction. So this is the DIAL and `beardvolume`'s median is the
+   * READING, and the two are different quantities of the same idea. The harness
+   * says so on its own verdict line and gates on the reading, which is what a
+   * player sees.
    *
-   *     short   4.0 -> 3.8      doubled  8.0 -> 6.9      slope 0.78
-   *     full    6.8 -> 6.0     doubled 13.6 -> 8.3      slope 0.34
-   *     forked  5.8 -> 4.4     doubled 11.6 -> 6.5      slope 0.36
-   *     braided 9.0 -> 4.6     doubled 18.0 -> ~7       slope ~0.4
+   * ---- AND THE SLOPE IS A PROPERTY OF THE SKULL, WHICH COST US A ROW ----
    *
-   * So this is the DIAL and `beardvolume`'s median is the READING, and the two
-   * are different quantities of the same idea. The harness now says so on its
-   * own verdict line and gates on the reading, which is what a player sees.
+   * A table stood here giving each style's dial, its reading and the slope
+   * between them, measured across a doubling. It was measured on the skull as
+   * it stood BEFORE the mental pad was widened four hunks above, and the widening
+   * changed every one of its numbers — so the table was false from the commit
+   * that introduced it, and the commit message quoting it ("16/16, from 8/16")
+   * was false with it. `beardvolume` was 14/16 on that tip: the Forked Beard
+   * read 3.9 and 3.8 against a 4 mm bar on the huscarl and the warden.
+   *
+   * WHY THE CHIN REACHES THE BEARD. The inner sheet is displaced along
+   * `faceNormalTrue` at the JAWLINE latitude, and at the midline that is
+   * `lat(-0.945)` — on the mental pad's under-turn. Holding the pad's breadth
+   * to the lower border spends the whole collapse in the last eighth of the
+   * field, so the surface turns under harder there and its normal points more
+   * steeply DOWN and less far OUT. Less of the displacement crosses the wall
+   * and more of it slides along, and the realised crossing thins with no
+   * `wall` having been touched. It is not confined to the Forked Beard —
+   * measured on the tree AS THE DEFECT WAS FOUND, before the Forked Beard's own
+   * dial moved, with the two chin curves reverted and nothing else changed
+   * (huscarl, median crossing in mm):
+   *
+   *     short    4.7 -> 5.1     full     6.0 -> 5.6
+   *     forked   4.4 -> 3.9     braided  4.2 -> 4.5
+   *
+   * — short and braided gained, full and forked lost. Forked lost the most and
+   * was the only style already sitting on the bar, so it was the only one that
+   * went red. The other three had been re-dialled against the reading in the
+   * same commit; the Forked Beard had not, because it had been passing.
+   *
+   * The numbers below are re-measured on the skull as it now stands, huscarl,
+   * dial against the reading and against a doubling of the dial:
+   *
+   *     short   5.2 -> 5.1      doubled 10.4 -> 8.2      slope 0.60
+   *     full    6.8 -> 5.6      doubled 13.6 -> 8.6      slope 0.44
+   *     forked  8.2 -> 5.3      doubled 16.4 -> 7.7      slope 0.29
+   *     braided 9.0 -> 4.5      doubled 18.0 -> 7.2      slope 0.30
+   *
+   * The reading is 0.50 to 0.98 of the dial across those four, which is a
+   * different span from the 0.34 to 0.78 the old table gave — same reason: it
+   * is the skull's, not the beard's.
+   *
+   * A skull edit under a beard is now a `beardvolume` run, and that is the
+   * standing lesson: this dial's meaning depends on the bone it is measured
+   * over, so it cannot be verified once and trusted afterwards.
    */
   wall: number;
   /**
@@ -14186,7 +14225,26 @@ export function buildCharacter(
           mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
           reach: (u) => 0.34 + 0.86 * Math.exp(-Math.pow((Math.abs(u) - 0.40) / 0.215, 2)),
           lean: 0.46,
-          wall: 0.0058,
+          // 0.0058 UNTIL THE CHIN WENT UNDER IT. See the long note on `wall`:
+          // widening the mental pad steepened the skull's normal at the jawline
+          // and took this cut's realised crossing from 4.4 mm to 3.8, under the
+          // 4 mm bar, on a dial nobody had touched. Re-dialled against the
+          // READING and not against the old dial, which is the same move the
+          // Close Crop and the Ringed Braid got in the commit that missed this
+          // one.
+          //
+          // AND THE TARGET IS THE FULL BEARD'S OWN BODY, WHICH IS WHY THIS DIAL
+          // ENDS UP ABOVE THE FULL'S FOR A CUT THAT IS NOT THE FULLER OF THE
+          // TWO. (It is not the largest in the shop — the Ringed Braid's 0.0090
+          // is, and for the same reason twice over: it is narrower still.)
+          // The fork splits one mass into two tines, so each tine is about half
+          // the width of the Full's fall while hanging a quarter further
+          // (`prof` reaches d = 0.101 against 0.080). A tine that reads as a
+          // rope needs the depth the Full has, not half of it. At 8.2 the
+          // reading is 5.2-6.5 mm across the four classes against the Full's
+          // 5.3-5.8 — the same band, arrived at from a bigger dial because the
+          // section it is spent on is narrower.
+          wall: 0.0082,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
           fade: beardFade(0.42),
         },

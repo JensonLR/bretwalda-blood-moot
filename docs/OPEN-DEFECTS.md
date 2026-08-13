@@ -8,6 +8,109 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED — the chin reached down and thinned the beard, and the gate that caught it was reported green
+
+13 Aug 2026, round two. This one is about a claim, not a mesh, and the claim was
+mine.
+
+`docs/COSMETICS-AUDIT.md` said `beardvolume` was **16/16**. It was **14/16, exit
+code 1**, and had been since the commit that said otherwise:
+
+```
+huscarl      forked   med 3.9   <-- MEDIAN UNDER 4 mm
+warden       forked   med 3.8   <-- MEDIAN UNDER 4 mm
+```
+
+Reproducible to the decimal — seed 13 is hardcoded, the ray grid is a fixed
+14 x 36, there is no `Math.random` in the path. Not a draw, not a flake.
+
+### How a true number became a false one without being edited
+
+That commit did four things at once and two of them met inside the beard.
+
+* It re-dialled the **Close Crop** and the **Ringed Braid** against the reading
+  and measured 16/16. **That measurement was correct when it was taken.**
+* It also widened the chin's **mental pad** — `C_W` and `C_MASK` — to answer
+  *"chin is a little pointy"*. That edit is four hunks earlier in the same file
+  and `beardvolume` was never run again after it.
+
+**The chin is upstream of the beard and nothing said so.** `beardShell` builds
+its inner sheet by displacing the outer one along `faceNormalTrue` at the
+JAWLINE latitude — `lat(-0.945)` at the midline, which is on the mental pad's
+under-turn. Holding the pad's breadth to the lower border spends the whole
+collapse in the last eighth of the field, so the surface turns under harder
+there, its normal points more steeply DOWN and less far OUT, and less of the
+displacement crosses the wall. The beard thins with no `wall` touched.
+
+Isolated by reverting the two chin curves and nothing else, on the tree AS THE
+DEFECT WAS FOUND — before the Forked Beard's own dial moved. The huscarl's
+median crossing, in mm:
+
+| | old chin | new chin |
+|---|---|---|
+| Close Crop | 4.7 | 5.1 |
+| Full Beard | 6.0 | 5.6 |
+| **Forked Beard** | **4.4** | **3.9** |
+| Ringed Braid | 4.2 | 4.5 |
+
+Two gained, two lost. The Forked Beard lost the most **and was the only cut of
+the four not re-dialled in that commit — precisely because it had been passing
+when the beard work was done.** Every ingredient of this failure is ordinary.
+
+### The chin stays; the dial moves
+
+The chin answers an owner report, `headmeasure` is clean on it, nothing above
+215 mm moves. So `forked.wall` goes 0.0058 -> 0.0082, chosen so the reading
+lands in the **Full Beard's own band** — 5.2-6.5 mm against 5.3-5.8 — rather
+than chosen to clear 4. The fork splits one mass into two tines, so each tine is
+half the width of the Full's fall while hanging a quarter further; a tine that
+reads as a rope needs the depth the Full has. **The 4 mm bar did not move.**
+16/16, exit 0, quoted from a run.
+
+### And the fork itself had never been measured by anything
+
+The second half, and the worse half. `beardvolume` gates on how much beard there
+is and has no opinion on its shape, so the one cut whose identity is a
+silhouette could lose that silhouette with every number staying green — and
+worse than green: **filling the notch in ADDS mass.** Deleting the fork on
+purpose and running the old gate takes the crossings sampled from 250-262 to
+324-336 and raises three of the four medians. The mass gate would have
+applauded it.
+
+`FORK_MM` is the answer: the hem's own azimuth profile, midline against the tine
+bearings, read off the built mesh so a hem solve or a skull edit is caught the
+same as a flattened `reach`. Unforked cuts read NEGATIVE — −6.5 Close Crop,
+−11.3 to −3.1 Full, −12.3 Ringed Braid — so 40 mm is over three times the
+furthest an unforked hem wanders on its own. **Shown failing first, twice:** a
+flat `reach` reads −12.9 mm, and a `reach` that still has two maxima in the
+source with its trough lifted to 0.90 reads 16.4 mm. Both red. The real cut
+reads 73.8-74.4 mm.
+
+### The render, and it says something the numbers did not
+
+`art/shots/r2-forked/`, three-quarter and profile, before and after, shot from
+clean trees either side of the change rather than from one run straddling it.
+
+* **The three-quarter is the panel that shows it.** Before, the two tines are
+  flat blades with knife edges. After, each is a rope with a belly and a
+  highlight down it. The notch is open in both, which is what the 74.1 mm says
+  and is why the fork gate had to be independent of the mass gate.
+* **The profile is nearly identical before and after, and that is correct.** The
+  wall is radial, so side-on it is edge-on to the lens and a 41% change in it is
+  very nearly invisible. A verdict taken from the profile alone would have said
+  the fix did nothing.
+* **The growth-line fade was checked and it holds.** It looked at first like a
+  pale sawtooth rim had been traded for the hard brown edge. Measured — brightest
+  pixel in the transition band against the skin beside it, on all three builds —
+  it is 124.5-125.5 against a skin median of 127-138 on every one of them,
+  including the build from before the fade existed. The bright streak is a lock
+  catching the key light and it is in all three frames.
+  `art/shots/r2-forked/growthline-a448-roundone-now.png` stacks them; the edge
+  really did soften. **Reported because a defect that was looked for and not
+  found is worth as much as one that was.**
+
+---
+
 ## OPEN — the death that ends a MATCH is still played to the summary, not to the room
 
 13 Aug 2026. The owner: *"death camera only shows when you die last, everyone
@@ -369,6 +472,15 @@ fine and looked like carved wood grain".
 ---
 
 ## STILL OPEN after 13 Aug — the two this unit measured and did not fix
+
+> **Round two leaves both of these exactly where round one left them, and says
+> so here rather than by omission.** Neither was touched, neither was
+> re-measured, and no number below has moved. They are named again in the round
+> two commit message for the same reason. The work of round two was the Forked
+> Beard and the false 16/16; these two need a `hoodHemY` that does not exist and
+> a cheek-guard reshape whose seven levers are already recorded as inert, and
+> neither is an afternoon.
+
 
 **1. The Shadow Hood still swallows the mane.** `cosmetictest` is **15/16** and
 the one red cell is unchanged: Long Mane 0.97% and Braided War-locks 0.97% under
