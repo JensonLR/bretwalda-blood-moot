@@ -8,6 +8,42 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — the death that ends a MATCH is still played to the summary, not to the room
+
+13 Aug 2026. The owner: *"death camera only shows when you die last, everyone
+should see death camera for final death winner & all losers."*
+
+The round-end beat landed (`createRoundCamera` in `src/game/deathcam.mjs`,
+`tools/deathcamtest.mjs` 41/41, `docs/BACKLOG.md` 2.6): when the last man falls
+in a round, **everybody watches the blow** — winner and losers — for 2.20 s
+inside the 5 s break the server already takes, so nothing waits on it.
+
+**What is not covered is the round that ENDS THE MATCH**, which in a best-of-3
+is one round in three and in a single-round match is the only one. `endRound`
+sets `state = "finished"` and calls `endMatch` on the same tick — there is no
+break to play the beat in — and `render/summary.ts` takes the lens for the
+victor's portrait while `page.tsx` lays the results panel over it.
+
+**Why it was not fixed here, said plainly rather than left implied.** Holding
+the summary back for two seconds is a change to the match-summary FLOW —
+`src/app/page.tsx` gates `MatchSummary` on `matchResults`, and
+`tools/summaryflow.mjs` gates that flow — and neither file belongs to the unit
+that built the camera. A camera unit that reached into the summary screen to buy
+itself two seconds would be exactly the kind of unscoped edit `docs/PROCESS.md`
+E6 exists to prevent.
+
+**What it costs today:** the last round of a match ends on the victor's portrait
+rather than on the killing blow. That is *a* beat and not *the* beat, and the
+deferral rides `deathcamtest`'s own verdict line so it cannot go quiet.
+
+**What would close it:** the beat is already skippable, already bounded, and
+already refuses to arm for a man inside his own death hold. Whoever owns
+`page.tsx` needs to delay `setMatchResults` — or gate the panel on a "the beat
+has finished" flag `GameCanvas` already knows — by `ROUND_HOLD.total`, and
+`summaryflow` needs to expect it.
+
+---
+
 ## CLOSED — a corpse was shown three buttons that did nothing
 
 The entry this replaces called it "an intermittent gate". The intermittency was

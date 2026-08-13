@@ -53,7 +53,10 @@ import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { getEngine } from "../src/game/engine.mjs";
-import { createDeathCamera, frameDeathShot, DEATH_HOLD, DEATH_FOV } from "../src/game/deathcam.mjs";
+import {
+  createDeathCamera, createRoundCamera, frameDeathShot, roundOpening,
+  DEATH_HOLD, DEATH_FOV, ROUND_HOLD, ROUND_FOV,
+} from "../src/game/deathcam.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -133,6 +136,45 @@ const groundAt = (x, z) => 0.34 * Math.sin(x * 0.42) + 0.31 * Math.cos(z * 0.37)
 const ZONE_Y = { head: 1.62, neck: 1.46, armL: 1.30, armR: 1.30, legL: 0.68, legR: 0.68, torso: 1.12, waist: 1.00 };
 const SEVERS = new Set(["head", "neck", "armL", "armR", "legL", "legR", "waist"]);
 
+/**
+ * One man's modelled wound: his feet on the bank, the cut at the anatomy of the
+ * zone the SERVER reported, and the spray leaving along the blade's own line,
+ * lifted — `vfx.ts:woundBlood` adds the same +0.4 of up for the same reason.
+ *
+ * ONE definition, used by both replays below. The round beat's replay is a
+ * different viewer watching the same arithmetic; a second copy of it here is
+ * exactly the mirrored-definition fault `docs/PROCESS.md` has recorded five
+ * times, and it would let the two legs disagree about where a man was opened.
+ */
+function anatomy(p, killerP, zone) {
+  const feet = { x: p.position.x, y: groundAt(p.position.x, p.position.z), z: p.position.z };
+  const from = killerP
+    ? norm(sub(feet, { x: killerP.position.x, y: feet.y, z: killerP.position.z }))
+    : { x: 0, y: 0, z: 1 };
+  const wound = {
+    x: feet.x + from.x * 0.18,
+    y: feet.y + (ZONE_Y[zone] ?? 1.12),
+    z: feet.z + from.z * 0.18,
+  };
+  return { feet, wound, spray: norm({ x: from.x, y: 0.4, z: from.z }) };
+}
+
+/**
+ * The shipped follow camera, arithmetic for arithmetic off `camera.ts:330-336`
+ * — CAM_DIST 4.4, CAM_HEIGHT 2.05, CAM_SIDE 1.0, LOOK_AHEAD 3.6, LOOK_HEIGHT
+ * 1.3, FOV_BASE 55. This is what a LIVING man's lens does, and it is the whole
+ * of what the winner of a round gets today.
+ */
+function followShot(feet, yaw) {
+  const fx = Math.sin(yaw);
+  const fz = Math.cos(yaw);
+  return {
+    position: [feet.x - fx * 4.4 - fz * 1.0, 2.05, feet.z - fz * 4.4 + fx * 1.0],
+    target: [feet.x + fx * 3.6, 1.3, feet.z + fz * 3.6],
+    fov: 55, beat: "follow", moved: 0,
+  };
+}
+
 // ---------------------------------------------------------------- recording
 //
 // A real honour duel. The harness never sends input, so the bot kills it — which
@@ -140,7 +182,7 @@ const SEVERS = new Set(["head", "neck", "armL", "armR", "legL", "legR", "waist"]
 const engine = getEngine();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function record() {
+async function record({ mode = "honour_duel", bots = 1, bestOf = 3 } = {}) {
   const t0 = Date.now();
   const log = [];
   let room = null;
@@ -158,8 +200,8 @@ async function record() {
     // round boundary needs both sides of that boundary in the recording.
     if (room && room.state === "fighting" && (room.roundIndex || 0) >= 2 && done) { done(); done = null; }
   });
-  engine.message(sid, { type: "create", data: { name: "Moot", mode: "honour_duel", bestOf: 3 } });
-  engine.message(sid, { type: "add_bot", data: { difficulty: "jarl" } });
+  engine.message(sid, { type: "create", data: { name: "Moot", mode, bestOf } });
+  for (let i = 0; i < bots; i++) engine.message(sid, { type: "add_bot", data: { difficulty: "jarl" } });
   engine.message(sid, { type: "start", data: {} });
   await Promise.race([settled, sleep(95000)]);
   await sleep(900);
@@ -167,8 +209,24 @@ async function record() {
 }
 
 const { log } = await record();
-// The harness's own player is the one who is not a bot — the connection above.
-const anyRoom = log.find((r) => r.room && r.room.players);
+/**
+ * The FULLEST snapshot, not the first one.
+ *
+ * This used to be `log.find(r => r.room && r.room.players)`, and the first
+ * snapshot a room ever sends is the one taken the instant it is created — before
+ * `add_bot` has run. So `ids` was `[the human]`, `killerId` was `undefined`, and
+ * every claim below that mentions the killer has been measured with no killer in
+ * the scene since the day this file was written: `KILLER_CLEAR`, the whole reason
+ * the arc is pushed round, was never once exercised off the recording. It went
+ * unnoticed because a missing killer is not an error — `frameDeathShot` simply
+ * skips that rotation — so the harness kept printing PASS for a shot nobody was
+ * standing in. Twelfth instance of the ruler measuring the wrong quantity, found
+ * by needing the same id for something else.
+ */
+const anyRoom = log.reduce((best, r) => (
+  r.room && r.room.players
+  && (!best || Object.keys(r.room.players).length > Object.keys(best.room.players).length) ? r : best
+), null);
 const ids = anyRoom ? Object.keys(anyRoom.room.players) : [];
 const localId = ids.find((id) => !anyRoom.room.players[id].isBot) ?? ids[0];
 const killerId = ids.find((id) => id !== localId);
@@ -216,17 +274,7 @@ function replay({ blind = false, zone = deathZone, skipAt = null, fps = 60 } = {
     // is standing up again — and not the match summary.
     const live = room.state === "fighting" || room.state === "last_stand" || room.state === "intermission";
 
-    const feet = { x: me.position.x, y: groundAt(me.position.x, me.position.z), z: me.position.z };
-    // The wound, at the anatomy of the zone the SERVER reported, on the side the
-    // blow came from. The spray leaves along the blade's own line, lifted —
-    // `vfx.ts:woundBlood` adds the same +0.4 of up for the same reason.
-    const from = killer ? norm(sub(feet, { x: killer.position.x, y: feet.y, z: killer.position.z })) : { x: 0, y: 0, z: 1 };
-    const wound = {
-      x: feet.x + from.x * 0.18,
-      y: feet.y + (ZONE_Y[zone] ?? 1.12),
-      z: feet.z + from.z * 0.18,
-    };
-    const spray = norm({ x: from.x, y: 0.4, z: from.z });
+    const { feet, wound, spray } = anatomy(me, killer, zone);
     // The severed piece, thrown along the spray and falling. Only for the zones
     // that take something off; a torso kill has no part and must still hold.
     if (dead && SEVERS.has(zone) && !sever) sever = { t: 0, x: wound.x, y: wound.y, z: wound.z, vx: spray.x * 2.4, vy: 2.2, vz: spray.z * 2.4 };
@@ -478,9 +526,488 @@ const wired = /@\/game\/deathcam\.mjs/.test(canvas)
 check("GameCanvas.tsx imports this module, runs it, aims the rig with it and binds the skip", wired,
   wired ? "wired" : "the renderer is not on the seam this harness tests");
 
+// ============================================================
+// 10. THE ROUND'S FINAL DEATH — the beat NOBODY but the corpse ever saw.
+//
+// The owner, verbatim, 13 Aug 2026:
+//
+//   "death camera only shows when you die last, everyone should see death
+//    camera for final death winner & all losers."
+//
+// Everything above measures the lens of the man who DIED. That is the whole of
+// what `deathcam.mjs` was asked for and it is why this hole survived a fix, a
+// harness and an adversary: the adversary confirmed that `update()` can never
+// take a living player's lens and called it correct, which it is, for the
+// defect it was built for. Nobody sat in the WINNER'S chair. These claims are
+// that chair, and every one of them is measured on the same recording, from a
+// different man's eyes.
+//
+// `blind` here is not a model of an old build — it is the follow camera the
+// winner is running RIGHT NOW, `followShot` above, arithmetic for arithmetic off
+// camera.ts. It stays permanently as the proof of failure.
+// ============================================================
+
+/** The man whose death ended the round, taken off the recording rather than assumed. */
+function finalDeathOf(rec) {
+  const was = new Map();
+  let last = null;
+  for (const r of rec.log) {
+    if (!r.room || !r.room.players) continue;
+    for (const [id, p] of Object.entries(r.room.players)) {
+      const dead = p.state === "dead";
+      if (dead && was.get(id) === false) last = { id, at: r.t, killer: p.lastHitBy || null, zone: p.deathZone ?? "torso" };
+      was.set(id, dead);
+    }
+    // The tick the round ends IS the tick the last man falls — `checkRoundEnd`
+    // runs inside the same step — so the death and the break arrive together and
+    // whatever `last` holds when the break opens is the death that ended it.
+    if (r.room.state === "intermission" || r.room.state === "finished") return last;
+  }
+  return last;
+}
+
+/**
+ * One client's frame loop over a recording, FROM ANY MAN'S CHAIR.
+ *
+ * `replay` above is the local warrior's, because that is whose death it is. The
+ * round beat is everybody's, so the viewer is an argument here — and the winner
+ * is the argument that was never passed.
+ *
+ * Both cameras run, every frame, exactly as `GameCanvas.tsx` runs them, so the
+ * precedence rule is measured rather than assumed: whichever one is asked first
+ * in the source cannot decide the answer, because `own` is handed to the beat as
+ * an input and the beat refuses on it.
+ */
+function replayBeat(rec, {
+  viewerId, victimId, killerId = null, blind = false, zone = "torso",
+  skipAt = null, fps = 60, viewerZone = "torso",
+} = {}) {
+  const { log: rlog } = rec;
+  const dt = 1 / fps;
+  const beatCam = createRoundCamera();
+  const ownCam = createDeathCamera();
+  const frames = [];
+  let heldIdx = 0;
+  let held = null;
+  let camPos = { x: 0, y: 2.05, z: 4.4 };
+  let orbitYaw = 0;
+  let sever = null;
+  let sinceEnd = -1;
+
+  for (let ms = 0; ms <= rlog[rlog.length - 1].t + 1; ms += dt * 1000) {
+    while (heldIdx < rlog.length && rlog[heldIdx].t <= ms) held = rlog[heldIdx++];
+    if (!held || !held.room || !held.room.players) continue;
+    const room = held.room;
+    const viewer = room.players[viewerId];
+    const victim = room.players[victimId];
+    if (!viewer || !victim) continue;
+    const killer = killerId ? room.players[killerId] : null;
+
+    // The break this death opened. NOT the countdown — the next round is being
+    // dealt there — and not the match summary, which stages its own tableau.
+    const ended = room.state === "intermission";
+    const live = ended;
+    // Started by the break and NEVER STOPPED BY IT. The first cut of this only
+    // recorded frames while `ended` was true, so "not one frame of the beat runs
+    // once the next round is being dealt" was asking a question about frames it
+    // had thrown away — green because the case was absent, which is the fault
+    // this repository has recorded thirteen times. The recording runs on into
+    // the countdown and the next round, and so does this.
+    if (ended || sinceEnd >= 0) sinceEnd = sinceEnd < 0 ? 0 : sinceEnd + dt;
+
+    const vic = anatomy(victim, killer, zone);
+    const you = anatomy(viewer, viewer.lastHitBy ? room.players[viewer.lastHitBy] : null, viewerZone);
+
+    if (victim.state === "dead" && SEVERS.has(zone) && !sever) {
+      sever = { x: vic.wound.x, y: vic.wound.y, z: vic.wound.z, vx: vic.spray.x * 2.4, vy: 2.2, vz: vic.spray.z * 2.4 };
+    }
+    if (sever) {
+      sever.vy -= 18.5 * dt;
+      sever.x += sever.vx * dt; sever.y += sever.vy * dt; sever.z += sever.vz * dt;
+      const g = groundAt(sever.x, sever.z) + 0.12;
+      if (sever.y < g) { sever.y = g; sever.vx *= 0.4; sever.vz *= 0.4; sever.vy = 0; }
+    }
+
+    const viewerDead = viewer.state === "dead";
+    // Where the lens sits with no camera holding it: the follow rig on his own
+    // shoulders while he is up, and the shipped spectate orbit once he is not.
+    let natural;
+    if (!viewerDead) {
+      natural = followShot(you.feet, viewer.rotation || 0);
+      camPos = P(natural.position);
+      orbitYaw = Math.atan2(camPos.x, camPos.z);
+    } else {
+      orbitYaw += dt * 0.22;
+      const tx = Math.sin(orbitYaw) * 15;
+      const tz = Math.cos(orbitYaw) * 15;
+      camPos = { x: camPos.x + (tx - camPos.x) * 0.04, y: camPos.y + (7.5 - camPos.y) * 0.04, z: camPos.z + (tz - camPos.z) * 0.04 };
+      natural = { position: [camPos.x, camPos.y, camPos.z], target: [0, 1.4, 0], fov: 55, beat: "spectate", moved: 0 };
+    }
+
+    if (skipAt !== null && sinceEnd >= skipAt) { beatCam.skip(); ownCam.skip(); }
+
+    // The viewer's OWN death hold, which is what the beat has to give way to.
+    const ownShot = ownCam.update(dt, {
+      dead: viewerDead,
+      live: room.state === "fighting" || room.state === "last_stand" || room.state === "intermission",
+      camera: camPos, body: you.feet,
+      wound: viewerDead ? you.wound : null,
+      spray: viewerDead ? you.spray : null,
+      part: null,
+      killer: viewer.lastHitBy && room.players[viewer.lastHitBy] ? room.players[viewer.lastHitBy].position : null,
+      groundAt,
+    });
+
+    const beatShot = blind ? null : beatCam.update(dt, {
+      ended, live, own: !!ownShot,
+      body: victim.state === "dead" ? vic.feet : null,
+      wound: victim.state === "dead" ? vic.wound : null,
+      spray: victim.state === "dead" ? vic.spray : null,
+      part: sever ? { x: sever.x, y: sever.y, z: sever.z } : null,
+      killer: killer ? killer.position : null,
+      camera: camPos,
+      groundAt,
+    });
+
+    const shot = ownShot ?? beatShot ?? natural;
+    camPos = P(shot.position);
+
+    if (sinceEnd >= 0) {
+      frames.push({
+        ms, since: sinceEnd, state: room.state,
+        shot, beat: beatShot, own: ownShot,
+        wound: vic.wound, feet: vic.feet, spray: vic.spray,
+      });
+    }
+  }
+  return frames;
+}
+
+/** Seconds after the round ended that the FINAL DEATH is the subject of this man's frame. */
+function watchedFor(frames) {
+  let last = 0;
+  for (const f of frames) {
+    const a = frameAngles(P(f.shot.position), P(f.shot.target), f.shot.fov, f.wound);
+    if (!isSubject(a)) break;
+    last = f.since;
+  }
+  return last;
+}
+
+const duel = { log };
+const fell = finalDeathOf(duel);
+check("the recording contains a round that ENDED, and the man who ended it is known",
+  !!fell && !!log.find((r) => r.room && r.room.state === "intermission"),
+  fell ? `${fell.id === localId ? "the local warrior" : "the bot"} fell last at ${fell.at}ms, zone "${fell.zone}"` : "no round end in the recording");
+
+const winnerId = fell && fell.id === localId ? killerId : localId;
+
+/** Which side of the wound the lens is on. Positive is the side the blood leaves by. */
+const sideOf = (f) => dot(norm(sub(P(f.shot.position), f.wound)), f.spray);
+/** Metres from the lens to the wound. */
+const distOf = (f) => frameAngles(P(f.shot.position), P(f.shot.target), f.shot.fov, f.wound).dist;
+const atSince = (fs, s) => fs.find((f) => f.since >= s) ?? fs[fs.length - 1] ?? null;
+
+const blindWin = replayBeat(duel, { viewerId: winnerId, victimId: fell.id, killerId: fell.killer, blind: true, zone: fell.zone });
+const blindWatched = watchedFor(blindWin);
+const blindStart = blindWin.length ? blindWin[0] : null;
+const blindWinEnd = atSince(blindWin, ROUND_HOLD.total - 0.02);
+
+// THE FIRST CUT OF THIS CLAIM WAS THE REPOSITORY'S OWN FAULT AGAIN, and it is
+// left recorded here rather than quietly fixed. It asserted that on the shipped
+// client the dying man is not the SUBJECT of the winner's frame — and it went
+// green-side-up, because in an honour duel the winner has just killed a man at
+// arm's length and his follow camera looks 3.6 m past his own shoulder, so the
+// corpse sits dead centre at 5.8 m and fills a third of the frame. "In shot" was
+// never the question. The comment at the head of this file already said so about
+// the SPECTATE orbit and the lesson did not carry across ten metres of code.
+//
+// What the winner is actually denied is the thing this module exists for: the
+// camera that GOES TO THE WOUND. Two properties the follow camera cannot have,
+// neither of them a threshold anybody can slide:
+//
+//   IT IS ON THE WRONG SIDE. The spray leaves along the blade's line, AWAY from
+//   the man who swung — so the winner, standing where he swung from, is looking
+//   at the victim's back by construction. `cos(lens, spray)` is about -1 for him
+//   and `KILLER_CLEAR` exists in `frameDeathShot` precisely to get the lens off
+//   that line.
+//   IT NEVER CLOSES. A death camera goes in. The follow camera stays 4.4 m
+//   behind the man holding it, whatever is happening in front of him.
+check("THE DEFECT REPRODUCES: the winner is left standing where he swung from, looking at the victim's BACK",
+  !!blindWinEnd && sideOf(blindWinEnd) < 0,
+  blindWinEnd
+    ? `cos(lens, spray axis) = ${sideOf(blindWinEnd).toFixed(2)} on the shipped client — below zero is a shot of his back. `
+      + `Reported and not hidden: the corpse is incidentally inside his frame for ${blindWatched.toFixed(2)}s of the break `
+      + `because a duel ends at arm's length, which is exactly why "is it in shot" was the wrong question`
+    : "no frame of the break to measure");
+check("AND THE DEFECT IS A LENS THAT NEVER MOVES: the shipped winner's camera does not close on the death",
+  !!blindStart && !!blindWinEnd && distOf(blindWinEnd) > distOf(blindStart) - 1.0,
+  blindStart && blindWinEnd
+    ? `${distOf(blindStart).toFixed(2)}m at the killing blow → ${distOf(blindWinEnd).toFixed(2)}m ${ROUND_HOLD.total.toFixed(2)}s later; `
+      + `it is over his own shoulder the whole way`
+    : "no frames to measure");
+
+const win = replayBeat(duel, { viewerId: winnerId, victimId: fell.id, killerId: fell.killer, zone: fell.zone });
+const watched = watchedFor(win);
+const beatEnd = atSince(win, ROUND_HOLD.fall + ROUND_HOLD.move - 0.02);
+check("THE WINNER WATCHES IT: the final death is the subject of his frame for the whole beat",
+  watched >= ROUND_HOLD.total - 0.05,
+  `${watched.toFixed(2)}s watched against ${ROUND_HOLD.total.toFixed(2)}s asked for`);
+check("AND HE IS PUT ON THE SIDE THE WOUND FACES, which is the side he was NOT standing on",
+  !!beatEnd && sideOf(beatEnd) > 0.3,
+  beatEnd
+    ? `cos(lens, spray axis) = ${sideOf(beatEnd).toFixed(2)} at the end of the move, against `
+      + `${blindWinEnd ? sideOf(blindWinEnd).toFixed(2) : "?"} on his own shoulder`
+    : "the move never finished");
+
+// ============================================================
+// 11. IT CUTS, and that is the difference between the two cameras.
+//     Your own death opens where your lens already was, because a cut there
+//     throws away the thing you are trying to read. This one opens ON THE BODY,
+//     because the viewer was fighting somebody else twenty metres away and a
+//     two-second dolly across the arena arrives after it is over.
+// ============================================================
+const firstBeat = win.find((f) => f.beat);
+const aFirst = firstBeat ? frameAngles(P(firstBeat.shot.position), P(firstBeat.shot.target), firstBeat.shot.fov, firstBeat.wound) : null;
+check("THE CUT LANDS ON THE BODY: the beat's FIRST frame already has the death as its subject",
+  !!aFirst && isSubject(aFirst),
+  aFirst
+    ? `opening frame sits ${aFirst.dist.toFixed(2)}m out with the wound `
+      + `${(aFirst.vert * 57.3).toFixed(1)}°/${(aFirst.horiz * 57.3).toFixed(1)}° off axis, against the `
+      + `${blindWin.length ? frameAngles(P(blindWin[0].shot.position), P(blindWin[0].shot.target), blindWin[0].shot.fov, blindWin[0].wound).dist.toFixed(1) : "?"}m `
+      + `the winner's own lens was at`
+    : "the beat never opened");
+const aLastBeat = (() => {
+  const f = win.filter((x) => x.beat).pop();
+  return f ? frameAngles(P(f.shot.position), P(f.shot.target), f.shot.fov, f.wound) : null;
+})();
+check("and it closes in from there rather than sitting at the cut",
+  !!aFirst && !!aLastBeat && aLastBeat.dist < aFirst.dist - 1.5,
+  aFirst && aLastBeat ? `${aFirst.dist.toFixed(2)}m → ${aLastBeat.dist.toFixed(2)}m, fov ${ROUND_FOV.from}° → ${ROUND_FOV.to}°` : "no move to measure");
+
+// ============================================================
+// 12. THE CLOCK IS A PARAMETER, NOT A COPY. `frameDeathShot` is one definition
+//     of the geometry and both cameras drive it; the levers that make them
+//     different cameras are `hold` and `fov`, and this is R1 on both of them —
+//     move the lever, watch the number move. A second copy of the arithmetic
+//     that had drifted would show up here as two identical answers.
+// ============================================================
+const leverBody = { x: 0, y: 0, z: 0 };
+const leverArgs = { body: leverBody, wound: { x: 0, y: 1.46, z: 0 }, spray: { x: 1, y: 0.4, z: 0 }, from: { x: 0, y: 2.05, z: 4.4 } };
+const LEVER_T = 1.6;
+const atDeath = frameDeathShot({ ...leverArgs, t: LEVER_T });
+const atRound = frameDeathShot({ ...leverArgs, t: LEVER_T, hold: ROUND_HOLD, fov: ROUND_FOV });
+// A doubled clock, to prove the parameter is READ rather than merely accepted.
+// `beardvolume` gated on a p10 that doubling `cut.thick` left untouched; the
+// cheap guard against that is to move the lever a long way and watch.
+const stretched = { fall: ROUND_HOLD.fall * 4, move: ROUND_HOLD.move * 4, linger: ROUND_HOLD.linger * 4 };
+stretched.total = stretched.fall + stretched.move + stretched.linger;
+const atStretched = frameDeathShot({ ...leverArgs, t: LEVER_T, hold: stretched, fov: ROUND_FOV });
+check("the two cameras are two clocks over ONE geometry, and BOTH levers move the number",
+  atDeath.beat === "move" && atRound.beat === "linger"
+  && atRound.moved > atDeath.moved + 0.2
+  && atRound.fov < atDeath.fov
+  && atStretched.beat === "fall" && atStretched.moved === 0,
+  `at t=${LEVER_T.toFixed(2)}s the death hold is in "${atDeath.beat}" (moved ${atDeath.moved.toFixed(2)}, fov ${atDeath.fov.toFixed(1)}°), `
+  + `the round beat is in "${atRound.beat}" (moved ${atRound.moved.toFixed(2)}, fov ${atRound.fov.toFixed(1)}°), `
+  + `and a clock stretched 4x on the same frame falls back to "${atStretched.beat}" (moved ${atStretched.moved.toFixed(2)}) — `
+  + `so the clock is read and not decoration`);
+
+// ============================================================
+// 13. EVERY LOSER WATCHES IT TOO — and the man who was inside his OWN death
+//     camera when the round ended keeps it.
+//
+//     This needs a moot rather than a duel: in an honour duel there are two men,
+//     so "a loser who is not the final death" does not exist and a claim about
+//     him would be GREEN BECAUSE THE CASE IS ABSENT. So a second real recording,
+//     four men in a blood moot, where somebody falls early and somebody falls
+//     last.
+// ============================================================
+const mootRec = await record({ mode: "blood_moot", bots: 3, bestOf: 3 });
+const mootLog = mootRec.log;
+// The fullest snapshot, for the reason recorded above `anyRoom`.
+const mootAny = mootLog.reduce((best, r) => (
+  r.room && r.room.players
+  && (!best || Object.keys(r.room.players).length > Object.keys(best.room.players).length) ? r : best
+), null);
+const mootIds = mootAny ? Object.keys(mootAny.room.players) : [];
+const mootFell = finalDeathOf({ log: mootLog });
+/** Everyone who was already down BEFORE the man who fell last. */
+const earlyDead = (() => {
+  const endIdx = mootLog.findIndex((r) => r.room && r.room.state === "intermission");
+  if (endIdx < 0 || !mootFell) return [];
+  const at = mootLog[endIdx].room.players;
+  return mootIds.filter((id) => id !== mootFell.id && at[id] && at[id].state === "dead");
+})();
+const mootWinner = (() => {
+  const endIdx = mootLog.findIndex((r) => r.room && r.room.state === "intermission");
+  if (endIdx < 0) return null;
+  const at = mootLog[endIdx].room.players;
+  return mootIds.find((id) => at[id] && at[id].state !== "dead") ?? null;
+})();
+check("a real four-man moot was driven, with a round that ended on somebody and men already down",
+  !!mootFell && earlyDead.length >= 1 && !!mootWinner,
+  mootFell
+    ? `${mootIds.length} men; ${earlyDead.length} already down when ${mootFell.id.slice(0, 10)} fell last, `
+      + `${mootWinner ? mootWinner.slice(0, 10) : "nobody"} left standing`
+    : "no round end in the moot recording");
+
+if (mootFell && mootWinner) {
+  const mootDuel = { log: mootLog };
+  // The winner of the moot, on the shipped client and on this one. The duel
+  // flatters the shipped camera — the corpse is at arm's length — and the moot
+  // is the honest general case, so both numbers are printed side by side.
+  const mBlind = replayBeat(mootDuel, { viewerId: mootWinner, victimId: mootFell.id, killerId: mootFell.killer, zone: mootFell.zone, blind: true });
+  const mBlindEnd = atSince(mBlind, ROUND_HOLD.total - 0.02);
+  const mWin = replayBeat(mootDuel, { viewerId: mootWinner, victimId: mootFell.id, killerId: mootFell.killer, zone: mootFell.zone });
+  const mEnd = atSince(mWin, ROUND_HOLD.total - 0.02);
+  check("in a four-man moot the WINNER watches the final death as well",
+    watchedFor(mWin) >= ROUND_HOLD.total - 0.05,
+    `${watchedFor(mWin).toFixed(2)}s watched against ${ROUND_HOLD.total.toFixed(2)}s; his lens ends `
+    + `${mEnd ? distOf(mEnd).toFixed(2) : "?"}m from the wound where the shipped client leaves it `
+    + `${mBlindEnd ? distOf(mBlindEnd).toFixed(2) : "?"}m away at cos(lens, spray) `
+    + `${mBlindEnd ? sideOf(mBlindEnd).toFixed(2) : "?"}`);
+
+  // Every loser who is not the final death and whose own hold is long over.
+  const loserRows = earlyDead.map((id) => {
+    const fs = replayBeat(mootDuel, { viewerId: id, victimId: mootFell.id, killerId: mootFell.killer, zone: mootFell.zone });
+    return { id, watched: watchedFor(fs), own: fs.some((f) => f.own) };
+  });
+  check("and so does EVERY loser who is not himself the final death",
+    loserRows.length > 0 && loserRows.every((r) => r.own || r.watched >= ROUND_HOLD.total - 0.05),
+    loserRows.map((r) => `${r.id.slice(0, 10)} ${r.watched.toFixed(2)}s${r.own ? " (still inside his own hold — see precedence)" : ""}`).join(", "));
+
+  // PRECEDENCE, driven rather than argued: the man who IS the final death was
+  // inside his own hold the instant the round ended, by construction.
+  const victimSelf = replayBeat(mootDuel, { viewerId: mootFell.id, victimId: mootFell.id, killerId: mootFell.killer, zone: mootFell.zone, viewerZone: mootFell.zone });
+  const bothAtOnce = victimSelf.filter((f) => f.own && f.beat).length;
+  const ownRan = victimSelf.filter((f) => f.own).length;
+  const beatRan = victimSelf.filter((f) => f.beat).length;
+  check("PRECEDENCE: the man already inside his own death camera keeps it, and the beat never arms for him — not then, and not after",
+    ownRan > 0 && beatRan === 0 && bothAtOnce === 0,
+    `his own hold ran for ${ownRan} frames of the break; the round beat took ${beatRan} of them, `
+    + `and no frame had two cameras on the lens`);
+}
+
+// ============================================================
+// 14. IT IS INTERRUPTIBLE, AND IT COSTS THE LIVING NOTHING.
+//     Three halves again, and the third is arithmetic rather than intent: the
+//     beat has to FIT INSIDE THE BREAK THE SERVER ALREADY TAKES, measured off
+//     this recording rather than read out of engine.mjs.
+// ============================================================
+for (const at of [0.2, 1.0]) {
+  const fs = replayBeat(duel, { viewerId: winnerId, victimId: fell.id, killerId: fell.killer, zone: fell.zone, skipAt: at });
+  const lastHeld = fs.reduce((m, f) => (f.beat ? f.since : m), -1);
+  check(`a press at ${at.toFixed(1)}s into the beat ends it on the next frame`,
+    lastHeld >= 0 && lastHeld < at + 2 / 60 + 1e-6,
+    `last held frame at ${lastHeld.toFixed(3)}s`);
+}
+const afterBreak = win.filter((f) => f.state !== "intermission" && f.beat);
+check("not one frame of the beat runs once the next round is being dealt",
+  afterBreak.length === 0,
+  afterBreak.length ? `${afterBreak.length} frames held into "${afterBreak[0].state}"` : "the lens is handed back before the countdown");
+const lastBeatFrame = win.reduce((m, f) => (f.beat ? f : m), null);
+check("and the beat ends on its own clock, never open-ended",
+  !!lastBeatFrame && lastBeatFrame.since <= ROUND_HOLD.total + 1 / 30,
+  lastBeatFrame ? `longest beat ${lastBeatFrame.since.toFixed(2)}s against a ceiling of ${ROUND_HOLD.total.toFixed(2)}s` : "never held");
+check("THE BEAT FITS INSIDE THE BREAK THE SERVER ALREADY TAKES, so the next round waits on nothing",
+  breakSec > 0 && ROUND_HOLD.total < breakSec,
+  breakSec > 0
+    ? `${ROUND_HOLD.total.toFixed(2)}s of beat inside the ${breakSec.toFixed(2)}s break measured on this run — `
+      + `${(breakSec - ROUND_HOLD.total).toFixed(2)}s of slack. The server set nextRoundAt before this armed and the beat sends nothing.`
+    : "no round break in the recording to measure against");
+const slowBeat = replayBeat(duel, { viewerId: winnerId, victimId: fell.id, killerId: fell.killer, zone: fell.zone, fps: 12 });
+check("the same beat at 12 fps as at 60",
+  watchedFor(slowBeat) >= ROUND_HOLD.total - 1 / 6
+  && slowBeat.reduce((m, f) => (f.beat ? f.since : m), 0) <= ROUND_HOLD.total + 1 / 6,
+  `${watchedFor(slowBeat).toFixed(2)}s watched at 12 fps against ${watched.toFixed(2)}s at 60`);
+
+// ============================================================
+// 15. THE CUT, HAMMERED. `roundOpening` over a full circle of spray bearings,
+//     over the lumpy bank, and over the three cases its fallback chain exists
+//     for — a spray with a horizontal opinion, a vertical spray with a killer,
+//     and a man the ARENA killed, who has neither. A gate that only ever saw a
+//     sword kill would be green because two thirds of the cases are absent.
+// ============================================================
+let openUnder = 0;
+let openOff = 0;
+let openSamples = 0;
+const openCases = [];
+for (let b = 0; b < 24; b++) {
+  const ang = (b / 24) * Math.PI * 2;
+  const body = { x: Math.cos(ang) * 7.5, y: 0, z: Math.sin(ang) * 7.5 };
+  body.y = groundAt(body.x, body.z);
+  const wound = { x: body.x, y: body.y + 1.46, z: body.z };
+  const killer = { x: body.x + Math.cos(ang * 1.7) * 1.6, y: body.y, z: body.z + Math.sin(ang * 1.7) * 1.6 };
+  const viewer = { x: Math.cos(ang * 3.1) * 14, y: 2.05, z: Math.sin(ang * 3.1) * 14 };
+  for (const kind of ["spray", "vertical", "arena"]) {
+    const spray = kind === "spray" ? norm({ x: Math.cos(ang * 2.3), y: 0.4, z: Math.sin(ang * 2.3) })
+      : kind === "vertical" ? { x: 0, y: 1, z: 0 } : null;
+    const from = roundOpening({
+      wound, spray,
+      killer: kind === "arena" ? null : killer,
+      from: viewer, groundAt,
+    });
+    const openDist = Math.hypot(from.x - wound.x, from.z - wound.z);
+    for (let t = 0; t <= ROUND_HOLD.total; t += 1 / 60) {
+      const shot = frameDeathShot({ t, from, body, wound, spray, part: null, killer: kind === "arena" ? null : killer, groundAt, hold: ROUND_HOLD, fov: ROUND_FOV });
+      if (shot.position[1] < groundAt(shot.position[0], shot.position[2]) + 0.4) openUnder++;
+      const a = frameAngles(P(shot.position), P(shot.target), shot.fov, wound);
+      if (!isSubject(a)) openOff++;
+      openSamples++;
+    }
+    if (b === 0) openCases.push(`${kind} opens ${openDist.toFixed(2)}m out`);
+  }
+}
+check("the beat's lens never goes under the turf, on any bearing, in any of the three cases the cut has",
+  openUnder === 0,
+  `${openUnder} of ${openSamples} sampled frames under the bank (${openCases.join(", ")})`);
+check("and the final death is the subject from the cut to the end, on every bearing and in every case",
+  openOff === 0,
+  `${openOff} of ${openSamples} frames put the wound outside the middle fifth`);
+
+// ============================================================
+// 16. SOURCE LOCK for the beat, same argument as claim 9.
+// ============================================================
+const beatWired = /createRoundCamera/.test(canvas)
+  && /roundCamRef/.test(canvas)
+  && /roundCamRef\.current\.skip\(\)/.test(canvas);
+check("GameCanvas.tsx imports the round camera, runs it and binds the same skip", beatWired,
+  beatWired ? "wired" : "the renderer is not on the seam these claims test");
+
+// ============================================================
+// 17. THE ONE MIRRORED CONSTANT, GATED RATHER THAN TRUSTED.
+//
+//     `src/app/page.tsx` holds the round-end screen for `ROUND_HOLD_MS` — for
+//     that long after a round ends, `RoundBreak` draws a verdict line and the
+//     victor's flourish row over the LIVE ARENA, and only then does the opaque
+//     break card come down. That window was already open and pointed at
+//     nothing: the presentation half of BACKLOG 2.6 shipped showing you the
+//     arena while the arena showed you the lobby orbit. The beat is the length
+//     of that window, on purpose.
+//
+//     The two constants are NOT wired together, because `page.tsx` belongs to
+//     another unit. That makes them the mirrored-definition fault this
+//     repository has recorded five times in one file, sitting one edit away —
+//     so it is not left to a comment. This reads the number out of that file.
+// ============================================================
+const pageSrc = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
+const holdMs = /const ROUND_HOLD_MS\s*=\s*(\d+)/.exec(pageSrc);
+check("the beat is exactly as long as the round-end screen page.tsx already holds",
+  !!holdMs && Math.abs(Number(holdMs[1]) / 1000 - ROUND_HOLD.total) < 1e-6,
+  holdMs
+    ? `page.tsx ROUND_HOLD_MS = ${holdMs[1]}ms against ROUND_HOLD.total = ${(ROUND_HOLD.total * 1000).toFixed(0)}ms. `
+      + `They are two declarations of one number and nothing in the code makes them agree — if you moved one, move the other`
+    : "page.tsx no longer declares ROUND_HOLD_MS; the window this beat plays inside has moved or gone");
+
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} passed`
-  + `  —  hold ${DEATH_HOLD.fall}s still + ${DEATH_HOLD.move}s move + ${DEATH_HOLD.linger}s linger = ${DEATH_HOLD.total.toFixed(2)}s,`
-  + ` IDENTICAL ON EVERY TIER, which is a deliberate choice and not an oversight:`
-  + ` the death is the one moment a phone has nothing else to draw.`);
+  + `\n  YOUR OWN DEATH   ${DEATH_HOLD.fall}s still + ${DEATH_HOLD.move}s move + ${DEATH_HOLD.linger}s linger = ${DEATH_HOLD.total.toFixed(2)}s,`
+  + ` no cut, IDENTICAL ON EVERY TIER — the death is the one moment a phone has nothing else to draw.`
+  + `\n  THE ROUND'S      ${ROUND_HOLD.fall}s cut + ${ROUND_HOLD.move}s in + ${ROUND_HOLD.linger}s linger = ${ROUND_HOLD.total.toFixed(2)}s,`
+  + ` everybody watches, and your own death outranks it.`
+  + `\n  WITH ONE DEFERRAL ON THIS LINE AND NOT BELOW IT: the death that ends the LAST round of a match`
+  + ` is not measured here, because the server goes straight from "fighting" to "finished" and`
+  + ` render/summary.ts takes the lens for the victor's portrait. That is a screen the beat is not`
+  + ` allowed to hold up from a file this unit owns — see docs/BACKLOG.md 2.6.`);
 process.exit(failed.length ? 1 : 0);

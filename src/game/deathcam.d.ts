@@ -25,6 +25,21 @@ declare module "@/game/deathcam.mjs" {
   /** Field of view at the top of the hold and at the end of the move. */
   export const DEATH_FOV: { from: number; to: number };
 
+  /**
+   * Seconds in each beat of the ROUND's final death — the beat every man in the
+   * room watches, winner and losers alike. Shorter than your own death: 2.20 s
+   * inside the server's own 5 s break, so nothing waits on it.
+   */
+  export const ROUND_HOLD: {
+    fall: number;
+    move: number;
+    linger: number;
+    total: number;
+  };
+
+  /** Field of view for the round beat. Tighter than the death lens at both ends. */
+  export const ROUND_FOV: { from: number; to: number };
+
   export interface DeathView {
     /** Seconds into the hold. */
     t: number;
@@ -42,6 +57,10 @@ declare module "@/game/deathcam.mjs" {
     killer?: Vec3Like | null;
     /** Terrain height under a world point, so the lens never goes under it. */
     groundAt?: ((x: number, z: number) => number) | null;
+    /** The clock. `DEATH_HOLD` when absent; the round beat hands `ROUND_HOLD`. */
+    hold?: { fall: number; move: number; linger: number; total: number } | null;
+    /** The lens. `DEATH_FOV` when absent; the round beat hands `ROUND_FOV`. */
+    fov?: { from: number; to: number } | null;
   }
 
   export interface DeathShot {
@@ -87,4 +106,45 @@ declare module "@/game/deathcam.mjs" {
   }
 
   export function createDeathCamera(): DeathCameraState;
+
+  /** Where the round beat CUTS TO — the frame it opens on, before it moves. */
+  export function roundOpening(v: {
+    wound: Vec3Like;
+    spray?: Vec3Like | null;
+    killer?: Vec3Like | null;
+    from?: Vec3Like | null;
+    groundAt?: ((x: number, z: number) => number) | null;
+  }): Vec3Like;
+
+  export interface RoundCameraState {
+    /** Seconds into the beat; 0 when nothing is held. */
+    readonly elapsed: number;
+    readonly holding: boolean;
+    /** Any key, any tap, any click. Ends the beat on the next frame. */
+    skip(): void;
+    /** A new round, a new match, a disconnect. Safe from any state. */
+    reset(): void;
+    update(
+      dt: number,
+      s: {
+        /** Is the room in the break this death ended. The rising edge arms it. */
+        ended: boolean;
+        /** May the beat still hold the lens. False once the next round is dealt. */
+        live: boolean;
+        /** Is the viewer's OWN death hold running this frame. It outranks this. */
+        own: boolean;
+        /** The last man to fall — feet, live, still collapsing through the break. */
+        body: Vec3Like | null;
+        wound?: Vec3Like | null;
+        spray?: Vec3Like | null;
+        part?: Vec3Like | null;
+        killer?: Vec3Like | null;
+        /** The viewer's lens. Last-resort bearing for the cut, not its start. */
+        camera?: Vec3Like | null;
+        groundAt?: ((x: number, z: number) => number) | null;
+      },
+    ): DeathShot | null;
+  }
+
+  export function createRoundCamera(): RoundCameraState;
 }

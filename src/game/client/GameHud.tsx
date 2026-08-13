@@ -25,6 +25,7 @@ import {
   getLockSnapshot, getServerLockSnapshot, setLockFootMark, setLockReticle, subscribeLock,
   type MobileFlags,
 } from "./input";
+import { createTuitionHint, browserStore, FOE_HINT, FOE_HINT_KEY } from "@/game/tuition.mjs";
 import {
   ACTIONS, MAX_BINDINGS_PER_ACTION, RESERVED_CODES,
   getBindings, getServerBindings, subscribeBindings,
@@ -32,6 +33,23 @@ import {
   captureBinding, labelForCode, loadKeyboardLayout,
   type ActionId, type BindingCode,
 } from "./bindings";
+
+/**
+ * Where the QUALITY pad hangs, in CSS pixels from the top of the screen.
+ *
+ * It is the next rung of the utility column `src/app/page.tsx` starts: the
+ * timer sits at 12 and is 47 tall, the solo END button at 76 (`top-3 mt-16`),
+ * the sound toggle at 124 (`top-3 mt-[7rem]`) and is 44 tall. 172 is four pixels
+ * under the sound toggle, which is the gap that column already uses between END
+ * and sound — so this reads as the fourth thing in one stack rather than as a
+ * fourth thing near a stack.
+ *
+ * A NUMBER AND NOT A TAILWIND CLASS because the side it hangs off is decided at
+ * runtime by handedness, exactly as `near`/`far` are; and it is measured from
+ * the TOP because the column is, and a bottom offset picked on an 844 px screen
+ * lands off the top edge of a 667 px one.
+ */
+const GFX_TOP = 172;
 
 interface HudRoomState {
   state: string;
@@ -582,7 +600,8 @@ export default function GameHud({
   const lockSnap = useSyncExternalStore(subscribeLock, getLockSnapshot, getServerLockSnapshot);
   const lockedId = lockSnap.split("|")[0];
   const lockedOn = lockedId !== "";
-  const hasSwitched = lockSnap.split("|")[1] !== "0";
+  /** A flick the player MADE, whether or not there was a second man to take. */
+  const hasFlicked = lockSnap.split("|")[2] !== "0";
 
   // THE RIPOSTE WINDOW, ON THE MAN IT IS OPEN ON.
   //
@@ -649,6 +668,60 @@ export default function GameHud({
     setArmed(dir);
     setTaught(true);
   }, []);
+
+  // ---------------------------------------------------------------------
+  // THE FOE-SWITCH LINE, WHICH USED TO BE FURNITURE.
+  //
+  // The owner: "Flick screen to change foe stays on screen permanently that
+  // needs to fade away." `src/game/tuition.mjs` owns the whole of when it
+  // leaves and why; this is transport. Two things are decided here because they
+  // are questions about the ROOM rather than about the hint:
+  //
+  //   IS THERE ANYBODY TO SWITCH TO. A caption teaching a control that cannot
+  //   do anything is furniture for as long as it is up, however briefly. In an
+  //   honour duel there is one foe and the flick has nowhere to go, so the line
+  //   does not appear at all — which is the mode the owner plays and the mode
+  //   the line was permanent in.
+  //
+  //   IS IT ON SCREEN AT ALL. A clock that runs while he is dead, or in the
+  //   lobby, or with nobody under the lock, expires the hint before it has been
+  //   read. `eligible` is the whole of "this line is up and it means something".
+  const otherLive = roomState
+    ? Object.values(roomState.players).filter((p) => p.id !== playerId && p.state !== "dead").length
+    : 0;
+  const foeEligible = Boolean(isMobile.current && isFighting && isAlive && lockedOn && otherLive >= 2);
+  const foeHintRef = useRef<ReturnType<typeof createTuitionHint> | null>(null);
+  const [foeHintUp, setFoeHintUp] = useState({ alive: false, opacity: 0 });
+  // Built on first ASK rather than in one of the effects below, because both of
+  // them need it and effects run in declaration order: a HUD that remounts on a
+  // player who has already flicked would otherwise hand `used()` to a hint that
+  // did not exist yet, and the line would come back for a man who had learned it.
+  const ensureFoeHint = useCallback(() => (
+    foeHintRef.current ??= createTuitionHint({ terms: FOE_HINT, ...browserStore(FOE_HINT_KEY) })
+  ), []);
+  // The flick is an edge on a counter that only ever goes up, so this fires once
+  // and then never again for the life of the page — and `used()` persists, so
+  // never again on this device either.
+  useEffect(() => {
+    if (hasFlicked) ensureFoeHint().used();
+  }, [hasFlicked, ensureFoeHint]);
+  useEffect(() => {
+    const hint = ensureFoeHint();
+    // A quarter of a second, not a frame. This is a six-second caption and a
+    // render loop is how a 120 Hz phone becomes a 40 Hz one — the same argument
+    // `subscribeLock` is written under. `setFoeHintUp` is only called when the
+    // answer changes, so the interval costs one comparison.
+    const STEP = 0.25;
+    const push = () => setFoeHintUp((prev) => (
+      prev.alive === hint.alive && prev.opacity === hint.opacity
+        ? prev
+        : { alive: hint.alive, opacity: hint.opacity }));
+    hint.update(0, foeEligible);
+    push();
+    if (!foeEligible && !hint.alive) return;
+    const id = setInterval(() => { hint.update(STEP, foeEligible); push(); }, STEP * 1000);
+    return () => clearInterval(id);
+  }, [foeEligible, ensureFoeHint]);
 
   const slash = useSwingButton("attack", true, setFlag, onCommit);
   const heavy = useSwingButton("heavy", false, setFlag, onCommit);
@@ -790,15 +863,28 @@ export default function GameHud({
             </svg>
           </div>
 
-          {/* Discoverability for the switch, and it retires the moment the
-              player uses it. It sat at the top of the screen first, which the
-              layout harness passed and a capture did not: the kill feed is five
-              rows deep up there and had this line through the middle of it.
-              Stacked over the other tuition line instead, in the half of the
-              screen the harness measures for overlaps — so the next person to
-              move it gets told. */}
-          {isMobile.current && lockedOn && !hasSwitched && (
-            <div className="absolute bottom-[318px] left-1/2 z-10 -translate-x-1/2 pointer-events-none animate-fadeIn">
+          {/* Discoverability for the switch. It sat at the top of the screen
+              first, which the layout harness passed and a capture did not: the
+              kill feed is five rows deep up there and had this line through the
+              middle of it. Stacked over the other tuition line instead, in the
+              half of the screen the harness measures for overlaps — so the next
+              person to move it gets told.
+
+              WHEN IT LEAVES is `src/game/tuition.mjs`, and it is a decision
+              rather than a condition: it used to be drawn under `!hasSwitched`,
+              which is a flick that FOUND somebody, which in a duel can never
+              happen — so in the mode the owner plays it was a permanent caption
+              on the one surface a phone player looks through. Now it goes when
+              the gesture is made, or when it has been up long enough, whichever
+              comes first, and it does not come back for a player who has
+              demonstrated the control.
+
+              The fade is on `opacity` with a transition rather than on a
+              keyframe class, because the element has to be able to fade OUT and
+              `animate-fadeIn` only ever runs one way. */}
+          {foeHintUp.alive && (
+            <div className="absolute bottom-[318px] left-1/2 z-10 -translate-x-1/2 pointer-events-none"
+              style={{ opacity: foeHintUp.opacity, transition: `opacity ${FOE_HINT.fade}s ease-out` }}>
               <div className="whitespace-nowrap rounded-md bg-black/50 px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] text-amber-100/85"
                 style={{ textShadow: "0 1px 4px black" }}>
                 ◀ FLICK THE GLASS TO CHANGE FOE ▶
@@ -1031,12 +1117,48 @@ export default function GameHud({
     {/* GRAPHICS, on a phone, from inside the fight — the mobile half of the
         release valve described above GraphicsPanel.
 
-        WHERE IT SITS, and none of it is taste. It is on the MOVEMENT thumb's
-        side: touchtest measured 80 sampled points that an opaque control parked
-        in the free-look half swallows, and free look is a drag anywhere on that
-        half (docs/MOBILE-CONTROLS.md). On this side the neighbours are RUN at
-        24, HAND at 92 and page.tsx's ability readout at 152–196, so 212 is the
-        first clear shelf above them.
+        WHERE IT SITS, and the previous answer to that was argued rather than
+        looked at. The owner: "Better placement on screen for the quality, i like
+        that feature but its a bit in the way where it currently is on screen."
+
+        It was at `far(16, 212)` — the movement side, 212 px up from the foot of
+        the screen — and the comment defended that with touchtest: the free-look
+        half swallows an opaque control, so it goes on the movement side, and 212
+        is the first shelf clear of RUN at 24, HAND at 92 and page.tsx's ability
+        readout at 152–196. Every word of that is true and none of it answers the
+        question. A dead-zone sweep can only say "does this eat a drag"; being in
+        the way is about what the pad is sitting ON, and at 212 it is sitting on
+        the arena — a lit amber pad floating at eye level, on the warrior's own
+        cloak in both handednesses, at the top of a four-deep column that had
+        climbed a third of the way up the screen. `tools/hudshot.mjs` exists
+        because that could only ever be seen in a frame, and the before/after
+        pair is in `art/ui/hud/`.
+
+        WHERE IT GOES: the top of the movement side, under the sound toggle, in
+        the column of things that are not the fight — leave, sound, picture. That
+        is one decision with four justifications and they all point the same way:
+
+          · IT IS OUT OF BOTH THUMBS' HALF OF THE SCREEN. `docs/DESIGN-SYSTEM.md`
+            §3 keeps combat controls inside the 132 px band and puts anything you
+            cannot take back deliberately outside it, "because a thing you cannot
+            take back should cost a small movement". A settings control is
+            exactly that, and the bottom half of a phone is thumb country.
+          · IT IS FURTHER FROM THE STICK, NOT NEARER. The joystick is born
+            wherever the movement thumb lands below `input.ts`'s TOP_STRIP, so a
+            pad on that side is a hole in the stick's surface. At 212 it sat 60 px
+            from where a thumb naturally rests; here it is three hundred.
+          · IT KEEPS THE ONE CONSTRAINT THAT WAS REAL. Still the movement side,
+            so it still takes no bite out of free-look, in both handednesses —
+            `far` mirrors it on the same `bretwalda.hand` store as everything
+            else, and touchtest still gates it.
+          · IT IS ANCHORED FROM THE TOP, not from the foot. This is a column that
+            hangs off the top edge (timer, END, sound), and a `bottom` offset
+            tuned on an 844 px screen puts it off the top of a 667 px one.
+
+        DESKTOP IS UNCHANGED AND DELIBERATELY SO. The desktop control is the
+        GRAPHICS button in the bottom-right corner beside KEYS, and in a running
+        fight the pointer is locked and neither is on screen at all — the frame at
+        1280x800 shows a tidy corner pair. There was nothing to move.
 
         It is NOT inside the cluster block above, which is gated on the player
         being alive. A man who is dead is spectating, not gone, and spectating a
@@ -1048,10 +1170,10 @@ export default function GameHud({
         deliver a ghost tap into the panel it just opened. */}
     {isMobile.current && isFighting && (
       <button
-        style={far(16, 212)}
+        style={{ top: GFX_TOP, ...(lefty ? { right: 12 } : { left: 12 }), touchAction: "none" }}
         onClick={() => setGfxOpen(true)}
         aria-label="Graphics quality"
-        className="absolute z-20 w-[48px] h-[48px] rounded-full bg-stone-800/90 active:bg-stone-600 text-amber-100 border-2 border-amber-700/60 flex flex-col items-center justify-center gap-px shadow-lg shadow-black/50">
+        className="absolute z-30 w-[48px] h-[48px] rounded-lg bg-stone-900/90 active:bg-stone-600 text-amber-100 border border-amber-700/70 flex flex-col items-center justify-center gap-px shadow-lg shadow-black/50">
         <Gauge size={16} />
         <span className="text-[7px] tracking-[0.12em] leading-none text-amber-200/70">QUALITY</span>
       </button>

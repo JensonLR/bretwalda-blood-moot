@@ -399,3 +399,127 @@ free-look half — which puts them on the RIGHT for a left-handed player, straig
 through five rows of kill feed. The layout sweep did not catch it because it
 measures overlaps in the *button* half and this is the other half; a capture
 caught it. The kill feed and the timer now swap sides with everything else.
+
+---
+
+# Round three: two things on the glass that a sweep could not see — 13 Aug 2026
+
+Both reported by the owner off screenshots, both green under every assertion
+this file had, and both for the same reason: **`touchtest` answers "does this
+swallow a drag" and "is this drawn on top of that", and neither question is
+"is this in the way".** A dead-zone sweep cannot see furniture.
+
+## The tuition line that never left
+
+> *"Flick screen to change foe stays on screen permanently that needs to fade
+> away."*
+
+`◀ FLICK THE GLASS TO CHANGE FOE ▶` was already written to retire. `GameHud.tsx`
+drew it under `!hasSwitched`, and `hasSwitched` read `input.ts`'s
+`lock.switches` — which increments in `applySwitch` **after** a man has been
+found on the side the thumb flicked:
+
+```js
+const next = take ?? wrap;
+if (!next) return;        // nobody there; nothing is counted
+lock.switches++;
+```
+
+So it retires on a switch that **lands**, and in an **honour duel there is
+nobody to switch to**, so a switch can never land, so the line is permanent — in
+the mode the owner plays, on the one surface a phone player is trying to look
+through. `tools/tuitiontest.mjs` drives a real duel and reports the most live
+enemies the local man ever had at once: **one**. Flicking harder does not help
+and nothing on screen says why.
+
+**The decision, and what it keys off.** `src/game/tuition.mjs` owns it, for the
+reason `deathcam.mjs` and `roundreset.mjs` are files: the thing worth asserting
+is a *decision*, and a decision inside a React render can only be tested by
+standing up a browser. Three keys, in this order of authority:
+
+1. **The gesture was made.** Not "a switch landed" — the *gesture*. `input.ts`
+   counts it in `requestTargetSwitch`, where the thumb has been read and the
+   direction is known, *before* the lock goes looking for a man. Whether there
+   was anybody there is the game's business, not the player's. This one line is
+   the whole duel fix.
+2. **It has been up long enough.** Six seconds of **eligible** time — time while
+   the line is actually on screen and the control it describes would actually do
+   something. A clock that runs while he is dead, or in the lobby, or with
+   nobody locked, expires the hint before it has been read. *Time alone would
+   have been the wrong key:* it is furniture for six seconds to the man who
+   flicked on second two, and it comes back next round to the man who has been
+   doing it for a week.
+3. **It has had its turns.** Three airings, ever, on that device. **A player who
+   never flicks is still taught** — three times, six seconds — and then the game
+   stops asking.
+
+Keys 1 and 3 persist (`bretwalda.taught.foe`), so a player who has demonstrated
+the gesture never sees it again and one who has ignored it three times is not
+shown a fourth. It **fades** rather than blinking out, and the fade runs on real
+time even if the lock lets go mid-fade — a caption frozen half-transparent over
+the arena is a worse artefact than the one this fixes.
+
+**And it does not appear in a duel at all.** Eligibility includes *there is
+somebody to switch to*: a caption teaching a control that cannot do anything is
+furniture for as long as it is up, however briefly.
+
+## The quality pad that was standing in the arena
+
+> *"Better placement on screen for the quality, i like that feature but its a
+> bit in the way where it currently is on screen."*
+
+The feature is wanted; only the placement is wrong. It sat at `far(16, 212)` —
+movement side, 212 px up from the foot — and the comment above it defended that
+from this file: the free-look half swallows an opaque control, so it goes on the
+movement side, and 212 is the first shelf clear of RUN at 24, HAND at 92 and the
+ability readout at 152–196. **Every word of that is true and none of it answers
+the question.** At 212 it is a lit amber pad floating at eye level, on the
+warrior's own cloak in both handednesses, at the top of a four-deep column that
+had climbed a third of the way up the screen. Only a frame could say so.
+
+**It moves to the top of the movement side, under the sound toggle**, into the
+column of things that are not the fight — leave, sound, picture. One decision,
+four justifications, all pointing the same way:
+
+* **Out of both thumbs' half of the screen.** `docs/DESIGN-SYSTEM.md` §3 keeps
+  combat controls inside the 132 px band and puts anything you cannot take back
+  deliberately outside it, *"because a thing you cannot take back should cost a
+  small movement"*. A settings dialog opened mid-fight is exactly that.
+* **Further from the stick, not nearer.** The joystick is born wherever the
+  movement thumb lands below `input.ts`'s `TOP_STRIP`, so a pad on that side is a
+  hole in the stick's surface. At 212 it was 60 px from where a thumb rests; it
+  is now three hundred.
+* **It keeps the constraint that was real.** Still the movement side, so it
+  still takes no bite out of free-look, in both handednesses, mirrored on the
+  same `bretwalda.hand` store as everything else.
+* **Anchored from the top, not the foot**, because the column it joins hangs off
+  the top edge and a `bottom` offset tuned on an 844 px screen lands off the top
+  of a 667 px one.
+
+**Desktop is unchanged and deliberately so.** The desktop control is the
+GRAPHICS button in the bottom-right beside KEYS, and in a running fight the
+pointer is locked and neither is on screen at all. The 1280×800 frame shows a
+tidy corner pair. There was nothing to move, and moving it would have been a
+change made to look busy.
+
+## What now gates it
+
+* **`tools/tuitiontest.mjs`** — new. Drives a real honour duel for the root
+  cause, then hammers `src/game/tuition.mjs` for the rule: taught without a
+  flick, retired by a flick that lands on nobody, back three times and then
+  never, and the clock paused whenever the line is not up. It pulls both levers.
+* **`tools/touchtest.mjs`** — one new assertion per handedness, named after the
+  owner's report: *the graphics control is reachable from the fight and OUT of
+  the play field* — top half of the screen, clear of the 132 px band, 44 px
+  floor, still on the movement side. It gates that one control by name and
+  **prints** every other control in the thumbs' half rather than judging it,
+  because HAND at 92 px is a control a thumb is meant to reach.
+* **`tools/hudshot.mjs`** (`npm run hudshot`) — new, and it asserts nothing on
+  purpose. It photographs the combat HUD at 390×844 in both handednesses and at
+  1280×800 and prints every element's rectangle and its gap from the foot of the
+  screen. `lockshot` is its sibling and the argument is the same one: the fault
+  above passed every number in the repository and was obvious in one frame.
+  Frames land in `art/ui/hud/`, which is gitignored like every other capture
+  directory — `npm run hudshot -- --tag before` against an older checkout is how
+  the pair gets remade. It also prints, per viewport, whether it believed it was
+  in a running fight, and says so in capitals when it was not.
