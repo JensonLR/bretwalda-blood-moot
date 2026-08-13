@@ -236,6 +236,15 @@ const SHEETS = {
       { turn: QUARTER, tag: "3/4" },
       { turn: 180, tag: "back" },
       { turn: QUARTER, tag: "under mask", dress: { helm: "helm_suttonhoo" } },
+      // AND UNDER AN OPEN HELM, WHICH IS NINE OF THE TEN RUNGS AND WAS NEVER SHOT.
+      //
+      // The sheet had a bare row, a back row and the mask — the hardest case —
+      // and nothing at all between them. The owner reported the Long Mane under
+      // a plain helmet as "2 side front long strands of hair" and every capture
+      // this repository owns was of a head that was either bare or masked, so
+      // there was no frame in `art/` that could have shown it. A row for the
+      // ordinary case is worth more than a row for the extreme one.
+      { turn: QUARTER, tag: "under an open helm", dress: { helm: "helm_iron" } },
     ],
   },
   hairfight: {

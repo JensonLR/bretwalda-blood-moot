@@ -41,6 +41,404 @@ already refuses to arm for a man inside his own death hold. Whoever owns
 `page.tsx` needs to delay `setMatchResults` — or gate the panel on a "the beat
 has finished" flag `GameCanvas` already knows — by `ROUND_HOLD.total`, and
 `summaryflow` needs to expect it.
+---
+
+## CLOSED — the mane under a helmet, and it was two ramps pointing at each other
+
+> "Long mane with huscarl when wearing a helmet causes 2 side front long strands
+> of hair to appear, on the rest of the characters with the same hair there's
+> just bald sides & nothing at the back on any, just the helmet."
+
+Two sentences, two faults, and **`cosmetictest` was green through both of them —
+this is the thirteenth instance of this repository's signature failure and the
+cleanest one yet.** §3 measures the SILHOUETTE AREA a hairstyle adds against
+Shaved, through one camera, at one bearing. Two long strands hanging beside a
+face are a *lot* of area: Long Mane read **11.09%** under the Iron Spangenhelm
+against a 1% bar, the **highest reading of any helm on the sheet**, on the exact
+frame the owner was pointing at. Area is not distribution. A number that says
+"there is hair" cannot say "the hair is only in one place".
+
+### The ruler — `tools/manespread.mjs`
+
+The style is built twice at one seed, bare-headed and helmed, and the hair's
+vertices are binned by AZIMUTH about the head's axis. Per bearing: how far the
+hair HANGS, against the bare-headed build as a fixed reference. Two assertions,
+neither a tuned threshold:
+
+* **a garment may not drag a style's own lowest point round toward the face.**
+  The reference is the STYLE'S bare-headed bearing, and that matters — the first
+  cut of this asserted "the lowest hair is behind 90 degrees", which is true of
+  the Long Mane and *false of the war-locks*, whose plaits legitimately hang
+  beside the face at 48°. A bar that reads like anatomy and fails a correct
+  build is the failure this file is about.
+* **an open helm must leave half the nape's hang.**
+
+```
+[mane] class        hair     helm         deepest hair   (bare)   front add   nape kept
+[mane] huscarl      long     iron           373 mm at  48  115 deg      266 mm        56%   <-- FAIL
+[mane] huscarl      long     wyrm           481 mm at  48  115 deg      373 mm        46%   <-- FAIL
+[mane] warden       long     ridge          249 mm at  98  115 deg       89 mm        46%   <-- FAIL
+[mane] berserker    long     crowned        260 mm at  98  115 deg       89 mm        48%   <-- FAIL
+```
+
+**19 of 72 rows red on the tip this branch starts from; 72/72 after.** 266 mm of
+hair hanging at 48° off dead ahead where the same style bare-headed has none, is
+the two strands, in millimetres.
+
+**Its own nape statistic was wrong first, and that is worth keeping.** It began
+as a per-bin MEDIAN and read **0% — "nothing at the back"** — on builds whose
+plaits are plainly there at 115%. Two 24 mm ropes miss two bins in three at
+5.6° a bin, so the median landed on an empty bin and reported the SAMPLING GRID.
+A sector maximum is the honest reader.
+
+### Fault 1 — `maneMass` multiplied two ramps facing opposite ways
+
+`hairFall`'s coif branch kept the mane IN FRONT of the mail's face opening
+(full to 1.06 rad, gone by 1.44). The mane's own `maneFrontDead`/`maneFrontFull`
+window killed it in front (dead at 0.72, full at 1.02). What survives a product
+of those two is their overlap — a band about **0.04 rad wide at 1.03 rad off
+dead ahead**, which on a coifed huscarl is the cheekbone.
+
+The comment eight lines above it **names the disease exactly** — *"Two ramps
+multiplied together taper a mass twice and that is how a fall ends up at 6% of
+itself while both of its authors think they left it alone"* — and then applies
+the cure to the MASK rung only. It is the same bag of mail on both: the
+huscarl's aventail closes his whole nape whether or not the helm in front of it
+has a face, and a man does not pull a curtain of hair out through the opening he
+has to see through. `baggedFall` is `coifed` now and the coifed rung takes the
+route the Sutton Hoo already proved — inside the rings, out under the hem.
+
+The **plaits are not moved with it**, deliberately. A war-lock is 24 mm of rope
+rooted at 1.34 rad in front of the rim, and a rope hanging out of the face
+opening of a mail coif is the right picture. A curtain doing the same thing is
+two bars framing a face.
+
+### Fault 2 — the nape fall's rule was written twice, and the copy culled
+
+`hairFall` carried
+
+```ts
+if (helmed && style.nape !== "none")
+  return 1 - smooth(Math.PI - 1.74, Math.PI - 1.40, awayFromFace(u));
+```
+
+— "a nape fall owns everything behind 1.40 rad from the nape". The real rule is
+in `hairCeil` twenty lines up and has been since `atY`: under a nape plate the
+hair's ceiling goes NEGATIVE (the shell is put inside the skin, invisible,
+continuous with the hair either side of it) and it **stops at `napeHemY`, the
+plate's own free lower edge**. That rule COMPRESSES. The copy in `hairFall` had
+no height in it at all and scaled the whole fall to zero, deleting the 200-400 mm
+of mane that hangs BELOW the metal. A flange ends 0.45 head-radii under the
+skull's centre and a guard 1.12.
+
+This is the identical fault `cheekHem` fixed on nine rungs and `coifHemY` fixed
+on the Sutton Hoo, **found for the third time on the third garment with a hem**.
+Deleted.
+
+### Fault 3 — caused by fixing 2, and measured rather than argued
+
+At the 19% of mass the nape fix leaves at the Wyrm-Crest's deep guard,
+`hairFitProbe` read **2.9-3.1 mm of berserker mane outside the plate on
+0.80-0.94% of covered vertices, at 81° / −34°** — the guard's rear edge exactly.
+Two corrections, both of them ones this file had already made elsewhere and
+never applied here:
+
+* the skin's proudness comes off the cheek clamp the way it already comes off
+  the band's (a plate is raised on the LOW-PASSED form and the skin stands up to
+  16 mm proud of it, so a flat liner puts hair outside the metal where the head
+  is lumpy);
+* `CHEEK_LINER` is **3 mm** where the bowl's is 5. A hinged plate strapped
+  against a jaw is not a padded cap on a crown.
+
+0.00% through, and `shown` and `kept` do not move by a tenth of a point at
+either value — the two extra millimetres were buying nothing that could be seen
+from any bearing and paying for it in fit.
+
+### And one ungated count moved, which belongs on the verdict line and not in a footnote
+
+`wearmeasure` §10 reported **6** ungated flank windows on the tip this branch
+starts from and reports **7** here. The seven are the same seven this file's own
+table has carried since 8 Aug — huscarl spectacle / boar / crowned / wyrm and
+berserker spectacle / crowned / wyrm, at 1.6% to 6.7% of the flank and 37 to
+165 mm off the ear. Nothing new appeared; a window that had fallen under the
+harness's own reporting floor is over it again, because there is hair beside the
+guard's rear edge on rungs where there was none. **It is still not gated**, for
+the reason the harness's own comment gives and this file endorses — an opening
+in the flank is shaped by three owners at once and the one thing worse than a
+hole is a bar that gets tuned instead of met — and the count rides the PASS line
+in both places, which is the whole of R4.
+
+### What it costs, stated rather than buried
+
+Long Mane's silhouette on the coifed huscarl at the shop's own three-quarter
+lens: **11.09% → 6.37%** under the Iron Spangenhelm, 8.16% → 5.02% under the
+Spectacle, 2.94% → 1.50% under the Wyrm-Crest. The area that went is the two
+strands. What is there instead hangs down his back, which is where a mane is,
+and 6.37% is six times the bar and three times what this rung read before the
+head stack.
+
+### And `tools/shoot.mjs` gained a row that should always have existed
+
+The `hair` sheet had a bare row, a back row and the Sutton Hoo mask — the hardest
+case — and **nothing between them**. A hairstyle under an ORDINARY helmet, which
+is nine of the ten rungs, had never been captured, so there was no frame in
+`art/` that could have shown this. A row for the ordinary case is worth more than
+a row for the extreme one.
+
+---
+
+## THE RENDER — 13 Aug 2026, and it is ONE frame, which is stated because it matters
+
+```
+node tools/shoot.mjs facecard --hair hair_long --helm helm_iron \
+     --beard beard_full --turn -35 --out art/look/unitcards
+```
+
+A coifed huscarl at the shop's own three-quarter, under an open helm, with the
+Long Mane and the Full beard — **which is the exact dress the owner reported**,
+and the bearing the shop photographs from. `art/look/` is gitignored, so the
+path is regenerable rather than committed. A single card is about two minutes on
+this box; the reason there is one and not a sheet is written at the bottom of
+this entry.
+
+**What the frame settles.** There is no curtain of hair beside the cheek and no
+vertical bar at the temple: the two strands are gone from the picture as well as
+from the numbers. The beard's upper boundary on the cheek reads as individual
+locks thinning out into skin — there is no brownish hard-edged patch below the
+outer eye corner, which is the whole of the 12 Aug entry. The eye's outer corner
+sits very nearly level with the inner one and the lid covers the top of the iris.
+
+**What the frame shows that the numbers did not, and it is NOT the beard.** A
+run of pale grey-violet ZIGZAG RIBBONS lies on the skin at the temple and in
+front of the ear, between the face and the hair. They are the colour of MAIL,
+not of hair — they match the hauberk in the same frame — so they are the coif's
+front rim at the face opening, drawn as a row of disconnected wavy strips
+rather than as one continuous curtain. The 12 Aug entry's "smaller angular mark
+at the temple" is almost certainly this and not the beard, which means that half
+of that entry was attributed to the wrong garment.
+
+**It is NOT established that this is new.** The coif was not touched by this
+work — `coifLevels`, `coifRim` and `coifSquash` are all unchanged — but the only
+honest way to say so is an A/B from the previous tip through the same lens, and
+that render did not complete. Logged as OPEN and unattributed rather than
+claimed either way.
+
+**And the moustache is confirmed at the same lens.** There is a clear band of
+bare skin between the bottom of the moustache and the upper lip, and the
+moustache reads as a separate dark blob rather than as the top of the beard.
+That is the owner's *"lips need improvement & that means also looking at
+moustache part of beard placement"*, seen. It is written up under the face
+entry below, with the two numbers that control it, and it is NOT fixed.
+
+**Why one frame and not the sheet, said plainly.** `tools/shoot.mjs hair beards`
+was started twice and abandoned twice: the first run was invalidated by edits
+landing under it, and the second was starved — a panel that takes two minutes
+alone took eight while `cosmetictest` and `wearmeasure` were running on the same
+box. **Do not run a capture and a harness at the same time on this machine.**
+The single-card path (`facecard` with `--helm/--hair/--beard/--turn`) is the one
+to iterate on; the sheet is for the verdict.
+
+---
+
+## THE FACE — 13 Aug 2026: two of the four moved, one was already closed, one is untouched
+
+> "The eyes on the character look a little bit asian (Chinese / Japanese Asian),
+> chin is a little pointy, lips need improvement & that means also looking at
+> moustache part of beard placement. Near the lips."
+
+Written out in full because three of these are separate features and the fourth
+is a different unit of work from the other three.
+
+### CLOSED — the eyes, and it is a rotation and a shape, not a narrowing
+
+**The canthal tilt was 8.3 degrees.** `tilt: side * 0.0022` of rise over a
+`wA` of 0.0150 is `atan(0.1467)`. That number is not neutral: published means for
+the inclination of the intercanthal axis put a European male at about **4
+degrees** and an East Asian male at **8 to 10**. The build was sitting squarely
+in the second range, on the single loudest cue the feature carries — a canthal
+tilt survives distance, it survives the head turning, and it is read before the
+lid, the fold or the corner resolve. **0.0011 is 4.2 degrees.**
+
+Nothing was narrowed, shrunk or rounded to get there, and `eyeclip` is what keeps
+that honest rather than a promise: `irisAcross` is nailed shut at 12.200 mm and
+`discOverMm` — the anti-shrink bar, how far the iris reaches past its own
+aperture with occlusion ignored — reads 0.95-3.39 mm against a 0.15 floor.
+
+**And the fissure was ONE curve serving both lids and both corners.** A human's
+is asymmetric twice over and both are cheap:
+
+* the highest point of the UPPER margin lies about a third of the way in from
+  the **medial** canthus; the lowest point of the LOWER margin about a third in
+  from the **lateral** one. Drawn symmetric, an eye is its own reflection about
+  its vertical, which is a leaf;
+* the **medial canthus is a blunt pocket** — it holds the caruncle and the
+  lacrimal lake — while the lateral one really does close to a corner. Two
+  identical points read as drawn-on, and a medial canthus tapered to a point is
+  *specifically* the silhouette an epicanthic fold produces. The symmetric
+  version was reinforcing the reported read from the other end of the slit.
+
+The old note on the exponent claimed 0.80 "closes to a point the way a real
+fissure does" and that 0.62 would leave the aperture "62% of its full height a
+third of the way from the canthus". The scout measured **62% at 0.80** — the
+comment was describing the value it replaced. R7, again.
+
+**A vertical asymmetry was tried and REJECTED ON THE RULER, recorded so it is not
+tried again.** Giving the upper margin 10% more rise than the lower's fall shifts
+the whole slit up by a tenth of `hA`; `discOverMm` fell from 3.06-5.18 mm to
+0.22-2.83 and on the widest seeds there was no iris left above the margin at all
+for `coverMm` to measure the lid's grip on. More aperture above the iris is the
+startled read the palpebral-fissure block spent passes removing. The asymmetry
+that belongs in a human eye is WHERE THE PEAK IS.
+
+`eyeclip --seeds 6`: **0 of 12 LID assertions failed.**
+
+### ALREADY CLOSED, BY MEASUREMENT — "the pupils overlap the upper eyelids"
+
+Carried into this unit as still open. It is not. On 24 heads at the portrait
+lens, `eyeclip` reads `visAbove` **0** and `worstVisibleMm` **−0.23 to −0.06** —
+no disc vertex is above the upper margin anywhere. The `LID_HUG_ARC` fix closed
+it and nothing in this pass was needed. Reported rather than re-fixed, because
+re-fixing a closed defect is how a build acquires a second mechanism for the same
+rule.
+
+### CLOSED — the chin was a cone
+
+`C_W` ran `62 · 50 · 43 · 30 · 17 · 8 · 0` below the gonion and `C_MASK` ran
+`101 · 95 · 80 · 54 · 0` beside it. **Two curves collapsing on the same pole is a
+cone with its apex at the menton**, and a cone under a lip block is exactly the
+read: the mandible has no width of its own, it is just where the head runs out.
+
+A man's chin is a mental protuberance — a squarish pad with a tubercle at each
+corner — whose breadth is held nearly to the lower border before the border turns
+under. So the pad is broad at pogonion and stays broad for the 25 mm below it,
+and the collapse is spent in the last eighth of the field, which is the UNDERSIDE
+of the jaw and is covered by the submandibular mass, the beard and the throat on
+every warrior in the shop.
+
+Measured on the BUILT MESH — half-width against depth below the crown, huscarl
+seed 13, bare and shaved:
+
+```
+mm below crown    before    after
+   215 mm          70.6      70.3     <- nothing above here moves
+   225 mm          60.4      64.5
+   235 mm          46.4      52.6
+   245 mm          32.0      41.7
+   250 mm          24.3      33.2
+   255 mm          17.0      22.7
+```
+
+The gonion, the cheek and the zygoma are untouched, which is the point of
+measuring it this way rather than trusting the table. `headmeasure`: **0 of 18
+ratios outside tolerance, 0 of 15 silhouette and 0 of 8 gaze assertions failed.**
+
+### OPEN, AND DELIBERATELY NOT ATTEMPTED — the lips and the moustache
+
+*"lips need improvement & that means also looking at moustache part of beard
+placement. Near the lips."*
+
+Not touched, and the reason is the discipline rather than the difficulty. The
+lips are relief in `faceSurface` and the moustache is `beardShell`'s `mouth`
+band — `smooth(Y_LIP + 0.056, Y_LIP + 0.024, y) * smooth(Y_LIP - 0.082,
+Y_LIP - 0.046, y)`, which holds the hair off a 16 mm band centred just below the
+lip line. **Neither has a ruler.** Every instrument this repository owns for the
+mouth measures a POSITION (`lipBeyondEline`, `keelAtMouth`, `noseBeyondLip`) and
+all of them are inside tolerance on this build, so the thing the owner is looking
+at is a shape none of them can see — which is the state the beard was in before
+`beardvolume` and the hair was in before `hairmap`.
+
+What is known and should be inherited rather than rediscovered:
+
+* the moustache's lower edge sits **2.8 to 6.6 mm above the lip line**
+  (`Y_LIP + 0.024` to `+0.056`, at ~117 mm per unit of field). A real moustache
+  overhangs the vermilion; a gap of skin between hair and lip is a trimmed
+  moustache on every warrior in the shop, including the "Full" rung;
+* the `mouth` band is **symmetric about a point 10 mm below `Y_LIP`**, so the
+  hole it cuts is as generous below the lower lip as above the upper one. In
+  life a beard grows right up to the lower vermilion and there is no gap there
+  at all;
+* both numbers are in FIELD-Y. Anyone moving them should read the note over
+  `GROW_RAMP` first — this file has now made the field-y-for-millimetres mistake
+  three times.
+
+The honest next move is a probe that measures the gap between the beard's own
+emitted hair and the lip relief, in millimetres, above and below — and then one
+render. Doing it the other way round is what produced the beard that "measured
+fine and looked like carved wood grain".
+
+---
+
+## STILL OPEN after 13 Aug — the two this unit measured and did not fix
+
+**1. The Shadow Hood still swallows the mane.** `cosmetictest` is **15/16** and
+the one red cell is unchanged: Long Mane 0.97% and Braided War-locks 0.97% under
+the Shadow Hood against a 1.00% bar, with Warrior Crop at 0.37%. `hairFall`
+returns 0 outright when `hooded`, so there is no fall under a cowl at all and
+what reads is the scalp shell. The ruling in this file stands — *"a cowl covers
+the crown, it does not swallow a mane that hangs past the shoulder"* — and the
+route that would satisfy it is the one the aventail now uses on two rungs
+instead of one: a cowl has a lower edge where it lands on the shoulders, and
+hair gathered inside it comes out under that edge. **The hood has no `hoodHemY`.**
+`hoodRim` and `hoodCrown` are hoisted for the hair to read and neither of them is
+a hem. That is the missing definition, and it is the same missing definition
+`cheekHem` and `coifHemY` each turned out to be.
+
+`tools/manespread.mjs` reports the hood on every row and gates nothing on it, on
+the verdict line, for exactly the reason it does the same for the Sutton Hoo.
+
+**2. The Wyrm-Crest's deep cheek guard is untouched.** `facecover` spread 28.8
+against the Spectacle's 4.2. The seven levers this file records as inert or
+partial were not pulled again, and nothing was added to that table. The one thing
+this unit learned that bears on it is negative and worth having: `CHEEK_LINER`
+went from 5 mm to 3 mm on the evidence that the deep guard leaves the hair under
+it only 1.5-3.1 mm of room at its rear edge — so **the plate really is that
+close to the jaw there**, and a reshape that "sits behind the jawline rather than
+out on the cheek" is starting from tighter than the earlier note assumes.
+
+---
+
+## CLOSED — the beard's cheek boundary, and the comment was the bug
+
+Supersedes the entry at the bottom of this file (12 Aug). The diagnosis there was
+right about everything except the size of the number.
+
+`dens` feathered the growth line with `smooth(0, 0.038, topY(u) - y)` under a
+note that read **"feathered in below the growth line over 38 mm"**. It is
+FIELD-Y and not metres. One unit of that field is about 117 mm on this head, so
+the ramp was **4.5 mm** — and that is the *identical* unit mistake the tuck's own
+note records and corrects for itself twenty lines further down (*"0.060 IS IN
+FIELD-Y AND NOT IN METRES … about 7 mm of drop"*). A 4.5 mm ramp is a step. It
+always was one; what changed is that the `hair` substance made it visible.
+
+`GROW_RAMP` is 0.095, which is 11 mm — inside the 8-12 mm the old entry asks
+for. **No `cut.skin` was lowered**, which that entry is explicit about: it
+deletes the cheek hair instead of blending it and a beard that starts at the
+jawline is a chinstrap.
+
+**AND THE RAMP ALONE CANNOT CLOSE IT, which the old entry did not say.** The
+beard is a shell and its visible edge is the curve where that shell crosses the
+skin — an iso-line of `lift` — and a crossing is a crossing however gently the
+two surfaces approach it. On one side of that line the pixel is skin and on the
+other it is hair. Widening the ramp moves the line and softens the mass behind
+it; it does not stop the line being a line.
+
+So `patch` takes an optional per-vertex `tint`, written in the sheet's own
+(u, v) — the one place that still knows what parameter a vertex came from — and
+`BeardCut.fade` converges the hair's albedo on **the tone the skin beside it
+already carries**, not on bare complexion. `faceComplexion` runs its stubble term
+under a full beard at 0.42 and under the Close Crop at 0.80 precisely so "its own
+rim lands on skin that is already going dark"; converging on the wrong one of
+those two swaps a dark edge for a pale one.
+
+**`BEARD_FADE_CAP` is the honest limit and it is a real residual.** Raven Black
+is `0x1c1712` — 0.011 of linear red against a mid complexion's 0.21 — so the
+exact ratio is **eleven**, and a vertex colour multiplies the substance's MAP as
+well as its colour. Eleven times the `hair` tap does not lighten a lock, it
+detonates it: what would draw at the cheekbone is a band of pale stripes where a
+dark patch used to be. Capped at 3.5 on the largest channel (scaled, not clamped
+per channel, which would rotate the hue). Every brown, blond, red, grey and white
+in the shop is under the cap and converges exactly. **Raven Black gets 3.5 of its
+11 and is the one rung where a residual step is expected.**
 
 ---
 
@@ -2744,7 +3142,16 @@ scaled out. Both are shape problems with a ruler already built for them
 which is why this is written down rather than attempted at the end of a landing
 pass.
 
-## The beard's cheek boundary is a hard-edged patch — 12 Aug 2026, NEW
+## The beard's cheek boundary is a hard-edged patch — 12 Aug 2026 — **SUPERSEDED**
+
+> **CLOSED 13 Aug.** See the entry at the top of this file. This diagnosis was
+> right about the cause and about what must not be done to it, and wrong about
+> one number: the ramp it describes as needing to be "8-12 mm rather than a step"
+> was already meant to be 38 mm and was in fact **4.5** — `0.038` is in the head
+> field's own `y`, not in metres. The other half, which this entry does not say,
+> is that no amount of density ramp closes the boundary on its own, because the
+> visible edge is where the shell CROSSES the skin and a crossing is a step in
+> albedo whatever the geometry does. Kept below unedited.
 
 Found by eye on `look4/hair-3._Long_Mane_40g_3_4.png` and visible on every
 bearded rung at the three-quarter: a brownish, hard-edged patch sits on the

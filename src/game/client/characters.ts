@@ -1481,12 +1481,25 @@ function patch(opts: {
   wrapU?: boolean;
   outer(u: number, v: number, out: THREE.Vector3): void;
   inner(u: number, v: number, out: THREE.Vector3): void;
+  /**
+   * An optional per-vertex colour, in the sheet's OWN (u, v).
+   *
+   * Written here rather than through `Part.paint` because a `patch` is the one
+   * place that still knows what parameter a vertex came from. `paint` is handed
+   * positions and has to infer the rest, which is right for the complexion — a
+   * field in space that half a dozen surfaces share — and wrong for a fade that
+   * belongs to one sheet's own section. Recovering `s` from a finished position
+   * would mean inverting the sweep.
+   */
+  tint?(u: number, v: number, out: THREE.Color): void;
 }): THREE.BufferGeometry {
   const { nu, nv } = opts;
   const pos: number[] = [];
   const uv: number[] = [];
+  const col: number[] | null = opts.tint ? [] : null;
   const idx: number[] = [];
   const tmp = new THREE.Vector3();
+  const tmpC = new THREE.Color();
   const stride = nu + 1;
   const count = stride * (nv + 1);
 
@@ -1496,6 +1509,10 @@ function patch(opts: {
         fn(i / nu, j / nv, tmp);
         pos.push(tmp.x, tmp.y, tmp.z);
         uv.push(i / nu, j / nv);
+        if (col && opts.tint) {
+          opts.tint(i / nu, j / nv, tmpC);
+          col.push(tmpC.r, tmpC.g, tmpC.b);
+        }
       }
     }
   };
@@ -1522,7 +1539,9 @@ function patch(opts: {
       idx.push(O(nu, j), I(nu, j + 1), O(nu, j + 1), O(nu, j), I(nu, j), I(nu, j + 1));
     }
   }
-  return finish(pos, uv, idx);
+  const g = finish(pos, uv, idx);
+  if (col) g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  return g;
 }
 
 /**
@@ -2565,12 +2584,32 @@ const C_W: Curve = [
   [-0.520, 74.5],
   [-0.596, 74], //   GONION
   [-0.650, 70],
-  [-0.700, 62],
-  [-0.760, 50],
-  [-0.796, 43],
-  [-0.860, 30],
-  [-0.920, 17],
-  [-0.970, 8],
+  // ---- THE MENTAL PAD, AND IT USED TO BE A CONE ----
+  //
+  // "chin is a little pointy."
+  //
+  // Below the gonion this table ran 62 · 50 · 43 · 30 · 17 · 8 · 0 and `C_MASK`
+  // ran 101 · 95 · 80 · 54 · 0 beside it. Two curves both collapsing on the
+  // pole is a CONE with its apex at the menton, and a cone under a lip block is
+  // exactly the read: the mandible has no width of its own, it is just the
+  // place the head runs out.
+  //
+  // A man's chin is a mental protuberance — a squarish pad of bone with a
+  // tubercle at each corner — and its breadth is held nearly to the lower
+  // border before the border turns under. So the pad is broad at pogonion and
+  // stays broad for the 25 mm below it, and the collapse is spent in the last
+  // eighth of the field, which is the UNDERSIDE of the jaw and is covered by
+  // the submandibular mass, the beard and the throat on every warrior in the
+  // shop. The width that reads from the front is bought where it is seen and
+  // paid for where it is not.
+  [-0.700, 66],
+  [-0.760, 56],
+  [-0.796, 50], // POGONION — bimental breadth 100 mm on a 196 mm head
+  [-0.840, 44],
+  [-0.880, 35],
+  [-0.920, 23],
+  [-0.960, 12],
+  [-0.985, 5],
   [-1.000, 0],
 ];
 
@@ -2617,9 +2656,16 @@ const C_MASK: Curve = [
   [-0.750, 102.0],
   [-0.796, 102.0], // POGONION
   [-0.840, 101.4],
-  [-0.880, 95],
-  [-0.920, 80],
-  [-0.960, 54],
+  // AND THE UNDER-SURFACE IS A PLANE THAT MEETS THE FRONT ONE AT AN EDGE. The
+  // same cone `C_W` had, in profile: 95 · 80 · 54 · 0 is a curve that starts
+  // turning under 5 mm below pogonion and never stops, so the chin has no
+  // bottom and casts nothing onto the throat. Held two rows further and the
+  // turn is a corner — which is what the note above this table already claims
+  // the chin is ("a BOX standing proud of the plane above it") and what the
+  // profile did not have.
+  [-0.880, 98],
+  [-0.920, 86],
+  [-0.960, 59],
   [-1.000, 0],
 ];
 
@@ -5089,6 +5135,16 @@ interface EyeFrame extends EyeAxes {
   gaze: EyeAxes;
   /** Palpebral fissure: half-width, half-height at the centre, canthal tilt. */
   wA: number; hA: number; tilt: number;
+  /**
+   * −1 or +1, the sign the orbit's bearing was taken with.
+   *
+   * `lat` deliberately stays with the skull's +x on both sides (see the winding
+   * note in `eyeFrame`), so nothing else in the frame knows which end of the
+   * slit is the LATERAL canthus and which is the MEDIAL one. A human eye is not
+   * symmetric between them and neither is `fissure` any more, so the side has to
+   * be carried rather than inferred from the sign of `tilt`.
+   */
+  side: number;
   /** Where the lid dies into the socket, as an offset on the skull's own u/v. */
   uE: number; vE: number;
 }
@@ -5197,11 +5253,30 @@ function eyeFrame(K: Skull, side: number): EyeFrame {
   // 2.4 : 1 at the skin. 2.0 : 1 is as far as the globe will carry the chord and
   // it is enough — the frame stops reading "startled" and starts reading "calm",
   // which is the expression the owner's reference has.
+  //
+  // THE CANTHAL TILT, AND IT IS THE OWNER'S FIRST NOTE ON THIS FACE.
+  //
+  // "The eyes on the character look a little bit asian (Chinese / Japanese
+  //  Asian)."
+  //
+  // 0.0022 of rise over 0.0150 of half-width is a tilt of **8.3 degrees**, and
+  // that number is not neutral: the published means for the inclination of the
+  // intercanthal axis put a European male at about 4 degrees and an East Asian
+  // male at 8 to 10. The build was sitting squarely in the second range, and a
+  // strong positive tilt is the single loudest cue the feature carries — it
+  // survives every distance, it survives the head turning, and it is read before
+  // the lid, the fold or the corner resolve.
+  //
+  // 0.0011 is 4.2 degrees. Nothing else about the eye is narrowed, shrunk or
+  // rounded to get there: the aperture, the iris and the globe are all exactly
+  // where the `GLOBE` note and the palpebral-fissure block left them, and
+  // `eyeclip`'s anti-shrink bar is what keeps that honest. This is a rotation of
+  // one axis to the population the game is set in, not a change of eye.
   return {
     c, lat: base, up, fwd,
     gaze: { lat: gLat, up: gUp, fwd: gFwd },
-    wA: 0.0150, hA: 0.0068 * K.F.eyeOpen, tilt: side * 0.0022,
-    uE, vE,
+    wA: 0.0150, hA: 0.0068 * K.F.eyeOpen, tilt: side * 0.0011,
+    uE, vE, side,
   };
 }
 
@@ -5240,14 +5315,67 @@ function globePatch(
   });
 }
 
-/** Half-height of the fissure along its length — zero at both canthi. */
-// The exponent is what makes it an almond rather than a lens. At 0.62 the
-// aperture is still 62% of its full height a third of the way from the canthus,
-// so both ends of the slit are blunt and the sclera runs right out to them —
-// which is the ring of white that reads as a stare. At 0.80 it closes to a point
-// the way a real fissure does, and the widest part of the white sits under the
-// iris where it belongs.
-const fissure = (f: EyeFrame, tt: number) => f.hA * Math.pow(Math.max(0, 1 - tt * tt), 0.80);
+/**
+ * Half-height of the fissure along its length — zero at both canthi, and
+ * DIFFERENT AT EVERY OTHER POINT depending on which lid and which end.
+ *
+ * What stood here was `hA * (1 - tt²)^0.80`, one curve serving the upper lid,
+ * the lower lid and both corners. That is a symmetric almond, and a symmetric
+ * almond is the second half of the owner's note about the eyes — the first
+ * being the canthal tilt, which is fixed at `eyeFrame`. A human palpebral
+ * fissure is asymmetric in two independent ways, and both of them are cheap:
+ *
+ *   1. THE PEAK IS OFF CENTRE, AND THE TWO LIDS DISAGREE ABOUT WHICH WAY. The
+ *      highest point of the upper margin lies about a third of the way in from
+ *      the MEDIAL canthus; the lowest point of the lower margin lies about a
+ *      third in from the LATERAL one. Drawn symmetric, the eye has the same
+ *      outline reflected about its own vertical, which is a leaf and not an eye.
+ *      This is the shape difference a portrait reads before it reads any tone.
+ *
+ *   2. THE MEDIAL CANTHUS IS BLUNT AND THE LATERAL IS ACUTE. The medial end
+ *      holds the caruncle and the lacrimal lake and is a rounded pocket; the
+ *      lateral end really does close to a corner. Two identical points is what
+ *      makes a lid look drawn on, and a medial corner that tapers to a point the
+ *      way the lateral one does is also, specifically, the silhouette an
+ *      epicanthic fold produces — so the symmetric version was reinforcing the
+ *      exact read the owner reported, from the other end of the slit.
+ *
+ * The old note claimed 0.80 "closes to a point the way a real fissure does" and
+ * that 0.62 would leave the aperture "62% of its full height a third of the way
+ * from the canthus". The arithmetic says otherwise and the scout measured it:
+ * at 0.80 the aperture IS 62% there. The comment was describing the value it
+ * replaced. Corrected here rather than left to mislead the next pass.
+ *
+ * `q` is +1 at the lateral canthus and −1 at the medial one on both sides of the
+ * face, which is what `EyeFrame.side` is carried for.
+ */
+const FISSURE_PEAK_UPPER = -0.30;
+const FISSURE_PEAK_LOWER = 0.26;
+/**
+ * AND THE TWO LIDS KEEP THE SAME EXCURSION, which was tried the other way and
+ * measured. Giving the upper margin 10% more rise than the lower's fall shifts
+ * the whole slit up by a tenth of `hA`, and `eyeclip` reads that immediately:
+ * `discOverMm` — how far the iris reaches past its own aperture, the ANTI-SHRINK
+ * bar the whole eye build is defended by — fell from 3.06-5.18 mm to 0.22-2.83,
+ * and on the widest seeds there was no longer any iris above the margin for
+ * `coverMm` to measure the lid's grip on. A taller upper aperture is more sclera
+ * over the iris, which is the startled read the palpebral-fissure block spent
+ * passes removing. The asymmetry that belongs in a human eye is WHERE THE PEAK
+ * IS, not how much of the slit is above the meridian.
+ */
+const fissure = (f: EyeFrame, tt: number, upper: boolean): number => {
+  const q = tt * f.side;
+  const peak = upper ? FISSURE_PEAK_UPPER : FISSURE_PEAK_LOWER;
+  // Remapped so the maximum lands on `peak` and BOTH canthi stay at exactly
+  // zero. Without the second half of that the lid margin would not close on the
+  // corner it shares with the other lid, and a fissure that does not close is a
+  // hole in the head.
+  const w = q < peak ? (q - peak) / (peak + 1) : (q - peak) / (1 - peak);
+  // Blunt medially, acute laterally — and blended across the middle rather than
+  // switched at it, because a step in the exponent is a crease in the margin.
+  const pow = mix(0.66, 1.08, smooth(-0.55, 0.55, q));
+  return f.hA * Math.pow(Math.max(0, 1 - w * w), pow);
+};
 
 /**
  * The shell the lid's free edge and its hugging band both lie on: the globe plus
@@ -5292,7 +5420,7 @@ function lidMarginPoint(f: EyeFrame, upper: boolean, t: number, out: THREE.Vecto
   const sign = upper ? 1 : -1;
   const tt = sign * (t * 2 - 1);
   const x = tt * f.wA;
-  const y = f.tilt * tt + sign * fissure(f, tt);
+  const y = f.tilt * tt + sign * fissure(f, tt, upper);
   const zz = Math.sqrt(Math.max(1e-8, LID_SHELL * LID_SHELL - x * x - y * y));
   return out.copy(f.c).addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz);
 }
@@ -5559,10 +5687,14 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     // the lids as a ring of white, which is the one way to make a face look mad.
     // On the SOCKET frame: the almond is the hole the lids leave, and it is cut
     // in the skull, not in the eyeball.
+    // AND IT IS SPANNED BETWEEN THE TWO MARGINS RATHER THAN MIRRORED ABOUT ONE.
+    // The two lids no longer describe the same curve, so the white between them
+    // has to be built from both — `s` runs from the lower margin to the upper
+    // one. Mirroring either would leave a crescent of sclera outside the lid it
+    // was not built from.
     p.add(globePatch(f, f, GLOBE, 0.0014, Math.max(4, lod.shellU - 4), 2, (t, s, out) => {
       const tt = t * 2 - 1;
-      const hh = fissure(f, tt);
-      out.set(tt * f.wA, f.tilt * tt + (s * 2 - 1) * hh);
+      out.set(tt * f.wA, f.tilt * tt + mix(-fissure(f, tt, false), fissure(f, tt, true), s));
     }), M.sclera, place.clone());
 
     // The upper lid's cast shadow, painted rather than traced.
@@ -5576,7 +5708,7 @@ function addEyes(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMater
     // not.
     p.add(globePatch(f, f, GLOBE + 0.00015, 0.0002, Math.max(4, lod.shellU - 4), 1, (t, s, out) => {
       const tt = t * 2 - 1;
-      const hh = fissure(f, tt);
+      const hh = fissure(f, tt, true);
       out.set(tt * f.wA, f.tilt * tt + mix(0.68, 1.0, s) * hh);
     }), M.dark, place.clone());
 
@@ -6302,8 +6434,66 @@ interface BeardCut {
   throatTaper: number;
   hank: (u: number) => number;
   rag: (u: number) => number;
-  thick: number;
+  /**
+   * The two sheets' PARAMETRIC separation — and it is not the thickness a ruler
+   * measures, which is the whole of the sixth open item on this file.
+   *
+   * `beardvolume` fires horizontal rays and reports the gap between the first
+   * two crossings, and eight of its sixteen rows sat under the number declared
+   * here: short 3.8 against 4.0, braided 3.1 against 5.8. The harness printed
+   * "median under the shell it declares", so it read as the mesh failing to
+   * meet its own specification, and IT IS NOT. The mesh meets this number
+   * exactly — doubling it moves every median, which is the lever test — but the
+   * number is not a measurement of anything.
+   *
+   * `at(t, s, inset)` builds the inner sheet by displacing the outer one
+   * `inset` along the SKULL's normal at that latitude and `inset` again along
+   * the section's own radial. Neither of those is the beard sheet's own normal.
+   * On the cheek the two agree and the realised wall is close to this; on the
+   * hanging fall the skull's normal at `lat(-0.945)` points steeply DOWNWARD, so
+   * most of one of the two displacements slides ALONG the wall instead of across
+   * it, and near the hem the section's outer and inner legs converge by
+   * construction. Measured across a doubling, the realised median comes out at
+   * 0.34 to 0.78 of this depending on the style's own section:
+   *
+   *     short   4.0 -> 3.8      doubled  8.0 -> 6.9      slope 0.78
+   *     full    6.8 -> 6.0     doubled 13.6 -> 8.3      slope 0.34
+   *     forked  5.8 -> 4.4     doubled 11.6 -> 6.5      slope 0.36
+   *     braided 9.0 -> 4.6     doubled 18.0 -> ~7       slope ~0.4
+   *
+   * So this is the DIAL and `beardvolume`'s median is the READING, and the two
+   * are different quantities of the same idea. The harness now says so on its
+   * own verdict line and gates on the reading, which is what a player sees.
+   */
+  wall: number;
+  /**
+   * WHAT THE HAIR'S ALBEDO CONVERGES ON WHERE THE HAIR RUNS OUT — as a RATIO
+   * against `ap.beardColor`, because a vertex colour multiplies the albedo it
+   * lands on. The same arithmetic `faceComplexion` does with the war paint, and
+   * for the same reason.
+   *
+   * The density ramp on its own does not close the boundary and it cannot. The
+   * beard is a shell and the visible edge of it is the curve where that shell
+   * crosses the skin — an iso-line of `lift`, and a crossing is a crossing
+   * however gently the surfaces approach it. On one side of that line the pixel
+   * is skin and on the other it is hair, and until this existed the change was a
+   * step in albedo whatever the geometry did. Widening the ramp moves the line
+   * and softens the mass behind it; this is what stops the line being a line.
+   */
+  fade: THREE.Color;
 }
+
+/**
+ * How wide the growth line's density ramp is, in the head field's own `y`.
+ *
+ * ONE unit of that field is about 117 mm on this head, so this is 11 mm. Named
+ * and hoisted out of `dens` because the value was wrong for the life of the
+ * project and the COMMENT is what made it wrong — see the note at the use site.
+ */
+const GROW_RAMP = 0.095;
+
+/** The most a beard's growth-line fade may brighten its own substance. */
+const BEARD_FADE_CAP = 3.5;
 
 /**
  * ONE BEARD, AND THAT IS THE WHOLE OF THE FIX.
@@ -6443,9 +6633,33 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
 
   /** How much hair there is at this point of the face, 0 to 1. */
   const dens = (u: number, y: number) => {
-    // Feathered in below the growth line over 38 mm, so the top edge is a
-    // gradient in thickness rather than a step in material.
-    const grow = smooth(0, 0.038, topY(u) - y);
+    // ---- THE BOUNDARY THE OWNER IS LOOKING AT, AND THE COMMENT WAS THE BUG ----
+    //
+    // "a brownish, hard-edged patch sits on the cheekbone below the outer eye
+    //  corner" — `docs/OPEN-DEFECTS.md`, 12 Aug.
+    //
+    // The note that used to stand here read "feathered in below the growth line
+    // over 38 mm", against a value of 0.038. IT IS IN FIELD-Y AND NOT IN
+    // METRES, which is the identical mistake the tuck's own note records
+    // twenty lines down ("0.060 IS IN FIELD-Y ... about 7 mm of drop") — so
+    // this ramp was never 38 mm, it was FOUR AND A HALF. The field spans the
+    // head over [-1, 1] and one unit of it is about 117 mm here.
+    //
+    // 4.5 mm of ramp is a step. It read as one all along; what changed is that
+    // it became visible. While the surface was `wool` at 56 repeats it
+    // integrated to a flat tone a shade off the skin, so a sparse boundary was
+    // a soft shadow. `hair` has real contrast between lock and trough, so the
+    // same boundary now draws as a textured patch with an edge on it.
+    //
+    // `GROW_RAMP` is 0.095 of the field, which is 11 mm — inside the 8-12 mm
+    // the defect note asks for, and it is `nu`-safe: the beard's sheet carries
+    // 30-32 columns over 2.3 rad, so 11 mm is three rows of it rather than
+    // one.
+    //
+    // AND IT IS NOT A LOWER `cut.skin`, which the note is explicit about: that
+    // deletes the cheek hair instead of blending it and a beard that starts at
+    // the jawline is a chinstrap. Every `skin` below is untouched.
+    const grow = smooth(0, GROW_RAMP, topY(u) - y);
     // Thin on the lip, full on the chin: a moustache is not as deep as a beard.
     const deep = 0.52 + 0.48 * smooth(Y_LIP + 0.010, Y_CHIN + 0.020, y);
     // And thinning to the sideburn. A constant mass all the way to the ear is
@@ -6633,11 +6847,34 @@ function beardShell(K: Skull, y0: number, nu: number, cut: BeardCut): THREE.Buff
     if (push > 0) { out.x += out.x * push; out.z += out.z * push; }
   };
 
+  /**
+   * THE ALBEDO CONVERGES WHERE THE MASS DOES.
+   *
+   * The colour is written off the SAME `dens` the lift is, so the two cannot
+   * drift: wherever the sheet is thick enough to stand off the skin it is hair
+   * coloured, and it arrives at the complexion at exactly the density where it
+   * retires under the skin. The fall never sees this — `q > FACE` is off the
+   * face and hanging in air, where a beard is a beard all the way to the hem.
+   *
+   * `1 - dens` and not `1 - dens²`: the eye reads the boundary as the place
+   * where the tone stops changing, so the fade has to be spent over the same
+   * millimetres the thickness is. The two curves are the same curve.
+   */
+  const tint = (t: number, s: number, out: THREE.Color) => {
+    const u = mix(uE, -uE, t);
+    const q = s * N;
+    if (q > FACE) { out.setRGB(1, 1, 1); return; }
+    const w = q / FACE;
+    const y = mix(topY(u), jawY(u), Math.pow(w, 1.35));
+    const k = 1 - clamp01(dens(u, y) / 0.55);
+    out.setRGB(mix(1, cut.fade.r, k), mix(1, cut.fade.g, k), mix(1, cut.fade.b, k));
+  };
   return patch({
     nu,
     nv: N,
     outer: (t, s, out) => at(t, s, 0, out),
-    inner: (t, s, out) => at(t, s, cut.thick, out),
+    inner: (t, s, out) => at(t, s, cut.wall, out),
+    tint,
   });
 }
 
@@ -10412,6 +10649,63 @@ export function buildCharacter(
   // as a mass with locks in it or as a slab, so it is the one to move first if
   // the cards say the beard is still flat.
   const beard = M.tinted("hair", ap.beardColor, { repeat: 3 });
+  // AND IT READS A PER-VERTEX COLOUR, which is how the growth line stops being a
+  // line. See `BeardCut.fade`. The flag is safe to set on the library's own
+  // cached instance for the same reason `faceTile`'s is: nothing but the beard
+  // sheet ever wears this material — the scalp, the brows and the lash line are
+  // all on `hair` at 5 repeats — and `Part.add` puts a white attribute on
+  // anything that arrives without one, so the invariant cannot be lost at a call
+  // site even if something later does.
+  if (!VERTEX_TINTED.has(beard)) {
+    VERTEX_TINTED.add(beard);
+    (beard as THREE.MeshStandardMaterial).vertexColors = true;
+    beard.needsUpdate = true;
+  }
+  /**
+   * WHERE A BEARD'S COLOUR GOES WHEN THE BEARD RUNS OUT.
+   *
+   * Not to the complexion's own base, and that is the whole of getting this
+   * right. The skin under a beard is ALREADY going dark: `faceComplexion` runs
+   * its stubble term under a full beard at 0.42 and under the Close Crop at
+   * 0.80, precisely so "its own rim lands on skin that is already going dark".
+   * So the tone the two surfaces have to agree on is that one — `mix(base,
+   * whiskers, sAmt)` — and converging the hair on bare skin instead would swap a
+   * dark edge for a pale one.
+   *
+   * Returned as a RATIO because a vertex colour multiplies the albedo under it,
+   * and taken against THIS warrior's tone rather than the canonical one, which is
+   * the same arithmetic and the same reason as the war paint's four lines up.
+   */
+  const beardFade = (amt: number): THREE.Color => {
+    const base = new THREE.Color(tone.base);
+    const whisk = new THREE.Color(ap.beardColor);
+    const c = new THREE.Color(
+      mix(base.r, whisk.r, amt) / Math.max(0.03, whisk.r),
+      mix(base.g, whisk.g, amt) / Math.max(0.03, whisk.g),
+      mix(base.b, whisk.b, amt) / Math.max(0.03, whisk.b),
+    );
+    // AND IT IS CAPPED, ON ALL THREE CHANNELS AT ONCE.
+    //
+    // Raven Black is 0x1c1712, which is 0.011 of linear red against a mid
+    // complexion's 0.21 — so the exact ratio is ELEVEN, and a vertex colour
+    // multiplies the substance's map along with its colour. Eleven times the
+    // `hair` tap does not lighten a lock, it detonates it: the mean lands on the
+    // skin and the tile's own lock-to-trough swing goes with it, so what would
+    // draw at the cheekbone is a band of pale stripes where a dark patch used to
+    // be. Trading one artefact for a louder one is not a fix.
+    //
+    // Scaled on the LARGEST channel rather than clamped per channel, because
+    // clamping three ratios separately rotates the hue — the darkest channel
+    // hits the cap first and the tint comes out coloured. This way a dark beard
+    // simply converges less far and keeps its colour while it does it. Every
+    // brown, blond, red, grey and white in the shop is under the cap and
+    // converges exactly; Raven Black gets 3.5 of its 11 and is the one rung
+    // where a residual step is expected. Named so the next pass can see the
+    // trade rather than rediscover it.
+    const hi = Math.max(c.r, c.g, c.b);
+    if (hi > BEARD_FADE_CAP) c.multiplyScalar(BEARD_FADE_CAP / hi);
+    return c;
+  };
   // Fur goes the other way from hair: the wool tile's dye blotches are the one
   // thing in the library that reads as clumps of pelt, so this wants them large.
   // Six repeats over a shoulder ruff puts a clump every 40 mm, which is a fleece.
@@ -12051,6 +12345,24 @@ export function buildCharacter(
   };
   /** Hair compressed under a shell that BEARS on the skull. A felt liner. */
   const HAIR_LINER = 0.005;
+  /**
+   * AND UNDER A HINGED CHEEK PLATE IT IS THINNER, because the plate is not the
+   * bowl and 5 mm was one number doing two jobs.
+   *
+   * A bowl is raised over a padded cap and sits on the crown; 5 mm of felt under
+   * it is what a helmet liner is. A cheek guard is a hinged plate strapped
+   * closed against the jaw, and there is no cap under it — measured, the deep
+   * pair leaves the mane 1.5 to 3.1 mm short of its inner wall at the rear edge,
+   * so a 5 mm ceiling authorises hair the plate cannot hold.
+   *
+   * 3 mm, and the two things it costs are both measured rather than assumed:
+   * `hairFitProbe` goes 0.80-0.94% through to **0.00%** on the Wyrm-Crest, and
+   * `shown` and `kept` do not move at all (berserker/wyrm 69.7% / 40% at both
+   * values, huscarl 57.6-57.7% / 27%). The extra two millimetres were buying
+   * nothing that could be seen from any bearing and paying for it in fit, which
+   * is the definition of a constant in the wrong place.
+   */
+  const CHEEK_LINER = 0.003;
   // What one layer leaves clear under the inner wall of the layer above it.
   // 5 mm rather than 3: both surfaces are tessellated, and a garment's mesh
   // chord dips inside the analytic curve this reads by up to 3 mm on a 0.4 rad
@@ -12324,9 +12636,22 @@ export function buildCharacter(
     // plate's own free edge, so the liner now ends where the plate does and
     // hair below the hem keeps its volume. Compress under it; do not cull round
     // it.
+    //
+    // AND THE SKIN'S PROUDNESS COMES OFF HERE TOO, which it did not until the
+    // mane's route was fixed and this started to bite. The branch above already
+    // knows why — a plate is raised on the LOW-PASSED form and the skin stands
+    // up to 16 mm proud of that form, so a flat 5 mm of liner puts hair outside
+    // the metal wherever the head is lumpy. This clamp was written as a bare
+    // `HAIR_LINER` and got away with it while the mane at the guard's rear edge
+    // was 18% of its own mass; at the 19% the nape fix leaves, `hairFitProbe`
+    // read 2.9-3.1 mm of Wyrm-Crest berserker standing outside the deep guard
+    // on 0.80-0.94% of the covered vertices, at 81 deg / -34 deg — which is the
+    // guard's rear edge exactly. Same correction, same reason, one branch later.
     if (helmed && style.cheek !== "none"
       && awayFromFace(u) > cheekIn - 0.11 && awayFromFace(u) < cheekOut + 0.15
-      && v < bandLo + 0.10 && v > cheekHemAt(awayFromFace(u)) - 0.14) c = Math.min(c, HAIR_LINER);
+      && v < bandLo + 0.10 && v > cheekHemAt(awayFromFace(u)) - 0.14) {
+      c = Math.min(c, Math.max(0.001, CHEEK_LINER - skinProud(u, v)));
+    }
     // A nape fall or a neck guard hangs off the back of the band on five rungs,
     // so the back is metal below the rim as well as above it. 2 mm rather than
     // a liner's 5, and NEGATIVE. A fall is swept on its own rings rather than
@@ -12553,22 +12878,75 @@ export function buildCharacter(
     // The ramp is the mirror of the coif's below: the mask has no face opening,
     // so the hair may not be in front of the rings, and the mass reaches zero
     // 0.30 rad IN FRONT of the rim rather than behind it.
-    if (style.mask) {
-      return coifed ? smooth(2.26, 2.70, awayFromFace(u)) : 0;
-    }
-    // ON THE FAR SIDE OF THE RIM, NOT THE NEAR SIDE. The ramp is still 0.34 rad
-    // wide and it still dies inside the mail — that is what stops a free patch
-    // boundary standing on the rings — but it used to run from 0.34 rad IN
-    // FRONT of the opening to the opening itself, so the fall was already at
-    // zero everywhere a man could see it. The mail's opening is where hair
-    // comes OUT of a coif; a ramp that ends there deletes exactly the hair the
-    // opening exists to show. Full mass to the rim, gone 0.28 rad behind it.
-    if (coifed) return 1 - smooth(coifRim(0) - 0.40, coifRim(0) - 0.02, awayFromFace(u));
-    // A nape fall or a neck guard hangs off the back of the band and owns
-    // everything behind 1.40 rad from the nape — see the fall's own note.
-    if (helmed && style.nape !== "none") {
-      return 1 - smooth(Math.PI - 1.74, Math.PI - 1.40, awayFromFace(u));
-    }
+    //
+    // AND A MAIL COIF IS A MAIL COIF WHETHER OR NOT THERE IS A MASK ON IT.
+    //
+    // "Long mane with huscarl when wearing a helmet causes 2 side front long
+    //  strands of hair to appear."
+    //
+    // That is this line, and what was wrong with it was a DIRECTION. The branch
+    // that used to stand here read
+    //
+    //     1 - smooth(coifRim(0) - 0.40, coifRim(0) - 0.02, awayFromFace(u))
+    //
+    // — full mass IN FRONT of the mail's face opening, gone behind it — on the
+    // reasoning that "a mailed man wears his hair pulled through the mail's face
+    // opening, which is the only place on him hair can be seen at all". The
+    // mane's own window (`maneFrontDead`/`maneFrontFull`, 0.72 → 1.02 on this
+    // rung) faces THE OTHER WAY: dead at the face, full behind it. Two ramps
+    // multiplied together, pointing in opposite directions, leave only their
+    // overlap — a band about 0.04 rad wide at 1.03 rad off dead ahead. On a
+    // coifed huscarl that band is beside the cheekbone, and what it draws is
+    // exactly what the owner is looking at: two long strands beside the face and
+    // a bald head behind them. `tools/manespread.mjs` measures it as 266 mm of
+    // hair hanging at 48 degrees where the same style bare-headed has none, with
+    // 27-58% of the nape's hang left.
+    //
+    // The comment eight lines above this one names the disease in as many words
+    // — "Two ramps multiplied together taper a mass twice and that is how a fall
+    // ends up at 6% of itself while both of its authors think they left it
+    // alone" — and then applies the cure to the MASK rung only. It is the same
+    // helmet-shaped bag on both: the huscarl's aventail closes his whole nape
+    // whether the helm in front of it has a face or not, and a man does not pull
+    // a curtain of hair out through the opening he has to see through. So the
+    // coifed rung takes the route the Sutton Hoo already proved — gathered
+    // inside the rings from the scalp down, squashed there by `coifSquash` where
+    // no bearing can see it, and out into open air under the aventail's hem.
+    //
+    // The plaits are NOT moved with it, and that is deliberate: a war-lock is
+    // 24 mm of rope, it roots at 1.34 rad in front of the rim, and a rope
+    // hanging out of the face opening of a mail coif is the right picture. A
+    // curtain doing the same thing is two bars framing a face.
+    if (coifed) return smooth(2.26, 2.70, awayFromFace(u));
+    // A mask with no mail behind it closes the head on every bearing and has no
+    // hem to come out from under. See the four constructions in the file's own
+    // history, every one of which bought silhouette with hair through metal.
+    if (style.mask) return 0;
+    // THE NAPE FALL'S RULE LIVES IN `hairCeil` AND IT USED TO LIVE HERE TWICE.
+    //
+    // What stood here was
+    //
+    //     if (helmed && style.nape !== "none")
+    //       return 1 - smooth(PI - 1.74, PI - 1.40, awayFromFace(u));
+    //
+    // — "a nape fall owns everything behind 1.40 rad from the nape" — which
+    // deletes the mane over the whole back of the head on the Ridge, the
+    // Boar-Crest, the Jarl's Crowned and the Wyrm-Crest. That is the owner's
+    // second sentence: "on the rest of the characters with the same hair there's
+    // just bald sides & nothing at the back on any, just the helmet."
+    //
+    // It is a mirrored definition, and it is the crude copy of the pair. The
+    // real rule is in `hairCeil`, twenty lines up: under a nape fall the hair's
+    // ceiling goes NEGATIVE — the shell is put inside the skin, invisible,
+    // continuous with the hair either side of it — and it stops at `napeHemY`,
+    // the plate's own free lower edge, because `atY` tells it how far down the
+    // point it is fitting actually is. That rule compresses; this one culled. A
+    // flange ends 0.45 head-radii below the skull's centre and a guard 1.12, and
+    // both of them have 200-400 mm of mane hanging BELOW that line which no
+    // amount of azimuth can reach. It is the identical fault `cheekHem` fixed on
+    // the nine rungs with cheek plates and `coifHemY` fixed on the Sutton Hoo,
+    // found for the third time on the third garment with a hem: compress UNDER
+    // the metal, do not cull ROUND it.
     return 1;
   };
 
@@ -13248,9 +13626,18 @@ export function buildCharacter(
         // wide enough that it never becomes the binding constraint. Two ramps
         // multiplied together taper a mass twice and that is how a fall ends up
         // at 6% of itself while both of its authors think they left it alone.
-        const maskedFall = style.mask && coifed;
-        const maneFrontDead = maskedFall ? 2.06 : coifed ? 0.72 : Math.PI - 1.99;
-        const maneFrontFull = maskedFall ? 2.40 : coifed ? 1.02 : Math.PI - 0.95;
+        //
+        // `baggedFall` WAS `style.mask && coifed` AND THE MASK WAS NEVER THE
+        // POINT. What decides this route is whether the man's nape is inside a
+        // bag of mail, and the huscarl's is on every metal rung he owns. Under
+        // an open helm the old pair — 0.72 dead, 1.02 full — fought `hairFall`'s
+        // coif ramp head-on and left the two front strands the owner reported;
+        // see the long note there. One flag, one route, and the pair below is
+        // opened wide enough that `hairFall` is the binding constraint rather
+        // than the two of them tapering the same mass twice.
+        const baggedFall = coifed;
+        const maneFrontDead = baggedFall ? 2.06 : Math.PI - 1.99;
+        const maneFrontFull = baggedFall ? 2.40 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
         const maneMass = (u: number) => hairFall(u)
           * Math.pow(smooth(maneFrontDead, maneFrontFull, awayFromFace(u)), 0.95);
@@ -13306,7 +13693,7 @@ export function buildCharacter(
           { o: -0.013, d: 0.196 },
           { o: -0.011, d: 0.068 },
           { o: 0.000, d: 0.000 },
-        ] as const).map((b) => (maskedFall
+        ] as const).map((b) => (baggedFall
           ? { o: b.o + MASK_SWING * smooth(0.16, MANE_DEEP, b.d), d: b.d }
           : { o: b.o, d: b.d }));
         const _mrA = new THREE.Vector3();
@@ -13348,18 +13735,7 @@ export function buildCharacter(
           // and it reads as a part from every bearing behind the ear because
           // the surface really does dip there.
           //
-          // AND THE FALL IS SHORTER INSIDE A COIF, which is the one thing about
-          // this style a mail bag genuinely does change. 322 mm of hair hanging
-          // out of the mail's opening reaches the aventail's own skirt at the
-          // shoulder, which flares to R.x * 1.82 and is 130 mm behind the fall's
-          // hem — `hairFitProbe` read 49.9 mm of mane outside the rings at
-          // −156 mm, on 42 vertices, every one of them in the last third of the
-          // fall. Hair pulled through a face opening is a shorter tail than hair
-          // hanging free down a back; 0.58 stops it at the collar, above the
-          // mail's flare, and the shape a player is buying — the mass beside the
-          // face — is entirely in the part that is kept.
-          //
-          // AND UNDER A MASK IT IS SOLVED AGAINST THE MAIL'S HEM RATHER THAN
+          // AND INSIDE A COIF IT IS SOLVED AGAINST THE MAIL'S HEM RATHER THAN
           // TYPED. The whole of this rung's silhouette is the hair BELOW
           // `coifHemY`; everything above that line is inside the rings and
           // cannot be seen from any bearing, so a reach chosen by eye either
@@ -13367,7 +13743,17 @@ export function buildCharacter(
           // past the shoulder blade. `maneReach` asks the root where it is and
           // returns the scale that lands the deepest station `MASK_SHOW` below
           // the hem. It is `deep guard hem + 90 mm` arithmetic, not a taste.
-          reach: (u) => (maskedFall ? maneReach(u) : coifed ? 0.72 : 1)
+          //
+          // A FLAT 0.72 USED TO STAND HERE FOR THE OPEN COIFED RUNG, and it went
+          // with the route it belonged to. Its note read "322 mm of hair hanging
+          // out of the mail's OPENING reaches the aventail's own skirt … hair
+          // pulled through a face opening is a shorter tail than hair hanging
+          // free down a back" — which was true of a mane worn out through the
+          // face opening, and that mane is the two strands the owner reported.
+          // The gather does not come out at the opening any more; it comes out
+          // at the hem, on the same bearing and by the same arithmetic the
+          // masked rung uses, so it is solved rather than typed on both.
+          reach: (u) => (baggedFall ? maneReach(u) : 1)
             * (1 - 0.10 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))),
           // AND THE RIDGES ARE DEEPER WHERE THE HAIR IS PLAITED. `hank` is the
           // surface's own ropes; a gather that is going into four braids is
@@ -13734,8 +14120,9 @@ export function buildCharacter(
           mass: (u) => Math.pow(1 - smooth(0.50, 1.02, Math.abs(u)), 0.80),
           reach: (u) => 0.76 + 0.24 * Math.exp(-Math.pow(u / 0.72, 2)),
           lean: 0.34,
-          thick: 0.0040,
+          wall: 0.0052,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
+          fade: beardFade(0.80),
         },
         // FULL, 40 gold. Broadest and shortest — a bush. It spreads PAST the
         // jaw rather than following it down, which is what separates it from
@@ -13760,8 +14147,9 @@ export function buildCharacter(
           mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
           reach: (u) => 0.72 + 0.28 * Math.exp(-Math.pow(u / 0.70, 2)),
           lean: 0.42,
-          thick: 0.0068,
+          wall: 0.0068,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
+          fade: beardFade(0.42),
         },
         // FORKED, 80 gold, and the audit's instruction was to check it against
         // the profile card: "a fork that does not separate in profile is a
@@ -13798,8 +14186,9 @@ export function buildCharacter(
           mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
           reach: (u) => 0.34 + 0.86 * Math.exp(-Math.pow((Math.abs(u) - 0.40) / 0.215, 2)),
           lean: 0.46,
-          thick: 0.0058,
+          wall: 0.0058,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
+          fade: beardFade(0.42),
         },
         // RINGED BRAID, 120 gold — the narrowest and by far the longest, so in
         // outline it is a LINE where Full is a wedge and Forked is a wedge with
@@ -13820,8 +14209,9 @@ export function buildCharacter(
           prof: braidProfile(),
           mass: (u) => Math.pow(1 - smooth(0.18, 0.80, Math.abs(u)), 1.20),
           lean: 0.40,
-          thick: 0.0058,
+          wall: 0.0090,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
+          fade: beardFade(0.42),
         },
       };
 

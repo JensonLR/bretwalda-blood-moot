@@ -52,14 +52,30 @@ const THREE = await import("three");
 /** The beard's own material, the same tag `beardSeatProbe` uses to find it. */
 const BEARD_HEX = "1c1712";
 /**
- * A beard's shell, at the median crossing, in mm.
+ * A beard's shell, at the median crossing, in mm. **GATED ON.**
  *
- * REPORTED AGAINST, NOT YET GATED ON. 4 mm is the shell the code currently
- * declares (`cut.thick` is 4.0 to 6.8 across the four styles) and the median
- * measures 3.1 to 6.0, so the mesh is built to its own specification. Whether
- * that SPECIFICATION is enough — whether a 4 to 7 mm shell on a 150 mm head
- * reads as a mass or as a lip — is a look question and wants an eye on a render
- * rather than a number picked here.
+ * IT USED TO BE REPORTED AND NOT ASSERTED, and the note that stood here said
+ * "4 mm is the shell the code currently declares (`cut.thick` is 4.0 to 6.8)".
+ * Both halves of that were wrong and they were wrong in opposite directions:
+ *
+ *  * the code did not compare against the declaration. It compared every style
+ *    against a FLAT 4, and then printed "median under the shell it declares" —
+ *    so the Close Crop was flagged for missing its own 4.0 by 0.2 while the
+ *    Ringed Braid passed the sentence at 3.1 with 5.8 declared;
+ *  * and it could not have compared against the declaration, because they are
+ *    different quantities. `BeardCut.wall` is the parametric separation of the
+ *    two sheets — the inner one is displaced along the SKULL's normal and the
+ *    section's radial, neither of which is the sheet's own normal — and the
+ *    realised crossing measures 0.34 to 0.78 of it, per style. The dial and the
+ *    reading are not the same number and never were.
+ *
+ * What is left after that is a straight look question, and the answer is on the
+ * owner's own screenshots: "all beards have a similar defect & issue where it
+ * looks to be really sharp & thin / folded in areas". Below 4 mm of median
+ * crossing, over half of a beard's rays are under 4 mm on a head 150 mm across,
+ * and that is the edge-on sheet he is describing. So the bar is 4 mm of
+ * MEASURED crossing, it is chosen rather than derived, and it is asserted —
+ * because a number nobody has to look at is a number nobody looks at.
  */
 const THIN_MM = 4;
 
@@ -168,13 +184,28 @@ console.log("[vol] " + "-".repeat(80));
 for (const r of rows) {
   console.log(`[vol] ${r.cls.padEnd(12)} ${r.style.padEnd(10)} ${String(r.n).padStart(5)}`
     + `${r.p10.toFixed(1).padStart(8)}${r.med.toFixed(1).padStart(9)}${r.p90.toFixed(1).padStart(9)}`
-    + `${(r.thin * 100).toFixed(0).padStart(9)}%   ${r.fail ? "<-- median under the shell it declares" : ""}`);
+    + `${(r.thin * 100).toFixed(0).padStart(9)}%   ${r.fail ? `<-- MEDIAN UNDER ${THIN_MM} mm` : ""}`);
 }
 console.log("");
-console.log(`[vol] the MEDIAN is the number to read: it tracks cut.thick almost exactly, so it is`);
-console.log("[vol] what the shell controls. p10 is the hem and the edges, where the section wraps");
-console.log("[vol] from outer wall to inner and the two meet — legitimate taper, and inert:");
-console.log("[vol] doubling cut.thick moved every median and left every p10 where it was.");
-console.log(`[vol] ${bad} of ${rows.length} sit under the ${THIN_MM} mm they declare. NOT GATED — whether a`);
-console.log("[vol] 4-7 mm shell reads as a mass is a look question and wants an eye, not a number.");
-process.exit(0);
+console.log(`[vol] the MEDIAN is the number to read: it tracks BeardCut.wall, so it is what the`);
+console.log("[vol] shell controls. p10 is the hem and the edges, where the section wraps from");
+console.log("[vol] outer wall to inner and the two meet — legitimate taper, and inert: doubling");
+console.log("[vol] the wall moved every median and left every p10 where it was.");
+console.log("");
+console.log(`[vol] AND THE ${THIN_MM} mm IS A READING, NOT A DECLARATION — this line used to say the`);
+console.log("[vol] opposite and it was wrong twice over. The verdict column read 'median under the");
+console.log("[vol] shell it declares' while the code compared against a FLAT 4 mm, so it flagged");
+console.log("[vol] the Close Crop for missing 4.0 by 0.2 and let the Ringed Braid past at 3.1 with");
+console.log("[vol] 5.8 declared. It could not have been comparing against the declaration anyway:");
+console.log("[vol] `BeardCut.wall` is the parametric separation of the two sheets, the realised");
+console.log("[vol] crossing comes out at 0.34-0.78 of it depending on the style's own section, and");
+console.log("[vol] the two are different quantities. See the note over `wall` in characters.ts.");
+console.log("");
+console.log(`[vol] SO IT GATES ON THE READING, AND ${THIN_MM} mm IS A CHOICE WITH A REASON: below it more`);
+console.log("[vol] than half of a beard's crossings are under 4 mm on a 150 mm head, which is the");
+console.log("[vol] 'really sharp & thin / folded' the owner reported with profile screenshots. It");
+console.log(`[vol] failed 8 of 16 rows on the tip this gate was written against.`);
+console.log("");
+console.log(`[vol] ${rows.length - bad}/${rows.length} rows pass`);
+console.log(bad ? "[vol] FAIL" : "[vol] PASS");
+process.exit(bad ? 1 : 0);

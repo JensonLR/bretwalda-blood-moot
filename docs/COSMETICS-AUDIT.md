@@ -1,3 +1,46 @@
+# 13 Aug 2026 — the hair and beard slots, and one instrument that was flattering them
+
+Newest first. The audit proper starts below this section.
+
+## What moved in the shop
+
+| slot | rung | before | after | instrument |
+|---|---|---|---|---|
+| hair | Long Mane 40g, coifed huscarl, Iron Spangen | 11.09% of silhouette, **all of it two strands beside the face** | 6.37%, hanging down the back | `cosmetictest` §3 |
+| hair | Long Mane 40g, any class, Ridge / Boar / Crowned / Wyrm | 26-48% of the bare style's hang at the nape | 100-126% | `manespread` |
+| beard | Close Crop 0g | median crossing 3.4-3.9 mm | 4.2-5.1 mm | `beardvolume` |
+| beard | Ringed Braid 120g | median crossing 3.1-3.7 mm | 4.2-4.8 mm | `beardvolume` |
+| beard | every rung | growth line feathered over **4.5 mm** and stepping from skin to hair in one texel | 11 mm, with the albedo converging on the complexion | — |
+
+## Two instruments were flattering the slots they measure, and one of them badly
+
+**`cosmetictest` §3 cannot see a hairstyle that has been squeezed into one
+bearing.** It measures the silhouette AREA a style adds against Shaved, from one
+camera. Two long strands hanging beside a face are a lot of area — the Long Mane
+read its HIGHEST number of any helm on the sheet on the exact frame the owner
+reported as broken. Area is not distribution. `tools/manespread.mjs` is the
+answer and it bins the hair by bearing; see `docs/OPEN-DEFECTS.md`.
+
+**`beardvolume` printed "median under the shell it declares" and compared every
+style against a flat 4 mm.** So it flagged the Close Crop for missing its own
+4.0 by 0.2 and let the Ringed Braid past the sentence at 3.1 with 5.8 declared.
+It could not have been comparing against the declaration anyway: `BeardCut.wall`
+(was `thick`) is the PARAMETRIC separation of the two sheets and the realised
+crossing measures 0.34 to 0.78 of it depending on the style's own section. The
+dial and the reading are different quantities of the same idea. The harness now
+says so on its own verdict line, and it ASSERTS rather than declining to — 16/16
+where it was 8/16.
+
+## And the capture sheet had a hole in the middle of it
+
+`tools/shoot.mjs`'s `hair` sheet shot a bare head, the back of a head, and the
+Sutton Hoo mask — the hardest case in the shop. It had **no row for a hairstyle
+under an ordinary open helm**, which is nine of the ten rungs and is what a
+player actually looks at. There was therefore no frame in `art/` that could have
+shown the defect the owner reported. That row now exists.
+
+---
+
 # The armoury has never been looked at
 
 The owner asked, after the Sutton Hoo helm was sent back: *"assuming with the
