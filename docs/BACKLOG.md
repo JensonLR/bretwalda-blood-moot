@@ -101,8 +101,20 @@ damage classes do different KINDS of damage (a rate against a blow). The
 berserker's second high stat is health, which is the direct answer to the
 owner's own description of a class that was slow, low-defence AND low-health —
 that is one strength, and one strength is why he could not win. Measured after:
-huscarl 53.3%, runekeeper 50.4%, berserker 45.7%, warden 43.7%; every ordered
-matchup inside 30-70%; verified on three independent seeds.
+huscarl 53.3% [49.8-56.9], runekeeper 50.4% [46.8-54.0], berserker 45.7%
+[42.2-49.3], warden 43.7% [40.2-47.3] — 4,000 duels against the sheet as
+committed. Every ordered matchup inside 30-70%; the spread went from 54.9 points
+to 9.6.
+
+**Verified on four independent seeds** — 20260813, 777, 31337 and one taken from
+the clock. That is not ceremony: the most recent measurement failure recorded in
+this repository was a gate that pinned `Math.random` to one seed and printed
+**one realisation of a stochastic process as if it were a property**, and one in
+four realisations failed the claim it called proven. `botThink` draws fresh noise
+on every think, so `classmatrix` gives every bout its own stream seeded
+`master + boutIndex` — reproducible *and* a sample, which are not in conflict —
+and `--entropy` takes the master from the clock so a run can be checked against a
+stream nobody chose.
 
 **Two things that were found by pulling the lever and are worth keeping.**
 Reach is nearly inert in this measurement — cutting the warden's spear by 65%

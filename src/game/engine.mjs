@@ -855,15 +855,18 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 // carries the second-largest health bar in the game and still the worst guard in
 // it, so he soaks and he swings and he cannot do anything else.
 //
-// WHAT IT MEASURES AT, same instrument, 200 bouts per ordered matchup, and the
-// full 4x4 is on `classmatrix`'s own verdict line:
+// WHAT IT MEASURES AT — the same instrument, 250 bouts per ordered matchup,
+// 4,000 duels, run against THIS TABLE AS COMMITTED rather than against the
+// lever stack it was tuned with (the lever sweep could not move `sprintSpeed`,
+// so its numbers describe a roster that runs at the old speeds and are not the
+// ones to quote):
 //
-//   huscarl     54.2%  [50.2-58.1]
-//   runekeeper  51.3%  [47.3-55.3]
-//   berserker   49.3%  [45.3-53.3]
-//   warden      45.7%  [41.7-49.7]
+//   huscarl     53.3%  [49.8-56.9]
+//   runekeeper  50.4%  [46.8-54.0]
+//   berserker   45.7%  [42.2-49.3]
+//   warden      43.7%  [40.2-47.3]
 //
-// A 54.9-point spread became an 8.5-point one, no ordered matchup is outside
+// A 54.9-point spread became a 9.6-point one, no ordered matchup is outside
 // 30-70%, and the ring is legible: huscarl beats warden beats runekeeper beats
 // huscarl, with the berserker cutting across — he takes the warden and the
 // runekeeper and is broken by the shield. The owner's instinct that the huscarl
