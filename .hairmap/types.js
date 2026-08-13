@@ -152,6 +152,55 @@ export const SWING_PHASES = { windup: 0.40, contact: 0.15, recovery: 0.45 };
  */
 export const HITSTOP = { light: 0.06, heavy: 0.11 };
 /**
+ * THE FLOOR, mirrored from `engine.mjs`, which is the authority — nothing here
+ * decides anything. One clock (`GamePlayer.downTimer`) and two states read off
+ * it, so a renderer phases a fall the way it phases a swing.
+ *
+ * 0.75 s flat and 0.55 s rising is 1.30 s of being unable to answer — long
+ * enough to be the worst thing that can happen in a fight, short enough that
+ * it is not simply death. A huscarl light takes 0.408 s to reach contact, so
+ * the man who floored you gets one blow, and a second only if he was already
+ * in reach.
+ */
+export const KNOCKDOWN = {
+    /** Seconds flat on his back before the get-up starts. */
+    down: 0.75,
+    /** Seconds spent getting his feet back. `downTimer <= this` means "rising". */
+    rise: 0.55,
+    /** Metres the fall carries him away from whatever put him there. */
+    slide: 1.05,
+    /** Fraction of `maxBalance` he stands up with. A beaten man is not fresh. */
+    balanceOnRise: 0.34,
+};
+/**
+ * THE RIPOSTE, mirrored from `engine.mjs`, which is the authority — nothing
+ * here decides anything.
+ *
+ * A parry writes `vulnerableTimer = window` and `vulnerableTo = <the parrier>`
+ * onto the man who was read. Inside that window the parrier's next blow — and
+ * only his — does `bonus` damage, throws him `knockbackScale` further, and
+ * costs him `balanceScale` more poise. Landing it CLOSES the window: one parry
+ * buys one blow.
+ *
+ * WHY 0.90 s AND NOT LESS, at a 20 Hz tick. The parry itself is 3 ticks wide
+ * (150 ms) and that is an INPUT test, deliberately tight. The riposte window is
+ * a LICENCE, so it has to survive a round trip: a 120 ms ping costs a player
+ * ~2.4 ticks at each end, leaving 13 of the 18 ticks genuinely usable — still
+ * more than the 408 ms a huscarl light needs to reach contact from a standing
+ * start. It is also exactly the length of the stagger the parry deals, so what
+ * a player learns is "he is reeling, therefore he is open" and not two clocks.
+ */
+export const RIPOSTE = {
+    /** Seconds the parried man stays open, and what `vulnerableTimer` starts at. */
+    window: 0.90,
+    /** Damage multiplier on the riposte blow. */
+    bonus: 1.6,
+    /** Knockback multiplier on the riposte blow. */
+    knockbackScale: 1.7,
+    /** Poise-cost multiplier on the riposte blow. */
+    balanceScale: 1.8,
+};
+/**
  * Commitment. Free turning is instantaneous — the server adopts the client's
  * yaw as sent. Inside a swing it is capped at SWING_TURN_RATE radians per
  * second, scaled per phase, and integrated on the server's fixed 20 Hz step.

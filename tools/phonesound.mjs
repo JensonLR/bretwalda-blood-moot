@@ -243,13 +243,41 @@ async function main() {
   // up. Tapping on regardless is what destroyed the execution context on the
   // first run of this path: a /RECRUIT|WARRIOR/i match still exists once the
   // fight is staged, and pressing it navigated out from under the analyser.
-  const inFightYet = () => page.evaluate(() => window.__bretwaldaAudio?.ready === true).catch(() => false);
+  const inFightYet = () => page.evaluate(() => (() => {
+    // AN HONEST FIGHT TEST. `window.__bretwaldaAudio.ready` is
+    // `ac !== null && state !== "suspended"`, which flips on the FIRST CLICK
+    // ANYWHERE — so using it as "am I in a fight?" broke the menu loop after one
+    // tap and left every check below it grading the LANDING SCREEN while
+    // printing "in a fight". Three shipped claims were false because of it.
+    // A fight is the only thing that mounts a canvas AND names a local player.
+    const c = document.querySelector("canvas");
+    if (!c || c.clientWidth < 64) return false;
+    const p = window.__bretwaldaProbe;
+    if (p && typeof p.playerId === "string" && p.playerId) return true;
+    // Fall back to the DOM: the landing screen always shows these, a fight never does.
+    const t = document.body.innerText || "";
+    return !/CREATE BATTLE|JOIN BATTLE|Training vs AI/i.test(t);
+  })()).catch(() => false);
   let reached = await inFightYet();
   for (const step of [/MUSTER|TESTGROUNDS/i, /RECRUIT|WARRIOR/i, /DRAW STEEL|FIGHT|BEGIN/i]) {
     if (reached) break;
     await tap(step);
     await page.waitForTimeout(700);
-    reached = await page.waitForFunction(() => window.__bretwaldaAudio?.ready === true, null, { timeout: 12000 })
+    reached = await page.waitForFunction(() => (() => {
+    // AN HONEST FIGHT TEST. `window.__bretwaldaAudio.ready` is
+    // `ac !== null && state !== "suspended"`, which flips on the FIRST CLICK
+    // ANYWHERE — so using it as "am I in a fight?" broke the menu loop after one
+    // tap and left every check below it grading the LANDING SCREEN while
+    // printing "in a fight". Three shipped claims were false because of it.
+    // A fight is the only thing that mounts a canvas AND names a local player.
+    const c = document.querySelector("canvas");
+    if (!c || c.clientWidth < 64) return false;
+    const p = window.__bretwaldaProbe;
+    if (p && typeof p.playerId === "string" && p.playerId) return true;
+    // Fall back to the DOM: the landing screen always shows these, a fight never does.
+    const t = document.body.innerText || "";
+    return !/CREATE BATTLE|JOIN BATTLE|Training vs AI/i.test(t);
+  })(), null, { timeout: 12000 })
       .then(() => true).catch(() => false);
   }
   if (!reached) {

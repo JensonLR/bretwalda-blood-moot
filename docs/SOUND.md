@@ -403,7 +403,7 @@ a gate — and it now has a check on both sides of the wire:
   milliseconds): it reads `engine.mjs`, `page.tsx`, `GameCanvas.tsx` and
   `audio.ts` off disk and holds all four to each other.
 
-  The live leg reaches a fight now — its menu path was three taps out of four and
+  The live leg does NOT reach a fight, and an earlier draft of this line said it did. Its menu path was three taps out of four and
   it then waited on `window.__probe`, which this build does not install — but it
   **cannot yet drive the man**: sixty seconds of play produce two audio calls and
   no swings, because pointer lock keeps the canvas from taking input in this
@@ -436,7 +436,7 @@ FAIL  one tap on the toggle silences it and the device remembers
       did a DOM click on the element, so the handler itself is not firing
 ```
 
-**The mute button inside a fight does not respond to a press on a touch
+**The mute button does not respond to a press on a touch
 viewport.** It is not a synthesis defect and it is not in this unit's files —
 `SoundToggle` and `toggleMute` are in `src/app/page.tsx`. It is left red on
 purpose.
@@ -453,3 +453,34 @@ walks down from a real tap, to a synthetic click, to a DOM click on the element
 itself, and names which rung moved it — so the next person inherits the
 diagnosis instead of the symptom. Confirmed **not** caused by this unit's edits
 by re-running against an unmodified `page.tsx`.
+
+
+---
+
+## CORRECTION, 13 Aug 2026 — two claims in this file were false
+
+Recorded rather than quietly edited, because the reason is worth more than the
+fix.
+
+This file claimed the live leg "reaches a fight" and that the mute button fails
+"inside a fight". **Neither was measured inside a fight.** Both live harnesses
+tested `window.__bretwaldaAudio.ready` to decide whether they had arrived, and
+that flag flips on the first click *anywhere* — so both broke out of the menu
+loop after one tap and graded the landing screen while printing that they were
+in a match. `soundwire` spent seventy seconds of mouse and keyboard on a menu
+and then blamed **pointer lock** for finding no swings. There was no canvas, no
+man and no pointer to lock.
+
+The predicate now requires what only a fight provides — a mounted canvas AND a
+named local player — and the checks beneath it SKIP rather than assert when it
+is not satisfied.
+
+**What survives unchanged:** everything measured offline. The seed sweep, the
+synthesis, the wire vocabulary and `soundwire` phase 0 are all static or
+headless, were independently reproduced under twelve seeds an adversary chose
+for itself, and were shown falsifiable by breaking them. The mute-button failure
+is also real — it reproduces against an unmodified `page.tsx` — it simply was
+not observed where this file said it was.
+
+**Still owed:** hearing a parry fire in a real match. Phase 0 proves the path
+statically across all four files; nobody has heard it.

@@ -172,7 +172,38 @@ low-end survival **as modelled**, never the platform.
 
 ---
 
-## SETTLED — the handle inside the fight is the same handle, and the probe was the bug
+## RETRACTED BY ARGUMENT — not settled by measurement, and the difference matters
+
+**Downgraded 13 Aug 2026, by the adversary that checked it.** This section
+previously read SETTLED and rested on a live-app measurement. That measurement
+was taken on the LANDING SCREEN.
+
+`window.__bretwaldaAudio.ready` is `ac !== null && state !== "suspended"`, which
+flips on the **first click anywhere**. Both `phonesound` and `soundwire` used it
+as their "am I in a fight?" test and broke out of the menu loop after one tap —
+so gate 4b, which reads "the fight holds the same audio module the landing
+screen does", **was comparing the landing screen with itself**, and could never
+have gone red however many modules the bundler handed out. That is this
+repository's oldest fault — the ruler measuring the wrong quantity, here "has
+anything been clicked" standing in for "is a fight running" — committed in the
+same round the file restates the rule against it.
+
+The predicate is fixed (a fight is the only thing that mounts a canvas AND names
+a local player), but the measurement has **not been retaken inside a fight**, so
+this section claims only what the argument supports:
+
+**The ARGUMENT stands on its own and does not need the measurement.** Two
+AudioContexts explain a DUPLICATE and can never explain a MISSING METHOD, which
+is what was reported. `window.__bretwaldaAudio` is a class instance; its methods
+are non-enumerable prototype properties, so `Object.keys()` lists none of them
+and a structured clone across the Playwright boundary drops all of them — which
+reproduces `typeof a.setSpeaker === "undefined"` verbatim on a perfectly healthy
+single instance. That is demonstrable on a bare stand-in with no game in it, and
+it was.
+
+So: the two-context hypothesis is **retracted because it never explained the
+symptom**, not because anything measured it away. Anyone re-opening this should
+retake gate 4b inside a real fight before calling it settled.
 
 This section was **OPEN** for a wave. It recorded that
 `window.__bretwaldaAudio` had `setSpeaker` on the landing screen and that
