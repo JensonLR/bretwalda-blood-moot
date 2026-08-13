@@ -2,7 +2,11 @@
 // without taking a browser dependency. Same arrangement as `engine.d.ts`, and
 // for the same reason: the module is shared, so its declaration is separate.
 declare module "@/game/grounds.mjs" {
+  import type { Passable, RaisedStone, Rick, Solid } from "@/game/solidground.mjs";
+
   export function clamp01(x: number): number;
+  /** Fixed-seed PRNG. Shared, because the sim now lays out props too. */
+  export function seeded(seed: number): () => number;
   export function smoothstep(e0: number, e1: number, x: number): number;
   export function hash2(ix: number, iy: number): number;
   export function noise2(x: number, y: number): number;
@@ -26,7 +30,7 @@ declare module "@/game/grounds.mjs" {
     reach2: number;
   }
 
-  /** A circle on the floor. Hazards and obstacles are both this shape today. */
+  /** A circle on the floor. What a hazard is; obstacles are `Solid` instead. */
   export interface GroundCircle {
     id: string;
     x: number;
@@ -67,7 +71,12 @@ declare module "@/game/grounds.mjs" {
     play: GroundBounds;
     spawn: GroundSpawn;
     hazards: readonly GroundHazard[];
-    obstacles: readonly GroundCircle[];
+    /**
+     * Standing geometry a man cannot walk through. Plan-view shapes, because
+     * the sim is 2-D; `solidground.mjs` is what turns them into walls, and
+     * `resolveSolids` is the one call the movement step makes.
+     */
+    obstacles: readonly Solid[];
     /** Ground height under a world-space point. Pure arithmetic. */
     heightAt(x: number, z: number): number;
   }
@@ -85,6 +94,11 @@ declare module "@/game/grounds.mjs" {
     drainage(x: number, z: number): number;
     basinWet(x: number, z: number): number;
   }
+
+  export const VILLAGE_WOODPILE: Rick;
+  export const VILLAGE_RUNESTONE: RaisedStone;
+  /** The props that deliberately do NOT block, each with its reason. */
+  export const VILLAGE_PASSABLE: readonly Passable[];
 
   export const SAXON_VILLAGE: GroundSpec & { field: SaxonVillageField };
   export const GROUNDS: Record<string, GroundSpec>;

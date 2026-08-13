@@ -62,8 +62,9 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
-  clamp01, smoothstep, noise2, fbm, hash2,
+  clamp01, smoothstep, noise2, fbm, hash2, seeded,
   SAXON_VILLAGE, DEFAULT_GROUND_ID,
+  VILLAGE_WOODPILE, VILLAGE_RUNESTONE,
   type GroundSpec,
 } from "@/game/grounds.mjs";
 import type { FrameContext, Mood, QualitySettings, QualityTier } from "./quality";
@@ -88,16 +89,12 @@ export interface WorldOptions {
   ground?: string;
 }
 
-/** Fixed-seed PRNG. The seed is arbitrary; that it never changes is the point. */
-function seeded(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+// `seeded` — the fixed-seed PRNG every prop stream is drawn from — is imported
+// from `grounds.mjs` above rather than declared here. It moved because the
+// SERVER now needs it: the woodpile's billets are jittered by one of these, and
+// since a warrior can no longer walk through the pile the sim has to be able to
+// lay out the same billets this file draws. One generator, one sequence, one
+// woodpile.
 
 export interface WorldHandle {
   readonly root: THREE.Group;
@@ -1003,16 +1000,20 @@ const { pathMask, churnMask, basinWet, drainage } = VILLAGE_FIELD;
  * Nothing at boot height goes inside this radius but the fire, which is the
  * arena's centrepiece and carries its own ring of hearth stones to say so.
  *
- * There is no prop collision anywhere in the stack — the server sim is 2-D and
- * knows about warriors, the play bound and the ground's declared hazards,
- * nothing else — so a prop standing inside the fighting circle is not a *risk*
- * of clipping, it is a guarantee of it. The brawl preset stands eight warriors
- * on a 4.2 m circle and a spear adds most of two metres to that; `brawl` is the
- * shot that has to prove crowd readability, and it was proving it with a
- * warrior's shins inside a woodpile.
+ * When this was written there was no prop collision anywhere in the stack — the
+ * server sim is 2-D and knew about warriors, the play bound and the ground's
+ * declared hazards, nothing else — so a prop standing inside the fighting
+ * circle was not a *risk* of clipping, it was a guarantee of it. The brawl
+ * preset stands eight warriors on a 4.2 m circle and a spear adds most of two
+ * metres to that; `brawl` is the shot that has to prove crowd readability, and
+ * it was proving it with a warrior's shins inside a woodpile.
  *
- * This is the cheap half of the fix. The other half is a real obstacle radius
- * in the sim, which `spec.obstacles` now has somewhere to be declared.
+ * This was the cheap half of the fix and it is still worth having: keeping the
+ * middle of the ring clear is composition, not physics, and a prop a man has to
+ * fight around at the centre of the arena would be a gameplay decision rather
+ * than a dressing one. The other half now exists — `spec.obstacles` is declared
+ * and `solidground.mjs` collides against it — so a prop outside this radius is
+ * an obstacle a warrior meets rather than one he walks through.
  *
  * Measured since: nothing this ground places is inside a warrior in `brawl` —
  * the fire's widest geometry reaches 2.0 m and the nearest spawn is 4.2. What
@@ -2814,79 +2815,75 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
       }
       field(rockGeos[1], rockMat, ring);
 
-      // Out past CLEAR_RADIUS, and mirrored across the fire onto the far side.
-      // At (-3.4, 2.6) it sat 0.6 m from a brawl spawn and the warrior standing
+      // THE WOODPILE, AND IT IS NO LONGER DRAWN FROM NUMBERS THAT LIVE HERE.
+      //
+      // Every billet, every crib stake and both spilled logs come out of
+      // `VILLAGE_WOODPILE.parts`, laid out by `rick()` in `solidground.mjs` from
+      // the declaration in `grounds.mjs`. The server collides against a
+      // footprint FITTED to that same list of parts, so the picture and the wall
+      // cannot disagree: this is the ONE definition, and it is the mirrored-
+      // definition fault — five recorded instances — not being given a sixth.
+      //
+      // The placement it used to hold: (-5.4, -4.1) on a 0.4 rad axis, out past
+      // CLEAR_RADIUS and mirrored across the fire onto the far side. At
+      // (-3.4, 2.6) it sat 0.6 m from a brawl spawn and the warrior standing
       // there had both shins through it; the obvious fix — the same bearing,
       // further out — lands in the -x/+z quadrant, which is where every framed
       // character shot puts its subject. Beyond the hearth instead: still
-      // firewood waiting by the fire, clear of the ring and of the portrait.
-      const px = -5.4;
-      const pz = -4.1;
-      const py = groundHeight(px, pz);
-      // The billets lie along AX; the courses stack *across* it. That is the
-      // second half of what made this read as loose logs dropped on the turf in
-      // `arena`: the rows were stepped along world x, which on this bearing is
-      // 92% of the billets' own length, so each course slid down its neighbour
-      // instead of sitting beside it and the stack had no coursing to read.
-      const AX = 0.4;
-      // Its own stream, not the arena's. Every scatter after this block draws
-      // from `rng` in order, so spending twenty-two extra numbers here would
-      // move every arrow, bone and barrel in the moot — and an A/B against a
-      // previous capture would then be measuring the debris, not the woodpile.
-      const jig = seeded(0x1f0a3c7d);
-      const ux = Math.cos(AX);
-      const uz = -Math.sin(AX);
-      const wx = -uz;
-      const wz = ux;
+      // firewood waiting by the fire, clear of the ring and of the portrait. All
+      // of that is now argued in `grounds.mjs` beside the coordinates, because
+      // that is where the coordinates are.
+      //
+      // The billets lie along the rick's axis and the courses stack *across* it.
+      // That is the second half of what made this read as loose logs dropped on
+      // the turf in `arena`: the rows were stepped along world x, which on this
+      // bearing is 92% of the billets' own length, so each course slid down its
+      // neighbour instead of sitting beside it and the stack had no coursing to
+      // read.
+      const rickPlan = VILLAGE_WOODPILE.plan;
+      const rickParts = VILLAGE_WOODPILE.parts;
+      const py = groundHeight(rickPlan.x, rickPlan.z);
       const pile: THREE.Matrix4[] = [];
-      for (let row = 0; row < 3; row++) {
-        const n = 4 - row;
-        for (let i = 0; i < n; i++) {
-          const off = (i - (n - 1) / 2) * 0.225;
-          // Sunk 45 mm into the mud rather than floating 10 mm above it, and
-          // shuffled a little along its own length — a rick that has been drawn
-          // from all evening does not stay flush at the ends.
-          const slide = (jig() - 0.5) * 0.16;
-          pile.push(place(
-            px + wx * off + ux * slide, py + 0.055 + row * 0.195, pz + wz * off + uz * slide,
-            AX + (jig() - 0.5) * 0.05, 1, 0, Math.PI / 2,
-          ));
-        }
+      for (const b of rickParts.billets) {
+        // Sunk 45 mm into the mud rather than floating 10 mm above it, and
+        // shuffled a little along its own length — a rick that has been drawn
+        // from all evening does not stay flush at the ends.
+        pile.push(place(b.x, py + b.lift, b.z, b.yaw, 1, 0, Math.PI / 2));
       }
-      const billet = new THREE.CylinderGeometry(0.1, 0.11, 1.5, 6);
+      const billet = new THREE.CylinderGeometry(rickPlan.billetTopR, rickPlan.billetR, rickPlan.billet, 6);
       field(own(billet), logMat, pile);
 
       // Crib stakes driven at both ends, which is what holds a rick up and what
       // makes it read as something someone built rather than geometry parked on
       // the grass. They also give the stack a contact shadow that is not just
       // its own underside.
+      //
+      // Leaned outward across the courses, because that is the direction the
+      // stack pushes them. Yaw is fixed rather than random for the same reason:
+      // a crib stake that leans in a random direction is not doing the job the
+      // crib stake is there to explain. That outward lean is also why the pile's
+      // collision footprint is wider across than the billets are — the sim is
+      // 2-D, so a stake top that splays 16 cm out is 16 cm of obstacle.
       const stakes: THREE.Matrix4[] = [];
-      for (let e = 0; e < 2; e++) {
-        const sx = px + ux * (e ? 0.84 : -0.84);
-        const sz = pz + uz * (e ? 0.84 : -0.84);
-        for (let s = 0; s < 2; s++) {
-          const o = s ? 0.42 : -0.42;
-          // Leaned outward across the courses, because that is the direction the
-          // stack pushes them. Yaw is fixed rather than random for the same
-          // reason: a crib stake that leans in a random direction is not doing
-          // the job the crib stake is there to explain.
-          stakes.push(place(
-            sx + wx * o, groundHeight(sx + wx * o, sz + wz * o) - 0.22, sz + wz * o,
-            AX + Math.PI / 2, 1, 0, (0.1 + jig() * 0.07) * (s ? 1 : -1),
-          ));
-        }
+      for (const s of rickParts.stakes) {
+        stakes.push(place(s.x, groundHeight(s.x, s.z) - 0.22, s.z, s.yaw, 1, 0, s.lean));
       }
-      field(own(grain(new THREE.CylinderGeometry(0.045, 0.055, 0.98, 5), 0.98, 1.5).translate(0, 0.49, 0)), logMat, stakes);
+      field(
+        own(grain(new THREE.CylinderGeometry(rickPlan.stakeTopR, rickPlan.stakeR, rickPlan.stakeH, 5), rickPlan.stakeH, rickPlan.billet)
+          .translate(0, rickPlan.stakeH / 2, 0)),
+        logMat, stakes,
+      );
 
       // Two billets rolled off the end and lying where they fell. The stack is
-      // tidy; the ground around a woodpile never is.
+      // tidy; the ground around a woodpile never is. These are declared
+      // PASSABLE — see `VILLAGE_PASSABLE` — because a log lying flat in the mud
+      // is a thing you step over, and the owner's line puts it with the sword in
+      // the ground rather than with the stack it fell off.
       const spill: THREE.Matrix4[] = [];
-      for (let i = 0; i < 2; i++) {
-        const dx = px + ux * (1.15 + i * 0.36) + wx * (i ? 0.34 : -0.28);
-        const dz = pz + uz * (1.15 + i * 0.36) + wz * (i ? 0.34 : -0.28);
-        spill.push(place(dx, groundHeight(dx, dz) + 0.085, dz, AX + (i ? 0.9 : -1.3), 1, 0, Math.PI / 2));
+      for (const s of rickParts.spill) {
+        spill.push(place(s.x, groundHeight(s.x, s.z) + 0.085, s.z, s.yaw, 1, 0, Math.PI / 2));
       }
-      field(own(grain(new THREE.CylinderGeometry(0.088, 0.095, 1.05, 6), 1.05, 1.5)), logMat, spill);
+      field(own(grain(new THREE.CylinderGeometry(0.088, rickParts.spill[0].r, rickParts.spill[0].len, 6), rickParts.spill[0].len, rickPlan.billet)), logMat, spill);
     }
 
     root.add(bonfire);
@@ -2897,31 +2894,32 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
   // =========================================================================
   {
     const stone = new THREE.Group();
+    const stonePlan = VILLAGE_RUNESTONE.plan;
     // An irregular slab, not a box: the outline is a noisy polygon extruded and
     // then pinched toward the top, which is what a raised stone actually is.
+    //
+    // THE OUTLINE COMES FROM `grounds.mjs`, not from a loop here. It has to:
+    // the stone is solid now, and the widest this outline ever gets — carried
+    // through the pinch and the lean — IS the collision footprint. Two copies
+    // of a fourteen-point polygon is two answers to "how wide is the stone",
+    // and the one the server believes would be the one nobody looked at.
     const shape = new THREE.Shape();
     // Kept, because the carved band laid on the face has to know how wide the
     // stone is at each height — see halfWidthAt below.
-    const outline: THREE.Vector2[] = [];
-    const pts = 14;
-    for (let i = 0; i <= pts; i++) {
-      const t = i / pts;
-      const a = t * TAU;
-      const rx = 0.62 * (1 + noise2(Math.cos(a) * 2 + 3, Math.sin(a) * 2 - 1) * 0.3);
-      const ry = 1.85 * (1 + noise2(Math.cos(a) * 2 - 7, Math.sin(a) * 2 + 4) * 0.22);
-      const x = Math.cos(a) * rx;
-      const y = Math.sin(a) * ry * (Math.sin(a) > 0 ? 0.95 : 0.7);
-      outline.push(new THREE.Vector2(x, y));
-      if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
-    }
-    const slab = new THREE.ExtrudeGeometry(shape, { depth: 0.42, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 1, curveSegments: 1 });
-    slab.translate(0, 0, -0.21);
+    const outline = VILLAGE_RUNESTONE.outline.map((p) => new THREE.Vector2(p.x, p.y));
+    outline.forEach((p, i) => { if (i === 0) shape.moveTo(p.x, p.y); else shape.lineTo(p.x, p.y); });
+    const slab = new THREE.ExtrudeGeometry(shape, {
+      depth: stonePlan.depth, bevelEnabled: true,
+      bevelSize: stonePlan.bevel, bevelThickness: stonePlan.bevel,
+      bevelSegments: 1, curveSegments: 1,
+    });
+    slab.translate(0, 0, -stonePlan.depth / 2);
     {
       const p = slab.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < p.count; i++) {
-        const t = clamp01((p.getY(i) + 1.9) / 3.8);
-        const pinch = 1 - t * 0.22;
-        p.setX(i, p.getX(i) * pinch + noise2(p.getY(i) * 4, p.getZ(i) * 4) * 0.04);
+        const t = clamp01((p.getY(i) + stonePlan.base) / stonePlan.span);
+        const pinch = 1 - t * stonePlan.taper;
+        p.setX(i, p.getX(i) * pinch + noise2(p.getY(i) * 4, p.getZ(i) * 4) * stonePlan.surfaceWobble);
         p.setZ(i, p.getZ(i) * pinch);
       }
       p.needsUpdate = true;
@@ -2929,8 +2927,12 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
     }
     projectUv(slab, 1 / 1);
     const body = new THREE.Mesh(own(slab), materials.get("runestone"));
-    body.position.y = 1.95;
-    body.rotation.z = 0.05;
+    body.position.y = stonePlan.lift;
+    // The lean. It is 0.05 rad and it is load-bearing twice over: it is what
+    // stops the stone reading as a set piece, and it is 10 cm of overhang at
+    // the top which — in a 2-D sim, where a man occupies every height at once —
+    // is 10 cm of obstacle. `raisedStone` carries it through the footprint.
+    body.rotation.z = stonePlan.lean;
     body.castShadow = true;
     stone.add(body);
 
@@ -2956,7 +2958,8 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
      * centred, and the pinch that tapers the stone toward the top takes z with
      * it — miss that and the top three runes sink into the rock.
      */
-    const faceZ = (y: number) => (0.21 + 0.05) * (1 - clamp01((y + 1.9) / 3.8) * 0.22);
+    const faceZ = (y: number) =>
+      (stonePlan.depth / 2 + stonePlan.bevel) * (1 - clamp01((y + stonePlan.base) / stonePlan.span) * stonePlan.taper);
     const lay = (w: number, h: number, x: number, y: number, rz: number) =>
       bx(w, h, CUT, x, y, faceZ(y) - CUT / 2 + 0.005, rz);
 
@@ -2975,8 +2978,8 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
         const x = Math.abs(a.x + (b.x - a.x) * ((y - a.y) / (b.y - a.y)));
         w = w === 0 ? x : Math.min(w, x);
       }
-      const pinch = 1 - clamp01((y + 1.9) / 3.8) * 0.22;
-      return Math.max(0, w * pinch - 0.04);
+      const pinch = 1 - clamp01((y + stonePlan.base) / stonePlan.span) * stonePlan.taper;
+      return Math.max(0, w * pinch - stonePlan.surfaceWobble);
     };
 
     const runeMat = materials.get("runeGlow");
@@ -3004,11 +3007,13 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
     body.add(new THREE.Mesh(own(mergeInto(border, 1)), materials.get("runestone")));
 
     // Off the centre line on purpose: dead behind the bonfire the stone is a
-    // silhouette inside a flame, and beside it the two read as two things.
-    const sx = -3.4;
-    const sz = -17.4;
+    // silhouette inside a flame, and beside it the two read as two things. The
+    // coordinates live in `grounds.mjs` with the stone's declaration, because
+    // the server has to stand a man beside them.
+    const sx = stonePlan.x;
+    const sz = stonePlan.z;
     stone.position.set(sx, groundHeight(sx, sz), sz);
-    stone.rotation.y = 0.34;
+    stone.rotation.y = stonePlan.rot;
     root.add(stone);
 
     // Packing stones at the foot, which is how a standing stone stays standing.
