@@ -86,19 +86,70 @@ flat `reach` reads −12.9 mm, and a `reach` that still has two maxima in the
 source with its trough lifted to 0.90 reads 16.4 mm. Both red. The real cut
 reads 73.8-74.4 mm.
 
+**Both breaks were re-run independently rather than taken from the report**, and
+they reproduce to the decimal: −12.9 mm on all four classes flat, 16.4/16.4/16.7/
+16.1 mm with the trough lifted. Note what the mass column does in the second one
+— medians 4.9 to 5.6, **every one of them still over the 4 mm bar**. That is the
+gate earning its existence: a fork deleted while the mass reads healthy is
+exactly the defect no number here could see. The absent-case guard was exercised
+too, by taking `forked` out of `BEARD_VALUES`: the run goes to `2/3 rows pass —
+WITH THE FORK UNMEASURED` and **exits FAIL**, so retiring the style cannot buy a
+clean sheet.
+
+**And running it red found a defect in the verdict line itself.** With the fork
+broken and nothing else, the last line of the harness read:
+
+```
+12/16 rows pass — INCLUDING the fork, worst notch -12.9 mm against 40
+```
+
+"INCLUDING the fork" was unconditional on the style being present, so on the one
+run where the fork was the only thing that failed, the sentence a reader takes
+the verdict from said the opposite of what happened. The count was right and the
+sentence over it was false — this project's signature defect, in the gate written
+to stop it. Fixed: the clause now reads `AND THE FORK IS WHAT FAILED` when any
+fork row is red. It was only findable by reading the harness's own failing
+output, which is the argument for R2 that "shown failing" has to mean *read*
+while failing, not merely *seen non-zero*.
+
 ### The render, and it says something the numbers did not
 
 `art/shots/r2-forked/`, three-quarter and profile, before and after, shot from
 clean trees either side of the change rather than from one run straddling it.
 
-* **The three-quarter is the panel that shows it.** Before, the two tines are
-  flat blades with knife edges. After, each is a rope with a belly and a
-  highlight down it. The notch is open in both, which is what the 74.1 mm says
-  and is why the fork gate had to be independent of the mass gate.
-* **The profile is nearly identical before and after, and that is correct.** The
-  wall is radial, so side-on it is edge-on to the lens and a 41% change in it is
-  very nearly invisible. A verdict taken from the profile alone would have said
-  the fix did nothing.
+* **The notch is open at three-quarter, in both builds.** Two tines with clear
+  sky between them, which is what the 74.1 mm says, and it is why the fork gate
+  had to be independent of the mass gate.
+* **Neither panel shows the mass change, and the three-quarter barely shows it
+  either.** The wall is radial, so it adds beard in DEPTH; the face card sees an
+  outline. Measured on the frames rather than described — beard run-length per
+  scanline over the mail, x 420-640, y 545-700, 0.82 mm per pixel — the tines
+  gained **0.67 px per scanline: +0.55 mm, +1.2%.** A 41% change in the dial is
+  a sub-pixel change in the silhouette from every bearing this cut is shot at.
+
+  #### This paragraph said the opposite, and the correction is the point
+
+  Kept visible rather than quietly edited, because it is the same failure the
+  round above it was refuted for. The first version of these bullets read:
+
+  > Before, the two tines are flat blades with knife edges. After, each is a
+  > rope with a belly and a highlight down it.
+
+  **That is not what the frames show.** They differ by 0.4% of pixels above a
+  delta of 8, the difference is concentrated in the tine band, and both builds
+  read as flat blades with knife edges — the after tine is marginally broader
+  and that is all. The sentence was written from the number that had moved
+  (3.9 → 5.3 mm) and not from the two pictures, which is precisely the habit
+  `docs/PROCESS.md` R5 exists to stop. A false claim about a render is the same
+  defect as a false number and it is committed the same way.
+
+  **And it carries a real lesson, which is why it is worth the space.** The
+  render is NOT a check on this cut's mass gate and cannot be made into one:
+  `wall` is depth, the face card measures outline, and the two barely meet. What
+  the render is a check on here is the FORK and the MATERIAL. Look at those on
+  the cards; take the mass from `beardvolume`.
+* **The profile is nearly identical before and after, and that is correct** for
+  the same reason — side-on, the wall is edge-on to the lens.
 * **The growth-line fade was checked and it holds.** It looked at first like a
   pale sawtooth rim had been traded for the hard brown edge. Measured — brightest
   pixel in the transition band against the skin beside it, on all three builds —
@@ -107,7 +158,39 @@ clean trees either side of the change rather than from one run straddling it.
   catching the key light and it is in all three frames.
   `art/shots/r2-forked/growthline-a448-roundone-now.png` stacks them; the edge
   really did soften. **Reported because a defect that was looked for and not
-  found is worth as much as one that was.**
+  found is worth as much as one that was.** Re-checked independently in hue as
+  well as value, because a luma test cannot see a colour cast: the transition
+  band reads hue 22-26°, saturation 79-89%, against skin at hue 21°, saturation
+  79% — the same hue as the complexion, which is what the fade was built to do.
+
+### OPEN — the beard reads as carved wood at portrait range
+
+Found by opening the cards and not by any number, and left open rather than
+dialled at the end of a round that was about the fork.
+
+`art/shots/r2-forked/after-profile/` and `after-quarter/`, at 3-4x. The beard's
+substance is right — it is `M.tinted("hair", …)` at 3 repeats since the wool
+was taken out, and that fix holds. But over the doubly-curved chin the lock
+pattern closes into **concentric loops**, and at portrait range the chin mass
+reads as the end grain of a plank rather than as hanks of hair. The tines make
+it worse: they are glossy, hard-edged and taper to points, so they read as two
+polished wooden tusks.
+
+Nothing in the repository can see this. `beardvolume` measures depth, the fork
+gate measures the hem's outline, and a mesh that reads as timber passes both by
+a wide margin — which is the same shape of hole the fork gate was written to
+close, one property along.
+
+**The dial to move first is named in the code**: the comment over the beard
+material says its `repeat: 3` "is the number that decides whether a beard reads
+as a mass with locks in it or as a slab, so it is the one to move first if the
+cards say the beard is still flat." The cards do not say flat. They say
+**wooden**, and that is a different defect from the one that comment
+anticipated — the loops come from the UV compressing over the chin's curvature,
+so a repeat change alone may only make the grain finer rather than straighter.
+Worth a probe that measures strand DIRECTION coherence over the beard patch
+before anything is dialled; this repository has been bitten four times by
+fixing hair geometry when the wrong property was being measured.
 
 ---
 
@@ -480,6 +563,11 @@ fine and looked like carved wood grain".
 > Beard and the false 16/16; these two need a `hoodHemY` that does not exist and
 > a cheek-guard reshape whose seven levers are already recorded as inert, and
 > neither is an afternoon.
+>
+> **The second pass of round two leaves them too**, having re-measured item 2
+> rather than repeating its number — see the correction inside it. That pass
+> went to verifying the fork gate by breaking it, and to the two false claims
+> about renders recorded above.
 
 
 **1. The Shadow Hood still swallows the mane.** `cosmetictest` is **15/16** and
@@ -499,7 +587,15 @@ a hem. That is the missing definition, and it is the same missing definition
 the verdict line, for exactly the reason it does the same for the Sutton Hoo.
 
 **2. The Wyrm-Crest's deep cheek guard is untouched.** `facecover` spread 28.8
-against the Spectacle's 4.2. The seven levers this file records as inert or
+against the Spectacle's 4.2. **Re-run rather than quoted** — and the honest
+figure is a range, not that pair: the Wyrm spreads **28.8-29.7** across the four
+classes and the Spectacle **1.9-4.2**, so "28.8 against 4.2" was the narrowest
+Wyrm set against the widest Spectacle. The gap is real and slightly wider than
+advertised. Worth recording alongside it: the **Shadow Hood spreads 30.9-32.0**,
+wider than the Wyrm on every class, and `facecover` flags spread as
+*measurement only, not a bar* — so nothing here is a red gate, and the hood's
+number belongs next to item 1 as well as this one.
+The seven levers this file records as inert or
 partial were not pulled again, and nothing was added to that table. The one thing
 this unit learned that bears on it is negative and worth having: `CHEEK_LINER`
 went from 5 mm to 3 mm on the evidence that the deep guard leaves the hair under
