@@ -766,7 +766,23 @@ function main() {
     const cell = cells.get(`${c}>${c}`);
     const w = wilson(cell.wins, cell.n);
     mirrors.push(`  ${pad(c, 12)} ${(w.p * 100).toFixed(1)}%  [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}]`);
-    if ((w.hi < 0.5 || w.lo > 0.5) && Math.abs(w.p - 0.5) > MIRROR_TOLERANCE) {
+    // TOLERANCE ALONE, NOT ANDed WITH THE INTERVAL — and this is a tightening.
+    //
+    // A mirror is 50% BY CONSTRUCTION: the same sheet on both sides. Any
+    // deviation is noise or it is side bias, and the question "is this harness
+    // biased" does not become a different question at a different sample size.
+    // ANDing the tolerance with "the 95% interval excludes 50%" made the VERDICT
+    // depend on n — at moderate n the interval governs and straddles, so the
+    // check fired on some seeds and not others. An adversary measured that:
+    // three master seeds were quoted as returning an identical verdict while a
+    // fourth had roughly a one-in-three chance of going red, on a per-mirror
+    // rate of 4.97% at n=250.
+    //
+    // That is the same fault this file's own header warns about — a realisation
+    // reported as a property — sitting inside the control that is supposed to
+    // catch it. Tolerance alone fires MORE often, not less; n now buys precision
+    // rather than deciding the answer.
+    if (Math.abs(w.p - 0.5) > MIRROR_TOLERANCE) {
       failures.push(`THE RULER, not the roster — the ${c} mirror came back ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}], which excludes the 50% a mirror is by construction by more than ${MIRROR_TOLERANCE * 100} points. This harness has a side bias and every cell below it is suspect.`);
     }
   }

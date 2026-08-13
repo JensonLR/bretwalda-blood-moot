@@ -3446,3 +3446,26 @@ scope anyway. Retake it in a fight before citing it.
 The tool shouting in capitals is what made this findable, which is the argument
 for instruments that describe their own conditions rather than only their
 results.
+
+## The class-card gate reads the source, not the drawn bars — 13 Aug 2026
+
+`classmatrix`'s `cardIsLegible()` was written to stop the class-select card
+lying about the roster, after the stat rework left the runekeeper and the warden
+drawing IDENTICAL full speed bars on different numbers (5.0 against 5.6) because
+`page.tsx` clamped to hard-coded maxima.
+
+The fix is real and verified — the card now derives every ceiling from
+`statshape.mjs` and `StatBar` takes a fraction, so there is nothing left to
+clamp. **The gate over it is not.** It scans the source for typed maxima and for
+the clamp; an adversary mutated the DRAWN geometry in a way that source scan
+does not see, and the gate stayed green. Green because the case is absent.
+
+**What would close it**, in the adversary's own words: a check that reads the
+drawn geometry out of a browser capture — it wrote one at about 120 lines and it
+catches the mutation the source scan misses — or, as a floor, a failure on any
+numeric literal reaching a bar width from `page.tsx`.
+
+Left open rather than half-done because a source scan that *looks* like a
+geometry check is worse than no check: it is the exact shape of the thirteen
+faults this repository has already recorded, and adding a fourteenth quietly
+would be the worst possible response to finding thirteen.
