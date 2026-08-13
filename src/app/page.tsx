@@ -12,6 +12,10 @@ import type {
   EmoteId,
 } from "../game/types";
 import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
+// The four bars on the class card, and — the point of the module — the ONE
+// place their maxima come from, which is the roster itself. See the header of
+// `statshape.mjs` for the two warriors this screen used to draw identically.
+import { cardBars, type StatAxis } from "@/game/statshape.mjs";
 import {
   ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance,
   type Appearance, type ArmouryOption,
@@ -2259,6 +2263,17 @@ function TheKeep({ link, code, onRestore, onSay }: {
   );
 }
 
+/**
+ * Colour per axis. This is the only thing about a stat bar that is a decision
+ * rather than a measurement, so it is the only thing left in this file.
+ */
+const BAR_COLOUR: Record<StatAxis, string> = {
+  HEALTH: "bg-emerald-500",
+  SPEED: "bg-sky-400",
+  DAMAGE: "bg-red-500",
+  DEFENCE: "bg-amber-400",
+};
+
 function ClassGrid({ selected, onSelect, compact }: {
   selected: WarriorClass | undefined; onSelect: (c: WarriorClass) => void;
   /**
@@ -2281,11 +2296,21 @@ function ClassGrid({ selected, onSelect, compact }: {
             <div className={`medallion mb-3 ${isSel ? "!border-amber-500 !text-amber-300" : ""}`}><WIcon size={17} /></div>
             <div className="font-display text-sm tracking-wider text-amber-100">{w.name}</div>
             <div className="mt-1 text-[10px] leading-snug text-stone-400">{w.desc}</div>
+            {/*
+              FOUR BARS, NO CEILINGS TYPED IN. Every maximum is `Math.max` over
+              the roster being drawn (`cardBars`), so the leader on each axis
+              fills his bar exactly and nobody overflows. The four numbers that
+              used to sit here — 150, 100, 84, 80 — were the roster's maxima on
+              the day they were written and two of them were stale after the
+              class rework: 158 health clamped at 150, and a 5.6 stride and a
+              5.0 stride BOTH clamped at 100, so the runekeeper and the warden
+              drew the same full speed bar while SPEED is what the runekeeper is
+              for. Colour is the only thing this file still decides.
+            */}
             <div className="mt-3 flex flex-col gap-1.5">
-              <StatBar label="HP" value={stats.maxHealth} max={150} cls="bg-emerald-500" />
-              <StatBar label="SPD" value={stats.moveSpeed * 20} max={100} cls="bg-sky-400" />
-              <StatBar label="ATK" value={stats.attackDamage * 3} max={84} cls="bg-red-500" />
-              <StatBar label="DEF" value={stats.blockReduction * 100} max={80} cls="bg-amber-400" />
+              {cardBars(WARRIOR_STATS, w.id).map((b) => (
+                <StatBar key={b.axis} label={b.label} frac={b.frac} text={b.text} cls={BAR_COLOUR[b.axis]} />
+              ))}
             </div>
             <div className="mt-3 text-[9px] font-bold tracking-[0.15em] text-purple-300">{stats.ability}</div>
           </button>
@@ -2740,12 +2765,25 @@ function LinkPill({ mode }: { mode: "ws" | "http" | null }) {
   );
 }
 
-function StatBar({ label, value, max, cls }: { label: string; value: number; max: number; cls: string }) {
+/**
+ * One bar on a class card.
+ *
+ * It takes a FRACTION, not a value and a ceiling, and that is the whole repair.
+ * The old signature was `(value, max)` with the maxima written into the four
+ * call sites, and it defended itself with `Math.min(100, ...)` — which is how a
+ * stale ceiling stopped being a bar drawn past its track (obvious, fixed in an
+ * afternoon) and became two different warriors drawn identically (invisible,
+ * shipped for a release). There is nothing to clamp now: `cardBars` divides by
+ * the roster's own maximum, so `frac` is in [0, 1] by construction and the
+ * leader on each axis is the man whose bar is full.
+ */
+function StatBar({ label, frac, text, cls }: { label: string; frac: number; text: string; cls: string }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5" title={`${label} — ${text}`}>
       <span className="text-[8px] text-stone-500 w-6 font-bold">{label}</span>
-      <div className="flex-1 h-1.5 bg-stone-700/80 rounded-full overflow-hidden">
-        <div className={`h-full ${cls} rounded-full`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+      <div className="flex-1 h-1.5 bg-stone-700/80 rounded-full overflow-hidden"
+        role="img" aria-label={`${label}, ${text}`}>
+        <div className={`h-full ${cls} rounded-full`} style={{ width: `${frac * 100}%` }} />
       </div>
     </div>
   );

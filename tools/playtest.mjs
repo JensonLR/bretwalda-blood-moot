@@ -155,14 +155,40 @@ function checkWeightNumbers() {
   // balanced on is asserted rather than asserted-about. A common multiplier
   // means every relative number survives; anything that pulled the classes
   // together would show up here first.
+  //
+  // RETARGETED BY THE CLASS REWORK, and the reasoning matters because loosening
+  // an assertion to go green is the one thing this repository forbids outright.
+  //
+  // This check had two halves. The first — berserker/runekeeper stroke at
+  // 2.294x — is a claim about the `attackSpeed` column, which the weight pass
+  // owns, which the class rework did not touch, and which is untouched here and
+  // still passes. The second asserted a specific ordering of all four classes'
+  // light DAMAGE RATE (runekeeper > warden > berserker > huscarl). That is not
+  // "the fast class stayed fast": it is "the damage columns are exactly what
+  // they were in August", and it would have failed for ANY rework of the damage
+  // columns, which is precisely what BACKLOG 3.1 asked for. The warden dropping
+  // below the berserker on damage rate is the rework working — he is the
+  // DEFENCE+SPEED class now and the berserker is a DAMAGE class.
+  //
+  // What replaces it is the claim this check's own NAME makes, asserted
+  // directly and more strictly than before: the runekeeper still has the
+  // shortest stroke and the best damage rate in the game, and the whole stroke
+  // ORDER — which is what "fast" means — is unchanged. Roster balance is no
+  // longer this file's business at all: `tools/classmatrix.mjs` fights the
+  // whole 4x4 and gates it, including a gate that the four classes stay four
+  // different shapes.
   const rk = WARRIOR_STATS.runekeeper.attackSpeed, bz = WARRIOR_STATS.berserker.attackSpeed;
   const dps = (c) => WARRIOR_STATS[c].attackDamage / WARRIOR_STATS[c].attackSpeed;
-  const orderKept = dps("runekeeper") > dps("warden") && dps("warden") > dps("berserker") &&
-    dps("berserker") > dps("huscarl");
+  const strokeOrder = rk < WARRIOR_STATS.warden.attackSpeed &&
+    WARRIOR_STATS.warden.attackSpeed < WARRIOR_STATS.huscarl.attackSpeed &&
+    WARRIOR_STATS.huscarl.attackSpeed < bz;
+  const fastestBlade = ["warden", "huscarl", "berserker"].every((c) => dps("runekeeper") > dps(c));
   check("the fast class stayed fast relative to the field",
-    Math.abs(bz / rk - 2.294) < 0.02 && orderKept,
-    `berserker/runekeeper stroke ${(bz / rk).toFixed(3)}x (was 0.78/0.34 = 2.294x); light dps ` +
-    ["runekeeper", "warden", "berserker", "huscarl"].map((c) => `${c} ${dps(c).toFixed(1)}`).join(" > "));
+    Math.abs(bz / rk - 2.294) < 0.02 && strokeOrder && fastestBlade,
+    `berserker/runekeeper stroke ${(bz / rk).toFixed(3)}x (was 0.78/0.34 = 2.294x); stroke order ` +
+    ["runekeeper", "warden", "huscarl", "berserker"].map((c) => `${c} ${WARRIOR_STATS[c].attackSpeed}`).join(" < ") +
+    `; the seax still leads on rate at ${dps("runekeeper").toFixed(1)}/s against ` +
+    ["berserker", "warden", "huscarl"].map((c) => `${c} ${dps(c).toFixed(1)}`).join(", "));
 
   // Turning under commitment. A free warrior adopts the client's yaw outright —
   // 180 degrees in one message — so the reduction is stated as the absolute cap
@@ -710,7 +736,7 @@ async function main() {
   // A warden walks 4.5 u/s, so ~1.2s of held W should cover well over 3 units.
   check("W moves the warrior", dist > 0.4, `travelled ${dist.toFixed(2)} units in 1.2s held`);
   check("W moves at a believable speed", dist > 3.0,
-    `travelled ${dist.toFixed(2)} units; expected >3.0 for a 4.5 u/s walk`);
+    `travelled ${dist.toFixed(2)} units; expected >3.0 for a ${WARRIOR_STATS.warden.moveSpeed} u/s walk`);
 
   // ---- 3. strafe ----
   const b2 = await me();
@@ -1079,7 +1105,7 @@ async function main() {
   await page.keyboard.up("KeyT");
   const newDist = Math.hypot(a7.x - b7.x, a7.z - b7.z);
   check("the rebound key moves the warrior", newDist > 3.0,
-    `KeyT travelled ${newDist.toFixed(2)} units; expected >3.0 for a 4.5 u/s walk`);
+    `KeyT travelled ${newDist.toFixed(2)} units; expected >3.0 for a ${WARRIOR_STATS.warden.moveSpeed} u/s walk`);
 
   await page.waitForTimeout(300);
   const b8 = await me();

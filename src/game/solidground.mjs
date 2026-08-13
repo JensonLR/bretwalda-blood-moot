@@ -21,12 +21,12 @@
 // somebody made rather than whatever the constructor happened to default to.
 //
 // ---------------------------------------------------------------------------
-// THE INTEGRATION POINT — ONE CALL, AND ANOTHER AGENT OWNS THE FILE IT GOES IN
+// THE INTEGRATION POINT — TWO CALLS, NOT ONE, AND THE SECOND IS THE HARD ONE
 // ---------------------------------------------------------------------------
 //
-// `engine.mjs` is not ours. The wiring below is the whole of what it has to do,
-// in the movement step, immediately after `integrateMovement` — and it REPLACES
-// the palisade block that follows it today (see "The play bound" below):
+// `engine.mjs` makes them both now. It calls this at the movement step,
+// immediately after `integrateMovement`, and that call REPLACES the palisade
+// clamp that used to follow it (see "The play bound" below):
 //
 //     import { resolveSolids } from "./solidground.mjs";
 //     // ... in the per-player movement step:
@@ -36,6 +36,23 @@
 //     player.position.x = s.x;
 //     player.position.z = s.z;
 //     if (s.hit) killComponent(player, s.blockedX, s.blockedZ);
+//
+// AND THEN AGAIN, AFTER ANYTHING ELSE THAT MOVES A BODY. This header used to
+// stop at the paragraph above, and that was a hole big enough to walk a scrum
+// through. The engine runs a SOFT BODY-SEPARATION PASS after the movement step
+// — positional, writing `player.position` directly to hold warriors 1.05 m
+// apart — so it shoves men straight back into the props this function had just
+// cleared, every tick, with nothing behind it to undo that. Measured on the real
+// engine, the two builds differing by one `if`: an eight-man scrum on the
+// woodpile ended a tick with a body inside the prop 374 times in 48,000
+// man-ticks, deepest 258 mm. A plain duel: 0 in 12,000, on BOTH builds.
+//
+// So the rule, and it is a rule about the caller rather than about this file:
+// ANY PASS THAT MOVES A BODY IS FOLLOWED BY A RESOLVE, from a base point that
+// was legal. This function is pure and cheap and is meant to be called twice.
+// The alternative — teaching the separation push to be solid-aware — would put
+// a second definition of "what a solid is" in the file with the least reason to
+// own one, which is this repository's third named failure mode.
 //
 // Exact signature:
 //
@@ -60,9 +77,11 @@
 // ring: a man clamped to the ring by one rule and pushed off the stone by
 // another is a man the two rules can pass back and forth forever. They are one
 // constraint set and they are solved together, iterated, and verified. Which
-// means the engine's existing eight-line palisade block becomes redundant — it
-// is harmless if left in place (this call already returns a point inside the
-// ring, so a second clamp is a no-op) but it is dead code and should go.
+// means the engine's eight-line palisade block became redundant — and it is
+// GONE, not left as a harmless no-op: a second clamp that never fires is a
+// second definition of where the wall is, waiting for one of the two to be
+// edited. `ARENA_RADIUS` went with it; the ring is `SAXON_VILLAGE.play.radius`
+// and there is one of it.
 //
 // Secondary hooks, both optional, neither on the movement path:
 //   * `steerAroundSolids(ground, x, z, dx, dz, bodyRadius, memory)` — bot

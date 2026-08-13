@@ -4,6 +4,13 @@
 // routes share the same rooms in one process.
 // ============================================================
 import { randomUUID } from "crypto";
+// THE ARENA STOPS BEING A HOLOGRAM. `solidground.mjs` owns the collision maths
+// and `grounds.mjs` declares which props are on which side of the owner's line
+// — "obstacle decoration" blocks, "decoration decoration" does not. This module
+// contributes the tick order and nothing else; see the wiring note in
+// `gameTick`, and `tools/solidtest.mjs` for the gate on it.
+import { getGround } from "./grounds.mjs";
+import { resolveSolids } from "./solidground.mjs";
 
 const TICK_RATE = 20;
 
@@ -40,7 +47,17 @@ const STAGGER_DURATION = 0.6;
 const HEAVY_CLEAN_STAGGER = 0.30;
 const MATCH_COUNTDOWN = 3;
 const SPAWN_INVINCIBLE = 2.0;
-const ARENA_RADIUS = 18;
+// `const ARENA_RADIUS = 18` USED TO LIVE HERE AND IT IS DELIBERATELY GONE.
+//
+// The ring is `ground.play.radius` and `resolveSolids` enforces it, together
+// with the props, in one solve — it has to be one solve, because the runestone's
+// far corner reaches 0.53 m past the ring and two rules that can each push a
+// body into the other will do it forever. Keeping the old constant "for
+// reference" would have left this file asserting where the wall is while
+// something else decided, which is a mirrored definition with a fuse on it, and
+// this repository has recorded five. `tools/solidtest.mjs` claim 11 now fails if
+// it comes back.
+
 // Centre-to-centre gap two warriors are held apart at. It is the only statement
 // the sim makes about how wide a man is, which is why the fire borrows it below.
 const BODY_MIN_SEP = 1.05;
@@ -133,7 +150,7 @@ const SPAWN_GAP = 7.5;
 // geometry reaches 2 m and the hearth stones a little past that — and stops two
 // duellists from being solved onto opposite sides of a hearth six paces wide.
 const SPAWN_MIN_RADIUS = 6;
-// The ceiling keeps everyone a good six metres inside the palisade at ARENA_RADIUS,
+// The ceiling keeps everyone a good six metres inside the palisade at the play bound,
 // so nobody opens a round with his back already against the timber.
 const SPAWN_MAX_RADIUS = 12;
 // A shield wall is a line. Men of one team stand this far apart along their own
@@ -169,7 +186,14 @@ const ROUND_SPIN = 2.399963;
 // NOTE: the warden carries `buildSpear`, not a sword, and it out-reaches the
 // axe by 440 mm. The axe is a big weapon, but most of it hangs *below* the
 // grip — the butt is 580 mm down the haft — and none of that is reach.
-const WEAPON_REACH = { huscarl: 1.055, warden: 1.44, runekeeper: 0.50, berserker: 1.00 };
+//
+// EXPORTED, and that is not decoration. The note on `SWING_ARC` below says in
+// so many words that if the runekeeper is answering with too little "this table
+// is the lever, not `WARRIOR_STATS`" — and until `tools/classmatrix.mjs` there
+// was no instrument that could pull it, because reach lives here and nothing
+// outside this module could see it. A balance lever no harness can reach is a
+// lever nobody pulls.
+export const WEAPON_REACH = { huscarl: 1.055, warden: 1.44, runekeeper: 0.50, berserker: 1.00 };
 
 // The two bodies between the two fists, which no weapon table can supply:
 // ~0.60 m from the attacker's centre out to his extended fist, ~0.25 m from the
@@ -178,10 +202,7 @@ const WEAPON_REACH = { huscarl: 1.055, warden: 1.44, runekeeper: 0.50, berserker
 // This is the one number here that is a judgement call rather than a measurement.
 const BODY_REACH = 1.20;
 
-const ATTACK_RANGE = Object.fromEntries(
-  Object.entries(WEAPON_REACH).map(([cls, r]) => [cls, r + BODY_REACH]),
-);
-const DEFAULT_ATTACK_RANGE = ATTACK_RANGE.huscarl;
+const DEFAULT_ATTACK_RANGE = WEAPON_REACH.huscarl + BODY_REACH;
 
 // How far off his facing a warrior may land a blow. Flat at 0.6π for every
 // class before, which let a seax thrust connect with something stood behind the
@@ -198,7 +219,7 @@ const DEFAULT_ATTACK_RANGE = ATTACK_RANGE.huscarl;
 // lowest on purpose and is answering with the roster's best damage rate and
 // best mobility; if it turns out to be answering with too little, this table
 // is the lever, not `WARRIOR_STATS` — see the note on that table.
-const SWING_ARC = {
+export const SWING_ARC = {
   huscarl: Math.PI * 0.50,     // sword and shield: compact, worked in close
   warden: Math.PI * 0.38,      // spear: a line, not a sweep
   runekeeper: Math.PI * 0.60,  // twin seaxes, and the class that must fight from
@@ -207,9 +228,20 @@ const SWING_ARC = {
 };
 const DEFAULT_SWING_ARC = SWING_ARC.huscarl;
 
-/** Centre-to-centre distance at which this warrior's weapon can bite. */
+/**
+ * Centre-to-centre distance at which this warrior's weapon can bite.
+ *
+ * Added at the point of use rather than pre-baked into a second table at module
+ * load. The pre-baked copy was a mirrored definition waiting to happen — this
+ * repository's third named failure mode, four recorded instances in
+ * `characters.ts` alone — because it made `WEAPON_REACH` look like the lever
+ * while `ATTACK_RANGE` was the thing actually consulted, so writing the first
+ * one after load moved nothing. There is one table now and it is the one the
+ * comment points at.
+ */
 function reachOf(p) {
-  return ATTACK_RANGE[p.warriorClass] ?? DEFAULT_ATTACK_RANGE;
+  const r = WEAPON_REACH[p.warriorClass];
+  return r === undefined ? DEFAULT_ATTACK_RANGE : r + BODY_REACH;
 }
 
 // ---- hit zones ----
@@ -601,6 +633,66 @@ export const RIPOSTE = {
   balanceScale: 1.8,
 };
 
+// ---- MERCY OR FINISH ----
+//
+// `docs/DESIGN-SYSTEM.md` §8 and `BACKLOG.md` 3.4. A beaten man is not
+// immediately dead: he goes down, and the man who put him there gets a window
+// to choose. Three properties came out of the design review and all three are
+// load-bearing:
+//
+//   THE PRESSURE IS STATED SOCIALLY. Seven men are watching. Not a meter, not a
+//   score — the `downed` message carries `witnesses`, which is a real count of
+//   the living men in the room who are neither of the two in the moment, so the
+//   UI can say "six men are watching" and be TELLING THE TRUTH. It is a count
+//   off the room, never the literal seven.
+//
+//   THE WINDOW DRAINS, IT DOES NOT COUNT DOWN. A number invites the player to
+//   watch the number instead of the man. So the wire carries `mercyTimer` as
+//   seconds remaining and the `downed` message carries `window` as the full
+//   length, and the client's whole job is one ratio and a shrinking mark. No
+//   digit is ever published for this.
+//
+//   LETTING IT RUN OUT IS ITSELF A CHOICE, AND A MERCIFUL ONE. So the default
+//   is mercy, doing nothing is the merciful act, and the server says so out
+//   loud with its own `spared` message rather than leaving it as an absence
+//   the client has to notice. That is the whole point of the feature: the game
+//   names what you did.
+//
+// WHY THIS IS NOT A FIFTH STATE. It reuses the knockdown wholesale. A downed
+// man IS `knocked` — `isDown` already refuses him his swing, his guard, his
+// turn and his stride, `knockDown` already strips his i-frames and slides him
+// away from the blow, and the client already has a fall animation keyed off it.
+// What is added is three fields and one rule: `mortal` says this fall does not
+// end in getting up, `mercyTimer` is the draining window, and `mercyTo` is
+// whose choice it is — the same "a window owned by one named man" shape the
+// riposte already uses with `vulnerableTo`. The riposte's fields are NOT
+// overloaded; that would have been a mirrored definition of two different
+// ideas, which is this repository's third named failure mode.
+//
+// THE ROUND STILL ENDS, AND THAT IS WHAT `spared` IS FOR. If mercy were
+// unlimited, eight men could spare each other forever and the round would never
+// resolve. A man may be spared ONCE per round; the second time he is put down
+// he dies. That is a bound on the round AND the better design statement — mercy
+// is a thing you are given once — so the termination guarantee and the meaning
+// are the same rule rather than two.
+export const MERCY = {
+  /**
+   * Seconds the choice stays open. 2.5 s is 50 whole ticks. It has to be long
+   * enough that walking away is a decision a player makes rather than one he
+   * misses, and short enough that seven other men are not stood waiting on it:
+   * a huscarl light reaches contact in 0.408 s, so the window is six clean
+   * chances to finish him and still leaves most of itself for hesitating.
+   */
+  window: 2.5,
+  /**
+   * What a spared man gets back. A quarter bar — he is alive, he is not
+   * restored, and the man who spared him has to live with him for the rest of
+   * the round. Any higher and mercy is a tactical error nobody would make
+   * twice; any lower and it is an execution with extra steps.
+   */
+  risesOn: 0.25,
+};
+
 // ---- emotes ----
 // Three flourishes and no more: raise the weapon, beat the shield boss, taunt.
 // They cost nothing and change nothing — no damage, no movement, no state the
@@ -706,11 +798,198 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 // (`WARRIOR_STATS[cls].attackSpeed` as the nominal duration) and a drift here is
 // a swing that finishes on the client before it lands on the server. The rest of
 // that table's drift is left where it was — it is a display bug, not this one.
+// ---- the class rework, and the table that came before the guess ----
+//
+// The owner, verbatim, and it is the acceptance criterion:
+//
+//   "rework of the stats of the 4 characters, I feel like each should have 2
+//    stats high to make it balanced. Runekeeper is fast but his skill needs
+//    work it's a bit poor & sometimes doesn't move you, he doesn't do much
+//    damage & doesn't have much health so hard to win with. Berserker feels
+//    slow & does high damage but has really low defense & lowish health. Warden
+//    does feel balanced, might be best in game if not for huscarl. Will take
+//    your recommendation after review"
+//
+// WHAT THE OLD SHEET ACTUALLY DID, measured by `tools/classmatrix.mjs` over
+// 4,800 bot-versus-bot duels at 300 per ordered matchup, both sides driven by
+// this engine's own `botThink` at the same skill so the only difference between
+// them is this table. Win rate against the field, mirror excluded, 95% Wilson:
+//
+//   warden      78.4%  [75.6-81.0]      <- beats everybody
+//   runekeeper  43.7%  [40.5-46.9]
+//   huscarl     42.7%  [39.5-45.9]
+//   berserker   28.9%  [26.0-31.9]      <- cannot win
+//
+// Nine of the twelve ordered matchups sat outside 30-70%. And the felt ranking
+// and the measured one DISAGREE, which is the whole reason this was measured:
+// the owner reads the huscarl as the best man in the game and he is third, four
+// points off the runekeeper he is supposed to tower over. He feels best because
+// 150 health and an 0.8 shield are the two numbers you notice; the warden was
+// quietly winning four fights in five and nobody could see it because the thing
+// he wins on — 20 damage every 0.85 s against 18 every 1.02 s — is a rate, and
+// nobody watches a rate.
+//
+// WHAT DECIDES A FIGHT HERE, pulled rather than reasoned about (rule R1). Each
+// lever below was moved on its own and the class's field rate re-measured:
+//
+//   warden attackSpeed 0.85 -> 2.00     78.4% -> 1.3%    the stroke is king
+//   warden attackDamage 20 -> 8         78.4% -> 22.0%
+//   warden maxHealth 120 -> 40          78.4% -> 10.8%
+//   warden WEAPON_REACH 1.44 -> 0.50    78.4% -> 80.8%   <- REACH DOES NOTHING
+//   runekeeper WEAPON_REACH 0.50 -> 1.44  43.7% -> 43.9%
+//
+// The reach result is the one worth writing down, because the comment on
+// `SWING_ARC` says in so many words that if the runekeeper is underpowered
+// "this table is the lever, not `WARRIOR_STATS`", and on this evidence that is
+// backwards. Cutting the longest weapon in the game by 65% moved its owner two
+// points, upward. The reason is `botThink`: it closes to `myReach * 0.7`, so a
+// shorter weapon only means standing nearer, and reach is paid back in full the
+// moment a fighter is willing to walk. THAT IS A PROPERTY OF THE BOT AND NOT OF
+// THE GAME — a human who holds a spear at range against a seax is buying
+// something this measurement cannot see — so reach is left exactly where it was
+// rather than being "corrected" to a number a bot fight would have preferred.
+// It is a deferral and it rides `classmatrix`'s verdict line.
+//
+// THE SHAPE, which is the owner's ask taken literally. Four card stats —
+// HEALTH, DEFENCE, SPEED, DAMAGE — and each class is high on exactly two, so
+// each stat is somebody's strength twice and each class shares one strength with
+// each neighbour and none with its opposite:
+//
+//   huscarl      HEALTH + DEFENCE     the wall
+//   warden       DEFENCE + SPEED      the disciplined spear
+//   runekeeper   SPEED + DAMAGE       the knife, and his damage is a RATE
+//   berserker    DAMAGE + HEALTH      the axe, and his damage is per BLOW
+//
+// The two DAMAGE classes are deliberately not the same kind of damage: the
+// runekeeper does 14 every 0.58 s (24.1/s, the best in the game) and the
+// berserker does 28 every 1.33 s in blows that arrive one at a time. That is
+// what stops "two high stats each" from collapsing into four averages, which the
+// brief forbids in as many words.
+//
+// The berserker's SECOND high stat is the fix for the owner's own description of
+// him — "slow & does high damage but has really low defense & lowish health" is
+// a class with ONE strength, and one strength is why he was at 28.9%. He now
+// carries the second-largest health bar in the game and still the worst guard in
+// it, so he soaks and he swings and he cannot do anything else.
+//
+// WHAT IT MEASURES AT — 1,000 bouts per ordered matchup, 16,000 duels a run,
+// against THIS TABLE AS COMMITTED. Master seed 20260813:
+//
+//   huscarl     53.8%  [52.0-55.6]
+//   runekeeper  51.6%  [49.8-53.4]
+//   berserker   46.8%  [45.0-48.6]
+//   warden      45.2%  [43.4-47.0]
+//
+//   SPREAD      8.6 points  [5.0-12.2]
+//
+// THE SPREAD IS QUOTED WITH ITS INTERVAL AND THE PREVIOUS VERSION OF THIS
+// COMMENT WAS NOT, AND THAT MATTERED. It said "a 54.9-point spread became a
+// 9.6-point one", measured at 250 bouts — and an adversary reading the identical
+// roster at the identical n got 13.1 and 13.9. Nobody was wrong; a difference of
+// two noisy quantities is itself noisy, and the shipped figure was the
+// friendliest of four draws written down as a fact. A spread is a range.
+//
+// AND THE BAND CLAIM IT SHIPPED — "no ordered matchup is outside 30-70%" — WAS A
+// COIN TOSS, WHICH IS THE OTHER THING THAT CHANGED. The same adversary ran ten
+// master seeds at 250 bouts: eight green, two red. This pass reproduced both red
+// seeds exactly and then spent 26,000 duels finding out what the roster actually
+// is. The ring is REAL and it is calibrated ON THE BAR — the huscarl beats the
+// warden at the top of the band and loses to the runekeeper at the bottom of it,
+// and both of those are within a point and a half of the bar.
+//
+// So the honest statement is not "every ordered matchup is inside 30-70%". It is
+// THE RING SITS ON THE BAND EDGE, and `classmatrix` now says exactly that: it
+// rules three ways — INSIDE, EDGE, OUTSIDE — pools both orderings of a matchup
+// instead of judging each half separately, and puts every EDGE matchup on the
+// verdict line as a deferral rather than counting it as a pass.
+//
+// Pooled over both orderings, 2,000 duels a matchup, on the default seed and on
+// BOTH of the seeds the adversary used to break the old claim — all three return
+// the same verdict, which is the thing that was actually wrong before:
+//
+//                          20260813            424242              90210
+//   huscarl v warden       69.1 [67.0-71.1]    69.8 [67.8-71.8]    68.4 [66.3-70.4]   EDGE
+//   huscarl v runekeeper   29.7 [27.7-31.7]    31.6 [29.6-33.7]    28.3 [26.4-30.4]   EDGE
+//   huscarl v berserker    66.1 [64.0-68.2]                        65.8 [63.7-67.8]   inside
+//   warden v runekeeper    63.7 [61.6-65.8]                        63.7 [61.6-65.8]   inside
+//   warden v berserker     42.4 [40.3-44.6]                        43.1 [41.0-45.3]   inside
+//   rune v berserker       48.2 [46.0-50.4]                        51.6 [49.4-53.8]   inside
+//
+// WHY THE ROSTER IS NOT BEING NUDGED OFF THE BAR IN THIS PASS, measured rather
+// than asserted. Three levers were pulled at the huscarl, who is in both edge
+// matchups — he beats the warden at the top of the band and loses to the
+// runekeeper at the bottom of it:
+//
+//   blockReduction 0.80 -> 0.00   huscarl vs warden  69% -> 69%   INERT
+//   staminaMax/Regen +43%/+100%   huscarl vs rune    30% -> 30%   INERT
+//   attackSpeed 1.02 -> 0.86      huscarl vs rune    30% -> 82%   the stroke is king
+//   maxHealth 158 -> 175          vs warden +13, vs runekeeper +7
+//   attackDamage 17 -> 22         vs warden +16, vs runekeeper +21
+//
+// The first result is the important one and it is a hole in the RULER: taking the
+// best shield in the game down to no shield at all moves nothing, because bots
+// raise a guard when a windup becomes readable and almost every such blow lands
+// inside the PARRY window instead — 5.8-6.0% of all damage in a full matrix
+// ever meets a raised guard (three seeds: 6.0, 5.9, 5.8; it is a measurement,
+// so it is a range). DEFENCE, one of the four card axes and one of this
+// class's two certified strengths, is very nearly unmeasured here. That is now on
+// `classmatrix`'s verdict line every run.
+//
+// The last two lines are the fix if it is wanted: health and damage move the
+// huscarl's two edge matchups in DIFFERENT ratios (1.85 and 0.76), so the pair
+// of them can move one up and the other down. Solved, it wants roughly
+// `maxHealth 158 -> 135, attackDamage 17 -> 21`. It is not being taken here,
+// because it turns the wall into a bruiser — a 135 bar is nine points over the
+// berserker's rather than thirty-two — to satisfy a bar drawn by an instrument
+// that cannot see his shield. That is a decision about what the huscarl IS, it
+// belongs to the owner, and it is filed in docs/BACKLOG.md with these numbers.
+//
+// `sprintSpeed` moves with `moveSpeed` and is not an independent lever: every
+// class runs at ~1.5x its walk (huscarl 1.59, warden 1.50, runekeeper 1.48,
+// berserker 1.53), which is where the old table already sat. It is stated here
+// because a walk that moved without its sprint would be a class whose escape is
+// a different class's.
+//
+// ---- the weight pass ----
+// `attackSpeed` is the WHOLE stroke: windup, contact and recovery, split by
+// SWING_PHASES. That pass multiplied every class by the same 1.70x, to within
+// 0.6%, and this rework did not touch the column at all — so the stroke lengths
+// and every ratio built on them are exactly as the weight pass left them:
+//
+//   class        stroke  windup   contact  recovery  heavy total
+//   runekeeper   0.58    0.232    0.087    0.261     0.725
+//   warden       0.85    0.340    0.128    0.383     1.063
+//   huscarl      1.02    0.408    0.153    0.459     1.275
+//   berserker    1.33    0.532    0.200    0.599     1.663
+//
+// Readability is deliberately not uniform and it is load-bearing in the matrix
+// above. 232 ms is under a human reaction and under a `warrior` bot's: a
+// runekeeper's light is meant to be read from his stance, not answered after it
+// starts, and the measured consequence is that he takes the huscarl 70.3%
+// [68.3-72.3] over 2,000 duels on the default seed — the fastest man in the game
+// beats the best shield in it. Every other class telegraphs at 340 ms or more.
+//
+// THE "BECAUSE THE SHIELD NEVER GOES UP IN TIME" HALF OF THAT SENTENCE HAS BEEN
+// CUT, because it was a story and the story is not supported. If the shield were
+// the mechanism, taking the huscarl's `blockReduction` from 0.80 to 0.00 would
+// move the matchup; measured, it moves it by zero points. Only 5.8-6.0% of the
+// damage in a full matrix ever meets a raised guard at all — bots parry far more
+// often than they block — so the guard is barely in this measurement in either
+// direction, and the reason the runekeeper wins is his 24.1/s against the
+// huscarl's 16.7/s, not a shield that fails to arrive. R7: the comment and the
+// code are one artefact, and that includes the explanation attached to a number.
+//
+// The two tables are held together on every column now, not only this one.
+// `src/game/types.ts` carried a second copy that disagreed on eight of twelve
+// (huscarl 3.5 move against 4.0 here, and so on) — a recorded defect, filed in
+// `docs/WIRE-PROTOCOL.md` §9.11 — and a class card that promised 90 health while
+// the bar filled to 100 is what that drift looked like to a player. The two
+// copies are now identical, field for field, and §9.11 has been corrected.
 export const WARRIOR_STATS = {
-  huscarl: { maxHealth: 150, moveSpeed: 4.0, sprintSpeed: 6.4, attackDamage: 18, heavyDamage: 30, attackSpeed: 1.02, blockReduction: 0.8, dodgeDistance: 3.6, staminaMax: 105, staminaRegen: 17, ability: "SHIELD WALL", abilityCooldown: 12 },
-  warden: { maxHealth: 120, moveSpeed: 4.5, sprintSpeed: 6.8, attackDamage: 20, heavyDamage: 35, attackSpeed: 0.85, blockReduction: 0.6, dodgeDistance: 4.1, staminaMax: 115, staminaRegen: 20, ability: "BATTLE FOCUS", abilityCooldown: 15 },
-  runekeeper: { maxHealth: 90, moveSpeed: 5.5, sprintSpeed: 8.2, attackDamage: 14, heavyDamage: 25, attackSpeed: 0.58, blockReduction: 0.4, dodgeDistance: 5.6, staminaMax: 135, staminaRegen: 24, ability: "SHADOW STEP", abilityCooldown: 8 },
-  berserker: { maxHealth: 110, moveSpeed: 4.7, sprintSpeed: 7.2, attackDamage: 28, heavyDamage: 50, attackSpeed: 1.33, blockReduction: 0.3, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
+  huscarl: { maxHealth: 158, moveSpeed: 3.9, sprintSpeed: 6.2, attackDamage: 17, heavyDamage: 30, attackSpeed: 1.02, blockReduction: 0.8, dodgeDistance: 3.6, staminaMax: 105, staminaRegen: 17, ability: "SHIELD WALL", abilityCooldown: 12 },
+  warden: { maxHealth: 114, moveSpeed: 5.0, sprintSpeed: 7.5, attackDamage: 16, heavyDamage: 29, attackSpeed: 0.85, blockReduction: 0.64, dodgeDistance: 4.1, staminaMax: 115, staminaRegen: 20, ability: "BATTLE FOCUS", abilityCooldown: 15 },
+  runekeeper: { maxHealth: 96, moveSpeed: 5.6, sprintSpeed: 8.3, attackDamage: 14, heavyDamage: 25, attackSpeed: 0.58, blockReduction: 0.35, dodgeDistance: 5.6, staminaMax: 135, staminaRegen: 24, ability: "SHADOW STEP", abilityCooldown: 8 },
+  berserker: { maxHealth: 126, moveSpeed: 4.0, sprintSpeed: 6.1, attackDamage: 28, heavyDamage: 50, attackSpeed: 1.33, blockReduction: 0.28, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
 };
 
 /**
@@ -971,6 +1250,28 @@ export function buildLedger({ roundWins = {}, players = [], teamMode = false }) 
     const gold = 10 + p.kills * 15 + purseGold;
     return {
       id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, damage: p.damage,
+      // WHAT HE DID WITH THE CHOICE — the outcome half of MERCY OR FINISH, and
+      // the recommendation this unit was asked to argue. It is a REPUTATION,
+      // carried on the results table the whole room reads, and it is two
+      // counters and nothing else.
+      //
+      // Why a reputation rather than the alternatives that were on the table.
+      // A spared man REMEMBERING is the most vivid and it evaporates at the
+      // bell — `WHAT-THIS-GAME-IS.md` §1 names the actual problem as *nothing a
+      // player does on Tuesday is still true on Wednesday*, and a behaviour
+      // change inside one round is Tuesday only. A WAR-LAYER consequence is the
+      // right long answer and cannot be built: Wave 4 does not exist, and an
+      // outcome wired into a missing system is a gate that is green because the
+      // case is absent. A PROFILE MARK is seen by nobody, and §8's whole thesis
+      // is that the pressure is social — seven men are watching, and a private
+      // badge is those seven men leaving the room.
+      //
+      // Two counters on the table the room already looks at are the smallest
+      // thing that is still true tomorrow, still social, and still the correct
+      // primitive for the war layer to sum when it arrives. They are also
+      // deliberately powerless: §6 forbids reach, damage, health and speed being
+      // earned, so a reputation that won fights would break the game's own law.
+      menSpared: p.menSpared || 0, menFinished: p.menFinished || 0,
       // Rounds his SIDE won. In a free-for-all that is his own; in a war band it
       // is the band's, and every man on the band carries it — which is the same
       // answer `place` gives, and they must not be able to disagree.
@@ -1280,6 +1581,23 @@ export function makeEngine(options = {}) {
       // `docs/DESIGN-SYSTEM.md` puts that tell on the opponent's brackets for
       // the window's real duration, which needs the real duration on the wire.
       vulnerableTimer: 0, vulnerableTo: "",
+      // MERCY OR FINISH. `mortal` says this fall does not end in getting up;
+      // `mercyTimer` is the DRAINING window, in seconds, published so a client
+      // can shrink a mark by a ratio and never print a digit; `mercyTo` is the
+      // man whose choice it is — the one who put him here. All three on the
+      // wire, because a spectator arriving mid-window must see the same moment
+      // the room is seeing. See MERCY.
+      mortal: false, mercyTimer: 0, mercyTo: "",
+      // Whether he has already been given his life this round. A man is spared
+      // once; the second time he goes down he dies. This is what bounds a round
+      // — see MERCY — and it is why it is cleared by `clearStance` and not by
+      // anything smaller.
+      spared: false,
+      // What he did with the choice, over the whole match, for the results
+      // table. Descriptive and never powerful: `WHAT-THIS-GAME-IS.md` §6 forbids
+      // health, damage, reach and speed being earned, and a reputation that
+      // changed a fight would be exactly that.
+      menSpared: 0, menFinished: 0,
       // The shove's own clock, on the wire so a late joiner can phase it.
       // Meaningful only while state === "shoving".
       shoveTimer: 0,
@@ -1521,7 +1839,7 @@ export function makeEngine(options = {}) {
         const diff = normalizeDifficulty(data.difficulty, room.difficulty);
         if (botsIn(room) >= botCapacity(room)) return;
         room.difficulty = room.difficulty || diff;
-        addBot(room, botsIn(room), diff);
+        addBot(room, botsIn(room), diff, data.warriorClass);
         sendLobbyUpdate(room);
       });
       case "remove_bot": return withRoom(sid, (room, player) => {
@@ -1699,9 +2017,22 @@ export function makeEngine(options = {}) {
     if (autoStart) room.phaseAt = simMs + SOLO_DEAL_DELAY * 1000;
   }
 
-  function addBot(room, idx, difficultyOverride) {
+  /**
+   * One more man in the ring.
+   *
+   * `classOverride` is optional and it is the ONLY way a caller picks what a
+   * bot fights as; without it the roster cycles `BOT_CLASSES` exactly as it
+   * always did, so every existing caller is unchanged. It exists because the
+   * class sheet could not be measured without it: `tools/classmatrix.mjs`
+   * needs a huscarl and a berserker in one room with the ENGINE's own brain
+   * driving both, and a harness that wrote its own fighter would have been
+   * measuring the harness. It is host-only and lobby-only at the message, and
+   * validated against WARRIOR_STATS here as well, because a bot with a class
+   * that has no stats row is a null dereference in every tick after it.
+   */
+  function addBot(room, idx, difficultyOverride, classOverride) {
     const id = `bot_${randomUUID().slice(0, 8)}`;
-    const cls = BOT_CLASSES[idx % BOT_CLASSES.length];
+    const cls = WARRIOR_STATS[classOverride] ? classOverride : BOT_CLASSES[idx % BOT_CLASSES.length];
     const diff = normalizeDifficulty(difficultyOverride, room.difficulty);
     const bot = createPlayer(id, "", cls, { ...BOT_APPEARANCES[idx % BOT_APPEARANCES.length] });
     bot.bot = true;
@@ -2319,22 +2650,138 @@ export function makeEngine(options = {}) {
       * (weight.offGuard ? BALANCE.offGuard : 1) * (riposte ? RIPOSTE.balanceScale : 1);
     if (target.health > 0) spendBalance(room, attacker, target, cost, ax, az);
     if (target.health <= 0) {
-      target.health = 0; target.state = "dead"; target.deaths++;
+      target.health = 0;
+      // MERCY OR FINISH. A man who still has his one life to be given does not
+      // die here — he goes down, and the choice passes to the man who put him
+      // there. Everything below this line is the finish, and it is reached
+      // either because he has already been spared once or because somebody
+      // came back and ended it. See MERCY, and `goDown`.
+      if (goDown(room, attacker, target, hitZone, heavy)) return;
+      // A FINISH IS ITS OWN CAUSE, and it is decided here, ONCE. `deathCause` is
+      // what a renderer, a spectator and a late joiner all rebuild the body
+      // from, and "he was on the ground and a man chose" is not the same death
+      // as "he was cut down on his feet". Read before the mortal marks are
+      // cleared, because clearing them is what makes it no longer readable.
+      const finishing = target.mortal;
+      if (finishing) attacker.menFinished++;
+      target.mortal = false; target.mercyTimer = 0; target.mercyTo = "";
+      target.state = "dead"; target.deaths++;
       target.deadAt = room.matchTimer;
       // The killing blow is marked on the body and not only in the message. The
       // `kill` broadcast reaches whoever was connected when the man fell;
       // `serializeRoom` reaches everyone else, so a spectator who arrives a minute
       // later rebuilds the same one-armed corpse the room watched drop.
       target.deathZone = hitZone; target.deathDir = attacker.attackDir; target.deathHeavy = heavy;
-      target.deathCause = "blow";
+      target.deathCause = finishing ? "finish" : "blow";
       target.hitstop = 0;    // ...and the dead are not held still, they are still
       endSwing(target);      // ...and a corpse is not mid-swing
       clearMotion(target);   // the dead stop running
       attacker.kills++; attacker.score += 100;
       room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: wallNow(), hitZone });
-      broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy, cause: "blow" } });
+      broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy, cause: target.deathCause } });
       if (room.mode !== "solo") checkRoundEnd(room);
     }
+  }
+
+  /**
+   * DOWN, BUT NOT DEAD — and the choice that opens.
+   *
+   * Returns true when the blow was answered with a downing instead of a death,
+   * in which case `applyDamage` stops: nobody has died, no kill is credited, no
+   * round has ended.
+   *
+   * The three refusals, and each is a case where offering a choice would be a
+   * lie about what happened:
+   *
+   *   ALREADY GIVEN. A man is spared once a round. The second fall is death.
+   *     This is what guarantees a round terminates — see MERCY.
+   *   ALREADY DOWN. He is inside somebody's window already; a second blow that
+   *     failed to kill him cannot open a second window over the first.
+   *   NOBODY CHOSE. `attacker` is the man the choice belongs to. A death with no
+   *     living author — the fire, a man who has himself just fallen — has no
+   *     one to offer it to, so there is no window and it is simply a death.
+   *
+   * `knockDown` does the rest, and it does ALL of it: the fall, the slide away
+   * from the blow, the swing and guard and i-frames taken off him, the
+   * `knockdown` broadcast the client already animates. This function adds three
+   * fields to that and nothing else, which is the whole reason mercy is not a
+   * fifth state.
+   */
+  function goDown(room, attacker, target, hitZone, heavy) {
+    if (target.spared || target.mortal) return false;
+    if (!attacker || attacker.id === target.id || attacker.state === "dead") return false;
+
+    knockDown(room, attacker, target, attacker.position.x, attacker.position.z);
+    // A mortal fall does not end in getting up. The floor clock is parked at
+    // the full sequence so the client phases him as `knocked` throughout, and
+    // the tick refuses to spend it while `mortal` is set — one clock decides
+    // the pose, another decides the outcome, and neither has to know the other.
+    target.mortal = true;
+    target.mercyTimer = MERCY.window;
+    target.mercyTo = attacker.id;
+    target.health = 0;
+
+    broadcast(room, { type: "downed", data: {
+      targetId: target.id, targetName: target.name,
+      attackerId: attacker.id, attackerName: attacker.name,
+      // The full length, so a client can draw a DRAIN off `mercyTimer` without
+      // ever printing a digit. §8: a number invites the player to watch the
+      // number instead of the man.
+      window: MERCY.window,
+      // The pressure, stated socially and COUNTED rather than asserted. This is
+      // the men who are alive to see it and are neither of the two in it — the
+      // "seven men are watching" of the design review, except that it is the
+      // real number and it goes down as the round does.
+      witnesses: witnessesTo(room, attacker, target),
+      hitZone, direction: attacker.attackDir, heavy,
+    } });
+    return true;
+  }
+
+  /** The living, minus the two men in the moment. Never a hard-coded seven. */
+  function witnessesTo(room, attacker, target) {
+    let n = 0;
+    room.players.forEach((p) => {
+      if (p.id === attacker.id || p.id === target.id) return;
+      if (p.state === "dead") return;
+      n++;
+    });
+    return n;
+  }
+
+  /**
+   * THE WINDOW RAN OUT, AND THAT IS AN ACT.
+   *
+   * The design review's sharpest line, and the reason this is a mechanic and not
+   * a prompt: *letting it run out is ITSELF a choice, and a merciful one, and
+   * the game should say so out loud*. So this is not an absence the client has
+   * to infer from a timer reaching zero — the server sends `spared`, names both
+   * men, and counts it against the sparer's own reputation. Doing nothing is the
+   * only act in this game that the server congratulates you for.
+   *
+   * He comes up on MERCY.risesOn of a bar, carrying `spared` for the rest of the
+   * round, which means the man who let him live has to fight him again and
+   * cannot be merciful twice.
+   */
+  function spare(room, player) {
+    const sparer = room.players.get(player.mercyTo) || null;
+    player.mortal = false;
+    player.mercyTimer = 0;
+    player.mercyTo = "";
+    player.spared = true;
+    player.health = Math.max(1, Math.floor(player.maxHealth * MERCY.risesOn));
+    // Straight into the rising half of the floor clock. He is not handed his
+    // feet the instant the window shuts — he still has to get up, on the same
+    // clock every other knockdown uses.
+    player.downTimer = KNOCKDOWN.rise;
+    player.state = "rising";
+    if (sparer && sparer.state !== "dead") sparer.menSpared++;
+    broadcast(room, { type: "spared", data: {
+      targetId: player.id, targetName: player.name,
+      sparerId: sparer ? sparer.id : "", sparerName: sparer ? sparer.name : "",
+      health: player.health,
+      witnesses: sparer ? witnessesTo(room, sparer, player) : 0,
+    } });
   }
 
   /**
@@ -2412,6 +2859,12 @@ export function makeEngine(options = {}) {
   function burnDeath(room, victim) {
     victim.state = "dead";
     victim.deaths++;
+    // The fire does not honour a window. A man bleeding out inside somebody's
+    // choice who is then taken by the flames is a death nobody authored, so the
+    // claim on his life is dropped rather than resolved — no finish is credited
+    // and no mercy is either, which is the same rule `credited` below applies to
+    // the kill itself.
+    victim.mortal = false; victim.mercyTimer = 0; victim.mercyTo = "";
     victim.deadAt = room.matchTimer;
     victim.deathZone = null; victim.deathDir = null; victim.deathHeavy = false;
     victim.deathCause = "fire";
@@ -2459,6 +2912,66 @@ export function makeEngine(options = {}) {
     broadcast(room, { type: "emote", data: { playerId: player.id, emote } });
   }
 
+  /**
+   * SHADOW STEP — where the runekeeper ends up, and the bug that was in it.
+   *
+   * The owner: *"his skill needs work it's a bit poor & sometimes doesn't move
+   * you"*. That is one sentence and it is two defects, and the second one is a
+   * bug rather than a tuning complaint.
+   *
+   * WHAT IT DID. It set the runekeeper to `nearest.position + forward(nearest)
+   * * 2` and turned him to face back down that line. Forward in this sim is
+   * `(sin(rot), cos(rot))` — the same vector the attack lunge and the default
+   * roll are built from — so that expression means **two metres directly in
+   * front of the man**, looking at him. Now consider where a runekeeper stands
+   * when he presses it: in a fight, in front of his opponent, at a seax's
+   * `reachOf` of 1.70 m or less. The destination and the origin were the same
+   * place to within half a body. The ability did fire, it did spend its eight
+   * second cooldown, and the player did not move — not sometimes by chance, but
+   * **every time he used it the way the class is meant to be used**. It only
+   * looked like it worked from across the ring.
+   *
+   * WHAT IT DOES NOW. Behind him. `- forward(nearest) * SHADOW_STEP.behind`,
+   * facing the same way he faces, which is at his back. That is what the name
+   * says, it is a real displacement from any position a fight puts you in, and
+   * it lands the runekeeper inside `REAR_ARC` where two systems this game
+   * already owns are waiting: `isOffGuard` charges a rear blow double poise,
+   * and `deriveHitZone` turns a rear head strike into the nape. The skill stops
+   * being a mediocre gap-closer and becomes the opening move of an
+   * assassination — which is the only honest answer to "he doesn't do much
+   * damage", because it makes the damage he does *land where it counts*
+   * instead of adding a number to his card.
+   *
+   * The other three defects found in the same three lines:
+   *
+   *   NEAREST MAN, NOT NEAREST ENEMY. In a war band it would happily fling the
+   *   runekeeper behind his own shield-brother. Same team test `botThink` uses.
+   *
+   *   THE COOLDOWN WAS SPENT ON NOTHING. `abilityCooldown` is set before the
+   *   switch, so a press with no living enemy in the room burned eight seconds
+   *   and did not move him. It is refunded now, and so is a step that would not
+   *   have displaced him — the ability's whole contract is that you end up
+   *   somewhere else, and if it cannot honour that it does not charge for it.
+   *
+   *   IT COULD DROP HIM IN THE FIRE. A target stood near the hearth put the
+   *   landing spot inside `HAZARD_RADIUS`, and burning is not a cost anyone
+   *   chose. The landing is pushed out along its own radial if it lands short,
+   *   and the palisade clamp in the tick handles the other end.
+   */
+  const SHADOW_STEP = {
+    /** Metres behind the target's back he arrives. Inside a seax's 1.70 m reach. */
+    behind: 1.35,
+    /** Seconds of i-frames on landing — the roll's own, so it is not a new rule. */
+    grace: 0.3,
+    /**
+     * The step must be worth taking. Below this it has not moved him anywhere he
+     * could not have walked, so it is refused and refunded rather than charged
+     * for. One body separation (`BODY_MIN_SEP` is 1.05) is the floor: less than
+     * that and he has not even changed which side of a man he is on.
+     */
+    minTravel: 1.05,
+  };
+
   function activateAbility(room, player) {
     const stats = WARRIOR_STATS[player.warriorClass];
     player.abilityCooldown = stats.abilityCooldown; player.abilityActive = true;
@@ -2466,23 +2979,53 @@ export function makeEngine(options = {}) {
       case "huscarl": player.abilityTimer = 4; break;
       case "warden": player.abilityTimer = 5; break;
       case "runekeeper": {
-        let nearest = null, minDist = Infinity;
-        room.players.forEach((t) => {
-          if (t.id === player.id || t.state === "dead") return;
-          const d = Math.hypot(t.position.x - player.position.x, t.position.z - player.position.z);
-          if (d < minDist) { minDist = d; nearest = t; }
-        });
-        if (nearest) {
-          player.position.x = nearest.position.x + Math.sin(nearest.rotation) * 2;
-          player.position.z = nearest.position.z + Math.cos(nearest.rotation) * 2;
-          player.rotation = nearest.rotation + Math.PI;
-          player.invincible = true; player.invincibleTimer = 0.3;
+        player.abilityTimer = 0.5;
+        if (!shadowStep(room, player)) {
+          // Nothing to step behind, or nowhere to step to. He keeps his charge.
+          player.abilityCooldown = 0; player.abilityActive = false; player.abilityTimer = 0;
+          return;
         }
-        player.abilityTimer = 0.5; break;
+        break;
       }
       case "berserker": player.abilityTimer = 6; break;
     }
     broadcast(room, { type: "ability_used", data: { playerId: player.id, ability: stats.ability, warriorClass: player.warriorClass } });
+  }
+
+  /** Returns true if he actually went somewhere. See SHADOW_STEP. */
+  function shadowStep(room, player) {
+    let mark = null, minDist = Infinity;
+    room.players.forEach((t) => {
+      if (t.id === player.id || t.state === "dead") return;
+      if (isTeamMode(room) && t.team === player.team && t.team !== "none") return;
+      const d = Math.hypot(t.position.x - player.position.x, t.position.z - player.position.z);
+      if (d < minDist) { minDist = d; mark = t; }
+    });
+    if (!mark) return false;
+
+    // Behind him, along his own facing, looking at his back.
+    let x = mark.position.x - Math.sin(mark.rotation) * SHADOW_STEP.behind;
+    let z = mark.position.z - Math.cos(mark.rotation) * SHADOW_STEP.behind;
+
+    // Out of the hearth. Radial, so it keeps as much of the intended spot as
+    // the fire allows instead of snapping to some unrelated safe tile.
+    const r = Math.hypot(x, z);
+    if (r < BOT_FIRE_KEEPOUT) {
+      if (r < 0.001) { x = 0; z = BOT_FIRE_KEEPOUT; }
+      else { x = (x / r) * BOT_FIRE_KEEPOUT; z = (z / r) * BOT_FIRE_KEEPOUT; }
+    }
+
+    if (Math.hypot(x - player.position.x, z - player.position.z) < SHADOW_STEP.minTravel) return false;
+
+    player.position.x = x;
+    player.position.z = z;
+    player.position.y = groundHeight(x, z);
+    player.rotation = mark.rotation;
+    // The stride does not come with him. A teleport that kept his momentum
+    // would slide him straight back out of the back he just arrived at.
+    clearMotion(player);
+    player.invincible = true; player.invincibleTimer = SHADOW_STEP.grace;
+    return true;
   }
 
   // The condition that used to end a match now ends a ROUND. It is the same
@@ -2585,6 +3128,11 @@ export function makeEngine(options = {}) {
       const stats = WARRIOR_STATS[p.warriorClass];
       p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;
       p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
+      // The reputation is the MATCH's, so it dies with the match. `clearStance`
+      // deliberately does not touch these two — it runs at every round boundary
+      // and a man's mercies must survive from round one into round three — so
+      // the only place they can be zeroed is here, where a new match begins.
+      p.menSpared = 0; p.menFinished = 0;
       p.position = { x: 0, y: 0, z: 0 }; p.invincible = false;
       clearMotion(p);
       clearStance(p);
@@ -2980,6 +3528,19 @@ export function makeEngine(options = {}) {
     player.staggerTimer = 0;
     player.vulnerableTimer = 0;
     player.vulnerableTo = "";
+    // The mercy marks are STANCE, not score. `mortal`, the window and its owner
+    // leak exactly the way a `knocked` state leaked before `clearStance`
+    // existed: a man who was mid-window when the round ended would come back
+    // frozen on the floor with a dead man's claim on his life. `spared` is
+    // cleared with them because a man's one life is his once per ROUND — the
+    // whole termination guarantee is that sentence, and if it silently became
+    // once per match the second round would have no mercy in it at all.
+    // `menSpared` and `menFinished` are NOT cleared here: they are the match's
+    // reputation and they are meant to survive every round in it.
+    player.mortal = false;
+    player.mercyTimer = 0;
+    player.mercyTo = "";
+    player.spared = false;
     player.maxBalance = BALANCE.max[player.warriorClass] ?? 80;
     player.balance = player.maxBalance;
   }
@@ -3155,6 +3716,12 @@ export function makeEngine(options = {}) {
   function stepRoom(room, dt) {
     room.matchTimer += dt;
 
+    // The ground this room is fought on, looked up once a tick rather than once
+    // a body: `getGround` falls back to the village on an id nobody knows, so a
+    // client and a server disagreeing about arenas costs a wrong floor and not
+    // a crash. `room.arena` is the id already on the wire.
+    const ground = getGround(room.arena);
+
     room.players.forEach((player) => {
       // The fire first, because it can kill: a man it kills has to drop out of
       // the rest of this step exactly the way a man cut down last step does, and
@@ -3220,7 +3787,18 @@ export function makeEngine(options = {}) {
       // the tick that lands exactly on KNOCKDOWN.rise is already RISING — a
       // knockdown that spends one tick longer down than it says it does is the
       // kind of off-by-a-tick that a 20 Hz gate has to be written to catch.
-      if (player.downTimer > 0) {
+      //
+      // A MORTAL FALL SPENDS THE OTHER CLOCK. While `mortal` is set the floor
+      // clock is held — he is `knocked` and he stays `knocked`, because a man
+      // bleeding out on the ground must not stand up halfway through the choice
+      // being made about him. What drains instead is `mercyTimer`, and when it
+      // reaches zero he has been spared. Two clocks, one at a time, and neither
+      // has to know what the other is for.
+      if (player.mortal) {
+        player.mercyTimer -= dt;
+        player.state = "knocked";
+        if (player.mercyTimer <= 0) spare(room, player);
+      } else if (player.downTimer > 0) {
         player.downTimer -= dt;
         if (player.downTimer <= 0) {
           player.downTimer = 0;
@@ -3253,7 +3831,9 @@ export function makeEngine(options = {}) {
         if (player.abilityTimer <= 0) { player.abilityActive = false; if (player.state === "ability") player.state = "idle"; }
         if (player.warriorClass === "berserker") { player.health -= 3 * dt; if (player.health < 1) player.health = 1; }
       }
+      const wasX = player.position.x, wasZ = player.position.z;
       integrateMovement(player, dt);
+      resolveInto(ground, player, wasX, wasZ);
 
       const stats = WARRIOR_STATS[player.warriorClass];
       if (player.state !== "sprinting" && player.state !== "attacking" && player.state !== "shoving") {
@@ -3261,28 +3841,64 @@ export function makeEngine(options = {}) {
       }
       if (player.stamina < 0) player.stamina = 0;
 
-      // The palisade. The projection is radial, so it only ever costs the
-      // outward part of a step — a warrior meeting the wall at an angle keeps
-      // every bit of his tangential travel and slides along it, which is why
-      // this is not a displacement leak on the way to it. What it must also do
-      // is take the outward velocity with it: leaving 4.5 u/s pointed into the
-      // timber makes the client extrapolate through the wall and snap back on
-      // every packet, and hands the stride straight back the instant the body
-      // turns away.
-      const r = Math.hypot(player.position.x, player.position.z);
-      if (r > ARENA_RADIUS) {
-        const nx = player.position.x / r, nz = player.position.z / r;
-        player.position.x = nx * ARENA_RADIUS;
-        player.position.z = nz * ARENA_RADIUS;
-        killComponent(player, nx, nz);
-      }
+      // The palisade used to be enforced here, as eight lines of radial clamp.
+      // It has moved INTO `resolveInto` above — not deleted, solved together
+      // with the props, because the runestone's far corner reaches past the
+      // ring and a man clamped inward by one rule and pushed outward by the
+      // other is a man the two rules pass back and forth forever. One
+      // constraint set, one solver, one answer. See the header of
+      // `solidground.mjs`, which says the same thing from the other side.
     });
 
     // Soft body collision — warriors cannot stack on each other. The push is
     // positional and symmetric, and it eats displacement only while two bodies
     // are actually overlapping, which is the point of it.
+    //
+    // ---- AND THIS IS WHY THE SOLIDS ARE RESOLVED A SECOND TIME ----
+    //
+    // This pass runs AFTER the movement step and it moves bodies. So on the
+    // engine's real tick order it takes men the resolver has just placed
+    // legally against the woodpile and shoves them straight back into it, every
+    // tick, with nothing downstream to undo it.
+    //
+    // MEASURED HERE, by turning the `if (pushed)` below off and on and changing
+    // nothing else — `tools/solidtest.mjs` claim 12, which anyone can re-run:
+    //
+    //   eight-man scrum, resolve at the movement step only ... 374 of 48,000
+    //                                    man-ticks inside the rick, deepest 258 mm
+    //   ...and resolved again after the separation pass ..... 0 of 48,000
+    //   plain duel, EITHER build ............................ 0 of 12,000
+    //
+    // The duel row is the whole warning. The defect is invisible in the case a
+    // one-man harness tests and continuous in a crowd, so a fix gated on a duel
+    // would have shipped looking finished. (The unit's own adversary reported the
+    // same fault at a larger n and a different fixture — 62,381 of 718,800
+    // man-ticks, deepest 199 mm — which is that fixture's number and not this
+    // one's; both are quoted here as what they are, because a figure copied from
+    // somebody else's run and printed as your own measurement is how this
+    // repository has been wrong before.)
+    // A scrum renders men CONTINUOUSLY standing in the rick, which is the
+    // artefact the owner reported and the one this work exists to end.
+    //
+    // TWO WAYS TO FIX IT AND THIS IS THE ONE, with reasons. The alternative is a
+    // "solid-aware push": teach the separation loop to pick a push direction
+    // that does not enter a prop. That means a second piece of code that knows
+    // what a solid is and how to get out of one — a second definition of
+    // collision, living in the file that already has the least reason to own
+    // one. This repository has recorded the mirrored-definition fault five
+    // times and it is the most expensive fault it has. So instead the push
+    // stays exactly as naive as it was, and its output is fed back through the
+    // SAME resolver that placed the body in the first place, from a base point
+    // that is known legal because the resolver returned it four lines ago.
+    // `resolveSolids` is pure and cheap; it is the one call, twice.
     const arr = [];
     room.players.forEach((p) => { if (p.state !== "dead") arr.push(p); });
+    // Where everybody legally stood before the shoving started. This is the
+    // `from` the second resolve falls back to, and it has to be captured before
+    // ANY pair is pushed: taking it per-body inside the loop would hand the
+    // resolver a base that an earlier pair had already made illegal.
+    const beforeSep = arr.map((p) => ({ x: p.position.x, z: p.position.z }));
+    let pushed = false;
     for (let i = 0; i < arr.length; i++) {
       for (let j = i + 1; j < arr.length; j++) {
         const a = arr[i], b = arr[j];
@@ -3293,11 +3909,48 @@ export function makeEngine(options = {}) {
           const push = (BODY_MIN_SEP - d) * 0.5;
           const nx = dx / d, nz = dz / d;
           // A roll goes through the scrum rather than being sorted by it.
-          if (a.state !== "dodging") { a.position.x -= nx * push; a.position.z -= nz * push; killComponent(a, nx, nz); }
-          if (b.state !== "dodging") { b.position.x += nx * push; b.position.z += nz * push; killComponent(b, -nx, -nz); }
+          if (a.state !== "dodging") { a.position.x -= nx * push; a.position.z -= nz * push; killComponent(a, nx, nz); pushed = true; }
+          if (b.state !== "dodging") { b.position.x += nx * push; b.position.z += nz * push; killComponent(b, -nx, -nz); pushed = true; }
         }
       }
     }
+    // Only when somebody was actually moved: a round where nobody touches
+    // anybody pays nothing for this at all.
+    if (pushed) {
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i];
+        if (p.position.x === beforeSep[i].x && p.position.z === beforeSep[i].z) continue;
+        resolveInto(ground, p, beforeSep[i].x, beforeSep[i].z);
+      }
+    }
+  }
+
+  /**
+   * Put a body where it may actually stand, after something has moved it.
+   *
+   * The whole of this engine's knowledge of solid props, and deliberately the
+   * whole: `solidground.mjs` owns the maths and `grounds.mjs` owns the
+   * declarations, so what lives here is the tick order and the velocity
+   * bookkeeping — the two things that are this file's business.
+   *
+   * `fromX/fromZ` must be a place the body could legally BE. It normally is,
+   * because it is this function's own output from the previous call. When it is
+   * not — a spawn solved into the woodpile, a prop declared under a standing man
+   * — the resolver ejects him by the nearest face rather than trapping him, and
+   * `tools/solidtest.mjs` gates that it takes at most two ticks.
+   *
+   * `blockedX/blockedZ` is the same quantity the palisade clamp used to hand
+   * `killComponent`: the direction that has just turned solid. Only the part of
+   * the stride pointed into the timber is spent, so a warrior meeting a face at
+   * an angle keeps his tangential travel and slides — and the client, which
+   * extrapolates the server's velocity and has no collision of its own, is not
+   * told to keep walking into a prop.
+   */
+  function resolveInto(ground, player, fromX, fromZ) {
+    const s = resolveSolids(ground, fromX, fromZ, player.position.x, player.position.z, BODY_MIN_SEP / 2);
+    player.position.x = s.x;
+    player.position.z = s.z;
+    if (s.hit) killComponent(player, s.blockedX, s.blockedZ);
   }
 
   // `blockedX/blockedZ` is a unit direction that has just turned solid — the

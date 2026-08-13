@@ -117,69 +117,95 @@ export interface WarriorStats {
 }
 
 /**
- * `attackSpeed` is the WHOLE stroke — windup, contact and recovery — and these
- * four numbers are held identical to `engine.mjs`, which is the authority. They
- * have to be: `anim.ts` drives the swing animation off this copy, and a drift
- * is a blade that finishes on the client before it lands on the server.
+ * THE SAME SHEET THE SERVER FIGHTS BY — every column, not just four of them.
  *
- * The other columns still disagree with the engine (huscarl 3.5 move here
- * against 4.0 there). That is an older display bug and is deliberately not
- * touched by the weight pass.
+ * `engine.mjs` is the authority and ships its own copy to the client in the
+ * `join` message as `warriorStats`. This one exists because `anim.ts` needs
+ * `attackSpeed` synchronously to drive the swing, and the class-select card and
+ * the HUD read it before a room exists.
+ *
+ * Until this pass the two copies disagreed on EIGHT of twelve columns — huscarl
+ * 3.5 move here against 4.0 there, runekeeper 90 health against 90 but 5.0 move
+ * against 5.5, and so on. `docs/WIRE-PROTOCOL.md` §9.11 recorded it as a display
+ * bug and it was worse than that: it is the repository's third named failure
+ * mode, a constant written twice, and what a player saw was a class card
+ * promising one man and a health bar filling for another. The class rework had
+ * to touch nine of these columns, and the engine's own note on the table says
+ * the payment "has to land in both tables at once or not at all" — so it did.
+ *
+ * They are now identical, field for field. If you edit one, edit the other in
+ * the same commit. The reasoning behind every number — the 4,800-duel matrix it
+ * was measured against, which levers move a fight and which do not — lives on
+ * `WARRIOR_STATS` in `engine.mjs` and is deliberately NOT duplicated here,
+ * because a rationale copied twice drifts exactly the way these numbers did.
  */
 export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
+  // HEALTH + DEFENCE. The wall: the largest bar and the best guard in the game,
+  // the slowest walk, and damage that is merely adequate.
   huscarl: {
-    maxHealth: 150,
-    moveSpeed: 3.5,
-    sprintSpeed: 5.5,
-    attackDamage: 18,
+    maxHealth: 158,
+    moveSpeed: 3.9,
+    sprintSpeed: 6.2,
+    attackDamage: 17,
     heavyDamage: 30,
     attackSpeed: 1.02,
     blockReduction: 0.8,
-    dodgeDistance: 3,
-    staminaMax: 100,
-    staminaRegen: 15,
+    dodgeDistance: 3.6,
+    staminaMax: 105,
+    staminaRegen: 17,
     ability: "SHIELD WALL",
     abilityCooldown: 12,
   },
+  // DEFENCE + SPEED. The disciplined spear: second guard, second stride, and
+  // the lightest blows of the four. He wins by not being hit.
   warden: {
-    maxHealth: 120,
-    moveSpeed: 4,
-    sprintSpeed: 6,
-    attackDamage: 20,
-    heavyDamage: 35,
+    maxHealth: 114,
+    moveSpeed: 5.0,
+    sprintSpeed: 7.5,
+    attackDamage: 16,
+    heavyDamage: 29,
     attackSpeed: 0.85,
-    blockReduction: 0.6,
-    dodgeDistance: 3.5,
-    staminaMax: 110,
-    staminaRegen: 18,
+    blockReduction: 0.64,
+    dodgeDistance: 4.1,
+    staminaMax: 115,
+    staminaRegen: 20,
     ability: "BATTLE FOCUS",
     abilityCooldown: 15,
   },
+  // SPEED + DAMAGE, and his damage is a RATE: 14 every 0.58 s is 24.1 a second,
+  // the best in the game, out of the smallest bar and the second-worst guard.
+  // The 0.232 s windup is the point of him — it is under a reaction, so his
+  // blows are not answered, and that is what he is buying with 96 health.
   runekeeper: {
-    maxHealth: 90,
-    moveSpeed: 5,
-    sprintSpeed: 7.5,
+    maxHealth: 96,
+    moveSpeed: 5.6,
+    sprintSpeed: 8.3,
     attackDamage: 14,
     heavyDamage: 25,
     attackSpeed: 0.58,
-    blockReduction: 0.4,
-    dodgeDistance: 5,
-    staminaMax: 130,
-    staminaRegen: 22,
+    blockReduction: 0.35,
+    dodgeDistance: 5.6,
+    staminaMax: 135,
+    staminaRegen: 24,
     ability: "SHADOW STEP",
     abilityCooldown: 8,
   },
+  // DAMAGE + HEALTH, and his damage is per BLOW: 50 on a heavy, arriving one at
+  // a time behind the longest telegraph in the game. HEALTH is the second high
+  // stat this class did not have — the owner described a man who was slow, low
+  // defence AND lowish health, which is one strength, and one strength is why he
+  // could not win a fight. He soaks now. He still cannot guard.
   berserker: {
-    maxHealth: 110,
-    moveSpeed: 4.2,
-    sprintSpeed: 6.5,
+    maxHealth: 126,
+    moveSpeed: 4.0,
+    sprintSpeed: 6.1,
     attackDamage: 28,
     heavyDamage: 50,
     attackSpeed: 1.33,
-    blockReduction: 0.3,
-    dodgeDistance: 3,
-    staminaMax: 90,
-    staminaRegen: 12,
+    blockReduction: 0.28,
+    dodgeDistance: 3.7,
+    staminaMax: 95,
+    staminaRegen: 14,
     ability: "BLOOD FURY",
     abilityCooldown: 18,
   },

@@ -64,7 +64,64 @@ ninety seconds, and it is the foundation the war layer sits on.
 | 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | DONE — `src/game/deathcam.mjs`, `tools/deathcamtest.mjs` |
 | 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | MOSTLY DONE, 13 Aug — see below |
 | 2.7 | **More blood, over the top** — spray and splatter | [ALREADY RAISED] `docs/GORE-DESIGN.md` |
-| 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | NEW, and it is the loudest "student project" tell in the build |
+| 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | **DONE and WIRED.** `solidground.mjs` + `grounds.mjs` declarations, called twice a tick by `engine.mjs`; `tools/solidtest.mjs` 12/12. See the note below |
+
+### 2.8, as built — and the pass that nearly shipped a duel-only fix
+
+The collision module landed unwired, with a header naming **one** integration
+point: resolve immediately after `integrateMovement`. Wired exactly that way, the
+feature is correct in a duel and broken in a crowd — because `gameTick` does not
+stop at the movement step. It then runs a **soft body-separation pass** that
+holds warriors 1.05 m apart by writing `position` directly, *after* the resolve
+and with nothing behind it, so it pushes men straight back into the timber the
+resolver has just cleared.
+
+Measured on the real engine, the two builds differing by one `if`:
+
+| | man-ticks ending inside a prop | deepest |
+|---|---|---|
+| eight-man scrum, resolve at the movement step only | **374 of 48,000** | 258 mm |
+| eight-man scrum, resolved again after the separation | **0 of 48,000** | 0 mm |
+| **plain duel, either build** | **0 of 12,000** | 0 mm |
+
+The duel row is why this matters: every harness that walks one man at the
+woodpile calls that build fixed. The owner's report is that he can walk through a
+woodpile, and a fix that only holds when nobody is standing next to him does not
+answer him. **`tools/solidtest.mjs` claim 12 now drives `engine.mjs` itself** —
+real room, real bots, real tick order — and it was RED before it was green:
+turning the second resolve off and changing nothing else takes it from
+`PASS 12/12` to `FAIL 11/12, 374 of 48000 man-ticks inside, deepest 257.5 mm`.
+
+**It was also drawn, because a table of man-ticks is not a picture of a man
+standing in a woodpile.** Plan view of the same ten runs, the pile's real
+footprint from `grounds.mjs`, one dot per man per tick, red when a body centre is
+nearer the timber than its own 525 mm radius: with the second resolve off the
+red sits in a continuous fringe all the way round the rim of the keep-out
+boundary — men leaning on the rick and *in* it, which is exactly the shape of the
+owner's complaint — and with it on the boundary is a clean silhouette with no red
+on it at all. Neither picture is a 3D frame; both are the positions the snapshot
+carries, which is what the renderer draws from.
+
+The alternative was a *solid-aware push*. Rejected: it puts a second definition
+of "what a solid is" in the file with the least reason to own one. The push stays
+naive and its output goes back through the same resolver. **The rule, for the
+next pass that adds anything which moves a body: a pass that moves a body is
+followed by a resolve, or it is a hole.**
+
+Two other things fixed while in there. `engine.mjs`'s `ARENA_RADIUS = 18` is
+**deleted** — the ring is `ground.play.radius`, solved with the props in one pass
+(the runestone's corner reaches 0.53 m past it, so two separate rules would push
+a body back and forth forever), and a leftover clamp would have been a second
+statement of where the wall is. And `solidtest`'s claim 5 was **theatre**: it
+printed "1.18 m of travel in the first tick" when its own driver produces
+**0.766 m** — the engine zeroes `moveVel` on a dodge, so no sprint adds to the
+roll — and 0.766 m is below the body's own 1.050 m diameter, which means nothing
+could tunnel at these numbers and the claim could not fail. An adversary set
+`steps = 1`, deleting the substepping the claim exists to protect, and watched it
+stay green. It now measures the real figure off the driver, states the crossing
+threshold (1.170 m), and proves the sweep is load-bearing by driving a 2.0 m jump
+at a 12 cm rail: the swept call stops it, resolving the endpoint alone tunnels
+clean through. With `steps = 1` it goes red.
 
 ### WAVE 2b — three defects reported 13 Aug 2026, after Wave 2 merged
 
@@ -138,10 +195,190 @@ ends on the portrait, which is *a* beat and not *the* beat.
 
 | # | Item | Note |
 |---|---|---|
-| 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | NEW |
+| 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | **DONE**, and the review is the matrix — `tools/classmatrix.mjs`. See the note below |
 | 3.2 | **AI fighting quality and difficulty scaling** | [ALREADY RAISED], still unbuilt |
 | 3.3 | **Weapon styles and looks as armoury purchases** | NEW |
-| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | NEW, from the design review. It is a MECHANIC, not the screen it arrived as — see `docs/DESIGN-SYSTEM.md` §8 |
+| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | **DONE on the server**, gated by `tools/mercytest.mjs`. The UI is not built — see the note below |
+
+### 3.1 and 3.4, as built
+
+**The review the owner asked for, and it disagrees with the felt balance.**
+`tools/classmatrix.mjs` fights every ordered pair of classes headlessly, both
+sides driven by the engine's own `botThink` at the same skill so the only
+difference is the stat sheet, and reports win rates with a 95% Wilson interval
+and a median time-to-kill. Over 4,800 duels the **old** roster came back:
+
+| class | against the field | |
+|---|---|---|
+| warden | **78.4%** [75.6-81.0] | beats everybody |
+| runekeeper | 43.7% [40.5-46.9] | |
+| huscarl | 42.7% [39.5-45.9] | |
+| berserker | **28.9%** [26.0-31.9] | cannot win |
+
+Nine of twelve ordered matchups sat outside 30-70%. The owner reads the huscarl
+as the best man in the game; he was **third**, and the warden — who "feels
+balanced" — was winning four fights in five. Felt balance and the table
+disagreed, which is the entire reason it was measured before it was tuned.
+
+**The recommendation, taken: four shapes, two high stats each, in a ring.**
+huscarl HEALTH+DEFENCE, warden DEFENCE+SPEED, runekeeper SPEED+DAMAGE,
+berserker DAMAGE+HEALTH — so each stat is somebody's strength twice, each class
+shares one strength with each neighbour and none with its opposite, and the two
+damage classes do different KINDS of damage (a rate against a blow). The
+berserker's second high stat is health, which is the direct answer to the
+owner's own description of a class that was slow, low-defence AND low-health —
+that is one strength, and one strength is why he could not win. Measured after,
+1,000 bouts an ordered matchup — 16,000 duels, seed 20260813:
+huscarl 53.8% [52.0-55.6], runekeeper 51.6% [49.8-53.4], berserker 46.8%
+[45.0-48.6], warden 45.2% [43.4-47.0]. The spread is **8.6 points, range
+5.0–12.2**.
+
+### The band claim this document used to make was a coin toss
+
+**It said "every ordered matchup inside 30-70%" and "verified on four
+independent seeds". Both sentences were retracted on 13 Aug 2026 and this is
+what replaced them.**
+
+An adversary ran ten master seeds at the shipped 250 bouts: **eight pass, two
+fail.** Reproduced here, and the reproduction is quoted as it printed rather than
+as it was reported: at 250 bouts the ordered cell `warden > huscarl` reads
+**24% [19-30] on seed 424242 and 24% [19-30] on seed 90210** — the same 24 the
+adversary got, on the bar, from a run that had no idea which side of it the
+matchup was on. Four passing seeds were not four confirmations; they were four
+draws from a distribution that fails about one time in five, which is the same
+shape as the seed-pinning fault this repository has already recorded once. The
+9.6-point spread was the friendliest of those draws; the same roster read 13.1
+and 13.9 on the adversary's seeds and 8.6 at 16,000 duels. **A difference of two
+noisy numbers is a range, and it is now printed as one.**
+
+Those same two seeds, re-run at 250 bouts against the **repaired** rule, are the
+short proof that the repair is a repair and not a softer bar: both come back
+`PASS` with **three matchups sitting on the band edge, named on the verdict
+line** — `huscarl vs warden`, `huscarl vs runekeeper`, `huscarl vs berserker`.
+A 250-bout run is now allowed to say *"I cannot place three of these six"*, which
+is the truth about a 250-bout run, instead of silently calling them passes.
+
+Then 26,000 duels were spent on what the roster actually is, and the ring is real
+and **sits on the bar**. Both orderings pooled, 2,000 duels a matchup:
+
+| matchup | seed 20260813 | seed 424242 | seed 90210 | verdict |
+|---|---|---|---|---|
+| huscarl v warden | **69.1%** [67.0-71.1] | **69.8%** [67.8-71.8] | **68.4%** [66.3-70.4] | **EDGE** — straddles 70 |
+| huscarl v runekeeper | **29.7%** [27.7-31.7] | **31.6%** [29.6-33.7] | **28.3%** [26.4-30.4] | **EDGE** — straddles 30 |
+| huscarl v berserker | 66.1% [64.0-68.2] | — | 65.8% [63.7-67.8] | inside |
+| warden v runekeeper | 63.7% [61.6-65.8] | — | 63.7% [61.6-65.8] | inside |
+| warden v berserker | 42.4% [40.3-44.6] | — | 43.1% [41.0-45.3] | inside |
+| runekeeper v berserker | 48.2% [46.0-50.4] | — | 51.6% [49.4-53.8] | inside |
+
+**Those three columns are the point.** 424242 and 90210 are the two seeds the
+adversary used to break the old claim. All three now return the *identical*
+verdict — PASS, four matchups decisively inside, the same two on the edge —
+because the answer is being read off the roster instead of off the draw. So
+`classmatrix` was rebuilt to say that rather than to survive it:
+
+- It **rules three ways** — INSIDE (the whole interval is in the band), EDGE (it
+  straddles a bar, so the run cannot say), OUTSIDE (FAIL) — and an EDGE matchup
+  rides the verdict line as a **deferral**, never as a pass. The old rule failed
+  a cell only when its whole interval was *outside*, which is a test of "the run
+  does not prove this is broken", not of "this is inside the band".
+- It **pools both orderings**, because `A>B` and `B>A` are one matchup measured
+  twice, and each cell already balances the room's insertion order internally.
+  Judging each half separately threw away half the sample and then judged each
+  half against a hard bar. The two halves are still printed and compared as a
+  control on the harness's own order bias.
+- The default is **1,000 bouts an ordered matchup, ~4.5 minutes**, because at 250
+  the interval is wider than the distance from this roster to the bar.
+- `--only=huscarl,runekeeper` measures one pair and its mirrors, a quarter of the
+  work, which is what makes "widen n until it is decisive" affordable.
+
+**Two levers that moved nothing, and they are the finding.** Taking the huscarl's
+`blockReduction` from 0.80 to **0.00** — the best shield in the game to no shield
+— moves `huscarl vs warden` from 69% to 69%. Doubling his stamina regen and
+adding 43% to his pool moves `huscarl vs runekeeper` from 30% to 30%. The cause:
+bots raise a guard when a windup becomes readable, which lands almost every such
+blow inside the PARRY window instead, so **only about 6% of all damage in a full
+matrix ever meets a raised guard** — 6.0, 5.9 and 5.8 on the three seeds above,
+which is why it is written as "about 6" and not as the friendliest of the three.
+DEFENCE — one of the four card axes — is very nearly unmeasured by this
+instrument, and that now rides every verdict line, computed per run rather than
+quoted from this page.
+
+**The fix that exists, costed, and NOT taken.** Health and damage move the
+huscarl's two edge matchups in different ratios (1.85 and 0.76), so the pair can
+push one down and the other up. Solved: `maxHealth 158 → 135, attackDamage
+17 → 21`. That is not a tuning tweak — it makes the wall a bruiser, nine health
+over the berserker instead of thirty-two — to satisfy a bar drawn by an
+instrument that cannot see his shield. **It is a decision about what the huscarl
+is, so it is the owner's**, and it is item one of the next wave.
+
+**Two things that were found by pulling the lever and are worth keeping.**
+Reach is nearly inert in this measurement — cutting the warden's spear by 65%
+moved him two points *upward* — because `botThink` closes to its own reach, so a
+short weapon only means standing nearer. The `SWING_ARC` comment claiming reach
+is the balance lever is therefore backwards *for bots*, and reach was left
+untouched rather than tuned to a number a bot fight preferred. And `types.ts`
+carried a second copy of the sheet disagreeing on eight of twelve columns; the
+two are now identical and `classmatrix` refuses to run if they drift again.
+
+**And the shape was illegible on the one screen that shows it.** The whole point
+of the rework is "two high stats each", and the only place a player meets that
+claim is the class-select card. That card drew its four bars against **maxima
+typed in beside the roster** — `HP max={150}`, `SPD value={moveSpeed * 20}
+max={100}` — and clamped the overflow with `Math.min(100, ...)`. After the
+rework the huscarl's 158 health clamped at 150, and the runekeeper's 5.6 stride
+and the warden's 5.0 **both** clamped at 100, so the two of them drew identical
+full speed bars while the runekeeper is 12% faster and SPEED is his headline
+stat. The ATK bar showed `attackDamage`, which puts the runekeeper **last** of
+four while the sheet calls him a DAMAGE class. Every gate was green throughout,
+because not one of them had looked at the screen.
+
+A typed-in maximum is the mirrored-definition fault wearing the one disguise a
+type-checker cannot see: not a duplicated value but a duplicated *fact* ("the
+biggest health bar in the game is 150"), which went stale the moment the roster
+moved. So there is no maximum written down anywhere now. `src/game/statshape.mjs`
+holds one definition of the four axes and derives every ceiling with `Math.max`
+over the roster being drawn; `page.tsx` renders `cardBars(...)` and `StatBar`
+takes a fraction, so there is nothing left to clamp. `classmatrix` gates it three
+ways: no numeric `max=` may appear on a stat bar, no two classes that differ on
+an axis may draw the same bar, and **the two strengths the card shows must be the
+two the shape gate certifies**. Shown failing against the old card first — six
+findings — then green.
+
+**And the frames were opened, at 1280×800 and 390×844, in both states, with the
+bar widths read out of the browser's own layout beside them.** What the old card
+draws, measured in the DOM rather than argued: `warden SPD 100%` and `runekeeper
+SPD 100%` — two bars ending on the same pixel, which is the refutation, visible.
+`huscarl HP 100%` on a 150 ceiling he carries 158 against. And a third thing
+nobody had named: **the old `ATK` bar put the runekeeper LAST of four at 50%**,
+because it drew `attackDamage` — a per-blow number — for a class whose damage is
+a rate, so the card called the game's highest-DPS warrior its weakest attacker
+while the shape gate certified him a DAMAGE class. The new card, same two
+widths: `HP 100/72/61/80`, `SPD 70/89/100/71`, `DMG 69/78/100/87`,
+`DEF 100/80/44/35` — four different profiles, the leader on each axis full and
+nobody clamped, and the runekeeper's speed now visibly longer than the warden's.
+One layout note found by looking rather than by measuring: the sticky **DRAW
+STEEL** bar sits over the card row at 1280×800 unless the section is scrolled to
+the top of the pane. Probed at both widths — with the section at the top of the
+scroller, 16 of 16 bars are fully clear of it — so it is a scroll position, not a
+covered screen, and it is recorded here so the next person to shoot this screen
+scrolls before they judge it.
+
+**Mercy or Finish is on the server and has no UI.** A killing blow puts a man
+down instead of killing him; `mortal`, `mercyTimer` and `mercyTo` ride the wire;
+`downed` carries a witness count taken from the room (0 in a duel, 6 in a full
+moot — never a decorative seven); the window drains for 2.5 s; letting it run
+out sends `spared` and he rises on a quarter bar. A man is spared **once per
+round**, which is both the design statement and what guarantees a round of
+merciful men still ends. The outcome is a **reputation** — `menSpared` /
+`menFinished` on the results table — chosen over a remembering AI (evaporates at
+the bell), a war-layer hook (Wave 4 does not exist yet) and a private profile
+mark (seen by nobody, and §8's whole thesis is that the pressure is social).
+
+**NOT built, and these are the next items:** the HUD for the window (it must be
+a drain and never a digit — the protocol deliberately ships no countdown), a
+kill-feed line for a sparing, profile persistence for the two counters, any
+war-layer consequence, and any bot policy that *chooses* — bots finish because
+they keep swinging, not because they decided to.
 
 ### WAVE 4 — THE WAR (the spine)
 
@@ -677,6 +914,28 @@ fails a third of the time cannot certify a release, and the land judgement of
 wall-clock delay; both must instead wait on the client having *received* the
 pointer delta. Ten consecutive green runs each before either is called done.
 One wave. Everything below is worth less until this is true.
+
+**13 Aug 2026 — `playtest`'s browser leg, and a sentence this file had to
+retract within the hour.** An earlier draft of this section stated that the
+browser leg *cannot start in a sandboxed worktree* and that **"`playtest`
+currently certifies 20 checks here, not 37"**. That is **withdrawn**: re-run in
+this worktree it goes to a verdict line, `[playtest] 37/37 controls working`, in
+3 min 58 s, browser leg included. The retraction is left in rather than deleted
+because the rule it broke is this document's own — *a doc that commits a false
+number is worse than no doc* — and the way it got written is the ordinary way:
+one environment produced one failure and the failure was recorded as a property
+of the repository.
+
+What is worth keeping is the environment facts, marked as what they are —
+**observed, cause not established, and not reproduced on the run above**, which
+served from a production `.next` (`BUILD_ID` present) rather than from dev. Next
+16 has been seen to serve a **404 to the `127.0.0.1` literal** while serving the
+app on `localhost` — already noted in `tools/uishots.mjs`, and `playtest`
+navigates to the literal (`tools/playtest.mjs:656,671`) — and a `.next` left by
+`npm run build` between dev runs has been seen to make the dev server 404 its own
+routes until it is deleted. If the browser leg ever dies at 20 of 37 with no
+verdict line, start there. **And do not quote a gate count you have not seen a
+verdict line for**, in either direction.
 
 ### 2. Ship the wave to `main`, verified.
 

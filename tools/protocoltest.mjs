@@ -203,6 +203,11 @@ const PUBLISHED = [
   // how close he is to being floored, which half of the fall he is in, and the
   // window he earned on the man he read. See WIRE-PROTOCOL.md §2.
   "balance", "maxBalance", "downTimer", "vulnerableTimer", "vulnerableTo",
+  // MERCY OR FINISH. Public for the same reason the weight wave's five are: the
+  // window has to be SEEN, by the man making the choice, by the man on the
+  // ground, and by the seven watching. `mercyTimer` is seconds remaining and a
+  // client draws a drain off it — see WIRE-PROTOCOL.md §2.
+  "mortal", "mercyTimer", "mercyTo", "spared", "menSpared", "menFinished",
   "emote", "abilityCooldown", "abilityActive", "abilityTimer",
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",
@@ -298,7 +303,11 @@ async function scenarioMatch() {
     const k = Object.keys(p).sort();
     return k.length === PUBLISHED.length && k.every((n, i) => n === [...PUBLISHED].sort()[i]);
   });
-  check("the published player is exactly the 53 documented fields", keysOk,
+  // Counted from the list rather than written into the sentence. The number was
+  // typed as "53" here and again in WIRE-PROTOCOL.md §2, so adding a field made
+  // a passing test print a wrong number and left two places to remember — the
+  // repository's third named failure mode in miniature. There is one place now.
+  check(`the published player is exactly the ${PUBLISHED.length} documented fields`, keysOk,
     keysOk ? "" : `saw ${JSON.stringify(Object.keys(humans[0]).filter((k) => !PUBLISHED.includes(k)))}`);
   check("every frame is JSON with `type` as its first key",
     host.frames.every((f) => f.startsWith('{"type":"')),
@@ -438,13 +447,38 @@ async function scenarioMelee() {
   // against a fixture that lands a parry on purpose every run.
   check("the hit zone is always one the client can draw",
     hits.every((h) => h.hitZone === undefined || HIT_ZONES.includes(h.hitZone)));
-  const blow = c.got("kill").find((k) => k.cause === "blow");
+  // TWO WEAPON DEATHS NOW, NOT ONE. `MERCY` (engine.mjs) makes a man's first
+  // fall a downing rather than a death, so the blow that ends him is a `finish`
+  // and this fixture — a man stood still in a pit of seven bots — reliably dies
+  // that way rather than by `blow`. Both cases were checked before the
+  // assertion moved: with mercy in, `cause` is "finish" here, and the old line
+  // failed for that reason alone.
+  //
+  // It is asserted over EVERY weapon death rather than over one found death,
+  // which is deliberately a stronger claim than the line it replaces: the old
+  // one picked the first `blow` out of the list and would have been satisfied
+  // by one good message among a dozen malformed ones. The property is that a
+  // death by steel always says where it landed, however it was reached.
+  //
+  // `startsWith("bot_")` IS BACK, AND IT SHOULD NEVER HAVE GONE. Widening the
+  // claim from one death to all of them was right; loosening the killer to
+  // "some non-empty string" came along with it and was not, because in THIS
+  // fixture the killer is knowably a bot — the only human in the room is the
+  // corpse — and `"a non-empty string"` is satisfied by every id the engine
+  // could possibly emit, including the victim's own. An assertion that cannot
+  // fail is not an assertion. Both halves were re-run before this line: strict,
+  // protocoltest is 76/76; the empty-string case the `fire` check above relies
+  // on is a different cause and is unaffected.
+  const steel = c.got("kill").filter((k) => k.cause === "blow" || k.cause === "finish");
   check("a killing blow says which limb and which stroke took him",
-    !!blow && HIT_ZONES.includes(blow.hitZone) && typeof blow.direction === "string" &&
-    typeof blow.heavy === "boolean" && blow.killerId.startsWith("bot_"));
+    steel.length > 0 && steel.every((k) => HIT_ZONES.includes(k.hitZone) &&
+      typeof k.direction === "string" && typeof k.heavy === "boolean" &&
+      typeof k.killerId === "string" && k.killerId.startsWith("bot_")),
+    `${steel.length} weapon death(s), causes: ${[...new Set(steel.map((k) => k.cause))].join("/")}`);
   check("the corpse carries its own death on every later snapshot",
     c.got("game_state").some((d) => d.players[me] && d.players[me].state === "dead" &&
-      d.players[me].deathCause === "blow" && HIT_ZONES.includes(d.players[me].deathZone)),
+      (d.players[me].deathCause === "blow" || d.players[me].deathCause === "finish") &&
+      HIT_ZONES.includes(d.players[me].deathZone)),
     "a spectator arriving late rebuilds the same body");
   check("the kill feed is on the snapshot and is capped at ten",
     c.got("game_state").every((d) => Array.isArray(d.killFeed) && d.killFeed.length <= 10));
