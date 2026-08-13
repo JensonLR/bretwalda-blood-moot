@@ -68,10 +68,67 @@ ninety seconds, and it is the foundation the war layer sits on.
 
 | # | Item | Note |
 |---|---|---|
-| 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | NEW |
+| 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | **DONE**, and the review is the matrix — `tools/classmatrix.mjs`. See the note below |
 | 3.2 | **AI fighting quality and difficulty scaling** | [ALREADY RAISED], still unbuilt |
 | 3.3 | **Weapon styles and looks as armoury purchases** | NEW |
-| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | NEW, from the design review. It is a MECHANIC, not the screen it arrived as — see `docs/DESIGN-SYSTEM.md` §8 |
+| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | **DONE on the server**, gated by `tools/mercytest.mjs`. The UI is not built — see the note below |
+
+### 3.1 and 3.4, as built
+
+**The review the owner asked for, and it disagrees with the felt balance.**
+`tools/classmatrix.mjs` fights every ordered pair of classes headlessly, both
+sides driven by the engine's own `botThink` at the same skill so the only
+difference is the stat sheet, and reports win rates with a 95% Wilson interval
+and a median time-to-kill. Over 4,800 duels the **old** roster came back:
+
+| class | against the field | |
+|---|---|---|
+| warden | **78.4%** [75.6-81.0] | beats everybody |
+| runekeeper | 43.7% [40.5-46.9] | |
+| huscarl | 42.7% [39.5-45.9] | |
+| berserker | **28.9%** [26.0-31.9] | cannot win |
+
+Nine of twelve ordered matchups sat outside 30-70%. The owner reads the huscarl
+as the best man in the game; he was **third**, and the warden — who "feels
+balanced" — was winning four fights in five. Felt balance and the table
+disagreed, which is the entire reason it was measured before it was tuned.
+
+**The recommendation, taken: four shapes, two high stats each, in a ring.**
+huscarl HEALTH+DEFENCE, warden DEFENCE+SPEED, runekeeper SPEED+DAMAGE,
+berserker DAMAGE+HEALTH — so each stat is somebody's strength twice, each class
+shares one strength with each neighbour and none with its opposite, and the two
+damage classes do different KINDS of damage (a rate against a blow). The
+berserker's second high stat is health, which is the direct answer to the
+owner's own description of a class that was slow, low-defence AND low-health —
+that is one strength, and one strength is why he could not win. Measured after:
+huscarl 53.3%, runekeeper 50.4%, berserker 45.7%, warden 43.7%; every ordered
+matchup inside 30-70%; verified on three independent seeds.
+
+**Two things that were found by pulling the lever and are worth keeping.**
+Reach is nearly inert in this measurement — cutting the warden's spear by 65%
+moved him two points *upward* — because `botThink` closes to its own reach, so a
+short weapon only means standing nearer. The `SWING_ARC` comment claiming reach
+is the balance lever is therefore backwards *for bots*, and reach was left
+untouched rather than tuned to a number a bot fight preferred. And `types.ts`
+carried a second copy of the sheet disagreeing on eight of twelve columns; the
+two are now identical and `classmatrix` refuses to run if they drift again.
+
+**Mercy or Finish is on the server and has no UI.** A killing blow puts a man
+down instead of killing him; `mortal`, `mercyTimer` and `mercyTo` ride the wire;
+`downed` carries a witness count taken from the room (0 in a duel, 6 in a full
+moot — never a decorative seven); the window drains for 2.5 s; letting it run
+out sends `spared` and he rises on a quarter bar. A man is spared **once per
+round**, which is both the design statement and what guarantees a round of
+merciful men still ends. The outcome is a **reputation** — `menSpared` /
+`menFinished` on the results table — chosen over a remembering AI (evaporates at
+the bell), a war-layer hook (Wave 4 does not exist yet) and a private profile
+mark (seen by nobody, and §8's whole thesis is that the pressure is social).
+
+**NOT built, and these are the next items:** the HUD for the window (it must be
+a drain and never a digit — the protocol deliberately ships no countdown), a
+kill-feed line for a sparing, profile persistence for the two counters, any
+war-layer consequence, and any bot policy that *chooses* — bots finish because
+they keep swinging, not because they decided to.
 
 ### WAVE 4 — THE WAR (the spine)
 

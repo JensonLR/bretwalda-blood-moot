@@ -258,6 +258,34 @@ it belongs in the backlog rather than in a UI import:
 Filed to `BACKLOG.md` Wave 3, next to the class rework, because it changes how a
 fight ends and therefore how a fight is fought.
 
+**BUILT, on the server, 13 Aug 2026 — and it is not a fifth state.** It reuses
+the knockdown wholesale: a downed man IS `knocked`, so `isDown` already refuses
+him his swing, his guard, his turn and his stride, `knockDown` already strips his
+i-frames and slides him off the blow, and the client already animates the fall.
+What was added is three fields and one rule — `mortal` (this fall does not end in
+getting up), `mercyTimer` (the draining window), `mercyTo` (whose choice it is,
+the same shape the riposte's `vulnerableTo` already uses). All three are on the
+wire, because the whole point is that the room can see it.
+
+All three of the properties above are gated by `tools/mercytest.mjs`, and the
+social one is gated adversarially: the window is opened in rooms of two, four and
+eight men and the witness count must come back 0, 2 and 6. A hard-coded seven
+passes any single-room test and was tried against this gate on purpose — it
+fails, which is the point of writing it that way.
+
+The outcome is a **reputation**: two counters, `menSpared` and `menFinished`, on
+the results table the whole room reads. That was chosen over the three
+alternatives in the bullet above and the reasoning is in `engine.mjs` at
+`buildLedger` — the short version is that a spared man remembering evaporates at
+the bell, a war-layer consequence cannot be built because Wave 4 does not exist,
+and a private profile mark is those seven watching men leaving the room.
+
+**The screen is still not built, and this section's own argument says how it
+must be.** The window is published as seconds remaining plus its full length, so
+a client forms a ratio and draws a shrinking mark; the protocol deliberately
+ships nothing that reads as a countdown, because a number invites the player to
+watch the number instead of the man.
+
 ## 9. What it correctly left open
 
 Four things it declined to invent, and declining was right: the ranked-title
