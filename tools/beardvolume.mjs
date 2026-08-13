@@ -343,9 +343,26 @@ if (!forkedPresent) {
 }
 const forkRows = rows.filter((r) => r.style === FORKED);
 const forkWorst = forkRows.length ? Math.min(...forkRows.map((r) => r.fork)) : 0;
-console.log(`[vol] ${rows.length - bad}/${rows.length} rows pass`
-  + (forkedPresent
-    ? ` — INCLUDING the fork, worst notch ${forkWorst.toFixed(1)} mm against ${FORK_MM}`
-    : " — WITH THE FORK UNMEASURED, see above"));
+// THE VERDICT LINE SAYS WHAT HAPPENED TO THE FORK, AND IT USED TO SAY THE
+// OPPOSITE. This clause read an unconditional "INCLUDING the fork, worst notch
+// N mm" whenever the style was present — so on the two builds this gate was
+// deliberately broken against, the run that FAILED on the fork and on nothing
+// else signed off with:
+//
+//     12/16 rows pass — INCLUDING the fork, worst notch -12.9 mm against 40
+//
+// "INCLUDING the fork" is the phrase a reader takes the verdict from, and on
+// that line it is false about the one assertion that went red. It was found by
+// reading the harness's own output in its FAILING state, which is the whole
+// reason `docs/PROCESS.md` R2 asks for a proof-of-failure: a verdict line only
+// ever seen green is a verdict line nobody has read. The count was always
+// right; the sentence over it was not, and this file's own history is that a
+// true number under a false sentence is what ships the defect.
+const forkVerdict = !forkedPresent
+  ? " — WITH THE FORK UNMEASURED, see above"
+  : forkRows.some((r) => r.forkFail)
+    ? ` — AND THE FORK IS WHAT FAILED, worst notch ${forkWorst.toFixed(1)} mm against ${FORK_MM}`
+    : ` — INCLUDING the fork, worst notch ${forkWorst.toFixed(1)} mm against ${FORK_MM}`;
+console.log(`[vol] ${rows.length - bad}/${rows.length} rows pass` + forkVerdict);
 console.log(bad ? "[vol] FAIL" : "[vol] PASS");
 process.exit(bad ? 1 : 0);

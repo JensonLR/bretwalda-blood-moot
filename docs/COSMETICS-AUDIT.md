@@ -91,6 +91,33 @@ deliberately broken builds — a flat `reach` reads −12.9 mm, and a `reach` th
 still has two maxima in the source but a trough lifted to 0.90 reads 16.4 mm.
 Both go red against a 40 mm bar. The real cut reads 73.8-74.4 mm.
 
+### Re-verified from scratch, and one more false sentence found
+
+Every claim above was re-run rather than inherited. `beardvolume` **16/16, exit
+0**; the two deliberate breaks reproduce to the decimal; doubling `forked.wall`
+moves the median 5.3 → 7.7 and leaves the `fork` column at 74.1, which is the
+evidence that the two gates are independent; halving it goes red at 3.3;
+removing `forked` from `BEARD_VALUES` fails the run instead of skipping it.
+`manespread` 72/72, `eyeclip` 0 of 12 LID assertions failed, `tsc` clean.
+
+Two statements did **not** survive the re-check, and both were about pictures
+rather than numbers:
+
+1. **`docs/OPEN-DEFECTS.md` said the tines went from "flat blades with knife
+   edges" to "a rope with a belly and a highlight down it".** They did not.
+   Measured on the two frames — beard run-length per scanline over the mail —
+   the tines gained **0.55 mm, +1.2%**. `wall` is radial, so it adds depth, and
+   the face card photographs an outline: a 41% dial change is a sub-pixel
+   silhouette change at *every* bearing, not just at profile. The sentence was
+   written from the number that moved instead of from the two pictures.
+   Corrected there, with the lesson that the render is a check on this cut's
+   **fork and material**, never on its mass.
+2. **`beardvolume`'s own verdict line said "INCLUDING the fork" on runs where
+   the fork was the only thing that failed.** Found by reading the harness while
+   it was red. Fixed to name the fork as the failure. A true count under a false
+   sentence is how this repository ships defects, and it had reappeared inside
+   the gate written to stop it.
+
 ## And the capture sheet had a hole in the middle of it
 
 `tools/shoot.mjs`'s `hair` sheet shot a bare head, the back of a head, and the
@@ -559,8 +586,28 @@ worth its prices; today the 100 g option is the weakest thing in it.
 parted moustache — and it is the best-value item in the shop. **Forked (80 g)**
 is two cones. **Ringed Braid (120 g)** is four stacked spheres and a ring, the
 same rosary trick as the hair. **REBUILD the Ringed Braid**; it is the most
-expensive beard and the least made. Check the fork against the profile card:
-a fork that does not separate in profile is a beard with a notch.
+expensive beard and the least made.
+
+~~Check the fork against the profile card: a fork that does not separate in
+profile is a beard with a notch.~~ **Struck 13 Aug, because the profile card
+cannot answer it and following this instruction would condemn a working fork.**
+The tines sit at ±0.40 rad *about the head's axis* — left and right of the
+midline — so at −90° they are superimposed and the cut reads as one sliver
+whatever it is doing. `art/shots/r2-forked/after-profile/` shows exactly that.
+**The panel that shows the notch is the three-quarter** (`after-quarter/`, two
+tines with sky between them), and the number that shows it is `beardvolume`'s
+`fork` column, which reads the hem by bearing and does not depend on a camera
+at all.
+
+**What the profile card DOES answer, and it is not good news.** At 3-4x the
+beard's lock pattern closes into concentric loops over the curve of the chin and
+the mass reads as **the end grain of a plank**; the tines are glossy and
+hard-edged and read as two polished wooden tusks. The substance is correct — it
+has been `M.tinted("hair", …)` since the wool came out — so this is the tile
+against the chin's curvature, not the old defect returning. **No harness in this
+repository can see it**: depth passes, the hem's outline passes, and a beard that
+looks like timber clears both. Open, with the frames and the suggested probe, in
+`docs/OPEN-DEFECTS.md`.
 
 ### Hair Colour (6) and Beard Colour (6) — 12 of the 47 options
 
