@@ -12051,6 +12051,24 @@ export function buildCharacter(
   };
   /** Hair compressed under a shell that BEARS on the skull. A felt liner. */
   const HAIR_LINER = 0.005;
+  /**
+   * AND UNDER A HINGED CHEEK PLATE IT IS THINNER, because the plate is not the
+   * bowl and 5 mm was one number doing two jobs.
+   *
+   * A bowl is raised over a padded cap and sits on the crown; 5 mm of felt under
+   * it is what a helmet liner is. A cheek guard is a hinged plate strapped
+   * closed against the jaw, and there is no cap under it — measured, the deep
+   * pair leaves the mane 1.5 to 3.1 mm short of its inner wall at the rear edge,
+   * so a 5 mm ceiling authorises hair the plate cannot hold.
+   *
+   * 3 mm, and the two things it costs are both measured rather than assumed:
+   * `hairFitProbe` goes 0.80-0.94% through to **0.00%** on the Wyrm-Crest, and
+   * `shown` and `kept` do not move at all (berserker/wyrm 69.7% / 40% at both
+   * values, huscarl 57.6-57.7% / 27%). The extra two millimetres were buying
+   * nothing that could be seen from any bearing and paying for it in fit, which
+   * is the definition of a constant in the wrong place.
+   */
+  const CHEEK_LINER = 0.003;
   // What one layer leaves clear under the inner wall of the layer above it.
   // 5 mm rather than 3: both surfaces are tessellated, and a garment's mesh
   // chord dips inside the analytic curve this reads by up to 3 mm on a 0.4 rad
@@ -12324,9 +12342,22 @@ export function buildCharacter(
     // plate's own free edge, so the liner now ends where the plate does and
     // hair below the hem keeps its volume. Compress under it; do not cull round
     // it.
+    //
+    // AND THE SKIN'S PROUDNESS COMES OFF HERE TOO, which it did not until the
+    // mane's route was fixed and this started to bite. The branch above already
+    // knows why — a plate is raised on the LOW-PASSED form and the skin stands
+    // up to 16 mm proud of that form, so a flat 5 mm of liner puts hair outside
+    // the metal wherever the head is lumpy. This clamp was written as a bare
+    // `HAIR_LINER` and got away with it while the mane at the guard's rear edge
+    // was 18% of its own mass; at the 19% the nape fix leaves, `hairFitProbe`
+    // read 2.9-3.1 mm of Wyrm-Crest berserker standing outside the deep guard
+    // on 0.80-0.94% of the covered vertices, at 81 deg / -34 deg — which is the
+    // guard's rear edge exactly. Same correction, same reason, one branch later.
     if (helmed && style.cheek !== "none"
       && awayFromFace(u) > cheekIn - 0.11 && awayFromFace(u) < cheekOut + 0.15
-      && v < bandLo + 0.10 && v > cheekHemAt(awayFromFace(u)) - 0.14) c = Math.min(c, HAIR_LINER);
+      && v < bandLo + 0.10 && v > cheekHemAt(awayFromFace(u)) - 0.14) {
+      c = Math.min(c, Math.max(0.001, CHEEK_LINER - skinProud(u, v)));
+    }
     // A nape fall or a neck guard hangs off the back of the band on five rungs,
     // so the back is metal below the rim as well as above it. 2 mm rather than
     // a liner's 5, and NEGATIVE. A fall is swept on its own rings rather than
@@ -12553,22 +12584,75 @@ export function buildCharacter(
     // The ramp is the mirror of the coif's below: the mask has no face opening,
     // so the hair may not be in front of the rings, and the mass reaches zero
     // 0.30 rad IN FRONT of the rim rather than behind it.
-    if (style.mask) {
-      return coifed ? smooth(2.26, 2.70, awayFromFace(u)) : 0;
-    }
-    // ON THE FAR SIDE OF THE RIM, NOT THE NEAR SIDE. The ramp is still 0.34 rad
-    // wide and it still dies inside the mail — that is what stops a free patch
-    // boundary standing on the rings — but it used to run from 0.34 rad IN
-    // FRONT of the opening to the opening itself, so the fall was already at
-    // zero everywhere a man could see it. The mail's opening is where hair
-    // comes OUT of a coif; a ramp that ends there deletes exactly the hair the
-    // opening exists to show. Full mass to the rim, gone 0.28 rad behind it.
-    if (coifed) return 1 - smooth(coifRim(0) - 0.40, coifRim(0) - 0.02, awayFromFace(u));
-    // A nape fall or a neck guard hangs off the back of the band and owns
-    // everything behind 1.40 rad from the nape — see the fall's own note.
-    if (helmed && style.nape !== "none") {
-      return 1 - smooth(Math.PI - 1.74, Math.PI - 1.40, awayFromFace(u));
-    }
+    //
+    // AND A MAIL COIF IS A MAIL COIF WHETHER OR NOT THERE IS A MASK ON IT.
+    //
+    // "Long mane with huscarl when wearing a helmet causes 2 side front long
+    //  strands of hair to appear."
+    //
+    // That is this line, and what was wrong with it was a DIRECTION. The branch
+    // that used to stand here read
+    //
+    //     1 - smooth(coifRim(0) - 0.40, coifRim(0) - 0.02, awayFromFace(u))
+    //
+    // — full mass IN FRONT of the mail's face opening, gone behind it — on the
+    // reasoning that "a mailed man wears his hair pulled through the mail's face
+    // opening, which is the only place on him hair can be seen at all". The
+    // mane's own window (`maneFrontDead`/`maneFrontFull`, 0.72 → 1.02 on this
+    // rung) faces THE OTHER WAY: dead at the face, full behind it. Two ramps
+    // multiplied together, pointing in opposite directions, leave only their
+    // overlap — a band about 0.04 rad wide at 1.03 rad off dead ahead. On a
+    // coifed huscarl that band is beside the cheekbone, and what it draws is
+    // exactly what the owner is looking at: two long strands beside the face and
+    // a bald head behind them. `tools/manespread.mjs` measures it as 266 mm of
+    // hair hanging at 48 degrees where the same style bare-headed has none, with
+    // 27-58% of the nape's hang left.
+    //
+    // The comment eight lines above this one names the disease in as many words
+    // — "Two ramps multiplied together taper a mass twice and that is how a fall
+    // ends up at 6% of itself while both of its authors think they left it
+    // alone" — and then applies the cure to the MASK rung only. It is the same
+    // helmet-shaped bag on both: the huscarl's aventail closes his whole nape
+    // whether the helm in front of it has a face or not, and a man does not pull
+    // a curtain of hair out through the opening he has to see through. So the
+    // coifed rung takes the route the Sutton Hoo already proved — gathered
+    // inside the rings from the scalp down, squashed there by `coifSquash` where
+    // no bearing can see it, and out into open air under the aventail's hem.
+    //
+    // The plaits are NOT moved with it, and that is deliberate: a war-lock is
+    // 24 mm of rope, it roots at 1.34 rad in front of the rim, and a rope
+    // hanging out of the face opening of a mail coif is the right picture. A
+    // curtain doing the same thing is two bars framing a face.
+    if (coifed) return smooth(2.26, 2.70, awayFromFace(u));
+    // A mask with no mail behind it closes the head on every bearing and has no
+    // hem to come out from under. See the four constructions in the file's own
+    // history, every one of which bought silhouette with hair through metal.
+    if (style.mask) return 0;
+    // THE NAPE FALL'S RULE LIVES IN `hairCeil` AND IT USED TO LIVE HERE TWICE.
+    //
+    // What stood here was
+    //
+    //     if (helmed && style.nape !== "none")
+    //       return 1 - smooth(PI - 1.74, PI - 1.40, awayFromFace(u));
+    //
+    // — "a nape fall owns everything behind 1.40 rad from the nape" — which
+    // deletes the mane over the whole back of the head on the Ridge, the
+    // Boar-Crest, the Jarl's Crowned and the Wyrm-Crest. That is the owner's
+    // second sentence: "on the rest of the characters with the same hair there's
+    // just bald sides & nothing at the back on any, just the helmet."
+    //
+    // It is a mirrored definition, and it is the crude copy of the pair. The
+    // real rule is in `hairCeil`, twenty lines up: under a nape fall the hair's
+    // ceiling goes NEGATIVE — the shell is put inside the skin, invisible,
+    // continuous with the hair either side of it — and it stops at `napeHemY`,
+    // the plate's own free lower edge, because `atY` tells it how far down the
+    // point it is fitting actually is. That rule compresses; this one culled. A
+    // flange ends 0.45 head-radii below the skull's centre and a guard 1.12, and
+    // both of them have 200-400 mm of mane hanging BELOW that line which no
+    // amount of azimuth can reach. It is the identical fault `cheekHem` fixed on
+    // the nine rungs with cheek plates and `coifHemY` fixed on the Sutton Hoo,
+    // found for the third time on the third garment with a hem: compress UNDER
+    // the metal, do not cull ROUND it.
     return 1;
   };
 
@@ -13248,9 +13332,18 @@ export function buildCharacter(
         // wide enough that it never becomes the binding constraint. Two ramps
         // multiplied together taper a mass twice and that is how a fall ends up
         // at 6% of itself while both of its authors think they left it alone.
-        const maskedFall = style.mask && coifed;
-        const maneFrontDead = maskedFall ? 2.06 : coifed ? 0.72 : Math.PI - 1.99;
-        const maneFrontFull = maskedFall ? 2.40 : coifed ? 1.02 : Math.PI - 0.95;
+        //
+        // `baggedFall` WAS `style.mask && coifed` AND THE MASK WAS NEVER THE
+        // POINT. What decides this route is whether the man's nape is inside a
+        // bag of mail, and the huscarl's is on every metal rung he owns. Under
+        // an open helm the old pair — 0.72 dead, 1.02 full — fought `hairFall`'s
+        // coif ramp head-on and left the two front strands the owner reported;
+        // see the long note there. One flag, one route, and the pair below is
+        // opened wide enough that `hairFall` is the binding constraint rather
+        // than the two of them tapering the same mass twice.
+        const baggedFall = coifed;
+        const maneFrontDead = baggedFall ? 2.06 : Math.PI - 1.99;
+        const maneFrontFull = baggedFall ? 2.40 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
         const maneMass = (u: number) => hairFall(u)
           * Math.pow(smooth(maneFrontDead, maneFrontFull, awayFromFace(u)), 0.95);
@@ -13306,7 +13399,7 @@ export function buildCharacter(
           { o: -0.013, d: 0.196 },
           { o: -0.011, d: 0.068 },
           { o: 0.000, d: 0.000 },
-        ] as const).map((b) => (maskedFall
+        ] as const).map((b) => (baggedFall
           ? { o: b.o + MASK_SWING * smooth(0.16, MANE_DEEP, b.d), d: b.d }
           : { o: b.o, d: b.d }));
         const _mrA = new THREE.Vector3();
@@ -13348,18 +13441,7 @@ export function buildCharacter(
           // and it reads as a part from every bearing behind the ear because
           // the surface really does dip there.
           //
-          // AND THE FALL IS SHORTER INSIDE A COIF, which is the one thing about
-          // this style a mail bag genuinely does change. 322 mm of hair hanging
-          // out of the mail's opening reaches the aventail's own skirt at the
-          // shoulder, which flares to R.x * 1.82 and is 130 mm behind the fall's
-          // hem — `hairFitProbe` read 49.9 mm of mane outside the rings at
-          // −156 mm, on 42 vertices, every one of them in the last third of the
-          // fall. Hair pulled through a face opening is a shorter tail than hair
-          // hanging free down a back; 0.58 stops it at the collar, above the
-          // mail's flare, and the shape a player is buying — the mass beside the
-          // face — is entirely in the part that is kept.
-          //
-          // AND UNDER A MASK IT IS SOLVED AGAINST THE MAIL'S HEM RATHER THAN
+          // AND INSIDE A COIF IT IS SOLVED AGAINST THE MAIL'S HEM RATHER THAN
           // TYPED. The whole of this rung's silhouette is the hair BELOW
           // `coifHemY`; everything above that line is inside the rings and
           // cannot be seen from any bearing, so a reach chosen by eye either
@@ -13367,7 +13449,17 @@ export function buildCharacter(
           // past the shoulder blade. `maneReach` asks the root where it is and
           // returns the scale that lands the deepest station `MASK_SHOW` below
           // the hem. It is `deep guard hem + 90 mm` arithmetic, not a taste.
-          reach: (u) => (maskedFall ? maneReach(u) : coifed ? 0.72 : 1)
+          //
+          // A FLAT 0.72 USED TO STAND HERE FOR THE OPEN COIFED RUNG, and it went
+          // with the route it belonged to. Its note read "322 mm of hair hanging
+          // out of the mail's OPENING reaches the aventail's own skirt … hair
+          // pulled through a face opening is a shorter tail than hair hanging
+          // free down a back" — which was true of a mane worn out through the
+          // face opening, and that mane is the two strands the owner reported.
+          // The gather does not come out at the opening any more; it comes out
+          // at the hem, on the same bearing and by the same arithmetic the
+          // masked rung uses, so it is solved rather than typed on both.
+          reach: (u) => (baggedFall ? maneReach(u) : 1)
             * (1 - 0.10 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))),
           // AND THE RIDGES ARE DEEPER WHERE THE HAIR IS PLAITED. `hank` is the
           // surface's own ropes; a gather that is going into four braids is
