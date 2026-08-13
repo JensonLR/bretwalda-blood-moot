@@ -119,6 +119,20 @@ never applied here:
 either value — the two extra millimetres were buying nothing that could be seen
 from any bearing and paying for it in fit.
 
+### And one ungated count moved, which belongs on the verdict line and not in a footnote
+
+`wearmeasure` §10 reported **6** ungated flank windows on the tip this branch
+starts from and reports **7** here. The seven are the same seven this file's own
+table has carried since 8 Aug — huscarl spectacle / boar / crowned / wyrm and
+berserker spectacle / crowned / wyrm, at 1.6% to 6.7% of the flank and 37 to
+165 mm off the ear. Nothing new appeared; a window that had fallen under the
+harness's own reporting floor is over it again, because there is hair beside the
+guard's rear edge on rungs where there was none. **It is still not gated**, for
+the reason the harness's own comment gives and this file endorses — an opening
+in the flank is shaped by three owners at once and the one thing worse than a
+hole is a bar that gets tuned instead of met — and the count rides the PASS line
+in both places, which is the whole of R4.
+
 ### What it costs, stated rather than buried
 
 Long Mane's silhouette on the coifed huscarl at the shop's own three-quarter
