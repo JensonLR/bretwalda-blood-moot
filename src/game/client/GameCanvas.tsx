@@ -5,7 +5,7 @@
 // what and the order they run in.
 import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
-import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId } from "../types";
+import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone } from "../types";
 import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { underGrace } from "@/game/grace.mjs";
@@ -24,7 +24,7 @@ import { createVfx, type VfxHandle } from "./render/vfx";
 import { createPostFx, type PostFxHandle } from "./render/postfx";
 import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/camera";
 import { createHud3d, type Hud3D } from "./render/hud3d";
-import { createAudio, type AudioHandle } from "./render/audio";
+import { createAudio, type AudioHandle, type WireHitType } from "./render/audio";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
@@ -84,6 +84,37 @@ interface GameCanvasProps {
    * animation frame callback.
    */
   emoteFeed?: { current: Array<{ playerId: string; emote: EmoteId }> };
+  /**
+   * THE SERVER'S `hit` MESSAGES, and this canvas had never read one.
+   *
+   * Everything it knew about a blow it derived from a snapshot delta — inside
+   * `if (p.health < slot.prevHp - 0.5)` — which is a branch three of the wire's
+   * seven hit kinds can never enter, because a parry, a shove and a knockdown
+   * all carry `damage: 0`. The parry is the game's hero sound, `soundtest`
+   * grades it on five claims, and it had never played for anybody. The same call
+   * site also passed no `weapon`, so every blow in the game was synthesised as a
+   * sword whatever swung it.
+   *
+   * Pushed by page.tsx and drained by the frame loop, for the same reason
+   * `emoteFeed` is: a blow must not rebuild the animation frame callback, and
+   * only the loop can reach the rigs to find out where the men are standing.
+   */
+  hitFeed?: { current: WireHitMessage[] };
+}
+
+/**
+ * One `hit` payload, exactly as docs/WIRE-PROTOCOL.md describes it. Not every
+ * field is used here — `health`, `direction` and `hitstop` are already read off
+ * the snapshot — but the ones that decide what a blow SOUNDS like are, and they
+ * exist nowhere else.
+ */
+export interface WireHitMessage {
+  type: WireHitType;
+  attackerId?: string;
+  targetId?: string;
+  damage?: number;
+  hitZone?: HitZone | null;
+  riposte?: boolean;
 }
 
 /**
@@ -165,7 +196,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, emoteFeed }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, emoteFeed, hitFeed }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -230,6 +261,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   const canEmoteRef = useRef<boolean | null>(null);
   const emoteFeedRef = useRef(emoteFeed);
   useEffect(() => { emoteFeedRef.current = emoteFeed; }, [emoteFeed]);
+  const hitFeedRef = useRef(hitFeed);
+  useEffect(() => { hitFeedRef.current = hitFeed; }, [hitFeed]);
 
   const hitStopRef = useRef(0);
   const animRef = useRef(0);
@@ -1060,11 +1093,16 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         if (slot.prevState !== "dodging" && slot.prevState !== "rolling" && (p.state === "dodging" || p.state === "rolling")) {
           stage.audio.dodge({ position: { x: at.x, y: 0.9, z: at.z }, local: id === playerId });
         }
-        // The shove's voice fires on the state edge — the windup grunt IS the
-        // audible half of the tell, and the drive thump is scheduled inside the
-        // synth at the same offset the server resolves the contact.
+        // THE WIND-UP ONLY. The grunt IS the audible half of the tell and it has
+        // to fire on the state edge, on the shover, whether or not anybody is
+        // inside the arc — a shove thrown at air is exactly the read the tell
+        // exists to give. The DRIVE used to be scheduled inside the same call,
+        // 0.30 s later, which meant a shove that connected with nothing still
+        // put a body thump into the mix. The engine broadcasts `type:"shove"`
+        // when it resolves the contact and only then; the drain after this loop
+        // voices that half, on the man who actually took it.
         if (slot.prevState !== "shoving" && p.state === "shoving") {
-          stage.audio.shove({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, shield: !!slot.rig.shield });
+          stage.audio.shove({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, shield: !!slot.rig.shield, phase: "windup" });
         }
         if (!slot.prevAbility && p.abilityActive) {
           stage.audio.ability({ position: { x: at.x, y: 1.2, z: at.z }, local: id === playerId, warriorClass: p.warriorClass });
@@ -1127,20 +1165,19 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // A blocked blow throws steel off steel, not blood: the kind is the only
           // thing that tells the two apart, and the server already said which it was.
           stage.vfx.burst({ position: { x: at.x, y: 1.5, z: at.z }, color: 0xffe28a, count: 7, spread: 7, up: 5, gravity: 8, kind: "spark" });
-          // Four events the ear must tell apart without looking, named in the
-          // server's own vocabulary: a shield taking it, mail turning it, the
-          // blade finding flesh, or steel caught on steel. A man who was
-          // guarding when it landed was guarding; the zone is only on the wire
-          // once he is down, so a survivable blow is decided by what it took
-          // off — a graze turned by armour, or the one that found the gap.
-          const guarded = slot.prevState === "blocking" || p.state === "blocking";
-          stage.audio.hit({
-            position: { x: at.x, y: 1.4, z: at.z },
-            local: id === playerId,
-            type: guarded ? (dmg >= 22 ? "blocked_heavy" : "blocked") : (dmg >= 22 ? "heavy" : "light"),
-            damage: dmg,
-            hitZone: p.state === "dead" ? p.deathZone : null,
-          });
+          // NO SOUND IS MADE HERE ANY MORE, and the removal is the fix.
+          //
+          // This block used to call `audio.hit()` with a type GUESSED from the
+          // health delta and the blocking flag — `dmg >= 22 ? "heavy" : "light"`
+          // — while the server had already said which of seven kinds it was, on
+          // a message the client did not read. The guess could never produce
+          // "parry", "shove" or "knockdown" at all, because those take nothing
+          // off and this branch is `p.health < prevHp - 0.5`. It also passed no
+          // weapon, so every blow in the game was a sword.
+          //
+          // The wire drain after this loop voices the blow now. What stays here
+          // is everything a DELTA genuinely is the right source for: the number
+          // over his head, the blood, the recoil, the camera and the rumble.
           slot.motion.recoil = Math.min(1.6, 0.6 + dmg * 0.03);
           stage.hud.spawnDamageNumber(dmg, { x: at.x, z: at.z }, dmg >= 22);
 
@@ -1219,6 +1256,55 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           const colAura = p.warriorClass === "berserker" ? 0xff3311 : p.warriorClass === "huscarl" ? 0x4488ff : p.warriorClass === "runekeeper" ? 0x9a55ff : 0xffaa33;
           if (Math.floor(ctx.time * 9) % 2 === 0) {
             stage.vfx.burst({ position: { x: at.x, y: 1.3, z: at.z }, color: colAura, count: 2, spread: 1.5, up: 2.6, gravity: 4, kind: "aura" });
+          }
+        }
+      }
+
+      // ---- THE BLOWS, OFF THE WIRE ----
+      //
+      // Drained here rather than before the loop, because a blow is placed on
+      // the man who took it and this is the first point in the frame where the
+      // rigs have been stepped to where he now is.
+      //
+      // THIS IS THE ONLY ROUTE FROM A BLOW TO A SOUND, and until this round
+      // there was none: every hit sound came from `p.health < prevHp - 0.5`
+      // twenty lines below, which is a branch a zero-damage blow can never
+      // enter. Three of the wire's seven kinds carry `damage: 0` — a parry, a
+      // shove and a knockdown — so three of the seven had never made a sound
+      // for anybody, the parry among them. The health delta still owns the
+      // PICTURE (blood, damage numbers, camera kick, rumble), because a delta is
+      // exactly what a damage number is; it no longer owns the ear.
+      //
+      // What the wire has and a delta does not: the true kind, the attacker's
+      // class (so an axe stops sounding like a sword), whether the shove landed
+      // or was thrown at air, and whether the blow was a riposte.
+      {
+        const hits = hitFeedRef.current?.current;
+        if (hits && hits.length) {
+          for (const m of hits.splice(0, hits.length)) {
+            const target = m.targetId ? warriorsRef.current.get(m.targetId) : undefined;
+            const attacker = m.attackerId ? warriorsRef.current.get(m.attackerId) : undefined;
+            // A blow whose target this client has never seen has no position to
+            // put it at, and a sound at the origin is worse than no sound.
+            if (!target) continue;
+            const at = target.rig.group.position;
+            stage.audio.hit({
+              position: { x: at.x, y: 1.4, z: at.z },
+              // MINE means it happened to me. The shover's own grunt is voiced
+              // from his state edge above; this is the man who took it.
+              local: m.targetId === playerId,
+              type: m.type,
+              damage: m.damage,
+              hitZone: m.hitZone ?? null,
+              // The ATTACKER's class. `warriorClass` is on the snapshot and
+              // `attackerId` is on the message, so this costs one lookup and it
+              // is the whole of "an axe and a seax do not share a spectrum".
+              weapon: m.attackerId ? players[m.attackerId]?.warriorClass : undefined,
+              riposte: m.riposte === true,
+              // A shove driven with a disc of limewood and iron is not a
+              // shoulder, and the rig is where that fact lives.
+              shield: !!attacker?.rig.shield,
+            });
           }
         }
       }
