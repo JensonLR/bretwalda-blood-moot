@@ -57,6 +57,43 @@ const STAGGER_DURATION = 0.6;
 // stagger IS the price: the shield traded health for tempo.
 const HEAVY_CLEAN_STAGGER = 0.30;
 const MATCH_COUNTDOWN = 3;
+
+// ============================================================
+// THE MUSTER — nobody swings until everybody is standing there.
+//
+// The owner, verbatim (BACKLOG 2b.2):
+//
+//   "a lot of the time the game starts before fully loading in which is a poor
+//    experience, we shouldn't start until everyone is fully loaded in."
+//
+// So the match now has a phase in front of the countdown: `loading`. The bell
+// is not armed until every client that ASKED TO BE WAITED FOR has said it is
+// built, or `LOAD_HOLD_MS` has run out.
+//
+// WHO IS WAITED FOR, and why it is opt-in. A client declares `awaitLoad: true`
+// on `create`/`join` and then sends `loaded` when its arena is standing. Only
+// declared clients are waited for. That is not timidity about the feature — it
+// is the difference between a browser building a three.js scene and a harness
+// or a headless second server that has nothing to build and would otherwise
+// hold a room for twelve seconds per bout, a thousand bouts deep. A client that
+// does not declare is not waited for and is dealt into the fight as it always
+// was, which is exactly the behaviour that existed before this phase.
+//
+// WHAT HAPPENS AT THE TIMEOUT IS A DECISION AND HERE IT IS: THE MATCH STARTS.
+// One bad connection must not hold seven people, and the honest failure is the
+// one man arriving late rather than eight men staring at a lobby. Twelve
+// seconds is the budget, measured from the moment the host presses start, and
+// the room is TOLD who it is waiting for while it waits — a wait a player
+// cannot see is indistinguishable from a hang.
+//
+// AND WITHHOLDING `loaded` BUYS A CHEAT NOTHING, which is the property that
+// keeps this out of `cheattest`'s territory. A man who never reports gets:
+// no invincibility (the spawn grace is armed on the fighting transition for
+// everyone alike and is not extended by an inch), no delay past the shared
+// deadline, and no information — the countdown he is delaying is his own too.
+// The one thing he can do is make himself late, and he can already do that by
+// closing his laptop. There is deliberately no mercy here to farm.
+const LOAD_HOLD_MS = 12_000;
 const SPAWN_INVINCIBLE = 2.0;
 // `const ARENA_RADIUS = 18` USED TO LIVE HERE AND IT IS DELIBERATELY GONE.
 //
@@ -741,12 +778,30 @@ const BOT_SKILL = { recruit: 0.45, warrior: 0.7, jarl: 0.92 };
 // stroke a whole tenth of a second before contact and block all of them.
 //
 // So a bot must now WATCH a windup for this long before it may answer it, and
-// the windup has to still be running when it does. Against the roster's windups
-// (runekeeper 0.232, warden 0.340, huscarl 0.408, berserker 0.532) that means a
-// recruit at 0.287 s can only answer a huscarl or a berserker, a warrior at
-// 0.214 s picks up the warden as well, and only a jarl at 0.174 s reads a seax.
-// The class that is hard for a human to react to is hard for a bot, off the same
-// number, which is the only way the two stay honest with each other.
+// the windup has to still be running when it does. The class that is hard for a
+// human to react to is hard for a bot, off the same number, which is the only
+// way the two stay honest with each other.
+//
+// THE ARITHMETIC, CORRECTED, AND WHY THE CORRECTION MATTERS. This comment used
+// to say "a recruit at 0.287 s can only answer a huscarl or a berserker". The
+// code says 0.34 - 0.45 * 0.18 = 0.259, and 0.259 is SHORTER than a warden's
+// 0.340 windup — so a recruit answers wardens too, and always has. The 0.287
+// belonged to a `BOT_SKILL.recruit` this file no longer holds. `docs/PROCESS.md`
+// R7: a comment describing a value the code does not have is worse than no
+// comment, because it is trusted. Against the roster's windups (runekeeper
+// 0.232, warden 0.340, huscarl 0.408, berserker 0.532) the true reading is:
+//
+//   recruit 0.259 s — reads warden, huscarl, berserker. Misses only the seax.
+//   warrior 0.214 s — reads all four.
+//   jarl    0.174 s — reads all four.
+//
+// WHICH MEANS THIS LEVER IS NEARLY INERT AS A LADDER, and that is a finding
+// rather than a complaint: recruit→warrior gains exactly ONE class's windup and
+// warrior→jarl gains NOTHING AT ALL. `tools/bottest.mjs` measures the
+// consequence — the recruit→warrior rung is the one the ladder cannot place —
+// and the rungs that do separate are the ones built out of `punishChance`, the
+// guard hold and `strikeReach` instead. Nothing here has been retuned to hide
+// that; it is written down so the next person moves the right constant.
 const BOT_REACTION = 0.34;
 const BOT_REACTION_SKILL = 0.18;
 // And a bot's own cadence is measured from the end of its stroke rather than
@@ -756,6 +811,25 @@ const BOT_REACTION_SKILL = 0.18;
 const BOT_SWING_GAP = 0.45;
 const BOT_SWING_GAP_SKILL = 0.30;
 const BOT_TITLES = { recruit: " the Young", warrior: "", jarl: " the Grim" };
+/** The four strokes, and the pool a bot's favourite is drawn from. */
+const BOT_STROKES = ["left", "right", "overhead", "stab"];
+/**
+ * THE PUNISH — taking a man in recovery — GRADED, not switched.
+ *
+ * This used to be `bot.aiSkill > 0.6`, a hard threshold that a warrior (0.70)
+ * and a jarl (0.92) both clear and a recruit (0.45) does not. So the sharpest
+ * thing a bot does was NOT a property of the top of the ladder: it arrived
+ * whole at the middle rung and never improved again, and `tools/bottest.mjs`
+ * measured the consequence — jarl over warrior 55.8% [46.9-64.4], an interval
+ * straddling a coin toss. A three-rung ladder whose top rung cannot be
+ * distinguished from its middle is a two-rung ladder with a decoration on it.
+ *
+ * Graded from the same scalar: recruit 0.00, warrior 0.32, jarl 0.67. The
+ * recruit still never sees the opening, the warrior sees a third of them, and
+ * the jarl sees two thirds — which is the difference a player is supposed to
+ * feel when he steps up.
+ */
+const punishChance = (skill) => Math.max(0, Math.min(1, (skill - 0.5) * 1.6));
 const SOLO_BOTS_BY_DIFFICULTY = { recruit: 1, warrior: 2, jarl: 3 };
 const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood moot
 
@@ -1596,6 +1670,11 @@ export function makeEngine(options = {}) {
     const stats = WARRIOR_STATS[warriorClass];
     return {
       id, name, warriorClass, team: "none", ready: false,
+      // THE MUSTER, per man. `awaitsLoad` is his client's declaration that it
+      // builds an arena and would like to be waited for; `loaded` is whether it
+      // has finished. Both are public — the lobby draws "waiting for Guthrum"
+      // off them, and a wait nobody can see is a hang.
+      awaitsLoad: false, loaded: true,
       appearance: appearance || null,
       position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
       // Steering and bursts are integrated apart (see gameTick) and summed
@@ -1764,7 +1843,18 @@ export function makeEngine(options = {}) {
   // twenty times a second of wire it does not deserve.
   const PRIVATE_FIELDS = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt",
     "aiSkill", "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName",
-    "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil"];
+    "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil",
+    // A bot's temperament and its bookkeeping. Server scratch, all of it: a
+    // client that could read `favoured` off the wire would be reading the man's
+    // habit off a screen instead of learning it from his shoulder, which is the
+    // one thing this feature exists to make worth doing.
+    "nerve", "guardHabit", "favoured", "favourBias", "difficulty",
+    // A CAPABILITY, NOT GAME STATE. `awaitsLoad` is what a client said about
+    // itself at join; nothing on any screen is drawn from it and publishing it
+    // would invite a client to reason about who else is being waited for. Its
+    // consequence — `loaded` — IS published, because "who is the room standing
+    // about for" has to be readable off one snapshot.
+    "awaitsLoad"];
 
   function serializeRoom(room) {
     const players = {};
@@ -1900,6 +1990,10 @@ export function makeEngine(options = {}) {
         sendLobbyUpdate(room);
       });
       case "ready": return withRoom(sid, (room, player) => { player.ready = !player.ready; sendLobbyUpdate(room); });
+      // "My arena is standing." Idempotent, ignored from a client that never
+      // asked to be waited for, and it can only ever make the fight start
+      // SOONER — see LOAD_HOLD_MS on why there is nothing here to farm.
+      case "loaded": return withRoom(sid, (room, player) => reportLoaded(room, player));
       case "add_bot": return withRoom(sid, (room, player) => {
         if (room.hostId !== player.id) return;
         const diff = normalizeDifficulty(data.difficulty, room.difficulty);
@@ -1984,7 +2078,16 @@ export function makeEngine(options = {}) {
         if (room.hostId === s.playerId) {
           for (const [pid] of room.players) { if (!pid.startsWith("bot_")) { room.hostId = pid; break; } }
         }
-        sendLobbyUpdate(room);
+        // A MAN WHO LEFT IS NOT WAITED FOR. Without this the worst case is the
+        // whole twelve seconds spent on somebody whose socket is already shut,
+        // which is the precise shape of "one bad connection hangs seven people"
+        // that the hold exists to avoid.
+        if (room.state === "loading" && !stillLoading(room).length) {
+          room.phaseAt = 0;
+          startRound(room);
+        } else {
+          sendLobbyUpdate(room);
+        }
       }
     }
     s.roomCode = null; s.playerId = null;
@@ -2011,6 +2114,7 @@ export function makeEngine(options = {}) {
     };
     const pid = randomUUID();
     const player = createPlayer(pid, name, "warden", data.appearance || null);
+    declareLoadWait(player, data.awaitLoad);
     room.players.set(pid, player);
     room.hostId = pid;
     rooms.set(code, room);
@@ -2034,6 +2138,7 @@ export function makeEngine(options = {}) {
 
     const pid = randomUUID();
     const player = createPlayer(pid, String(data.name || "Warrior").substring(0, 20), "warden", data.appearance || null);
+    declareLoadWait(player, data.awaitLoad);
     room.players.set(pid, player);
     s.roomCode = code; s.playerId = pid;
     sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
@@ -2070,6 +2175,7 @@ export function makeEngine(options = {}) {
     };
     const pid = randomUUID();
     const player = createPlayer(pid, name, data.warriorClass && WARRIOR_STATS[data.warriorClass] ? data.warriorClass : "warden", data.appearance || null);
+    declareLoadWait(player, data.awaitLoad);
     room.players.set(pid, player);
     room.hostId = pid;
     rooms.set(code, room);
@@ -2110,6 +2216,31 @@ export function makeEngine(options = {}) {
     bot.strafePhase = Math.random() * Math.PI * 2;
     bot.blockUntil = -1;
     bot.isBlocking = false;
+    // HIS TEMPERAMENT, rolled once and kept for the life of the bot.
+    //
+    // BACKLOG 3.2 asks for "a bot that reads as a person rather than a
+    // lawnmower", and the reason the old ones did not is that every recruit in
+    // the game was the SAME recruit: one scalar, `aiSkill`, and identical
+    // conditionals under it, so two bots side by side differed only by which
+    // `Math.random()` they happened to draw. A player cannot learn a coin.
+    //
+    // THE SPREAD IS THE SAME AT EVERY DIFFICULTY, deliberately. Temperament
+    // says which man this is; `aiSkill` says how good he is. If the spread grew
+    // with the rung, a jarl would be a recruit with more variance and the
+    // ladder would be measuring the wrong thing. `tools/bottest.mjs` §1 holds
+    // difficulty to the brain and §3 holds these to being visible.
+    //
+    //   nerve      how close he chooses to stand. 0.86 hugs, 1.14 keeps a pole.
+    //   guardHabit how readily he answers a windup with steel. A hand-shy man
+    //              and a shield-man are different opponents at one difficulty.
+    //   favoured   the stroke he comes back to under pressure, and how strongly.
+    //              THIS is the one a player can learn, which is the whole point:
+    //              the parry is a conversation and you cannot converse with a
+    //              uniform draw over four directions.
+    bot.nerve = 0.86 + Math.random() * 0.28;
+    bot.guardHabit = 0.72 + Math.random() * 0.56;
+    bot.favoured = BOT_STROKES[(Math.random() * BOT_STROKES.length) | 0];
+    bot.favourBias = 0.22 + Math.random() * 0.26;
     retuneBot(bot, diff);
     room.players.set(id, bot);
   }
@@ -2176,6 +2307,74 @@ export function makeEngine(options = {}) {
       p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
       if (!isTeamMode(room) && room.mode !== "solo") room.roundWins[p.id] = 0;
     });
+    // THE MUSTER, and it goes here rather than inside `startRound` on purpose:
+    // once per match, before the first bell. See LOAD_HOLD_MS.
+    musterThenRound(room);
+  }
+
+  /* ---------------- THE MUSTER ---------------- */
+
+  /**
+   * A client's declaration that it builds something and would like the room to
+   * wait for it. See LOAD_HOLD_MS. Anything but a literal `true` is "deal me in
+   * as before" — a missing field, a harness, an old client.
+   */
+  function declareLoadWait(player, awaitLoad) {
+    player.awaitsLoad = awaitLoad === true;
+    player.loaded = !player.awaitsLoad;
+  }
+
+  /** The men the room is still standing about for, by name. */
+  function stillLoading(room) {
+    const waiting = [];
+    room.players.forEach((p) => {
+      if (!p.bot && p.awaitsLoad && !p.loaded) waiting.push({ id: p.id, name: p.name });
+    });
+    return waiting;
+  }
+
+  /**
+   * Tell the room who it is waiting for, and until when.
+   *
+   * `until` is an epoch ms so a client can draw a bar rather than a spinner. It
+   * is the ONLY place a wall clock leaves this phase — the deadline the server
+   * actually enforces is `room.phaseAt`, in sim ms, like every other deadline
+   * the simulation owns.
+   */
+  function announceMuster(room) {
+    broadcast(room, { type: "match_loading", data: {
+      waitingFor: stillLoading(room).map((w) => w.name),
+      until: Date.now() + Math.max(0, room.phaseAt - simMs),
+    } });
+  }
+
+  /**
+   * Start the fight, or hold it until the arenas are up.
+   *
+   * Called once per MATCH and never per round. Rounds two and three do not
+   * rebuild anything, and a hold between rounds would be a stall a player could
+   * impose on seven other people three times a match.
+   */
+  function musterThenRound(room) {
+    room.players.forEach((p) => { if (p.awaitsLoad) p.loaded = false; });
+    if (!stillLoading(room).length) { room.phaseAt = 0; return startRound(room); }
+    room.state = "loading";
+    room.countdown = 0;
+    room.phaseAt = simMs + LOAD_HOLD_MS;
+    broadcast(room, { type: "game_state", data: serializeRoom(room) });
+    announceMuster(room);
+  }
+
+  /**
+   * A man reports his arena standing. Releases the room the moment he is the
+   * last one — the bell is not made to wait out a timer nobody needs.
+   */
+  function reportLoaded(room, player) {
+    if (!player.awaitsLoad || player.loaded) return;
+    player.loaded = true;
+    if (room.state !== "loading") return sendLobbyUpdate(room);
+    if (stillLoading(room).length) return announceMuster(room);
+    room.phaseAt = 0;
     startRound(room);
   }
 
@@ -3378,9 +3577,13 @@ export function makeEngine(options = {}) {
     if (now < bot.nextThink) return;
     bot.nextThink = now + (0.18 - bot.aiSkill * 0.08);
 
-    // Release a held block when its guard window ends
-    if (bot.isBlocking && now >= bot.blockUntil) {
-      botAct(room, bot, {});
+    // Release a held block when its guard window ends — or the moment the
+    // server has taken it off him anyway. A stagger, a knockdown or an empty
+    // stamina bar all drop a guard out from under a man, and a bot that went on
+    // believing in it was the same phantom as the one below, arriving from the
+    // other side.
+    if (bot.isBlocking && (now >= bot.blockUntil || bot.state !== "blocking")) {
+      if (bot.state === "blocking") botAct(room, bot, {});
       bot.isBlocking = false;
     }
 
@@ -3431,16 +3634,25 @@ export function makeEngine(options = {}) {
     bot.strafePhase += dt * (0.6 + bot.aiSkill * 0.5);
     const strafe = Math.sin(bot.strafePhase);
 
-    const dirs = ["left", "right", "overhead", "stab"];
-    const attackDir = dirs[(Math.random() * 4) | 0];
+    // HIS STROKE, and it is not a coin. `favourBias` of the time he comes back
+    // to the side he favours; the rest is drawn over all four. A player who
+    // fights the same man twice can learn that he opens overhead, and learning
+    // an opponent is the entire premise of a parry window — see the note on
+    // `bot.favoured` in `addBot`. The bias is per-BOT, so two recruits in one
+    // room are two different opponents rather than one opponent twice.
+    const attackDir = Math.random() < (bot.favourBias ?? 0)
+      ? (bot.favoured || "right")
+      : BOT_STROKES[(Math.random() * BOT_STROKES.length) | 0];
     // A blow it has had time to SEE, and which has not yet landed. Everything
     // defensive hangs off this rather than off `state === "attacking"`, which is
     // now true for two thirds of a stroke the bot can do nothing about.
     const windupSeen = target.attackPhase === "windup" ? target.swingT * target.swingDuration : 0;
     const readable = windupSeen >= BOT_REACTION - bot.aiSkill * BOT_REACTION_SKILL;
     // ...and the other side of the same coin: a man in recovery has spent his
-    // weight and cannot answer. Only the better bots see the opening.
-    const openings = target.attackPhase === "recovery" && bot.aiSkill > 0.6;
+    // weight and cannot answer. How OFTEN a bot sees that opening is graded by
+    // skill rather than switched on at a threshold — see `punishChance`, and
+    // `tools/bottest.mjs` §2 for the measurement that made this a graded number.
+    const openings = target.attackPhase === "recovery" && Math.random() < punishChance(bot.aiSkill);
 
     // Every distance a bot judges is now judged against a weapon rather than
     // against one constant. Two different weapons are in play and the bot needs
@@ -3455,7 +3667,9 @@ export function makeEngine(options = {}) {
     // deep that a backstep takes it out of range. A runekeeper bot that kept the
     // old 2.1 would have paced around a seax that stops biting at 1.70 and swung
     // at air for the whole match.
-    const wantDist = myReach * 0.7;
+    // ...times his own nerve. A man who stands a hand's breadth closer than the
+    // next man is a different fight to be in, and it costs one multiply.
+    const wantDist = myReach * 0.7 * (bot.nerve ?? 1);
     let toward = 0;
     if (dist > wantDist + 0.4) toward = 1;
     else if (dist < wantDist - 0.5) toward = -0.7;
@@ -3469,12 +3683,47 @@ export function makeEngine(options = {}) {
       botIntent(bot, 0, 0, false);
     }
 
-    // Guard: hold a BLOCK for a short window when enemy winds up
-    if (readable && !bot.isBlocking && dist < theirReach * 1.15 && Math.random() < 0.22 + bot.aiSkill * 0.3) {
+    // Guard: hold a BLOCK for a short window when the enemy winds up.
+    //
+    // THE PHANTOM GUARD, and it is the defect that made the middle of the
+    // ladder worse than the bottom. `processInput` REFUSES a block from a man
+    // who is mid-stroke — `input.block && state !== "attacking"` — and this
+    // used to set `bot.isBlocking = true` regardless. So a bot that asked to
+    // guard while committed spent the next half-second to full second
+    // BELIEVING it had a guard up: not blocking, and refusing to attack or
+    // shove because `!bot.isBlocking` gates both. It stood there.
+    //
+    // A warrior falls into it more often than a recruit, because a warrior
+    // swings more and is therefore committed more, and that is exactly what
+    // `tools/bottest.mjs` §3 measured before this line changed: guard up on
+    // 1.1% of a recruit's ticks and 0.4% of a warrior's. The ladder ran
+    // BACKWARDS on the one behaviour a player reads first.
+    //
+    // Two changes and they are both "believe the server": do not ask while
+    // committed, and only believe the guard if the man is actually blocking
+    // after the message. `guardHabit` is his own — a shield-man and a
+    // hand-shy man at one difficulty.
+    if (readable && !bot.isBlocking && !isCommitted(bot) && dist < theirReach * 1.15 &&
+        Math.random() < (0.22 + bot.aiSkill * 0.3) * (bot.guardHabit ?? 1)) {
       botAct(room, bot, { block: true, attackDir: target.attackDir });
-      bot.isBlocking = true;
-      bot.blockUntil = now + 0.45 + Math.random() * 0.6;
-      return;
+      if (bot.state === "blocking") {
+        bot.isBlocking = true;
+        // HOW LONG HE COWERS, and this is the bottom rung of the ladder made
+        // visible. A guard is not free: `stepRoom` drains stamina through it,
+        // `BLOCK_MOVE_MULT` slows him under it, and a man behind a shield is a
+        // man not swinging. It is also NOT a parry — `processAttack` only
+        // parries a guard raised inside `PARRY_WINDOW` of the blow — so a long
+        // hold is strictly the worse version of a short one.
+        //
+        // Every bot used to hold for the same 0.45-1.05 s. Now a recruit cowers
+        // half again as long as a jarl, which is the shape of the mistake a
+        // frightened man actually makes, and it is pure brain: not one number
+        // on his sheet has moved. ANCHORED AT `warrior` like `strikeReach`
+        // below — 0.7 gives exactly the old figure — so the roster matrix is
+        // not moved by this lever.
+        bot.blockUntil = now + (0.45 + Math.random() * 0.6) * (1 + (0.7 - bot.aiSkill) * 0.9);
+        return;
+      }
     }
 
     // Dodge an imminent close blow. The roll goes through the same filter as a
@@ -3516,7 +3765,20 @@ export function makeEngine(options = {}) {
     // recovery is punished on the spot rather than on the next beat — that is
     // what recovery is for, and a bot that could not use it would leave the whole
     // point of the weight pass to the player alone.
-    if (!bot.isBlocking && dist <= myReach * 0.95 && (now >= bot.nextAttackAt || openings) && bot.stamina > 25) {
+    //
+    // AND A RECRUIT SWINGS AT AIR. Every bot used to judge its range exactly —
+    // `dist <= myReach * 0.95` for a recruit and for a jarl alike — so the only
+    // thing separating the bottom of the ladder from the middle was how QUICKLY
+    // it did the right thing, which a player reads as lag rather than as
+    // inexperience. A young man's mistake is not that he is slow. It is that he
+    // commits from too far out, and pays for it in the recovery.
+    //
+    // ANCHORED AT `warrior`, and that is deliberate: 0.7 gives exactly 0.95, the
+    // constant this replaces, so `tools/classmatrix.mjs` — which fights the
+    // whole roster at `warrior` — is not moved by this lever at all. Recruit
+    // reaches 1.04 of his own reach and whiffs; a jarl holds to 0.87 and lands.
+    const strikeReach = myReach * (0.95 + (0.7 - bot.aiSkill) * 0.35);
+    if (!bot.isBlocking && dist <= strikeReach && (now >= bot.nextAttackAt || openings) && bot.stamina > 25) {
       const heavy = Math.random() < 0.2 * bot.aiSkill + (target.state === "blocking" ? 0.18 : 0);
       botAct(room, bot, {
         rotationY: bot.yaw + (Math.random() - 0.5) * 0.15,
@@ -3817,6 +4079,15 @@ export function makeEngine(options = {}) {
       case "lobby":
         room.phaseAt = 0;
         startMatch(room);
+        return;
+      // THE MUSTER RAN OUT. Twelve seconds was the budget and it is spent, so
+      // the fight begins without the men who never answered — one bad
+      // connection does not hold seven people. They are still seated, still in
+      // the round, and arrive standing where they were placed. See LOAD_HOLD_MS
+      // for why this is the decision and not the other one.
+      case "loading":
+        room.phaseAt = 0;
+        startRound(room);
         return;
       // The bell. Three, two, one — thin packets carrying only the number, see
       // WIRE-PROTOCOL §9.3 — and then the fight.
@@ -4299,6 +4570,16 @@ export function makeEngine(options = {}) {
             for (const [pid] of room.players) { if (!pid.startsWith("bot_")) { room.hostId = pid; break; } }
           }
           if (room.state === "fighting" || room.state === "last_stand") checkRoundEnd(room);
+          // A MAN WHOSE SOCKET SHUT IS NOT A MAN TO WAIT FOR, and this is the
+          // path that matters: `leaveRoomForSession` is the polite exit, and a
+          // dropped connection comes through here. Without it the worst case is
+          // the full twelve seconds spent on somebody who is already gone,
+          // which is exactly the "one bad connection hangs seven people" the
+          // hold exists to avoid, arriving by the back door.
+          else if (room.state === "loading" && !stillLoading(room).length) {
+            room.phaseAt = 0;
+            startRound(room);
+          }
           else sendLobbyUpdate(room);
         }
       }

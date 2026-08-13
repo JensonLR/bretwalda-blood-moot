@@ -73,12 +73,13 @@ message is dropped silently.
 
 | `type` | `data` | Guards | Effect |
 |---|---|---|---|
-| `create` | `{name?, mode?, bestOf?, appearance?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` defaults `"blood_moot"`; `"honour_duel"` caps the room at 2, everything else at 8 (1051). Caller's class is forced to `warden` (1056). |
-| `join` | `{code, name?, appearance?}` | room exists; `state === "lobby"`; `humanCount < maxPlayers` | Joins. Replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Code is upper-cased (1067). Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you (1069-1072). Failures reply `error`. |
-| `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
+| `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` defaults `"blood_moot"`; `"honour_duel"` caps the room at 2, everything else at 8 (1051). Caller's class is forced to `warden` (1056). |
+| `join` | `{code, name?, appearance?, awaitLoad?}` | room exists; `state === "lobby"`; `humanCount < maxPlayers` | Joins. Replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Code is upper-cased (1067). Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you (1069-1072). Failures reply `error`. |
+| `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?, awaitLoad?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
 | `select_class` | `{warriorClass}` | class must exist in `WARRIOR_STATS` | Sets class **and refills health and stamina to the new maximum**. ⚠ **No room-state guard — see §9.1.** Broadcasts `lobby_update`. |
 | `select_team` | `{team}` | **none whatsoever** (953) | Writes `data.team` onto the player verbatim. ⚠ **See §9.2.** Broadcasts `lobby_update`. |
 | `ready` | — | — | Toggles. Broadcasts `lobby_update`. Nothing reads `ready` to decide anything — see §9.4. |
+| `loaded` | — | ignored unless the caller declared `awaitLoad` | **"My arena is standing."** Releases this man from the muster; when he is the last one the countdown starts on that message rather than on a timer. Idempotent. See §2.1. |
 | `set_appearance` | `{appearance}` | — | Stored opaquely and echoed to every client on every snapshot. The simulation never reads it; see §5. |
 | `add_bot` | `{difficulty?, warriorClass?}` | host only; `botsIn < botCapacity` | Adds one bot. `warriorClass` names what it fights as; anything not in `WARRIOR_STATS` is ignored and the roster cycles `BOT_CLASSES` as before. |
 | `remove_bot` | `{botId?}` | host only | Named bot, or the last one added. |
@@ -89,6 +90,43 @@ message is dropped silently.
 | `emote` | `{emote}` | id in `EMOTES`; alive; not committed, dodging or staggered; 2500 ms wall-clock throttle | Broadcast to the room, sender included. Refusals are silent (1706-1716). |
 | `leave` | — | — | Same as dropping the socket. |
 | `ping` | — | — | Replies `pong` to the sender only. Purely a keepalive; the sim has no timeout of its own. |
+
+### 2.1 `awaitLoad` and `loaded` — the muster
+
+The owner, verbatim (BACKLOG 2b.2):
+
+> "a lot of the time the game starts before fully loading in which is a poor
+> experience, we shouldn't start until everyone is fully loaded in."
+
+So there is a phase in front of the countdown. `start` puts the room in
+**`state: "loading"`**, and the bell is not armed until every client that
+declared `awaitLoad: true` on `create`/`join`/`solo` has sent `loaded`, or
+`LOAD_HOLD_MS` (12 s) has run out.
+
+**The declaration is opt-in, and that is a protocol decision worth stating.**
+A browser building a three.js arena wants to be waited for. A harness, a
+headless second server, a bot client and every client written before this
+feature have nothing to build, and a room that waited twelve seconds for each
+of them would cost `classmatrix` three hours a run. A client that does not
+declare is dealt in exactly as it was before this phase existed, so this is a
+strictly additive change to the protocol: **an existing client is unaffected in
+every respect.**
+
+**What happens at the deadline is a decision and not a default: the match
+starts.** One bad connection must not hold seven people. The men who never
+answered are still seated, still in the round, and arrive standing where they
+were placed.
+
+**Withholding `loaded` is worth nothing**, which is what keeps this out of the
+cheat surface: there is no extra spawn grace, no extra health, no delay past
+the shared deadline, and no information. The only thing it buys is being late,
+which a player can already achieve by closing his laptop. `tools/readytest.mjs`
+§5 fights a match with a silent client and compares his spawn grace to the
+honest man's, to the tick.
+
+The muster is a **match's**, not a **round's**. Rounds two and three rebuild
+nothing, and a hold a player could impose three times a match would be a stall
+rather than a courtesy.
 
 ### `input` — the whole of combat
 
@@ -142,6 +180,7 @@ it; the touch client never sends it, so it is optional.
 | `player_joined` | room, minus the joiner | `{playerId, name}`. |
 | `player_left` | room | `{playerId}`. |
 | `lobby_update` | room | Any lobby mutation, and 10 s after `match_end` when the room rolls back. Full snapshot. |
+| `match_loading` | room | The muster. `{waitingFor: string[], until}` — the NAMES the room is still standing about for, and the epoch-ms deadline past which nobody waits. Re-sent each time the list gets shorter. `until` is the only wall clock this phase puts on the wire; the deadline the server enforces is in sim ms. See §2.1. |
 | `countdown` | room | Once at round start with a **full snapshot plus `countdown`**, then once a second with **`{countdown}` and nothing else**. See §9.3. |
 | `game_state` | room | Once per server wake during `fighting` / `last_stand`, and once on the countdown→fighting transition. Full snapshot. |
 | `hit` | room | Every resolved blow, parry, block, shove and knockdown. |
@@ -791,6 +830,7 @@ C2S solo
 C2S select_class
 C2S select_team
 C2S ready
+C2S loaded
 C2S set_appearance
 C2S add_bot
 C2S remove_bot
@@ -807,6 +847,7 @@ S2C pong live
 S2C player_joined live
 S2C player_left
 S2C lobby_update live
+S2C match_loading live
 S2C countdown live
 S2C game_state live
 S2C hit live

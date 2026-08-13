@@ -132,6 +132,16 @@ export default function Page() {
   // How far the arena has got. Null until the canvas mounts and reports.
   const [forge, setForge] = useState<ForgeProgress | null>(null);
   const [forgeStalled, setForgeStalled] = useState(false);
+  /**
+   * THE MUSTER — who the server is still waiting for, and until when.
+   *
+   * The owner: "a lot of the time the game starts before fully loading in which
+   * is a poor experience, we shouldn't start until everyone is fully loaded
+   * in." The server holds the bell (engine `LOAD_HOLD_MS`); this is the half a
+   * player can see, because a wait nobody is told about looks exactly like a
+   * hang and would trade one bad experience for another.
+   */
+  const [muster, setMuster] = useState<{ waitingFor: string[]; until: number } | null>(null);
   const [playerName, setPlayerName] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [roomCode, setRoomCode] = useState("");
@@ -534,7 +544,25 @@ export default function Page() {
       case "game_state": {
         const d = msg.data as unknown as RoomState;
         setRoomState(d);
-        if (screenRef.current !== "game" && (d.state === "fighting" || d.state === "last_stand")) setScreen("game");
+        // `loading` IS THE REASON THE CANVAS EXISTS YET. The server holds the
+        // bell until this client reports its arena standing, and the arena is
+        // built by GameCanvas — which is only mounted on the game screen. Enter
+        // it here or the muster waits twelve seconds for a forge that was never
+        // started, every match. See `awaitLoad` above and LOAD_HOLD_MS in the
+        // engine.
+        if (screenRef.current !== "game" &&
+            (d.state === "loading" || d.state === "fighting" || d.state === "last_stand")) {
+          setMatchResults(null);
+          setScreen("game");
+        }
+        break;
+      }
+      // Who the room is still standing about for. Rendered rather than
+      // swallowed: a wait a player cannot see is indistinguishable from a hang,
+      // which is the defect this whole phase was added to remove.
+      case "match_loading": {
+        const d = msg.data as { waitingFor?: string[]; until?: number };
+        setMuster({ waitingFor: Array.isArray(d.waitingFor) ? d.waitingFor : [], until: Number(d.until) || 0 });
         break;
       }
       case "last_stand": {
@@ -702,7 +730,7 @@ export default function Page() {
     void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance });
+    sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance, awaitLoad: true });
   }, [playerName, selectedMode, bestOf, ensureTransport, sendMsg, showError]);
 
   const handleJoin = useCallback(async () => {
@@ -713,7 +741,7 @@ export default function Page() {
     void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("join", { name: playerName, code: joinCode.toUpperCase(), appearance: profileRef.current.appearance });
+    sendMsg("join", { name: playerName, code: joinCode.toUpperCase(), appearance: profileRef.current.appearance, awaitLoad: true });
   }, [playerName, joinCode, ensureTransport, sendMsg, showError]);
 
   // The whole trial is configured on the client and travels in one message, so
@@ -732,6 +760,7 @@ export default function Page() {
       warriorClass: soloClass,
       appearance: profileRef.current.appearance,
       autoStart: true,
+      awaitLoad: true,
     });
   }, [playerName, soloClass, soloDifficulty, soloBots, ensureTransport, sendMsg]);
 
@@ -970,8 +999,26 @@ export default function Page() {
 
   // Leaving the fight tears the canvas down; the next one forges from nothing.
   useEffect(() => {
-    if (screen !== "game") { setForge(null); setForgeStalled(false); }
+    if (screen !== "game") { setForge(null); setForgeStalled(false); setMuster(null); }
   }, [screen]);
+
+  /**
+   * "MY ARENA IS STANDING." Sent once the forge has landed every stage, which
+   * is the only honest definition of loaded this client has — the same signal
+   * that takes the forge screen off. The server ignores a repeat, so there is
+   * nothing to remember, and it can only ever make the fight start SOONER.
+   *
+   * `forgeStalled` is in the condition on purpose: at twenty seconds the forge
+   * screen comes off regardless (see below), and a client that has given up
+   * waiting for its own arena must not go on holding seven other people. The
+   * server's own twelve-second cap would have released them first; this makes
+   * the two agree rather than leaving the client silently the slower of them.
+   */
+  useEffect(() => {
+    if (screen !== "game") return;
+    if (forge && forge.done < forge.total && !forgeStalled) return;
+    sendMsg("loaded");
+  }, [screen, forge, forgeStalled, sendMsg]);
 
   // A loading screen that outlives the thing it is loading is the one failure
   // this feature has already had (docs/OPEN-DEFECTS.md). The build lands in
@@ -1028,6 +1075,27 @@ export default function Page() {
             </div>
             <div className="text-[10px] font-bold tracking-[0.25em] text-stone-500">
               {Math.min(forge.stage + 1, forge.stages)} OF {forge.stages}
+            </div>
+          </div>
+        )}
+        {/* THE MUSTER, once this client's own arena is up and the room is still
+            standing about for somebody else's. It is deliberately NOT drawn
+            while the forge screen is up — a man watching his own bar does not
+            also need to be told the room is waiting for him — and it is a
+            named list rather than a spinner, because "waiting for Guthrum" is
+            a fact a player can act on and a spinner is not. `until` is the
+            server's own deadline; nobody waits past it. */}
+        {muster && muster.waitingFor.length > 0 && roomState?.state === "loading" &&
+         !(forge && forge.done < forge.total && !forgeStalled) && (
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 z-40 -translate-y-1/2 px-8 text-center">
+            <div className="label-overline">THE MUSTER</div>
+            <div className="font-display mt-2 text-lg tracking-[0.18em] text-amber-100 sm:text-2xl"
+              style={{ textShadow: "0 0 30px rgba(255,180,60,0.35)" }}>
+              WAITING FOR {muster.waitingFor.join(", ").toUpperCase()}
+            </div>
+            <div className="knot-band mx-auto mt-3 w-full max-w-[18rem]" />
+            <div className="mt-2 text-[10px] font-bold tracking-[0.25em] text-stone-500">
+              THE FIGHT BEGINS WITHOUT THEM IF IT MUST
             </div>
           </div>
         )}

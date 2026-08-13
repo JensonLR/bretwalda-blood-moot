@@ -194,6 +194,13 @@ const NEUTRAL = {
 // denylist upstream, so this assertion is the only thing standing under it.
 const PUBLISHED = [
   "id", "name", "warriorClass", "team", "ready", "appearance",
+  // THE MUSTER. `loaded` is whether this man's arena is standing; the room is
+  // held in state `loading` until every declared client says so or the server's
+  // twelve seconds run out. Public because "who are we waiting for" has to be
+  // readable off one snapshot — see WIRE-PROTOCOL.md §2 and §9.13. The
+  // declaration behind it, `awaitsLoad`, is deliberately NOT published and is
+  // on the denylist below.
+  "loaded",
   "position", "rotation", "velocity",
   "health", "maxHealth", "stamina", "maxStamina",
   "state", "attackDir", "blockDir", "attackTimer", "blockTimer", "dodgeTimer", "staggerTimer",
@@ -216,7 +223,7 @@ const PUBLISHED = [
 ];
 const PRIVATE = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt", "aiSkill",
   "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName",
-  "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil"];
+  "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil", "awaitsLoad"];
 
 // ============================================================
 // SCENARIO A — a whole match, two humans, best of one
@@ -903,9 +910,60 @@ console.log("\n-- the sim never reached for the browser --");
 check("no browser global was touched during a whole match", touched.length === 0,
   touched.length ? [...new Set(touched)].join(", ") : "window, document, navigator, self, location, HTMLElement, rAF");
 
+// ============================================================
+// SCENARIO G — THE MUSTER, because a `live` claim has to be earned
+//
+// Every scenario above joins WITHOUT `awaitLoad`, which is the correct
+// behaviour for a harness and is exactly why none of them ever sees
+// `match_loading`. The document calls that message `live`, and a `live` message
+// no scenario exercises is a documented shape nothing has ever produced — the
+// same defect as a gate green because the case is absent, one level up. So one
+// room here declares a load and is driven through the whole phase.
+//
+// `readytest.mjs` holds the RULES of the muster — the deadline, the cheat
+// surface, once-per-match. This holds only its SHAPE on the wire.
+// ============================================================
+console.log("\n-- the muster --");
+const muster = (() => {
+  const eng = makeEngine({ autoTick: false });
+  const open = (label) => {
+    const c = { label, byType: new Map() };
+    c.sid = eng.connect((str) => {
+      const m = JSON.parse(str);
+      if (!c.byType.has(m.type)) c.byType.set(m.type, []);
+      c.byType.get(m.type).push(m.data);
+    });
+    c.send = (type, data) => eng.message(c.sid, { type, data: data || {} });
+    c.last = (t) => { const arr = c.byType.get(t) || []; return arr[arr.length - 1]; };
+    return c;
+  };
+  const host = open("host"), guest = open("guest");
+  host.send("create", { name: "Alpha", bestOf: 1, awaitLoad: true });
+  const code = host.last("join").code;
+  guest.send("join", { code, name: "Bravo", awaitLoad: true });
+  host.send("start");
+  const first = host.last("match_loading");
+  check("`start` with declared clients announces a muster, with NAMES and a deadline",
+    !!first && Array.isArray(first.waitingFor) && first.waitingFor.length === 2 &&
+    typeof first.until === "number" && first.until > Date.now(),
+    JSON.stringify(first));
+  check("...and the room's published state is `loading`",
+    eng._rooms.get(code).state === "loading", eng._rooms.get(code).state);
+  host.send("loaded");
+  check("...the list shortens as men report",
+    (host.last("match_loading").waitingFor || []).length === 1,
+    JSON.stringify(host.last("match_loading").waitingFor));
+  guest.send("loaded");
+  check("...and the last report rings the bell",
+    eng._rooms.get(code).state === "countdown" && (host.byType.get("countdown") || []).length === 1);
+  check("`awaitsLoad` is server scratch and never reaches a client, but `loaded` does",
+    Object.values(host.last("countdown").players).every((p) => !("awaitsLoad" in p) && "loaded" in p));
+  return host;
+})();
+
 console.log("\n-- the document held --");
 {
-  const seen = new Set([...a.host.byType.keys(), ...a.guest.byType.keys()]);
+  const seen = new Set([...a.host.byType.keys(), ...a.guest.byType.keys(), ...muster.byType.keys()]);
   // Scenario B's types too — it is the only place hit/kill-by-blow/ability live.
   for (const t of ["hit", "kill", "ability_used", "emote"]) seen.add(t);
   const undocumented = [...seen].filter((t) => !docS2C.has(t));

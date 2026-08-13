@@ -163,6 +163,18 @@ says "the war layer is done" is worth less than no document at all.
   season, with a permanent, unbuyable mark on their profile. Then the map
   resets, with the previous Bretwalda's kingdom starting at a small advantage
   and a large target on it.
+
+  **This last sentence was true in `war.mjs` and false in production, and that
+  is worth recording here rather than only in a commit message.** Under
+  concurrent callers the 35-day rollover raced: three seasons opened at once,
+  and every one of them opened DEAD EVEN — so the advantage and the target,
+  the entire reward for winning a season, silently did not happen and no number
+  in the repository said so. `openingHoldings` was never wrong; the persistence
+  around it could not be trusted to ask it the question. It is now enforced by
+  a partial unique index in Postgres and gated by `npm run warrace`, which
+  fires the boundary at ten callers at once and was shown red first. A design
+  document that states a mechanic owes the reader a note when the mechanic was
+  found not to be running.
 * **Clans** are sworn *within* a kingdom (this is exactly the owner's instinct,
   and it is right). A clan is 2–4 players who queue together and whose wins are
   attributed to both the clan and the kingdom.
