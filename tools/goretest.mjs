@@ -40,6 +40,18 @@
 // proof-of-failure, run on every invocation, and it is what stops the fix being
 // quietly deleted by somebody who trusts the passing column.
 //
+// WHAT THIS FILE DOES NOT MEASURE, said here because a reader looking for it
+// will look here first: this harness is about the arena being CLEAN, and every
+// claim in it is a count that is meant to be zero. It cannot say whether the
+// blood that arrives is any good — a spray that fell on the man's own boots
+// would satisfy all seven claims below. The shape of the spray is
+// `tools/gorestat.mjs`, which owns the two statistics that describe it (how far
+// the emission falls away between heartbeats, and whether any of it lands on the
+// man standing next to him) and which exists because both of those were
+// previously gated by rulers that could not rank two known-different sprays.
+// A count cannot see a shape; keeping the two files apart is what stops one
+// pretending to be the other.
+//
 // Exits non-zero if any claim fails.
 // ============================================================
 import { spawnSync } from "child_process";
