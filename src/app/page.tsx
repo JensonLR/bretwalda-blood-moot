@@ -5,7 +5,7 @@ import {
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
   Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
-  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX
+  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX, Map
 } from "lucide-react";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
@@ -1547,7 +1547,17 @@ export default function Page() {
           </div>
 
           <div className="mx-auto flex w-full max-w-[26rem] flex-col gap-3">
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+              {/* THE WAR. A real link and not a `setScreen`, because the map is
+                  its own route (`/factions`) — it has to be openable from a
+                  message, shareable, and readable by someone who has not
+                  fought yet. Losing the socket on the way there costs nothing:
+                  from the landing screen there is no room to lose. */}
+              <a href="/factions" className="mini-nav">
+                <Map size={19} className="text-amber-400" />
+                <span>The War</span>
+                <span className="text-[9px] font-normal text-amber-400/80">the map</span>
+              </a>
               <button onClick={() => setScreen("training")} className="mini-nav">
                 <Crosshair size={19} className="text-amber-400" />
                 <span>Training</span>

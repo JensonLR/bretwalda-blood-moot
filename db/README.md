@@ -7,8 +7,20 @@ missing `DATABASE_URL` degrades the game; it does not break it.
 ## Standing one up
 
 1. Create an empty Postgres database (Neon, Supabase, a container — anything).
-2. Paste `db/schema.sql` into its SQL editor and run it. Three tables,
-   four indexes, no extensions, no seed data.
+2. Paste `db/schema.sql` into its SQL editor and run it. Seven tables,
+   nine indexes, no extensions, no seed data.
+
+   Three of them are the war (`seasons`, `territories`, `war_ledger`,
+   `war_flips` — four, with `players` carrying the oath). `src/db/index.ts`
+   also brings every one of them up in place on the first request after a boot,
+   so an existing database does not need this file re-run; it is here for a
+   database being stood up from nothing.
+
+   **`war_ledger_match_player_idx` is not optional.** It is the unique index the
+   attribution write's idempotency rests on: without it, a retried or
+   double-delivered match banks its points twice, and two server instances bank
+   every match twice. `tools/warflow.mjs` asserts Postgres itself refuses the
+   duplicate.
 3. Set `DATABASE_URL` in the deployment's environment to the connection string.
    Nothing else changes — no code, no build flag.
 
@@ -31,6 +43,22 @@ DATABASE_URL=... npm run cheattest                          # needs a FRESH data
 
 `cheattest` is **not idempotent** — it asserts on once-per-save migration paths,
 so it fails against a database it has already run on. Drop and recreate first.
+
+The war has its own pair, and the split between them is the point:
+
+```
+npm run wartest              # the RULES: 79 checks, no database, four seconds
+npm run wartest -- --prove   # the same file with the defects INJECTED: every
+                             # neutrality gate must go RED, or it is blind
+WAR_TEST_DB=... npm run warflow   # the WIRING: 22 checks, end to end
+```
+
+`wartest` would pass in full on a build where `src/db/war.ts` wrote nothing at
+all — it holds the arithmetic, not the plumbing. `warflow` boots the game,
+swears profiles to different peoples, fights real matches over a real socket
+and then asks Postgres what it believes. It **drops and recreates the war
+tables on every run**, so point it at a scratch database and never at anything
+you want to keep.
 
 ## A note on connection strings
 

@@ -39,7 +39,12 @@
     "deathcamtest": "node tools/deathcamtest.mjs",
     "tuitiontest": "node tools/tuitiontest.mjs",
     "hudshot": "node tools/hudshot.mjs",
-    "roundbeatshot": "node tools/roundbeatshot.mjs"
+    "roundbeatshot": "node tools/roundbeatshot.mjs",
+    "wartest": "node tools/wartest.mjs",
+    "warflow": "node tools/warflow.mjs",
+    "warshot": "node tools/warshot.mjs",
+    "bottest": "node tools/bottest.mjs",
+    "readytest": "node tools/readytest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
