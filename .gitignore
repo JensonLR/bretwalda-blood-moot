@@ -52,6 +52,8 @@ art/ui/
 .beardseat/
 .goretest/
 .vfxprobe/
+# transpile cache for tools/teamread.mjs
+.teamread/
 
 # Git worktrees the agent harness creates for isolated parallel work. These are
 # whole checkouts of this repository living inside it — `git worktree list`
@@ -75,3 +77,5 @@ art/fit/
 # untracked in `git status` after every run — the same sweep the note above
 # warns about, one tool later.
 .manespread/
+# transpile cache for tools/hoodfall.mjs
+.hoodfall/

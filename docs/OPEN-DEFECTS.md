@@ -726,6 +726,90 @@ A 40-gold and a 100-gold item, both under 1% under a 120-gold helm. `art/look/re
 shows why: the mane is entirely INSIDE the cowl, with a few millimetres of
 hairline showing at the brow and nothing at all below the shoulder.
 
+#### MEASURED 13 Aug 2026 — `node tools/hoodfall.mjs`, and it says the known fix is not available
+
+The cause on record is `hairFall`'s first line, `if (hooded) return 0` — no
+falling mass under a cowl at all. That is true and it is **half of it**. The
+half nobody had measured is that **the hood is longer than the hair**, so
+restoring the fall on its own would put ~2600 vertices inside the cloth and
+still show nothing.
+
+`hoodfall` §2 fingerprints the hair meshes in world space, per class, with and
+without the cowl, against the hood's own lowest ring:
+
+```
+class        hair      bare reach   hooded reach   verts bare/hooded   hood hem   clearance
+huscarl      long           1.446          1.756     4444/1804        1.464       18 mm
+huscarl      braids         1.479          1.756     6226/1804        1.464      -16 mm
+runekeeper   long           1.336          1.650     4444/1804        1.376       40 mm
+runekeeper   braids         1.369          1.650     6226/1804        1.376        7 mm
+berserker    long           1.555          1.862     4444/1804        1.551       -4 mm
+berserker    braids         1.589          1.862     6226/1804        1.551      -38 mm
+```
+
+*Clearance* is how far a FREE fall — no helmet at all — reaches below the point
+the Shadow Hood's shoulder drape stops. **Four of the eight falls do not clear
+it, and the best case in the whole game is 40 mm, which is 5 px at the play
+lens.** A cowl on a berserker hangs 38 mm BELOW where his own war-locks end.
+
+So this is a reshape and not a revert, and it is the same shape of answer the
+Wyrm's cheek guard needs further down this file. The fix has to make ROOM as
+well as mass, and there are two places it could come from:
+
+1. **The temple window.** The cowl's fall sweeps ±2.30 rad about the nape, so
+   everything within 0.84 rad of dead ahead is open air below the rim. The face
+   takes the first ~0.55 rad of that; the band between 0.55 and 0.84 is cloth-
+   free and is exactly where locks escaping a hood belong. `hairCeil`'s hooded
+   branch would have to open there too — it currently caps standoff at 22 mm at
+   every (u, v), including where there is no cloth, because
+   `clamp01((v - rim)/(crown - rim))` clamps to the rim's own lift below the rim
+   rather than to infinity.
+2. **Past the mantle's hem**, which is the route the Sutton Hoo already takes —
+   `coifSquash` down to the rings and `shoulderRide` out onto the garment below
+   them. For a hood that means a `hoodSquash`/`hoodRide` pair against the
+   drape's superellipse, and a fall lengthened enough to be worth drawing.
+
+Neither is a constant to move, which is presumably why the pass that found the
+cause left it.
+
+### 1b. NEW — the Sutton Hoo has the same collapse, on three of the four classes
+
+`hoodfall` §1 asks a different question from `cosmetictest` §3: not "do these
+two silhouettes differ through a lens" but **"are these two builds the same
+object"** — every world-space vertex, rounded to a micron and digested. There is
+no threshold in it and so nothing to tune.
+
+```
+ONE OBJECT   huscarl     hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   warden      hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   warden      suttonhoo  long == braids   (1144 verts, identical to the micron)
+ONE OBJECT   runekeeper  hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   runekeeper  suttonhoo  long == braids   (1144 verts, identical to the micron)
+ONE OBJECT   berserker   hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   berserker   suttonhoo  long == braids   (1144 verts, identical to the micron)
+```
+
+The Long Mane (40 g) and the Braided War-locks (100 g) are not merely hard to
+tell apart under those two helms — they are **the same mesh**.
+
+**AND HERE IS WHY NOTHING SAW THE SUTTON HOO HALF OF IT.** `cosmetictest` §3
+carries this check:
+
+> "no two PAID hairstyles are the same shape as each other under any helm **but
+> the hood**"
+
+The hood is excluded, which is the carve-out `docs/PROCESS.md` names as failure
+mode 2 and which is still open. The Sutton Hoo is *inside* that check's scope
+and the check is green anyway — because `cosmetictest` builds one rig,
+`RIG = { cls: "huscarl" }` at line 233, and **the huscarl is the single
+class/helm pair in the table above that does NOT collapse.** The bishop's
+mantle is the reason: it is the one shoulder garment the gather has to ride out
+over, and riding it is what keeps the plait and the mane apart. The other three
+classes have no mantle and both rungs squash to the same aventail shape.
+
+A gate green because the case is absent. The case is four classes; the gate
+looks at one.
+
 ### 2. The beard is a SHEET, not a mass — MEASURED
 
 `npm run beardvolume` fires rays through the beard and reports the gap where
@@ -889,15 +973,47 @@ guard has to be cut to the jaw it covers — deep at the front beside the mouth,
 sweeping up to clear the mandible's angle, finishing short at the back — while
 sitting BEHIND the jawline rather than out on the cheek.
 
-### The trap that cost three of those sweeps
+### The trap that cost three of those sweeps — REMOVED 13 Aug 2026
 
 `cheekIn`, `cheekOut` and `cheekHemAt` at the top of the file look like the
-guard's geometry. `cheekHemAt` is a DUPLICATE of `deepHem` inside the builder,
-and it was the copy I swept first — which is why the hem appeared to do nothing
-twice. The file records having made this mirrored-definition mistake three times
-before; this is the fourth. Anyone editing the guard must edit `deepHem` at the
-builder, and keep `cheekHemAt` in step because the hair reads it to know where
-the metal stops.
+guard's geometry. `cheekHemAt` was a DUPLICATE of `deepHem` inside the builder,
+and it was the copy the earlier pass swept first — which is why the hem appeared
+to do nothing twice. The file records having made this mirrored-definition
+mistake three times before; that was the fourth.
+
+**The copy is gone.** `guardIn` and `guardOut` were literally `cheekIn` and
+`cheekOut` two lines above `deepHem`, and `deepHem`'s body was `cheekHemAt`'s
+`deep` branch character for character, so `deepHem` is now `cheekHemAt(|u|)` and
+there is one definition. `Math.abs(u)` against `awayFromFace(u)` was the only
+difference between them and it is not one inside the guard's own arc, where
+`sideArc` bounds `|u|` by `cheekOut` ≤ 1.62 rad.
+
+**Proven, not argued.** Every class × every helm × every hair rung — 160 rigs —
+was fingerprinted by digesting every world-space vertex to the micron, before
+and after. All 160 hashes are identical: the collapse moves no geometry at all.
+And the lever was pulled to prove the surviving definition is now the live one:
+`0.34 → 0.12` inside `cheekHemAt` moves 32 of the 160 rigs, which is exactly the
+two `deep` rungs (Wyrm-Crest, Sutton Hoo) on four classes at four hair rungs.
+Before the collapse that same edit moved the hair's ceiling and left the plate
+where it was.
+
+**This does not fix the Wyrm.** The verdict above stands — it is a reshape, and
+the guard still has to be cut to the jaw it covers. What has changed is that the
+reshape now costs one edit instead of three sweeps and a wrong conclusion.
+
+### And the comment above `cheekOut` was asserting a fix that is not in the build
+
+`docs/PROCESS.md` failure mode 3 names this pair verbatim, and it was still
+live: the comment opened *"1.52 rad on the short guards, not 1.10"* and argued at
+length for 1.52, and the line under it read `: 1.10`. It also claimed *"it is
+THIS constant that moves, not a copy of it inside the guard"*, which was false
+when it was written — `deepHem`, seven hundred lines down, was that copy.
+
+Rewritten to say what is true: **1.52 was tried and reverted, the short guards
+are at 1.10, and the flank window it was meant to close is still open** —
+`wearmeasure` §10 reports it today at 5.2% of the flank 62 mm off the ear on
+huscarl/spectacle, 4.6% at 63 mm on huscarl/boar and 6.7% at 37 mm on
+huscarl/crowned, six windows riding the PASS line as a deferral.
 
 **The Hood is not yet judged.** 3.1% to 34.2% is the same signature, but a hood
 draping round a face at three-quarter may simply be what a hood does. It needs a

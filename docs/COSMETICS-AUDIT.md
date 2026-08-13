@@ -1194,3 +1194,65 @@ winning best-of-3 pays 90–135, and every price is now read against that.
   7 mm shell and `Warrior Crop under every helm` still reads 0.00–0.06%: a free
   hairstyle that vanishes under a bowl. Reported by the gate, not gated, because
   nobody paid for it — but it is the cheapest remaining thing in this file.
+
+---
+
+## 13 Aug 2026 — colour stops being a purchase in a war band
+
+`BACKLOG.md` 4.5, and it changes the terms this whole file is written in, so it
+belongs here rather than only in `docs/FACTIONS.md` §8.
+
+**The precedence: team colour beats clan colour beats faction colour beats
+bought cosmetic.** In a war band the side owns every large surface on a warrior —
+mail, tunic, trousers, wraps, harness and strap leather, linen, pelt, hood cloth,
+the cloak, the shield board. `FACTIONS.md` §8 carries the argument; the short
+version is that a brawl is eight men at 6.8 m and there is exactly one colour
+read available in that frame, so it goes to the question whose wrong answer
+costs you the round.
+
+### What this does to the shop, honestly
+
+**It removes an axis from four of the eight slots, in one mode.** Armour Finish
+(7 rungs, up to 900 g), Cloaks (5, up to 400 g), and every hex either of them
+drives, stop being visible as colour once a war band starts. That is a real cost
+and this file should not pretend otherwise: a player who bought Bretwalda Gold
+for its gold sees red or blue instead.
+
+**What survives, and it is more than it looks.** The split is by SIZE and it is
+argued at two distances:
+
+* **Cast fittings keep the finish.** Buckle, studs, baldric boss, amulet bezel,
+  cloak brooch, arm-cap studs — every class carries several, and they are the
+  surface §"the finish now dresses the whole man" identified as the one that
+  makes a finish visible on a berserker who owns no mail. At 6.8 m a 20 mm boss
+  is a quarter of a pixel and cannot cost a team read; at portrait range and in
+  the shop it is most of what a finish IS.
+* **Every shape survives, entirely.** Helm, cloak cut, beard, build, stature.
+  This matters more here than anywhere, because §1's central finding is that
+  **a ladder of recolours is not progression** — and the cloak wave's answer to
+  it was to make the four cloaks differ in length, hem, wrap, flare and fold
+  rather than in colour. A war band is the mode that proves that work was the
+  right work: with colour taken away, four cloaks are still four garments.
+  `tools/teamread.mjs` §0.3 asserts it — the red build and the blue build of a
+  loadout cover the same pixels, to the pixel, on every loadout swept.
+* **Identity survives.** Skin, hair, beard, war paint. The 12 colour rungs in
+  the two hair slots are untouched, and in a war band they become the *only*
+  channel for telling one teammate from another.
+
+### The consequence for pricing, which §5 will have to absorb
+
+A colour rung's value now depends on the mode it is worn in, and no price in
+`ARMOURY` knows that. Nothing is repriced here — this file has been burned once
+by a stale pricing comment — but the finding goes on the record: **the seven
+Armour Finish rungs are worth less than their prices say to a player who mostly
+queues war band, and the shape slots are worth more.** The right answer is
+probably that the finish ladder needs a shape component of its own, which is the
+same conclusion §3 reached about the helms.
+
+### The gate
+
+`node tools/teamread.mjs` — ~50 s, no browser. Every finish × every cloak ×
+every class on both sides at three bearings including the back, the play frame's
+albedo rastered on the CPU, two assertions: no red-blue pair anywhere within
+ΔC 10, and every warrior reading nearer his own field than the enemy's.
+`--off` is the permanent control and must fail.

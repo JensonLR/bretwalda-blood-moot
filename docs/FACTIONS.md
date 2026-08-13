@@ -26,10 +26,21 @@ high fantasy or French-and-English plate.
 
 | People | Native / region | Field colour | Seat | Kit |
 |---|---|---|---|---|
-| **Anglo-Saxons** | Wessex & English Mercia | gilt `#c8a24a` | Winchester | Mail byrnie, round shield, spear. Madder, woad and undyed wool; boar crests. **The game as it stands today.** |
-| **Norse** | The Danelaw | garnet `#8d2026` | Jorvik | Bearded axe, more metal, darker wools. Beard and braid work as the signature. |
-| **Britons** | Cymru · Kernow · Ystrad Clud | moss `#3d6a5b` | Tintagel | The people who were already here. Lighter kit, javelins, small shield; slate and grey-green, checked weave. |
-| **Picts** | Fortriu | woad `#495c8c` | Burghead | Least armour, long spear, bare limbs — and tattoos and symbol stones nobody else has. |
+| **Anglo-Saxons** | Wessex & English Mercia | gilt `#d9a441` | Winchester | Mail byrnie, round shield, spear. Madder, woad and undyed wool; boar crests. **The game as it stands today.** |
+| **Norse** | The Danelaw | garnet `#7c1420` | Jorvik | Bearded axe, more metal, darker wools. Beard and braid work as the signature. |
+| **Britons** | Cymru · Kernow · Ystrad Clud | moss `#3f6353` | Tintagel | The people who were already here. Lighter kit, javelins, small shield; slate and grey-green, checked weave. |
+| **Picts** | Fortriu | woad `#2b4f72` | Burghead | Least armour, long spear, bare limbs — and tattoos and symbol stones nobody else has. |
+
+> **THOSE FOUR HEXES WERE WRONG UNTIL 13 Aug 2026 AND THIS TABLE IS THE FIX.**
+> It published `#c8a24a`, `#8d2026`, `#3d6a5b` and `#495c8c` — the values in the
+> artifact this file was lifted from. Not one of them is in the build. The four
+> that ship are `--gilt`, `--garnet`, `--moss` and `--woad` in
+> `src/app/globals.css`, and `factionMap/FactionMap.tsx` reads them by variable
+> name, so the map on screen has never used the numbers this table gave. §4
+> below said "the palette work is done too" and it *was* — against different
+> colours. A doc that states a false number is worse than no doc, and this one
+> stated four. They are now copied from the CSS, which is the only place they
+> exist.
 
 **Build the Norse first.** Danelaw against Wessex is the game's own story, it is
 the matchup a player already understands before anything is explained, and it is
@@ -84,7 +95,9 @@ polygons**, and committed as SVG path data. Text, not a binary asset, so it does
 not breach the no-binary-assets rule.
 
 `globals.css` already carries the four field colours with a comment saying "four
-peoples need four distinguishable fields", so the palette work is done too.
+peoples need four distinguishable fields", so the palette work is done too — and
+those four hexes, not the ones §2 used to print, are the real ones. See the note
+under the roster table.
 
 ## 5. The correction to WHAT-THIS-GAME-IS.md
 
@@ -111,21 +124,16 @@ named territory, and the territory is where the heptarchy's names live on.**
 
 ## 6. What is still open
 
-* **Flags and heraldry.** The owner asked for "very specific & historically
-  accurate flags & colours". The four field colours exist; the devices do not.
-  Real caution needed — most "Anglo-Saxon flags" online are Victorian inventions
-  or modern nationalist appropriations, and the honest sources are the finds:
-  the Sutton Hoo standard, the Bayeux dragon, Pictish symbol stones, coin
-  iconography. Anything that cannot be sourced to a find or a manuscript should
-  be built as an invention and labelled as one.
+* **Flags and heraldry.** Scoped in §9. The four field colours exist and the
+  devices do not; §9 is the sourcing pass, done before anything is drawn.
 * **Clans choose a base people**, per the owner: a clan is sworn *within* a
   people and inherits its kit variants.
 * **Per-faction class variants.** Same four classes, same numbers (§3), different
   look and kit. What a Pictish Runekeeper looks like is an art question with a
   hard constraint on it.
-* **Team colours override faction colours in team modes** (`BACKLOG.md` 4.5).
-  Red and blue must beat faction identity for legibility, and that ordering needs
-  writing down before it is discovered in a match.
+* ~~**Team colours override faction colours in team modes**~~ — **CLOSED
+  13 Aug 2026. The ordering is written down in §8 and gated by
+  `node tools/teamread.mjs`.**
 
 ## 7. The component vocabulary the artifacts also carry
 
@@ -150,3 +158,240 @@ the raw material for `BACKLOG.md` 5.1 ("upgrade all screens"):
 
 These are worth extracting into the game's CSS as named utilities rather than
 being re-typed per screen. That is a Wave 5 job, not a Wave 2 one.
+
+## 8. THE PRECEDENCE OF COLOUR
+
+Written 13 Aug 2026, closing `BACKLOG.md` 4.5 and the fourth bullet of §6. The
+owner's words, which are the acceptance criteria:
+
+> "When playing in team game modes colours should overright all characters for
+> the game, red & Blue for armoury finish, & cloaks etc. to show clear
+> distinction. When we get to clans we can have our flags & custom colours that
+> can be worn to differentiate against playing other clans in games."
+
+### The rule
+
+> **Team colour beats clan colour beats faction colour beats bought cosmetic.**
+> Colour is a legibility channel before it is a purchase, and the outermost
+> read wins.
+
+### Why, in one paragraph
+
+Every level of that ladder answers a different question, and the questions are
+nested. *Which side is he on* has to be answered before *which clan is he in*,
+which has to be answered before *which people is he of*, which has to be
+answered before *what did he buy*. A brawl is eight men at 6.8 m, which is
+about 230 pixels of warrior; there is exactly one colour read available in that
+frame and it has to go to the question whose wrong answer costs you the round.
+§3's LOAD-BEARING RULE is this same argument for stats — a faction never gates a
+match — and this is it for pigment. **A cosmetic must never be able to decide
+whether a stranger can tell you from the enemy.**
+
+The corollary the owner states himself is the reason clan colour sits *below*
+team: a clan flag differentiates you "against playing other clans in games",
+which is a *within-side* read. A within-side read that outranked the
+between-side one would be a clan buying its way past the thing legibility is
+for.
+
+### What each level actually takes
+
+| Level | Takes | Leaves |
+|---|---|---|
+| **Team** (built) | mail, tunic, trousers, wraps, harness and strap leather, linen, pelt, hood cloth, the cloak, the shield board | cast fittings, the helm's own metal, skin, hair, beard, war paint — and **every shape** |
+| **Clan** (unbuilt) | a device on the shield board, and a trim colour | the field, which is the team's |
+| **Faction** (unbuilt in the fight; live on the map) | the field colour of a man in a non-team mode, plus kit variants | the same small surfaces |
+| **Cosmetic** | everything, in a free-for-all | nothing |
+
+The split inside "team" is not a compromise, it is the same argument at two
+distances. **Large surfaces are taken** because legibility is a fight-distance
+property. **Small ones are left** because at 6.8 m a 20 mm cast boss is a
+quarter of a pixel and cannot cost a team read — while at portrait range and in
+the shop it is most of what a finish *is*. So Bretwalda Gold still reads as
+Bretwalda Gold in a war band; it reads as *red* Bretwalda Gold.
+
+**Shape is never taken.** Helm, cloak cut, beard, build and stature are
+untouched, and `tools/teamread.mjs` §0.3 asserts that as a measurement rather
+than as a promise: the red build and the blue build of a loadout cover exactly
+the same pixels, to the pixel, on every loadout it sweeps.
+
+**Identity is never taken.** Skin, hair, beard and war paint stay. Repainting
+those would delete the only channel left for telling one *teammate* from
+another, which is a read the game also needs.
+
+### The two fields are madder and woad
+
+Not "red" and "blue" picked off a colour wheel. They are the two expensive dye
+vats a Dark Age man could actually be dressed out of, and both were already in
+this game's own palette before this rule existed — `FINISH_KIT` in
+`characters.ts` names Crimson Warplate "madder. The dyestuff that actually made
+a Dark Age man look rich" and Sea Queen's Gift "woad, the other expensive vat".
+The fields are those two dyes at full strength: **madder `#8e2320`** and **woad
+`#24457e`**, exported as `TEAM_FIELD`. So §6's flag question gets one of its
+answers for free, from a find-and-textile source rather than from an invention.
+
+The shield board takes the field flat, and that is the one surface here where a
+team colour is not a concession at all — it is what the object was for. Boards
+were limewood and they were painted; the Gokstad ship carried thirty-two of them
+alternating black and yellow along the gunwale, and the Bayeux Tapestry paints
+its shields as flat fields with devices on them.
+
+### The gate
+
+`node tools/teamread.mjs` — about a minute, no browser. It builds every finish ×
+every cloak × every class on both sides, at three bearings including the back,
+rasterises the play frame's albedo and asserts two things: **GLANCE**, that no
+red-blue pair anywhere in that space is within ΔC 10; and **SIDE**, that every
+warrior's own chroma lands nearer his own field than the enemy's.
+
+`node tools/teamread.mjs --off` is the permanent control. It builds both sides
+with no team, which is byte-for-byte the game before this rule, and it must
+fail — it reads ΔC 0.00 between sides, and it names the defect exactly: *a
+red-team runekeeper in the Sea Queen's Gift finish and the Sea-Wolf cloak sits
+58.65 ΔC nearer the BLUE field than his own.*
+
+The harness's own header carries a correction worth reading before trusting any
+number in it: its first cut gated on full CIELAB ΔE, which folds lightness in,
+and it failed a build that a human separates instantly — because a cloaked man
+and a bare-backed man on the same side are 30 points apart in *lightness*.
+Lightness is not a side. The gate is taken on the chroma plane now, which is
+strictly tighter, and the assertion that was measuring the wrong quantity is
+reported rather than deleted.
+
+## 9. FLAGS AND DEVICES — what can be sourced, and what cannot
+
+Written 13 Aug 2026 for `BACKLOG.md` 4.10. The owner:
+
+> "If possible I want to use very specific & historically accurate flags &
+> colours"
+
+`docs/DESIGN-SYSTEM.md` already sets the standard and points here for it: *the
+faction devices are real objects — the seax, a Mjölnir amulet of the kind dug
+out of York in exactly this decade, the triskele, the Pictish
+crescent-and-V-rod. Sourceable to a find, or labelled an invention.*
+
+This section is that sourcing pass, done **before** anything is drawn, because
+the expensive mistake in this area is not a bad drawing. It is a good drawing of
+something that was invented in 1890.
+
+### 9.0 The one distinction the whole section turns on
+
+**The sources tell us that banners existed and what they were called. They do
+not, with one partial exception, tell us what they looked like.** No Anglo-Saxon,
+Norse, British or Pictish battle flag survives as an object. Everything below is
+therefore one of three things, and every device we ship must be labelled as
+which:
+
+| Tier | Meaning | Ships as |
+|---|---|---|
+| **FIND** | a physical object out of the ground, dated | the device itself, drawn from the object |
+| **TEXT** | a written source says a banner existed, without a description | the *name* is period; the drawing is ours |
+| **INVENTION** | no period source at all | labelled in the UI, in as many words |
+
+A device in the second tier is not dishonest. Calling it a find would be.
+
+### 9.1 Anglo-Saxons — Wessex, gilt `#d9a441`
+
+* **FIND · the seax.** The single-edged blade that names the people. Abundant in
+  English graves across the period. The famous inscribed one — the Seax of
+  Beagnoth, Thames, British Museum, with the full runic futhorc down its blade —
+  is **10th century and therefore later than 878**; it is a fair source for the
+  *form* of the object and not for what a man at Edington carried.
+* **FIND · the Sutton Hoo assemblage** (Mound 1, Suffolk, early 7th c.). Two
+  objects are usually called standards and neither is certainly one: the iron
+  stand with the grille head and bull's-head terminals, and the whetstone
+  "sceptre" with the stag. Bede describes a *tufa* borne before King Edwin,
+  which is why the identification is made at all. **Real objects, contested
+  function, and 250 years before our date.** `docs/SUTTON-HOO.md` already governs
+  their use as the UI's palette; using them as a *battle standard* is a further
+  claim and should say so.
+* **FIND · Alfred's own coinage**, which is the tightest-dated iconography
+  available to us and is barely used: the London Monogram penny (c. 880), the
+  Two Emperors type, the Cross-and-Lozenge. A coin is a state's own chosen image,
+  struck in the decade the game is set in. This is the best untapped source in
+  the whole section.
+* **TEXT/LATER · the Wessex dragon.** The dragon or wyvern standard near Harold
+  in the Bayeux Tapestry is real evidence — of **c. 1070**, ~190 years after 878.
+  Usable as a late-Saxon dragon, not as Alfred's.
+
+### 9.2 Norse — the Danelaw, garnet `#7c1420`
+
+* **FIND · the Mjölnir amulet.** Thor's-hammer pendants are among the commonest
+  Norse finds of the 9th–10th centuries and York has produced them. A real
+  object, in the right place, in the right decade.
+* **TEXT · the raven banner, and it is dated to our exact year.** The
+  Anglo-Saxon Chronicle's annal for **878** records the West Saxons taking the
+  Danish banner; the later *Annals of St Neots* adds the story of it being woven
+  by the daughters of Ragnar and of the raven appearing to flutter before a
+  victory. So: *a raven banner existed, it was called the Raven, and it was
+  captured in the very year this game is set.* **What is not recorded is what it
+  looked like** — the weaving story is a 12th-century embellishment, not a
+  description. This is the strongest narrative hook in the section and the
+  drawing of it is still ours.
+* **AVOID.** The Vegvísir and the Ægishjálmur ("helm of awe") are **17th–19th
+  century Icelandic grimoire designs**, not Viking-age, and they are everywhere
+  in Norse-themed games. So is the valknut *as a shield device*. Separately and
+  more seriously: several genuine period symbols — the othala rune, the sunwheel,
+  the black sun — have been appropriated by modern extremist movements. A game
+  that puts them on a faction banner is making a statement whether it means to or
+  not. None of them go in.
+
+### 9.3 Britons — Cymru · Kernow · Ystrad Clud, moss `#3f6353`
+
+* **FIND · the triskele**, and insular interlace generally: La Tène in origin,
+  continuous through insular metalwork and manuscript art, and on penannular
+  brooches of the period. Safe, and it is already in the glyph set.
+* **TEXT · the red dragon, and it is nearly in date.** The *Historia Brittonum*
+  (**c. 829**, ~50 years before our year) carries the Vortigern story of the red
+  dragon and the white — a British red dragon in a British source, written
+  before Alfred was born. **But Y Ddraig Goch as a rendered flag is Tudor**, so
+  the association is period and the drawing is not.
+* **INVENTION if drawn as heraldry.** The Britons have no attested battle
+  standard. A field with a triskele on it is our composition of two real things
+  and ships labelled as such.
+
+### 9.4 Picts — Fortriu, woad `#2b4f72`
+
+* **FIND, and the best-evidenced device set in the game.** The symbol stones are
+  in the ground in Scotland today, in numbers, dated across the 6th–9th
+  centuries: the **crescent-and-V-rod**, the **double-disc-and-Z-rod**, the
+  **"Pictish beast"**, the **mirror-and-comb**. Carved, dated, unambiguous.
+* **What is NOT known is what any of them meant.** The leading readings are
+  names or kin-groups; nobody knows. And **there is no evidence they were ever
+  carried as banners.** So the devices are finds and their use as a standard is
+  our invention — which is exactly the split §9.0 exists for, and it is a good
+  trade: the mark is real even where the flag is not.
+* This is why §2 calls the Picts the prize. Nobody else is using a symbol set
+  that is simultaneously this well-evidenced and this unfamiliar.
+
+### 9.5 The two war-band fields are already sourced
+
+§8's madder `#8e2320` and woad `#24457e` belong in this section too, and they
+are the cleanest result in it: they are not "red and blue", they are **the two
+expensive dye vats of the period**, and the game's own `FINISH_KIT` named both
+before the team rule existed. A colour sourced to a dyestuff is stronger than a
+device sourced to a manuscript, because a dyestuff leaves residue in cloth and a
+manuscript is somebody's opinion.
+
+The four faction fields are gilt, garnet, moss and woad, and the hexes are in
+`src/app/globals.css` — see the correction under the roster table in §2. Their
+justification is legibility (four distinguishable fields) rather than a find,
+and that is the honest label for them: **INVENTION, on purpose, for a reason
+that outranks accuracy.** §8's precedence rule is why.
+
+### 9.6 What to build first
+
+1. **Alfred's coin iconography** for the Anglo-Saxons. FIND tier, dated to the
+   decade, and completely unused by anyone.
+2. **The Pictish crescent-and-V-rod.** FIND tier, and it is the most distinctive
+   mark available to any faction in any game.
+3. **The York Mjölnir** for the Norse, with **the Raven kept for the season
+   banner** rather than the faction device — the Chronicle has it captured in
+   878, so it is a trophy, and a trophy is a war-layer object rather than a
+   costume one.
+4. The Britons last, because they are the only one of the four whose device is
+   a composition rather than an object.
+
+Every one of these ships with its tier visible to the player. A game that tells
+you *this mark is real and this one is ours* is more interesting than one that
+quietly pretends both are real, and it is the only version of "historically
+accurate" that survives contact with the evidence.
