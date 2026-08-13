@@ -33,7 +33,10 @@
     "tiebreak": "node tools/tiebreak.mjs",
     "roundbeat": "node tools/roundbeat.mjs",
     "hairmap": "node tools/hairmap.mjs",
-    "tiertest": "node tools/tiertest.mjs"
+    "tiertest": "node tools/tiertest.mjs",
+    "wartest": "node tools/wartest.mjs",
+    "warflow": "node tools/warflow.mjs",
+    "warshot": "node tools/warshot.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

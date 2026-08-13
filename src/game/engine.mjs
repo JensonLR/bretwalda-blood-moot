@@ -4,6 +4,17 @@
 // routes share the same rooms in one process.
 // ============================================================
 import { randomUUID } from "crypto";
+// THE WAR, and this is the whole of the engine's knowledge of it.
+//
+// Four imports, and look at what is not among them: nothing that returns a
+// number a fight could read. `territory` and `dealTerritory` name the ground;
+// `pointsFor` prices a finished match; `TERRITORIES` is the table both name
+// the same sixteen places from. `docs/FACTIONS.md` §3 forbids a faction from
+// carrying a stat, and the cheapest way to keep that true for ever is for the
+// simulation to have no way of asking. See `warReport` at the foot of
+// `endMatch`, and `tools/wartest.mjs` §7, which holds this engine to it with a
+// wholly conquered map in its hands.
+import { TERRITORIES, territory, pointsFor, dealTerritory } from "./war.mjs";
 
 const TICK_RATE = 20;
 
@@ -1040,6 +1051,42 @@ export function makeEngine(options = {}) {
   const TICK_MS = 1000 / TICK_RATE;
   const TICK_DT = 1 / TICK_RATE;
 
+  // ---- the war, held at arm's length ----
+  // The map as the database last knew it: which borders are closest to moving,
+  // and who holds what. TWO USES AND NO THIRD. `contested` narrows the ground a
+  // match can be dealt (`dealTerritory`); `holdings` lets a snapshot NAME the
+  // people currently holding that ground, so a lobby can say what is at stake.
+  //
+  // Neither is ever read by a rule that decides a fight, and there is nothing
+  // here that could be: a holding is a people's id, and no line in this file
+  // maps a people to a number. That is the load-bearing rule of
+  // `docs/FACTIONS.md` §3 kept structurally rather than by discipline.
+  let warFront = null;
+  // Matches this engine has dealt. It is the deal's seed, and it is a counter
+  // rather than anything more interesting for one reason: DETERMINISM.
+  //
+  // The first cut seeded `dealTerritory` on the room code and the match's
+  // UUID, and `protocoltest`'s replay check went red inside a minute — two
+  // runs of one scripted match fought over Bernicia and Deira. Both of those
+  // inputs come from sources this module deliberately does not pin (`Math.
+  // random` for the code, `randomUUID` for the id — see the note on
+  // `getEngine`), so a territory drawn from either is a territory that cannot
+  // be replayed. A counter and the sim clock are the only two identities in
+  // here that a replay reproduces exactly.
+  //
+  // THE PRICE, said out loud: a process that restarts begins counting again
+  // from zero at sim time zero, so the first match after every boot is dealt
+  // the same ground out of the front's four. Nobody can steer it — the front
+  // itself has moved — and the alternative is a war that cannot be replayed.
+  let matchOrdinal = 0;
+  // Subscribers to `endMatch`. This is the hook `src/db/matchLedger.ts` said
+  // the engine should grow ("the right shape is one hook in `endMatch`"), and
+  // the war is its first user. Handlers are called AFTER the room has been
+  // told the match is over and its rollback deadline is set, each inside its
+  // own try/catch: a database on fire may cost a player his banked points, and
+  // may never cost the room its next fight.
+  const matchEndHandlers = new Set();
+
   // ---- the clock, and it is the sim's only one ----
   // SIM TIME: milliseconds this simulation has actually been advanced. It moves
   // by whole TICK_MS and by nothing else, so it is exact (50 is exact in binary
@@ -1264,6 +1311,25 @@ export function makeEngine(options = {}) {
       roundScoreBy: isTeamMode(room) ? "team" : "player",
       lastRound: room.lastRound || null,
       nextRoundAt: room.nextRoundAt || 0,
+      // The ground at stake, carried on EVERY snapshot for the same reason the
+      // round state is: a late joiner, a spectator or a reconnect has to be
+      // able to rebuild the whole screen from one frame. Null in a lobby that
+      // has not been dealt a match yet, and in training, which takes no ground.
+      //
+      // `holder` is the last thing the database told this process (see
+      // `setWarFront`) and is decoration on this wire — the authority on who
+      // holds Mercia is the territories table, not a room snapshot.
+      territory: territoryBlock(room),
+    };
+  }
+
+  /** The named ground on a snapshot, or null. Nothing here is a number. */
+  function territoryBlock(room) {
+    const t = territory(room.territoryId);
+    if (!t) return null;
+    return {
+      id: t.id, name: t.name, native: t.native,
+      holder: (warFront && warFront.holdings && warFront.holdings[t.id]) || t.people,
     };
   }
 
@@ -1585,6 +1651,32 @@ export function makeEngine(options = {}) {
     room.lastRound = null;
     room.matchTimer = 0;
     room.killFeed = [];
+    // THE GROUND THIS MATCH DECIDES, dealt here and nowhere else.
+    //
+    // Minted before `startRound`, so the very first countdown frame already
+    // names it: a man should know what he is fighting over before the bell,
+    // not on the results screen.
+    //
+    // `matchId` is the match's own identity and it is what makes the war write
+    // idempotent. It is drawn once, here, and travels on the wire inside the
+    // match key — so a report retried after a failed database write carries the
+    // same key it did the first time and banks nothing twice. A key minted at
+    // WRITE time would be new on every retry, which is the shape of this bug in
+    // every codebase that has it.
+    //
+    // Training is not a match: it pays no gold (see `buildLedger`) and it takes
+    // no ground either.
+    if (room.mode === "solo" || room.solo) {
+      room.matchId = null; room.territoryId = null;
+    } else {
+      // The KEY is a UUID, because it has to be unique across every server and
+      // every restart or the database's replay guard guards nothing. The SEED
+      // is not, because it has to be reproducible — see `matchOrdinal`. They
+      // are two different jobs and the first cut of this used one value for
+      // both, which cost the replay.
+      room.matchId = randomUUID();
+      room.territoryId = dealTerritory(`${++matchOrdinal}:${simMs}`, warFront);
+    }
     if (isTeamMode(room)) { room.roundWins.red = 0; room.roundWins.blue = 0; }
     room.players.forEach((p) => {
       p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
@@ -2208,6 +2300,7 @@ export function makeEngine(options = {}) {
     const { results, winnerKey, winnerBy } = buildLedger({
       roundWins: room.roundWins || {}, players: roster, teamMode,
     });
+    const war = warReport(room, results);
     broadcast(room, { type: "match_end", data: {
       // `winnerId` stays what it was so nothing already reading it breaks, but a
       // war band cannot be expressed by one man's id: `winnerKind` says which of
@@ -2222,18 +2315,82 @@ export function makeEngine(options = {}) {
       roundTarget: roundsToWin(room), roundWins: { ...room.roundWins },
       roundScoreBy: teamMode ? "team" : "player",
       results,
+      // What this match did to the war, or null when it did nothing. On the
+      // wire because the summary screen has to be able to say "you took 34
+      // points for Mercia" without asking the server a second question.
+      war,
     } });
     // The summary stays up for ten seconds and then the room is a lobby again.
     // On sim time, so a host driving the sim reaches the rematch screen at all —
     // and so `render/summary.ts`, which stages the victor over a corpse for
     // exactly this window, gets the same window in a replay.
     room.phaseAt = simMs + SUMMARY_HOLD * 1000;
+    // AND ONLY NOW the war is told. Everything above has already happened: the
+    // men have their table, the room has its rollback deadline. A handler that
+    // hangs, throws or takes a second cannot reach any of it.
+    if (war) {
+      for (const handler of matchEndHandlers) {
+        try {
+          const r = handler({ roomCode: room.code, mode: room.mode, ...war });
+          // A handler is allowed to be async — writing to Postgres is — and its
+          // rejection is its own business. Unhandled, it would take the process
+          // down and turn a database hiccup into an outage for every room.
+          if (r && typeof r.catch === "function") r.catch(() => {});
+        } catch { /* a fight is never lost to a ledger */ }
+      }
+    }
+  }
+
+  /**
+   * WHAT THIS MATCH DID TO THE WAR — the one place the fight touches it.
+   *
+   * Returns null, and banks nothing, unless every one of these is true:
+   *
+   *   * it was a real match and not training,
+   *   * it was fought over ground that was actually dealt,
+   *   * and AT LEAST TWO MEN fought it.
+   *
+   * The last is the anti-farm gate and it is the reason bots are filtered out
+   * before it is counted rather than after. One man in a room with seven
+   * recruits can win eight matches an hour against opponents he chose the
+   * difficulty of; if that banked, Britain would belong to whoever left a
+   * laptop on overnight. Two humans means somebody else turned up, and the
+   * cheapest thing in this game to fake is the other seven.
+   *
+   * WHAT IS NOT IN THE REPORT: which people any of this is for. The engine has
+   * never been told, cannot be told, and the report carries player ids only.
+   * `src/db/war.ts` resolves each id to the profile that reserved it and reads
+   * that profile's SWORN allegiance out of the database. A client that lies
+   * about its people in a join message therefore lies to nobody — see
+   * `docs/WIRE-PROTOCOL.md` §11.
+   */
+  function warReport(room, results) {
+    if (room.mode === "solo" || room.solo) return null;
+    if (!room.matchId || !territory(room.territoryId)) return null;
+    const humans = results.filter((r) => r && typeof r.id === "string" && !r.id.startsWith("bot_"));
+    if (humans.length < 2) return null;
+    const entries = humans
+      .map((r) => ({ playerId: r.id, name: r.name, points: pointsFor(r) }))
+      .filter((e) => e.points > 0);
+    if (entries.length === 0) return null;
+    return {
+      // Stable for the life of this match and unique across matches: the room
+      // code names the room, the match id names the match inside it.
+      matchKey: `${room.code}:${room.matchId}`,
+      territoryId: room.territoryId,
+      entries,
+      at: wallNow(),
+    };
   }
 
   /** The summary is over. Everything the match left on the room and the men. */
   function resetToLobby(room) {
     room.state = "lobby"; room.matchTimer = 0; room.countdown = 0; room.killFeed = []; room.lastStandTriggered = false;
     room.roundIndex = 0; room.roundWins = {}; room.lastRound = null; room.nextRoundAt = 0;
+    // The ground goes back with everything else. A lobby that still named the
+    // last match's territory would be promising a fight over Mercia that the
+    // next deal has not agreed to.
+    room.matchId = null; room.territoryId = null;
     room.players.forEach((p) => {
       const stats = WARRIOR_STATS[p.warriorClass];
       p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;
@@ -2986,6 +3143,52 @@ export function makeEngine(options = {}) {
      * cannot read is a quantity that regresses.
      */
     wallTime() { return wallNow(); },
+    /**
+     * Hand this engine the map as the database last knew it.
+     *
+     * Called by the host process whenever the war state moves — at boot and
+     * after a flip — and never by a client. Two fields, and both are copied
+     * defensively so a caller cannot keep a handle on the engine's opinion of
+     * Britain and edit it later:
+     *
+     *   `contested`  territory ids, most nearly lost first. Narrows the ground
+     *                a match may be dealt (see `dealTerritory`), so the fights
+     *                land where the map is actually moving.
+     *   `holdings`   id -> people, for naming a holder on a snapshot.
+     *
+     * NOTHING ELSE IS ACCEPTED, and that is the design rather than an
+     * omission. There is no field here through which a people could arrive
+     * carrying a number, so no future edit to a rule in this file can
+     * accidentally read one. `tools/wartest.mjs` §7 runs whole matches with a
+     * wholly conquered map loaded and requires every stat and every seat to be
+     * identical to a match played on an even one.
+     *
+     * `null` puts the engine back to dealing from the whole island.
+     */
+    setWarFront(front) {
+      if (!front || typeof front !== "object") { warFront = null; return; }
+      const contested = (Array.isArray(front.contested) ? front.contested : [])
+        .filter((id) => typeof id === "string" && !!territory(id));
+      const holdings = {};
+      const given = front.holdings && typeof front.holdings === "object" ? front.holdings : {};
+      for (const t of TERRITORIES) {
+        if (typeof given[t.id] === "string") holdings[t.id] = given[t.id];
+      }
+      warFront = { contested, holdings };
+    },
+    /**
+     * Subscribe to the end of every match this engine runs. Returns the
+     * unsubscribe.
+     *
+     * The handler is given `{ roomCode, mode, matchKey, territoryId, entries,
+     * at }` — the war report and nothing private. It is called after the room
+     * has been told, it may be async, and it may throw: see `endMatch`.
+     */
+    onMatchEnd(handler) {
+      if (typeof handler !== "function") return () => {};
+      matchEndHandlers.add(handler);
+      return () => { matchEndHandlers.delete(handler); };
+    },
     /** Whether this engine started a timer of its own. */
     autoTick,
     /**

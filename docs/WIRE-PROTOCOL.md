@@ -166,8 +166,16 @@ Carried identically by `join`, `lobby_update`, `game_state`, the first
 code, mode, state, arena, hostId, countdown, matchTimer, maxPlayers,
 players: { [id]: Player }, killFeed: KillFeedEntry[]   // last 10 only
 lastStandTriggered, difficulty, botCount, maxBots, autoStart,
-bestOf, roundIndex, roundTarget, roundWins, roundScoreBy, lastRound, nextRoundAt
+bestOf, roundIndex, roundTarget, roundWins, roundScoreBy, lastRound, nextRoundAt,
+territory: { id, name, native, holder } | null
 ```
+
+`territory` is **the ground this match decides** — see §11. It is dealt when
+the match starts, so the first `countdown` frame already carries it and a man
+knows what he is fighting over before the bell. `null` in a lobby that has not
+been dealt a match, and always `null` in training. `holder` is the people that
+held it when the server last read the war rolls; it is **decoration on this
+wire** and the territories table is the authority.
 
 `join` additionally carries `playerId` (yours) and `warriorStats` — **the whole
 `WARRIOR_STATS` table, from the server**. This is the single most important
@@ -253,8 +261,13 @@ band, both null on a draw. Then either `match_end` follows immediately, or
 { winnerKind: "player"|"team"|"none", winnerId, winnerTeam, winnerName, winnerBy,
   bestOf, roundsPlayed, roundTarget, roundWins, roundScoreBy,
   results: [{id, name, kills, deaths, damage, score, isWinner,
-             place, roundsWon, xpEarned, goldEarned}] }
+             place, roundsWon, xpEarned, goldEarned}],
+  war: { matchKey, territoryId, entries: [{playerId, name, points}], at } | null }
 ```
+
+`war` is **what this match did to the war for Britain** — §11 — and it is
+`null` far more often than not: training, a match under two humans, and any
+room that was never dealt ground all report nothing.
 
 **`results` arrives SORTED, and the order is the answer.** It used to leave in
 the room's join order and every screen sorted its own copy; the owner reported
@@ -671,3 +684,75 @@ S2C round_end live
 S2C match_end live
 S2C emote live
 ```
+
+---
+
+## 11. The war on the wire
+
+Added when the war layer landed (`src/game/war.mjs`, `src/db/war.ts`,
+`tools/wartest.mjs`). It is two fields and one rule, and the rule is the
+important half.
+
+### The two fields
+
+**`territory` on every snapshot** — `{ id, name, native, holder } | null`. The
+ground this match decides, dealt in `startMatch` and cleared when the room rolls
+back to a lobby. Carried on every snapshot rather than only on the frame that
+set it, for the same reason the round state is: a late joiner, a spectator or a
+reconnect must be able to rebuild the whole screen from one frame.
+
+**`war` on `match_end`** — `{ matchKey, territoryId, entries, at } | null`.
+
+```
+matchKey     `${roomCode}:${matchId}`, minted when the match STARTED.
+territoryId  a `war.mjs` TERRITORIES id.
+entries      [{ playerId, name, points }], humans only, points > 0 only.
+at           epoch ms, stamped the same way `nextRoundAt` is.
+```
+
+`war` is `null` unless **all** of: it was not training, ground was actually
+dealt, and **at least two humans fought**. The last is an anti-farm rule and it
+is deliberate: one man with seven recruits can win eight matches an hour
+against opponents whose difficulty he chose.
+
+`matchKey` is minted at match START and not at write time, which is the whole
+of the idempotency design. The database's unique index is
+`(match_key, player_id)`; a report retried after a failed write carries the key
+it carried the first time, so the retry inserts nothing and moves nothing. A
+key minted when the write happens is a new key on every retry.
+
+### THE RULE: the engine is never told a man's people
+
+**No message in this protocol carries a player's allegiance, in either
+direction, and none ever may.** `entries` names player ids and points. Which
+people banks those points is resolved afterwards by `src/db/war.ts`, from the
+`players.allegiance` column — the record a man wrote when he swore, over an
+authenticated HTTP route with his own bearer token.
+
+Two things follow, and both are load-bearing:
+
+1. **A client cannot bank for a people it did not swear to.** It is never asked
+   which people it is, so there is nothing to lie about. Sending an
+   `allegiance` field on `create` or `join` is ignored, and
+   `tools/wartest.mjs` §7 proves it changes no byte of any snapshot and no row
+   of any result table.
+2. **A faction cannot gate a match or grant a stat**, which is
+   `docs/FACTIONS.md` §3, the rule Wave 4 lives or dies on. It is kept
+   *structurally* rather than by discipline: the simulation has no way to ask.
+   The engine may hold the whole map (`engine.setWarFront`) and still nothing
+   about a fight changes — that fixture, with a map one people has conquered
+   outright, is `wartest` §7, and `--prove` injects both defects and requires
+   every one of those assertions to go red.
+
+### What the engine does with the map it is given
+
+`setWarFront({ contested, holdings })` is called by the host process, never by a
+client. `contested` narrows the ground a match may be dealt to the borders
+closest to moving; `holdings` lets a snapshot name a holder. There is no third
+use and no third field.
+
+The deal is seeded on **a per-engine match counter and the sim clock**, not on
+the room code or the match's UUID. Both of those come from sources `engine.mjs`
+deliberately leaves unpinned, and seeding on them broke `protocoltest`'s replay
+check inside a minute — two runs of one scripted match fought over different
+ground. A war that cannot be replayed is a war whose bugs cannot be reproduced.

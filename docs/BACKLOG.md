@@ -78,12 +78,21 @@ ninety seconds, and it is the foundation the war layer sits on.
 This is the project from `WHAT-THIS-GAME-IS.md` §3. It is what makes people come
 back and it is where the owner's scattered items become one feature.
 
+**THE SPINE LANDED 14 AUG 2026.** `src/game/war.mjs` (the rules),
+`src/db/war.ts` (the persistence), `endMatch`'s war report (the one place the
+fight touches the war), and `/factions` (the map). Gated by
+`tools/wartest.mjs` — 79 checks, plus a `--prove` arm that injects the two
+defects the neutrality gates exist to catch and requires them to go RED — and
+by `tools/warflow.mjs`, 22 checks end to end against a real Postgres.
+`WHAT-THIS-GAME-IS.md` §3.1 is the honest inventory of what is and is not in
+it. The ribs below are re-marked against that.
+
 | # | Item | Note |
 |---|---|---|
-| 4.1 | **Persistent territory: the map moves and is shared by everyone** | NEW as a system; the map screen exists |
-| 4.2 | **Make picking a starting kingdom a big decision** | NEW |
-| 4.3 | **Faction scope and plan** — how characters, weapons and colours differ per kingdom | [PARTLY RAISED] `docs/PROFILES-AND-FLAGS.md` |
-| 4.4 | **Clans pick a base kingdom** and inherit its variant characters | NEW, and it is the right instinct |
+| 4.1 | **Persistent territory: the map moves and is shared by everyone** | **DONE.** 16 territories, contest, flips, conservation. Not live-polling — the map is read on open, not streamed. |
+| 4.2 | **Make picking a starting kingdom a big decision** | **DONE, as far as a screen can make it one.** The oath is durable, locks once a man has fought, and is taken on the map itself. It is not yet weighty in a MATCH, because 4.3 is not built. |
+| 4.3 | **Faction scope and plan** — how characters, weapons and colours differ per kingdom | [PARTLY RAISED] `docs/FACTIONS.md`. **Now the biggest gap in Wave 4**: a man swears to a people and then looks exactly as he did before. The map promises an identity the arena does not deliver. |
+| 4.4 | **Clans pick a base kingdom** and inherit its variant characters | NEW, and it is the right instinct. Unblocked by 4.1 — a clan is a second attribution key on a write that already exists. |
 | 4.5 | **Team colours override cosmetics in team modes** — red and blue across armour finish and cloaks; clan colours later | NEW |
 | 4.6 | **Ranked: win/loss, a top-50 leaderboard, historically accurate titles by rating** | [PARTLY RAISED] as ranked; titles and leaderboard are new |
 | 4.7 | **Matchmaking; clans queueing as 2–4** (4 is the right clan size — it matches the warband) | [PARTLY RAISED] |
