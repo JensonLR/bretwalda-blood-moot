@@ -84,6 +84,90 @@ A 40-gold and a 100-gold item, both under 1% under a 120-gold helm. `art/look/re
 shows why: the mane is entirely INSIDE the cowl, with a few millimetres of
 hairline showing at the brow and nothing at all below the shoulder.
 
+#### MEASURED 13 Aug 2026 — `node tools/hoodfall.mjs`, and it says the known fix is not available
+
+The cause on record is `hairFall`'s first line, `if (hooded) return 0` — no
+falling mass under a cowl at all. That is true and it is **half of it**. The
+half nobody had measured is that **the hood is longer than the hair**, so
+restoring the fall on its own would put ~2600 vertices inside the cloth and
+still show nothing.
+
+`hoodfall` §2 fingerprints the hair meshes in world space, per class, with and
+without the cowl, against the hood's own lowest ring:
+
+```
+class        hair      bare reach   hooded reach   verts bare/hooded   hood hem   clearance
+huscarl      long           1.446          1.756     4444/1804        1.464       18 mm
+huscarl      braids         1.479          1.756     6226/1804        1.464      -16 mm
+runekeeper   long           1.336          1.650     4444/1804        1.376       40 mm
+runekeeper   braids         1.369          1.650     6226/1804        1.376        7 mm
+berserker    long           1.555          1.862     4444/1804        1.551       -4 mm
+berserker    braids         1.589          1.862     6226/1804        1.551      -38 mm
+```
+
+*Clearance* is how far a FREE fall — no helmet at all — reaches below the point
+the Shadow Hood's shoulder drape stops. **Four of the eight falls do not clear
+it, and the best case in the whole game is 40 mm, which is 5 px at the play
+lens.** A cowl on a berserker hangs 38 mm BELOW where his own war-locks end.
+
+So this is a reshape and not a revert, and it is the same shape of answer the
+Wyrm's cheek guard needs further down this file. The fix has to make ROOM as
+well as mass, and there are two places it could come from:
+
+1. **The temple window.** The cowl's fall sweeps ±2.30 rad about the nape, so
+   everything within 0.84 rad of dead ahead is open air below the rim. The face
+   takes the first ~0.55 rad of that; the band between 0.55 and 0.84 is cloth-
+   free and is exactly where locks escaping a hood belong. `hairCeil`'s hooded
+   branch would have to open there too — it currently caps standoff at 22 mm at
+   every (u, v), including where there is no cloth, because
+   `clamp01((v - rim)/(crown - rim))` clamps to the rim's own lift below the rim
+   rather than to infinity.
+2. **Past the mantle's hem**, which is the route the Sutton Hoo already takes —
+   `coifSquash` down to the rings and `shoulderRide` out onto the garment below
+   them. For a hood that means a `hoodSquash`/`hoodRide` pair against the
+   drape's superellipse, and a fall lengthened enough to be worth drawing.
+
+Neither is a constant to move, which is presumably why the pass that found the
+cause left it.
+
+### 1b. NEW — the Sutton Hoo has the same collapse, on three of the four classes
+
+`hoodfall` §1 asks a different question from `cosmetictest` §3: not "do these
+two silhouettes differ through a lens" but **"are these two builds the same
+object"** — every world-space vertex, rounded to a micron and digested. There is
+no threshold in it and so nothing to tune.
+
+```
+ONE OBJECT   huscarl     hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   warden      hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   warden      suttonhoo  long == braids   (1144 verts, identical to the micron)
+ONE OBJECT   runekeeper  hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   runekeeper  suttonhoo  long == braids   (1144 verts, identical to the micron)
+ONE OBJECT   berserker   hood       long == braids   (1804 verts, identical to the micron)
+ONE OBJECT   berserker   suttonhoo  long == braids   (1144 verts, identical to the micron)
+```
+
+The Long Mane (40 g) and the Braided War-locks (100 g) are not merely hard to
+tell apart under those two helms — they are **the same mesh**.
+
+**AND HERE IS WHY NOTHING SAW THE SUTTON HOO HALF OF IT.** `cosmetictest` §3
+carries this check:
+
+> "no two PAID hairstyles are the same shape as each other under any helm **but
+> the hood**"
+
+The hood is excluded, which is the carve-out `docs/PROCESS.md` names as failure
+mode 2 and which is still open. The Sutton Hoo is *inside* that check's scope
+and the check is green anyway — because `cosmetictest` builds one rig,
+`RIG = { cls: "huscarl" }` at line 233, and **the huscarl is the single
+class/helm pair in the table above that does NOT collapse.** The bishop's
+mantle is the reason: it is the one shoulder garment the gather has to ride out
+over, and riding it is what keeps the plait and the mane apart. The other three
+classes have no mantle and both rungs squash to the same aventail shape.
+
+A gate green because the case is absent. The case is four classes; the gate
+looks at one.
+
 ### 2. The beard is a SHEET, not a mass — MEASURED
 
 `npm run beardvolume` fires rays through the beard and reports the gap where

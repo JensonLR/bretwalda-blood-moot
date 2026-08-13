@@ -73,3 +73,5 @@ art/fit/
 .locktest/
 .facecover/
 .beardvolume/
+# transpile cache for tools/hoodfall.mjs
+.hoodfall/
