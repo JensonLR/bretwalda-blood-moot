@@ -75,9 +75,10 @@ import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
-  buildCharacter, buildWeaponForClass, buildShield,
+  buildCharacter, buildWeaponForClass, buildShield, shieldBoard,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
+  type TeamSide,
 } from "../characters";
 import { getHandedness, subscribeHandedness } from "../input";
 import type { MaterialLibrary } from "./materials";
@@ -150,8 +151,20 @@ function reportHand(rig: WarriorRig, mirrorSign: number): void {
   };
 }
 
-/** Tunic accent per class — the fastest read of who you are fighting. */
-const CLASS_TUNIC: Record<string, number> = {
+/**
+ * Tunic accent per class — the fastest read of who you are fighting.
+ *
+ * Exported because `tools/teamread.mjs` builds warriors the way this file does
+ * and must not keep its own copy of this table: `characters.ts` records the
+ * mirrored-definition fault four times, and a harness holding a stale accent
+ * would grade a tunic nobody is wearing. It is the accent the REAL rig passes,
+ * or it is not a measurement of the game.
+ *
+ * In a team mode the accent no longer reaches the tunic's hue — see the
+ * precedence note in `characters.ts`. It still reaches nothing else, so this
+ * table is unchanged and free-for-all is exactly as it was.
+ */
+export const CLASS_TUNIC: Record<string, number> = {
   huscarl: 0x6a5636,
   warden: 0x5a6630,
   runekeeper: 0x3d3a5c,
@@ -505,6 +518,20 @@ export function createMotion(p: GamePlayer): WarriorMotion {
   };
 }
 
+/**
+ * The side a warrior is built in.
+ *
+ * Narrowed rather than cast. `GamePlayer.team` is the wire's `Team`, which is
+ * the same three strings, but a rig is drawn from whatever arrives on a socket
+ * and an unknown value has to build SOMETHING. Falling through to `"none"`
+ * means a bad or missing team costs a team colour; casting would mean it costs
+ * an exception in the middle of a spawn.
+ */
+function teamOf(player: GamePlayer): TeamSide {
+  const t = (player as GamePlayer & { team?: string }).team;
+  return t === "red" || t === "blue" ? t : "none";
+}
+
 export function createWarriorRig(
   parent: THREE.Object3D,
   player: GamePlayer,
@@ -523,7 +550,18 @@ export function createWarriorRig(
   // handed him a different skull and a different complexion every time — the man
   // you were fighting became a different man for putting a helmet on.
   // See `faceIdentity` for why this is an interned integer and not a hash.
-  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials, settings.tier, faceIdentity(player.id));
+  //
+  // THE SIDE COMES OFF THE PLAYER AND NOT OFF HIS APPEARANCE, and the read is
+  // the whole of the plumbing for BACKLOG 4.5. `player.team` is replicated sim
+  // state — `engine.mjs` validates `select_team` against `TEAMS`, only offers
+  // the picker in `war_band`, and `placeForRound` assigns a side to anyone who
+  // never chose one, so a man on "none" is a man in a free-for-all. Nothing a
+  // client can write reaches this argument, which is the point: a team colour a
+  // player could set for himself is not a team colour, it is a cosmetic, and
+  // this whole feature exists because a cosmetic must not be able to decide
+  // whether a stranger can tell you from the enemy.
+  const team = teamOf(player);
+  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials, settings.tier, faceIdentity(player.id), team);
   const body = built.group;
 
   // Crown height, measured now — before a weapon is in the fist, because the
@@ -592,10 +630,18 @@ export function createWarriorRig(
     // The third argument is the whole of that. It carries the finish the man
     // bought so the shield's boss, its rivets and its rim clamps come out of the
     // same smithy as his mail — see `buildShield`, which also says why the BOARDS
-    // deliberately do not follow it. The first argument is unchanged and is still
-    // the painted board: this is the one call site, and it is the only place that
-    // knows a cloaked huscarl gets the red board.
-    shield = buildShield(ap.cloak !== "none" ? 0x5c2320 : 0x6b4226, materials, ap.armorColor);
+    // deliberately do not follow it.
+    //
+    // THE BOARD RULE HAS MOVED. It used to be two literals right here, with a
+    // note saying this was "the only place that knows a cloaked huscarl gets the
+    // red board". It is `shieldBoard` in characters.ts now, for one reason:
+    // `tools/teamread.mjs` has to ask what colour a board is and a harness that
+    // answers that from its own copy is auditing its own copy. The answer is
+    // unchanged for `"none"` — cloaked 0x5c2320, bare 0x6b4226 — and in a war
+    // band it is the side's field, because a painted limewood board is the one
+    // surface on this warrior where a flat team colour is what the object was
+    // actually for.
+    shield = buildShield(shieldBoard(ap, team), materials, ap.armorColor, team);
     joints.elbowL.add(shield);
   }
 

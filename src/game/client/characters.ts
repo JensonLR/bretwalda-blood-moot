@@ -348,6 +348,242 @@ function tunicDye(lot: number, accent: number): number {
   return new THREE.Color().setHSL(h, s, l).getHex();
 }
 
+// ============================================================
+// TEAM COLOUR — the precedence rule
+// ============================================================
+/**
+ * WHICH SIDE A MAN IS ON. `"none"` is free-for-all, and it is the default
+ * everywhere, so nothing in the game changes colour until a war band starts.
+ *
+ * NOT A FIELD OF `Appearance`, and that is a server-authority decision rather
+ * than a tidiness one. `Appearance` is what the client owns: it is stored in a
+ * profile, edited in the armoury and pushed over the wire by `set_appearance`.
+ * A team is decided by the sim — `select_team` is validated against `TEAMS` in
+ * `engine.mjs` and `placeForRound` assigns a side to anyone who never picked
+ * one — so putting it in `Appearance` would hand every client a message that
+ * repaints it as the other side. It arrives as a build argument, off
+ * `player.team`, and it can only ever come from replicated state.
+ */
+export type TeamSide = "red" | "blue" | "none";
+
+/**
+ * THE PRECEDENCE: **team colour beats faction colour beats bought cosmetic.**
+ *
+ * The owner, on `BACKLOG.md` 4.5:
+ *
+ *   "When playing in team game modes colours should overright all characters
+ *    for the game, red & Blue for armoury finish, & cloaks etc. to show clear
+ *    distinction. When we get to clans we can have our flags & custom colours
+ *    that can be worn to differentiate against playing other clans in games."
+ *
+ * `docs/FACTIONS.md` §3 reaches the same ordering from the other end: a Hearth
+ * inherits its kingdom's colour and may not choose its own, because faction
+ * colour is how you read an enemy at range in an eight-man brawl. Both
+ * sentences are the same rule — **colour is a legibility channel before it is
+ * a purchase** — and legibility is the one property a cosmetic is not allowed
+ * to buy its way past. `tools/teamread.mjs` is the ruler: at the play lens,
+ * every friend must be closer in colour than every foe, at every bearing.
+ *
+ * WHAT IS TAKEN AND WHAT IS LEFT, and the split is not a compromise — it is
+ * the same argument twice, at two distances:
+ *
+ *   TAKEN: the LARGE surfaces, because legibility is a fight-distance property
+ *   and at 6.8 m a man is ~230 px. Mail, tunic, trousers, wraps, strap and
+ *   harness leather, the cloak, the shield board. These are what a stranger
+ *   reads in the frame he has.
+ *
+ *   LEFT: the SMALL ones, because they cost nothing at that range and they are
+ *   the whole of what a purchase is at portrait range and in the shop. Cast
+ *   fittings — buckle, studs, boss, bezel, brooch, arm-cap studs — keep the
+ *   finish they were bought in, which is what stops Bretwalda Gold reading as
+ *   Rough Iron once a war band starts. So does the helm, whose metal was never
+ *   the finish's anyway.
+ *
+ *   UNTOUCHED, AND NOT A CONCESSION: skin, hair, beard and war paint. Those are
+ *   who the man IS, not which side he is on, and repainting them would delete
+ *   the only channel a player has left for telling one teammate from another.
+ *   Every SHAPE is untouched too — helm, cloak cut, beard, build. The purchase
+ *   keeps its silhouette; the team takes its hue. `teamread` §0.3 asserts that
+ *   as a measurement: the override moves no geometry at all.
+ *
+ * A clan colour will slot in BELOW team and ABOVE faction when clans exist,
+ * for exactly the reason the owner gives — it differentiates you against
+ * another clan, which is a within-side read, and a within-side read must never
+ * outrank the between-side one.
+ */
+interface TeamField {
+  /** HSL hue of the field, 0..1. */
+  hue: number;
+  /** How much chroma each class of surface is forced to carry in the vat. */
+  clothSat: number;
+  leatherSat: number;
+  metalSat: number;
+  /** The lightness band every re-dyed surface is clamped into. */
+  lo: number;
+  hi: number;
+  /** The cloak, flat. The cut is the purchase; the colour is the side's. */
+  cloak: number;
+  /** The shield board, flat, and the one surface that is period-correct here. */
+  board: number;
+}
+
+/**
+ * THE TWO FIELDS, AND THEY ARE MADDER AND WOAD.
+ *
+ * "Red and blue" is a legibility requirement, but which red and which blue is
+ * free, and `BACKLOG.md` 4.10 asks for colour that can be sourced. These two
+ * can be, and they are already in this file: madder and woad are the two
+ * expensive dye vats a Dark Age man could actually be dressed out of, and
+ * `FINISH_KIT` already names both of them — Crimson Warplate is "madder. The
+ * dyestuff that actually made a Dark Age man look rich", Sea Queen's Gift is
+ * "woad, the other expensive vat". So the war band's two sides are the period's
+ * own two prestige dyes, and nothing had to be invented to get a red and a blue.
+ *
+ * They are LIFTED IN CHROMA from those two finishes rather than copied. A
+ * finish is read at portrait range under a fire key; a field colour is read at
+ * 6.8 m in a scrum, and the finishes' own values are muted on purpose so the
+ * legs break into two tones. This is the same dye at full strength.
+ */
+/**
+ * THE FIELD ITSELF, at full strength — the cloak, the shield board, and the
+ * colour a warrior on that side is supposed to READ as.
+ *
+ * Exported because `tools/teamread.mjs` has to ask "which side does this man
+ * read as", and the only honest way to answer it is against the game's own two
+ * fields. A harness holding its own idea of what red is would be grading the
+ * red it remembers.
+ */
+export const TEAM_FIELD: Readonly<Record<"red" | "blue", number>> = {
+  red: 0x8e2320,
+  blue: 0x24457e,
+};
+
+const TEAM_FIELDS: Record<"red" | "blue", TeamField> = {
+  // Madder. Hue 0.015 rather than 0.0 — true primary red has no warmth in it
+  // and madder is an orange-leaning red, which is also what keeps it off the
+  // garnet the UI uses for chrome.
+  red: { hue: 0.015, clothSat: 0.56, leatherSat: 0.38, metalSat: 0.32, lo: 0.15, hi: 0.58,
+    cloak: TEAM_FIELD.red, board: TEAM_FIELD.red },
+  // Woad. 0.585 is a blue with a little green in it, which is what a woad vat
+  // actually gives and which sits furthest from madder round the circle without
+  // going violet — violet reads as red at 6.8 m under a warm key.
+  blue: { hue: 0.585, clothSat: 0.52, leatherSat: 0.36, metalSat: 0.34, lo: 0.15, hi: 0.58,
+    cloak: TEAM_FIELD.blue, board: TEAM_FIELD.blue },
+};
+
+/**
+ * One surface through the vat: the field's hue, the field's chroma for that
+ * class of surface, and THE SOURCE'S OWN LIGHTNESS, clamped into the band.
+ *
+ * Keeping the lightness is what stops a team-coloured warrior being a red
+ * blob. `FINISH_KIT`'s seven rows are a coordinated set of VALUES as much as of
+ * hues — pale wraps against dark trousers, a bright shirt over black harness —
+ * and that value structure is the whole of the form a viewer reads at range.
+ * Take the hue and you have a side; take the value as well and you have a
+ * silhouette with nothing in it.
+ *
+ * The band exists because the two ends of that range do not survive dyeing.
+ * Blackened Steel's harness is at l 0.09 and Bretwalda Gold's wraps at 0.66;
+ * below the floor a red is indistinguishable from black at fight distance and
+ * above the ceiling it washes to pink, and both of those are the failure this
+ * rule exists to prevent.
+ */
+function teamDye(hex: number, field: TeamField, sat: number): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  const l = Math.max(field.lo, Math.min(field.hi, hsl.l));
+  return new THREE.Color().setHSL(field.hue, sat, l).getHex();
+}
+
+/**
+ * The finish, in the side's colours. `"none"` returns the kit untouched, by
+ * identity and not by a copy, so free-for-all costs nothing at all.
+ *
+ * `fitting` is deliberately absent from this function. See the precedence note:
+ * the cast bronze is the smallest surface a warrior carries and the one that
+ * still says which finish he bought, and at 6.8 m a 20 mm boss is a quarter of
+ * a pixel — it cannot cost a team read because it cannot be seen.
+ */
+export function teamKit(kit: FinishKit, team: TeamSide): FinishKit {
+  if (team === "none") return kit;
+  return {
+    mail: teamWorn(kit.mail, team, "metal"),
+    tunic: teamWorn(kit.tunic, team, "cloth"),
+    trouser: teamWorn(kit.trouser, team, "cloth"),
+    wrap: teamWorn(kit.wrap, team, "cloth"),
+    hide: teamWorn(kit.hide, team, "leather"),
+    buff: teamWorn(kit.buff, team, "leather"),
+    fitting: kit.fitting,
+  };
+}
+
+/**
+ * ONE WORN SURFACE THROUGH THE VAT — for the garments that are NOT in
+ * `FINISH_KIT` because no armoury option controls them.
+ *
+ * THIS FUNCTION IS HERE BECAUSE THE FIRST CUT OF THE OVERRIDE FAILED ITS OWN
+ * GATE, and the failure is worth keeping written down. Re-dyeing the seven kit
+ * colours and the cloak put the two sides ΔE 15.8 apart at the front and 14.4
+ * at the back — over the glance bar — while two men on the SAME side were up
+ * to 38.1 apart. `teamread`'s SEPARATION assertion caught that, and it was
+ * right to: a war band in which your teammate is further from you in colour
+ * than the enemy is is not legible, however far apart the two fields are.
+ *
+ * The reason was that three of the largest garments on a warrior are literals
+ * rather than kit entries, so the override never reached them:
+ *
+ *   0xc2b69c  the LINEN shirt and sleeves — pale, and on every class
+ *   0x8a7050  the PELT: the berserker's ruff, hanging locks and shoulder box,
+ *             which is most of his back and the reason a cloakless berserker
+ *             was the worst reading in the sweep
+ *   0x2a2521  the HOOD's cloth, which on the runekeeper is the head, the
+ *             mantle and the shoulders
+ *
+ * Those are the "LARGE surfaces" the precedence note already claims; they were
+ * simply not wired. `dark` (0x1a1310) is deliberately still out: it is the
+ * shadow gore set inside the cowl to stop the opening reading as a hole in the
+ * sky, and a lit cavity is not a garment.
+ */
+export function teamWorn(hex: number, team: TeamSide, kind: "cloth" | "leather" | "metal"): number {
+  if (team === "none") return hex;
+  const f = TEAM_FIELDS[team];
+  return teamDye(hex, f, kind === "cloth" ? f.clothSat : kind === "leather" ? f.leatherSat : f.metalSat);
+}
+
+/**
+ * The cloak, in the side's colours — FLAT, not re-dyed from what was bought.
+ *
+ * This is the one surface where the override is total, and the reason is in
+ * `CLOAK_CUTS`: the four cloaks already differ in length, hem, wrap, flare and
+ * fold, which are the properties that survive at 7.9 mm to a pixel. Colour is
+ * the last thing on that list. A cloak is also the largest single area of one
+ * colour on a warrior and it is on his BACK, which is what half of a brawl is
+ * showing you — so it is the cheapest place in the whole build to buy a team
+ * read, and the most expensive place to leave one on the table.
+ */
+export function teamCloak(hex: number, team: TeamSide): number {
+  return team === "none" ? hex : TEAM_FIELDS[team].cloak;
+}
+
+/**
+ * THE SHIELD BOARD, which lived as two literals at the one call site in
+ * `render/anim.ts` — "the only place that knows a cloaked huscarl gets the red
+ * board". It is here now because `tools/teamread.mjs` has to ask the same
+ * question the rig asks and must not keep its own copy of the answer; this file
+ * has recorded the mirrored-definition fault four times.
+ *
+ * And a painted board is the single most defensible place in the game to put a
+ * team colour. Shield boards were limewood and they WERE painted — the Gokstad
+ * ship carried thirty-two of them alternating black and yellow along the
+ * gunwale, and the Bayeux Tapestry paints its shields in flat fields with
+ * devices on them. Every other surface here is a legibility concession; this
+ * one is what the object was for.
+ */
+export function shieldBoard(ap: Appearance, team: TeamSide): number {
+  if (team !== "none") return TEAM_FIELDS[team].board;
+  return ap.cloak !== "none" ? 0x5c2320 : 0x6b4226;
+}
+
 // ---------------- Armoury Catalog ----------------
 export interface ArmouryOption {
   id: string;
@@ -8574,6 +8810,13 @@ export function buildShield(
   color = 0x6b4226,
   materials?: CharacterMaterials,
   armorColor = 0x5f6b7a,
+  /**
+   * The side, in a team mode. It reaches the furniture only — the boards are
+   * already the side's colour when there is one, because the CALLER chose them
+   * through `shieldBoard`. Without this the boss and the rim clamps would stay
+   * on the finish the man bought, which is a grey disc bolted to a red board.
+   */
+  team: TeamSide = "none",
 ): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
@@ -8603,7 +8846,7 @@ export function buildShield(
   // is the outline, and an outline in `kit.hide` — near-black on four of the
   // seven finishes — draws nothing at fifty metres. Both of those are notes
   // already in this function and both survive.
-  const kit = finishKit(armorColor);
+  const kit = teamKit(finishKit(armorColor), team);
   // A painted board is timber under paint, not cloth. `M.tunic` dressed these
   // quarters in wool at a fixed five repeats — a ~60 mm tile on a 105 mm plank —
   // and that is the basket in `art/shots/v7/portrait.png`: the pale quarters read
@@ -9652,9 +9895,15 @@ export interface BuiltCharacter {
   reassemble(): void;
 }
 
-function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail: CharacterDetail, lib: string): string {
+function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail: CharacterDetail, lib: string, team: TeamSide): string {
   return [
-    lib, detail, cls, accents,
+    // `team` is in the key because it repaints seven of the materials the
+    // merged parts are grouped by. Leaving it out would not be a slow cache —
+    // it would be a wrong one: `RIG_CACHE` hands the SAME merged geometry and
+    // the SAME material to every build with a matching signature, so the second
+    // man to spawn in a war band would come out of the pool wearing the first
+    // man's side.
+    lib, detail, cls, accents, team,
     ap.helm, ap.hairStyle, ap.hairColor, ap.beardStyle, ap.beardColor,
     ap.cloak, ap.armorColor, ap.warPaint,
   ].join("|");
@@ -10017,6 +10266,13 @@ export function buildCharacter(
   materials?: CharacterMaterials,
   detail: CharacterDetail = "high",
   seed?: number,
+  /**
+   * Which side, in a team mode. Defaults to `"none"`, so every existing caller
+   * — the armoury mannequin, the thumbnails, every probe in this file — builds
+   * exactly the warrior it built before. See `TeamSide` for why this is an
+   * argument and not a field of `Appearance`.
+   */
+  team: TeamSide = "none",
 ): BuiltCharacter {
   const M = materials ?? RAW;
   const lod = LOD[detail];
@@ -10045,7 +10301,12 @@ export function buildCharacter(
   // used to be a hard-coded constant reads out of it, which is what makes a
   // finish visible on a berserker who owns no mail and stops the warden being
   // green below the belt in all seven of them.
-  const kit = finishKit(ap.armorColor);
+  //
+  // AND IN A TEAM MODE THE SIDE OWNS IT. `teamKit` is a no-op on `"none"`, so
+  // this line is the whole of the override for six of the seven surfaces and
+  // free-for-all is untouched. See the precedence note over `TeamField`.
+  const teamed = team !== "none";
+  const kit = teamKit(finishKit(ap.armorColor), team);
   const mail = M.armour(kit.mail);
   // Kit colours that no armoury option controls, and therefore mine. They were
   // authored two passes ago against a brighter grade and they are now the reason a
@@ -10068,7 +10329,15 @@ export function buildCharacter(
   // The tunic. `accents` is the class's own constant from `render/anim.ts` and it
   // is no longer the whole answer — it shifts the finish's dye lot rather than
   // being it, which is what stops the warden being olive in all seven finishes.
-  const wool = cloth(tunicDye(kit.tunic, accents), bodyGirth);
+  //
+  // AND IN A TEAM MODE THE ACCENT LETS GO OF THE HUE. `tunicDye` pulls the dye
+  // lot a fifth of the way towards the class colour, and a fifth of the way
+  // towards olive is exactly enough to take the largest garment on a red man
+  // off red. The four classes still read apart in a war band — they differ in
+  // stature, hem length, layer count and silhouette, which is what `BUILD` and
+  // the kit are for — but hue is the side's channel and the class does not get
+  // to borrow it. This is the precedence rule at its narrowest point.
+  const wool = cloth(teamed ? kit.tunic : tunicDye(kit.tunic, accents), bodyGirth);
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
   // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
@@ -10086,7 +10355,7 @@ export function buildCharacter(
   // sleeve — one garment, two fabrics — and the coarse end is the finest cloth
   // in the set, where a visible tile costs most.
   const flax = (girth: number) =>
-    thrifty ? wool : M.tinted("linen", 0xc2b69c, { repeat: clothRepeat(girth) });
+    thrifty ? wool : M.tinted("linen", teamWorn(0xc2b69c, team, "cloth"), { repeat: clothRepeat(girth) });
   const linen = flax(bodyGirth);
   const sleeveLinen = flax(2 * Math.PI * S.armR[0] * 1.12);
   const iron = M.tinted("iron", 0x6e767f, { roughness: 0.5 });
@@ -10426,7 +10695,7 @@ export function buildCharacter(
   // a seam, which on a 90 mm lock would be most of the lock.
   const PELT_TILE = 0.25;
   const pelt = (girth: number) =>
-    M.tinted("wool", 0x8a7050, { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
+    M.tinted("wool", teamWorn(0x8a7050, team, "leather"), { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
   const ruffX = S.chestHW + 0.062;
   const ruffZ = S.chestHD + 0.062;
   const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
@@ -10434,7 +10703,7 @@ export function buildCharacter(
   const furPelt = pelt(0.3);
   const dark = M.standard(0x1a1310, 0.42);
   const rune = M.get("runeGlow");
-  const cloakMat = cloth(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, bodyGirth * 1.4);
+  const cloakMat = cloth(teamCloak(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team), bodyGirth * 1.4);
   // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
   //
   // The hood, its mantle, its point and its shoulder drape were all raised on
@@ -10457,7 +10726,7 @@ export function buildCharacter(
   // at a tighter pitch than a cloak because a hood is a smaller garment and the
   // weave has to scale with the thing it is woven into. `hide` stops being the
   // unrobed fallback for the same reason — a hood is cloth on everybody.
-  const hoodCloth = cloth(0x2a2521, bodyGirth * 0.62);
+  const hoodCloth = cloth(teamWorn(0x2a2521, team, "cloth"), bodyGirth * 0.62);
 
   // --- merged-geometry cache. Only for callers that brought a shared library;
   // the armoury preview allocates and disposes its own materials, so caching its
@@ -10468,7 +10737,7 @@ export function buildCharacter(
   // seed as well, because a face that varies is a face that cannot be shared. That
   // split is the difference between eight unique warriors costing one extra head
   // each and costing eight of everything. ---
-  const base = materials ? `${signatureOf(cls, ap, accents, detail, libraryId(M))}|s${step}` : null;
+  const base = materials ? `${signatureOf(cls, ap, accents, detail, libraryId(M), team)}|s${step}` : null;
   const headSig = base ? `${base}|f${identity}` : null;
 
   function storeFor(signature: string): Map<string, MergedPart> {
