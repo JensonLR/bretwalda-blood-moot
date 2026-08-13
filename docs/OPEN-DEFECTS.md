@@ -331,15 +331,47 @@ guard has to be cut to the jaw it covers — deep at the front beside the mouth,
 sweeping up to clear the mandible's angle, finishing short at the back — while
 sitting BEHIND the jawline rather than out on the cheek.
 
-### The trap that cost three of those sweeps
+### The trap that cost three of those sweeps — REMOVED 13 Aug 2026
 
 `cheekIn`, `cheekOut` and `cheekHemAt` at the top of the file look like the
-guard's geometry. `cheekHemAt` is a DUPLICATE of `deepHem` inside the builder,
-and it was the copy I swept first — which is why the hem appeared to do nothing
-twice. The file records having made this mirrored-definition mistake three times
-before; this is the fourth. Anyone editing the guard must edit `deepHem` at the
-builder, and keep `cheekHemAt` in step because the hair reads it to know where
-the metal stops.
+guard's geometry. `cheekHemAt` was a DUPLICATE of `deepHem` inside the builder,
+and it was the copy the earlier pass swept first — which is why the hem appeared
+to do nothing twice. The file records having made this mirrored-definition
+mistake three times before; that was the fourth.
+
+**The copy is gone.** `guardIn` and `guardOut` were literally `cheekIn` and
+`cheekOut` two lines above `deepHem`, and `deepHem`'s body was `cheekHemAt`'s
+`deep` branch character for character, so `deepHem` is now `cheekHemAt(|u|)` and
+there is one definition. `Math.abs(u)` against `awayFromFace(u)` was the only
+difference between them and it is not one inside the guard's own arc, where
+`sideArc` bounds `|u|` by `cheekOut` ≤ 1.62 rad.
+
+**Proven, not argued.** Every class × every helm × every hair rung — 160 rigs —
+was fingerprinted by digesting every world-space vertex to the micron, before
+and after. All 160 hashes are identical: the collapse moves no geometry at all.
+And the lever was pulled to prove the surviving definition is now the live one:
+`0.34 → 0.12` inside `cheekHemAt` moves 32 of the 160 rigs, which is exactly the
+two `deep` rungs (Wyrm-Crest, Sutton Hoo) on four classes at four hair rungs.
+Before the collapse that same edit moved the hair's ceiling and left the plate
+where it was.
+
+**This does not fix the Wyrm.** The verdict above stands — it is a reshape, and
+the guard still has to be cut to the jaw it covers. What has changed is that the
+reshape now costs one edit instead of three sweeps and a wrong conclusion.
+
+### And the comment above `cheekOut` was asserting a fix that is not in the build
+
+`docs/PROCESS.md` failure mode 3 names this pair verbatim, and it was still
+live: the comment opened *"1.52 rad on the short guards, not 1.10"* and argued at
+length for 1.52, and the line under it read `: 1.10`. It also claimed *"it is
+THIS constant that moves, not a copy of it inside the guard"*, which was false
+when it was written — `deepHem`, seven hundred lines down, was that copy.
+
+Rewritten to say what is true: **1.52 was tried and reverted, the short guards
+are at 1.10, and the flank window it was meant to close is still open** —
+`wearmeasure` §10 reports it today at 5.2% of the flank 62 mm off the ear on
+huscarl/spectacle, 4.6% at 63 mm on huscarl/boar and 6.7% at 37 mm on
+huscarl/crowned, six windows riding the PASS line as a deferral.
 
 **The Hood is not yet judged.** 3.1% to 34.2% is the same signature, but a hood
 draping round a face at three-quarter may simply be what a hood does. It needs a

@@ -124,13 +124,8 @@ named territory, and the territory is where the heptarchy's names live on.**
 
 ## 6. What is still open
 
-* **Flags and heraldry.** The owner asked for "very specific & historically
-  accurate flags & colours". The four field colours exist; the devices do not.
-  Real caution needed — most "Anglo-Saxon flags" online are Victorian inventions
-  or modern nationalist appropriations, and the honest sources are the finds:
-  the Sutton Hoo standard, the Bayeux dragon, Pictish symbol stones, coin
-  iconography. Anything that cannot be sourced to a find or a manuscript should
-  be built as an invention and labelled as one.
+* **Flags and heraldry.** Scoped in §9. The four field colours exist and the
+  devices do not; §9 is the sourcing pass, done before anything is drawn.
 * **Clans choose a base people**, per the owner: a clan is sworn *within* a
   people and inherits its kit variants.
 * **Per-faction class variants.** Same four classes, same numbers (§3), different
@@ -261,3 +256,142 @@ and a bare-backed man on the same side are 30 points apart in *lightness*.
 Lightness is not a side. The gate is taken on the chroma plane now, which is
 strictly tighter, and the assertion that was measuring the wrong quantity is
 reported rather than deleted.
+
+## 9. FLAGS AND DEVICES — what can be sourced, and what cannot
+
+Written 13 Aug 2026 for `BACKLOG.md` 4.10. The owner:
+
+> "If possible I want to use very specific & historically accurate flags &
+> colours"
+
+`docs/DESIGN-SYSTEM.md` already sets the standard and points here for it: *the
+faction devices are real objects — the seax, a Mjölnir amulet of the kind dug
+out of York in exactly this decade, the triskele, the Pictish
+crescent-and-V-rod. Sourceable to a find, or labelled an invention.*
+
+This section is that sourcing pass, done **before** anything is drawn, because
+the expensive mistake in this area is not a bad drawing. It is a good drawing of
+something that was invented in 1890.
+
+### 9.0 The one distinction the whole section turns on
+
+**The sources tell us that banners existed and what they were called. They do
+not, with one partial exception, tell us what they looked like.** No Anglo-Saxon,
+Norse, British or Pictish battle flag survives as an object. Everything below is
+therefore one of three things, and every device we ship must be labelled as
+which:
+
+| Tier | Meaning | Ships as |
+|---|---|---|
+| **FIND** | a physical object out of the ground, dated | the device itself, drawn from the object |
+| **TEXT** | a written source says a banner existed, without a description | the *name* is period; the drawing is ours |
+| **INVENTION** | no period source at all | labelled in the UI, in as many words |
+
+A device in the second tier is not dishonest. Calling it a find would be.
+
+### 9.1 Anglo-Saxons — Wessex, gilt `#d9a441`
+
+* **FIND · the seax.** The single-edged blade that names the people. Abundant in
+  English graves across the period. The famous inscribed one — the Seax of
+  Beagnoth, Thames, British Museum, with the full runic futhorc down its blade —
+  is **10th century and therefore later than 878**; it is a fair source for the
+  *form* of the object and not for what a man at Edington carried.
+* **FIND · the Sutton Hoo assemblage** (Mound 1, Suffolk, early 7th c.). Two
+  objects are usually called standards and neither is certainly one: the iron
+  stand with the grille head and bull's-head terminals, and the whetstone
+  "sceptre" with the stag. Bede describes a *tufa* borne before King Edwin,
+  which is why the identification is made at all. **Real objects, contested
+  function, and 250 years before our date.** `docs/SUTTON-HOO.md` already governs
+  their use as the UI's palette; using them as a *battle standard* is a further
+  claim and should say so.
+* **FIND · Alfred's own coinage**, which is the tightest-dated iconography
+  available to us and is barely used: the London Monogram penny (c. 880), the
+  Two Emperors type, the Cross-and-Lozenge. A coin is a state's own chosen image,
+  struck in the decade the game is set in. This is the best untapped source in
+  the whole section.
+* **TEXT/LATER · the Wessex dragon.** The dragon or wyvern standard near Harold
+  in the Bayeux Tapestry is real evidence — of **c. 1070**, ~190 years after 878.
+  Usable as a late-Saxon dragon, not as Alfred's.
+
+### 9.2 Norse — the Danelaw, garnet `#7c1420`
+
+* **FIND · the Mjölnir amulet.** Thor's-hammer pendants are among the commonest
+  Norse finds of the 9th–10th centuries and York has produced them. A real
+  object, in the right place, in the right decade.
+* **TEXT · the raven banner, and it is dated to our exact year.** The
+  Anglo-Saxon Chronicle's annal for **878** records the West Saxons taking the
+  Danish banner; the later *Annals of St Neots* adds the story of it being woven
+  by the daughters of Ragnar and of the raven appearing to flutter before a
+  victory. So: *a raven banner existed, it was called the Raven, and it was
+  captured in the very year this game is set.* **What is not recorded is what it
+  looked like** — the weaving story is a 12th-century embellishment, not a
+  description. This is the strongest narrative hook in the section and the
+  drawing of it is still ours.
+* **AVOID.** The Vegvísir and the Ægishjálmur ("helm of awe") are **17th–19th
+  century Icelandic grimoire designs**, not Viking-age, and they are everywhere
+  in Norse-themed games. So is the valknut *as a shield device*. Separately and
+  more seriously: several genuine period symbols — the othala rune, the sunwheel,
+  the black sun — have been appropriated by modern extremist movements. A game
+  that puts them on a faction banner is making a statement whether it means to or
+  not. None of them go in.
+
+### 9.3 Britons — Cymru · Kernow · Ystrad Clud, moss `#3f6353`
+
+* **FIND · the triskele**, and insular interlace generally: La Tène in origin,
+  continuous through insular metalwork and manuscript art, and on penannular
+  brooches of the period. Safe, and it is already in the glyph set.
+* **TEXT · the red dragon, and it is nearly in date.** The *Historia Brittonum*
+  (**c. 829**, ~50 years before our year) carries the Vortigern story of the red
+  dragon and the white — a British red dragon in a British source, written
+  before Alfred was born. **But Y Ddraig Goch as a rendered flag is Tudor**, so
+  the association is period and the drawing is not.
+* **INVENTION if drawn as heraldry.** The Britons have no attested battle
+  standard. A field with a triskele on it is our composition of two real things
+  and ships labelled as such.
+
+### 9.4 Picts — Fortriu, woad `#2b4f72`
+
+* **FIND, and the best-evidenced device set in the game.** The symbol stones are
+  in the ground in Scotland today, in numbers, dated across the 6th–9th
+  centuries: the **crescent-and-V-rod**, the **double-disc-and-Z-rod**, the
+  **"Pictish beast"**, the **mirror-and-comb**. Carved, dated, unambiguous.
+* **What is NOT known is what any of them meant.** The leading readings are
+  names or kin-groups; nobody knows. And **there is no evidence they were ever
+  carried as banners.** So the devices are finds and their use as a standard is
+  our invention — which is exactly the split §9.0 exists for, and it is a good
+  trade: the mark is real even where the flag is not.
+* This is why §2 calls the Picts the prize. Nobody else is using a symbol set
+  that is simultaneously this well-evidenced and this unfamiliar.
+
+### 9.5 The two war-band fields are already sourced
+
+§8's madder `#8e2320` and woad `#24457e` belong in this section too, and they
+are the cleanest result in it: they are not "red and blue", they are **the two
+expensive dye vats of the period**, and the game's own `FINISH_KIT` named both
+before the team rule existed. A colour sourced to a dyestuff is stronger than a
+device sourced to a manuscript, because a dyestuff leaves residue in cloth and a
+manuscript is somebody's opinion.
+
+The four faction fields are gilt, garnet, moss and woad, and the hexes are in
+`src/app/globals.css` — see the correction under the roster table in §2. Their
+justification is legibility (four distinguishable fields) rather than a find,
+and that is the honest label for them: **INVENTION, on purpose, for a reason
+that outranks accuracy.** §8's precedence rule is why.
+
+### 9.6 What to build first
+
+1. **Alfred's coin iconography** for the Anglo-Saxons. FIND tier, dated to the
+   decade, and completely unused by anyone.
+2. **The Pictish crescent-and-V-rod.** FIND tier, and it is the most distinctive
+   mark available to any faction in any game.
+3. **The York Mjölnir** for the Norse, with **the Raven kept for the season
+   banner** rather than the faction device — the Chronicle has it captured in
+   878, so it is a trophy, and a trophy is a war-layer object rather than a
+   costume one.
+4. The Britons last, because they are the only one of the four whose device is
+   a composition rather than an object.
+
+Every one of these ships with its tier visible to the player. A game that tells
+you *this mark is real and this one is ours* is more interesting than one that
+quietly pretends both are real, and it is the only version of "historically
+accurate" that survives contact with the evidence.

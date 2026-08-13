@@ -12441,31 +12441,37 @@ export function buildCharacter(
   // down. It is short of the 0.50 the audit failed for drawing a fold across the
   // middle of the cheek by 90 mm of arc.
   const cheekIn = style.cheek === "deep" ? (style.mask ? 0.66 : 0.56) : 0.56;
-  // 1.52 rad on the short guards, not 1.10. THIS IS THE OWNER'S FIRST FAULT AND
-  // IT IS ONE NUMBER:
+  // THE SHORT GUARD IS AT 1.10 AND THE OWNER'S FIRST FAULT IS STILL OPEN.
   //
   //   "there are large gaps in the sides of the helmets, if they are there they
   //    need more consideration & better lining up with the actual ears or
   //    whatever would be visible there."
   //
-  // A short guard stopped at 1.10 rad and the nape flange's front edge came no
+  // A short guard stops at 1.10 rad and the nape flange's front edge comes no
   // further forward than 2.06, so on the Spectacle, the Boar-Crest and the
-  // Jarl's Crowned there was 0.96 rad — 55 degrees, most of the side of the
-  // head — with no metal on it at all, bounded above by the band, in front by a
-  // plate and behind by a plate. `wearmeasure` §10 measures that window at 5 to
-  // 6% of the flank with its centre 43 to 64 mm from the ear, which is the
-  // arithmetic behind "gaps ... framing nothing": it is not an ear opening, it
-  // is the place two plates failed to meet.
+  // Jarl's Crowned there is 0.96 rad — 55 degrees, most of the side of the head
+  // — with no metal on it at all, bounded above by the band, in front by a plate
+  // and behind by a plate. That is not an ear opening; it is the place two
+  // plates failed to meet. `wearmeasure` §10 still reports it, today, on the
+  // shipped build: huscarl/spectacle 5.2% of the flank at 62 mm from the ear,
+  // huscarl/boar 4.6% at 63 mm, huscarl/crowned 6.7% at 37 mm — six windows on
+  // the PASS line as a deferral rather than a clean sheet.
   //
-  // The ruling is the one the audit made about the guards themselves — a
-  // rectangle in parameter space is not an opening — so the opening goes and
-  // the two plates lap. 1.52 clears the helix by 20 mm and lands the guard's
-  // rear edge behind the ear, where the flange's front edge is brought forward
-  // to meet it. And it is THIS constant that moves, not a copy of it inside the
-  // guard: the hair reads this line to know where the metal stops, so a guard
-  // that grew while the hair's idea of it did not would put a mane through a
-  // plate — which is the mirrored-definition fault this file has recorded three
-  // times.
+  // WHAT THIS COMMENT USED TO SAY, AND WHY THE CORRECTION IS HERE RATHER THAN A
+  // QUIET DELETE. It opened "1.52 rad on the short guards, not 1.10", described
+  // at length how 1.52 clears the helix by 20 mm and lands the guard's rear edge
+  // behind the ear, and then the code on the next line read 1.10. The fix was
+  // tried and reverted and the comment was not. `docs/PROCESS.md` names this
+  // exact pair as failure mode 3 — "the file confidently asserts a fix that is
+  // not present" — and R7 makes comment and code one artefact. So: 1.52 was
+  // TRIED AND IS NOT IN THE BUILD. If it is tried again, the thing to check
+  // first is whether the flange's front edge came forward with it; on its own it
+  // moves the window rather than closing it.
+  //
+  // The claim that "it is THIS constant that moves, not a copy of it inside the
+  // guard" was ALSO false when it was written — `deepHem` was that copy, seven
+  // hundred lines down. It is true now: the copy is gone and `cheekHemAt` is the
+  // one definition both the plate and the hair read.
   const cheekOut = style.cheek === "deep" ? (style.mask ? 1.62 : 1.45) : 1.10;
   /**
    * The plate's hem at an azimuth, as a latitude, or -Infinity where nothing
@@ -14703,10 +14709,24 @@ export function buildCharacter(
         // is a curve in u, not a latitude — the same construction the Sutton Hoo
         // mask's `maskBot(u)` uses, which is the one piece in the tier the audit
         // passes and the template it names.
-        const deepHem = (u: number) => {
-          const t = clamp01((Math.abs(u) - guardIn) / (guardOut - guardIn));
-          return lat(Y_CHIN + 0.05) + 0.34 * Math.pow(smooth(0.30, 1, t), 1.35);
-        };
+        // ONE DEFINITION, AND IT IS `cheekHemAt`. This was a second copy of that
+        // function's `deep` branch — the same `lat(Y_CHIN + 0.05) + 0.34 *
+        // smooth(0.30, 1, t)^1.35` over the same `t`, since `guardIn`/`guardOut`
+        // are `cheekIn`/`cheekOut` two lines up. docs/OPEN-DEFECTS.md records
+        // what the copy cost: "`cheekHemAt` is a DUPLICATE of `deepHem` inside
+        // the builder, and it was the copy I swept first — which is why the hem
+        // appeared to do nothing twice", and it names this as the FOURTH
+        // mirrored definition in this file. Sweeping the guard's hem is still
+        // the open work (the shape, not the constant); it now costs one edit
+        // instead of three sweeps and a wrong conclusion.
+        //
+        // `Math.abs(u)` rather than `awayFromFace(u)` was the only difference
+        // and it is not one here: `sideArc` only ever hands this arc |u| within
+        // [cheekIn, cheekOut], and `cheekOut` is at most 1.62 rad, so the two
+        // agree everywhere the guard exists. Proven by fingerprint rather than
+        // by argument — every class x every helm x every hair rung digests to
+        // the same 160 world-space hashes before and after this collapse.
+        const deepHem = (u: number) => cheekHemAt(Math.abs(u));
         // And the top edge dips forward of the hinge, so the plate does not
         // present a straight horizontal rim across the temple either.
         // Over a MASK there is no eye to clear — the mask has its own openings and
