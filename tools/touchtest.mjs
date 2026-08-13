@@ -1229,6 +1229,72 @@ async function lockAct(browser, url, check) {
       cells === 0
         ? `every one of ${dead.total} sampled points still reaches the canvas or a combat button with the reticle and its tuition line drawn`
         : `${cells} of ${dead.total} points now reach neither: ${dead.worst.map(([w, c]) => `${w} (${c})`).join(", ")}`);
+
+    // ---------------------------------------------------------------
+    // THE SETTINGS CONTROL IS NOT FURNITURE IN THE PLAY FIELD.
+    //
+    // The owner, 13 Aug 2026: "Better placement on screen for the quality, i
+    // like that feature but its a bit in the way where it currently is on
+    // screen." R6 — his words become a named check, and this is it.
+    //
+    // The old position passed everything this file already asserts, which is the
+    // point: the dead-zone sweep can only ever say "does this swallow a drag",
+    // and the pad was on the movement side where that sweep does not even look.
+    // It sat 212 px up from the foot of the screen — clear of the 132 px thumb
+    // band, and still a lit pad floating at eye level over the arena and over
+    // the warrior's own cloak. Only a frame could say so (`tools/hudshot.mjs`),
+    // and only a rule can stop it coming back.
+    //
+    // THE RULE, and every clause of it is `docs/DESIGN-SYSTEM.md` §3 read
+    // straight rather than a number chosen to make this pass:
+    //
+    //   · THE BOTTOM HALF OF A PHONE IS THUMB COUNTRY. §3 keeps combat controls
+    //     inside the 132 px band and puts anything you cannot take back
+    //     deliberately outside it, "because a thing you cannot take back should
+    //     cost a small movement". A settings dialog opened mid-fight is exactly
+    //     that, and half the screen is the honest statement of "out of the way
+    //     of both thumbs" — not a fraction tuned until the new position cleared
+    //     it.
+    //   · 44 px FLOOR, which §3 applies to every control on every platform.
+    //   · IT STAYS ON THE MOVEMENT SIDE, so it still takes no bite out of
+    //     free-look — which is the one thing the old comment got right, and it
+    //     is kept rather than traded away.
+    //
+    // It gates ONE control by name. Everything else in the thumbs' half is
+    // printed on the verdict line rather than judged, because HAND at 92 px is
+    // a control a thumb is supposed to reach and RUN at 24 is a combat control:
+    // a rule that failed those would be a rule about the wrong thing.
+    const gfx = await page.evaluate(() => {
+      const el = document.querySelector('[aria-label="Graphics quality"]');
+      const H = window.innerHeight;
+      const W = window.innerWidth;
+      const others = [...document.querySelectorAll("button")]
+        .map((b) => ({ name: b.getAttribute("aria-label") || b.textContent.trim().slice(0, 14), r: b.getBoundingClientRect() }))
+        .filter((b) => b.r.width > 0 && H - b.r.bottom < 132)
+        .map((b) => `${b.name} ${Math.round(H - b.r.bottom)}px up`);
+      if (!el) return { missing: true, H, W, others };
+      const r = el.getBoundingClientRect();
+      return {
+        missing: false, H, W, others,
+        top: Math.round(r.top), bottom: Math.round(r.bottom),
+        cx: Math.round(r.left + r.width / 2),
+        w: Math.round(r.width), h: Math.round(r.height),
+        up: Math.round(H - r.bottom),
+      };
+    });
+    const moveSideOk = gfx.missing ? false
+      : (hnd === "left-handed" ? gfx.cx > gfx.W / 2 : gfx.cx < gfx.W / 2);
+    check(`${hnd}: the graphics control is reachable from the fight and OUT of the play field`,
+      !gfx.missing
+      && gfx.bottom <= gfx.H / 2
+      && gfx.up >= 132
+      && Math.min(gfx.w, gfx.h) >= 44
+      && moveSideOk,
+      gfx.missing
+        ? "there is no graphics control on the glass at all, which is a worse defect than the one this checks"
+        : `the pad sits ${gfx.top}–${gfx.bottom} of ${gfx.H}, ${gfx.up}px up from the foot, ${gfx.w}x${gfx.h}, `
+          + `centre x=${gfx.cx} of ${gfx.W} on the ${hnd === "left-handed" ? "right" : "left"} (movement) side. `
+          + `Reported and not judged — the thumb band still holds: ${gfx.others.join(", ") || "nothing"}`);
   }
 
   const end = await me(await seq());

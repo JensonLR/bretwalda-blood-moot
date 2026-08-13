@@ -46,6 +46,56 @@
 // no eight bodies, no input, no swings to resolve — so the death is the one
 // moment a phone can afford to look expensive. What the phone loses is decals
 // and droplets, which is `quality.ts`'s business, not seconds.
+//
+// ---------------------------------------------------------------------------
+// THERE ARE TWO CAMERAS IN THIS FILE AND THEY ARE DIFFERENT CAMERAS
+//
+// The owner, 13 Aug 2026, on the one above:
+//
+//   "death camera only shows when you die last, everyone should see death
+//    camera for final death winner & all losers."
+//
+// He is describing a hole this module was never asked about. `update()` refuses
+// the lens unless the viewer is `dead`, which is CORRECT for your own death and
+// means the man who WON the round never sees the blow that won it — the single
+// moment in a round most worth watching, played to the one house that is empty.
+// The adversary on the death-camera unit verified that a living player can never
+// take the lens and called it correct, which it is, for the defect it was built
+// for. Nobody asked whether the winner should see anything. That is a gate
+// answering the question it was given rather than the question that mattered.
+//
+// So:
+//
+//   YOUR OWN DEATH — `createDeathCamera`, above. 3.10 s. Opens on the exact
+//                    frame the follow camera left, because you were already
+//                    looking at yourself and a cut would throw away the one
+//                    thing you are trying to understand. NO CUT.
+//   THE ROUND'S     — `createRoundCamera`, below. 2.20 s. Everybody watches the
+//   FINAL DEATH      killing blow that ends the round, winner and losers alike.
+//                    It CUTS, and the cut is the point: you were fighting
+//                    somebody else twenty metres away, there is no continuity to
+//                    preserve, and a two-second dolly across the arena arrives
+//                    after the body has settled and shows nothing.
+//
+// The geometry is shared — `frameDeathShot` is one definition of "where the lens
+// goes to watch a man die" and both cameras drive it — and everything that
+// differs is a parameter: the clock, the lens, and where the shot OPENS.
+//
+// PRECEDENCE, decided here rather than left to whichever caller runs first:
+//
+//   **YOUR OWN DEATH OUTRANKS THE ROUND'S, AND THE ROUND'S IS NEVER QUEUED.**
+//
+// If your own hold is running on the frame the round ends, you keep it and the
+// round beat never arms for you — not then, and not when your hold finishes. You
+// were already being seen; that was your beat. Two reasons, and the second is
+// the one that makes it non-negotiable: cutting off your own collapse to watch
+// somebody else's is the exact cut this module exists to refuse, and 3.10 s of
+// hold followed by 2.20 s of beat is 5.30 s inside a break the server gives five
+// seconds — the next round would be dealt over the top of it.
+//
+// In an honour duel that resolves to precisely what the owner asked for: the man
+// who died gets his own camera, the man who won gets the round's, and the round's
+// is a shot of the same body.
 
 /** Seconds in each beat. The total is what a player experiences as "the hold". */
 export const DEATH_HOLD = {
@@ -61,6 +111,72 @@ DEATH_HOLD.total = DEATH_HOLD.fall + DEATH_HOLD.move + DEATH_HOLD.linger;
 
 /** Field of view at the start of the hold and at the end of it. */
 export const DEATH_FOV = { from: 55, to: 44 };
+
+/**
+ * THE ROUND'S FINAL DEATH. Shorter than your own on purpose.
+ *
+ * Your own death is 3.10 s because you are trying to read what happened to you
+ * and the collapse alone takes 1.10 s. The round beat is a beat: the blow lands,
+ * everybody looks, the round tally comes up. 2.20 s inside a 5 s break leaves
+ * 2.80 s of slack, so NOTHING WAITS ON IT — the server has already set
+ * `nextRoundAt` and this module sends nothing, decides nothing the server
+ * decides, and is not read by any other client.
+ *
+ * `fall` is short for the same reason it is long above. There the lens is
+ * already on the body and the stillness is the shot; here the lens has just cut
+ * in from wherever the viewer was, so a long still opening is a freeze on a
+ * stranger. It is 0.45 s — long enough to read the frame before it starts to
+ * move, short enough that the move is what you remember.
+ *
+ * ---------------------------------------------------------------------------
+ * 2.20 s IS NOT A FREE CHOICE. `src/app/page.tsx` already holds the round-end
+ * screen for `ROUND_HOLD_MS = 2200` — for exactly that long after a round ends,
+ * `RoundBreak` draws only a verdict line and the victor's flourish row over the
+ * LIVE ARENA, and only then does the opaque `data-break-card` scrim come down.
+ * The presentation half of `BACKLOG.md` 2.6 was already built and pointed at
+ * nothing: for 2.2 seconds the game showed you the arena and the arena was
+ * showing you the lobby orbit.
+ *
+ * So the beat is the length of the window that was already open for it. THE TWO
+ * CONSTANTS ARE NOT WIRED TOGETHER — `page.tsx` belongs to another unit and a
+ * camera reaching into the summary flow to import a number is not a trade worth
+ * making — which makes this the mirrored-definition fault `docs/PROCESS.md`
+ * records five times in `characters.ts` alone, sitting one edit away. It is not
+ * left to good intentions: `tools/deathcamtest.mjs` READS THAT FILE and fails
+ * if the two numbers stop agreeing. Change one and the harness will tell you
+ * about the other.
+ */
+export const ROUND_HOLD = {
+  /** Cut in, hold still, let the eye find the body. */
+  fall: 0.45,
+  /** In onto the wound. */
+  move: 1.05,
+  /** The killer standing over him while the stump runs. */
+  linger: 0.70,
+};
+
+ROUND_HOLD.total = ROUND_HOLD.fall + ROUND_HOLD.move + ROUND_HOLD.linger;
+
+/** Tighter than the death lens at both ends: this shot never had a wide to lose. */
+export const ROUND_FOV = { from: 50, to: 42 };
+
+/**
+ * Where the round beat CUTS TO — the frame it opens on, before it moves.
+ *
+ * `frameDeathShot` swings from `from` round to the side the wound faces and
+ * closes to `CLOSE_RADIUS`. For your own death `from` is where you were already
+ * looking, and the whole design is that it is not chosen. For the round's death
+ * it has to be chosen, because "where the viewer happened to be" is twenty metres
+ * away across an arena and the beat would spend its whole clock travelling.
+ *
+ * 5.4 m and 2.5 m up: far enough that the opening frame is a man on the ground
+ * and the man who killed him, close enough that the push in is a push and not a
+ * flight. The bearing is the same one the shot ends on, so the move is a DOLLY
+ * rather than a swing — a swing you did not see the start of reads as the camera
+ * losing the body.
+ */
+const ROUND_OPEN_RADIUS = 5.4;
+const ROUND_OPEN_LIFT = 2.5;
 
 /** How close the lens gets to the wound, and the floor under that. */
 const CLOSE_RADIUS = 2.05;
@@ -110,10 +226,17 @@ function unitXZ(x, z, fx, fz) {
  * @param v.from      where the follow camera was on the frame he died. The hold
  *                    starts here and there is no cut.
  * @param v.groundAt  terrain height under a world (x,z). Optional; flat if not.
+ * @param v.hold      the clock, `DEATH_HOLD` by default. The round beat hands
+ *                    `ROUND_HOLD` instead — one geometry, two clocks, rather
+ *                    than a second copy of this arithmetic that would drift from
+ *                    it the first time either was tuned.
+ * @param v.fov       the lens, `DEATH_FOV` by default.
  * @returns { position: [x,y,z], target: [x,y,z], fov, beat, moved }
  */
 export function frameDeathShot(v) {
   const t = Math.max(0, v.t || 0);
+  const hold = v.hold ?? DEATH_HOLD;
+  const lens = v.fov ?? DEATH_FOV;
   const body = v.body;
   // The wound, or the middle of his chest if nothing came off — a torso kill is
   // a third of all deaths and the low tier refuses the bisection outright, so
@@ -137,8 +260,8 @@ export function frameDeathShot(v) {
   let ty = wound.y * 0.78 + chest.y * 0.22;
   let tz = wound.z * 0.78 + chest.z * 0.22;
 
-  const moved = ease((t - DEATH_HOLD.fall) / DEATH_HOLD.move);
-  const beat = t < DEATH_HOLD.fall ? "fall" : t < DEATH_HOLD.fall + DEATH_HOLD.move ? "move" : "linger";
+  const moved = ease((t - hold.fall) / hold.move);
+  const beat = t < hold.fall ? "fall" : t < hold.fall + hold.move ? "move" : "linger";
 
   // The severed part, while it is still the subject — which is a question about
   // TIME as much as about distance, and the first cut of this only asked about
@@ -224,10 +347,65 @@ export function frameDeathShot(v) {
   return {
     position: [px, py, pz],
     target: [tx, ty, tz],
-    fov: DEATH_FOV.from + (DEATH_FOV.to - DEATH_FOV.from) * moved,
+    fov: lens.from + (lens.to - lens.from) * moved,
     beat,
     moved,
   };
+}
+
+/**
+ * WHERE THE ROUND BEAT CUTS TO, as pure arithmetic.
+ *
+ * Split out from `createRoundCamera` and exported for the same reason
+ * `frameDeathShot` is: the cut is the decision that makes this camera a
+ * different camera, so it is the thing worth hammering with no clock and no
+ * engine in the way.
+ *
+ * The bearing, in order of preference, and each fallback is a real case:
+ *
+ *   1. THE SPRAY, if it has a horizontal opinion. Same rule the death camera
+ *      ends on, so the beat opens looking at the side the blood is leaving by
+ *      and pushes straight in along it.
+ *   2. THE KILLER's bearing, when the spray is vertical or absent — a head off
+ *      the top of a neck has no horizontal direction, and a torso kill has no
+ *      spray at all, which is a third of every death and the low tier's ONLY
+ *      case (`characters.ts` refuses the bisection there). Opening on the
+ *      killer's line hands `frameDeathShot` a shot it will then rotate by
+ *      `KILLER_CLEAR`, so he ends up off to one side of frame standing over the
+ *      body, which is the whole of "being seen".
+ *   3. WHERE THE VIEWER ALREADY IS, if there is no killer either — a man who
+ *      burned to death in the bonfire is killed by the arena, and the arena has
+ *      no position. Then it is not a cut at all, which is the right answer when
+ *      there is nothing to cut TO.
+ *
+ * @param v.wound     the point the shot is about.
+ * @param v.spray     unit world direction the wound faces, or null.
+ * @param v.killer    the man who did it, or null.
+ * @param v.from      where the viewer's lens is right now. Fallback bearing only.
+ * @param v.groundAt  terrain height under a world (x,z). Optional.
+ * @returns {{x:number,y:number,z:number}} the opening eye position.
+ */
+export function roundOpening(v) {
+  const w = v.wound;
+  let bx = 0;
+  let bz = 1;
+  const sprayLen = v.spray ? Math.hypot(v.spray.x, v.spray.z) : 0;
+  if (sprayLen > 1e-3) {
+    bx = v.spray.x / sprayLen;
+    bz = v.spray.z / sprayLen;
+  } else if (v.killer) {
+    [bx, bz] = unitXZ(v.killer.x - w.x, v.killer.z - w.z, 0, 1);
+  } else if (v.from) {
+    [bx, bz] = unitXZ(v.from.x - w.x, v.from.z - w.z, 0, 1);
+  }
+  const px = w.x + bx * ROUND_OPEN_RADIUS;
+  const pz = w.z + bz * ROUND_OPEN_RADIUS;
+  let py = w.y + ROUND_OPEN_LIFT;
+  if (v.groundAt) {
+    const g = v.groundAt(px, pz);
+    if (py < g + MIN_CLEARANCE) py = g + MIN_CLEARANCE;
+  }
+  return { x: px, y: py, z: pz };
 }
 
 /**
@@ -325,6 +503,137 @@ export function createDeathCamera() {
         part: s.part ?? null,
         killer: s.killer ?? null,
         groundAt: s.groundAt,
+      });
+    },
+  };
+}
+
+/**
+ * THE ROUND'S FINAL DEATH — the beat every man in the room watches.
+ *
+ * Same shape as the hold above and a different camera. What differs, in full:
+ *
+ *   WHO GETS IT      everybody. There is no `dead` in the state below, and its
+ *                    absence is the whole feature: the winner is the man this
+ *                    was built for.
+ *   WHOSE BODY       the LAST man to fall, not the viewer. The caller names him.
+ *   HOW IT OPENS     with a cut, at `roundOpening`. See the note there.
+ *   HOW LONG         `ROUND_HOLD`, 2.20 s inside the server's own 5 s break.
+ *   WHEN IT ARMS     on the rising edge of `ended` — the frame the round turns
+ *                    to the break — and never again for that round.
+ *
+ * THREE WAYS IT ENDS, and they are the death camera's three: its own clock, any
+ * input, or the moment the room leaves the break. It never delays anything. The
+ * server set `nextRoundAt` before this armed and will deal the next round on its
+ * own schedule whether this is still running or not; `live` going false is that
+ * schedule arriving, and the lens is handed back on the same frame.
+ *
+ * The precedence rule is enforced HERE and in one place — see the header. `own`
+ * is "the viewer's own death hold is holding this frame". True on the arming
+ * edge and this beat is CONSUMED: it will not arm on that edge and it will not
+ * arm later when the hold finishes. A queued beat is a beat that runs into the
+ * countdown.
+ */
+export function createRoundCamera() {
+  let holding = false;
+  let t = 0;
+  let from = { x: 0, y: 2, z: 4 };
+  let skipped = false;
+  /** Rising edge only, exactly as `wasDead` is above. */
+  let wasEnded = false;
+  /** This round's beat has been decided one way or the other. */
+  let consumed = false;
+
+  function stop() {
+    holding = false;
+    t = 0;
+    skipped = false;
+  }
+
+  return {
+    get elapsed() { return holding ? t : 0; },
+    get holding() { return holding; },
+
+    /** Any key, any tap, any click. The same press that skips your own hold. */
+    skip() {
+      if (holding) skipped = true;
+    },
+
+    /** A new round, a new match, a disconnect. Idempotent from any state. */
+    reset() {
+      stop();
+      wasEnded = false;
+      consumed = false;
+    },
+
+    /**
+     * One frame.
+     *
+     * @param dt       seconds.
+     * @param s.ended  is the room in the break this death ended. The rising edge
+     *                 arms the beat.
+     * @param s.live   may the beat still hold the lens. False the moment the
+     *                 next round is being dealt or the match summary takes over,
+     *                 and it releases on that frame.
+     * @param s.own    is the viewer's OWN death hold running this frame. Wins.
+     * @param s.body   the last man to fall, world position (feet), live — the
+     *                 collapse is still running through the break.
+     * @param s.wound  world point of his cut, live. Absent, his chest.
+     * @param s.spray  unit world direction the wound faces.
+     * @param s.part   the severed piece's live world position, or null.
+     * @param s.killer the man who ended the round, or null.
+     * @param s.camera where the viewer's lens is. Used only as the last-resort
+     *                 bearing for the cut; this shot does not start from it.
+     * @param s.groundAt terrain height under a world (x,z).
+     * @returns the shot, or null when the lens belongs to somebody else.
+     */
+    update(dt, s) {
+      const ended = !!s.ended;
+      const live = !!s.live;
+      const own = !!s.own;
+
+      if (ended && !wasEnded && live && !consumed) {
+        consumed = true;
+        // The precedence rule, and the reason it is a rule and not an ordering
+        // accident: a viewer already inside his own hold is left alone, and the
+        // beat is not saved up for him.
+        if (!own && s.body) {
+          const wound = s.wound ?? { x: s.body.x, y: s.body.y + 1.15, z: s.body.z };
+          holding = true;
+          t = 0;
+          skipped = false;
+          from = roundOpening({
+            wound,
+            spray: s.spray ?? null,
+            killer: s.killer ?? null,
+            from: s.camera ?? null,
+            groundAt: s.groundAt,
+          });
+        }
+      }
+      wasEnded = ended;
+
+      if (!holding) return null;
+      // `own` is checked every frame and not only on the edge: a man who dies
+      // DURING the break — the fire finishes him a second after the round ended
+      // — has his own hold armed under a beat that is already running, and his
+      // own death still outranks it.
+      if (!live || own || skipped || !s.body) { stop(); return null; }
+
+      t += Math.max(0, dt);
+      if (t >= ROUND_HOLD.total) { stop(); return null; }
+
+      return frameDeathShot({
+        t,
+        from,
+        body: s.body,
+        wound: s.wound ?? null,
+        spray: s.spray ?? null,
+        part: s.part ?? null,
+        killer: s.killer ?? null,
+        groundAt: s.groundAt,
+        hold: ROUND_HOLD,
+        fov: ROUND_FOV,
       });
     },
   };

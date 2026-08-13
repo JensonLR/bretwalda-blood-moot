@@ -10,7 +10,7 @@ import GameHud from "./GameHud";
 import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary } from "@/game/roundreset.mjs";
-import { createDeathCamera } from "@/game/deathcam.mjs";
+import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
 import {
   resolveQuality, configureRenderer,
   type FrameContext, type Mood, type QualitySettings,
@@ -232,14 +232,44 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
    */
   const deathCamRef = useRef(createDeathCamera());
   /**
-   * The LOCAL warrior's cut, kept live rather than as a snapshot. `cut.stump` is
-   * a node parented into the body and `cut.part` is the free piece, so reading
-   * their world matrices each frame is how the lens follows a wound that is
-   * falling and a head that is still rolling. Snapshotting the separation frame
-   * instead would aim the camera at where the man used to be standing, which is
-   * the exact bug `vfx.ts` already fixed for the blood.
+   * THE ROUND'S FINAL DEATH — the beat every man in the room watches, winner
+   * and losers alike. Same file, same geometry, a different camera and a
+   * different clock; see the header of `deathcam.mjs` for why they are two and
+   * which one outranks which.
    */
-  const severRef = useRef<{ stump: THREE.Object3D; part: THREE.Object3D; sign: number } | null>(null);
+  const roundCamRef = useRef(createRoundCamera());
+  /**
+   * EVERY warrior's cut, keyed by the man it was taken out of, and kept live
+   * rather than as a snapshot. `cut.stump` is a node parented into the body and
+   * `cut.part` is the free piece, so reading their world matrices each frame is
+   * how the lens follows a wound that is falling and a head that is still
+   * rolling. Snapshotting the separation frame instead would aim the camera at
+   * where the man used to be standing, which is the exact bug `vfx.ts` already
+   * fixed for the blood.
+   *
+   * A MAP AND NO LONGER ONE ENTRY. It held the local warrior's cut alone,
+   * because the only lens that cared was his own. The round beat watches
+   * SOMEBODY ELSE die, so the wound it is looking for belongs to whoever fell
+   * last — and a second ref for "the other man's cut" would be the same
+   * derivation written twice, which is the fault `docs/PROCESS.md` has recorded
+   * five times in `characters.ts` alone. One store, keyed by who it came off.
+   */
+  const seversRef = useRef<Map<string, { stump: THREE.Object3D; part: THREE.Object3D; sign: number }>>(new Map());
+  /**
+   * The last man to fall, and the man who felled him — tracked off the snapshots
+   * as they arrive, because the wire has no "who died last" field and the tick a
+   * round ends IS the tick the last man falls (`checkRoundEnd` runs inside the
+   * same step). Whatever this holds when the room turns to the break is the death
+   * that ended the round.
+   *
+   * Two men dying on the same tick is a DRAW and the server awards nothing; the
+   * later entry in iteration order wins here, which is arbitrary and is the only
+   * arbitrary thing in this feature. It is a shot of one of the two bodies rather
+   * than of the right one, in a case the sim itself calls undecided.
+   */
+  const lastFallRef = useRef<{ id: string; killerId: string | null } | null>(null);
+  /** What each man's state was on the previous snapshot, so a fall is an EDGE. */
+  const deadWasRef = useRef<Map<string, boolean>>(new Map());
   // Initialised from the first render's prop rather than filled in by an
   // effect: the build reads it on mount, before any effect that assigns it
   // would have run, and a build that could not see its consumer would silently
@@ -570,7 +600,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
     // 60 Hz input sampler, because the sampler only runs in the fighting states
     // and a dead man is not in one — the same reason the emote press is wired
     // here. A held key does not re-skip; there is nothing left to skip.
-    const skipDeathCam = () => deathCamRef.current.skip();
+    // Both cameras, one press. "Press anything to skip" cannot mean "skip the
+    // one you happen to be inside" — a player who taps out of the round beat and
+    // then finds his own hold still running would read the control as broken.
+    const skipDeathCam = () => { deathCamRef.current.skip(); roundCamRef.current.skip(); };
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
@@ -731,10 +764,34 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // whole; a hold still running on the last round's corpse and a stump
         // node from a body that has been put back together are both leftovers
         // of exactly the kind `clearBattle` exists to take.
+        //
+        // `roundBoundary` fires on the round INDEX going up or on the edge into
+        // the countdown — never on the edge into the break — so the beat below
+        // arms inside the break and is torn down here, one round later, rather
+        // than being reset on the frame it was armed.
         deathCamRef.current.reset();
-        severRef.current = null;
+        roundCamRef.current.reset();
+        seversRef.current.clear();
+        lastFallRef.current = null;
+        deadWasRef.current.clear();
       }
       roundPhaseRef.current = phase;
+
+      // WHO FELL LAST, tracked on the EDGE and not read off the wire, because
+      // the wire has no such field and adding one is the server's business.
+      // `checkRoundEnd` runs inside the same simulation step as the blow, so the
+      // packet that first reports the break is the packet that first reports the
+      // fall: whatever this holds when the room turns to `intermission` is the
+      // death that ended the round.
+      for (const id of Object.keys(roomState.players)) {
+        const dead = roomState.players[id].state === "dead";
+        // `=== false` and not `!`: a man first seen already dead — a late join, a
+        // reconnect — never manufactures a fall that this client did not watch.
+        if (dead && deadWasRef.current.get(id) === false) {
+          lastFallRef.current = { id, killerId: roomState.players[id].lastHitBy || null };
+        }
+        deadWasRef.current.set(id, dead);
+      }
 
       // A warrior's client half, built on first sight. Shared by the fight
       // loop and the summary path: a canvas that mounts straight into a
@@ -768,28 +825,23 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
        * ends inside the break the server was already taking (3.1 s of hold in a
        * 5 s break, both measured in `tools/deathcamtest.mjs`).
        */
-      const runDeathCam = (): boolean => {
-        const cam = deathCamRef.current;
-        const state = roomState.state;
-        const live = state === "fighting" || state === "last_stand" || state === "intermission";
-        const slot = warriorsRef.current.get(playerId);
-        if (!localPlayer || !slot) { cam.reset(); return false; }
-        // A man on his feet has no wound to follow. The solo mode respawns every
-        // five seconds forever, so without this the stump from the last death
-        // would still be the camera's idea of where he is opened.
-        if (localPlayer.state !== "dead") severRef.current = null;
-
-        // Where the body actually IS, off the rig rather than off the packet:
-        // the wire says where the sim put his feet and the rig says where the
-        // collapse has carried them, and it is the collapse we are watching.
+      /**
+       * One man's body and wound as the RIG has them this frame — where the
+       * collapse has actually carried him, not where the last packet put him.
+       * Shared by both cameras, because "where is the wound on this man" has one
+       * answer and two readers, and two derivations of it would let the hold and
+       * the beat disagree about the same corpse.
+       */
+      const bodyOf = (id: string) => {
+        const slot = warriorsRef.current.get(id);
+        if (!slot) return null;
         const g = slot.rig.group;
         g.updateWorldMatrix(true, false);
         const body = { x: g.position.x, y: g.position.y, z: g.position.z };
-
         let wound: { x: number; y: number; z: number } | null = null;
         let spray: { x: number; y: number; z: number } | null = null;
         let part: { x: number; y: number; z: number } | null = null;
-        const cut = severRef.current;
+        const cut = seversRef.current.get(id);
         // A stump whose part has left the scene has been reclaimed by the pool
         // (`Severance.release`), and a stump with no parent is a rig that has
         // been torn down. Either way there is no wound to look at any more.
@@ -806,19 +858,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             part = { x: pe[12], y: pe[13], z: pe[14] };
           }
         }
+        return { body, wound, spray, part };
+      };
 
-        const killerId = localPlayer.lastHitBy;
-        const killer = killerId ? roomState.players[killerId] : null;
-        const shot = cam.update(dt, {
-          dead: localPlayer.state === "dead",
-          live,
-          camera: stage.rig.camera.position,
-          body, wound, spray, part,
-          killer: killer ? { x: killer.position.x, y: killer.position.y, z: killer.position.z } : null,
-          groundAt: stage.world.heightAt,
-        });
-        if (!shot) return false;
-
+      /** Put a shot from either camera on the rig, and take the ear with it. */
+      const aimAt = (shot: { position: [number, number, number]; target: [number, number, number]; fov: number }) => {
         // `summary` mode with `from` and `to` at the same point is the rig's
         // "put the lens exactly here and look exactly there" — no shake, no bob,
         // no lock reticle, which are all wrong over a corpse. The easing and the
@@ -829,6 +873,72 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // The ear goes with the eye. Without this the mix keeps panning around
         // the arena centre while the picture is two metres from a stump.
         focusRef.current.set(shot.target[0], 0, shot.target[2]);
+      };
+
+      const runDeathCam = (): boolean => {
+        const cam = deathCamRef.current;
+        const state = roomState.state;
+        const live = state === "fighting" || state === "last_stand" || state === "intermission";
+        // A man on his feet has no wound to follow, and this is cleared BEFORE
+        // the body is read rather than after. The solo mode respawns every five
+        // seconds forever, so without it the stump from the last death would
+        // still be the camera's idea of where he is opened.
+        if (localPlayer && localPlayer.state !== "dead") seversRef.current.delete(playerId);
+        const mine = localPlayer ? bodyOf(playerId) : null;
+        if (!localPlayer || !mine) { cam.reset(); return false; }
+
+        const killerId = localPlayer.lastHitBy;
+        const killer = killerId ? roomState.players[killerId] : null;
+        const shot = cam.update(dt, {
+          dead: localPlayer.state === "dead",
+          live,
+          camera: stage.rig.camera.position,
+          body: mine.body, wound: mine.wound, spray: mine.spray, part: mine.part,
+          killer: killer ? { x: killer.position.x, y: killer.position.y, z: killer.position.z } : null,
+          groundAt: stage.world.heightAt,
+        });
+        if (!shot) return false;
+        aimAt(shot);
+        return true;
+      };
+
+      /**
+       * THE ROUND'S FINAL DEATH, on everybody's screen.
+       *
+       * The owner: "everyone should see death camera for final death winner &
+       * all losers." So there is no `dead` here and its absence is the feature —
+       * this is the camera the man who WON gets, and he is the man the death
+       * camera could never reach.
+       *
+       * `own` is the death camera's answer for THIS frame and is handed straight
+       * through: the precedence rule lives in `deathcam.mjs` and is enforced
+       * once, so the order these two are called in cannot decide the outcome.
+       * Called every frame of the break whatever `own` says, because the beat
+       * arms on an EDGE and an edge nobody looks at is an edge that is missed.
+       */
+      const runRoundCam = (own: boolean): boolean => {
+        const cam = roundCamRef.current;
+        // The break, and only the break. `countdown` is the next round being
+        // dealt and `finished` is the match summary's, which stages its own
+        // tableau — see the deferral on `tools/deathcamtest.mjs`'s verdict line.
+        const ended = roomState.state === "intermission";
+        const fell = lastFallRef.current;
+        const him = fell ? bodyOf(fell.id) : null;
+        const killer = fell && fell.killerId ? roomState.players[fell.killerId] : null;
+        const shot = cam.update(dt, {
+          ended,
+          live: ended,
+          own,
+          body: him ? him.body : null,
+          wound: him ? him.wound : null,
+          spray: him ? him.spray : null,
+          part: him ? him.part : null,
+          killer: killer ? { x: killer.position.x, y: killer.position.y, z: killer.position.z } : null,
+          camera: stage.rig.camera.position,
+          groundAt: stage.world.heightAt,
+        });
+        if (!shot) return false;
+        aimAt(shot);
         return true;
       };
 
@@ -873,8 +983,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // through the same `summary` mode the hold does. Cleared rather than
         // left to time out, or a hold armed on the killing blow of the last
         // round would spend the first seconds of the portrait fighting
-        // `render/summary.ts` for the camera every frame.
+        // `render/summary.ts` for the camera every frame. The round beat goes
+        // the same way and for the same reason: the match summary IS the
+        // round-end beat for the round that ends a match, it stages the victor
+        // rather than the corpse, and two cameras on one lens is the thing this
+        // whole feature is careful not to be.
         deathCamRef.current.reset();
+        roundCamRef.current.reset();
         for (const p of Object.values(roomState.players)) ensureSlot(p);
         // The portrait owns the whole frame: no floating names, no health
         // bars over men the match has already judged. Cleared on the way out
@@ -940,8 +1055,20 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // the corpse is in rather than at the one it was in last tick — and
         // ahead of the lobby orbit, because in a duel the packet that reports
         // your death has already turned the room to `intermission` and this
-        // branch is where the whole hold plays out.
-        if (photoFramedRef.current || !runDeathCam()) stage.rig.setMode("lobby");
+        // branch is where the whole hold AND the whole round beat play out.
+        //
+        // Both cameras are ticked every frame and only one can take the lens.
+        // The beat is asked even when the hold has already answered, because it
+        // arms on an edge and refuses on `own` — an edge nobody offers it is an
+        // edge it never sees, and the beat would then arm a frame late for a man
+        // whose hold was skipped.
+        if (photoFramedRef.current) {
+          stage.rig.setMode("lobby");
+        } else {
+          const own = runDeathCam();
+          const beat = runRoundCam(own);
+          if (!own && !beat) stage.rig.setMode("lobby");
+        }
         stage.rig.update(dt, ctx);
         // vfx owns the bonfire and the torches now, so it runs on both early-out
         // paths as well: without this the moot's fires freeze mid-lick in the
@@ -993,19 +1120,21 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             power: (cut.seam === "waist" ? 1.55 : 1) * (victim.deathHeavy ? 1.15 : 1),
           });
           // And the lens, from the same cut and not from a second derivation of
-          // it. Only the local man's — nobody else's death moves your camera.
+          // it. EVERY man's, keyed by whose body it came out of — it used to be
+          // the local warrior's alone, on the argument that "nobody else's death
+          // moves your camera", and that argument is exactly the hole the owner
+          // reported: the death that ends the round moves everybody's.
+          //
           // The SIGN is all that is kept of the spray: `cut.spray` is the world
           // direction at the instant of separation, and a world direction is
           // wrong one frame later when the corpse has begun to roll. What stays
           // true is which way along the stump's own Y the wound faces, which is
           // the same trick `vfx.ts:axisSignFor` uses to keep a jet on a falling
           // body.
-          if (victim.id === playerId) {
-            cut.stump.updateWorldMatrix(true, false);
-            const e = cut.stump.matrixWorld.elements;
-            const sign = e[4] * cut.spray.x + e[5] * cut.spray.y + e[6] * cut.spray.z >= 0 ? 1 : -1;
-            severRef.current = { stump: cut.stump, part: cut.part, sign };
-          }
+          cut.stump.updateWorldMatrix(true, false);
+          const e = cut.stump.matrixWorld.elements;
+          const sign = e[4] * cut.spray.x + e[5] * cut.spray.y + e[6] * cut.spray.z >= 0 ? 1 : -1;
+          seversRef.current.set(victim.id, { stump: cut.stump, part: cut.part, sign });
         },
         onBladeTrail: (pos, cls) => {
           stage.vfx.trail({

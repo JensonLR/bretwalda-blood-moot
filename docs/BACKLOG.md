@@ -47,6 +47,8 @@ minute. They are cheap and they are all visible.
 | 1.8 | **Huscarl shield colours should follow the armour finish** | NEW |
 | 1.9 | **Emote option appears on the next-round screen** where no players are visible, and shows even when you lost | NEW — misplaced UI |
 | 1.10 | Pupils overlap the upper eyelids | [ALREADY RAISED] 8 Aug |
+| 1.11 | **"Flick screen to change foe" never leaves** — it retired on a switch that LANDS, and in an honour duel there is nobody to switch to, so it was permanent in the mode the owner plays | DONE 13 Aug — `src/game/tuition.mjs`, `tools/tuitiontest.mjs` 18/18, `docs/MOBILE-CONTROLS.md` round three |
+| 1.12 | **The QUALITY pad is in the way on a phone** — the feature is wanted, the placement was argued from a dead-zone sweep rather than looked at, and it sat over the warrior at eye level | DONE 13 Aug — moved to the top-of-screen utility column; new `touchtest` assertion per handedness; frames in `art/ui/hud/` |
 
 ### WAVE 2 — weight, and being seen
 
@@ -59,8 +61,8 @@ ninety seconds, and it is the foundation the war layer sits on.
 | 2.2 | **Shoving; being knocked over if caught off guard; a get-up** | NEW |
 | 2.3 | **Parry upgrade: animation you feel, plus a real riposte window** to capitalise with extra damage | NEW — the mastery ceiling |
 | 2.4 | **Satisfying combat sound** that complements the fighting | [ALREADY RAISED] `docs/SOUND.md`, still unbuilt |
-| 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | NEW |
-| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | [PARTLY RAISED] round flow; the beat is new |
+| 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | DONE — `src/game/deathcam.mjs`, `tools/deathcamtest.mjs` |
+| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | MOSTLY DONE, 13 Aug — see below |
 | 2.7 | **More blood, over the top** — spray and splatter | [ALREADY RAISED] `docs/GORE-DESIGN.md` |
 | 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | NEW, and it is the loudest "student project" tell in the build |
 
@@ -68,10 +70,69 @@ ninety seconds, and it is the foundation the war layer sits on.
 
 | # | Item | Note |
 |---|---|---|
-| 2b.1 | **"Flick screen to change foe" never goes away** — the hint is permanent and must fade | NEW. A hint that never leaves is not a hint, it is furniture |
+| 2b.1 | **"Flick screen to change foe" never goes away** — the hint is permanent and must fade | **DONE** — `tools/tuitiontest.mjs` 18/18. Root cause was not the timer: the counter incremented on the SWITCH that lands, not on the FLICK, so in an honour duel (one enemy, nothing to switch to) it was nailed at zero and the caption was permanent |
 | 2b.2 | **The match starts before everyone has loaded** — "a lot of the time the game starts before fully loading in which is a poor experience, we shouldn't start until everyone is fully loaded in" | NEW, and it needs `engine.mjs`: the server must hold the countdown until every client reports ready, with an honest timeout so one bad connection cannot hang seven people |
-| 2b.3 | **The death camera only fires for the last man to die** — "everyone should see death camera for final death winner & all losers" | NEW, and it is a gap in what shipped. `deathcam.update()` returns null unless `dead && live`, which is right for your own death and means a WINNER never sees the round's final death. The final death of a round is the one everybody should watch — it is the round-end beat (2.6) and "being seen" (`WHAT-THIS-GAME-IS.md` §5.4) meeting |
-| 2b.4 | **The quality control is in the way** — "i like that feature but its a bit in the way where it currently is on screen". The feature is wanted; the placement is not | NEW. It shipped in the mobile unit as a blocking item and its placement was never reviewed on screen by an eye |
+| 2b.3 | **The death camera only fires for the last man to die** — "everyone should see death camera for final death winner & all losers" | **MOSTLY DONE** — two cameras off one shared geometry, `deathcamtest` 20/20 → 42/42. Your own death outranks the round's and the round's is never queued, enforced in the module rather than by call order. STILL OPEN: the death that ends a MATCH goes straight to the victor's portrait — `endRound` calls `endMatch` on the same tick, so there is no break to play the beat in |
+| 2b.4 | **The quality control is in the way** — "i like that feature but its a bit in the way where it currently is on screen". The feature is wanted; the placement is not | **DONE** — moved from (16, 212) to the top of the movement side under the sound toggle, 624 px clear of the foot. `touchtest` gained an assertion named after the report and it was shown RED in both handednesses against the shipped position |
+
+#### 2.6, in detail — what landed and the one piece that did not
+
+The owner, 13 Aug 2026: *"death camera only shows when you die last, everyone
+should see death camera for final death winner & all losers."*
+
+He is right, and the gap is instructive rather than embarrassing: 2.5 shipped
+that morning and its adversary verified that `deathcam.update()` can never take
+a **living** player's lens — which is correct, for the defect 2.5 was built for.
+Nobody asked whether the winner should see anything. A gate answering the
+question it was given rather than the question that mattered.
+
+**LANDED.** There are now two cameras in `src/game/deathcam.mjs` and they are
+deliberately distinct:
+
+* **Your own death** — unchanged. 3.10 s, no cut, opens on the frame the follow
+  camera left because you were already looking at yourself.
+* **The round's final death** — new. 2.20 s, and it **cuts**, because the viewer
+  was fighting somebody else twenty metres away and a dolly across the arena
+  arrives after the body has settled. Every living and dead man in the room
+  watches the blow that ended the round.
+
+The geometry is one function driving two clocks, the beat fits inside the break
+the server already takes (2.20 s of beat in a measured 5.0 s break, so **nothing
+waits on it**), it is skippable on the same press, and the precedence is stated
+rather than left to call order: **your own death outranks the round's, and the
+round's is never queued.** If your own hold was running when the round ended you
+keep it — that was your beat — and the beat does not wait for you, because
+3.10 s + 2.20 s does not fit in a five-second break. In an honour duel that
+resolves to exactly what the owner asked for: the loser gets his own camera, the
+winner gets the round's, and they are shots of the same body.
+
+`tools/deathcamtest.mjs` is 42/42, extended rather than replaced, with the new
+claims shown red first and the winner's own follow camera kept permanently as
+the proof of failure. The frames are `npm run roundbeatshot`, which reaches the
+case the way a scripted browser actually can — it loses a round early, so its
+warrior is a man whose own hold is long over when the last bot falls — and
+stamps every frame with the room state and the camera mode **before and after
+the shutter**, because a screenshot off a software rasteriser is three seconds
+older than its caption and the first cut of that tool printed
+`room="intermission"` over a picture of the next round.
+
+**And one number is now shared and gated.** `page.tsx` already held the
+round-end screen for `ROUND_HOLD_MS = 2200` — for exactly that long after a
+round ends, `RoundBreak` draws only a verdict line and the victor's flourish row
+over the LIVE ARENA. The presentation half of 2.6 was built and pointed at
+nothing: for 2.2 seconds the game showed you the arena, and the arena was showing
+you the lobby orbit. The beat is the length of that window on purpose. The two
+constants are **not wired together** — `page.tsx` belongs to another unit — so
+`deathcamtest` reads that file and fails if they stop agreeing.
+
+**STILL OPEN, and it rides the harness's verdict line rather than hiding here:
+the death that ends the LAST round of a match.** `endRound` sets
+`state = "finished"` and calls `endMatch` in the same tick — there is no break —
+and `render/summary.ts` takes the lens for the victor's portrait, with
+`page.tsx` laying the results panel over it. Holding that back for two seconds
+is a change to the match-summary flow (`page.tsx`, `summaryflow`), not to the
+camera, and it belongs to whoever owns those files. Until then the last round
+ends on the portrait, which is *a* beat and not *the* beat.
 
 ### WAVE 3 — balance and the enemy
 

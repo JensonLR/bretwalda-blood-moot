@@ -242,8 +242,22 @@ const lock = {
   sticky: 0,
   /** Desktop opt-in. Mouse-look is unchanged until the player asks. */
   desktop: false,
-  /** Switches the player has made. The tuition line retires after the first. */
+  /** Switches the player has made — a flick that FOUND somebody. */
   switches: 0,
+  /**
+   * Flicks the player has MADE, landed or not.
+   *
+   * These are two different facts and the tuition line was reading the wrong
+   * one. `switches` only moves when `applySwitch` finds a man on that side, so
+   * in an honour duel — two men, nobody to switch to — it is zero forever, and
+   * the line that teaches the flick could never retire. See
+   * `src/game/tuition.mjs`, which owns what that line does about it.
+   *
+   * This one moves the instant the gesture is READ, which is the instant the
+   * player has demonstrated he knows the control. Whether there was anybody to
+   * take is the game's business, not his.
+   */
+  flicks: 0,
   /** A flick asked for a new man: -1 screen-left, +1 screen-right, 0 nothing. */
   pending: 0,
   /** Why there is nobody, in words. Diagnostics only — the harness prints it,
@@ -253,12 +267,13 @@ const lock = {
 };
 
 const lockListeners = new Set<() => void>();
-let lockSnap = "|0";
+/** `"<target id>|<switches>|<flicks>"`. */
+let lockSnap = "|0|0";
 
-/** Changes rarely — on a new target or a switch — so the HUD can subscribe to
- *  it without re-rendering the interface sixty times a second. */
+/** Changes rarely — on a new target, a switch or a flick — so the HUD can
+ *  subscribe to it without re-rendering the interface sixty times a second. */
 function publishLock(): void {
-  const next = `${lock.id ?? ""}|${lock.switches}`;
+  const next = `${lock.id ?? ""}|${lock.switches}|${lock.flicks}`;
   if (next === lockSnap) return;
   lockSnap = next;
   for (const l of lockListeners) l();
@@ -269,7 +284,7 @@ export function subscribeLock(onChange: () => void): () => void {
   return () => { lockListeners.delete(onChange); };
 }
 export function getLockSnapshot(): string { return lockSnap; }
-export function getServerLockSnapshot(): string { return "|0"; }
+export function getServerLockSnapshot(): string { return "|0|0"; }
 
 /** True while a live man is held. The touch handler asks before deciding
  *  whether bare glass is a camera drag or a target switch. */
@@ -311,8 +326,18 @@ export function setLockFootMark(el: HTMLElement | null): void { footEl = el; }
 export function lockFootMark(): HTMLElement | null { return footEl; }
 
 /** A flick on the button side asking for the next man that way. Recorded, not
- *  acted on: the handler has a pixel delta and no idea where anybody is. */
-export function requestTargetSwitch(dir: -1 | 1): void { lock.pending = dir; }
+ *  acted on: the handler has a pixel delta and no idea where anybody is.
+ *
+ *  This is also where the GESTURE is counted, and it has to be here rather than
+ *  in `applySwitch` — by the time that runs the question has become "was there
+ *  anybody to take", which is not the question a hint about the control is
+ *  asking. `publishLock` is called so the HUD hears about it on the same frame
+ *  rather than on whichever later frame the lock next changes hands. */
+export function requestTargetSwitch(dir: -1 | 1): void {
+  lock.pending = dir;
+  lock.flicks++;
+  publishLock();
+}
 
 /**
  * Radians of asked-for look that count as a flick to the next man. The phone
@@ -555,6 +580,7 @@ if (typeof window !== "undefined") {
     get engaged() { return lock.engaged; },
     get blend() { return lock.blend; },
     get switches() { return lock.switches; },
+    get flicks() { return lock.flicks; },
     get desktop() { return lock.desktop; },
     get reason() { return lock.reason; },
   };

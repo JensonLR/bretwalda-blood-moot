@@ -8,6 +8,42 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — the death that ends a MATCH is still played to the summary, not to the room
+
+13 Aug 2026. The owner: *"death camera only shows when you die last, everyone
+should see death camera for final death winner & all losers."*
+
+The round-end beat landed (`createRoundCamera` in `src/game/deathcam.mjs`,
+`tools/deathcamtest.mjs` 41/41, `docs/BACKLOG.md` 2.6): when the last man falls
+in a round, **everybody watches the blow** — winner and losers — for 2.20 s
+inside the 5 s break the server already takes, so nothing waits on it.
+
+**What is not covered is the round that ENDS THE MATCH**, which in a best-of-3
+is one round in three and in a single-round match is the only one. `endRound`
+sets `state = "finished"` and calls `endMatch` on the same tick — there is no
+break to play the beat in — and `render/summary.ts` takes the lens for the
+victor's portrait while `page.tsx` lays the results panel over it.
+
+**Why it was not fixed here, said plainly rather than left implied.** Holding
+the summary back for two seconds is a change to the match-summary FLOW —
+`src/app/page.tsx` gates `MatchSummary` on `matchResults`, and
+`tools/summaryflow.mjs` gates that flow — and neither file belongs to the unit
+that built the camera. A camera unit that reached into the summary screen to buy
+itself two seconds would be exactly the kind of unscoped edit `docs/PROCESS.md`
+E6 exists to prevent.
+
+**What it costs today:** the last round of a match ends on the victor's portrait
+rather than on the killing blow. That is *a* beat and not *the* beat, and the
+deferral rides `deathcamtest`'s own verdict line so it cannot go quiet.
+
+**What would close it:** the beat is already skippable, already bounded, and
+already refuses to arm for a man inside his own death hold. Whoever owns
+`page.tsx` needs to delay `setMatchResults` — or gate the panel on a "the beat
+has finished" flag `GameCanvas` already knows — by `ROUND_HOLD.total`, and
+`summaryflow` needs to expect it.
+
+---
+
 ## CLOSED — a corpse was shown three buttons that did nothing
 
 The entry this replaces called it "an intermittent gate". The intermittency was
@@ -2769,3 +2805,29 @@ FAIL about two captures of one subject not being byte-identical (0.75% mean, on
 the facecard portrait lens) during the adversary's run, which was killed before
 finishing. That is renderer determinism on faces and nothing the rig unit
 touched, but it was not confirmed pre-existing.
+
+## Two nits its adversary found on the round-beat unit — 13 Aug 2026
+
+Neither refutes the unit; both are recorded because an unrecorded nit is how a
+gate rots.
+
+**1. One of the 42 deathcamtest claims does not discriminate.** "THE WINNER
+WATCHES IT — 4.97 s watched against 2.20 s asked for" passes on the UNFIXED
+camera too; the adjacent blind claim prints the same 4.97 s. It is bracketed by
+two claims that DO discriminate (cos(lens, spray) −0.88 → +0.97, and lens
+distance 5.78 m → 2.07 m), so the gate as a whole still bites — but that one
+line is decoration and should either be made to bite or be relabelled as
+reported-not-gated.
+
+**2. One shipped frame is disqualified by the tool that took it.**
+`art/ui/hud/after-desktop.png` is a countdown screen, not a running fight, and
+`hudshot` stamps it `*** NOT IN A FIGHT ***` in capitals. The unit's evidence
+sentence "desktop showed a tidy bottom-right pair with nothing to move" was
+therefore read off a frame its own instrument rejects. The claim happens to be
+true — `GameHud.tsx:1198` replaces that pair with an "ESC FOR KEYS" note once the
+pointer is locked — but it is not proven by that frame, and desktop was out of
+scope anyway. Retake it in a fight before citing it.
+
+The tool shouting in capitals is what made this findable, which is the argument
+for instruments that describe their own conditions rather than only their
+results.

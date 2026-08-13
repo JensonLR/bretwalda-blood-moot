@@ -35,7 +35,11 @@
     "hairmap": "node tools/hairmap.mjs",
     "tiertest": "node tools/tiertest.mjs",
     "weightprobe": "node tools/weightprobe.mjs",
-    "weightshot": "node tools/weightshot.mjs"
+    "weightshot": "node tools/weightshot.mjs",
+    "deathcamtest": "node tools/deathcamtest.mjs",
+    "tuitiontest": "node tools/tuitiontest.mjs",
+    "hudshot": "node tools/hudshot.mjs",
+    "roundbeatshot": "node tools/roundbeatshot.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
