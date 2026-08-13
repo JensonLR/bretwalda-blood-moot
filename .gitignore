@@ -51,6 +51,7 @@ art/ui/
 .beardcount/
 .beardseat/
 .goretest/
+.gorestat/
 .vfxprobe/
 # transpile cache for tools/teamread.mjs
 .teamread/

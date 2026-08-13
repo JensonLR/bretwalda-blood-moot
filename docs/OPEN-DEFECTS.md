@@ -647,6 +647,139 @@ dark patch used to be. Capped at 3.5 on the largest channel (scaled, not clamped
 per channel, which would rotate the hue). Every brown, blond, red, grey and white
 in the shop is under the cap and converges exactly. **Raven Black gets 3.5 of its
 11 and is the one rung where a residual step is expected.**
+## OPEN — every class card draws its best stat AT THE RAIL, so a buff to a leader is invisible
+
+Found 2026-08-13 by `tools/classmatrix.mjs`, which reads the drawn width of every
+stat bar out of a browser capture rather than out of the source. Red on both
+platforms, at 390 px and at 1440 px.
+
+**What is drawn today.** The percentages below are runs of coloured pixels in a
+PNG, not inline styles:
+
+```
+                     HP      SPD      ATK      DEF
+    HUSCARL        100.0%    70.3%    64.6%   100.0%
+    WARDEN          80.0%    80.0%    71.4%    74.9%
+    RUNEKEEPER      60.0%   100.0%    50.3%    50.3%
+    BERSERKER       73.1%    84.0%   100.0%    37.7%
+```
+
+Every column has a class at exactly 100%. That is not a coincidence and it is not
+harmless: `page.tsx` gives `StatBar` a hard-coded ceiling per bar — `max={150}`,
+`max={100}`, `max={84}`, `max={80}` — and each of those happens to equal the
+current maximum of the four classes, while `StatBar` finishes with
+`Math.min(100, (value / max) * 100)`. **The top of every bar is a wall, and today
+every leader is standing against it.**
+
+**The consequence, measured rather than argued.** `classmatrix` rewrites the
+served module in flight so the runekeeper's `moveSpeed` goes 5.0 → 5.6 and the
+warden's 4.0 → 5.0, then re-photographs the cards:
+
+```
+5a CONTROL — the injected 4.0 -> 5.0 reached the glass: warden SPD 280px -> 350px of 350
+5b THE LEVER — a runekeeper made 12% faster draws a longer speed bar
+   FAIL: runekeeper SPD 350px -> 350px (moved 0px, needed 21px at the warden's own rate)
+5c a 5.6 and a 5.0 do not draw the same bar
+   FAIL: both draw 350px of 350 — the identical full bar this gate exists to catch
+```
+
+That is the original defect reproduced on glass: two different speeds, one
+identical full bar. The control on the same capture proves the injection landed,
+so "the bar did not move" is a fact about the drawing and not about the fixture.
+
+**The fix belongs in `src/app/page.tsx` and is not this unit's to make:** derive
+each ceiling from the roster (the maximum of the four classes for that stat) and
+give `StatBar` a fraction, so there is no literal to clamp against. When that
+lands, claims 5b and 5c go green with no change to the harness.
+
+---
+
+## OPEN — the class card draws a second copy of the stats, and it disagrees with the engine
+
+Same run, claim 7. `src/game/types.ts` holds a `WARRIOR_STATS` table that
+`page.tsx` draws from; `src/game/engine.mjs` holds the table that decides fights.
+They differ, on the stat a player is most likely to choose a class for:
+
+```
+huscarl.moveSpeed    card 3.5  vs engine 4.0
+warden.moveSpeed     card 4.0  vs engine 4.5
+runekeeper.moveSpeed card 5.0  vs engine 5.5
+berserker.moveSpeed  card 4.2  vs engine 4.7
+```
+
+`types.ts` already knows: its own comment says "the other columns still disagree
+with the engine (huscarl 3.5 move here against 4.0 there). That is an older
+display bug". It has been an older display bug for long enough to be documented
+instead of fixed, which is failure mode 3 in `PROCESS.md` — the mirrored
+definition — sitting in the one screen a player reads before committing.
+
+**It is worse than a stale number.** If the card were simply fed the engine's
+table today, the runekeeper's 5.5 would come out as `5.5 × 20 = 110` against a
+ceiling of 100 and be clamped — so the two defects are one defect: a second copy
+of the numbers, drawn against a wall. Fixing the mirror without deriving the
+ceilings would put a visibly wrong bar on the card.
+
+Held open rather than half-fixed: this unit owns `tools/` and no `src/` file.
+`node tools/classmatrix.mjs` prints both, on both platforms, in about four
+minutes.
+
+---
+
+## OPEN — `goretest` on the gore branch still gates two statistics that cannot discriminate
+
+The replacements are built and proven in `tools/gorestat.mjs`; the branch that
+carries `vfx.probe()` (`unit-gore-camera`) has not adopted them, so until it does
+the blood is still gated by two rulers that do not measure what they claim.
+
+**1. `pulseDepth`, `1 - min/max` of the droplets in the air.** Measured on the
+real emitter across six pulse floors built into the emitted module:
+
+```
+    floor     NEW depth  predicted  OLD 1-min/max    OLD spread
+    0.85         17.6%      14.1%          96.6%       92–100%
+    0.6          40.2%      38.3%          97.0%       92–100%
+    0.42         56.2%      56.2%          97.4%       90–100%
+    0.3          67.3%      68.4%          98.0%       93–100%
+    0.18         79.2%      80.9%          98.3%       94–100%
+    0.05         94.4%      94.6%          99.5%       95–100%
+```
+
+Three facts, each of which alone retires it:
+
+* **Its bar cannot be failed.** The gate is `pulseDepth >= 0.6`. A spray with a
+  true depth of 14% — all but a hose, and the thing the claim exists to forbid —
+  scores 96.6%.
+* **Its range is inside its own noise.** Six floors spanning eighty points of
+  real depth move it 3.0 points in total, while a single floor's own wounds
+  scatter over 9.7. It was read one wound at a time, so the ranking was decided
+  by which wound came up: the shallower of the two real surfaces out-scores the
+  deeper one in 67% of 60×60 head-to-head wounds.
+* **It answers the throw, not the heartbeat.** Its separating power is 34% on the
+  two real surfaces (whose pulses differ) against 49% on a null pair with
+  *identical* pulses and a faster throw. It is reading the throw.
+
+**2. "Blood lands on the man standing next to him, at every frame rate."** Gated
+on the mean of six wounds reaching one mark. Resampled from a pool of 240 real
+wounds a cell, that statistic fires on an unchanged tree in **84.5%, 90.9% and
+91.1% of draws** at 2.0 m (120, 60 and 30 fps) and in 0.0–0.1% at 1.2 m — the
+adversary's "one run in nine" was the same coin seen from the branch's stronger
+spray. The bar sat on the mode of a six-sample mean.
+
+**The adoption is small and is `tools/`-only.** `gorestat.mjs` computes both
+replacements from things `goretest` already has — a census, a frame loop, and its
+own transpile step — and needs no `src/` change on either branch. The pulse claim
+becomes the phase-folded emission depth against the depth known in closed form;
+the bystander claim becomes the per-wound probability at a fixed sample, with the
+2.0 m level deferred on the verdict line and the frame-rate RATIO gated in its
+place.
+
+**One measured note for whoever owns the spray**, offered as data and not as a
+verdict: on this tree the blood reaches a man 2.0 m away on fewer than half of
+all wounds (`120fps 46%, 60fps 43%, 30fps 39%`, 240 wounds a cell), against
+95–98% at 1.2 m.
+`gorestat` deliberately does not gate that level — how far the spray carries is
+what the spray work is for, and a bar invented by a harness is a number nobody
+chose.
 
 ---
 

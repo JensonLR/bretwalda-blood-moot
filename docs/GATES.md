@@ -72,6 +72,87 @@ pair is about 1.5× their runtime, and a wave that runs them four times pays it
 four times. Making them deterministic is **backlog item zero** and it buys back
 more wall clock than any other single change.
 
+## Two gates that carry their own proof — `classmatrix` and `gorestat`
+
+Added 2026-08-13, because two existing rulers were caught not discriminating and
+the repository now has **thirteen** recorded measurements that answered the wrong
+question. Both of these run their own falsification on every invocation, which is
+the only arrangement that has ever survived an adversary here.
+
+| harness | costs | answers |
+|---|---|---|
+| `node tools/classmatrix.mjs` | ~4 min, one dev server, one browser | do the class cards DRAW four different numbers as four different bars — measured in pixels, at 390 px and 1440 px |
+| `node tools/gorestat.mjs` | ~6 min, no browser | can the pulse gate rank two known-different sprays, and is the bystander cell a property or a coin |
+| `node tools/gorestat.mjs --quick` | ~2 min | the same, at a third of the sample, for iterating |
+
+### What "carries its own proof" means, concretely
+
+**`classmatrix` mutates the thing it measures, twice, on every run.** The gate it
+replaces read `page.tsx` for typed maxima; an adversary changed the drawn geometry
+and the scan never moved. So this one:
+
+* takes a real screenshot, decodes it, and measures each bar as a **run of
+  saturated pixels** from the left end of its track — the rect is used only to
+  find the bar, and claim 2 gates rect against pixels so that a clip or a
+  transform between the two is a finding rather than a silence;
+* injects a stylesheet that pins every fill to 100% and **requires its own
+  discrimination claim to go from 0 faults to 24**, while printing that the source
+  scan's verdict is unchanged, because it cannot see pixels;
+* rewrites the served module in flight to make one class faster and **requires
+  the drawn bar to move** — R1, inside the harness, with a control class proving
+  the injection landed.
+
+**`gorestat` builds its ladder out of the real module.** `vfx.ts` is transpiled
+and the EMITTED javascript is rewritten — pulse floor, throw speed, and a counter
+beside the emitter — so six known pulse depths can be measured on the real
+emitter, real ballistics, real budget, without a single `src/` file changing. The
+new metric is then gated against the depth that is **known in closed form** at
+each rung, not merely against the ordering.
+
+### The rule both of them encode
+
+> **A statistic that is gated must also be shown to be finer than the thing it
+> is measuring.**
+
+Both incidents were the same shape underneath. The pulse metric's spread from
+wound to wound was ten points while the difference it was asked to report was one
+and a half, so the ranking was decided by which wound came up. The bystander cell
+averaged six draws against a bar sitting on the mode, and fired about one run in
+nine on an unchanged tree. Neither was wrong about the physics; both were rulers
+with a scale coarser than the effect.
+
+So `gorestat` gates its own stability: every bar it holds is resampled from the
+pool it was computed on, and **a bar the sample cannot hold is reported as a
+failure of the harness, in those words**. If `--quick` is too small for a bar, the
+run says so and names the flag to raise rather than passing quietly.
+
+### What each one says today, 2026-08-13
+
+`gorestat` is **green, 19/19**, and every one of its proof-of-failure claims
+reproduces: the old pulse metric cannot resolve a ladder it should walk up, and
+the old bystander cell fires on an unchanged tree in most draws at 2.0 m.
+
+`classmatrix` is **RED, 12 of 17**, and deliberately so. Three claims fail at each
+width plus one shared:
+
+* `5b` and `5c` — the runekeeper's speed bar does not move when the runekeeper is
+  made 12% faster, and a 5.6 and a 5.0 draw the identical full bar;
+* `7` — the card's stat table disagrees with `engine.mjs` on `moveSpeed` for all
+  four classes.
+
+Both are live defects in `src/`, both are written up in `docs/OPEN-DEFECTS.md`
+with the fix named, and neither belongs to the unit that built the ruler. **A red
+gate with a written defect behind it is the correct state**; a green one would
+have required either fixing somebody else's file or moving a bar.
+
+### Where they sit in the three tiers
+
+`gorestat` is CPU-only and belongs in the **MIDDLE** tier, next to `goretest`,
+whenever anything under `vfx.ts` moves. `classmatrix` needs a browser and a dev
+server; it belongs in the **MIDDLE** tier for any change to the class roster,
+`StatBar`, or `WARRIOR_STATS`, and in the **OUTER** gate otherwise. Neither is an
+inner-loop instrument.
+
 ## What this does not mean
 
 It does not mean lowering the bar. `docs/VISUAL-BAR.md` still says 8+ on every
