@@ -71,3 +71,7 @@ art/fit/
 .locktest/
 .facecover/
 .beardvolume/
+# tools/manespread.mjs shipped without this line and left `.manespread/` sitting
+# untracked in `git status` after every run — the same sweep the note above
+# warns about, one tool later.
+.manespread/

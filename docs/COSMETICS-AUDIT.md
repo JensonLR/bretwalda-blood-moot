@@ -1,3 +1,106 @@
+# 13 Aug 2026 — the hair and beard slots, and one instrument that was flattering them
+
+Newest first. The audit proper starts below this section.
+
+## What moved in the shop
+
+| slot | rung | before | after | instrument |
+|---|---|---|---|---|
+| hair | Long Mane 40g, coifed huscarl, Iron Spangen | 11.09% of silhouette, **all of it two strands beside the face** | 6.37%, hanging down the back | `cosmetictest` §3 |
+| hair | Long Mane 40g, any class, Ridge / Boar / Crowned / Wyrm | 26-48% of the bare style's hang at the nape | 100-126% | `manespread` |
+| beard | Close Crop 0g | median crossing 3.4-3.9 mm | 4.5-5.5 mm | `beardvolume` |
+| beard | Ringed Braid 120g | median crossing 3.1-3.7 mm | 4.5-5.1 mm | `beardvolume` |
+| beard | Forked Beard 80g | median crossing 3.8-4.6 mm — **it had been thinned by a chin edit in this same audit and nobody re-ran the gate** | 5.2-6.5 mm | `beardvolume` |
+| beard | Forked Beard 80g | the notch between its tines was **not measured by anything** | 73.8-74.4 mm, gated at 40 | `beardvolume` fork column |
+| beard | every rung | growth line feathered over **4.5 mm** and stepping from skin to hair in one texel | 11 mm, with the albedo converging on the complexion | — |
+
+## Two instruments were flattering the slots they measure, and one of them badly
+
+**`cosmetictest` §3 cannot see a hairstyle that has been squeezed into one
+bearing.** It measures the silhouette AREA a style adds against Shaved, from one
+camera. Two long strands hanging beside a face are a lot of area — the Long Mane
+read its HIGHEST number of any helm on the sheet on the exact frame the owner
+reported as broken. Area is not distribution. `tools/manespread.mjs` is the
+answer and it bins the hair by bearing; see `docs/OPEN-DEFECTS.md`.
+
+**`beardvolume` printed "median under the shell it declares" and compared every
+style against a flat 4 mm.** So it flagged the Close Crop for missing its own
+4.0 by 0.2 and let the Ringed Braid past the sentence at 3.1 with 5.8 declared.
+It could not have been comparing against the declaration anyway: `BeardCut.wall`
+(was `thick`) is the PARAMETRIC separation of the two sheets and the realised
+crossing measures 0.50 to 0.98 of it depending on the style's own section **and
+on the skull under it**. The dial and the reading are different quantities of
+the same idea. The harness now says so on its own verdict line, and it ASSERTS
+rather than declining to — **16/16 where it was 8/16.**
+
+### This line said 16/16 before, and it was false when it was written
+
+Kept, corrected, and left visible rather than quietly edited, because it is the
+most useful thing on this page.
+
+The first version of this section claimed 16/16. `npm run beardvolume` printed
+**14/16 and exited 1** on the very commit that claimed it, and had done from the
+moment that commit was made:
+
+```
+huscarl      forked   med 3.9   <-- MEDIAN UNDER 4 mm
+warden       forked   med 3.8   <-- MEDIAN UNDER 4 mm
+```
+
+Not a flake and not a draw — the seed is hardcoded at `tools/beardvolume.mjs`,
+the ray grid is a fixed 14 x 36 and there is no `Math.random` anywhere in the
+path, so it reproduces to the decimal every time.
+
+**What happened is worth more than the number.** That commit did four things,
+and two of them met in the beard. It re-dialled the Close Crop and the Ringed
+Braid against the reading and measured 16/16 — correctly, at that moment. It
+also widened the chin's mental pad, four hunks earlier in the same file, to
+answer *"chin is a little pointy"*. `beardvolume` was never re-run after the
+chin moved, and **the chin is upstream of the beard**: the shell's inner sheet
+is displaced along the skull's normal at the jawline, holding the pad's breadth
+to the lower border turns that normal downward, and less of the displacement
+then crosses the wall. Reverting the two chin curves and nothing else — on the
+tree AS THE DEFECT WAS FOUND, before the Forked Beard's own dial moved — shifts
+every beard on the sheet:
+
+| | with the old chin | with the new chin |
+|---|---|---|
+| Close Crop | 4.7 | 5.1 |
+| Full Beard | 6.0 | 5.6 |
+| **Forked Beard** | **4.4** | **3.9** |
+| Ringed Braid | 4.2 | 4.5 |
+
+Two gained, two lost. The Forked Beard lost the most and was the only cut still
+sitting on the bar, so it was the only one that went red — and it was the only
+one of the four not re-dialled in that commit, precisely because it had been
+passing when the beard work was done.
+
+**The chin stays.** It answers an owner report, `headmeasure` is clean on it and
+nothing above 215 mm moves. The Forked Beard's dial is what changes: `wall`
+0.0058 to 0.0082, chosen so its reading lands in the Full Beard's own band
+(5.2-6.5 against 5.3-5.8) rather than chosen to clear 4. **The bar did not
+move.** 16/16 now, verified by running it, and the run is quoted in the commit.
+
+**And the fork itself was never measured by anything**, which is the second
+half of it. `beardvolume` gates on how much beard there is and has no opinion on
+its shape, so the one cut whose identity is a silhouette could have lost that
+silhouette without a single number changing — worse, a filled-in notch reads
+here as MORE mass. There is now a `fork` column: the hem's own azimuth profile,
+midline against the tine bearings. It was shown failing first, twice, on
+deliberately broken builds — a flat `reach` reads −12.9 mm, and a `reach` that
+still has two maxima in the source but a trough lifted to 0.90 reads 16.4 mm.
+Both go red against a 40 mm bar. The real cut reads 73.8-74.4 mm.
+
+## And the capture sheet had a hole in the middle of it
+
+`tools/shoot.mjs`'s `hair` sheet shot a bare head, the back of a head, and the
+Sutton Hoo mask — the hardest case in the shop. It had **no row for a hairstyle
+under an ordinary open helm**, which is nine of the ten rungs and is what a
+player actually looks at. There was therefore no frame in `art/` that could have
+shown the defect the owner reported. That row now exists.
+
+---
+
 # The armoury has never been looked at
 
 The owner asked, after the Sutton Hoo helm was sent back: *"assuming with the

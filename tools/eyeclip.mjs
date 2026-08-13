@@ -416,7 +416,25 @@ function measure(cls, seed) {
       coverMm: Number.isFinite(coverGap) ? coverGap * 1000 : 99,
       splayDeg, pitchDeg,
       irisAcross: e.irisR * 2000,
-      apertureMm: e.hA * 2000,
+      // MEASURED OFF THE TWO EMITTED MARGINS, not read off `hA`.
+      //
+      // It used to be `e.hA * 2000` — the half-height the frame DECLARES, times
+      // two — which is `docs/SUTTON-HOO.md` lesson 2 exactly: a ruler pointed at
+      // an intention rather than at the object. It was harmless while the two
+      // lids were one curve mirrored about the meridian, because then the
+      // declaration happened to be the truth. The fissure has a medial peak on
+      // the upper margin and a lateral one on the lower now, so the widest gap
+      // between them is neither at the middle nor equal to `2 hA`, and the old
+      // line would have gone on printing 2 hA whatever the lids did.
+      apertureMm: (() => {
+        let worst = 0;
+        for (let i = 0; i < e.margin.length; i += 3) {
+          const u = xform(M, [e.margin[i], e.margin[i + 1], e.margin[i + 2]]);
+          const l = xform(M, [e.lowerMargin[i], e.lowerMargin[i + 1], e.lowerMargin[i + 2]]);
+          worst = Math.max(worst, Math.abs(dot(sub(u, l), up)));
+        }
+        return worst * 1000;
+      })(),
       marks, marginPoly, lowerPoly,
     });
   }
