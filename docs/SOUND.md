@@ -218,12 +218,19 @@ reliably distinguishable, and the fix belongs in the synthesis** — see §2.
 
 | | before | now |
 |---|---|---|
-| heavy vs light, same material | 0.38–0.83 JND | 3.66–5.04 |
-| axe vs seax on the same mail | 0.25 JND | 2.85 |
-| the parry's shimmer | 0.02 | 0.40, against 0.08 for the next |
-| a flesh hit through a phone speaker | −22.1 dB | −2.3 dB |
+Every JND in this table is now the **worst of 144 draws** (twelve seeds, cross
+product), not one pinned render — see §1.
+
+| | before | now, worst draw |
+|---|---|---|
+| heavy vs light, same material | 0.38–0.83 JND | 3.06–3.92 |
+| axe vs seax on the same mail | 0.25 JND | 2.77 |
+| the closest pair of blows anywhere | 2.84 on a bad seed, 3.20 on a good one | 3.06 |
+| the parry's shimmer | 0.02 | 0.40 at its weakest, against 0.14 for the next |
+| a flesh hit through a phone speaker | −22.1 dB | −2.2 dB |
 | my own parry against eight men | +0.0 dB of duck | −10.3 dB |
-| a parry into a full voice pool | 1.03x — dropped | 664x |
+| a parry into a full voice pool | 1.03x — dropped | 659x |
+| a parry, a shove or a knockdown reaching the mixer | never | 7 of 7 kinds |
 
 **Weight.** `heavy` was `force *= 1.2` and nothing else. It now moves the contact
 band down (a heavy blow has a bigger contact patch, which is lower and lasts
@@ -295,8 +302,15 @@ material. A material nothing can emit would be graded forever and heard never,
 which is the exact failure `docs/PROCESS.md` rule 3 names. The nearest reachable
 pair is the shove **with and without a shield** — a huscarl drives with a disc of
 limewood and iron, everyone else with a shoulder — and those are two events on
-the wire today (`GameCanvas` already passes `shield: !!slot.rig.shield`). They
-are now 6.0 JND apart and both are in the graded blow set.
+the wire today. Both are in the graded blow set, so both clear **3 JND on a desk
+and 2 JND through a phone speaker, on the worst of 144 draws.**
+
+The two of them are also the clearest illustration in the file of why the phone
+gets graded separately. On a desk they part on body weight below 400 Hz, which is
+the band a micro-speaker does not have; hold them apart with that alone and they
+are one sound in a hand. What separates them down there is the boss's **rim above
+3 kHz** — an iron edge speaks where a phone can hear it and a shoulder in wool
+cannot.
 
 **"Spatialisation is a gameplay feature."** Unchanged, and now it has a second
 job: the near/far split that carries the duck is the same split.
@@ -376,7 +390,7 @@ a gate — and it now has a check on both sides of the wire:
 
 ## 5. What grades it now
 
-* `npm run soundtest` — **50 claims**, in six phases. Phase 1 calibrates every
+* `npm run soundtest` — **46 claims, 46 proven**, in six phases. Phase 1 calibrates every
   instrument against signals of known truth; two of the three added in wave 2
   were WRONG on their first run and the calibration is what caught them. Phases
   3, 4 and 5 are the read, the phone and eight men, and every pairwise claim in
@@ -385,11 +399,26 @@ a gate — and it now has a check on both sides of the wire:
   iterating and `SOUND_SEEDS=3` thins the sweep; both say so on the verdict line,
   because a partial run must never be readable as a clean one.
 * `node tools/soundwire.mjs` — whether the game can ASK for these sounds.
-  **Phase 0 needs no browser and no server** (`SOUNDWIRE_PHASE=0`, milliseconds)
-  and reads `engine.mjs`, `page.tsx`, `GameCanvas.tsx` and `audio.ts` off disk,
-  holding all four to each other. The live leg plays a real match with a recorder
-  around the audio engine, and says on the verdict line when it could not reach
-  one.
+  **Phase 0 is 8/8 and needs no browser and no server** (`SOUNDWIRE_PHASE=0`,
+  milliseconds): it reads `engine.mjs`, `page.tsx`, `GameCanvas.tsx` and
+  `audio.ts` off disk and holds all four to each other.
+
+  The live leg reaches a fight now — its menu path was three taps out of four and
+  it then waited on `window.__probe`, which this build does not install — but it
+  **cannot yet drive the man**: sixty seconds of play produce two audio calls and
+  no swings, because pointer lock keeps the canvas from taking input in this
+  container. That is reported as its own red line, and it is red on purpose:
+
+  ```
+  FAIL  the play loop actually drove the man, so the counts below mean something
+        NO SWING IN 60s ... the live counts are ABSENT, not zero
+  ```
+
+  The four reachability checks below it are **skipped rather than failed**. Before
+  that guard they all went red and blamed the health-delta branch that this round
+  removed — a gate going red for the wrong reason is worth as little as one going
+  green for the wrong reason, and it would have been read as "the parry still does
+  not fire" when phase 0 had just proved it does.
 * `npm run phonesound` — the unlock path on a real touch viewport, plus the
   engine's own phone detection and a live-app measurement through real biquad
   filters shaped like a micro-speaker. **It still proves the unlock LOGIC and

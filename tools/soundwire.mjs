@@ -378,27 +378,53 @@ async function main() {
     try { await page.getByText(rx).first().click({ timeout: 8000 }); return true; }
     catch { return false; }
   };
-  await tap(/Training/i);
-  await page.waitForTimeout(800);
-  await tap(/MUSTER|TESTGROUNDS|WARRIOR|RECRUIT/i);
-  await page.waitForTimeout(800);
-  await tap(/DRAW STEEL|FIGHT|BEGIN/i);
-  const reached = await page.waitForFunction(
-    () => window.__probe?.lastState?.state === "fighting", null, { timeout: 60000 },
-  ).then(() => true).catch(() => false);
+  // FOUR STEPS, CHECKED BETWEEN EACH, and the readiness test is the AUDIO
+  // ENGINE rather than `window.__probe`.
+  //
+  // Both halves of that were wrong and both made this leg permanently absent.
+  // The Testgrounds needs Training -> MUSTER -> a difficulty -> DRAW STEEL and
+  // this file tapped three of the four, so it never left the muster; and it then
+  // waited sixty seconds on `window.__probe`, which this build does not install,
+  // so the answer would have been "no fight" even from inside one. It reported
+  // `probe=false, audio=true, state=null` — the audio engine was right there and
+  // the thing being asked was not. Stopping the moment the fight is up also
+  // matters: a /RECRUIT|WARRIOR/i match still exists once it is staged, and
+  // pressing on navigated out of it.
+  const ready = () => page.evaluate(() => window.__bretwaldaAudio?.ready === true).catch(() => false);
+  let reached = false;
+  for (const step of [/Training/i, /MUSTER|TESTGROUNDS/i, /RECRUIT|WARRIOR/i, /DRAW STEEL|FIGHT|BEGIN/i]) {
+    if (reached) break;
+    await tap(step);
+    await page.waitForTimeout(700);
+    reached = await page.waitForFunction(() => window.__bretwaldaAudio?.ready === true, null, { timeout: 15000 })
+      .then(() => true).catch(() => false);
+  }
+  if (reached) await page.waitForTimeout(1500);
+  void ready;
   if (!reached) {
     const seen = await page.evaluate(() => ({
       probe: !!window.__probe, audio: !!window.__bretwaldaAudio,
+      ready: window.__bretwaldaAudio?.ready === true,
       state: window.__probe?.lastState?.state ?? null,
     }));
     await browser.close();
     console.log("");
-    note(`the live leg could not reach a fight (probe=${seen.probe}, audio=${seen.audio}, state=${seen.state}).`);
+    note(`the live leg could not reach a fight (probe=${seen.probe}, audio=${seen.audio}, engine ready=${seen.ready}, state=${seen.state}).`);
     note("Phase 0's verdict below stands on its own; the live counts are simply absent.");
     verdict(true);
     return;
   }
   console.log(`[soundwire] in a fight; playing for ${SECONDS}s\n`);
+  // POINTER LOCK. The desktop client will not take mouse look or, on some
+  // paths, a swing until the canvas holds the pointer, and the click-to-lock
+  // banner sits over the fight until somebody presses it. Without this the loop
+  // below drove a man who never moved: sixty seconds of play produced TWO audio
+  // calls and not one blow, and every reachability check then failed while
+  // saying the parry was unreachable — which was true last round and is not
+  // true now. A gate that goes red for the wrong reason is worth as little as
+  // one that goes green for the wrong reason.
+  await page.locator("canvas").first().click({ position: { x: 640, y: 400 } }).catch(() => {});
+  await page.waitForTimeout(400);
 
   // ---- play. Badly, on purpose, and in every mode the controls have ----
   //
@@ -455,7 +481,35 @@ async function main() {
   console.log("");
   check("the recorder attached to the live audio engine at all", wrapped && log.length > 0,
     wrapped ? `${log.length} audio calls recorded across ${SECONDS}s of play` : "window.__bretwaldaAudio never appeared");
-  if (!log.length) {
+
+  // DID THE MACHINE ACTUALLY FIGHT?
+  //
+  // Every reachability check below is of the form "in N seconds of play, did the
+  // game ever produce X". Each of them is worthless — and worse than worthless,
+  // because it goes RED and names the wrong cause — if the play loop never drove
+  // the man at all. That is not hypothetical: pointer lock kept the canvas from
+  // taking input on this container's first successful run, sixty seconds of play
+  // produced two calls and no swings, and four checks then failed while blaming
+  // a wiring defect phase 0 had just proved fixed.
+  //
+  // A swing is the cheapest proof that a key press became a game action: it
+  // needs no opponent, no contact and no luck. If none happened the counts below
+  // are ABSENT rather than zero, and R4 puts that difference on the verdict line
+  // rather than in a comment.
+  const swings = log.filter((c) => c.k === "swing").length;
+  const droveTheMan = swings > 0;
+  check("the play loop actually drove the man, so the counts below mean something",
+    droveTheMan,
+    droveTheMan
+      ? `${swings} swings thrown in ${SECONDS}s — input is reaching the canvas`
+      : `NO SWING IN ${SECONDS}s. The fight was reached but not one key press became a game action, so nothing below would measure the WIRING — it would measure a machine standing still. Pointer lock is the usual cause. Phase 0's static verdict is this run's evidence; the live counts are ABSENT, not zero.`);
+  if (!log.length || !droveTheMan) {
+    // And it prints a VERDICT on the way out. This early return used to just
+    // `return`, so the run ended on a FAIL line with no count under it — the
+    // third instance of "a harness that reports nothing reads exactly like one
+    // that found nothing" in these two files, and I wrote this one myself while
+    // fixing the other two.
+    verdict(true);
     process.exitCode = 1;
     return;
   }
@@ -497,7 +551,7 @@ async function main() {
     check("the parry — the hero sound — is fired by the game",
       parries > 0,
       parries ? `${parries} parries voiced`
-        : "0. The wire carries type:'parry' with damage 0; GameCanvas.tsx only calls audio.hit() inside `if (p.health < slot.prevHp - 0.5)`, so a blow that takes nothing off voices nothing at all, and the derived type can never be 'parry'");
+        : "0 in this run. Phase 0 proves the ROUTE exists — page.tsx queues the message, GameCanvas hands its type to audio.hit() — so a zero here now means the machine never threw a shield up inside PARRY_WINDOW, not that the client cannot voice one. It used to mean the second thing: the call sat inside `if (p.health < slot.prevHp - 0.5)` and a parry takes nothing off.");
   }
 
   // ---- 3. the blows have to carry what the synthesis reads ----
@@ -512,6 +566,7 @@ async function main() {
     check("blows carry the weapon that threw them",
       blows.length > 0 && withWeapon === blows.length,
       `${withWeapon}/${blows.length} — the attacker's class is on the wire as attackerId; without it every blow in the game is a sword`);
+    void withWeapon;
   }
 
   // ---- 4. and heavy has to be told apart from light by the caller ----
