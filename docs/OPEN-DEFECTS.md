@@ -152,6 +152,59 @@ a row for the extreme one.
 
 ---
 
+## THE RENDER — 13 Aug 2026, and it is ONE frame, which is stated because it matters
+
+```
+node tools/shoot.mjs facecard --hair hair_long --helm helm_iron \
+     --beard beard_full --turn -35 --out art/look/unitcards
+```
+
+A coifed huscarl at the shop's own three-quarter, under an open helm, with the
+Long Mane and the Full beard — **which is the exact dress the owner reported**,
+and the bearing the shop photographs from. `art/look/` is gitignored, so the
+path is regenerable rather than committed. A single card is about two minutes on
+this box; the reason there is one and not a sheet is written at the bottom of
+this entry.
+
+**What the frame settles.** There is no curtain of hair beside the cheek and no
+vertical bar at the temple: the two strands are gone from the picture as well as
+from the numbers. The beard's upper boundary on the cheek reads as individual
+locks thinning out into skin — there is no brownish hard-edged patch below the
+outer eye corner, which is the whole of the 12 Aug entry. The eye's outer corner
+sits very nearly level with the inner one and the lid covers the top of the iris.
+
+**What the frame shows that the numbers did not, and it is NOT the beard.** A
+run of pale grey-violet ZIGZAG RIBBONS lies on the skin at the temple and in
+front of the ear, between the face and the hair. They are the colour of MAIL,
+not of hair — they match the hauberk in the same frame — so they are the coif's
+front rim at the face opening, drawn as a row of disconnected wavy strips
+rather than as one continuous curtain. The 12 Aug entry's "smaller angular mark
+at the temple" is almost certainly this and not the beard, which means that half
+of that entry was attributed to the wrong garment.
+
+**It is NOT established that this is new.** The coif was not touched by this
+work — `coifLevels`, `coifRim` and `coifSquash` are all unchanged — but the only
+honest way to say so is an A/B from the previous tip through the same lens, and
+that render did not complete. Logged as OPEN and unattributed rather than
+claimed either way.
+
+**And the moustache is confirmed at the same lens.** There is a clear band of
+bare skin between the bottom of the moustache and the upper lip, and the
+moustache reads as a separate dark blob rather than as the top of the beard.
+That is the owner's *"lips need improvement & that means also looking at
+moustache part of beard placement"*, seen. It is written up under the face
+entry below, with the two numbers that control it, and it is NOT fixed.
+
+**Why one frame and not the sheet, said plainly.** `tools/shoot.mjs hair beards`
+was started twice and abandoned twice: the first run was invalidated by edits
+landing under it, and the second was starved — a panel that takes two minutes
+alone took eight while `cosmetictest` and `wearmeasure` were running on the same
+box. **Do not run a capture and a harness at the same time on this machine.**
+The single-card path (`facecard` with `--helm/--hair/--beard/--turn`) is the one
+to iterate on; the sheet is for the verdict.
+
+---
+
 ## THE FACE — 13 Aug 2026: two of the four moved, one was already closed, one is untouched
 
 > "The eyes on the character look a little bit asian (Chinese / Japanese Asian),
