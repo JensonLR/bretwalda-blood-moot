@@ -3932,3 +3932,98 @@ position: `R.x*0.90 + 0.004` inside the helm's footprint, `R.x*1.00 + 0.011` at 
 rim and below, blended between, with the footprint measured off the helm shell
 rather than guessed. Round four was mid-way through this when the container went.
 It is the best remaining idea and it is unproven.
+
+## `helmclash` exists again, and it disagrees with the lost one by a millimetre — 14 Aug 2026
+
+**The instrument is rebuilt and pushed. No geometry was touched** — R3: the unit
+that builds the ruler does not certify the fix. `npm run helmclash`, 2m36s for
+two full passes, byte-identical (`--twice`, 15868 characters).
+
+### It reads the mesh, not the ring tables, and that is the fault it was warned about
+
+The hold above records a suspected fault in the lost version: "`helmclash`
+section 1 may read `coifLevels` WITHOUT applying their z shift". The rebuild
+cannot have that fault, because it never rebuilds a ring: every number comes off
+the triangles `buildCharacter` emits. Pieces are recovered as connected
+components of the merged index graph — `mergeGeometries` concatenates indices
+and never welds, so one component is exactly one `p.add` call — and substances
+are decided by difference against a bare head, the way `wearmeasure` decides
+them. The mail tint comes from `finishKit(armorColor).mail`, so a player's armour
+finish cannot blind the gate.
+
+### Against the recorded readings, section by section
+
+```
+SECTION   RECORDED (lost pass, this tree)      REBUILT (mesh)          AGREES?
+1 LAYERS  11 combos, worst 15.2 crowned,       11 combos, 14.0 / 13.9  count yes,
+          suttonhoo 14.8, wyrm 14.7,           / 13.0 / 10.7 / 11.8 /  ~1 mm low
+          iron 11.7, spectacle 12.4,           12.4 / 11.7, clash      throughout
+          nasal 12.7, clash to 45.1%           40.5%
+2 FLESH   4 combos, huscarl 2.31, warden       4 combos, 3.51 / 5.76   count and
+          5.88, berserker 6.04, rune 6.31      / 6.14 / 5.02           order yes
+3 WRAP    3 combos, 152.5-160.0 deg at         3 combos, SAME THREE,   yes
+          78-93 mm                             149.5-152.5 at 71-80
+4 CREST   4 combos, all wyrm, air 43.4-44.0    4 combos, all wyrm,     count yes,
+          under a peak at 45.4-45.6            50.0-54.2              ruler differs
+5 PELT    (new, no baseline)                   13 combos
+```
+
+**The millimetre in section 1 is measured, not shrugged at.** A tessellated ring
+cuts inside the analytic curve it was sampled from: on the huscarl's coif at the
+rear the chords dip 1.19 mm inside the ring between two columns (r = 118.44 mm at
+az 180, 117.25 at az 188). That is the size AND the direction of the whole
+disagreement, and it means the two instruments are each right about their own
+object. The mesh is the object the player sees.
+
+**Section 4 measures a different quantity from the lost one** and reaches the
+same verdict. It takes the fitting's NEAREST APPROACH to the cap at every 4 mm
+station of its fore-and-aft run, not a vertical drop. Two cuts that did use a
+drop are recorded in the file with what they cost: judged by drop, all 36
+combinations fail at 36-372 mm, because the flank of a bowl has the nape fall a
+long way below it; judged by the lowest sample, the warden's own steel comb
+reads 46 mm on four rungs, because `comb` sweeps a HALF-tube with no floor and
+the lowest surface over the middle of it is its own lining.
+
+### What it identifies that the lost pass could not
+
+* **The 15.0 mm of "unidentified gilt inside the coif at az 179"** — the reading
+  that "resisted three hypotheses" — is a **64-triangle gilt strip**, and the
+  rebuild puts it at az 179, y 155 mm, 13.9 mm inboard of the rings, with
+  **100% of its outward face** under the mail. That is the nape guard's gilt lip,
+  which the hold above lists as an already-disproved hypothesis. One of the two
+  is wrong and the next pass should settle which: the hold's disproof was made on
+  the branch, this measurement on main.
+* **The ear, as a named patch.** Section 2's worst patch is the same object on
+  all three classes without a coif: 224 triangles of complexion shade at azimuth
+  113-115 degrees, y 150-169 mm, with 88-94% of it outboard of the metal. That is
+  the owner's second note, and it is 9.5-10.0 mm out at its deepest.
+* **The beard out through the mask.** Section 5, which is new: an 80-triangle
+  patch at azimuth 97-99 degrees is 81-84% outboard of the kit on
+  warden/berserker/runekeeper under both the Wyrm-Crest and the Sutton Hoo,
+  13.8-21.8 mm out. This is the beard round four answered by deleting three paid
+  beards. The section is built so that answer cannot work twice: the denominator
+  is the pelt's own area, so a deleted beard prints **NO PELT AT ALL** rather
+  than a pass.
+
+### Absent cases are printed as absent, never as passes
+
+25 of the 36 combinations have no mail on the head, so section 1 prints them as
+"no mail on this head — nothing to measure". 32 are open-faced, so section 2 has
+no case. 32 never wrap a throat, so section 3 has no case. Those lines are
+counted separately from the passes on every verdict line.
+
+### Two things this pass got wrong and is recording rather than hiding
+
+1. **A commit message here claimed the battery "ran for over a quarter of an
+   hour" before an indexing change.** It did not. Measured with `time`, the full
+   `--twice` battery is 2m35.631s BEFORE that change and 2m35.687s after — the
+   change is invisible at battery scale. The 15 minutes was a misread `pgrep`:
+   the pattern `pgrep -f "tools/helmclash.mjs --twice"` matches the shell that is
+   running the pgrep, so the wait loop was watching itself and never terminated.
+   The indexing is still worth having (section 2 alone is 9 s), but the number in
+   that message is not one anybody saw.
+2. **Section 2's readings moved by two points during calibration** when the
+   inward ray was shortened to stop at the head's axis. Before that fix the ray
+   ran 200 mm, crossed the midline and found the garment on the far side of the
+   head. Anything quoted from the first version of section 2 or 5 is void.
+
