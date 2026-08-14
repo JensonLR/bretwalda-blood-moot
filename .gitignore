@@ -80,3 +80,4 @@ art/fit/
 .manespread/
 # transpile cache for tools/hoodfall.mjs
 .hoodfall/
+.helmclash/

@@ -77,7 +77,7 @@
 // THE RAY, AND WHY IT IS HORIZONTAL
 // ------------------------------------------------------------
 //
-// Sections 1, 3 and 5 all ask "what is outboard of this point". The ray is
+// Sections 1, 2, 3 and 5 all ask "what is outboard of this point". The ray is
 // horizontal, cast from the head's own vertical axis outward. That is not a
 // convenience: the coif, the ventail and the nape fall are all swept as rings
 // about that axis — `{ y, hw, hd, z }`, a half-breadth and a half-depth at a
@@ -85,11 +85,14 @@
 // skull's centre would cross the fall obliquely and read its own obliquity as
 // depth, and a ray along a surface normal would read the sheet's own curvature.
 //
-// +Z IS THE FACE. Costly to relearn, so it is asserted at startup rather than
-// trusted: the mask's silver and gilt sit at mean +73 and +88 mm z and the coif
-// at -42, and `assertFaceIsPlusZ` refuses to print a single azimuth if that
-// stops being true. Every azimuth in this file is degrees off dead ahead, so
-// 0 is the face and 180 is the nape.
+// +Z IS THE FACE. Costly to relearn — the last pass paid for it twice — so it
+// is asserted at startup rather than trusted. `assertFaceIsPlusZ` builds the one
+// helmet that has both a face plate and a coif and prints the two means it
+// finds: on this tree the Sutton Hoo's forward plate sits at +107 mm z and the
+// mail at -41, and `docs/OPEN-DEFECTS.md` records the same coif at -42. Get this
+// backwards and every azimuth printed below is a lie, so the run stops instead.
+// Every azimuth in this file is degrees off dead ahead: 0 is the face, 180 the
+// nape.
 //
 // ------------------------------------------------------------
 // DETERMINISM
@@ -284,6 +287,112 @@ function slabAt(T, y) {
   return new Float64Array(out);
 }
 
+/**
+ * Two indexes, and they are an accelerator and nothing else — every hit they
+ * return is a hit the flat sweep returns.
+ *
+ * A HORIZONTAL ray holds its height, so only triangles straddling that height
+ * can be crossed: `heightIndex` files each triangle into every 2 mm band its
+ * own y-span touches. A VERTICAL ray holds its (x, z), so only triangles whose
+ * footprint covers that column can be crossed: `columnIndex` files each triangle
+ * into every 4 mm cell of a plan grid its footprint touches.
+ *
+ * Without them the battery is minutes of ray-triangle arithmetic against every
+ * triangle on the head for every sample, and a harness people will not run is a
+ * harness that stops being run.
+ */
+function heightIndex(T, bin = 0.002) {
+  let y0 = Infinity, y1 = -Infinity;
+  for (let i = 1; i < T.length; i += 3) { if (T[i] < y0) y0 = T[i]; if (T[i] > y1) y1 = T[i]; }
+  if (!T.length) return { y0: 0, bin, n: 0, cells: [] };
+  const n = Math.max(1, Math.ceil((y1 - y0) / bin) + 1);
+  const acc = Array.from({ length: n }, () => []);
+  for (let i = 0; i < T.length; i += 9) {
+    const lo = Math.min(T[i + 1], T[i + 4], T[i + 7]), hi = Math.max(T[i + 1], T[i + 4], T[i + 7]);
+    const a = Math.max(0, Math.floor((lo - y0) / bin)), b = Math.min(n - 1, Math.floor((hi - y0) / bin));
+    for (let k = a; k <= b; k++) for (let q = 0; q < 9; q++) acc[k].push(T[i + q]);
+  }
+  return { y0, bin, n, cells: acc.map((l) => new Float64Array(l)) };
+}
+function hitFlat(ix, x, y, z, dx, dz, cap) {
+  if (!ix.n) return -1;
+  const k = Math.floor((y - ix.y0) / ix.bin);
+  if (k < 0 || k >= ix.n) return -1;
+  return rayHit(ix.cells[k], x, y, z, dx, 0, dz, cap);
+}
+function columnIndex(T, bin = 0.004) {
+  if (!T.length) return { n: 0 };
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i < T.length; i += 3) {
+    if (T[i] < x0) x0 = T[i]; if (T[i] > x1) x1 = T[i];
+    if (T[i + 2] < z0) z0 = T[i + 2]; if (T[i + 2] > z1) z1 = T[i + 2];
+  }
+  const nx = Math.max(1, Math.ceil((x1 - x0) / bin) + 1);
+  const nz = Math.max(1, Math.ceil((z1 - z0) / bin) + 1);
+  const acc = Array.from({ length: nx * nz }, () => []);
+  for (let i = 0; i < T.length; i += 9) {
+    const ax = Math.max(0, Math.floor((Math.min(T[i], T[i + 3], T[i + 6]) - x0) / bin));
+    const bx = Math.min(nx - 1, Math.floor((Math.max(T[i], T[i + 3], T[i + 6]) - x0) / bin));
+    const az = Math.max(0, Math.floor((Math.min(T[i + 2], T[i + 5], T[i + 8]) - z0) / bin));
+    const bz = Math.min(nz - 1, Math.floor((Math.max(T[i + 2], T[i + 5], T[i + 8]) - z0) / bin));
+    for (let a = ax; a <= bx; a++) for (let b = az; b <= bz; b++) {
+      const cell = acc[b * nx + a];
+      for (let q = 0; q < 9; q++) cell.push(T[i + q]);
+    }
+  }
+  return { x0, z0, bin, nx, nz, n: nx * nz, cells: acc.map((l) => new Float64Array(l)) };
+}
+function hitDown(ix, x, y, z, cap) {
+  if (!ix.n) return -1;
+  const a = Math.floor((x - ix.x0) / ix.bin), b = Math.floor((z - ix.z0) / ix.bin);
+  if (a < 0 || a >= ix.nx || b < 0 || b >= ix.nz) return -1;
+  return rayHit(ix.cells[b * ix.nx + a], x, y, z, 0, -1, 0, cap);
+}
+
+/** Shortest distance from a point to a triangle soup. */
+function nearestDist(T, px, py, pz) {
+  let best = Infinity;
+  for (let i = 0; i < T.length; i += 9) {
+    const ax = T[i], ay = T[i + 1], az = T[i + 2];
+    const abx = T[i + 3] - ax, aby = T[i + 4] - ay, abz = T[i + 5] - az;
+    const acx = T[i + 6] - ax, acy = T[i + 7] - ay, acz = T[i + 8] - az;
+    const apx = px - ax, apy = py - ay, apz = pz - az;
+    const d1 = abx * apx + aby * apy + abz * apz;
+    const d2 = acx * apx + acy * apy + acz * apz;
+    let qx, qy, qz;
+    if (d1 <= 0 && d2 <= 0) { qx = ax; qy = ay; qz = az; }
+    else {
+      const bpx = px - T[i + 3], bpy = py - T[i + 4], bpz = pz - T[i + 5];
+      const d3 = abx * bpx + aby * bpy + abz * bpz;
+      const d4 = acx * bpx + acy * bpy + acz * bpz;
+      const cpx = px - T[i + 6], cpy = py - T[i + 7], cpz = pz - T[i + 8];
+      const d5 = abx * cpx + aby * cpy + abz * cpz;
+      const d6 = acx * cpx + acy * cpy + acz * cpz;
+      const vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+      if (d3 >= 0 && d4 <= d3) { qx = T[i + 3]; qy = T[i + 4]; qz = T[i + 5]; }
+      else if (d6 >= 0 && d5 <= d6) { qx = T[i + 6]; qy = T[i + 7]; qz = T[i + 8]; }
+      else if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+        const t = d1 / (d1 - d3);
+        qx = ax + abx * t; qy = ay + aby * t; qz = az + abz * t;
+      } else if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+        const t = d2 / (d2 - d6);
+        qx = ax + acx * t; qy = ay + acy * t; qz = az + acz * t;
+      } else if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+        const t = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        qx = T[i + 3] + (T[i + 6] - T[i + 3]) * t;
+        qy = T[i + 4] + (T[i + 7] - T[i + 4]) * t;
+        qz = T[i + 5] + (T[i + 8] - T[i + 5]) * t;
+      } else {
+        const den = 1 / (va + vb + vc), v = vb * den, w = vc * den;
+        qx = ax + abx * v + acx * w; qy = ay + aby * v + acy * w; qz = az + abz * v + acz * w;
+      }
+    }
+    const d = (px - qx) * (px - qx) + (py - qy) * (py - qy) + (pz - qz) * (pz - qz);
+    if (d < best) best = d;
+  }
+  return Math.sqrt(best);
+}
+
 /** Möller-Trumbore. Nearest forward hit, or -1 past `cap`. */
 function rayHit(T, ox, oy, oz, dx, dy, dz, cap) {
   let best = cap;
@@ -416,12 +525,13 @@ function sectionLayers(rows) {
         continue;
       }
       cases++;
-      const mailT = soup(mail);
+      const mailIx = heightIndex(soup(mail));
       let worst = 0, wp = null, wat = null;
       let bestFrac = 0, bf = null;
       const buf = new Float64Array(BARY.length * 3);
       for (const p of plate) {
         let n = 0, k = 0;
+        const selfIx = heightIndex(p.T);
         for (let i = 0; i < p.T.length; i += 9) {
           const c = samples(p.T, i, buf);
           for (let s = 0; s < c; s++) {
@@ -429,12 +539,12 @@ function sectionLayers(rows) {
             const r = Math.hypot(x, z);
             if (r < 1e-6) continue;
             const dx = x / r, dz = z / r;
-            const m = rayHit(mailT, x, y, z, dx, 0, dz, 0.12);
+            const m = hitFlat(mailIx, x, y, z, dx, dz, 0.12);
             if (m < 0) { n++; continue; }
             // The plate's own shell in the way means this sample is on the
             // lining, not on the outward face; the outward face is measured
             // instead and counting both would double the denominator.
-            const self = rayHit(p.T, x, y, z, dx, 0, dz, 0.12);
+            const self = hitFlat(selfIx, x, y, z, dx, dz, 0.12);
             if (self >= 0 && self < m) continue;
             n++; k++;
             if (m > worst) { worst = m; wp = p; wat = [x, y, z]; }
@@ -459,65 +569,117 @@ function sectionLayers(rows) {
 }
 
 // ============================================================
-// 2. FLESH — flesh outside a helm that is supposed to be a mask
+// The outboard test — shared by sections 2 and 5
 // ============================================================
 //
-// "On the remaining classes (warden etc.) the ears stick out." A mask is the
-// one helm in the shop that covers the whole face, so on a masked helm any
-// flesh that shows OUTSIDE the helmet's own outline is either an ear the plate
-// has missed or a neck the mail has missed.
+// One question asked twice: is this piece of the man on the WRONG SIDE of his
+// own armour? A point on the skin or on a beard is outboard of the kit when a
+// horizontal ray fired INWARD, at the head's own axis, leaves its own mesh and
+// then meets metal, mail or cloth. That puts a garment between this point and
+// the skull, which is the definition of being outside a thing you are supposed
+// to be inside.
 //
-// MEASURED as a picture, because "outside the outline" is a picture's question.
-// The head is rasterised orthographically from 36 bearings with a depth buffer;
-// a pixel counts against the helm when the nearest thing at it is skin AND no
-// helm surface lies anywhere along that pixel's line of sight. Skin seen
-// THROUGH an eye opening has metal in front of it and behind it and is not
-// counted — an aperture frames a feature, which is the whole point of an
-// aperture, and `wearmeasure` §10 records what happens to an instrument that
-// cannot tell the two apart.
+// It is the same ray section 1 uses, pointed the other way, and it is right for
+// the same reason: the coif, the ventail and the fall are rings about that
+// axis. A hem is not caught by it and must not be — hair coming out from UNDER
+// a cheek guard has no metal inboard of it at its own height, which is exactly
+// the route `cheekHem` and the coif's hem were built to give it.
 //
-// The share is of the head's own footprint, so a small head and a large one
-// answer on the same scale.
+// AREA-WEIGHTED, NOT SAMPLE-COUNTED. A triangle's share of the answer is its
+// share of the surface. Counting samples instead lets a densely tessellated
+// eyelid outvote a whole cheek, and the ear is a small patch of dense mesh: on
+// the huscarl the two readings differ by a full point (6.37% counted, 5.39% by
+// area) and the one that means anything is the area.
+function outboardShare(subject, kitT) {
+  const kitIx = heightIndex(kitT);
+  const buf = new Float64Array(BARY.length * 3);
+  let out = 0, all = 0, worst = 0, wp = null, wat = null, wdepth = 0;
+  for (const p of subject) {
+    let pOut = 0, pAll = 0;
+    for (let i = 0; i < p.T.length; i += 9) {
+      const ux = p.T[i + 3] - p.T[i], uy = p.T[i + 4] - p.T[i + 1], uz = p.T[i + 5] - p.T[i + 2];
+      const vx = p.T[i + 6] - p.T[i], vy = p.T[i + 7] - p.T[i + 1], vz = p.T[i + 8] - p.T[i + 2];
+      const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+      const c = samples(p.T, i, buf);
+      let hit = 0, tot = 0;
+      for (let s = 0; s < c; s++) {
+        const x = buf[s * 3], y = buf[s * 3 + 1], z = buf[s * 3 + 2];
+        const r = Math.hypot(x, z);
+        if (r < 1e-6) continue;
+        tot++;
+        const dx = -x / r, dz = -z / r;
+        // THE RAY STOPS AT THE AXIS, and the first cut of this did not — it ran
+        // 200 mm, crossed the whole head and found the coif on the FAR side, so
+        // every hair on the huscarl read as hair through mail and the section
+        // failed 21 of 36 combinations for nothing. Inboard means between this
+        // point and the head's own centre line, so `r` is the whole ray.
+        const g = hitFlat(kitIx, x, y, z, dx, dz, r);
+        if (g < 0) continue;
+        const self = rayHit(p.T, x, y, z, dx, 0, dz, r);
+        if (self >= 0 && self < g) continue;
+        hit++;
+        if (g > wdepth) { wdepth = g; wat = [x, y, z]; }
+      }
+      if (!tot) continue;
+      all += area; pAll += area;
+      out += area * hit / tot; pOut += area * hit / tot;
+    }
+    if (pAll > 0 && pOut / pAll > worst) { worst = pOut / pAll; wp = p; }
+  }
+  return { share: all ? out / all : 0, worst, wp, wat, depth: wdepth, area: all };
+}
+
+// ============================================================
+// 2. FLESH — skin on the outside of a helm that is a face plate
+// ============================================================
+//
+// "On the remaining classes (warden etc.) the ears stick out."
+//
+// A mask is the only helm in the shop that undertakes to cover the whole head
+// in front of the ears, so it is the only one where the correct amount of skin
+// outboard of the metal is ZERO. What this measures is that: the share of the
+// head's own skin AREA that lies outside the kit rather than inside it.
+//
+// AND IT IS A RADIAL TEST, NOT A PICTURE, and the first cut of this section got
+// that wrong in a way worth recording. Rasterised from 36 bearings and asked
+// "is this skin pixel outside the helmet's outline", it answered 0.01% on the
+// huscarl and put every escaping pixel at az 150-180 below the jaw — it had
+// found the bare nape, which is section 3's fault, and it could not see the ear
+// at all, because an ear standing through a cheek guard is still INSIDE the
+// helmet's silhouette from every bearing. A silhouette cannot see a surface
+// come through another surface. The radial test puts the worst bins at az 90 to
+// 120 at y 150 mm, which is the ear and behind it, on all four classes.
+//
+// The mechanism is the one `docs/OPEN-DEFECTS.md` records and it is not the
+// hairline exemption: `helmForm` is a 12 mm low-pass with nothing under a 45 mm
+// radius, so THE BLOCK A PLATE IS BEATEN OVER HAS NO EAR ON IT. The plate is
+// drawn correctly on a head that has had its ears filed off.
 const FLESH_PCT = 1.0;
-const RASTER = 128;
+/**
+ * 1.0% of the skin's area, and it is a tessellation allowance rather than a
+ * tolerance. Zero is the only defensible answer for a face plate, and nothing
+ * on this tree is anywhere near the bar: the four masked combinations measure
+ * 5.4 to 7.6, so no verdict here turns on where exactly the bar sits.
+ */
 function sectionFlesh(rows) {
   console.log("");
-  console.log("[clash] 2. FLESH — skin outside the outline of a helm with a face plate.");
-  console.log(`[clash]    36 bearings x ${RASTER}x${RASTER} depth-buffered; bar ${FLESH_PCT.toFixed(1)}% of the head's footprint.`);
+  console.log("[clash] 2. FLESH — skin outboard of a helm that is a face plate.");
+  console.log(`[clash]    inward horizontal rays off every skin triangle, area-weighted; bar ${FLESH_PCT.toFixed(1)}% of the skin.`);
   console.log("");
-  console.log("[clash] class       helm         flesh out%   worst bearing        where it is");
-  console.log("[clash] ---------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         skin out%   worst patch                deepest       where");
+  console.log("[clash] ------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
       if (!HELM[helm].mask) { absent++; continue; }
       cases++;
-      const { flesh, fur, kit } = sortPieces(cls, helm);
-      const F = soup(flesh), K = soup(kit), U = soup(fur);
-      let tot = 0, out = 0, worstB = null, worstP = 0, worstWhere = null;
-      for (let b = 0; b < 36; b++) {
-        const az = (b % 12) / 12 * Math.PI * 2;
-        const el = [-0.35, 0, 0.30][Math.floor(b / 12)];
-        const r = raster(az, el, [F, U, K], RASTER);
-        // 0 flesh, 1 fur, 2 kit
-        let px = 0, bad = 0, sx = 0, sy = 0;
-        for (let i = 0; i < r.who.length; i++) {
-          if (r.who[i] < 0) continue;
-          px++;
-          if (r.who[i] === 0 && !r.behind[i]) { bad++; sx += i % RASTER; sy += Math.floor(i / RASTER); }
-        }
-        tot += px; out += bad;
-        const p = px ? bad / px : 0;
-        if (p > worstP) {
-          worstP = p; worstB = [az, el];
-          worstWhere = bad ? r.unproject(sx / bad, sy / bad) : null;
-        }
-      }
-      const pct = tot ? 100 * out / tot : 0;
+      const { flesh, kit } = sortPieces(cls, helm);
+      const r = outboardShare(flesh, soup(kit));
+      const pct = 100 * r.share;
       const bad = pct > FLESH_PCT;
       if (bad) fails++;
-      const bearing = worstB ? `az ${(worstB[0] * 180 / Math.PI).toFixed(0)}deg el ${(worstB[1] * 180 / Math.PI).toFixed(0)}deg` : "-";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${bearing.padEnd(20)} ${worstWhere ? at(worstWhere) : ""}${bad ? "  FAIL" : ""}`);
+      const patch = r.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${bad ? "  FAIL" : ""}`);
       rows.push({ section: 2, cls, helm, fail: bad, pct });
     }
   }
@@ -525,76 +687,6 @@ function sectionFlesh(rows) {
   console.log(`[clash]    ${fails} of ${cases} masked combinations are red; ${absent} open-faced combinations are not a case for this section.`);
   return fails;
 }
-
-/**
- * Orthographic depth buffer over a head, from one bearing.
- *
- * `who[i]` is the index of the group that won the pixel, or -1 for sky.
- * `behind[i]` says whether the LAST group in the list — the kit — is anywhere
- * along that pixel, at any depth. That flag is what separates an ear standing
- * outside a mask from an eye seen through its own opening, and it is the same
- * distinction `wearmeasure` §10 had to invent a sight-line classifier for.
- *
- * The frame is sized off the head's own extent so the picture is the same size
- * whatever is bolted on top of the cap; a 100 mm crest zooming the frame out
- * would shrink a 20 mm ear to two pixels.
- */
-function raster(az, el, groups, N) {
-  const f = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).normalize();
-  const up0 = new THREE.Vector3(0, 1, 0);
-  const rt = new THREE.Vector3().crossVectors(up0, f).normalize();
-  const up = new THREE.Vector3().crossVectors(f, rt).normalize();
-  // Extent off group 0 — the skin — for the reason in the doc comment.
-  let cx = 0, cy = 0, cz = 0, n = 0;
-  const g0 = groups[0];
-  for (let i = 0; i < g0.length; i += 3) { cx += g0[i]; cy += g0[i + 1]; cz += g0[i + 2]; n++; }
-  cx /= n; cy /= n; cz /= n;
-  let rad = 0;
-  for (let i = 0; i < g0.length; i += 3) {
-    rad = Math.max(rad, Math.hypot(g0[i] - cx, g0[i + 1] - cy, g0[i + 2] - cz));
-  }
-  const half = rad * 1.06;
-  const depth = new Float64Array(N * N).fill(Infinity);
-  const who = new Int8Array(N * N).fill(-1);
-  const behind = new Uint8Array(N * N);
-  const last = groups.length - 1;
-  for (let g = 0; g < groups.length; g++) {
-    const T = groups[g];
-    for (let i = 0; i < T.length; i += 9) {
-      const px = [], py = [], pd = [];
-      for (let k = 0; k < 3; k++) {
-        const x = T[i + k * 3] - cx, y = T[i + k * 3 + 1] - cy, z = T[i + k * 3 + 2] - cz;
-        px.push((x * rt.x + y * rt.y + z * rt.z) / half);
-        py.push((x * up.x + y * up.y + z * up.z) / half);
-        pd.push(-(x * f.x + y * f.y + z * f.z));
-      }
-      const sx = px.map((v) => (v * 0.5 + 0.5) * (N - 1));
-      const sy = py.map((v) => (0.5 - v * 0.5) * (N - 1));
-      const x0 = Math.max(0, Math.floor(Math.min(...sx))), x1 = Math.min(N - 1, Math.ceil(Math.max(...sx)));
-      const y0 = Math.max(0, Math.floor(Math.min(...sy))), y1 = Math.min(N - 1, Math.ceil(Math.max(...sy)));
-      const d = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sx[2] - sx[0]) * (sy[1] - sy[0]);
-      if (Math.abs(d) < 1e-9) continue;
-      for (let y = y0; y <= y1; y++) {
-        for (let x = x0; x <= x1; x++) {
-          const w1 = ((x - sx[0]) * (sy[2] - sy[0]) - (sx[2] - sx[0]) * (y - sy[0])) / d;
-          const w2 = ((sx[1] - sx[0]) * (y - sy[0]) - (x - sx[0]) * (sy[1] - sy[0])) / d;
-          const w0 = 1 - w1 - w2;
-          if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-          const z = pd[0] * w0 + pd[1] * w1 + pd[2] * w2;
-          const k = y * N + x;
-          if (g === last) behind[k] = 1;
-          if (z < depth[k]) { depth[k] = z; who[k] = g; }
-        }
-      }
-    }
-  }
-  const unproject = (x, y) => {
-    const u = (x / (N - 1) * 2 - 1) * half, v = (1 - y / (N - 1) * 2) * half;
-    return [cx + rt.x * u + up.x * v, cy + rt.y * u + up.y * v, cz + rt.z * u + up.z * v];
-  };
-  return { who, behind, unproject };
-}
-
 // ============================================================
 // 3. WRAP — a bare nape under a covered throat
 // ============================================================
@@ -688,73 +780,187 @@ function sectionWrap(rows) {
 // 4. CREST — daylight under a piece sitting on the cap
 // ============================================================
 //
-// "The top piece is unrecognisable & also floating above the helmet, not
-// attached." A crest, a comb, a boar or a serpent is riveted THROUGH the cap.
-// It may arch — the Wyrm is supposed to arch — but the arch has to land, and
-// what says "not attached" is a piece whose whole footprint has sky under it.
+// "The Wyrm-Crest Helmet needs a big update - the top piece is unrecognisable &
+// also floating above the helmet, not attached."
 //
-// MEASURED straight down. For every fitting on the helmet, take the samples on
-// its UNDERSIDE — the ones with none of their own piece below them — and drop a
-// vertical ray. A sample that lands on another piece of the same helmet is a
-// sample sitting over the cap, and the distance is the daylight. A sample that
-// lands on nothing is beside the head, not over it, and says nothing here.
+// A crest, a comb, a boar or a serpent is riveted THROUGH the cap. It is
+// allowed to arch — the Wyrm is written to arch, in as many words — but an arch
+// has to land, and what reads as "not attached" is a fitting with sky under the
+// whole of it.
 //
-// Reported with the piece's own height at that column, because the two together
-// are the shape of the fault: at the worst column the Wyrm has 43 mm of air
-// under 2 mm of serpent, which is a tube grazing past the cap with nothing
-// under it at all.
-const CREST_MM = 24.0;
+// FIND THE CAP FIRST, and this is what the first cut of this section got wrong.
+// Dropping a ray off every fitting and taking whatever it landed on failed all
+// 36 combinations at 36 to 372 mm, because the flank of a bowl has the nape fall
+// a long way below it and a hood has its own shoulder drape 340 mm down. Neither
+// is daylight under a crest; both are just the side of a head.
+//
+// The cap is found rather than named: drop a ray down the head's own axis and
+// take the LAST piece of kit it passes through before the skull. A crest crosses
+// that axis, so does the bowl, and the bowl is the lower of the two — so the
+// lowest hit is the cap by construction, on every rung, without this file
+// holding an opinion about which material a cap is made of.
+//
+// MEASURED STATION BY STATION ALONG THE RUN. A crest runs fore-and-aft over the
+// crown, so its run is z. Every 4 mm of that run is a station, and a station's
+// number is the fitting's NEAREST APPROACH to the cap there — how close it gets,
+// not how high it goes. A crest is entitled to be tall; it is not entitled to a
+// stretch of run where none of it comes down.
+//
+// Only stations OVER THE CAP count: the sample's own plumb line has to land on
+// the cap, and not on some third piece first. A cheek guard hangs beside the
+// head and never lands on the cap, so it is not in this section at all.
+//
+// TWO WRONG CUTS OF THIS ARE WORTH RECORDING, because both looked reasonable.
+// Taking the vertical DROP from a fitting's underside failed all 36 combinations
+// at 36 to 372 mm — the flank of a bowl has the nape fall a long way below it,
+// and that is the side of a head, not daylight under a crest. Taking the lowest
+// SAMPLE instead reported 46 mm on the warden's own steel comb on four rungs,
+// and that comb is not floating: `comb` sweeps a HALF-tube with no floor, so its
+// two long edges land on the cap and the lowest surface over the middle of it is
+// its own lining, 46 mm up. A station's nearest approach sees the edges.
+//
+// Reported with how deep the fitting is at that same station, because the pair
+// is the shape of the fault: the Wyrm's worst station is 17 to 24 mm of serpent
+// with 50 to 54 mm of nothing between it and the cap.
+const CREST_MM = 40.0;
 /**
- * 24 mm. Every fitting in the shop that lands measures under 21: the Ridge
- * Helm's comb, the Boar-Crest's animal, the Jarl's hoop and the Sutton Hoo's
- * crest all sit within a rivet's length of the cap. The Wyrm measures 43. The
- * bar is in the gap and not against either side of it, so it is not a number
- * cut to today's geometry — and the Wyrm's own author asks for 46 mm of rise,
- * so this section is disagreeing with an intention rather than finding a typo.
- * That is the argument the owner made with a photograph.
+ * 40 mm, and the gap it sits in is wide and measured. On this tree the worst
+ * station of every fitting in the shop reads:
+ *
+ *     Sutton Hoo crest and its garnets    13.9 - 15.4
+ *     berserker's fur crest under a cap   10.3 - 23.6
+ *     warden's steel comb                  4.7 - 18.0
+ *     Ridge Helm's comb                    4.7 -  7.7
+ *     Boar-Crest's animal                 32.5 - 33.1   (a snout thrown forward)
+ *     Wyrm-Crest's serpent                50.0 - 54.2   <- the owner's photograph
+ *
+ * so the bar is in a 17 mm gap and against neither side of it. The Boar is the
+ * nearest honest reading and it is a snout carried out past the brow, which is
+ * a shape; the Wyrm never comes down at all. And the Wyrm's own author asks for
+ * 46 mm of rise in as many words, so this section is disagreeing with an
+ * intention rather than finding a typo — which is exactly the argument the owner
+ * made with a photograph.
  */
 function sectionCrest(rows) {
   console.log("");
-  console.log("[clash] 4. CREST — daylight under a piece sitting on the cap.");
-  console.log(`[clash]    vertical drops off every fitting's underside; bar ${CREST_MM.toFixed(1)} mm of air.`);
+  console.log("[clash] 4. CREST — daylight under a fitting sitting on the cap.");
+  console.log(`[clash]    nearest approach to the cap at every 4 mm station of the run; bar ${CREST_MM.toFixed(1)} mm of air.`);
   console.log("");
-  console.log("[clash] class       helm         air mm   piece height   piece                where");
+  console.log("[clash] class       helm         air mm   run deep       fitting              where");
   console.log("[clash] ---------------------------------------------------------------------------------------");
-  let fails = 0, cases = 0;
+  let fails = 0, cases = 0, absent = 0;
   const buf = new Float64Array(BARY.length * 3);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
+      if (!HELM[helm].cap) { absent++; continue; }
       const { kit } = sortPieces(cls, helm);
-      if (kit.length < 2) continue;
-      cases++;
-      let air = 0, wp = null, wat = null, peak = 0;
+      // THE CAP: the piece that is lowest under the crown.
+      //
+      // A DISC OF COLUMNS AND NOT ONE RAY, which the first cut of this got
+      // wrong and which cost every verdict in the section. Every bowl is drawn
+      // `v1: () => PI/2 - 0.02`, so it stops two millimetres short of its own
+      // pole and `patch` closes that with a rim strip — there is a 4 mm hole at
+      // the crown of every helmet in the shop. A single ray down the axis drops
+      // straight through it, and 20 of 36 combinations reported "no cap".
+      //
+      // So: a 5 x 5 grid of columns over the crown, 15 mm apart. Each column
+      // votes for whichever piece of kit is the LOWEST thing it passes through,
+      // which is the piece lying against the skull; the cap is the piece with
+      // the most votes. A crest crossing the same columns is always above it.
+      const votes = new Map();
+      for (let a = -2; a <= 2; a++) {
+        for (let b = -2; b <= 2; b++) {
+          let low = null, lowT = 0;
+          for (const p of kit) {
+            const d = rayHit(p.T, a * 0.015, 1.0, b * 0.015, 0, -1, 0, 2.0);
+            if (d >= 0 && d > lowT) { lowT = d; low = p; }
+          }
+          if (low) votes.set(low, (votes.get(low) ?? 0) + 1);
+        }
+      }
+      let cap = null, capVotes = 0;
       for (const p of kit) {
-        if (p.tris < 12) continue;
-        const rest = soup(kit.filter((q) => q !== p));
+        const v = votes.get(p) ?? 0;
+        if (v > capVotes) { capVotes = v; cap = p; }
+      }
+      if (!cap) {
+        absent++;
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      (nothing of this helm crosses the crown — no cap to sit on)`);
+        continue;
+      }
+      const fittings = kit.filter((p) => p !== cap && p.tris >= 12);
+      if (!fittings.length) {
+        absent++;
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      (a bare cap with no fitting on it — nothing to measure)`);
+        continue;
+      }
+      cases++;
+      // STATION BY STATION ALONG THE RUN, and the two cuts before this one both
+      // failed because they judged a fitting by ONE sample.
+      //
+      // A crest runs fore-and-aft over the crown, so its run is z. For each 4 mm
+      // station of that run, the question is how CLOSE the fitting gets to the
+      // cap — its nearest approach — and the fault is the station where even the
+      // nearest approach is a long way off. That is what "not attached" means:
+      // not "some of it is high", which is every crest ever made, but "over this
+      // stretch, none of it comes down".
+      //
+      // Judging by the lowest SAMPLE instead reported 46 mm on the warden's own
+      // steel comb, on four rungs, and the comb is not floating: `comb` sweeps a
+      // HALF-tube with no floor, so its two long edges land on the cap and the
+      // lowest surface over the middle of it is its own lining, 46 mm up. A
+      // station's nearest approach sees the edges and gets 0; a vertical drop
+      // from the lining does not.
+      //
+      // Only stations that are OVER THE CAP count — the sample's own plumb line
+      // has to land on the cap, and not on some third piece first. A cheek guard
+      // hangs beside the head and never lands on the cap, so it is not in this
+      // section at all.
+      const STATION = 0.004;
+      let air = 0, wp = null, wat = null, deep = 0;
+      const capIx = columnIndex(cap.T);
+      for (const p of fittings) {
+        const otherIx = columnIndex(soup(kit.filter((q) => q !== p && q !== cap)));
+        const stations = new Map();
         for (let i = 0; i < p.T.length; i += 9) {
           const c = samples(p.T, i, buf);
           for (let s = 0; s < c; s++) {
             const x = buf[s * 3], y = buf[s * 3 + 1], z = buf[s * 3 + 2];
-            // Underside only: nothing of this piece below this sample.
-            if (rayHit(p.T, x, y, z, 0, -1, 0, 0.40) >= 0) continue;
-            const d = rayHit(rest, x, y, z, 0, -1, 0, 0.40);
-            if (d < 0) continue;
-            if (d > air) {
-              air = d; wp = p; wat = [x, y, z];
-              const up = rayHit(p.T, x, y + 0.0005, z, 0, 1, 0, 0.40);
-              peak = up > 0 ? up + 0.0005 : 0.0005;
+            const drop = hitDown(capIx, x, y, z, 0.40);
+            if (drop < 0) continue;                                     // not over the cap
+            const other = hitDown(otherIx, x, y, z, 0.40);
+            if (other >= 0 && other < drop) continue;                   // over a third piece
+            const d = nearestDist(cap.T, x, y, z);
+            const key = Math.floor(z / STATION);
+            const st = stations.get(key);
+            if (!st) stations.set(key, { d, at: [x, y, z], lo: y, hi: y, n: 1 });
+            else {
+              st.n++;
+              if (d < st.d) { st.d = d; st.at = [x, y, z]; }
+              if (y < st.lo) st.lo = y;
+              if (y > st.hi) st.hi = y;
             }
           }
+        }
+        for (const st of stations.values()) {
+          // A STATION WITH TWO SAMPLES IN IT IS THE END OF THE RUN, not a
+          // station. The warden's comb finishes in a tip whose last 4 mm holds
+          // one sample, 46 mm off the back of the raised cone; counting it made
+          // the section fail four rungs for having a pointed comb. Three samples
+          // is the smallest population that says the fitting is actually present
+          // across the station rather than tapering out of it.
+          if (st.n < 3) continue;
+          if (st.d > air) { air = st.d; wp = p; wat = st.at; deep = st.hi - st.lo; }
         }
       }
       const bad = air * 1000 > CREST_MM;
       if (bad) fails++;
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${mm(air).padStart(6)}   ${mm(peak).padStart(12)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(20)} ${wat ? at(wat) : ""}${bad ? "  FAIL" : ""}`);
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${mm(air).padStart(6)}   ${mm(deep).padStart(12)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(20)} ${wat ? at(wat) : ""}${bad ? "  FAIL" : ""}`);
       rows.push({ section: 4, cls, helm, fail: bad, air });
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} combinations with more than one piece are red.`);
+  console.log(`[clash]    ${fails} of ${cases} combinations with a fitting on the cap are red; ${absent} have no cap or no fitting and are not a case.`);
   return fails;
 }
 
@@ -783,53 +989,41 @@ function sectionCrest(rows) {
 // at its own height there is no metal inboard of it — which is exactly the
 // route `cheekHem` and the coif's hem were built to give it.
 const PELT_PCT = 2.0;
+/**
+ * 2.0% of the pelt's own area. There is no recorded baseline to sit this
+ * against, so it is stated as what it is: an eighth of a beard, about the
+ * amount of whisker a chin's worth of mesh occupies, and small enough that a
+ * fringe emerging correctly from under a hem does not reach it.
+ */
 function sectionPelt(rows) {
   console.log("");
   console.log("[clash] 5. PELT — hair or beard out through the helm, not under its hem.");
-  console.log(`[clash]    inward horizontal rays off every hair and beard triangle; bar ${PELT_PCT.toFixed(1)}% of the pelt's surface.`);
+  console.log(`[clash]    inward horizontal rays off every hair and beard triangle, area-weighted; bar ${PELT_PCT.toFixed(1)}% of the pelt.`);
   console.log("");
-  console.log("[clash] class       helm         pelt out%   worst piece            where");
-  console.log("[clash] ---------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         pelt out%   worst patch                deepest       where");
+  console.log("[clash] ------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, gone = 0;
-  const buf = new Float64Array(BARY.length * 3);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
       const { fur, kit } = sortPieces(cls, helm);
       if (!kit.length) continue;
       if (!fur.length) {
+        // NOT A PASS. A head with no hair and no beard mesh scores nothing out
+        // of nothing, and the last pass's fixer reached exactly that state by
+        // deleting three paid beards. This line is louder than a FAIL on
+        // purpose.
         gone++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      NO PELT AT ALL — this head has no hair or beard mesh to measure`);
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      NO PELT AT ALL — no hair or beard mesh on this head to measure`);
         rows.push({ section: 5, cls, helm, fail: false, absent: true });
         continue;
       }
       cases++;
-      const kitT = soup(kit);
-      let n = 0, k = 0, worstP = 0, wp = null, wat = null;
-      for (const p of fur) {
-        let pn = 0, pk = 0;
-        for (let i = 0; i < p.T.length; i += 9) {
-          const c = samples(p.T, i, buf);
-          for (let s = 0; s < c; s++) {
-            const x = buf[s * 3], y = buf[s * 3 + 1], z = buf[s * 3 + 2];
-            const r = Math.hypot(x, z);
-            if (r < 1e-6) continue;
-            const dx = -x / r, dz = -z / r;
-            pn++;
-            const g = rayHit(kitT, x, y, z, dx, 0, dz, 0.20);
-            if (g < 0) continue;
-            const self = rayHit(p.T, x, y, z, dx, 0, dz, 0.20);
-            if (self >= 0 && self < g) continue;
-            pk++;
-            if (!wat) wat = [x, y, z];
-          }
-        }
-        n += pn; k += pk;
-        if (pn >= 40 && pk / pn > worstP) { worstP = pk / pn; wp = p; }
-      }
-      const pct = n ? 100 * k / n : 0;
+      const r = outboardShare(fur, soup(kit));
+      const pct = 100 * r.share;
       const bad = pct > PELT_PCT;
       if (bad) fails++;
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${(wp ? `${wp.hex} (${wp.tris} tri) ${(100 * worstP).toFixed(1)}%` : "-").padEnd(22)} ${wat ? at(wat) : ""}${bad ? "  FAIL" : ""}`);
+      const patch = r.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${bad ? "  FAIL" : ""}`);
       rows.push({ section: 5, cls, helm, fail: bad, pct });
     }
   }
@@ -859,7 +1053,9 @@ function battery() {
     if (fails[s]) red++;
     console.log(`[clash] ${s} ${names[s].padEnd(7)} ${fails[s] ? `FAIL — ${fails[s]} combination(s)` : "pass"}`);
   }
-  console.log(`[clash] ${red === 0 ? "ALL SECTIONS PASS" : `${red} of ${Object.keys(fails).length} sections RED`}`);
+  const ran = Object.keys(fails).length;
+  console.log(`[clash] ${ran === 0 ? "NO SECTIONS SELECTED — nothing was measured, which is not a pass"
+    : red === 0 ? "ALL SECTIONS PASS" : `${red} of ${ran} sections RED`}`);
   console.log(`[clash] seed ${SEED}, lod ${LOD}, ${CLASSES.length} classes x ${HELMS.length} helms, read off the built mesh.`);
   console.log("[clash] ============================================================");
   return { rows, fails };
