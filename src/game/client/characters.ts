@@ -4069,6 +4069,169 @@ function earProbe(K: Skull, earRootX: number): EarProbe {
   };
 }
 
+// ============================================================
+// THE EAR SEAT — the one feature the block a helm is beaten over has to keep
+// ============================================================
+//
+// "On the remaining classes (warden etc.) the ears stick out."
+//
+// The auricle is its own shell, placed beside the head; `faceSurface` has never
+// known about it. `helmForm` low-passes `faceSurface` into the block a plate is
+// beaten over, so THE BLOCK HAS NO EAR ON IT — and every shell swept on the
+// form (the bowl, the cheek guards, the nape fall) is drawn straight through
+// the organ. `helmclash` section 2 names the patch: 224 triangles of complexion
+// at azimuth 113-115 degrees, 88-94% of them outboard of the metal, 9.5-10.0 mm
+// out, and it is the same object on all three classes without a coif.
+//
+// Measured on this build with the ear's own tables against the form under it,
+// the helix crest stands 23.5 / 23.5 / 24.1 / 23.7 mm outboard of the block on
+// huscarl / warden / berserker / runekeeper at seed 13 — the ear's own 15 mm of
+// stand plus the 9 mm the low-pass shaves off the skin behind the mandible.
+//
+// TWO THINGS THIS DELIBERATELY IS NOT.
+//
+// It is not an ear-shaped hollow in the block. A smith does not planish one; he
+// leaves the cheek of the helm standing off far enough to go over an ear. So
+// the seat is a broad, low dome on the ear's own footprint, dilated by
+// `EAR_SEAT_SPREAD` — which is also what keeps its radius of curvature large
+// enough that a plate standing 30 mm off it cannot fold, the property the whole
+// form exists to have.
+//
+// And it is not the full 24 mm. A pinna is cartilage, and a hinged plate
+// strapped closed against the jaw presses it — `EAR_PRESS` is that, and it is
+// the difference between a helmet that goes over an ear and a helmet built
+// 48 mm wider than the head inside it. What the seat has to deliver is the
+// plate outboard of a PRESSED ear, not clearance over an unpressed one.
+//
+// IT IS A SEPARATE LEVER FROM THE COIF FIT, and the record says to keep it
+// that way: the lost pass's ear fix got entangled with the coif's ring taper
+// and neither could be read afterwards. Nothing here touches `coifLevels`.
+
+/**
+ * How much of the ear a strapped plate presses flat, in metres. Cartilage, not
+ * bone: 12 mm off a helix that stands 15 mm proud is a plate lying on a folded
+ * ear, which is what wearing a closed helm over one actually does.
+ *
+ * AND IT IS BOUNDED FROM BELOW BY A RULER, which is why it is 12 and not 9.
+ * Every millimetre pressed is a millimetre the block does not grow, and every
+ * millimetre the block grows is daylight under the plates hung on it.
+ * `wearmeasure` section 2 measured it directly: at 12 mm the Wyrm-Crest's deep
+ * cheek guard opens 23.4 mm against a 26 mm bar; at 9 mm it opens 26.1 and the
+ * gate goes red. `helmclash` section 2 buys 0.4 to 0.5 points of skin for those
+ * three millimetres, so this sits where the margin is rather than where the
+ * last tenth is.
+ */
+const EAR_PRESS = 0.012;
+
+/**
+ * How far past the auricle's own rim the seat spreads, in metres.
+ *
+ * It buys the curvature. The dome falls from its apex to nothing across
+ * `earRadius(phi) + EAR_SEAT_SPREAD`, so at 40 mm the footprint is 58-74 mm of
+ * radius and the sharpest thing on the seated block is about 70 mm — clear of
+ * the 45 mm the form's own note claims for it, and therefore clear of the
+ * 27-31 mm the deep cheek guard stands off.
+ */
+const EAR_SEAT_SPREAD = 0.040;
+
+/**
+ * How much further the seat runs BELOW the ear than around it.
+ *
+ * A hanging plate cannot follow a bulge back in. `wearmeasure` measures exactly
+ * that as flare — the rate the metal leaves the block along its own hang — and
+ * with the seat falling away symmetrically the deep nape guard went from 18.1
+ * to 23.5 degrees against a 22 degree bar on the Sutton Hoo, and 17.4 to 22.8
+ * on the Wyrm-Crest. That is not the ruler being fussy: it is the plate having
+ * to tuck back under the ear over 60 mm of descent, which is a crease in a
+ * sheet of iron.
+ *
+ * So the seat's lower half is drawn out. It is also what the object does — the
+ * cheek of a helm carries the swell of the ear down to the jaw and finishes
+ * there rather than pinching in under it.
+ */
+const EAR_SEAT_FALL = 2.0;
+
+/** Skull-local depth the auricle is placed at — `buildCharacter`'s own -0.024. */
+const EAR_SEAT_Z = -0.024;
+
+/**
+ * The dome's weight at a point of the ear's own footprint, 1 at the centre and
+ * 0 at the dilated boundary, C1 at both ends. `ey` is metres up from the ear's
+ * centre and `ez` metres toward the face from it, both in skull-local space.
+ */
+function earSeatWeight(ey: number, ez: number): number {
+  // Out of head space and into the ear's own raked frame — the inverse of the
+  // rotation `earPoint` applies, so the footprint this measures is the outline
+  // the auricle is actually built on and not an ellipse drawn near it.
+  const c = Math.cos(EAR_RAKE), sn = Math.sin(EAR_RAKE);
+  const ax = ez * c + ey * sn;
+  const ay = -ez * sn + ey * c;
+  // Stretched downward by `EAR_SEAT_FALL`. Scaling `ay` rather than switching
+  // on it keeps the boundary C1 across the ear's own waist: dr/day is zero at
+  // ay = 0 whichever branch is taken, so the two halves meet without a ridge.
+  const ayk = ay < 0 ? ay / EAR_SEAT_FALL : ay;
+  const r = Math.hypot(ax, ayk);
+  if (r < 1e-9) return 1;
+  const rim = earRadius(Math.atan2(ax, ayk)) + EAR_SEAT_SPREAD;
+  return 0.5 + 0.5 * Math.cos(Math.PI * clamp01(r / rim));
+}
+
+/**
+ * Raise the block over both ears, in place, on the smoothed table and before
+ * its normals are taken.
+ *
+ * The amplitude is MEASURED and never authored: every vertex of the auricle is
+ * taken at the position it is built at and compared with the block's own
+ * half-breadth at that height and depth, and the apex is then solved so that
+ * the dome covers the worst of them once `EAR_PRESS` has been taken off. Author
+ * a taller ear tomorrow and the block grows to meet it with nothing here edited.
+ */
+function earSeatRaise(K: Skull, nu: number, nv: number, pos: Float64Array): void {
+  const n = (nu + 1) * (nv + 1);
+  const earRootX = skullHalfWidth(K, EAR_Y) * EAR_ROOT;
+  const cy = EAR_Y * K.R.y - 0.004;
+  /** The block's own half-breadth beside a point, from the table itself. */
+  const blockAt = (y: number, z: number): number => {
+    let best = 0, bestD = Infinity;
+    for (let k = 0; k < n; k++) {
+      const x = pos[k * 3];
+      if (x <= 0) continue;
+      const dy = pos[k * 3 + 1] - y, dz = pos[k * 3 + 2] - z;
+      const d = dy * dy + dz * dz;
+      if (d < bestD) { bestD = d; best = x; }
+    }
+    return best;
+  };
+  let amp = 0;
+  for (let i = 0; i < EAR_NA; i++) {
+    const phi = (i / EAR_NA) * Math.PI * 2;
+    for (let j = 1; j <= EAR_NS; j++) {
+      const e = earPoint(K, earRootX, phi, j / EAR_NS);
+      // Where the vertex is BUILT: `place3` carries the ear's local z onto head
+      // |x| and its local x onto head z, on both sides. Reading it any other way
+      // seats the block against an ear nobody wears.
+      const proud = (earRootX + e.ez) - blockAt(cy + e.ey, EAR_SEAT_Z + e.ex) - EAR_PRESS;
+      if (proud <= 0) continue;
+      // Solved against the dome's own weight where this vertex lands, so the
+      // apex is whatever it has to be for the WORST point of the ear to be
+      // inside the seat — not whatever the worst point measures.
+      const w = earSeatWeight(e.ey, e.ex);
+      if (w > 0.05 && proud / w > amp) amp = proud / w;
+    }
+  }
+  if (amp <= 0) return;
+  for (let k = 0; k < n; k++) {
+    const x = pos[k * 3];
+    // Outward is ±x, and at the midline there is no outward. The two ears are
+    // 84 mm off it and the footprint never reaches back that far, so this gate
+    // costs the seat nothing — it is here so that a wider spread authored later
+    // cannot put a crease down the front of the block.
+    const side = Math.sign(x) * clamp01(Math.abs(x) / 0.020);
+    const w = earSeatWeight(pos[k * 3 + 1] - cy, pos[k * 3 + 2] - EAR_SEAT_Z);
+    if (w > 0) pos[k * 3] = x + amp * w * side;
+  }
+}
+
 /**
  * THE PROFILE OUTLINE, and the reason it exists is written in the sixth failure.
  *
@@ -5196,6 +5359,14 @@ function helmForm(K: Skull): HelmForm {
         }
       }
     }
+  }
+  // THE EAR, PUT BACK ON THE BLOCK. It has to happen here — after the low-pass,
+  // because the filter is what removed it, and before the normals, because a
+  // block whose normals were taken before it grew an ear stands every plate off
+  // in the wrong direction over one. See `earSeatRaise`.
+  earSeatRaise(K, nu, nv, pos);
+  for (let j = 0; j < h; j++) {
+    for (let c = 0; c < 3; c++) pos[(j * w + nu) * 3 + c] = pos[(j * w) * 3 + c];
   }
   // Normals off the smoothed table, central in u and one-sided at the poles.
   const nrm = new Float64Array(pos.length);
