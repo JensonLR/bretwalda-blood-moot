@@ -3718,3 +3718,74 @@ Left open rather than half-done because a source scan that *looks* like a
 geometry check is worse than no check: it is the exact shape of the thirteen
 faults this repository has already recorded, and adding a fourteenth quietly
 would be the worst possible response to finding thirteen.
+
+## The four helm defects — FIXED ON A BRANCH, HELD BACK, 14 Aug 2026
+
+The owner photographed four faults in the armoury on his phone, portrait lens:
+the Sutton Hoo clashing with the huscarl's mesh, ears outside a full-face mask
+on the other three classes, "a full neck mesh on the front with a clear back",
+and the Wyrm-Crest's top piece "floating above the helmet not attached".
+
+**The work is on `worktree-wf_8ba2674a-ccb-1` and it is NOT merged.** Two rounds,
+two refutations, and the second one is why it is held.
+
+### What is genuinely fixed, and verified by adversaries
+
+* All four gates were shown RED ON MAIN by an adversary that checked out main's
+  `characters.ts` itself: WRAP 3 combinations at 152–160° bare over 78–93 mm;
+  LAYERS 11 combinations up to 15.2 mm; FLESH 4/4 masked classes at 7.3–9.3%.
+* WRAP and CREST go green. LAYERS falls from 11 combinations to 2. FLESH falls
+  from 7.3–9.3% to 1.15–2.46%, with the worst bin moved **off the ear** onto the
+  neck on every class.
+* **The ear diagnosis is real and better than the theory it replaced.**
+  `helmForm` is a 12 mm low-pass with nothing under a 45 mm radius, so the block
+  a plate is beaten over *has no ear on it*. That — not the hairline exemption —
+  is why the ears stick out. `earSeat()` publishes the auricle and the hull
+  soft-maxes it into the lateral half-breadth.
+* Round two then resolved the `wearmeasure` regression round one introduced, and
+  did it the right way: a split verdict, section by section, with three
+  measured references *before* code moved. Section 3 was the metal (deleting one
+  term returns main's number to the decimal). Section 4 was the ruler for 17 of
+  20 rows and the metal for 3.
+
+### Why it is held anyway
+
+**`cosmetictest` goes backwards, and the report says it does not.** The claim
+was "the one red is the paid hairstyles swallowed under helms, unchanged in
+wording and count". Measured on both sides, neither the wording nor the count is
+unchanged. Two PAID cosmetics newly go dark under the Sutton Hoo:
+
+    Long Mane (40g)           1.42% -> 0.04%
+    Braided War-locks (100g)  1.31% -> 0.08%
+
+and the free Warrior Crop newly crosses the 1% bar under the Boar-Crest and the
+Jarl's Crowned. A check that passes today sits 0.03 points from red: the closest
+paid pair under the Sutton Hoo went 1.43% -> 0.08% against a 0.05% bar.
+
+**And the mechanism is this repository's oldest failure, committed twice in one
+change.** The fix pulls the coif's top ring from `R.x*1.00 + 0.011` to
+`R.x*0.90 + 0.004` — tightening the mail onto the skull, which is what swallows
+the hair — while the SAME commit relaxes the ruler that would have caught it:
+`hairFitProbe`'s wall moved from `inner[k]` (a minimum over every worn mesh) to
+a per-mesh eroded wall, which can only raise the wall.
+
+That is a defect and its own alibi in one commit. Shipping it would trade the
+owner's ear complaint for two paid items nobody can tell from free — which is a
+defect he has already reported once, about the Shadow Hood.
+
+### What the next pass has to do
+
+1. Fix the ear **without** tightening the coif onto the skull, or compensate the
+   hair so nothing paid goes dark. The ear fix and the coif fit are separable —
+   `earSeat()` is the right idea and the coif ring is a different lever.
+2. Re-examine the `hairFitProbe` erosion change **on its own merits**, in a
+   commit that does not also move the geometry it measures. It may well be
+   correct — a garment that is only an edge in a bin should not set the inner
+   wall — but it cannot be argued in the same breath as the change it excuses.
+3. Carry forward, from the unit's own honest list: 15.0 mm of unidentified gilt
+   inside the coif at az 179 (two hypotheses already disproved — the crest's rear
+   tail and the nape guard's gilt lip — plus an untested third: `helmclash`
+   section 1 may read `coifLevels` without their z shift, which is the identical
+   fault `hullAt` was fixed for one level up); a beard hanging out from under the
+   mask that this work *uncovered* rather than caused; and whether the wyrm reads
+   as a serpent **at fight distance**, which has been queued twice and not shot.
