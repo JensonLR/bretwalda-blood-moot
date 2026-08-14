@@ -661,7 +661,8 @@ const FLESH_PCT = 1.0;
  * 1.0% of the skin's area, and it is a tessellation allowance rather than a
  * tolerance. Zero is the only defensible answer for a face plate, and nothing
  * on this tree is anywhere near the bar: the four masked combinations measure
- * 5.4 to 7.6, so no verdict here turns on where exactly the bar sits.
+ * 3.51, 5.02, 5.76 and 6.14, so no verdict here turns on where exactly the bar
+ * sits.
  */
 function sectionFlesh(rows) {
   console.log("");
