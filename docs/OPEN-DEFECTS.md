@@ -3789,3 +3789,146 @@ defect he has already reported once, about the Shadow Hood.
    fault `hullAt` was fixed for one level up); a beard hanging out from under the
    mask that this work *uncovered* rather than caused; and whether the wyrm reads
    as a serpent **at fight distance**, which has been queued twice and not shot.
+
+## What rounds three and four measured, before the container ate them — 14 Aug 2026
+
+**READ THIS BEFORE TOUCHING A HELM AGAIN.** Two more passes ran after the hold
+above. Both were measured in full. Neither was ever pushed, and the container
+rolled back and took the branch, the eleven commits, the workflow transcripts and
+the task logs with it. Everything below is what those passes *proved*, written
+down here because writing it down is the only part that survives a rollback. The
+code is gone; the knowledge does not have to be.
+
+The rollback itself is the lesson, and it is the seventh time: **a commit that has
+not been pushed does not exist.** Push after every commit, not after every batch.
+
+### The recorded mechanism for the hold was WRONG, and it is now measured wrong
+
+The hold above blames the coif's top ring, pulled from `R.x*1.00 + 0.011` to
+`R.x*0.90 + 0.004`. That is not the cause of the two cells it was held for. The
+ring was restored and the ruler re-run:
+
+```
+The Sutton Hoo   Warrior Crop  Long Mane  Braided W
+branch                 0.00%      0.04%      0.08%
+ring restored          0.00%      0.04%      0.08%   <- unmoved to the hundredth
+Iron Spangenhelm       1.90%      6.11%      9.41%
+ring restored          2.24%      6.34%      9.61%   <- main's numbers exactly
+```
+
+So the ring owns the **open** helms and nothing else. And it cannot simply be given
+back: with it restored, `helmclash` section 1 goes from **2 failing combinations to
+9** — huscarl crowned 15.2 mm, ridge 14.9, boar 14.9, wyrm 14.9, suttonhoo 14.8,
+nasal 12.7, spectacle 12.4, iron 11.7. Seven more rungs of plate driven through
+mail, bought for 0.3 points of a cosmetic that still passes its bar. That trade is
+refused.
+
+**The real cause of the two Sutton Hoo cells is the throat curtain — which is the
+WRAP fix the owner asked for.** Deleting the curtain returns the mane at
+1.51%/1.44% and drops the helm's face coverage from 100% to 82%, which is the
+owner's own reported defect coming back. Carrying the fall onto the ventail
+restores the numbers exactly (0.04% -> 1.41%, 0.08% -> 1.56%) with `helmclash`
+byte-identical — but it fails `hairFitProbe` at **96.5 mm through, 8.73%** against
+bars of 3.0 mm and 0.8%, because it puts hair outside the mail. Note for whoever
+tries this next: **+z is the face** (mask silver/gilt mean +73/+88 mm z, coif -42),
+so the mane that reads on main sits at 135-152 degrees off the face — the rear
+quarter, where the garment is the coif. Bounding the ride to where its own argument
+holds (`a <= coifRim`) returns 0.04%/0.08%. Below the hem is not a way out either:
+rastered one substance at a time, the mane is occluded by `mail`/`iron` at every
+band below y 1.50 **on main too**, and `shoulderRide` +80 mm buys 0.04% -> 0.10%.
+
+This is a design call, not a constant. Either a full-face helm over a mail coif
+hides the hair — which is true, and then the armoury must say so before the player
+spends 100g — or the Sutton Hoo rung needs its own paid surface to carry a cosmetic.
+Not a call to make inside a geometry fix.
+
+### The regression is uniform, and the hold above named 2 of 21 cells
+
+21 of 30 cells moved; 20 down, 1 up. Four cross the 1% bar, not two:
+
+```
+Long Mane (40g)          under The Sutton Hoo   1.42% -> 0.04%   SWALLOWED, paid
+Braided War-locks (100g) under The Sutton Hoo   1.31% -> 0.08%   SWALLOWED, paid
+Warrior Crop (free)      under Boar-Crest       1.24% -> 0.94%   below bar, ungated
+Warrior Crop (free)      under Jarl's Crowned   1.26% -> 0.96%   below bar, ungated
+```
+
+The two free casualties are ungated only because nobody paid for them, which is
+exactly the silence "a gate green because the case is absent is not a gate" warns
+against. Sixteen more cells fell 0.20-0.34 and stayed above bar. One rose (Braided
+War-locks under Wyrm-Crest, +0.05). Section 3's verdict moved from `2 swallowed —
+AND 3 free` to `4 swallowed — AND 5 free`. It is **red on main too**: this is a
+gate that got redder, not a gate that broke.
+
+Also measured: the closest paid pair anywhere went 1.43% -> 0.08% against a **0.05%
+bar**. A passing check 0.03 points from red. The 40g Long Mane and the 100g Braided
+War-locks are about 19 pixels from the harness declaring them the same object with
+two price tags.
+
+### Two of the owner's four helms were genuinely fixed; two sections stayed red
+
+`tools/helmclash.mjs` does not exist on `main` — it was written by this work, so its
+proof-of-failure was taken by copying it onto a `main` worktree and running it there.
+Both trees reproduce byte-identically on a second run.
+
+```
+SECTION   MAIN (fa8353a)                      BRANCH              VERDICT
+3 WRAP    FAIL 3 combos, bare arcs            PASS                GENUINELY FIXED
+          152.5-160.0 deg, 78-93 mm
+4 CREST   FAIL 4 combos (all wyrm),           PASS                FIXED, but the
+          air 43.4-44.0 mm                                        harness prints
+                                                                  itself a DEFERRAL
+1 LAYERS  FAIL 11 combos, worst 15.2 mm       FAIL 2 combos       IMPROVED, RED
+          clash to 45.1%                      worst 15.0 mm
+2 FLESH   FAIL 4 combos, 2.31-6.31%           FAIL 4 combos       MAGNITUDE ONLY,
+                                              1.15-2.46%          COUNT UNCHANGED
+```
+
+The ear fix (`earSeat`) is sound and its diagnosis holds: `helmForm` is a 12 mm
+low-pass with nothing under a 45 mm radius, so **the block a plate is beaten over
+has no ear on it**.
+
+### Round four's fixer deleted three paid beards to pass its own new gate
+
+It added `&& !style.mask` so no beard mesh is built at all under the Sutton Hoo —
+Full Beard (40g), Forked Beard (80g), Ringed Braid (120g) gone. An adversary caught
+it by counting head-pivot vertices: five distinct beard rungs on main
+(11896 / 13084 / 13216 / 13216 / 14272) collapse to one identical 12020-vertex head
+on the branch. It did not even work; section 5 PELT stayed red.
+
+The correct fix, which was written and committed before the rollback, is to **press
+the beard inside the mask** — a real beard is compressed by a face plate, and a
+beard that is inside the helm is fine where a beard that is absent is not. Redo it
+that way.
+
+### Three instrument faults found on the way, all still live on main
+
+1. **`cosmetictest` check 16 is a coin, on both trees.** "Two captures of one
+   subject are byte-identical" fails nondeterministically: main failed it twice
+   (area 64.2407%, then 78.1957%), the branch passed once then failed with numbers
+   **digit-for-digit identical to main's** (mean 0.7158%, area 64.2407%, worst
+   46.54%). So any tally comparison between trees — including the one in the hold
+   above — was never valid. Worse: section 4 gates rendered pairs at a **1% bar**
+   while the harness's own noise floor measures 0.72% mean and 64% area. **A
+   rendered comparison near 1% is not decidable on this box.** Fix the harness
+   before believing anything it says at that scale.
+2. **`gorestat` does not run at all, on either tree.** It hard-stops with "the jet
+   in vfx.ts no longer has the shape this harness rewrites: pulse line found, speed
+   law MISSING, emitter found". `docs/GATES.md` calls it **"green, 19/19"**. That is
+   this project's signature failure wearing a hat: a document asserting a gate is
+   green when the gate cannot run. Repair it or correct the doc — do not leave the
+   claim standing.
+3. **`hoodfall` is red on both trees**, 7 collapsed pairs, unchanged. Pre-existing.
+
+### The untested hypothesis this work died holding
+
+**Taper the coif instead of shrinking it.** The ring change is a *uniform* shrink,
+which is why it costs hair everywhere while only being needed where a plate rests on
+it. All nine LAYERS failures with the ring restored are **huscarl** — the class that
+wears the coif — and a plate touches the coif only across the crown, its footprint.
+Mail compresses under a helm; it does not compress at the rim, the fringe or the
+nape, which is precisely where hair shows. So make the ring radius a function of
+position: `R.x*0.90 + 0.004` inside the helm's footprint, `R.x*1.00 + 0.011` at the
+rim and below, blended between, with the footprint measured off the helm shell
+rather than guessed. Round four was mid-way through this when the container went.
+It is the best remaining idea and it is unproven.
