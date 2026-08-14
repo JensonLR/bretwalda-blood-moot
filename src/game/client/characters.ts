@@ -15964,40 +15964,83 @@ export function buildCharacter(
         // midline as it runs, and that it is thickest just behind a head that is
         // thrown clear of everything. All three are properties of a swept spine
         // and none of them can be said by a lift function.
+        // ---- AND IT WAS FLOATING ----
+        //
+        // "also floating above the helmet, not attached." The arch this replaces
+        // sprang off the nape, cleared the crown by 46 mm and came down in front
+        // of the brow, and it never touched the cap between those two points.
+        // `helmclash` section 4 measured what that reads as: taking the
+        // fitting's NEAREST APPROACH to the cap at every 4 mm station of its
+        // fore-and-aft run, the worst station on this animal was 50.0 to 54.2 mm
+        // of nothing on all four classes, against a bar of 40 and against the
+        // Boar-Crest's 32.5-33.1 and the Sutton Hoo crest's 13.9-15.4.
+        //
+        // A serpent on a helmet is not a hoop over one. It CRAWLS: the tail lies
+        // on the nape, the body humps and comes back down onto the iron between
+        // the humps, and the head is thrown clear at the front. Three properties
+        // and every one of them is in the path rather than in a fitting:
+        //
+        //   * two humps with a landing between them, so the run has no stretch
+        //     where none of the animal comes down — which is the whole of what
+        //     "not attached" means and the whole of what section 4 measures;
+        //   * the humps are UNEQUAL, 20 mm at the shoulder and 30 mm at the
+        //     neck, because two equal humps are a corrugation and a corrugation
+        //     is symmetric — and a symmetric ridge is not a wyrm;
+        //   * the wander is wider than it was, 16 mm rather than 11, because at
+        //     fight distance the vertical wave is about six pixels and the
+        //     lateral S is what carries the read from the front.
+        //
+        // The head still goes over the brow and still looks down at whoever the
+        // man is looking at. It is the one part that IS entitled to sky under
+        // it: past the brow it is no longer over the cap at all, so it is not a
+        // station in section 4 and never was.
         const wyrmSpine = (t: number, out: THREE.Vector3) => {
-          const z = zTop + mix(-0.090, 0.132, t);
-          // THE ARCH. The body springs off the nape, clears the crown by 46 mm
-          // and comes down in front of the brow — so from the side there is
-          // daylight between the animal and the cap over the whole middle third,
-          // which is the one thing that says "arched over" rather than "lying
-          // on". `sin^0.7` rather than `sin` keeps the height up along both
-          // flanks instead of peaking only at the pole, which is the same
-          // correction the comb version's note records making and then made only
-          // to its height, not to its path.
-          const rise = 0.046 * Math.pow(Math.sin(Math.PI * clamp01(t * 0.92 + 0.04)), 0.70);
+          const z = zTop + mix(-0.090, 0.152, t);
+          // The crawl. Two humps and a landing, in millimetres above the iron:
+          // 0 at the tail tip, 20 over the shoulder, back down to 5 at mid-run
+          // where the belly is soldered to the cap, 30 at the neck, and away
+          // over the brow. `bump` gives each hump its own smooth support, so the
+          // landing between them is a real contact and not the crossing of two
+          // sine waves.
+          const rise =
+            0.022 * bump(t - 0.22, 0, 0, 0.13, 1, 1)
+            + 0.028 * bump(t - 0.62, 0, 0, 0.15, 1, 1)
+            + 0.004;
           out.set(
-            // The wander. A snake does not run down a centreline, and 11 mm of
-            // travel is enough to break the symmetry at portrait size. Taken
-            // back out over the last quarter so the head sits square to the
-            // face, which is the bearing a duel is fought at.
-            0.011 * Math.sin(t * Math.PI * 2.3) * (1 - clamp01((t - 0.68) / 0.32)),
-            Math.max(capY(z), yTop - 0.030) + 0.012 + rise
+            0.016 * Math.sin(t * Math.PI * 2.3) * (1 - clamp01((t - 0.68) / 0.32)),
+            Math.max(capY(z), yTop - 0.060) + 0.010 + rise
               // The head is thrown DOWN as well as forward, over the brow, so it
               // looks at whoever the man is looking at.
-              - 0.030 * Math.pow(clamp01((t - 0.70) / 0.30), 1.5),
+              - 0.014 * Math.pow(clamp01((t - 0.70) / 0.30), 1.5),
             z,
           );
         };
+        // AND IT HAS TO CARRY AT SIXTY PIXELS, which is the size a helmet is read
+        // at in a duel and the size the owner's "unrecognisable" was written
+        // about. Rendered at `facecard`, cropped to the head and resampled to a
+        // 60 px silhouette, the section this replaces read as ONE BRIGHT THIN
+        // LINE arcing over the dome — the "bent wire" the comb version was
+        // replaced for, back again in a rounder section. The arithmetic says why:
+        // a 23 mm body on a 250 mm head is five pixels at that size, and five
+        // pixels of anything is a line.
+        //
+        // So the mass goes up and, more to the point, the DIFFERENTIAL goes up.
+        // A serpent is read by a head that is wider than the neck behind it. At
+        // 31 mm across the jaw against 18 at the neck the head was 1.75x its own
+        // neck and about two pixels wider; at 42 against 20 it is a head. The
+        // body thickens to 28 mm over the crown so the taper to the tail is
+        // something the eye can measure, and the tail tip keeps its point,
+        // because a serpent that ends in a stub ends in a rivet.
         //          t     half     tall     scales
         const WYRM: ReadonlyArray<readonly [number, number, number, number]> = [
-          [0.00, 0.0030, 0.0032, 0.0000], // tail tip, on the nape
-          [0.16, 0.0082, 0.0092, 0.0030],
-          [0.42, 0.0116, 0.0132, 0.0050], // the thick of the body, over the crown
-          [0.62, 0.0104, 0.0118, 0.0046],
-          [0.74, 0.0090, 0.0100, 0.0034], // the neck
-          [0.86, 0.0158, 0.0132, 0.0030], // the head — BROAD across the jaw
-          [0.94, 0.0128, 0.0104, 0.0012], // the muzzle
-          [1.00, 0.0060, 0.0052, 0.0000], // the snout
+          [0.00, 0.0034, 0.0036, 0.0000], // tail tip, on the nape
+          [0.16, 0.0098, 0.0106, 0.0034],
+          [0.42, 0.0140, 0.0150, 0.0058], // the thick of the body, over the crown
+          [0.62, 0.0118, 0.0128, 0.0050],
+          [0.74, 0.0100, 0.0106, 0.0036], // the neck — the waist the head reads against
+          [0.86, 0.0210, 0.0180, 0.0032], // the head — BROAD across the jaw
+          [0.94, 0.0160, 0.0128, 0.0012], // the muzzle
+          [1.00, 0.0080, 0.0064, 0.0000], // the snout
         ];
         const wyrmAt = (t: number, k: 1 | 2 | 3) => {
           for (let i = 0; i < WYRM.length - 1; i++) {
@@ -16014,7 +16057,14 @@ export function buildCharacter(
           // the same term the boar's bristles ride.
           crest: (t) => wyrmAt(t, 3) * (0.66 + 0.34 * Math.cos(t * 78)),
           belly: () => 0.86,
-        }), trimMetal, place.clone());
+          // BRASS, NOT THE CAP'S OWN STEEL, and it is the shop's own precedent
+          // rather than a new idea: the 380-gold Boar-Crest's animal is brass on
+          // a steel cap and reads across a bowl at any distance because of it.
+          // A steel serpent on a steel dome has only its outline to work with,
+          // and at the 60 px a helmet is read at in a duel an outline five
+          // pixels thick is a highlight on the cap. Gilt bronze on iron is also
+          // what the period does with a crest.
+        }), brass, place.clone());
         // Same frame trap as the boar's fittings: the sweep is in the form's
         // space and every `xf` below is in the part's, so the spine is read
         // through one helper that adds `skullY` and nothing else may.
@@ -16036,7 +16086,7 @@ export function buildCharacter(
             half: (t) => 0.0125 * (1 - 0.55 * t * t),
             tall: (t) => 0.0052 * (1 - 0.45 * t * t),
             belly: () => 0.9,
-          }), trimMetal);
+          }), brass);
           for (const s of [-1, 1]) {
             // The brow horns, swept back off the skull the way a serpent's are
             // drawn in the interlace this game's identity is built on.
