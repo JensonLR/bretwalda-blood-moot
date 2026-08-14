@@ -269,8 +269,27 @@ head("2. The ladder, as a win rate");
 // ============================================================
 head("3. A man, not a lawnmower");
 {
-  /** Everything one bot did in one bout, counted off the wire and off the room. */
-  function watch(difficulty, seed, seconds = 30) {
+  /**
+   * Everything one bot did in one bout, counted off the wire and off the room.
+   *
+   * THE CLASS IS A PARAMETER NOW, AND THAT IS A REPAIR, NOT A TIDY-UP. This
+   * watched two WARDENS and nothing else, and reported the result as "what a
+   * recruit does" — one matchup's behaviour wearing the ladder's name. The
+   * reaction-window pass made that fatal: a recruit's threshold is 0.364 s and a
+   * warden's windup is 0.340 s, so a recruit CANNOT read a spear, and the guard
+   * rate this section printed for him fell to exactly 0.0% of ticks. The
+   * monotone check below went green on it — because a rate of zero is certainly
+   * less than a warrior's — which is a gate passing on the ABSENCE of the case
+   * it exists to see.
+   *
+   * Every difficulty is now watched against all four classes and the rates are
+   * pooled, so "a recruit guards less" is a statement about the ladder rather
+   * than about the one opponent this file happened to pick. The per-class
+   * breakdown is printed underneath, because the 0.0% against a warden is a real
+   * and deliberate fact about the bottom rung and it should be READ, not
+   * averaged into invisibility.
+   */
+  function watch(difficulty, seed, warriorClass, seconds = 30) {
     seedStream(seed);
     const eng = makeEngine({ autoTick: false });
     const seen = { hits: [], latest: null, playerId: null };
@@ -281,8 +300,8 @@ head("3. A man, not a lawnmower");
       if (m.type === "hit") seen.hits.push(m.data);
     });
     eng.message(sid, { type: "create", data: { name: "S", mode: "blood_moot", bestOf: 1 } });
-    eng.message(sid, { type: "add_bot", data: { difficulty, warriorClass: "warden" } });
-    eng.message(sid, { type: "add_bot", data: { difficulty, warriorClass: "warden" } });
+    eng.message(sid, { type: "add_bot", data: { difficulty, warriorClass } });
+    eng.message(sid, { type: "add_bot", data: { difficulty, warriorClass } });
     eng.message(sid, { type: "start", data: {} });
     let settled = 0;
     while (settled < SETTLE_CAP && seen.latest?.state !== "fighting") { eng.step(TICK); settled += TICK; }
@@ -314,28 +333,45 @@ head("3. A man, not a lawnmower");
     return tally;
   }
 
-  const REPS = 6;
+  const REPS = 2;
+  const WATCHED = Object.keys(WARRIOR_STATS);
   const table = {};
+  const perClass = {};
   for (const d of ["recruit", "warrior", "jarl"]) {
     const agg = { guards: 0, rolls: 0, heavies: 0, swings: 0, ticks: 0, dirSpread: [] };
-    for (let i = 0; i < REPS; i++) {
-      for (const bot of watch(d, SEED + 777 * i)) {
-        const swings = Object.values(bot.dirs).reduce((a, b) => a + b, 0);
-        agg.guards += bot.guards; agg.rolls += bot.rolls; agg.heavies += bot.heavies;
-        agg.swings += swings; agg.ticks += 600;
-        if (swings > 4) {
-          // How lopsided is his choice of side? 0 is a perfect coin over four
-          // directions — a lawnmower. Higher is a man with a habit.
-          const top = Math.max(...Object.values(bot.dirs));
-          agg.dirSpread.push(top / swings);
+    perClass[d] = {};
+    for (const cls of WATCHED) {
+      const one = { guards: 0, ticks: 0 };
+      for (let i = 0; i < REPS; i++) {
+        for (const bot of watch(d, SEED + 777 * i + 13 * WATCHED.indexOf(cls), cls)) {
+          const swings = Object.values(bot.dirs).reduce((a, b) => a + b, 0);
+          agg.guards += bot.guards; agg.rolls += bot.rolls; agg.heavies += bot.heavies;
+          agg.swings += swings; agg.ticks += 600;
+          one.guards += bot.guards; one.ticks += 600;
+          if (swings > 4) {
+            // How lopsided is his choice of side? 0 is a perfect coin over four
+            // directions — a lawnmower. Higher is a man with a habit.
+            const top = Math.max(...Object.values(bot.dirs));
+            agg.dirSpread.push(top / swings);
+          }
         }
       }
+      perClass[d][cls] = one.ticks ? one.guards / one.ticks : 0;
     }
     table[d] = agg;
     note(`${d.padEnd(9)} guard ${(agg.guards / agg.ticks * 100).toFixed(1)}% of ticks, ` +
       `roll ${(agg.rolls / agg.ticks * 100).toFixed(1)}%, ` +
       `heavy ${agg.swings ? (agg.heavies / agg.swings * 100).toFixed(1) : "0.0"}% of swings, ` +
       `favourite side ${(agg.dirSpread.reduce((a, b) => a + b, 0) / (agg.dirSpread.length || 1) * 100).toFixed(0)}% of them`);
+    note(`          ...guard by opponent: ` +
+      WATCHED.map((c) => `${c} ${(perClass[d][c] * 100).toFixed(1)}%`).join("  "));
+  }
+  // WHOSE WINDUP EACH RUNG CAN ACTUALLY SEE, printed rather than left to be
+  // inferred from a pooled average. A rung that reads NOBODY has no defence at
+  // all and the pooled number would hide it behind the three rungs that do.
+  for (const d of ["recruit", "warrior", "jarl"]) {
+    const seen = WATCHED.filter((c) => perClass[d][c] > 0);
+    note(`${d.padEnd(9)} raises steel against ${seen.length} of ${WATCHED.length} classes: ${seen.join(", ") || "NOBODY"}`);
   }
 
   // THE DEFENCE IS THE LADDER'S OTHER FACE, and it is the half a player feels
@@ -347,6 +383,29 @@ head("3. A man, not a lawnmower");
   check("a better bot spends more of the fight with its guard up, at every rung",
     guardRate("recruit") < guardRate("warrior") && guardRate("warrior") < guardRate("jarl"),
     ["recruit", "warrior", "jarl"].map((d) => `${d} ${(guardRate(d) * 100).toFixed(1)}%`).join(" < "));
+
+  // A RUNG THAT READS NOBODY IS NOT A DIFFICULTY — IT IS A DISABLED DEFENCE, AND
+  // THE MONOTONE CHECK ABOVE CANNOT TELL THE DIFFERENCE. Zero is comfortably
+  // less than a warrior's rate, so "recruit < warrior < jarl" is satisfied most
+  // easily by a bottom rung that never raises a guard at all. That is not
+  // hypothetical: watched against wardens alone, which is all this section used
+  // to watch, the recruit's rate is exactly 0.0% — his 0.364 s reaction cannot
+  // see a 0.340 s telegraph. So the floor is asserted separately from the order.
+  //
+  // WHAT HE ACTUALLY ANSWERS IS NARROWER THAN THE ARITHMETIC SAYS, and the
+  // printed table is the authority. On paper a 0.364 s recruit clears the
+  // huscarl's 0.408 s windup as well as the berserker's 0.532 s. Measured, his
+  // huscarl column is 0.0% too, and the reason is the 20 Hz grid: `swingT` is
+  // only ever sampled on tick boundaries, so the largest `windupSeen` a huscarl
+  // light ever presents is 0.40 — leaving a window exactly ONE tick wide against
+  // a think cadence of 0.144 s. A recruit therefore raises his shield against
+  // the DANE AXE and nothing else, which is a better novice than the arithmetic
+  // promised. Read the per-class line above; do not re-derive it from the
+  // windups.
+  const answers = (d) => WATCHED.filter((c) => perClass[d][c] > 0);
+  check("...and every rung answers SOMEBODY's windup — a rung that guards against nobody is a punching bag, not a difficulty",
+    ["recruit", "warrior", "jarl"].every((d) => answers(d).length > 0),
+    ["recruit", "warrior", "jarl"].map((d) => `${d} ${answers(d).length}/${WATCHED.length}`).join("  "));
 
   // A FAVOURITE SIDE. A bot that draws its stroke uniformly is unreadable and
   // therefore unbeatable-by-reading, which is the opposite of what this game

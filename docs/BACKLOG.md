@@ -196,8 +196,9 @@ ends on the portrait, which is *a* beat and not *the* beat.
 | # | Item | Note |
 |---|---|---|
 | 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | **DONE**, and the review is the matrix — `tools/classmatrix.mjs`. See the note below |
-| 3.2 | **AI fighting quality and difficulty scaling** | **MEASURED, THEN MOVED — and the measurement came first.** `npm run bottest` is the ruler: the ladder as a win rate with a Wilson interval on every rung, plus what a difficulty is ALLOWED to touch (the brain; never the sheet) and whether a bot reads as a person. It found two live defects on the first run — the middle rung's guard rate was BELOW the bottom's (a phantom guard: `botThink` believed a block the server had refused mid-stroke, then stood there refusing to attack), and jarl-over-warrior was 55.8% [46.9-64.4], an interval straddling a coin toss. Fixed by believing the server, grading the recovery punish instead of switching it at a threshold, and giving each bot a temperament rolled once. Now 79.6% / 65.0% on the two upper rungs, guard monotone 0.4/2.3/5.1%. **ONE RUNG IS STILL NOT PLACED and it rides the verdict line**: recruit→warrior at 54.6% [48.3-60.8]. The reason is written into `engine.mjs` — the reaction-window lever is nearly inert on this roster, and a comment there had been asserting a recruit reaction time the code has not held for some time. **`classmatrix` WAS RE-RUN, and it moved** — see 3.2b |
-| 3.2b | **What the bot brain change did to the roster matrix** | `classmatrix --seed=4242`, 1000 bouts a cell, before and after. The verdict line is the SAME shape — 4 of 6 matchups decisively inside 30-70%, every class inside 40-60% of the field, 2 on the band edge — but the composition changed and the spread nearly doubled. Matchups: huscarl v warden **68.3% → 44.3%**, huscarl v berserker 65.5% → **70.7%**, huscarl v runekeeper 28.3% → 30.4%, warden v runekeeper 64.8% → 58.5%, warden v berserker 44.5% → 54.1%, runekeeper v berserker 52.8% → 47.7%. Against the field: huscarl 53.9 → 48.2, warden 46.6 → **55.7**, runekeeper 52.9 → 52.6, berserker 46.3 → **42.6**; SPREAD 7.5 pts [4.0-11.1] → **13.1 pts [9.6-16.7]**. **NOT ONE NUMBER ON THE SHEET MOVED.** What moved is what the brain rewards: bots now punish recovery in proportion to skill and hold shorter guards, and the class that pays for that is the one with the longest stroke (berserker, 1.33 s) while the class that collects is the one with a short stroke and a real guard (warden, 0.85 s). **The roster is measurably less even than it was**, and the honest reading is that some of its old evenness was resting on a bot that did not punish a recovery properly. Decide whether to pay the berserker back on the sheet — and if so, in BOTH tables (`WARRIOR_STATS` and `src/game/types.ts`), which already disagree |
+| 3.2 | **AI fighting quality and difficulty scaling** | **MEASURED, THEN MOVED — and the measurement came first.** `npm run bottest` is the ruler: the ladder as a win rate with a Wilson interval on every rung, plus what a difficulty is ALLOWED to touch (the brain; never the sheet) and whether a bot reads as a person. It found two live defects on the first run — the middle rung's guard rate was BELOW the bottom's (a phantom guard: `botThink` believed a block the server had refused mid-stroke, then stood there refusing to attack), and jarl-over-warrior was 55.8% [46.9-64.4], an interval straddling a coin toss. Fixed by believing the server, grading the recovery punish instead of switching it at a threshold, and giving each bot a temperament rolled once. Now 79.6% / 65.0% on the two upper rungs, guard monotone 0.4/2.3/5.1% *as §3 then measured it — see the repair to that measurement below*. **THE LAST UNPLACED RUNG IS NOW PLACED — 14 Aug 2026.** recruit→warrior was 54.6% [48.3-60.8], an interval straddling even. `BOT_REACTION_SKILL` — the only constant in the reaction window that carries a *difference* between two difficulties, and therefore the only one that can be a ladder — went 0.18 → 0.60, with `BOT_REACTION` set to 0.634 so that `0.634 - 0.7*0.60` is the **same IEEE double** as the old `0.34 - 0.7*0.18`. That anchors the `warrior` exactly, which is the difficulty `classmatrix` fights at, and the anchoring is **verified rather than asserted**: `classmatrix --bouts=60 --seed=4242` before and after the edit is **byte-identical output**, impossible if one `Math.random()` draw had landed differently. Result at 240 bouts a rung, seed 20260813: **jarl→recruit 89.6% [85.1-92.8], warrior→recruit 61.7% [55.4-67.6], jarl→warrior 68.3% [62.2-73.9]** — all three intervals clear even, ladder ordered, **11/11 PASS and no deferral** |
+| 3.2b | **What the bot brain change did to the roster matrix** | `classmatrix --seed=4242`, 1000 bouts a cell, before and after. The verdict line is the SAME shape — 4 of 6 matchups decisively inside 30-70%, every class inside 40-60% of the field, 2 on the band edge — but the composition changed and the spread nearly doubled. Matchups: huscarl v warden **68.3% → 44.3%**, huscarl v berserker 65.5% → **70.7%**, huscarl v runekeeper 28.3% → 30.4%, warden v runekeeper 64.8% → 58.5%, warden v berserker 44.5% → 54.1%, runekeeper v berserker 52.8% → 47.7%. Against the field: huscarl 53.9 → 48.2, warden 46.6 → **55.7**, runekeeper 52.9 → 52.6, berserker 46.3 → **42.6**; SPREAD 7.5 pts [4.0-11.1] → **13.1 pts [9.6-16.7]**. **NOT ONE NUMBER ON THE SHEET MOVED.** The damage was real and it reproduces: re-measured 14 Aug on the committed sheet across three master seeds, spread **13.1 / 12.5 / 12.7**, with `huscarl v berserker` 70.7/70.3/69.0 and `huscarl v runekeeper` 30.4/31.3/31.3 — two matchups on the bar, one each side. **THE MECHANISM THIS ENTRY ASSERTED IS WRONG, AND IT IS RETRACTED HERE RATHER THAN QUIETLY EDITED.** It said bots "now punish recovery in proportion to skill" and that the long-stroke class pays for it. `classmatrix` fights at **`warrior`**, and a warrior's recovery punish went from **certain** (`aiSkill > 0.6`) to **0.32** — the opposite direction. Pulled, 400 bouts a cell, seed 4242, berserker against the field: shipping brain **44.0%**; graded punish reverted to the old boolean **37.9%** (he gets *worse*); temperament removed **42.3%**; phantom guard restored **43.2%**; all three reverted together **40.4%**. Not one of them raises him and all three together do not reach 46.3. **The cause is not among the three edits this entry names, and no replacement mechanism is asserted, because none was measured.** The useful half is the negative: do not tune against that story. Closed by 3.2c |
+| 3.2c | **Re-level the roster under the bot brain that now ships** | **DONE, 14 Aug 2026 — and the debt 3.2b declared is paid.** Wave 3 balanced the roster against a `botThink` that Wave 4 replaced, so the balance was certified against an instrument that no longer exists. Re-measured first on the committed sheet (spread 13.1/12.5/12.7, two matchups on the bar), then re-levelled. **FOUR NUMBERS MOVED, ALL IN ONE COLUMN:** huscarl `maxHealth` 158→**162**, berserker 126→**134**, warden 114→**108**, runekeeper 96→**92**. Nothing else — no stroke, no damage, no reach, no arc, no guard, no stamina, no stride — so every ratio the weight pass and the class rework are documented on survives untouched, and the four-shape gate is unmoved by construction. Health was chosen because it is one of only **two** axes this ruler can read (see the inert-lever table above); re-levelling on `blockReduction` or `moveSpeed` would have been a balance claim with no measurement under it. **RESULT: six of six matchups DECISIVELY inside 30-70% with no EDGE cell and no deferral**, against four-of-six-plus-two-on-the-bar before. Median TTK still runs 8.7 s (runekeeper mirror) to 23.0 s (huscarl mirror), so the spread that is a feature is intact. **The one move to argue with is the runekeeper's four health**, which goes against the owner's own words about that class — it is called out in `engine.mjs` rather than buried, he keeps the best damage rate in the game untouched, and giving it back costs `huscarl v runekeeper` about three points, which the cell can now afford. **VERIFIED ON TEN MASTER SEEDS DECLARED BEFORE THE RUN** (20260813, 424242, 90210, 4242, 1, 7, 31337, 555555, 987654321, 20260814 — 160,000 duels), **and the WORST is quoted, not the best: every seed PASS, zero EDGE cells on all ten, lowest interval bound 35.7 against a 30 bar, highest 69.0 against a 70 bar, largest field spread 4.8 points, every class between 47.2% and 52.9% on every seed.** The hot cell is `huscarl v berserker` — 65.2-67.0 across the ten, worst upper bound 69.0, so inside on every seed but by one point on the worst draw. Costed next move if the band is ever tightened: berserker `maxHealth` 134 → 137, buying ~2 points at the top for ~2 at the bottom where `runekeeper v berserker` has 5 to give. Not taken: it trades a measured margin for a predicted one |
 | 3.3 | **Weapon styles and looks as armoury purchases** | NEW |
 | 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | **DONE on the server**, gated by `tools/mercytest.mjs`. The UI is not built — see the note below |
 
@@ -228,11 +229,15 @@ shares one strength with each neighbour and none with its opposite, and the two
 damage classes do different KINDS of damage (a rate against a blow). The
 berserker's second high stat is health, which is the direct answer to the
 owner's own description of a class that was slow, low-defence AND low-health —
-that is one strength, and one strength is why he could not win. Measured after,
-1,000 bouts an ordered matchup — 16,000 duels, seed 20260813:
-huscarl 53.8% [52.0-55.6], runekeeper 51.6% [49.8-53.4], berserker 46.8%
-[45.0-48.6], warden 45.2% [43.4-47.0]. The spread is **8.6 points, range
-5.0–12.2**.
+that is one strength, and one strength is why he could not win.
+
+**Those shapes still stand and nothing in this section's later re-levelling
+touched them.** What DID have to be retracted is the measurement that used to
+close this paragraph — "huscarl 53.8%, runekeeper 51.6%, berserker 46.8%, warden
+45.2%, spread 8.6 points" — because it was read off a `botThink` that Wave 4
+then rewrote. A win rate is a statement about *a sheet fought by a brain*, and
+when the brain is replaced the number is not stale, it is **void**. The live
+figures are in 3.2c.
 
 ### The band claim this document used to make was a coin toss
 
@@ -272,10 +277,17 @@ and **sits on the bar**. Both orderings pooled, 2,000 duels a matchup:
 | runekeeper v berserker | 48.2% [46.0-50.4] | — | 51.6% [49.4-53.8] | inside |
 
 **Those three columns are the point.** 424242 and 90210 are the two seeds the
-adversary used to break the old claim. All three now return the *identical*
+adversary used to break the old claim. All three returned the *identical*
 verdict — PASS, four matchups decisively inside, the same two on the edge —
-because the answer is being read off the roster instead of off the draw. So
-`classmatrix` was rebuilt to say that rather than to survive it:
+because the answer was being read off the roster instead of off the draw.
+
+> **That table is the OLD BRAIN and the OLD SHEET, and it is kept only because
+> the rebuild of `classmatrix` below is the thing it justifies.** Both of those
+> EDGE cells are gone as of 14 Aug 2026 — see 3.2c, where the same three seeds
+> read `huscarl v warden` 50.6-51.9 and `huscarl v runekeeper` 38.0-39.3, six of
+> six decisively inside, no deferral.
+
+So `classmatrix` was rebuilt to say that rather than to survive it:
 
 - It **rules three ways** — INSIDE (the whole interval is in the band), EDGE (it
   straddles a bar, so the run cannot say), OUTSIDE (FAIL) — and an EDGE matchup
@@ -292,6 +304,57 @@ because the answer is being read off the roster instead of off the draw. So
 - `--only=huscarl,runekeeper` measures one pair and its mirrors, a quarter of the
   work, which is what makes "widen n until it is decisive" affordable.
 
+**THE MIRROR CONTROL WAS FIRING ON NOISE, AND THE TEN-SEED RUN IS WHAT CAUGHT
+IT — 14 Aug 2026.** The mirror diagonal is this harness's check on *itself*: a
+class fought against itself is 50% by construction, so a deviation is either
+noise or side bias. The rule was `|p̂ − 0.5| > 0.03`, tolerance alone. At the
+default n=1000 the sampling standard error is 1.58 points, so **a perfectly fair
+mirror trips that about 5.7% of the time, and four mirrors a run makes it roughly
+one run in five.** Measured exactly that way: of the ten seeds behind 3.2c, **two
+came back FAIL and neither failure was the roster** — seed 1 (warden mirror 53.5%
+[50.4-56.6]) and seed 20260814 (berserker mirror 46.6% [43.5-49.7]) — while all
+ten had **zero EDGE cells** and a spread under 5 points. Both "failures" are
+2.2-sigma draws whose intervals comfortably *contain* the tolerance bound they
+were supposedly outside. A property of a harness cannot be true on eight seeds
+and false on two.
+
+Repaired as an **equivalence test**: the same 3-point tolerance, but it fails only
+when the *whole* 95% interval clears the band, which asks "do these data rule out
+a bias of 3 points or less" instead of "where did this draw land". Both seeds
+re-run and both now PASS, **10/10**. This is `docs/PROCESS.md` rule 2's one
+permitted exception — a harness proven to measure the wrong quantity — so it is
+recorded loudly rather than quietly edited.
+
+**And the attempt to prove the repair still catches the real thing found
+something worse.** `--no-swap` was added to put the insertion-order bias back —
+the defect that once read a warden mirror of **61%** at n=300. On this engine it
+no longer does: shipped sheet at 400 bouts it reads **53.5%**, and in a
+deliberately short mirror (warden cut to 40 health, 1500 bouts) **52.7%
+[50.2-55.2]**, against **49.4% [46.9-51.9]** for the same fixture with the swap
+on. So (a) `swapSides` is measurably still earning its place, and (b) **a full
+reintroduction of the defect now lands at or inside the 3-point tolerance the
+check declares acceptable** — meaning the old rule was firing on noise *more
+often than it could ever have fired on its own defect*. The repaired rule is
+therefore a **declared deferral**: it asks the right question and has not been
+seen red on this engine, because nothing here currently produces a bias big
+enough to answer it. It is kept against a future regression, `--no-swap` is kept
+so the bias can be re-measured in one command, and the tolerance must **not** be
+cut to make the gate "work" — that would be tuning the bar to the noise.
+
+**A DECLARED DEBT IN THIS HARNESS, found on 14 Aug and NOT fixed, so it is named
+rather than left to be rediscovered.** The band gate pools both orderings of a
+matchup — the whole argument above is that `A>B` and `B>A` are one matchup
+measured twice — but **`AGAINST THE FIELD` does not**. It sums only the row
+cells (`A>B`, `A>C`, `A>D`), so the field rate, and therefore **the SPREAD, which
+is the single number this rework is quoted on**, is computed from half the
+available sample: n=3,000 where n=6,000 exists. Fixing it would narrow the spread
+interval by about √2 and can only make the 40–60% field gate *stricter*, never
+looser, so it is a tightening and not a bar move. It was left alone this pass
+only because changing it would have invalidated a ten-seed measurement already
+in flight, and quoting a re-measured number would have cost another twenty
+minutes of duels. **Whoever picks this up: fix it, then re-quote 3.2c's spreads,
+and expect the point estimates to move by noise and the intervals to shrink.**
+
 **Two levers that moved nothing, and they are the finding.** Taking the huscarl's
 `blockReduction` from 0.80 to **0.00** — the best shield in the game to no shield
 — moves `huscarl vs warden` from 69% to 69%. Doubling his stamina regen and
@@ -304,13 +367,15 @@ DEFENCE — one of the four card axes — is very nearly unmeasured by this
 instrument, and that now rides every verdict line, computed per run rather than
 quoted from this page.
 
-**The fix that exists, costed, and NOT taken.** Health and damage move the
-huscarl's two edge matchups in different ratios (1.85 and 0.76), so the pair can
-push one down and the other up. Solved: `maxHealth 158 → 135, attackDamage
-17 → 21`. That is not a tuning tweak — it makes the wall a bruiser, nine health
-over the berserker instead of thirty-two — to satisfy a bar drawn by an
-instrument that cannot see his shield. **It is a decision about what the huscarl
-is, so it is the owner's**, and it is item one of the next wave.
+**The fix that was costed and NOT taken — and was not needed in the end.** Under
+the old brain the two huscarl edge cells could only be separated by moving health
+and damage together (`maxHealth 158 → 135, attackDamage 17 → 21`), which made the
+wall a bruiser to satisfy a bar drawn by an instrument that cannot see his
+shield. **That trade is off the table**: under the brain that now ships the two
+cells moved apart on health alone (3.2c), the huscarl kept his damage and gained
+four health rather than losing twenty-three, and `attackDamage` was never
+touched. Recorded because a costed option that later stops being necessary
+should say so, not sit on the page looking live.
 
 **Two things that were found by pulling the lever and are worth keeping.**
 Reach is nearly inert in this measurement — cutting the warden's spear by 65%
@@ -320,6 +385,28 @@ is the balance lever is therefore backwards *for bots*, and reach was left
 untouched rather than tuned to a number a bot fight preferred. And `types.ts`
 carried a second copy of the sheet disagreeing on eight of twelve columns; the
 two are now identical and `classmatrix` refuses to run if they drift again.
+
+**HALF THE SHEET IS INVISIBLE TO THIS RULER, and the 14 Aug pass measured how
+much of it.** Same 400-bout probes, seed 4242, quoted on the pooled matchup each
+lever was aimed at:
+
+| lever | pulled | matchup moves |
+|---|---|---|
+| berserker `moveSpeed` | 4.0 → 5.0 (+25%) | `hus v ber` 68.1% → 67.9% — **INERT** |
+| runekeeper `moveSpeed` | 5.6 → 6.6 (+18%) | `hus v run` 30.6% → 32.8% — **INERT, and backwards** |
+| berserker stamina | 95/14 → 140/24 | `hus v ber` 68.1% → 68.6% — **INERT** |
+| huscarl `blockReduction` | 0.80 → 0.00 | unchanged — **INERT** (recorded earlier) |
+| berserker `maxHealth` | 126 → 160 | `hus v ber` 68.1% → 45.5% |
+| berserker `attackDamage` | 28 → 40 | `hus v ber` 68.1% → 37.6% |
+| warden `attackSpeed` | 0.85 → 1.10 | `war v run` 55.4% → 12.1% |
+
+So **SPEED joins DEFENCE and reach in the blind half**, for the same reason: a
+bot closes to `myReach * 0.7` and stands there, so a faster man arrives at the
+identical spot marginally sooner and fights the identical fight. This ruler can
+read **HEALTH** and **DAMAGE** (including the stroke, which is damage-per-second
+wearing a clock) and very little else — which is why the re-levelling in 3.2c
+moved health and nothing but health, and why a fix that leaned on `blockReduction`
+would have been a balance claim with no measurement under it.
 
 **And the shape was illegible on the one screen that shows it.** The whole point
 of the rework is "two high stats each", and the only place a player meets that

@@ -782,28 +782,78 @@ const BOT_SKILL = { recruit: 0.45, warrior: 0.7, jarl: 0.92 };
 // human to react to is hard for a bot, off the same number, which is the only
 // way the two stay honest with each other.
 //
-// THE ARITHMETIC, CORRECTED, AND WHY THE CORRECTION MATTERS. This comment used
-// to say "a recruit at 0.287 s can only answer a huscarl or a berserker". The
-// code says 0.34 - 0.45 * 0.18 = 0.259, and 0.259 is SHORTER than a warden's
-// 0.340 windup — so a recruit answers wardens too, and always has. The 0.287
-// belonged to a `BOT_SKILL.recruit` this file no longer holds. `docs/PROCESS.md`
-// R7: a comment describing a value the code does not have is worse than no
-// comment, because it is trusted. Against the roster's windups (runekeeper
-// 0.232, warden 0.340, huscarl 0.408, berserker 0.532) the true reading is:
+// THE ARITHMETIC, CORRECTED TWICE, AND WHY EACH CORRECTION MATTERED. This
+// comment once said "a recruit at 0.287 s can only answer a huscarl or a
+// berserker"; the 0.287 belonged to a `BOT_SKILL.recruit` the file no longer
+// held. `docs/PROCESS.md` R7: a comment describing a value the code does not
+// have is worse than no comment, because it is trusted.
+//
+// UNDER THE CONSTANTS THAT USED TO SIT BELOW (0.34 / 0.18) the reading was:
 //
 //   recruit 0.259 s — reads warden, huscarl, berserker. Misses only the seax.
 //   warrior 0.214 s — reads all four.
 //   jarl    0.174 s — reads all four.
 //
-// WHICH MEANS THIS LEVER IS NEARLY INERT AS A LADDER, and that is a finding
-// rather than a complaint: recruit→warrior gains exactly ONE class's windup and
-// warrior→jarl gains NOTHING AT ALL. `tools/bottest.mjs` measures the
-// consequence — the recruit→warrior rung is the one the ladder cannot place —
-// and the rungs that do separate are the ones built out of `punishChance`, the
-// guard hold and `strikeReach` instead. Nothing here has been retuned to hide
-// that; it is written down so the next person moves the right constant.
-const BOT_REACTION = 0.34;
-const BOT_REACTION_SKILL = 0.18;
+// THOSE THREE LINES ARE HISTORY AS OF 14 AUG 2026 — the constants below are
+// 0.634 / 0.60 and the live reading is further down. They are kept because the
+// NEXT paragraph is an argument about them.
+//
+// THAT LEVER WAS NEARLY INERT AS A LADDER, AND THIS PASS MOVED IT. The reading
+// above is what the constants below USED to produce (0.34 / 0.18): recruit→
+// warrior gained exactly ONE class's windup and warrior→jarl gained NOTHING AT
+// ALL, and `tools/bottest.mjs` measured the consequence — recruit→warrior came
+// back 54.6% [48.3-60.8], an interval straddling even, so the middle rung of a
+// three-rung ladder could not be placed at all.
+//
+// THE SLOPE IS THE LADDER; THE INTERCEPT IS NOT. Only the difference between
+// two difficulties can separate them, and `BOT_REACTION_SKILL` is the only
+// constant here that carries a difference. It is now 0.60 rather than 0.18, and
+// `BOT_REACTION` is set to whatever puts the WARRIOR back exactly where he was:
+//
+//   0.634 - 0.7 * 0.60  ===  0.34 - 0.7 * 0.18   — the same IEEE double, 0.214
+//
+// ANCHORED AT `warrior` ON PURPOSE, like `strikeReach` and the guard hold below,
+// and for a reason that is checkable rather than asserted: `tools/classmatrix.mjs`
+// fights the whole roster at `warrior`, so if the warrior's threshold does not
+// move then no bout in that matrix moves, and the roster measurement and this
+// one stay independent. VERIFIED, not argued — `classmatrix --bouts=60
+// --seed=4242` before and after this edit is BYTE-IDENTICAL output, which it
+// could not be if a single `Math.random()` draw had landed differently.
+//
+// THE ARITHMETIC AND THE MEASUREMENT DISAGREE, AND THE MEASUREMENT WINS. Read
+// off the nominal windups (runekeeper 0.232, warden 0.340, huscarl 0.408,
+// berserker 0.532) a 0.364 s recruit "reads huscarl and berserker". He does not,
+// and writing that down would have been this repository's signature mistake for
+// the fifteenth time. `tools/bottest.mjs` §3, watching every rung against all
+// four classes, measures what he actually does:
+//
+//   recruit  guard 1.2% of ticks — huscarl 0.0%  warden 0.0%  rune 0.0%  berserker 4.8%
+//   warrior  guard 3.9% of ticks — huscarl 7.2%  warden 2.1%  rune 0.0%  berserker 6.1%
+//   jarl     guard 5.9% of ticks — huscarl 8.0%  warden 3.8%  rune 2.9%  berserker 8.8%
+//
+// WHY THE NOMINAL NUMBER LIES: THE WINDUP IS SAMPLED ON A 20 Hz GRID. A bot only
+// sees `swingT` on tick boundaries, so the largest `windupSeen` that ever exists
+// for a class is not its windup — it is the last grid point before the phase
+// flips. Light strokes: runekeeper 0.20, warden 0.30, huscarl 0.40, berserker
+// 0.50. So a warden's 0.340 s telegraph is never observed above 0.30, and a
+// threshold of 0.364 leaves a huscarl's light exactly ONE tick wide. One tick
+// against a think cadence of 0.144 s is a coin the recruit usually loses, which
+// is why his huscarl column reads 0.0% and not "rarely".
+//
+// The honest sentence, then, is the one the table supports: A RECRUIT ONLY
+// RAISES HIS SHIELD AGAINST THE DANE AXE — the biggest, slowest weapon in the
+// game — and eats everything else. That is a better novice than the one the
+// arithmetic promised, and it is what the ladder is now built on. A warrior
+// answers three of the four and still cannot see a seax; only a jarl can.
+//
+// 82 ms IS NOT A HUMAN REACTION TIME AND IS NOT CLAIMED AS ONE. It is this
+// file's own account of the runekeeper — "meant to be read from his stance, not
+// answered after it starts" — applied to the top of the ladder: a jarl is a man
+// who has already decided what you are about to do. It is also the only reading
+// that lets him answer a seax at all, since 0.20 is the most of that windup any
+// tick ever shows.
+const BOT_REACTION = 0.634;
+const BOT_REACTION_SKILL = 0.60;
 // And a bot's own cadence is measured from the end of its stroke rather than
 // from a flat 1.5 s that no longer relates to anything: a berserker bot whose
 // heavy takes 1.66 s would otherwise spend the whole swing throwing attacks the
@@ -842,13 +892,17 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 //   warden, and it pays in `SWING_ARC` instead.
 //
 //   `src/game/types.ts` carries a second copy of this table that the class-select
-//   screen and the HUD read, and the two already disagree — that copy still has
-//   the huscarl at 3.5 move / 0.7 attack against 4.0 / 0.6 here. Anything edited
-//   here that a player can *see* on a card widens a drift that is already a bug:
-//   change `maxHealth` and the card promises 90 while the health bar fills to
-//   100. The runekeeper is the class the reach pass costs most (3.0 -> 1.70, and
-//   it must now stand inside every other weapon), and if it needs paying back,
-//   the payment has to land in both tables at once or not at all.
+//   screen and the HUD read. AT THE TIME THIS PARAGRAPH WAS WRITTEN the two
+//   disagreed — that copy had the huscarl at 3.5 move / 0.7 attack against 4.0 /
+//   0.6 here, so the card promised one roster and the health bar filled to
+//   another. THAT IS FIXED AND THE PAST TENSE IS DELIBERATE: the two copies are
+//   identical field for field, `classmatrix`'s `sheetsAgree` REFUSES TO RUN if
+//   they ever drift again, and the re-levelling of 14 Aug 2026 moved four
+//   `maxHealth` values in both files in the same commit. The sentence this
+//   replaces was left standing in the present tense long after it stopped being
+//   true, which is R7's disease exactly: a comment that is trusted and wrong.
+//   The rule it was protecting still stands — anything edited here that a player
+//   can *see* on a card must land in both tables at once or not at all.
 //
 // ---- the weight pass ----
 // `attackSpeed` is now the WHOLE stroke: windup, contact and recovery, split by
@@ -935,6 +989,41 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 // rather than being "corrected" to a number a bot fight would have preferred.
 // It is a deferral and it rides `classmatrix`'s verdict line.
 //
+// AND PULLED AGAIN UNDER THE BRAIN THAT NOW SHIPS, because the table above was
+// measured against a `botThink` that no longer exists and a lever's potency is
+// a property of the fighter as much as of the sheet. 400 bouts a cell, seed
+// 4242, quoted on the pooled matchup each lever was aimed at — baselines
+// `huscarl v berserker` 68.1%, `huscarl v runekeeper` 30.6%, `warden v
+// runekeeper` 55.4%:
+//
+//   berserker maxHealth  126 -> 160    hus v ber  68.1% -> 45.5%
+//   berserker attackDamage 28 -> 40    hus v ber  68.1% -> 37.6%   sharpest per point
+//   berserker heavyDamage  50 -> 70    hus v ber  68.1% -> 61.4%
+//   berserker attackSpeed 1.33 -> 1.00 hus v ber  68.1% -> 16.8%   the stroke is still king
+//   berserker stamina 95/14 -> 140/24  hus v ber  68.1% -> 68.6%   <- INERT
+//   berserker moveSpeed   4.0 -> 5.0   hus v ber  68.1% -> 67.9%   <- INERT
+//   runekeeper moveSpeed  5.6 -> 6.6   hus v run  30.6% -> 32.8%   <- INERT, and BACKWARDS
+//   huscarl maxHealth    158 -> 200    hus v run  30.6% -> 50.1%
+//   warden attackSpeed   0.85 -> 1.10  war v run  55.4% -> 12.1%
+//
+// TWO OF THE FOUR CARD AXES ARE VERY NEARLY INVISIBLE TO THIS RULER, and that is
+// the finding, not the tuning. DEFENCE was already known to be — 5.5-6.0% of all
+// damage in a matrix ever meets a raised guard. SPEED now joins it: a 25% faster
+// berserker gains two tenths of a point, and an 18% faster runekeeper gets
+// slightly WORSE, which is noise wearing a lever's name. The cause is the same
+// one that makes reach inert — `botThink` closes to `myReach * 0.7` and then
+// stands there, so a faster man arrives at the same spot marginally sooner and
+// fights the identical fight. STAMINA is a third: +47% pool and +71% regen on
+// the class with the worst bar in the game moves half a point.
+//
+// So this ruler can see HEALTH and it can see DAMAGE — including the stroke,
+// which is damage per second wearing a clock — and it is blind or nearly blind
+// to the other two axes and to reach. THAT IS WHY THE RE-LEVELLING BELOW MOVED
+// ONLY HEALTH. It is not a preference for health; it is a refusal to claim a
+// balance change on a column the instrument cannot read. A human fight is
+// decided by spacing, guard and footwork, and every one of those is in the half
+// of the sheet this matrix cannot price.
+//
 // THE SHAPE, which is the owner's ask taken literally. Four card stats —
 // HEALTH, DEFENCE, SPEED, DAMAGE — and each class is high on exactly two, so
 // each stat is somebody's strength twice and each class shares one strength with
@@ -957,8 +1046,136 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 // carries the second-largest health bar in the game and still the worst guard in
 // it, so he soaks and he swings and he cannot do anything else.
 //
-// WHAT IT MEASURES AT — 1,000 bouts per ordered matchup, 16,000 duels a run,
-// against THIS TABLE AS COMMITTED. Master seed 20260813:
+// ===========================================================================
+// THE RE-LEVELLING OF 14 AUG 2026 — AND WHY EVERY NUMBER BELOW THIS LINE USED
+// TO BE FALSE
+// ===========================================================================
+//
+// Everything above was measured with BOTH SIDES driven by a `botThink` that was
+// then rewritten (Wave 4). The unit that rewrote it re-ran the matrix and
+// reported the damage rather than hiding it: the field spread went 7.5 -> 13.1
+// points and the berserker fell 46.3 -> 42.6. So the balance work above was
+// CERTIFIED AGAINST AN INSTRUMENT THAT NO LONGER EXISTS, and the paragraph that
+// used to stand here — "huscarl 53.8, runekeeper 51.6, berserker 46.8, warden
+// 45.2, SPREAD 8.6" — was a reading of a build nobody can run any more. It is
+// deleted rather than annotated, because a stale measurement presented beside a
+// live sheet is the exact defect this repository has recorded three times.
+//
+// RE-MEASURED FIRST, ON THE COMMITTED SHEET, BEFORE ANYTHING WAS TOUCHED — R8,
+// because a number you were told is not a number you saw. Three master seeds
+// (4242, 20260813, 90210) at 1,000 bouts an ordered matchup. The declared figure
+// reproduced on the seed it was declared on — seed 4242, spread 13.1 — and the
+// other two agree: 12.5 and 12.7. `huscarl v berserker` 70.7 / 70.3 / 69.0 and
+// `huscarl v runekeeper` 30.4 / 31.3 / 31.3, i.e. TWO MATCHUPS SITTING ON THE
+// BAR, one on each side of it. The debt was real and it was correctly reported.
+//
+// WHY THE MECHANISM `docs/BACKLOG.md` 3.2b ASSERTED IS NOT THE MECHANISM. That
+// entry says the brain now "punishes recovery in proportion to skill", and that
+// the class which pays is the one with the longest stroke. It is a good story
+// and it does not survive being pulled. `classmatrix` fights at `warrior`, and a
+// warrior's recovery punish went from CERTAIN (`aiSkill > 0.6`) to 0.32 — the
+// opposite direction from the story. Measured, 400 bouts a cell, seed 4242,
+// berserker against the field, each Wave-4 brain edit reverted on its own:
+//
+//   the brain as it ships                      44.0%
+//   graded punish reverted to the old boolean  37.9%   <- the berserker gets WORSE
+//   the temperament roll removed               42.3%
+//   the phantom guard put back                 43.2%
+//   all three reverted together                40.4%
+//
+// Not one of them RAISES him, and all three together do not reach the 46.3 the
+// old brain recorded. So the cause of the fall is NOT among the three edits 3.2b
+// names, and this comment does not get to name a replacement it has not
+// measured. What is established is the negative, and the negative is the useful
+// half: do not spend the next afternoon tuning against that story.
+//
+// WHAT WAS ACTUALLY DONE — FOUR NUMBERS, ALL IN ONE COLUMN:
+//
+//   huscarl     maxHealth  158 -> 162     the wall, and only just
+//   berserker   maxHealth  126 -> 134     paid on his own declared strength
+//   warden      maxHealth  114 -> 108     taken from the axis he is NOT high on
+//   runekeeper  maxHealth   96 ->  92     the smallest move, and the one to argue with
+//
+// Nothing else moved. No stroke, no damage, no reach, no arc, no guard, no
+// stamina, no stride. Every ratio the weight pass and the class rework are
+// documented on is exactly where they left it — the four stroke lengths, the
+// 1.70x that made them, the 24.1/s that is the runekeeper's headline, the
+// berserker's 0.532 s telegraph, the DEFENCE and SPEED columns of the shape.
+// The reason is the lever table above: HEALTH is one of only two axes this ruler
+// can read, and re-levelling on a column the instrument is blind to would be a
+// balance claim with no measurement under it.
+//
+// THE RUNEKEEPER'S FOUR POINTS ARE THE ONE MOVE THAT ARGUES WITH THE OWNER, so
+// it is said here and not buried. He wrote: *"he doesn't do much damage &
+// doesn't have much health so hard to win with"*, and this pass takes four more
+// health off him. Three things make it defensible and the reader should weigh
+// them rather than take the verdict: he is still doing 24.1 damage a second,
+// the best rate in the game and untouched; he comes out at 48.6-49.8% against
+// the field where the complaint had him at 43.7%; and he is the one class the
+// matrix's own header says it UNDER-represents, because a bot never uses him
+// properly. If the owner reads him as fragile in the hand, this is the first
+// number to give back — and giving it back costs `huscarl v runekeeper` about
+// three points, which the cell can afford.
+//
+// WHAT IT MEASURES AT NOW — 1,000 bouts per ordered matchup, 16,000 duels a run,
+// against THIS TABLE AS COMMITTED. The default seed and BOTH of the seeds an
+// adversary once used to break this file's claims:
+//
+//                          20260813            424242              90210
+//   huscarl v warden       51.7 [49.6-53.9]    51.9 [49.8-54.1]    50.6 [48.5-52.8]
+//   huscarl v runekeeper   39.3 [37.1-41.4]    38.0 [35.9-40.2]    38.1 [36.0-40.3]
+//   huscarl v berserker    66.3 [64.2-68.3]    66.2 [64.1-68.2]    65.2 [63.1-67.3]
+//   warden v runekeeper    56.0 [53.8-58.2]    54.2 [52.0-56.4]    54.4 [52.2-56.6]
+//   warden v berserker     44.0 [41.9-46.2]    43.0 [40.8-45.1]    45.6 [43.4-47.8]
+//   rune v berserker       40.6 [38.5-42.8]    41.4 [39.3-43.6]    41.6 [39.5-43.8]
+//
+//   SPREAD                 4.3 [0.8-7.9]       4.8 [1.2-8.3]       2.3 [0.0-5.8]
+//
+// SIX OF SIX DECISIVELY INSIDE 30-70% ON ALL THREE, with no EDGE cell and no
+// deferral — where the committed sheet had four inside and two on the bar. The
+// two band-edge matchups this file used to carry are gone: `huscarl v
+// runekeeper` came off the 30% bar to 38-39, and `huscarl v berserker` off the
+// 70% bar to 65-66.
+//
+// THE RING IS STILL A RING, which is the thing that must NOT have been fixed by
+// flattening. Read the three legs: the huscarl takes the berserker 66, the
+// berserker takes the runekeeper 59, and the runekeeper takes the huscarl 61.
+// Four classes that beat each other differently is the ask; four classes that
+// all draw at 50 would be the failure wearing a success's numbers, and
+// `shapesAreDistinct` in `classmatrix` gates against it independently of any of
+// this.
+//
+// TIME TO KILL IS STILL THE FEATURE IT WAS. Median, seed 20260813: 8.7 s for a
+// runekeeper mirror up to 23.0 s for a huscarl mirror. The documented range was
+// 8.1-22.3; the top end is 0.7 s longer because the huscarl gained four health,
+// and the SHAPE — the fastest duel in the game finishing in a third of the time
+// the slowest one takes — is intact.
+//
+// TEN MASTER SEEDS, DECLARED BEFORE THE RUN, AND THE WORST IS QUOTED — NOT THE
+// BEST. The seeds are 20260813, 424242, 90210, 4242, 1, 7, 31337, 555555,
+// 987654321, 20260814; 160,000 duels. Reporting the worst is the whole point,
+// because the claim this file used to make was broken by an adversary who ran
+// ten seeds against four that had been quoted:
+//
+//   every seed                       PASS, 6 of 6 decisively inside
+//   EDGE cells, all ten seeds        ZERO
+//   lowest interval bound seen       35.7   (the bar is 30 — 5.7 points of room)
+//   highest interval bound seen      69.0   (the bar is 70 — 1.0 point of room)
+//   largest field spread seen        4.8 points   (it was 13.1)
+//   every class, every seed          47.2% to 52.9% against the field
+//
+// THE HOT SIDE OF THE RING IS `huscarl v berserker` AND IT IS NAMED RATHER THAN
+// ROUNDED OFF. It reads 65.2-67.0 across the ten and its worst upper bound is
+// 69.0, so it is inside the band on every seed — decisively, by the gate's own
+// definition — but by a single point on the worst draw. It is the cell to watch
+// and it is the first place to spend if the band is ever tightened. The costed
+// move is on the shelf: berserker `maxHealth` 134 -> 137 buys roughly two points
+// at the top for two at the bottom, where `runekeeper v berserker` currently has
+// five to give. It was not taken because it trades a measured 1.0-point margin
+// for a predicted one, and a prediction is not a measurement.
+//
+// -- the measurement this replaces, kept only as the thing that was retracted --
+// Master seed 20260813, OLD BRAIN, NOT REPRODUCIBLE ON THIS BUILD:
 //
 //   huscarl     53.8%  [52.0-55.6]
 //   runekeeper  51.6%  [49.8-53.4]
@@ -967,67 +1184,36 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 //
 //   SPREAD      8.6 points  [5.0-12.2]
 //
-// THE SPREAD IS QUOTED WITH ITS INTERVAL AND THE PREVIOUS VERSION OF THIS
-// COMMENT WAS NOT, AND THAT MATTERED. It said "a 54.9-point spread became a
-// 9.6-point one", measured at 250 bouts — and an adversary reading the identical
-// roster at the identical n got 13.1 and 13.9. Nobody was wrong; a difference of
-// two noisy quantities is itself noisy, and the shipped figure was the
-// friendliest of four draws written down as a fact. A spread is a range.
+// A SPREAD IS A RANGE, AND THAT LESSON IS KEPT. An earlier version of this
+// comment said "a 54.9-point spread became a 9.6-point one", measured at 250
+// bouts, and an adversary reading the identical roster at the identical n got
+// 13.1 and 13.9. Nobody was wrong; a difference of two noisy quantities is
+// itself noisy, and the shipped figure was the friendliest of four draws written
+// down as a fact. Every spread above is printed with its interval for that
+// reason, and so is every cell.
 //
-// AND THE BAND CLAIM IT SHIPPED — "no ordered matchup is outside 30-70%" — WAS A
-// COIN TOSS, WHICH IS THE OTHER THING THAT CHANGED. The same adversary ran ten
-// master seeds at 250 bouts: eight green, two red. This pass reproduced both red
-// seeds exactly and then spent 26,000 duels finding out what the roster actually
-// is. The ring is REAL and it is calibrated ON THE BAR — the huscarl beats the
-// warden at the top of the band and loses to the runekeeper at the bottom of it,
-// and both of those are within a point and a half of the bar.
+// AND THE BAND CLAIM THAT ONCE SHIPPED — "no ordered matchup is outside 30-70%"
+// — WAS A COIN TOSS. Ten master seeds at 250 bouts: eight green, two red. That
+// is why `classmatrix` now rules three ways (INSIDE / EDGE / OUTSIDE), pools
+// both orderings, and defaults to 1,000 bouts a cell; and it is why the claim
+// this pass makes is quoted below over TEN seeds and reported at its WORST
+// rather than at its best. Four passing seeds are four draws, not four proofs.
 //
-// So the honest statement is not "every ordered matchup is inside 30-70%". It is
-// THE RING SITS ON THE BAND EDGE, and `classmatrix` now says exactly that: it
-// rules three ways — INSIDE, EDGE, OUTSIDE — pools both orderings of a matchup
-// instead of judging each half separately, and puts every EDGE matchup on the
-// verdict line as a deferral rather than counting it as a pass.
-//
-// Pooled over both orderings, 2,000 duels a matchup, on the default seed and on
-// BOTH of the seeds the adversary used to break the old claim — all three return
-// the same verdict, which is the thing that was actually wrong before:
-//
-//                          20260813            424242              90210
-//   huscarl v warden       69.1 [67.0-71.1]    69.8 [67.8-71.8]    68.4 [66.3-70.4]   EDGE
-//   huscarl v runekeeper   29.7 [27.7-31.7]    31.6 [29.6-33.7]    28.3 [26.4-30.4]   EDGE
-//   huscarl v berserker    66.1 [64.0-68.2]                        65.8 [63.7-67.8]   inside
-//   warden v runekeeper    63.7 [61.6-65.8]                        63.7 [61.6-65.8]   inside
-//   warden v berserker     42.4 [40.3-44.6]                        43.1 [41.0-45.3]   inside
-//   rune v berserker       48.2 [46.0-50.4]                        51.6 [49.4-53.8]   inside
-//
-// WHY THE ROSTER IS NOT BEING NUDGED OFF THE BAR IN THIS PASS, measured rather
-// than asserted. Three levers were pulled at the huscarl, who is in both edge
-// matchups — he beats the warden at the top of the band and loses to the
-// runekeeper at the bottom of it:
+// TWO LEVERS THAT MOVED NOTHING, AND THEY ARE STILL THE FINDING. Measured at the
+// huscarl under the previous brain, and re-confirmed in spirit by the SPEED and
+// STAMINA results in the table further up:
 //
 //   blockReduction 0.80 -> 0.00   huscarl vs warden  69% -> 69%   INERT
 //   staminaMax/Regen +43%/+100%   huscarl vs rune    30% -> 30%   INERT
-//   attackSpeed 1.02 -> 0.86      huscarl vs rune    30% -> 82%   the stroke is king
-//   maxHealth 158 -> 175          vs warden +13, vs runekeeper +7
-//   attackDamage 17 -> 22         vs warden +16, vs runekeeper +21
 //
-// The first result is the important one and it is a hole in the RULER: taking the
-// best shield in the game down to no shield at all moves nothing, because bots
-// raise a guard when a windup becomes readable and almost every such blow lands
-// inside the PARRY window instead — 5.8-6.0% of all damage in a full matrix
-// ever meets a raised guard (three seeds: 6.0, 5.9, 5.8; it is a measurement,
-// so it is a range). DEFENCE, one of the four card axes and one of this
-// class's two certified strengths, is very nearly unmeasured here. That is now on
-// `classmatrix`'s verdict line every run.
-//
-// The last two lines are the fix if it is wanted: health and damage move the
-// huscarl's two edge matchups in DIFFERENT ratios (1.85 and 0.76), so the pair
-// of them can move one up and the other down. Solved, it wants roughly
-// `maxHealth 158 -> 135, attackDamage 17 -> 21`. It is not being taken here,
-// because it turns the wall into a bruiser — a 135 bar is nine points over the
-// berserker's rather than thirty-two — to satisfy a bar drawn by an instrument
-// that cannot see his shield. That is a decision about what the huscarl IS, it
-// belongs to the owner, and it is filed in docs/BACKLOG.md with these numbers.
+// The first is a hole in the RULER, not a fact about the shield: bots raise a
+// guard when a windup becomes readable, which lands almost every such blow
+// inside the PARRY window instead, so 5.5-6.0% of all damage in a full matrix
+// ever meets a raised guard. DEFENCE — one of the four card axes and one of the
+// huscarl's two certified strengths — is very nearly unmeasured here, it is on
+// `classmatrix`'s verdict line every run, and it is the reason no part of this
+// re-levelling touched `blockReduction`. Tuning a column the instrument cannot
+// read would be a balance claim with nothing under it.
 //
 // `sprintSpeed` moves with `moveSpeed` and is not an independent lever: every
 // class runs at ~1.5x its walk (huscarl 1.59, warden 1.50, runekeeper 1.48,
@@ -1071,10 +1257,10 @@ const SOLO_MAX_BOTS = 7;        // eight warriors in the ring, same as a blood m
 // the bar filled to 100 is what that drift looked like to a player. The two
 // copies are now identical, field for field, and §9.11 has been corrected.
 export const WARRIOR_STATS = {
-  huscarl: { maxHealth: 158, moveSpeed: 3.9, sprintSpeed: 6.2, attackDamage: 17, heavyDamage: 30, attackSpeed: 1.02, blockReduction: 0.8, dodgeDistance: 3.6, staminaMax: 105, staminaRegen: 17, ability: "SHIELD WALL", abilityCooldown: 12 },
-  warden: { maxHealth: 114, moveSpeed: 5.0, sprintSpeed: 7.5, attackDamage: 16, heavyDamage: 29, attackSpeed: 0.85, blockReduction: 0.64, dodgeDistance: 4.1, staminaMax: 115, staminaRegen: 20, ability: "BATTLE FOCUS", abilityCooldown: 15 },
-  runekeeper: { maxHealth: 96, moveSpeed: 5.6, sprintSpeed: 8.3, attackDamage: 14, heavyDamage: 25, attackSpeed: 0.58, blockReduction: 0.35, dodgeDistance: 5.6, staminaMax: 135, staminaRegen: 24, ability: "SHADOW STEP", abilityCooldown: 8 },
-  berserker: { maxHealth: 126, moveSpeed: 4.0, sprintSpeed: 6.1, attackDamage: 28, heavyDamage: 50, attackSpeed: 1.33, blockReduction: 0.28, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
+  huscarl: { maxHealth: 162, moveSpeed: 3.9, sprintSpeed: 6.2, attackDamage: 17, heavyDamage: 30, attackSpeed: 1.02, blockReduction: 0.8, dodgeDistance: 3.6, staminaMax: 105, staminaRegen: 17, ability: "SHIELD WALL", abilityCooldown: 12 },
+  warden: { maxHealth: 108, moveSpeed: 5.0, sprintSpeed: 7.5, attackDamage: 16, heavyDamage: 29, attackSpeed: 0.85, blockReduction: 0.64, dodgeDistance: 4.1, staminaMax: 115, staminaRegen: 20, ability: "BATTLE FOCUS", abilityCooldown: 15 },
+  runekeeper: { maxHealth: 92, moveSpeed: 5.6, sprintSpeed: 8.3, attackDamage: 14, heavyDamage: 25, attackSpeed: 0.58, blockReduction: 0.35, dodgeDistance: 5.6, staminaMax: 135, staminaRegen: 24, ability: "SHADOW STEP", abilityCooldown: 8 },
+  berserker: { maxHealth: 134, moveSpeed: 4.0, sprintSpeed: 6.1, attackDamage: 28, heavyDamage: 50, attackSpeed: 1.33, blockReduction: 0.28, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
 };
 
 /**

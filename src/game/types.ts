@@ -143,7 +143,7 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
   // HEALTH + DEFENCE. The wall: the largest bar and the best guard in the game,
   // the slowest walk, and damage that is merely adequate.
   huscarl: {
-    maxHealth: 158,
+    maxHealth: 162,
     moveSpeed: 3.9,
     sprintSpeed: 6.2,
     attackDamage: 17,
@@ -159,7 +159,7 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
   // DEFENCE + SPEED. The disciplined spear: second guard, second stride, and
   // the lightest blows of the four. He wins by not being hit.
   warden: {
-    maxHealth: 114,
+    maxHealth: 108,
     moveSpeed: 5.0,
     sprintSpeed: 7.5,
     attackDamage: 16,
@@ -175,9 +175,9 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
   // SPEED + DAMAGE, and his damage is a RATE: 14 every 0.58 s is 24.1 a second,
   // the best in the game, out of the smallest bar and the second-worst guard.
   // The 0.232 s windup is the point of him — it is under a reaction, so his
-  // blows are not answered, and that is what he is buying with 96 health.
+  // blows are not answered, and that is what he is buying with 92 health.
   runekeeper: {
-    maxHealth: 96,
+    maxHealth: 92,
     moveSpeed: 5.6,
     sprintSpeed: 8.3,
     attackDamage: 14,
@@ -196,7 +196,7 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
   // defence AND lowish health, which is one strength, and one strength is why he
   // could not win a fight. He soaks now. He still cannot guard.
   berserker: {
-    maxHealth: 126,
+    maxHealth: 134,
     moveSpeed: 4.0,
     sprintSpeed: 6.1,
     attackDamage: 28,
