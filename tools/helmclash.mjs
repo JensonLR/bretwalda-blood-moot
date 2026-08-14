@@ -136,12 +136,14 @@ const SECTIONS = new Set((flag("section", "1,2,3,4,5")).split(",").map(Number));
 /**
  * ONE SEED, and it is the seed and not an average.
  *
- * Swept over six seeds while this was being calibrated, section 1's worst
- * reading moves by 0.1 mm on the Jarl's Crowned (13.9-14.0) and by 1.3 on the
- * Wyrm (12.6-13.9); the failing COMBINATIONS do not change on any seed. These
- * are geometry faults in constants, not in the per-warrior face traits, so a
- * mean over seeds would cost eight times the run for a number nobody argues
- * about. `--seed` moves it when somebody wants to argue about one.
+ * Swept over seeds 1, 7, 13, 31, 101 and 7932 on the huscarl while this was
+ * being calibrated, section 1's worst reading moves 0.1 mm on the Jarl's
+ * Crowned (13.9-14.0), 0.2 on the Sutton Hoo (13.7-13.9) and 1.3 on the Wyrm
+ * (12.6-13.9), and every one of those four rungs is red on every seed. These
+ * are faults in constants rather than in the per-warrior face traits, so a mean
+ * over seeds would cost six times the run for a number nobody argues about.
+ * `--seed` moves it when somebody wants to argue about one, and nothing here
+ * has been swept over seeds on the other three classes.
  */
 const SEED = Number(flag("seed", "13"));
 /** `high` is what the armoury card and the portrait lens both render at. */
@@ -695,13 +697,19 @@ function sectionFlesh(rows) {
 // sloppy." A neck defence that wraps the throat and stops at the ears is not a
 // neck defence, it is a bib — and from behind the man is bare.
 //
-// MEASURED on horizontal slices of the NECK. At each height the sweep asks, for
-// every half-degree of azimuth, what the outermost surface is: kit, or skin and
-// hair. A height is a case only if the THROAT is genuinely wrapped — at least
-// `THROAT_DEG` of continuous cover centred on dead ahead — because a nasal bar
-// covers eight degrees of the front of a face and is not a neck defence, and an
-// instrument that counted it would fail every open helm in the shop for having
-// a nose.
+// MEASURED on horizontal slices, one every millimetre from y 10 to y 175 in the
+// head pivot's frame — the whole neck and the whole head, because nothing here
+// is allowed to declare in advance where the neck stops. At each height the
+// sweep asks, for every half-degree of azimuth, what the outermost surface is:
+// kit, or skin and hair.
+//
+// A height is a case only if the THROAT IS GENUINELY WRAPPED — at least
+// `THROAT_DEG` of continuous cover through dead ahead. That is the filter that
+// turns this from a head-wide sweep into a neck measurement, and it is not
+// decoration: without it, a nasal bar counts as covering the throat and the
+// section fails every open helm in the shop for having a nose (measured, before
+// the filter went in: the Nasal read a 352.5 degree bare arc at the height of
+// the nose on three classes).
 //
 // The fault is then the widest continuous BARE arc, and it is reported with the
 // radius the flesh sits at across that arc, because degrees alone do not say
@@ -713,7 +721,7 @@ const WRAP_STEP = 0.5;
 function sectionWrap(rows) {
   console.log("");
   console.log("[clash] 3. WRAP — a bare nape under a covered throat.");
-  console.log(`[clash]    ${WRAP_STEP} deg sweeps every mm of neck; a case needs ${THROAT_DEG} deg of throat covered, a fault ${WRAP_DEG} deg bare behind.`);
+  console.log(`[clash]    ${WRAP_STEP} deg sweeps at every mm of height; a case needs ${THROAT_DEG} deg of throat wrapped, a fault ${WRAP_DEG} deg bare behind.`);
   console.log("");
   console.log("[clash] class       helm         bare arc     at radius   height   centred      throat cover");
   console.log("[clash] ---------------------------------------------------------------------------------------");
@@ -990,10 +998,12 @@ function sectionCrest(rows) {
 // route `cheekHem` and the coif's hem were built to give it.
 const PELT_PCT = 2.0;
 /**
- * 2.0% of the pelt's own area. There is no recorded baseline to sit this
- * against, so it is stated as what it is: an eighth of a beard, about the
- * amount of whisker a chin's worth of mesh occupies, and small enough that a
- * fringe emerging correctly from under a hem does not reach it.
+ * 2.0% of the pelt's own area, and NO RECORDED BASELINE stands behind it — this
+ * section is new, so the bar is argued from this tree's own spread and nothing
+ * else. The open metal rungs, where hair comes out from under a hem the way it
+ * is meant to, read 0.00 to 0.10% on the three classes without a coif. The
+ * rungs with a face plate over a beard read 3.2 to 4.9%. The bar sits in that
+ * gap. It will need re-arguing the first time somebody changes a hem.
  */
 function sectionPelt(rows) {
   console.log("");
