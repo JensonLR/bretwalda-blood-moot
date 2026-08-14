@@ -45,7 +45,8 @@
     "warshot": "node tools/warshot.mjs",
     "warrace": "node tools/warrace.mjs",
     "bottest": "node tools/bottest.mjs",
-    "readytest": "node tools/readytest.mjs"
+    "readytest": "node tools/readytest.mjs",
+    "mustershot": "node tools/mustershot.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

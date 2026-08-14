@@ -1016,7 +1016,18 @@ export default function Page() {
    */
   useEffect(() => {
     if (screen !== "game") return;
-    if (forge && forge.done < forge.total && !forgeStalled) return;
+    // `forge !== null && forge.done >= forge.total`, and the first half is the
+    // whole point. The first cut read `if (forge && forge.done < forge.total)
+    // return;` — which does NOT return when `forge` is null, and `forge` IS
+    // null for the beat between entering the game screen and the canvas
+    // reporting its first stage. So this client shouted "my arena is standing"
+    // before it had built a single thing, every match, and the muster it was
+    // supposed to join it never joined. Nothing measured it: `readytest` drives
+    // the server and cannot see what this client chooses to say, and the server
+    // is behaving perfectly correctly when it believes a lie. It took a
+    // screenshot (`tools/mustershot.mjs`) showing a fight where a wait should
+    // have been.
+    if (!forgeStalled && !(forge !== null && forge.done >= forge.total)) return;
     sendMsg("loaded");
   }, [screen, forge, forgeStalled, sendMsg]);
 
@@ -1079,15 +1090,23 @@ export default function Page() {
           </div>
         )}
         {/* THE MUSTER, once this client's own arena is up and the room is still
-            standing about for somebody else's. It is deliberately NOT drawn
-            while the forge screen is up — a man watching his own bar does not
-            also need to be told the room is waiting for him — and it is a
-            named list rather than a spinner, because "waiting for Guthrum" is
-            a fact a player can act on and a spinner is not. `until` is the
-            server's own deadline; nobody waits past it. */}
+            standing about for somebody else's. It is a named list rather than a
+            spinner, because "waiting for Guthrum" is a fact a player can act on
+            and a spinner is not. `until` is the server's own deadline; nobody
+            waits past it.
+
+            THE CONDITION IS "THE FORGE HAS FINISHED", NOT "THE FORGE IS NOT
+            RUNNING", and `tools/mustershot.mjs` is why. The first cut read
+            `!(forge && forge.done < forge.total)` — which is TRUE in the gap
+            before the canvas has reported its first stage, because `forge` is
+            still null there. So the panel flashed "WAITING FOR GUTHRUM" over a
+            black screen for a beat, the forge bar then replaced it, and it came
+            back at the end: the room appeared to be waiting for somebody else
+            while this player had not started loading. Every assertion in
+            `readytest` passed throughout. It took one PNG. */}
         {muster && muster.waitingFor.length > 0 && roomState?.state === "loading" &&
-         !(forge && forge.done < forge.total && !forgeStalled) && (
-          <div className="pointer-events-none absolute inset-x-0 top-1/2 z-40 -translate-y-1/2 px-8 text-center">
+         (forgeStalled || (forge !== null && forge.done >= forge.total)) && (
+          <div data-muster className="pointer-events-none absolute inset-x-0 top-1/2 z-40 -translate-y-1/2 px-8 text-center">
             <div className="label-overline">THE MUSTER</div>
             <div className="font-display mt-2 text-lg tracking-[0.18em] text-amber-100 sm:text-2xl"
               style={{ textShadow: "0 0 30px rgba(255,180,60,0.35)" }}>
