@@ -14808,6 +14808,73 @@ export function buildCharacter(
         // wherever the two disagree, which over the brow ridge is 16 mm of float.
         return _fp.addScaledVector(formNormal(_form, u, v, _n), off);
       };
+      // ============================================================
+      // THE HULL — where the head actually is, for everything hung on it
+      // ============================================================
+      //
+      // ONE DEFINITION, TWO READERS, which is the rule this file has been bitten
+      // by three times. The nape fall is driven off this hull; so, now, is the
+      // back half of the Sutton Hoo's throat curtain, because the curtain has to
+      // be INSIDE the plate the fall lays over it. A curtain carrying its own
+      // idea of where the head is would drift out through the guard the first
+      // time either was touched.
+      // SAMPLED OFF THE FORM, not guessed from the ellipsoid it started as.
+      // The first draft of this used `R.x · sqrt(1 - t²)`, which is 12% wider
+      // at the ear's height than at the top ring's — but the head is not an
+      // ellipsoid there. Its own breadth table holds 98 mm at the parietal and
+      // 90 mm at the cheekbone, so the real outline is close to a straight
+      // side, and a ring following a barrel over a straight side leaves it at
+      // 35 deg. Two columns off the block the helmet is beaten over — one at
+      // the flank, one at the occiput — cost 26 field samples and are the
+      // shape that is actually there.
+      const sideP: Array<[number, number]> = [];
+      const backP: Array<[number, number]> = [];
+      {
+        const q = new THREE.Vector3();
+        // 24 stations, not 12. The columns are read by linear interpolation
+        // in y, and the form's half-breadth against y is nearly straight down
+        // the flank and then turns hard under the skull's base — which is where
+        // the deep guard's last third hangs. A coarse table cuts that corner,
+        // the plate follows the cut, and the metal leaves the head over the few
+        // centimetres the table could not see.
+        for (let i = 0; i <= 24; i++) {
+          const v = mix(Math.PI / 2 - 0.05, -Math.PI / 2 + 0.30, i / 24);
+          formSurface(_form, Math.PI / 2, v, q);
+          sideP.push([skullY + q.y, Math.abs(q.x)]);
+          formSurface(_form, Math.PI, v, q);
+          backP.push([skullY + q.y, Math.abs(q.z)]);
+        }
+      }
+      /** Read one of those columns at a height. Both descend in y. */
+      const readP = (tab: Array<[number, number]>, y: number): number => {
+        if (y >= tab[0][0]) return tab[0][1];
+        for (let i = 0; i < tab.length - 1; i++) {
+          if (y <= tab[i][0] && y >= tab[i + 1][0]) {
+            return mix(tab[i][1], tab[i + 1][1], (tab[i][0] - y) / (tab[i][0] - tab[i + 1][0]));
+          }
+        }
+        return tab[tab.length - 1][1];
+      };
+      // Below the skull there is no skull, and a neck is a neck in millimetres
+      // rather than a fraction of a head — expressing it as 0.62 R.z stood the
+      // deep guard's rim 34 mm behind a throat that is 45 mm through, which was
+      // most of its 48 mm of daylight. And on the one class that wears mail the
+      // plate lies on the mail, because that is what is under it.
+      //
+      // Softened at the crossover, because a hard `max` puts a KINK where the
+      // skull's outline meets the neck's — and the fall's flare is a derivative,
+      // so a kink in what it follows is a spike in what it measures. 12 mm of
+      // rounding is a fillet, not a fudge: it is what a plate beaten over that
+      // corner would do.
+      const sm = (a: number, b: number, k = 0.004) =>
+        0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k)) - k * 0.5;
+      const hullAt = (y: number) => {
+        let hw = sm(readP(sideP, y), S.neckHW);
+        let hd = sm(readP(backP, y), S.neckHW);
+        if (heavy) { hw = sm(hw, coifAt(y, "hw")); hd = sm(hd, coifAt(y, "hd")); }
+        return { hw, hd };
+      };
+
       // THE BOWL, and its profile is a rung of the ladder rather than a constant.
       //
       // It used to be one curve — `mix(0.013, 0.014 + 0.008 · B.bowl, v²)` — for
@@ -15485,62 +15552,6 @@ export function buildCharacter(
         const topY = style.crown === "circlet"
           ? Math.min(skullY + R.y * 0.47, circletY - 0.014)
           : skullY + R.y * 0.47;
-        // SAMPLED OFF THE FORM, not guessed from the ellipsoid it started as.
-        // The first draft of this used `R.x · sqrt(1 - t²)`, which is 12% wider
-        // at the ear's height than at the top ring's — but the head is not an
-        // ellipsoid there. Its own breadth table holds 98 mm at the parietal and
-        // 90 mm at the cheekbone, so the real outline is close to a straight
-        // side, and a ring following a barrel over a straight side leaves it at
-        // 35 deg. Two columns off the block the helmet is beaten over — one at
-        // the flank, one at the occiput — cost 26 field samples and are the
-        // shape that is actually there.
-        const sideP: Array<[number, number]> = [];
-        const backP: Array<[number, number]> = [];
-        {
-          const q = new THREE.Vector3();
-          // 24 stations, not 12. The columns are read by linear interpolation
-          // in y, and the form's half-breadth against y is nearly straight down
-          // the flank and then turns hard under the skull's base — which is where
-          // the deep guard's last third hangs. A coarse table cuts that corner,
-          // the plate follows the cut, and the metal leaves the head over the few
-          // centimetres the table could not see.
-          for (let i = 0; i <= 24; i++) {
-            const v = mix(Math.PI / 2 - 0.05, -Math.PI / 2 + 0.30, i / 24);
-            formSurface(_form, Math.PI / 2, v, q);
-            sideP.push([skullY + q.y, Math.abs(q.x)]);
-            formSurface(_form, Math.PI, v, q);
-            backP.push([skullY + q.y, Math.abs(q.z)]);
-          }
-        }
-        /** Read one of those columns at a height. Both descend in y. */
-        const readP = (tab: Array<[number, number]>, y: number): number => {
-          if (y >= tab[0][0]) return tab[0][1];
-          for (let i = 0; i < tab.length - 1; i++) {
-            if (y <= tab[i][0] && y >= tab[i + 1][0]) {
-              return mix(tab[i][1], tab[i + 1][1], (tab[i][0] - y) / (tab[i][0] - tab[i + 1][0]));
-            }
-          }
-          return tab[tab.length - 1][1];
-        };
-        // Below the skull there is no skull, and a neck is a neck in millimetres
-        // rather than a fraction of a head — expressing it as 0.62 R.z stood the
-        // deep guard's rim 34 mm behind a throat that is 45 mm through, which was
-        // most of its 48 mm of daylight. And on the one class that wears mail the
-        // plate lies on the mail, because that is what is under it.
-        //
-        // Softened at the crossover, because a hard `max` puts a KINK where the
-        // skull's outline meets the neck's — and the fall's flare is a derivative,
-        // so a kink in what it follows is a spike in what it measures. 12 mm of
-        // rounding is a fillet, not a fudge: it is what a plate beaten over that
-        // corner would do.
-        const sm = (a: number, b: number, k = 0.004) =>
-          0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k)) - k * 0.5;
-        const hullAt = (y: number) => {
-          let hw = sm(readP(sideP, y), S.neckHW);
-          let hd = sm(readP(backP, y), S.neckHW);
-          if (heavy) { hw = sm(hw, coifAt(y, "hw")); hd = sm(hd, coifAt(y, "hd")); }
-          return { hw, hd };
-        };
         // AND THE PLATE IS DRIVEN OFF THAT HULL AT EVERY HEIGHT, not off three
         // sampled rings with straight lines between them. Three rings is a plate
         // with two creases in it; a crease is a step in the angle the metal makes
@@ -16773,16 +16784,68 @@ export function buildCharacter(
             { y: mix(vTop, vBot, 0.5), hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
             { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
           ];
+          // AND IT CARRIES ROUND THE BACK, which is the owner's third note:
+          // "There's a full neck mesh on the front with a clear back? That's
+          // really sloppy." A curtain that wraps the throat and stops at the
+          // ears is a bib. `helmclash` section 3 measured it on the three
+          // classes without a coif — 149.5 to 152.5 degrees of bare nape at
+          // 71 to 80 mm of radius, under 207 to 211 degrees of wrapped throat.
+          //
+          // THE REAR IS NOT THE FRONT'S RINGS CARRIED ON, and the first cut of
+          // this proved why by trying it as a fraction of them. Those rings are
+          // sized to hang clear of a throat and land on the collar; run round
+          // the back they are 62 mm of radius at the jaw, which is INSIDE the
+          // occiput, and 91 mm at the hem, which is outside the nape guard on a
+          // head whose hull there is 80. Mail through the skull at one end and
+          // mail outside the plate at the other.
+          //
+          // So the back half rides `hullAt` — the same hull the nape guard is
+          // driven off, one level up — plus a layer gap. That puts the curtain
+          // against the head wherever the guard is, with the guard's own 13 to
+          // 15 mm of clearance lying over it, and it keeps following the head
+          // down past the guard's hem where the mail is the only thing left.
+          // Mail under plate, plate over mail; neither piece owns a second copy
+          // of where the head is.
+          //
+          // The blend runs from 1.40 rad — where the nape fall's own arc starts
+          // — to 2.30, so the throat's own shape is untouched and the two meet
+          // under metal.
+          // AND IT LETS GO OF THE HULL AS IT FALLS PAST THE GUARD'S HEM.
+          //
+          // The hull is a HEAD's, and mail that has fallen past the head is
+          // lying on a body — the correction `coifLevels` carries one level up
+          // for the same reason. Hugged all the way down, `helmclash` section 3
+          // read 93.5 to 98.0 degrees of bare nape at y 10: the trapezius stands
+          // 78 to 87 mm out down there and the hull is clamped to `S.neckHW`,
+          // which is a neck and not a shoulder.
+          //
+          // So the rear's grip on the hull fades over the 55 mm below
+          // `napeHemY` — the guard's own free lower edge, read rather than
+          // copied — and below that the curtain is the same free collar all the
+          // way round that its front already is, landing on the same rings.
+          const VENT_LETGO = 0.055;
+          const VENT_SKIRT = 0.020;
+          const vRear = (y: number) => {
+            const h = hullAt(y);
+            const c = LAYER_GAP + VENT_SKIRT * smooth(0, VENT_LETGO, napeHemY - y);
+            return { hw: h.hw + c, hd: h.hd + c };
+          };
           const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
             const t = v * (vRings.length - 1);
             const i = Math.min(vRings.length - 2, Math.floor(t));
             const f = t - i;
             const a = vRings[i];
             const b = vRings[i + 1];
+            const y = mix(a.y, b.y, f);
+            const back = smooth(1.40, 2.30, Math.abs(u));
+            const r = vRear(y);
+            const hw = mix(mix(a.hw, b.hw, f), r.hw, back);
+            const hd = mix(mix(a.hd, b.hd, f), r.hd, back);
+            const z0 = mix(a.z, b.z, f) * (1 - back);
             out.set(
-              Math.sin(u) * (mix(a.hw, b.hw, f) - inset),
-              mix(a.y, b.y, f),
-              mix(a.z, b.z, f) + Math.cos(u) * (mix(a.hd, b.hd, f) - inset),
+              Math.sin(u) * (hw - inset),
+              y,
+              z0 + Math.cos(u) * (hd - inset),
             );
           };
           // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
@@ -16797,11 +16860,30 @@ export function buildCharacter(
           // is inside the fall's own plate, so the extra sweep costs a few
           // triangles nobody will see and removes the last bearing at which the
           // three pieces can disagree.
-          const vHalf = 2.45;
+          // PI, not 2.45, ON THE THREE CLASSES WITH A BARE NAPE. At 2.45 the
+          // curtain finished 40 degrees short of the nape on each side and the
+          // man was bare behind — the owner's third note, and `helmclash`
+          // section 3's 149.5 degree arc. Closed, it is what an aventail is, and
+          // `wrapU` is what stops `patch` closing the join with two rim strips
+          // standing on the nape.
+          //
+          // AND IT STAYS AT 2.45 ON THE HUSCARL, because on him the nape is
+          // already mail. He wears a coif; `helmclash` section 3 read his bare
+          // arc at 14.0 degrees against a 90 degree bar before any of this, so
+          // there is no fault behind him to fix. Closing the ring on him anyway
+          // is not a second layer of defence, it is a sheet laid across the
+          // opening his mane comes out of: `wearmeasure` section 4 measured it
+          // the first time this closed on every class — 8.7 mm of Long Mane and
+          // 8.8 mm of Braided War-locks outside the helm at az -159 and -176,
+          // against a 3 mm bar, with the same hair clean on every other rung.
+          // The rule the head stack already runs on is that mail laps mail; the
+          // coif is the mail here and the curtain laps it rather than repeating
+          // it.
+          const vHalf = coifed ? 2.45 : Math.PI;
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
           p.add(patch({
-            nu: Math.max(12, lod.shellU + 2), nv: 4,
+            nu: Math.max(16, lod.shellU * 2), nv: 4, wrapU: !coifed,
             outer: vSweep(0), inner: vSweep(0.007),
           }), mail);
         }
