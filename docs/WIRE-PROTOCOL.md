@@ -73,12 +73,13 @@ message is dropped silently.
 
 | `type` | `data` | Guards | Effect |
 |---|---|---|---|
-| `create` | `{name?, mode?, bestOf?, appearance?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` defaults `"blood_moot"`; `"honour_duel"` caps the room at 2, everything else at 8 (1051). Caller's class is forced to `warden` (1056). |
-| `join` | `{code, name?, appearance?}` | room exists; `state === "lobby"`; `humanCount < maxPlayers` | Joins. Replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Code is upper-cased (1067). Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you (1069-1072). Failures reply `error`. |
-| `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
+| `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` defaults `"blood_moot"`; `"honour_duel"` caps the room at 2, everything else at 8 (1051). Caller's class is forced to `warden` (1056). |
+| `join` | `{code, name?, appearance?, awaitLoad?}` | room exists; `state === "lobby"`; `humanCount < maxPlayers` | Joins. Replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Code is upper-cased (1067). Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you (1069-1072). Failures reply `error`. |
+| `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?, awaitLoad?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
 | `select_class` | `{warriorClass}` | class must exist in `WARRIOR_STATS` | Sets class **and refills health and stamina to the new maximum**. ⚠ **No room-state guard — see §9.1.** Broadcasts `lobby_update`. |
 | `select_team` | `{team}` | **none whatsoever** (953) | Writes `data.team` onto the player verbatim. ⚠ **See §9.2.** Broadcasts `lobby_update`. |
 | `ready` | — | — | Toggles. Broadcasts `lobby_update`. Nothing reads `ready` to decide anything — see §9.4. |
+| `loaded` | — | ignored unless the caller declared `awaitLoad` | **"My arena is standing."** Releases this man from the muster; when he is the last one the countdown starts on that message rather than on a timer. Idempotent. See §2.1. |
 | `set_appearance` | `{appearance}` | — | Stored opaquely and echoed to every client on every snapshot. The simulation never reads it; see §5. |
 | `add_bot` | `{difficulty?, warriorClass?}` | host only; `botsIn < botCapacity` | Adds one bot. `warriorClass` names what it fights as; anything not in `WARRIOR_STATS` is ignored and the roster cycles `BOT_CLASSES` as before. |
 | `remove_bot` | `{botId?}` | host only | Named bot, or the last one added. |
@@ -89,6 +90,43 @@ message is dropped silently.
 | `emote` | `{emote}` | id in `EMOTES`; alive; not committed, dodging or staggered; 2500 ms wall-clock throttle | Broadcast to the room, sender included. Refusals are silent (1706-1716). |
 | `leave` | — | — | Same as dropping the socket. |
 | `ping` | — | — | Replies `pong` to the sender only. Purely a keepalive; the sim has no timeout of its own. |
+
+### 2.1 `awaitLoad` and `loaded` — the muster
+
+The owner, verbatim (BACKLOG 2b.2):
+
+> "a lot of the time the game starts before fully loading in which is a poor
+> experience, we shouldn't start until everyone is fully loaded in."
+
+So there is a phase in front of the countdown. `start` puts the room in
+**`state: "loading"`**, and the bell is not armed until every client that
+declared `awaitLoad: true` on `create`/`join`/`solo` has sent `loaded`, or
+`LOAD_HOLD_MS` (12 s) has run out.
+
+**The declaration is opt-in, and that is a protocol decision worth stating.**
+A browser building a three.js arena wants to be waited for. A harness, a
+headless second server, a bot client and every client written before this
+feature have nothing to build, and a room that waited twelve seconds for each
+of them would cost `classmatrix` three hours a run. A client that does not
+declare is dealt in exactly as it was before this phase existed, so this is a
+strictly additive change to the protocol: **an existing client is unaffected in
+every respect.**
+
+**What happens at the deadline is a decision and not a default: the match
+starts.** One bad connection must not hold seven people. The men who never
+answered are still seated, still in the round, and arrive standing where they
+were placed.
+
+**Withholding `loaded` is worth nothing**, which is what keeps this out of the
+cheat surface: there is no extra spawn grace, no extra health, no delay past
+the shared deadline, and no information. The only thing it buys is being late,
+which a player can already achieve by closing his laptop. `tools/readytest.mjs`
+§5 fights a match with a silent client and compares his spawn grace to the
+honest man's, to the tick.
+
+The muster is a **match's**, not a **round's**. Rounds two and three rebuild
+nothing, and a hold a player could impose three times a match would be a stall
+rather than a courtesy.
 
 ### `input` — the whole of combat
 
@@ -142,6 +180,7 @@ it; the touch client never sends it, so it is optional.
 | `player_joined` | room, minus the joiner | `{playerId, name}`. |
 | `player_left` | room | `{playerId}`. |
 | `lobby_update` | room | Any lobby mutation, and 10 s after `match_end` when the room rolls back. Full snapshot. |
+| `match_loading` | room | The muster. `{waitingFor: string[], until}` — the NAMES the room is still standing about for, and the epoch-ms deadline past which nobody waits. Re-sent each time the list gets shorter. `until` is the only wall clock this phase puts on the wire; the deadline the server enforces is in sim ms. See §2.1. |
 | `countdown` | room | Once at round start with a **full snapshot plus `countdown`**, then once a second with **`{countdown}` and nothing else**. See §9.3. |
 | `game_state` | room | Once per server wake during `fighting` / `last_stand`, and once on the countdown→fighting transition. Full snapshot. |
 | `hit` | room | Every resolved blow, parry, block, shove and knockdown. |
@@ -166,8 +205,16 @@ Carried identically by `join`, `lobby_update`, `game_state`, the first
 code, mode, state, arena, hostId, countdown, matchTimer, maxPlayers,
 players: { [id]: Player }, killFeed: KillFeedEntry[]   // last 10 only
 lastStandTriggered, difficulty, botCount, maxBots, autoStart,
-bestOf, roundIndex, roundTarget, roundWins, roundScoreBy, lastRound, nextRoundAt
+bestOf, roundIndex, roundTarget, roundWins, roundScoreBy, lastRound, nextRoundAt,
+territory: { id, name, native, holder } | null
 ```
+
+`territory` is **the ground this match decides** — see §11. It is dealt when
+the match starts, so the first `countdown` frame already carries it and a man
+knows what he is fighting over before the bell. `null` in a lobby that has not
+been dealt a match, and always `null` in training. `holder` is the people that
+held it when the server last read the war rolls; it is **decoration on this
+wire** and the territories table is the authority.
 
 `join` additionally carries `playerId` (yours) and `warriorStats` — **the whole
 `WARRIOR_STATS` table, from the server**. This is the single most important
@@ -364,8 +411,13 @@ band, both null on a draw. Then either `match_end` follows immediately, or
 { winnerKind: "player"|"team"|"none", winnerId, winnerTeam, winnerName, winnerBy,
   bestOf, roundsPlayed, roundTarget, roundWins, roundScoreBy,
   results: [{id, name, kills, deaths, damage, score, isWinner,
-             place, roundsWon, menSpared, menFinished, xpEarned, goldEarned}] }
+             place, roundsWon, menSpared, menFinished, xpEarned, goldEarned}],
+  war: { matchKey, territoryId, entries: [{playerId, name, points}], at } | null }
 ```
+
+`war` is **what this match did to the war for Britain** — §11 — and it is
+`null` far more often than not: training, a match under two humans, and any
+room that was never dealt ground all report nothing.
 
 **`results` arrives SORTED, and the order is the answer.** It used to leave in
 the room's join order and every screen sorted its own copy; the owner reported
@@ -778,6 +830,7 @@ C2S solo
 C2S select_class
 C2S select_team
 C2S ready
+C2S loaded
 C2S set_appearance
 C2S add_bot
 C2S remove_bot
@@ -794,6 +847,7 @@ S2C pong live
 S2C player_joined live
 S2C player_left
 S2C lobby_update live
+S2C match_loading live
 S2C countdown live
 S2C game_state live
 S2C hit live
@@ -806,3 +860,75 @@ S2C round_end live
 S2C match_end live
 S2C emote live
 ```
+
+---
+
+## 11. The war on the wire
+
+Added when the war layer landed (`src/game/war.mjs`, `src/db/war.ts`,
+`tools/wartest.mjs`). It is two fields and one rule, and the rule is the
+important half.
+
+### The two fields
+
+**`territory` on every snapshot** — `{ id, name, native, holder } | null`. The
+ground this match decides, dealt in `startMatch` and cleared when the room rolls
+back to a lobby. Carried on every snapshot rather than only on the frame that
+set it, for the same reason the round state is: a late joiner, a spectator or a
+reconnect must be able to rebuild the whole screen from one frame.
+
+**`war` on `match_end`** — `{ matchKey, territoryId, entries, at } | null`.
+
+```
+matchKey     `${roomCode}:${matchId}`, minted when the match STARTED.
+territoryId  a `war.mjs` TERRITORIES id.
+entries      [{ playerId, name, points }], humans only, points > 0 only.
+at           epoch ms, stamped the same way `nextRoundAt` is.
+```
+
+`war` is `null` unless **all** of: it was not training, ground was actually
+dealt, and **at least two humans fought**. The last is an anti-farm rule and it
+is deliberate: one man with seven recruits can win eight matches an hour
+against opponents whose difficulty he chose.
+
+`matchKey` is minted at match START and not at write time, which is the whole
+of the idempotency design. The database's unique index is
+`(match_key, player_id)`; a report retried after a failed write carries the key
+it carried the first time, so the retry inserts nothing and moves nothing. A
+key minted when the write happens is a new key on every retry.
+
+### THE RULE: the engine is never told a man's people
+
+**No message in this protocol carries a player's allegiance, in either
+direction, and none ever may.** `entries` names player ids and points. Which
+people banks those points is resolved afterwards by `src/db/war.ts`, from the
+`players.allegiance` column — the record a man wrote when he swore, over an
+authenticated HTTP route with his own bearer token.
+
+Two things follow, and both are load-bearing:
+
+1. **A client cannot bank for a people it did not swear to.** It is never asked
+   which people it is, so there is nothing to lie about. Sending an
+   `allegiance` field on `create` or `join` is ignored, and
+   `tools/wartest.mjs` §7 proves it changes no byte of any snapshot and no row
+   of any result table.
+2. **A faction cannot gate a match or grant a stat**, which is
+   `docs/FACTIONS.md` §3, the rule Wave 4 lives or dies on. It is kept
+   *structurally* rather than by discipline: the simulation has no way to ask.
+   The engine may hold the whole map (`engine.setWarFront`) and still nothing
+   about a fight changes — that fixture, with a map one people has conquered
+   outright, is `wartest` §7, and `--prove` injects both defects and requires
+   every one of those assertions to go red.
+
+### What the engine does with the map it is given
+
+`setWarFront({ contested, holdings })` is called by the host process, never by a
+client. `contested` narrows the ground a match may be dealt to the borders
+closest to moving; `holdings` lets a snapshot name a holder. There is no third
+use and no third field.
+
+The deal is seeded on **a per-engine match counter and the sim clock**, not on
+the room code or the match's UUID. Both of those come from sources `engine.mjs`
+deliberately leaves unpinned, and seeding on them broke `protocoltest`'s replay
+check inside a minute — two runs of one scripted match fought over different
+ground. A war that cannot be replayed is a war whose bugs cannot be reproduced.

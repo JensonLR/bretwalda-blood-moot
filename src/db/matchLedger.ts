@@ -217,6 +217,19 @@ export function bindPlayer(playerId: string, profileId: number): boolean {
   return true;
 }
 
+/**
+ * Which profile reserved this engine player id, if any.
+ *
+ * Added for the war (`src/db/war.ts`): at match end the engine reports points
+ * by ENGINE player id, and the only thing in this process that knows whose
+ * they are is the bind map above. A read, and nothing more — the war cannot
+ * create a bind, and an unbound man simply banks nothing.
+ */
+export function boundProfile(playerId: string): number | null {
+  const bind = ledger().binds.get(playerId);
+  return bind ? bind.profileId : null;
+}
+
 export type ClaimStatus = "granted" | "already" | "none" | "not_yours" | "not_bound";
 
 export interface ClaimOutcome {

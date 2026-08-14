@@ -161,6 +161,117 @@ async function ensureSchema(db: Db): Promise<boolean> {
       CREATE UNIQUE INDEX IF NOT EXISTS legacy_claims_fingerprint_idx ON legacy_claims (fingerprint)`);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS legacy_claims_player_idx ON legacy_claims (player_id)`);
+
+    // ---- THE WAR ----------------------------------------------------------
+    // The third loop (`docs/WHAT-THIS-GAME-IS.md` §3), by the same route as
+    // everything above it: idempotent DDL on the first request after a boot,
+    // because this deploy is "connect repo, hit deploy" and a migrate step
+    // added to somebody else's Render dashboard is a step that gets skipped
+    // once and debugged for an hour.
+    //
+    // The oath rides on `players` rather than in a table of its own. It is one
+    // nullable column on a row that already exists for every warrior, and a
+    // join to read a man's people on every match end would be a second round
+    // trip bought for nothing.
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS allegiance text`);
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS sworn_at timestamp`);
+    await db.execute(sql`
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS bretwalda_seasons jsonb NOT NULL DEFAULT '[]'::jsonb`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS seasons (
+        id serial PRIMARY KEY,
+        index integer NOT NULL,
+        state text NOT NULL DEFAULT 'running',
+        started_at timestamp NOT NULL DEFAULT now(),
+        ends_at timestamp NOT NULL,
+        ended_at timestamp,
+        verdict jsonb
+      )`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS seasons_index_idx ON seasons (index)`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS territories (
+        id serial PRIMARY KEY,
+        season_id integer NOT NULL,
+        territory_id text NOT NULL,
+        holder text NOT NULL,
+        threshold integer NOT NULL,
+        epoch integer NOT NULL DEFAULT 0,
+        contest jsonb NOT NULL DEFAULT '{}'::jsonb,
+        cleared integer NOT NULL DEFAULT 0,
+        updated_at timestamp NOT NULL DEFAULT now()
+      )`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS territories_season_ground_idx
+        ON territories (season_id, territory_id)`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS war_ledger (
+        id serial PRIMARY KEY,
+        season_id integer NOT NULL,
+        match_key text NOT NULL,
+        player_id text NOT NULL,
+        profile_id integer NOT NULL,
+        people text NOT NULL,
+        territory_id text NOT NULL,
+        points integer NOT NULL,
+        created_at timestamp NOT NULL DEFAULT now()
+      )`);
+    // THE ONE INDEX THE WHOLE WRITE DEPENDS ON. Without it the attribution
+    // write is idempotent only as far as one process's memory reaches, and two
+    // Render instances would bank the same match twice.
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS war_ledger_match_player_idx
+        ON war_ledger (match_key, player_id)`);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS war_ledger_season_profile_idx ON war_ledger (season_id, profile_id)`);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS war_ledger_season_ground_idx ON war_ledger (season_id, territory_id)`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS war_flips (
+        id serial PRIMARY KEY,
+        season_id integer NOT NULL,
+        territory_id text NOT NULL,
+        from_people text NOT NULL,
+        to_people text NOT NULL,
+        created_at timestamp NOT NULL DEFAULT now()
+      )`);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS war_flips_season_idx ON war_flips (season_id, created_at)`);
+
+    // EXACTLY ONE SEASON RUNS AT A TIME, and Postgres is what says so.
+    //
+    // `seasons_index_idx` was never enough, and the reason is worth keeping:
+    // the rollover race did not produce two rows with the SAME index, it
+    // produced 2, 3 and 4 — three callers each deriving "next" from a different
+    // snapshot of MAX(index). A unique index on a column nobody collides on
+    // refuses nothing. This one is on the invariant that was actually broken,
+    // and it is why the fix in `src/db/war.ts` is a fix and not a narrower
+    // window. See the comment on `currentSeason` and `tools/warrace.mjs`.
+    //
+    // IT LIVES DOWN HERE, below `war_ledger`, because the repair below reads
+    // that table and this function runs against empty databases.
+    //
+    // THE REPAIR RUNS FIRST, because a database that already ran the buggy code
+    // HAS the corruption in it and `CREATE UNIQUE INDEX` over corrupt data
+    // throws — which would fail `ensureSchema`, return null from `getDb`, and
+    // drop a live deployment to device-local gold in the name of a repair.
+    // Duplicates are marked `orphaned` rather than `ended` so they can never
+    // surface as a crown on the map screen, which reads `state = 'ended'`. The
+    // one KEPT is the one with the most banked rows under it, so the repair
+    // preserves the most player work; ties go to the lowest index, the season
+    // whose number correctly follows the one that ended.
+    await db.execute(sql`
+      UPDATE seasons SET state = 'orphaned', ended_at = coalesce(ended_at, now())
+       WHERE state = 'running' AND id <> (
+         SELECT s.id FROM seasons s
+           LEFT JOIN war_ledger l ON l.season_id = s.id
+          WHERE s.state = 'running'
+          GROUP BY s.id, s.index
+          ORDER BY count(l.id) DESC, s.index ASC
+          LIMIT 1)`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS seasons_one_running_idx
+        ON seasons ((state)) WHERE state = 'running'`);
     return true;
   } catch {
     return false;
