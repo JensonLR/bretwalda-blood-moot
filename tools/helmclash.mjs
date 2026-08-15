@@ -160,6 +160,30 @@ const hexOf = (m) => {
 };
 
 /**
+ * TWO TINTS THAT TELL THE BEARD FROM THE HAIR, and they are labels rather than
+ * a change to the subject.
+ *
+ * The catalogue ships Oak Brown as the default for BOTH the hair slot and the
+ * beard slot — `defaultAppearance` sets `hairColor` and `beardColor` to the same
+ * 0x4a3220 — so on every head this file used to build, the hair and the beard
+ * carried one tint and were one label. That is the whole of the blindness in
+ * section 5: its denominator was hair AND beard together, so deleting the beard
+ * outright moved the reading DOWN and no line said the beard was gone.
+ *
+ * The builder takes a colour as a colour. Measured rather than assumed: eight
+ * heads (four classes, bare and Sutton Hoo) build the same mesh count and the
+ * same triangle count with these tints as with the catalogue's, and
+ * `assertTintsAreLabels` re-checks it at every run rather than trusting this
+ * paragraph. The hair material also draws the lashes, so a "hair" piece list is
+ * hair and lashes; the beard material draws the beard and nothing else, which is
+ * the list section 5 needs.
+ */
+const HAIR_TINT = 0x00fe01;
+const BEARD_TINT = 0x00fe02;
+/** The appearance this file measures: the class's own, with the two labels on. */
+const apOf = (cls) => ({ ...defaultAppearance(cls), hairColor: HAIR_TINT, beardColor: BEARD_TINT });
+
+/**
  * Every piece worn on the head, in the head pivot's own frame, in millimetres
  * of the game's own metres.
  *
@@ -169,7 +193,7 @@ const hexOf = (m) => {
  * same list twice for the same arguments.
  */
 function headPieces(cls, helm, seed = SEED) {
-  const root = buildCharacter(cls, { ...defaultAppearance(cls), helm }, 0x8a6b3f, undefined, LOD, seed).group;
+  const root = buildCharacter(cls, { ...apOf(cls), helm }, 0x8a6b3f, undefined, LOD, seed).group;
   root.updateMatrixWorld(true);
   let pivot = null;
   root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
@@ -239,11 +263,15 @@ function extent(T) {
  * cannot silently become "kit" and blind a section.
  */
 const bareCache = new Map();
-function bareTints(cls) {
+/** The same head with no helm on it, built once and kept — see `bareTints`. */
+function barePieces(cls) {
   const k = `${cls}/${SEED}`;
-  let s = bareCache.get(k);
-  if (!s) { s = new Set(headPieces(cls, "none").map((p) => p.hex)); bareCache.set(k, s); }
-  return s;
+  let p = bareCache.get(k);
+  if (!p) { p = headPieces(cls, "none"); bareCache.set(k, p); }
+  return p;
+}
+function bareTints(cls) {
+  return new Set(barePieces(cls).map((p) => p.hex));
 }
 
 /** The mail tint this class's kit is issued in, read from the game's own kit. */
@@ -251,23 +279,31 @@ function mailTint(cls) {
   return finishKit(defaultAppearance(cls).armorColor).mail.toString(16).padStart(6, "0");
 }
 
-/** Split a head into pelt (skin, hair, beard, eye), mail and plate. */
+const hex6 = (n) => n.toString(16).padStart(6, "0");
+
+/**
+ * Split a head into pelt (skin, hair, beard, eye), mail and plate — and, inside
+ * the pelt, THE BEARD ON ITS OWN. See `HAIR_TINT`: hair and beard used to share
+ * the catalogue's one Oak Brown and were therefore one list, which is what let a
+ * deleted beard hide inside a hair denominator.
+ */
 function sortPieces(cls, helm) {
   const bare = bareTints(cls);
   const mailHex = mailTint(cls);
-  const ap = defaultAppearance(cls);
-  const hairHex = ap.hairColor.toString(16).padStart(6, "0");
-  const beardHex = ap.beardColor.toString(16).padStart(6, "0");
+  const hairHex = hex6(HAIR_TINT);
+  const beardHex = hex6(BEARD_TINT);
   const all = headPieces(cls, helm);
-  const pelt = [], mail = [], plate = [], flesh = [], fur = [];
+  const pelt = [], mail = [], plate = [], flesh = [], fur = [], hair = [], beard = [];
   for (const p of all) {
     if (bare.has(p.hex)) {
       pelt.push(p);
-      (p.hex === hairHex || p.hex === beardHex ? fur : flesh).push(p);
+      if (p.hex === beardHex) { fur.push(p); beard.push(p); }
+      else if (p.hex === hairHex) { fur.push(p); hair.push(p); }
+      else flesh.push(p);
     } else if (p.hex === mailHex) mail.push(p);
     else plate.push(p);
   }
-  return { all, pelt, flesh, fur, mail, plate, kit: [...mail, ...plate] };
+  return { all, pelt, flesh, fur, hair, beard, mail, plate, kit: [...mail, ...plate] };
 }
 
 /** One flat triangle array out of a list of pieces. */
@@ -473,6 +509,47 @@ function assertFaceIsPlusZ() {
     process.exit(2);
   }
   console.log("[clash] +z is the face, -z is the nape. Azimuth 0 is dead ahead.");
+}
+
+// ============================================================
+// THE TWO TINTS ARE LABELS — asserted, not assumed
+// ============================================================
+//
+// `HAIR_TINT` and `BEARD_TINT` exist so that the beard can be measured against
+// its own surface, and they are only sound if a colour is a colour. A builder
+// that branched on a hair colour — a blond that grew a different lock, a snow
+// white that dropped a course — would make every reading in sections 2, 3 and 5
+// a reading of a head no player wears. So it is checked rather than believed,
+// on the two heads that carry the most hair and the most beard.
+function assertTintsAreLabels() {
+  const count = (cls, ap) => {
+    const root = buildCharacter(cls, ap, 0x8a6b3f, undefined, LOD, SEED).group;
+    root.updateMatrixWorld(true);
+    let pivot = null, tris = 0, meshes = 0;
+    root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
+    pivot.traverse((o) => {
+      if (!o.isMesh || !o.geometry?.attributes?.position) return;
+      meshes++;
+      tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    });
+    return `${meshes} meshes / ${tris} tri`;
+  };
+  let bad = 0;
+  const seen = [];
+  for (const cls of ["berserker", "huscarl"]) {
+    for (const helm of ["none", "suttonhoo"]) {
+      const shop = count(cls, { ...defaultAppearance(cls), helm });
+      const label = count(cls, { ...apOf(cls), helm });
+      seen.push(`${cls}/${helm} ${label}`);
+      if (shop !== label) { bad++; console.error(`[clash] ${cls}/${helm}: catalogue tints build ${shop}, label tints build ${label}`); }
+    }
+  }
+  if (bad) {
+    console.error("[clash] A HAIR OR BEARD COLOUR MOVES GEOMETRY on this build, so the two label");
+    console.error("[clash] tints are measuring a head nobody wears. Stopping rather than printing it.");
+    process.exit(2);
+  }
+  console.log(`[clash] tint check: hair and beard labels move no geometry — ${seen.join(", ")}.`);
 }
 
 // ============================================================
@@ -1070,9 +1147,41 @@ function sectionCrest(rows) {
 //
 // So this section is written to see a beard that is OUTSIDE a face mask, and to
 // keep on seeing it if somebody makes the beard vanish instead of pressing it
-// inside the plate. THE DENOMINATOR IS THE PELT'S OWN SURFACE, which means a
-// deleted beard scores zero out of zero and is printed as an absent case, not
-// as a pass. `NO PELT AT ALL` is louder than a failure here, and deliberately.
+// inside the plate.
+//
+// THE DENOMINATOR IS THE BEARD'S OWN SURFACE, AND THE PARAGRAPH THAT USED TO
+// STAND HERE WAS FALSE. It said "a deleted beard scores zero out of zero and is
+// printed as an absent case, not as a pass" and that "`NO PELT AT ALL` is louder
+// than a failure". It was not: the denominator was hair AND beard together —
+// `defaultAppearance` issues the same Oak Brown 0x4a3220 to both slots, so one
+// tint was one list — and the `!fur.length` guard only fired when the HAIR was
+// gone too, which this gate never builds, because it always asks for hairStyle
+// "short". Round four's deletion was re-applied to prove it: `&& !style.mask` on
+// the beard branch took the berserker's Sutton Hoo from 23838 to 21202 triangles
+// and this section from 0.88% to 0.00%, worst patch "-", no warning, footer
+// still reading "0 have NO hair or beard mesh at all". Three paid beards — Full
+// 40g, Forked 80g, Ringed Braid 120g — could be deleted under every masked helm
+// and the ruler got QUIETER.
+//
+// So the beard is measured against the beard, the hair against the hair, and
+// the beard is checked for being there at all:
+//
+//   * `BEARD GONE` — the rung asks for a beard and the build emits no beard
+//     mesh. A hard FAIL, counted in the section's red total. Zero out of zero
+//     is not a pass and it is not an absent case either; it is the regression
+//     this section exists to catch.
+//   * `BEARD CUT` — the rung's beard exists but is smaller under the helm than
+//     it is bare. Also a hard FAIL: half a deletion is a deletion. On this tree
+//     every beard keeps every triangle under every helm, so this is a tripwire
+//     rather than a reading, and the tripwire is the point.
+//
+// Hair gets the share but not the absence check, and deliberately: the hair
+// material also draws the LASHES, so a hair piece list is never empty even on a
+// shaved head, and a check that cannot fire is worse than no check. What the
+// hair is losing under the deep helms is a real fault with a real owner —
+// `docs/OPEN-DEFECTS.md`, "every 80-triangle hair-coil component that main
+// builds under the Wyrm-Crest and the Sutton Hoo is absent on the branch" — and
+// it wants a ruler that names components, not this one.
 //
 // MEASURED with the same horizontal ray as section 1, pointed the other way. A
 // hair or beard sample is out through the helm when the ray INWARD, toward the
@@ -1083,47 +1192,75 @@ function sectionCrest(rows) {
 // route `cheekHem` and the coif's hem were built to give it.
 const PELT_PCT = 2.0;
 /**
- * 2.0% of the pelt's own area, and NO RECORDED BASELINE stands behind it — this
- * section is new, so the bar is argued from this tree's own spread and nothing
- * else. The open metal rungs, where hair comes out from under a hem the way it
- * is meant to, read 0.00 to 0.10% on the three classes without a coif. The
- * rungs with a face plate over a beard read 3.2 to 4.9%. The bar sits in that
- * gap. It will need re-arguing the first time somebody changes a hem.
+ * 2.0%, AND IT IS RE-ARGUED RATHER THAN CARRIED OVER. The figure is the same as
+ * the one this section shipped with, but the thing it is a percentage OF has
+ * changed — hair-and-beard-together became hair against hair and beard against
+ * beard — so the old argument for it ("open metal rungs read 0.00 to 0.10%,
+ * rungs with a face plate over a beard read 3.2 to 4.9%") is an argument about a
+ * different measurement and cannot stand. A bar kept without re-measuring is a
+ * bar nobody has checked.
+ *
+ * The spread on the two new denominators, every combination on this tree:
+ *
+ *   hair, open metal helms          0.00 - 0.29   under a hem, as intended
+ *   hair, huscarl's iron/nasal/spec 0.60 - 0.71
+ *   hair, the Shadow Hood           2.66 - 3.31   <- red, and was red before
+ *   beard, every open helm          0.00
+ *   beard, Wyrm-Crest               0.21 - 0.32
+ *   beard, Sutton Hoo (3 classes)   0.56 - 0.71
+ *   beard, berserker's Sutton Hoo   2.71          <- red, and was NOT before
+ *   beard, the Shadow Hood          0.80 - 6.42
+ *
+ * so the bar still sits in a gap, 0.71 to 2.66, and it is the same gap it always
+ * claimed to sit in. What moved is that the berserker's full beard under the
+ * Sutton Hoo now reads on its own account: mixed into the hair it was 0.88% and
+ * green, and against its own surface it is 2.71% and red. That reading is the
+ * one the owner's adversary photographed as a wedge of beard through the mail.
  */
+const trisOf = (list) => list.reduce((a, p) => a + p.tris, 0);
 function sectionPelt(rows) {
   console.log("");
   console.log("[clash] 5. PELT — hair or beard out through the helm, not under its hem.");
-  console.log(`[clash]    inward horizontal rays off every hair and beard triangle, area-weighted; bar ${PELT_PCT.toFixed(1)}% of the pelt.`);
+  console.log(`[clash]    inward horizontal rays, area-weighted, EACH AGAINST ITS OWN SURFACE; bar ${PELT_PCT.toFixed(1)}%.`);
   console.log("");
-  console.log("[clash] class       helm         pelt out%   worst patch                deepest       where");
-  console.log("[clash] ------------------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         hair out%  beard out%   worst patch                deepest       where");
+  console.log("[clash] ------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, gone = 0;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { fur, kit } = sortPieces(cls, helm);
+      const { hair, beard, kit } = sortPieces(cls, helm);
       if (!kit.length) continue;
-      if (!fur.length) {
-        // NOT A PASS. A head with no hair and no beard mesh scores nothing out
-        // of nothing, and the last pass's fixer reached exactly that state by
-        // deleting three paid beards. This line is louder than a FAIL on
-        // purpose.
-        gone++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      NO PELT AT ALL — no hair or beard mesh on this head to measure`);
-        rows.push({ section: 5, cls, helm, fail: false, absent: true });
+      const wantBeard = apOf(cls).beardStyle !== "none";
+      const bareBeard = trisOf(barePieces(cls).filter((p) => p.hex === hex6(BEARD_TINT)));
+      const gotBeard = trisOf(beard);
+      cases++;
+      if (wantBeard && !gotBeard) {
+        // A HARD FAULT, not an absent case. The rung is paying for a beard and
+        // the build emits none: nothing to measure is the regression, not an
+        // excuse from measuring.
+        gone++; fails++;
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —          —      BEARD GONE — the rung asks for "${apOf(cls).beardStyle}" and the build emits no beard mesh (bare head has ${bareBeard} tri)  FAIL`);
+        rows.push({ section: 5, cls, helm, fail: true, absent: true });
         continue;
       }
-      cases++;
-      const r = outboardShare(fur, soup(kit));
-      const pct = 100 * r.share;
-      const bad = pct > PELT_PCT;
+      const KT = soup(kit);
+      const rh = hair.length ? outboardShare(hair, KT) : null;
+      const rb = beard.length ? outboardShare(beard, KT) : null;
+      const hp = rh ? 100 * rh.share : 0, bp = rb ? 100 * rb.share : 0;
+      // The worse of the two is what gets named, because the row has one slot
+      // for a patch and the reader wants the piece that is actually outside.
+      const r = (rb && (!rh || rb.share > rh.share)) ? rb : rh;
+      const cut = wantBeard && gotBeard < bareBeard;
+      const bad = hp > PELT_PCT || bp > PELT_PCT || cut;
       if (bad) fails++;
-      const patch = r.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 5, cls, helm, fail: bad, pct });
+      const patch = r?.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
+      const note = cut ? `  BEARD CUT — ${gotBeard} tri under this helm, ${bareBeard} bare` : "";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${hp.toFixed(2).padStart(8)}  ${(rb ? bp.toFixed(2) : "—").padStart(9)}   ${patch.padEnd(24)} ${mm(r ? r.depth : 0).padStart(7)} mm  ${r?.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 5, cls, helm, fail: bad, hairPct: hp, beardPct: bp });
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} combinations with a pelt are red; ${gone} have NO hair or beard mesh at all.`);
+  console.log(`[clash]    ${fails} of ${cases} combinations are red; ${gone} of those are a beard the build did not emit at all.`);
   return fails;
 }
 
@@ -1134,6 +1271,7 @@ function battery() {
   const rows = [];
   const fails = {};
   assertFaceIsPlusZ();
+  assertTintsAreLabels();
   if (SECTIONS.has(1)) fails[1] = sectionLayers(rows);
   if (SECTIONS.has(2)) fails[2] = sectionFlesh(rows);
   if (SECTIONS.has(3)) fails[3] = sectionWrap(rows);
