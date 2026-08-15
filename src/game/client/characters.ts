@@ -3963,10 +3963,41 @@ const EAR_NS = 9;
  * Every band indexes the SAME positions, so the joins are exact by construction
  * rather than by matching two tables. That is the whole reason this is one grid.
  */
-function auricle(K: Skull, earRootX: number, side: number): {
+function auricle(K: Skull, earRootX: number, side: number, press: number): {
   skin: THREE.BufferGeometry; shade: THREE.BufferGeometry;
 } {
   const pos: number[] = [], uv: number[] = [];
+  // ---- THE PLATE PRESSES THE EAR, and until now only the BLOCK knew that ----
+  //
+  // `earSeatRaise` grows the form to cover the auricle less `EAR_PRESS`, on the
+  // stated grounds that "what the seat has to deliver is the plate outboard of a
+  // PRESSED ear, not clearance over an unpressed one". Nothing pressed the ear.
+  // So under a closed helm the drawn auricle stood exactly `EAR_PRESS` outside
+  // the metal hung on the block, and `helmclash` section 2 read it: the helix —
+  // 280 triangles of complexion at az 115 and 245 — with 39 to 47% of its area
+  // outboard of the Sutton Hoo's mask, 8.0 mm out.
+  //
+  // A pinna is cartilage. A hinged plate strapped closed against the jaw folds
+  // it flat, and that is what this does: the ear's own relief off the skin is
+  // scaled so that its PROUDEST point comes down by exactly `EAR_PRESS` and
+  // every other point in proportion, so nothing can invert through the skin and
+  // no part of the ear is deleted. The scale is solved off the ear's own section
+  // tables rather than authored, so an ear drawn taller tomorrow presses by the
+  // same twelve millimetres with nothing here edited — and it is solved against
+  // the same constant the block was shrunk by, so the two cannot drift apart.
+  let maxStand = 0;
+  if (press > 0) {
+    for (let j = 1; j <= EAR_NS; j++) {
+      for (let i = 0; i < EAR_NA; i++) {
+        const st = earPoint(K, earRootX, (i / EAR_NA) * Math.PI * 2, j / EAR_NS).stand;
+        if (st > maxStand) maxStand = st;
+      }
+    }
+  }
+  // A folded ear is not a flat one: a sixth of its relief survives however hard
+  // the strap is done up, which is what stops the helix crossing the concha
+  // floor and turning the shell inside out.
+  const flat = maxStand > 1e-6 ? Math.max(1 / 6, (maxStand - press) / maxStand) : 1;
   // Rings 1..NS, then ONE shared pole. Fanning EAR_NA coincident vertices at the
   // centre instead is what put a visible star in the middle of the concha on the
   // first capture: `computeVertexNormals` gives each copy the normal of its own
@@ -3981,14 +4012,17 @@ function auricle(K: Skull, earRootX: number, side: number): {
       // ears are mirror images, a rotation cannot make one out of the other, and a
       // negative scale turns the surface inside out. Flip the authored in-plane
       // axis, and flip the winding below to match.
-      pos.push(-side * p.ex, p.ey, p.ez);
+      // Only the RELIEF is scaled, never the seat: `ez` is the skin's own offset
+      // plus the ear's stand off it, and pressing a scalp into a skull is not
+      // what a helmet does.
+      pos.push(-side * p.ex, p.ey, p.ez - p.stand * (1 - flat));
       uv.push(i / EAR_NA, s);
     }
   }
   const POLE = EAR_NS * EAR_NA;
   {
     const p = earPoint(K, earRootX, 0, 0);
-    pos.push(0, 0, p.ez);
+    pos.push(0, 0, p.ez - p.stand * (1 - flat));
     uv.push(0.5, 0);
   }
   const at = (j: number, i: number) => (j === 0 ? POLE : (j - 1) * EAR_NA + i);
@@ -13755,7 +13789,12 @@ export function buildCharacter(
       const place3 = new THREE.Matrix4()
         .makeTranslation(s * earRootX, earY, -0.024)
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2));
-      const A = auricle(K, earRootX, s);
+      // PRESSED under a plate that closes over the ear, and not otherwise. The
+      // deep guards and the mask are the two that strap shut across the jaw with
+      // the auricle inside them; a short guard stops in front of the ear and a
+      // cowl is cloth. See `auricle` and `EAR_PRESS`.
+      const A = auricle(K, earRootX, s,
+        style.mask || style.cheek === "deep" ? EAR_PRESS : 0);
       p.add(A.skin, headSkin, place3);
       // The bowl in the form-shadow tone. It shares its vertices with the helix,
       // so it is not a separate object with a rim of its own to catch the light.
