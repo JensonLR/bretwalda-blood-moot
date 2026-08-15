@@ -13353,20 +13353,60 @@ export function buildCharacter(
    * off its list: 6.0 to 6.5 degrees of `4a3220` — the sideburn course of hair
    * coils — outermost at az 102-103, on all three classes without a coif.
    *
-   * It is wrong in the OTHER direction on the flange rungs, where 1.95 claims
-   * 6.6 degrees of cover the flange does not have and flattens paid hair under
-   * a plate that is not there.
+   * AND IT IS READ AT A DIFFERENT END OF THE DESCENT FOR THE TWO KINDS OF
+   * PLATE, because the two kinds fail in opposite directions.
    *
-   * Read at the top of the descent, which is the narrowest the fall ever is, so
-   * the claim can only under-state: hair outside a plate is a defect, and hair
-   * flattened where there is no plate is a paid cosmetic thrown away.
+   * This paragraph used to say the flange rungs were the case where 1.95 "claims
+   * 6.6 degrees of cover the flange does not have". That is not what the built
+   * mesh says. Swept on the head's own azimuth rather than on the plate's sweep
+   * parameter — 1 degree steps, horizontal rays, warden / Ridge-Helm — the
+   * flange's front edge is at
+   *
+   *     y 175 .. 167   az 116-117      (the top of the fall, at the band)
+   *     y 165 .. 151   az 112-116
+   *     y 149 .. 137   az 108-112
+   *     y 135 .. 129   az 106-107      (the hem; below 127 there is no metal)
+   *
+   * A hanging plate FLARES FORWARD AS IT FALLS — that is what `+ 0.30 v²` is —
+   * so `napeHalf(0)` is the narrowest it ever is, and the hair that lives under
+   * it lives at the BOTTOM. Reading the top therefore leaves the eleven degrees
+   * the plate covers at its hem outside the clamp, and a coil rooted in that
+   * band gets no ceiling at all: it is built at full length on skin that has a
+   * flange over it, falls past the hem, and stands 19 mm off the bare neck at
+   * y 116 with nothing over it from any bearing. Six to eight of those are what
+   * the render shows on the warden's default Warrior Crop.
+   *
+   * So: a GUARD is read at the top of the descent. It lies on the hull, the
+   * risk under it is hair standing OUTSIDE metal, and under-stating its arc is
+   * the safe direction — that is round eight's reading and section 3 WRAP is
+   * built on it, so nothing about the Wyrm-Crest or the Sutton Hoo moves here.
+   * A FLANGE is read at THREE QUARTERS of its descent, which is not a taste: it
+   * is where the hair under a flange actually is. The helmed lock courses run
+   * 0.03 to 0.17 rad below a hairline that is itself dropped 0.30 rad, so their
+   * roots sit at y 129-149 against a plate whose hem is y 127 — and the plate's
+   * measured front edge over exactly those heights is az 106-112. `napeHalf`
+   * at 0.75 is 1.249, so the clamp lands at 1.893 rad — 108.5 degrees — inside
+   * that measured band and still 13 degrees behind the sideburn course at
+   * az 95-105 that the flank window was widened to show.
+   *
+   * Read at the bottom instead (`napeHalf(1)`, 100.9 deg) the clamp swallows
+   * that sideburn course: the rear map loses the hair at az 100-110 from y 152
+   * to y 200 that both `origin/main` and round eight draw, which is the hair the
+   * 0.30 rad hairline drop was bought for. Read at the top (round eight's
+   * `napeHalf(0)`, 118 deg) it leaves the loose curls. 0.75 is the reading that
+   * holds both, and the rear map below the hem comes out with FEWER stray
+   * fragments than `origin/main` has, not more.
+   *
+   * Neither reading deletes anything: hair inside this arc is BURIED, not
+   * culled — see the sink in the lock course — so `tools/rungcensus.mjs` counts
+   * every triangle of it either way.
    */
   const napeLap = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
   const napeHalf = (v: number) =>
     Math.max(style.nape === "guard" ? 1.30 : 1.08, napeLap)
     + (style.nape === "guard" ? 0.44 : 0.30) * v * v;
   /** That arc as an angle off dead ahead: hair further round than this is under it. */
-  const napeFrontU = Math.PI - napeHalf(0);
+  const napeFrontU = Math.PI - napeHalf(style.nape === "guard" ? 0 : 0.75);
 
   // ---- where the cloth is ----
   // The hood's rim and its lift, authored here and read twice: once by the hood
@@ -14313,6 +14353,7 @@ export function buildCharacter(
             // separate rounds of this project have been caught doing. Buried
             // instead, the same census reads zero lost.
             const crest = 0.38 * len + rad;
+            let buried = false;
             if (Number.isFinite(room)) {
               if (room <= 0) {
                 // Under the metal. Sink the whole coil until its crest is at the
@@ -14320,6 +14361,53 @@ export function buildCharacter(
                 // to be counted.
                 const sink = (room - crest) - mane(u, v) * 0.45;
                 if (sink < 0) lockRoot.addScaledVector(lockNrm, sink);
+                // AND A SUNK COIL DOES NOT FALL, because a fall takes it back
+                // out through the neck.
+                //
+                // The sink is computed at the ROOT and along the ROOT's normal.
+                // The spine then travels `0.82 len` — about 25 mm — down the
+                // fall line, and at the nape the fall line leaves the skull and
+                // crosses the neck, which is 20 to 25 mm nearer the axis. So a
+                // coil buried 5 mm under the scalp at its root re-emerges
+                // through the throat below it, and the render is unambiguous
+                // about what that looks like: on warden / Ridge-Helm / Warrior
+                // Crop the rear map has hair standing on bare skin at
+                // az 145, 150, 170 and 200 from y 84 to y 128, in ones and twos,
+                // with no mass around them — the "isolated dark curl fragments,
+                // several plainly detached" of the round-nine brief. Every one
+                // of them is the tail of a coil whose root is buried under the
+                // flange 40 mm higher up.
+                //
+                // With the fall dropped the coil is a curl in place: the spine
+                // is the `outward` term alone, a straight 11 mm run along the
+                // root normal, and the whole swept tube therefore lies between
+                // the ceiling and `crest + rad` inside it. That bound is
+                // arithmetic rather than a hope about where the neck is, which
+                // is the property the sink did not have.
+                //
+                // IT COSTS NOTHING THAT CAN BE SEEN AND NOTHING THAT WAS PAID
+                // FOR. `braid` emits `rows x ring` triangles whatever the spine
+                // does, so the count and the component are identical — the
+                // census reads the same cell either way — and the object is
+                // inside the skin under a plate in both cases. The only thing
+                // that changes is whether the invisible half of it stays
+                // invisible.
+                //
+                // AND ONLY WHERE THE SKIN IS THE ONLY COVER — `!coifed`, and
+                // that qualifier is measured rather than tidy. On a head inside
+                // an aventail the mail is what covers the nape, not the burial:
+                // swept at 1 degree steps the huscarl's rear is unbroken mail
+                // from az 95 to az 265 at every height from y 76 to y 132, so a
+                // tail that leaves the pocket leaves it INSIDE a bag it cannot
+                // get out of, and nothing can be seen either way. Standing it up
+                // instead is not free there: the coil stops at its own height
+                // rather than falling to where `coifAt` has flared to R.x * 1.82,
+                // and `helmclash` 5 PELT reads huscarl / Boar-Crest and
+                // huscarl / Jarl's Crowned on Braided War-locks at **2.02%
+                // against a 2.0% bar, from 1.99%** — two cells turned red to
+                // tidy something no bearing can see. With the qualifier they
+                // read 1.99% again and the flange nape is still clean.
+                buried = !coifed;
               } else {
                 // 0.82 of the room, not all of it. The crest estimate is exact on
                 // the analytic curve and the coil is a swept tube on a 6-row
@@ -14340,7 +14428,9 @@ export function buildCharacter(
               // worth being fussy about: the crest of the curl has to clear the
               // mass by about its own strand radius, and no more.
               const outward = len * (0.58 * t - 0.20 * t * t);
-              const along = len * 0.82 * t;
+              // `buried` drops the fall — see the sink above. Not a smaller
+              // coil, the same coil with its axis stood up in its own pocket.
+              const along = buried ? 0 : len * 0.82 * t;
               out.set(
                 lockRoot.x + nx * outward + tx * along,
                 lockRoot.y + ny * outward + ty * along,
