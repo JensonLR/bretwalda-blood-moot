@@ -4205,3 +4205,84 @@ qualification is claiming more than the capture supports.
 plausible and they agreed with the conclusion, which is exactly why they were
 never checked. Retracted in `d6819e5` with the real readings. A number that
 supports what you already believe is the one that gets typed rather than read.
+
+## The gate was green at 69 degrees of bare neck — 15 Aug 2026
+
+Round five rebuilt the ruler, fixed the ear, carried the throat mail round, re-seated
+the wyrm and tapered the coif. `helmclash` went from 4 red sections to 2. Then an
+adversary **opened the render** — built the app, shot 42 frames off `/shot`, and
+looked at them — and found the owner's defect still in the picture.
+
+**This is instance fifteen of a measurement answering the wrong question, and it is the
+cleanest one yet.** Section 3 WRAP prints `0 of 3 combinations with a wrapped throat
+are red` while the same table prints **69.5 / 63.5 / 76.5 degrees of bare arc** against
+its own 90-degree bar. The gate passes at sixty-odd degrees of naked nape. On warden,
+berserker and runekeeper in the 2400-gold Sutton Hoo, the throat carries a full mail
+ventail and the back of the neck is bare skin from the gold rim to the hauberk collar —
+sampled pixels (148,88,55), (150,94,60), (144,76,40): complexion, not mail. At true
+play scale it is a 4-5 px flesh stripe under the rim in the 520x320 fightcard.
+
+The owner's words were *"There's a full neck mesh on the front with a clear back?
+That's really sloppy."* That is still exactly what the render shows.
+
+**The bar is the defect.** 90 degrees was never a description of "a bare nape under a
+covered throat"; it was a number that let a partial fix pass. A nape is bare or it is
+not. Fix the bar first, then drive the geometry to the fixed bar — in that order, and
+not in one commit.
+
+### Three more holes the same adversary pass found in the ruler
+
+1. **Section 5 PELT cannot see the regression it was built to catch.** Its comment at
+   `helmclash.mjs:989` promises "a deleted beard scores zero out of zero and is printed
+   as an absent case, not as a pass" and that "`NO PELT AT ALL` is louder than a
+   failure". False. The denominator is hair **and** beard together (both tint 4a3220),
+   and the `!fur.length` guard at :1021 only fires when the hair is gone too, which the
+   gate never produces because it always builds hairStyle "short". Round four's exact
+   deletion was re-applied in a scratch tree: the berserker's Sutton Hoo lost **2636
+   triangles** (23838 -> 21202) and section 5 went **0.88% -> 0.00%, worst patch "-",
+   no warning**, footer still reading "0 have NO hair or beard mesh at all". Three paid
+   beards (40/80/120 gold) can be deleted under every masked helm and this ruler gets
+   *quieter*.
+2. **Sections 2 and 4 can be switched off by editing a declaration.** Case selection is
+   `if (!HELM[helm].mask)` (:677) and `HELM[helm].cap` (:864) — properties of the
+   catalogue, not of the mesh. Flipping `mask: true -> false` on suttonhoo at
+   `characters.ts:925`, changing no geometry at all, takes section 2 from "4 of 4 masked
+   combinations are red" to "0 of 0 — ALL SECTIONS PASS". A gate keyed on a boolean
+   someone can edit is not a gate.
+3. **The ruler only ever reads the default appearance.** It builds
+   `{...defaultAppearance(cls), helm}`, so warden and runekeeper are only tested with
+   `beard_short`. Paid cosmetics are never measured under a helm by the helm ruler.
+   The adversary found the consequence by hand: with the 40-gold `beard_full`, a
+   hard-edged brown wedge of beard **punches out through the mail rings at the throat**
+   under the Sutton Hoo, on warden, berserker and runekeeper. Nothing measures it.
+
+### And the branch is still taking paid content away
+
+`cosmetictest` moves "2 swallowed" -> "4 swallowed". Long Mane (40g) 1.42% -> 0.02%,
+Braided War-locks (100g) 1.31% -> 0.07% under the Sutton Hoo; the closest-paid-pair
+margin collapses 1.43% -> 0.07% against a 0.05% bar. Worse, read off the mesh directly:
+every 80-triangle hair-coil component that main builds under the Wyrm-Crest and the
+Sutton Hoo is **absent** on the branch, on all four classes, on the paid rungs as well
+as the free one (wyrm 5-6 -> 0). That is components disappearing, not pixels being
+occluded, and it is the third round running in which a helm fix has quietly removed
+something a player bought.
+
+### The wyrm is still not a serpent
+
+Cropped to the head and box-resampled to 46x60 — the size the brief names — it is a
+gold line 2-3 px thick with one bend along the crown. No head, no jaw, no taper, no
+animal. It reads as a tube with a head at portrait range only. Section 4 passes at
+23.4-24.7 mm of air against a 40 mm bar, so it is attached enough to pass and still
+stands off the crown as a gold spur from behind.
+
+### What round six must do, in this order
+
+1. Fix WRAP's bar so it describes the defect, in its own commit, and show the fix
+   failing against the corrected bar before touching geometry (R2).
+2. Make section 5's denominator the beard's own surface, and make an absent beard a
+   hard fault. Re-run round four's deletion as the proof-of-failure.
+3. Key sections 2 and 4 on the mesh, not on `HELM[].mask` / `HELM[].cap`.
+4. Sweep the paid cosmetic rungs, not just `defaultAppearance`.
+5. Restore the deleted hair-coil components.
+6. Then, and only then, drive the geometry green — including the beard that punches
+   through the ventail.
