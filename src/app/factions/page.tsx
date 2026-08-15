@@ -22,6 +22,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
 import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
+import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
 import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
 import { readCreds } from "../profileLink";
@@ -60,18 +61,16 @@ const NOTE: Record<PeopleId, { ground: string; seat: string; note: string }> = {
   },
 };
 
-/** Mirrors `WarSelfView` in `src/db/war.ts`. Everything here is off the ledger. */
-interface SelfView {
-  allegiance: string | null;
-  points: number;
-  matches: number;
-  bretwaldaSeasons: number[];
-  locked: boolean;
-  ground: { territoryId: string; points: number; matches: number; holder: string }[];
-  rank: number | null;
-  ofPeople: number;
-  last: { territoryId: string; points: number; at: number } | null;
-}
+/**
+ * The client's view of a man's own standing. NOT a second declaration of the
+ * shape — `StandingSelf` in `factionMap/Standing.tsx` is the one client-side
+ * copy of `WarSelfView` in `src/db/war.ts`, and this alias exists so there is
+ * nowhere for a third to appear. It already went wrong once: this file carried
+ * its own copy for a commit, `warSelf` grew `agoMinutes` on the last match,
+ * and the two silently disagreed. `docs/PROCESS.md` failure mode 3 — caught
+ * here only because the shape was finally passed somewhere that knew better.
+ */
+type SelfView = StandingSelf;
 
 /**
  * WHOSE OATH THIS IS.
@@ -204,6 +203,12 @@ export default function WarPage() {
               <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss">×</button>
             </div>
           )}
+
+          {/* WHO YOU ARE AND WHAT THE OATH BOUGHT — first, and above the
+              map. The owner's two words were PROGRESS and IDENTITY, and both
+              of them used to live in one sentence two screens below the
+              coastline on a phone. */}
+          {mode === "server" && <Standing war={war} self={self} />}
 
           {/* WHAT MOVED WHILE YOU WERE AWAY — above the map, and that
               placement is the point. The map plate is taller than a 390px

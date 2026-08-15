@@ -694,6 +694,8 @@ export interface WarSelfGround {
 }
 
 export interface WarSelfView {
+  /** His own name, for a screen whose whole job is telling him who he is. */
+  name: string;
   allegiance: string | null;
   points: number;
   matches: number;
@@ -708,8 +710,14 @@ export interface WarSelfView {
    */
   rank: number | null;
   ofPeople: number;
-  /** His most recent banked match: what it was worth and which ground took it. */
-  last: { territoryId: string; points: number; at: number } | null;
+  /**
+   * His most recent banked match: what it was worth, which ground took it, and
+   * how long ago. `agoMinutes` is computed HERE and not on the client, for the
+   * same reason `WarView.agoMinutes` is — a handset with a wrong date must not
+   * be told a different story to the man beside it, and a component that reads
+   * the clock while rendering draws two different trees.
+   */
+  last: { territoryId: string; points: number; at: number; agoMinutes: number } | null;
 }
 
 /** A man's own standing in the war, for his own screen. */
@@ -786,6 +794,7 @@ export async function warSelf(id: unknown, secret: unknown): Promise<WarSelfView
     const lastRow = recent[0];
 
     return {
+      name: row.name || "",
       allegiance: row.allegiance,
       points,
       matches: Number(mine[0]?.matches) || 0,
@@ -800,7 +809,12 @@ export async function warSelf(id: unknown, secret: unknown): Promise<WarSelfView
       rank,
       ofPeople,
       last: lastRow
-        ? { territoryId: lastRow.territoryId, points: lastRow.points, at: lastRow.createdAt.getTime() }
+        ? {
+            territoryId: lastRow.territoryId,
+            points: lastRow.points,
+            at: lastRow.createdAt.getTime(),
+            agoMinutes: Math.max(0, Math.round((Date.now() - lastRow.createdAt.getTime()) / 60_000)),
+          }
         : null,
     };
   }, null);
