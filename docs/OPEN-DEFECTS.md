@@ -4656,11 +4656,24 @@ it, and between 98.7 and 100.1 there is no room for either the 7 mm wall or the
 5 mm `LAYER_GAP`. Three arrangements were built and measured:
 
 ```
-  curtain hung level from vTop     3 WRAP 11.0/11.0/21.5   1 LAYERS 8.1/11.3/8.0 %
-  top edge on the guard's hem      3 WRAP 15.5/11.0/25.5   1 LAYERS 7.9/ 8.5/8.1 %
+  curtain hung level from vTop     3 WRAP 11.0/11.0/21.5    1 LAYERS 8.1/11.3/8.0 %
+  top edge on the guard's hem      3 WRAP 15.5/11.0/25.5    1 LAYERS 7.9/ 8.5/8.1 %
+  ditto, rear HALF only            3 WRAP 15.5/11.0/25.5    1 LAYERS 6.3/ 6.2/5.9 %
+  ditto, angular density held      3 WRAP 15.5/11.0/25.5    1 LAYERS 7.2/ 6.7/7.0 %   <- shipped
   top edge a LAYER_GAP below it    3 WRAP 202.5/193.5/216.5 (a 5 mm bare RING)
   (tree before this round)         3 WRAP 159.5/156.5/162.5 1 LAYERS 4.6/ 4.3/5.0 %
 ```
+
+The last two rows are a trade between section 1 and section 5, and it was
+settled in favour of the cosmetics. Growing the whole ellipse instead of its
+rear half translates the curtain's FLANKS 13 mm rearward and uncovers the jaw,
+so the 40-gold beard reads further out through the throat (warden `beard=full`
+6.39 -> 6.51%, runekeeper 7.34 -> 7.53); sweeping 2 pi at the column count
+authored for 4.90 rad is 28% coarser and does the same by tessellation. Fixing
+both puts section 5 back on the parent's readings, several rows better, and
+costs section 1 about a point over the rear-half-alone variant. Paid content
+reading correctly was taken to be worth more than a point of buried plate on a
+section that is red on all 19 kits either way.
 
 Every arrangement that covers the nape puts mail outboard of the guard's rim,
 because the rim is where the neck is. The second is in the tree: it is the
