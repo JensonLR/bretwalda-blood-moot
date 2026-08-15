@@ -3963,41 +3963,10 @@ const EAR_NS = 9;
  * Every band indexes the SAME positions, so the joins are exact by construction
  * rather than by matching two tables. That is the whole reason this is one grid.
  */
-function auricle(K: Skull, earRootX: number, side: number, press: number): {
+function auricle(K: Skull, earRootX: number, side: number): {
   skin: THREE.BufferGeometry; shade: THREE.BufferGeometry;
 } {
   const pos: number[] = [], uv: number[] = [];
-  // ---- THE PLATE PRESSES THE EAR, and until now only the BLOCK knew that ----
-  //
-  // `earSeatRaise` grows the form to cover the auricle less `EAR_PRESS`, on the
-  // stated grounds that "what the seat has to deliver is the plate outboard of a
-  // PRESSED ear, not clearance over an unpressed one". Nothing pressed the ear.
-  // So under a closed helm the drawn auricle stood exactly `EAR_PRESS` outside
-  // the metal hung on the block, and `helmclash` section 2 read it: the helix —
-  // 280 triangles of complexion at az 115 and 245 — with 39 to 47% of its area
-  // outboard of the Sutton Hoo's mask, 8.0 mm out.
-  //
-  // A pinna is cartilage. A hinged plate strapped closed against the jaw folds
-  // it flat, and that is what this does: the ear's own relief off the skin is
-  // scaled so that its PROUDEST point comes down by exactly `EAR_PRESS` and
-  // every other point in proportion, so nothing can invert through the skin and
-  // no part of the ear is deleted. The scale is solved off the ear's own section
-  // tables rather than authored, so an ear drawn taller tomorrow presses by the
-  // same twelve millimetres with nothing here edited — and it is solved against
-  // the same constant the block was shrunk by, so the two cannot drift apart.
-  let maxStand = 0;
-  if (press > 0) {
-    for (let j = 1; j <= EAR_NS; j++) {
-      for (let i = 0; i < EAR_NA; i++) {
-        const st = earPoint(K, earRootX, (i / EAR_NA) * Math.PI * 2, j / EAR_NS).stand;
-        if (st > maxStand) maxStand = st;
-      }
-    }
-  }
-  // A folded ear is not a flat one: a sixth of its relief survives however hard
-  // the strap is done up, which is what stops the helix crossing the concha
-  // floor and turning the shell inside out.
-  const flat = maxStand > 1e-6 ? Math.max(1 / 6, (maxStand - press) / maxStand) : 1;
   // Rings 1..NS, then ONE shared pole. Fanning EAR_NA coincident vertices at the
   // centre instead is what put a visible star in the middle of the concha on the
   // first capture: `computeVertexNormals` gives each copy the normal of its own
@@ -4012,17 +3981,14 @@ function auricle(K: Skull, earRootX: number, side: number, press: number): {
       // ears are mirror images, a rotation cannot make one out of the other, and a
       // negative scale turns the surface inside out. Flip the authored in-plane
       // axis, and flip the winding below to match.
-      // Only the RELIEF is scaled, never the seat: `ez` is the skin's own offset
-      // plus the ear's stand off it, and pressing a scalp into a skull is not
-      // what a helmet does.
-      pos.push(-side * p.ex, p.ey, p.ez - p.stand * (1 - flat));
+      pos.push(-side * p.ex, p.ey, p.ez);
       uv.push(i / EAR_NA, s);
     }
   }
   const POLE = EAR_NS * EAR_NA;
   {
     const p = earPoint(K, earRootX, 0, 0);
-    pos.push(0, 0, p.ez - p.stand * (1 - flat));
+    pos.push(0, 0, p.ez);
     uv.push(0.5, 0);
   }
   const at = (j: number, i: number) => (j === 0 ? POLE : (j - 1) * EAR_NA + i);
@@ -4101,169 +4067,6 @@ function earProbe(K: Skull, earRootX: number): EarProbe {
     seat: seat * 1000,
     bowl: (standoff - floor) * 1000,
   };
-}
-
-// ============================================================
-// THE EAR SEAT — the one feature the block a helm is beaten over has to keep
-// ============================================================
-//
-// "On the remaining classes (warden etc.) the ears stick out."
-//
-// The auricle is its own shell, placed beside the head; `faceSurface` has never
-// known about it. `helmForm` low-passes `faceSurface` into the block a plate is
-// beaten over, so THE BLOCK HAS NO EAR ON IT — and every shell swept on the
-// form (the bowl, the cheek guards, the nape fall) is drawn straight through
-// the organ. `helmclash` section 2 names the patch: 224 triangles of complexion
-// at azimuth 113-115 degrees, 88-94% of them outboard of the metal, 9.5-10.0 mm
-// out, and it is the same object on all three classes without a coif.
-//
-// Measured on this build with the ear's own tables against the form under it,
-// the helix crest stands 23.5 / 23.5 / 24.1 / 23.7 mm outboard of the block on
-// huscarl / warden / berserker / runekeeper at seed 13 — the ear's own 15 mm of
-// stand plus the 9 mm the low-pass shaves off the skin behind the mandible.
-//
-// TWO THINGS THIS DELIBERATELY IS NOT.
-//
-// It is not an ear-shaped hollow in the block. A smith does not planish one; he
-// leaves the cheek of the helm standing off far enough to go over an ear. So
-// the seat is a broad, low dome on the ear's own footprint, dilated by
-// `EAR_SEAT_SPREAD` — which is also what keeps its radius of curvature large
-// enough that a plate standing 30 mm off it cannot fold, the property the whole
-// form exists to have.
-//
-// And it is not the full 24 mm. A pinna is cartilage, and a hinged plate
-// strapped closed against the jaw presses it — `EAR_PRESS` is that, and it is
-// the difference between a helmet that goes over an ear and a helmet built
-// 48 mm wider than the head inside it. What the seat has to deliver is the
-// plate outboard of a PRESSED ear, not clearance over an unpressed one.
-//
-// IT IS A SEPARATE LEVER FROM THE COIF FIT, and the record says to keep it
-// that way: the lost pass's ear fix got entangled with the coif's ring taper
-// and neither could be read afterwards. Nothing here touches `coifLevels`.
-
-/**
- * How much of the ear a strapped plate presses flat, in metres. Cartilage, not
- * bone: 12 mm off a helix that stands 15 mm proud is a plate lying on a folded
- * ear, which is what wearing a closed helm over one actually does.
- *
- * AND IT IS BOUNDED FROM BELOW BY A RULER, which is why it is 12 and not 9.
- * Every millimetre pressed is a millimetre the block does not grow, and every
- * millimetre the block grows is daylight under the plates hung on it.
- * `wearmeasure` section 2 measured it directly: at 12 mm the Wyrm-Crest's deep
- * cheek guard opens 23.4 mm against a 26 mm bar; at 9 mm it opens 26.1 and the
- * gate goes red. `helmclash` section 2 buys 0.4 to 0.5 points of skin for those
- * three millimetres, so this sits where the margin is rather than where the
- * last tenth is.
- */
-const EAR_PRESS = 0.012;
-
-/**
- * How far past the auricle's own rim the seat spreads, in metres.
- *
- * It buys the curvature. The dome falls from its apex to nothing across
- * `earRadius(phi) + EAR_SEAT_SPREAD`, so at 40 mm the footprint is 58-74 mm of
- * radius and the sharpest thing on the seated block is about 70 mm — clear of
- * the 45 mm the form's own note claims for it, and therefore clear of the
- * 27-31 mm the deep cheek guard stands off.
- */
-const EAR_SEAT_SPREAD = 0.040;
-
-/**
- * How much further the seat runs BELOW the ear than around it.
- *
- * A hanging plate cannot follow a bulge back in. `wearmeasure` measures exactly
- * that as flare — the rate the metal leaves the block along its own hang — and
- * with the seat falling away symmetrically the deep nape guard went from 18.1
- * to 23.5 degrees against a 22 degree bar on the Sutton Hoo, and 17.4 to 22.8
- * on the Wyrm-Crest. That is not the ruler being fussy: it is the plate having
- * to tuck back under the ear over 60 mm of descent, which is a crease in a
- * sheet of iron.
- *
- * So the seat's lower half is drawn out. It is also what the object does — the
- * cheek of a helm carries the swell of the ear down to the jaw and finishes
- * there rather than pinching in under it.
- */
-const EAR_SEAT_FALL = 2.0;
-
-/** Skull-local depth the auricle is placed at — `buildCharacter`'s own -0.024. */
-const EAR_SEAT_Z = -0.024;
-
-/**
- * The dome's weight at a point of the ear's own footprint, 1 at the centre and
- * 0 at the dilated boundary, C1 at both ends. `ey` is metres up from the ear's
- * centre and `ez` metres toward the face from it, both in skull-local space.
- */
-function earSeatWeight(ey: number, ez: number): number {
-  // Out of head space and into the ear's own raked frame — the inverse of the
-  // rotation `earPoint` applies, so the footprint this measures is the outline
-  // the auricle is actually built on and not an ellipse drawn near it.
-  const c = Math.cos(EAR_RAKE), sn = Math.sin(EAR_RAKE);
-  const ax = ez * c + ey * sn;
-  const ay = -ez * sn + ey * c;
-  // Stretched downward by `EAR_SEAT_FALL`. Scaling `ay` rather than switching
-  // on it keeps the boundary C1 across the ear's own waist: dr/day is zero at
-  // ay = 0 whichever branch is taken, so the two halves meet without a ridge.
-  const ayk = ay < 0 ? ay / EAR_SEAT_FALL : ay;
-  const r = Math.hypot(ax, ayk);
-  if (r < 1e-9) return 1;
-  const rim = earRadius(Math.atan2(ax, ayk)) + EAR_SEAT_SPREAD;
-  return 0.5 + 0.5 * Math.cos(Math.PI * clamp01(r / rim));
-}
-
-/**
- * Raise the block over both ears, in place, on the smoothed table and before
- * its normals are taken.
- *
- * The amplitude is MEASURED and never authored: every vertex of the auricle is
- * taken at the position it is built at and compared with the block's own
- * half-breadth at that height and depth, and the apex is then solved so that
- * the dome covers the worst of them once `EAR_PRESS` has been taken off. Author
- * a taller ear tomorrow and the block grows to meet it with nothing here edited.
- */
-function earSeatRaise(K: Skull, nu: number, nv: number, pos: Float64Array): void {
-  const n = (nu + 1) * (nv + 1);
-  const earRootX = skullHalfWidth(K, EAR_Y) * EAR_ROOT;
-  const cy = EAR_Y * K.R.y - 0.004;
-  /** The block's own half-breadth beside a point, from the table itself. */
-  const blockAt = (y: number, z: number): number => {
-    let best = 0, bestD = Infinity;
-    for (let k = 0; k < n; k++) {
-      const x = pos[k * 3];
-      if (x <= 0) continue;
-      const dy = pos[k * 3 + 1] - y, dz = pos[k * 3 + 2] - z;
-      const d = dy * dy + dz * dz;
-      if (d < bestD) { bestD = d; best = x; }
-    }
-    return best;
-  };
-  let amp = 0;
-  for (let i = 0; i < EAR_NA; i++) {
-    const phi = (i / EAR_NA) * Math.PI * 2;
-    for (let j = 1; j <= EAR_NS; j++) {
-      const e = earPoint(K, earRootX, phi, j / EAR_NS);
-      // Where the vertex is BUILT: `place3` carries the ear's local z onto head
-      // |x| and its local x onto head z, on both sides. Reading it any other way
-      // seats the block against an ear nobody wears.
-      const proud = (earRootX + e.ez) - blockAt(cy + e.ey, EAR_SEAT_Z + e.ex) - EAR_PRESS;
-      if (proud <= 0) continue;
-      // Solved against the dome's own weight where this vertex lands, so the
-      // apex is whatever it has to be for the WORST point of the ear to be
-      // inside the seat — not whatever the worst point measures.
-      const w = earSeatWeight(e.ey, e.ex);
-      if (w > 0.05 && proud / w > amp) amp = proud / w;
-    }
-  }
-  if (amp <= 0) return;
-  for (let k = 0; k < n; k++) {
-    const x = pos[k * 3];
-    // Outward is ±x, and at the midline there is no outward. The two ears are
-    // 84 mm off it and the footprint never reaches back that far, so this gate
-    // costs the seat nothing — it is here so that a wider spread authored later
-    // cannot put a crease down the front of the block.
-    const side = Math.sign(x) * clamp01(Math.abs(x) / 0.020);
-    const w = earSeatWeight(pos[k * 3 + 1] - cy, pos[k * 3 + 2] - EAR_SEAT_Z);
-    if (w > 0) pos[k * 3] = x + amp * w * side;
-  }
 }
 
 /**
@@ -5393,14 +5196,6 @@ function helmForm(K: Skull): HelmForm {
         }
       }
     }
-  }
-  // THE EAR, PUT BACK ON THE BLOCK. It has to happen here — after the low-pass,
-  // because the filter is what removed it, and before the normals, because a
-  // block whose normals were taken before it grew an ear stands every plate off
-  // in the wrong direction over one. See `earSeatRaise`.
-  earSeatRaise(K, nu, nv, pos);
-  for (let j = 0; j < h; j++) {
-    for (let c = 0; c < 3; c++) pos[(j * w + nu) * 3 + c] = pos[(j * w) * 3 + c];
   }
   // Normals off the smoothed table, central in u and one-sided at the poles.
   const nrm = new Float64Array(pos.length);
@@ -12887,40 +12682,6 @@ export function buildCharacter(
   // it. This is the latitude hair emerges from on every metal rung.
   const bandLo = lat(Y_BROW + mix(0.065, 0.005, clamp01((B.bowl - 0.76) / 0.36)))
     - (style.mask ? 0.050 : 0);
-  /** The band's upper rim. */
-  const bandHi = bandLo + 0.20;
-  // AND THE CAP'S OWN PROFILE AND GAUGES, hoisted for the same reason `bandLo`
-  // was: the mail worn UNDER the cap has to know where the cap's inner wall is,
-  // and a second copy of these numbers beside the coif is the mirrored-definition
-  // fault this file has been bitten by twice. One declaration, two readers — the
-  // helm branch sweeps the shells with them, `capWall` below reads the inner
-  // surface those sweeps produce.
-  //
-  // Three numbers per rung: where the iron starts at the band (`seat`), how much
-  // it rises to the crown (`rise`), and how that rise is distributed (`taper`).
-  // A low exponent puts the height on the flank and gives a straight-sided cone;
-  // a high one keeps the flank close to the skull and domes only at the top.
-  //
-  // `seat` is 17 mm and not 13, on every profile, and that is a fix rather than a
-  // style: `helmFitProbe` measured the skin standing 15.7 mm proud of the form at
-  // the brow ridge on seed 7932, so at 13 mm the bowl's own rim had 2.7 mm of
-  // forehead through it. A helm is worn over 8-12 mm of liner and the brow ridge
-  // is under the rim; 17 clears it on every seed measured.
-  //
-  // The class term stays on all four, because a huscarl's helm is a bigger object
-  // than a berserker's whatever shape it is.
-  const bowlProfile = {
-    //          seat   rise to the crown        taper
-    shallow: [0.017, 0.004 + 0.003 * B.bowl, 1.70],
-    cone:    [0.017, 0.030 + 0.008 * B.bowl, 1.15],
-    round:   [0.017, 0.012 + 0.008 * B.bowl, 2.10],
-    tall:    [0.017, 0.030 + 0.008 * B.bowl, 2.70],
-  }[style.bowl];
-  const [bowlSeat, bowlRise, bowlTaper] = bowlProfile;
-  /** The band's own gauge — its outer sheet less this is what bears on the head. */
-  const BAND_GAUGE = 0.008;
-  /** The bowl's. */
-  const BOWL_GAUGE = 0.007;
 
   // ---- where the mail is ----
   // Declared here rather than inside the coif that draws it, because THREE
@@ -12935,209 +12696,12 @@ export function buildCharacter(
   // grey tab. A coif's upper edge is riveted *inside* the bowl and is never
   // seen; 14 mm proud of the skull at this height is well within the band's
   // own 24 mm standoff, so it is covered.
-  //
-  // ============================================================
-  // AND IT IS TAPERED, NOT SHRUNK — the owner's first note
-  // ============================================================
-  //
-  // "The Sutton Hoo helmet on huscarl currently clashes with the mesh unlike
-  // other helmets." `helmclash` section 1 measures it on every rung the huscarl
-  // wears, not just that one: eleven of eleven combinations that have mail are
-  // red, plate driven 10.7 to 14.0 mm inboard of the rings, up to 40.5% of one
-  // piece's outward face under the mail — and every failure is the huscarl,
-  // because he is the class that wears a coif.
-  //
-  // THE OBVIOUS FIX IS REFUSED AND THE REFUSAL IS MEASURED. Pulling the top ring
-  // uniformly from `R.x*1.00 + 0.011` to `R.x*0.90 + 0.004` takes section 1 from
-  // 11 combinations to 2. It also costs hair visibility on EVERY OPEN HELM —
-  // 16 cells down 0.20 to 0.34 points, with the free Warrior Crop crossing the
-  // 1% bar under the Boar-Crest (1.24 -> 0.94) and the Jarl's Crowned
-  // (1.26 -> 0.96). Buying eleven rungs of fit with a cosmetic on nine other
-  // rungs is the trade this file refuses.
-  //
-  // Mail is not a rigid shell. It compresses where the helmet BEARS on it and
-  // hangs free everywhere else — at the rim, at the fringe, down the nape, which
-  // is exactly where hair shows. So the radius is a function of position: tight
-  // inside the helm's footprint, loose below it, blended across `COIF_FADE`.
-  //
-  // AND THE TIGHT RADIUS IS NOT A CONSTANT EITHER — IT IS THE CAP'S OWN WALL.
-  //
-  // The first cut of this taper guessed it: `R.z * 0.95 + 0.007`, a fraction of
-  // the skull picked to look about right. Measured, it is wrong in both
-  // directions at once. Too loose at the top — the brow band's inner surface is
-  // still 5.2 mm inboard of the rings at the nape, so `helmclash` section 1 stayed
-  // red on all eight huscarl rungs at 6.2 mm — and too tight lower down, where it
-  // put the mail INSIDE the skin: `wearmeasure`'s hair-fit went from 30/30 to
-  // 17/30 and `helmclash` section 5 from 4 red huscarl rungs to 9, because
-  // `hairCeil`'s aventail branch clamps at its 2 mm floor once the rings are
-  // inboard of the head and the hair ends up outside the mail rather than under
-  // it. Mail pushed through a skull shows MORE hair, not less.
-  //
-  // So the ceiling is read off the metal instead. `capWall` walks the band and
-  // the bowl with the very lift and gauge the helm branch sweeps them with, takes
-  // their INNER surface — which is the face that bears on what is under the helm —
-  // and hands back a column of (height, radius). The mail is then whatever the
-  // loose curve says, or that wall less one `LAYER_GAP`, whichever is smaller.
-  // A rung with a taller bowl, a lower band or a thicker gauge moves this with
-  // it and nothing here is edited; a rung with no cap does not tighten at all.
-  /** How far below the cap's own rim the mail is back to hanging free. */
-  const COIF_FADE = 0.030;
-  /**
-   * How far the coif's inner sheet is set inside its outer one where the mail
-   * hangs free — the fold that closes its front edge instead of a rim strip.
-   * `coifRing` cuts it down wherever the cap is squeezing the rings onto the
-   * block, because a sheet cannot be thicker than the room it is in.
-   */
-  const COIF_FOLD = 0.014;
-  /** The loose curve — mail under no helmet at all. Unchanged from what ships. */
-  const coifLoose = [
+  const coifLevels = [
     { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
     { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
     { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
     { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
   ];
-  /** Linear read of that curve at a height, clamped at both ends. */
-  const looseAt = (y: number) => {
-    if (y >= coifLoose[0]!.y) return { ...coifLoose[0]! };
-    for (let i = 0; i < coifLoose.length - 1; i++) {
-      const a = coifLoose[i]!, b = coifLoose[i + 1]!;
-      if (y >= b.y) {
-        const f = (a.y - y) / (a.y - b.y);
-        return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z, b.z, f) };
-      }
-    }
-    return { ...coifLoose[coifLoose.length - 1]! };
-  };
-  /**
-   * THE CAP'S INNER WALL ALONG ONE BEARING, as a column of (height, radius)
-   * ascending in height — the surface the mail has to fit inside.
-   *
-   * Both shells are offsets of `helmForm`, so their inner face is
-   * `form + (lift − gauge)` along the form's own normal; that is the same
-   * arithmetic `helmWear` performs and it is fed from the same `bowlProfile`,
-   * `bandLo`/`bandHi` and gauges the helm branch sweeps with. The band is taken
-   * over its whole span and the bowl over its, and the smaller radius of the two
-   * wins at every height, because the mail has to clear whichever is nearer.
-   *
-   * Sampled at `u = π/2` for the half-breadth and `u = π` for the half-depth,
-   * which are the two numbers a ring carries — the same pair of bearings the
-   * nape fall's own hull is tabulated at, twenty lines further down.
-   */
-  const capWall = (u: number): Array<[number, number, number]> => {
-    const F = helmForm(K);
-    const q = new THREE.Vector3(), nrm = new THREE.Vector3();
-    const bowlV0 = bandLo + 0.015, bowlV1 = Math.PI / 2 - 0.02;
-    const col: Array<[number, number, number]> = [];
-    const N = 24;
-    for (let i = 0; i <= N; i++) {
-      // From the band's own lower rim up to the crown, so the column covers
-      // exactly the latitudes a cap has metal at and stops where it stops.
-      const v = mix(bandLo, bowlV1, i / N);
-      let inner = Infinity;
-      if (v <= bandHi) {
-        inner = Math.min(inner, bowlSeat + 0.007 * (1 - (v - bandLo) / (bandHi - bandLo)) - BAND_GAUGE);
-      }
-      if (v >= bowlV0) {
-        inner = Math.min(inner, bowlSeat
-          + bowlRise * Math.pow(clamp01((v - bowlV0) / (bowlV1 - bowlV0)), bowlTaper) - BOWL_GAUGE);
-      }
-      if (!Number.isFinite(inner)) continue;
-      formSurface(F, u, v, q);
-      const fr = Math.hypot(q.x, q.z);
-      formNormal(F, u, v, nrm);
-      q.addScaledVector(nrm, inner);
-      // The block's own radius travels with the wall, because the mail's SHEET
-      // has to fit between the two: see `fold` in `coifRing`.
-      col.push([skullY + q.y, Math.hypot(q.x, q.z), fr]);
-    }
-    return col;
-  };
-  const capSide = helmed ? capWall(Math.PI / 2) : null;
-  const capBack = helmed ? capWall(Math.PI) : null;
-  /**
-   * That column read at a height: how far out the mail may reach, where the
-   * block under it is, and how much of the way the cap is bearing on it there.
-   *
-   * `w` is the wall's radius less one `LAYER_GAP`; `f` is the block's own
-   * radius; `s` runs 0 a `COIF_FADE` below the column's own lower rim to 1 at
-   * and above it. Mail is not a rigid shell — it is squeezed where the helmet
-   * bears on it and hangs free at the rim, the fringe and the nape, which is
-   * exactly where hair shows.
-   */
-  const capCeil = (col: Array<[number, number, number]> | null, y: number): { w: number; f: number; s: number } => {
-    if (!col || col.length < 2) return { w: Infinity, f: 0, s: 0 };
-    const yBot = col[0]![0], yTop = col[col.length - 1]![0];
-    const s = smooth(yBot - COIF_FADE, yBot, y);
-    if (s <= 0) return { w: Infinity, f: 0, s: 0 };
-    const yy = Math.min(yTop, Math.max(yBot, y));
-    let last = col[col.length - 1]!;
-    let r = last[1], f = last[2];
-    for (let i = 0; i < col.length - 1; i++) {
-      const a = col[i]!, b = col[i + 1]!;
-      if (yy <= b[0]) {
-        const t = (yy - a[0]) / Math.max(1e-9, b[0] - a[0]);
-        r = mix(a[1], b[1], t); f = mix(a[2], b[2], t);
-        break;
-      }
-    }
-    return { w: r - LAYER_GAP, f, s };
-  };
-  /**
-   * One ring of the table at a height: the loose curve, pulled in toward the
-   * cap's wall by however much the cap is bearing on it there.
-   *
-   * The rear reach of a ring is `hd − z`, not `hd` — the rings carry a backward
-   * shift of 8 to 32 mm — so the depth is solved against the wall with that
-   * shift taken off. `hw` is compared directly: `z` is perpendicular to the
-   * half-breadth, and at the top ring's 8 mm on a 100 mm radius that is three
-   * tenths of a millimetre.
-   */
-  const coifRing = (y: number) => {
-    const L = looseAt(y);
-    const a = capCeil(capSide, y), b = capCeil(capBack, y);
-    const hw = mix(L.hw, Math.min(L.hw, a.w), a.s);
-    const hd = mix(L.hd, Math.min(L.hd, b.w + L.z), b.s);
-    // AND THE SHEET IS AS THICK AS THE ROOM IT HAS, WHICH IS THE OTHER HALF OF
-    // SQUEEZING IT. The coif is drawn as two sheets `COIF_FOLD` apart so its
-    // front edge closes in a fold rather than in a rim strip — 14 mm, authored
-    // when the mail stood 20 mm off the skull and had 14 to give. Tightened onto
-    // the cap's wall it does not: measured, the inner sheet went 11 mm INSIDE the
-    // skin at az 216, and `hairFitProbe` reads the nearest covering surface in a
-    // direction, so it read 6-7 mm of every hairstyle standing through the mail
-    // on all ten huscarl rungs — hair-fit 6/30 — while the outer sheet, the one
-    // the player sees, was clear. Mail is about two millimetres thick; the fold
-    // is a drawing device, and a drawing device that reaches through the skull
-    // is a defect. So the sheet keeps only the room between the rings and the
-    // block, and closes to a seam where there is none.
-    const room = Math.min(
-      a.s > 0 ? hw - a.f : Infinity,
-      b.s > 0 ? (hd - L.z) - b.f : Infinity,
-    );
-    const fold = Number.isFinite(room)
-      ? Math.max(0.002, Math.min(COIF_FOLD, room - 0.002))
-      : COIF_FOLD;
-    return { y, hw, hd, z: L.z, fold };
-  };
-  // ONE TABLE, AND THE TAPER IS IN IT — not applied by each reader. The coif's
-  // own sweep, `coifAt`, `hairCeil`'s ring lookup, `coifRingAt` and the nape
-  // fall's hull all walk this list; a squeeze applied in one of those and not
-  // the others is the mirrored-definition fault this file has been bitten by
-  // twice. Extra rings are inserted across the cap's footprint because a ring
-  // stack can only bend where it has a ring: four rows chord straight across
-  // the taper this exists to draw.
-  const coifLevels = (() => {
-    if (!helmed) return coifLoose.map((r) => ({ ...r, fold: COIF_FOLD }));
-    const top = coifLoose[0]!.y, next = coifLoose[1]!.y;
-    // The fan runs from the top ring down to a fade below the lower of the two
-    // rims, clamped inside the loose curve's own second ring so no class can
-    // reorder the table.
-    const rim = Math.min(capSide?.[0]?.[0] ?? top, capBack?.[0]?.[0] ?? top);
-    const foot = Math.min(top - 0.004, Math.max(next + 0.008, rim - COIF_FADE));
-    const ys = [top];
-    for (let i = 1; i <= 5; i++) ys.push(mix(top, foot, i / 5));
-    for (const r of coifLoose.slice(1)) ys.push(r.y);
-    return ys.map(coifRing);
-  })();
   // AND THE LOWEST RINGS COME OUT ONTO THE SHOULDER STACK, because every one of
   // those numbers is a multiple of the SKULL's radii and the mail lands on a
   // BODY.
@@ -13169,9 +12733,8 @@ export function buildCharacter(
       ring.z -= clear / 2;
     }
   }
-  /** The coif's own half-breadth — or its `z` shift — at a height, or 0 where
-   *  no coif is worn. */
-  const coifAt = (y: number, key: "hw" | "hd" | "z"): number => {
+  /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
+  const coifAt = (y: number, key: "hw" | "hd"): number => {
     if (!heavy) return 0;
     if (y >= coifLevels[0].y) return coifLevels[0][key];
     for (let i = 0; i < coifLevels.length - 1; i++) {
@@ -13206,46 +12769,6 @@ export function buildCharacter(
     S.neckRoot - S.neckTop + 0.025,
     skullY - R.y * (style.nape === "guard" ? 1.12 : 0.45),
   );
-  /**
-   * THE SUBMANDIBULAR MASS — the head's own soft floor, from behind the chin
-   * back and down into the throat. It is drawn by the head stack below and it
-   * is the SKIN at the nape everywhere under the skull, so it is declared here
-   * rather than inside the shell that sweeps it: mail lying on the back of the
-   * neck has to know where the back of the neck is.
-   *
-   * The stations are unchanged and the shell that draws them now reads this
-   * list. See `jawAt` for what reads it besides.
-   */
-  const jawLevels: Station[] = [
-    { y: skullY - 0.048, hw: R.x * 0.68, hd: R.z * 0.64, z: -0.013 },
-    { y: skullY - 0.105, hw: R.x * 0.63, hd: R.z * 0.59, z: -0.019 },
-    { y: skullY - 0.160, hw: R.x * 0.65, hd: R.z * 0.61, z: -0.021 },
-    { y: skullY - 0.230, hw: R.x * 0.69, hd: R.z * 0.64, z: -0.021 },
-  ];
-  /**
-   * That mass's half-breadth and its REAR REACH FROM THE AXIS at a height —
-   * `hd - z`, not `hd`, because the stations are set back and a ring swept
-   * about the axis meets the nape at the sum of the two. The identical
-   * correction `hullAt` already applies to the coif's rings one level down, for
-   * the identical reason.
-   *
-   * Clamped to the list's own span: above the top station the skull is what is
-   * there and below the last one there is nothing left of the head, so both
-   * ends report the end station rather than extrapolating a mass that stops.
-   */
-  const jawAt = (y: number): { hw: number; hd: number } => {
-    const rear = (s: Station) => s.hd - (s.z ?? 0);
-    if (y >= jawLevels[0]!.y) return { hw: jawLevels[0]!.hw, hd: rear(jawLevels[0]!) };
-    for (let i = 0; i < jawLevels.length - 1; i++) {
-      const a = jawLevels[i]!, b = jawLevels[i + 1]!;
-      if (y > b.y) {
-        const f = (a.y - y) / (a.y - b.y);
-        return { hw: mix(a.hw, b.hw, f), hd: mix(rear(a), rear(b), f) };
-      }
-    }
-    const e = jawLevels[jawLevels.length - 1]!;
-    return { hw: e.hw, hd: rear(e) };
-  };
 
   // ---- where the plates are ----
   // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
@@ -13327,34 +12850,6 @@ export function buildCharacter(
     const a = awayFromFace(u);
     return a < cheekIn || a > cheekOut ? -Infinity : cheekHemAt(a);
   };
-  /**
-   * THE NAPE FALL'S OWN HALF-ARC AT A DESCENT — the azimuth its front edge
-   * reaches, measured off the fall's own sweep rather than guessed at.
-   *
-   * Hoisted for the third time for the same reason `cheekHemAt` and `napeHemY`
-   * were: the plate is swept on this and the hair under it has to read the same
-   * number. It did not. `hairCeil`'s nape branch held a CONSTANT 1.95 rad —
-   * 112 degrees off dead ahead — while a deep guard that laps a deep cheek
-   * plate reaches `pi - 1.79`, which is 77. So on the Wyrm-Crest and the Sutton
-   * Hoo there were 35 degrees of head with a 308-triangle plate over it and
-   * nothing telling the hair so, and `helmclash` section 5 read the result:
-   * 80-triangle coils 51-63% outboard of the kit at az 97-100 on all three
-   * classes without a coif, 8.0 to 11.9 mm out and standing through the plate's
-   * own outer surface.
-   *
-   * It is wrong in the other direction on the flange rungs, where 1.95 CLAIMS
-   * 6.6 degrees of cover the flange does not have.
-   *
-   * Read at the top of the descent, which is the narrowest the fall ever is, so
-   * this can only under-claim: hair outside a plate is a defect and hair
-   * flattened where there is no plate is a paid cosmetic thrown away.
-   */
-  const napeLap = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
-  const napeHalf = (v: number) =>
-    Math.max(style.nape === "guard" ? 1.30 : 1.08, napeLap)
-    + (style.nape === "guard" ? 0.44 : 0.30) * v * v;
-  /** That arc as an angle off dead ahead: hair further round than this is under it. */
-  const napeFrontU = Math.PI - napeHalf(0);
 
   // ---- where the cloth is ----
   // The hood's rim and its lift, authored here and read twice: once by the hood
@@ -13484,7 +12979,7 @@ export function buildCharacter(
     // deliberately put inside the skin there rather than being deleted: the
     // sweep stays continuous with the hair either side of it, and a continuous
     // sweep is the whole reason this file authors one surface instead of two.
-    if (helmed && style.nape !== "none" && awayFromFace(u) > napeFrontU && v < bandLo + 0.28
+    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.95 && v < bandLo + 0.28
       && (atY === undefined || atY > napeHemY)) {
       c = Math.min(c, -0.005);
     }
@@ -13511,24 +13006,7 @@ export function buildCharacter(
       faceSurface(K, _hcA, _hcB);
       const y = _hcB.y + skullY;
       const mail = Math.hypot(Math.sin(u) * coifAt(y, "hw"), Math.cos(u) * coifAt(y, "hd"));
-      // AND THE FLOOR IS NEGATIVE, for the reason the nape fall's is, and it is
-      // the other half of tapering the mail under the cap. Where the cap bears,
-      // `coifRing` pulls the rings in to the cap's own inner wall, and that wall
-      // is 9 mm off the block a helm is beaten over while the skin stands up to
-      // 16 mm proud of that block — so under the iron the rings can be level with
-      // the skin or inside it. A 2 mm floor there does not protect hair: it
-      // authorises hair OUTSIDE the mail, which is `helmclash` section 5 and
-      // `wearmeasure`'s hair-fit both going red at once. Measured at the 2 mm
-      // floor with the wall-read taper in: section 5 red on 9 of 9 huscarl rungs,
-      // hair-fit 6/30, 10.8 mm of Warrior Crop outside the Iron Spangenhelm at
-      // az 161.
-      //
-      // Hair under a helmet's own liner cannot be seen from any bearing, so it
-      // goes inside the skin rather than being deleted — the sweep stays
-      // continuous with the hair either side of it. Below the cap's rim the
-      // rings are back on the loose curve and this term is comfortably positive,
-      // so nothing that shows moves.
-      c = Math.min(c, Math.max(-0.005, mail - Math.hypot(_hcB.x, _hcB.z) - LAYER_GAP));
+      c = Math.min(c, Math.max(0.002, mail - Math.hypot(_hcB.x, _hcB.z) - LAYER_GAP));
     }
     return c;
   };
@@ -13822,11 +13300,12 @@ export function buildCharacter(
     // one. They stay well inside the jaw above — which is the property that earns
     // the overhang — and now hand off to the neck instead of pinching in front
     // of it.
-    // The stations themselves are `jawLevels`, declared with the head stack.
-    // They are read there as well as swept here, because they are the skin at
-    // the nape and the throat curtain has to lie outside them — the same
-    // hoist, and the same reason, as `coifLevels` and `napeHemY`.
-    p.add(shell(jawLevels, lod.limb, { capTop: true, capBottom: true }), headShade);
+    p.add(shell([
+      { y: skullY - 0.048, hw: R.x * 0.68, hd: R.z * 0.64, z: -0.013 },
+      { y: skullY - 0.105, hw: R.x * 0.63, hd: R.z * 0.59, z: -0.019 },
+      { y: skullY - 0.160, hw: R.x * 0.65, hd: R.z * 0.61, z: -0.021 },
+      { y: skullY - 0.230, hw: R.x * 0.69, hd: R.z * 0.64, z: -0.021 },
+    ], lod.limb, { capTop: true, capBottom: true }), headShade);
 
     // ---- the ears ----
     //
@@ -13856,12 +13335,7 @@ export function buildCharacter(
       const place3 = new THREE.Matrix4()
         .makeTranslation(s * earRootX, earY, -0.024)
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2));
-      // PRESSED under a plate that closes over the ear, and not otherwise. The
-      // deep guards and the mask are the two that strap shut across the jaw with
-      // the auricle inside them; a short guard stops in front of the ear and a
-      // cowl is cloth. See `auricle` and `EAR_PRESS`.
-      const A = auricle(K, earRootX, s,
-        style.mask || style.cheek === "deep" ? EAR_PRESS : 0);
+      const A = auricle(K, earRootX, s);
       p.add(A.skin, headSkin, place3);
       // The bowl in the form-shadow tone. It shares its vertices with the helix,
       // so it is not a separate object with a rim of its own to catch the light.
@@ -15074,49 +14548,7 @@ export function buildCharacter(
         },
       };
 
-      // ============================================================
-      // AND UNDER A MASK THE FALL IS PRESSED, NOT DELETED
-      // ============================================================
-      //
-      // `onFace` above retires the beard's FACE leg on a masked rung, because
-      // there is 22 mm of plate where that hair would be. What it does not touch
-      // is the FALL, and the fall on that rung hangs inside a mail ventail:
-      // `helmclash` section 5 read the berserker's Full Beard bulging 21.5 mm
-      // through the curtain at az 4, y -24.9 mm, 6.2% of the beard's own area
-      // outboard of the kit — 2.16% of the pelt against a 2.0% bar. It reads
-      // 4.81 on `fa8353a`, so this is an old fault the curtain fix uncovered
-      // more of rather than one it caused.
-      //
-      // A mail collar worn over a beard FLATTENS it. That is what this is, and
-      // it is the fix `docs/OPEN-DEFECTS.md` records for this exact patch:
-      // "PRESS THE BEARD INSIDE THE MASK ... a beard that is inside the helm is
-      // fine where a beard that is absent is not." A previous pass answered the
-      // same reading with `&& !style.mask`, which built no beard mesh at all
-      // under the Sutton Hoo and deleted three paid rungs. Nothing here changes
-      // what is built: the same shell, the same rows, the same five distinct
-      // head-pivot vertex counts (12124 / 13312 / 13444 / 13444 / 14500 on the
-      // berserker at seed 13), with the section's own OUTWARD reach scaled.
-      //
-      // 0.70, and both ends of it are measured rather than judged. Section 5's
-      // berserker row against its 2.0% bar, sweeping this number alone:
-      //
-      //     1.00  2.16%  FAIL, 21.5 mm through at az 4
-      //     0.70  0.88%  pass, 11.8 mm
-      //     0.50  0.40%  pass,  8.7 mm
-      //     0.30  0.21%  pass,  7.3 mm
-      //
-      // It sits at the loosest value that clears the bar with margin rather than
-      // at the tightest that clears it at all, because every point of press is a
-      // point of a cosmetic somebody paid 40 to 120 gold for. Pressed, and read
-      // off the built mesh with a horizontal ray dead ahead at y = -15 mm, the
-      // berserker's Full Beard still reaches r = 140.7 mm against a neck at 53.5
-      // and the ventail at 126.2 / 133.2 — a beard hanging well clear of the
-      // mail's face, not a scrape on a throat.
-      const BEARD_PRESS = 0.70;
-      const cut0 = cuts[ap.beardStyle] ?? cuts.full!;
-      const cut = style.mask
-        ? { ...cut0, prof: cut0.prof.map((b) => ({ o: b.o * BEARD_PRESS, d: b.d })) }
-        : cut0;
+      const cut = cuts[ap.beardStyle] ?? cuts.full!;
       p.add(beardShell(K, skullY, nuB, cut), beard);
     }
 
@@ -15173,8 +14605,8 @@ export function buildCharacter(
       // the band ON the ridge still holds and this does not break it — the ridge
       // peaks at `Y_BROW` and the rim now clears it by 5 mm rather than by 19.
       // `bandLo` — the band's lower rim — is declared with the head stack, above
-      // the hair, because the hair has to emerge from under it. `bandHi` is
-      // declared beside it, for the mail's sake — see `capWall`.
+      // the hair, because the hair has to emerge from under it. See there.
+      const bandHi = bandLo + 0.20;
       // The two substances the whole cap is cut from. Every helm below the noble
       // tier gets the iron/steel pair it always had; the Sutton Hoo gets tinned
       // silver and gilt through the same lines, so its cap is the same object in
@@ -15205,89 +14637,6 @@ export function buildCharacter(
         // wherever the two disagree, which over the brow ridge is 16 mm of float.
         return _fp.addScaledVector(formNormal(_form, u, v, _n), off);
       };
-      // ============================================================
-      // THE HULL — where the head actually is, for everything hung on it
-      // ============================================================
-      //
-      // ONE DEFINITION, TWO READERS, which is the rule this file has been bitten
-      // by three times. The nape fall is driven off this hull; so, now, is the
-      // back half of the Sutton Hoo's throat curtain, because the curtain has to
-      // be INSIDE the plate the fall lays over it. A curtain carrying its own
-      // idea of where the head is would drift out through the guard the first
-      // time either was touched.
-      // SAMPLED OFF THE FORM, not guessed from the ellipsoid it started as.
-      // The first draft of this used `R.x · sqrt(1 - t²)`, which is 12% wider
-      // at the ear's height than at the top ring's — but the head is not an
-      // ellipsoid there. Its own breadth table holds 98 mm at the parietal and
-      // 90 mm at the cheekbone, so the real outline is close to a straight
-      // side, and a ring following a barrel over a straight side leaves it at
-      // 35 deg. Two columns off the block the helmet is beaten over — one at
-      // the flank, one at the occiput — cost 26 field samples and are the
-      // shape that is actually there.
-      const sideP: Array<[number, number]> = [];
-      const backP: Array<[number, number]> = [];
-      {
-        const q = new THREE.Vector3();
-        // 24 stations, not 12. The columns are read by linear interpolation
-        // in y, and the form's half-breadth against y is nearly straight down
-        // the flank and then turns hard under the skull's base — which is where
-        // the deep guard's last third hangs. A coarse table cuts that corner,
-        // the plate follows the cut, and the metal leaves the head over the few
-        // centimetres the table could not see.
-        for (let i = 0; i <= 24; i++) {
-          const v = mix(Math.PI / 2 - 0.05, -Math.PI / 2 + 0.30, i / 24);
-          formSurface(_form, Math.PI / 2, v, q);
-          sideP.push([skullY + q.y, Math.abs(q.x)]);
-          formSurface(_form, Math.PI, v, q);
-          backP.push([skullY + q.y, Math.abs(q.z)]);
-        }
-      }
-      /** Read one of those columns at a height. Both descend in y. */
-      const readP = (tab: Array<[number, number]>, y: number): number => {
-        if (y >= tab[0][0]) return tab[0][1];
-        for (let i = 0; i < tab.length - 1; i++) {
-          if (y <= tab[i][0] && y >= tab[i + 1][0]) {
-            return mix(tab[i][1], tab[i + 1][1], (tab[i][0] - y) / (tab[i][0] - tab[i + 1][0]));
-          }
-        }
-        return tab[tab.length - 1][1];
-      };
-      // Below the skull there is no skull, and a neck is a neck in millimetres
-      // rather than a fraction of a head — expressing it as 0.62 R.z stood the
-      // deep guard's rim 34 mm behind a throat that is 45 mm through, which was
-      // most of its 48 mm of daylight. And on the one class that wears mail the
-      // plate lies on the mail, because that is what is under it.
-      //
-      // Softened at the crossover, because a hard `max` puts a KINK where the
-      // skull's outline meets the neck's — and the fall's flare is a derivative,
-      // so a kink in what it follows is a spike in what it measures. 12 mm of
-      // rounding is a fillet, not a fudge: it is what a plate beaten over that
-      // corner would do.
-      const sm = (a: number, b: number, k = 0.004) =>
-        0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k)) - k * 0.5;
-      const hullAt = (y: number) => {
-        let hw = sm(readP(sideP, y), S.neckHW);
-        let hd = sm(readP(backP, y), S.neckHW);
-        // AND THE MAIL'S REAR SURFACE IS NOT ITS HALF-DEPTH. The coif's rings
-        // carry a `z` of -20 to -32 mm, so the mail stands that much further
-        // back than `hd` alone says — and this hull was clearing the plate
-        // against `hd` alone. That is the identical z-shift fault
-        // `docs/OPEN-DEFECTS.md` suspected in the ruler, sitting in the build.
-        //
-        // `helmclash` section 1 measured what it cost, at the nape and nowhere
-        // else: the Ridge, Boar-Crest and Jarl's Crowned flanges 7.6 mm inboard
-        // of the rings at az 177 on their own floor ring, the Wyrm-Crest's deep
-        // guard 13.3 mm at az 213, and the Sutton Hoo's gilt rim lip with 100%
-        // of its outward face under the mail. `hd` is only read through
-        // `cos(u)`, so this moves the plate at the back and by construction
-        // nothing at the sides.
-        if (heavy) {
-          hw = sm(hw, coifAt(y, "hw"));
-          hd = sm(hd, coifAt(y, "hd") - coifAt(y, "z"));
-        }
-        return { hw, hd };
-      };
-
       // THE BOWL, and its profile is a rung of the ladder rather than a constant.
       //
       // It used to be one curve — `mix(0.013, 0.014 + 0.008 · B.bowl, v²)` — for
@@ -15296,9 +14645,28 @@ export function buildCharacter(
       // distance: "panels 7, 8 and 9 differ from each other by a two-pixel smudge
       // on the crown". A crest is four pixels. A profile is the whole outline.
       //
-      // The three numbers per rung — seat, rise, taper — are declared with the
-      // head stack, above the hair, because the MAIL under the cap has to know
-      // where the cap's inner wall is. See `bowlProfile` and `capWall` there.
+      // Three numbers per rung: where the iron starts at the band (`seat`), how
+      // much it rises to the crown (`rise`), and how that rise is distributed
+      // (`taper`). A low exponent puts the height on the flank and gives a
+      // straight-sided cone; a high one keeps the flank close to the skull and
+      // domes only at the top.
+      //
+      // `seat` is 17 mm and not 13, on every profile, and that is a fix rather
+      // than a style: `helmFitProbe` measured the skin standing 15.7 mm proud of
+      // the form at the brow ridge on seed 7932, so at 13 mm the bowl's own rim
+      // had 2.7 mm of forehead through it. A helm is worn over 8-12 mm of liner
+      // and the brow ridge is under the rim; 17 clears it on every seed measured.
+      //
+      // The class term stays on all four, because a huscarl's helm is a bigger
+      // object than a berserker's whatever shape it is.
+      const bowlProfile = {
+        //          seat   rise to the crown        taper
+        shallow: [0.017, 0.004 + 0.003 * B.bowl, 1.70],
+        cone:    [0.017, 0.030 + 0.008 * B.bowl, 1.15],
+        round:   [0.017, 0.012 + 0.008 * B.bowl, 2.10],
+        tall:    [0.017, 0.030 + 0.008 * B.bowl, 2.70],
+      }[style.bowl];
+      const [bowlSeat, bowlRise, bowlTaper] = bowlProfile;
       const crest = bowlSeat + bowlRise;
       const bowlLift = (v: number) => bowlSeat + bowlRise * Math.pow(clamp01(v), bowlTaper);
       // AND THE SPANGENHELM IS FOUR PLATES, which until now was a claim made only
@@ -15331,7 +14699,7 @@ export function buildCharacter(
         nu: Math.max(lobe ? 20 : 10, lod.shellU + 2),
         nv: Math.max(lod.shellV, style.bowl === "cone" ? 6 : 4),
         lift: (u, v) => bowlLift(v) + bellyAt(u, v),
-        thick: BOWL_GAUGE,
+        thick: 0.007,
       }), capMetal, place.clone());
       // ---- a comb along the midline ----
       //
@@ -15470,7 +14838,7 @@ export function buildCharacter(
         // 7 mm of flare from top rim to bottom kept: that overhang is the shadow
         // line across the brow the whole face composition hangs off.
         lift: (_u, v) => bowlSeat + 0.007 * (1 - v),
-        thick: BAND_GAUGE,
+        thick: 0.008,
       }), capMetal, place.clone());
       if (lod.trim && style.bowl !== "cone") {
         // The bowl's spangen — the strips the cap's plates are riveted along.
@@ -15946,6 +15314,62 @@ export function buildCharacter(
         const topY = style.crown === "circlet"
           ? Math.min(skullY + R.y * 0.47, circletY - 0.014)
           : skullY + R.y * 0.47;
+        // SAMPLED OFF THE FORM, not guessed from the ellipsoid it started as.
+        // The first draft of this used `R.x · sqrt(1 - t²)`, which is 12% wider
+        // at the ear's height than at the top ring's — but the head is not an
+        // ellipsoid there. Its own breadth table holds 98 mm at the parietal and
+        // 90 mm at the cheekbone, so the real outline is close to a straight
+        // side, and a ring following a barrel over a straight side leaves it at
+        // 35 deg. Two columns off the block the helmet is beaten over — one at
+        // the flank, one at the occiput — cost 26 field samples and are the
+        // shape that is actually there.
+        const sideP: Array<[number, number]> = [];
+        const backP: Array<[number, number]> = [];
+        {
+          const q = new THREE.Vector3();
+          // 24 stations, not 12. The columns are read by linear interpolation
+          // in y, and the form's half-breadth against y is nearly straight down
+          // the flank and then turns hard under the skull's base — which is where
+          // the deep guard's last third hangs. A coarse table cuts that corner,
+          // the plate follows the cut, and the metal leaves the head over the few
+          // centimetres the table could not see.
+          for (let i = 0; i <= 24; i++) {
+            const v = mix(Math.PI / 2 - 0.05, -Math.PI / 2 + 0.30, i / 24);
+            formSurface(_form, Math.PI / 2, v, q);
+            sideP.push([skullY + q.y, Math.abs(q.x)]);
+            formSurface(_form, Math.PI, v, q);
+            backP.push([skullY + q.y, Math.abs(q.z)]);
+          }
+        }
+        /** Read one of those columns at a height. Both descend in y. */
+        const readP = (tab: Array<[number, number]>, y: number): number => {
+          if (y >= tab[0][0]) return tab[0][1];
+          for (let i = 0; i < tab.length - 1; i++) {
+            if (y <= tab[i][0] && y >= tab[i + 1][0]) {
+              return mix(tab[i][1], tab[i + 1][1], (tab[i][0] - y) / (tab[i][0] - tab[i + 1][0]));
+            }
+          }
+          return tab[tab.length - 1][1];
+        };
+        // Below the skull there is no skull, and a neck is a neck in millimetres
+        // rather than a fraction of a head — expressing it as 0.62 R.z stood the
+        // deep guard's rim 34 mm behind a throat that is 45 mm through, which was
+        // most of its 48 mm of daylight. And on the one class that wears mail the
+        // plate lies on the mail, because that is what is under it.
+        //
+        // Softened at the crossover, because a hard `max` puts a KINK where the
+        // skull's outline meets the neck's — and the fall's flare is a derivative,
+        // so a kink in what it follows is a spike in what it measures. 12 mm of
+        // rounding is a fillet, not a fudge: it is what a plate beaten over that
+        // corner would do.
+        const sm = (a: number, b: number, k = 0.004) =>
+          0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k)) - k * 0.5;
+        const hullAt = (y: number) => {
+          let hw = sm(readP(sideP, y), S.neckHW);
+          let hd = sm(readP(backP, y), S.neckHW);
+          if (heavy) { hw = sm(hw, coifAt(y, "hw")); hd = sm(hd, coifAt(y, "hd")); }
+          return { hw, hd };
+        };
         // AND THE PLATE IS DRIVEN OFF THAT HULL AT EVERY HEIGHT, not off three
         // sampled rings with straight lines between them. Three rings is a plate
         // with two creases in it; a crease is a step in the angle the metal makes
@@ -15984,9 +15408,7 @@ export function buildCharacter(
         // is cut to, so the two cannot drift apart again. Where there is no
         // guard — the Ridge Helm's flange over an open face — there is nothing
         // to lap and the fall keeps its own arc.
-        // Hoisted with `cheekHemAt`, above the hair, because the hair under this
-        // plate has to read the same arc the plate is swept on. See `napeHalf`.
-        const lapU = napeLap;
+        const lapU = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
         // AND THE DECISION IS PER HELM, which is what the owner asked for.
         //
         // The Wyrm-Crest and the Sutton Hoo are CLOSED helmets: their guards are
@@ -16005,7 +15427,8 @@ export function buildCharacter(
         // opening is over the ear and §10 reports how far off it still is —
         // reported, because a bar this unit cannot hold is a bar that gets
         // tuned rather than met.
-        const half = napeHalf;
+        const half = (v: number) =>
+          Math.max(deep ? 1.30 : 1.08, lapU) + (deep ? 0.44 : 0.30) * v * v;
         const fall = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const y = mix(topY, floorY, v);
           const h = hullAt(y);
@@ -16359,83 +15782,40 @@ export function buildCharacter(
         // midline as it runs, and that it is thickest just behind a head that is
         // thrown clear of everything. All three are properties of a swept spine
         // and none of them can be said by a lift function.
-        // ---- AND IT WAS FLOATING ----
-        //
-        // "also floating above the helmet, not attached." The arch this replaces
-        // sprang off the nape, cleared the crown by 46 mm and came down in front
-        // of the brow, and it never touched the cap between those two points.
-        // `helmclash` section 4 measured what that reads as: taking the
-        // fitting's NEAREST APPROACH to the cap at every 4 mm station of its
-        // fore-and-aft run, the worst station on this animal was 50.0 to 54.2 mm
-        // of nothing on all four classes, against a bar of 40 and against the
-        // Boar-Crest's 32.5-33.1 and the Sutton Hoo crest's 13.9-15.4.
-        //
-        // A serpent on a helmet is not a hoop over one. It CRAWLS: the tail lies
-        // on the nape, the body humps and comes back down onto the iron between
-        // the humps, and the head is thrown clear at the front. Three properties
-        // and every one of them is in the path rather than in a fitting:
-        //
-        //   * two humps with a landing between them, so the run has no stretch
-        //     where none of the animal comes down — which is the whole of what
-        //     "not attached" means and the whole of what section 4 measures;
-        //   * the humps are UNEQUAL, 20 mm at the shoulder and 30 mm at the
-        //     neck, because two equal humps are a corrugation and a corrugation
-        //     is symmetric — and a symmetric ridge is not a wyrm;
-        //   * the wander is wider than it was, 16 mm rather than 11, because at
-        //     fight distance the vertical wave is about six pixels and the
-        //     lateral S is what carries the read from the front.
-        //
-        // The head still goes over the brow and still looks down at whoever the
-        // man is looking at. It is the one part that IS entitled to sky under
-        // it: past the brow it is no longer over the cap at all, so it is not a
-        // station in section 4 and never was.
         const wyrmSpine = (t: number, out: THREE.Vector3) => {
-          const z = zTop + mix(-0.090, 0.152, t);
-          // The crawl. Two humps and a landing, in millimetres above the iron:
-          // 0 at the tail tip, 20 over the shoulder, back down to 5 at mid-run
-          // where the belly is soldered to the cap, 30 at the neck, and away
-          // over the brow. `bump` gives each hump its own smooth support, so the
-          // landing between them is a real contact and not the crossing of two
-          // sine waves.
-          const rise =
-            0.022 * bump(t - 0.22, 0, 0, 0.13, 1, 1)
-            + 0.028 * bump(t - 0.62, 0, 0, 0.15, 1, 1)
-            + 0.004;
+          const z = zTop + mix(-0.090, 0.132, t);
+          // THE ARCH. The body springs off the nape, clears the crown by 46 mm
+          // and comes down in front of the brow — so from the side there is
+          // daylight between the animal and the cap over the whole middle third,
+          // which is the one thing that says "arched over" rather than "lying
+          // on". `sin^0.7` rather than `sin` keeps the height up along both
+          // flanks instead of peaking only at the pole, which is the same
+          // correction the comb version's note records making and then made only
+          // to its height, not to its path.
+          const rise = 0.046 * Math.pow(Math.sin(Math.PI * clamp01(t * 0.92 + 0.04)), 0.70);
           out.set(
-            0.016 * Math.sin(t * Math.PI * 2.3) * (1 - clamp01((t - 0.68) / 0.32)),
-            Math.max(capY(z), yTop - 0.060) + 0.010 + rise
+            // The wander. A snake does not run down a centreline, and 11 mm of
+            // travel is enough to break the symmetry at portrait size. Taken
+            // back out over the last quarter so the head sits square to the
+            // face, which is the bearing a duel is fought at.
+            0.011 * Math.sin(t * Math.PI * 2.3) * (1 - clamp01((t - 0.68) / 0.32)),
+            Math.max(capY(z), yTop - 0.030) + 0.012 + rise
               // The head is thrown DOWN as well as forward, over the brow, so it
               // looks at whoever the man is looking at.
-              - 0.014 * Math.pow(clamp01((t - 0.70) / 0.30), 1.5),
+              - 0.030 * Math.pow(clamp01((t - 0.70) / 0.30), 1.5),
             z,
           );
         };
-        // AND IT HAS TO CARRY AT SIXTY PIXELS, which is the size a helmet is read
-        // at in a duel and the size the owner's "unrecognisable" was written
-        // about. Rendered at `facecard`, cropped to the head and resampled to a
-        // 60 px silhouette, the section this replaces read as ONE BRIGHT THIN
-        // LINE arcing over the dome — the "bent wire" the comb version was
-        // replaced for, back again in a rounder section. The arithmetic says why:
-        // a 23 mm body on a 250 mm head is five pixels at that size, and five
-        // pixels of anything is a line.
-        //
-        // So the mass goes up and, more to the point, the DIFFERENTIAL goes up.
-        // A serpent is read by a head that is wider than the neck behind it. At
-        // 31 mm across the jaw against 18 at the neck the head was 1.75x its own
-        // neck and about two pixels wider; at 42 against 20 it is a head. The
-        // body thickens to 28 mm over the crown so the taper to the tail is
-        // something the eye can measure, and the tail tip keeps its point,
-        // because a serpent that ends in a stub ends in a rivet.
         //          t     half     tall     scales
         const WYRM: ReadonlyArray<readonly [number, number, number, number]> = [
-          [0.00, 0.0034, 0.0036, 0.0000], // tail tip, on the nape
-          [0.16, 0.0098, 0.0106, 0.0034],
-          [0.42, 0.0140, 0.0150, 0.0058], // the thick of the body, over the crown
-          [0.62, 0.0118, 0.0128, 0.0050],
-          [0.74, 0.0100, 0.0106, 0.0036], // the neck — the waist the head reads against
-          [0.86, 0.0210, 0.0180, 0.0032], // the head — BROAD across the jaw
-          [0.94, 0.0160, 0.0128, 0.0012], // the muzzle
-          [1.00, 0.0080, 0.0064, 0.0000], // the snout
+          [0.00, 0.0030, 0.0032, 0.0000], // tail tip, on the nape
+          [0.16, 0.0082, 0.0092, 0.0030],
+          [0.42, 0.0116, 0.0132, 0.0050], // the thick of the body, over the crown
+          [0.62, 0.0104, 0.0118, 0.0046],
+          [0.74, 0.0090, 0.0100, 0.0034], // the neck
+          [0.86, 0.0158, 0.0132, 0.0030], // the head — BROAD across the jaw
+          [0.94, 0.0128, 0.0104, 0.0012], // the muzzle
+          [1.00, 0.0060, 0.0052, 0.0000], // the snout
         ];
         const wyrmAt = (t: number, k: 1 | 2 | 3) => {
           for (let i = 0; i < WYRM.length - 1; i++) {
@@ -16452,14 +15832,7 @@ export function buildCharacter(
           // the same term the boar's bristles ride.
           crest: (t) => wyrmAt(t, 3) * (0.66 + 0.34 * Math.cos(t * 78)),
           belly: () => 0.86,
-          // BRASS, NOT THE CAP'S OWN STEEL, and it is the shop's own precedent
-          // rather than a new idea: the 380-gold Boar-Crest's animal is brass on
-          // a steel cap and reads across a bowl at any distance because of it.
-          // A steel serpent on a steel dome has only its outline to work with,
-          // and at the 60 px a helmet is read at in a duel an outline five
-          // pixels thick is a highlight on the cap. Gilt bronze on iron is also
-          // what the period does with a crest.
-        }), brass, place.clone());
+        }), trimMetal, place.clone());
         // Same frame trap as the boar's fittings: the sweep is in the form's
         // space and every `xf` below is in the part's, so the spine is read
         // through one helper that adds `skullY` and nothing else may.
@@ -16481,7 +15854,7 @@ export function buildCharacter(
             half: (t) => 0.0125 * (1 - 0.55 * t * t),
             tall: (t) => 0.0052 * (1 - 0.45 * t * t),
             belly: () => 0.9,
-          }), brass);
+          }), trimMetal);
           for (const s of [-1, 1]) {
             // The brow horns, swept back off the skull the way a serpent's are
             // drawn in the interlace this game's identity is built on.
@@ -17220,194 +16593,25 @@ export function buildCharacter(
           shell(0, chinV, maskLift(chinV), chinPt);
           const vTop = skullY + chinPt.y + 0.016;
           const vBot = S.neckRoot - 0.014 - S.neckTop - 0.022;
-          /**
-           * THE MASK'S OWN INNER SURFACE AT A HEIGHT, along one bearing.
-           *
-           * Off `shell`, `maskLift`, `tuck` and `flank` — the four the lower
-           * sheet is actually swept with — rather than off a fraction of the
-           * skull. `null` where the plate does not reach that height on that
-           * bearing, so a rung or a seed whose chin sits elsewhere gets no
-           * constraint rather than a wrong one.
-           */
-          const maskUnder = (u: number, y: number) => {
-            const q = new THREE.Vector3();
-            let bx = 0, bz = 0, bestD = Infinity;
-            for (let i = 0; i <= 24; i++) {
-              const v = mix(maskBot(u), maskTop, i / 24);
-              shell(u, v, maskLift(v) - tuck(u) - 0.0075 * flank(u), q);
-              const d = Math.abs(skullY + q.y - y);
-              if (d < bestD) { bestD = d; bx = Math.abs(q.x); bz = q.z; }
-            }
-            return bestD < 0.008 ? { x: bx, z: bz } : null;
-          };
-          // MAIL UNDER PLATE, WHICH IS THE RULE THE REAR OF THIS CURTAIN ALREADY
-          // RUNS ON — "Mail under plate, plate over mail; neither piece owns a
-          // second copy of where the head is", forty lines down. The front did
-          // not. The top ring sat 16 mm ABOVE the mask's lowest point at
-          // `R.x * 0.86` and `R.z * 0.78`, which is OUTSIDE the plate there, so
-          // the bottom of the chin plate was behind mail: `helmclash` section 1
-          // read the mask's own 2128-triangle sheet 11.3 to 15.0 mm inboard of
-          // the rings at az 335-336, 4.3 to 5.0% of its outward face, on all
-          // four classes — the last four red rows in that section.
-          //
-          // A ventail is riveted behind the plate's edge and comes out from
-          // under it. So the lap keeps its 16 mm and is TUCKED: the top ring is
-          // held inside the mask's own inner surface less a `LAYER_GAP`, and a
-          // second ring at the plate's hem carries the curtain straight back out
-          // to the radius it always had. Nothing below the hem moves by a
-          // micron, and the mail still meets the plate with no gap to see
-          // through — it meets it on the other side.
-          const topZ0 = chinPt.z * 0.42;
-          const vHemY = skullY + chinPt.y - 0.001;
-          // SOLVED AGAINST THE PLATE AT EVERY BEARING IT COVERS, not at two of
-          // them. The lap ring is a translated ellipse and the mask is a face, so
-          // matching them at the midline and at the flank still leaves the ring
-          // outside the plate at the quarter — measured, that left 8.3 to 9.5 mm
-          // of mask still inboard at az 335, which is exactly the quarter.
-          //
-          // So the whole ring is scaled about the head's axis by the worst
-          // bearing. `t` below is where the ray at a mask sample's own azimuth
-          // crosses the ring: the ring's own quadratic, solved rather than
-          // sampled, so the answer does not depend on how finely anything is
-          // walked.
-          const lapK = (y: number) => {
-            const hw = R.x * 0.86, hd = R.z * 0.78;
-            let k = 1;
-            for (let i = -24; i <= 24; i++) {
-              const u = (i / 24) * uEdge;
-              const hit = maskUnder(u, y);
-              if (!hit) continue;
-              const px = Math.sign(i || 1) * hit.x, pz = hit.z;
-              const r = Math.hypot(px, pz);
-              if (r < 1e-6) continue;
-              const sa = px / r, ca = pz / r;
-              const A = (sa / hw) * (sa / hw) + (ca / hd) * (ca / hd);
-              const B = -2 * ca * topZ0 / (hd * hd);
-              const C = topZ0 * topZ0 / (hd * hd) - 1;
-              const disc = B * B - 4 * A * C;
-              if (disc <= 0) continue;
-              const t = (-B + Math.sqrt(disc)) / (2 * A);
-              if (t <= 1e-6) continue;
-              k = Math.min(k, (r - LAYER_GAP) / t);
-            }
-            // A ring pulled inside the throat is not a lap either, so it never
-            // goes past three quarters of the radius it was authored at.
-            return Math.max(0.75, k);
-          };
-          // BOTH LAP RINGS ARE SOLVED, and the second one is why. The mask's hem
-          // is `maskBot`, which RISES from the chin to the jaw, so a ring at the
-          // midline chin's height is still under plate everywhere off the
-          // midline: with only the top ring tucked, section 1 read 7.2-7.5 mm at
-          // az 334-345, which is the quarter, at heights BELOW the top ring.
-          // Tucked at both ends the curtain is inside the plate over the whole
-          // lap and swells to its authored radius only below the lowest metal
-          // there is.
-          const kTop = lapK(vTop), kHem = lapK(vHemY);
+          // Hung off the mask's own lower edge in z and falling back onto the
+          // neck as it drops, so the curtain lies against the throat rather than
+          // standing off it as a bib. Wider at the bottom because it lands on the
+          // collar, which is where a coif's skirt goes.
           const vRings = [
-            { y: vTop, hw: R.x * 0.86 * kTop, hd: R.z * 0.78 * kTop, z: topZ0 * kTop },
-            // Hung off the mask's own lower edge in z and falling back onto the
-            // neck as it drops, so the curtain lies against the throat rather
-            // than standing off it as a bib. Wider at the bottom because it
-            // lands on the collar, which is where a coif's skirt goes.
-            { y: vHemY, hw: R.x * 0.86 * kHem, hd: R.z * 0.78 * kHem, z: topZ0 * kHem },
+            { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
             { y: mix(vTop, vBot, 0.5), hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
             { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
           ];
-          // AND IT CARRIES ROUND THE BACK, which is the owner's third note:
-          // "There's a full neck mesh on the front with a clear back? That's
-          // really sloppy." A curtain that wraps the throat and stops at the
-          // ears is a bib. `helmclash` section 3 measured it on the three
-          // classes without a coif — 149.5 to 152.5 degrees of bare nape at
-          // 71 to 80 mm of radius, under 207 to 211 degrees of wrapped throat.
-          //
-          // THE REAR IS NOT THE FRONT'S RINGS CARRIED ON, and the first cut of
-          // this proved why by trying it as a fraction of them. Those rings are
-          // sized to hang clear of a throat and land on the collar; run round
-          // the back they are 62 mm of radius at the jaw, which is INSIDE the
-          // occiput, and 91 mm at the hem, which is outside the nape guard on a
-          // head whose hull there is 80. Mail through the skull at one end and
-          // mail outside the plate at the other.
-          //
-          // So the back half rides `hullAt` — the same hull the nape guard is
-          // driven off, one level up — plus a layer gap. That puts the curtain
-          // against the head wherever the guard is, with the guard's own 13 to
-          // 15 mm of clearance lying over it, and it keeps following the head
-          // down past the guard's hem where the mail is the only thing left.
-          // Mail under plate, plate over mail; neither piece owns a second copy
-          // of where the head is.
-          //
-          // The blend runs from 1.40 rad — where the nape fall's own arc starts
-          // — to 2.30, so the throat's own shape is untouched and the two meet
-          // under metal.
-          // AND IT LETS GO OF THE HULL AS IT FALLS PAST THE GUARD'S HEM.
-          //
-          // The hull is a HEAD's, and mail that has fallen past the head is
-          // lying on a body — the correction `coifLevels` carries one level up
-          // for the same reason. Hugged all the way down, `helmclash` section 3
-          // read 93.5 to 98.0 degrees of bare nape at y 10: the trapezius stands
-          // 78 to 87 mm out down there and the hull is clamped to `S.neckHW`,
-          // which is a neck and not a shoulder.
-          //
-          // So the rear's grip on the hull fades over the 55 mm below
-          // `napeHemY` — the guard's own free lower edge, read rather than
-          // copied — and below that the curtain is the same free collar all the
-          // way round that its front already is, landing on the same rings.
-          const VENT_LETGO = 0.055;
-          const VENT_SKIRT = 0.020;
-          // AND THE HULL IS NOT THE WHOLE OF THE HEAD AT THE NAPE — this is the
-          // owner's third note, still in the picture after the sweep above was
-          // written for it.
-          //
-          // `hullAt` is the SKULL's own column while there is skull and
-          // `S.neckHW` below it, and between those two the submandibular mass
-          // hangs down the back of the head outboard of both. Measured on this
-          // tree at az 180 on the warden: the skin is 89.7 / 88.8 / 88.1 /
-          // 87.0 mm at y 8 / 24 / 34 / 48 and the hull under it is 78.1 for
-          // every one of them, so mail riding the hull plus a layer gap crossed
-          // INSIDE the skin at y 26 and stayed there for the next 22 mm of
-          // curtain. `helmclash` section 3 read 69.5 / 63.5 / 76.5 degrees of
-          // bare nape at 83.4 / 88.4 / 78.4 mm of radius on the warden, the
-          // berserker and the runekeeper — a flesh stripe from the gold rim to
-          // the collar, which is exactly what the owner photographed.
-          //
-          // So the rear rides the OUTER of the two. `jawAt` is the same station
-          // list the head stack sweeps, read at its rear reach from the axis;
-          // `sm` is the same soft max the hull itself is built out of, so the
-          // hand-over where the skull's column gives way to the jaw is a fillet
-          // and not a crease.
-          //
-          // IT IS NOT ADDED TO `hullAt` ITSELF, and that is measured rather than
-          // squeamish. The nape fall rides the hull with 13-15 mm of authored
-          // clearance; on the three classes with no coif the hull is 9 mm inside
-          // the skin down there, so the plate's real clearance is 11 mm and
-          // `wearmeasure` section 3 reads the Sutton Hoo at gap 21.7 mm and hem
-          // 19.0 against 26 mm bars. Feeding the jaw into the hull moves that
-          // plate out by the same 9 mm — 30 mm of gap and 28 of hem, both over
-          // the bar — which is the flaring flange the owner complained of in
-          // the first place. Plate over mail: the mail is what has to be outside
-          // the skin, and the plate is outside the mail either way.
-          const vRear = (y: number) => {
-            const h = hullAt(y);
-            const j = jawAt(y);
-            const c = LAYER_GAP + VENT_SKIRT * smooth(0, VENT_LETGO, napeHemY - y);
-            return { hw: sm(h.hw, j.hw) + c, hd: sm(h.hd, j.hd) + c };
-          };
           const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
             const t = v * (vRings.length - 1);
             const i = Math.min(vRings.length - 2, Math.floor(t));
             const f = t - i;
             const a = vRings[i];
             const b = vRings[i + 1];
-            const y = mix(a.y, b.y, f);
-            const back = smooth(1.40, 2.30, Math.abs(u));
-            const r = vRear(y);
-            const hw = mix(mix(a.hw, b.hw, f), r.hw, back);
-            const hd = mix(mix(a.hd, b.hd, f), r.hd, back);
-            const z0 = mix(a.z, b.z, f) * (1 - back);
             out.set(
-              Math.sin(u) * (hw - inset),
-              y,
-              z0 + Math.cos(u) * (hd - inset),
+              Math.sin(u) * (mix(a.hw, b.hw, f) - inset),
+              mix(a.y, b.y, f),
+              mix(a.z, b.z, f) + Math.cos(u) * (mix(a.hd, b.hd, f) - inset),
             );
           };
           // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
@@ -17422,36 +16626,11 @@ export function buildCharacter(
           // is inside the fall's own plate, so the extra sweep costs a few
           // triangles nobody will see and removes the last bearing at which the
           // three pieces can disagree.
-          // PI, not 2.45, ON THE THREE CLASSES WITH A BARE NAPE. At 2.45 the
-          // curtain finished 40 degrees short of the nape on each side and the
-          // man was bare behind — the owner's third note, and `helmclash`
-          // section 3's 149.5 degree arc. Closed, it is what an aventail is, and
-          // `wrapU` is what stops `patch` closing the join with two rim strips
-          // standing on the nape.
-          //
-          // AND IT STAYS AT 2.45 ON THE HUSCARL, because on him the nape is
-          // already mail. He wears a coif; `helmclash` section 3 read his bare
-          // arc at 14.0 degrees against a 90 degree bar before any of this, so
-          // there is no fault behind him to fix. Closing the ring on him anyway
-          // is not a second layer of defence, it is a sheet laid across the
-          // opening his mane comes out of: `wearmeasure` section 4 measured it
-          // the first time this closed on every class — 8.7 mm of Long Mane and
-          // 8.8 mm of Braided War-locks outside the helm at az -159 and -176,
-          // against a 3 mm bar, with the same hair clean on every other rung.
-          // The rule the head stack already runs on is that mail laps mail; the
-          // coif is the mail here and the curtain laps it rather than repeating
-          // it.
-          const vHalf = coifed ? 2.45 : Math.PI;
+          const vHalf = 2.45;
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
           p.add(patch({
-            // TWO ROWS PER SEGMENT, so every ring is landed on. `vAt` maps the
-            // patch's own `v` uniformly across the ring list, so a row count
-            // that is not a multiple of the segment count steps straight over
-            // the rings between the ends — with four rows over the four-ring
-            // table the sweep never sampled the plate's hem at all and chorded
-            // across the tuck it exists to draw.
-            nu: Math.max(16, lod.shellU * 2), nv: (vRings.length - 1) * 2, wrapU: !coifed,
+            nu: Math.max(12, lod.shellU + 2), nv: 4,
             outer: vSweep(0), inner: vSweep(0.007),
           }), mail);
         }
@@ -17506,29 +16685,10 @@ export function buildCharacter(
         // the highlight that runs along it, and along the slopes — where a crest
         // is read against the head rather than against the sky — it keeps all of
         // its height.
-        // WHERE THE REAR LEG STOPS, and on one class it is not where it was.
-        //
-        // The rear run descended to 0.44 rad BELOW the band — off the cap
-        // altogether, onto the occiput. On the huscarl that is inside a mail
-        // aventail: `helmclash` section 1 measured the rear beast's-head
-        // terminal 13.9 mm inboard of the rings with 100% of its outward face
-        // under them. That is a gilt dragon's head on a 1200-gold helmet that
-        // the class most likely to be wearing it cannot see, and it is the
-        // reading `docs/OPEN-DEFECTS.md` records as "15.0 mm of unidentified
-        // gilt inside the coif at az 179" — three hypotheses and none of them
-        // this one.
-        //
-        // A crest is a fitting ON THE CAP. Where the cap has mail over it there
-        // is no cap for a crest to sit on, so on a coifed head the run stops at
-        // the bowl's own lower rim and the terminal comes up with it. Nothing is
-        // deleted: the geometry that moves is geometry that was 100% buried, and
-        // it is now on the outside of the helmet where it was paid for. The
-        // three classes without mail keep the run they have.
-        const crestBackV = coifed ? bandLo + 0.015 : bandLo - 0.44;
         const ridgeAt = (v: number, front: boolean) => {
           const run = front
             ? mix(0.72, 1, smooth(bandLo, bandLo + 0.38, v))
-            : smooth(crestBackV, crestBackV + 0.42, v);
+            : smooth(bandLo - 0.44, bandLo - 0.02, v);
           return 0.0132 * run * (1 - 0.40 * smooth(crownTop - 0.34, crownTop, v));
         };
         /** `du` is the signed offset from the crest's own centreline, in radians. */
@@ -17538,7 +16698,7 @@ export function buildCharacter(
         };
         for (const u of [0, Math.PI]) {
           const front = u === 0;
-          const v0 = front ? bandLo : crestBackV;
+          const v0 = front ? bandLo : bandLo - 0.44;
           p.add(helmWear(K, {
             tag: "sutton crest",
             u0: u - crestHalf, u1: u + crestHalf,
@@ -17572,7 +16732,7 @@ export function buildCharacter(
           // that clears the ridge is the whole shape.
           for (const end of [
             { u: 0, v: bandLo + 0.055, tilt: 0.85, front: true },
-            { u: Math.PI, v: crestBackV + 0.045, tilt: -0.75, front: false },
+            { u: Math.PI, v: bandLo - 0.395, tilt: -0.75, front: false },
           ]) {
             const base = crestLift(0, end.v, end.front);
             const q = onForm(end.u, end.v, base + 0.0030);
@@ -17750,20 +16910,12 @@ export function buildCharacter(
         // own copy of where the mail is; that is how the guard ended up 6 mm too
         // small and drew a band of ragged cut-out triangles above its own rim.
         const levels = coifLevels;
-        /**
-         * `foldK` is how much of THIS RING'S OWN fold to set the sheet in by,
-         * 0 on the outer sweep and 0..1 across the inner one. The depth of the
-         * fold is the ring's, not a constant here: where the cap squeezes the
-         * mail onto the block there is no 14 mm of mail to draw, and drawing it
-         * anyway puts the inner sheet through the skull. See `coifRing`.
-         */
-        const coif = (u: number, v: number, foldK: number, out: THREE.Vector3) => {
+        const coif = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const t = v * (levels.length - 1);
           const i = Math.min(levels.length - 2, Math.floor(t));
           const f = t - i;
           const a = levels[i];
           const b = levels[i + 1];
-          const inset = foldK * mix(a.fold, b.fold, f);
           const hw = mix(a.hw, b.hw, f) - inset;
           const hd = mix(a.hd, b.hd, f) - inset;
           out.set(Math.sin(u) * hw, mix(a.y, b.y, f), mix(a.z, b.z, f) + Math.cos(u) * hd);
@@ -17772,10 +16924,7 @@ export function buildCharacter(
         // from ∂u × ∂v, and sweeping the arc the other way turns the coif inside
         // out — which reads as a hole in the back of the head.
         p.add(patch({
-          // At LEAST one row per ring: the table now carries the helm's own
-          // footprint as two extra levels, and a sweep with fewer rows than
-          // segments chords straight across the taper it exists to draw.
-          nu: Math.max(10, lod.body - 4), nv: Math.max(levels.length - 1, lod.shellV),
+          nu: Math.max(10, lod.body - 4), nv: Math.max(3, lod.shellV),
           outer: (t, v, out) => coif(mix(Math.PI * 2 - rim(v), rim(v), t), v, 0, out),
           // The inset closes to nothing at both front edges, so the two sheets
           // meet in a fold rather than in a 14 mm rim strip. A rim strip's normal
@@ -17784,7 +16933,7 @@ export function buildCharacter(
           // head that read as a corner even after the edge itself moved back.
           inner: (t, v, out) => coif(
             mix(Math.PI * 2 - rim(v), rim(v), t), v,
-            smooth(0, 0.09, Math.min(t, 1 - t)), out,
+            0.014 * smooth(0, 0.09, Math.min(t, 1 - t)), out,
           ),
         }), mail);
       }
