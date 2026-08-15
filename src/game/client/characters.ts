@@ -12770,6 +12770,102 @@ export function buildCharacter(
     skullY - R.y * (style.nape === "guard" ? 1.12 : 0.45),
   );
 
+  // ---- where the neck is ----
+  //
+  // THE FOURTH THING HOISTED INTO THIS BLOCK, AND THE ONLY ONE UNDERNEATH THE
+  // OTHER THREE. `coifLevels`, `cheekHem` and `napeHemY` are all up here because
+  // two pieces have to agree about them, and the note over each says the same
+  // sentence: a piece that keeps its own copy of where another piece is will
+  // drift away from it. The neck is that arrangement one layer down. It is what
+  // the deep nape guard and the ventail are BOTH hung on, and until this line
+  // neither of them could read it — the stations lived inside `emit("neck")`,
+  // three thousand lines below every piece that has to clear them.
+  //
+  // WHAT THE DRIFT COST, measured on the warden at az 180 off the built mesh
+  // rather than argued from the source:
+  //
+  //     the neck's rearmost skin      101.6 mm from the head's axis
+  //     `S.neckHW`, what `hullAt` floors its DEPTH at        78.1 mm
+  //     the deep guard's outer rim, which rides that hull     98.7 mm
+  //
+  // `hullAt` floors its half-DEPTH at a half-WIDTH, and takes no account of the
+  // neck shell being set BACK in z at all — its top stations carry `z` to
+  // -27.5 mm, and a rear surface is the half-depth PLUS that offset, not either
+  // one of them. So the plate that is supposed to lie over the neck was solved
+  // against a column 23 mm too narrow at the back, and the neck stood through
+  // it: 0.3 to 1.5 mm of bare skin outboard of the Sutton Hoo's own rim from
+  // y 50 to y 64, which is 11 degrees of nape at the worst height.
+  //
+  // The stations stay in the BODY's frame, which is where they were authored and
+  // where `emit("neck")` still wants them; `neckBackAt` converts for the head.
+  //
+  // Elliptical rather than round, tapered rather than extruded, set back in z
+  // so the jaw hangs over it, and flared hard at the base into the trapezius.
+  //
+  // THE TOP IS THE OTHER HALF OF THE WEDGE. The top ring was 0.95 x 0.94 of the
+  // full section — 77 x 81 mm — at a height where the head's own submandibular
+  // mass measures 62 x 69. So the neck stood 15 mm proud of the throat above it
+  // on every side and 19 mm proud at the nape, capped, at a height that is
+  // INSIDE the head: a lit disc on a post, wider than the thing it is supposed
+  // to be disappearing into. An older comment claimed those stations "climb into
+  // the mandible and are covered there by the head's own throat mass". They
+  // climb into it and come straight back out the other side.
+  //
+  // The two stations above the mandible's lower border now tuck INSIDE the jaw
+  // mass they hand off to, and the first station the viewer can actually see —
+  // below the menton — keeps the width it had, so the visible throat is the same
+  // throat `headmeasure` signed off on.
+  //
+  // AND THE TOP STATIONS REACH FURTHER BACK THAN THEY DID, which is the nape
+  // half of the same defect. The skull's occiput carries further back than its
+  // chin does, so a neck centred for the throat leaves the back of the head
+  // standing over it on a shelf — a ragged horizontal lip across the nape with
+  // daylight under it, which is the "large pale shape covers the back of the
+  // neck and skull junction" seen from behind. The back of each top station
+  // moves back 13 mm and the front does not move at all: `z` down by half of it
+  // and `hd` up by half, which is the only way to grow one side of an ellipse.
+  const NECK_STATIONS: Station[] = [
+    { y: S.neckTop + 0.095, hw: S.neckHW * 0.70, hd: S.neckHD * 0.72 + 0.0065, z: -0.0275 },
+    { y: S.neckTop + 0.042, hw: S.neckHW * 0.82, hd: S.neckHD * 0.84 + 0.0065, z: -0.0255 },
+    { y: S.neckTop - 0.008, hw: S.neckHW * 0.93, hd: S.neckHD * 0.95 + 0.0045, z: -0.0175 },
+    { y: S.neckRoot - 0.048, hw: S.neckHW, hd: S.neckHD, z: -0.007 },
+    { y: S.neckBase + 0.070, hw: S.neckHW * 1.13, hd: S.neckHD * 1.04, z: 0 },
+    { y: S.neckBase + 0.010, hw: S.neckHW * 1.50, hd: S.neckHD * 1.16, z: 0 },
+    { y: S.neckBase - 0.055, hw: S.neckHW * 1.93, hd: S.neckHD * 1.23, z: 0 },
+  ];
+  /**
+   * The neck's own section at a height, in the BODY's frame.
+   *
+   * The strap sampler used to carry a SECOND, hand-written copy of the top of
+   * this profile as a two-point lerp, and the two disagreed the moment the
+   * stations moved: a muscle sited on 0.82 of the section where the shell is
+   * actually at 0.70 stands 3 mm outside the throat it is supposed to be
+   * inside, and what that draws is a hard tab of skin floating under the ear.
+   * One profile, read by everything that rides on it.
+   */
+  const neckSection = (y: number): Station => {
+    if (y >= NECK_STATIONS[0]!.y) return NECK_STATIONS[0]!;
+    for (let i = 0; i < NECK_STATIONS.length - 1; i++) {
+      const a = NECK_STATIONS[i]!, b = NECK_STATIONS[i + 1]!;
+      if (y > b.y) {
+        const f = (a.y - y) / (a.y - b.y);
+        return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z ?? 0, b.z ?? 0, f) };
+      }
+    }
+    return NECK_STATIONS[NECK_STATIONS.length - 1]!;
+  };
+  /**
+   * The neck's REARMOST skin, from the head's axis, in the HEAD PIVOT's frame.
+   *
+   * `hd` is a half-depth about a centre that is itself pushed back by `z`, so
+   * the rear surface is the SUM of the two. Reading `hd` alone is the specific
+   * arithmetic slip that left `hullAt` 23 mm short at the nape.
+   */
+  const neckBackAt = (y: number): number => {
+    const st = neckSection(y + S.neckTop);
+    return st.hd - (st.z ?? 0);
+  };
+
   // ---- where the plates are ----
   // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
   // the reason `coifLevels` was: two pieces have to agree about them. The plate
@@ -17107,66 +17203,13 @@ export function buildCharacter(
   // carries it with the chest and `severBody` leaves it alone, both unchanged.
   emit("neck", root, () => {
     const p = new Part();
-    const nHW = S.neckHW;
-    const nHD = S.neckHD;
-    // Elliptical rather than round, tapered rather than extruded, set back in z
-    // so the jaw hangs over it, and flared hard at the base into the trapezius.
-    // All of that was right and none of it has moved.
-    //
-    // WHAT HAS MOVED IS THE TOP, AND IT IS THE OTHER HALF OF THE WEDGE. The top
-    // ring was 0.95 x 0.94 of the full section — 77 x 81 mm — at a height where
-    // the head's own submandibular mass measures 62 x 69. So the neck stood
-    // 15 mm proud of the throat above it on every side and 19 mm proud at the
-    // nape, capped, at a height that is INSIDE the head: a lit disc on a post,
-    // wider than the thing it is supposed to be disappearing into. The comment
-    // claimed those stations "climb into the mandible and are covered there by
-    // the head's own throat mass". They climb into it and come straight back
-    // out the other side.
-    //
-    // The two stations above the mandible's lower border now tuck INSIDE the
-    // jaw mass they hand off to, and the first station the viewer can actually
-    // see — below the menton — keeps the width it had, so the visible throat is
-    // the same throat `headmeasure` signed off on.
-    // AND THE TOP STATIONS REACH FURTHER BACK THAN THEY DID, which is the
-    // nape half of the same defect. The skull's occiput carries further back
-    // than its chin does, so a neck centred for the throat leaves the back of
-    // the head standing over it on a shelf — a ragged horizontal lip across
-    // the nape with daylight under it, which is the "large pale shape covers
-    // the back of the neck and skull junction" seen from behind. The back of
-    // each top station moves back 13 mm and the front does not move at all:
-    // `z` down by half of it and `hd` up by half, which is the only way to
-    // grow one side of an ellipse.
-    const NECK: Station[] = [
-      { y: S.neckTop + 0.095, hw: nHW * 0.70, hd: nHD * 0.72 + 0.0065, z: -0.0275 },
-      { y: S.neckTop + 0.042, hw: nHW * 0.82, hd: nHD * 0.84 + 0.0065, z: -0.0255 },
-      { y: S.neckTop - 0.008, hw: nHW * 0.93, hd: nHD * 0.95 + 0.0045, z: -0.0175 },
-      { y: S.neckRoot - 0.048, hw: nHW, hd: nHD, z: -0.007 },
-      { y: S.neckBase + 0.070, hw: nHW * 1.13, hd: nHD * 1.04, z: 0 },
-      { y: S.neckBase + 0.010, hw: nHW * 1.50, hd: nHD * 1.16, z: 0 },
-      { y: S.neckBase - 0.055, hw: nHW * 1.93, hd: nHD * 1.23, z: 0 },
-    ];
-    p.add(shell(NECK, lod.limb, { capTop: true }), headSkin);
-    /**
-     * The neck's own section at a height, read off the stations above.
-     *
-     * The strap sampler used to carry a SECOND, hand-written copy of the top of
-     * this profile as a two-point lerp, and the two disagreed the moment the
-     * stations moved: a muscle sited on 0.82 of the section where the shell is
-     * actually at 0.70 stands 3 mm outside the throat it is supposed to be
-     * inside, and what that draws is a hard tab of skin floating under the ear.
-     * One profile, read by everything that rides on it.
-     */
-    const neckAt = (y: number): Station => {
-      if (y >= NECK[0]!.y) return NECK[0]!;
-      for (let i = 0; i < NECK.length - 1; i++) {
-        const a = NECK[i]!, b = NECK[i + 1]!;
-        if (y > b.y) {
-          const f = (a.y - y) / (a.y - b.y);
-          return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z ?? 0, b.z ?? 0, f) };
-        }
-      }
-      return NECK[NECK.length - 1]!;
-    };
+    // THE STATIONS AND THE SAMPLER BOTH LIVE IN THE HEAD STACK NOW — see
+    // `NECK_STATIONS`, hoisted beside `coifLevels`, `cheekHem` and `napeHemY`
+    // for the reason all three of those were: the nape guard and the ventail are
+    // hung on this neck and have to be able to read it. Nothing about the shape
+    // moved in the hoist; the argument for each station moved with it.
+    p.add(shell(NECK_STATIONS, lod.limb, { capTop: true }), headSkin);
+    const neckAt = neckSection;
 
     // Sternocleidomastoid. Two straps from the mastoid to the sternal notch, and
     // the cheapest 300 triangles in the file: they are what stops the throat being
