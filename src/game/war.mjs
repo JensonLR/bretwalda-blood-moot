@@ -725,25 +725,68 @@ export const TERRITORIES = Object.freeze([
     id: "fib", name: "Fib", native: "Fib", people: "pict",
     blurb: "Fife and the Tay, and Scone where the Picts made kings.",
     threshold: FIELD_THRESHOLD, anchor: [56.42, -3.44],
-    bounds: [[[56.60, -4.40], [56.60, -2.35], [56.00, -2.20], [56.00, -4.30]]],
+    // Fife, Kinross, Strathearn and Menteith: the Forth below, the Forth's own
+    // upper water and Loch Lomond's head to the west, the Firth of Tay and the
+    // Sidlaws and the Tay above. The line leaves the water at Dundee on
+    // purpose — Scone stands on the north bank, and Fib is the province that
+    // made kings there.
+    bounds: [[
+      ...rev(FORTH),
+      ...LENNOX.slice(1, 3),
+      ...rev(TAY_SIDLAW),
+      [56.50, -2.20], // the North Sea, off the Tay's mouth
+    ]],
   },
   {
     id: "circinn", name: "Circinn", native: "Circinn", people: "pict",
     blurb: "Angus and the Mearns, where the symbol stones stand thickest.",
     threshold: FIELD_THRESHOLD, anchor: [56.65, -2.89],
-    bounds: [[[57.15, -4.20], [57.15, -1.90], [56.45, -2.10], [56.45, -4.30]]],
+    // Angus and the Mearns, between the Mounth above and the Tay below — the
+    // two features the Pictish provinces were actually divided by, in place of
+    // the 57.15N and 56.45N horizontals that used to rule two lines clean
+    // across Scotland. It reaches west over Rannoch to the head of Loch
+    // Lomond, because four Pictish territories have to hold seven provinces'
+    // worth of ground and the mountain has to belong to somebody.
+    bounds: [[
+      ...MOUNTH,
+      [56.45, -4.90], // Glen Falloch, with Strathclyde
+      [56.25, -4.62], // Loch Lomond's head, where Fib begins
+      ...rev(TAY_SIDLAW),
+      [56.55, -2.10], // the North Sea, off Arbroath
+      [57.15, -1.40],
+    ]],
   },
   {
     id: "fortriu", name: "Fortriu", native: "Fortriu", people: "pict", seat: "Burghead",
     blurb: "Moray and the great fort at Burghead. The Pictish heartland.",
     threshold: SEAT_THRESHOLD, anchor: [57.7017, -3.4906],
-    bounds: [[[58.35, -6.60], [58.35, -1.90], [57.05, -1.85], [57.05, -6.20]]],
+    // Moray, Badenoch, Lochaber and Ross: the Mounth below it, the Dornoch
+    // Firth and the Oykel above. Its old south edge at 57.05N ran a ruled line
+    // from Aberdeen to Skye, and its old east edge at -1.85 left Buchan
+    // unclaimed; both are gone.
+    bounds: [[
+      ...MOUNTH,
+      [56.95, -5.35], // north-west of Glen Orchy, keeping clear of Dal Riata
+      [57.05, -6.20],
+      ...rev(OYKEL),
+      [57.90, -1.60], // the North Sea, beyond Fraserburgh
+      [57.30, -1.45], // and beyond Aberdeen
+    ]],
   },
   {
     id: "cait", name: "Cait", native: "Cait", people: "pict",
     blurb: "Caithness, Sutherland and Orkney — the far north, and the Norse at its door.",
     threshold: FIELD_THRESHOLD, anchor: [58.65, -3.37],
-    bounds: [[[59.60, -6.00], [59.60, -2.20], [58.25, -2.20], [58.25, -6.00]]],
+    // Caithness and Sutherland are cut off from Moray by water for most of
+    // their length, so the border is water: the Dornoch Firth in to Bonar
+    // Bridge, the Kyle, the Oykel, and the Assynt watershed out to Enard Bay.
+    // The rest runs well out to sea with Orkney inside it.
+    bounds: [[
+      ...OYKEL,
+      [59.60, -6.20], // the Atlantic
+      [59.60, -2.10], // north and east of Orkney
+      [58.20, -2.20], // and back down the Moray Firth
+    ]],
   },
   {
     id: "sudreyjar", name: "Sudreyjar", native: "Sudreyjar", people: "norse",
