@@ -12867,12 +12867,98 @@ export function buildCharacter(
   // grey tab. A coif's upper edge is riveted *inside* the bowl and is never
   // seen; 14 mm proud of the skull at this height is well within the band's
   // own 24 mm standoff, so it is covered.
-  const coifLevels = [
+  //
+  // ============================================================
+  // AND IT IS TAPERED, NOT SHRUNK — the owner's first note
+  // ============================================================
+  //
+  // "The Sutton Hoo helmet on huscarl currently clashes with the mesh unlike
+  // other helmets." `helmclash` section 1 measures it on every rung the huscarl
+  // wears, not just that one: eleven of eleven combinations that have mail are
+  // red, plate driven 10.7 to 14.0 mm inboard of the rings, up to 40.5% of one
+  // piece's outward face under the mail — and every failure is the huscarl,
+  // because he is the class that wears a coif.
+  //
+  // THE OBVIOUS FIX IS REFUSED AND THE REFUSAL IS MEASURED. Pulling the top ring
+  // uniformly from `R.x*1.00 + 0.011` to `R.x*0.90 + 0.004` takes section 1 from
+  // 11 combinations to 2. It also costs hair visibility on EVERY OPEN HELM —
+  // 16 cells down 0.20 to 0.34 points, with the free Warrior Crop crossing the
+  // 1% bar under the Boar-Crest (1.24 -> 0.94) and the Jarl's Crowned
+  // (1.26 -> 0.96). Buying eleven rungs of fit with a cosmetic on nine other
+  // rungs is the trade this file refuses.
+  //
+  // Mail is not a rigid shell. It compresses where the helmet BEARS on it and
+  // hangs free everywhere else — at the rim, at the fringe, down the nape, which
+  // is exactly where hair shows. So the radius is a function of position: tight
+  // inside the helm's footprint, loose below it, blended across `COIF_FADE`.
+  //
+  // THE FOOTPRINT IS MEASURED OFF THE SHELL, not guessed with a constant. The
+  // bowl is swept from `bandLo + 0.015` upward on `helmForm`, so the height of
+  // the form at that latitude is where the iron stops bearing — read here from
+  // the same table the bowl is swept on, so a rung that wears its band lower
+  // moves this with it and nothing is edited.
+  // AND IT IS THE DEPTH THAT IS SQUEEZED, NOT THE BREADTH. Every burial section
+  // 1 reports is at the NAPE — az 168 to 186 — and the sides are clean at the
+  // loose radius. Squeezing `hw` as well is what the recorded uniform shrink
+  // did and it is what cost the hair: `R.x*0.90 + 0.004` is 88.5 mm on this
+  // skull against a parietal breadth of about 98, so the mail goes INSIDE the
+  // skin, `hairCeil`'s aventail branch clamps at its 2 mm floor, and the hair
+  // ends up outside the rings rather than compressed under them. Measured with
+  // both squeezed: `wearmeasure` section 4 went from 30/30 to 8/30, with 24.3 mm
+  // of Warrior Crop outside the Iron Spangenhelm at az 106 — and `cosmetictest`
+  // section 3 went UP, 6.34 -> 6.60, which is the same fault seen from the other
+  // side. Mail pushed through a skull shows more hair, not less.
+  const COIF_TIGHT_W = R.x * 1.00 + 0.011;
+  const COIF_TIGHT_D = R.z * 0.95 + 0.007;
+  /** How far below the helm's rim the mail is back to hanging free. */
+  const COIF_FADE = 0.030;
+  /** The loose curve — mail under no helmet at all. Unchanged from what ships. */
+  const coifLoose = [
     { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
     { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
     { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
     { y: skullY - R.y * 2.60, hw: R.x * 1.82 + 0.018, hd: R.z * 1.05 + 0.018, z: -0.032 },
   ];
+  /** Linear read of that curve at a height, clamped at both ends. */
+  const looseAt = (y: number) => {
+    if (y >= coifLoose[0]!.y) return { ...coifLoose[0]! };
+    for (let i = 0; i < coifLoose.length - 1; i++) {
+      const a = coifLoose[i]!, b = coifLoose[i + 1]!;
+      if (y >= b.y) {
+        const f = (a.y - y) / (a.y - b.y);
+        return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z, b.z, f) };
+      }
+    }
+    return { ...coifLoose[coifLoose.length - 1]! };
+  };
+  /** The helm's own footprint, off the form the bowl is beaten over. */
+  const capFootY = (() => {
+    if (!helmed) return -Infinity;
+    const q = new THREE.Vector3();
+    formSurface(helmForm(K), Math.PI, Math.min(Math.PI / 2 - 0.02, bandLo + 0.015), q);
+    return skullY + q.y;
+  })();
+  // Two extra rings and no new constants in the table: the taper is carried by
+  // the SAME list every reader already walks — the coif's own sweep, `coifAt`,
+  // `hairCeil`'s ring lookup and the nape fall's hull. A squeeze applied in one
+  // of those four and not the others is the mirrored-definition fault this file
+  // has been bitten by twice.
+  const coifLevels = (() => {
+    const tighten = (r: { y: number; hw: number; hd: number; z: number }, s: number) =>
+      ({ y: r.y, hw: mix(r.hw, COIF_TIGHT_W, s), hd: mix(r.hd, COIF_TIGHT_D, s), z: r.z });
+    if (!Number.isFinite(capFootY)) return coifLoose.map((r) => ({ ...r }));
+    // The rim, and the height the mail has finished recovering at. Clamped
+    // inside the loose curve's own top and second rings so a class whose band
+    // sits unusually high or low cannot reorder the table.
+    const yRim = Math.min(coifLoose[0]!.y - 0.006, Math.max(coifLoose[1]!.y + 0.020, capFootY));
+    const yFree = Math.max(coifLoose[1]!.y + 0.010, yRim - COIF_FADE);
+    return [
+      tighten(looseAt(coifLoose[0]!.y), 1),
+      tighten(looseAt(yRim), 1),
+      tighten(looseAt(yFree), 0),
+      ...coifLoose.slice(1).map((r) => ({ ...r })),
+    ];
+  })();
   // AND THE LOWEST RINGS COME OUT ONTO THE SHOULDER STACK, because every one of
   // those numbers is a multiple of the SKULL's radii and the mail lands on a
   // BODY.
@@ -12904,8 +12990,9 @@ export function buildCharacter(
       ring.z -= clear / 2;
     }
   }
-  /** The coif's own half-breadth at a height, or 0 where no coif is worn. */
-  const coifAt = (y: number, key: "hw" | "hd"): number => {
+  /** The coif's own half-breadth — or its `z` shift — at a height, or 0 where
+   *  no coif is worn. */
+  const coifAt = (y: number, key: "hw" | "hd" | "z"): number => {
     if (!heavy) return 0;
     if (y >= coifLevels[0].y) return coifLevels[0][key];
     for (let i = 0; i < coifLevels.length - 1; i++) {
@@ -14871,7 +14958,23 @@ export function buildCharacter(
       const hullAt = (y: number) => {
         let hw = sm(readP(sideP, y), S.neckHW);
         let hd = sm(readP(backP, y), S.neckHW);
-        if (heavy) { hw = sm(hw, coifAt(y, "hw")); hd = sm(hd, coifAt(y, "hd")); }
+        // AND THE MAIL'S REAR SURFACE IS NOT ITS HALF-DEPTH. The coif's rings
+        // carry a `z` of -20 to -32 mm, so the mail stands that much further
+        // back than `hd` alone says — and this hull was clearing the plate
+        // against `hd` alone. That is the identical z-shift fault
+        // `docs/OPEN-DEFECTS.md` suspected in the ruler, sitting in the build.
+        //
+        // `helmclash` section 1 measured what it cost, at the nape and nowhere
+        // else: the Ridge, Boar-Crest and Jarl's Crowned flanges 7.6 mm inboard
+        // of the rings at az 177 on their own floor ring, the Wyrm-Crest's deep
+        // guard 13.3 mm at az 213, and the Sutton Hoo's gilt rim lip with 100%
+        // of its outward face under the mail. `hd` is only read through
+        // `cos(u)`, so this moves the plate at the back and by construction
+        // nothing at the sides.
+        if (heavy) {
+          hw = sm(hw, coifAt(y, "hw"));
+          hd = sm(hd, coifAt(y, "hd") - coifAt(y, "z"));
+        }
         return { hw, hd };
       };
 
@@ -16988,10 +17091,29 @@ export function buildCharacter(
         // the highlight that runs along it, and along the slopes — where a crest
         // is read against the head rather than against the sky — it keeps all of
         // its height.
+        // WHERE THE REAR LEG STOPS, and on one class it is not where it was.
+        //
+        // The rear run descended to 0.44 rad BELOW the band — off the cap
+        // altogether, onto the occiput. On the huscarl that is inside a mail
+        // aventail: `helmclash` section 1 measured the rear beast's-head
+        // terminal 13.9 mm inboard of the rings with 100% of its outward face
+        // under them. That is a gilt dragon's head on a 1200-gold helmet that
+        // the class most likely to be wearing it cannot see, and it is the
+        // reading `docs/OPEN-DEFECTS.md` records as "15.0 mm of unidentified
+        // gilt inside the coif at az 179" — three hypotheses and none of them
+        // this one.
+        //
+        // A crest is a fitting ON THE CAP. Where the cap has mail over it there
+        // is no cap for a crest to sit on, so on a coifed head the run stops at
+        // the bowl's own lower rim and the terminal comes up with it. Nothing is
+        // deleted: the geometry that moves is geometry that was 100% buried, and
+        // it is now on the outside of the helmet where it was paid for. The
+        // three classes without mail keep the run they have.
+        const crestBackV = coifed ? bandLo + 0.015 : bandLo - 0.44;
         const ridgeAt = (v: number, front: boolean) => {
           const run = front
             ? mix(0.72, 1, smooth(bandLo, bandLo + 0.38, v))
-            : smooth(bandLo - 0.44, bandLo - 0.02, v);
+            : smooth(crestBackV, crestBackV + 0.42, v);
           return 0.0132 * run * (1 - 0.40 * smooth(crownTop - 0.34, crownTop, v));
         };
         /** `du` is the signed offset from the crest's own centreline, in radians. */
@@ -17001,7 +17123,7 @@ export function buildCharacter(
         };
         for (const u of [0, Math.PI]) {
           const front = u === 0;
-          const v0 = front ? bandLo : bandLo - 0.44;
+          const v0 = front ? bandLo : crestBackV;
           p.add(helmWear(K, {
             tag: "sutton crest",
             u0: u - crestHalf, u1: u + crestHalf,
@@ -17035,7 +17157,7 @@ export function buildCharacter(
           // that clears the ridge is the whole shape.
           for (const end of [
             { u: 0, v: bandLo + 0.055, tilt: 0.85, front: true },
-            { u: Math.PI, v: bandLo - 0.395, tilt: -0.75, front: false },
+            { u: Math.PI, v: crestBackV + 0.045, tilt: -0.75, front: false },
           ]) {
             const base = crestLift(0, end.v, end.front);
             const q = onForm(end.u, end.v, base + 0.0030);
@@ -17227,7 +17349,10 @@ export function buildCharacter(
         // from ∂u × ∂v, and sweeping the arc the other way turns the coif inside
         // out — which reads as a hole in the back of the head.
         p.add(patch({
-          nu: Math.max(10, lod.body - 4), nv: Math.max(3, lod.shellV),
+          // At LEAST one row per ring: the table now carries the helm's own
+          // footprint as two extra levels, and a sweep with fewer rows than
+          // segments chords straight across the taper it exists to draw.
+          nu: Math.max(10, lod.body - 4), nv: Math.max(levels.length - 1, lod.shellV),
           outer: (t, v, out) => coif(mix(Math.PI * 2 - rim(v), rim(v), t), v, 0, out),
           // The inset closes to nothing at both front edges, so the two sheets
           // meet in a fold rather than in a 14 mm rim strip. A rim strip's normal
