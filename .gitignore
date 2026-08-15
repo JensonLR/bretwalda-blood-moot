@@ -81,3 +81,9 @@ art/fit/
 # transpile cache for tools/hoodfall.mjs
 .hoodfall/
 .helmclash/
+
+# Agent probe output. Adversaries shoot hundreds of frames to settle a question
+# by looking rather than by reading; the verdict belongs in OPEN-DEFECTS, the
+# 21 MB of PNGs does not. Same reasoning as art/shots/ and art/ui/ above.
+art/adversary*/
+art/probe-*/
