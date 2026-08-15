@@ -13228,6 +13228,35 @@ export function buildCharacter(
    * arithmetic slip that left `hullAt` 23 mm short at the nape.
    */
   const neckBackAt = (y: number): number => neckBackFrom(S, NECK_STATIONS, y);
+  /**
+   * The neck's skin along ONE BEARING at a height, from the head's axis, in the
+   * head pivot's frame.
+   *
+   * `neckBackAt` is this at azimuth 180 and at no other azimuth, and a piece
+   * solved against it alone clears the neck dead behind and nowhere else. That
+   * is measurable: with the ventail's rear solved on `neckBackAt` only, the
+   * neck's skin at azimuth 221 and y 42 stands at 84.4 mm between the curtain's
+   * two walls — inner at 80.0, outer at 87.0 — so the mail is threaded through
+   * the throat over the rear quarters. `helmclash` section 2 reads it as its
+   * worst patch, `c99d75` at 4.4 mm.
+   *
+   * Same ellipse and same solve as `neckReach` at module scope; that one has to
+   * iterate because its ray climbs through the taper, and this one does not
+   * because the height is given.
+   */
+  const neckOutAt = (y: number, dx: number, dz: number): number => {
+    const h = Math.hypot(dx, dz);
+    if (h < 1e-9) return 0;
+    const st = neckSection(y + S.neckTop);
+    const ux = dx / h, uz = dz / h;
+    const z0 = st.z ?? 0;
+    const A = (ux * ux) / (st.hw * st.hw) + (uz * uz) / (st.hd * st.hd);
+    const B = (-2 * uz * z0) / (st.hd * st.hd);
+    const C = (z0 * z0) / (st.hd * st.hd) - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc <= 0 || A < 1e-12) return 0;
+    return (-B + Math.sqrt(disc)) / (2 * A);
+  };
 
   // ---- where the plates are ----
   // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
@@ -13309,6 +13338,35 @@ export function buildCharacter(
     const a = awayFromFace(u);
     return a < cheekIn || a > cheekOut ? -Infinity : cheekHemAt(a);
   };
+  /**
+   * THE NAPE FALL'S OWN HALF-ARC AT A DESCENT — the azimuth its front edge
+   * reaches, and it is the plate's own `half(v)` rather than a copy of it.
+   *
+   * Hoisted for the same reason `cheekHemAt`, `napeHemY` and `NECK_STATIONS`
+   * were, and the sentence is the same one every time: a piece that keeps its
+   * own copy of where another piece is will drift away from it. `hairCeil`'s
+   * nape branch held a CONSTANT 1.95 rad — 112 degrees off dead ahead — while a
+   * deep guard that laps a deep cheek plate reaches `cheekOut - 0.10`, which is
+   * 87. So on the Wyrm-Crest and the Sutton Hoo there are 25 degrees of head
+   * with a 308-triangle plate over it and nothing telling the hair, and that is
+   * what `helmclash` section 3 has been reading since the nape and the ear came
+   * off its list: 6.0 to 6.5 degrees of `4a3220` — the sideburn course of hair
+   * coils — outermost at az 102-103, on all three classes without a coif.
+   *
+   * It is wrong in the OTHER direction on the flange rungs, where 1.95 claims
+   * 6.6 degrees of cover the flange does not have and flattens paid hair under
+   * a plate that is not there.
+   *
+   * Read at the top of the descent, which is the narrowest the fall ever is, so
+   * the claim can only under-state: hair outside a plate is a defect, and hair
+   * flattened where there is no plate is a paid cosmetic thrown away.
+   */
+  const napeLap = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
+  const napeHalf = (v: number) =>
+    Math.max(style.nape === "guard" ? 1.30 : 1.08, napeLap)
+    + (style.nape === "guard" ? 0.44 : 0.30) * v * v;
+  /** That arc as an angle off dead ahead: hair further round than this is under it. */
+  const napeFrontU = Math.PI - napeHalf(0);
 
   // ---- where the cloth is ----
   // The hood's rim and its lift, authored here and read twice: once by the hood
@@ -13438,7 +13496,7 @@ export function buildCharacter(
     // deliberately put inside the skin there rather than being deleted: the
     // sweep stays continuous with the hair either side of it, and a continuous
     // sweep is the whole reason this file authors one surface instead of two.
-    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.95 && v < bandLo + 0.28
+    if (helmed && style.nape !== "none" && awayFromFace(u) > napeFrontU && v < bandLo + 0.28
       && (atY === undefined || atY > napeHemY)) {
       c = Math.min(c, -0.005);
     }
@@ -14235,14 +14293,42 @@ export function buildCharacter(
             // Compress, then cull. Squeezed past 45% a coil is not a smaller
             // curl, it is a bristle — the barbs the note above spent a paragraph
             // getting rid of — so below that it does not exist.
+            //
+            // EXCEPT UNDER A PLATE, WHERE NOTHING IS CULLED — and the reason is
+            // the one `hairCeil`'s nape branch gives for the SHELL, twelve
+            // hundred lines up: "hair under a nape fall cannot be seen from any
+            // bearing, so the shell is deliberately put inside the skin there
+            // rather than being deleted". A negative ceiling is that branch
+            // firing. The shell obeys it by sinking; the coils obeyed it by
+            // vanishing, and the two answers were not the same answer.
+            //
+            // IT IS NOT A TIDINESS ARGUMENT. Widening the nape clamp from the
+            // constant 1.95 rad to the plate's own `napeFrontU` puts 25 more
+            // degrees of head under a negative ceiling on the two deep-cheek
+            // helms, and with the cull in place `tools/rungcensus.mjs` reads
+            // **112 scope-readings LOST — 4 to 6 components and 320 to 480
+            // triangles a cell, across every warden, berserker and runekeeper
+            // rung of the Wyrm-Crest and the Sutton Hoo**. That is a paid
+            // hairstyle being deleted to close a gate, which is the thing three
+            // separate rounds of this project have been caught doing. Buried
+            // instead, the same census reads zero lost.
+            const crest = 0.38 * len + rad;
             if (Number.isFinite(room)) {
-              // 0.82 of the room, not all of it. The crest estimate is exact on
-              // the analytic curve and the coil is a swept tube on a 6-row
-              // spine; the difference is a couple of millimetres and it was
-              // measurable — 4.6 mm through the Shadow Hood at the nape.
-              const k = Math.min(1, (room * 0.82) / (0.38 * len + rad));
-              if (k < 0.45) continue;
-              len *= k; rad *= k;
+              if (room <= 0) {
+                // Under the metal. Sink the whole coil until its crest is at the
+                // ceiling — full length, full radius, invisible, and still there
+                // to be counted.
+                const sink = (room - crest) - mane(u, v) * 0.45;
+                if (sink < 0) lockRoot.addScaledVector(lockNrm, sink);
+              } else {
+                // 0.82 of the room, not all of it. The crest estimate is exact on
+                // the analytic curve and the coil is a swept tube on a 6-row
+                // spine; the difference is a couple of millimetres and it was
+                // measurable — 4.6 mm through the Shadow Hood at the nape.
+                const k = Math.min(1, (room * 0.82) / crest);
+                if (k < 0.45) continue;
+                len *= k; rad *= k;
+              }
             }
             p.add(braid((t, out) => {
               // Out a little, along a lot. The normal term rises and turns over
@@ -15922,12 +16008,12 @@ export function buildCharacter(
         // chosen. The other half of the owner's first fault: the fall was swept
         // to a fixed arc and the guard was cut to a fixed azimuth, and nothing
         // in the file made the two meet — so between them was the window §10
-        // measures. `lapU` is the azimuth the fall has to reach to overlap the
-        // guard's rear edge by 0.10 rad, read off the SAME `cheekOut` the guard
-        // is cut to, so the two cannot drift apart again. Where there is no
-        // guard — the Ridge Helm's flange over an open face — there is nothing
-        // to lap and the fall keeps its own arc.
-        const lapU = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
+        // measures. `napeLap` is the azimuth the fall has to reach to overlap
+        // the guard's rear edge by 0.10 rad, read off the SAME `cheekOut` the
+        // guard is cut to, so the two cannot drift apart again. Where there is
+        // no guard — the Ridge Helm's flange over an open face — there is
+        // nothing to lap and the fall keeps its own arc. It lives in the head
+        // stack beside `napeHalf` now, because the HAIR has to read it too.
         // AND THE DECISION IS PER HELM, which is what the owner asked for.
         //
         // The Wyrm-Crest and the Sutton Hoo are CLOSED helmets: their guards are
@@ -15946,8 +16032,10 @@ export function buildCharacter(
         // opening is over the ear and §10 reports how far off it still is —
         // reported, because a bar this unit cannot hold is a bar that gets
         // tuned rather than met.
-        const half = (v: number) =>
-          Math.max(deep ? 1.30 : 1.08, lapU) + (deep ? 0.44 : 0.30) * v * v;
+        // ONE DEFINITION, TWO READERS — `napeHalf` up in the head stack IS this
+        // function, and the hair reads it to know how far round the plate comes.
+        // It was written out twice and the copies disagreed by 25 degrees.
+        const half = napeHalf;
         const fall = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const y = mix(topY, floorY, v);
           const h = hullAt(y);
@@ -17299,6 +17387,41 @@ export function buildCharacter(
               y,
               a.z + c * (hd - inset),
             );
+            // AND THE REAR QUARTERS, WHICH `vBackHalf` ALONE DOES NOT REACH.
+            //
+            // `vBackHalf` solves a HALF-DEPTH, which is the ellipse's reach at
+            // azimuth 180 and at no other azimuth. Between there and the flanks
+            // the curtain is back on its authored radii, and the neck is not:
+            // measured at az 221 and y 42 on the warden, the neck's skin stands
+            // at 84.4 mm with the curtain's inner wall at 80.0 and its outer at
+            // 87.0 — the throat threaded through the mail, and section 2's worst
+            // patch at 4.4 mm once the ear came off the list.
+            //
+            // So the point is pushed out radially to clear the neck's section
+            // ALONG ITS OWN BEARING, weighted `smooth(0, 1, -cos u)`. That
+            // weight is zero for the whole front half AND at the flanks — not
+            // 0.5 at the flanks, which is what `smooth(-1, 1, c)` gives and what
+            // the half-depth blend can afford because `cos(u)` kills its term
+            // there anyway. A radial scale has no such immunity, so it gets a
+            // weight that is genuinely zero where the sides are, and the front
+            // and the flanks are untouched to the last bit.
+            //
+            // At u = +-pi the push is inert by construction — `vBackHalf` has
+            // already put the wall outside `neckBackAt + V_WALL + LAYER_GAP`
+            // there — so the two ends `wrapU` welds still land on the same
+            // point. On a coifed head nothing happens at all.
+            if (!coifed) {
+              const w = smooth(0, 1, -c);
+              if (w > 0) {
+                const r = Math.hypot(out.x, out.z);
+                const need = neckOutAt(y, out.x, out.z) + V_WALL + LAYER_GAP - inset;
+                if (r > 1e-6 && need > r) {
+                  const k = 1 + (need / r - 1) * w;
+                  out.x *= k;
+                  out.z *= k;
+                }
+              }
+            }
           };
           // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
           // fall are both written around, and a curtain swept the other way
