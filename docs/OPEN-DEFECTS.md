@@ -4027,3 +4027,179 @@ counted separately from the passes on every verdict line.
    ran 200 mm, crossed the midline and found the garment on the far side of the
    head. Anything quoted from the first version of section 2 or 5 is void.
 
+
+## The four helm defects, worked to three green sections — 15 Aug 2026
+
+Round five, on `helm-land`, pushed after every commit. `helmclash`:
+
+```
+SECTION   MAIN (fa8353a)        THIS BRANCH        VERDICT
+1 LAYERS  FAIL 11 combos        pass               GREEN
+          10.7-14.5 mm
+2 FLESH   FAIL 4 combos         FAIL 4 combos      MAGNITUDE ONLY, COUNT UNCHANGED
+          3.51-6.14%            2.43-3.89%
+3 WRAP    FAIL 3 combos         pass               GREEN
+4 CREST   FAIL 4 combos         pass               GREEN
+5 PELT    FAIL 13 combos        FAIL 4 combos      THE FOUR ARE MAIN'S OWN
+```
+
+Main's numbers were taken by copying this tree's `helmclash` onto a `fa8353a`
+worktree and running it there, not quoted from the section above.
+
+`npx tsc --noEmit` clean, `headmeasure` 0/15 and 0/8, `wearmeasure` nine
+sections all PASS, `beardvolume` 16/16, `hairmap` PASS, `locktest` 6/0,
+`cosmetictest --no-render` 15/16 — which is main's tally, and the one red is
+main's red with two extra cells in it, both of them the recorded Sutton Hoo
+design call.
+
+### Step D's checkpoint was wrong in both directions and the fix is the wall
+
+`80cd595` guessed the tight radius — `R.z * 0.95 + 0.007`. Measured:
+
+* **too loose at the top.** The brow band's INNER surface was still 5.2 mm
+  inboard of the rings at the nape, so section 1 stayed red on all eight
+  huscarl rungs at 6.2 mm.
+* **too tight below.** It put the mail inside the skin, `hairCeil`'s aventail
+  branch clamped at its 2 mm floor, and the hair came out OUTSIDE the mail:
+  `wearmeasure`'s hair-fit 30/30 -> **17/30**, section 5 four huscarl rungs ->
+  nine. Both `fa8353a` and `e140846` are 30/30, so that was the checkpoint's own.
+
+`capWall` walks the band and the bowl with the lift and gauge the helm branch
+sweeps them with, takes their inner face, and hands back (height, radius, block
+radius) at u = pi/2 and u = pi. The mail is the loose curve or that wall less
+one `LAYER_GAP`, whichever is smaller, faded over `COIF_FADE` below the rim.
+`bowlProfile`, both gauges and `bandHi` moved up beside `bandLo`.
+
+**Two consequences, and neither is optional.** `hairCeil`'s aventail floor goes
++2 mm -> -5 mm, which is the number and the reason the nape fall's floor already
+carries. And the coif's 14 mm fold becomes a PER-RING number: authored when the
+mail stood 20 mm off the skull, it put the inner sheet 11 mm inside the skin
+once the rings tightened, and `hairFitProbe` reads the nearest covering surface
+in a direction — so it saw 6-7 mm of every hairstyle through the mail on all ten
+huscarl rungs while the sheet the player sees was clear.
+
+Open-helm hair, `cosmetictest` section 3, main -> here: Iron 2.24/6.34/9.61 ->
+2.35/6.66/9.70; Nasal 2.18/6.14/9.33 -> 2.28/6.46/9.42; Ridge 1.98/6.09/9.08 ->
+2.09/6.39/9.23; Spectacle 1.49/4.99/7.32 -> 1.60/5.30/7.37; Boar 1.24/4.72/6.93
+-> 1.34/5.01/6.99; Crowned 1.26/4.81/7.07 -> 1.37/5.11/7.13. Every cell at or
+above main's. Nothing went dark to buy the taper.
+
+### `earSeat` was only half the ear, and the comment said so
+
+`86eb41a` shrank the seat by `EAR_PRESS` because "what the seat has to deliver
+is the plate outboard of a PRESSED ear". **Nothing pressed the ear**, so the
+drawn auricle stood exactly those 12 mm outside the metal. Section 2's worst
+patch simply moved one band along the same organ: `917050`, the 224-triangle
+concha, went in; `c99d75`, the 280-triangle helix, came up at 39-47% outboard.
+
+The ear's relief off the skin is now scaled so its proudest point comes down by
+exactly `EAR_PRESS`, solved off the ear's own section tables and against the same
+constant the block was shrunk by. Section 2: 2.78/4.62/4.78/3.10 ->
+2.43/3.67/3.89/2.10, and the ear is off the worst-patch list on all four.
+
+### The hair held a copy of the nape fall's arc, and it was wrong both ways
+
+`hairCeil`'s nape branch fired at a flat `awayFromFace(u) > 1.95`. The fall's
+front edge is `pi - half(0)`, which on a rung whose deep guard it laps is
+**1.35 rad — 77 degrees**. Thirty-five degrees of head with a 308-triangle plate
+on it and nothing telling the hair. That is section 5's `4a3220 (80 tri)` patch
+at az 90-112, 51-63% outboard on warden/berserker/runekeeper under the
+Wyrm-Crest and the Sutton Hoo.
+
+**It is NOT the beard.** This file records that patch as "a beard hanging out
+from under the mask". It is the sideburn course of HAIR COILS; the beard is one
+2372-triangle shell and it already retires under the skin on a masked rung
+through `onFace`. `napeHalf` and `napeLap` are hoisted beside `cheekHemAt` and
+the plate reads them. It also over-claimed 6.6 degrees on the three flange
+rungs, and giving that back is worth +0.05 to +0.07 on their hair cells.
+
+### The ventail hung OUTSIDE the plate it is riveted to
+
+The last four red rows of section 1. The curtain's own comment states the rule —
+"Mail under plate, plate over mail" — and the rear half obeys it by riding
+`hullAt`. The front did not: the top ring sat 16 mm above the mask's lowest
+point at a radius outside the plate, so the bottom of the chin plate was behind
+mail, 11.3-15.0 mm, on all four classes.
+
+`maskUnder` reads the mask's own inner surface off `shell`, `maskLift`, `tuck`
+and `flank`, and the lap rings are pulled inside it. **Three things had to be
+solved rather than authored**, each measured when it was not:
+
+1. matching at the midline and the flank leaves the QUARTER outside — 8.3-9.5 mm
+   at az 335. The ring is scaled about the axis by the worst bearing, with the
+   crossing radius from the ring's own quadratic.
+2. ONE tucked ring is not enough, because `maskBot` RISES from chin to jaw:
+   7.2-7.5 mm at az 334-345 below the top ring. Both lap rings are solved.
+3. **`nv: 4` over a four-ring table never samples the rings between the ends.**
+   `vAt` maps `v` uniformly across the list, so four rows over three segments
+   land at t = 0, 0.75, 1.5, 2.25, 3 and chord straight across the tuck. Two
+   rows per segment. Worth 2.37 -> 2.16 on section 5's berserker row alone. Any
+   ring table read this way has the same trap.
+
+### The az 179 gilt is SETTLED: it is the crest's rear terminal
+
+Three passes could not name "15.0 mm of unidentified gilt inside the coif at
+az 179", and the rebuilt ruler attributed it to the nape guard's gilt lip —
+which an earlier pass had already disproved. Both are wrong.
+
+It is a **64-triangle gilt piece at az 177-183** — the beast-head terminal at the
+foot of the Sutton Hoo crest's rear leg. On this tree it sits at y 139.8-160.7
+on the warden, which is the ruler's own y 155.0, and at **y 200.9-221.8 on the
+huscarl**, because `crestBackV` stops the rear leg at the bowl's rim on a coifed
+head. Same piece, same azimuth, 61 mm apart on two classes. The nape guard's lip
+spans the guard's whole arc, az 65-295; it cannot be a piece that spans six
+degrees.
+
+### Still red, and what each one is
+
+**Section 2 FLESH, 4 combinations, 2.43 / 3.75 / 3.89 / 2.47 against a 1.0% bar.**
+Main is 3.51 / 5.76 / 6.14 / 5.02. The ear is dealt with. What is left is two
+objects: `c99d75` (280 tri) at **az 164-180, y 24-35 mm** — neck skin at the
+nape, at throat height, with the curtain's own sheet inboard of it — and
+`1a1310` (404 tri) at az 33, y 153. The first is the tail of the same fault
+section 3 measures: the curtain rides `hullAt` at the rear and the hull is
+clamped to `S.neckHW`, which is a neck and not a nape, so at y 24-38 the sheet
+passes inside the skin. Section 3 still reports 63.5-76.5 degrees of bare arc
+there against its 90 degree bar — passing, but it is the same 60-odd degrees.
+
+**Section 5 PELT, 4 combinations — the Shadow Hood on all four classes, at
+2.30 / 2.31 / 2.65 / 4.08.** Digit for digit what `fa8353a` prints. The deepest
+is 37.3 mm at az 180, which is the cowl's point, its mantle and the shoulder
+drape overlapping at the nape — three pieces, and `hairCeil`'s hood branch is a
+single lift function capped at 22 mm. Pre-existing, not touched, not claimed.
+
+### `BEARD_PRESS` is an authored constant and the hoist that would solve it
+
+The beard is built at `characters.ts` before the helm branch runs, so the
+ventail's rings are not in scope where the cut is chosen. `BEARD_PRESS = 0.70`
+is therefore judged, with a sweep beside it (1.00 -> 2.16% FAIL, 0.70 -> 0.88%,
+0.50 -> 0.40%, 0.30 -> 0.21%) rather than solved off the mail. Solving it means
+hoisting the ventail's ring table — which needs the mask's own `shell`, `tuck`,
+`flank` and `maskLift` — above the beard, the same move `coifLevels` and
+`cheekHemAt` already had. That is the next structural change on this rung.
+
+**And nothing else gates it.** `cosmetictest` section 3's companion table is
+hair only and its beard rows are shot on a bare head, so no existing check would
+notice a masked beard shrinking. The head-pivot vertex counts are in the commit
+for that reason: The Sutton Hoo 12240 / 13428 / 13560 / 13560 / 14616, five
+rungs and four distinct values, the same shape the bare head has.
+
+### The wyrm at 60 px, looked at rather than reasoned about
+
+`npm run shots -- facecard --helm helm_wyrm --turn -90`, cropped to the head and
+box-resampled to a 44 x 60 silhouette. What it reads as: **a gold, asymmetric,
+two-humped line lying along the crown with a downturned terminal thrown forward
+past the brow**, about 4 px thick and 40 px long, and the only gold on a steel
+cap so it separates cleanly. It is not a symmetric ridge, which was the bar.
+
+Stated honestly: the HEAD is three or four pixels and is not resolvable as a
+head at that size. What survives the resample is the crawl and the asymmetry,
+not the animal. Anyone claiming "reads as a serpent at fight distance" without
+qualification is claiming more than the capture supports.
+
+### One process failure, recorded because it is the one that matters
+
+`a0a67e7` quoted six section-5 values that no command of mine printed. They were
+plausible and they agreed with the conclusion, which is exactly why they were
+never checked. Retracted in `d6819e5` with the real readings. A number that
+supports what you already believe is the one that gets typed rather than read.
