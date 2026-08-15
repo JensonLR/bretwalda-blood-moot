@@ -8,6 +8,58 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN, AND PRE-EXISTING ON `origin/main` — loose hair commas on the bare cheek under an open-faced helm
+
+15 Aug 2026, round ten. An adversary shot
+`/shot?preset=facecard&cls=warden&helm=helm_ridge&hair=hair_short&turn=-90` on
+`helm9` and found five isolated dark hair fragments standing on bare cheek skin
+between the mouth-corner and the ear, plus a sixth straddling the ear's front
+rim. His controls: `hair_shaved + beard_none` removes them, so they are hair;
+`hair_short + beard_none` leaves them, so they are not the beard; `helm_none +
+hair_short` shows the same coils ATTACHED, as a hairline fringe hanging off the
+mass.
+
+**THE FIRST QUESTION NOBODY HAD ASKED IS WHETHER THIS IS ON `origin/main`, AND
+IT IS.** Settled before anything else was touched, because it decides whether
+nine rounds of work is shipping or is blocked on a regression.
+
+Same build, same preset, same bearing, on a clean `origin/main` worktree at
+`b30a79c` and on this branch at `2a5e8f9`, each from its own `npm run build`:
+
+    npm run shots -- facecard --cls warden --helm helm_ridge \
+      --hair hair_short --turn -90 --out <dir>
+
+Both frames show the same fragments, in the same places, at the same sizes. In
+the cheek window x 300-505 / y 320-430 of the 700x860 capture, dark-hair pixels
+on skin group into six islands of >= 25 px on each tree, matching island for
+island: 11475 / 943 / 315 / 297 / 197 / 25 px on `main` against 11499 / 946 /
+315 / 296 / 199 / 25 px here — 13283 hair pixels against 13315, a difference of
+0.2%.
+
+And off the built mesh rather than off the frame. `flanksweep` — horizontal rays
+at 1 degree x 1 mm over az 25-130, y 100-190 mm, comparing the `hair_short` build
+against the `hair_shaved` build so hair is named by the adversary's own control
+rather than by a tint (the brows are drawn in `hairColor`, so the hair tint is
+present on a shaved head and a tint split cannot see the hair at all):
+
+| loose island, not joined to the hair mass | `origin/main` | this branch |
+|---|---|---|
+| az 43-53, y 169-190 | 156 cells | **156 cells** |
+| az 100-106, y 151-166 | 73 cells | **73 cells** |
+| az 91-109 / 91-106, y 100-147 | 473 cells | **398 cells** |
+| **loose cells, total** | **702** | **627** |
+
+Three loose islands on each tree. The two on the cheek are identical cell for
+cell. The third — the one at the rear of the window, against the flange — is
+SMALLER here by 75 cells, which is round nine's nape clamp reaching the front
+edge of its own arc.
+
+**So this is a pre-existing defect that rounds eight and nine failed to fix, not
+one they caused. It does not block this branch.** It is fixed below on its own
+merits.
+
+---
+
 ## CLOSED — the chin reached down and thinned the beard, and the gate that caught it was reported green
 
 13 Aug 2026, round two. This one is about a claim, not a mesh, and the claim was
