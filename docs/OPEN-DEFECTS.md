@@ -4286,3 +4286,193 @@ stands off the crown as a gold spur from behind.
 5. Restore the deleted hair-coil components.
 6. Then, and only then, drive the geometry green — including the beard that punches
    through the ventail.
+
+## Round six: the nape is closed against the repaired bar, and two of its six items were describing the wrong thing — 15 Aug 2026
+
+`helmclash`, whole battery, this branch. BEFORE is a single run taken at `5365a77`
+before anything in this round was written; AFTER is `--twice` at HEAD. Both were run
+here, neither is quoted from the section above:
+
+```
+SECTION   BEFORE (5365a77)             AFTER (HEAD)
+1 LAYERS  FAIL  1 combination          FAIL  1 combination
+2 FLESH   FAIL 32 combinations         FAIL 32 combinations, three classes lower
+3 WRAP    FAIL 24 combinations         pass
+4 CREST   FAIL  4 combinations         FAIL  4 combinations
+5 PELT    FAIL 55 combinations         FAIL 55 combinations
+          5 of 5 sections RED          4 of 5 sections RED
+```
+
+`--twice` byte-identical over two full runs, 65694 characters, exit 1.
+`npx tsc --noEmit` clean. `npm run lint` at HEAD: `11 problems (9 errors, 2
+warnings)`, the count the section above records for `5365a77`, and not one of them
+is in a file this round touched. `wearmeasure` output is byte-identical to the run before the change —
+including section 3's Sutton Hoo gap 21.7 mm, flare 17.9 deg, hem 19.0 mm against
+26 / 22 / 26 bars — and `hairmap`, `beardvolume` and `locktest` all pass unchanged.
+
+### The bare nape is closed, and the hull was never the head down there
+
+`hullAt` calls itself "where the head actually is, for everything hung on it". It is
+the skull's own column while there is skull and `S.neckHW` below it. Between those
+two the SUBMANDIBULAR MASS — the shell at `characters.ts` that runs from
+`skullY - 48 mm` to `skullY - 230 mm` — hangs down the back of the head outboard of
+both. Measured at az 180 on the warden with a ray out of the head's own axis:
+
+```
+  y mm      8     24     34     48
+  skin   89.7   88.8   88.1   87.0      the submandibular mass
+  hull   78.1   78.1   78.1   78.1      what the mail was riding
+  mail   97.3   89.8   84.9   81.3      crosses inside the skin at y 26
+```
+
+That is the 69.5 / 63.5 / 76.5 degrees of bare arc section 3 printed on the warden,
+the berserker and the runekeeper, and it is the owner's *"a full neck mesh on the
+front with a clear back"*. `jawLevels` and `jawAt` hoist the mass's own stations to
+the head stack beside `coifLevels` and `napeHemY` — `hd - z`, its rear reach from
+the axis, the same correction `hullAt` already applies to the coif's rings — and the
+curtain's rear rides the soft max of the hull and that. Same ray after: mail 109.1 /
+100.8 / 94.0 / 90.5 against the same skin. Section 3 reads 0.0 / 1.5 / 1.5 degrees
+against a 2.0 degree bar, and 1.5 is three consecutive 0.5 degree samples at the
+midpoint between two mail columns — the 1.19 mm chord dip this file's own header
+records.
+
+**And the picture was opened.** `npm run shots -- facecard --helm helm_suttonhoo
+--cls warden --turn 180`, production build, 700x860: the nape is mail from the gold
+rim to the hauberk collar with no flesh stripe. There is a band of orange-brown
+under the rim, and it is NOT skin: sampled at (144,76,40), which is within four
+levels of the cloak's own (141,78,30) at the far left of the same frame and nowhere
+near either complexion tone (base 0xc99d75 = 201,157,117; shade 0x917050 =
+145,112,80). Settled off the mesh rather than off the colour: swept at 1 degree by
+1 mm over az 120-240 and y 0-120 mm on all four classes under the Sutton Hoo, there
+is NO bearing and NO height at which head skin is outboard of kit. Stated honestly —
+a before/after pair was not shot, only the after.
+
+**Section 1 moved the wrong way and is reported, not buried.** The nape guard's hem
+now laps the mail it has to lie over: warden 2.9 mm / 1.1%, berserker 1.8 / 0.6,
+runekeeper 3.7 / 1.2 at az 189, all three 0.0 before, against a 5.0 mm bar. The
+plate's outer face is outside the mail at every station; it is the last 8 mm of its
+thickness at the rim. `hullAt` itself was deliberately NOT given the jaw, and that is
+measured rather than squeamish: the nape fall rides the hull with 13-15 mm of
+authored clearance, so feeding the jaw in moves the plate out by that same 9 mm at
+the hem, on top of a `wearmeasure` section 3 that already reads gap 21.7 mm and hem
+19.0 against 26 mm bars. That is the flaring flange the owner complained of in the
+first place. The 9 mm is measured; the `wearmeasure` reading it would produce is NOT
+— that variant was never built or run, and nobody should quote a number for it until
+it is.
+
+### The deleted hair coils: the count is right and the loss is not — R10
+
+`docs/OPEN-DEFECTS.md` above says "every 80-triangle hair-coil component that main
+builds under the Wyrm-Crest and the Sutton Hoo is absent on the branch ... That is
+components disappearing, not pixels being occluded." The count is exactly right.
+Counted on both trees with the same component walk, `fa8353a` -> this branch:
+
+```
+             wyrm                      suttonhoo
+             short long braids         short long braids
+  huscarl      5     6     6             4     6     6      -> 0 everywhere
+  warden       5     6     6             4     6     6      -> 0 everywhere
+  berserker    5     6     6             4     6     6      -> 0 everywhere
+  runekeeper   5     6     6             4     6     6      -> 0 everywhere
+```
+
+**Then every one of those 96 components on `fa8353a` was asked whether a player could
+see it** — each of its 240 vertices given a horizontal ray out of the head's axis,
+and counted outboard when the ray meets no kit or meets it inside the vertex:
+
+```
+  huscarl    wyrm/suttonhoo, all rungs   worst 0.0% outboard,  0.0 mm
+  warden     wyrm   short/long/braids    75.0 / 18.8 / 18.8%,  16.8 / 3.5 / 3.5 mm
+             suttonhoo short/long/braids 60.0 / 55.0 / 55.0%,  15.3 / 11.3 / 11.3
+  berserker  wyrm                        77.5 / 13.8 / 13.8%,  16.9 / 2.5 / 2.5
+             suttonhoo                   60.0 / 55.0 / 55.0%,  15.2 / 11.3 / 11.3
+  runekeeper wyrm                        70.0 / 21.3 / 21.3%,  16.6 / 4.2 / 4.2
+             suttonhoo                   60.0 / 55.0 / 55.0%,  15.2 / 11.2 / 11.2
+```
+
+So on the huscarl — the one class that wears a coif — they were buried inside the
+mail from every bearing, and on the other three they were standing 2.5 to 16.9 mm
+THROUGH the helmet. Not one of the 96 was both present and correct. **Nothing a
+player could see was taken away**, and the pixels the cull removed were the defect.
+
+The restoration was written and measured before being dropped. Lifting the nape
+branch's burial constant off coifed heads — where the coif, not the plate, is the
+nearest covering surface — brings the huscarl's Sutton Hoo back to 24 coils, all of
+them 0 of 240 outboard, at a cost of 26054 triangles against 24134, +1920 for
+geometry no bearing can reach. That is a frame-rate bill for nothing, so it is not
+in the tree, and this paragraph is here so the next pass does not have to rediscover
+it. What the branch owes the shop is `cosmetictest`'s "2 swallowed -> 4 swallowed",
+which is about Long Mane and Braided War-locks being OCCLUDED, and that is a
+different and still-open finding.
+
+### The beard through the ventail is NOT closed, and both dials are the wrong lever
+
+`beard_full` (40g) under the Sutton Hoo reads 3.66 / 3.72 / 4.77% of the beard's own
+surface outboard on the huscarl, warden and runekeeper (the berserker wears it by
+default and reads 2.71), 17.5 to 23.2 mm deep, at az 1-2 and y -44 to -47 mm.
+Probed directly at az 0 on the warden, the beard stands at r = 134.3 / 136.7 / 127.9
+mm at y = -40 / -20 / 0 while the curtain is at 117.6 / 124.3 / 131.0 — a wedge
+7 to 17 mm proud of the mail, dead ahead, which is the hard-edged brown wedge round
+five's adversary found by hand.
+
+Both authored dials were swept against the repaired section 5, whole `--helm
+suttonhoo` table each time, and neither is the lever:
+
+```
+  BEARD_PRESS   0.70   0.55   0.45   0.35        (scales the profile's outward offset)
+  full          3.66   2.48   2.02   1.81
+  forked        2.68   2.20   2.02   2.10
+  braided       3.27   3.19   3.16   3.14
+  section 5     16/32  11/32  10/32   9/32 red
+  deepest       18.3   17.0   16.4   16.0 mm     the depth barely moves
+
+  BEARD lean    1.00   0.60   0.30   0.00        (how far the fall hangs forward)
+  full          3.66   2.50   2.23   2.06
+  forked        2.68   2.30   2.30   2.53        WORSE below 0.6
+  braided       3.27   3.58   3.91   4.25        WORSE at every step
+  section 5     16/32  12/32  12/32  11/32 red
+```
+
+Halving the press costs a fifth of a 40-to-120-gold cosmetic and still fails; the
+lean makes the Ringed Braid worse at every value. So nothing was changed: the tree
+still carries `BEARD_PRESS = 0.70` and the beard is the size it was.
+
+**The fix is the hoist this file already named and it was not attempted here.** The
+beard's outward reach has to be solved against the curtain's OWN rings rather than
+against a constant, and the curtain's rings need `chinPt` — `shell(0, chinV,
+maskLift(chinV))` — which lives 2000 lines below the beard. The two lower rings, the
+ones the fall actually meets, are pure functions of `R`, `chinPt.z`, `vTop` and
+`vBot`; only `chinPt` is behind the mask block. That is the whole of the blocker and
+it is one point on one surface.
+
+### The wyrm at 46x60, looked at
+
+`npm run shots -- facecard --helm helm_wyrm --cls warden --turn -90`, production
+build, cropped to the head (210,30)-(630,575) and box-resampled to 46x60. It is a
+gold ribbon two to three pixels thick running across the crown with one bend near
+the middle and a short downturn at the front end. Its ends are the same thickness as
+its middle. No head, no jaw, no taper, no animal — the assessment above stands
+unchanged and unimproved. Not attempted this round.
+
+### Also seen in the wyrm capture and not chased
+
+At turn -90 the warden's neck between the helm's hem and the mail collar carries a
+pale flat ellipse across its base, which is a capped shell top catching the key
+light — the same class of defect as the "lit horizontal plate under the chin" the
+neck's own stations were re-cut for. It is on an open helm with no throat defence,
+so no section of `helmclash` is a case for it.
+
+### What round seven has to do
+
+1. The beard through the ventail. Hoist `chinPt` above the beard and solve the
+   beard's outward reach against the curtain's two lower rings. Do not touch
+   `BEARD_PRESS`; the sweep above shows what it buys.
+2. Section 5's 55 reds, of which the hood is the largest block — `beard=full` under
+   the Shadow Hood reads 9.29% on the runekeeper, the worst cell in the table, and
+   `BEARD_PRESS` does not fire there at all because the hood is not `style.mask`.
+3. Section 2's 32 reds. The nape is off the list; what is left is the ear helix
+   `c99d75` at 11.0-11.9% and the brow `1a1310` at 11.6%, deepest 2.8-3.5 mm.
+4. Section 4's four hood rows, which round five's adversary believes are false
+   positives — open a render of the cowl from behind before tuning anything.
+5. Section 1's one red: `huscarl / suttonhoo / hair=braids`, an 80-triangle brass
+   braid ring 100% inboard of the coif at 61.5 mm.
