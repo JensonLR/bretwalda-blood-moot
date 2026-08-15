@@ -251,13 +251,125 @@ const apOf = (cls, g = defaultGetup(cls)) => ({
 });
 
 /**
+ * THE ATLAS PLANE — where this ruler's scope stops, and why it is not the head
+ * pivot's child list.
+ *
+ * `headPieces` used to be `pivot.traverse(...)`, and PARENTAGE IS THE WRONG
+ * QUESTION. In this rig a node hangs off `rig:headPivot` when it has to TURN
+ * with the head, not when the player sees it beside the head. `characters.ts`
+ * says so in as many words over its own neck: the neck "hangs off `root`
+ * exactly as the torso does, so `insertSpine` carries it with the chest and
+ * `severBody` leaves it alone" — a deliberate animation decision, correct on
+ * its own terms, and nothing to do with what is on show around a helmet.
+ *
+ * So `rig:neck` — 380 triangles of complexion, `c99d75` — is a SIBLING of the
+ * head pivot and was outside every reading this file has ever taken. Six rounds
+ * of section 3 measured a head with no neck in it and called the nape covered;
+ * the bare band the owner photographed under the Sutton Hoo IS that neck. The
+ * instrument was structurally unable to see the defect it was pointed at, which
+ * is instance sixteen of a measurement answering the wrong question and is
+ * recorded as such in `docs/OPEN-DEFECTS.md`.
+ *
+ * THE REPLACEMENT IS SPATIAL, BECAUSE THE QUESTION IS SPATIAL. Walk the whole
+ * rig and keep what reaches the head, where "reaches the head" is at or above
+ * the ATLAS — y = 0 in the head pivot's own frame, which is where
+ * `characters.ts` puts that pivot: `headPivot.position.set(0, S.neckTop, 0)`.
+ * That is the rig's own landmark for where the neck ends and the head begins,
+ * read off the build rather than typed in here, so a stature change moves it
+ * without an edit.
+ *
+ * WHAT THAT ADMITS AND WHAT IT REFUSES, measured over the whole battery — four
+ * classes x nine helms x eight rungs, and `helm=none` on top — rather than
+ * argued. Exactly ONE node outside the pivot crosses the atlas plane:
+ *
+ *   CROSSES   rig:neck    max y   +95.0 mm    380 tri   c99d75
+ *   below     rig:torso   max y   -19.1 mm    252 tri   c2b69c   <- the next one up
+ *   below     rig:arm±1   max y   -27.1 mm
+ *   below     rig:cloak   max y   -87.8 mm
+ *
+ * so the boundary clears the highest thing it excludes by 19.1 mm, and the neck
+ * clears it by 95. NOTHING IS HARD-CODED TO THE NECK: the test is the plane, and
+ * a hauberk collar or a pauldron authored tomorrow that rises past the atlas is
+ * inside this instrument the day it is written, which is the whole point of
+ * fixing the traversal instead of naming the one node that got missed.
+ *
+ * WHY THE PLANE IS NOT LOWER, and this is the constraint that sets it. The body
+ * must stay OUT. `bareTints` learns what "the man" is made of by building the
+ * same head bare and taking every tint on it, and a scope that reached the torso
+ * would enrol the torso's `bfa25c` — 1466 triangles of it — as flesh. `bfa25c`
+ * is also the Wyrm-Crest's gilt and the Jarl's circlet, so sections 2 and 4
+ * would file those helmets as skin and go blind, which is the identical trap the
+ * note over `bareTints` describes for the braided rung's brass rings. A wider
+ * scope is not automatically a better one; this one is as wide as it can be
+ * without blinding two sections, and the 19.1 mm margin is the room it has.
+ *
+ * THE UNION IS DELIBERATE. Everything under the pivot is kept whether or not it
+ * crosses the plane, so this change can only ADD to what was measured before and
+ * never silently drop a piece the old scope had. Outside the pivot the `rig:`
+ * tag is required as well, because `anim.ts` hangs weapons, shields and bone
+ * chains off this rig and that prefix is what `characters.ts` provides to tell
+ * body from baggage "without a whitelist that goes stale".
+ *
+ * A PIECE IS KEPT WHOLE once it qualifies — the neck is admitted on its +95 mm
+ * top and comes in with all 380 triangles, down to its -212 mm hem. Clipping it
+ * to the plane would put a cut edge in the ray's way and invent a surface the
+ * player never sees; the sections sample the heights they sample, and geometry
+ * below them is simply never hit.
+ */
+const ATLAS_Y = 0;
+
+/**
+ * The meshes this ruler is allowed to see, and the ONE place that decides it.
+ *
+ * `headPieces` and `assertTintsAreLabels` each had their own `pivot.traverse`,
+ * so the scope fault lived in the file twice. It is answered here once, and both
+ * call this, because two copies of a scope rule are two chances to fix one of
+ * them. Each mesh is handed over with its vertices already in the pivot's frame
+ * and with the top height that admitted it, so no caller transforms twice.
+ */
+function headScope(root, pivot, fn) {
+  const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
+  const underPivot = (o) => { for (let c = o; c; c = c.parent) if (c === pivot) return true; return false; };
+  root.traverse((o) => {
+    if (!o.isMesh || !o.geometry?.attributes?.position) return;
+    // Body, not baggage — see the note above. Anything under the pivot was in
+    // scope before this change and stays in scope unconditionally, so widening
+    // the ruler can only add to what it measured and never quietly drop a piece.
+    const inHead = underPivot(o);
+    if (!inHead && !o.name.startsWith(RIG)) return;
+    const pos = o.geometry.attributes.position;
+    const mw = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+    const P = new Float64Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    // The true maximum height in the pivot's frame, taken off the vertices
+    // themselves. A transformed bounding box would only bound it, and the margin
+    // this plane runs on is 19.1 mm — small enough that a bound which overshoots
+    // could let the torso in and blind sections 2 and 4.
+    let topY = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mw);
+      if (v.y > topY) topY = v.y;
+      P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z;
+    }
+    // Outboard of the head pivot, the atlas plane decides. `P` is in the game's
+    // metres and the plane is the pivot's own origin, so the comparison is
+    // against zero in either unit.
+    if (!inHead && topY < ATLAS_Y) return;
+    fn(o, P, topY);
+  });
+}
+
+/**
  * Every piece worn on the head, in the head pivot's own frame, in millimetres
  * of the game's own metres.
  *
  * A "piece" is one connected component of the merged index graph — see the head
  * of this file. Returned in build order, which is `Part.merge`'s slot order and
  * then the order of the `p.add` calls inside each slot: deterministic, and the
- * same list twice for the same arguments.
+ * same list twice for the same arguments. The walk is over `root` now rather
+ * than over the pivot, and `characters.ts` adds the head pivot to `root` before
+ * it emits the neck, so the head's own pieces keep the order they always had and
+ * the neck lands after them.
  */
 function headPieces(cls, helm, g = defaultGetup(cls), seed = SEED) {
   const root = buildCharacter(cls, { ...apOf(cls, g), helm }, 0x8a6b3f, undefined, LOD, seed).group;
@@ -265,21 +377,12 @@ function headPieces(cls, helm, g = defaultGetup(cls), seed = SEED) {
   let pivot = null;
   root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
   if (!pivot) { console.error(`[clash] ${cls}/${helm}: no ${RIG}headPivot in the rig`); process.exit(2); }
-  const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
   const pieces = [];
-  pivot.traverse((o) => {
-    if (!o.isMesh || !o.geometry?.attributes?.position) return;
+  headScope(root, pivot, (o, P) => {
     const hex = hexOf(o);
     const pos = o.geometry.attributes.position;
     const idx = o.geometry.index;
     const n = idx ? idx.count : pos.count;
-    const mw = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
-    const P = new Float64Array(pos.count * 3);
-    const v = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(mw);
-      P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z;
-    }
     // Union-find over the triangles' own vertex indices. No welding, no
     // tolerance: two `p.add` calls never share an index, so this splits the
     // buffer back into the geometries that were concatenated into it.
@@ -654,8 +757,9 @@ function assertTintsAreLabels() {
     root.updateMatrixWorld(true);
     let pivot = null, tris = 0, meshes = 0;
     root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
-    pivot.traverse((o) => {
-      if (!o.isMesh || !o.geometry?.attributes?.position) return;
+    // The SAME scope the sections measure in — this check had its own
+    // `pivot.traverse` and so certified a head the ruler no longer reads.
+    headScope(root, pivot, (o) => {
       meshes++;
       tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
     });
