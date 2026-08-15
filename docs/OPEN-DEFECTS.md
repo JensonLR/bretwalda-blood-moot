@@ -4604,3 +4604,114 @@ readings in `helmclash.mjs` therefore describe a build nobody can play. They are
 comments rather than assertions, so nothing fails because of it, but any number in
 that file quoted without re-running it is suspect.
 
+
+## The nape guard's rim sits AT the neck's own radius, and no aventail can fit under it — 15 Aug 2026
+
+Round seven closed the bare band the owner photographed. What is left is a 11 to 25
+degree sliver of nape between the guard's hem and y 62, and it is not a tuning
+problem — it is over-constrained. This is the write-up so round eight does not
+rediscover it.
+
+### What was closed, and how
+
+`helmclash` section 3, worst bare arc under the Sutton Hoo, whole battery:
+
+```
+                BEFORE      AFTER
+  warden        159.5 deg    15.5 deg
+  berserker     156.5 deg    11.0 deg
+  runekeeper    162.5 deg    25.5 deg
+  huscarl         0.0 deg     0.0 deg   (untouched — his coif already closes it)
+```
+
+The mail ventail was swept over `vHalf = 2.45`, which is 2.45 rad of ELLIPSE
+PARAMETER and arrives at azimuth 133, and its rings were multiples of the SKULL's
+`R` pushed FORWARD by `chinPt.z`. Measured on the warden at y 30, r in mm from the
+head's axis:
+
+```
+  azimuth      0     40     70     90    110    140    180
+  curtain  135.9  117.1   93.8   80.3   70.0      —      —
+  neck      58.6   54.3   57.0   60.7   70.2   85.3  101.4
+```
+
+The two cross at azimuth 110. Below `napeHemY` there is no plate either, so from
+the hauberk collar to the gold rim — 69 mm — the three classes with no coif wore
+NOTHING at the nape. The curtain now sweeps pi with `wrapU` and its rear is solved
+against the neck's own profile.
+
+### Why the last 11-25 degrees cannot be closed from the mail side
+
+At the nape, on the warden, r in mm from the axis:
+
+```
+   y mm      48      52      56      60      64      72
+   neck    100.7   100.1    99.5    98.9    98.3    97.1
+   guard      —     98.7    98.7    98.7    98.7    98.7
+```
+
+The guard's rim is 0.3 to 1.5 mm INSIDE the neck from its hem up to y 62. Mail has
+to be outboard of the neck to cover it and inboard of the plate to be worn under
+it, and between 98.7 and 100.1 there is no room for either the 7 mm wall or the
+5 mm `LAYER_GAP`. Three arrangements were built and measured:
+
+```
+  curtain hung level from vTop     3 WRAP 11.0/11.0/21.5   1 LAYERS 8.1/11.3/8.0 %
+  top edge on the guard's hem      3 WRAP 15.5/11.0/25.5   1 LAYERS 7.9/ 8.5/8.1 %
+  top edge a LAYER_GAP below it    3 WRAP 202.5/193.5/216.5 (a 5 mm bare RING)
+  (tree before this round)         3 WRAP 159.5/156.5/162.5 1 LAYERS 4.6/ 4.3/5.0 %
+```
+
+Every arrangement that covers the nape puts mail outboard of the guard's rim,
+because the rim is where the neck is. The second is in the tree: it is the
+physically correct construction (a curtain hangs from the helmet's rim, and that
+rim is the mask's lower edge in front and `napeHemY` behind) and it costs section 1
+the least. It still costs it about 3 points of buried fraction, which is recorded
+here rather than buried in a commit message.
+
+### The plate cannot move either, and the reason is instance SEVENTEEN
+
+The honest repair is to move the guard out so there is room under it. `hullAt`
+floors its half-DEPTH at `S.neckHW` — a half-WIDTH used as a half-depth, with no
+account of the neck being set back in z — so the plate is solved against a column
+78.1 mm deep where the neck's rear skin is at 101.6. Feeding the neck in was built
+and measured:
+
+```
+  wearmeasure 3        gap mm   flare deg   hem mm     bars 26 / 22 / 26
+  as shipped            12.0       18.1      19.0      PASS
+  hull fed the neck     34.3       42.8      34.3      FAIL
+  ditto, 20 mm fillet   27.6       34.9      27.6      FAIL
+```
+
+**But that gate cannot see the neck either.** `helmFitProbe`'s `withNeck`
+(`characters.ts:4642`) gives the ruler a neck that is "an infinite vertical
+cylinder of the skeleton's own half-width", `rn = S.neckHW` — round, centred on the
+axis, 78.1 mm. The real neck is an ellipse whose rear stands at 101.6. So the
+27.6 mm of "daylight" it reports between the plate and the flesh is measured to a
+phantom cylinder 23.5 mm inside the actual skin, and most of that daylight is
+neck. It is the identical arithmetic slip as `hullAt`, from the identical constant,
+and the comment over it already admits the direction: "Below the shoulder it
+under-reads, which errs toward failing a plate rather than passing one."
+
+That is **instance seventeen of a measurement answering the wrong question**, and
+it is the blocker. A gate red because it is measuring the wrong object is no more a
+gate than one green because the case is absent.
+
+### The order round eight has to work in
+
+`docs/OPEN-DEFECTS.md` already states it and it applies exactly here: *fix the bar
+first, then drive the geometry to the fixed bar — in that order, and not in one
+commit.* Round seven deliberately did NOT repair `withNeck`, because the same agent
+moving the plate and repairing the instrument that judges the plate is the thing R3
+exists to prevent.
+
+1. Give `withNeck` the neck's real section. `NECK_STATIONS` and `neckBackAt` are
+   hoisted into the head stack for exactly this and are already read by the
+   ventail; `helmFitProbe` builds its own skeleton and can read them the same way.
+   Re-run `wearmeasure` and record what the Sutton Hoo's guard reads against a
+   ruler that can see what is under it. It may already be failing.
+2. Then feed `neckBackAt` into `hullAt` so the guard clears the neck, and drive it
+   to whatever the repaired bars say.
+3. Then the curtain's top edge can go back up under the plate, the last 11-25
+   degrees close, and section 1's buried fraction goes back down with them.
