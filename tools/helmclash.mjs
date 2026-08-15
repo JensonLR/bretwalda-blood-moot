@@ -733,38 +733,148 @@ function outboardShare(subject, kitT) {
 // hairline exemption: `helmForm` is a 12 mm low-pass with nothing under a 45 mm
 // radius, so THE BLOCK A PLATE IS BEATEN OVER HAS NO EAR ON IT. The plate is
 // drawn correctly on a head that has had its ears filed off.
+//
+// ------------------------------------------------------------
+// WHICH HELMS ARE A CASE IS READ OFF THE MESH, NOT OFF A BOOLEAN
+// ------------------------------------------------------------
+//
+// This section used to open with `if (!HELM[helm].mask) { absent++; continue; }`
+// — a property of the catalogue, not of the head that gets drawn. A gate whose
+// case list is a declaration is a gate anybody can switch off by editing one
+// word, and round five's adversary switched it off: with the ruler's own case
+// test forced false and NOT ONE VERTEX MOVED, the section went from "4 of 4
+// masked combinations are red" to "0 of 0" and the battery printed ALL SECTIONS
+// PASS.
+//
+// So the case is now measured. A helm is a face plate when the KIT COVERS THE
+// FACE: of the head's own skin within 45 degrees of dead ahead, what share has
+// kit outboard of it, weighted by area. Measured on this tree, every class,
+// every rung in the shop:
+//
+//     Sutton Hoo                          81.2 - 88.8 %
+//     Shadow Hood                         43.3 - 44.4
+//     Wyrm-Crest                          41.7 - 43.7
+//     Spectacle / Boar / Jarl's Crowned   35.4 - 37.4
+//     Nasal / Ridge                       20.4 - 21.2
+//     Iron Spangenhelm                    17.5 - 18.9
+//
+// The bar is 65%, in a 37-point gap with 16 points of margin on the near side
+// and 20 on the far. Nothing in the shop is near it, which is what a case test
+// should look like — the same shape of argument `CREST_MM` makes.
+//
+// AND THE CATALOGUE IS CHECKED AGAINST THE MESH RATHER THAN OBEYED. `HELM[].mask`
+// is still read, but only to be disagreed with: a helm the shop declares a mask
+// and the builder does not draw as one is a FAIL in its own right — that is a
+// player paying 2400 gold for a face and getting an open helm — and a helm built
+// as a face plate without the declaration is measured anyway, with a note.
+//
+// One hole is left open and named rather than papered over. Flipping
+// `mask: true -> false` at `characters.ts:925` is not the declaration-only edit
+// it looks like: `style.mask` also gates the whole Sutton Hoo mask block, and
+// the flip was measured here to take the berserker's head from 23838 to 13312
+// triangles. After it, no helm in the shop covers a face, both the mesh and the
+// declaration agree about that, and this section has nothing to disagree with.
+// What catches it is the last rule below: a section that finds NO case at all is
+// red, because a gate green because the case is absent is not a gate.
 const FLESH_PCT = 1.0;
 /**
  * 1.0% of the skin's area, and it is a tessellation allowance rather than a
  * tolerance. Zero is the only defensible answer for a face plate, and nothing
  * on this tree is anywhere near the bar: the four masked combinations measure
- * 3.51, 5.02, 5.76 and 6.14, so no verdict here turns on where exactly the bar
+ * 2.10, 2.43, 3.75 and 3.84, so no verdict here turns on where exactly the bar
  * sits.
  */
+const FACE_PCT = 65.0;
+const FACE_AZ = 45;
+/**
+ * How much of the face this helm actually covers, off the built mesh: the share
+ * of the head's own skin AREA within `FACE_AZ` degrees of dead ahead that has
+ * kit outboard of it. Outward rays, the same horizontal ray every other section
+ * uses, pointed the way section 1 points it.
+ */
+function faceCover(flesh, kitT) {
+  const kitIx = heightIndex(kitT);
+  const buf = new Float64Array(BARY.length * 3);
+  let cov = 0, all = 0;
+  for (const p of flesh) {
+    for (let i = 0; i < p.T.length; i += 9) {
+      const ux = p.T[i + 3] - p.T[i], uy = p.T[i + 4] - p.T[i + 1], uz = p.T[i + 5] - p.T[i + 2];
+      const vx = p.T[i + 6] - p.T[i], vy = p.T[i + 7] - p.T[i + 1], vz = p.T[i + 8] - p.T[i + 2];
+      const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+      const c = samples(p.T, i, buf);
+      let hit = 0, tot = 0;
+      for (let s = 0; s < c; s++) {
+        const x = buf[s * 3], y = buf[s * 3 + 1], z = buf[s * 3 + 2];
+        const r = Math.hypot(x, z);
+        if (r < 1e-6) continue;
+        let a = azOf(x, z);
+        if (a > 180) a -= 360;
+        if (Math.abs(a) > FACE_AZ) continue;
+        tot++;
+        if (hitFlat(kitIx, x, y, z, x / r, z / r, 0.30) >= 0) hit++;
+      }
+      if (!tot) continue;
+      all += area; cov += area * hit / tot;
+    }
+  }
+  return all ? 100 * cov / all : 0;
+}
 function sectionFlesh(rows) {
   console.log("");
   console.log("[clash] 2. FLESH — skin outboard of a helm that is a face plate.");
   console.log(`[clash]    inward horizontal rays off every skin triangle, area-weighted; bar ${FLESH_PCT.toFixed(1)}% of the skin.`);
+  console.log(`[clash]    a case is a helm whose MESH covers the face: ${FACE_PCT.toFixed(1)}%+ of the skin within ${FACE_AZ} deg of dead ahead has kit outboard.`);
   console.log("");
-  console.log("[clash] class       helm         skin out%   worst patch                deepest       where");
-  console.log("[clash] ------------------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         face cov%  skin out%   worst patch                deepest       where");
+  console.log("[clash] --------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
+  let openLo = Infinity, openHi = -Infinity;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      if (!HELM[helm].mask) { absent++; continue; }
-      cases++;
       const { flesh, kit } = sortPieces(cls, helm);
-      const r = outboardShare(flesh, soup(kit));
+      const KT = soup(kit);
+      const cover = faceCover(flesh, KT);
+      const isPlate = cover >= FACE_PCT;
+      const declared = !!HELM[helm].mask;
+      if (!isPlate) {
+        if (declared) {
+          // DECLARED A FACE MASK, BUILT AS AN OPEN HELM. The shop is selling a
+          // face and the builder is not drawing one. This is the disagreement
+          // the old case test could not have — it took the declaration's word.
+          fails++;
+          console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${cover.toFixed(1).padStart(8)}          —   DECLARED A FACE MASK, BUILT AS AN OPEN HELM — the catalogue says mask, the mesh covers ${cover.toFixed(1)}% of the face  FAIL`);
+          rows.push({ section: 2, cls, helm, fail: true, cover });
+          continue;
+        }
+        absent++;
+        if (cover < openLo) openLo = cover;
+        if (cover > openHi) openHi = cover;
+        continue;
+      }
+      cases++;
+      const r = outboardShare(flesh, KT);
       const pct = 100 * r.share;
       const bad = pct > FLESH_PCT;
       if (bad) fails++;
       const patch = r.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 2, cls, helm, fail: bad, pct });
+      const note = declared ? "" : "  (built as a face plate, not declared one)";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${cover.toFixed(1).padStart(8)}   ${pct.toFixed(2).padStart(8)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 2, cls, helm, fail: bad, pct, cover });
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} masked combinations are red; ${absent} open-faced combinations are not a case for this section.`);
+  if (!cases) {
+    // NO HELM IN THE SHOP COVERS A FACE. Not a pass: this section measured
+    // nothing, and a section that measured nothing cannot be green. It is also
+    // the only thing standing between this gate and a one-word edit that takes
+    // the Sutton Hoo's mask out of the build entirely — see the note over
+    // `FLESH_PCT` about `characters.ts:925`.
+    fails++;
+    console.log("[clash]    NO COMBINATION IN THE SHOP BUILDS A FACE PLATE — this section measured nothing,");
+    console.log("[clash]    which is not a pass. The shop sold a face mask the last time anyone looked.  FAIL");
+  } else {
+    console.log(`[clash]    ${fails} of ${cases} combinations whose mesh covers the face are red; ${absent} do not cover a face (${openLo.toFixed(1)} - ${openHi.toFixed(1)}%) and are not a case.`);
+  }
   return fails;
 }
 // ============================================================
@@ -964,6 +1074,36 @@ function sectionWrap(rows) {
 // a long way below it and a hood has its own shoulder drape 340 mm down. Neither
 // is daylight under a crest; both are just the side of a head.
 //
+// AND THE HELM LIST IS NOT NAMED EITHER, NOT ANY MORE. This section used to open
+// with `if (!HELM[helm].cap) { absent++; continue; }`, which is the catalogue's
+// opinion about which helms have a cap rather than the mesh's — the same fault
+// section 2 carried, and switchable by the same one-word edit. It was never even
+// necessary: the cap is found below by dropping a disc of columns through the
+// crown and taking what they land on, and that machinery already prints "nothing
+// of this helm crosses the crown — no cap to sit on" when there is no cap. The
+// declaration was doing nothing but hiding four combinations from a test that
+// can decide for itself, and the Shadow Hood — `cap: false` in the catalogue,
+// and a garment that covers the crown in the mesh — is exactly the case it hid.
+//
+// THE FOUR HOOD ROWS ARE NEW AND THEY ARE NOT CONFIRMED. Letting the mesh decide
+// admits the Shadow Hood, and the hood fails at 41.9 - 44.7 mm on a 48-triangle
+// piece. Measured, before anybody calls that a defect: the piece is a flap at
+// az 180, radius 136-144 mm, spanning y 134-252 mm, and its nearest approach to
+// the cowl is 0.0 mm — it is ATTACHED at its root and hangs to 60.5 mm at its
+// tip. That is the shape of the false positive this section's own history warns
+// about twice ("the flank of a bowl has the nape fall a long way below it, and
+// that is the side of a head, not daylight under a crest"): the "over the cap"
+// test was written for a bowl sitting on a crown, and a hood's cap is a cowl
+// that drapes to the shoulders, so a thing hanging BESIDE the head still lands
+// on it.
+//
+// It is left standing, loudly, rather than tuned away in the commit that changed
+// the case list. Excluding a fitting that never rises above the cap's own crown
+// would fix it and would also move the reported fitting on twenty other rows —
+// that is a change to what this section measures and it needs its own before and
+// after, not a quiet ride on a commit about case selection. Whoever takes it
+// should open a render of the Shadow Hood from behind first.
+//
 // The cap is found rather than named: drop a ray down the head's own axis and
 // take the LAST piece of kit it passes through before the skull. A crest crosses
 // that axis, so does the bowl, and the bowl is the lower of the two — so the
@@ -1022,7 +1162,6 @@ function sectionCrest(rows) {
   const buf = new Float64Array(BARY.length * 3);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      if (!HELM[helm].cap) { absent++; continue; }
       const { kit } = sortPieces(cls, helm);
       // THE CAP: the piece that is lowest under the crown.
       //
@@ -1130,7 +1269,14 @@ function sectionCrest(rows) {
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} combinations with a fitting on the cap are red; ${absent} have no cap or no fitting and are not a case.`);
+  if (!cases) {
+    // Same rule as section 2's: nothing measured is not a pass.
+    fails++;
+    console.log("[clash]    NO COMBINATION IN THE SHOP HAS A FITTING ON A CAP — this section measured");
+    console.log("[clash]    nothing, which is not a pass. Six of the nine rungs are sold on a crest.  FAIL");
+  } else {
+    console.log(`[clash]    ${fails} of ${cases} combinations with a fitting on the cap are red; ${absent} have no cap or no fitting and are not a case.`);
+  }
   return fails;
 }
 
