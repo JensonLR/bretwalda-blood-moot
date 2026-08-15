@@ -4785,3 +4785,140 @@ historical. Cause: the ruler landed on `main` in `a8bc004` while `characters.ts`
 deliberately held back, so its calibration describes geometry that was correctly refused.
 That is a direct consequence of splitting the landing, it was the right split, and the
 comments needed correcting rather than the decision.
+
+## Round eight: the nape and the ear are closed, and the flare bar is now measuring a lap — 15 Aug 2026
+
+Both of the owner's remaining photographed defects are shut. What is left is one
+red column on a repaired ruler, and it is not the metal's fault.
+
+### The order round seven set, followed
+
+1. `helmFitProbe`'s `withNeck` was `rn = S.neckHW` — "an infinite vertical
+   cylinder of the skeleton's own half-width", axis-centred and round, on a neck
+   that is elliptical, tapered and set back in z by up to 27.5 mm. Repaired in
+   its own commit with no geometry in it: `rungcensus` read 640 of 640
+   scope-readings identical to `origin/main`.
+2. Then `hullAt`, which made the identical slip from the identical constant.
+3. Then the ear, the hair and the mail.
+
+`wearmeasure` 3b is the new gate that stops instance eighteen of this shape: it
+holds `neckProbe` against the `rig:neck` vertices of a built character at seven
+heights on four classes. Forced back to `S.neckHW` it prints 28 FAIL rows at
+-18.0 to -24.1 mm; on the repaired ruler it prints -0.0.
+
+### What moved
+
+```
+  helmclash 3 WRAP, Sutton Hoo      main   +ruler+hull   +ear   +hair
+    huscarl                          0.0        0.0       0.0    0.0
+    warden                          15.5 az180 11.0 az101 6.5    0.0
+    berserker                       11.0 az101 11.0 az101 6.5    1.0
+    runekeeper                      25.5 az180 11.5 az101 6.0    0.0
+
+  helmclash sections, red combinations
+    1 LAYERS  19 -> 19     3 WRAP  25 -> 2     5 PELT  108 -> 75
+    2 FLESH   32 -> 24     4 CREST 12 -> 12
+```
+
+Not one cell is red on this branch that was green on `origin/main`.
+`rungcensus`, 4 classes x 10 helms x 8 rungs, twice each: 360 identical, 280
+GAINED, **0 LOST, 0 rungs gone**.
+
+### OPEN — `wearmeasure` section 3's FLARE is measuring a plate over a plate
+
+The one bar left red, and the next round's first job. Against the repaired
+ruler:
+
+```
+  Sutton Hoo nape guard         gap    flare   hem      bars 26 / 22 / 26
+    main's own hull            31.0    43.3   29.6
+    whole ellipse fed the neck 24.5    49.9   24.5
+    rear half only (shipped)   19.1    47.5   19.0   -> 21.7 / 44.7 / 19.0
+                                                        after the ear seat
+```
+
+**Gap and hem are inside the bars. Flare is 43.3 on main's own geometry the
+moment the ruler can see the neck**, so it is not the shape this round shipped.
+Where it is, is printed: `u 1.00, v 0.87`, the guard's front-bottom corner. An
+independent ray listing at az 65 says what is under that corner —
+
+```
+  y 52   70.0 plate  73.9 gilt  78.0 plate  80.0 gilt   <- the CHEEK GUARD
+         84.0 plate  87.7 plate                         <- the nape guard on it
+```
+
+— the deep guard laps the cheek guard, which laps the face mask. Section 3
+measures metal against FLESH, and its own `MASK_ALLOW` note already names this
+blind spot for the cheek guard and stops one piece short of the piece that laps
+it. The 22 degree bar was calibrated against a phantom cylinder that filled the
+submandibular hollow in.
+
+**FOUR REPAIRS WERE BUILT AND MEASURED AND NONE IS SHIPPED**, because moving a
+bar or reshaping a plate to satisfy one is not a repair:
+
+```
+  guard arc growth 0.44 -> 0.30 / 0.20 / 0.10 / 0.00   flare 43.6 / 33.6 / 30.3 / 28.7
+      — bottoms out above the bar and loses the designed forward swing
+  hull crossover fillet 4 mm -> 12 / 24 / 40 mm        flare 40.0 / 37.6 / 34.7
+      — and drives the plate 11.8 / 25.2 / 39.2 mm INSIDE the flesh
+
+  (worst of warden / berserker / runekeeper on the Sutton Hoo, each read off
+   `helmFitProbe` on the hull this round ships)
+```
+
+The honest repair is to give section 3 the metal that is between, the way round
+seven gave it the neck — and it must not be made by the agent who moved the
+plate. **R3.**
+
+### The ear: the fix existed and was not in the tree
+
+`docs/OPEN-DEFECTS.md` said an `earSeat` was written in round five and was still
+there. Both halves of that are wrong and the correction is worth keeping.
+
+* `earSeat` is `tools/headmeasure.mjs:333`, an assertion that the ear's own RIM
+  is buried in the SKIN. There is no helmet anywhere in it, it cannot see one by
+  construction, and it reads -3.000 mm either side of this round.
+* The round-five fix is `EAR_PRESS` + `earSeatRaise` (`86eb41a`, `0ca3081`) and
+  it was **not in this tree**: it was held back with the rest of `helm-land` at
+  `a8bc004` because that branch deletes 7680 triangles of paid hair. Their
+  `characters.ts` hunks are landed here on their own.
+
+Section 2 DID see the ear and always named it: `917050`, 224 triangles, 88-94%
+outboard at az 113-115. 4.23/4.42/4.09 -> 1.34/1.74/0.60 on
+warden/berserker/runekeeper, and the runekeeper is now green.
+
+### The coils were being deleted, and only a four-class counter could see it
+
+`hairCeil`'s nape branch held a constant 1.95 rad against a plate that reaches
+1.52. Hoisting `napeHalf` so the hair reads the plate's own arc closes section
+3 — and, on its own, **deleted 4 to 6 components and 320 to 480 triangles from
+every warden, berserker and runekeeper rung of the two deep-cheek helms**,
+because `if (k < 0.45) continue` culls a coil whose ceiling has gone negative.
+That is a paid hairstyle deleted to close a gate, for the fourth time in this
+project's history.
+
+`cosmetictest` **could not have seen it**: `tools/cosmetictest.mjs:233` is
+`cls: "huscarl"`. `tools/rungcensus.mjs` is the answer — union-find over the
+welded index graph, 4 classes x 10 helms x 8 rungs, head-pivot-scoped AND
+whole-rig-scoped because `rig:neck` is a sibling. Shown failing first: deleting
+the Braided War-locks prints -10 components and -4640 triangles on 33 cells.
+
+The coils are buried now instead of culled, which is the rule `hairCeil`'s own
+comment already gives for the shell. It costs 338240 triangles across the
+320-cell sweep, about 1057 a head at `lod high`, all inboard of metal.
+
+### Still open, measured, not chased
+
+* `helmclash` 2 at 1.34 / 1.74 / 2.50 against a 1.0% bar. The warden's and the
+  berserker's worst patch is now `c99d75` at **az 33, y 153**, 2.9 mm — the eye:
+  a ray listing there prints `130.1 eye, 130.2 plate, 131.1 eye`, so the mask's
+  inner wall clips the eyeball by about a millimetre. The huscarl's 2.50 is his
+  coif's inner throat wall passing inside his own neck at az 249, y 42, 9.7 mm,
+  and it is untouched by this round.
+* `helmclash` 3's last two red rows are `beard=forked` at az 3, y 10-11 — the
+  beard through the ventail, which this file already carries.
+* `hoodfall` reports `warden/berserker/runekeeper suttonhoo long == braids`,
+  two paid hairstyles building ONE OBJECT identical to the micron. Pre-existing
+  on main at 1144 verts; it is 2299 here because the buried coils went into
+  both. The defect is that they are the same object, and this round neither
+  caused it nor fixed it.
