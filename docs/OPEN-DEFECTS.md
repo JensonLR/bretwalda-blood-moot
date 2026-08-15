@@ -4966,3 +4966,197 @@ apart, warm cache and cold. Everything before the browser passes in every run.
 ```
 
 Either raise that 30 s, or say in the tool's header that a build has to exist.
+
+## Round nine: the flange nape, the torn gilt band, and a gate for metal through metal — 15 Aug 2026
+
+Three closed, one moved and left red with its number. Every one of the three was
+found by opening a render; not one of them was visible to any gate in the tree
+before this round, and two of them are now.
+
+### 1. Hair coils on a bare nape under the FLANGE helms — CLOSED
+
+The warden's DEFAULT getup, Warrior Crop, under the Ridge Helm, the Boar-Crest
+and the Jarl's Crowned: six to eight isolated dark curl fragments across bare
+nape and upper neck, several plainly detached. `helmclash` 5 PELT reddens pelt
+outside KIT and there is no kit at that spot; `rungcensus` scores it as content
+GAINED; `wearmeasure` 4 passed 30/30.
+
+The rear of the head as a map, warden / Ridge-Helm, horizontal rays, farthest
+surface wins — hair standing on bare skin below the flange's hem:
+
+```
+  origin/main    az  95, 100, 105
+  round eight  + az 110, 145, 150, 170, 200, 240, 245, 250   <- the defect
+  round nine     az  95, and az 100 above y 120              <- fewer than main
+```
+
+Two causes and they are independent.
+
+**The clamp was read at the wrong end of the plate's descent.** `napeFrontU` is
+`napeHalf(0)`, the narrowest a hanging plate ever is. That is the safe end for a
+GUARD, which lies on the hull and whose risk is hair OUTSIDE metal — the Wyrm
+and the Sutton Hoo are untouched and 3 WRAP is still 2. It is the wrong end for
+a FLANGE, which hangs free and flares forward as it falls. Swept at 1 degree in
+the head's own azimuth:
+
+```
+  the Ridge-Helm flange's front edge
+    y 175..167  az 116-117      y 149..137  az 108-112
+    y 165..151  az 112-116      y 135..129  az 106-107   (hem; none below 127)
+```
+
+so the eleven degrees the plate covers at its hem were outside the clamp, and a
+coil rooted there got no ceiling at all: built full length, falling past the hem,
+standing 19 mm off the bare neck at y 116. A flange is now read at three quarters
+of its descent — 108.5 deg, inside the 106-112 the plate measures over the
+heights the lock courses root at, and 13 deg behind the sideburn course at
+az 95-105 the flank window was widened to show. Read at the bottom
+(`napeHalf(1)`, 100.9 deg) it swallows that sideburn course from y 152 to y 200.
+
+**The comment being replaced was false and the mesh says so.** It read "1.95 rad
+claims 6.6 degrees of cover the flange does not have". The flange has it, below
+the top of its own descent. R10.
+
+**A buried coil did not stay buried.** Round eight buries instead of culling —
+right, and the census is why — but the sink is computed at the ROOT and the
+spine then travels 25 mm DOWN the fall line, which at the nape leaves the skull
+and crosses a neck 20-25 mm nearer the axis. The tail comes back out through the
+throat, and those are the fragments at az 145-200. A buried coil now stands its
+axis up in its own pocket: same rows, same ring, same triangles, same component,
+and the bound is arithmetic instead of a hope about where the neck is.
+
+Only where the skin is the only cover (`!coifed`). Inside an aventail the MAIL
+covers — the huscarl's rear is unbroken mail az 95-265 at every height y 76-132 —
+and standing the coil up there is not free: 5 PELT reads huscarl/boar and
+huscarl/crowned on Braided War-locks at **2.02% against a 2.0% bar, up from
+1.99%**, two cells turned red to tidy something no bearing can see.
+
+### 2. `helmclash` 6 SEAM — nothing in this tree could see metal through metal
+
+2 FLESH and 3 WRAP judge SKIN outboard of metal. 1 LAYERS judges a plate through
+MAIL — one ordered pair out of the hundreds a helmet has, and it is that pair
+because it is the pair the owner photographed. 5 PELT judges hair and beard.
+`wearmeasure` 3 judges a plate against the SKULL, 4 hair against the stack, 10
+what a hole frames. Kit against kit was unmeasured, which is why the next item
+shipped green for eight rounds.
+
+**Two false starts are in the source**, because each is a measurement somebody
+will otherwise reach for again, and both were run over the whole shop:
+
+```
+  "one piece inside another"        the Sutton Hoo's gilt crest rib against its
+                                    own bowl at 49.0% / 3.9 mm — a rib sitting
+                                    in a shell exactly as drawn
+  "a hider closer than LAYER_GAP"   62 of 65 kits red at 5.1 to 27.9%, naming a
+                                    68-triangle spangen strip on nine helmets
+  the same + the facing test        61 of 65
+```
+
+A helmet is layers of metal on metal by design. What is wrong is narrower: along
+one strip the SAME PAIR changes its mind about which piece is in front. So, over
+A's outward face and only where the two surfaces LIE ALONG each other
+(|n.n| > 0.80, so a rib's flank cutting across a shell is not a case — at right
+angles two surfaces meet in a line and a line has no area), PROUD and SWALLOWED
+are counted and the area-weighted MINORITY is the tear. Then three qualifiers,
+each of which is doing real work:
+
+* **the minimum of the two directions.** A lap is clean from at least one side.
+  Read from the shell, a rib authored half sunk in it is proud over 29% and
+  swallowed over 71%; read from the rib it is nothing.
+* **same-tint pairs are skipped.** Two pieces of one metal interpenetrating draw
+  the same pixels either way round. What the render shows is a seam BETWEEN
+  metals.
+* **plate, not kit.** Section 1 owns plate-through-mail with a bar off the
+  build's own `LAYER_GAP`.
+
+Bars 800 mm2 of torn face AND 1.0 mm deep, both, and the sorted sweep is printed
+under the table every run — a bar defended only by a paragraph is a bar nobody
+re-checks. It has a 500 mm2 hole in it: the body stops at 597.9 and the next
+reading is 1114.7.
+
+### 3. The Sutton Hoo's gilt edging was set off the curve, not off the plate — CLOSED on three of four cells
+
+```
+  helmclash 6 SEAM, suttonhoo     torn mm2      of overlap   depth mm
+    huscarl                       1114.7 -> 1114.7   30.3 -> 30.3   5.8
+    warden                        4263.3 ->  904.5   15.2 ->  3.2   4.2
+    berserker                     5841.9 ->  356.6   19.0 ->  1.2   3.8   green
+    runekeeper                    2566.9 ->  555.7   10.1 ->  2.2   3.9   green
+```
+
+The guard is FIVE rows over its whole descent and that is deliberate — its own
+note says "this is the one shell on the helmet whose row count is carrying
+geometry rather than smoothness". Five rows across an S means each row is a
+CHORD, and over the bottom span the chord stands as much as 4 mm outside the
+curve it was sampled from. The lip was solved on the CURVE and offset 2.5 mm from
+that, so wherever the bulge beats the standoff the plate is in front of its own
+gilt: silver eating gold, with a boundary that is the mesh grid and not an edge
+anybody drew. The lip is now solved bilinearly on the plate's own emitted quad,
+so the standoff is 2.5 mm from the DRAWN surface by construction.
+
+Raising the guard's own rows 5 -> 20 closes it too — 4263.3 to 275.9 on the
+warden — and is NOT shipped: it moves the plate, and `wearmeasure` 3 reads the
+consequence as flare 44.7 -> 55.8 on the Sutton Hoo, 50.0 -> 56.3 on the Wyrm,
+and a new red cell on the Jarl's Crowned at 25.8 against a 22 bar.
+
+### OPEN — two seams above the bar, with their numbers
+
+* **warden / suttonhoo 904.5 mm2 against an 800 bar, 3.2% of the overlap.** A
+  fifth of what it was, all of it at the guard's own hem row. A finer lip
+  (nu x2, nv 2) was tried and is not shipped: warden 904.5 -> 275.9 but
+  berserker 356.6 -> 1012.2. It moves the readings around rather than down.
+* **huscarl / suttonhoo 1114.7 mm2, 30.3%, 5.8 mm, at az 180, y 205.7.** A
+  DIFFERENT pair — `d9b45f (276 tri) proud of 9aa6ae (308 tri)`, a gilt crest rib
+  coming down the back of the bowl onto the nape guard's top edge. It reads the
+  same before and after the lip mend, which is how it is known to be another
+  fault and not that one. Untouched.
+* **thirteen more kits are red in 6 SEAM.** The section is new and this tree has
+  never measured what it measures, so every one is a finding rather than a
+  regression. The largest are `6e767f` against `bfa25c` on the Jarl's Crowned
+  (1888-2659 mm2) and `8a7050` against `6e767f` on the berserker's Nasal Helm
+  (1699 mm2).
+
+### OPEN — `wearmeasure` 3 FLARE is still red, and 4.6 degrees of it was the ruler
+
+The lap round eight named IS a real error in the ruler and it is now out:
+`helmFitProbe` carries the other shells of the same helmet as a MASK on the ring
+pieces, and a sample with another shell under it is not a metal-against-flesh
+reading. The share dropped is a printed column, `on kit%`, 4.0 to 19.4 on the
+five helms that have a lap and 0.0 on the rest.
+
+```
+  suttonhoo  44.7 -> 40.1        wyrm  50.0 -> 49.8        nothing else moves
+```
+
+**A mask and not a hull.** Folding those shells into the hull was built first:
+suttonhoo 44.7 -> 52.7, wyrm 50.0 -> 53.1, and THREE NEW RED HELMS, ridge
+8.9 -> 30.3, boar 11.5 -> 30.3, crowned 11.5 -> 27.8. Flare is a derivative and a
+hull with a step in it cannot be differentiated.
+
+**A censored baseline is no longer differenced.** `skinGap` returns its own `cap`
+when the ray never finds flesh; that is a verdict for GAP, which is a level, and
+not for a derivative. `censored%` is the new column, 0.0 everywhere on this tree,
+so it moves no number here — but the huscarl already reads gap 75.0 and hem 75.0
+on his nape guard, the cap exactly, and the next hand to widen a plate would have
+got an angle about the search limit.
+
+**What is left, and why this round does not close it.** Both plates are red at
+the same place on all four classes: `u 0.83..1.00, v 0.80..0.93`, the guard's
+front-bottom CORNER at about az 80, at the hem. Under that corner is the
+submandibular hollow, and `withNeck`'s own note already calls the ceiling that
+stops the neck reaching up into the jaw "the one thing about this table that is
+still an approximation". Round eight's sentence was "the 22 degree bar was
+calibrated against a phantom cylinder that filled the submandibular hollow in",
+and that is the same place. The next repair is either that hollow or the bar, and
+neither can be made honestly from here: filling the hollow is what the phantom
+cylinder did wrong, and moving the bar is buying a pass.
+
+### The three locked facts, re-measured on this branch
+
+```
+  helmclash 3 WRAP, Sutton Hoo    huscarl 0.0   warden 0.0   berserker 1.0
+                                  runekeeper 0.0 — section 3 red on 2 of 288,
+                                  both `beard=forked` at az 3, unchanged
+  the ear row `917050 (224 tri) 91.7% 9.9 mm az 114`   0 occurrences
+  rungcensus vs origin/main       360 identical, 280 gained, 0 LOST, 0 rungs gone
+```
