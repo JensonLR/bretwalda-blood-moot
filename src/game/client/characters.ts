@@ -16154,10 +16154,11 @@ export function buildCharacter(
         // down the flank, round the base of the skull, then straight beside the
         // neck — and three spans cannot hold an S. This is the one shell on the
         // helmet whose row count is carrying geometry rather than smoothness.
+        const fallNV = deep ? 5 : 4;
         p.add(wornRing({
           tag: deep ? "nape guard" : "nape flange",
           originY: skullY,
-          nu: Math.max(8, lod.shellU - 2), nv: deep ? 5 : 4,
+          nu: Math.max(8, lod.shellU - 2), nv: fallNV,
           outer: sweep(0), inner: sweep(0.008),
         }), capMetal);
         if (style.noble) {
@@ -16167,12 +16168,78 @@ export function buildCharacter(
           // A negative inset is 2.5 mm *outside* the guard, so the strip straddles
           // the plate's own surface instead of sitting on it: no coplanar pair to
           // fight for depth, and its two long rims are buried in silver.
+          //
+          // AND IT IS SET OFF THE PLATE THE PLAYER SEES, NOT OFF THE CURVE THAT
+          // PLATE WAS SAMPLED FROM. This is the whole of the torn band, and it
+          // is arithmetic rather than a judgement.
+          //
+          // The guard is FIVE rows over its whole descent — a deliberate number,
+          // see the note above: "this is the one shell on the helmet whose row
+          // count is carrying geometry rather than smoothness". Five rows across
+          // an S means each row is a CHORD, and over the bottom span the chord
+          // stands as much as 4 mm outside the curve it was sampled from. The
+          // lip was solved on the curve and offset 2.5 mm from THAT, so over the
+          // same span the plate is in front of its own gilt by up to 1.5 mm, in
+          // bites, wherever the chord's bulge beats the standoff — silver eating
+          // gold, with a boundary that is the mesh grid rather than an edge
+          // anybody drew. `helmclash` 6 SEAM reads it at 1114.7 to 5841.9 mm2
+          // of torn face, 10 to 30% of the overlap, up to 5.8 mm, on all four
+          // classes, naming exactly `d9b45f` against `9aa6ae`.
+          //
+          // So the lip is evaluated ON THE GUARD'S OWN CHORD: bracket the
+          // descent by the two tessellation rows the guard actually emits and
+          // interpolate between them, which is what the rasteriser does. The
+          // standoff is then 2.5 mm from the drawn surface everywhere, by
+          // construction, and it cannot be beaten by a bulge that is no longer
+          // in the difference between the two.
+          //
+          // MEASURED ALTERNATIVE, REJECTED. Raising the guard's own row count
+          // 5 -> 20 closes the seam just as well — 4263.3 mm2 to 275.9 on the
+          // warden, 5841.9 to 237.5 on the berserker, both green — because it
+          // makes the chord hug the curve instead. It is not shipped: it moves
+          // the PLATE, and `wearmeasure` 3 reads the consequence as flare
+          // 44.7 -> 55.8 deg on the Sutton Hoo, 50.0 -> 56.3 on the Wyrm, and a
+          // NEW red cell on the Jarl's Crowned at 25.8 against a 22 bar. The
+          // seam is the lip's to fix; the plate's shape is section 3's argument
+          // and it does not get settled sideways.
+          // IN BOTH DIRECTIONS, because the plate is a quad grid and not a stack
+          // of curves. The rows are the big term — they are what the note above
+          // measures at 4 mm — but the COLUMNS are on their own arc too: the lip
+          // runs 0.03 rad past `half` at each end so its rims wrap the plate's
+          // edge, and with the same column count over a wider arc every one of
+          // its columns is phase-shifted off the plate's. Solved on the rows
+          // alone the seam drops from 15.2% to 2.9% of the overlap and stops at
+          // 806.6 mm2 on the warden and 981.9 on the berserker — still over the
+          // bar, and all of it at the ENDS, at az 83 and az 167. Bilinear on the
+          // plate's own quad is what the rasteriser does between four vertices,
+          // so that is what the strip is solved against.
+          const _lipB = new THREE.Vector3();
+          const _lipC = new THREE.Vector3();
+          const fallNU = Math.max(8, lod.shellU - 2);
+          /** The plate's own emitted surface along one of its rows, at any u. */
+          const fallRow = (k: number, u: number, inset: number, out: THREE.Vector3) => {
+            const vr = k / fallNV;
+            const h = half(vr);
+            const t = (Math.PI + h - u) / (2 * h);
+            const j = Math.min(fallNU - 1, Math.max(0, Math.floor(t * fallNU)));
+            fall(mix(Math.PI + h, Math.PI - h, j / fallNU), vr, inset, out);
+            fall(mix(Math.PI + h, Math.PI - h, (j + 1) / fallNU), vr, inset, _lipC);
+            // Past the plate's own last column the chord is continued rather
+            // than clamped — the lip's rim is 0.03 rad outside it and a clamp
+            // would fold the strip back on itself there.
+            out.lerp(_lipC, t * fallNU - j);
+          };
           const lip = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => {
               const vv = mix(0.86, 1, v);
-              fall(mix(Math.PI + half(vv) - 0.03, Math.PI - half(vv) + 0.03, t), vv, inset, out);
+              const u = mix(Math.PI + half(vv) - 0.03, Math.PI - half(vv) + 0.03, t);
+              const s = clamp01(vv) * fallNV;
+              const k = Math.min(fallNV - 1, Math.floor(s));
+              fallRow(k, u, inset, out);
+              fallRow(k + 1, u, inset, _lipB);
+              out.lerp(_lipB, s - k);
             };
-          p.add(patch({ nu: Math.max(8, lod.shellU - 2), nv: 1, outer: lip(-0.0025), inner: lip(0.0035) }), gilt);
+          p.add(patch({ nu: fallNU, nv: 1, outer: lip(-0.0025), inner: lip(0.0035) }), gilt);
         }
       }
       if (style.crown === "circlet") {

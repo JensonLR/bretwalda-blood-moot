@@ -1994,6 +1994,16 @@ function seamPair(A, aIx, aN, B, bIx) {
       if (Math.abs(n[0] * nB[0] + n[1] * nB[1] + n[2] * nB[2]) <= SEAM_ALONG) continue;
       const selfIn = hitFlat(aIx, x, y, z, -dx, -dz, Math.min(r, SEAM_CAP));
       if (selfIn >= 0 && selfIn < inB) continue;
+      // AND B'S LINING IS NOT B BEING IN FRONT OF ANYTHING. The first cut of
+      // this skipped A's lining and not B's, and that is not symmetrical: a
+      // strip authored to STRADDLE — the gilt lip is 2.5 mm outside the guard
+      // and 3.5 mm inside it, on purpose — has an inner wall sitting between
+      // the guard's two walls, so an inward ray off the guard's face finds the
+      // lip's LINING at 3.5 mm and files the deliberate straddle as the guard
+      // being proud of its own gilt. It reads 3.5 to 4.2 mm on every noble rung
+      // and it is the whole of the residue left after the band was mended.
+      // The test is B's own shell between the hit and this sample.
+      if (hitFlat(bIx, x - dx * inB, y, z - dz * inB, dx, dz, inB - 1e-5) >= 0) continue;
       tot++; nP++;
       if (inB > dProud) { dProud = inB; atProud = [x, y, z]; }
     }
