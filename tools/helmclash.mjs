@@ -180,8 +180,66 @@ const hexOf = (m) => {
  */
 const HAIR_TINT = 0x00fe01;
 const BEARD_TINT = 0x00fe02;
-/** The appearance this file measures: the class's own, with the two labels on. */
-const apOf = (cls) => ({ ...defaultAppearance(cls), hairColor: HAIR_TINT, beardColor: BEARD_TINT });
+
+/**
+ * THE RUNGS A PLAYER CAN ACTUALLY BUY — and until this pass, none of them.
+ *
+ * Every head this file built was `{ ...defaultAppearance(cls), helm }`, so the
+ * warden and the runekeeper were only ever measured with `beard_short` and
+ * `hair_short`, both free. No paid cosmetic had ever been under a helm in front
+ * of this ruler. The consequence was found by hand rather than by the gate:
+ * with the 40-gold `beard_full`, a hard-edged brown wedge of beard punches out
+ * through the mail rings at the throat under the Sutton Hoo, on warden,
+ * berserker and runekeeper, and nothing measured it.
+ *
+ * WHAT IS SWEPT, AND WHY NOT EVERYTHING. The shop has eight slots. Five of them
+ * — the three colour ladders, the cloak, the armour finish — cannot put a
+ * surface inside a helmet: `cosmetictest` reads every rung of Hair Colour, Beard
+ * Colour and Armour Finish at 0.00% in silhouette AND form, because a tint is
+ * what they are, and a cloak hangs off the shoulders. The two that can are the
+ * two the helm sits on: HAIR and BEARD. Both are swept whole, every rung, free
+ * and paid.
+ *
+ * They are swept as two ladders and not as a cross-product. Each rung is built
+ * with the other slot at the class's own default, which is 5 + 4 - 1 = 8 heads
+ * per class per helm rather than 20 — 288 heads across the battery instead of
+ * 720. The cross-product would be worth its price if hair and beard interacted,
+ * and on this tree they do not: they are separate parts, built by separate
+ * branches, and neither reads the other's style. If somebody writes a rule that
+ * makes them interact — a gathered braid that tucks a beard, say — this comment
+ * is the one to come back to, and the answer will be to sweep the product.
+ */
+const BEARD_RUNGS = ["none", "short", "full", "forked", "braided"];
+const HAIR_RUNGS = ["shaved", "short", "long", "braids"];
+const getupCache = new Map();
+function getupsOf(cls) {
+  let list = getupCache.get(cls);
+  if (list) return list;
+  const d = defaultAppearance(cls);
+  list = [];
+  const seen = new Set();
+  const add = (name, hairStyle, beardStyle) => {
+    // The class default IS one of the rungs — the berserker's default beard is
+    // `full`, the others' is `short` — so it is deduplicated by what it builds
+    // rather than by what it is called, and the head is built once.
+    const k = `${hairStyle}/${beardStyle}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    list.push({ name, hairStyle, beardStyle });
+  };
+  add("default", d.hairStyle, d.beardStyle);
+  for (const b of BEARD_RUNGS) add(`beard=${b}`, d.hairStyle, b);
+  for (const h of HAIR_RUNGS) add(`hair=${h}`, h, d.beardStyle);
+  getupCache.set(cls, list);
+  return list;
+}
+const defaultGetup = (cls) => getupsOf(cls)[0];
+
+/** The appearance this file measures: one rung of the shop, with the two labels on. */
+const apOf = (cls, g = defaultGetup(cls)) => ({
+  ...defaultAppearance(cls), hairColor: HAIR_TINT, beardColor: BEARD_TINT,
+  hairStyle: g.hairStyle, beardStyle: g.beardStyle,
+});
 
 /**
  * Every piece worn on the head, in the head pivot's own frame, in millimetres
@@ -192,8 +250,8 @@ const apOf = (cls) => ({ ...defaultAppearance(cls), hairColor: HAIR_TINT, beardC
  * then the order of the `p.add` calls inside each slot: deterministic, and the
  * same list twice for the same arguments.
  */
-function headPieces(cls, helm, seed = SEED) {
-  const root = buildCharacter(cls, { ...apOf(cls), helm }, 0x8a6b3f, undefined, LOD, seed).group;
+function headPieces(cls, helm, g = defaultGetup(cls), seed = SEED) {
+  const root = buildCharacter(cls, { ...apOf(cls, g), helm }, 0x8a6b3f, undefined, LOD, seed).group;
   root.updateMatrixWorld(true);
   let pivot = null;
   root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
@@ -263,13 +321,23 @@ function extent(T) {
  * cannot silently become "kit" and blind a section.
  */
 const bareCache = new Map();
-/** The same head with no helm on it, built once and kept — see `bareTints`. */
-function barePieces(cls) {
-  const k = `${cls}/${SEED}`;
+/** The same rung with no helm on it, built once and kept — see `bareTints`. */
+function barePieces(cls, g = defaultGetup(cls)) {
+  const k = `${cls}/${g.name}/${SEED}`;
   let p = bareCache.get(k);
-  if (!p) { p = headPieces(cls, "none"); bareCache.set(k, p); }
+  if (!p) { p = headPieces(cls, "none", g); bareCache.set(k, p); }
   return p;
 }
+/**
+ * THE BARE REFERENCE IS THE CLASS'S DEFAULT RUNG, ON EVERY RUNG, and that is a
+ * choice with a measured reason. Braided War-locks bring 320 triangles of BRASS
+ * with them — the rings the plait is bound in — and brass is `bfa25c`, which is
+ * also the Wyrm-Crest's gilt and the Jarl's circlet. Take the bare reference
+ * from the braided rung and every one of those tints becomes "the man", so the
+ * Wyrm's crest is filed as flesh and sections 2 and 4 lose it. Taking it from
+ * the default rung files the braid's own rings as kit instead, which is what
+ * they are made of, and leaves the helmets where they belong.
+ */
 function bareTints(cls) {
   return new Set(barePieces(cls).map((p) => p.hex));
 }
@@ -287,12 +355,24 @@ const hex6 = (n) => n.toString(16).padStart(6, "0");
  * the catalogue's one Oak Brown and were therefore one list, which is what let a
  * deleted beard hide inside a hair denominator.
  */
-function sortPieces(cls, helm) {
+/**
+ * ONE HEAD PER (CLASS, HELM, RUNG), BUILT ONCE. Five sections ask for the same
+ * head, and before the sweep that was five builds of 36 heads; with the sweep it
+ * would have been five builds of 288. The cache is cleared at the head of every
+ * `battery()` so that `--twice` still proves what it says it proves — two full
+ * runs, builds included, byte for byte — rather than proving that a Map returns
+ * what was put in it.
+ */
+const pieceCache = new Map();
+function sortPieces(cls, helm, g = defaultGetup(cls)) {
+  const key = `${cls}|${helm}|${g.name}|${SEED}`;
+  const hit = pieceCache.get(key);
+  if (hit) return hit;
   const bare = bareTints(cls);
   const mailHex = mailTint(cls);
   const hairHex = hex6(HAIR_TINT);
   const beardHex = hex6(BEARD_TINT);
-  const all = headPieces(cls, helm);
+  const all = headPieces(cls, helm, g);
   const pelt = [], mail = [], plate = [], flesh = [], fur = [], hair = [], beard = [];
   for (const p of all) {
     if (bare.has(p.hex)) {
@@ -303,8 +383,46 @@ function sortPieces(cls, helm) {
     } else if (p.hex === mailHex) mail.push(p);
     else plate.push(p);
   }
-  return { all, pelt, flesh, fur, hair, beard, mail, plate, kit: [...mail, ...plate] };
+  const out = { all, pelt, flesh, fur, hair, beard, mail, plate, kit: [...mail, ...plate] };
+  pieceCache.set(key, out);
+  return out;
 }
+
+/**
+ * What this head's KIT is, to the vertex — the accelerator behind sections 1
+ * and 4 only measuring the kits that differ.
+ *
+ * Sections 1 and 4 read kit against kit: a plate against the mail it is driven
+ * through, a fitting against the cap it sits on. A hair or beard rung that
+ * builds an identical kit therefore has an identical answer, and measuring it
+ * eight times prints the same row eight times. This is a checksum and not an
+ * assumption: the rungs are grouped by what they actually build, so if a rung
+ * ever does move a helmet the group splits and both are measured. It splits
+ * today — Braided War-locks bring 320 triangles of brass rings, which sort as
+ * kit, so every helm has two distinct kits across the eight rungs and not one.
+ */
+function kitSignature(kit) {
+  let tris = 0, s = 0;
+  for (const p of kit) {
+    tris += p.tris;
+    for (let i = 0; i < p.T.length; i += 3) s += p.T[i] + 2 * p.T[i + 1] + 3 * p.T[i + 2];
+  }
+  return `${kit.length}/${tris}/${s.toFixed(9)}`;
+}
+
+/** The rungs of this (class, helm) grouped by the kit they build. */
+function kitGroups(cls, helm) {
+  const groups = new Map();
+  for (const g of getupsOf(cls)) {
+    const sig = kitSignature(sortPieces(cls, helm, g).kit);
+    const e = groups.get(sig);
+    if (e) e.also.push(g.name);
+    else groups.set(sig, { g, also: [] });
+  }
+  return [...groups.values()];
+}
+/** How a row names the rung it measured, and how many rungs share the reading. */
+const rungLabel = (g, also) => (also?.length ? `${g.name} +${also.length}` : g.name);
 
 /** One flat triangle array out of a list of pieces. */
 function soup(list) {
@@ -588,19 +706,23 @@ function sectionLayers(rows) {
   console.log("[clash] 1. LAYERS — a plate driven through the mail.");
   console.log("[clash]    horizontal rays out of the head's axis; bar " + LAYER_MM.toFixed(1) + " mm (the build's own LAYER_GAP).");
   console.log("");
-  console.log("[clash] class       helm         mail?   depth mm   clash%   deepest piece            where");
-  console.log("[clash] ---------------------------------------------------------------------------------------------");
+  console.log("[clash]    kit against kit, so the rungs are grouped by the kit they build — see `kitSignature`.");
+  console.log("");
+  console.log("[clash] class       helm         rung           mail?   depth mm   clash%   deepest piece            where");
+  console.log("[clash] ------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { mail, plate } = sortPieces(cls, helm);
+     for (const { g, also } of kitGroups(cls, helm)) {
+      const rung = rungLabel(g, also);
+      const { mail, plate } = sortPieces(cls, helm, g);
       if (!mail.length) {
         // A GATE GREEN BECAUSE THE CASE IS ABSENT IS NOT A GATE. This head wears
         // no mail, so there is nothing for a plate to be driven through, and
         // this line is not a pass — it is a line saying the question does not
         // arise here.
         absent++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} none    —          —        (no mail on this head — nothing to measure)`);
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} none    —          —        (no mail on this head — nothing to measure)`);
         continue;
       }
       cases++;
@@ -635,15 +757,16 @@ function sectionLayers(rows) {
       const bad = worst * 1000 > LAYER_MM;
       if (bad) fails++;
       const where = wat ? at(wat) : "";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} yes    ${mm(worst).padStart(7)}   ${(100 * bestFrac).toFixed(1).padStart(6)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(22)} ${where}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 1, cls, helm, fail: bad, depth: worst, frac: bestFrac });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} yes    ${mm(worst).padStart(7)}   ${(100 * bestFrac).toFixed(1).padStart(6)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(22)} ${where}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 1, cls, helm, rung: g.name, fail: bad, depth: worst, frac: bestFrac });
       if (bad && bf) {
         console.log(`[clash]             ^ worst-buried piece ${bf.hex} (${bf.tris} tri), ${(100 * bestFrac).toFixed(1)}% of its outward face is inboard of the rings`);
       }
+     }
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} combinations that HAVE mail are red; ${absent} more have no mail and are not a case.`);
+  console.log(`[clash]    ${fails} of ${cases} distinct kits that HAVE mail are red; ${absent} more have no mail and are not a case.`);
   return fails;
 }
 
@@ -825,13 +948,15 @@ function sectionFlesh(rows) {
   console.log(`[clash]    inward horizontal rays off every skin triangle, area-weighted; bar ${FLESH_PCT.toFixed(1)}% of the skin.`);
   console.log(`[clash]    a case is a helm whose MESH covers the face: ${FACE_PCT.toFixed(1)}%+ of the skin within ${FACE_AZ} deg of dead ahead has kit outboard.`);
   console.log("");
-  console.log("[clash] class       helm         face cov%  skin out%   worst patch                deepest       where");
-  console.log("[clash] --------------------------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         rung           face cov%  skin out%   worst patch                deepest       where");
+  console.log("[clash] ---------------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
   let openLo = Infinity, openHi = -Infinity;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { flesh, kit } = sortPieces(cls, helm);
+     for (const g of getupsOf(cls)) {
+      const rung = g.name;
+      const { flesh, kit } = sortPieces(cls, helm, g);
       const KT = soup(kit);
       const cover = faceCover(flesh, KT);
       const isPlate = cover >= FACE_PCT;
@@ -842,8 +967,8 @@ function sectionFlesh(rows) {
           // face and the builder is not drawing one. This is the disagreement
           // the old case test could not have — it took the declaration's word.
           fails++;
-          console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${cover.toFixed(1).padStart(8)}          —   DECLARED A FACE MASK, BUILT AS AN OPEN HELM — the catalogue says mask, the mesh covers ${cover.toFixed(1)}% of the face  FAIL`);
-          rows.push({ section: 2, cls, helm, fail: true, cover });
+          console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${cover.toFixed(1).padStart(8)}          —   DECLARED A FACE MASK, BUILT AS AN OPEN HELM — the catalogue says mask, the mesh covers ${cover.toFixed(1)}% of the face  FAIL`);
+          rows.push({ section: 2, cls, helm, rung, fail: true, cover });
           continue;
         }
         absent++;
@@ -858,8 +983,9 @@ function sectionFlesh(rows) {
       if (bad) fails++;
       const patch = r.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
       const note = declared ? "" : "  (built as a face plate, not declared one)";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${cover.toFixed(1).padStart(8)}   ${pct.toFixed(2).padStart(8)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 2, cls, helm, fail: bad, pct, cover });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${cover.toFixed(1).padStart(8)}   ${pct.toFixed(2).padStart(8)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 2, cls, helm, rung, fail: bad, pct, cover });
+     }
     }
   }
   console.log("");
@@ -959,13 +1085,15 @@ function sectionWrap(rows) {
   console.log("[clash] 3. WRAP — a bare nape under a covered throat.");
   console.log(`[clash]    ${WRAP_STEP} deg sweeps at every mm of height; a case needs ${THROAT_DEG} deg of throat wrapped, a fault MORE THAN ${WRAP_DEG.toFixed(1)} deg bare behind.`);
   console.log("");
-  console.log("[clash] class       helm         bare arc     at radius   height   centred      throat cover   wrapped hts");
-  console.log("[clash] ------------------------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         rung           bare arc     at radius   height   centred      throat cover   wrapped hts");
+  console.log("[clash] ---------------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, quiet = 0;
   const M = Math.round(360 / WRAP_STEP);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { pelt, kit } = sortPieces(cls, helm);
+     for (const g of getupsOf(cls)) {
+      const rung = g.name;
+      const { pelt, kit } = sortPieces(cls, helm, g);
       const PT = soup(pelt), KT = soup(kit);
       // `best` is the widest BARE arc; `wrapped` counts the heights that are a
       // case at all, and the two are separate because a head can be the second
@@ -1038,8 +1166,8 @@ function sectionWrap(rows) {
         // a gate whose only PASS is absent: it means the section cannot tell
         // the difference between a fixed nape and a head with no neck defence,
         // so the next fixer gets no signal that he is done.
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}    0.0 deg        — mm   y ${String(widest.ymm).padStart(3)}   —            ${(widest.fwd * WRAP_STEP).toFixed(1)} deg    ${String(wrapped).padStart(3)}   covered at every wrapped height`);
-        rows.push({ section: 3, cls, helm, fail: false, deg: 0, r: 0 });
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}   0.0 deg        — mm   y ${String(widest.ymm).padStart(3)}   —            ${(widest.fwd * WRAP_STEP).toFixed(1)} deg    ${String(wrapped).padStart(3)}   covered at every wrapped height`);
+        rows.push({ section: 3, cls, helm, rung, fail: false, deg: 0, r: 0 });
         continue;
       }
       // STRICTLY GREATER: 2.0 degrees is the tessellation allowance argued over
@@ -1047,8 +1175,9 @@ function sectionWrap(rows) {
       // is not.
       const bad = best.deg > WRAP_DEG;
       if (bad) fails++;
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${best.deg.toFixed(1).padStart(6)} deg   ${mm(best.r).padStart(6)} mm   y ${String(best.ymm).padStart(3)}   az ${best.az.toFixed(0).padStart(3)}deg      ${best.fwd.toFixed(1)} deg    ${String(wrapped).padStart(3)}${bad ? "   FAIL" : ""}`);
-      rows.push({ section: 3, cls, helm, fail: bad, deg: best.deg, r: best.r });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${best.deg.toFixed(1).padStart(6)} deg   ${mm(best.r).padStart(6)} mm   y ${String(best.ymm).padStart(3)}   az ${best.az.toFixed(0).padStart(3)}deg      ${best.fwd.toFixed(1)} deg    ${String(wrapped).padStart(3)}${bad ? "   FAIL" : ""}`);
+      rows.push({ section: 3, cls, helm, rung, fail: bad, deg: best.deg, r: best.r });
+     }
     }
   }
   console.log("");
@@ -1156,13 +1285,17 @@ function sectionCrest(rows) {
   console.log("[clash] 4. CREST — daylight under a fitting sitting on the cap.");
   console.log(`[clash]    nearest approach to the cap at every 4 mm station of the run; bar ${CREST_MM.toFixed(1)} mm of air.`);
   console.log("");
-  console.log("[clash] class       helm         air mm   run deep       fitting              where");
-  console.log("[clash] ---------------------------------------------------------------------------------------");
+  console.log("[clash]    kit against kit, so the rungs are grouped by the kit they build — see `kitSignature`.");
+  console.log("");
+  console.log("[clash] class       helm         rung           air mm   run deep       fitting              where");
+  console.log("[clash] ------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
   const buf = new Float64Array(BARY.length * 3);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { kit } = sortPieces(cls, helm);
+     for (const { g, also } of kitGroups(cls, helm)) {
+      const rung = rungLabel(g, also);
+      const { kit } = sortPieces(cls, helm, g);
       // THE CAP: the piece that is lowest under the crown.
       //
       // A DISC OF COLUMNS AND NOT ONE RAY, which the first cut of this got
@@ -1194,13 +1327,13 @@ function sectionCrest(rows) {
       }
       if (!cap) {
         absent++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      (nothing of this helm crosses the crown — no cap to sit on)`);
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}      —      (nothing of this helm crosses the crown — no cap to sit on)`);
         continue;
       }
       const fittings = kit.filter((p) => p !== cap && p.tris >= 12);
       if (!fittings.length) {
         absent++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      (a bare cap with no fitting on it — nothing to measure)`);
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}      —      (a bare cap with no fitting on it — nothing to measure)`);
         continue;
       }
       cases++;
@@ -1264,8 +1397,9 @@ function sectionCrest(rows) {
       }
       const bad = air * 1000 > CREST_MM;
       if (bad) fails++;
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${mm(air).padStart(6)}   ${mm(deep).padStart(12)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(20)} ${wat ? at(wat) : ""}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 4, cls, helm, fail: bad, air });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${mm(air).padStart(6)}   ${mm(deep).padStart(12)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(20)} ${wat ? at(wat) : ""}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 4, cls, helm, rung: g.name, fail: bad, air });
+     }
     }
   }
   console.log("");
@@ -1369,15 +1503,17 @@ function sectionPelt(rows) {
   console.log("[clash] 5. PELT — hair or beard out through the helm, not under its hem.");
   console.log(`[clash]    inward horizontal rays, area-weighted, EACH AGAINST ITS OWN SURFACE; bar ${PELT_PCT.toFixed(1)}%.`);
   console.log("");
-  console.log("[clash] class       helm         hair out%  beard out%   worst patch                deepest       where");
-  console.log("[clash] ------------------------------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         rung           hair out%  beard out%   worst patch                deepest       where");
+  console.log("[clash] -------------------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, gone = 0;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { hair, beard, kit } = sortPieces(cls, helm);
+     for (const g of getupsOf(cls)) {
+      const rung = g.name;
+      const { hair, beard, kit } = sortPieces(cls, helm, g);
       if (!kit.length) continue;
-      const wantBeard = apOf(cls).beardStyle !== "none";
-      const bareBeard = trisOf(barePieces(cls).filter((p) => p.hex === hex6(BEARD_TINT)));
+      const wantBeard = g.beardStyle !== "none";
+      const bareBeard = trisOf(barePieces(cls, g).filter((p) => p.hex === hex6(BEARD_TINT)));
       const gotBeard = trisOf(beard);
       cases++;
       if (wantBeard && !gotBeard) {
@@ -1385,8 +1521,8 @@ function sectionPelt(rows) {
         // the build emits none: nothing to measure is the regression, not an
         // excuse from measuring.
         gone++; fails++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —          —      BEARD GONE — the rung asks for "${apOf(cls).beardStyle}" and the build emits no beard mesh (bare head has ${bareBeard} tri)  FAIL`);
-        rows.push({ section: 5, cls, helm, fail: true, absent: true });
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}      —          —      BEARD GONE — the rung asks for "${g.beardStyle}" and the build emits no beard mesh (bare head has ${bareBeard} tri)  FAIL`);
+        rows.push({ section: 5, cls, helm, rung, fail: true, absent: true });
         continue;
       }
       const KT = soup(kit);
@@ -1401,8 +1537,9 @@ function sectionPelt(rows) {
       if (bad) fails++;
       const patch = r?.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
       const note = cut ? `  BEARD CUT — ${gotBeard} tri under this helm, ${bareBeard} bare` : "";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${hp.toFixed(2).padStart(8)}  ${(rb ? bp.toFixed(2) : "—").padStart(9)}   ${patch.padEnd(24)} ${mm(r ? r.depth : 0).padStart(7)} mm  ${r?.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 5, cls, helm, fail: bad, hairPct: hp, beardPct: bp });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${hp.toFixed(2).padStart(8)}  ${(rb ? bp.toFixed(2) : "—").padStart(9)}   ${patch.padEnd(24)} ${mm(r ? r.depth : 0).padStart(7)} mm  ${r?.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 5, cls, helm, rung, fail: bad, hairPct: hp, beardPct: bp });
+     }
     }
   }
   console.log("");
@@ -1416,6 +1553,13 @@ function sectionPelt(rows) {
 function battery() {
   const rows = [];
   const fails = {};
+  // EVERY HEAD IS REBUILT. `sortPieces` keeps what it builds so that five
+  // sections asking for one head cost one build, and clearing it here is what
+  // keeps `--twice` honest: the second run does the same 288 builds as the
+  // first, so byte-identical means the BUILD is deterministic and not merely
+  // that a Map gave back what was put in it.
+  pieceCache.clear();
+  bareCache.clear();
   assertFaceIsPlusZ();
   assertTintsAreLabels();
   if (SECTIONS.has(1)) fails[1] = sectionLayers(rows);
@@ -1435,7 +1579,8 @@ function battery() {
   const ran = Object.keys(fails).length;
   console.log(`[clash] ${ran === 0 ? "NO SECTIONS SELECTED — nothing was measured, which is not a pass"
     : red === 0 ? "ALL SECTIONS PASS" : `${red} of ${ran} sections RED`}`);
-  console.log(`[clash] seed ${SEED}, lod ${LOD}, ${CLASSES.length} classes x ${HELMS.length} helms, read off the built mesh.`);
+  const rungs = CLASSES.reduce((a, c) => a + getupsOf(c).length, 0) / CLASSES.length;
+  console.log(`[clash] seed ${SEED}, lod ${LOD}, ${CLASSES.length} classes x ${HELMS.length} helms x ${rungs} hair-and-beard rungs, read off the built mesh.`);
   console.log("[clash] ============================================================");
   return { rows, fails };
 }
