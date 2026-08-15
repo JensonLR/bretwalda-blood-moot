@@ -17354,10 +17354,43 @@ export function buildCharacter(
           // way round that its front already is, landing on the same rings.
           const VENT_LETGO = 0.055;
           const VENT_SKIRT = 0.020;
+          // AND THE HULL IS NOT THE WHOLE OF THE HEAD AT THE NAPE — this is the
+          // owner's third note, still in the picture after the sweep above was
+          // written for it.
+          //
+          // `hullAt` is the SKULL's own column while there is skull and
+          // `S.neckHW` below it, and between those two the submandibular mass
+          // hangs down the back of the head outboard of both. Measured on this
+          // tree at az 180 on the warden: the skin is 89.7 / 88.8 / 88.1 /
+          // 87.0 mm at y 8 / 24 / 34 / 48 and the hull under it is 78.1 for
+          // every one of them, so mail riding the hull plus a layer gap crossed
+          // INSIDE the skin at y 26 and stayed there for the next 22 mm of
+          // curtain. `helmclash` section 3 read 69.5 / 63.5 / 76.5 degrees of
+          // bare nape at 83.4 / 88.4 / 78.4 mm of radius on the warden, the
+          // berserker and the runekeeper — a flesh stripe from the gold rim to
+          // the collar, which is exactly what the owner photographed.
+          //
+          // So the rear rides the OUTER of the two. `jawAt` is the same station
+          // list the head stack sweeps, read at its rear reach from the axis;
+          // `sm` is the same soft max the hull itself is built out of, so the
+          // hand-over where the skull's column gives way to the jaw is a fillet
+          // and not a crease.
+          //
+          // IT IS NOT ADDED TO `hullAt` ITSELF, and that is measured rather than
+          // squeamish. The nape fall rides the hull with 13-15 mm of authored
+          // clearance; on the three classes with no coif the hull is 9 mm inside
+          // the skin down there, so the plate's real clearance is 11 mm and
+          // `wearmeasure` section 3 reads the Sutton Hoo at gap 21.7 mm and hem
+          // 19.0 against 26 mm bars. Feeding the jaw into the hull moves that
+          // plate out by the same 9 mm — 30 mm of gap and 28 of hem, both over
+          // the bar — which is the flaring flange the owner complained of in
+          // the first place. Plate over mail: the mail is what has to be outside
+          // the skin, and the plate is outside the mail either way.
           const vRear = (y: number) => {
             const h = hullAt(y);
+            const j = jawAt(y);
             const c = LAYER_GAP + VENT_SKIRT * smooth(0, VENT_LETGO, napeHemY - y);
-            return { hw: h.hw + c, hd: h.hd + c };
+            return { hw: sm(h.hw, j.hw) + c, hd: sm(h.hd, j.hd) + c };
           };
           const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
             const t = v * (vRings.length - 1);
