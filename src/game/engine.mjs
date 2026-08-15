@@ -22,6 +22,7 @@ import { resolveSolids } from "./solidground.mjs";
 // `endMatch`, and `tools/wartest.mjs` §7, which holds this engine to it with a
 // wholly conquered map in its hands.
 import { TERRITORIES, territory, pointsFor, dealTerritory } from "./war.mjs";
+import { forgeName, botName } from "./names.mjs";
 
 const TICK_RATE = 20;
 
@@ -860,7 +861,12 @@ const BOT_REACTION_SKILL = 0.60;
 // server drops. Recruit leaves 0.45-0.85 s between strokes, a jarl 0.18-0.58.
 const BOT_SWING_GAP = 0.45;
 const BOT_SWING_GAP_SKILL = 0.30;
-const BOT_TITLES = { recruit: " the Young", warrior: "", jarl: " the Grim" };
+// Bynames now come from `names.mjs`, a graded POOL per tier rather than the one
+// constant per tier that used to live here. The old line read
+//   { recruit: " the Young", warrior: "", jarl: " the Grim" }
+// which meant every bot in a jarl room was "<forename> the Grim" — not a small
+// pool, no pool at all. The tier signal is kept: a recruit still reads as green
+// and a jarl still reads as dangerous, because the pools are graded that way.
 /** The four strokes, and the pool a bot's favourite is drawn from. */
 const BOT_STROKES = ["left", "right", "overhead", "stab"];
 /**
@@ -1580,7 +1586,9 @@ export function swingDurationOf(warriorClass, isHeavy) {
 }
 
 const ROOM_NAMES = ["WESSEX", "MERCIA", "ESSEX", "KENT", "SUSSEX", "ANGLIA", "NORTHUMBRIA", "JORVIK", "LINDSEY", "BERNICIA", "DEIRA", "HWICCE"];
-const BOT_NAMES = ["Ealdred", "Wulfred", "Aelric", "Beorn", "Cynric", "Eadwig", "Grim", "Hardred", "Leofric", "Osric", "Uhtred", "Deor"];
+// The twelve-name list that used to sit here is gone; `names.mjs` forges from
+// the elements those twelve were built out of, which is both how the language
+// actually worked and several hundred names instead of a dozen.
 const BOT_CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 const BOT_APPEARANCES = [
   { helm: "iron", hairStyle: "short", hairColor: 0x6b4a2a, beardStyle: "short", beardColor: 0x6b4a2a, cloak: "brown", armorColor: 0x4a5568, warPaint: "none" },
@@ -2395,7 +2403,19 @@ export function makeEngine(options = {}) {
     const bot = createPlayer(id, "", cls, { ...BOT_APPEARANCES[idx % BOT_APPEARANCES.length] });
     bot.bot = true;
     bot.ready = true;
-    bot.baseName = BOT_NAMES[(Math.random() * BOT_NAMES.length) | 0];
+    // A NAME NOBODY ELSE IN THE RING IS WEARING. The old draw was a bare
+    // `Math.random()` over twelve forenames, so a collision in an eight-man
+    // room was not bad luck, it was the birthday problem. Forge until the full
+    // name is unused, then give up gracefully rather than loop for ever — a
+    // duplicate is a blemish, a hang is a dead server.
+    const taken = new Set();
+    for (const p of room.players.values()) if (p.name) taken.add(p.name);
+    bot.nameSeed = (Math.random() * 0x7fffffff) | 0;
+    for (let tries = 0; tries < 32; tries++) {
+      bot.baseName = forgeName().name;
+      if (!taken.has(botName(bot.nameSeed, diff, bot.baseName))) break;
+      bot.nameSeed = (Math.random() * 0x7fffffff) | 0;
+    }
     bot.nextThink = 0;
     bot.nextAttackAt = 0;
     bot.yaw = 0;
@@ -2436,7 +2456,10 @@ export function makeEngine(options = {}) {
   function retuneBot(bot, difficulty) {
     bot.difficulty = difficulty;
     bot.aiSkill = BOT_SKILL[difficulty];
-    bot.name = (bot.baseName || bot.name) + BOT_TITLES[difficulty];
+    // Seeded, so the promise in the comment above survives: a bot re-graded
+    // recruit -> jarl -> recruit returns to the byname it started with instead
+    // of drawing a fresh one each time the dial moves.
+    bot.name = botName(bot.nameSeed ?? 0, difficulty, bot.baseName || bot.name);
   }
 
   function removeBot(room, botId) {

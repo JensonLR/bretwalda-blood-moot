@@ -5,8 +5,9 @@ import {
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
   Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
-  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX, Map
+  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX, Map, Dices
 } from "lucide-react";
+import { forgeName } from "@/game/names.mjs";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
   EmoteId,
@@ -143,6 +144,18 @@ export default function Page() {
    */
   const [muster, setMuster] = useState<{ waitingFor: string[]; until: number } | null>(null);
   const [playerName, setPlayerName] = useState("");
+  /**
+   * What the forged name MEANS, shown under the field. A generator that hands
+   * back "Wulfstan" and nothing else is a dice roll; one that says "wolf-stone"
+   * teaches the player how the language builds names, which is what makes the
+   * next one his own idea rather than another press of the button.
+   */
+  const [nameGloss, setNameGloss] = useState<string | null>(null);
+  const forgeWarriorName = useCallback(() => {
+    const forged = forgeName();
+    setPlayerName(forged.name);
+    setNameGloss(`${forged.name} — ${forged.gloss}`);
+  }, []);
   const [playerId, setPlayerId] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -1619,10 +1632,26 @@ export default function Page() {
             <input
               type="text"
               value={playerName}
-              onChange={(e) => setPlayerName(e.target.value.substring(0, 20))}
+              onChange={(e) => { setPlayerName(e.target.value.substring(0, 20)); setNameGloss(null); }}
               placeholder="Enter warrior name..."
               className="input-frame text-center text-lg"
             />
+            {/* The forge. Sits under the field rather than inside it so the tap
+                target is its own — a 44px control crammed into the input's right
+                edge is the classic way to make a phone user miss and start
+                editing instead. */}
+            <button
+              type="button"
+              onClick={forgeWarriorName}
+              className="btn-ghost w-full !min-h-[var(--tap)] !text-xs"
+            >
+              <Dices size={16} /> FORGE ME A NAME
+            </button>
+            {nameGloss && (
+              <p className="-mt-1 text-center text-xs text-[rgba(238,226,204,0.6)]">
+                {nameGloss}
+              </p>
+            )}
             <button onClick={() => setScreen("create")} disabled={busy}
               className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
               <Swords size={20} /> CREATE BATTLE

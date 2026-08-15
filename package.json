@@ -47,7 +47,8 @@
     "bottest": "node tools/bottest.mjs",
     "readytest": "node tools/readytest.mjs",
     "mustershot": "node tools/mustershot.mjs",
-    "helmclash": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/helmclash.mjs"
+    "helmclash": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/helmclash.mjs",
+    "nametest": "node tools/nametest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
