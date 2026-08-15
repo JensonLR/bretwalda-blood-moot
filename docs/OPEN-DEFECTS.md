@@ -4728,3 +4728,60 @@ exists to prevent.
    to whatever the repaired bars say.
 3. Then the curtain's top edge can go back up under the plate, the last 11-25
    degrees close, and section 1's buried fraction goes back down with them.
+
+## The shop gate builds one class, and it is the one nobody changed — 15 Aug 2026
+
+**Instance seventeen.** `tools/cosmetictest.mjs:233` is
+`const RIG = { cls: "huscarl", seed: 13, ... }`. It builds **one class**. Round seven
+touched the warden, the berserker and the runekeeper and did not touch the huscarl, so
+its 27 differing cells were all invisible to the gate — and "cosmetictest holds main's
+baseline exactly, 2 swallowed, 1.43%" was a **tautology**, not a proof.
+
+Both agents in round seven cited it as their evidence that nothing paid was taken away.
+So did the merge message of `a8bc004`. That landing is still sound, because in it
+`characters.ts` was byte-identical to main and nothing could differ for any class — but
+the corroborating number quoted beside that argument was worth far less than it looked.
+
+What actually settled it was an adversary's own union-find component counter over the
+welded index graph, run across **all 360 cells** (4 classes x 10 helms x 9 rungs), both
+head-pivot-scoped and whole-rig-scoped, on both trees. Zero paid rungs lost components or
+triangles; the only difference anywhere was +84 triangles ADDED on 27 cells. That is the
+measurement the shop gate should have been making for its whole life.
+
+FIX: sweep every class, or say in the file that it does not and is therefore not a gate
+for anything but the huscarl.
+
+## The ear the owner reported is still on the helmet, and it is live on main
+
+224 triangles of complexion shade (`0x917050`) stand **9.9 mm proud of the Sutton Hoo at
+az 114**, and render as an unmistakable human ear floating on the middle of the silver
+bowl. It survives at fight distance as an ~8 px blob on a 56 px head. Pre-existing on
+main with identical numbers, so round seven did not cause it — but the owner reported
+"on the remaining classes (warden etc.) the ears stick out" and this is that, still
+there, after an `earSeat` was written to fix it.
+
+## The nape is closer and not closed
+
+Round seven put the neck in the ruler (`rig:neck` is a sibling of `rig:headPivot`, so six
+rounds measured a head with no neck in it) and then closed the ventail at the back. The
+huscarl went from a 14.0-degree false positive to 0.0 degrees covered at all 137 heights.
+The other three went the other way as the instrument sharpened: 149.5 -> 159.5, 149.5 ->
+156.5, 152.5 -> 162.5.
+
+After the curtain fix, **15.5 degrees of bare arc remain at az 180 on the warden**, and an
+adversary proved it is skin rather than kit by the repaint test: the wedge holds
+(156,85,48) under both crimson and sea-blue kits while the mail beside it swings from
+(73,79,100) to (17,25,59), and it hue-matches a bare-head ground truth of (188,110,69).
+
+The fixer's own render note said "mail is continuous into the hauberk". The picture does
+not show that. A residual disclosed as a number is not the same as a residual that is not
+there, and the sentence should have said so.
+
+## The ruler was calibrated against a tree that never shipped
+
+`helmclash`'s note over `CREST_MM` says the Wyrm's serpent "reads 23.4 - 24.7 today".
+This tree prints **50.0, 52.1, 52.3, 54.2** — the very figures that comment calls
+historical. Cause: the ruler landed on `main` in `a8bc004` while `characters.ts` was
+deliberately held back, so its calibration describes geometry that was correctly refused.
+That is a direct consequence of splitting the landing, it was the right split, and the
+comments needed correcting rather than the decision.
