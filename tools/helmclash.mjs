@@ -21,6 +21,15 @@
 //     THROUGH a helm it is supposed to be inside of.
 //
 // ------------------------------------------------------------
+// WHAT IS SWEPT
+// ------------------------------------------------------------
+//
+// Four classes x nine helms x EIGHT HAIR AND BEARD RUNGS, free and paid. The
+// rung list and the argument for its shape are over `BEARD_RUNGS`; the short
+// version is that this file used to build `defaultAppearance` and nothing else,
+// so no cosmetic anybody paid for had ever been under a helm in front of it.
+//
+// ------------------------------------------------------------
 // WHAT THIS READS, AND WHY IT IS THE MESH AND NOT THE MATHS
 // ------------------------------------------------------------
 //
@@ -698,8 +707,15 @@ const LAYER_MM = 5.0;
  * it: both surfaces are tessellated and a garment's chord dips up to 3 mm
  * inside the analytic curve, so a gap that only covers the mathematics is not a
  * gap. A plate more than that far the WRONG side of the mail is not a rounding
- * error. Nothing measured here is anywhere near the bar: the eleven failures
- * run 10.7 to 14.5 mm and there is no reading between 0 and 10.7.
+ * error.
+ *
+ * Nothing measured here is anywhere near the bar, and the paragraph this
+ * replaces said so about a tree that no longer exists ("the eleven failures run
+ * 10.7 to 14.5 mm"). Across the 19 distinct kits that have mail, 18 read 0.0,
+ * 0.4, 0.8, 1.8, 2.0 or 4.2 mm and one reads 61.5 — huscarl / suttonhoo /
+ * hair=braids, where an 80-triangle brass braid ring has 100.0% of its outward
+ * face inboard of the rings. So the bar sits in a 57 mm gap, and the one reading
+ * over it is a 100-gold cosmetic buried inside a 2400-gold coif.
  */
 function sectionLayers(rows) {
   console.log("");
@@ -872,7 +888,8 @@ function outboardShare(subject, kitT) {
 // So the case is now measured. A helm is a face plate when the KIT COVERS THE
 // FACE: of the head's own skin within 45 degrees of dead ahead, what share has
 // kit outboard of it, weighted by area. Measured on this tree, every class,
-// every rung in the shop:
+// every helm, every hair and beard rung — 288 heads, and the range below is the
+// section's own footer:
 //
 //     Sutton Hoo                          81.2 - 88.8 %
 //     Shadow Hood                         43.3 - 44.4
@@ -903,9 +920,9 @@ const FLESH_PCT = 1.0;
 /**
  * 1.0% of the skin's area, and it is a tessellation allowance rather than a
  * tolerance. Zero is the only defensible answer for a face plate, and nothing
- * on this tree is anywhere near the bar: the four masked combinations measure
- * 2.10, 2.43, 3.75 and 3.84, so no verdict here turns on where exactly the bar
- * sits.
+ * on this tree is anywhere near the bar: the 32 face-plate rows — the Sutton
+ * Hoo on four classes across eight hair and beard rungs — measure 2.10, 2.43,
+ * 2.97, 3.75 and 3.84, so no verdict here turns on where exactly the bar sits.
  */
 const FACE_PCT = 65.0;
 const FACE_AZ = 45;
@@ -1266,19 +1283,26 @@ const CREST_MM = 40.0;
  * 40 mm, and the gap it sits in is wide and measured. On this tree the worst
  * station of every fitting in the shop reads:
  *
- *     Sutton Hoo crest and its garnets    13.9 - 15.4
+ *     Sutton Hoo crest and its garnets    14.4 - 15.4
+ *     Wyrm-Crest's serpent                23.4 - 24.7   <- the owner's photograph
  *     berserker's fur crest under a cap   10.3 - 23.6
  *     warden's steel comb                  4.7 - 18.0
- *     Ridge Helm's comb                    4.7 -  7.7
+ *     Ridge Helm's comb                    4.7 -  5.6
  *     Boar-Crest's animal                 32.5 - 33.1   (a snout thrown forward)
- *     Wyrm-Crest's serpent                50.0 - 54.2   <- the owner's photograph
+ *     Shadow Hood's rear flap             41.9 - 44.7   <- see the note above
  *
- * so the bar is in a 17 mm gap and against neither side of it. The Boar is the
- * nearest honest reading and it is a snout carried out past the brow, which is
- * a shape; the Wyrm never comes down at all. And the Wyrm's own author asks for
- * 46 mm of rise in as many words, so this section is disagreeing with an
- * intention rather than finding a typo — which is exactly the argument the owner
- * made with a photograph.
+ * so the bar is in an 8.8 mm gap, between the Boar's snout at 33.1 and the
+ * hood's flap at 41.9, and against neither side of it.
+ *
+ * THE WYRM PASSES NOW, AND THAT IS NOT THE END OF THE OWNER'S NOTE. The serpent
+ * read 50.0 - 54.2 when this bar was written and reads 23.4 - 24.7 today: round
+ * five brought it down onto the cap, and this section is measuring attachment,
+ * which is the half of "unrecognisable & also floating" that a nearest-approach
+ * ruler can see. `docs/OPEN-DEFECTS.md` records the other half still open —
+ * cropped to 46x60 it is "a gold line 2-3 px thick with one bend along the
+ * crown", with no head, no jaw and no taper — and nothing in this file measures
+ * whether a shape reads as an animal. A green row here is not a claim that it
+ * does.
  */
 function sectionCrest(rows) {
   console.log("");
@@ -1480,22 +1504,25 @@ const PELT_PCT = 2.0;
  * different measurement and cannot stand. A bar kept without re-measuring is a
  * bar nobody has checked.
  *
- * The spread on the two new denominators, every combination on this tree:
+ * The spread across the whole sweep — 288 rows, four classes, nine helms, eight
+ * hair and beard rungs, sorted and read off the run rather than sampled:
  *
- *   hair, open metal helms          0.00 - 0.29   under a hem, as intended
- *   hair, huscarl's iron/nasal/spec 0.60 - 0.71
- *   hair, the Shadow Hood           2.66 - 3.31   <- red, and was red before
- *   beard, every open helm          0.00
- *   beard, Wyrm-Crest               0.21 - 0.32
- *   beard, Sutton Hoo (3 classes)   0.56 - 0.71
- *   beard, berserker's Sutton Hoo   2.71          <- red, and was NOT before
- *   beard, the Shadow Hood          0.80 - 6.42
+ *   hair    ... 1.28  1.29  1.32  1.33  1.57  1.63  1.68 | 2.32  2.46  2.66 ...
+ *   beard   ... 1.00  1.02  1.19  1.23  1.57               | 2.47  2.68  2.71 ...
  *
- * so the bar still sits in a gap, 0.71 to 2.66, and it is the same gap it always
- * claimed to sit in. What moved is that the berserker's full beard under the
- * Sutton Hoo now reads on its own account: mixed into the hair it was 0.88% and
- * green, and against its own surface it is 2.71% and red. That reading is the
- * one the owner's adversary photographed as a wedge of beard through the mail.
+ * so the bar sits in a gap on BOTH denominators — 1.68 to 2.32 on the hair,
+ * 1.57 to 2.47 on the beard — and no verdict in the section turns on where in
+ * those gaps it sits. The tails run to 6.94% of a hair and 9.29% of a beard.
+ *
+ * What moved when the denominator split: the berserker's full beard under the
+ * Sutton Hoo was 0.88% mixed into the hair and green, and is 2.71% against its
+ * own surface and red. What moved when the paid rungs came in: the 40-gold Full
+ * Beard under the Sutton Hoo reads 3.66 on the huscarl, 3.72 on the warden and
+ * 4.77 on the runekeeper — the berserker wears it by default and is the 2.71 —
+ * 17.5 to 23.2 mm deep, at az 1-2 deg and y -44 to -47 mm. That is dead ahead
+ * and below the chin, which is the throat, and it is exactly the wedge of beard
+ * through the mail rings that round five's adversary found by hand and no ruler
+ * had ever seen.
  */
 const trisOf = (list) => list.reduce((a, p) => a + p.tris, 0);
 function sectionPelt(rows) {
