@@ -17139,12 +17139,96 @@ export function buildCharacter(
           shell(0, chinV, maskLift(chinV), chinPt);
           const vTop = skullY + chinPt.y + 0.016;
           const vBot = S.neckRoot - 0.014 - S.neckTop - 0.022;
-          // Hung off the mask's own lower edge in z and falling back onto the
-          // neck as it drops, so the curtain lies against the throat rather than
-          // standing off it as a bib. Wider at the bottom because it lands on the
-          // collar, which is where a coif's skirt goes.
+          /**
+           * THE MASK'S OWN INNER SURFACE AT A HEIGHT, along one bearing.
+           *
+           * Off `shell`, `maskLift`, `tuck` and `flank` — the four the lower
+           * sheet is actually swept with — rather than off a fraction of the
+           * skull. `null` where the plate does not reach that height on that
+           * bearing, so a rung or a seed whose chin sits elsewhere gets no
+           * constraint rather than a wrong one.
+           */
+          const maskUnder = (u: number, y: number) => {
+            const q = new THREE.Vector3();
+            let bx = 0, bz = 0, bestD = Infinity;
+            for (let i = 0; i <= 24; i++) {
+              const v = mix(maskBot(u), maskTop, i / 24);
+              shell(u, v, maskLift(v) - tuck(u) - 0.0075 * flank(u), q);
+              const d = Math.abs(skullY + q.y - y);
+              if (d < bestD) { bestD = d; bx = Math.abs(q.x); bz = q.z; }
+            }
+            return bestD < 0.008 ? { x: bx, z: bz } : null;
+          };
+          // MAIL UNDER PLATE, WHICH IS THE RULE THE REAR OF THIS CURTAIN ALREADY
+          // RUNS ON — "Mail under plate, plate over mail; neither piece owns a
+          // second copy of where the head is", forty lines down. The front did
+          // not. The top ring sat 16 mm ABOVE the mask's lowest point at
+          // `R.x * 0.86` and `R.z * 0.78`, which is OUTSIDE the plate there, so
+          // the bottom of the chin plate was behind mail: `helmclash` section 1
+          // read the mask's own 2128-triangle sheet 11.3 to 15.0 mm inboard of
+          // the rings at az 335-336, 4.3 to 5.0% of its outward face, on all
+          // four classes — the last four red rows in that section.
+          //
+          // A ventail is riveted behind the plate's edge and comes out from
+          // under it. So the lap keeps its 16 mm and is TUCKED: the top ring is
+          // held inside the mask's own inner surface less a `LAYER_GAP`, and a
+          // second ring at the plate's hem carries the curtain straight back out
+          // to the radius it always had. Nothing below the hem moves by a
+          // micron, and the mail still meets the plate with no gap to see
+          // through — it meets it on the other side.
+          const topZ0 = chinPt.z * 0.42;
+          const vHemY = skullY + chinPt.y - 0.001;
+          // SOLVED AGAINST THE PLATE AT EVERY BEARING IT COVERS, not at two of
+          // them. The lap ring is a translated ellipse and the mask is a face, so
+          // matching them at the midline and at the flank still leaves the ring
+          // outside the plate at the quarter — measured, that left 8.3 to 9.5 mm
+          // of mask still inboard at az 335, which is exactly the quarter.
+          //
+          // So the whole ring is scaled about the head's axis by the worst
+          // bearing. `t` below is where the ray at a mask sample's own azimuth
+          // crosses the ring: the ring's own quadratic, solved rather than
+          // sampled, so the answer does not depend on how finely anything is
+          // walked.
+          const lapK = (y: number) => {
+            const hw = R.x * 0.86, hd = R.z * 0.78;
+            let k = 1;
+            for (let i = -24; i <= 24; i++) {
+              const u = (i / 24) * uEdge;
+              const hit = maskUnder(u, y);
+              if (!hit) continue;
+              const px = Math.sign(i || 1) * hit.x, pz = hit.z;
+              const r = Math.hypot(px, pz);
+              if (r < 1e-6) continue;
+              const sa = px / r, ca = pz / r;
+              const A = (sa / hw) * (sa / hw) + (ca / hd) * (ca / hd);
+              const B = -2 * ca * topZ0 / (hd * hd);
+              const C = topZ0 * topZ0 / (hd * hd) - 1;
+              const disc = B * B - 4 * A * C;
+              if (disc <= 0) continue;
+              const t = (-B + Math.sqrt(disc)) / (2 * A);
+              if (t <= 1e-6) continue;
+              k = Math.min(k, (r - LAYER_GAP) / t);
+            }
+            // A ring pulled inside the throat is not a lap either, so it never
+            // goes past three quarters of the radius it was authored at.
+            return Math.max(0.75, k);
+          };
+          // BOTH LAP RINGS ARE SOLVED, and the second one is why. The mask's hem
+          // is `maskBot`, which RISES from the chin to the jaw, so a ring at the
+          // midline chin's height is still under plate everywhere off the
+          // midline: with only the top ring tucked, section 1 read 7.2-7.5 mm at
+          // az 334-345, which is the quarter, at heights BELOW the top ring.
+          // Tucked at both ends the curtain is inside the plate over the whole
+          // lap and swells to its authored radius only below the lowest metal
+          // there is.
+          const kTop = lapK(vTop), kHem = lapK(vHemY);
           const vRings = [
-            { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
+            { y: vTop, hw: R.x * 0.86 * kTop, hd: R.z * 0.78 * kTop, z: topZ0 * kTop },
+            // Hung off the mask's own lower edge in z and falling back onto the
+            // neck as it drops, so the curtain lies against the throat rather
+            // than standing off it as a bib. Wider at the bottom because it
+            // lands on the collar, which is where a coif's skirt goes.
+            { y: vHemY, hw: R.x * 0.86 * kHem, hd: R.z * 0.78 * kHem, z: topZ0 * kHem },
             { y: mix(vTop, vBot, 0.5), hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
             { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
           ];
@@ -17247,7 +17331,13 @@ export function buildCharacter(
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
           p.add(patch({
-            nu: Math.max(16, lod.shellU * 2), nv: 4, wrapU: !coifed,
+            // TWO ROWS PER SEGMENT, so every ring is landed on. `vAt` maps the
+            // patch's own `v` uniformly across the ring list, so a row count
+            // that is not a multiple of the segment count steps straight over
+            // the rings between the ends — with four rows over the four-ring
+            // table the sweep never sampled the plate's hem at all and chorded
+            // across the tuck it exists to draw.
+            nu: Math.max(16, lod.shellU * 2), nv: (vRings.length - 1) * 2, wrapU: !coifed,
             outer: vSweep(0), inner: vSweep(0.007),
           }), mail);
         }
