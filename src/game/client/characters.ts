@@ -13287,6 +13287,34 @@ export function buildCharacter(
     const a = awayFromFace(u);
     return a < cheekIn || a > cheekOut ? -Infinity : cheekHemAt(a);
   };
+  /**
+   * THE NAPE FALL'S OWN HALF-ARC AT A DESCENT — the azimuth its front edge
+   * reaches, measured off the fall's own sweep rather than guessed at.
+   *
+   * Hoisted for the third time for the same reason `cheekHemAt` and `napeHemY`
+   * were: the plate is swept on this and the hair under it has to read the same
+   * number. It did not. `hairCeil`'s nape branch held a CONSTANT 1.95 rad —
+   * 112 degrees off dead ahead — while a deep guard that laps a deep cheek
+   * plate reaches `pi - 1.79`, which is 77. So on the Wyrm-Crest and the Sutton
+   * Hoo there were 35 degrees of head with a 308-triangle plate over it and
+   * nothing telling the hair so, and `helmclash` section 5 read the result:
+   * 80-triangle coils 51-63% outboard of the kit at az 97-100 on all three
+   * classes without a coif, 8.0 to 11.9 mm out and standing through the plate's
+   * own outer surface.
+   *
+   * It is wrong in the other direction on the flange rungs, where 1.95 CLAIMS
+   * 6.6 degrees of cover the flange does not have.
+   *
+   * Read at the top of the descent, which is the narrowest the fall ever is, so
+   * this can only under-claim: hair outside a plate is a defect and hair
+   * flattened where there is no plate is a paid cosmetic thrown away.
+   */
+  const napeLap = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
+  const napeHalf = (v: number) =>
+    Math.max(style.nape === "guard" ? 1.30 : 1.08, napeLap)
+    + (style.nape === "guard" ? 0.44 : 0.30) * v * v;
+  /** That arc as an angle off dead ahead: hair further round than this is under it. */
+  const napeFrontU = Math.PI - napeHalf(0);
 
   // ---- where the cloth is ----
   // The hood's rim and its lift, authored here and read twice: once by the hood
@@ -13416,7 +13444,7 @@ export function buildCharacter(
     // deliberately put inside the skin there rather than being deleted: the
     // sweep stays continuous with the hair either side of it, and a continuous
     // sweep is the whole reason this file authors one surface instead of two.
-    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.95 && v < bandLo + 0.28
+    if (helmed && style.nape !== "none" && awayFromFace(u) > napeFrontU && v < bandLo + 0.28
       && (atY === undefined || atY > napeHemY)) {
       c = Math.min(c, -0.005);
     }
@@ -15875,7 +15903,9 @@ export function buildCharacter(
         // is cut to, so the two cannot drift apart again. Where there is no
         // guard — the Ridge Helm's flange over an open face — there is nothing
         // to lap and the fall keeps its own arc.
-        const lapU = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
+        // Hoisted with `cheekHemAt`, above the hair, because the hair under this
+        // plate has to read the same arc the plate is swept on. See `napeHalf`.
+        const lapU = napeLap;
         // AND THE DECISION IS PER HELM, which is what the owner asked for.
         //
         // The Wyrm-Crest and the Sutton Hoo are CLOSED helmets: their guards are
@@ -15894,8 +15924,7 @@ export function buildCharacter(
         // opening is over the ear and §10 reports how far off it still is —
         // reported, because a bar this unit cannot hold is a bar that gets
         // tuned rather than met.
-        const half = (v: number) =>
-          Math.max(deep ? 1.30 : 1.08, lapU) + (deep ? 0.44 : 0.30) * v * v;
+        const half = napeHalf;
         const fall = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const y = mix(topY, floorY, v);
           const h = hullAt(y);
