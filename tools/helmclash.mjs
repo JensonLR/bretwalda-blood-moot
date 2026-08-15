@@ -662,6 +662,36 @@ function nearestDist(T, px, py, pz) {
 }
 
 /** Möller-Trumbore. Nearest forward hit, or -1 past `cap`. */
+/**
+ * The FARTHEST surface a ray crosses, where `rayHit` gives the nearest.
+ *
+ * Cast outward from the head's own axis, the nearest hit is the INNERMOST shell
+ * and the farthest is the one the player actually looks at. Both questions are
+ * legitimate and this file asks both; what it must not do is ask one and print
+ * the other. See the note in section 3 for the reading that turned on it.
+ */
+function rayHitFar(T, ox, oy, oz, dx, dy, dz, cap) {
+  let best = -1;
+  for (let i = 0; i < T.length; i += 9) {
+    const ax = T[i], ay = T[i + 1], az = T[i + 2];
+    const e1x = T[i + 3] - ax, e1y = T[i + 4] - ay, e1z = T[i + 5] - az;
+    const e2x = T[i + 6] - ax, e2y = T[i + 7] - ay, e2z = T[i + 8] - az;
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (det > -1e-12 && det < 1e-12) continue;
+    const inv = 1 / det;
+    const tx = ox - ax, ty = oy - ay, tz = oz - az;
+    const u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < 0 || u > 1) continue;
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+    const v = (dx * qx + dy * qy + dz * qz) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    if (t > 1e-6 && t < cap && t > best) best = t;
+  }
+  return best;
+}
+
 function rayHit(T, ox, oy, oz, dx, dy, dz, cap) {
   let best = cap;
   for (let i = 0; i < T.length; i += 9) {
@@ -1138,6 +1168,54 @@ function sectionFlesh(rows) {
 // sweep asks, for every half-degree of azimuth, what the outermost surface is:
 // kit, or skin and hair.
 //
+// AND IT ASKS WITH `rayHitFar`, WHICH IS THE SECOND HALF OF THE NECK FAULT.
+// This sweep used `rayHit` — the NEAREST surface — on both lists, and compared
+// those. Nested shells make that look right: cast outward from the axis, the
+// first pelt is the skin and the first kit is the helmet over it, so "kit
+// farther than pelt" does read as "covered". It stops being right the moment
+// there are TWO pelt shells, because the nearest one is still the skin deep
+// inside the helmet and the outer one is never consulted. `rig:neck` is exactly
+// that second shell, so widening the scope to admit it moved not one digit in
+// this section until this line changed too — the two faults are one fault, and
+// either repair alone is inert.
+//
+// GROUND TRUTH, warden / suttonhoo, every surface a horizontal ray crosses at
+// az 180, y 50 mm, in order out from the axis:
+//
+//     r =  22.4 mm  PELT  rig:head c99d75     <- `rayHit` stopped here
+//     r =  86.8 mm  PELT  rig:head 917050
+//     r =  88.3 mm  KIT   rig:head 9aa6ae     <- and here, and called it covered
+//     r =  92.7 mm  KIT   rig:head d9b45f
+//     r =  96.3 mm  KIT   rig:head 9aa6ae
+//     r =  98.7 mm  KIT   rig:head d9b45f     <- outermost metal
+//     r = 100.4 mm  PELT  rig:neck c99d75     <- what the player actually sees
+//
+// The outermost thing on that bearing is bare neck, standing 1.7 mm proud of
+// the last of the Sutton Hoo's metal, and the old comparison returned COVERED.
+//
+// WHAT THE CHANGE DID, and it is checkable against an independent ray probe
+// taken over the whole rig rather than against this file's own opinion:
+//
+//   huscarl   suttonhoo   14.0 deg bare  ->   0.0 deg, covered at all 137 heights
+//   warden    suttonhoo  149.5 deg      -> 159.5 deg at y 48, radius 82.0 mm
+//   berserker suttonhoo  149.5 deg      -> 156.5 deg at y 51, radius 86.8 mm
+//   runekeeper suttonhoo 152.5 deg      -> 162.5 deg at y 45, radius 77.3 mm
+//
+// The huscarl is the one class whose coif closes all the way round, and the
+// independent probe puts 0 degrees of proud neck on him and 61-67 degrees on
+// the other three. So this repair DELETED a false positive on the huscarl —
+// 14.0 degrees that were never bare — and sharpened three true ones. It also
+// restores the reading recorded over `WRAP_DEG` below, "huscarl / suttonhoo 137
+// wrapped heights, bare arc 0.0 deg at ALL 137", which the tree had silently
+// drifted off. A ruler agreeing with an instrument built separately, on the
+// class that should pass AND the three that should fail, is the evidence here.
+//
+// PELT AND NOT FLESH, deliberately, though `sortPieces` offers both. Comparing
+// only skin against kit would let a hairstyle cover a nape that no neck defence
+// covers, and hair is a cosmetic a player can take off or has to buy. A gate
+// that goes green because a 100-gold braid happens to hang over the gap is a
+// gate that reports the shop rather than the armour.
+//
 // A height is a case only if the THROAT IS GENUINELY WRAPPED — at least
 // `THROAT_DEG` of continuous cover through dead ahead. That is the filter that
 // turns this from a head-wide sweep into a neck measurement, and it is not
@@ -1229,8 +1307,8 @@ function sectionWrap(rows) {
         for (let i = 0; i < M; i++) {
           const t = i * WRAP_STEP * Math.PI / 180;
           const dx = Math.sin(t), dz = Math.cos(t);
-          const f = rayHit(P, 0, y, 0, dx, 0, dz, 0.40);
-          const g = rayHit(K, 0, y, 0, dx, 0, dz, 0.40);
+          const f = rayHitFar(P, 0, y, 0, dx, 0, dz, 0.40);
+          const g = rayHitFar(K, 0, y, 0, dx, 0, dz, 0.40);
           flags[i] = (f < 0 && g < 0) ? 0 : (g > f ? 1 : -1);
           rad[i] = f;
         }
