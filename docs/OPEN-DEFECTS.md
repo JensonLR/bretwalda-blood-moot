@@ -4934,3 +4934,35 @@ comment already gives for the shell. It costs 338240 triangles across the
   on main at 1144 verts; it is 2299 here because the buried coils went into
   both. The defect is that they are the same object, and this round neither
   caused it nor fixed it.
+
+### `playtest`'s browser stage times out on the dev server, on any tree
+
+Recorded because the standing advice for it is wrong about the cause, and the
+right route is one command.
+
+`npm run playtest` reaches `MUSTER THE TESTGROUNDS` through a 30-second
+`locator.click`, and on this box the Next **dev** server does not compile the
+muster screen inside it:
+
+```
+  [playtest] starting dev-server on :3818
+  [playtest] failed: locator.click: Timeout 30000ms exceeded.
+    - waiting for getByText('MUSTER THE TESTGROUNDS').first()
+```
+
+It is NOT a symlinked `node_modules`. The tree it failed in has a hard-linked
+copy — real directories, real files — and it fails the same way in a clean
+worktree of `origin/main` with the repository's own `node_modules`, three runs
+apart, warm cache and cold. Everything before the browser passes in every run.
+
+`npm run build` first is the fix, and `playtest` already takes it: `useProd` is
+`existsSync(".next/BUILD_ID")`, so with a production build present it starts
+`custom-server.mjs` instead and the run goes green —
+
+```
+  [playtest] starting custom-server on :3896
+  [playtest] in a fight
+  [playtest] 37/37 controls working
+```
+
+Either raise that 30 s, or say in the tool's header that a build has to exist.
