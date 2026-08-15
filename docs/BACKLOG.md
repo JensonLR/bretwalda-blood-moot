@@ -510,7 +510,8 @@ it. The ribs below are re-marked against that.
 | 5.13 | **The "while you slept" dispatch strip on the title screen** — promote from decoration to requirement. It is the only visible surface of the game's whole retention thesis | NEW |
 | 5.5 | **Unlockable profile symbols** earned by achievement or bought | NEW |
 | 5.6 | **Taglines and grey helper text** updated to the current plan | NEW |
-| 5.7 | **Creative, distinctive map locations** built to the standard | [PARTLY RAISED] `docs/MAPS.md` |
+| 5.7 | **Creative, distinctive map locations** built to the standard | [PARTLY RAISED] `docs/MAPS.md`. **Superseded in scope by 5.7b, which is the same work with a reason attached.** |
+| 5.7b | **A ground for the territory you were dealt** — the owner, 15 Aug 2026: *"wouldn't having a map for each territory also be cool?"* | NEW, and it is the arena half of 4.3. See below. |
 | 5.8 | **Steam, then mobile, then console** — one account, two doors, from the first Steam build | NEW; supersedes `docs/DISTRIBUTION.md` ordering |
 
 ### WAVE 6 — engineering hygiene and tooling
@@ -1108,3 +1109,76 @@ E  map three         (BLOCKED on the sim being flat: no jump, x/z only,
 F  matchmaking       (REJECTED until concurrent strangers exist)
 F  flags             (needs profiles — profiles are DONE)
 ```
+
+## 5.7b — A ground for the territory you were dealt
+
+The owner, 15 Aug 2026, having just reported that swearing to a kingdom has no
+visible consequence: *"I assume we have map building on the list but wouldn't
+having a map for each territory also be cool?"*
+
+**It is on the list as 5.7, and the owner has made it a better item than the one
+that was there.** 5.7 asked for "creative, distinctive map locations", which is a
+content wish with no reason attached. This is the same work with the reason
+supplied, and the reason is the strongest one in the backlog.
+
+### The measurement that makes this urgent
+
+```
+src/game/grounds.mjs:622   export const GROUNDS = { saxon_village: SAXON_VILLAGE };
+src/game/grounds.mjs:626   export const DEFAULT_GROUND_ID = "saxon_village";
+```
+
+**There is one ground.** The war deals a match over one of SIXTEEN named
+territories — `dealTerritory` in `war.mjs`, drawn from the four most contested —
+and then every one of those matches is fought in the same Saxon village.
+
+That is the owner's other complaint one layer down. He said the map shows no
+identity after you swear; this is the arena showing no identity after the map
+names your ground. **4.3 is the kit half of that gap and 5.7b is the place half**,
+and the place half is arguably larger: a man notices where he is standing before
+he notices the colour of his neighbour's cloak.
+
+### Why it is cheaper than sixteen levels
+
+The architecture is already built for many grounds and has never had more than
+one: `getGround(id)` resolves by id and falls back rather than throwing, with a
+comment explaining that a client/server disagreement should drop everyone in the
+village rather than crash. Nothing needs designing to make a second ground exist.
+
+And every ground is CODE, not an asset — the project has zero binary assets by
+rule — so sixteen hand-built levels is the wrong shape anyway. The right shape is
+a small set of landscape archetypes, each carrying the character the territory
+actually has, since the territories are real places with real ground:
+
+| archetype | territories | what it is |
+|---|---|---|
+| fen and causeway | East Anglia, Lindsey | flat water, reed, a raised timber road that funnels a fight |
+| downland | Wessex, Kent | chalk, sheep-cropped turf, a long open sightline |
+| dyke and march | Mercia, Gwynedd, Dyfed | Offa's earthwork — a bank and ditch is a shield wall in landscape form |
+| moor and dale | Deira, Bernicia, the Five Boroughs | heather, gritstone, a beck cutting the floor |
+| sea-cliff | Kernow, Cait, Ystrad Clud | turf to a drop, standing crosses, wind |
+| firth and broch | Fib, Circinn, Fortriu | drystone tower, birch scrub, a tidal edge |
+| isles | Sudreyjar, Mann | machair, a beached keel, salt grass |
+
+Six archetypes cover sixteen territories. Each territory then earns ONE authored
+feature that is only its own — Offa's Dyke, a Pictish symbol stone, a fen
+causeway, a beached ship — so no two grounds read the same even where the
+landscape does.
+
+### The gate this needs, because it is the obvious place to cheat
+
+A ground that is the village with a different tint would pass any harness written
+carelessly, so the ruler must measure **what the fight actually does**, not what
+the mesh looks like. At minimum: every ground's walkable area, cover count and
+sightline distribution must differ measurably from every other's, and no ground
+may be strictly better to hold than another for any class — the war already
+decides who wins ground, and a map that decides it instead would quietly undo it.
+`tools/solidtest.mjs` and `tools/stepprobe.mjs` already exist and gate collision
+and traversal; they must run per ground rather than once.
+
+### Order
+
+**After 4.3 (per-faction kit), not before.** Both close the same gap and kit is
+cheaper, already scoped in `docs/FACTIONS.md`, and touches one file the helm work
+is already in. Doing kit first also means the first new ground is walked by
+warriors who look like they belong on it.
