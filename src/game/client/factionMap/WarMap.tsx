@@ -51,10 +51,27 @@ export interface WarViewData {
   crowns: { seasonIndex: number; people: string; name: string | null }[];
 }
 
+/** One territory this man has personally banked a point on. From `warSelf`. */
+export interface WarSelfGround {
+  territoryId: string;
+  points: number;
+  matches: number;
+  holder: string;
+}
+
 export interface WarMapProps {
   war: WarViewData | null;
   /** The people this man swore to, so his own ground reads first. */
   mine?: string | null;
+  /**
+   * The ground he has BLED FOR — every territory carrying a ledger row of his
+   * this season. Deliberately a different question from `mine`, and the map
+   * answers both with different devices: `mine` is a FILL (whose people holds
+   * it) and this is a CUT (where you were). A man sworn to the Anglo-Saxons
+   * looking at a gold map cannot otherwise tell his own fourteen nights apart
+   * from the other four peoples' — which was the defect.
+   */
+  fought?: readonly WarSelfGround[];
   /** Highlights and selects. Used by the swearing screen. */
   onPick?: (people: string) => void;
 }
@@ -101,7 +118,7 @@ function openingView(): WarViewData {
   };
 }
 
-export default function WarMap({ war, mine = null, onPick }: WarMapProps) {
+export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps) {
   const [live, setLive] = useState<string | null>(null);
   const data = war ?? openingView();
   const unkept = !war;
@@ -109,6 +126,12 @@ export default function WarMap({ war, mine = null, onPick }: WarMapProps) {
   const byId = useMemo(
     () => new Map(data.territories.map((t) => [t.id, t])),
     [data.territories],
+  );
+
+  /** His own ground, by id, for the cut layer and the detail panel. */
+  const mineById = useMemo(
+    () => new Map((fought ?? []).map((g) => [g.territoryId, g])),
+    [fought],
   );
 
   /** The borders actually about to move. Nothing else earns a label. */
@@ -133,6 +156,26 @@ export default function WarMap({ war, mine = null, onPick }: WarMapProps) {
              role="img" aria-label={mapSummary(data)}>
           <defs>
             <clipPath id="warmap-land"><path d={LAND} /></clipPath>
+            {/* THE NIELLO CUT — `docs/DESIGN-SYSTEM.md` §1: ornament is dark
+                ON metal, a line cut INTO silver. So the ground a man has bled
+                for is not tinted, brightened or given a second colour — it is
+                hatched in near-black over whatever field its holder flies.
+                That matters for a reason beyond taste: there are already four
+                fills in play and a fifth colour would collide with one of
+                them, whereas a cut reads on all four and survives the
+                territory changing hands mid-season.
+
+                SPACING IS SET FOR THE PHONE. The viewBox is 639 wide and the
+                plate is about 370 CSS px on a 390px screen, so map units are
+                scaled by 0.58: an 11-unit pitch lands at just over 6px, which
+                is a hatch. At the 4 units that looked right on a desktop it
+                would have been 2.3px — a grey wash, and unreadable exactly
+                where the defect was reported from. */}
+            <pattern id="warmap-cut" width="11" height="11"
+                     patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="11" height="11" fill="rgba(9,7,6,0.34)" />
+              <rect width="3.4" height="11" fill="rgba(6,5,4,0.86)" />
+            </pattern>
           </defs>
 
           {/* Ireland, drawn dead: Britain does not read as Britain alone. */}
@@ -149,9 +192,19 @@ export default function WarMap({ war, mine = null, onPick }: WarMapProps) {
                       style={{ fill: FIELD[held]?.field ?? "var(--gilt)" }} />
               );
             })}
+            {/* YOUR GROUND, cut over the fills and under the borders, so a
+                hatched territory is still visibly bounded. */}
+            {DRAWN.filter((t) => mineById.has(t.id)).map((t) => (
+              <path key={`m-${t.id}`} d={t.d} className="wm-fought" fill="url(#warmap-cut)" />
+            ))}
             {/* Every border, hairlined, so two territories of one people are
                 still two territories. */}
             {DRAWN.map((t) => <path key={`e-${t.id}`} d={t.d} className="wm-border" />)}
+            {/* And a bone edge on the ground that is his, so the cut has an
+                outline rather than fading into the hairline borders. */}
+            {DRAWN.filter((t) => mineById.has(t.id)).map((t) => (
+              <path key={`me-${t.id}`} d={t.d} className="wm-fought-edge" />
+            ))}
             {/* Dal Riata: outlined, never filled. The fifth people, unbuilt. */}
             <path d={CLIP_DALRIATA.join("")} className="wm-dalriata" />
           </g>
@@ -195,7 +248,10 @@ export default function WarMap({ war, mine = null, onPick }: WarMapProps) {
                   aria-label={`${t.name}, held by the ${PEOPLE_NAME(held)}.` +
                     (w?.remaining != null && w.challenger
                       ? ` The ${PEOPLE_NAME(w.challenger)} need ${w.remaining} more points to take it.`
-                      : " Uncontested.")}
+                      : " Uncontested.") +
+                    (mineById.has(t.id)
+                      ? ` You have banked ${mineById.get(t.id)!.points} points here.`
+                      : "")}
                   onPointerEnter={() => setLive(t.id)}
                   onPointerLeave={() => setLive((c) => (c === t.id ? null : c))}
                   onFocus={() => setLive(t.id)}
@@ -206,6 +262,16 @@ export default function WarMap({ war, mine = null, onPick }: WarMapProps) {
             })}
           </g>
         </svg>
+
+        {/* THE KEY TO THE CUT. A mark nobody can decode is decoration, and
+            this one is on the plate rather than in the side column because on
+            a phone the column is a screen and a half below the map. */}
+        {mineById.size > 0 && (
+          <p className="wm-key">
+            <span className="wm-key-mark" aria-hidden="true" />
+            Ground you have fought over this season — {mineById.size} of {DRAWN.length}
+          </p>
+        )}
 
         {unkept && (
           <p className="wm-unkept">
@@ -321,6 +387,25 @@ export default function WarMap({ war, mine = null, onPick }: WarMapProps) {
               </b>
               {liveW && liveW.epoch > 0 ? ` — changed hands ${liveW.epoch} time${liveW.epoch === 1 ? "" : "s"} this season.` : "."}
             </p>
+            {/* WHAT HE DID HERE. The ledger already knows; nothing asked it. */}
+            {mineById.has(liveT.id) && (
+              <p className="wm-yours">
+                <span className="wm-key-mark" aria-hidden="true" />
+                You have banked <b>{mineById.get(liveT.id)!.points}</b> points here
+                over {mineById.get(liveT.id)!.matches} match
+                {mineById.get(liveT.id)!.matches === 1 ? "" : "es"}.
+              </p>
+            )}
+            {/* AND WHAT IT WOULD TAKE. The number was already computed and
+                already spoken to a screen reader on the hit layer; it has
+                never once been shown. */}
+            {liveW?.remaining != null && liveW.challenger && (
+              <p className="wm-needs">
+                {liveW.remaining === 0
+                  ? `It falls on the next point the ${PEOPLE_NAME(liveW.challenger)} bank.`
+                  : `The ${PEOPLE_NAME(liveW.challenger)} need ${liveW.remaining} more points to take it.`}
+              </p>
+            )}
           </section>
         )}
 
@@ -387,6 +472,17 @@ const CSS = `
 .wm-field[data-mine="yes"] { opacity: 0.95; }
 .wm-field[data-live="yes"] { opacity: 1; }
 .wm-border { fill: none; stroke: rgba(12,10,8,0.55); stroke-width: 1.4; }
+
+/* YOUR GROUND. The cut itself is the <pattern> in defs; these two rules only
+   say how hard it bites and where its edge is. Deliberately NOT done with
+   opacity on the field above, which is what data-mine uses: 0.78 against 0.95
+   is a difference no phone screenshot has ever shown, and that pair was the
+   whole of the old answer to "which of this is mine". */
+.wm-fought { pointer-events: none; }
+.wm-fought-edge {
+  fill: none; pointer-events: none;
+  stroke: rgba(244,230,200,0.62); stroke-width: 2.2; stroke-linejoin: round;
+}
 .wm-dalriata { fill: none; stroke: rgba(230,214,180,0.34); stroke-width: 1.6; stroke-dasharray: 7 6; }
 .wm-coast { fill: none; stroke: rgba(240,224,190,0.55); stroke-width: 1.5; stroke-linejoin: round; }
 
@@ -449,5 +545,33 @@ const CSS = `
   margin: 0.5rem 0.25rem 0.15rem; text-align: center; font-size: 0.72rem;
   color: rgba(238,226,204,0.55);
 }
+
+/* THE KEY. Compartmented — a nicked field with cut ends, never a rule running
+   the plate's full width. See docs/DESIGN-SYSTEM.md section 1. */
+.wm-key {
+  display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+  margin: 0.5rem auto 0.15rem; width: fit-content; max-width: 100%;
+  padding: 0.3rem 0.7rem; border-radius: 0.25rem;
+  font-size: 0.7rem; letter-spacing: 0.04em; color: rgba(238,226,204,0.72);
+  background: rgba(12,10,8,0.55);
+  border: 1px solid rgba(217,164,65,0.22);
+}
+/* The same cut, at swatch size, so the key is the mark and not a description
+   of it. 3px pitch here against 11 map units there because this square is
+   14 CSS px and the map is 370. */
+.wm-key-mark {
+  width: 0.9rem; height: 0.9rem; border-radius: 0.15rem; flex: none;
+  border: 1px solid rgba(244,230,200,0.62);
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(6,5,4,0.92) 0 2px, rgba(217,164,65,0.85) 2px 5px);
+}
+.wm-yours, .wm-needs {
+  margin: 0.35rem 0 0; font-size: 0.76rem; line-height: 1.45;
+  color: rgba(238,226,204,0.8);
+}
+.wm-yours { display: flex; align-items: center; gap: 0.4rem; }
+.wm-yours b { color: var(--gilt-lit); }
+.wm-needs { color: var(--gilt); }
 .wm-credit { margin: 0; font-size: 0.66rem; color: rgba(238,226,204,0.38); }
 `;

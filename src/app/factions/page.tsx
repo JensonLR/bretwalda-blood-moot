@@ -59,12 +59,17 @@ const NOTE: Record<PeopleId, { ground: string; seat: string; note: string }> = {
   },
 };
 
+/** Mirrors `WarSelfView` in `src/db/war.ts`. Everything here is off the ledger. */
 interface SelfView {
   allegiance: string | null;
   points: number;
   matches: number;
   bretwaldaSeasons: number[];
   locked: boolean;
+  ground: { territoryId: string; points: number; matches: number; holder: string }[];
+  rank: number | null;
+  ofPeople: number;
+  last: { territoryId: string; points: number; at: number } | null;
 }
 
 /**
@@ -181,7 +186,8 @@ export default function WarPage() {
 
           {mode === "loading"
             ? <p className="war-loading">Reading the war rolls…</p>
-            : <WarMap war={war} mine={sworn ?? choice} onPick={(p) => { if (!locked) setChoice(p as PeopleId); }} />}
+            : <WarMap war={war} mine={sworn ?? choice} fought={self?.ground}
+                      onPick={(p) => { if (!locked) setChoice(p as PeopleId); }} />}
 
           {/* ------------------------------------------- how the war works */}
           {/* The owner's words: "no clarity about how it works either". Every
