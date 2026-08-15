@@ -410,10 +410,12 @@ const nfails = [];
       return prof[prof.length - 1][1];
     };
     const probe = neckProbe(cls, seed, NECK_YS);
+    let rows = 0;
     for (let i = 0; i < NECK_YS.length; i++) {
       const y = NECK_YS[i];
       const mesh = meshAt(y);
       if (!mesh) continue;
+      rows++;
       const ruler = probe.back[i];
       const err = (ruler - mesh) * 1000;
       const oerr = (probe.neckHW - mesh) * 1000;
@@ -423,6 +425,15 @@ const nfails = [];
         `${(mesh * 1000).toFixed(1).padStart(8)}  ${(ruler * 1000).toFixed(1).padStart(9)}  ` +
         `${err.toFixed(1).padStart(8)}  ${(probe.neckHW * 1000).toFixed(1).padStart(11)}  ` +
         `${oerr.toFixed(1).padStart(8)}${bad ? "   <-- FAIL" : ""}`);
+    }
+    if (!rows) {
+      // A CLASS THAT PRINTED NOTHING IS A FAILURE, NOT A SKIP. Every row here
+      // is guarded by `if (!mesh) continue`, so a neck whose rings stop
+      // covering `NECK_YS` — a stature change, a re-station, a scope that stops
+      // finding the rear vertices — would empty this section and leave it
+      // green. That is the shape of failure this whole file is about.
+      nfails.push(`${cls}: the ruler was checked at no height at all — no rig:neck vertices near az 180 over ${(NECK_YS[0] * 1000).toFixed(0)}-${(NECK_YS[NECK_YS.length - 1] * 1000).toFixed(0)} mm`);
+      console.log(`[wear] ${cls.padEnd(11)}     —         —          —         —            —   NOTHING MEASURED  FAIL`);
     }
   }
 }
