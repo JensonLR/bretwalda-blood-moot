@@ -23,7 +23,14 @@ import { fileURLToPath } from "url";
 import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = resolve(ROOT, "art/ui");
+// `--out DIR` for a review pass that should not land in the gallery, and
+// `--scale N` because the defect this tool exists to catch is a border a
+// pixel and a half wide on a phone, and deviceScaleFactor 1 is exactly the
+// resolution at which "is that a river or a ruler" stops being answerable.
+const argv = process.argv.slice(2);
+const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
+const OUT = resolve(arg("out", resolve(ROOT, "art/ui")));
+const DPR = Number(arg("scale", "1"));
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
 const BASE = `http://localhost:${PORT}`;
 const DB = process.env.WAR_TEST_DB || "";
@@ -71,7 +78,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     const ctx = await browser.newContext({
       viewport: { width: vp.width, height: vp.height },
-      deviceScaleFactor: 1, isMobile: vp.touch, hasTouch: vp.touch,
+      deviceScaleFactor: DPR, isMobile: vp.touch, hasTouch: vp.touch,
       reducedMotion: "reduce",
     });
     const page = await ctx.newPage();
@@ -103,6 +110,25 @@ async function main() {
     // was missing. So the shell is scrolled by hand and shot twice.
     await page.screenshot({ path: resolve(OUT, `${name}-top.png`) });
     console.log(`[warshot] ${name}-top`);
+
+    // AND THREE TIMES, NOT TWICE. Britain is 1.56 times as tall as it is wide,
+    // so on a 390-wide phone the plate is taller than the viewport: the -top
+    // frame ends around the Dee and the -foot frame is well past the map. Every
+    // border south of Chester — the Thames, the Danelaw line, the Tamar, Kent —
+    // was outside both, which is the half of the map the defect was reported
+    // from. This frame puts the plate's bottom edge on the viewport's.
+    const mapped = await page.evaluate(() => {
+      const shell = document.querySelector(".shell");
+      const plate = document.querySelector(".warmap-plate");
+      if (!shell || !plate) return 0;
+      const overshoot = plate.getBoundingClientRect().bottom - shell.clientHeight;
+      shell.scrollTop = Math.max(0, shell.scrollTop + overshoot + 8);
+      return shell.scrollTop;
+    });
+    await sleep(400);
+    await page.screenshot({ path: resolve(OUT, `${name}-map.png`) });
+    console.log(`[warshot] ${name}-map (scrolled ${mapped}px, plate bottom in frame)`);
+
     const scrolled = await page.evaluate(() => {
       const shell = document.querySelector(".shell");
       if (!shell) return 0;
