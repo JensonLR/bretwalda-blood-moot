@@ -4037,7 +4037,7 @@ SECTION   MAIN (fa8353a)        THIS BRANCH        VERDICT
 1 LAYERS  FAIL 11 combos        pass               GREEN
           10.7-14.5 mm
 2 FLESH   FAIL 4 combos         FAIL 4 combos      MAGNITUDE ONLY, COUNT UNCHANGED
-          3.51-6.14%            2.43-3.89%
+          3.51-6.14%            2.10-3.84%
 3 WRAP    FAIL 3 combos         pass               GREEN
 4 CREST   FAIL 4 combos         pass               GREEN
 5 PELT    FAIL 13 combos        FAIL 4 combos      THE FOUR ARE MAIN'S OWN
@@ -4152,11 +4152,13 @@ degrees.
 
 ### Still red, and what each one is
 
-**Section 2 FLESH, 4 combinations, 2.43 / 3.75 / 3.89 / 2.47 against a 1.0% bar.**
-Main is 3.51 / 5.76 / 6.14 / 5.02. The ear is dealt with. What is left is two
-objects: `c99d75` (280 tri) at **az 164-180, y 24-35 mm** — neck skin at the
-nape, at throat height, with the curtain's own sheet inboard of it — and
-`1a1310` (404 tri) at az 33, y 153. The first is the tail of the same fault
+**Section 2 FLESH, 4 combinations, 2.43 / 3.75 / 3.84 / 2.10 against a 1.0% bar.**
+Main is 3.51 / 5.76 / 6.14 / 5.02. The ear is dealt with, but it is still the
+worst PATCH on two rungs: `c99d75` (280 tri), the helix, at 11.9% and 11.0% —
+down from 46.8% and 47.1%. `1a1310` (404 tri) at 11.6% is the worst patch on the
+other two. The DEEPEST point on all four has moved off the ear entirely and onto
+the neck: 5.5 to 6.9 mm at **az 175-206, y 24-49 mm**, with the curtain's own
+sheet inboard of the skin there. That is the tail of the same fault
 section 3 measures: the curtain rides `hullAt` at the rear and the hull is
 clamped to `S.neckHW`, which is a neck and not a nape, so at y 24-38 the sheet
 passes inside the skin. Section 3 still reports 63.5-76.5 degrees of bare arc
