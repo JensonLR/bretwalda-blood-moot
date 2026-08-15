@@ -656,9 +656,9 @@ export const TERRITORIES = Object.freeze([
       [54.55, -5.40], // the Irish Sea, south-west of the Mull of Galloway
       ...SOLWAY_CHEVIOT,
       ...LENNOX.slice(1),
-      [56.28, -4.88], // and south along Argyll's edge
-      [55.97, -5.06],
-      [55.70, -5.30],
+      [56.28, -4.88], // and south along Argyll's edge, a hair outside Dal Riata
+      [55.97, -5.06], // so Cowal is Strathclyde's and Knapdale is not
+      [55.61, -5.46],
       [55.30, -5.45], // the Kilbrannan Sound, Arran inside and Kintyre out
       [54.90, -5.45],
     ]],
