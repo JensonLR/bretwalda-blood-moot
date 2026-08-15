@@ -716,13 +716,55 @@ function sectionFlesh(rows) {
 // radius the flesh sits at across that arc, because degrees alone do not say
 // how much neck is showing: 150 degrees on a 30 mm throat and on a 90 mm one
 // are different amounts of sloppiness.
-const WRAP_DEG = 90;
+/**
+ * 2.0 DEGREES, AND THE BAR IT REPLACES WAS 90 — which is why round five's gate
+ * printed "0 of 3 combinations with a wrapped throat are red" on the same table
+ * that printed 69.5, 63.5 and 76.5 degrees of bare arc. An adversary then built
+ * the app, shot the render and found bare skin from the Sutton Hoo's rim to the
+ * hauberk collar on those exact three classes: a 4-5 px flesh stripe at play
+ * scale, sampled at (148,88,55), (150,94,60), (144,76,40) — complexion, not mail.
+ *
+ * 90 DEGREES WAS NEVER A DESCRIPTION OF THE DEFECT. The owner's words are "there's
+ * a full neck mesh on the front with a clear back? That's really sloppy", and a
+ * quarter-turn of naked nape is not the thing that sentence complains about — it
+ * is a number that let a partial fix pass. A nape under a wrapped throat is bare
+ * or it is not; the only question a bar has to answer here is how much bare arc
+ * is TESSELLATION rather than nape.
+ *
+ * MEASURED, on this tree, at every wrapped height of every combination:
+ *
+ *   huscarl / suttonhoo    137 wrapped heights, bare arc 0.0 deg at ALL 137
+ *   berserker / hood         1 wrapped height,  bare arc 0.0 deg
+ *   warden / suttonhoo     137 wrapped heights, 98 at 0.0, then 0.5 x14,
+ *                          1.5, 4.5, 7.5 ... 25.5, then 44.5 ... 69.5
+ *   berserker / suttonhoo  147 wrapped heights, 105 at 0.0, then 0.5 x19,
+ *                          2.5 ... 24.5, then 44.5 ... 63.5
+ *   runekeeper / suttonhoo 131 wrapped heights,  95 at 0.0, then 0.5 x14,
+ *                          16.5 ... 23.5, then 42.5 ... 76.5
+ *
+ * So a nape that IS covered reads exactly zero — 137 heights of it, on the one
+ * combination in the shop whose coif closes all the way round. There is no
+ * tessellation floor to allow for at all, and the bar could defensibly be 0.5.
+ *
+ * It is 2.0 because the head of this file records the one artefact that can put
+ * a sliver of skin outside a garment that encloses it: a tessellated ring's
+ * chords dip up to 1.19 mm inside the analytic curve they were sampled from. At
+ * the 78-88 mm radii this section reports, 1.19 mm of chord dip subtends 0.82
+ * degrees, so a seam where two such dips meet can show 1.6 degrees of skin that
+ * is not a bare nape. 2.0 covers that and stops.
+ *
+ * The gap this bar sits in is therefore 2.0 to 42.5 — twenty times wider, in
+ * ratio, than the gap section 4's bar sits in — and the reading it has to catch
+ * is thirty times over it. Nothing here turns on the exact figure; what turned
+ * on the exact figure was 90.
+ */
+const WRAP_DEG = 2.0;
 const THROAT_DEG = 100;
 const WRAP_STEP = 0.5;
 function sectionWrap(rows) {
   console.log("");
   console.log("[clash] 3. WRAP — a bare nape under a covered throat.");
-  console.log(`[clash]    ${WRAP_STEP} deg sweeps at every mm of height; a case needs ${THROAT_DEG} deg of throat wrapped, a fault ${WRAP_DEG} deg bare behind.`);
+  console.log(`[clash]    ${WRAP_STEP} deg sweeps at every mm of height; a case needs ${THROAT_DEG} deg of throat wrapped, a fault MORE THAN ${WRAP_DEG.toFixed(1)} deg bare behind.`);
   console.log("");
   console.log("[clash] class       helm         bare arc     at radius   height   centred      throat cover");
   console.log("[clash] ---------------------------------------------------------------------------------------");
@@ -774,7 +816,10 @@ function sectionWrap(rows) {
         continue;
       }
       cases++;
-      const bad = best.deg >= WRAP_DEG;
+      // STRICTLY GREATER: 2.0 degrees is the tessellation allowance argued over
+      // `WRAP_DEG` and is allowed; 2.5 is four consecutive samples of nape and
+      // is not.
+      const bad = best.deg > WRAP_DEG;
       if (bad) fails++;
       console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${best.deg.toFixed(1).padStart(6)} deg   ${mm(best.r).padStart(6)} mm   y ${String(best.ymm).padStart(3)}   az ${best.az.toFixed(0).padStart(3)}deg      ${best.fwd.toFixed(1)} deg${bad ? "   FAIL" : ""}`);
       rows.push({ section: 3, cls, helm, fail: bad, deg: best.deg, r: best.r });
