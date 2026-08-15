@@ -4887,6 +4887,18 @@ Section 2 DID see the ear and always named it: `917050`, 224 triangles, 88-94%
 outboard at az 113-115. 4.23/4.42/4.09 -> 1.34/1.74/0.60 on
 warden/berserker/runekeeper, and the runekeeper is now green.
 
+The frames are not committed — `art/probe-*/` is ignored for the reason the
+`.gitignore` note gives — so here is the command that draws them, from a tree
+either side of the change:
+
+```
+  npm run shots -- facecard --cls warden --helm helm_suttonhoo --turn -90       --out <somewhere>
+```
+
+Before: a brown auricle on the outside of the silver bowl, with two coil ends
+below it. After: metal. The back view, `--turn 180`, is the nape: before there
+is a wedge of skin under the gilt rim, after the mail runs into the hauberk.
+
 ### The coils were being deleted, and only a four-class counter could see it
 
 `hairCeil`'s nape branch held a constant 1.95 rad against a plate that reaches
