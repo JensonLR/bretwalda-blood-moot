@@ -675,11 +675,53 @@ export async function swear(id: unknown, secret: unknown, people: unknown): Prom
   }
 }
 
+/**
+ * One piece of ground a man has personally bled for, and who has it now.
+ *
+ * `territoryId` and `points` are a GROUP BY over `war_ledger` — the rows are
+ * already there and already indexed on (season_id, profile_id). `holder` is
+ * joined off the live `territories` row, because those are two different
+ * questions and a screen that answered only the first would be a list of place
+ * names: "you fought at Mercia" is worth nothing next to "you fought at Mercia
+ * and the Norse have it".
+ */
+export interface WarSelfGround {
+  territoryId: string;
+  points: number;
+  matches: number;
+  /** Who holds it NOW. Not who held it when he fought — nothing records that. */
+  holder: string;
+}
+
+export interface WarSelfView {
+  /** His own name, for a screen whose whole job is telling him who he is. */
+  name: string;
+  allegiance: string | null;
+  points: number;
+  matches: number;
+  bretwaldaSeasons: number[];
+  locked: boolean;
+  /** Every territory he has banked a point on this season, most-bled-for first. */
+  ground: WarSelfGround[];
+  /**
+   * Where he stands among his OWN people this season, 1-based, and how many of
+   * them have banked anything at all. Null before he has banked his first
+   * point — a rank of "1 of 0" is not a fact about anybody.
+   */
+  rank: number | null;
+  ofPeople: number;
+  /**
+   * His most recent banked match: what it was worth, which ground took it, and
+   * how long ago. `agoMinutes` is computed HERE and not on the client, for the
+   * same reason `WarView.agoMinutes` is — a handset with a wrong date must not
+   * be told a different story to the man beside it, and a component that reads
+   * the clock while rendering draws two different trees.
+   */
+  last: { territoryId: string; points: number; at: number; agoMinutes: number } | null;
+}
+
 /** A man's own standing in the war, for his own screen. */
-export async function warSelf(id: unknown, secret: unknown): Promise<{
-  allegiance: string | null; points: number; matches: number;
-  bretwaldaSeasons: number[]; locked: boolean;
-} | null> {
+export async function warSelf(id: unknown, secret: unknown): Promise<WarSelfView | null> {
   const profileId = Number(id);
   if (!Number.isInteger(profileId) || typeof secret !== "string") return null;
   return withDb(async (db) => {
@@ -695,12 +737,85 @@ export async function warSelf(id: unknown, secret: unknown): Promise<{
       eq(warLedger.seasonId, season.id), eq(warLedger.profileId, profileId),
     ));
     const points = Number(mine[0]?.points) || 0;
+
+    // ---- the ground he has bled for -------------------------------------
+    // Straight down `war_ledger_season_profile_idx`, then one join per row to
+    // the sixteen-row territory table for the current holder.
+    const ground = await db.select({
+      territoryId: warLedger.territoryId,
+      points: sql<number>`sum(${warLedger.points})::int`,
+      matches: sql<number>`count(distinct ${warLedger.matchKey})::int`,
+      holder: territories.holder,
+    }).from(warLedger)
+      .innerJoin(territories, and(
+        eq(territories.seasonId, warLedger.seasonId),
+        eq(territories.territoryId, warLedger.territoryId),
+      ))
+      .where(and(eq(warLedger.seasonId, season.id), eq(warLedger.profileId, profileId)))
+      .groupBy(warLedger.territoryId, territories.holder)
+      .orderBy(desc(sql`sum(${warLedger.points})`), asc(warLedger.territoryId));
+
+    // ---- where he stands among his own people ----------------------------
+    // THE ORDER IS THE CROWN'S ORDER, and that is the whole point of writing
+    // it out rather than just sorting by points. `endSeason` in `war.mjs`
+    // breaks ties by points, then by the man's FIRST banked point, then by his
+    // profile id AS A STRING. A screen that told a man he was second while the
+    // crown would have gone to him is a screen that lies about the only thing
+    // this season is for, so the three terms are reproduced here exactly —
+    // including `::text` on the id, which is `String(a.profileId).localeCompare`
+    // and is NOT the same order as a numeric sort once there are ten men.
+    let rank: number | null = null;
+    let ofPeople = 0;
+    if (row.allegiance) {
+      const table = await db.select({
+        profileId: warLedger.profileId,
+      }).from(warLedger)
+        .where(and(eq(warLedger.seasonId, season.id), eq(warLedger.people, row.allegiance)))
+        .groupBy(warLedger.profileId)
+        .having(sql`sum(${warLedger.points}) > 0`)
+        .orderBy(
+          desc(sql`sum(${warLedger.points})`),
+          asc(sql`min(${warLedger.createdAt})`),
+          asc(sql`${warLedger.profileId}::text`),
+        );
+      ofPeople = table.length;
+      const seat = table.findIndex((r) => r.profileId === profileId);
+      if (seat >= 0) rank = seat + 1;
+    }
+
+    // ---- his last match ---------------------------------------------------
+    const recent = await db.select({
+      territoryId: warLedger.territoryId,
+      points: warLedger.points,
+      createdAt: warLedger.createdAt,
+    }).from(warLedger)
+      .where(and(eq(warLedger.seasonId, season.id), eq(warLedger.profileId, profileId)))
+      .orderBy(desc(warLedger.createdAt), desc(warLedger.id)).limit(1);
+    const lastRow = recent[0];
+
     return {
+      name: row.name || "",
       allegiance: row.allegiance,
       points,
       matches: Number(mine[0]?.matches) || 0,
       bretwaldaSeasons: Array.isArray(row.bretwaldaSeasons) ? row.bretwaldaSeasons : [],
       locked: points > 0,
+      ground: ground.map((g) => ({
+        territoryId: g.territoryId,
+        points: Number(g.points) || 0,
+        matches: Number(g.matches) || 0,
+        holder: g.holder,
+      })),
+      rank,
+      ofPeople,
+      last: lastRow
+        ? {
+            territoryId: lastRow.territoryId,
+            points: lastRow.points,
+            at: lastRow.createdAt.getTime(),
+            agoMinutes: Math.max(0, Math.round((Date.now() - lastRow.createdAt.getTime()) / 60_000)),
+          }
+        : null,
     };
   }, null);
 }

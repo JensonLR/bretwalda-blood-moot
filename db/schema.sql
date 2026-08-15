@@ -96,4 +96,5 @@ CREATE UNIQUE INDEX "territories_season_ground_idx" ON "territories" USING btree
 CREATE INDEX "war_flips_season_idx" ON "war_flips" USING btree ("season_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "war_ledger_match_player_idx" ON "war_ledger" USING btree ("match_key","player_id");--> statement-breakpoint
 CREATE INDEX "war_ledger_season_profile_idx" ON "war_ledger" USING btree ("season_id","profile_id");--> statement-breakpoint
-CREATE INDEX "war_ledger_season_ground_idx" ON "war_ledger" USING btree ("season_id","territory_id");
+CREATE INDEX "war_ledger_season_ground_idx" ON "war_ledger" USING btree ("season_id","territory_id");--> statement-breakpoint
+CREATE INDEX "war_ledger_season_people_idx" ON "war_ledger" USING btree ("season_id","people","points");
