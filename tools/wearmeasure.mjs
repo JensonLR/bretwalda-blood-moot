@@ -318,6 +318,120 @@ console.log(`[wear] ${gfails.length ? "FAIL" : "PASS"}: ` +
   `${nG - gfails.length}/${nG} helmets with hanging plates keep them on the head`);
 
 // ============================================================
+// 3b. THE RULER'S OWN NECK — is section 3 measuring the man in the frame?
+// ============================================================
+//
+// INSTANCE SEVENTEEN, AND THIS SECTION EXISTS SO THERE IS NO EIGHTEEN OF THE
+// SAME SHAPE.
+//
+// Section 3 above says how much daylight there is between a hanging plate and
+// the flesh. For the nape guard — the biggest sheet of metal on four of the ten
+// rungs — the flesh under it is NECK, and the neck `helmFitProbe` handed the
+// gate was not the neck on the man. It was `rn = S.neckHW`: an infinite round
+// column of the skeleton's half-WIDTH, centred on the axis, on a neck that is
+// elliptical, tapered and set back in z by up to 27.5 mm. The plate solver
+// `hullAt` made the identical slip from the identical constant, so the thing
+// building the plate and the thing judging the plate were wrong together and
+// agreed with each other. Section 3 printed 12.0 mm of daylight under a rim
+// that is INSIDE the skin, and passed.
+//
+// So this compares the ruler's neck with the NECK THAT GETS DRAWN — the
+// `rig:neck` shell off a real `buildCharacter`, in the head pivot's frame, at
+// the heights `helmclash` section 3 puts the bare arc at. Nothing here is
+// authored: one side is `neckProbe`, the other is vertices.
+//
+// The bar is 2 mm and it is a tessellation allowance, not a tolerance: the neck
+// is swept at `lod.limb` columns, so a vertex ring is a polygon inscribed in the
+// section and reads a fraction of a millimetre inside it. Signed, and only the
+// NEGATIVE side is a failure — a ruler that puts the flesh further out than it
+// is errs toward failing a plate, which is the safe direction; one that puts it
+// further in passes plates the skin stands through, which is this defect. The
+// `old neckHW` column is the constant this replaced, carried so the size of the
+// error is printed rather than asserted in a comment.
+const NECK_YS = [0.044, 0.048, 0.052, 0.056, 0.060, 0.064, 0.072];
+const NECK_TOL = 2.0;
+console.log("");
+console.log("[wear] 3b. THE RULER'S OWN NECK — what section 3 measures the nape guard against.");
+console.log("[wear]    `neckProbe` against the `rig:neck` vertices of a built character, at az 180.");
+console.log("");
+console.log("[wear] class        y mm   mesh mm   ruler mm    err mm   old neckHW   its err");
+console.log("[wear] ---------------------------------------------------------------------------");
+const nfails = [];
+{
+  const { neckProbe } = await import(pathToFileURL(built).href);
+  for (const cls of CLASSES) {
+    const seed = seeds[0];
+    const g = buildCharacter(cls, { ...defaultAppearance(cls), helm: "suttonhoo" },
+      0x8a6b3f, undefined, "high", seed).group;
+    g.updateMatrixWorld(true);
+    let pivot = null, neck = null;
+    g.traverse((o) => {
+      if (o.name === "rig:headPivot") pivot = o;
+      if (o.name === "rig:neck") neck = o;
+    });
+    if (!pivot || !neck) {
+      // NOT A PASS. A rig that has stopped naming its neck is exactly how six
+      // rounds measured a head with no neck in it.
+      nfails.push(`${cls}: no rig:neck under rig:headPivot — nothing to check the ruler against`);
+      console.log(`[wear] ${cls.padEnd(11)}     —         —          —         —            —   NO rig:neck  FAIL`);
+      continue;
+    }
+    const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
+    const pts = [];
+    neck.traverse((o) => {
+      if (!o.isMesh || !o.geometry?.attributes?.position) return;
+      const P = o.geometry.attributes.position;
+      const m = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+      const v = new THREE.Vector3();
+      for (let i = 0; i < P.count; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(m);
+        const az = Math.atan2(v.x, v.z) * 180 / Math.PI;
+        if (Math.abs(Math.abs(az) - 180) > 8) continue;
+        pts.push([v.y, Math.hypot(v.x, v.z)]);
+      }
+    });
+    // The rear profile as the mesh actually has it: one radius per vertex RING,
+    // read at the ring's own height and interpolated between rings. Taking the
+    // nearest vertex within a window instead only prints the two or three
+    // heights a ring happens to land on, and the heights this defect lives at
+    // are between rings.
+    const rings = new Map();
+    for (const [py, pr] of pts) {
+      const k = Math.round(py * 1e5);
+      if (!rings.has(k) || rings.get(k) < pr) rings.set(k, pr);
+    }
+    const prof = [...rings.entries()].map(([k, r]) => [k / 1e5, r]).sort((a, b) => a[0] - b[0]);
+    const meshAt = (y) => {
+      if (!prof.length || y < prof[0][0] || y > prof[prof.length - 1][0]) return 0;
+      for (let i = 0; i < prof.length - 1; i++) {
+        const [ya, ra] = prof[i], [yb, rb] = prof[i + 1];
+        if (y >= ya && y <= yb) return yb === ya ? ra : ra + (rb - ra) * ((y - ya) / (yb - ya));
+      }
+      return prof[prof.length - 1][1];
+    };
+    const probe = neckProbe(cls, seed, NECK_YS);
+    for (let i = 0; i < NECK_YS.length; i++) {
+      const y = NECK_YS[i];
+      const mesh = meshAt(y);
+      if (!mesh) continue;
+      const ruler = probe.back[i];
+      const err = (ruler - mesh) * 1000;
+      const oerr = (probe.neckHW - mesh) * 1000;
+      const bad = err < -NECK_TOL;
+      if (bad) nfails.push(`${cls} y ${(y * 1000).toFixed(0)}: the ruler's neck is ${(-err).toFixed(1)} mm inside the drawn one`);
+      console.log(`[wear] ${cls.padEnd(11)} ${(y * 1000).toFixed(0).padStart(5)}  ` +
+        `${(mesh * 1000).toFixed(1).padStart(8)}  ${(ruler * 1000).toFixed(1).padStart(9)}  ` +
+        `${err.toFixed(1).padStart(8)}  ${(probe.neckHW * 1000).toFixed(1).padStart(11)}  ` +
+        `${oerr.toFixed(1).padStart(8)}${bad ? "   <-- FAIL" : ""}`);
+    }
+  }
+}
+console.log("");
+console.log(`[wear] bar: the ruler's neck may not sit more than ${NECK_TOL.toFixed(1)} mm INSIDE the drawn one.`);
+for (const f of nfails) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${nfails.length ? "FAIL" : "PASS"}: the ruler section 3 uses is the neck on the man`);
+
+// ============================================================
 // 4. HAIR UNDER WHAT IS WORN OVER IT — the head stack, measured
 // ============================================================
 //
@@ -1483,4 +1597,4 @@ const SLOT_MISS_MM = 22;
   }
 }
 
-process.exit(fails.length + gfails.length + hfails.length + bfails.length + handfails.length + dfails.length + kfails.length + cfails.length + (globalThis.__openFails ?? 0) ? 1 : 0);
+process.exit(fails.length + gfails.length + nfails.length + hfails.length + bfails.length + handfails.length + dfails.length + kfails.length + cfails.length + (globalThis.__openFails ?? 0) ? 1 : 0);

@@ -81,6 +81,8 @@ art/fit/
 # transpile cache for tools/hoodfall.mjs
 .hoodfall/
 .helmclash/
+# transpile cache for tools/rungcensus.mjs
+.rungcensus/
 
 # Agent probe output. Adversaries shoot hundreds of frames to settle a question
 # by looking rather than by reading; the verdict belongs in OPEN-DEFECTS, the

@@ -4555,6 +4555,149 @@ export interface HelmFit {
   shells: ShellFit[];
 }
 
+// ============================================================
+// THE NECK, AT MODULE SCOPE — one table, every reader
+// ============================================================
+//
+// These three were `const`s inside `buildCharacter`, hoisted there in round six
+// so the deep nape guard and the ventail could stop keeping private copies of
+// where the neck is. They are up here now for the same reason one storey
+// higher: `helmFitProbe` builds its OWN skeleton, cannot see into
+// `buildCharacter`'s closure, and therefore carried a THIRD copy — an infinite
+// round column of `S.neckHW`, centred on the axis. That copy is what the ruler
+// judged the nape guard against.
+//
+// Measured on the warden, seed 13, at the height section 3 of `helmclash` puts
+// the bare arc at, in mm from the head's axis:
+//
+//     the neck's rearmost skin, off these stations   101.4
+//     `S.neckHW`, what the probe's own neck used      78.1
+//
+// So `wearmeasure` section 3 reported 12.0 mm of daylight under a plate whose
+// rim is 0.3 to 1.5 mm INSIDE the real skin. The 12 mm was mostly neck.
+//
+// Nothing about the shape moves in this hoist: `neckStations` returns the same
+// seven stations with the same arguments, and `buildCharacter` now calls it
+// instead of writing them out. The argument for each of them is in the block
+// that used to hold them.
+
+/**
+ * The neck's seven stations, in the BODY's frame.
+ *
+ * Elliptical rather than round, tapered rather than extruded, set back in z so
+ * the jaw hangs over it, and flared hard at the base into the trapezius. The
+ * two stations above the mandible's lower border tuck INSIDE the jaw mass they
+ * hand off to; the first station the viewer can actually see — below the menton
+ * — keeps the width it had. And the top stations reach 13 mm further BACK than
+ * the front does, because the occiput carries further back than the chin and a
+ * neck centred for the throat leaves a shelf across the nape.
+ */
+function neckStations(S: Skeleton): Station[] {
+  return [
+    { y: S.neckTop + 0.095, hw: S.neckHW * 0.70, hd: S.neckHD * 0.72 + 0.0065, z: -0.0275 },
+    { y: S.neckTop + 0.042, hw: S.neckHW * 0.82, hd: S.neckHD * 0.84 + 0.0065, z: -0.0255 },
+    { y: S.neckTop - 0.008, hw: S.neckHW * 0.93, hd: S.neckHD * 0.95 + 0.0045, z: -0.0175 },
+    { y: S.neckRoot - 0.048, hw: S.neckHW, hd: S.neckHD, z: -0.007 },
+    { y: S.neckBase + 0.070, hw: S.neckHW * 1.13, hd: S.neckHD * 1.04, z: 0 },
+    { y: S.neckBase + 0.010, hw: S.neckHW * 1.50, hd: S.neckHD * 1.16, z: 0 },
+    { y: S.neckBase - 0.055, hw: S.neckHW * 1.93, hd: S.neckHD * 1.23, z: 0 },
+  ];
+}
+
+/**
+ * The neck's own section at a height, in the BODY's frame.
+ *
+ * The strap sampler used to carry a SECOND, hand-written copy of the top of
+ * this profile as a two-point lerp, and the two disagreed the moment the
+ * stations moved: a muscle sited on 0.82 of the section where the shell is
+ * actually at 0.70 stands 3 mm outside the throat it is supposed to be inside,
+ * and what that draws is a hard tab of skin floating under the ear. One
+ * profile, read by everything that rides on it.
+ */
+function neckSectionAt(ST: Station[], y: number): Station {
+  if (y >= ST[0]!.y) return ST[0]!;
+  for (let i = 0; i < ST.length - 1; i++) {
+    const a = ST[i]!, b = ST[i + 1]!;
+    if (y > b.y) {
+      const f = (a.y - y) / (a.y - b.y);
+      return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z ?? 0, b.z ?? 0, f) };
+    }
+  }
+  return ST[ST.length - 1]!;
+}
+
+/**
+ * The neck's REARMOST skin, from the head's axis, in the HEAD PIVOT's frame.
+ *
+ * `hd` is a half-depth about a centre that is itself pushed back by `z`, so the
+ * rear surface is the SUM of the two. Reading `hd` alone — or, worse, reading
+ * `neckHW` — is the specific arithmetic slip that left both `hullAt` and
+ * `helmFitProbe`'s own neck 23 mm short at the nape.
+ */
+function neckBackFrom(S: Skeleton, ST: Station[], y: number): number {
+  const st = neckSectionAt(ST, y + S.neckTop);
+  return st.hd - (st.z ?? 0);
+}
+
+/**
+ * How far it is from the head's centre, along one direction, to the outside of
+ * the neck — or 0 if that direction never leaves through it.
+ *
+ * In the SKULL CENTRE's frame, which is the frame `skinRadii` and every ruler
+ * built on it work in: `y = 0` is the middle of the head, and the neck's own
+ * stations are `S.headY` below in the body's.
+ *
+ * The section tapers with height and the height depends on how far along the
+ * ray you have gone, so this is a fixed point rather than a closed form: guess a
+ * distance, read the section at the height that distance lands at, solve the
+ * ellipse for a new distance, repeat. Four passes, and it settles to under a
+ * tenth of a millimetre on every bearing this is asked about — checked by
+ * running it at 24 and comparing.
+ */
+/**
+ * What the RULERS think the neck is, in the head pivot's frame, so a harness can
+ * hold that against the neck the player is actually looking at.
+ *
+ * This exists because of instance seventeen and it is meant to make instance
+ * eighteen of the same shape impossible: three separate pieces of this file
+ * carried three separate opinions about where the back of the neck is, two of
+ * them were the same wrong constant, and nothing anywhere compared any of them
+ * with the mesh. `tools/wearmeasure.mjs` §3b does that comparison now.
+ *
+ *   `back[i]`  the rear skin at `ys[i]`, from the head's axis — what `hullAt`
+ *              and `helmFitProbe` both read now.
+ *   `neckHW`   the half-WIDTH both of them USED to read instead. Reported so the
+ *              harness can print the size of the old error rather than take this
+ *              file's word for it.
+ */
+export function neckProbe(cls: WarriorClass, seed: number, ys: number[]):
+  { neckHW: number; back: number[] } {
+  const step = Math.round(hash(seed, 31) * 2) - 1;
+  const B = BUILD[cls] ?? BUILD.warden;
+  const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
+  const ST = neckStations(S);
+  return { neckHW: S.neckHW, back: ys.map((y) => neckBackFrom(S, ST, y)) };
+}
+
+function neckReach(S: Skeleton, ST: Station[], dx: number, dy: number, dz: number): number {
+  // A ray with no horizontal component never leaves through the side of a
+  // column, and one climbing out of the top is not looking at a neck.
+  const h2 = dx * dx + dz * dz;
+  if (h2 < 1e-9) return 0;
+  let t = S.neckHW / Math.sqrt(h2);
+  for (let k = 0; k < 4; k++) {
+    const st = neckSectionAt(ST, t * dy + S.headY);
+    const z0 = st.z ?? 0;
+    const A = (dx * dx) / (st.hw * st.hw) + (dz * dz) / (st.hd * st.hd);
+    const B = (-2 * dz * z0) / (st.hd * st.hd);
+    const C = (z0 * z0) / (st.hd * st.hd) - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc <= 0 || A < 1e-12) return 0;
+    t = (-B + Math.sqrt(disc)) / (2 * A);
+  }
+  return t;
+}
+
 /**
  * Measure how a helmet actually sits on a head it is actually built on.
  *
@@ -4634,25 +4777,63 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
    * the wrong object; it is cheaper to give the ruler a neck than to tune metal
    * to a number that is not measuring it.
    *
-   * The neck is an infinite vertical cylinder of the skeleton's own half-width,
-   * taken only where it lies below the skull's lower third so it cannot reach up
-   * and fill in the jaw. Below the shoulder it under-reads, which errs toward
-   * failing a plate rather than passing one.
+   * AND IT USED TO BE THE WRONG NECK, which is instance seventeen of a bar
+   * aimed at the wrong object and it is the whole reason this comment is long.
+   *
+   * What was here read:
+   *
+   *     const rn = S.neckHW;   //  "an infinite vertical cylinder of the
+   *     const t = rn / cy;     //   skeleton's own half-width"
+   *
+   * `S.neckHW` is a half-WIDTH — 78.1 mm on the warden — used as a radius in
+   * every direction, on a neck that is elliptical, tapered, and set BACK in z by
+   * up to 27.5 mm. Its real rearmost skin is at 101.4 mm from the head's axis.
+   * So the ruler put the flesh 23 mm inside where it is, at the one bearing the
+   * nape guard is judged on, and reported the difference as daylight: the
+   * guard's 12.0 mm `gap` was mostly neck. The comment under it even named the
+   * direction of the error — "below the shoulder it under-reads, which errs
+   * toward failing a plate rather than passing one" — and it is the opposite
+   * that bit, because at the nape it under-reads the RADIUS, which passes a
+   * plate the flesh is standing through.
+   *
+   * It is the identical arithmetic slip as `hullAt`'s, from the identical
+   * constant, one level up: the thing that solves the plate and the thing that
+   * judges the plate were wrong in the same direction, so they agreed.
+   *
+   * The neck is now the neck: `neckStations`, the same seven the mesh is swept
+   * on, read through `neckReach`. Still taken only where it lies below the
+   * skull's lower third, so it cannot reach up and fill in the jaw — that
+   * ceiling is unchanged, and it is the one thing about this table that is still
+   * an approximation.
+   *
+   * The augmentation is computed ONCE and applied to both tables: it is a
+   * property of the skeleton, not of the head surface being augmented, so
+   * building it twice would only be slower.
    */
+  const NST = neckStations(S);
+  let neckR: Float64Array | null = null;
   const withNeck = (src: SkinRadii): SkinRadii => {
     const out: SkinRadii = { na: src.na, ne: src.ne, r: Float64Array.from(src.r) };
-    const rn = S.neckHW;
-    for (let ei = 0; ei < src.ne; ei++) {
-      const el = -Math.PI / 2 + ((ei + 0.5) / src.ne) * Math.PI;
-      const cy = Math.cos(el);
-      if (cy < 1e-3) continue;
-      const t = rn / cy;
-      if (t * Math.sin(el) > -K.R.y * 0.35) continue;
-      for (let ai = 0; ai < src.na; ai++) {
-        const k = ei * src.na + ai;
-        if (t > out.r[k]) out.r[k] = t;
+    if (!neckR || neckR.length !== src.na * src.ne) {
+      const nr = new Float64Array(src.na * src.ne);
+      const ceil = -K.R.y * 0.35;
+      for (let ei = 0; ei < src.ne; ei++) {
+        const el = -Math.PI / 2 + ((ei + 0.5) / src.ne) * Math.PI;
+        const cy = Math.cos(el), sy = Math.sin(el);
+        if (cy < 1e-3) continue;
+        for (let ai = 0; ai < src.na; ai++) {
+          const az = -Math.PI + ((ai + 0.5) / src.na) * Math.PI * 2;
+          const t = neckReach(S, NST, Math.sin(az) * cy, sy, Math.cos(az) * cy);
+          // The height the ray leaves the neck at, and the same ceiling the
+          // cylinder was held to: a bearing whose exit is up inside the mandible
+          // is describing the jaw, not the throat.
+          if (t <= 0 || t * sy > ceil) continue;
+          nr[ei * src.na + ai] = t;
+        }
       }
+      neckR = nr;
     }
+    for (let k = 0; k < out.r.length; k++) if (neckR[k] > out.r[k]) out.r[k] = neckR[k];
     return out;
   };
   const at = (o: WornShellSpec, t: number, s: number, drop: number, out: THREE.Vector3) => {
@@ -12824,36 +13005,16 @@ export function buildCharacter(
   // neck and skull junction" seen from behind. The back of each top station
   // moves back 13 mm and the front does not move at all: `z` down by half of it
   // and `hd` up by half, which is the only way to grow one side of an ellipse.
-  const NECK_STATIONS: Station[] = [
-    { y: S.neckTop + 0.095, hw: S.neckHW * 0.70, hd: S.neckHD * 0.72 + 0.0065, z: -0.0275 },
-    { y: S.neckTop + 0.042, hw: S.neckHW * 0.82, hd: S.neckHD * 0.84 + 0.0065, z: -0.0255 },
-    { y: S.neckTop - 0.008, hw: S.neckHW * 0.93, hd: S.neckHD * 0.95 + 0.0045, z: -0.0175 },
-    { y: S.neckRoot - 0.048, hw: S.neckHW, hd: S.neckHD, z: -0.007 },
-    { y: S.neckBase + 0.070, hw: S.neckHW * 1.13, hd: S.neckHD * 1.04, z: 0 },
-    { y: S.neckBase + 0.010, hw: S.neckHW * 1.50, hd: S.neckHD * 1.16, z: 0 },
-    { y: S.neckBase - 0.055, hw: S.neckHW * 1.93, hd: S.neckHD * 1.23, z: 0 },
-  ];
-  /**
-   * The neck's own section at a height, in the BODY's frame.
-   *
-   * The strap sampler used to carry a SECOND, hand-written copy of the top of
-   * this profile as a two-point lerp, and the two disagreed the moment the
-   * stations moved: a muscle sited on 0.82 of the section where the shell is
-   * actually at 0.70 stands 3 mm outside the throat it is supposed to be
-   * inside, and what that draws is a hard tab of skin floating under the ear.
-   * One profile, read by everything that rides on it.
-   */
-  const neckSection = (y: number): Station => {
-    if (y >= NECK_STATIONS[0]!.y) return NECK_STATIONS[0]!;
-    for (let i = 0; i < NECK_STATIONS.length - 1; i++) {
-      const a = NECK_STATIONS[i]!, b = NECK_STATIONS[i + 1]!;
-      if (y > b.y) {
-        const f = (a.y - y) / (a.y - b.y);
-        return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z ?? 0, b.z ?? 0, f) };
-      }
-    }
-    return NECK_STATIONS[NECK_STATIONS.length - 1]!;
-  };
+  // AND THE TABLE ITSELF NOW LIVES AT MODULE SCOPE — `neckStations` — for the
+  // reason the hoist into this block was made in the first place, one storey
+  // further up. `helmFitProbe` builds its OWN skeleton and could not reach into
+  // `buildCharacter`'s closure, so the ruler that judges the nape guard carried
+  // a hand-written neck of its own: `rn = S.neckHW`, an infinite round column of
+  // the skeleton's half-WIDTH, axis-centred. Same constant and same slip as
+  // `hullAt` had, one level up, and it is why the guard measured 12.0 mm of
+  // "daylight" over flesh that is 23 mm nearer than the ruler thought.
+  const NECK_STATIONS: Station[] = neckStations(S);
+  const neckSection = (y: number): Station => neckSectionAt(NECK_STATIONS, y);
   /**
    * The neck's REARMOST skin, from the head's axis, in the HEAD PIVOT's frame.
    *
@@ -12861,10 +13022,7 @@ export function buildCharacter(
    * the rear surface is the SUM of the two. Reading `hd` alone is the specific
    * arithmetic slip that left `hullAt` 23 mm short at the nape.
    */
-  const neckBackAt = (y: number): number => {
-    const st = neckSection(y + S.neckTop);
-    return st.hd - (st.z ?? 0);
-  };
+  const neckBackAt = (y: number): number => neckBackFrom(S, NECK_STATIONS, y);
 
   // ---- where the plates are ----
   // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
