@@ -202,6 +202,31 @@ const GAP_MM = 26;
 const FLARE_DEG = 22;
 const HEM_MM = 26;
 
+// ONE OF THE TWO IS NOW SEEN, AND IT IS SEEN AS A MASK RATHER THAN AS A HULL.
+//
+// Round eight left this section's FLARE column red and printed where: `u 1.00,
+// v 0.87`, the Sutton Hoo guard's front-bottom corner, with a ray listing at
+// az 65 showing the deep guard lapping the cheek guard lapping the mask. Metal
+// on metal, read as metal on flesh.
+//
+// `helmFitProbe` now carries the other shells of the same helmet as a MASK on
+// the ring pieces: a sample with another shell of the same helmet under it is
+// not a metal-against-flesh reading and is not one of these three numbers. The
+// share it drops is printed in the table as `on kit%` — a ruler that silently
+// stops reading is a ruler that can be made to pass by stopping more.
+//
+// Folding those shells into the HULL instead was built first and measured:
+// suttonhoo 44.7 -> 52.7, wyrm 50.0 -> 53.1, and THREE NEW RED HELMS, ridge
+// 8.9 -> 30.3, boar 11.5 -> 30.3, crowned 11.5 -> 27.8. A hull with a step in
+// it cannot be differentiated and flare is a derivative; at a cheek guard's own
+// edge the hull jumps by the guard's whole standoff and the angle reported is
+// the cliff. That is the same aliasing the paragraph below records, arriving at
+// the piece's boundary instead of at its empty bins.
+//
+// WHAT IT BOUGHT, AND WHAT IT DID NOT. suttonhoo 44.7 -> 40.1, wyrm 50.0 ->
+// 49.8, nothing else in the table moves. The column is still red and the bar is
+// still 22. The lap was a real error in the ruler and it was not the big term.
+//
 // TWO THINGS THIS RULER CANNOT SEE, stated rather than tuned around.
 //
 // It measures metal against FLESH, and in two places in the shop there is
@@ -246,6 +271,7 @@ for (const helm of helms) {
   let foldTag = "-", thruTag = "-", seatTag = "-", floatTag = "-";
   let gap = 0, flare = 0, hem = 0, nGround = 0;
   let gapTag = "-", flareTag = "-", hemTag = "-";
+  let onKit = 0, censor = 0;
   const seen = new Set();
   for (const cls of CLASSES) {
     for (const seed of seeds) {
@@ -264,6 +290,17 @@ for (const helm of helms) {
         if (sh.gapMm - a > gap) { gap = sh.gapMm - a; gapTag = sh.tag; }
         if (sh.flareDeg > flare) { flare = sh.flareDeg; flareTag = sh.tag; }
         if (sh.hemMm - a > hem) { hem = sh.hemMm - a; hemTag = sh.tag; }
+        // WHAT THE RULER DID NOT READ, carried up so the table can print it.
+        // `onKitFrac` is the share of a hanging plate's samples that had another
+        // shell of the same helmet under them — a plate on a plate, which this
+        // section does not judge and section 6 SEAM does. `censorFrac` is the
+        // share whose flare baseline was thrown out because `skinGap` was
+        // sitting on its own search cap at one end. Both are ways a ruler can be
+        // quietened, so both are on the face of the table rather than in a
+        // source comment: a reader who suspects the number is small because most
+        // of the plate stopped being measured can check it in one look.
+        if (sh.onKitFrac > onKit) onKit = sh.onKitFrac;
+        if (sh.censorFrac > censor) censor = sh.censorFrac;
       }
     }
   }
@@ -271,7 +308,7 @@ for (const helm of helms) {
   if (gap > GAP_MM) gbad.push(`${gapTag} opens ${gap.toFixed(1)} mm of daylight`);
   if (flare > FLARE_DEG) gbad.push(`${flareTag} flares ${flare.toFixed(1)} deg off the skull`);
   if (hem > HEM_MM) gbad.push(`${hemTag} hem stands ${hem.toFixed(1)} mm out`);
-  ground.push({ helm, nGround, gap, flare, hem, gapTag, flareTag, hemTag, bad: gbad });
+  ground.push({ helm, nGround, gap, flare, hem, gapTag, flareTag, hemTag, onKit, censor, bad: gbad });
   const bad = [];
   if (fold > 0) bad.push(`fold ${(fold * 100).toFixed(1)}% on ${foldTag}`);
   if (thru > THRU_MM) bad.push(`skin ${thru.toFixed(1)} mm through ${thruTag}`);
@@ -299,8 +336,8 @@ console.log("");
 console.log("[wear] 3. GROUNDED PIECES — cheek guards, flanges and nape falls.");
 console.log("[wear]    A hanging plate follows the head down. These three say whether it does.");
 console.log("");
-console.log("[wear] helm         parts   gap mm  flare deg   hem mm  worst part");
-console.log("[wear] ---------------------------------------------------------------------");
+console.log("[wear] helm         parts   gap mm  flare deg   hem mm  on kit%  censored%  worst part");
+console.log("[wear] ------------------------------------------------------------------------------------");
 const gfails = [];
 for (const g of ground) {
   if (g.bad.length) gfails.push(`${g.helm}: ${g.bad.join("; ")}`);
@@ -308,7 +345,7 @@ for (const g of ground) {
   console.log(
     `[wear] ${g.helm.padEnd(12)} ${String(g.nGround).padStart(4)}  ` +
     `${g.gap.toFixed(1).padStart(7)}  ${g.flare.toFixed(1).padStart(9)}  ` +
-    `${g.hem.toFixed(1).padStart(7)}  ${worst}${g.bad.length ? "   <-- FAIL" : ""}`);
+    `${g.hem.toFixed(1).padStart(7)}  ${(100 * g.onKit).toFixed(1).padStart(7)}  ${(100 * g.censor).toFixed(1).padStart(9)}  ${worst}${g.bad.length ? "   <-- FAIL" : ""}`);
 }
 console.log("");
 console.log(`[wear] bars: gap ${GAP_MM} mm, flare ${FLARE_DEG} deg, hem ${HEM_MM} mm`);

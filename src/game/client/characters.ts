@@ -4743,6 +4743,26 @@ export interface ShellFit {
    * hem is not hanging, it is flaring.
    */
   hemMm: number;
+  /**
+   * The share of this piece's samples that had ANOTHER SHELL of the same helmet
+   * under them, and were therefore not read as metal-against-flesh at all —
+   * see `kitMaskFrom` in `helmFitProbe`.
+   *
+   * Reported rather than hidden. A ruler that silently drops samples is a ruler
+   * that can be made to pass by dropping more of them, and this number is the
+   * first thing an adversary should check: it is 0 on every piece that hangs
+   * over bare skin, and `wearmeasure` section 3 prints it in its own column.
+   */
+  onKitFrac?: number;
+  /**
+   * The share of this piece's samples whose FLARE baseline was thrown out
+   * because `skinGap` was censored at its cap on one end or both.
+   *
+   * Reported for the same reason `onKitFrac` is: this is the other way a ruler
+   * can be quietened, and a reader who wants to argue that the number is small
+   * because most of the plate stopped being measured can check it here.
+   */
+  censorFrac?: number;
 }
 
 export interface HelmFit {
@@ -5208,8 +5228,118 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   const rHere = new THREE.Vector3();
   const rNrm = new THREE.Vector3();
   const drop = new THREE.Vector3(0, 0, 0);
+  /**
+   * THE METAL THAT IS BETWEEN — and it is the same repair `withNeck` is, one
+   * layer out.
+   *
+   * `wearmeasure` section 3 measures a hanging plate against FLESH, and on the
+   * two deep-cheek helms the plate it measures is not lying on flesh. Round
+   * eight printed the ray listing that says so, at az 65 under the Sutton Hoo
+   * guard's front-bottom corner, `u 1.00, v 0.87`, the exact corner section 3
+   * names as its worst:
+   *
+   *     y 52   70.0 plate  73.9 gilt  78.0 plate  80.0 gilt   <- the CHEEK GUARD
+   *            84.0 plate  87.7 plate                         <- the nape guard
+   *
+   * The deep guard laps the cheek guard, which laps the face mask. Against the
+   * skull's own form there is 20-odd millimetres of "daylight" under that
+   * corner and it changes fast as the corner swings forward, so the ruler reads
+   * 44.7 degrees of flare on a plate that is following the metal underneath it
+   * exactly as a plate should. The section's own `MASK_ALLOW` note already
+   * names this blind spot for the CHEEK guard — a flat 12 mm — and stops one
+   * piece short of the piece that laps it.
+   *
+   * So the hull the ring pieces are judged against carries the other shells of
+   * the same helmet, exactly as it already carries the neck: for every TAGGED
+   * shell — untagged ones are hair, beard and war paint, a different owner's
+   * problem — its INNER wall is sampled and each bearing takes the larger of
+   * the flesh and the metal. A plate lying on a cheek guard then reads as a
+   * plate lying on something, which is what it is.
+   *
+   * SAMPLED FOUR TIMES THE TABLE'S OWN PITCH, and that is not caution, it is
+   * the whole of the objection this answers. The note above `MASK_ALLOW`
+   * records the last attempt: "a 30x9 ring rasterised into a 192x96 table
+   * leaves empty bins, the gap function goes discontinuous across them, and the
+   * flare it reports is 84 deg of pure aliasing". An empty bin inside a piece's
+   * own footprint is the fault, and it is a sampling rate, not a fact about
+   * radial tables. At 4x pitch a shell that covers a bin lands at least four
+   * samples in it.
+   *
+   * AND ONLY THE RING PIECES READ THIS HULL. The `headWear` shells above keep
+   * the hull they had and `MASK_ALLOW` keeps its 12 mm, because folding a
+   * helmet's own shells into the hull those shells are judged against would let
+   * a cheek guard be certified by the mask it is drawn 6 mm outboard of.
+   */
+  const withShells = (src: SkinRadii): SkinRadii => {
+    const out: SkinRadii = { na: src.na, ne: src.ne, r: Float64Array.from(src.r) };
+    const p = new THREE.Vector3();
+    for (const o of spy) {
+      if (!o.tag) continue;
+      const NU = Math.max(4 * src.na / 8, o.nu * 4);
+      const NV = Math.max(4 * src.ne / 12, o.nv * 4);
+      for (let i = 0; i <= NU; i++) {
+        const t = i / NU;
+        const u = mix(o.u0, o.u1, t);
+        for (let j = 0; j <= NV; j++) {
+          const s = j / NV;
+          at(o, t, s, o.lift(u, s) - o.thick, p);
+          const len = p.length();
+          if (len < 1e-6) continue;
+          const az = Math.atan2(p.x, p.z);
+          const el = Math.asin(Math.min(1, Math.max(-1, p.y / len)));
+          const ai = Math.min(src.na - 1, Math.max(0, Math.floor(((az + Math.PI) / (Math.PI * 2)) * src.na)));
+          const ei = Math.min(src.ne - 1, Math.max(0, Math.floor(((el + Math.PI / 2) / Math.PI) * src.ne)));
+          const k = ei * src.na + ai;
+          if (len > out.r[k]) out.r[k] = len;
+        }
+      }
+    }
+    return out;
+  };
   const skinHull = rspy.length ? withNeck(tab) : tab;
   const formHull = rspy.length ? withNeck(formTab) : formTab;
+  /**
+   * AND IT IS A MASK, NOT A HULL, because a hull with a step in it cannot be
+   * differentiated and FLARE is a derivative.
+   *
+   * Folding the shells into the hull was built and measured first and it is
+   * wrong in the direction that matters. At a cheek guard's own EDGE the hull
+   * jumps by the guard's whole standoff, so the clearance under the ring piece
+   * steps by 15 mm across one sample and the angle it reports is the cliff:
+   * suttonhoo 44.7 -> 52.7, wyrm 50.0 -> 53.1, and THREE NEW RED HELMS —
+   * ridge 8.9 -> 30.3, boar 11.5 -> 30.3, crowned 11.5 -> 27.8. That is the
+   * same fault the note over `MASK_ALLOW` records ("the flare it reports is
+   * 84 deg of pure aliasing"), arriving at the piece's boundary instead of at
+   * its empty bins.
+   *
+   * So the shells decide WHETHER A SAMPLE IS A FLESH READING AT ALL, and
+   * nothing else. Where another shell of the same helmet stands proud of the
+   * flesh under this point, this point is not measuring a plate against a head:
+   * it is measuring a plate against a plate, which this section does not claim
+   * to judge and section 6 SEAM now does. A boolean off a radial table is
+   * robust where a derivative off one is not — a bin that is a millimetre out
+   * changes no answer here, and changes 30 degrees there.
+   */
+  const kitMaskFrom = (base: SkinRadii): Uint8Array => {
+    const aug = withShells(base);
+    const m = new Uint8Array(base.na * base.ne);
+    // 2 mm, which is under any liner in the shop and over the table's own bin
+    // noise. A shell that stands less than that off the flesh IS the flesh as
+    // far as a plate hanging over it is concerned.
+    for (let k = 0; k < m.length; k++) m[k] = aug.r[k] > base.r[k] + 0.002 ? 1 : 0;
+    return m;
+  };
+  const kitMask = rspy.length ? kitMaskFrom(formHull) : null;
+  const overKit = (p: THREE.Vector3): boolean => {
+    if (!kitMask) return false;
+    const len = p.length();
+    if (len < 1e-6) return false;
+    const az = Math.atan2(p.x, p.z);
+    const el = Math.asin(Math.min(1, Math.max(-1, p.y / len)));
+    const ai = Math.min(formHull.na - 1, Math.max(0, Math.floor(((az + Math.PI) / (Math.PI * 2)) * formHull.na)));
+    const ei = Math.min(formHull.ne - 1, Math.max(0, Math.floor(((el + Math.PI / 2) / Math.PI) * formHull.ne)));
+    return kitMask[ei * formHull.na + ai] === 1;
+  };
   for (const o of rspy) {
     const sHull = skinHull, fHull = formHull;
     const NU = Math.max(12, o.nu * 3);
@@ -5217,6 +5347,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     let gap = 0, gu = NaN, gv = NaN, flare = 0, flu = NaN, flv = NaN;
     let standoff = 0, minC = Infinity, punch = 0;
     let e0 = 0, e1 = 0, e0y = Infinity, e1y = Infinity;
+    let overKitN = 0, sampleN = 0, censorN = 0;
     drop.set(0, o.originY, 0);
     for (let i = 0; i <= NU; i++) {
       // This column's own length, for the fixed-baseline flare step below.
@@ -5239,16 +5370,45 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         const fHere = skinGap(fHull, rIn, rNrm);
         if (gHere > standoff) standoff = gHere;
         if (gHere < minC) minC = gHere;
-        if (gHere > gap) { gap = gHere; gu = t; gv = s; }
-        if (s === 0) { if (rOut.y < e0y) e0y = rOut.y; if (gHere > e0) e0 = gHere; }
-        if (s === 1) { if (rOut.y < e1y) e1y = rOut.y; if (gHere > e1) e1 = gHere; }
+        // A sample with another shell of this helmet under it is a plate on a
+        // plate — see `kitMaskFrom`. It is not a reading this section makes.
+        const onKit = overKit(rIn);
+        if (onKit) overKitN++;
+        sampleN++;
+        if (!onKit) {
+          if (gHere > gap) { gap = gHere; gu = t; gv = s; }
+          if (s === 0) { if (rOut.y < e0y) e0y = rOut.y; if (gHere > e0) e0 = gHere; }
+          if (s === 1) { if (rOut.y < e1y) e1y = rOut.y; if (gHere > e1) e1 = gHere; }
+        }
         const s3 = Math.min(1, s + fstep);
         o.inner(t, s3, rNext); rNext.sub(drop);
         rHere.copy(rIn);
         const arc = rNext.distanceTo(rHere);
-        if (arc > 1e-4) {
-          const ang = Math.atan(Math.abs(skinGap(fHull, rNext, rNrm) - fHere) / arc) * 180 / Math.PI;
-          if (ang > flare) { flare = ang; flu = t; flv = s; }
+        // BOTH ENDS OF THE BASELINE, because a difference taken across the
+        // boundary is the cliff this mask exists to keep out of the answer.
+        if (arc > 1e-4 && !onKit && !overKit(rNext)) {
+          const fNext = skinGap(fHull, rNext, rNrm);
+          // AND NEITHER END MAY BE CENSORED. `skinGap` marches inward for
+          // `cap` and RETURNS `cap` when it never finds flesh — its own note
+          // says so, and says that is the verdict, which it is for GAP: a bar
+          // of 26 mm is tripped by a reading of 75 and the plate is called
+          // unworn. It is not a verdict for FLARE. Flare is a DERIVATIVE, and
+          // differencing a censored value against a measured one reports the
+          // censoring: at the guard's front-bottom corner the ray leaves the
+          // head altogether, `skinGap` hands back 75.0 both times it is asked
+          // near there, and the angle printed is atan(|75 - something| / 12 mm)
+          // — a number about the search limit and not about the plate.
+          //
+          // That is the same fault as the one the note over `MASK_ALLOW`
+          // records in its own words: "a hole in the ruler is worse than a gap
+          // in its coverage, because the hole reports a number". A censored
+          // baseline is a hole. GAP and HEM still read it — they are levels and
+          // the censoring is their answer — and only the derivative refuses it.
+          const CENSOR = 0.075 - 1e-4;
+          if (fHere < CENSOR && fNext < CENSOR) {
+            const ang = Math.atan(Math.abs(fNext - fHere) / arc) * 180 / Math.PI;
+            if (ang > flare) { flare = ang; flu = t; flv = s; }
+          } else censorN++;
         }
       }
     }
@@ -5270,6 +5430,8 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       flareU: flu,
       flareV: flv,
       hemMm: (e0y <= e1y ? e0 : e1) * 1000,
+      onKitFrac: sampleN ? overKitN / sampleN : 0,
+      censorFrac: sampleN ? censorN / sampleN : 0,
     });
   }
   return { helm, cls, seed, shells };
