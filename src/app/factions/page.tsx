@@ -18,12 +18,26 @@
 // ============================================================
 
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
+import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
 import { readCreds } from "../profileLink";
 
 const PEOPLES = ["saxon", "norse", "briton", "pict"] as const;
 type PeopleId = (typeof PEOPLES)[number];
+
+/**
+ * The flip thresholds, READ OFF the territory table rather than written out
+ * here. `FIELD_THRESHOLD` and `SEAT_THRESHOLD` are module-private in war.mjs,
+ * so quoting them as literals would be a second copy of a rule that is already
+ * written down once — and this repository has recorded five separate defects
+ * caused by exactly that. If someone re-balances the table, this copy follows.
+ */
+const THRESHOLDS = TERRITORIES.map((t: { threshold: number }) => t.threshold) as number[];
+const FLIP_LOW = Math.min(...THRESHOLDS);
+const FLIP_HIGH = Math.max(...THRESHOLDS);
 
 /** One line each, from `docs/FACTIONS.md` §2. Not a history lesson. */
 const NOTE: Record<PeopleId, { ground: string; seat: string; note: string }> = {
@@ -139,6 +153,13 @@ export default function WarPage() {
       <div className="backdrop backdrop-hall"><div className="embers" /></div>
       <div className="shell-inner">
         <div className="wrap wrap-wide screen">
+          {/* Back first in the DOM, so a screen reader and a Tab both reach the
+              way out before the map. `btn-back` already carries `--tap`, so it
+              is thumb-sized on a phone without a second rule here. */}
+          <Link href="/" className="btn-back" data-snd="back" aria-label="Back to the hall">
+            <ArrowLeft size={16} /> BACK
+          </Link>
+
           <header className="screen-head screen-head-center">
             <span className="label-overline">Britain, c. 878</span>
             <h1>{sworn ? "The war for Britain" : "Choose your people"}</h1>
@@ -161,6 +182,38 @@ export default function WarPage() {
           {mode === "loading"
             ? <p className="war-loading">Reading the war rolls…</p>
             : <WarMap war={war} mine={sworn ?? choice} onPick={(p) => { if (!locked) setChoice(p as PeopleId); }} />}
+
+          {/* ------------------------------------------- how the war works */}
+          {/* The owner's words: "no clarity about how it works either". Every
+              number below is READ FROM `war.mjs`, not typed out here, so the
+              screen cannot drift away from the rules it describes. */}
+          <section className="war-how">
+            <div className="section-title">How the war is won</div>
+            <ol className="war-how-steps">
+              <li>
+                <b>You are dealt ground.</b> Every match is fought over one named
+                territory, drawn from the {FRONT_WINDOW} most bitterly contested on
+                the map. You do not pick it — the front does.
+              </li>
+              <li>
+                <b>You earn for your people.</b> Turning up is worth {POINTS.turnout}.
+                Every kill is {POINTS.perKill}. Taking the win is {POINTS.victory}.
+                One match can carry at most {POINTS.cap} to the cause, so a long night
+                of good fights beats one lucky rout.
+              </li>
+              <li>
+                <b>Ground changes hands on a lead, not a win.</b> A territory only
+                turns when a challenger is ahead of whoever holds it by {FLIP_LOW}
+                {" "}points in open field, or {FLIP_HIGH} at a seat of power. Holders
+                dig in; capitals cost more to take.
+              </li>
+              <li>
+                <b>The season ends after {SEASON_DAYS} days.</b> Whoever holds most of
+                Britain when it closes crowns a Bretwalda, the map resets, and the
+                mark on your name does not.
+              </li>
+            </ol>
+          </section>
 
           {/* ---------------------------------------------------- the oath */}
           <section className="war-oath">
@@ -242,6 +295,36 @@ const CSS = `
   border: 1px solid rgba(217,164,65,0.35); color: #f2e5cb;
 }
 .war-notice button { margin-left: auto; background: none; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; line-height: 1; }
+
+/* HOW THE WAR IS WON. Four numbered steps because the war genuinely IS a
+   sequence — dealt, earned, flipped, crowned — so the numerals carry meaning
+   rather than decorating a list. Ordinals sit in the gutter on a wide screen
+   and inline on a phone, where there is no gutter to spare. */
+.war-how { margin-top: 1.25rem; }
+.war-how-steps {
+  list-style: none; counter-reset: step; margin: 0; padding: 0;
+  display: grid; gap: 0.55rem;
+}
+@media (min-width: 48rem) { .war-how-steps { grid-template-columns: 1fr 1fr; } }
+.war-how-steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0.7rem 0.85rem 0.7rem 2.4rem;
+  border: 1px solid rgba(217,164,65,0.16);
+  border-radius: 0.4rem;
+  background: rgba(20,15,11,0.42);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: rgba(238,226,204,0.72);
+}
+.war-how-steps > li::before {
+  content: counter(step);
+  position: absolute; left: 0.85rem; top: 0.7rem;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--gilt); opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.war-how-steps b { color: rgba(238,226,204,0.94); font-weight: 700; }
 
 .war-oath { margin-top: 1.25rem; }
 .war-oath-note { margin: 0 0 0.75rem; font-size: 0.8rem; color: rgba(238,226,204,0.66); line-height: 1.5; }
