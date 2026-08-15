@@ -12853,6 +12853,40 @@ export function buildCharacter(
   // it. This is the latitude hair emerges from on every metal rung.
   const bandLo = lat(Y_BROW + mix(0.065, 0.005, clamp01((B.bowl - 0.76) / 0.36)))
     - (style.mask ? 0.050 : 0);
+  /** The band's upper rim. */
+  const bandHi = bandLo + 0.20;
+  // AND THE CAP'S OWN PROFILE AND GAUGES, hoisted for the same reason `bandLo`
+  // was: the mail worn UNDER the cap has to know where the cap's inner wall is,
+  // and a second copy of these numbers beside the coif is the mirrored-definition
+  // fault this file has been bitten by twice. One declaration, two readers — the
+  // helm branch sweeps the shells with them, `capWall` below reads the inner
+  // surface those sweeps produce.
+  //
+  // Three numbers per rung: where the iron starts at the band (`seat`), how much
+  // it rises to the crown (`rise`), and how that rise is distributed (`taper`).
+  // A low exponent puts the height on the flank and gives a straight-sided cone;
+  // a high one keeps the flank close to the skull and domes only at the top.
+  //
+  // `seat` is 17 mm and not 13, on every profile, and that is a fix rather than a
+  // style: `helmFitProbe` measured the skin standing 15.7 mm proud of the form at
+  // the brow ridge on seed 7932, so at 13 mm the bowl's own rim had 2.7 mm of
+  // forehead through it. A helm is worn over 8-12 mm of liner and the brow ridge
+  // is under the rim; 17 clears it on every seed measured.
+  //
+  // The class term stays on all four, because a huscarl's helm is a bigger object
+  // than a berserker's whatever shape it is.
+  const bowlProfile = {
+    //          seat   rise to the crown        taper
+    shallow: [0.017, 0.004 + 0.003 * B.bowl, 1.70],
+    cone:    [0.017, 0.030 + 0.008 * B.bowl, 1.15],
+    round:   [0.017, 0.012 + 0.008 * B.bowl, 2.10],
+    tall:    [0.017, 0.030 + 0.008 * B.bowl, 2.70],
+  }[style.bowl];
+  const [bowlSeat, bowlRise, bowlTaper] = bowlProfile;
+  /** The band's own gauge — its outer sheet less this is what bears on the head. */
+  const BAND_GAUGE = 0.008;
+  /** The bowl's. */
+  const BOWL_GAUGE = 0.007;
 
   // ---- where the mail is ----
   // Declared here rather than inside the coif that draws it, because THREE
@@ -12892,26 +12926,35 @@ export function buildCharacter(
   // is exactly where hair shows. So the radius is a function of position: tight
   // inside the helm's footprint, loose below it, blended across `COIF_FADE`.
   //
-  // THE FOOTPRINT IS MEASURED OFF THE SHELL, not guessed with a constant. The
-  // bowl is swept from `bandLo + 0.015` upward on `helmForm`, so the height of
-  // the form at that latitude is where the iron stops bearing — read here from
-  // the same table the bowl is swept on, so a rung that wears its band lower
-  // moves this with it and nothing is edited.
-  // AND IT IS THE DEPTH THAT IS SQUEEZED, NOT THE BREADTH. Every burial section
-  // 1 reports is at the NAPE — az 168 to 186 — and the sides are clean at the
-  // loose radius. Squeezing `hw` as well is what the recorded uniform shrink
-  // did and it is what cost the hair: `R.x*0.90 + 0.004` is 88.5 mm on this
-  // skull against a parietal breadth of about 98, so the mail goes INSIDE the
-  // skin, `hairCeil`'s aventail branch clamps at its 2 mm floor, and the hair
-  // ends up outside the rings rather than compressed under them. Measured with
-  // both squeezed: `wearmeasure` section 4 went from 30/30 to 8/30, with 24.3 mm
-  // of Warrior Crop outside the Iron Spangenhelm at az 106 — and `cosmetictest`
-  // section 3 went UP, 6.34 -> 6.60, which is the same fault seen from the other
-  // side. Mail pushed through a skull shows more hair, not less.
-  const COIF_TIGHT_W = R.x * 1.00 + 0.011;
-  const COIF_TIGHT_D = R.z * 0.95 + 0.007;
-  /** How far below the helm's rim the mail is back to hanging free. */
+  // AND THE TIGHT RADIUS IS NOT A CONSTANT EITHER — IT IS THE CAP'S OWN WALL.
+  //
+  // The first cut of this taper guessed it: `R.z * 0.95 + 0.007`, a fraction of
+  // the skull picked to look about right. Measured, it is wrong in both
+  // directions at once. Too loose at the top — the brow band's inner surface is
+  // still 5.2 mm inboard of the rings at the nape, so `helmclash` section 1 stayed
+  // red on all eight huscarl rungs at 6.2 mm — and too tight lower down, where it
+  // put the mail INSIDE the skin: `wearmeasure`'s hair-fit went from 30/30 to
+  // 17/30 and `helmclash` section 5 from 4 red huscarl rungs to 9, because
+  // `hairCeil`'s aventail branch clamps at its 2 mm floor once the rings are
+  // inboard of the head and the hair ends up outside the mail rather than under
+  // it. Mail pushed through a skull shows MORE hair, not less.
+  //
+  // So the ceiling is read off the metal instead. `capWall` walks the band and
+  // the bowl with the very lift and gauge the helm branch sweeps them with, takes
+  // their INNER surface — which is the face that bears on what is under the helm —
+  // and hands back a column of (height, radius). The mail is then whatever the
+  // loose curve says, or that wall less one `LAYER_GAP`, whichever is smaller.
+  // A rung with a taller bowl, a lower band or a thicker gauge moves this with
+  // it and nothing here is edited; a rung with no cap does not tighten at all.
+  /** How far below the cap's own rim the mail is back to hanging free. */
   const COIF_FADE = 0.030;
+  /**
+   * How far the coif's inner sheet is set inside its outer one where the mail
+   * hangs free — the fold that closes its front edge instead of a rim strip.
+   * `coifRing` cuts it down wherever the cap is squeezing the rings onto the
+   * block, because a sheet cannot be thicker than the room it is in.
+   */
+  const COIF_FOLD = 0.014;
   /** The loose curve — mail under no helmet at all. Unchanged from what ships. */
   const coifLoose = [
     { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.011, hd: R.z * 1.00 + 0.011, z: -0.008 },
@@ -12931,33 +12974,135 @@ export function buildCharacter(
     }
     return { ...coifLoose[coifLoose.length - 1]! };
   };
-  /** The helm's own footprint, off the form the bowl is beaten over. */
-  const capFootY = (() => {
-    if (!helmed) return -Infinity;
-    const q = new THREE.Vector3();
-    formSurface(helmForm(K), Math.PI, Math.min(Math.PI / 2 - 0.02, bandLo + 0.015), q);
-    return skullY + q.y;
-  })();
-  // Two extra rings and no new constants in the table: the taper is carried by
-  // the SAME list every reader already walks — the coif's own sweep, `coifAt`,
-  // `hairCeil`'s ring lookup and the nape fall's hull. A squeeze applied in one
-  // of those four and not the others is the mirrored-definition fault this file
-  // has been bitten by twice.
+  /**
+   * THE CAP'S INNER WALL ALONG ONE BEARING, as a column of (height, radius)
+   * ascending in height — the surface the mail has to fit inside.
+   *
+   * Both shells are offsets of `helmForm`, so their inner face is
+   * `form + (lift − gauge)` along the form's own normal; that is the same
+   * arithmetic `helmWear` performs and it is fed from the same `bowlProfile`,
+   * `bandLo`/`bandHi` and gauges the helm branch sweeps with. The band is taken
+   * over its whole span and the bowl over its, and the smaller radius of the two
+   * wins at every height, because the mail has to clear whichever is nearer.
+   *
+   * Sampled at `u = π/2` for the half-breadth and `u = π` for the half-depth,
+   * which are the two numbers a ring carries — the same pair of bearings the
+   * nape fall's own hull is tabulated at, twenty lines further down.
+   */
+  const capWall = (u: number): Array<[number, number, number]> => {
+    const F = helmForm(K);
+    const q = new THREE.Vector3(), nrm = new THREE.Vector3();
+    const bowlV0 = bandLo + 0.015, bowlV1 = Math.PI / 2 - 0.02;
+    const col: Array<[number, number, number]> = [];
+    const N = 24;
+    for (let i = 0; i <= N; i++) {
+      // From the band's own lower rim up to the crown, so the column covers
+      // exactly the latitudes a cap has metal at and stops where it stops.
+      const v = mix(bandLo, bowlV1, i / N);
+      let inner = Infinity;
+      if (v <= bandHi) {
+        inner = Math.min(inner, bowlSeat + 0.007 * (1 - (v - bandLo) / (bandHi - bandLo)) - BAND_GAUGE);
+      }
+      if (v >= bowlV0) {
+        inner = Math.min(inner, bowlSeat
+          + bowlRise * Math.pow(clamp01((v - bowlV0) / (bowlV1 - bowlV0)), bowlTaper) - BOWL_GAUGE);
+      }
+      if (!Number.isFinite(inner)) continue;
+      formSurface(F, u, v, q);
+      const fr = Math.hypot(q.x, q.z);
+      formNormal(F, u, v, nrm);
+      q.addScaledVector(nrm, inner);
+      // The block's own radius travels with the wall, because the mail's SHEET
+      // has to fit between the two: see `fold` in `coifRing`.
+      col.push([skullY + q.y, Math.hypot(q.x, q.z), fr]);
+    }
+    return col;
+  };
+  const capSide = helmed ? capWall(Math.PI / 2) : null;
+  const capBack = helmed ? capWall(Math.PI) : null;
+  /**
+   * That column read at a height: how far out the mail may reach, where the
+   * block under it is, and how much of the way the cap is bearing on it there.
+   *
+   * `w` is the wall's radius less one `LAYER_GAP`; `f` is the block's own
+   * radius; `s` runs 0 a `COIF_FADE` below the column's own lower rim to 1 at
+   * and above it. Mail is not a rigid shell — it is squeezed where the helmet
+   * bears on it and hangs free at the rim, the fringe and the nape, which is
+   * exactly where hair shows.
+   */
+  const capCeil = (col: Array<[number, number, number]> | null, y: number): { w: number; f: number; s: number } => {
+    if (!col || col.length < 2) return { w: Infinity, f: 0, s: 0 };
+    const yBot = col[0]![0], yTop = col[col.length - 1]![0];
+    const s = smooth(yBot - COIF_FADE, yBot, y);
+    if (s <= 0) return { w: Infinity, f: 0, s: 0 };
+    const yy = Math.min(yTop, Math.max(yBot, y));
+    let last = col[col.length - 1]!;
+    let r = last[1], f = last[2];
+    for (let i = 0; i < col.length - 1; i++) {
+      const a = col[i]!, b = col[i + 1]!;
+      if (yy <= b[0]) {
+        const t = (yy - a[0]) / Math.max(1e-9, b[0] - a[0]);
+        r = mix(a[1], b[1], t); f = mix(a[2], b[2], t);
+        break;
+      }
+    }
+    return { w: r - LAYER_GAP, f, s };
+  };
+  /**
+   * One ring of the table at a height: the loose curve, pulled in toward the
+   * cap's wall by however much the cap is bearing on it there.
+   *
+   * The rear reach of a ring is `hd − z`, not `hd` — the rings carry a backward
+   * shift of 8 to 32 mm — so the depth is solved against the wall with that
+   * shift taken off. `hw` is compared directly: `z` is perpendicular to the
+   * half-breadth, and at the top ring's 8 mm on a 100 mm radius that is three
+   * tenths of a millimetre.
+   */
+  const coifRing = (y: number) => {
+    const L = looseAt(y);
+    const a = capCeil(capSide, y), b = capCeil(capBack, y);
+    const hw = mix(L.hw, Math.min(L.hw, a.w), a.s);
+    const hd = mix(L.hd, Math.min(L.hd, b.w + L.z), b.s);
+    // AND THE SHEET IS AS THICK AS THE ROOM IT HAS, WHICH IS THE OTHER HALF OF
+    // SQUEEZING IT. The coif is drawn as two sheets `COIF_FOLD` apart so its
+    // front edge closes in a fold rather than in a rim strip — 14 mm, authored
+    // when the mail stood 20 mm off the skull and had 14 to give. Tightened onto
+    // the cap's wall it does not: measured, the inner sheet went 11 mm INSIDE the
+    // skin at az 216, and `hairFitProbe` reads the nearest covering surface in a
+    // direction, so it read 6-7 mm of every hairstyle standing through the mail
+    // on all ten huscarl rungs — hair-fit 6/30 — while the outer sheet, the one
+    // the player sees, was clear. Mail is about two millimetres thick; the fold
+    // is a drawing device, and a drawing device that reaches through the skull
+    // is a defect. So the sheet keeps only the room between the rings and the
+    // block, and closes to a seam where there is none.
+    const room = Math.min(
+      a.s > 0 ? hw - a.f : Infinity,
+      b.s > 0 ? (hd - L.z) - b.f : Infinity,
+    );
+    const fold = Number.isFinite(room)
+      ? Math.max(0.002, Math.min(COIF_FOLD, room - 0.002))
+      : COIF_FOLD;
+    return { y, hw, hd, z: L.z, fold };
+  };
+  // ONE TABLE, AND THE TAPER IS IN IT — not applied by each reader. The coif's
+  // own sweep, `coifAt`, `hairCeil`'s ring lookup, `coifRingAt` and the nape
+  // fall's hull all walk this list; a squeeze applied in one of those and not
+  // the others is the mirrored-definition fault this file has been bitten by
+  // twice. Extra rings are inserted across the cap's footprint because a ring
+  // stack can only bend where it has a ring: four rows chord straight across
+  // the taper this exists to draw.
   const coifLevels = (() => {
-    const tighten = (r: { y: number; hw: number; hd: number; z: number }, s: number) =>
-      ({ y: r.y, hw: mix(r.hw, COIF_TIGHT_W, s), hd: mix(r.hd, COIF_TIGHT_D, s), z: r.z });
-    if (!Number.isFinite(capFootY)) return coifLoose.map((r) => ({ ...r }));
-    // The rim, and the height the mail has finished recovering at. Clamped
-    // inside the loose curve's own top and second rings so a class whose band
-    // sits unusually high or low cannot reorder the table.
-    const yRim = Math.min(coifLoose[0]!.y - 0.006, Math.max(coifLoose[1]!.y + 0.020, capFootY));
-    const yFree = Math.max(coifLoose[1]!.y + 0.010, yRim - COIF_FADE);
-    return [
-      tighten(looseAt(coifLoose[0]!.y), 1),
-      tighten(looseAt(yRim), 1),
-      tighten(looseAt(yFree), 0),
-      ...coifLoose.slice(1).map((r) => ({ ...r })),
-    ];
+    if (!helmed) return coifLoose.map((r) => ({ ...r, fold: COIF_FOLD }));
+    const top = coifLoose[0]!.y, next = coifLoose[1]!.y;
+    // The fan runs from the top ring down to a fade below the lower of the two
+    // rims, clamped inside the loose curve's own second ring so no class can
+    // reorder the table.
+    const rim = Math.min(capSide?.[0]?.[0] ?? top, capBack?.[0]?.[0] ?? top);
+    const foot = Math.min(top - 0.004, Math.max(next + 0.008, rim - COIF_FADE));
+    const ys = [top];
+    for (let i = 1; i <= 5; i++) ys.push(mix(top, foot, i / 5));
+    for (const r of coifLoose.slice(1)) ys.push(r.y);
+    return ys.map(coifRing);
   })();
   // AND THE LOWEST RINGS COME OUT ONTO THE SHOULDER STACK, because every one of
   // those numbers is a multiple of the SKULL's radii and the mail lands on a
@@ -13264,7 +13409,24 @@ export function buildCharacter(
       faceSurface(K, _hcA, _hcB);
       const y = _hcB.y + skullY;
       const mail = Math.hypot(Math.sin(u) * coifAt(y, "hw"), Math.cos(u) * coifAt(y, "hd"));
-      c = Math.min(c, Math.max(0.002, mail - Math.hypot(_hcB.x, _hcB.z) - LAYER_GAP));
+      // AND THE FLOOR IS NEGATIVE, for the reason the nape fall's is, and it is
+      // the other half of tapering the mail under the cap. Where the cap bears,
+      // `coifRing` pulls the rings in to the cap's own inner wall, and that wall
+      // is 9 mm off the block a helm is beaten over while the skin stands up to
+      // 16 mm proud of that block — so under the iron the rings can be level with
+      // the skin or inside it. A 2 mm floor there does not protect hair: it
+      // authorises hair OUTSIDE the mail, which is `helmclash` section 5 and
+      // `wearmeasure`'s hair-fit both going red at once. Measured at the 2 mm
+      // floor with the wall-read taper in: section 5 red on 9 of 9 huscarl rungs,
+      // hair-fit 6/30, 10.8 mm of Warrior Crop outside the Iron Spangenhelm at
+      // az 161.
+      //
+      // Hair under a helmet's own liner cannot be seen from any bearing, so it
+      // goes inside the skin rather than being deleted — the sweep stays
+      // continuous with the hair either side of it. Below the cap's rim the
+      // rings are back on the loose curve and this term is comfortably positive,
+      // so nothing that shows moves.
+      c = Math.min(c, Math.max(-0.005, mail - Math.hypot(_hcB.x, _hcB.z) - LAYER_GAP));
     }
     return c;
   };
@@ -14863,8 +15025,8 @@ export function buildCharacter(
       // the band ON the ridge still holds and this does not break it — the ridge
       // peaks at `Y_BROW` and the rim now clears it by 5 mm rather than by 19.
       // `bandLo` — the band's lower rim — is declared with the head stack, above
-      // the hair, because the hair has to emerge from under it. See there.
-      const bandHi = bandLo + 0.20;
+      // the hair, because the hair has to emerge from under it. `bandHi` is
+      // declared beside it, for the mail's sake — see `capWall`.
       // The two substances the whole cap is cut from. Every helm below the noble
       // tier gets the iron/steel pair it always had; the Sutton Hoo gets tinned
       // silver and gilt through the same lines, so its cap is the same object in
@@ -14986,28 +15148,9 @@ export function buildCharacter(
       // distance: "panels 7, 8 and 9 differ from each other by a two-pixel smudge
       // on the crown". A crest is four pixels. A profile is the whole outline.
       //
-      // Three numbers per rung: where the iron starts at the band (`seat`), how
-      // much it rises to the crown (`rise`), and how that rise is distributed
-      // (`taper`). A low exponent puts the height on the flank and gives a
-      // straight-sided cone; a high one keeps the flank close to the skull and
-      // domes only at the top.
-      //
-      // `seat` is 17 mm and not 13, on every profile, and that is a fix rather
-      // than a style: `helmFitProbe` measured the skin standing 15.7 mm proud of
-      // the form at the brow ridge on seed 7932, so at 13 mm the bowl's own rim
-      // had 2.7 mm of forehead through it. A helm is worn over 8-12 mm of liner
-      // and the brow ridge is under the rim; 17 clears it on every seed measured.
-      //
-      // The class term stays on all four, because a huscarl's helm is a bigger
-      // object than a berserker's whatever shape it is.
-      const bowlProfile = {
-        //          seat   rise to the crown        taper
-        shallow: [0.017, 0.004 + 0.003 * B.bowl, 1.70],
-        cone:    [0.017, 0.030 + 0.008 * B.bowl, 1.15],
-        round:   [0.017, 0.012 + 0.008 * B.bowl, 2.10],
-        tall:    [0.017, 0.030 + 0.008 * B.bowl, 2.70],
-      }[style.bowl];
-      const [bowlSeat, bowlRise, bowlTaper] = bowlProfile;
+      // The three numbers per rung — seat, rise, taper — are declared with the
+      // head stack, above the hair, because the MAIL under the cap has to know
+      // where the cap's inner wall is. See `bowlProfile` and `capWall` there.
       const crest = bowlSeat + bowlRise;
       const bowlLift = (v: number) => bowlSeat + bowlRise * Math.pow(clamp01(v), bowlTaper);
       // AND THE SPANGENHELM IS FOUR PLATES, which until now was a claim made only
@@ -15040,7 +15183,7 @@ export function buildCharacter(
         nu: Math.max(lobe ? 20 : 10, lod.shellU + 2),
         nv: Math.max(lod.shellV, style.bowl === "cone" ? 6 : 4),
         lift: (u, v) => bowlLift(v) + bellyAt(u, v),
-        thick: 0.007,
+        thick: BOWL_GAUGE,
       }), capMetal, place.clone());
       // ---- a comb along the midline ----
       //
@@ -15179,7 +15322,7 @@ export function buildCharacter(
         // 7 mm of flare from top rim to bottom kept: that overhang is the shadow
         // line across the brow the whole face composition hangs off.
         lift: (_u, v) => bowlSeat + 0.007 * (1 - v),
-        thick: 0.008,
+        thick: BAND_GAUGE,
       }), capMetal, place.clone());
       if (lod.trim && style.bowl !== "cone") {
         // The bowl's spangen — the strips the cap's plates are riveted along.
@@ -17335,12 +17478,20 @@ export function buildCharacter(
         // own copy of where the mail is; that is how the guard ended up 6 mm too
         // small and drew a band of ragged cut-out triangles above its own rim.
         const levels = coifLevels;
-        const coif = (u: number, v: number, inset: number, out: THREE.Vector3) => {
+        /**
+         * `foldK` is how much of THIS RING'S OWN fold to set the sheet in by,
+         * 0 on the outer sweep and 0..1 across the inner one. The depth of the
+         * fold is the ring's, not a constant here: where the cap squeezes the
+         * mail onto the block there is no 14 mm of mail to draw, and drawing it
+         * anyway puts the inner sheet through the skull. See `coifRing`.
+         */
+        const coif = (u: number, v: number, foldK: number, out: THREE.Vector3) => {
           const t = v * (levels.length - 1);
           const i = Math.min(levels.length - 2, Math.floor(t));
           const f = t - i;
           const a = levels[i];
           const b = levels[i + 1];
+          const inset = foldK * mix(a.fold, b.fold, f);
           const hw = mix(a.hw, b.hw, f) - inset;
           const hd = mix(a.hd, b.hd, f) - inset;
           out.set(Math.sin(u) * hw, mix(a.y, b.y, f), mix(a.z, b.z, f) + Math.cos(u) * hd);
@@ -17361,7 +17512,7 @@ export function buildCharacter(
           // head that read as a corner even after the edge itself moved back.
           inner: (t, v, out) => coif(
             mix(Math.PI * 2 - rim(v), rim(v), t), v,
-            0.014 * smooth(0, 0.09, Math.min(t, 1 - t)), out,
+            smooth(0, 0.09, Math.min(t, 1 - t)), out,
           ),
         }), mail);
       }
