@@ -201,8 +201,19 @@ const THAMES = Object.freeze([
   [51.60,  1.40], // out into the North Sea
 ]);
 /** Where the Lea comes in, and where the Darent does. Indices into THAMES. */
-const THAMES_AT_LEA = 31;
-const THAMES_AT_DARENT = 34;
+// Each names the index OF its confluence, and the four readers below are
+// written to that: a ring that ENDS at the confluence takes `slice(0, i)` and
+// then starts the shared line, whose own first point IS the confluence, so the
+// point is never duplicated; a ring that BEGINS there takes `slice(i)`.
+//
+// Both were one too high, and the Darent's showed. `THAMES[34]` is Gravesend,
+// so Kent's ring — `rev(THAMES.slice(THAMES_AT_DARENT))` — ran back only as far
+// as Gravesend and then jumped inland to Farningham, skipping Dartford
+// entirely and ruling a straight line south-west across dry land. That corner
+// is the one in the owner's screenshot. Wessex had the mirror of it, running
+// one point too far east before cutting back to the Darent.
+const THAMES_AT_LEA = 30;      // Leamouth, and TREATY_LINE[0] is the same point
+const THAMES_AT_DARENT = 33;   // Dartford, and DARENT_ROTHER[0] is the same point
 
 /**
  * THE TREATY OF ALFRED AND GUTHRUM, in the order it names its own landmarks.
