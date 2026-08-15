@@ -134,6 +134,28 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
     [fought],
   );
 
+  /**
+   * HOW HARD THE CUT BITES, per territory.
+   *
+   * A flat hatch is what this shipped as first, and the phone shot killed it:
+   * a man who has been playing a fortnight has banked SOMETHING on twelve of
+   * sixteen territories, so a binary mark hatched three quarters of Britain
+   * and the eye got nothing back. His actual war was four borders — 217, 174,
+   * 132 and 114 points — against a tail of eight he passed through once for
+   * six.
+   *
+   * So the cut is weighted by his points on that ground against his best
+   * ground. No threshold is invented and nothing is hidden: every territory
+   * carrying a ledger row of his is still cut, still keyed, still in the
+   * aria-label. The floor is 0.38 because a mark you cannot see is not a
+   * lighter mark, it is an absent one.
+   */
+  const bite = useMemo(() => {
+    const best = Math.max(1, ...(fought ?? []).map((g) => g.points));
+    return new Map((fought ?? []).map((g) =>
+      [g.territoryId, 0.38 + 0.62 * (g.points / best)]));
+  }, [fought]);
+
   /** The borders actually about to move. Nothing else earns a label. */
   const front = useMemo(() => data.territories
     .filter((t) => t.remaining !== null && t.remaining < t.threshold)
@@ -152,6 +174,28 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
 
       {/* ----------------------------------------------------------- map */}
       <div className="warmap-plate">
+        {/* THE KEY TO THE CUT, ABOVE the island and not below it.
+            A mark nobody can decode is decoration, so it is on the plate
+            rather than in the side column — on a phone that column is a screen
+            and a half further down. It sat under the map for exactly one
+            screenshot: `.action-bar` is `position: sticky; bottom: 0` with an
+            opaque gradient, so anything at the foot of the plate is under the
+            SWEAR button at the moment the reader scrolls the map into frame.
+            Above the island it is covered by nothing. */}
+        {mineById.size > 0 && (
+          <p className="wm-key">
+            <span className="wm-key-mark" aria-hidden="true" />
+            {/* ONE text node, not three. As bare children of the flex row the
+                mark, the count and the two text runs each became their own
+                flex item and the sentence broke into ragged columns —
+                "Ground you have / 12 / of 16, cut deepest" — which the phone
+                shot caught and no assertion would have. */}
+            <span>
+              Ground you have fought over — <b>{mineById.size}</b> of {DRAWN.length}.
+              Cut deepest where you have bled most.
+            </span>
+          </p>
+        )}
         <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="warmap-svg"
              role="img" aria-label={mapSummary(data)}>
           <defs>
@@ -195,7 +239,8 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
             {/* YOUR GROUND, cut over the fills and under the borders, so a
                 hatched territory is still visibly bounded. */}
             {DRAWN.filter((t) => mineById.has(t.id)).map((t) => (
-              <path key={`m-${t.id}`} d={t.d} className="wm-fought" fill="url(#warmap-cut)" />
+              <path key={`m-${t.id}`} d={t.d} className="wm-fought" fill="url(#warmap-cut)"
+                    style={{ opacity: bite.get(t.id) ?? 1 }} />
             ))}
             {/* Every border, hairlined, so two territories of one people are
                 still two territories. */}
@@ -203,7 +248,8 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
             {/* And a bone edge on the ground that is his, so the cut has an
                 outline rather than fading into the hairline borders. */}
             {DRAWN.filter((t) => mineById.has(t.id)).map((t) => (
-              <path key={`me-${t.id}`} d={t.d} className="wm-fought-edge" />
+              <path key={`me-${t.id}`} d={t.d} className="wm-fought-edge"
+                    style={{ opacity: bite.get(t.id) ?? 1 }} />
             ))}
             {/* Dal Riata: outlined, never filled. The fifth people, unbuilt. */}
             <path d={CLIP_DALRIATA.join("")} className="wm-dalriata" />
@@ -262,16 +308,6 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
             })}
           </g>
         </svg>
-
-        {/* THE KEY TO THE CUT. A mark nobody can decode is decoration, and
-            this one is on the plate rather than in the side column because on
-            a phone the column is a screen and a half below the map. */}
-        {mineById.size > 0 && (
-          <p className="wm-key">
-            <span className="wm-key-mark" aria-hidden="true" />
-            Ground you have fought over this season — {mineById.size} of {DRAWN.length}
-          </p>
-        )}
 
         {unkept && (
           <p className="wm-unkept">
@@ -549,8 +585,9 @@ const CSS = `
 /* THE KEY. Compartmented — a nicked field with cut ends, never a rule running
    the plate's full width. See docs/DESIGN-SYSTEM.md section 1. */
 .wm-key {
-  display: flex; align-items: center; justify-content: center; gap: 0.45rem;
-  margin: 0.5rem auto 0.15rem; width: fit-content; max-width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  margin: 0.15rem auto 0.5rem; width: fit-content; max-width: 100%;
+  text-align: left; text-wrap: pretty; line-height: 1.4;
   padding: 0.3rem 0.7rem; border-radius: 0.25rem;
   font-size: 0.7rem; letter-spacing: 0.04em; color: rgba(238,226,204,0.72);
   background: rgba(12,10,8,0.55);
@@ -559,6 +596,7 @@ const CSS = `
 /* The same cut, at swatch size, so the key is the mark and not a description
    of it. 3px pitch here against 11 map units there because this square is
    14 CSS px and the map is 370. */
+.wm-key b { color: var(--gilt-lit); font-weight: 700; }
 .wm-key-mark {
   width: 0.9rem; height: 0.9rem; border-radius: 0.15rem; flex: none;
   border: 1px solid rgba(244,230,200,0.62);
