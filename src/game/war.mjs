@@ -460,6 +460,20 @@ const FORTH = Object.freeze([
 ]);
 
 /**
+ * THE FORTH ABOVE STIRLING, and Loch Lomond — Strathclyde against Fib.
+ * The firth stops being crossable at Stirling and the frontier carries on as
+ * the river, the moss at its head, and the loch. It stops short of Argyll:
+ * Dal Riata is drawn as an outline and never filled, so no ring may run into
+ * it, and this one hugs its eastern edge.
+ */
+const LENNOX = Object.freeze([
+  [56.07, -3.94], // Stirling
+  [56.13, -4.22], // Flanders Moss, the Forth's head
+  [56.25, -4.62], // Loch Lomond's head
+  [56.45, -4.90], // Glen Falloch, under the Dal Riata line
+]);
+
+/**
  * THE TAY AND THE SIDLAWS — Fib against Circinn.
  * Not the Tay alone: Scone stands on the north bank and Fib is the province
  * that made kings there, so the line leaves the water at Dundee, takes the
@@ -553,13 +567,32 @@ export const TERRITORIES = Object.freeze([
     id: "deira", name: "Deira", native: "Jorvik", people: "norse", seat: "Jorvik",
     blurb: "The kingdom of York, and the Danelaw's northern half.",
     threshold: SEAT_THRESHOLD, anchor: [53.9591, -1.0815],
-    bounds: [[[54.70, -3.30], [54.70, -0.30], [53.50, 0.25], [53.50, -3.30]]],
+    // This was a 4-point rectangle and both of its long sides were ruled lines
+    // across northern England. The kingdom of York is bounded by water on
+    // three of them: the Humber and the Trent and the Don below, the Mersey
+    // across to the Irish Sea, the Tees above — and the fell wall from Cross
+    // Fell down to Morecambe Bay, where the water gives out.
+    bounds: [[
+      ...HUMBER_TRENT,
+      ...MERSEY.slice(1),
+      ...rev(TEES_AND_FELLS),
+    ]],
   },
   {
     id: "bernicia", name: "Bernicia", native: "Bryneich", people: "saxon",
     blurb: "Northumbria above the Tees: Bamburgh, Lindisfarne and Lothian.",
     threshold: FIELD_THRESHOLD, anchor: [55.61, -1.71],
-    bounds: [[[56.10, -3.20], [56.10, -1.20], [54.55, -0.40], [54.55, -2.60], [55.00, -3.30]]],
+    // Northumbria above the Tees, and the horizontal at 56.10N that used to be
+    // its northern edge cut the Firth of Forth in half and ruled a line across
+    // Fife. The Tees below, the Solway and the Cheviots and the Ettrick
+    // watershed west, the Forth above. Cumbria is inside it: Strathclyde did
+    // not come south of the Solway until well after this season's year.
+    bounds: [[
+      ...TEES_AND_FELLS,
+      ...SOLWAY_CHEVIOT,
+      ...FORTH.slice(1),
+      [55.60, -1.20], // the North Sea, east of Bamburgh
+    ]],
   },
   {
     id: "five_boroughs", name: "The Five Boroughs", native: "Fif Burgas", people: "norse",
@@ -615,7 +648,20 @@ export const TERRITORIES = Object.freeze([
     id: "ystrad_clud", name: "Ystrad Clud", native: "Ystrad Clud", people: "briton",
     blurb: "Strathclyde, out of Dumbarton Rock — Britons who outlasted the rest.",
     threshold: FIELD_THRESHOLD, anchor: [55.94, -4.56],
-    bounds: [[[56.20, -5.60], [56.15, -3.55], [54.60, -2.90], [54.55, -5.20]]],
+    // Galloway, Ayrshire, Clydesdale and the Lennox. Its landward side is the
+    // Solway and the Cheviots and the watershed above them, shared with
+    // Bernicia; its top is the Forth above Stirling, shared with Fib; its west
+    // runs down just outside Dal Riata, which is drawn and never filled.
+    bounds: [[
+      [54.55, -5.40], // the Irish Sea, south-west of the Mull of Galloway
+      ...SOLWAY_CHEVIOT,
+      ...LENNOX.slice(1),
+      [56.28, -4.88], // and south along Argyll's edge
+      [55.97, -5.06],
+      [55.70, -5.30],
+      [55.30, -5.45], // the Kilbrannan Sound, Arran inside and Kintyre out
+      [54.90, -5.45],
+    ]],
   },
   {
     id: "dyfed", name: "Dyfed", native: "Dyfed a Phowys", people: "briton",
