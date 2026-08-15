@@ -141,7 +141,7 @@ const THREE = await import("three");
 
 const CLASSES = flag("cls", "") ? flag("cls").split(",") : ["huscarl", "warden", "berserker", "runekeeper"];
 const HELMS = flag("helm", "") ? flag("helm").split(",") : Object.keys(HELM).filter((h) => h !== "none");
-const SECTIONS = new Set((flag("section", "1,2,3,4,5")).split(",").map(Number));
+const SECTIONS = new Set((flag("section", "1,2,3,4,5,6")).split(",").map(Number));
 /**
  * ONE SEED, and it is the seed and not an average.
  *
@@ -690,6 +690,52 @@ function rayHitFar(T, ox, oy, oz, dx, dy, dz, cap) {
     if (t > 1e-6 && t < cap && t > best) best = t;
   }
   return best;
+}
+
+/**
+ * The nearest forward hit AND THE FACING OF THE SURFACE IT LANDS ON.
+ *
+ * Section 6 needs to know not only that another piece is in the way but whether
+ * it is LYING ALONG this one or CUTTING ACROSS it — see the note over that
+ * section: a rib's flank descending into the shell it is riveted to is metal
+ * within a millimetre of metal and is not a fault, and the thing that says so
+ * is that the two surfaces are at right angles there. Returns the unit normal
+ * of the triangle that was hit, unoriented, in `outN`.
+ */
+function rayHitFacing(T, ox, oy, oz, dx, dy, dz, cap, outN) {
+  let best = cap, bi = -1;
+  for (let i = 0; i < T.length; i += 9) {
+    const ax = T[i], ay = T[i + 1], az = T[i + 2];
+    const e1x = T[i + 3] - ax, e1y = T[i + 4] - ay, e1z = T[i + 5] - az;
+    const e2x = T[i + 6] - ax, e2y = T[i + 7] - ay, e2z = T[i + 8] - az;
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (det > -1e-12 && det < 1e-12) continue;
+    const inv = 1 / det;
+    const tx = ox - ax, ty = oy - ay, tz = oz - az;
+    const u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < 0 || u > 1) continue;
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+    const v = (dx * qx + dy * qy + dz * qz) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    if (t > 1e-6 && t < best) { best = t; bi = i; }
+  }
+  if (bi < 0) return -1;
+  const ax = T[bi], ay = T[bi + 1], az = T[bi + 2];
+  const e1x = T[bi + 3] - ax, e1y = T[bi + 4] - ay, e1z = T[bi + 5] - az;
+  const e2x = T[bi + 6] - ax, e2y = T[bi + 7] - ay, e2z = T[bi + 8] - az;
+  let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+  const l = Math.hypot(nx, ny, nz) || 1;
+  outN[0] = nx / l; outN[1] = ny / l; outN[2] = nz / l;
+  return best;
+}
+/** `hitFlat` with the facing, over the height index. */
+function hitFlatFacing(ix, x, y, z, dx, dz, cap, outN) {
+  if (!ix.n) return -1;
+  const k = Math.floor((y - ix.y0) / ix.bin);
+  if (k < 0 || k >= ix.n) return -1;
+  return rayHitFacing(ix.cells[k], x, y, z, dx, 0, dz, cap, outN);
 }
 
 function rayHit(T, ox, oy, oz, dx, dy, dz, cap) {
@@ -1791,6 +1837,300 @@ function sectionPelt(rows) {
 }
 
 // ============================================================
+// 6. SEAM — one piece of kit grazing through another
+// ============================================================
+//
+// NOTHING IN THIS REPOSITORY COULD SEE METAL THROUGH METAL, and that is why the
+// defect this section exists for shipped green through eight rounds.
+//
+//   * 2 FLESH and 3 WRAP both judge SKIN outboard of metal.
+//   * 1 LAYERS judges a PLATE through MAIL — one ordered pair out of the
+//     hundreds a helmet has, and it is that pair because it is the pair the
+//     owner photographed.
+//   * 5 PELT judges hair and beard.
+//   * `wearmeasure` 3 judges a hanging plate against the SKULL, 4 judges hair
+//     against the stack, 10 judges what a hole frames.
+//
+// A kit piece interpenetrating another kit piece was unmeasured. So the gilt
+// edging on the Sutton Hoo's nape guard — the one strip that says the helmet in
+// front of you is the 2400-gold one — has hard stair-stepped bites of
+// bowl-coloured plate eaten out of it at the rear bearings, and every gate in
+// the tree is green about it.
+//
+// ------------------------------------------------------------
+// WHY THIS IS NOT "ONE PIECE INSIDE ANOTHER"
+// ------------------------------------------------------------
+//
+// A helmet is layers of metal on metal BY DESIGN and most of them overlap. The
+// bowl runs under the band. The band runs under the ribs. The cheek guard laps
+// the mask. A rib is authored half sunk into the shell it is riveted to and the
+// gilt lip is authored to STRADDLE the guard — 2.5 mm outside it and 3.5 mm
+// inside — precisely so its long rims are buried and there is no coplanar pair
+// to fight for depth. Every one of those is one piece inside another over the
+// region they share and every one of them is correct.
+//
+// The first cut of this section measured the crossing directly — over and under
+// on the same ordered pair, minority share of the overlap — and it cannot tell
+// those apart: it reads the Sutton Hoo's gilt crest rib against its own bowl at
+// **49.0% and 3.9 mm**, which is a rib sitting in the shell exactly as drawn.
+// A measurement that calls the shop's construction a fault is not a gate, it is
+// a wall of red somebody will switch off.
+//
+// ------------------------------------------------------------
+// WHAT A SEAM IS: A STRIP THAT IS PROUD OF ITS PARTNER IN SOME PLACES AND
+// SWALLOWED BY IT IN OTHERS
+// ------------------------------------------------------------
+//
+// Two false starts are recorded here because each of them is a measurement
+// somebody will otherwise reach for again.
+//
+// FALSE START ONE — "one piece inside another". A helmet is layers of metal on
+// metal by design and most of them overlap: the bowl runs under the band, the
+// band under the ribs, the cheek guard laps the mask, a rib is authored half
+// sunk into the shell it is riveted to and the gilt lip is authored to STRADDLE
+// the guard, 2.5 mm outside it and 3.5 mm inside, precisely so its long rims
+// are buried and there is no coplanar pair to fight for depth. Measured as
+// "crossing", that reads the Sutton Hoo's gilt crest rib against its own bowl
+// at **49.0% and 3.9 mm** — a rib sitting in a shell exactly as drawn.
+//
+// FALSE START TWO — "a hider closer than `LAYER_GAP`". Metal within 5 mm of
+// metal is everywhere in this shop, because that is what a rivet, a rib flank
+// and a taper-to-nothing all look like: **62 of 65 kits red at 5.1 to 27.9%**,
+// naming a 68-triangle spangen strip on nine helmets out of nine. Adding the
+// facing test to it — only count a hider LYING ALONG this face — took it to 61
+// of 65. Neither number is a gate. It is a wall of red somebody switches off.
+//
+// WHAT IS ACTUALLY WRONG in the render is narrower and it has a name: along one
+// strip, the SAME PAIR of pieces changes its mind about which of the two is in
+// front. Gold, a hard step of silver, gold again. A lap never does that — the
+// bowl is under the band at every point of their overlap, and a rib tapering to
+// nothing on the crown approaches its shell but never comes out the other side.
+// So:
+//
+//   For an ordered pair (A, B), over A's OUTWARD FACE, and only where the two
+//   surfaces LIE ALONG each other (|n_A . n_B| > 0.80, about 37 degrees, so a
+//   rib's flank cutting across a shell is not a case — at right angles two
+//   surfaces meet in a LINE, and a line has no area):
+//
+//     PROUD      B is inboard of this sample. A is in front here.
+//     SWALLOWED  B is outboard of this sample. B is in front here.
+//
+//   A lap is all of one. A seam is both, and the MINORITY of the two is the
+//   size of the tear: the part of the overlap that disagrees with the rest of
+//   the overlap about which piece the player is looking at.
+//
+// Read on the OUTWARD FACE ONLY — section 1's trick, and load-bearing here.
+// Every piece is a closed shell with a lining, and a lining is inboard of its
+// own outer wall by construction; measuring both walls would call every
+// deliberate straddle in the shop a seam. The outward face is the face the
+// player looks at, and the question is whether THAT is torn.
+//
+// AREA-WEIGHTED. A rivet with 40 triangles must not outvote a 300-triangle
+// plate, and the fittings on a noble helm are the densest mesh on the head.
+const SEAM_MM2 = 800.0;
+const SEAM_MM = 1.0;
+const SEAM_ALONG = 0.80;
+const SEAM_CAP = 0.02;
+/**
+ * TWO BARS, BOTH IN A MEASURED GAP, AND THE SWEEP IS PRINTED UNDER THE TABLE
+ * EVERY RUN so the gap can be argued with in one look rather than taken from
+ * this paragraph on trust.
+ *
+ * `SEAM_MM` first. The head of this file measures what a tessellated ring does
+ * against the analytic curve it was sampled from — 1.19 mm on the huscarl's
+ * coif at the rear — so a minority a few tenths of a millimetre deep is two
+ * grids disagreeing about a shared edge and not one piece coming through
+ * another. 1.0 mm is under that measured chord dip on purpose: the AREA bar is
+ * what carries the verdict and the depth bar is only there to throw out a
+ * two-triangle corner.
+ *
+ * `SEAM_MM2` is read off the sweep. Every distinct kit in the shop, sorted, on
+ * the tree this section was written against:
+ *
+ *     0.0 x12    88.4   137.9   139.8   153.9   183.2   230.0 x4   251.5 x2
+ *   448.9 x6    501.8 x4   533.7 x2   541.5 x4   555.1 x2   564.2 x2   597.9 x2
+ *   ------------------------------ the bar, 800 ------------------------------
+ *  1114.7 x2   1699.1 x2  1888.4 x2  2091.2 x2  2402.6 x2  2566.9   2659.7 x2
+ *  4263.3      5841.9
+ *
+ * Twelve kits with no seam at all, a body that stops at 597.9 mm2, a clear
+ * 500 mm2 hole, and then fifteen readings above it. The body is what an authored
+ * fitting reads when it is sampled on a grid that is not its neighbour's; the
+ * readings above the hole are pieces that are genuinely half in and half out of
+ * each other. The four largest are the Sutton Hoo, and the pair named on all
+ * four is `d9b45f` against `9aa6ae` — the gilt against the bowl silver, which
+ * is the torn band the render shows.
+ *
+ * FIFTEEN RED IS NOT A FAILURE OF THE BAR. This section is new and the thing it
+ * measures has never been measured here, so every reading in it is a finding.
+ * The round that added it mends one of them.
+ */
+function seamPair(A, aIx, aN, B, bIx) {
+  const buf = new Float64Array(BARY.length * 3);
+  const nB = [0, 0, 0];
+  let proud = 0, swall = 0, dProud = 0, dSwall = 0, atProud = null, atSwall = null;
+  for (let i = 0; i < A.T.length; i += 9) {
+    const n = aN[i / 9];
+    if (!n) continue;
+    const c = samples(A.T, i, buf);
+    let nP = 0, nS = 0, tot = 0;
+    for (let s = 0; s < c; s++) {
+      const x = buf[s * 3], y = buf[s * 3 + 1], z = buf[s * 3 + 2];
+      const r = Math.hypot(x, z);
+      if (r < 1e-6) continue;
+      const dx = x / r, dz = z / r;
+      // A's own shell in front means this sample is on A's LINING.
+      const self = hitFlat(aIx, x, y, z, dx, dz, SEAM_CAP);
+      const outB = hitFlatFacing(bIx, x, y, z, dx, dz, SEAM_CAP, nB);
+      if (self >= 0 && (outB < 0 || self < outB)) continue;
+      if (outB >= 0) {
+        if (Math.abs(n[0] * nB[0] + n[1] * nB[1] + n[2] * nB[2]) <= SEAM_ALONG) continue;
+        tot++; nS++;
+        if (outB > dSwall) { dSwall = outB; atSwall = [x, y, z]; }
+        continue;
+      }
+      const inB = hitFlatFacing(bIx, x, y, z, -dx, -dz, Math.min(r, SEAM_CAP), nB);
+      if (inB < 0) continue;
+      if (Math.abs(n[0] * nB[0] + n[1] * nB[1] + n[2] * nB[2]) <= SEAM_ALONG) continue;
+      const selfIn = hitFlat(aIx, x, y, z, -dx, -dz, Math.min(r, SEAM_CAP));
+      if (selfIn >= 0 && selfIn < inB) continue;
+      tot++; nP++;
+      if (inB > dProud) { dProud = inB; atProud = [x, y, z]; }
+    }
+    if (!tot) continue;
+    const ux = A.T[i + 3] - A.T[i], uy = A.T[i + 4] - A.T[i + 1], uz = A.T[i + 5] - A.T[i + 2];
+    const vx = A.T[i + 6] - A.T[i], vy = A.T[i + 7] - A.T[i + 1], vz = A.T[i + 8] - A.T[i + 2];
+    const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+    proud += area * nP / tot;
+    swall += area * nS / tot;
+  }
+  const lap = proud + swall;
+  if (lap <= 0) return null;
+  const minorityIsSwallowed = swall <= proud;
+  return {
+    lap,
+    area: Math.min(proud, swall),
+    share: Math.min(proud, swall) / lap,
+    depth: minorityIsSwallowed ? dSwall : dProud,
+    at: minorityIsSwallowed ? atSwall : atProud,
+    side: minorityIsSwallowed ? "swallowed by" : "proud of",
+  };
+}
+/** Do two pieces' boxes come within the ray's own cap of each other? */
+function boxesTouch(a, b, m) {
+  return a.x0 - m <= b.x1 && b.x0 - m <= a.x1
+    && a.y0 - m <= b.y1 && b.y0 - m <= a.y1
+    && a.z0 - m <= b.z1 && b.z0 - m <= a.z1;
+}
+/** Per-triangle unit normals, computed once per piece rather than per pair. */
+function normalsOf(T) {
+  const out = [];
+  for (let i = 0; i < T.length; i += 9) {
+    const ux = T[i + 3] - T[i], uy = T[i + 4] - T[i + 1], uz = T[i + 5] - T[i + 2];
+    const vx = T[i + 6] - T[i], vy = T[i + 7] - T[i + 1], vz = T[i + 8] - T[i + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz);
+    out.push(l > 0 ? [nx / l, ny / l, nz / l] : null);
+  }
+  return out;
+}
+function sectionSeam(rows) {
+  console.log("");
+  console.log("[clash] 6. SEAM — one piece of kit driven through another.");
+  console.log(`[clash]    horizontal rays both ways off each piece's outward face, where the two surfaces lie ALONG`);
+  console.log(`[clash]    each other (|n.n| > ${SEAM_ALONG.toFixed(2)}). A pair is torn when it is proud in some places and swallowed`);
+  console.log(`[clash]    in others: bars ${SEAM_MM2.toFixed(0)} mm2 of torn face AND ${SEAM_MM.toFixed(1)} mm deep, both.`);
+  console.log("");
+  console.log("[clash]    kit against kit, so the rungs are grouped by the kit they build — see `kitSignature`.");
+  console.log("");
+  console.log("[clash] class       helm         rung           pairs  torn mm2   torn%   depth mm   the pair                                    where");
+  console.log("[clash] -----------------------------------------------------------------------------------------------------------------------------------");
+  let fails = 0, cases = 0, absent = 0;
+  const spread = [];
+  for (const cls of CLASSES) {
+    for (const helm of HELMS) {
+     for (const { g, also } of kitGroups(cls, helm)) {
+      const rung = rungLabel(g, also);
+      const { plate } = sortPieces(cls, helm, g);
+      // Rivets and studs are a dozen triangles of a ball and their share is
+      // noise; 24 is the smallest primitive on a helmet that has a face.
+      //
+      // PLATE, NOT KIT. Section 1 owns the plate-through-MAIL pair and measures
+      // it with a bar taken from the build's own `LAYER_GAP`; measuring it here
+      // too would be two gates on one fault and a second bar to argue with.
+      const big = plate.filter((p) => p.tris >= 24);
+      if (big.length < 2) {
+        // A GATE GREEN BECAUSE THE CASE IS ABSENT IS NOT A GATE — section 1's
+        // line, and the same rule. One piece of kit cannot tear itself.
+        absent++;
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}     —      —          —      (fewer than two kit pieces — nothing to measure)`);
+        continue;
+      }
+      cases++;
+      const ix = big.map((p) => heightIndex(p.T));
+      const nrm = big.map((p) => normalsOf(p.T));
+      let pairs = 0, wArea = 0, wShare = 0, wDepth = 0, wA = null, wB = null, wAt = null, wSide = "";
+      for (let a = 0; a < big.length; a++) {
+        for (let b = a + 1; b < big.length; b++) {
+          // ONE TINT CANNOT TEAR ITSELF WHERE ANYBODY CAN SEE IT. Two pieces
+          // of the same metal that interpenetrate draw the same pixels either
+          // way round; there is nothing in the frame to tell the player which
+          // surface won, and a bowl with a rib of its own colour half sunk into
+          // it is how a spangenhelm is drawn. What the render shows, and what
+          // this section is for, is a seam BETWEEN TWO METALS — gilt eaten by
+          // bowl silver, brass by iron — where the boundary is a colour change
+          // and every step in it is visible at portrait size.
+          if (big[a].hex === big[b].hex) continue;
+          if (!boxesTouch(big[a], big[b], SEAM_CAP)) continue;
+          const ab = seamPair(big[a], ix[a], nrm[a], big[b], ix[b]);
+          const ba = seamPair(big[b], ix[b], nrm[b], big[a], ix[a]);
+          if (!ab || !ba) continue;
+          pairs++;
+          // THE MINIMUM OF THE TWO DIRECTIONS, AND IT IS THE WHOLE
+          // DISCRIMINATOR. A LAP IS CLEAN FROM AT LEAST ONE SIDE. Read from the
+          // shell, a rib authored half sunk into it is "proud over 29% and
+          // swallowed over 71%" — the buried base and the proud top, both
+          // parallel to the shell, exactly as drawn. Read from the RIB, its own
+          // outward face is outside the shell along its whole length and the
+          // reading is nothing. A TEAR IS A TEAR FROM BOTH SIDES: where a strip
+          // has bites out of it, the strip is swallowed in the bites and the
+          // piece doing the biting is proud in the same places, so neither
+          // direction comes out clean.
+          const r = ab.area <= ba.area ? ab : ba;
+          const A = ab.area <= ba.area ? big[a] : big[b];
+          const B = ab.area <= ba.area ? big[b] : big[a];
+          if (r.depth * 1000 <= SEAM_MM) continue;
+          if (r.area > wArea) {
+            wArea = r.area; wShare = r.share; wDepth = r.depth;
+            wA = A; wB = B; wAt = r.at; wSide = r.side;
+          }
+        }
+      }
+      const mm2 = wArea * 1e6;
+      const bad = mm2 > SEAM_MM2 && wDepth * 1000 > SEAM_MM;
+      if (bad) fails++;
+      spread.push(mm2);
+      const who = wA ? `${wA.hex} (${wA.tris} tri) ${wSide} ${wB.hex} (${wB.tris} tri)` : "-";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${String(pairs).padStart(5)} ${mm2.toFixed(1).padStart(8)} ${(100 * wShare).toFixed(1).padStart(7)}   ${mm(wDepth).padStart(8)}   ${who.padEnd(42)} ${wAt ? at(wAt) : ""}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 6, cls, helm, rung: g.name, fail: bad, area: mm2, depth: wDepth });
+     }
+    }
+  }
+  console.log("");
+  // THE SPREAD, PRINTED EVERY RUN. A bar defended by a paragraph in a source
+  // file is a bar nobody re-checks; a bar printed under its own table beside
+  // the distribution it sits in is one an adversary can argue with in one look.
+  spread.sort((x, y) => x - y);
+  console.log(`[clash]    the torn mm2 of every kit measured, sorted — the bar is ${SEAM_MM2.toFixed(0)} and it is meant to sit in a gap:`);
+  for (let i = 0; i < spread.length; i += 13) {
+    console.log("[clash]      " + spread.slice(i, i + 13).map((v) => v.toFixed(1).padStart(7)).join(""));
+  }
+  console.log("");
+  console.log(`[clash]    ${fails} of ${cases} distinct kits with two or more pieces are red; ${absent} more have one piece and are not a case.`);
+  return fails;
+}
+
+// ============================================================
 // The run
 // ============================================================
 function battery() {
@@ -1810,11 +2150,12 @@ function battery() {
   if (SECTIONS.has(3)) fails[3] = sectionWrap(rows);
   if (SECTIONS.has(4)) fails[4] = sectionCrest(rows);
   if (SECTIONS.has(5)) fails[5] = sectionPelt(rows);
-  const names = { 1: "LAYERS", 2: "FLESH", 3: "WRAP", 4: "CREST", 5: "PELT" };
+  if (SECTIONS.has(6)) fails[6] = sectionSeam(rows);
+  const names = { 1: "LAYERS", 2: "FLESH", 3: "WRAP", 4: "CREST", 5: "PELT", 6: "SEAM" };
   console.log("");
   console.log("[clash] ============================================================");
   let red = 0;
-  for (const s of [1, 2, 3, 4, 5]) {
+  for (const s of [1, 2, 3, 4, 5, 6]) {
     if (!(s in fails)) continue;
     if (fails[s]) red++;
     console.log(`[clash] ${s} ${names[s].padEnd(7)} ${fails[s] ? `FAIL — ${fails[s]} combination(s)` : "pass"}`);
