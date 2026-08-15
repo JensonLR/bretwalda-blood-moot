@@ -13206,6 +13206,46 @@ export function buildCharacter(
     S.neckRoot - S.neckTop + 0.025,
     skullY - R.y * (style.nape === "guard" ? 1.12 : 0.45),
   );
+  /**
+   * THE SUBMANDIBULAR MASS — the head's own soft floor, from behind the chin
+   * back and down into the throat. It is drawn by the head stack below and it
+   * is the SKIN at the nape everywhere under the skull, so it is declared here
+   * rather than inside the shell that sweeps it: mail lying on the back of the
+   * neck has to know where the back of the neck is.
+   *
+   * The stations are unchanged and the shell that draws them now reads this
+   * list. See `jawAt` for what reads it besides.
+   */
+  const jawLevels: Station[] = [
+    { y: skullY - 0.048, hw: R.x * 0.68, hd: R.z * 0.64, z: -0.013 },
+    { y: skullY - 0.105, hw: R.x * 0.63, hd: R.z * 0.59, z: -0.019 },
+    { y: skullY - 0.160, hw: R.x * 0.65, hd: R.z * 0.61, z: -0.021 },
+    { y: skullY - 0.230, hw: R.x * 0.69, hd: R.z * 0.64, z: -0.021 },
+  ];
+  /**
+   * That mass's half-breadth and its REAR REACH FROM THE AXIS at a height —
+   * `hd - z`, not `hd`, because the stations are set back and a ring swept
+   * about the axis meets the nape at the sum of the two. The identical
+   * correction `hullAt` already applies to the coif's rings one level down, for
+   * the identical reason.
+   *
+   * Clamped to the list's own span: above the top station the skull is what is
+   * there and below the last one there is nothing left of the head, so both
+   * ends report the end station rather than extrapolating a mass that stops.
+   */
+  const jawAt = (y: number): { hw: number; hd: number } => {
+    const rear = (s: Station) => s.hd - (s.z ?? 0);
+    if (y >= jawLevels[0]!.y) return { hw: jawLevels[0]!.hw, hd: rear(jawLevels[0]!) };
+    for (let i = 0; i < jawLevels.length - 1; i++) {
+      const a = jawLevels[i]!, b = jawLevels[i + 1]!;
+      if (y > b.y) {
+        const f = (a.y - y) / (a.y - b.y);
+        return { hw: mix(a.hw, b.hw, f), hd: mix(rear(a), rear(b), f) };
+      }
+    }
+    const e = jawLevels[jawLevels.length - 1]!;
+    return { hw: e.hw, hd: rear(e) };
+  };
 
   // ---- where the plates are ----
   // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
@@ -13782,12 +13822,11 @@ export function buildCharacter(
     // one. They stay well inside the jaw above — which is the property that earns
     // the overhang — and now hand off to the neck instead of pinching in front
     // of it.
-    p.add(shell([
-      { y: skullY - 0.048, hw: R.x * 0.68, hd: R.z * 0.64, z: -0.013 },
-      { y: skullY - 0.105, hw: R.x * 0.63, hd: R.z * 0.59, z: -0.019 },
-      { y: skullY - 0.160, hw: R.x * 0.65, hd: R.z * 0.61, z: -0.021 },
-      { y: skullY - 0.230, hw: R.x * 0.69, hd: R.z * 0.64, z: -0.021 },
-    ], lod.limb, { capTop: true, capBottom: true }), headShade);
+    // The stations themselves are `jawLevels`, declared with the head stack.
+    // They are read there as well as swept here, because they are the skin at
+    // the nape and the throat curtain has to lie outside them — the same
+    // hoist, and the same reason, as `coifLevels` and `napeHemY`.
+    p.add(shell(jawLevels, lod.limb, { capTop: true, capBottom: true }), headShade);
 
     // ---- the ears ----
     //
