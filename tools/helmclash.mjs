@@ -716,6 +716,12 @@ function sectionFlesh(rows) {
 // radius the flesh sits at across that arc, because degrees alone do not say
 // how much neck is showing: 150 degrees on a 30 mm throat and on a 90 mm one
 // are different amounts of sloppiness.
+//
+// A WRAPPED THROAT WITH A COVERED NAPE IS A PASS AND IS PRINTED AS ONE. The
+// last column is how many heights of this head were a case, which is what makes
+// a pass readable: "137 wrapped heights, 0.0 degrees bare at all of them" is a
+// nape that is finished, and it is a different statement from a head that never
+// wraps a throat and appears nowhere in the table.
 /**
  * 2.0 DEGREES, AND THE BAR IT REPLACES WAS 90 — which is why round five's gate
  * printed "0 of 3 combinations with a wrapped throat are red" on the same table
@@ -766,15 +772,18 @@ function sectionWrap(rows) {
   console.log("[clash] 3. WRAP — a bare nape under a covered throat.");
   console.log(`[clash]    ${WRAP_STEP} deg sweeps at every mm of height; a case needs ${THROAT_DEG} deg of throat wrapped, a fault MORE THAN ${WRAP_DEG.toFixed(1)} deg bare behind.`);
   console.log("");
-  console.log("[clash] class       helm         bare arc     at radius   height   centred      throat cover");
-  console.log("[clash] ---------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         bare arc     at radius   height   centred      throat cover   wrapped hts");
+  console.log("[clash] ------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, quiet = 0;
   const M = Math.round(360 / WRAP_STEP);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
       const { pelt, kit } = sortPieces(cls, helm);
       const PT = soup(pelt), KT = soup(kit);
-      let best = null;
+      // `best` is the widest BARE arc; `wrapped` counts the heights that are a
+      // case at all, and the two are separate because a head can be the second
+      // without ever being the first — see the note over `!wrapped` below.
+      let best = null, wrapped = 0, widest = null;
       for (let ymm = 10; ymm <= 175; ymm++) {
         const y = ymm / 1000;
         const P = slabAt(PT, y), K = slabAt(KT, y);
@@ -795,7 +804,17 @@ function sectionWrap(rows) {
         let fwd = 1;
         for (let k = 1; k < M && flags[k] === 1; k++) fwd++;
         for (let k = 1; k < M && flags[(M - k) % M] === 1; k++) fwd++;
+        // A RING THAT IS COVERED ALL THE WAY ROUND IS 360 DEGREES, NOT 720. The
+        // two runs above walk out of dead ahead in both directions and both stop
+        // at the far side when nothing stops them sooner, so a fully covered
+        // height counted 2M-1 of M samples. It never showed while the section
+        // printed only heights with a bare arc — a height with no bare arc is
+        // exactly the height where both runs go all the way round — and the
+        // first fully covered head to reach the table printed "719.5 deg".
+        fwd = Math.min(fwd, M);
         if (fwd * WRAP_STEP < THROAT_DEG) continue;
+        wrapped++;
+        if (!widest || fwd > widest.fwd) widest = { ymm, fwd };
         let w = 0, wat = 0;
         for (let s = 0; s < M; s++) {
           if (flags[s] !== -1) continue;
@@ -809,19 +828,39 @@ function sectionWrap(rows) {
         const rec = { ymm, deg: w * WRAP_STEP, az: ((wat + w / 2) % M) * WRAP_STEP, r: rn ? rs / rn : 0, fwd: fwd * WRAP_STEP };
         if (!best || rec.deg > best.deg) best = rec;
       }
-      if (!best) {
+      if (!wrapped) {
         // No height on this head has a wrapped throat at all, so there is no
         // nape for it to be missing behind. Not a pass — not a case.
         quiet++;
         continue;
       }
       cases++;
+      if (!best) {
+        // WRAPPED EVERYWHERE AND BARE NOWHERE — the only shape a PASS can have
+        // in this section, and until this line it was invisible.
+        //
+        // The height loop skipped every height whose bare arc was zero, so a
+        // head whose nape is covered at all of them left `best` null and fell
+        // into the branch above, where it was counted as "never wraps a throat
+        // and is not a case" — the same line as a bare head. Measured on this
+        // tree, that hid the huscarl's Sutton Hoo: 137 wrapped heights, 0.0
+        // degrees bare at every one of them, the one combination in the shop
+        // whose coif closes all the way round, filed under "not a case".
+        //
+        // A gate green because the case is absent is not a gate, and neither is
+        // a gate whose only PASS is absent: it means the section cannot tell
+        // the difference between a fixed nape and a head with no neck defence,
+        // so the next fixer gets no signal that he is done.
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}    0.0 deg        — mm   y ${String(widest.ymm).padStart(3)}   —            ${(widest.fwd * WRAP_STEP).toFixed(1)} deg    ${String(wrapped).padStart(3)}   covered at every wrapped height`);
+        rows.push({ section: 3, cls, helm, fail: false, deg: 0, r: 0 });
+        continue;
+      }
       // STRICTLY GREATER: 2.0 degrees is the tessellation allowance argued over
       // `WRAP_DEG` and is allowed; 2.5 is four consecutive samples of nape and
       // is not.
       const bad = best.deg > WRAP_DEG;
       if (bad) fails++;
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${best.deg.toFixed(1).padStart(6)} deg   ${mm(best.r).padStart(6)} mm   y ${String(best.ymm).padStart(3)}   az ${best.az.toFixed(0).padStart(3)}deg      ${best.fwd.toFixed(1)} deg${bad ? "   FAIL" : ""}`);
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${best.deg.toFixed(1).padStart(6)} deg   ${mm(best.r).padStart(6)} mm   y ${String(best.ymm).padStart(3)}   az ${best.az.toFixed(0).padStart(3)}deg      ${best.fwd.toFixed(1)} deg    ${String(wrapped).padStart(3)}${bad ? "   FAIL" : ""}`);
       rows.push({ section: 3, cls, helm, fail: bad, deg: best.deg, r: best.r });
     }
   }
