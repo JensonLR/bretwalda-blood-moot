@@ -16762,12 +16762,35 @@ export function buildCharacter(
           // through the mail is not a repair of a bare nape, and compressing
           // them inside the new wall instead would have buried them, which is
           // the fault this branch has been held off main for twice.
-          const vRear = (y: number, hd: number, z: number) => {
-            const front = hd + z;
+          //
+          // THE REAR HALF GROWS, NOT THE WHOLE ELLIPSE, and the difference is
+          // measurable on a beard.
+          //
+          // The obvious way to reach further back is to keep `front = hd + z`
+          // and solve `back`, which gives a new `hd` and `z` for the whole ring.
+          // But an ellipse has only a centre and a half-depth, and holding the
+          // FRONT while growing the BACK walks the centre backward — so the
+          // curtain's SIDES, at u = +-pi/2, translate rearward by half the
+          // growth, about 13 mm. That uncovers the jaw line, and section 5 said
+          // so at once: beard=full went 6.39 -> 6.51% on the warden and
+          // 7.34 -> 7.53% on the runekeeper, forked 4.30 -> 4.58 and
+          // 5.93 -> 6.34, with the berserker's whole column following. Small,
+          // but it is the 40-gold beard reading further OUT through the throat,
+          // which is the defect three rounds have been trying to close.
+          //
+          // So the depth is a function of bearing instead: the authored
+          // half-depth at the front, whatever the neck needs at the back, blended
+          // on `cos(u)`. At the sides `cos(u)` is 0, so the point sits on the
+          // authored centre WHATEVER the half-depth is there — the sides cannot
+          // move, by construction, and the front is the authored surface exactly.
+          // Blending on `cos(u)` rather than switching at the sides also keeps
+          // dz/du continuous through them, so there is no crease down the flank.
+          /** The rear half-depth this height needs, about the authored centre. */
+          const vBackHalf = (y: number, hd: number, z: number) => {
             const authored = hd - z;
-            const back = coifed ? authored
+            const want = coifed ? authored
               : Math.max(authored, neckBackAt(y) + V_WALL + LAYER_GAP);
-            return { hd: (front + back) / 2, z: (front - back) / 2 };
+            return z + want;
           };
           const vMidY = mix(vTop, vBot, 0.5);
           /**
@@ -16841,11 +16864,12 @@ export function buildCharacter(
           const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
             const y = mix(vTopAt(u), vBot, v);
             const a = vAuthored(y);
-            const r = vRear(y, a.hd, a.z);
+            const c = Math.cos(u);
+            const hd = mix(vBackHalf(y, a.hd, a.z), a.hd, smooth(-1, 1, c));
             out.set(
               Math.sin(u) * (a.hw - inset),
               y,
-              r.z + Math.cos(u) * (r.hd - inset),
+              a.z + c * (hd - inset),
             );
           };
           // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
@@ -16888,8 +16912,20 @@ export function buildCharacter(
           const vHalf = coifed ? 2.45 : Math.PI;
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
+          // AND THE COLUMN COUNT HOLDS THE ANGULAR DENSITY, NOT THE NUMBER.
+          //
+          // The same `nu` over 2 pi instead of over 4.90 rad is a 28% coarser
+          // sweep everywhere, the throat included, and a coarser sweep cuts its
+          // chords deeper inside the curve it was sampled from. Nothing about
+          // the curtain's shape moved at the front — the rear-half blend leaves
+          // u = 0 exactly as authored — but section 5 still read the 40-gold
+          // beard further out through it: berserker 5.47 -> 5.78%, warden's
+          // forked 4.30 -> 4.41. That is tessellation, not fit, and the fix for
+          // tessellation is columns.
+          const vNu = Math.max(12, lod.shellU + 2);
           p.add(patch({
-            nu: Math.max(12, lod.shellU + 2), nv: 4, wrapU: !coifed,
+            nu: coifed ? vNu : Math.round(vNu * (Math.PI / 2.45)),
+            nv: 4, wrapU: !coifed,
             outer: vSweep(0), inner: vSweep(V_WALL),
           }), mail);
         }
