@@ -1618,13 +1618,19 @@ if (has("twice")) {
   const cap = [];
   const real = console.log;
   console.log = (...a) => cap.push(a.join(" "));
-  battery();
+  const { fails } = battery();
   const first = cap.splice(0).join("\n");
   battery();
   const second = cap.join("\n");
   console.log = real;
   console.log(first);
   console.log("");
+  // AND THE VERDICT STILL COUNTS. This branch used to return 0 whatever the
+  // battery found, so `helmclash -- --twice` exited SUCCESS with five sections
+  // red: anything running the determinism mode in a pipeline was told the helms
+  // were fine by a check that only ever asked whether two runs agreed. Two runs
+  // agreeing about a defect is agreement about a defect.
+  process.exitCode = Object.values(fails).some((n) => n > 0) ? 1 : 0;
   if (first === second) console.log(`[clash] --twice: two runs, ${first.length} characters, BYTE-IDENTICAL.`);
   else {
     const lines1 = first.split("\n"), lines2 = second.split("\n");
