@@ -140,9 +140,20 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
    * A flat hatch is what this shipped as first, and the phone shot killed it:
    * a man who has been playing a fortnight has banked SOMETHING on twelve of
    * sixteen territories, so a binary mark hatched three quarters of Britain
-   * and the eye got nothing back. His actual war was four borders — 217, 174,
-   * 132 and 114 points — against a tail of eight he passed through once for
-   * six.
+   * and the eye got nothing back.
+   *
+   * The reason it got nothing back is structural rather than a property of one
+   * fixture, so no fixture's numbers are quoted here. `dealTerritory` draws
+   * from the four most contested territories, and a man's attention follows
+   * the front: he returns to the same handful of borders again and again and
+   * passes through the rest once. So his points across sixteen grounds are
+   * always a few heavy ones against a long thin tail, and a mark that cannot
+   * tell those apart throws away the only thing the map knew about him.
+   *
+   * An earlier draft of this comment quoted one seed's figures as observed
+   * fact and they did not reproduce — same deterministic fixture, different
+   * numbers, because they had been read off a run that predated an edit. The
+   * argument never needed them.
    *
    * So the cut is weighted by his points on that ground against his best
    * ground. No threshold is invented and nothing is hidden: every territory

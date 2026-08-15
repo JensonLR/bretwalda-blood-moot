@@ -199,6 +199,31 @@ export const warLedger = pgTable("war_ledger", {
   uniqueIndex("war_ledger_match_player_idx").on(t.matchKey, t.playerId),
   index("war_ledger_season_profile_idx").on(t.seasonId, t.profileId),
   index("war_ledger_season_ground_idx").on(t.seasonId, t.territoryId),
+  /**
+   * WHERE A MAN STANDS AMONG HIS OWN PEOPLE, and the leaderboard beside it.
+   *
+   * Both `warSelf`'s rank and `warView`'s `leaders` filter `(season_id, people)`
+   * and neither had an index that reached it: the three above cover match+player,
+   * season+profile and season+ground, and nothing carried `people` at all. An
+   * adversary inflated the table to 401,090 rows and ran EXPLAIN (ANALYZE,
+   * BUFFERS) on both — Parallel Seq Scan, ~100,200 rows removed by filter per
+   * worker, 71 ms and 90 ms. They run on POST /api/war, which is the endpoint
+   * the map reads on every single visit, so that was two full-ledger scans a
+   * page load.
+   *
+   * MEASURED, on a 400,000-row fixture with four peoples in one season: the
+   * plan moves from Parallel Seq Scan to Bitmap Index Scan and the query goes
+   * 71 ms -> 34.9 ms. It still visits the heap, and a covering variant carrying
+   * `profile_id` was tried and REJECTED — 33.9 ms, inside the noise, because at
+   * a quarter of the table Postgres will not choose an index-only scan however
+   * wide the index is. So `points` rides along for the aggregate and nothing
+   * here claims to avoid the heap.
+   *
+   * The win is larger in production than on that fixture: it filters ONE season
+   * of many, where the fixture had a single season and therefore the worst
+   * selectivity this index will ever see.
+   */
+  index("war_ledger_season_people_idx").on(t.seasonId, t.people, t.points),
 ]);
 
 /**
