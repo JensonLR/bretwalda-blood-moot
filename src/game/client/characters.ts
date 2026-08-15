@@ -16693,41 +16693,204 @@ export function buildCharacter(
           // neck as it drops, so the curtain lies against the throat rather than
           // standing off it as a bib. Wider at the bottom because it lands on the
           // collar, which is where a coif's skirt goes.
-          const vRings = [
-            { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
-            { y: mix(vTop, vBot, 0.5), hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
-            { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
-          ];
+          //
+          // AND ITS REAR IS SOLVED AGAINST THE NECK, NOT AGAINST THE SKULL'S
+          // ELLIPSE. This is the owner's third note — "there's a full neck mesh
+          // on the front with a clear back? That's really sloppy" — and it is
+          // this ring table, read at the nape.
+          //
+          // Every radius here is a multiple of the SKULL's `R`, and the rings
+          // are pushed FORWARD by `chinPt.z` on top of that, because the curtain
+          // was authored hanging off the mask to close the throat. The neck goes
+          // the other way: its own stations are set BACK, to -27.5 mm at the top,
+          // and its rearmost skin stands 101.6 mm from the head's axis. So the
+          // curtain's back collapsed inside the neck it is supposed to be
+          // hanging over. Measured on the warden at y 30, r in mm from the axis:
+          //
+          //     azimuth      0     40     70     90    110    140    180
+          //     curtain  135.9  117.1   93.8   80.3   70.0      —      —
+          //     neck      58.6   54.3   57.0   60.7   70.2   85.3  101.4
+          //
+          // The two cross at azimuth 110 and the sheet has run out by 133, so
+          // from there to the far side there is no mail at any height — and
+          // below the nape guard's hem there is no plate either. That is the
+          // bare band, and on the huscarl it does not exist for one reason
+          // only: his coif is a bag of mail the head goes into and it stands at
+          // 143-148 mm all the way round.
+          //
+          // THE FRONT DOES NOT MOVE. `front` is read back off each ring exactly
+          // as authored and handed straight out again, so the throat under the
+          // mask — the reading two passes were spent on and the one place a
+          // ventail and a beard are negotiating millimetres — is untouched to
+          // the last decimal. Only the back is solved, and it is solved against
+          // `neckBackAt`, the neck's own profile, so a stature or a bulk that
+          // moves the neck moves the mail with it.
+          //
+          // Growing one side of an ellipse is `hd` up by half and `z` back by
+          // half, which is the identical arithmetic the neck's own top stations
+          // are written with, three thousand lines down.
+          // THE SHEET HAS TWO WALLS AND IT IS THE INNER ONE THAT HAS TO CLEAR
+          // THE NECK. `patch` builds this curtain as an outer surface and an
+          // inner surface `V_WALL` behind it, and solving the OUTER wall against
+          // the neck puts the inner wall 7 mm inside the skin — the mail then
+          // hangs correctly from every bearing a player can stand at and is
+          // threaded through the throat from every one he cannot. Nothing in the
+          // battery would have said so: the curtain is a bare `patch` with no
+          // tag, so `wearmeasure`'s spy never sees a vertex of it, and section 3
+          // reads the FARTHEST surface and would have called it covered. Solved
+          // on the inner wall, with the layer gap on top of the wall thickness.
+          const V_WALL = 0.007;
+          // AND ONLY ON A HEAD WITH NO COIF ON IT, which is not a special case
+          // but the whole point of the piece.
+          //
+          // A coif is a bag of mail the head goes into and it closes the neck by
+          // itself: measured at the nape on the huscarl it stands at 143-148 mm
+          // from the axis, 41-46 mm outside his own neck, at every height from
+          // the collar to the crown. He has never had a bare nape and does not
+          // read one now — he is the one combination in the shop that section 3
+          // has always passed. The curtain's rear exists for the three classes
+          // that wear no coif, and on the coifed head it keeps the shape it was
+          // authored with.
+          //
+          // THAT IS MEASURED, NOT TIDINESS. Solved on the huscarl as well, the
+          // closure puts a covering wall across the one route his gathered mane
+          // is allowed to leave by — `coifHemY`, the aventail's own free lower
+          // hem, "the one route that costs no millimetre of hair through metal".
+          // `wearmeasure` section 4 caught it at once: Long Mane 56.4 mm and
+          // 8.14% outside the helm at 144/-56 deg, Braided War-locks 50.6 mm and
+          // 13.79%, both clean before. A 40-gold and a 100-gold cosmetic hanging
+          // through the mail is not a repair of a bare nape, and compressing
+          // them inside the new wall instead would have buried them, which is
+          // the fault this branch has been held off main for twice.
+          const vRear = (y: number, hd: number, z: number) => {
+            const front = hd + z;
+            const authored = hd - z;
+            const back = coifed ? authored
+              : Math.max(authored, neckBackAt(y) + V_WALL + LAYER_GAP);
+            return { hd: (front + back) / 2, z: (front - back) / 2 };
+          };
+          const vMidY = mix(vTop, vBot, 0.5);
+          /**
+           * The ring table as authored, read at any height rather than at three.
+           *
+           * The three stations are evenly spaced in y, so reading them by height
+           * is identical to reading them by index — which is what the sweep did
+           * before — and the coifed head therefore builds the same vertices to
+           * the last bit. It is written this way because the top edge stops
+           * being level below, and once y varies with azimuth an index is no
+           * longer a height.
+           */
+          const vAuthored = (y: number) => {
+            const A = [
+              { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
+              { y: vMidY, hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
+              { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
+            ];
+            if (y >= A[0]!.y) return A[0]!;
+            for (let i = 0; i < A.length - 1; i++) {
+              const a = A[i]!, b = A[i + 1]!;
+              if (y >= b.y) {
+                const f = (a.y - y) / (a.y - b.y);
+                return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z, b.z, f) };
+              }
+            }
+            return A[A.length - 1]!;
+          };
+          /**
+           * THE RIM THE CURTAIN HANGS FROM IS NOT LEVEL, and this is what keeps
+           * the repair of the owner's third fault from causing his first.
+           *
+           * In front the curtain is riveted under the mask's lower edge, which
+           * is what `vTop` is. Behind, the thing above it is the nape guard, and
+           * the guard's own free lower edge is `napeHemY` — 1 to 4 mm lower on
+           * these three classes. Hanging the whole curtain from the front rim
+           * runs it up THROUGH the band the guard occupies, and because the
+           * guard's rim sits at the neck's own radius the mail can only get
+           * outboard of the neck by getting outboard of the plate as well.
+           *
+           * MEASURED, with the curtain hung level from `vTop`: section 1's
+           * worst-buried piece on all three became the guard's own lower rim —
+           * warden 15.0 mm and 8.1% of its outward face inboard of the rings,
+           * berserker 11.0 mm and 8.5%, runekeeper 16.0 mm and 8.1%, against
+           * 4.6 / 4.3 / 5.0% on the tree before this commit. That is the owner's
+           * "the Sutton Hoo helmet clashes with the mesh" being made worse to
+           * pay for his "clear back", which is not a repair, it is a swap.
+           *
+           * So the curtain's top edge falls to the guard's hem behind the ears
+           * and the two pieces meet edge to edge instead of overlapping. Section
+           * 1 returns to its own baseline, to the digit, on all three.
+           *
+           * `awayFromFace` is the head stack's own azimuth measure and 1.40 rad
+           * is the bearing the note above already names as the fall's — read
+           * from one place so the curtain and the plate cannot drift apart.
+           */
+          const vTopAt = (u: number) => {
+            if (coifed) return vTop;
+            const rear = clamp01((awayFromFace(u) - 1.40) / 0.30);
+            // EXACTLY ON THE PLATE'S HEM, AND NOT A MILLIMETRE BELOW IT. Both
+            // directions were measured. Dropping the curtain's top edge by
+            // `LAYER_GAP` to keep it off the guard's lowest row opens a 5 mm
+            // bare ring right round the back — the guard's hem is level at every
+            // azimuth, so the ring is too — and section 3 went to 202.5 / 193.5
+            // / 216.5 degrees, WORSE than the 159.5 / 156.5 / 162.5 this commit
+            // started from. Section 3 sweeps at every millimetre of height, so
+            // any gap at all between the two pieces is a bare height, and a bare
+            // height at the nape is the whole defect. They meet edge to edge.
+            return mix(vTop, Math.min(vTop, napeHemY), smooth(0, 1, rear));
+          };
           const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
-            const t = v * (vRings.length - 1);
-            const i = Math.min(vRings.length - 2, Math.floor(t));
-            const f = t - i;
-            const a = vRings[i];
-            const b = vRings[i + 1];
+            const y = mix(vTopAt(u), vBot, v);
+            const a = vAuthored(y);
+            const r = vRear(y, a.hd, a.z);
             out.set(
-              Math.sin(u) * (mix(a.hw, b.hw, f) - inset),
-              mix(a.y, b.y, f),
-              mix(a.z, b.z, f) + Math.cos(u) * (mix(a.hd, b.hd, f) - inset),
+              Math.sin(u) * (a.hw - inset),
+              y,
+              r.z + Math.cos(u) * (r.hd - inset),
             );
           };
           // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
           // fall are both written around, and a curtain swept the other way
           // renders as a hole in the throat.
           //
-          // 2.45 rad, not 1.55: the arc now runs well past the ear on both sides
-          // and finishes under the nape fall, which owns everything behind
-          // 1.40 rad. Two prior passes widened this by tenths and the profile card
-          // kept showing a hole, because the gap was never in the arc — it was in
-          // the radius. Both are settled together here: past the ear the curtain
-          // is inside the fall's own plate, so the extra sweep costs a few
-          // triangles nobody will see and removes the last bearing at which the
-          // three pieces can disagree.
-          const vHalf = 2.45;
+          // AND IT CLOSES, which 2.45 rad did not.
+          //
+          // The note this replaces said the arc "finishes under the nape fall,
+          // which owns everything behind 1.40 rad", and that is true of every
+          // height the nape fall reaches. The fall's own free lower edge is
+          // `napeHemY`, and it lands at y 50 mm; the curtain runs to y -48 to
+          // meet the hauberk's collar. For the 98 mm between those two lines
+          // nothing owns the back at all, so "under the nape fall" was an
+          // argument about the top third of the piece being used to license the
+          // bottom two thirds.
+          //
+          // It is also not 2.45 rad of AZIMUTH. `u` is an ellipse parameter, not
+          // a bearing: with the section this ring table carries, u = 2.45
+          // arrives at azimuth 133, and at the top ring — pushed furthest
+          // forward by `chinPt.z` — it arrives sooner still. That is why two
+          // prior passes widened it by tenths and the profile card kept showing
+          // a hole. A collar is closed or it is not; there is no arc that is
+          // nearly closed.
+          //
+          // pi with `wrapU`, so the two ends of the sheet land on the same
+          // points at the nape and no rim strip is generated between them. The
+          // seam is at azimuth 180, which is where the coif's is and where the
+          // nape fall's is, and for the same reason: it is the one bearing on a
+          // head that a garment is allowed to be joined at.
+          // On a coifed head it keeps 2.45 and stays open, for the reason given
+          // over `vRear`: the coif is already the neck defence there, and a
+          // closed curtain behind it only puts a covering wall across the route
+          // the gathered mane leaves by. Closing the ARC alone was tried and
+          // measured — with the radius left authored, `wearmeasure` section 4
+          // still read 15.0 mm and 0.26% of Braided War-locks outside the helm
+          // at 166/-64 deg — so the whole piece is held, not half of it. The
+          // huscarl's curtain is byte-identical to the tree before this commit,
+          // and that is checked by hashing every vertex rather than asserted.
+          const vHalf = coifed ? 2.45 : Math.PI;
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
           p.add(patch({
-            nu: Math.max(12, lod.shellU + 2), nv: 4,
-            outer: vSweep(0), inner: vSweep(0.007),
+            nu: Math.max(12, lod.shellU + 2), nv: 4, wrapU: !coifed,
+            outer: vSweep(0), inner: vSweep(V_WALL),
           }), mail);
         }
 
