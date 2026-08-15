@@ -15618,11 +15618,66 @@ export function buildCharacter(
         // corner would do.
         const sm = (a: number, b: number, k = 0.004) =>
           0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k)) - k * 0.5;
+        // AND THE NECK IN IT IS THE NECK NOW. This was:
+        //
+        //     let hw = sm(readP(sideP, y), S.neckHW);
+        //     let hd = sm(readP(backP, y), S.neckHW);
+        //
+        // — one constant used for both. `S.neckHW` is a half-WIDTH, and the two
+        // sides of this pair are not the same quantity: `hw` is a half-width
+        // about the axis and `hd` is how far the hull reaches BEHIND it, which on
+        // a neck whose stations are set back to -27.5 mm is the half-depth PLUS
+        // that offset. Measured on the warden at az 180, in mm from the axis:
+        //
+        //     the neck's rearmost skin      101.3
+        //     what this floored `hd` at      78.1
+        //     the guard's rim, riding it     98.7
+        //
+        // So the plate was solved against a column 23 mm too narrow at the back,
+        // the rim landed 0.2 to 1.9 mm INSIDE the skin, and the neck stood
+        // through the helmet from y 49 to y 62 — the residual bare band, which no
+        // amount of mail could close because mail has to be outboard of the neck
+        // to cover it and inboard of the plate to be worn under it.
+        //
+        // IT WAS ALSO 16 mm TOO WIDE AT THE FLANKS, which is the same error with
+        // its sign reversed and the reason this is not simply "make the plate
+        // bigger". At the guard's hem the neck's own half-width is about 62 mm,
+        // not 78, so a hull floored at 78 held the plate out from the throat on
+        // both sides — and with the ruler repaired, `wearmeasure` section 3 read
+        // that as 31.0 mm of gap and 43.3 deg of flare. An ellipse where there
+        // was a circle takes the metal off the head at the back and onto it at
+        // the sides.
+        //
+        // AND THE REAR HALF GROWS, NOT THE WHOLE ELLIPSE — the same construction
+        // the ventail's `vBackHalf` is written with, three hundred lines up, and
+        // adopted here after the whole-ellipse version was built and measured.
+        //
+        // Deepening the ring everywhere pushes its FRONT EDGE forward as well:
+        // the edge sits at u = pi - half(v), where `cos(u)` is about 0.17, so
+        // 23 mm of extra depth carries it 4 mm further round the jaw — from
+        // azimuth 63 to 59 at the hem. There it is over the submandibular
+        // hollow, and `wearmeasure` section 3's flare, which is a derivative,
+        // went the wrong way: 43.3 -> 49.9 deg on the Sutton Hoo while its gap
+        // and hem improved. Blending on `cos(u)` leaves the flanks exactly where
+        // they were (at `cos(u) = 0` the point sits on the authored centre
+        // whatever the depth is) and the front edge on its authored depth, and
+        // spends the growth only where the neck is.
+        //
+        // `neckSection` and `neckBackAt` are the head stack's own, which are
+        // `neckStations` at module scope, which is what `helmFitProbe` reads too.
+        // One table, three readers, no private copies left.
         const hullAt = (y: number) => {
-          let hw = sm(readP(sideP, y), S.neckHW);
-          let hd = sm(readP(backP, y), S.neckHW);
-          if (heavy) { hw = sm(hw, coifAt(y, "hw")); hd = sm(hd, coifAt(y, "hd")); }
-          return { hw, hd };
+          const nk = neckSection(y + S.neckTop);
+          let hw = sm(readP(sideP, y), nk.hw);
+          const back = readP(backP, y);
+          let hdF = sm(back, S.neckHW);
+          let hdB = sm(back, neckBackAt(y));
+          if (heavy) {
+            hw = sm(hw, coifAt(y, "hw"));
+            hdF = sm(hdF, coifAt(y, "hd"));
+            hdB = sm(hdB, coifAt(y, "hd"));
+          }
+          return { hw, hdF, hdB };
         };
         // AND THE PLATE IS DRIVEN OFF THAT HULL AT EVERY HEIGHT, not off three
         // sampled rings with straight lines between them. Three rings is a plate
@@ -15687,10 +15742,15 @@ export function buildCharacter(
           const y = mix(topY, floorY, v);
           const h = hullAt(y);
           const c = clearAt(v) - inset;
+          const cu = Math.cos(u);
+          // The rear half only — see the note over `hullAt`. `smooth(-1, 1, cos u)`
+          // is 0 dead behind and 1 dead ahead, and it keeps dz/du continuous
+          // through the flanks so there is no crease down the side of the plate.
+          const hd = mix(h.hdB, h.hdF, smooth(-1, 1, cu));
           out.set(
             Math.sin(u) * (h.hw + c),
             y,
-            zAt(v) + Math.cos(u) * (h.hd + c),
+            zAt(v) + cu * (hd + c),
           );
         };
         // u runs from the near edge round to the far one, the same direction the
