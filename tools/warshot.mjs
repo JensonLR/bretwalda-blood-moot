@@ -39,6 +39,13 @@ const DPR = Number(arg("scale", "1"));
 // `--label` names the file, so a before and an after can sit side by side.
 const AS = arg("as", "");
 const LABEL = arg("label", "");
+// `--seen MS` pre-sets the dispatch watermark (`bretwalda_war_seen_<season>`,
+// see factionMap/Dispatch.tsx) so the three states that panel has — never
+// looked, flips since you did, nothing since — can each be photographed.
+// Without it every run is a first visit, which is the one state that does not
+// exercise the comparison.
+const SEEN = arg("seen", "");
+const SEEN_SEASON = arg("seen-season", "1");
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
 const BASE = `http://localhost:${PORT}`;
 const DB = process.env.WAR_TEST_DB || "";
@@ -92,15 +99,16 @@ async function main() {
     const page = await ctx.newPage();
     page.on("pageerror", (e) => console.log(`[warshot] PAGE ERROR ${vp.tag}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && console.log(`[warshot] console ${vp.tag}: ${m.text()}`));
-    if (AS) {
+    if (AS || SEEN) {
       // The key has to be on the origin BEFORE /factions runs its first
       // effect, so it is written on a cheap page and the map navigated to
       // second.
       const [id, ...rest] = AS.split(":");
       await page.goto(`${BASE}/api/health`, { waitUntil: "domcontentloaded" });
-      await page.evaluate(({ id, secret }) => {
-        localStorage.setItem("bretwalda_link", JSON.stringify({ id, secret }));
-      }, { id: Number(id), secret: rest.join(":") });
+      await page.evaluate(({ id, secret, seen, season }) => {
+        if (secret) localStorage.setItem("bretwalda_link", JSON.stringify({ id, secret }));
+        if (seen) localStorage.setItem(`bretwalda_war_seen_${season}`, seen);
+      }, { id: Number(id), secret: rest.join(":"), seen: SEEN, season: SEEN_SEASON });
     }
     await page.goto(`${BASE}/factions`, { waitUntil: "domcontentloaded" });
     // Wait for a stylesheet to actually be attached and parsed. In dev,

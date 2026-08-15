@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
+import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
 import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
 import { readCreds } from "../profileLink";
@@ -90,6 +91,14 @@ export default function WarPage() {
   const [choice, setChoice] = useState<PeopleId | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * The newest flip this browser had already been shown when it arrived.
+   * `undefined` until the war has been read — see `takeWatermark`, which both
+   * answers this and raises the stored value. It is read HERE, in the fetch
+   * callback below, for the same reason every setState on this screen is: an
+   * effect body is the one place this repository does not put them.
+   */
+  const [seen, setSeen] = useState<number | null | undefined>(undefined);
 
   /**
    * Read the war rolls. Every setState below happens in a promise callback and
@@ -110,6 +119,18 @@ export default function WarPage() {
         if (body.mode === "local" || !body.war) { setMode("local"); return; }
         setMode("server");
         setWar(body.war);
+        // Read OUTSIDE the updater, because a state updater must be pure and
+        // this one both reads a store and writes to it. `takeWatermark` is
+        // idempotent — the read is cached per season and the write stores the
+        // same value — so calling it on a second load costs nothing.
+        const watermark = takeWatermark(
+          body.war.season.index,
+          body.war.recent.reduce((m, f) => Math.max(m, f.at), 0),
+        );
+        // Once per visit: the SECOND load — after swearing, say — must keep the
+        // value the FIRST one answered, or the dispatch would go quiet in the
+        // middle of the visit that was showing it.
+        setSeen((had) => (had !== undefined ? had : watermark));
         setSelf(body.self ?? null);
         if (body.self?.allegiance) setChoice(body.self.allegiance as PeopleId);
       })
@@ -183,6 +204,13 @@ export default function WarPage() {
               <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss">×</button>
             </div>
           )}
+
+          {/* WHAT MOVED WHILE YOU WERE AWAY — above the map, and that
+              placement is the point. The map plate is taller than a 390px
+              viewport, so anything below it is off-screen on the phone this
+              defect was reported from. The one sentence a returning player
+              came back for cannot be a thing he has to go and find. */}
+          {mode === "server" && <Dispatch war={war} mine={sworn ?? null} seen={seen} />}
 
           {mode === "loading"
             ? <p className="war-loading">Reading the war rolls…</p>
