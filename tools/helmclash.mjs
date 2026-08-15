@@ -1413,24 +1413,58 @@ function sectionWrap(rows) {
 // can decide for itself, and the Shadow Hood — `cap: false` in the catalogue,
 // and a garment that covers the crown in the mesh — is exactly the case it hid.
 //
-// THE FOUR HOOD ROWS ARE NEW AND THEY ARE NOT CONFIRMED. Letting the mesh decide
-// admits the Shadow Hood, and the hood fails at 41.9 - 44.7 mm on a 48-triangle
-// piece. Measured, before anybody calls that a defect: the piece is a flap at
-// az 180, radius 136-144 mm, spanning y 134-252 mm, and its nearest approach to
-// the cowl is 0.0 mm — it is ATTACHED at its root and hangs to 60.5 mm at its
-// tip. That is the shape of the false positive this section's own history warns
-// about twice ("the flank of a bowl has the nape fall a long way below it, and
-// that is the side of a head, not daylight under a crest"): the "over the cap"
-// test was written for a bowl sitting on a crown, and a hood's cap is a cowl
-// that drapes to the shoulders, so a thing hanging BESIDE the head still lands
-// on it.
+// THE FOUR HOOD ROWS ARE A CONFIRMED FALSE POSITIVE, AND THEY STILL STAND.
+// Letting the mesh decide admits the Shadow Hood, and the hood fails at
+// 41.9 - 44.7 mm on a 48-triangle piece: a flap at az 180, radius 136-144 mm,
+// spanning y 134-252 mm, whose nearest approach to the cowl is 0.0 mm — it is
+// ATTACHED at its root and hangs to 60.5 mm at its tip. That is the shape of the
+// false positive this section's own history warns about twice ("the flank of a
+// bowl has the nape fall a long way below it, and that is the side of a head,
+// not daylight under a crest"): the "over the cap" test was written for a bowl
+// sitting on a crown, and a hood's cap is a cowl that drapes to the shoulders,
+// so a thing hanging BESIDE the head still lands on it.
 //
-// It is left standing, loudly, rather than tuned away in the commit that changed
-// the case list. Excluding a fitting that never rises above the cap's own crown
-// would fix it and would also move the reported fitting on twenty other rows —
-// that is a change to what this section measures and it needs its own before and
-// after, not a quiet ride on a commit about case selection. Whoever takes it
-// should open a render of the Shadow Hood from behind first.
+// THE RENDER WAS OPENED, which is what the previous pass asked for and could not
+// do. Shadow Hood on the berserker, turn 180 and turn 135, brightened 2.6x to
+// read a black garment: the flap is continuous cloth emerging from under the
+// cowl's own edge and draping down the back, with a visible step where the dome
+// curves away from it and NO sky behind it at any bearing. It is the back of a
+// hood. It is not a fitting floating off a cap, which is the thing this section
+// exists to catch and which the owner photographed on the Wyrm.
+//
+// IT STANDS ANYWAY, and this is the part worth writing down, because three
+// repairs were measured and all three are worse than the fault:
+//
+//  1. "Exclude a fitting that never rises to the cap's own crown." There is no
+//     gap to put that bar in. Genuine combs sit FLUSH with the crown (0.0 mm
+//     below it) and the closest excluded piece in the shop sits 0.3 mm below
+//     its own crown, so the bar would be splitting 0.0 from 0.3. Pushing it out
+//     to the widest measured gap in the distribution (38.6 -> 65.5 mm) makes it
+//     a 50 mm tolerance chosen to hit one helmet, and it removes EVERY fitting
+//     the hood has — 75.7, 78.5, 81.3, and the rest — so all four rows stop
+//     being cases at all. A gate that goes quiet because the case is absent is
+//     not a gate, and trading four loud false positives for four silent rows is
+//     the wrong direction.
+//
+//  2. "Station along the fitting's own longest horizontal axis instead of always
+//     z." The idea is that a crest runs fore-and-aft and a rear flap runs across,
+//     so z-stations chop a drape into slices that each see only part of it.
+//     MEASURED, and it is simply not true of this flap: 100.0 mm in x, 124.9 in
+//     z, 118.4 in y — very nearly equidimensional, and its longest horizontal
+//     axis IS z, the same as a crest's. Worse, plenty of genuine fittings run in
+//     x (the Boar's 256-triangle piece, the Jarl's Crowned's), so the change
+//     would move them and leave the hood exactly where it is.
+//
+//  3. "Only count stations over the crown's own footprint." That drops the
+//     Wyrm's worst station, at az 6, which is the defect the owner actually
+//     photographed. Not acceptable at any price.
+//
+// So the repair is not a threshold: it is teaching this section what "sitting
+// on" means when the cap is a DRAPE rather than a bowl, and that is a redesign
+// with its own before and after. Recorded in docs/OPEN-DEFECTS.md with these
+// numbers so the next pass does not re-derive them. Until then the hood is red,
+// and the row is a false positive that is known, named and cheap to read past —
+// which is a better state than a green row nobody has looked at.
 //
 // The cap is found rather than named: drop a ray down the head's own axis and
 // take the LAST piece of kit it passes through before the skull. A crest crosses

@@ -4476,3 +4476,131 @@ so no section of `helmclash` is a case for it.
    positives — open a render of the cowl from behind before tuning anything.
 5. Section 1's one red: `huscarl / suttonhoo / hair=braids`, an 80-triangle brass
    braid ring 100% inboard of the coif at 61.5 mm.
+
+## The ruler had no neck in it — instance sixteen, and it took two repairs — 15 Aug 2026
+
+Round seven, on `helm7`. `headPieces` in `tools/helmclash.mjs` did
+`pivot.traverse(...)` on `rig:headPivot`. `rig:neck` — 380 triangles of
+complexion `c99d75` — is a **sibling** of that pivot, not a child, because
+`characters.ts` emits it with `emit("neck", root, ...)` while the head goes to
+`emit("head", headPivot, ...)`. The neck hangs off `root` deliberately, so
+`insertSpine` carries it with the chest and `severBody` leaves it alone. That is
+an animation decision and it has nothing to do with what a player sees.
+
+So for six rounds section 3 measured a head with no neck in it, and the bare band
+the owner photographed under the Sutton Hoo **is** that neck. The instrument was
+structurally unable to see the defect it was pointed at.
+
+### The scope was only half of it, and the half nobody predicted
+
+Widening the scope moved **not one digit**. `rayHit` returns the NEAREST surface,
+and both lists were compared with it. Nested shells hide that: cast outward from
+the axis, the first pelt is the skin and the first kit is the helmet over it, so
+"kit farther than pelt" does read as covered. It stops being right the moment
+there are TWO pelt shells. Ground truth, warden/suttonhoo at az 180, y 50 mm:
+
+```
+r =  22.4 mm  PELT  rig:head c99d75     <- rayHit stopped here
+r =  86.8 mm  PELT  rig:head 917050
+r =  88.3 mm  KIT   rig:head 9aa6ae     <- and here, and said COVERED
+r =  92.7 mm  KIT   rig:head d9b45f
+r =  96.3 mm  KIT   rig:head 9aa6ae
+r =  98.7 mm  KIT   rig:head d9b45f     <- outermost metal
+r = 100.4 mm  PELT  rig:neck c99d75     <- what the player actually sees
+```
+
+Both repairs are needed; either alone is inert. **Fixed** in `4293c9e` (scope,
+by the atlas plane y=0 rather than by parentage) and `8915989` (`rayHitFar`).
+
+### What it reads now, and the check that it is right
+
+```
+huscarl    suttonhoo  14.0 deg bare ->   0.0 deg, covered at all 137 heights
+warden     suttonhoo 149.5 deg      -> 159.5 deg at y 48, radius 82.0 mm
+berserker  suttonhoo 149.5 deg      -> 156.5 deg at y 51, radius 86.8 mm
+runekeeper suttonhoo 152.5 deg      -> 162.5 deg at y 45, radius 77.3 mm
+```
+
+The huscarl is the check. His coif is the one in the shop that closes all the way
+round, and an independently built whole-rig ray probe puts 0 degrees of proud neck
+on him and 61-67 on the other three. The repair therefore **deleted a 14.0-degree
+false positive** on the huscarl and sharpened three true ones. Both renders were
+opened (turn 180, `facecard`): the warden shows a broad band of bare flesh between
+the gilt rim and the mail collar; the huscarl's mail runs unbroken from helm to
+shoulder. Section 3 goes 32 red -> 25 red.
+
+### A LANDMINE THIS CHANGE CREATED, and it is not fixed
+
+The neck's 380 triangles are now in **section 2's skin denominator**, and section 2
+decides whether a helm is a case at all by "65.0%+ of the skin within 45 deg of
+dead ahead is covered". That figure fell:
+
+```
+huscarl / suttonhoo   face cov  81.5%  ->  66.0%     bar is 65.0%
+warden                          81.5%  ->  66.2%
+runekeeper                      81.2%  ->  66.3%
+berserker                       88.8%  ->  70.1%
+```
+
+The margin on the huscarl went from 16.5 points to **1.0 point**. No verdict moved
+— section 2 is 32 of 32 red before and after — but one more millimetre of neck, or
+any reshape of the throat, drops the Sutton Hoo below its own case bar and section 2
+stops measuring the most expensive helmet in the shop **without printing a failure**.
+That is precisely "a gate green because the case is absent".
+
+The fix is almost certainly that section 2's face-coverage denominator should be the
+head's own skin and not the neck's — the neck is not the face. It is NOT done here
+because it is a change to what section 2 measures and needs its own before and after
+rather than a ride on a commit about scope. **This is the first thing round eight
+should do.**
+
+## Shadow Hood, section 4: settled as a FALSE POSITIVE, and it still stands — 15 Aug 2026
+
+Round six left this open with "open a render of the cowl from behind before tuning
+anything". Done, and the verdict is that the red is wrong and every available repair
+is worse than the fault.
+
+**The render.** Shadow Hood on the berserker, turn 180 and turn 135, brightened 2.6x
+to read a black garment. The 48-triangle `2a2521` flap is continuous cloth emerging
+from under the cowl's own edge and draping down the back, with a visible step where
+the dome curves away from it and no sky behind it at any bearing. Its nearest
+approach to the cowl is 0.0 mm — it is attached at the root. It is the back of a
+hood, not a fitting floating off a cap.
+
+**Three repairs, all measured, all rejected.**
+
+1. *Exclude a fitting that never rises to the cap's crown.* No gap to put the bar
+   in: genuine combs sit flush at 0.0 mm below their crown and the closest excluded
+   piece in the shop sits 0.3 mm below its own. Pushing the bar to the widest gap in
+   the distribution (38.6 -> 65.5 mm) makes it a 50 mm tolerance chosen to hit one
+   helmet, and it removes every fitting the hood has (75.7, 78.5, 81.3 mm), so all
+   four rows stop being cases. Trading four loud false positives for four silent
+   rows is the wrong direction.
+2. *Station along the fitting's own longest horizontal axis rather than always z.*
+   Measured and false: the flap is 100.0 x 124.9 x 118.4 mm, near enough
+   equidimensional, and its longest horizontal axis IS z, the same as a crest's.
+   Meanwhile genuine fittings (the Boar's 256-triangle piece, the Jarl's Crowned's)
+   run in x, so the change moves them and not the hood.
+3. *Count only stations over the crown's own footprint.* Drops the Wyrm's worst
+   station at az 6 — the defect the owner actually photographed. Not at any price.
+
+So the repair is a redesign of what "sitting on" means when the cap is a drape
+rather than a bowl, not a threshold. Until then the four rows are red, known and
+named, which beats a green row nobody has looked at.
+
+## `helmclash`'s own calibration numbers describe a tree that was not shipped — 15 Aug 2026
+
+Noticed while working section 4. The note over `CREST_MM` says the Wyrm's serpent
+"read 50.0 - 54.2 when this bar was written and reads **23.4 - 24.7** today", and
+the table beside it lists the serpent at 23.4 - 24.7. On this tree the battery
+prints **50.0, 52.1, 52.3, 54.2** — exactly the "before" figures the same comment
+records as historical.
+
+The explanation is in `a8bc004`: the helm ruler landed on `main` but
+`src/game/client/characters.ts` was deliberately held at main's version, because the
+helm geometry on `helm-land` deletes 7680 triangles of paid hair. The ruler was
+calibrated against the geometry that was **correctly** refused. Several recorded
+readings in `helmclash.mjs` therefore describe a build nobody can play. They are
+comments rather than assertions, so nothing fails because of it, but any number in
+that file quoted without re-running it is suspect.
+
