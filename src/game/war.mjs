@@ -671,26 +671,55 @@ export const TERRITORIES = Object.freeze([
     // is east of Hereford and Gloucester, and the render showed a Welsh fill
     // laid across Somerset and the Cotswolds with a dead-straight border down
     // the middle of England. Nothing in `wartest` could see it and one PNG
-    // could not miss it. The south edge is 51.42 for the same reason: the
-    // Welsh coast of the Bristol Channel is at 51.4 and the Somerset coast at
-    // 51.2, so anything lower puts Dyfed on the English shore.
-    bounds: [[[52.70, -5.50], [52.70, -3.05], [51.90, -2.95], [51.42, -3.10], [51.42, -5.60]]],
+    // could not miss it.
+    // It is now the earthwork itself rather than a straight line drawn near
+    // it, which is what closed the strip of nobody's ground the straight line
+    // left between Tintern and Monmouth. The north edge is the Dyfi and the
+    // Dee, shared with Gwynedd; the south edge stays out in the Severn and the
+    // Bristol Channel, since the Welsh shore is at 51.4 and the Somerset shore
+    // at 51.2 and anything drawn between them lands on the wrong one.
+    bounds: [[
+      ...WALES_DIVIDE,
+      ...OFFAS_DYKE.slice(5),
+      [51.45, -3.00], // the Severn estuary
+      [51.28, -3.65], // the Bristol Channel
+      [51.40, -5.90], // the Atlantic, west of St Davids
+      [52.50, -5.70],
+    ]],
   },
   {
     id: "gwynedd", name: "Gwynedd", native: "Gwynedd", people: "briton",
     blurb: "Snowdonia and Anglesey. Rhodri Mawr's, and hard country to take.",
     threshold: FIELD_THRESHOLD, anchor: [53.19, -4.47],
-    bounds: [[[53.60, -5.00], [53.60, -3.00], [52.60, -3.05], [52.60, -4.95]]],
+    // The Dyfi and the Dee below, shared with Dyfed, and the northern third of
+    // Offa's Dyke — Chirk up over Halkyn Mountain to where it meets the sea at
+    // Prestatyn. Anglesey is inside the offshore leg, and the clip finds it.
+    bounds: [[
+      ...WALES_DIVIDE,
+      ...rev(OFFAS_DYKE.slice(0, 5)).slice(1),
+      [53.60, -3.60], // the Irish Sea, off the Dee
+      [53.60, -4.95], // and west of Anglesey
+      [52.50, -5.30], // Cardigan Bay
+    ]],
   },
   {
     id: "kernow", name: "Kernow", native: "Kernow", people: "briton", seat: "Tintagel",
     blurb: "Cornwall, the last British ground in the south, and Tintagel above it.",
     threshold: SEAT_THRESHOLD, anchor: [50.6667, -4.75],
-    // The Tamar, near enough: Bude on the north coast down to the Plymouth
-    // sound. The first cut ran its north edge along 51.25, which is the north
+    // The Tamar, and now the river and not a chord across it: Marsland Mouth
+    // on the north coast, the Tamar's head at Woolley two miles inland of it,
+    // and the water down through Launceston and Gunnislake to the Plymouth
+    // Sound. The first cut ran its north edge along 51.25, which is the north
     // DEVON coast, and the render put a British fill on forty miles of
-    // Wessex's shoreline.
-    bounds: [[[51.05, -6.20], [50.95, -4.52], [50.30, -4.12], [49.80, -6.40]]],
+    // Wessex's shoreline. Wessex reads the same array the other way, so the
+    // one line the two of them share is the one the eye sees.
+    bounds: [[
+      ...rev(TAMAR),
+      [49.85, -4.60], // the Channel, south of the Lizard
+      [49.80, -6.50], // west of Scilly
+      [50.60, -6.40],
+      [51.05, -5.60],
+    ]],
   },
   {
     id: "fib", name: "Fib", native: "Fib", people: "pict",
