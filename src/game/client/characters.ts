@@ -15035,7 +15035,49 @@ export function buildCharacter(
         },
       };
 
-      const cut = cuts[ap.beardStyle] ?? cuts.full!;
+      // ============================================================
+      // AND UNDER A MASK THE FALL IS PRESSED, NOT DELETED
+      // ============================================================
+      //
+      // `onFace` above retires the beard's FACE leg on a masked rung, because
+      // there is 22 mm of plate where that hair would be. What it does not touch
+      // is the FALL, and the fall on that rung hangs inside a mail ventail:
+      // `helmclash` section 5 read the berserker's Full Beard bulging 21.5 mm
+      // through the curtain at az 4, y -24.9 mm, 6.2% of the beard's own area
+      // outboard of the kit — 2.16% of the pelt against a 2.0% bar. It reads
+      // 4.81 on `fa8353a`, so this is an old fault the curtain fix uncovered
+      // more of rather than one it caused.
+      //
+      // A mail collar worn over a beard FLATTENS it. That is what this is, and
+      // it is the fix `docs/OPEN-DEFECTS.md` records for this exact patch:
+      // "PRESS THE BEARD INSIDE THE MASK ... a beard that is inside the helm is
+      // fine where a beard that is absent is not." A previous pass answered the
+      // same reading with `&& !style.mask`, which built no beard mesh at all
+      // under the Sutton Hoo and deleted three paid rungs. Nothing here changes
+      // what is built: the same shell, the same rows, the same five distinct
+      // head-pivot vertex counts (12124 / 13312 / 13444 / 13444 / 14500 on the
+      // berserker at seed 13), with the section's own OUTWARD reach scaled.
+      //
+      // 0.70, and both ends of it are measured rather than judged. Section 5's
+      // berserker row against its 2.0% bar, sweeping this number alone:
+      //
+      //     1.00  2.16%  FAIL, 21.5 mm through at az 4
+      //     0.70  0.88%  pass, 11.8 mm
+      //     0.50  0.40%  pass,  8.7 mm
+      //     0.30  0.21%  pass,  7.3 mm
+      //
+      // It sits at the loosest value that clears the bar with margin rather than
+      // at the tightest that clears it at all, because every point of press is a
+      // point of a cosmetic somebody paid 40 to 120 gold for. Pressed, and read
+      // off the built mesh with a horizontal ray dead ahead at y = -15 mm, the
+      // berserker's Full Beard still reaches r = 140.7 mm against a neck at 53.5
+      // and the ventail at 126.2 / 133.2 — a beard hanging well clear of the
+      // mail's face, not a scrape on a throat.
+      const BEARD_PRESS = 0.70;
+      const cut0 = cuts[ap.beardStyle] ?? cuts.full!;
+      const cut = style.mask
+        ? { ...cut0, prof: cut0.prof.map((b) => ({ o: b.o * BEARD_PRESS, d: b.d })) }
+        : cut0;
       p.add(beardShell(K, skullY, nuB, cut), beard);
     }
 
