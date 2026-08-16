@@ -75,7 +75,7 @@ import * as THREE from "three";
 import type { GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
-  buildCharacter, buildWeaponForClass, buildShield, shieldBoard,
+  buildCharacter, buildWeaponForClass, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
   type TeamSide,
@@ -641,7 +641,18 @@ export function createWarriorRig(
     // band it is the side's field, because a painted limewood board is the one
     // surface on this warrior where a flat team colour is what the object was
     // actually for.
-    shield = buildShield(shieldBoard(ap, team), materials, ap.armorColor, team);
+    // AND THE PEOPLE, ONE RUNG BELOW THE SIDE. The fifth argument is the
+    // board's PAINT and its mark; the field it lies on is already the people's
+    // because `shieldBoard` chose it. Both are `"none"`-safe and both test the
+    // team first, so a war band's board is byte-for-byte the red or blue field
+    // `tools/teamread.mjs` measures — a device is a within-side read and must
+    // never be able to break a between-side one.
+    //
+    // `ap` and not a seventh rig argument: a livery is a cosmetic, it rides in
+    // the appearance blob with the helm and the cloak, and it is the only thing
+    // here a client is allowed to write for itself. See `Appearance.people`.
+    const people = peopleOf(ap);
+    shield = buildShield(shieldBoard(ap, team, people), materials, ap.armorColor, team, people);
     joints.elbowL.add(shield);
   }
 

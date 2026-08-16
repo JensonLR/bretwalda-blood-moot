@@ -99,8 +99,16 @@ const GORE_FRAMING: { position: [number, number, number]; target: [number, numbe
 //      test. That is the card marks below.
 // ============================================================
 
-/** Query-string slot name -> the field it sets on `Appearance`. Keys are `ARMOURY`'s. */
-const SLOT_FIELD: Record<string, keyof Appearance> = {
+/**
+ * Query-string slot name -> the field it sets on `Appearance`. Keys are `ARMOURY`'s.
+ *
+ * `people` is deliberately excluded from the value type. It is a field of
+ * `Appearance` but it is NOT an armoury slot — nobody buys a people, and
+ * `resolveSlot` refuses anything that is not in the shop — so it is staged by
+ * `?people=` further down and never through this table. Saying so in the type
+ * is cheaper than a comment nobody reads: adding it here would not compile.
+ */
+const SLOT_FIELD: Record<string, Exclude<keyof Appearance, "people">> = {
   helm: "helm",
   hair: "hairStyle",
   hairColor: "hairColor",

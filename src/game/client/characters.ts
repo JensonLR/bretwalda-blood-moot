@@ -87,6 +87,27 @@ export interface Appearance {
   cloak: string;     // none | brown | red | blue | gold
   armorColor: number;
   warPaint: string;  // none | stripes | cross | half
+  /**
+   * THE LIVERY OF THE PEOPLE THIS MAN SWORE TO — `saxon | norse | briton |
+   * pict`, or `"none"` for the unsworn, which is most players most of the time
+   * and is a deliberate look rather than a missing one.
+   *
+   * OPTIONAL, AND IT STAYS OPTIONAL FOREVER. Every profile in localStorage
+   * predates this field and none of them has an expiry; `peopleOf` narrows
+   * anything unknown — `undefined`, a stale string, a people invented by a
+   * modified client — to `"none"`, so an old profile and a hostile one both
+   * build the man they always built.
+   *
+   * NOT THE OATH, AND THE DISTINCTION IS THE LOAD-BEARING ONE. The oath is
+   * `players.allegiance` in the database, written over an authenticated route
+   * and read only by `src/db/war.ts` when it banks a match. This is the KIT
+   * that oath dresses a man in: a cosmetic, client-declared, unverified and
+   * worth nothing. A client that writes `"norse"` here fights in Danish colours
+   * and banks for whoever he actually swore to, which may be nobody. See
+   * `docs/WIRE-PROTOCOL.md` §11 — the rule there was written before this field
+   * existed and is amended, not stretched, in the same commit.
+   */
+  people?: Allegiance;
 }
 
 export interface PlayerAppearanceHolder {
@@ -103,6 +124,15 @@ export function defaultAppearance(cls: WarriorClass): Appearance {
     cloak: cls === "berserker" ? "brown" : cls === "runekeeper" ? "blue" : "red",
     armorColor: 0x5f6b7a,
     warPaint: "none",
+    // UNSWORN, AND ON PURPOSE. Most players are unsworn on first load and a
+    // default that read as "the faction failed to load" would be worse than no
+    // feature at all. What an unsworn man wears is the ISSUED kit — undyed
+    // wool in the fleece's own colours, oiled harness leather, cast bronze,
+    // a plain limewood board with no mark on it — which is the finish
+    // `FINISH_KIT` already calls "what a man is issued" and which every
+    // screenshot in `art/` has been showing since the game existed. Swearing
+    // adds a livery; it does not repair a hole.
+    people: "none",
   };
 }
 
@@ -579,9 +609,347 @@ export function teamCloak(hex: number, team: TeamSide): number {
  * devices on them. Every other surface here is a legibility concession; this
  * one is what the object was for.
  */
-export function shieldBoard(ap: Appearance, team: TeamSide): number {
+export function shieldBoard(ap: Appearance, team: TeamSide, people: Allegiance = "none"): number {
   if (team !== "none") return TEAM_FIELDS[team].board;
+  if (people !== "none") return FACTION[people].field;
   return ap.cloak !== "none" ? 0x5c2320 : 0x6b4226;
+}
+
+// ============================================================
+// THE FOUR PEOPLES — the rung below the team colour
+// ============================================================
+/**
+ * WHY THIS EXISTS. `docs/BACKLOG.md` 4.3, in the project's own words: *"a man
+ * swears to a people and then looks exactly as he did before. The map promises
+ * an identity the arena does not deliver."* This block is the arena half.
+ *
+ * AND THE FIRST THING TO SAY IS WHAT IT IS NOT. `docs/FACTIONS.md` §3:
+ *
+ *   "Factions decide look, kit, flag and names. NOT stats. And a faction never
+ *    gates a match — twelve players split four ways is four empty queues
+ *    instead of one working room."
+ *
+ * Nothing below is a number a fight reads. There is no damage, reach, health,
+ * speed, stamina or guard in this file at all, and there is no *shape* here
+ * either: a people re-dyes surfaces and paints a board, and every vertex on
+ * the man is where it was before he swore. `tools/factionread.mjs` §3 asserts
+ * that as a measurement — the four peoples cover exactly the same pixels, to
+ * the pixel, at every bearing — rather than as a promise, because a promise is
+ * what this repository has four recorded instances of losing.
+ *
+ * WHERE THE OATH LIVES, AND IT IS NOT HERE. `players.allegiance` in the
+ * database is the record a man wrote when he swore, over an authenticated
+ * route with his own bearer token, and `src/db/war.ts` is the only thing that
+ * reads it. What travels on the wire and arrives here is a LIVERY: the kit a
+ * man is dressed in. A client that lies about it dresses itself wrong and
+ * banks nothing for anybody — see `docs/WIRE-PROTOCOL.md` §11, which is
+ * corrected in the same commit as this block rather than quietly stretched.
+ */
+export type PeopleId = "saxon" | "norse" | "briton" | "pict";
+/** A man's people, or the unsworn — which is a state and not a failure. */
+export type Allegiance = PeopleId | "none";
+
+/**
+ * The four, in `war.mjs`'s own order.
+ *
+ * A COPY, AND IT IS GATED RATHER THAN EXCUSED. `PEOPLES` lives in
+ * `src/game/war.mjs`, which is the shared server file and the only authority;
+ * this file cannot import it because every headless harness in `tools/`
+ * compiles `characters.ts` on its own with `npx tsc` and no path alias, so an
+ * `@/game/war.mjs` specifier here breaks `rungcensus`, `teamread`,
+ * `cosmetictest` and six others at once. So the list is restated, and
+ * `tools/factionread.mjs` §0 imports BOTH and fails if they ever disagree.
+ * `docs/PROCESS.md` failure mode 3 is a mirrored definition edited in one
+ * place; a mirrored definition with a gate across it is not that.
+ */
+export const PEOPLE_IDS: readonly PeopleId[] = ["saxon", "norse", "briton", "pict"];
+
+/**
+ * THE FOUR FIELDS, AND THEY ARE `globals.css`'S.
+ *
+ * Not fresh colours and not the numbers `docs/FACTIONS.md` §2 used to print —
+ * that table was wrong for a day and says so at length. These four are
+ * `--gilt`, `--garnet`, `--moss` and `--woad` out of `src/app/globals.css`,
+ * which is where the palette comment "four peoples need four distinguishable
+ * fields" already lives, and which `factionMap/territories.ts` reads by
+ * variable name. The map on the island and the man in the arena are now the
+ * same four colours; that is the whole point of the feature.
+ *
+ * Exported because `tools/factionread.mjs` has to ask "which people does this
+ * man read as", and a harness holding its own idea of gilt would be grading
+ * the gilt it remembers. `tools/csscheck.mjs`'s ground is the CSS itself.
+ */
+export const FACTION_FIELD: Readonly<Record<PeopleId, number>> = {
+  saxon: 0xd9a441,   // --gilt    Alfred's Wessex, after Edington
+  norse: 0x7c1420,   // --garnet  the Danelaw, north-east of Watling Street
+  briton: 0x3f6353,  // --moss    the people who were already here
+  pict: 0x2b4f72,    // --woad    north of the Forth, symbol stones
+};
+
+/**
+ * The surfaces a people dyes, and they are named separately from the team's
+ * three because a people is not a side and does not want the same vat.
+ *
+ * `wrap` and `linen` are split out of `cloth`, and both splits are load-bearing
+ * for a *specific* people. The Picts are "least armour, bare limbs"
+ * (`FACTIONS.md` §2), so their leg wraps stay near-undyed while their wool goes
+ * deep woad — one surface pulling the other way is what stops a man being a
+ * single flat colour. The Britons are "lighter kit… checked weave", so their
+ * linen stays the brightest thing on them. A team has no such interest: it
+ * wants every large surface in one field as hard as it can get it, so
+ * `teamWorn` folds both back into `cloth` and the team build is unmoved.
+ */
+type DyeKind = "cloth" | "wrap" | "leather" | "metal" | "linen";
+
+/**
+ * One surface's vat for one people: how much chroma it takes, how its own
+ * lightness is scaled, and the band that lightness is held inside.
+ *
+ * `bias` is the field this has that `TeamField` does not, and it is where three
+ * of the four kit descriptions in `FACTIONS.md` §2 actually live — "darker
+ * wools" for the Norse, "lighter kit" for the Britons, "least armour" for the
+ * Picts. Those are statements about VALUE, not about hue, and a table with only
+ * a hue in it would have shipped four recolours of one man. The lightness band
+ * is per people for the same reason: the Norse ceiling is below the British
+ * floor on cloth, so a Dane cannot be as pale as a Briton whatever finish he
+ * bought.
+ */
+interface Dye {
+  /** Chroma the vat forces onto this surface. */
+  sat: number;
+  /** The source lightness is scaled by this before it is clamped. */
+  bias: number;
+  lo: number;
+  hi: number;
+}
+
+interface FactionLivery {
+  name: string;
+  /** What the people call themselves. Used by the armoury and the oath screen. */
+  native: string;
+  /** The field, from `FACTION_FIELD`. The cloak and the shield board, flat. */
+  field: number;
+  /** Hue of the field, 0..1 — DERIVED, so there is no second number to drift. */
+  hue: number;
+  /** The board's second colour: what the pattern is painted in. */
+  paint: number;
+  /** How the board is painted. See `BOARD_PATTERN`. */
+  pattern: "quarters" | "staves" | "check" | "rim";
+  /** The mark on the board. See `buildDevice` for the sourcing of each. */
+  device: PeopleId;
+  dye: Readonly<Record<DyeKind, Dye>>;
+}
+
+/** Hue of a colour, in the same space `teamDye` and `tunicDye` already work in. */
+function hueOf(hex: number): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  return hsl.h;
+}
+
+/**
+ * THE FOUR LIVERIES.
+ *
+ * Every hue is `hueOf(FACTION_FIELD[...])` and none of them is typed out, so
+ * the only faction colour in this file is the one the CSS already had. What IS
+ * typed out is chroma and value per surface, and each row is an entry in
+ * `FACTIONS.md` §2's Kit column rather than a preference:
+ *
+ *   Anglo-Saxons  "Mail byrnie, round shield, spear. Madder, woad and undyed
+ *                 wool" — the most metal-forward of the four and the brightest
+ *                 field. His mail keeps nearly all its own colour (metal sat
+ *                 0.14): a byrnie that went gold would stop being iron, and the
+ *                 byrnie is the thing that makes him a Saxon.
+ *   Norse         "more metal, darker wools" — the ceiling on his cloth is
+ *                 0.40, below every other people's, and his metal is lifted
+ *                 (bias 1.16) instead. Dark cloth against bright iron is the
+ *                 Danelaw silhouette and it is the one read here that is a
+ *                 CONTRAST rather than a colour.
+ *   Britons       "Lighter kit… slate and grey-green, checked weave" — the
+ *                 lowest chroma of the four (moss is a low-chroma field to
+ *                 begin with) and the highest lightness band. His linen is left
+ *                 nearly white, which with the pale wraps is the two-value
+ *                 check read at range.
+ *   Picts         "Least armour, long spear, bare limbs" — deep woad wool over
+ *                 near-undyed wraps, and his METAL is pushed DOWN (sat 0.09,
+ *                 bias 0.72). He is the only one of the four whose armour goes
+ *                 darker than the man in it, which is what "least armour"
+ *                 looks like when you are not allowed to take any away — and
+ *                 taking any away is forbidden, because some of it was bought.
+ */
+const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
+  saxon: {
+    name: "Anglo-Saxons", native: "Westseaxe",
+    field: FACTION_FIELD.saxon, hue: hueOf(FACTION_FIELD.saxon),
+    // Undyed limewood under weld yellow: the ground the paint sits on is the
+    // board's own wood, so the quarters read as painted rather than as inlaid.
+    paint: 0x3b2c17, pattern: "quarters", device: "saxon",
+    dye: {
+      cloth:   { sat: 0.52, bias: 1.04, lo: 0.20, hi: 0.60 },
+      wrap:    { sat: 0.30, bias: 1.10, lo: 0.34, hi: 0.72 },
+      leather: { sat: 0.34, bias: 0.94, lo: 0.13, hi: 0.42 },
+      metal:   { sat: 0.14, bias: 1.02, lo: 0.16, hi: 0.58 },
+      linen:   { sat: 0.26, bias: 1.02, lo: 0.42, hi: 0.76 },
+    },
+  },
+  norse: {
+    name: "Norse", native: "Danelagu",
+    field: FACTION_FIELD.norse, hue: hueOf(FACTION_FIELD.norse),
+    // The Gokstad ship's shields alternated BLACK and yellow along the gunwale,
+    // and that is the one period statement anybody has about how a board was
+    // painted. The staves are the black half of it.
+    paint: 0x14100e, pattern: "staves", device: "norse",
+    dye: {
+      cloth:   { sat: 0.58, bias: 0.76, lo: 0.09, hi: 0.40 },
+      wrap:    { sat: 0.34, bias: 0.80, lo: 0.20, hi: 0.50 },
+      leather: { sat: 0.40, bias: 0.78, lo: 0.07, hi: 0.30 },
+      metal:   { sat: 0.16, bias: 1.16, lo: 0.22, hi: 0.66 },
+      linen:   { sat: 0.30, bias: 0.82, lo: 0.30, hi: 0.58 },
+    },
+  },
+  briton: {
+    name: "Britons", native: "Brythoniaid",
+    field: FACTION_FIELD.briton, hue: hueOf(FACTION_FIELD.briton),
+    // A pale second colour, because the check is a VALUE pattern: two tones of
+    // one cloth is what a checked weave is, and two hues would be a flag.
+    paint: 0xc4c0aa, pattern: "check", device: "briton",
+    dye: {
+      cloth:   { sat: 0.36, bias: 1.30, lo: 0.26, hi: 0.70 },
+      wrap:    { sat: 0.18, bias: 1.34, lo: 0.46, hi: 0.82 },
+      leather: { sat: 0.24, bias: 1.20, lo: 0.18, hi: 0.50 },
+      metal:   { sat: 0.13, bias: 1.10, lo: 0.20, hi: 0.62 },
+      linen:   { sat: 0.12, bias: 1.16, lo: 0.52, hi: 0.86 },
+    },
+  },
+  pict: {
+    name: "Picts", native: "Fortriu",
+    field: FACTION_FIELD.pict, hue: hueOf(FACTION_FIELD.pict),
+    // Bone white on woad: the symbol stones are incised into grey rock and read
+    // as pale line on dark ground, which is the contrast this device wants.
+    paint: 0xd8d2c2, pattern: "rim", device: "pict",
+    dye: {
+      cloth:   { sat: 0.56, bias: 0.94, lo: 0.14, hi: 0.52 },
+      // Bare limbs. The wraps come out of the vat almost as they went in, which
+      // at fight distance is the pale band up the shin nobody else has.
+      wrap:    { sat: 0.10, bias: 1.24, lo: 0.48, hi: 0.84 },
+      leather: { sat: 0.30, bias: 0.90, lo: 0.10, hi: 0.36 },
+      // Least armour: his metal goes dark and nearly colourless.
+      metal:   { sat: 0.09, bias: 0.72, lo: 0.10, hi: 0.40 },
+      linen:   { sat: 0.20, bias: 1.10, lo: 0.44, hi: 0.80 },
+    },
+  },
+};
+
+/** The livery of a people, for the screens that name one. */
+export function factionLivery(people: PeopleId): { name: string; native: string; field: number } {
+  const f = FACTION[people];
+  return { name: f.name, native: f.native, field: f.field };
+}
+
+/** True for one of the four. Everything else — including `undefined` — is unsworn. */
+export function isPeople(v: unknown): v is PeopleId {
+  return typeof v === "string" && (PEOPLE_IDS as readonly string[]).includes(v);
+}
+
+/** A stored or wired appearance's people, narrowed. Anything unknown is unsworn. */
+export function peopleOf(ap: Pick<Appearance, "people">): Allegiance {
+  return isPeople(ap.people) ? ap.people : "none";
+}
+
+/**
+ * One surface through a people's vat.
+ *
+ * The same three moves `teamDye` makes — the field's hue, the vat's chroma, the
+ * SOURCE'S OWN LIGHTNESS clamped into a band — with one addition: the lightness
+ * is scaled by the vat's `bias` first. That scale is the whole of "darker
+ * wools" and "lighter kit", and it is applied BEFORE the clamp so a people's
+ * band is a floor and a ceiling on the result rather than on the input.
+ *
+ * Keeping the source lightness is why a finish survives being sworn in. The
+ * seven rows of `FINISH_KIT` are a coordinated set of VALUES — pale wraps over
+ * dark trousers, bright shirt over black harness — and that structure is the
+ * form a viewer reads at 6.8 m. Take the hue and a man has a people; take the
+ * value as well and he is a silhouette with nothing in it. Bretwalda Gold worn
+ * by a Dane is still the brightest kit in the Danelaw.
+ */
+function factionDye(hex: number, f: FactionLivery, d: Dye): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  const l = Math.max(d.lo, Math.min(d.hi, hsl.l * d.bias));
+  return new THREE.Color().setHSL(f.hue, d.sat, l).getHex();
+}
+
+/**
+ * One worn surface in a people's colours. `"none"` returns the hex untouched,
+ * by identity, so an unsworn man costs nothing and builds exactly what he built
+ * before this block was written.
+ */
+export function factionWorn(hex: number, people: Allegiance, kind: DyeKind): number {
+  if (people === "none") return hex;
+  const f = FACTION[people];
+  return factionDye(hex, f, f.dye[kind]);
+}
+
+/**
+ * The finish, in a people's colours. `fitting` is absent for the same reason it
+ * is absent from `teamKit`: the cast bronze is the smallest surface a warrior
+ * carries and the one that still says which finish he bought. A people takes
+ * the large surfaces because legibility is a fight-distance property; it leaves
+ * the small ones because at 6.8 m a 20 mm boss is a quarter of a pixel and at
+ * portrait range it is most of what a purchase IS.
+ */
+export function factionKit(kit: FinishKit, people: Allegiance): FinishKit {
+  if (people === "none") return kit;
+  return {
+    mail: factionWorn(kit.mail, people, "metal"),
+    tunic: factionWorn(kit.tunic, people, "cloth"),
+    trouser: factionWorn(kit.trouser, people, "cloth"),
+    wrap: factionWorn(kit.wrap, people, "wrap"),
+    hide: factionWorn(kit.hide, people, "leather"),
+    buff: factionWorn(kit.buff, people, "leather"),
+    fitting: kit.fitting,
+  };
+}
+
+// ------------------------------------------------------------
+// THE PRECEDENCE, IN THREE FUNCTIONS
+//
+// `docs/FACTIONS.md` §8: **team colour beats clan colour beats faction colour
+// beats bought cosmetic.** Clans do not exist yet; the other three do, and the
+// resolvers below are the only place in the build where the order is stated.
+// Every one of them tests the team FIRST and returns before a people is
+// consulted, so a war band is byte-for-byte what `tools/teamread.mjs` already
+// measures — the faction path is not reachable from a team mode at all.
+//
+// That is deliberate and it is the safer of the two shapes. The alternative —
+// dye for the people, then dye again for the team — would leave the team read
+// depending on what the first pass happened to leave behind, and the whole of
+// backlog 4.5 is that a man must never be unable to identify an enemy because
+// somebody else's colour got there first. `tools/factionread.mjs` §2 asserts
+// the collapse directly: four peoples on one side are one colour, and the two
+// sides are as far apart as they were before any of this existed.
+// ------------------------------------------------------------
+
+/** One worn surface, under the whole ladder. */
+export function wornBy(hex: number, team: TeamSide, people: Allegiance, kind: DyeKind): number {
+  if (team !== "none") return teamWorn(hex, team, kind === "wrap" || kind === "linen" ? "cloth" : kind);
+  return factionWorn(hex, people, kind);
+}
+
+/** The finish, under the whole ladder. */
+export function kitFor(kit: FinishKit, team: TeamSide, people: Allegiance): FinishKit {
+  return team !== "none" ? teamKit(kit, team) : factionKit(kit, people);
+}
+
+/**
+ * The cloak, under the whole ladder — flat in both cases, and for the reason
+ * `teamCloak` already gives: `CLOAK_CUTS` differ in length, hem, wrap, flare
+ * and fold, and those are the properties that survive at 7.9 mm to a pixel.
+ * The CUT is the purchase and the cut is untouched. The colour is the banner's.
+ */
+export function cloakFor(hex: number, team: TeamSide, people: Allegiance): number {
+  if (team !== "none") return TEAM_FIELDS[team].cloak;
+  return people !== "none" ? FACTION[people].field : hex;
 }
 
 // ---------------- Armoury Catalog ----------------
@@ -9630,6 +9998,92 @@ export function buildSpear(materials?: CharacterMaterials): THREE.Group {
  * exactly the grip bar below. The fist that closes on that bar is sized to it —
  * see `HAND_GRIP.huscarl.off`.
  */
+/**
+ * THE FOUR DEVICES, AND WHAT EACH ONE IS SOURCED TO.
+ *
+ * `docs/FACTIONS.md` §9 is the sourcing pass and it opens with the distinction
+ * everything here turns on: **the sources tell us banners existed and what they
+ * were called; with one partial exception they do not tell us what they looked
+ * like.** So every mark below is one of two things and the file says which,
+ * because §9.0's tiers are worth nothing if the code quietly forgets them.
+ *
+ *   saxon   THE SEAX — FIND. The single-edged blade that names the people,
+ *           abundant in English graves right across the period. Drawn
+ *           broken-backed, which is the form the 9th-century finds take; the
+ *           famous inscribed one, the Seax of Beagnoth in the British Museum,
+ *           is 10th century and is a source for the SHAPE of the object and not
+ *           for what a man at Edington carried.
+ *   norse   THE MJÖLNIR — FIND. Thor's-hammer pendants are among the commonest
+ *           Norse finds of the 9th-10th centuries and York has produced them:
+ *           a real object, in the right place, in the right decade. Drawn as
+ *           those pendants are — a broad wedge head, a short shaft, a
+ *           suspension loop at the top. §9.2's AVOID list is respected in full:
+ *           no Vegvísir, no Ægishjálmur, no valknut, and none of the genuine
+ *           period marks modern extremist movements have taken over.
+ *   briton  THE TRISKELE — FIND for the mark, OUR COMPOSITION as a device. La
+ *           Tène in origin and continuous through insular metalwork and the
+ *           penannular brooches of this period. The Britons have no attested
+ *           battle standard at all, so a field with a triskele on it is two
+ *           real things put together by us, exactly as §9.3 says.
+ *   pict    THE CRESCENT-AND-V-ROD — FIND, and the best-evidenced device in the
+ *           game. It is carved on symbol stones standing in Scotland today,
+ *           dated across the 6th-9th centuries. What is NOT known is what it
+ *           MEANT, and there is no evidence any of them was ever carried as a
+ *           banner — so the mark is real and its use as a device is ours. §2
+ *           calls the Picts the prize for exactly this reason.
+ *
+ * Drawn as flat slabs in the board's own plane rather than as carving or
+ * inlay, because that is what a painted shield is. `y` is the roundel's centre
+ * and `z` the plane the paint lies in; everything below is relative to those
+ * two, so moving the roundel moves the mark with it.
+ */
+function deviceOn(part: Part, mat: THREE.Material, people: PeopleId, y: number, z: number): void {
+  const T = 0.004;
+  if (people === "saxon") {
+    // Laid on the diagonal, point up. A blade drawn upright reads as a bar at
+    // 29 px; on the diagonal it reads as a blade, because the eye takes the
+    // slope before it takes the taper.
+    const tilt = -0.42;
+    const put = (x: number, yy: number, w: number, h: number, r = 0) => {
+      const c = Math.cos(tilt), s2 = Math.sin(tilt);
+      part.add(box(w, h, T), mat, xf(x * c - yy * s2, y + x * s2 + yy * c, z, 0, 0, tilt + r));
+    };
+    put(0, 0.030, 0.026, 0.112);            // the blade's straight back
+    put(0.004, 0.098, 0.030, 0.048, 0.62);  // the broken back, angling to the point
+    put(0, -0.036, 0.048, 0.011);           // the guard
+    put(0, -0.070, 0.017, 0.058);           // the grip
+  } else if (people === "norse") {
+    part.add(box(0.112, 0.042, T), mat, xf(0, y + 0.052, z));        // the head
+    part.add(box(0.030, 0.096, T), mat, xf(0, y - 0.016, z));        // the shaft
+    part.add(box(0.050, 0.014, T), mat, xf(0, y - 0.062, z));        // the foot
+    part.add(ring(0.017, 0.006, 5, 12), mat, xf(0, y + 0.086, z));   // the suspension loop
+  } else if (people === "briton") {
+    // Three arms at 120°, each a third of a turn of tube with a swelling at its
+    // end — the comma the insular version of this mark always has. A hub, so
+    // the three read as one figure rather than as three strokes.
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const arm = new THREE.TorusGeometry(0.046, 0.0095, 5, 10, Math.PI * 0.72);
+      part.add(arm, mat, xf(Math.cos(a) * 0.030, y + Math.sin(a) * 0.030, z, 0, 0, a + 1.2));
+      part.add(ball(0.014, 6), mat,
+        xf(Math.cos(a + 1.05) * 0.070, y + Math.sin(a + 1.05) * 0.070, z));
+    }
+    part.add(ball(0.014, 6), mat, xf(0, y, z));
+  } else {
+    // The crescent, horns down, with the V-rod through it. Two thirds of a turn
+    // of tube for the arc; two straight rods meeting below the centre for the
+    // V, crossing the crescent's own line the way the stones cut it.
+    part.add(new THREE.TorusGeometry(0.074, 0.011, 5, 16, Math.PI * 1.02), mat,
+      xf(0, y - 0.012, z, 0, 0, -0.03));
+    for (const s2 of [-1, 1]) {
+      part.add(box(0.013, 0.104, T), mat, xf(s2 * 0.030, y + 0.010, z, 0, 0, s2 * 0.52));
+      // The rod's terminals: the stones finish both arms of the V with a
+      // spray, and a plain stick would read as a scratch.
+      part.add(box(0.030, 0.010, T), mat, xf(s2 * 0.060, y + 0.058, z, 0, 0, s2 * 0.52));
+    }
+  }
+}
+
 export function buildShield(
   color = 0x6b4226,
   materials?: CharacterMaterials,
@@ -9641,6 +10095,22 @@ export function buildShield(
    * on the finish the man bought, which is a grey disc bolted to a red board.
    */
   team: TeamSide = "none",
+  /**
+   * The people, in a non-team mode. Same contract as `team` and one rung below
+   * it: the board's FIELD is already the people's because the caller chose it
+   * through `shieldBoard`, and what arrives here is the PAINT — how the field
+   * is broken up, and the mark on it.
+   *
+   * This is the one place in the build where a people gets a SHAPE rather than
+   * a colour, and it is a shape on an object rather than on a man: nothing
+   * below moves a vertex of the warrior, changes his hitboxes, or is reachable
+   * from any class but the huscarl, who is the only man `render/anim.ts` hands
+   * a shield. It is also the best pixels in the game to spend on this — the
+   * board is 760 mm across on a 1.8 m man, so at the 6.8 m fight lens it is
+   * about 97 px of flat field held out in front of the chest, which is more
+   * than the head and the helm put together.
+   */
+  people: Allegiance = "none",
 ): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
@@ -9677,7 +10147,14 @@ export function buildShield(
   // as wickerwork while the boards *behind* them, on the same geometry, read as
   // wood. Same substance as the board now, so the grain runs through the paint
   // the way it does on a real limewood shield.
-  const paint = M.timber(0xb8a276);
+  // The board's second colour. Unsworn and in a war band it is the pale
+  // limewood this function has always used; sworn, it is the people's own —
+  // near-black for the Danelaw because the Gokstad ship's boards alternated
+  // BLACK and yellow, bone for the Picts because the symbol stones read as pale
+  // line on dark rock, pale grey-green for the Britons because a check is a
+  // VALUE pattern and two hues would be a flag.
+  const livery = team === "none" && people !== "none" ? FACTION[people] : null;
+  const paint = M.timber(livery ? livery.paint : 0xb8a276);
   // The rim clamps: forged strap off the same bar as the mail, so `kit.mail`
   // with nothing done to it. On the issued finish this is 0x5f6b7a against the
   // 0x5f666f literal it replaces — five points of green and eleven of blue, i.e.
@@ -9771,17 +10248,52 @@ export function buildShield(
     const du = (i * 0.37) % 1;
     const dv = (i * 0.61 + 0.13) % 1;
     part.add(retile(box(halfW * 2, edge * 2, 0.019), du, dv, (edge * 2) / PLANK_V), board, xf(cx, 0, zf + dome));
-    // The painted quarter, cut per plank: boards right of centre carry it on their
-    // upper half, boards left of centre on their lower half, which is the same
-    // two-colour quartering the disc wedges were drawing — except this one is
-    // lying on the wood.
+    // THE PAINT, CUT PER PLANK — and there are four cuts now, one per people,
+    // with the unsworn and the war band keeping the quartering this function
+    // has always drawn.
     //
-    // Half the board's height and its own 0..1 v, so at `M.timber`'s repeat 3 the
-    // paint's grain used to be exactly twice as fine as the board 2 mm under it.
-    // Same normalisation, same phase as the board it lies on, so the grain runs
-    // through the paint the way it does on a limewood shield.
-    part.add(retile(box(halfW * 1.94, edge, 0.004), du, dv, edge / PLANK_V), paint,
-      xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115));
+    // Every patch below is the same object as the one it replaces: a thin slab
+    // lying on the board, at half the board's height or less, retiled onto the
+    // plank's own 0..1 v with the plank's own phase so the grain runs THROUGH
+    // the paint the way it does on a limewood shield. What varies is where the
+    // slabs sit, and that is the whole of the difference — a pattern is where
+    // the paint is, not what it is made of.
+    //
+    //   quarters  the shipped board and the Anglo-Saxon one. Boards right of
+    //             centre painted on their upper half, boards left on their
+    //             lower: two solid quarters meeting at the boss.
+    //   staves    the Danelaw. Alternate boards painted end to end, which is
+    //             the Gokstad gunwale — thirty-two shields alternating black
+    //             and yellow — read across one disc instead of along a ship.
+    //   check     the Britons. Two short patches a board, phase flipped every
+    //             other board, so the disc carries a coarse chequer. Their kit
+    //             entry in `FACTIONS.md` §2 is "checked weave" and this is that
+    //             claim made on the one surface big enough to carry it.
+    //   rim       the Picts. Paint at both ends of every board and nothing in
+    //             the middle, which closes into an unbroken ring inside the
+    //             binding: least kit, one band, and the widest clear field of
+    //             the four for the mark to sit in.
+    const pat = livery ? livery.pattern : "quarters";
+    if (pat === "staves") {
+      if (i % 2 === 0) {
+        part.add(retile(box(halfW * 1.94, edge * 1.94, 0.004), du, dv, (edge * 1.94) / PLANK_V), paint,
+          xf(cx, 0, zf + dome + 0.0115));
+      }
+    } else if (pat === "check") {
+      for (const k of [0, 1]) {
+        const flip = (i + k) % 2 === 0 ? 1 : -1;
+        part.add(retile(box(halfW * 1.94, edge * 0.62, 0.004), du, dv, (edge * 0.62) / PLANK_V), paint,
+          xf(cx, flip * edge * 0.5, zf + dome + 0.0115));
+      }
+    } else if (pat === "rim") {
+      for (const s2 of [-1, 1]) {
+        part.add(retile(box(halfW * 1.94, edge * 0.42, 0.004), du, dv, (edge * 0.42) / PLANK_V), paint,
+          xf(cx, s2 * edge * 0.79, zf + dome + 0.0115));
+      }
+    } else {
+      part.add(retile(box(halfW * 1.94, edge, 0.004), du, dv, edge / PLANK_V), paint,
+        xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115));
+    }
   }
 
   // Rawhide binding folded over the board edge, then iron clamps over it.
@@ -9805,6 +10317,25 @@ export function buildShield(
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
     part.add(ball(0.008, 6), steel, xf(Math.cos(a) * 0.079, Math.sin(a) * 0.079, bossZ + 0.004));
+  }
+
+  // ---- THE MARK ----------------------------------------------------------
+  //
+  // A roundel of the board's own field with the people's device painted on it,
+  // set in the upper field clear of the boss. The roundel is not decoration: it
+  // puts every device on the SAME ground whatever pattern is under it, so a
+  // black hammer never lands on a black stave and vanish. A flat field with a
+  // device on it is also what the Bayeux Tapestry paints, which is the closest
+  // thing to a period statement about shield decoration anybody has.
+  //
+  // ~230 mm across on a board that is 760 mm across, which at the 6.8 m fight
+  // lens is about 29 px — a glyph, not a texture, and the smallest thing in
+  // this feature that is meant to be read rather than merely seen.
+  if (livery) {
+    const DY = 0.205, DZ = zf + crest + 0.016, RD = 0.108;
+    part.add(new THREE.CylinderGeometry(RD, RD, 0.004, 20), board,
+      xf(0, DY, DZ, Math.PI / 2, 0, 0));
+    deviceOn(part, paint, livery.device, DY, DZ + 0.003);
   }
 
   // Back: the grip bar the fist closes on, and two board battens.
@@ -11098,6 +11629,20 @@ export function buildCharacter(
    */
   team: TeamSide = "none",
 ): BuiltCharacter {
+  // WHICH PEOPLE THIS MAN IS DRESSED AS. Off `ap`, and not a seventh argument,
+  // because it is a COSMETIC: it is stored in a profile, edited when a man
+  // swears, and replicated in the same opaque blob the helm and the cloak ride
+  // in. That is the opposite of `team`, which is sim state a client may not
+  // write, and the two are opposite for the same reason — a team colour a
+  // player could set for himself would not be a team colour, and a livery a
+  // player could NOT set for himself would have to travel as allegiance, which
+  // `docs/WIRE-PROTOCOL.md` §11 forbids the wire to carry.
+  //
+  // Narrowed rather than cast. Anything that is not one of the four — a profile
+  // written before this field existed, a string off a modified client — is the
+  // unsworn, and the unsworn builds exactly the warrior this function built
+  // before the livery was written.
+  const people = peopleOf(ap);
   const M = materials ?? RAW;
   const lod = LOD[detail];
   const B = BUILD[cls] ?? BUILD.warden;
@@ -11129,8 +11674,14 @@ export function buildCharacter(
   // AND IN A TEAM MODE THE SIDE OWNS IT. `teamKit` is a no-op on `"none"`, so
   // this line is the whole of the override for six of the seven surfaces and
   // free-for-all is untouched. See the precedence note over `TeamField`.
-  const teamed = team !== "none";
-  const kit = teamKit(finishKit(ap.armorColor), team);
+  //
+  // AND ONE RUNG BELOW IT THE PEOPLE OWNS IT. `kitFor` tests the team first and
+  // returns before a people is consulted, so a war band is byte-for-byte what
+  // it was and `tools/teamread.mjs` cannot move. `dyed` is the two cases
+  // together: whenever a band or a people owns the hue, the class accent lets
+  // go of it — see the tunic below.
+  const dyed = team !== "none" || people !== "none";
+  const kit = kitFor(finishKit(ap.armorColor), team, people);
   const mail = M.armour(kit.mail);
   // Kit colours that no armoury option controls, and therefore mine. They were
   // authored two passes ago against a brighter grade and they are now the reason a
@@ -11161,7 +11712,7 @@ export function buildCharacter(
   // stature, hem length, layer count and silhouette, which is what `BUILD` and
   // the kit are for — but hue is the side's channel and the class does not get
   // to borrow it. This is the precedence rule at its narrowest point.
-  const wool = cloth(teamed ? kit.tunic : tunicDye(kit.tunic, accents), bodyGirth);
+  const wool = cloth(dyed ? kit.tunic : tunicDye(kit.tunic, accents), bodyGirth);
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
   // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
@@ -11179,7 +11730,7 @@ export function buildCharacter(
   // sleeve — one garment, two fabrics — and the coarse end is the finest cloth
   // in the set, where a visible tile costs most.
   const flax = (girth: number) =>
-    thrifty ? wool : M.tinted("linen", teamWorn(0xc2b69c, team, "cloth"), { repeat: clothRepeat(girth) });
+    thrifty ? wool : M.tinted("linen", wornBy(0xc2b69c, team, people, "linen"), { repeat: clothRepeat(girth) });
   const linen = flax(bodyGirth);
   const sleeveLinen = flax(2 * Math.PI * S.armR[0] * 1.12);
   const iron = M.tinted("iron", 0x6e767f, { roughness: 0.5 });
@@ -11576,7 +12127,7 @@ export function buildCharacter(
   // a seam, which on a 90 mm lock would be most of the lock.
   const PELT_TILE = 0.25;
   const pelt = (girth: number) =>
-    M.tinted("wool", teamWorn(0x8a7050, team, "leather"), { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
+    M.tinted("wool", wornBy(0x8a7050, team, people, "leather"), { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
   const ruffX = S.chestHW + 0.062;
   const ruffZ = S.chestHD + 0.062;
   const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
@@ -11584,7 +12135,7 @@ export function buildCharacter(
   const furPelt = pelt(0.3);
   const dark = M.standard(0x1a1310, 0.42);
   const rune = M.get("runeGlow");
-  const cloakMat = cloth(teamCloak(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team), bodyGirth * 1.4);
+  const cloakMat = cloth(cloakFor(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team, people), bodyGirth * 1.4);
   // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
   //
   // The hood, its mantle, its point and its shoulder drape were all raised on
@@ -11607,7 +12158,7 @@ export function buildCharacter(
   // at a tighter pitch than a cloak because a hood is a smaller garment and the
   // weave has to scale with the thing it is woven into. `hide` stops being the
   // unrobed fallback for the same reason — a hood is cloth on everybody.
-  const hoodCloth = cloth(teamWorn(0x2a2521, team, "cloth"), bodyGirth * 0.62);
+  const hoodCloth = cloth(wornBy(0x2a2521, team, people, "cloth"), bodyGirth * 0.62);
 
   // --- merged-geometry cache. Only for callers that brought a shared library;
   // the armoury preview allocates and disposes its own materials, so caching its
