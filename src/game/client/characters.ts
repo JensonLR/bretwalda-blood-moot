@@ -807,8 +807,11 @@ function hueOf(hex: number, shift = 0): number {
 const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
   saxon: {
     name: "Anglo-Saxons", native: "Westseaxe",
-    // +0.046 — off the gilt METAL and onto the weld VAT. See `hueOf`.
-    field: FACTION_FIELD.saxon, hue: hueOf(FACTION_FIELD.saxon, 0.046),
+    // +0.058 — off the gilt METAL and onto the weld VAT. See `hueOf`. It
+    // carries the whole 52° gap to the Danelaw on its own now: the Norse shift
+    // that used to share the work was taken out for making a man PINK, and the
+    // reading that caught it is under `norse` below.
+    field: FACTION_FIELD.saxon, hue: hueOf(FACTION_FIELD.saxon, 0.058),
     // Undyed limewood under weld yellow: the ground the paint sits on is the
     // board's own wood, so the quarters read as painted rather than as inlaid.
     paint: 0x3b2c17, pattern: "quarters", device: "saxon",
@@ -816,14 +819,31 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
       cloth:   { sat: 0.66, bias: 1.18, lo: 0.26, hi: 0.66 },
       wrap:    { sat: 0.42, bias: 1.16, lo: 0.38, hi: 0.76 },
       leather: { sat: 0.44, bias: 0.98, lo: 0.15, hi: 0.44 },
-      metal:   { sat: 0.20, bias: 1.06, lo: 0.18, hi: 0.60 },
-      linen:   { sat: 0.36, bias: 1.06, lo: 0.44, hi: 0.78 },
+      // A byrnie stays IRON. 0.12 is a warm cast on steel; the 0.20 this was
+      // photographed at gave him a gold shirt, and mail that is not metal is
+      // the one thing §2's Kit column will not have from the Anglo-Saxons.
+      metal:   { sat: 0.12, bias: 1.06, lo: 0.18, hi: 0.60 },
+      linen:   { sat: 0.32, bias: 1.06, lo: 0.44, hi: 0.78 },
     },
   },
   norse: {
     name: "Norse", native: "Danelagu",
-    // -0.024 — off the orange gilt was lending it and onto the stone. See `hueOf`.
-    field: FACTION_FIELD.norse, hue: hueOf(FACTION_FIELD.norse, -0.024),
+    // NO SHIFT, AND IT USED TO BE -0.024. THE PICTURE KILLED IT.
+    //
+    // The argument for the shift was sound — a garnet is a deeper, BLUER red
+    // than madder — and the number it bought was real: it widened the gap to
+    // gilt and `factionread` went from ΔC 8.75 to 14.18. Then the frame was
+    // opened. `art/shots/faction/` at the fight lens: hue 0.9696 at cloth
+    // chroma is not a deeper red, it is MAGENTA, and a Dane in the arena's
+    // grade came out mauve with rose-coloured mail — sampled off the capture,
+    // his byrnie read #8a5359. A Viking in dusty pink is not the Danelaw at any
+    // ΔC, and no assertion in this repository can see it: `factionread` has no
+    // light and no grade and says so in its own header. `docs/PROCESS.md` R5.
+    //
+    // The whole 52° is carried by the Saxon shift instead, which is toward
+    // WELD and away from everything, and the Danelaw sits on the stone's own
+    // hue. Re-measured after the change rather than assumed.
+    field: FACTION_FIELD.norse, hue: hueOf(FACTION_FIELD.norse),
     // The Gokstad ship's shields alternated BLACK and yellow along the gunwale,
     // and that is the one period statement anybody has about how a board was
     // painted. The staves are the black half of it.
@@ -832,8 +852,13 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
       cloth:   { sat: 0.74, bias: 0.66, lo: 0.08, hi: 0.34 },
       wrap:    { sat: 0.48, bias: 0.70, lo: 0.16, hi: 0.42 },
       leather: { sat: 0.56, bias: 0.68, lo: 0.06, hi: 0.26 },
-      metal:   { sat: 0.18, bias: 1.14, lo: 0.22, hi: 0.66 },
-      linen:   { sat: 0.44, bias: 0.72, lo: 0.24, hi: 0.50 },
+      // "More metal" is a statement about how MUCH iron he has and how bright
+      // it is, not about what colour it is. 0.07 and a lift: near-white steel
+      // over the darkest wools on the roster, which is the contrast the
+      // Danelaw silhouette is actually made of. At 0.18 it read #8a5359 in the
+      // capture — rose — and that is what took the hue shift out with it.
+      metal:   { sat: 0.07, bias: 1.16, lo: 0.24, hi: 0.68 },
+      linen:   { sat: 0.34, bias: 0.72, lo: 0.24, hi: 0.50 },
     },
   },
   briton: {
