@@ -1055,23 +1055,56 @@ function litOf(hex: number): number {
   new THREE.Color(hex).getHSL(hsl);
   return perceptual(hsl.l);
 }
-let kitCeil = 0, cloakCeil = 0;
+/**
+ * THE CHANNEL THAT ACTUALLY CLIPS.
+ *
+ * The first cut of this ceiling measured HSL LIGHTNESS, and lightness is not
+ * what goes to full scale — a single CHANNEL is. `0xe6cd2b`, the Saxon's gilt
+ * wraps on Bretwalda Gold, sits at lightness 0.535 against the shop's brightest
+ * wrap `0xd2bd7c` at 0.655, so a lightness ceiling waved it through; its red
+ * channel is 230 against that wrap's 210, and 230 is what the fire drove past
+ * 255. `factionread` §6 read the Saxon at 2.57% of the man against a 2.55% bar,
+ * and those twenty points of red are the whole of the difference.
+ *
+ * So the ceiling is on the brightest CHANNEL, and it is enforced by scaling the
+ * colour down in LINEAR light — which divides all three channels by the same
+ * number and therefore moves neither the hue nor the saturation, only the
+ * exposure. A livery may be any colour the vat gives it; it may not be brighter
+ * in any one channel than the brightest thing the shop already sells.
+ */
+function underMaxChannel(hex: number, cap: number): number {
+  const m = Math.max((hex >> 16) & 255, (hex >> 8) & 255, hex & 255);
+  if (m <= cap) return hex;
+  const k = linear(cap / 255) / linear(m / 255);
+  const c = new THREE.Color(hex);
+  return new THREE.Color(c.r * k, c.g * k, c.b * k).getHex();
+}
+const maxChannel = (hex: number) => Math.max((hex >> 16) & 255, (hex >> 8) & 255, hex & 255);
+let kitCeil = 0, cloakCeil = 0, kitChan = 0, cloakChan = 0;
 /** The brightest surface any finish in the shop dyes. Memoised; `FINISH_KIT` is above. */
 function kitCeiling(): number {
   if (!kitCeil) {
     for (const kit of Object.values(FINISH_KIT)) {
       for (const k of ["mail", "tunic", "trouser", "wrap", "hide", "buff"] as const) {
         kitCeil = Math.max(kitCeil, litOf(kit[k]));
+        kitChan = Math.max(kitChan, maxChannel(kit[k]));
       }
     }
   }
   return kitCeil;
 }
+/** The brightest single channel any finish in the shop reaches. */
+const kitChannel = (): number => { kitCeiling(); return kitChan; };
 /** The brightest cloak the shop sells. Memoised; `CLOAK_COLORS` is declared below this. */
 function cloakCeiling(): number {
-  if (!cloakCeil) for (const hex of Object.values(CLOAK_COLORS)) cloakCeil = Math.max(cloakCeil, litOf(hex));
+  if (!cloakCeil) for (const hex of Object.values(CLOAK_COLORS)) {
+    cloakCeil = Math.max(cloakCeil, litOf(hex));
+    cloakChan = Math.max(cloakChan, maxChannel(hex));
+  }
   return cloakCeil;
 }
+/** The brightest single channel any cloak in the shop reaches. */
+const cloakChannel = (): number => { cloakCeiling(); return cloakChan; };
 /**
  * A people's flat field AS SOMETHING WORN — the map token brought down into the
  * brightness the shop's own cloaks live in, hue and chroma untouched.
@@ -1084,7 +1117,7 @@ function cloakCeiling(): number {
  * direction ("LIFTED IN CHROMA from those two finishes rather than copied").
  */
 function wornField(hex: number): number {
-  return underCeiling(hex, cloakCeiling());
+  return underMaxChannel(underCeiling(hex, cloakCeiling()), cloakChannel());
 }
 
 /**
@@ -1107,7 +1140,7 @@ function wornField(hex: number): number {
  * line is still up at the top of the shop's own range.
  */
 function wornPaint(hex: number): number {
-  return underCeiling(hex, kitCeiling());
+  return underMaxChannel(underCeiling(hex, kitCeiling()), kitChannel());
 }
 
 /** One flat colour, hue and chroma kept, brought under a brightness ceiling. */
@@ -1158,7 +1191,9 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   // THE HUE STAYS INSIDE THE VAT'S CONE. See `HUE_CONE`.
   const off = ((Math.atan2(cy, cx) / TAU - f.hue + 1.5) % 1) - 0.5;
   const h = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
-  return new THREE.Color().setHSL(h, Math.min(1, Math.hypot(cx, cy)), linear(l)).getHex();
+  return underMaxChannel(
+    new THREE.Color().setHSL(h, Math.min(1, Math.hypot(cx, cy)), linear(l)).getHex(),
+    kitChannel());
 }
 
 /**
