@@ -611,7 +611,11 @@ export function teamCloak(hex: number, team: TeamSide): number {
  */
 export function shieldBoard(ap: Appearance, team: TeamSide, people: Allegiance = "none"): number {
   if (team !== "none") return TEAM_FIELDS[team].board;
-  if (people !== "none") return FACTION[people].field;
+  // The board takes the same worn value as the cloak. A limewood board under
+  // this arena's fire key blows exactly the way a cloak does, and it is a
+  // painted object rather than a map token for the same reason: `--gilt` is
+  // chrome, and chrome is not a pigment a shield was ever painted with.
+  if (people !== "none") return wornField(FACTION[people].field);
   return ap.cloak !== "none" ? 0x5c2320 : 0x6b4226;
 }
 
@@ -911,26 +915,198 @@ export function peopleOf(ap: Pick<Appearance, "people">): Allegiance {
 }
 
 /**
+ * THE TRANSFER FUNCTION, BOTH WAYS — and it is the whole of one shipped defect.
+ *
+ * `THREE.Color.getHSL` reports lightness in the renderer's WORKING colour
+ * space, and `ColorManagement` is on, so that space is LINEAR. Every band in
+ * the `Dye` table below — `lo: 0.26`, `hi: 0.66` and the rest — was written by
+ * a hand thinking in the space a colour picker shows you, which is the
+ * PERCEPTUAL one. The two are not close: mid-grey is 0.50 perceptual and 0.21
+ * linear, and the kit's own surfaces run from linear 0.014 (Blackened Steel's
+ * harness) to 0.42 (Bretwalda Gold's wraps) where the same seven rows read 0.13
+ * to 0.68 perceptual.
+ *
+ * So `lo` sat ABOVE nearly every surface it was clamping. Six of the seven
+ * finishes went in at different values and came out on the floor, and the paid
+ * ladder was gone: Rough Iron at 0 gold and Blackened Steel at 110 returned the
+ * IDENTICAL hex on every dyed surface under a Saxon or a Briton livery —
+ * `mail #7c7a6f vs #7c7a6f | tunic #b0a554 vs #b0a554`.
+ *
+ * NOTHING IN THE DRAWER COULD SEE IT. `rungcensus` counts components and
+ * triangles and nothing was deleted; `cosmetictest` §2 gates this exact ladder
+ * on this exact constant but against the RAW STORED HEX, which is the same
+ * seven numbers whatever a man swore to; `factionread` asked only whether the
+ * four peoples were far enough APART. `tools/factionread.mjs` §5 is the ruler
+ * that asks the question the other three were next to, and §5.0 keeps the old
+ * formula as a control so it can prove it still sees the collapse.
+ *
+ * `teamDye` has the identical mismatch and is deliberately NOT changed here.
+ * A team's whole product is a collapse — `teamread` asserts that four peoples
+ * on one side are ONE colour to ΔC 0.00 — so the same bug is, there, the
+ * feature. Correcting it would move a gated, photographed build for no gain.
+ * Recorded rather than fixed: `docs/PROCESS.md` R4.
+ */
+const perceptual = (l: number): number => (l <= 0.0031308 ? l * 12.92 : 1.055 * Math.pow(l, 1 / 2.4) - 0.055);
+const linear = (l: number): number => (l <= 0.04045 ? l / 12.92 : Math.pow((l + 0.055) / 1.055, 2.4));
+
+/**
+ * THE VAT ADDS DYESTUFF; IT DOES NOT REPAINT — and this is the other half of
+ * the same defect, and the half that saves the two 130-gold rungs.
+ *
+ * Correcting the space above restores the ladder's VALUES, and values are most
+ * of it. They are not all of it. Crimson Warplate and Sea Queen's Gift are
+ * madder and woad: the same lightness, the same chroma, 130 gold each, and told
+ * apart by HUE ALONE. A vat that ASSIGNS its hue takes the only thing there is
+ * between them, and no amount of value work can put it back. Bronze Scales and
+ * Bretwalda Gold are the same story one step further on.
+ *
+ * OVERDYEING DOES NOT ERASE A COLOUR, IT ADDS TO IT. Yellow cloth in a woad vat
+ * comes out green, not blue; madder over woad is purple. That is how a period
+ * dyer got a range out of four plants, and it is exactly the channel that was
+ * being thrown away — `FINISH_KIT`'s own chroma is a statement about what each
+ * rung was already dyed with, and it was being replaced by a constant.
+ *
+ * So the chroma plane is worked in as a VECTOR SUM: the surface's own chroma,
+ * plus the vat's, at the vat's hue. Two properties follow, and both are the
+ * reason this shape was chosen over every other one that was tried:
+ *
+ *   * ADDITION PRESERVES DIFFERENCES EXACTLY. Two rungs that went into the vat
+ *     ΔC apart come out ΔC apart, because the same vector was added to both.
+ *     The ladder is a RELATIVE structure and a translation is the only operator
+ *     that leaves a relative structure alone.
+ *   * A MATCHED COMPARISON IS UNHARMED, WHICH IS WHAT §1.2 GATES. Two peoples
+ *     wearing the SAME finish differ by exactly the difference of their two vat
+ *     vectors — the surface term is common to both and cancels. Swearing to one
+ *     people rather than another moves a man by the same amount it always did.
+ *
+ * Measured, over all 84 pairs of the seven finishes under the four liveries:
+ * the collapse goes from 84 pairs under `LADDER_DE` (min ΔE 0.00) to 2 (min ΔE
+ * 8.43), and every ADJACENT rung — which is the rule `cosmetictest` §2 actually
+ * writes for this ladder — clears the bar with 15.71 to spare. What the two
+ * survivors are, and why they are reported rather than gated, is written out in
+ * `tools/factionread.mjs` §5.
+ */
+const TAU = Math.PI * 2;
+
+/**
+ * THE BRIGHTNESS ENVELOPE — a livery may shift a surface, and may not take it
+ * out of the range the shop itself occupies.
+ *
+ * THE DEFECT THIS CLOSES. `--gilt` is 0xd9a441 and the CSS beside it calls it a
+ * METAL and "the brightest thing on the map". It is a MAP TOKEN, and `cloakFor`
+ * was putting it flat on a cloak. Measured through the real renderer at the
+ * play lens, at the FRONT and the three-quarter — the two bearings a fight is
+ * mostly conducted at, and two of the three nobody had photographed:
+ *
+ *     unsworn huscarl               0.12% of him at a fully clipped channel
+ *     Gilded War Cloak, 400 gold    0.11%
+ *     SAXON huscarl                 1.93%   — sixteen times the shop's dearest gold
+ *
+ * At full scale a channel has no fold shading, no weave and no form left in it.
+ * The Saxon read #ffc237: a flat traffic cone where the 400 gold cloak reads
+ * #e0a203, a rich gold with its folds intact. It sits about twenty points of
+ * lightness above every other flat field this game uses — team madder 34, team
+ * woad 32, garnet 28, moss 32, faction woad 31, and that 400 gold cloak at 41.
+ *
+ * THE RULE, AND IT IS TAKEN OFF THE GAME'S OWN TABLES RATHER THAN CHOSEN. A
+ * livery may not make a thing brighter than the brightest thing of THAT KIND
+ * the shop already sells, because that brightness is what the arena's fire key
+ * was exposed for:
+ *
+ *   * a CLOAK is measured against `CLOAK_COLORS` — the four cloaks a player can
+ *     buy, of which the 400 gold Gilded War Cloak is the brightest. That is the
+ *     control `tools/factionread.mjs` §6 uses, and it is the right comparison
+ *     because a cloak is one flat field over the largest single area on a man.
+ *   * a KIT surface is measured against `FINISH_KIT` — the seven rungs, whose
+ *     brightest surface is Bretwalda Gold's leg wraps. A vat that lifts a
+ *     surface past those has stopped dyeing wool and started emitting light.
+ *
+ * Both are computed from those tables at first use, so a new cloak or a new
+ * finish moves the ceiling with it and there is no second number to drift. The
+ * bend is asymptotic rather than a clamp, for the reason `softBand` gives: a
+ * clamp has zero slope, and zero slope is where paid rungs go to die.
+ */
+const SHOP_CEIL_KNEE = 0.06;
+const softCeil = (x: number, cap: number): number =>
+  (x <= cap - SHOP_CEIL_KNEE ? x : cap - SHOP_CEIL_KNEE * Math.exp((cap - SHOP_CEIL_KNEE - x) / SHOP_CEIL_KNEE));
+/** Perceptual lightness of a hex, in the space the `Dye` bands are written in. */
+function litOf(hex: number): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  return perceptual(hsl.l);
+}
+let kitCeil = 0, cloakCeil = 0;
+/** The brightest surface any finish in the shop dyes. Memoised; `FINISH_KIT` is above. */
+function kitCeiling(): number {
+  if (!kitCeil) {
+    for (const kit of Object.values(FINISH_KIT)) {
+      for (const k of ["mail", "tunic", "trouser", "wrap", "hide", "buff"] as const) {
+        kitCeil = Math.max(kitCeil, litOf(kit[k]));
+      }
+    }
+  }
+  return kitCeil;
+}
+/** The brightest cloak the shop sells. Memoised; `CLOAK_COLORS` is declared below this. */
+function cloakCeiling(): number {
+  if (!cloakCeil) for (const hex of Object.values(CLOAK_COLORS)) cloakCeil = Math.max(cloakCeil, litOf(hex));
+  return cloakCeil;
+}
+/**
+ * A people's flat field AS SOMETHING WORN — the map token brought down into the
+ * brightness the shop's own cloaks live in, hue and chroma untouched.
+ *
+ * `FACTION_FIELD` itself is NOT changed and must not be: it is `globals.css`'s
+ * four variables, `factionMap/territories.ts` paints the island with them by
+ * name, and the whole point of the feature is that the map and the man are the
+ * same four colours. They still are — this is the same colour at a wearable
+ * value, which is exactly the move `TEAM_FIELDS` documents in the other
+ * direction ("LIFTED IN CHROMA from those two finishes rather than copied").
+ */
+function wornField(hex: number): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  return new THREE.Color().setHSL(hsl.h, hsl.s, linear(softCeil(perceptual(hsl.l), cloakCeiling()))).getHex();
+}
+
+const BAND_KNEE = 0.42;
+function softBand(x: number, lo: number, hi: number): number {
+  const k = (hi - lo) * BAND_KNEE;
+  if (x < lo) return lo - k * (1 - Math.exp((x - lo) / k));
+  if (x > hi) return hi + k * (1 - Math.exp((hi - x) / k));
+  return x;
+}
+
+/**
  * One surface through a people's vat.
  *
  * The same three moves `teamDye` makes — the field's hue, the vat's chroma, the
- * SOURCE'S OWN LIGHTNESS clamped into a band — with one addition: the lightness
- * is scaled by the vat's `bias` first. That scale is the whole of "darker
- * wools" and "lighter kit", and it is applied BEFORE the clamp so a people's
- * band is a floor and a ceiling on the result rather than on the input.
+ * SOURCE'S OWN LIGHTNESS clamped into a band — with two corrections that are
+ * the subject of the two notes above: the lightness is converted into the space
+ * the band was written in before it is scaled and clamped, and the chroma is a
+ * CEILING the surface's own dye-load reaches rather than a value it is
+ * assigned.
+ *
+ * `bias` is applied BEFORE the clamp so a people's band is a floor and a
+ * ceiling on the result rather than on the input. That scale is the whole of
+ * "darker wools" and "lighter kit".
  *
  * Keeping the source lightness is why a finish survives being sworn in. The
  * seven rows of `FINISH_KIT` are a coordinated set of VALUES — pale wraps over
  * dark trousers, bright shirt over black harness — and that structure is the
  * form a viewer reads at 6.8 m. Take the hue and a man has a people; take the
  * value as well and he is a silhouette with nothing in it. Bretwalda Gold worn
- * by a Dane is still the brightest kit in the Danelaw.
+ * by a Dane is still the brightest kit in the Danelaw — and, since §5, still
+ * ΔE 10 clear of every other rung a Dane could have bought.
  */
 function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   const hsl = { h: 0, s: 0, l: 0 };
   new THREE.Color(hex).getHSL(hsl);
-  const l = Math.max(d.lo, Math.min(d.hi, hsl.l * d.bias));
-  return new THREE.Color().setHSL(f.hue, d.sat, l).getHex();
+  const l = softCeil(softBand(perceptual(hsl.l) * d.bias, d.lo, d.hi), kitCeiling());
+  const cx = hsl.s * Math.cos(TAU * hsl.h) + d.sat * Math.cos(TAU * f.hue);
+  const cy = hsl.s * Math.sin(TAU * hsl.h) + d.sat * Math.sin(TAU * f.hue);
+  const h = (Math.atan2(cy, cx) / TAU + 1) % 1;
+  return new THREE.Color().setHSL(h, Math.min(1, Math.hypot(cx, cy)), linear(l)).getHex();
 }
 
 /**
@@ -1003,7 +1179,7 @@ export function kitFor(kit: FinishKit, team: TeamSide, people: Allegiance): Fini
  */
 export function cloakFor(hex: number, team: TeamSide, people: Allegiance): number {
   if (team !== "none") return TEAM_FIELDS[team].cloak;
-  return people !== "none" ? FACTION[people].field : hex;
+  return people !== "none" ? wornField(FACTION[people].field) : hex;
 }
 
 // ---------------- Armoury Catalog ----------------
