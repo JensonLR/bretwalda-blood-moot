@@ -508,20 +508,50 @@ shins, which is what you see at the two bearings nobody photographed:
 | Polished Steel wraps | `#b06d70` H357 S30 L56 | `#915a50` H9 S29 L44 |
 | Polished Steel byrnie | `#a89e9e` H0 S5 L64 | `#9ea2b4` H229 S13 L66 |
 
+**A CORRECTION I OWE THE FRAME THAT CAUGHT ME.** The first cut of this fix
+claimed the `Dye` bands had been written in perceptual lightness and that
+`getHSL` reporting LINEAR was the whole defect. That was wrong: the bands were
+tuned against captures, in the space they are read in, and "correcting" them put
+the Danelaw and the Picts so dark that the identity read INVERTED — a Pict in
+Bretwalda Gold reading as a Saxon. Five configurations were built and all five
+measured on the real §1 sweep:
+
+| configuration | §1.2 DISTINCT | §1.3 READS | §5 min ΔE |
+|---|---|---|---|
+| shipped (assign, hard clamp) | 12.52 ΔC | +15.21° | 0.00 |
+| perceptual bands + unbounded sum | 4.41 ΔC | **-173.24°** | 8.93 |
+| linear bands + unbounded sum | 5.75 ΔC | **-173.24°** | 8.97 |
+| linear bands + sum, 22° hue cone | 16.64 ΔC | **-25.80°** | 7.16 |
+| **shipped now:** linear bands, 8° cone | **17.93 ΔC** | **+3.47°** | 2.91 |
+
+So the sum is bounded: a dyed surface's hue is held within 8° of its vat's, 8
+being under half the 52° between weld and garnet — the smallest gap between two
+of the four fields. Two peoples' cones are then 36° of clear air apart, and an
+area-weighted mean of vectors inside a cone stays inside the cone, so a purchase
+cannot out-vote a people. That is §8's ordering one rung below the team colour,
+and every configuration that recovered the ladder to ΔE 8–9 broke it.
+
 **WHAT THIS PASS COULD NOT BUY, stated with its number.** The stricter reading
-of the ladder rule — every one of the 21 pairs, not only adjacent ones, clearing
-`LADDER_DE` under every livery — is reported by `factionread` §5 and is not
-gated. The shop's own tightest pair, Bronze Scales against Bretwalda Gold, is
-ΔE 11.85 apart unsworn, so a livery has 1.85 points of room on it and would have
-to be very nearly an isometry. The chroma plane can be made one. Lightness
-cannot, because `bias` and the `lo`/`hi` bands are where §2's "darker wools" and
-"lighter kit" live and darkening a man compresses the differences between his
-finishes. Measured across the parameter space: holding those bands, the tightest
-sworn pair tops out at ΔE 8.4–9.8; dissolving them — cutting `bias` to a fifth
-and widening every band by 30% — buys ΔE 10.2 and costs the Danelaw being dark,
-which is the one read in this feature that is a CONTRAST rather than a colour.
-That trade was refused, and the shortfall is printed on every run rather than
-left off the sheet.
+of the ladder rule — every one of the 21 pairs clearing `LADDER_DE` under every
+livery — is reported by `factionread` §5 and is not gated. The shop's own
+tightest pair is ΔE 11.85 apart unsworn, so a livery has 1.85 points of room on
+it and would have to be very nearly an isometry. What the fix does buy is the
+COLLAPSE: 84 of 84 pairs at or under `LADDER_DE` on all four peoples with a
+minimum of 0.00 — including 24 paid rungs reading as the FREE kit — becomes 22
+NEAR pairs with a minimum of 2.91 and not one twin, and the four peoples come
+out FURTHER apart than they were before rather than nearer.
+
+**AND §6 THEN FOUND TWO MORE THAT NOBODY HAD MEASURED**, both at bearings the
+round that built this feature never photographed. The Pict blew 8.39% of the man
+at the three-quarter — and the reading did not move when every dyed surface on
+him did, because the clipped pixels were the SHIELD, painted bone white
+(`0xd8d2c2`, the brightest flat area in the build) and standing in front of his
+body. The huscarl is the only class that carries one. And the Saxon read 2.57%
+against a 2.55% bar because the ceiling was measuring HSL LIGHTNESS: `0xe6cd2b`
+sits below the shop's brightest wrap in lightness and twenty points above it in
+its RED CHANNEL, and a channel is what goes to full scale. Every flat colour a
+livery makes is now held under the brightest single channel its own kind reaches
+in the shop, enforced by scaling in linear light so the hue does not move.
 
 `teamDye` carries the identical space mismatch and is deliberately not touched.
 A team's whole product is a collapse — `teamread` gates four peoples on one side

@@ -126,16 +126,16 @@ nothing was deleted. The colour was flattened. A census of parts cannot see a
 flattened colour, and this project's signature failure is a measurement
 answering the wrong question.
 
-§5 gates `cosmetictest`'s own two rules — adjacent rungs clear `LADDER_DE`, no
-two rungs are one swatch — plus a third the shop does not have: NO REFUND, no
-paid finish may read as the free one. The stricter all-pairs reading of
-`LADDER_DE` is **reported with its number on every run and not gated**, and the
-file says why in full: the shop's own tightest pair is ΔE 11.85 apart unsworn,
-which leaves a livery 1.85 points of room, and the last of it is spent by the
-per-people lightness bands that are what "darker wools" and "lighter kit" ARE.
-Measured across the parameter space: holding those bands, the tightest sworn
-pair tops out at ΔE 8.4–9.8; dissolving them buys 10.2 and costs the Danelaw
-being dark.
+§5 gates `cosmetictest`'s own two rules on the resolved kit — NO TWINS (no two
+rungs are one swatch) and NO REFUND (no paid finish reads as the free one) — and
+**reports the stricter `LADDER_DE` reading with its number on every run rather
+than gating it**. The file carries the whole argument and the five
+configurations it was measured on: the shop's own tightest pair is ΔE 11.85
+apart unsworn, so a livery has 1.85 points of room and would have to be nearly
+an isometry, and every configuration that recovered the ladder to ΔE 8–9 let a
+160-gold finish out-vote a people — §1.3 at **-173°**, the identity read
+inverted. A bar is never moved to buy a pass; adopting one the game cannot meet
+and then not printing the shortfall is the same offence facing the other way.
 
 §6 is **the only lit section in either file**, and it exists because three
 rounds of this feature shipped a defect past a harness with no light in it. It
