@@ -444,7 +444,12 @@ const ORIGIN = `http://localhost:${PORT}`;
 // What a single card may be dressed in from the command line. Same names the
 // page reads off the query string, so there is one vocabulary for the shop and
 // not a translation layer to get wrong.
-const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "cls", "turn"];
+// `people` is in this list and is NOT an armoury slot — nobody buys a people.
+// It rides here because everything in this list is "a thing the card can be
+// restaged with from the command line", which is what the flag machinery below
+// actually does with it, and because `npm run shots -- fightcard --people norse`
+// is the whole of how the four peoples get photographed.
+const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "people", "cls", "turn"];
 // A misspelled preset used to fall through to "no presets named" and quietly
 // shoot the whole default set — twenty minutes of the wrong pictures. Name
 // which words are flag values so anything left over can be called out.

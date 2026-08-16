@@ -740,11 +740,38 @@ interface FactionLivery {
   dye: Readonly<Record<DyeKind, Dye>>;
 }
 
-/** Hue of a colour, in the same space `teamDye` and `tunicDye` already work in. */
-function hueOf(hex: number): number {
+/**
+ * Hue of a colour, in the same space `teamDye` and `tunicDye` already work in,
+ * with an optional shift round the circle.
+ *
+ * THE SHIFT EXISTS BECAUSE TWO OF THE FOUR FIELDS ARE 32° APART AND TWO DYE
+ * VATS 32° APART ARE NOT TWO PEOPLES AT 230 PIXELS. Measured before it was
+ * added: gilt sits at hue 0.083 and garnet at 0.994, and a Saxon huscarl in the
+ * issued finish with no cloak read ΔC 8.75 from the same man sworn Norse — under
+ * the ΔC 10 a paid rung has to clear to be a different colour at a glance. That
+ * is not a bar to move; it is a build that had not earned it.
+ *
+ * The two shifts below are the fix and both of them make the dye MORE accurate
+ * rather than less, which is why they are shifts and not new hexes:
+ *
+ *   * `--gilt` is a METAL — the CSS comment beside it says so, it is the map's
+ *     chrome — and a Saxon did not wear gold. He wore WELD, which is a clear
+ *     yellow and sits further round the circle than gilt does. Shifting the
+ *     Saxon vat toward weld is naming the dyestuff instead of the metal.
+ *   * `--garnet` is a STONE, and a garnet is a deeper, bluer red than madder.
+ *     Shifting the Danelaw vat that way takes it off the orange it was
+ *     borrowing from gilt and lands it where the stone actually is.
+ *
+ * `TEAM_FIELDS` already does exactly this and says so — "Hue 0.015 rather than
+ * 0.0 — true primary red has no warmth in it". `docs/FACTIONS.md` §9.5 gives
+ * the honest label for the whole set: the four fields are INVENTION, on
+ * purpose, justified by legibility rather than by a find, "for a reason that
+ * outranks accuracy". This is that reason, applied twice, in the open.
+ */
+function hueOf(hex: number, shift = 0): number {
   const hsl = { h: 0, s: 0, l: 0 };
   new THREE.Color(hex).getHSL(hsl);
-  return hsl.h;
+  return (hsl.h + shift + 1) % 1;
 }
 
 /**
@@ -780,31 +807,33 @@ function hueOf(hex: number): number {
 const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
   saxon: {
     name: "Anglo-Saxons", native: "Westseaxe",
-    field: FACTION_FIELD.saxon, hue: hueOf(FACTION_FIELD.saxon),
+    // +0.046 — off the gilt METAL and onto the weld VAT. See `hueOf`.
+    field: FACTION_FIELD.saxon, hue: hueOf(FACTION_FIELD.saxon, 0.046),
     // Undyed limewood under weld yellow: the ground the paint sits on is the
     // board's own wood, so the quarters read as painted rather than as inlaid.
     paint: 0x3b2c17, pattern: "quarters", device: "saxon",
     dye: {
-      cloth:   { sat: 0.52, bias: 1.04, lo: 0.20, hi: 0.60 },
-      wrap:    { sat: 0.30, bias: 1.10, lo: 0.34, hi: 0.72 },
-      leather: { sat: 0.34, bias: 0.94, lo: 0.13, hi: 0.42 },
-      metal:   { sat: 0.14, bias: 1.02, lo: 0.16, hi: 0.58 },
-      linen:   { sat: 0.26, bias: 1.02, lo: 0.42, hi: 0.76 },
+      cloth:   { sat: 0.66, bias: 1.18, lo: 0.26, hi: 0.66 },
+      wrap:    { sat: 0.42, bias: 1.16, lo: 0.38, hi: 0.76 },
+      leather: { sat: 0.44, bias: 0.98, lo: 0.15, hi: 0.44 },
+      metal:   { sat: 0.20, bias: 1.06, lo: 0.18, hi: 0.60 },
+      linen:   { sat: 0.36, bias: 1.06, lo: 0.44, hi: 0.78 },
     },
   },
   norse: {
     name: "Norse", native: "Danelagu",
-    field: FACTION_FIELD.norse, hue: hueOf(FACTION_FIELD.norse),
+    // -0.024 — off the orange gilt was lending it and onto the stone. See `hueOf`.
+    field: FACTION_FIELD.norse, hue: hueOf(FACTION_FIELD.norse, -0.024),
     // The Gokstad ship's shields alternated BLACK and yellow along the gunwale,
     // and that is the one period statement anybody has about how a board was
     // painted. The staves are the black half of it.
     paint: 0x14100e, pattern: "staves", device: "norse",
     dye: {
-      cloth:   { sat: 0.58, bias: 0.76, lo: 0.09, hi: 0.40 },
-      wrap:    { sat: 0.34, bias: 0.80, lo: 0.20, hi: 0.50 },
-      leather: { sat: 0.40, bias: 0.78, lo: 0.07, hi: 0.30 },
-      metal:   { sat: 0.16, bias: 1.16, lo: 0.22, hi: 0.66 },
-      linen:   { sat: 0.30, bias: 0.82, lo: 0.30, hi: 0.58 },
+      cloth:   { sat: 0.74, bias: 0.66, lo: 0.08, hi: 0.34 },
+      wrap:    { sat: 0.48, bias: 0.70, lo: 0.16, hi: 0.42 },
+      leather: { sat: 0.56, bias: 0.68, lo: 0.06, hi: 0.26 },
+      metal:   { sat: 0.18, bias: 1.14, lo: 0.22, hi: 0.66 },
+      linen:   { sat: 0.44, bias: 0.72, lo: 0.24, hi: 0.50 },
     },
   },
   briton: {
@@ -814,11 +843,11 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // one cloth is what a checked weave is, and two hues would be a flag.
     paint: 0xc4c0aa, pattern: "check", device: "briton",
     dye: {
-      cloth:   { sat: 0.36, bias: 1.30, lo: 0.26, hi: 0.70 },
-      wrap:    { sat: 0.18, bias: 1.34, lo: 0.46, hi: 0.82 },
-      leather: { sat: 0.24, bias: 1.20, lo: 0.18, hi: 0.50 },
-      metal:   { sat: 0.13, bias: 1.10, lo: 0.20, hi: 0.62 },
-      linen:   { sat: 0.12, bias: 1.16, lo: 0.52, hi: 0.86 },
+      cloth:   { sat: 0.50, bias: 1.34, lo: 0.30, hi: 0.72 },
+      wrap:    { sat: 0.26, bias: 1.38, lo: 0.50, hi: 0.84 },
+      leather: { sat: 0.34, bias: 1.24, lo: 0.20, hi: 0.52 },
+      metal:   { sat: 0.16, bias: 1.12, lo: 0.22, hi: 0.64 },
+      linen:   { sat: 0.18, bias: 1.18, lo: 0.54, hi: 0.86 },
     },
   },
   pict: {
@@ -828,14 +857,14 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // as pale line on dark ground, which is the contrast this device wants.
     paint: 0xd8d2c2, pattern: "rim", device: "pict",
     dye: {
-      cloth:   { sat: 0.56, bias: 0.94, lo: 0.14, hi: 0.52 },
+      cloth:   { sat: 0.72, bias: 0.96, lo: 0.16, hi: 0.54 },
       // Bare limbs. The wraps come out of the vat almost as they went in, which
       // at fight distance is the pale band up the shin nobody else has.
-      wrap:    { sat: 0.10, bias: 1.24, lo: 0.48, hi: 0.84 },
-      leather: { sat: 0.30, bias: 0.90, lo: 0.10, hi: 0.36 },
+      wrap:    { sat: 0.12, bias: 1.28, lo: 0.52, hi: 0.86 },
+      leather: { sat: 0.46, bias: 0.90, lo: 0.11, hi: 0.36 },
       // Least armour: his metal goes dark and nearly colourless.
-      metal:   { sat: 0.09, bias: 0.72, lo: 0.10, hi: 0.40 },
-      linen:   { sat: 0.20, bias: 1.10, lo: 0.44, hi: 0.80 },
+      metal:   { sat: 0.11, bias: 0.70, lo: 0.10, hi: 0.38 },
+      linen:   { sat: 0.30, bias: 1.12, lo: 0.46, hi: 0.80 },
     },
   },
 };
