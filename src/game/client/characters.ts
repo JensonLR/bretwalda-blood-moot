@@ -915,78 +915,84 @@ export function peopleOf(ap: Pick<Appearance, "people">): Allegiance {
 }
 
 /**
- * THE TRANSFER FUNCTION, BOTH WAYS — and it is the whole of one shipped defect.
+ * THE TRANSFER FUNCTION, BOTH WAYS.
  *
- * `THREE.Color.getHSL` reports lightness in the renderer's WORKING colour
- * space, and `ColorManagement` is on, so that space is LINEAR. Every band in
- * the `Dye` table below — `lo: 0.26`, `hi: 0.66` and the rest — was written by
- * a hand thinking in the space a colour picker shows you, which is the
- * PERCEPTUAL one. The two are not close: mid-grey is 0.50 perceptual and 0.21
- * linear, and the kit's own surfaces run from linear 0.014 (Blackened Steel's
- * harness) to 0.42 (Bretwalda Gold's wraps) where the same seven rows read 0.13
- * to 0.68 perceptual.
+ * `THREE.Color.getHSL` and `setHSL` both work in the renderer's WORKING colour
+ * space, and `ColorManagement` is on, so that space is LINEAR. The `Dye` bands
+ * below are in that space too — they were tuned against captures, not typed out
+ * of a colour picker, and a first attempt at this fix that "corrected" them into
+ * perceptual lightness put the Danelaw and the Picts so dark that
+ * `factionread` §1.2 fell from ΔC 12.52 to 4.41 and §1.3 read a Pict as a Saxon
+ * at -173°. That reading is why the band arithmetic below is still linear: the
+ * table is right about the space it is in, and the defect was never the space.
  *
- * So `lo` sat ABOVE nearly every surface it was clamping. Six of the seven
- * finishes went in at different values and came out on the floor, and the paid
- * ladder was gone: Rough Iron at 0 gold and Blackened Steel at 110 returned the
- * IDENTICAL hex on every dyed surface under a Saxon or a Briton livery —
- * `mail #7c7a6f vs #7c7a6f | tunic #b0a554 vs #b0a554`.
- *
- * NOTHING IN THE DRAWER COULD SEE IT. `rungcensus` counts components and
- * triangles and nothing was deleted; `cosmetictest` §2 gates this exact ladder
- * on this exact constant but against the RAW STORED HEX, which is the same
- * seven numbers whatever a man swore to; `factionread` asked only whether the
- * four peoples were far enough APART. `tools/factionread.mjs` §5 is the ruler
- * that asks the question the other three were next to, and §5.0 keeps the old
- * formula as a control so it can prove it still sees the collapse.
- *
- * `teamDye` has the identical mismatch and is deliberately NOT changed here.
- * A team's whole product is a collapse — `teamread` asserts that four peoples
- * on one side are ONE colour to ΔC 0.00 — so the same bug is, there, the
- * feature. Correcting it would move a gated, photographed build for no gain.
- * Recorded rather than fixed: `docs/PROCESS.md` R4.
+ * What these two are for is the BRIGHTNESS CEILING, which is a statement about
+ * how a surface will read on a screen and therefore belongs in the perceptual
+ * space, and the shop's own tables are measured in the same one so the
+ * comparison is like for like.
  */
 const perceptual = (l: number): number => (l <= 0.0031308 ? l * 12.92 : 1.055 * Math.pow(l, 1 / 2.4) - 0.055);
 const linear = (l: number): number => (l <= 0.04045 ? l / 12.92 : Math.pow((l + 0.055) / 1.055, 2.4));
 
 /**
- * THE VAT ADDS DYESTUFF; IT DOES NOT REPAINT — and this is the other half of
- * the same defect, and the half that saves the two 130-gold rungs.
+ * THE VAT ADDS DYESTUFF; IT DOES NOT REPAINT.
  *
- * Correcting the space above restores the ladder's VALUES, and values are most
- * of it. They are not all of it. Crimson Warplate and Sea Queen's Gift are
- * madder and woad: the same lightness, the same chroma, 130 gold each, and told
- * apart by HUE ALONE. A vat that ASSIGNS its hue takes the only thing there is
- * between them, and no amount of value work can put it back. Bronze Scales and
- * Bretwalda Gold are the same story one step further on.
+ * THE DEFECT. The first cut of `factionDye` ASSIGNED the chroma: `setHSL(f.hue,
+ * d.sat, l)` threw away whatever the surface already carried and wrote one
+ * number over it. Together with a hard clamp at both ends of the band, that
+ * mapped every rung of a PAID ladder onto one value. Measured through the
+ * shipped resolvers, kit-averaged CIELAB ΔE over the six dyed surfaces:
+ * **21 of 21 finish pairs under `LADDER_DE` on all four peoples, minimum
+ * 0.00** — Rough Iron at 0 gold and Blackened Steel at 110 returning the
+ * identical hex on every dyed surface under a Saxon or Briton livery.
  *
- * OVERDYEING DOES NOT ERASE A COLOUR, IT ADDS TO IT. Yellow cloth in a woad vat
- * comes out green, not blue; madder over woad is purple. That is how a period
- * dyer got a range out of four plants, and it is exactly the channel that was
- * being thrown away — `FINISH_KIT`'s own chroma is a statement about what each
- * rung was already dyed with, and it was being replaced by a constant.
+ * A DYE VAT DOES NOT REPAINT CLOTH. It adds dyestuff to what is already there,
+ * and what is already there shows: yellow cloth in a woad vat comes out green,
+ * not blue. So the chroma plane is a VECTOR SUM — the surface's own chroma plus
+ * the vat's, at the vat's hue — and the reason that is the right shape rather
+ * than merely the true one is that ADDITION PRESERVES DIFFERENCES. A ladder is
+ * a relative structure and a translation is the only operator that leaves a
+ * relative structure alone.
  *
- * So the chroma plane is worked in as a VECTOR SUM: the surface's own chroma,
- * plus the vat's, at the vat's hue. Two properties follow, and both are the
- * reason this shape was chosen over every other one that was tried:
+ * THE CONE, AND IT IS A CONCESSION MEASURED RATHER THAN GUESSED. A pure sum
+ * lets a strongly dyed finish out-vote a weak vat, and two of the four vats are
+ * deliberately weak on their largest surfaces — the Pict's wraps are `sat 0.12`
+ * because his limbs are bare, and the Briton's linen 0.18 because his kit is
+ * light. Unbounded, a Pict in Bretwalda Gold came out reading SAXON: §1.3 at
+ * -173°, which is the identity read inverted. The result's hue is therefore
+ * held within `HUE_CONE` of the vat's. Every dyed surface is then inside one
+ * cone, and an area-weighted mean of vectors inside a cone stays inside it, so
+ * the people read cannot be out-voted by a purchase — which is the whole of
+ * §8's precedence one rung down.
  *
- *   * ADDITION PRESERVES DIFFERENCES EXACTLY. Two rungs that went into the vat
- *     ΔC apart come out ΔC apart, because the same vector was added to both.
- *     The ladder is a RELATIVE structure and a translation is the only operator
- *     that leaves a relative structure alone.
- *   * A MATCHED COMPARISON IS UNHARMED, WHICH IS WHAT §1.2 GATES. Two peoples
- *     wearing the SAME finish differ by exactly the difference of their two vat
- *     vectors — the surface term is common to both and cancels. Swearing to one
- *     people rather than another moves a man by the same amount it always did.
+ * WHAT EACH PART BOUGHT, measured on the real §1 sweep and not on a proxy:
  *
- * Measured, over all 84 pairs of the seven finishes under the four liveries:
- * the collapse goes from 84 pairs under `LADDER_DE` (min ΔE 0.00) to 2 (min ΔE
- * 8.43), and every ADJACENT rung — which is the rule `cosmetictest` §2 actually
- * writes for this ladder — clears the bar with 15.71 to spare. What the two
- * survivors are, and why they are reported rather than gated, is written out in
- * `tools/factionread.mjs` §5.
+ *     configuration                          §1.2 DISTINCT  §1.3 READS  §5 min ΔE
+ *     shipped (assign, hard clamp)              12.52 ΔC     +15.21°      0.00
+ *     bands moved to perceptual + full sum       4.41 ΔC     -173.24°     8.93
+ *     linear bands + full sum, no cone           5.75 ΔC     -173.24°     8.97
+ *     linear bands + sum, 22° cone              16.64 ΔC      -25.80°     7.16
+ *     THIS: linear bands + sum, 8° cone         17.93 ΔC       +3.47°     3.23
+ *
+ * The trade is real and it is stated rather than hidden: the ladder does not
+ * come all the way back. The configurations that recover it to ΔE 8-9 are the
+ * ones that let a finish out-vote a people, and a people that a purchase can
+ * out-vote is `FACTIONS.md` §8's ordering broken one rung lower down. What this
+ * buys is the collapse itself — no two rungs are one swatch any more, and no
+ * paid rung reads as the free one — with the four peoples further apart than
+ * they were before, not nearer. `tools/factionread.mjs` §5 gates that and
+ * prints the shortfall on every run.
  */
 const TAU = Math.PI * 2;
+/**
+ * How far a dyed surface's hue may end up from its vat's, in turns. 0.022 is 8°.
+ *
+ * It is bounded by half the smallest gap between two of the four fields, which
+ * is the 52° between weld and garnet: at 8° two peoples' cones are 36° of clear
+ * air apart, and no surface of one can wander into the other's half of the
+ * circle. Measured at 22° the Norse in Bretwalda Gold read SAXON.
+ */
+const HUE_CONE = 0.022;
 
 /**
  * THE BRIGHTNESS ENVELOPE — a livery may shift a surface, and may not take it
@@ -1071,8 +1077,8 @@ function wornField(hex: number): number {
 
 const BAND_KNEE = 0.42;
 function softBand(x: number, lo: number, hi: number): number {
+  if (x < lo) return lo;
   const k = (hi - lo) * BAND_KNEE;
-  if (x < lo) return lo - k * (1 - Math.exp((x - lo) / k));
   if (x > hi) return hi + k * (1 - Math.exp((hi - x) / k));
   return x;
 }
@@ -1102,10 +1108,14 @@ function softBand(x: number, lo: number, hi: number): number {
 function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   const hsl = { h: 0, s: 0, l: 0 };
   new THREE.Color(hex).getHSL(hsl);
-  const l = softCeil(softBand(perceptual(hsl.l) * d.bias, d.lo, d.hi), kitCeiling());
+  const l = softCeil(perceptual(softBand(hsl.l * d.bias, d.lo, d.hi)), kitCeiling());
+  // THE CHROMA PLANE, AS A VECTOR SUM: what the cloth already carried, plus what
+  // the vat puts in, at the vat's hue.
   const cx = hsl.s * Math.cos(TAU * hsl.h) + d.sat * Math.cos(TAU * f.hue);
   const cy = hsl.s * Math.sin(TAU * hsl.h) + d.sat * Math.sin(TAU * f.hue);
-  const h = (Math.atan2(cy, cx) / TAU + 1) % 1;
+  // THE HUE STAYS INSIDE THE VAT'S CONE. See `HUE_CONE`.
+  const off = ((Math.atan2(cy, cx) / TAU - f.hue + 1.5) % 1) - 0.5;
+  const h = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
   return new THREE.Color().setHSL(h, Math.min(1, Math.hypot(cx, cy)), linear(l)).getHex();
 }
 

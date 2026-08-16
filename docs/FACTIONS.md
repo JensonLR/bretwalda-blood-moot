@@ -442,3 +442,88 @@ add or remove geometry. Removing is forbidden — some of it was bought, and
 those things in VALUE instead: the Pict's metal goes dark and colourless, the
 Norseman's is lifted against his darker wools. That is a smaller claim than the
 table makes and it is the honest one until per-faction class variants are built.
+
+### 10.1 THE VAT, AND THE THREE THINGS IT GOT WRONG — corrected 16 Aug 2026
+
+The first cut of `factionDye` ASSIGNED a hue, a chroma and a clamped lightness.
+That one decision produced all three defects the second pass had to close, and
+they are worth keeping written down because they are the same mistake seen from
+three angles.
+
+**1. IT ATE THE PAID LADDER.** `THREE.Color.getHSL` reports lightness in the
+renderer's LINEAR working space; the `lo`/`hi` bands in the `Dye` table were
+written by a hand thinking in the PERCEPTUAL one. Mid-grey is 0.50 perceptual
+and 0.21 linear, so `lo` sat above nearly every surface it was clamping and six
+of the seven finishes came out on the floor. Rough Iron (0 gold) and Blackened
+Steel (110 gold) returned the identical hex on every dyed surface under a Saxon
+or a Briton livery. Measured through the shipped resolvers, kit-averaged ΔE:
+**21 of 21 finish pairs under `LADDER_DE` on all four peoples, minimum 0.00**,
+against 0 of 21 and minimum 11.85 unsworn.
+
+Nothing in the drawer could see it. `rungcensus` counts components and triangles
+and nothing was deleted. `cosmetictest` §2 gates this exact ladder on this exact
+constant — against the raw stored hex, which is the same seven numbers whatever
+a man swore to. `factionread` asked only whether the four peoples were far
+enough APART.
+
+**The fix is that a vat ADDS dyestuff to what is already there.** The lightness
+is converted into the space the bands were written in; the band is a soft knee
+rather than a wall, because a clamp has zero slope and zero slope is where paid
+rungs die; and the chroma plane is a VECTOR SUM — the surface's own chroma plus
+the vat's, at the vat's hue. Addition is the point: it preserves differences
+exactly, which is what a ladder is, and two peoples in the same finish still
+differ by exactly the difference of their two vat vectors because the surface
+term cancels. It is also what actually happened to cloth — yellow in a woad vat
+comes out green, not blue, and that is how a period dyer got a range out of four
+plants.
+
+**2. `--gilt` IS A MAP TOKEN, NOT A CLOTH DYE.** `cloakFor` was putting
+0xd9a441 flat on a cloak. The CSS beside that variable calls it a metal and "the
+brightest thing on the map", and it sits about twenty points of lightness above
+every other flat field this game uses — team madder 34, team woad 32, garnet 28,
+moss 32, faction woad 31, and the shop's dearest cloak at 41. Through the real
+renderer at the play lens, share of the man at a fully clipped channel: the
+Saxon read **1.93% at the front against the 400 gold Gilded War Cloak's 0.11%**,
+sixteen times the shop's dearest gold, and at full scale a channel has no fold
+shading left in it.
+
+The rule now is that **a livery may not make a thing brighter than the brightest
+thing of that kind the shop already sells** — a cloak against `CLOAK_COLORS`, a
+kit surface against `FINISH_KIT` — computed from those tables rather than typed
+out, so a new cloak moves the ceiling with it. `FACTION_FIELD` is untouched: the
+island is still painted in `globals.css`'s four variables, and the cloak is the
+same colour at a wearable value.
+
+**3. THE DANELAW WAS STILL PINK, AND IT WAS THE SAME CLAMP.** The round that
+found it took the Norse hue shift out for making a man pink, and shot the front
+of a huscarl. The pink was never in the hue shift. It was in a clamp that put
+every pale surface onto one light, chroma-0.34 rose — the linen shirt and
+sleeves, the leg wraps and the pale harness leather, which are the arms and the
+shins, which is what you see at the two bearings nobody photographed:
+
+| surface | before | after |
+|---|---|---|
+| linen shirt/sleeves | `#ae7e80` H358 S23 L59 | `#9b6d58` H19 S28 L48 |
+| pelt (berserker's back) | `#792f34` H356 S44 L33 | `#692b00` H25 S100 L21 |
+| Polished Steel wraps | `#b06d70` H357 S30 L56 | `#915a50` H9 S29 L44 |
+| Polished Steel byrnie | `#a89e9e` H0 S5 L64 | `#9ea2b4` H229 S13 L66 |
+
+**WHAT THIS PASS COULD NOT BUY, stated with its number.** The stricter reading
+of the ladder rule — every one of the 21 pairs, not only adjacent ones, clearing
+`LADDER_DE` under every livery — is reported by `factionread` §5 and is not
+gated. The shop's own tightest pair, Bronze Scales against Bretwalda Gold, is
+ΔE 11.85 apart unsworn, so a livery has 1.85 points of room on it and would have
+to be very nearly an isometry. The chroma plane can be made one. Lightness
+cannot, because `bias` and the `lo`/`hi` bands are where §2's "darker wools" and
+"lighter kit" live and darkening a man compresses the differences between his
+finishes. Measured across the parameter space: holding those bands, the tightest
+sworn pair tops out at ΔE 8.4–9.8; dissolving them — cutting `bias` to a fifth
+and widening every band by 30% — buys ΔE 10.2 and costs the Danelaw being dark,
+which is the one read in this feature that is a CONTRAST rather than a colour.
+That trade was refused, and the shortfall is printed on every run rather than
+left off the sheet.
+
+`teamDye` carries the identical space mismatch and is deliberately not touched.
+A team's whole product is a collapse — `teamread` gates four peoples on one side
+at ΔC 0.00 — so there the same bug is the feature, and correcting it would move
+a gated, photographed build for no gain.

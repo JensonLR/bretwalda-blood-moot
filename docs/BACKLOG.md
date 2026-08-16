@@ -1164,11 +1164,51 @@ as "the faction failed to load" would be worse than no feature.
 
 ### The gate, and it went red on the build it was written for
 
-`node tools/factionread.mjs` — 15/15, ~3.5 min, no browser. `--off` is the
-permanent control and must fail: it reads ΔC 0.00 and its sheet is five copies
-of one man. First run against the real build was 12/15, and the three failures
-split into two build defects and one ruler defect, written up in `GATES.md` and
-in the file itself.
+`node tools/factionread.mjs`. `--off` is the permanent control and must fail: it
+reads ΔC 0.00 and its sheet is five copies of one man. First run against the
+real build was 12/15, and the three failures split into two build defects and
+one ruler defect, written up in `GATES.md` and in the file itself.
+
+### AND THEN IT PASSED 15/15 WITH THREE DEFECTS LIVE IN IT — 16 Aug 2026
+
+Worth its own heading, because the lesson is the one this project keeps paying
+for. Every assertion the file had asked whether the four peoples were far enough
+APART. None asked whether the shop was still a ladder INSIDE one of them, and
+none of them had any light in it at all. The whole "after" set was five front-on
+turn-0 huscarl cards: one bearing, one class, one pose, and all three defects
+lived outside that frame.
+
+1. **SWEARING FLATTENED THE PAID ARMOUR FINISH LADDER.** Measured through the
+   shipped resolvers, kit-averaged CIELAB ΔE over the six dyed surfaces: **21 of
+   21 finish pairs under `LADDER_DE` on every one of the four peoples, minimum
+   0.00**, against 0 of 21 and minimum 11.85 unsworn. Rough Iron at 0 gold and
+   Blackened Steel at 110 returned the identical hex on every dyed surface under
+   a Saxon or Briton livery — `mail #7c7a6f vs #7c7a6f | tunic #b0a554 vs
+   #b0a554`. A man who paid 110 gold watched it become the free one the moment
+   he swore.
+
+   `rungcensus` could not see it — it counts components and triangles and
+   **nothing was deleted**, the colour was flattened. `cosmetictest` §2 gates
+   this exact ladder on this exact constant, against the RAW STORED HEX, which
+   is the same seven numbers whatever a man swore to. Three instruments green,
+   all answering the question next to the one that mattered.
+
+2. **THE SAXON BLEW OUT.** `--gilt` is a map token — the CSS calls it a metal
+   and "the brightest thing on the map" — and `cloakFor` put it flat on a cloak.
+   Through the real renderer: **1.93% of the man at a fully clipped channel at
+   the front, against 0.11% for the 400 gold Gilded War Cloak.**
+
+3. **THE DANELAW WAS STILL PINK** at the two bearings nobody photographed. The
+   round that "fixed" it removed the Norse hue shift and shot the front; the
+   pink was never in the hue shift, it was in the same clamp — every pale
+   surface, which is the linen sleeves and the leg wraps, onto one light rose.
+
+**Closed 16 Aug 2026, all three by one correction, and both new gates were
+written first and went red before the fix.** `factionread` §5 gates the paid
+ladder through `kitFor(finishKit(value), team, people)`, and §6 boots the app
+and counts clipped pixels under the fire against the shop's own dearest gold.
+The full write-up is `FACTIONS.md` §10.1; what it could not buy, and the number,
+is there too and is printed on every run.
 
 ### What is still open here
 

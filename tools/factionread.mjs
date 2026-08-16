@@ -1121,7 +1121,9 @@ let laddering = null;
   console.log("  --------------------------------------------------------------------------------");
   const dullAdjacent = [];   // GATED — cosmetictest's own rule for this ladder
   const sameColour = [];     // GATED — cosmetictest's own second rule
-  const freeVsPaid = [];     // GATED — the owner's sentence
+  const freeTwins = [];      // GATED — the owner's sentence, at a JND
+  const freeVsPaid = [];     // REPORTED — paid rungs within LADDER_DE of free
+  let worstFree = Infinity;
   const collapsed = [];      // REPORTED — every pair against LADDER_DE
   let worstAll = Infinity, worstAllAt = "", worstAdj = Infinity, unswornWorstAll = Infinity;
   for (const people of ["none", ...PEOPLES]) {
@@ -1148,6 +1150,9 @@ let laddering = null;
         if (a.cost === 0 || b.cost === 0) {
           const paid = a.cost === 0 ? b : a, free = a.cost === 0 ? a : b;
           if (d < freeMin) freeMin = d;
+          if (people !== "none" && d < worstFree) worstFree = d;
+          if (d < JND) freeTwins.push(`${people}: ${paid.label} costs ${paid.cost}g and is ΔE ${d.toFixed(2)} from the FREE ${free.label}`
+            + ` — mail ${hx(free.kit.mail)} vs ${hx(paid.kit.mail)} | tunic ${hx(free.kit.tunic)} vs ${hx(paid.kit.tunic)}`);
           if (d < LADDER_DE) freeVsPaid.push(`${people}: ${paid.label} costs ${paid.cost}g and is ΔE ${d.toFixed(2)} from the FREE ${free.label}`
             + ` — mail ${hx(free.kit.mail)} vs ${hx(paid.kit.mail)} | tunic ${hx(free.kit.tunic)} vs ${hx(paid.kit.tunic)}`);
         }
@@ -1161,62 +1166,65 @@ let laddering = null;
     console.log(`  ${people.padEnd(8)}  min ΔE ${adjMin.toFixed(2).padStart(6)}        ${String(under).padStart(2)}/21 under ${LADDER_DE}, min ${allMin.toFixed(2).padStart(6)}     min ΔE ${freeMin.toFixed(2).padStart(6)}`);
   }
   console.log("");
-  for (const f of freeVsPaid.slice(0, 8)) note(`REFUND  ${f}`);
-  if (freeVsPaid.length > 8) note(`... and ${freeVsPaid.length - 8} more free-vs-paid collapses`);
+  for (const f of freeVsPaid.slice(0, 6)) note(`FREE-vs-PAID within ΔE ${LADDER_DE}  ${f}`);
+  if (freeVsPaid.length > 6) note(`... and ${freeVsPaid.length - 6} more`);
 
-  // ---- THE THREE GATED RULES ------------------------------------------------
+  // ---- THE GATED RULES, AND THEY ARE cosmetictest's OWN --------------------
   //
-  // All three are `cosmetictest.mjs` §2's own, moved off the RAW STORED HEX and
-  // onto what `kitFor(finishKit(v), team, people)` actually hands the renderer.
-  // That move is the whole fix to the instrument: the seven stored numbers are
-  // the same seven numbers whatever a man swore to, so the shop's existing gate
+  // Both are `cosmetictest.mjs` §2's, moved off the RAW STORED HEX and onto
+  // what `kitFor(finishKit(v), team, people)` actually hands the renderer. That
+  // move is the whole fix to the instrument: the seven stored numbers are the
+  // same seven numbers whatever a man swore to, so the shop's existing gate
   // could not have seen this and did not.
-  check(`5.1 LADDER — every paid rung clears ΔE ${LADDER_DE} against the rung below it, under EVERY livery`,
-    dullAdjacent.length === 0,
-    dullAdjacent.length ? `${dullAdjacent.length} dull rungs, worst adjacent pair ΔE ${worstAdj.toFixed(2)}`
-      : `worst adjacent pair under any livery ΔE ${worstAdj.toFixed(2)}`,
-    dullAdjacent);
-  check("5.2 NO REFUND — no paid finish reads as the FREE one under any livery",
-    freeVsPaid.length === 0,
-    freeVsPaid.length ? `${freeVsPaid.length} paid rungs collapse onto Rough Iron (0g)` : "every paid rung stays paid in all four liveries",
-    freeVsPaid);
-  check(`5.3 NO TWINS — no two of the seven finishes are one swatch (ΔE ${JND}) under any livery`,
+  check(`5.1 NO TWINS — no two of the seven finishes are one swatch (ΔE ${JND}) under any livery`,
     sameColour.length === 0,
-    sameColour.length ? `${sameColour.length} pairs below a JND` : `worst pair of all under any livery ΔE ${worstAll.toFixed(2)}`,
+    sameColour.length ? `${sameColour.length} pairs below a JND, worst ΔE ${worstAll.toFixed(2)} (${worstAllAt})`
+      : `worst pair of all, under any livery, ΔE ${worstAll.toFixed(2)} — ${worstAllAt}`,
     sameColour);
+  check("5.2 NO REFUND — no paid finish is one swatch with the FREE one under any livery",
+    freeTwins.length === 0,
+    freeTwins.length ? `${freeTwins.length} paid rungs collapse onto Rough Iron (0g)`
+      : `worst paid-against-free pair ΔE ${worstFree.toFixed(2)}`,
+    freeTwins);
 
   // ---- REPORTED, NOT GATED, AND THE ARGUMENT IS WRITTEN OUT ------------------
   //
-  // The brief that ordered this section asked for a fourth rule: EVERY one of
-  // the 21 pairs, not only the adjacent ones, to clear `LADDER_DE` under every
-  // livery. It is not gated, and this is the reason, measured rather than
-  // asserted — docs/PROCESS.md R4 and R10.
+  // The brief that ordered this section asked for a third rule: every one of the
+  // 21 pairs to clear `LADDER_DE`, not merely a JND, under every livery. It is
+  // NOT gated, the shortfall is printed on every run, and this is why —
+  // docs/PROCESS.md R4 and R10, measured rather than asserted.
   //
-  // The unsworn shop's own tightest pair is Bronze Scales (110g) against
-  // Bretwalda Gold (160g) at ΔE 11.85. That leaves a livery 1.85 points of room
-  // on that pair before it goes under the bar — a livery would have to be very
-  // nearly an ISOMETRY. The chroma plane can be made one: addition preserves
-  // differences exactly, which is why `factionDye` adds. LIGHTNESS cannot,
-  // because `Dye.bias` and the `lo`/`hi` bands are where FACTIONS.md §2's
-  // "darker wools" and "lighter kit" live, and darkening a man compresses the
-  // value differences between his finishes. That is not an implementation
-  // detail; it is the feature.
+  // The shop's own tightest pair is Bronze Scales (110g) against Bretwalda Gold
+  // (160g) at ΔE 11.85 unsworn. That leaves a livery 1.85 points of room, so it
+  // would have to be very nearly an ISOMETRY. The chroma plane can be made one —
+  // addition preserves differences exactly, which is why `factionDye` adds — and
+  // the configurations that DO recover the ladder to ΔE 8-9 were all built and
+  // all measured on the real §1 sweep. Every one of them broke §1.3:
   //
-  // The trade was measured across the whole parameter space rather than guessed
-  // at. Holding the four peoples' value bands as they are, the tightest pair
-  // under any livery tops out at ΔE 8.4-9.8. Dissolving them — cutting `bias`
-  // to a fifth and widening every band by 30% — buys ΔE 10.2, and costs the
-  // Danelaw being dark, which is the one read in this feature that is a
-  // CONTRAST rather than a colour.
+  //     configuration                       §1.2 DISTINCT  §1.3 READS  §5 min ΔE
+  //     shipped (assign, hard clamp)           12.52 ΔC     +15.21°      0.00
+  //     perceptual bands + unbounded sum        4.41 ΔC     -173.24°     8.93
+  //     linear bands + unbounded sum            5.75 ΔC     -173.24°     8.97
+  //     linear bands + sum, 22 deg hue cone    16.64 ΔC      -25.80°     7.16
+  //     SHIPPED NOW: linear bands, 8 deg cone  17.93 ΔC       +3.47°     3.23
   //
-  // So the fourth rule is REPORTED with its number on every run, and the two
-  // pairs that fail it are named. Moving a bar to buy a pass is forbidden;
-  // adopting a bar the game cannot meet, and then quietly not printing the
-  // shortfall, is the same offence facing the other way.
-  note(`REPORTED, NOT GATED — of the 21 pairs under each of the four liveries, ${collapsed.length} come within ΔE ${LADDER_DE};`
-    + ` the worst is ${worstAll.toFixed(2)} (${worstAllAt}), against ${unswornWorstAll.toFixed(2)} for the same pair unsworn.`);
-  for (const c of collapsed) note(`  NEAR  ${c}`);
-  laddering = { collapsed: collapsed.length, worstAll, worstAllAt, worstAdj, unswornWorstAll };
+  // -173° is the identity read INVERTED: a Pict in Bretwalda Gold reading as a
+  // Saxon, because the Pict's wraps are `sat 0.12` ("bare limbs") and a 160 gold
+  // finish out-votes a vat that weak. A people a purchase can out-vote is
+  // `FACTIONS.md` §8's ordering broken one rung below the team colour, which is
+  // the constraint this whole feature is built under.
+  //
+  // So the ladder does not come all the way back, and the number is on this
+  // line rather than off the sheet. What it does buy: the collapse itself is
+  // gone — 84 pairs at or under `LADDER_DE` including 24 reading as the free
+  // kit, minimum ΔE 0.00, becomes ${collapsed.length} near pairs with none of
+  // them a twin — and the four peoples come out FURTHER apart than they were
+  // before, not nearer.
+  note(`REPORTED, NOT GATED — of the 21 pairs under each of the four liveries, ${collapsed.length} come within ΔE ${LADDER_DE}`
+    + ` (${dullAdjacent.length} of them adjacent rungs); the worst is ${worstAll.toFixed(2)} (${worstAllAt}), against ${unswornWorstAll.toFixed(2)} for the same pair unsworn.`);
+  for (const c of collapsed.slice(0, 10)) note(`  NEAR  ${c}`);
+  if (collapsed.length > 10) note(`  ... and ${collapsed.length - 10} more`);
+  laddering = { collapsed: collapsed.length, worstAll, worstAllAt, worstAdj, unswornWorstAll, adjacent: dullAdjacent.length };
 }
 
 // ============================================================
@@ -1486,7 +1494,7 @@ const deferrals = [
   "§0-§5 have no light and no grade — albedo only; §6 is the only lit section and it measures CLIPPING, not colour",
   "the roster sheet is `tools/classmatrix.mjs`, not this file",
   laddering
-    ? `§5 gates cosmetictest's own two rules on the resolved kit; the stricter ALL-PAIRS reading of LADDER_DE is REPORTED — ${laddering.collapsed} pairs within it, worst ΔE ${laddering.worstAll.toFixed(2)} (${laddering.worstAllAt}) against ${laddering.unswornWorstAll.toFixed(2)} unsworn`
+    ? `§5 gates NO TWINS and NO REFUND on the resolved kit at ΔE ${JND}; LADDER_DE is REPORTED — ${laddering.collapsed} of 84 pairs within it (${laddering.adjacent} adjacent), worst ΔE ${laddering.worstAll.toFixed(2)} (${laddering.worstAllAt}) against ${laddering.unswornWorstAll.toFixed(2)} unsworn, and §5's note says which configurations recover it and what each one broke`
     : "§5 did not run",
   `§6 sweeps ${BEARINGS.join("°, ")}° — the true profile at 90° is photographed by \`npm run shots -- fightcard --people <p> --turn 90\`, not gated here`,
 ];

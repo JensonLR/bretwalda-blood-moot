@@ -82,8 +82,8 @@ these files gates one rung of that ladder at the distance a player fights.
 |---|---|---|
 | `node tools/teamread.mjs` | ~1 min, no browser | can a stranger tell friend from foe at 6.8 m, over every finish × cloak × class × bearing, both sides |
 | `node tools/teamread.mjs --off` | ~1 min | the control. Both sides with no team, i.e. the pre-override game. **Must fail** |
-| `node tools/factionread.mjs` | ~3.5 min, no browser | are the four peoples four men at 6.8 m — and does any of them cost a point of anything |
-| `node tools/factionread.mjs --off` | ~3.5 min | the control. All four peoples as the unsworn. **Must fail** |
+| `node tools/factionread.mjs` | ~3.5 min for §0–§5, then most of an hour for §6 | are the four peoples four men at 6.8 m; does any of them cost a point of anything; is the paid ladder still a ladder after a man swears; and does anything a livery makes blow a channel under the fire |
+| `node tools/factionread.mjs --off` | same | the control. All four peoples as the unsworn. **Must fail** |
 | either, `--sheet` | +seconds | the flat-albedo contact sheet in `art/look/`, which is the thing to actually LOOK at |
 
 **They share a rasteriser and a verdict quantity on purpose.** A warrior's
@@ -109,6 +109,45 @@ resolvers return on the team before a people is consulted. The reason the bar is
 zero rides the same output line: garnet sits ΔC 7.3 from madder and the Pictish
 woad ΔC 15.4 from the team's woad. They are the same two dyestuffs, so a leak
 here is a man who cannot tell an enemy from a countryman.
+
+**§5 and §6 were added after this file passed 15/15 with three defects live in
+it**, and both are about a question that was being asked NEXT TO the one that
+mattered.
+
+§5 gates the PAID LADDER through the shipped resolvers —
+`kitFor(finishKit(value), team, people)` — instead of through the stored hex.
+`cosmetictest` §2 already gates this ladder, on this constant, and could not
+have seen the defect: the seven stored numbers are the same seven numbers
+whatever a man swore to, and it was the RESOLVER that flattened them. Rough Iron
+at 0 gold and Blackened Steel at 110 returned the identical hex on every dyed
+surface under a Saxon livery. `rungcensus` could not see it either, and for the
+more instructive reason: it counts connected components and triangles, and
+nothing was deleted. The colour was flattened. A census of parts cannot see a
+flattened colour, and this project's signature failure is a measurement
+answering the wrong question.
+
+§5 gates `cosmetictest`'s own two rules — adjacent rungs clear `LADDER_DE`, no
+two rungs are one swatch — plus a third the shop does not have: NO REFUND, no
+paid finish may read as the free one. The stricter all-pairs reading of
+`LADDER_DE` is **reported with its number on every run and not gated**, and the
+file says why in full: the shop's own tightest pair is ΔE 11.85 apart unsworn,
+which leaves a livery 1.85 points of room, and the last of it is spent by the
+per-people lightness bands that are what "darker wools" and "lighter kit" ARE.
+Measured across the parameter space: holding those bands, the tightest sworn
+pair tops out at ΔE 8.4–9.8; dissolving them buys 10.2 and costs the Danelaw
+being dark.
+
+§6 is **the only lit section in either file**, and it exists because three
+rounds of this feature shipped a defect past a harness with no light in it. It
+boots the app, drives the real renderer at the play lens, and counts pixels at a
+fully clipped channel inside the warrior's own coverage mask — the mask, not the
+frame, because the bonfire is behind him and contributes about a tenth of a
+percent of every capture including the unsworn ones. The bar is the UNSWORN man
+in the 400 gold Gilded War Cloak and the 160 gold Bretwalda Gold finish: the
+brightest dress a player can buy, so the bar cannot be moved without brightening
+something people own. §6.0 proves the counter can count and §6.2 proves the
+capture repeats, because a clip count is exactly the statistic a moving fire
+moves.
 
 **Both files record a ruler they had to correct, in the file, with the reading
 that forced it.** `teamread` first gated on full ΔE and called two red-team men
