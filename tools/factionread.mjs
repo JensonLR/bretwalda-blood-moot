@@ -3,7 +3,12 @@
 // FACTIONREAD — is a man of the Danelaw a different man from a man of Wessex,
 // at the distance you fight him, and did it cost a single point of anything?
 //
-//   node tools/factionread.mjs            # THE GATE. ~2 min, no browser.
+//   node tools/factionread.mjs            # THE GATE. §0-§5 are ~3 min and need
+//                                         # no browser; §6 boots the app and
+//                                         # drives the real renderer, and costs
+//                                         # most of an hour on a box with no
+//                                         # GPU. There is no flag to skip it.
+//                                         # Run `npm run build` first.
 //   node tools/factionread.mjs --sheet    # also write the contact sheet PNG
 //   node tools/factionread.mjs --off      # THE CONTROL: build all four peoples
 //                                         # as the unsworn — i.e. the game as
@@ -29,10 +34,17 @@
 //    gates a match — twelve players split four ways is four empty queues
 //    instead of one working room."
 //
-// So this file is TWO gates and not one, and the second is the more important:
+// So this file is FOUR gates and not one, and the second is the more important:
 //
 //   §1  the four peoples are TOLD APART at fight distance
 //   §3  and not one of them is told apart by anything a fight reads
+//   §5  and swearing does not flatten the ladder a man PAID for
+//   §6  and nothing a livery produces blows a channel under the fire
+//
+// §5 and §6 exist because this file passed 15/15 with three defects live in it.
+// Every assertion it had asked whether the four peoples were far enough APART;
+// none asked whether the shop was still a ladder INSIDE one of them, and none
+// of them had any light in it at all.
 //
 // A harness that only measured §1 would go green on a build that gave the
 // Picts more health, because more health is invisible in an albedo buffer.
@@ -130,7 +142,11 @@
 //     CONSERVATIVE one: the bar is cleared by the man without his shield. The
 //     board's four fields and its four devices are checked as a catalogue ΔE
 //     and a triangle count instead, in §4, and both ride the verdict line.
-//   * LIGHT. No bonfire, no grade, albedo only. Same as `teamread`.
+//   * LIGHT, in §0-§5. No bonfire, no grade, albedo only — same as `teamread`.
+//     §6 is the exception and the reason it exists: three rounds of this
+//     feature shipped a defect past a harness with no light in it, and the last
+//     one was a surface that was a perfectly good gold in the albedo buffer and
+//     a flat traffic cone on the screen.
 //   * THE ROSTER SHEET. `tools/classmatrix.mjs` is the balance gate and this
 //     file does not restate it. §3 asserts the narrower and harder thing —
 //     that a declared people changes no byte of the simulation at all — which
@@ -906,6 +922,50 @@ let boardMin = null;
 }
 
 // ============================================================
+// THE FIXED WORLD — §6's clock and §6's die.
+//
+// LIFTED FROM `tools/cosmetictest.mjs`, which lifted the clock from
+// `tools/shoot.mjs`, and it is not optional. Two captures of ONE subject are
+// not the same picture without it: `vfx.ts` rolls its embers off `Math.random`
+// and the idle sway runs off `performance.now()`, so the fire's phase and the
+// spark positions differ between two frames of the same man. A clip count is a
+// COUNT OF PIXELS AT FULL SCALE, which is exactly the statistic a moving fire
+// moves, and a gate whose reading wanders is a gate that can be re-rolled until
+// it passes.
+//
+// §6.2 measures the residue rather than assuming it away.
+// ============================================================
+const FRAME_MS = 50;
+function installVirtualClock(stepMs) {
+  // xorshift32. Not for cryptography and not for statistics — for repeatability.
+  let seed = 0x2545f491;
+  Math.random = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    return (seed >>> 0) / 4294967296;
+  };
+  const realRaf = window.requestAnimationFrame.bind(window);
+  let vnow = 0, queue = [], scheduled = false, nextId = 1;
+  const cancelled = new Set();
+  window.requestAnimationFrame = (cb) => {
+    const id = nextId++;
+    queue.push({ id, cb });
+    if (!scheduled) {
+      scheduled = true;
+      realRaf(() => {
+        scheduled = false;
+        vnow += stepMs;
+        const batch = queue; queue = [];
+        for (const it of batch) if (!cancelled.has(it.id)) it.cb(vnow);
+      });
+    }
+    return id;
+  };
+  window.cancelAnimationFrame = (id) => { cancelled.add(id); };
+  performance.now = () => vnow;
+}
+
+
+// ============================================================
 // THE APP AND THE BROWSER — §6's instrument, and nobody else's.
 //
 // Lifted from `tools/cosmetictest.mjs`'s render pass, including the two things
@@ -1261,6 +1321,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
   try {
     browser = await launchBrowser();
     const ctx = await browser.newContext({ viewport: { width: LENS.w, height: LENS.h }, deviceScaleFactor: 1, reducedMotion: "no-preference" });
+    await ctx.addInitScript(installVirtualClock, FRAME_MS);
     page = await ctx.newPage();
 
     let shots = 0;
@@ -1300,6 +1361,20 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // reasoning, and the same measurement, as `tools/cosmetictest.mjs`.
     console.log("        warming the page (one capture, discarded)");
     await capture(`preset=fightcard&clean=1&settle=16&turn=0&cls=huscarl&people=none`);
+
+    // §6.2 — THE FLOOR, MEASURED. The clock is fixed and the die is seeded, and
+    // this is what proves it: the same subject twice, through the whole capture
+    // path, must give the same count. Without it a clip reading could be
+    // re-rolled until it passed, and nobody would be able to tell.
+    {
+      const m = maskFor("huscarl", 0);
+      const q = `preset=fightcard&clean=1&settle=16&turn=0&cls=huscarl&people=saxon`;
+      const a = clipShare(Uint8ClampedArray.from((await capture(q)).px.data), m, LENS.w);
+      const b = clipShare(Uint8ClampedArray.from((await capture(q)).px.data), m, LENS.w);
+      check("6.2 REPEATABLE — one subject captured twice reads the same clip count",
+        a.clipped === b.clipped,
+        `${a.clipped} vs ${b.clipped} clipped px of ${a.n} on the man (${a.pct.toFixed(2)}% vs ${b.pct.toFixed(2)}%)`);
+    }
 
     // ---- THE CONTROL: the shop's dearest gold, on an unsworn man ----------
     console.log("");
