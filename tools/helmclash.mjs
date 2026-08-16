@@ -1944,26 +1944,37 @@ const SEAM_CAP = 0.02;
  * what carries the verdict and the depth bar is only there to throw out a
  * two-triangle corner.
  *
- * `SEAM_MM2` is read off the sweep. Every distinct kit in the shop, sorted, on
- * the tree this section was written against:
+ * `SEAM_MM2` is read off the sweep, and the sweep is PRINTED UNDER THE TABLE ON
+ * EVERY RUN so this paragraph can be checked against the tree rather than
+ * believed. On the tree as it ships, every distinct kit in the shop, sorted:
  *
- *     0.0 x12    88.4   137.9   139.8   153.9   183.2   230.0 x4   251.5 x2
- *   448.9 x6    501.8 x4   533.7 x2   541.5 x4   555.1 x2   564.2 x2   597.9 x2
+ *     0.0 x12    88.4 x2   137.9 x2   139.8 x2   153.9 x2   183.2 x2   230.0 x4
+ *   251.5 x2    356.6     448.9 x6   501.8 x4   533.7 x2   541.5 x4   555.1 x2
+ *   555.7       564.2 x2   597.9 x2
  *   ------------------------------ the bar, 800 ------------------------------
- *  1114.7 x2   1699.1 x2  1888.4 x2  2091.2 x2  2402.6 x2  2566.9   2659.7 x2
- *  4263.3      5841.9
+ *   904.5      1114.7 x2  1699.1 x2  1888.4 x2  2091.2 x2  2402.6 x2  2659.7 x2
  *
- * Twelve kits with no seam at all, a body that stops at 597.9 mm2, a clear
- * 500 mm2 hole, and then fifteen readings above it. The body is what an authored
+ * Twelve kits with no seam at all, a body that stops at 597.9 mm2, a 306 mm2
+ * hole, and then thirteen readings above it. The body is what an authored
  * fitting reads when it is sampled on a grid that is not its neighbour's; the
- * readings above the hole are pieces that are genuinely half in and half out of
- * each other. The four largest are the Sutton Hoo, and the pair named on all
- * four is `d9b45f` against `9aa6ae` — the gilt against the bowl silver, which
- * is the torn band the render shows.
+ * readings above the hole are pieces genuinely half in and half out of each
+ * other.
  *
- * FIFTEEN RED IS NOT A FAILURE OF THE BAR. This section is new and the thing it
+ * THE 306 IS NOT THE 500 AN EARLIER DRAFT OF THIS PARAGRAPH CLAIMED. That draft
+ * quoted a sweep taken BEFORE the band was mended and left it standing as
+ * present tense, which is this repository's most-repeated fault and the one its
+ * own rules name first. Mending the band moved two readings down into the body
+ * (356.6, 555.7) and left one, 904.5, sitting just above the bar in the space
+ * the old prose called empty. The bar still falls in a real gap and is unmoved;
+ * only the description of it was wrong.
+ *
+ * 904.5 IS A KNOWN RESIDUAL, not a surprise: the warden's nape guard at its hem
+ * row, 3.2% of the overlap, named in the round that mended the rest. A bar
+ * placed to exclude it would be a bar chosen to make a number pass.
+ *
+ * THIRTEEN RED IS NOT A FAILURE OF THE BAR. This section is new and the thing it
  * measures has never been measured here, so every reading in it is a finding.
- * The round that added it mends one of them.
+ * The round that added it mends the largest.
  */
 function seamPair(A, aIx, aN, B, bIx) {
   const buf = new Float64Array(BARY.length * 3);
