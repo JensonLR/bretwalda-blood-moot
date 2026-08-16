@@ -1084,9 +1084,37 @@ function cloakCeiling(): number {
  * direction ("LIFTED IN CHROMA from those two finishes rather than copied").
  */
 function wornField(hex: number): number {
+  return underCeiling(hex, cloakCeiling());
+}
+
+/**
+ * THE DEVICE PAINT, UNDER THE SAME FIRE.
+ *
+ * `tools/factionread.mjs` §6 found this one and it took two runs to believe,
+ * because the reading did not move when the cloth did. The Pict blew 3.74% of
+ * the man at the front and 8.39% at the three-quarter against a 2.55% bar,
+ * and changing every dyed surface on him left both numbers byte-identical. The
+ * clipped pixels were never cloth: they are the shield, standing in front of
+ * his body, painted in `0xd8d2c2` — bone white, and the brightest flat area
+ * anywhere in this build. The huscarl is the only class that carries a shield,
+ * which is why he is the only one of the four the Pict blew on.
+ *
+ * A PIGMENT ON LIMEWOOD IS SUBJECT TO THE SAME KEY LIGHT AS A CLOAK, so it
+ * takes the same ceiling as the kit: no brighter than the brightest surface
+ * the shop already sells. The device is still "pale line on dark ground" —
+ * that is what the symbol stones are and it is why the colour was chosen —
+ * because the ground it sits on is the Pictish field at lightness 31 and the
+ * line is still up at the top of the shop's own range.
+ */
+function wornPaint(hex: number): number {
+  return underCeiling(hex, kitCeiling());
+}
+
+/** One flat colour, hue and chroma kept, brought under a brightness ceiling. */
+function underCeiling(hex: number, cap: number): number {
   const hsl = { h: 0, s: 0, l: 0 };
   new THREE.Color(hex).getHSL(hsl);
-  return new THREE.Color().setHSL(hsl.h, hsl.s, linear(softCeil(perceptual(hsl.l), cloakCeiling()))).getHex();
+  return new THREE.Color().setHSL(hsl.h, hsl.s, linear(softCeil(perceptual(hsl.l), cap))).getHex();
 }
 
 const BAND_KNEE = 0.42;
@@ -10408,7 +10436,7 @@ export function buildShield(
   // line on dark rock, pale grey-green for the Britons because a check is a
   // VALUE pattern and two hues would be a flag.
   const livery = team === "none" && people !== "none" ? FACTION[people] : null;
-  const paint = M.timber(livery ? livery.paint : 0xb8a276);
+  const paint = M.timber(livery ? wornPaint(livery.paint) : 0xb8a276);
   // The rim clamps: forged strap off the same bar as the mail, so `kit.mail`
   // with nothing done to it. On the issued finish this is 0x5f6b7a against the
   // 0x5f666f literal it replaces — five points of green and eleven of blue, i.e.
