@@ -72,6 +72,53 @@ pair is about 1.5× their runtime, and a wave that runs them four times pays it
 four times. Making them deterministic is **backlog item zero** and it buys back
 more wall clock than any other single change.
 
+## The colour gates — `teamread` and `factionread`
+
+Two harnesses, one instrument, one rule. `docs/FACTIONS.md` §8: **team colour
+beats clan colour beats faction colour beats bought cosmetic** — and each of
+these files gates one rung of that ladder at the distance a player fights.
+
+| harness | costs | answers |
+|---|---|---|
+| `node tools/teamread.mjs` | ~1 min, no browser | can a stranger tell friend from foe at 6.8 m, over every finish × cloak × class × bearing, both sides |
+| `node tools/teamread.mjs --off` | ~1 min | the control. Both sides with no team, i.e. the pre-override game. **Must fail** |
+| `node tools/factionread.mjs` | ~3.5 min, no browser | are the four peoples four men at 6.8 m — and does any of them cost a point of anything |
+| `node tools/factionread.mjs --off` | ~3.5 min | the control. All four peoples as the unsworn. **Must fail** |
+| either, `--sheet` | +seconds | the flat-albedo contact sheet in `art/look/`, which is the thing to actually LOOK at |
+
+**They share a rasteriser and a verdict quantity on purpose.** A warrior's
+signature is his area-weighted mean albedo over the pixels he covers at the play
+lens, averaged in linear light, converted to CIELAB, and gated on the CHROMA
+PLANE with lightness dropped — because a cloaked man and a bare-backed man on
+one side are 30 points apart in LIGHTNESS and nobody has ever confused them.
+Both bars are borrowed from `cosmetictest`: ΔC 10 is `LADDER_DE`, "what a PAID
+rung has to clear to be a different colour at a glance", and ΔC 2.3 is its JND.
+
+**`factionread` is two gates in one file and the second matters more.** §1 asks
+whether four peoples are told apart; §3 asks whether any of them is told apart
+by anything a fight reads, and it runs the real `engine.mjs` twice — one room
+where every man declares a people in his appearance and one where none does —
+and requires every published field of every man to come out identical over a
+played match. A harness that only measured §1 would go green on a build that
+gave the Picts more health, because more health is invisible in an albedo
+buffer.
+
+**§2 is where the two files meet.** Four peoples on ONE side must collapse to a
+single colour at ΔC 0.00 — not to a tolerance — because the precedence
+resolvers return on the team before a people is consulted. The reason the bar is
+zero rides the same output line: garnet sits ΔC 7.3 from madder and the Pictish
+woad ΔC 15.4 from the team's woad. They are the same two dyestuffs, so a leak
+here is a man who cannot tell an enemy from a countryman.
+
+**Both files record a ruler they had to correct, in the file, with the reading
+that forced it.** `teamread` first gated on full ΔE and called two red-team men
+opposite sides for being 30 apart in lightness. `factionread` first asked which
+field a man's chroma was NEAREST and called a Saxon in Blackened Steel a Briton,
+at -27.66, for being DARK — the chroma plane's RADIUS, not its angle, and moss
+is the least chromatic of the four fields. Both corrections are strictly
+tighter, both print the old quantity beside the new one, and neither is a bar
+that moved.
+
 ## Two gates that carry their own proof — `classmatrix` and `gorestat`
 
 Added 2026-08-13, because two existing rulers were caught not discriminating and

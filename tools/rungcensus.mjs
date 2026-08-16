@@ -131,10 +131,33 @@ function countMesh(geom) {
   return { comp: roots.size, tris };
 }
 
+/**
+ * WHICH PEOPLE THE CENSUS DRESSES THE MAN IN — `--people norse`, default unsworn.
+ *
+ * INSTANCE EIGHTEEN, AND IT IS THE SAME SHAPE AS THE SEVENTEEN IN THE HEADER.
+ * `docs/BACKLOG.md` 4.3 added a faction livery to `Appearance`, and every one
+ * of the 320 cells below was built with `defaultAppearance`, which is the
+ * UNSWORN — so this census proved that swearing takes nothing off a man only
+ * in the case where nobody had sworn. That is exactly `cosmetictest`'s
+ * one-class hole with a different field in it.
+ *
+ * The livery is colour and not geometry, so all five runs SHOULD read
+ * identically, and a run that does not is a livery that has started deleting
+ * content. The bar is the same bar: zero components lost, zero triangles lost,
+ * against a baseline recorded on the tree before the change.
+ *
+ *   node tools/rungcensus.mjs --save base.json                    # on origin/main
+ *   for p in "" saxon norse briton pict; do
+ *     node tools/rungcensus.mjs --against base.json --people "$p"
+ *   done
+ */
+const PEOPLE = flag("people", "none");
+
 /** One cell: the head-pivot scope and the whole rig, as two pairs. */
 function census(cls, helm, g) {
   const root = buildCharacter(cls, {
     ...defaultAppearance(cls), helm, hairStyle: g.hairStyle, beardStyle: g.beardStyle,
+    people: PEOPLE,
   }, 0x8a6b3f, undefined, LOD, SEED).group;
   root.updateMatrixWorld(true);
   let pivot = null;
@@ -167,6 +190,7 @@ for (const cls of CLASSES) {
 
 const save = flag("save", null);
 const against = flag("against", null);
+console.log(`[census] livery: ${PEOPLE}`);
 console.log(`[census] ${cells} cells — ${CLASSES.length} classes x ${HELMS.length} helms x ${cells / (CLASSES.length * HELMS.length)} rungs, seed ${SEED}, lod ${LOD}`);
 let headC = 0, headT = 0, rigC = 0, rigT = 0;
 for (const v of Object.values(table)) { headC += v.head[0]; headT += v.head[1]; rigC += v.rig[0]; rigT += v.rig[1]; }

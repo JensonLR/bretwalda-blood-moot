@@ -130,7 +130,8 @@ named territory, and the territory is where the heptarchy's names live on.**
   people and inherits its kit variants.
 * **Per-faction class variants.** Same four classes, same numbers (§3), different
   look and kit. What a Pictish Runekeeper looks like is an art question with a
-  hard constraint on it.
+  hard constraint on it. **The COLOUR half of this closed 16 Aug 2026** — see
+  §10 — and what is left is SHAPE, which is deliberately untouched so far.
 * ~~**Team colours override faction colours in team modes**~~ — **CLOSED
   13 Aug 2026. The ordering is written down in §8 and gated by
   `node tools/teamread.mjs`.**
@@ -395,3 +396,49 @@ Every one of these ships with its tier visible to the player. A game that tells
 you *this mark is real and this one is ours* is more interesting than one that
 quietly pretends both are real, and it is the only version of "historically
 accurate" that survives contact with the evidence.
+
+## 10. THE KIT, AS BUILT — 16 Aug 2026
+
+`BACKLOG.md` 4.3, closed on its colour half. The full write-up is there; this
+section records only what §§3, 8 and 9 above are owed.
+
+**§3 held, and it is gated rather than promised.** Nothing in the livery is a
+number a fight reads. `tools/factionread.mjs` §3 runs the real `engine.mjs`
+twice — one room where every man declares a people in his appearance and one
+where none does — and requires every published field of every man to be
+identical over a played match (2001 bytes, identical). §3d seats eight men in
+four liveries and two invented ones in ONE room. And §0.3 asserts the shape
+claim directly: the four peoples and the unsworn cover EXACTLY the same pixels
+at every bearing, so no people moves a silhouette, let alone a hitbox.
+
+**§8's ladder held, and the bar is zero.** `wornBy`, `kitFor` and `cloakFor`
+each test the team FIRST and return before a people is consulted, so the faction
+path is unreachable from a team mode. `factionread` §2.1 measures the collapse
+at ΔC 0.00 — not a tolerance — and prints why the bar has to be zero: garnet
+sits ΔC 7.3 from madder and the Pictish woad ΔC 15.4 from the team's woad. They
+are the same two dyestuffs. `tools/teamread.mjs` is unmoved.
+
+**§9's tiers are in the code, not just in this file.** `deviceOn` in
+`characters.ts` carries the sourcing per device and names the tier: the seax,
+the York Mjölnir and the crescent-and-V-rod are FINDs; the triskele is a find
+used as a device we composed, because the Britons have no attested standard;
+§9.2's AVOID list — Vegvísir, Ægishjálmur, valknut-as-shield-device, and the
+period marks modern extremist movements have taken over — is respected in full
+and none of them is in the file.
+
+**§9.6's build order was NOT followed, and the reason is worth recording.** It
+said to build Alfred's coin iconography first. A coin is a dense circular relief
+and at the 29 px the device gets on a shield board at fight distance it reads as
+a dot; the seax is the blade that names the people, it is as well evidenced, and
+it survives being 29 px. The coinage is still the best untapped source in §9 and
+it belongs on a BANNER or a loading screen, where it has the pixels to be a
+coin. §9.6's other three were built in its order.
+
+**What §2's roster table asked for that this does NOT do.** "Least armour" for
+the Picts, "more metal" for the Norse, "small shield" and "javelins" for the
+Britons are statements about SHAPE and KIT, and every one of them would either
+add or remove geometry. Removing is forbidden — some of it was bought, and
+`tools/rungcensus.mjs` holds the bar at zero components lost — so this pass says
+those things in VALUE instead: the Pict's metal goes dark and colourless, the
+Norseman's is lifted against his darker wools. That is a smaller claim than the
+table makes and it is the honest one until per-faction class variants are built.

@@ -644,7 +644,13 @@ check("1.0 the gated quantity is never larger than the full ΔE it was cut down 
 check(`1.1 SWORN — swearing moves a man past a JND (ΔC ${JND}), unless he had already bought that people's own vat`,
   worstSworn >= JND,
   `worst ${worstSworn.toFixed(2)} at ${worstSwornAt}, with ${swornExempt.length} man/bearing readings exempt`);
-for (const e of swornExempt) note(`already in the vat: ${e}`);
+// Capped, because the CONTROL fires this exemption 420 times — with the livery
+// off every man is his own unsworn self and whichever field happens to be
+// nearest "already" claims him. That is not a hole: §1.2 DISTINCT is the hard
+// gate and it reads ΔC 0.00 in the control whatever this one says. Twelve lines
+// is a reading; four hundred is a wall.
+for (const e of swornExempt.slice(0, 12)) note(`already in the vat: ${e}`);
+if (swornExempt.length > 12) note(`... and ${swornExempt.length - 12} more exempt readings not printed`);
 check(`1.2 DISTINCT — the same warrior, four peoples, is four men ΔC ${GLANCE_DE}+ apart at every bearing`,
   worstMatched >= GLANCE_DE,
   `worst ΔC ${worstMatched.toFixed(2)} (ΔE ${worstMatchedE.toFixed(2)}) — ${worstMatchedAt}`);

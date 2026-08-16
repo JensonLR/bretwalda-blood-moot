@@ -667,6 +667,94 @@ head("7. The load-bearing rule");
       Object.values(WARRIOR_STATS).every((s) => Number.isFinite(s.maxHealth) && s.maxHealth > 0) &&
       JSON.stringify(Object.keys(WARRIOR_STATS).sort()) === JSON.stringify(["berserker", "huscarl", "runekeeper", "warden"]));
   }
+
+  // ---- 7d. a people INSIDE the appearance blob is a costume and nothing more
+  //
+  // THIS SECTION EXISTS BECAUSE §7b WAS AIMED ONE LEVEL TOO HIGH TO SEE THE
+  // FEATURE THAT LANDED, and that is written down here rather than fixed
+  // silently. §7b filters `Object.keys(player)` — the record's TOP LEVEL — for
+  // /allegiance|people|faction|.../ and reports "clean". `appearance` is a
+  // NESTED opaque blob that `engine.mjs:2230` assigns wholesale and never
+  // looks inside, so `player.appearance.people` was invisible to the one
+  // assertion whose entire job is finding a people on the wire. It would have
+  // passed a build that put a people in that blob and then read it to hand out
+  // health.
+  //
+  // `docs/BACKLOG.md` 4.3 then put a people in that blob on purpose — as a
+  // LIVERY, the kit a man is drawn in — and `docs/WIRE-PROTOCOL.md` §11 is
+  // amended in the same commit to say why that is allowed: an oath is a claim
+  // on the war ledger and may never travel here; a costume always could.
+  //
+  // So this does not forbid the field. It proves the field is WORTH NOTHING:
+  // two rooms, one where every man declares a different people in his
+  // appearance and one where nobody declares anything, fought to a finish over
+  // the same conquered map — and the war report, the results table and the
+  // duration must come out byte-identical. If a livery ever buys a point of
+  // anything, or reaches the banking path, this is red.
+  {
+    const played = (declare) => {
+      const eng = makeEngine({ autoTick: false });
+      eng.setWarFront(CONQUERED);
+      const a = open(eng), b = open(eng);
+      const dress = (i) => (declare
+        ? { helm: "iron", cloak: "red", people: PEOPLES[i % PEOPLES.length] }
+        : { helm: "iron", cloak: "red" });
+      a.send("create", { name: "Alfa", mode: "blood_moot", bestOf: 1, appearance: dress(0) });
+      const code = a.last("join").code;
+      a.send("select_class", { warriorClass: "huscarl" });
+      b.send("join", { code, name: "Bravo", appearance: dress(1) });
+      b.send("select_class", { warriorClass: "runekeeper" });
+      a.send("ready"); b.send("ready"); a.send("start");
+      for (let i = 0; i < 4 * RATE; i++) eng.step();
+      const room = eng._rooms.get(code);
+      const men = [...room.players.values()];
+      men[0].kills = 3; men[0].damage = 480;
+      men[1].kills = 1; men[1].damage = 260;
+      intoTheFire(men[1]);
+      let steps = 0;
+      while (room.state !== "finished" && steps < 40 * RATE) { eng.step(); steps++; }
+      const end = a.last("match_end");
+      return {
+        steps,
+        table: end.results.map((x) => [x.place, x.roundsWon, x.kills, x.deaths, x.damage, x.score, x.goldEarned, x.xpEarned]),
+        war: end.war ? end.war.entries.map((e) => e.points) : null,
+        // The blob is echoed back to every client, which is the whole point of
+        // a costume, and is the ONE thing that is supposed to differ.
+        wore: Object.values(a.snapshot.players).map((p) => (p.appearance || {}).people ?? null),
+      };
+    };
+    const bare = played(false);
+    const dressed = played(true);
+    const scrub2 = (r) => JSON.stringify({ steps: r.steps, table: r.table, war: r.war });
+    gate("a declared people is a COSTUME — same ticks, same table, same war report",
+      scrub2(bare) === scrub2(dressed), `${scrub2(bare)} vs ${scrub2(dressed)}`);
+    check("and the engine echoes it back untouched, having never looked inside",
+      JSON.stringify(bare.wore) === JSON.stringify([null, null])
+      && JSON.stringify(dressed.wore) === JSON.stringify([PEOPLES[0], PEOPLES[1]]),
+      `${JSON.stringify(bare.wore)} vs ${JSON.stringify(dressed.wore)}`);
+
+    // And the leak check §7b makes at the top level, made where the blob is.
+    // A people is allowed in `appearance` and nowhere else on the record.
+    const eng = makeEngine({ autoTick: false });
+    eng.setWarFront(CONQUERED);
+    const c = open(eng);
+    c.send("create", { name: "Alfa", mode: "blood_moot", appearance: { helm: "iron", people: "norse" } });
+    const p = Object.values(c.snapshot.players)[0];
+    const deep = [];
+    const hunt = (o, path) => {
+      if (!o || typeof o !== "object") return;
+      for (const k of Object.keys(o)) {
+        const at = path ? `${path}.${k}` : k;
+        if (/allegiance|faction|territor|kingdom|banked/i.test(k)) deep.push(at);
+        if (k === "people" && path !== "appearance") deep.push(at);
+        if (typeof o[k] === "object") hunt(o[k], at);
+      }
+    };
+    hunt(p, "");
+    check("a people appears in the appearance blob and NOWHERE else on the record",
+      deep.length === 0 && (p.appearance || {}).people === "norse",
+      deep.join(", ") || `clean, appearance.people = ${(p.appearance || {}).people}`);
+  }
 }
 
 // ============================================================
