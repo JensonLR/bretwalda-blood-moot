@@ -889,7 +889,21 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
       cloth:   { sat: 0.72, bias: 0.96, lo: 0.16, hi: 0.54 },
       // Bare limbs. The wraps come out of the vat almost as they went in, which
       // at fight distance is the pale band up the shin nobody else has.
-      wrap:    { sat: 0.12, bias: 1.28, lo: 0.52, hi: 0.86 },
+      //
+      // `bias` WAS 1.28 AND THE BAND TOPPED OUT AT 0.86, and that is a vat
+      // BLEACHING wool. It put his wraps above anything in `FINISH_KIT` on
+      // every finish at once, and `tools/factionread.mjs` §6 caught what that
+      // costs under the arena's fire: 3.74% of the man at a fully clipped
+      // channel at the front and 8.39% at the three-quarter, against 2.55% for
+      // the 400 gold Gilded War Cloak. Both are bearings the round that built
+      // this feature never photographed.
+      //
+      // "Near-undyed" is `sat 0.12` — it is a statement about how little
+      // DYESTUFF his wraps take, not about how pale they are — and 0.12 is
+      // untouched. The pale shin band is still the palest thing on him and
+      // still the only one of the four with it, because the band's floor is
+      // 0.52 and his cloth's ceiling is 0.54.
+      wrap:    { sat: 0.12, bias: 1.02, lo: 0.52, hi: 0.74 },
       leather: { sat: 0.46, bias: 0.90, lo: 0.11, hi: 0.36 },
       // Least armour: his metal goes dark and nearly colourless.
       metal:   { sat: 0.11, bias: 0.70, lo: 0.10, hi: 0.38 },

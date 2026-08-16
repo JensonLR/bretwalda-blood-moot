@@ -1333,6 +1333,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     page = await ctx.newPage();
 
     let shots = 0;
+    const litFrames = [];
     const capture = async (q) => {
       await page.goto(`${server.origin}/shot?${q}`, { waitUntil: "domcontentloaded", timeout: 300000 });
       await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string", null, { timeout: 300000 });
@@ -1410,6 +1411,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
           if (String(subject?.people) !== (OFF ? "none" : people)) die(`asked for people=${people}, got ${subject?.people}`);
           const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);
           row.push(`@${turn}° ${r.pct.toFixed(2)}%`);
+          litFrames.push({ people, cls, turn, pct: r.pct, px });
           if (r.pct > worst) { worst = r.pct; worstAt = `${people}/${cls}@${turn}°`; }
           if (r.pct > bar) over.push(`${people}/${cls} at ${turn}° clips ${r.pct.toFixed(2)}% of the man — ${(r.pct / (bar || 1e-9)).toFixed(1)}x the 400g gold cloak's ${bar.toFixed(2)}%, hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
         }
@@ -1425,6 +1427,56 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
         : `worst livery frame ${worst.toFixed(2)}% at ${worstAt}, under the ${bar.toFixed(2)}% bar`,
       over);
     console.log(`        ${shots} captures at ${LENS.w}x${LENS.h}, the play lens, through the real renderer`);
+
+    // ---- THE SHEET, AND IT IS NOT AN EXTRA ---------------------------------
+    //
+    // docs/PROCESS.md R5. Three rounds of this feature shipped a defect past a
+    // reviewer because the "after" set was five front-on huscarl cards, and
+    // both defects §6 found live at bearings that set did not contain. §6 has
+    // already paid for these frames — they are the ones it measured — so it
+    // writes them, and the picture a reviewer opens is by construction the
+    // picture the number came from. A sheet made by a second, separate run
+    // could disagree with the gate and nobody would know which to believe.
+    if (litFrames.length) {
+      const cols = CLIP_BEARINGS.length;
+      const rows = Math.ceil(litFrames.length / cols);
+      const W = cols * LENS.w, H = rows * LENS.h;
+      const img = new Uint8Array(W * H * 3);
+      litFrames.forEach((fr, i) => {
+        const cx = (i % cols) * LENS.w, cy = Math.floor(i / cols) * LENS.h;
+        for (let y = 0; y < LENS.h; y++) for (let x = 0; x < LENS.w; x++) {
+          const src = (y * fr.px.w + x) * 4, dst = ((cy + y) * W + (cx + x)) * 3;
+          img[dst] = fr.px.data[src]; img[dst + 1] = fr.px.data[src + 1]; img[dst + 2] = fr.px.data[src + 2];
+        }
+      });
+      const raw = Buffer.alloc(H * (1 + W * 3));
+      for (let y = 0; y < H; y++) {
+        raw[y * (1 + W * 3)] = 0;
+        Buffer.from(img.buffer, y * W * 3, W * 3).copy(raw, y * (1 + W * 3) + 1);
+      }
+      const crcTab = new Int32Array(256);
+      for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crcTab[n] = c; }
+      const crc32 = (b) => { let c = -1; for (let i = 0; i < b.length; i++) c = (c >>> 8) ^ crcTab[(c ^ b[i]) & 0xff]; return (c ^ -1) >>> 0; };
+      const chunk = (type, data) => {
+        const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+        const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+        const cr = Buffer.alloc(4); cr.writeUInt32BE(crc32(td));
+        return Buffer.concat([len, td, cr]);
+      };
+      const ihdr = Buffer.alloc(13);
+      ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
+      mkdirSync(resolve(ROOT, "art/look"), { recursive: true });
+      const out = resolve(ROOT, `art/look/factionlit${OFF ? "-off" : ""}.png`);
+      writeFileSync(out, Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0)),
+      ]));
+      console.log(`\n[faction] LIT SHEET ${out}  ${W}x${H}  ${litFrames.length} frames, ${rows} rows of ${cols}`);
+      for (let r2 = 0; r2 < rows; r2++) {
+        const row2 = litFrames.slice(r2 * cols, r2 * cols + cols);
+        console.log(`        row ${String(r2 + 1).padStart(2)}: ${row2[0].people} / ${row2[0].cls} — ${row2.map((f) => `@${f.turn}° ${f.pct.toFixed(2)}%`).join("  ")}`);
+      }
+    }
   } finally {
     if (browser) await browser.close().catch(() => {});
     server.stop();
