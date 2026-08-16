@@ -136,7 +136,9 @@
 //     that a declared people changes no byte of the simulation at all — which
 //     is upstream of anything a matrix could measure.
 // ============================================================
-import { spawnSync } from "child_process";
+import * as THREE from "three";
+import { chromium } from "playwright";
+import { spawnSync, spawn } from "child_process";
 import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
@@ -198,7 +200,10 @@ const CH = await import(pathToFileURL(charJs).href);
 const {
   ARMOURY, buildCharacter, buildShield, buildWeaponForClass, defaultAppearance,
   shieldBoard, FACTION_FIELD, PEOPLE_IDS, TEAM_FIELD,
+  finishKit, kitFor, cloakFor,
 } = CH;
+if (!finishKit || !kitFor || !cloakFor)
+  die("characters.ts does not export finishKit / kitFor / cloakFor — §5 must measure the SHIPPED resolvers, not a copy of them");
 if (!FACTION_FIELD || !PEOPLE_IDS) die("characters.ts does not export FACTION_FIELD / PEOPLE_IDS — the four colours this harness must not guess");
 const ANIM = animJs && existsSync(animJs) ? await import(pathToFileURL(animJs).href) : null;
 const CLASS_TUNIC = ANIM?.CLASS_TUNIC ?? null;
@@ -383,17 +388,39 @@ const dC = (a, b) => Math.hypot(a[1] - b[1], a[2] - b[2]);
 const hueAngle = (l) => Math.atan2(l[2], l[1]);
 const angleGap = (a, b) => { const d = Math.abs(a - b); return d > Math.PI ? 2 * Math.PI - d : d; };
 const deg = (r) => (r * 180) / Math.PI;
-/** What a PAID rung has to clear to be a different colour at a glance. */
-const GLANCE_DE = 10;
 /**
- * Just noticeable difference — `tools/cosmetictest.mjs:536`, where it already
- * carries the sentence "Below this, two swatches are one swatch". §1.1 asks a
- * different question from §1.2 and therefore takes a different constant: not
- * "is he a different colour at a glance" but "did anything happen at all". Both
- * numbers are borrowed for the same reason — a bar this file chose for itself
- * is a bar this file could move.
+ * THE TWO BARS, READ OUT OF `tools/cosmetictest.mjs` RATHER THAN COPIED FROM IT.
+ *
+ * They used to be two literals here with a comment naming the line they came
+ * from, which is the same shape as every mirrored definition this repository
+ * has lost a round to — `docs/PROCESS.md` failure mode 3, and §0.2 above exists
+ * because of it. A comment saying "this is cosmetictest:538" does not fail when
+ * cosmetictest:538 changes; this does.
+ *
+ *   LADDER_DE  "what a PAID rung has to clear to be a different colour at a
+ *              glance". §1.2, §4.1 and §5 all gate on it.
+ *   JND        "Below this, two swatches are one swatch". §1.1 asks a different
+ *              question from §1.2 — not "is he a different colour at a glance"
+ *              but "did anything happen at all" — and therefore takes the
+ *              smaller constant.
+ *
+ * Parsed out of the source text because neither is exported and exporting them
+ * would mean importing an 86 KB harness that boots a browser at module scope.
+ * The parse is checked: an unreadable constant is a `die`, not a default, since
+ * a default here would be this file quietly choosing its own bar — which is the
+ * exact thing borrowing them was meant to prevent.
  */
-const JND = 2.3;
+const COSMETICTEST = resolve(ROOT, "tools/cosmetictest.mjs");
+function barFrom(name) {
+  const src = readFileSync(COSMETICTEST, "utf8");
+  const m = src.match(new RegExp(`^const ${name} = (\\d+(?:\\.\\d+)?);`, "m"));
+  if (!m) die(`cannot read ${name} out of tools/cosmetictest.mjs — this file must not choose its own bar`);
+  return Number(m[1]);
+}
+const LADDER_DE = barFrom("LADDER_DE");
+const JND = barFrom("JND");
+/** The same constant, under the name §1–§4 have always called it by. */
+const GLANCE_DE = LADDER_DE;
 
 // ============================================================
 // THE SWEEP SET — the shop's own ladders, enumerated. Nothing is sampled.
@@ -879,6 +906,449 @@ let boardMin = null;
 }
 
 // ============================================================
+// THE APP AND THE BROWSER — §6's instrument, and nobody else's.
+//
+// Lifted from `tools/cosmetictest.mjs`'s render pass, including the two things
+// that pass learned the hard way: the production build is preferred over dev
+// when one exists, and SwiftShader is asked for by name because this box has no
+// GPU and a silent software fallback renders a different picture.
+// ============================================================
+async function bootServer() {
+  const PORT = 3400 + (process.pid % 600);
+  const origin = `http://localhost:${PORT}`;
+  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
+  const proc = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+    cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const started = Date.now();
+  for (;;) {
+    try { const r = await fetch(`${origin}/api/health`); if (r.ok || r.status === 404) break; } catch { /* not up yet */ }
+    if (Date.now() - started > 240000) die("the server never came up");
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  console.log(`        ${useProd ? "production" : "dev"} server up on :${PORT}`);
+  if (!useProd) note("NO PRODUCTION BUILD — this is the dev server, and §6 is measuring un-minified output. Run `npm run build` first.");
+  return { origin, stop: () => { if (!proc.killed) proc.kill("SIGTERM"); } };
+}
+const launchBrowser = () => {
+  const pre = "/opt/pw-browsers/chromium";
+  return chromium.launch({
+    ...(existsSync(pre) ? { executablePath: pre } : {}),
+    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+      "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
+  });
+};
+
+// ============================================================
+// 5. THE PAID LADDER SURVIVES SWEARING
+//
+// THE DEFECT THIS SECTION WAS WRITTEN FOR, measured on the build it was written
+// against, through `kitFor(finishKit(value), "none", people)` — the shipped
+// resolvers and nothing else:
+//
+//     unsworn   0/21 finish pairs under the bar   (min ΔE 11.85)
+//     saxon    21/21                              (min ΔE 0.00)
+//     briton   21/21                              (min ΔE 0.00)
+//     pict     21/21                              (min ΔE 0.11)
+//     norse    21/21                              (min ΔE 0.56)
+//
+// The 0.00 pairs were FREE against PAID. Rough Iron (0 gold) and Blackened
+// Steel (110 gold) returned the IDENTICAL hex on every dyed surface under a
+// Saxon or a Briton livery — `mail #7c7a6f vs #7c7a6f | tunic #b0a554 vs
+// #b0a554`. A man who paid 110 gold watched it become the free one the moment
+// he swore.
+//
+// WHY NOTHING ALREADY IN THE DRAWER COULD SEE IT, and this is the project's
+// signature failure rather than an oversight:
+//
+//   * `tools/rungcensus.mjs` counts connected components and triangles. NOTHING
+//     WAS DELETED — the geometry is to the triangle what it was and the census
+//     reads 640 identical, 0 LOST, on all five liveries. The colour was
+//     FLATTENED, and a census of parts cannot see a flattened colour.
+//   * `tools/cosmetictest.mjs` §2 does gate this ladder on ΔE, and gates it on
+//     `LADDER_DE` — but on `Number(option.value)`, the RAW STORED HEX. That hex
+//     is the same seven numbers whatever a man swore to. The resolver is what
+//     the player sees and the resolver was never in the comparison.
+//   * `tools/factionread.mjs` itself passed 15/15 with the defect present,
+//     because every assertion above §5 asks "are the four peoples far enough
+//     APART" and none of them asks "is the shop still a ladder INSIDE one of
+//     them".
+//
+// Three instruments, all green, all answering a question next to the one that
+// mattered.
+//
+// WHAT IS MEASURED. The kit-averaged CIELAB ΔE76 over the surfaces the vat
+// actually touches, between every pair of the seven finishes, under the unsworn
+// and under each of the four peoples. `fitting` is excluded — not by name but
+// by probe, so the list follows the code rather than a comment: a surface the
+// vat does not move carries the whole of its unsworn spacing for free, and
+// averaging it in would flatter the result by exactly the amount the vat
+// destroyed. The probe is therefore the CONSERVATIVE choice, and stays
+// conservative if a future change starts or stops dyeing something.
+//
+// THE BAR IS `LADDER_DE`, READ OUT OF cosmetictest — the same constant that
+// already carries "what a PAID rung has to clear to be a different colour at a
+// glance", and the same one §1.2 gates the four peoples on. It is also the bar
+// the UNSWORN build already clears with 1.85 to spare, so this is not a bar
+// invented for a fix to meet: it is main's own floor, applied to the sworn man.
+// ============================================================
+console.log("\n[faction] === 5. THE PAID LADDER SURVIVES SWEARING ===\n");
+let laddering = null;
+{
+  const FINISH_ROWS = slotOf("armor").options.map((o) => ({ label: o.label, cost: o.cost, value: Number(o.value) }));
+  const hx = (n) => `#${n.toString(16).padStart(6, "0")}`;
+
+  // WHICH SURFACES THE VAT TOUCHES, by asking it rather than by listing them.
+  /** The Saxon vat's own hue, off the CSS field, exactly as the old code took it. */
+  const STRAW_HUE = (() => {
+    const h = { h: 0, s: 0, l: 0 };
+    new THREE.Color(FACTION_FIELD.saxon).getHSL(h);
+    return (h.h + 0.058 + 1) % 1;
+  })();
+
+  const probe = finishKit(FINISH_ROWS[0].value);
+  const SURFACES = Object.keys(probe).filter((k) =>
+    PEOPLES.some((p) => kitFor(probe, "none", p)[k] !== probe[k]));
+  const UNTOUCHED = Object.keys(probe).filter((k) => !SURFACES.includes(k));
+  note(`the vat moves ${SURFACES.length} of the ${Object.keys(probe).length} kit surfaces: ${SURFACES.join(", ")}`);
+  note(`untouched and therefore EXCLUDED from the average (it would flatter it): ${UNTOUCHED.join(", ") || "none"}`);
+
+  /** The kit-averaged ΔE between two finishes, as the player's client resolves them. */
+  const kitDE = (ka, kb) =>
+    SURFACES.reduce((s, k) => s + dE(lab(ka[k]), lab(kb[k])), 0) / SURFACES.length;
+
+  /**
+   * §5.0 — PROOF OF FAILURE, docs/PROCESS.md R2, and it is permanent rather
+   * than a paragraph in a commit message.
+   *
+   * A STRAW VAT: the naive livery, which assigns a hue, a chroma and a clamped
+   * lightness absolutely and therefore maps every rung of the ladder onto one
+   * value. This is what the shipped `factionDye` did when this section was
+   * written, reduced to four lines. If the instrument below cannot see THIS
+   * collapse it cannot see any, and a green §5.1 would mean nothing.
+   *
+   * It is a control and not a code path: nothing in `src/` calls it, and the
+   * assertion on it is that it FAILS.
+   */
+  const strawVat = (kit) => Object.fromEntries(Object.keys(kit).map((k) => {
+    if (!SURFACES.includes(k)) return [k, kit[k]];
+    // THE OLD `factionDye`, LINE FOR LINE — the Saxon cloth row's own numbers.
+    // Hue and chroma ASSIGNED, the source's lightness scaled by the bias and
+    // then hard-clamped into the band. Three's `getHSL` reports lightness in the
+    // LINEAR working space and the band was written as if it were the sRGB one,
+    // so `lo` sat above nearly every kit surface and the clamp put the whole
+    // ladder on the floor. That is the defect, kept here as a control.
+    const hsl = { h: 0, s: 0, l: 0 };
+    new THREE.Color(kit[k]).getHSL(hsl);
+    const l = Math.max(0.26, Math.min(0.66, hsl.l * 1.18));
+    return [k, new THREE.Color().setHSL(STRAW_HUE, 0.66, l).getHex()];
+  }));
+  {
+    const kits = FINISH_ROWS.map((f) => strawVat(finishKit(f.value)));
+    let under = 0, pairs = 0, min = Infinity;
+    for (let i = 0; i < kits.length; i++) for (let j = i + 1; j < kits.length; j++) {
+      const d = kitDE(kits[i], kits[j]); pairs++;
+      if (d < LADDER_DE) under++;
+      if (d < min) min = d;
+    }
+    check(`5.0 CONTROL — the instrument SEES a flattened ladder (a straw vat that assigns absolutely must go under ΔE ${LADDER_DE})`,
+      under === pairs, `straw vat: ${under}/${pairs} pairs under the bar, min ΔE ${min.toFixed(2)}`);
+  }
+
+  console.log("");
+  console.log("  livery    ADJACENT rungs        ALL 21 pairs                 free-vs-paid");
+  console.log("  --------------------------------------------------------------------------------");
+  const dullAdjacent = [];   // GATED — cosmetictest's own rule for this ladder
+  const sameColour = [];     // GATED — cosmetictest's own second rule
+  const freeVsPaid = [];     // GATED — the owner's sentence
+  const collapsed = [];      // REPORTED — every pair against LADDER_DE
+  let worstAll = Infinity, worstAllAt = "", worstAdj = Infinity, unswornWorstAll = Infinity;
+  for (const people of ["none", ...PEOPLES]) {
+    const kits = FINISH_ROWS.map((f) => ({ ...f, kit: kitFor(finishKit(f.value), "none", OFF ? "none" : people) }));
+    let adjMin = Infinity, allMin = Infinity, allMinAt = "", freeMin = Infinity, under = 0;
+    for (let i = 0; i < kits.length; i++) {
+      for (let j = i + 1; j < kits.length; j++) {
+        const a = kits[i], b = kits[j];
+        const d = kitDE(a.kit, b.kit);
+        if (d < allMin) { allMin = d; allMinAt = `${a.label} vs ${b.label}`; }
+        if (d < JND) sameColour.push(`${people}: ${a.label} and ${b.label} are ΔE ${d.toFixed(2)} apart — one swatch`);
+        if (d < LADDER_DE) {
+          under++;
+          collapsed.push(`${people}: ${a.label} (${a.cost}g) vs ${b.label} (${b.cost}g) — ΔE ${d.toFixed(2)}`);
+        }
+        // ADJACENT — the rule `cosmetictest.mjs` §2 actually writes: "every paid
+        // colour rung clears ΔE LADDER_DE against the rung below it".
+        if (j === i + 1) {
+          if (d < adjMin) adjMin = d;
+          if (d < LADDER_DE && b.cost > 0) dullAdjacent.push(`${people}: ${a.label} -> ${b.label} is ΔE ${d.toFixed(1)} for ${b.cost}g`);
+        }
+        // FREE vs PAID — a rung that cost gold and reads as the issued kit is a
+        // refund, not a cosmetic, and it is the sentence the owner would write.
+        if (a.cost === 0 || b.cost === 0) {
+          const paid = a.cost === 0 ? b : a, free = a.cost === 0 ? a : b;
+          if (d < freeMin) freeMin = d;
+          if (d < LADDER_DE) freeVsPaid.push(`${people}: ${paid.label} costs ${paid.cost}g and is ΔE ${d.toFixed(2)} from the FREE ${free.label}`
+            + ` — mail ${hx(free.kit.mail)} vs ${hx(paid.kit.mail)} | tunic ${hx(free.kit.tunic)} vs ${hx(paid.kit.tunic)}`);
+        }
+      }
+    }
+    if (people === "none") unswornWorstAll = allMin;
+    else {
+      if (allMin < worstAll) { worstAll = allMin; worstAllAt = `${people}: ${allMinAt}`; }
+      if (adjMin < worstAdj) worstAdj = adjMin;
+    }
+    console.log(`  ${people.padEnd(8)}  min ΔE ${adjMin.toFixed(2).padStart(6)}        ${String(under).padStart(2)}/21 under ${LADDER_DE}, min ${allMin.toFixed(2).padStart(6)}     min ΔE ${freeMin.toFixed(2).padStart(6)}`);
+  }
+  console.log("");
+  for (const f of freeVsPaid.slice(0, 8)) note(`REFUND  ${f}`);
+  if (freeVsPaid.length > 8) note(`... and ${freeVsPaid.length - 8} more free-vs-paid collapses`);
+
+  // ---- THE THREE GATED RULES ------------------------------------------------
+  //
+  // All three are `cosmetictest.mjs` §2's own, moved off the RAW STORED HEX and
+  // onto what `kitFor(finishKit(v), team, people)` actually hands the renderer.
+  // That move is the whole fix to the instrument: the seven stored numbers are
+  // the same seven numbers whatever a man swore to, so the shop's existing gate
+  // could not have seen this and did not.
+  check(`5.1 LADDER — every paid rung clears ΔE ${LADDER_DE} against the rung below it, under EVERY livery`,
+    dullAdjacent.length === 0,
+    dullAdjacent.length ? `${dullAdjacent.length} dull rungs, worst adjacent pair ΔE ${worstAdj.toFixed(2)}`
+      : `worst adjacent pair under any livery ΔE ${worstAdj.toFixed(2)}`,
+    dullAdjacent);
+  check("5.2 NO REFUND — no paid finish reads as the FREE one under any livery",
+    freeVsPaid.length === 0,
+    freeVsPaid.length ? `${freeVsPaid.length} paid rungs collapse onto Rough Iron (0g)` : "every paid rung stays paid in all four liveries",
+    freeVsPaid);
+  check(`5.3 NO TWINS — no two of the seven finishes are one swatch (ΔE ${JND}) under any livery`,
+    sameColour.length === 0,
+    sameColour.length ? `${sameColour.length} pairs below a JND` : `worst pair of all under any livery ΔE ${worstAll.toFixed(2)}`,
+    sameColour);
+
+  // ---- REPORTED, NOT GATED, AND THE ARGUMENT IS WRITTEN OUT ------------------
+  //
+  // The brief that ordered this section asked for a fourth rule: EVERY one of
+  // the 21 pairs, not only the adjacent ones, to clear `LADDER_DE` under every
+  // livery. It is not gated, and this is the reason, measured rather than
+  // asserted — docs/PROCESS.md R4 and R10.
+  //
+  // The unsworn shop's own tightest pair is Bronze Scales (110g) against
+  // Bretwalda Gold (160g) at ΔE 11.85. That leaves a livery 1.85 points of room
+  // on that pair before it goes under the bar — a livery would have to be very
+  // nearly an ISOMETRY. The chroma plane can be made one: addition preserves
+  // differences exactly, which is why `factionDye` adds. LIGHTNESS cannot,
+  // because `Dye.bias` and the `lo`/`hi` bands are where FACTIONS.md §2's
+  // "darker wools" and "lighter kit" live, and darkening a man compresses the
+  // value differences between his finishes. That is not an implementation
+  // detail; it is the feature.
+  //
+  // The trade was measured across the whole parameter space rather than guessed
+  // at. Holding the four peoples' value bands as they are, the tightest pair
+  // under any livery tops out at ΔE 8.4-9.8. Dissolving them — cutting `bias`
+  // to a fifth and widening every band by 30% — buys ΔE 10.2, and costs the
+  // Danelaw being dark, which is the one read in this feature that is a
+  // CONTRAST rather than a colour.
+  //
+  // So the fourth rule is REPORTED with its number on every run, and the two
+  // pairs that fail it are named. Moving a bar to buy a pass is forbidden;
+  // adopting a bar the game cannot meet, and then quietly not printing the
+  // shortfall, is the same offence facing the other way.
+  note(`REPORTED, NOT GATED — of the 21 pairs under each of the four liveries, ${collapsed.length} come within ΔE ${LADDER_DE};`
+    + ` the worst is ${worstAll.toFixed(2)} (${worstAllAt}), against ${unswornWorstAll.toFixed(2)} for the same pair unsworn.`);
+  for (const c of collapsed) note(`  NEAR  ${c}`);
+  laddering = { collapsed: collapsed.length, worstAll, worstAllAt, worstAdj, unswornWorstAll };
+}
+
+// ============================================================
+// 6. NO SURFACE CLIPS A CHANNEL — THE ONLY SECTION WITH LIGHT IN IT
+//
+// EVERY OTHER SECTION OF THIS FILE READS ALBEDO AND SAYS SO. That deferral is
+// honest for a question about which colour a man IS, and it is useless for the
+// question here, which is what the arena's fire DOES to that colour. A surface
+// can be a perfectly good gold in the albedo buffer and a flat orange traffic
+// cone on the screen, because the key light drove a channel to full scale and
+// every fold, weave and shadow inside it went with it.
+//
+// THE DEFECT THIS SECTION WAS WRITTEN FOR, measured on the build it was written
+// against, at the play lens through the real renderer — the numbers are the
+// share of the whole 520x320 frame at fully-clipped (any channel at 255):
+//
+//     unsworn huscarl        @0     0.12%     (the bonfire, and nothing else)
+//     GILDED WAR CLOAK 400g  @0     0.11%     @-35 0.01%   @160 0.37%
+//     SAXON huscarl          @0     1.93%     @-35 1.59%   @160 0.00%
+//     SAXON runekeeper       @180   0.67%
+//     norse / briton / pict  every bearing shot: 0.00-0.03%
+//
+// `cloakFor` put `--gilt` (0xd9a441) flat on the cloak, and `--gilt` is a MAP
+// TOKEN: the CSS beside it calls it a metal and "the brightest thing on the
+// map". It sits about twenty points of lightness above every other flat field
+// this game uses — team madder 34, team woad 32, garnet 28, moss 32, faction
+// woad 31, and the shop's dearest cloak, the 400 gold Gilded War Cloak, at 41.
+// A map token is not a cloth dye. A traffic-cone tabard is not 878 Wessex.
+//
+// AND THE BRIEF THAT ORDERED THIS GATE PUT IT AT THE WRONG BEARING, which is
+// worth writing down because it is the third round running that a refutation
+// has been at a bearing nobody shot. The blow-out was reported at the REAR. It
+// is not at the rear: at 160° and 180° the Saxon reads 0.00%, because the cloak
+// that carries the field is then facing away from the fire and is in its own
+// shadow. It is at the FRONT and the three-quarter, where the man's DYED CLOTH
+// faces the key — the hot pixels sample #f0c030 and #f0b020, which is the gilt
+// vat on tunic and wraps, not the cloak at all. Same defect, same fix; the
+// bearing in the brief was a guess and this file is not.
+//
+// WHAT IS MEASURED. The share of the WARRIOR'S OWN pixels — the coverage mask
+// off §0's rasteriser at the identical lens, not the frame — with any channel
+// at full scale. The mask matters: the bonfire is behind him at the front and
+// contributes about a tenth of a percent of the frame in every capture,
+// including the unsworn ones, and a gate that counted it would be grading the
+// fire.
+//
+// THE BAR IS THE SHOP'S OWN DEAREST GOLD, AND IT IS MEASURED, NOT CHOSEN. The
+// control is an UNSWORN man in the 400 gold Gilded War Cloak and the 160 gold
+// Bretwalda Gold finish — the brightest dress a player can actually buy, shot
+// in the same scene at the same bearings. Whatever that reads is what a rich
+// gold is allowed to read, and no livery may exceed it. A bar taken off a
+// shipped, paid artefact cannot be moved to buy a pass without brightening a
+// thing players own, which is a change nobody could make quietly.
+//
+// COST. This section boots the app and a browser and takes about forty
+// captures at forty to fifty seconds each on a box with no GPU. The rest of
+// this file is two minutes; this is most of an hour. It is not optional and
+// there is no flag to skip it: the three rounds of this feature that shipped a
+// defect all shipped it past a harness that had no light in it.
+// ============================================================
+console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the fire in it) ===\n");
+{
+  /**
+   * §6.0 — THE COUNTER, MEASURED BEFORE IT IS BELIEVED. docs/PROCESS.md R2.
+   *
+   * A clip counter that silently counted nothing would make every assertion
+   * below green, which is the most expensive failure this section can have.
+   * Three synthetic frames with a known answer, through the same function the
+   * captures go through.
+   */
+  const clipShare = (data, mask, w) => {
+    let n = 0, clipped = 0;
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      if (mask && !mask[p]) continue;
+      n++;
+      if (data[i] === 255 || data[i + 1] === 255 || data[i + 2] === 255) clipped++;
+    }
+    return { n, clipped, pct: n ? (100 * clipped) / n : 0, w };
+  };
+  {
+    const mk = (v) => { const d = new Uint8ClampedArray(4 * 100); for (let i = 0; i < 400; i += 4) { d[i] = v[0]; d[i + 1] = v[1]; d[i + 2] = v[2]; d[i + 3] = 255; } return d; };
+    const white = clipShare(mk([255, 255, 255]), null, 10).pct;
+    const grey = clipShare(mk([128, 128, 128]), null, 10).pct;
+    const oneHot = clipShare(mk([200, 255, 40]), null, 10).pct;
+    check("6.0 CONTROL — the clip counter reads 100% on a full-scale patch, 0% on mid-grey, 100% on one blown channel",
+      white === 100 && grey === 0 && oneHot === 100,
+      `white ${white.toFixed(1)}%, mid-grey ${grey.toFixed(1)}%, blown-green-only ${oneHot.toFixed(1)}%`);
+  }
+
+  const CLIP_BEARINGS = BEARINGS;
+  /**
+   * The mask, off the rasteriser, at the capture's own scale. §0.3 has already
+   * asserted that a livery moves NO geometry, so ONE mask per class and bearing
+   * serves all five liveries and the control — which is also why a mask can be
+   * used at all: if a people moved a triangle this denominator would be a
+   * different denominator for each of them.
+   */
+  const maskFor = (cls, turn) => raster(build(cls, FINISHES[0].value, "red", "none").group, turn).cov;
+
+  const server = await bootServer();
+  let browser = null, page = null;
+  try {
+    browser = await launchBrowser();
+    const ctx = await browser.newContext({ viewport: { width: LENS.w, height: LENS.h }, deviceScaleFactor: 1, reducedMotion: "no-preference" });
+    page = await ctx.newPage();
+
+    let shots = 0;
+    const capture = async (q) => {
+      await page.goto(`${server.origin}/shot?${q}`, { waitUntil: "domcontentloaded", timeout: 300000 });
+      await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string", null, { timeout: 300000 });
+      const staged = await page.evaluate(() => ({ subject: window.__shotSubject ?? null, refused: window.__shotError ?? null }));
+      if (staged.refused) die(`the page refused the stage: ${staged.refused} (${q})`);
+      const buf = await page.screenshot({ timeout: 300000 });
+      shots++;
+      return { subject: staged.subject, px: await page.evaluate(async (b64) => {
+        const img = new Image();
+        await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = "data:image/png;base64," + b64; });
+        const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+        const x = c.getContext("2d"); x.drawImage(img, 0, 0);
+        return { w: c.width, h: c.height, data: Array.from(x.getImageData(0, 0, c.width, c.height).data) };
+      }, buf.toString("base64")) };
+    };
+    /** The hottest colour actually on the man, so a reader can see WHAT blew. */
+    const hottest = (data, mask) => {
+      const hist = new Map();
+      for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+        if (!mask[p]) continue;
+        const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+        if (lum < 170) continue;
+        const k = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3);
+        hist.set(k, (hist.get(k) ?? 0) + 1);
+      }
+      const top = [...hist.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (!top) return "—";
+      const k = top[0];
+      return `#${(((k >> 10) & 31) << 3).toString(16).padStart(2, "0")}${(((k >> 5) & 31) << 3).toString(16).padStart(2, "0")}${((k & 31) << 3).toString(16).padStart(2, "0")}`;
+    };
+
+    // One throwaway capture: a cold page pays for a route compile and a first
+    // pass of procedural texture generation, and neither is on the clock. Same
+    // reasoning, and the same measurement, as `tools/cosmetictest.mjs`.
+    console.log("        warming the page (one capture, discarded)");
+    await capture(`preset=fightcard&clean=1&settle=16&turn=0&cls=huscarl&people=none`);
+
+    // ---- THE CONTROL: the shop's dearest gold, on an unsworn man ----------
+    console.log("");
+    let bar = 0, barAt = "";
+    for (const turn of CLIP_BEARINGS) {
+      const mask = maskFor("huscarl", turn);
+      const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=huscarl&people=none&cloak=cloak_gold&armor=armor_gold`);
+      if (String(subject?.cloak) !== "gold" || String(subject?.people) !== "none") die(`the control staged wrong: cloak=${subject?.cloak} people=${subject?.people}`);
+      const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);
+      console.log(`  CONTROL  Gilded War Cloak 400g + Bretwalda Gold 160g, UNSWORN, @${String(turn).padStart(4)}°   ${r.pct.toFixed(2).padStart(6)}% of ${r.n} px on the man   hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
+      if (r.pct > bar) { bar = r.pct; barAt = `@${turn}°`; }
+    }
+    note(`the bar is therefore ${bar.toFixed(2)}% — what the shop's dearest gold reads at its worst bearing (${barAt})`);
+
+    // ---- THE SWEEP: four peoples, four classes, three bearings ------------
+    console.log("");
+    const over = [];
+    let worst = 0, worstAt = "";
+    for (const cls of CLASSES) {
+      for (const people of PEOPLES) {
+        const row = [];
+        for (const turn of CLIP_BEARINGS) {
+          const mask = maskFor(cls, turn);
+          const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=${cls}&people=${OFF ? "none" : people}`);
+          if (String(subject?.people) !== (OFF ? "none" : people)) die(`asked for people=${people}, got ${subject?.people}`);
+          const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);
+          row.push(`@${turn}° ${r.pct.toFixed(2)}%`);
+          if (r.pct > worst) { worst = r.pct; worstAt = `${people}/${cls}@${turn}°`; }
+          if (r.pct > bar) over.push(`${people}/${cls} at ${turn}° clips ${r.pct.toFixed(2)}% of the man — ${(r.pct / (bar || 1e-9)).toFixed(1)}x the 400g gold cloak's ${bar.toFixed(2)}%, hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
+        }
+        console.log(`  ${people.padEnd(7)} ${cls.padEnd(11)} ${row.join("   ")}`);
+      }
+    }
+    console.log("");
+    for (const o of over.slice(0, 10)) note(`BLOWN   ${o}`);
+    check(`6.1 CLIP — no livery blows a channel past the shop's own dearest gold (${bar.toFixed(2)}% of the man)`,
+      over.length === 0,
+      over.length
+        ? `${over.length} of ${CLASSES.length * PEOPLES.length * CLIP_BEARINGS.length} frames over the bar, worst ${worst.toFixed(2)}% at ${worstAt}`
+        : `worst livery frame ${worst.toFixed(2)}% at ${worstAt}, under the ${bar.toFixed(2)}% bar`,
+      over);
+    console.log(`        ${shots} captures at ${LENS.w}x${LENS.h}, the play lens, through the real renderer`);
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    server.stop();
+  }
+}
+
+// ============================================================
 // THE SHEET — flat albedo, no light. Something to actually look at.
 // ============================================================
 if (SHEET && sheet.length) {
@@ -938,8 +1408,12 @@ if (SHEET && sheet.length) {
 const deferrals = [
   `the shield is NOT in the raster (four boards, worst pair ΔE ${boardMin === null ? "n/a" : boardMin.toFixed(1)})`,
   "the gated comparison is MATCHED, not the cross-product",
-  "no light, no grade — albedo only",
+  "§0-§5 have no light and no grade — albedo only; §6 is the only lit section and it measures CLIPPING, not colour",
   "the roster sheet is `tools/classmatrix.mjs`, not this file",
+  laddering
+    ? `§5 gates cosmetictest's own two rules on the resolved kit; the stricter ALL-PAIRS reading of LADDER_DE is REPORTED — ${laddering.collapsed} pairs within it, worst ΔE ${laddering.worstAll.toFixed(2)} (${laddering.worstAllAt}) against ${laddering.unswornWorstAll.toFixed(2)} unsworn`
+    : "§5 did not run",
+  `§6 sweeps ${BEARINGS.join("°, ")}° — the true profile at 90° is photographed by \`npm run shots -- fightcard --people <p> --turn 90\`, not gated here`,
 ];
 console.log("");
 console.log(`[faction] ${results.length - failed}/${results.length} — WITH ${deferrals.length} deferral(s): ${deferrals.join("; ")}.`);
