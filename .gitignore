@@ -109,3 +109,6 @@ art/probe-*/
 # the file MOVED ASIDE and still exited 0. The file itself says "This file
 # should not be edited", and Next rewrites it on the next dev or build anyway.
 next-env.d.ts
+
+# tools/factionread.mjs's tsc scratch, same as .teamread and .rungcensus
+.factionread/
