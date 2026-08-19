@@ -920,6 +920,48 @@ Two things follow, and both are load-bearing:
    outright, is `wartest` §7, and `--prove` injects both defects and requires
    every one of those assertions to go red.
 
+### THE AMENDMENT: an oath is not a costume — 16 Aug 2026
+
+The sentence above says **"No message in this protocol carries a player's
+allegiance, in either direction, and none ever may."** It was written before
+`BACKLOG.md` 4.3 was built, and taken at face value it forbids a man of the
+Danelaw from *looking* like one, because a client cannot draw an enemy it is
+never told anything about. It is amended here rather than quietly stretched.
+
+**`appearance` now carries `people`, and `people` is a COSTUME.** It is one of
+`saxon | norse | briton | pict | none`, it rides in the same opaque blob as the
+helm and the cloak, the engine assigns it (`set_appearance`, engine.mjs:2230)
+and never reads it, and it decides one thing: what colour a warrior is drawn
+in. `src/game/client/characters.ts` builds the man from it and nothing else in
+the codebase does anything with it at all.
+
+**The OATH is `players.allegiance` and it is still not on this wire.** It is
+written over `/api/war/swear`, an authenticated HTTP route with the profile's
+own bearer token, it locks the moment a man has fought, and `src/db/war.ts` is
+the only thing that ever reads it. `entries` on `match_end` still names player
+ids and points. **Which people banks a match is still resolved from the
+database and from nowhere else**, so point 1 above is unchanged and unweakened:
+a client that lies about its `people` fights in the wrong colours and banks for
+whoever it actually swore to, which may be nobody. There is nothing to gain by
+lying and nothing to lose by it, which is the definition of a cosmetic.
+
+The two are different objects with different authorities and the rule is
+better stated as the distinction than as the blanket ban:
+
+> **A claim on the war ledger may never travel on this wire. A costume always
+> could, and a people is a costume here.**
+
+**AND THE GATE WAS AIMED ONE LEVEL TOO HIGH TO SEE THIS COMING.** `wartest`
+§7b's leak check is `Object.keys(player).filter(/allegiance|people|.../)` — it
+reads the player record's TOP LEVEL, and `appearance` is a nested blob, so a
+people inside it was invisible to the assertion whose whole job is finding one.
+That is not hypothetical: this feature landed exactly there. §7d is added in
+the same commit as this note and closes it — it reaches INTO the appearance
+blob, allows a costume, and then proves the costume is worth nothing by
+asserting that a room where every man declares a people produces a byte-identical
+war report to one where none does. `tools/factionread.mjs` §3b makes the same
+claim from the render side over a whole played match.
+
 ### What the engine does with the map it is given
 
 `setWarFront({ contested, holdings })` is called by the host process, never by a

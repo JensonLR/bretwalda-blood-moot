@@ -72,6 +72,92 @@ pair is about 1.5× their runtime, and a wave that runs them four times pays it
 four times. Making them deterministic is **backlog item zero** and it buys back
 more wall clock than any other single change.
 
+## The colour gates — `teamread` and `factionread`
+
+Two harnesses, one instrument, one rule. `docs/FACTIONS.md` §8: **team colour
+beats clan colour beats faction colour beats bought cosmetic** — and each of
+these files gates one rung of that ladder at the distance a player fights.
+
+| harness | costs | answers |
+|---|---|---|
+| `node tools/teamread.mjs` | ~1 min, no browser | can a stranger tell friend from foe at 6.8 m, over every finish × cloak × class × bearing, both sides |
+| `node tools/teamread.mjs --off` | ~1 min | the control. Both sides with no team, i.e. the pre-override game. **Must fail** |
+| `node tools/factionread.mjs` | ~3.5 min for §0–§5, then most of an hour for §6 | are the four peoples four men at 6.8 m; does any of them cost a point of anything; is the paid ladder still a ladder after a man swears; and does anything a livery makes blow a channel under the fire |
+| `node tools/factionread.mjs --off` | same | the control. All four peoples as the unsworn. **Must fail** |
+| either, `--sheet` | +seconds | the flat-albedo contact sheet in `art/look/`, which is the thing to actually LOOK at |
+
+**They share a rasteriser and a verdict quantity on purpose.** A warrior's
+signature is his area-weighted mean albedo over the pixels he covers at the play
+lens, averaged in linear light, converted to CIELAB, and gated on the CHROMA
+PLANE with lightness dropped — because a cloaked man and a bare-backed man on
+one side are 30 points apart in LIGHTNESS and nobody has ever confused them.
+Both bars are borrowed from `cosmetictest`: ΔC 10 is `LADDER_DE`, "what a PAID
+rung has to clear to be a different colour at a glance", and ΔC 2.3 is its JND.
+
+**`factionread` is two gates in one file and the second matters more.** §1 asks
+whether four peoples are told apart; §3 asks whether any of them is told apart
+by anything a fight reads, and it runs the real `engine.mjs` twice — one room
+where every man declares a people in his appearance and one where none does —
+and requires every published field of every man to come out identical over a
+played match. A harness that only measured §1 would go green on a build that
+gave the Picts more health, because more health is invisible in an albedo
+buffer.
+
+**§2 is where the two files meet.** Four peoples on ONE side must collapse to a
+single colour at ΔC 0.00 — not to a tolerance — because the precedence
+resolvers return on the team before a people is consulted. The reason the bar is
+zero rides the same output line: garnet sits ΔC 7.3 from madder and the Pictish
+woad ΔC 15.4 from the team's woad. They are the same two dyestuffs, so a leak
+here is a man who cannot tell an enemy from a countryman.
+
+**§5 and §6 were added after this file passed 15/15 with three defects live in
+it**, and both are about a question that was being asked NEXT TO the one that
+mattered.
+
+§5 gates the PAID LADDER through the shipped resolvers —
+`kitFor(finishKit(value), team, people)` — instead of through the stored hex.
+`cosmetictest` §2 already gates this ladder, on this constant, and could not
+have seen the defect: the seven stored numbers are the same seven numbers
+whatever a man swore to, and it was the RESOLVER that flattened them. Rough Iron
+at 0 gold and Blackened Steel at 110 returned the identical hex on every dyed
+surface under a Saxon livery. `rungcensus` could not see it either, and for the
+more instructive reason: it counts connected components and triangles, and
+nothing was deleted. The colour was flattened. A census of parts cannot see a
+flattened colour, and this project's signature failure is a measurement
+answering the wrong question.
+
+§5 gates `cosmetictest`'s own two rules on the resolved kit — NO TWINS (no two
+rungs are one swatch) and NO REFUND (no paid finish reads as the free one) — and
+**reports the stricter `LADDER_DE` reading with its number on every run rather
+than gating it**. The file carries the whole argument and the five
+configurations it was measured on: the shop's own tightest pair is ΔE 11.85
+apart unsworn, so a livery has 1.85 points of room and would have to be nearly
+an isometry, and every configuration that recovered the ladder to ΔE 8–9 let a
+160-gold finish out-vote a people — §1.3 at **-173°**, the identity read
+inverted. A bar is never moved to buy a pass; adopting one the game cannot meet
+and then not printing the shortfall is the same offence facing the other way.
+
+§6 is **the only lit section in either file**, and it exists because three
+rounds of this feature shipped a defect past a harness with no light in it. It
+boots the app, drives the real renderer at the play lens, and counts pixels at a
+fully clipped channel inside the warrior's own coverage mask — the mask, not the
+frame, because the bonfire is behind him and contributes about a tenth of a
+percent of every capture including the unsworn ones. The bar is the UNSWORN man
+in the 400 gold Gilded War Cloak and the 160 gold Bretwalda Gold finish: the
+brightest dress a player can buy, so the bar cannot be moved without brightening
+something people own. §6.0 proves the counter can count and §6.2 proves the
+capture repeats, because a clip count is exactly the statistic a moving fire
+moves.
+
+**Both files record a ruler they had to correct, in the file, with the reading
+that forced it.** `teamread` first gated on full ΔE and called two red-team men
+opposite sides for being 30 apart in lightness. `factionread` first asked which
+field a man's chroma was NEAREST and called a Saxon in Blackened Steel a Briton,
+at -27.66, for being DARK — the chroma plane's RADIUS, not its angle, and moss
+is the least chromatic of the four fields. Both corrections are strictly
+tighter, both print the old quantity beside the new one, and neither is a bar
+that moved.
+
 ## Two gates that carry their own proof — `classmatrix` and `gorestat`
 
 Added 2026-08-13, because two existing rulers were caught not discriminating and

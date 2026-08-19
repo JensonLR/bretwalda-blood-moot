@@ -357,6 +357,29 @@ const SHEETS = {
     title: "WAR PAINT · at fight distance · front, 0°",
     rows: [{ turn: 0 }],
   },
+  // ---- the four peoples, turned (4) ----
+  //
+  // ONE SHEET PER CLASS, AND THE MAN TURNS. `docs/PROCESS.md` R5, and the
+  // reason is in this feature's own history rather than in the rule: three
+  // rounds running, the thing that refuted the build was at a bearing nobody
+  // had shot. Round one's entire "after" set was five front-on turn-0 huscarl
+  // cards — one bearing, one class, one pose — and all three of the defects
+  // that survived it lived outside that frame. The Saxon blow-out is at the
+  // FRONT and the three-quarter; the Danelaw's rose was on the linen sleeves
+  // and the leg wraps, which are what a PROFILE and a BACK show you.
+  //
+  // Front, profile and back, at the lens the player spends the whole match
+  // behind, and the same three for every one of the four classes — because the
+  // huscarl is the only man in the game with a shield, and the shield is the
+  // largest flat field a people paints.
+  ...Object.fromEntries(["huscarl", "warden", "runekeeper", "berserker"].map((cls) => [`faction${cls}`, {
+    file: `faction-${cls}.png`, card: "fightcard", cols: 3,
+    title: `THE FOUR PEOPLES · ${cls} · front, profile, back · fight distance, the arena's own light`,
+    shots: ["saxon", "norse", "briton", "pict"].flatMap((people) =>
+      [["front 0°", 0], ["profile 90°", 90], ["back 180°", 180]].map(([label, turn]) => ({
+        label: `${people} · ${label}`, turn, cls, dress: { people },
+      }))),
+  }])),
 };
 const SHEET_NAMES = Object.keys(SHEETS);
 
@@ -367,6 +390,9 @@ const SHEET_NAMES = Object.keys(SHEETS);
  */
 const GROUPS = {
   armoury: SHEET_NAMES,
+  // The livery review: four classes x four peoples x front/profile/back, in one
+  // server boot. `node tools/shoot.mjs factionturn`.
+  factionturn: SHEET_NAMES.filter((n) => n.startsWith("faction")),
   armouryfight: SHEET_NAMES.filter((n) => SHEETS[n].card === "fightcard"),
 };
 const GROUP_NAMES = Object.keys(GROUPS);
@@ -382,6 +408,13 @@ const GROUP_NAMES = Object.keys(GROUPS);
  */
 function panelsFor(name, spec, roster) {
   const valueOf = (slot, id) => {
+    // `people` is not a purchase and has no armoury row — nobody buys a people.
+    // It still rides in `dress` because `dress` is "what the page is asked to
+    // restage this panel with", and it is still CHECKED, because the page
+    // publishes it on `__shotSubject` like everything else. A sheet that
+    // silently photographed the wrong livery is exactly the failure the
+    // `expect` machinery exists to prevent.
+    if (slot === "people") return id;
     const opt = roster.slots.find((s) => s.slot === slot)?.options.find((o) => o.id === id);
     if (!opt) throw new Error(`[shoot] sheet "${name}" dresses ${slot} in "${id}", which is not in the armoury`);
     return opt.value;
@@ -403,7 +436,7 @@ function panelsFor(name, spec, roster) {
     },
   });
 
-  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress));
+  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress, undefined, s.cls));
 
   const slot = roster.slots.find((s) => s.slot === spec.slot);
   if (!slot) throw new Error(`[shoot] sheet "${name}" wants slot "${spec.slot}", which the armoury does not have`);
@@ -444,7 +477,12 @@ const ORIGIN = `http://localhost:${PORT}`;
 // What a single card may be dressed in from the command line. Same names the
 // page reads off the query string, so there is one vocabulary for the shop and
 // not a translation layer to get wrong.
-const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "cls", "turn"];
+// `people` is in this list and is NOT an armoury slot — nobody buys a people.
+// It rides here because everything in this list is "a thing the card can be
+// restaged with from the command line", which is what the flag machinery below
+// actually does with it, and because `npm run shots -- fightcard --people norse`
+// is the whole of how the four peoples get photographed.
+const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "people", "cls", "turn"];
 // A misspelled preset used to fall through to "no presets named" and quietly
 // shoot the whole default set — twenty minutes of the wrong pictures. Name
 // which words are flag values so anything left over can be called out.

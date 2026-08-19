@@ -113,56 +113,566 @@ export function project(lat, lon) {
 const SEAT_THRESHOLD = 320;
 const FIELD_THRESHOLD = 240;
 
+/* --------------------------------------------------------------------------
+   THE FRONTIERS, AS FEATURES
+
+   Every land-facing border below was once four points of a lat/lon box, and
+   on a phone that read as what it was: a ruled line across Scotland, a
+   dead-straight seam through Wessex, a Kent with a rectangle corner in the
+   Thames estuary. The offshore run-out was never the problem — that is the
+   clip doing its job — the problem was that the INSIDE of the island was
+   drawn with a ruler.
+   These are the features a chronicler would have named, sampled closely
+   enough that they read as a river or a ridge: the Thames, the Lea, the Ouse,
+   Watling Street, the Tamar, Offa's Dyke, the Humber, the Trent, the Tees,
+   the Solway, the Cheviots, the Forth, the Tay and the Mounth.
+
+   EACH ONE IS WRITTEN ONCE AND USED BY BOTH NEIGHBOURS. That is not tidiness,
+   it is the fix for a second defect the same screenshot showed. WarMap.tsx
+   strokes EVERY territory's ring after all the fills are down, so an edge
+   that overlaps a neighbour is not hidden by being painted under it — it is a
+   line drawn across that neighbour's ground. Mercia's old south edge ran from
+   west London to the Bristol Channel and put a hairline straight through the
+   middle of Wessex. Sharing one array between the two rings makes the two
+   strokes land on the same pixels, which is the only way two rings can meet
+   without a seam or a gap. Where two rings genuinely must overlap — Kernow
+   out of Wessex, the offshore ends — the overlapping edge is kept AT SEA,
+   where the clip removes it.
+
+   Direction: each list runs in one stated direction, and a ring that needs it
+   the other way uses `rev`. Degrees, [lat, lon], as the history is recorded.
+   -------------------------------------------------------------------------- */
+
+/** A boundary read the other way. Copies, so a shared line cannot be mutated. */
+const rev = (line) => line.slice().reverse();
+
+/**
+ * THE AVON AND THE THAMES, the Severn estuary to the North Sea.
+ *
+ * West of the Thames's head at Kemble there is no Thames, and Mercia held
+ * Gloucestershire; the water that carries the frontier on is the Bristol
+ * Avon, which rises within a few miles of it. So the line is the Avon up from
+ * Avonmouth through Bath and Chippenham, over the watershed above Tetbury,
+ * and the Thames down from Kemble to the sea.
+ *
+ * Sliced by four rings: Mercia and Wessex share it as far as the Lea's mouth,
+ * Wessex alone carries on to the Darent, and below that it is East Anglia's
+ * Essex shore against Kent.
+ */
+const THAMES = Object.freeze([
+  [51.38, -3.30], // the Bristol Channel — at sea, so the clip eats this end
+  [51.50, -2.71], // Avonmouth
+  [51.46, -2.62], // Bristol
+  [51.41, -2.50], // Keynsham
+  [51.38, -2.36], // Bath
+  [51.35, -2.24], // Bradford-on-Avon
+  [51.37, -2.13], // Melksham
+  [51.46, -2.11], // Chippenham
+  [51.58, -2.09], // Malmesbury
+  [51.66, -2.09], // the Avon's head, above Tetbury
+  [51.70, -2.03], // Thames Head, Kemble
+  [51.64, -1.86], // Cricklade
+  [51.69, -1.69], // Lechlade
+  [51.71, -1.58], // Radcot
+  [51.77, -1.42], // Newbridge
+  [51.75, -1.27], // Oxford
+  [51.67, -1.28], // Abingdon
+  [51.60, -1.11], // Wallingford
+  [51.53, -1.05], // the Goring Gap
+  [51.46, -0.97], // Reading
+  [51.54, -0.90], // Henley
+  [51.52, -0.72], // Maidenhead
+  [51.48, -0.61], // Windsor
+  [51.43, -0.51], // Staines
+  [51.41, -0.31], // Kingston
+  [51.46, -0.31], // Richmond
+  [51.48, -0.26], // Chiswick
+  [51.47, -0.17], // Battersea
+  [51.50, -0.12], // Westminster
+  [51.51, -0.06], // Wapping
+  [51.51,  0.01], // Leamouth — the Lea comes in, and the treaty line turns north
+  [51.49,  0.07], // Woolwich
+  [51.47,  0.18], // Erith
+  [51.45,  0.23], // Dartford, and the Darent's mouth
+  [51.45,  0.37], // Gravesend and Tilbury
+  [51.46,  0.50], // Cliffe
+  [51.49,  0.62], // the Medway's mouth
+  [51.53,  0.79], // Shoeburyness
+  [51.60,  1.40], // out into the North Sea
+]);
+/** Where the Lea comes in, and where the Darent does. Indices into THAMES. */
+// Each names the index OF its confluence, and the four readers below are
+// written to that: a ring that ENDS at the confluence takes `slice(0, i)` and
+// then starts the shared line, whose own first point IS the confluence, so the
+// point is never duplicated; a ring that BEGINS there takes `slice(i)`.
+//
+// Both were one too high, and the Darent's showed. `THAMES[34]` is Gravesend,
+// so Kent's ring — `rev(THAMES.slice(THAMES_AT_DARENT))` — ran back only as far
+// as Gravesend and then jumped inland to Farningham, skipping Dartford
+// entirely and ruling a straight line south-west across dry land. That corner
+// is the one in the owner's screenshot. Wessex had the mirror of it, running
+// one point too far east before cutting back to the Darent.
+const THAMES_AT_LEA = 30;      // Leamouth, and TREATY_LINE[0] is the same point
+const THAMES_AT_DARENT = 33;   // Dartford, and DARENT_ROTHER[0] is the same point
+
+/**
+ * THE TREATY OF ALFRED AND GUTHRUM, in the order it names its own landmarks.
+ *
+ *   "up the Thames, and then up the Lea, and along the Lea to its source,
+ *    then in a straight line to Bedford, then up the Ouse to Watling Street."
+ *
+ * It begins at Leamouth, where THAMES leaves off, and ends where Watling
+ * Street crosses the Ouse at Stony Stratford. The one straight segment in it
+ * — Leagrave to Bedford — is straight because the treaty says it is.
+ */
+const TREATY_LINE = Object.freeze([
+  [51.51,  0.01], // Leamouth, on the Thames
+  [51.55, -0.02], // Lea Bridge
+  [51.59, -0.05], // Tottenham
+  [51.66, -0.03], // Enfield Lock
+  [51.69, -0.01], // Waltham Abbey
+  [51.76, -0.01], // Hoddesdon
+  [51.81, -0.03], // Ware
+  [51.80, -0.08], // Hertford
+  [51.84, -0.22], // Wheathampstead
+  [51.88, -0.42], // Luton
+  [51.90, -0.47], // Leagrave — the Lea's source
+  [52.14, -0.47], // Bedford — "then in a straight line to Bedford"
+  [52.15, -0.52], // Bromham, and up the Ouse
+  [52.16, -0.63], // Turvey
+  [52.15, -0.70], // Olney
+  [52.09, -0.72], // Newport Pagnell
+  [52.06, -0.85], // Stony Stratford, where Watling Street crosses the Ouse
+]);
+
+/**
+ * WATLING STREET, and then the Dove.
+ *
+ * The treaty's own words stop at the road, and the road is the frontier from
+ * the Ouse crossing up past High Cross to Wall. North of Wall the Danish
+ * shires stop being bounded by a road and start being bounded by a river: the
+ * Dove is the line between Staffordshire and Derbyshire from the Trent to its
+ * head under Axe Edge, and beyond that the Pennine edge to Longdendale, where
+ * English Mercia, Danish Mercia and Deira all meet.
+ */
+const WATLING_DOVE = Object.freeze([
+  [52.06, -0.85], // Stony Stratford
+  [52.13, -0.99], // Towcester
+  [52.22, -1.07], // Weedon
+  [52.35, -1.16], // Watford Gap
+  [52.49, -1.28], // High Cross, Venonis
+  [52.58, -1.55], // Mancetter
+  [52.65, -1.83], // Wall, Letocetum
+  [52.73, -1.72], // Alrewas, on the Trent
+  [52.85, -1.58], // Newton Solney, the Dove's mouth
+  [52.87, -1.69], // Tutbury
+  [52.92, -1.85], // Uttoxeter
+  [53.02, -1.75], // Ashbourne
+  [53.14, -1.81], // Hartington
+  [53.21, -1.93], // Axe Edge, the Dove's head
+  [53.34, -1.93], // Chapel-en-le-Frith
+  [53.47, -1.92], // Longdendale
+]);
+
+/**
+ * THE GREAT OUSE BELOW BEDFORD, to the Wash.
+ *
+ * Bedford is the hinge of the treaty line: above it the Ouse divides English
+ * Mercia from the Danes, below it it divides one Danish army from the other —
+ * the Five Boroughs from Guthrum's East Anglia, along the fen edge.
+ */
+const OUSE_TO_WASH = Object.freeze([
+  [52.14, -0.47], // Bedford
+  [52.23, -0.27], // St Neots
+  [52.33, -0.18], // Huntingdon
+  [52.33, -0.07], // St Ives
+  [52.40,  0.26], // Ely
+  [52.58,  0.30], // Littleport
+  [52.75,  0.40], // King's Lynn
+  [53.05,  0.55], // the Wash, and out
+]);
+
+/**
+ * THE DARENT AND THE ROTHER — Kent's landward side.
+ *
+ * Kent was a box, and the box's north-west corner sat out in the Thames
+ * estuary. The kingdom's real landward edge is two rivers with the Weald
+ * between them: the Darent up from the Thames at Dartford to Otford, the
+ * ridge across to Edenbridge, then the head of the Rother and the Rother
+ * itself down to the sea at Rye.
+ */
+const DARENT_ROTHER = Object.freeze([
+  [51.45,  0.23], // Dartford, on the Thames
+  [51.39,  0.22], // Farningham
+  [51.31,  0.19], // Otford
+  [51.24,  0.10], // the Sevenoaks Weald
+  [51.19,  0.06], // Edenbridge
+  [51.12,  0.22], // Ashurst
+  [51.06,  0.42], // Lamberhurst
+  [51.03,  0.52], // Hawkhurst
+  [50.97,  0.65], // Newenden, on the Rother
+  [50.95,  0.75], // Rye, and the Rother's mouth
+]);
+
+/**
+ * THE TAMAR, Marsland Mouth to the Plymouth Sound.
+ *
+ * The oldest border in the file and still the one everybody would recognise:
+ * Cornwall ends where the Tamar runs, and the two miles between the Tamar's
+ * head at Woolley and the sea at Marsland Mouth close it.
+ */
+const TAMAR = Object.freeze([
+  [50.20, -4.20], // at sea, off Plymouth
+  [50.36, -4.17], // the Plymouth Sound, and the Tamar's mouth
+  [50.41, -4.21], // Saltash
+  [50.46, -4.20], // Calstock
+  [50.51, -4.21], // Gunnislake
+  [50.57, -4.20], // Horsebridge
+  [50.63, -4.32], // Polson, below Launceston
+  [50.75, -4.36], // North Tamerton
+  [50.85, -4.42], // Woolley, the Tamar's head
+  [50.92, -4.55], // Marsland Mouth
+  [51.05, -5.20], // out into the Atlantic
+]);
+
+/**
+ * OFFA'S DYKE, Prestatyn to Sedbury Cliffs — the Welsh march, north to south.
+ *
+ * The earthwork itself, and not a round number of degrees: the note that used
+ * to sit on Dyfed's bounds recorded that -2.85 put a Welsh fill across
+ * Somerset and the Cotswolds, and the dyke is the answer to why. It runs
+ * within a few miles of -3.05 for its whole middle, and only at its two ends
+ * — the Dee at Prestatyn and the Wye at Chepstow — does it swing east.
+ */
+const OFFAS_DYKE = Object.freeze([
+  [53.33, -3.40], // Prestatyn, and the Irish Sea
+  [53.20, -3.22], // Halkyn Mountain
+  [53.09, -3.07], // Treuddyn
+  [53.00, -3.05], // Ruabon
+  [52.93, -3.06], // Chirk
+  [52.79, -3.09], // Llanymynech
+  [52.65, -3.12], // Buttington, on the Severn
+  [52.56, -3.15], // Montgomery
+  [52.44, -3.06], // Newcastle on Clun
+  [52.34, -3.05], // Knighton
+  [52.20, -3.03], // Kington
+  [52.07, -3.13], // Hay-on-Wye
+  [51.92, -2.95], // Pandy
+  [51.81, -2.72], // Monmouth
+  [51.77, -2.65], // Redbrook
+  [51.70, -2.68], // Tintern
+  [51.63, -2.66], // Sedbury Cliffs, above the Severn
+]);
+
+/** THE DYFI AND THE DEE — north Wales from south, Cardigan Bay to the dyke. */
+const WALES_DIVIDE = Object.freeze([
+  [52.50, -4.20], // Cardigan Bay, at sea
+  [52.54, -4.05], // Aberdyfi, the Dyfi's mouth
+  [52.59, -3.85], // Machynlleth
+  [52.66, -3.68], // Mallwyd
+  [52.78, -3.62], // Llanuwchllyn
+  [52.91, -3.60], // Bala
+  [52.98, -3.38], // Corwen, on the Dee
+  [52.96, -3.19], // Llangollen
+  [52.93, -3.06], // Chirk, and Offa's Dyke
+]);
+
+/**
+ * THE MERSEY, Longdendale to the sea — English Mercia's northern limit.
+ * The old rings had Mercia stopping at 53.45N and Deira starting at 53.50N,
+ * which is a five-mile stripe of nothing across Lancashire.
+ */
+const MERSEY = Object.freeze([
+  [53.47, -1.92], // Longdendale
+  [53.41, -2.15], // Stockport
+  [53.40, -2.50], // Warrington
+  [53.34, -2.73], // Runcorn
+  [53.45, -3.02], // the Mersey's mouth
+  [53.60, -3.35], // the Irish Sea
+]);
+
+/**
+ * THE HUMBER, THE TRENT AND THE DON — Deira's southern shore.
+ * The kingdom of York ends at the water: the Humber in from Spurn, the Trent
+ * up as far as Gainsborough, then the Idle and the Don west to the Pennines.
+ */
+const HUMBER_TRENT = Object.freeze([
+  [53.55,  0.85], // the North Sea, off the Humber's mouth
+  [53.58,  0.11], // Spurn Head
+  [53.66, -0.15], // the Humber
+  [53.72, -0.45], // Brough
+  [53.70, -0.70], // Trent Falls
+  [53.60, -0.75], // Keadby
+  [53.40, -0.77], // Gainsborough
+  [53.43, -1.02], // Bawtry, on the Idle
+  [53.42, -1.35], // Rotherham, on the Don
+  [53.40, -1.63], // Penistone
+  [53.47, -1.92], // Longdendale
+]);
+
+/**
+ * THE TEES, and the fell wall west of its head.
+ * Bernicia is "Northumbria above the Tees" and this is the Tees: Teesmouth up
+ * through Yarm and Barnard Castle to its head under Cross Fell. West of Cross
+ * Fell the water runs out and the border is the watershed, over Shap and down
+ * the Kent to Morecambe Bay.
+ */
+const TEES_AND_FELLS = Object.freeze([
+  [54.55, -0.50], // the North Sea, off Teesmouth
+  [54.64, -1.14], // Teesmouth
+  [54.51, -1.36], // Yarm
+  [54.46, -1.55], // Croft
+  [54.53, -1.75], // Piercebridge
+  [54.54, -1.92], // Barnard Castle
+  [54.63, -2.08], // Middleton-in-Teesdale
+  [54.68, -2.45], // Cross Fell, and the Tees' head
+  [54.58, -2.50], // Appleby
+  [54.47, -2.68], // Shap
+  [54.33, -2.78], // Kendal
+  [54.19, -2.90], // Arnside, on the Kent
+  [54.10, -3.45], // Morecambe Bay, and out
+]);
+
+/**
+ * THE SOLWAY AND THE CHEVIOTS — Strathclyde against Northumbria.
+ *
+ * From the Irish Sea up the Solway to the Esk at Gretna, up the Liddel to
+ * Kershope, and over the west end of the Cheviots at Peel Fell. Beyond the
+ * Cheviots the same watershed carries on north-west — Ettrick, the Moffat
+ * hills, Tinto above the Clyde, the Pentlands — and ends at the Forth's
+ * lowest ford at Stirling, which is where Pictland begins.
+ */
+const SOLWAY_CHEVIOT = Object.freeze([
+  [54.60, -3.95], // the Solway's mouth, at sea
+  [54.85, -3.55], // the Solway, off Silloth
+  [54.95, -3.25], // Bowness, the Solway head
+  [54.99, -3.06], // Gretna, and the Esk
+  [55.08, -2.92], // the Liddel
+  [55.15, -2.72], // Kershope
+  [55.28, -2.55], // Peel Fell — the Cheviots' west end
+  [55.35, -2.85], // the Teviot's head
+  [55.42, -3.15], // Ettrick Pen
+  [55.45, -3.40], // the Devil's Beef Tub
+  [55.60, -3.60], // Tinto, above the Clyde
+  [55.78, -3.50], // the Pentlands
+  [55.90, -3.62], // the Avon, above Linlithgow
+  [56.07, -3.94], // Stirling, the Forth's lowest ford
+]);
+
+/** THE FIRTH OF FORTH, Stirling out to the North Sea. Bernicia's north. */
+const FORTH = Object.freeze([
+  [56.07, -3.94], // Stirling
+  [56.02, -3.72], // Kincardine
+  [55.99, -3.60], // Grangemouth
+  [56.02, -3.35], // Queensferry
+  [56.10, -3.05], // Inchkeith
+  [56.15, -2.60], // the firth's mouth, Fife Ness to North Berwick
+  [56.20, -1.80], // the North Sea
+]);
+
+/**
+ * THE FORTH ABOVE STIRLING, and Loch Lomond — Strathclyde against Fib.
+ * The firth stops being crossable at Stirling and the frontier carries on as
+ * the river, the moss at its head, and the loch. It stops short of Argyll:
+ * Dal Riata is drawn as an outline and never filled, so no ring may run into
+ * it, and this one hugs its eastern edge.
+ */
+const LENNOX = Object.freeze([
+  [56.07, -3.94], // Stirling
+  [56.13, -4.22], // Flanders Moss, the Forth's head
+  [56.25, -4.62], // Loch Lomond's head
+  [56.45, -4.90], // Glen Falloch, under the Dal Riata line
+]);
+
+/**
+ * THE TAY AND THE SIDLAWS — Fib against Circinn.
+ * Not the Tay alone: Scone stands on the north bank and Fib is the province
+ * that made kings there, so the line leaves the water at Dundee, takes the
+ * Sidlaw ridge behind Gowrie, and rejoins the Tay above Meikleour.
+ */
+const TAY_SIDLAW = Object.freeze([
+  [56.47, -2.72], // Buddon Ness, the Tay's mouth
+  [56.46, -2.97], // Dundee
+  [56.53, -3.15], // the Sidlaws
+  [56.58, -3.30], // Dunsinane
+  [56.54, -3.42], // Meikleour, back on the Tay
+  [56.56, -3.59], // Dunkeld
+  [56.62, -3.87], // Aberfeldy
+  [56.59, -4.00], // Kenmore, at Loch Tay's foot
+  [56.47, -4.35], // Killin, at its head
+]);
+
+/**
+ * THE MOUNTH — the Grampians' eastern wall, and Pictland's oldest division.
+ * It meets the sea at Cowie above Stonehaven, is crossed at Cairn o' Mount,
+ * and runs west under Lochnagar and the Cairnwell to the Drumochter pass.
+ */
+const MOUNTH = Object.freeze([
+  [57.05, -1.70], // the North Sea, off Stonehaven
+  [56.97, -2.19], // Cowie — where the Mounth reaches the coast
+  [56.93, -2.60], // Cairn o' Mount
+  [56.96, -2.98], // Mount Keen
+  [56.96, -3.23], // Lochnagar
+  [56.87, -3.40], // the Cairnwell
+  [56.82, -3.72], // Beinn a' Ghlo
+  [56.88, -4.00], // Drumochter
+  [56.78, -4.45], // Rannoch Moor
+  [56.68, -4.95], // Glen Orchy
+]);
+
+/**
+ * THE DORNOCH FIRTH AND THE OYKEL — Cait against Fortriu.
+ * Caithness and Sutherland are cut off from Moray by water for most of it:
+ * the firth in to Bonar Bridge, the Kyle, the Oykel, and then the Assynt
+ * watershed out to Enard Bay.
+ */
+const OYKEL = Object.freeze([
+  [57.95, -3.30], // the Moray Firth, at sea
+  [57.87, -3.98], // Tain and Dornoch
+  [57.89, -4.34], // Bonar Bridge, the Kyle of Sutherland
+  [57.98, -4.63], // the Oykel
+  [58.03, -4.85], // Oykel Bridge
+  [58.10, -5.05], // the Assynt watershed
+  [58.10, -5.35], // Enard Bay
+  [58.25, -6.30], // the Minch, and out
+]);
+
 export const TERRITORIES = Object.freeze([
   {
     id: "mierce", name: "Mercia", native: "Mierce", people: "saxon",
     blurb: "The English Mercia the Danes did not take, west of Watling Street.",
     threshold: FIELD_THRESHOLD, anchor: [51.86, -2.24],
-    bounds: [[[53.45, -3.35], [53.45, -2.55], [52.67, -2.65], [52.13, -0.99], [51.75, -0.34],
-              [51.50, -0.20], [51.35, -2.40], [51.30, -3.70], [52.30, -3.30], [53.10, -3.35]]],
+    // The Avon and the Thames below, the treaty line and Watling Street to the
+    // east, the Mersey above, Offa's Dyke down the western side. Every one of
+    // those is shared with the neighbour it faces, so no edge of this ring is
+    // a line drawn across anyone else's ground.
+    bounds: [[
+      ...THAMES.slice(0, THAMES_AT_LEA),
+      ...TREATY_LINE,
+      ...WATLING_DOVE.slice(1),
+      ...MERSEY.slice(1),
+      ...OFFAS_DYKE,
+      [51.55, -2.78], // the Severn estuary, closing back to the Bristol Channel
+    ]],
   },
   {
     id: "wessex", name: "Wessex", native: "Westseaxna rice", people: "saxon", seat: "Winchester",
     blurb: "Alfred's own kingdom, and the only one the Danes never held.",
     threshold: SEAT_THRESHOLD, anchor: [51.0632, -1.3080],
-    bounds: [[[51.95, -3.80], [51.95, 0.25], [51.30, 0.60], [50.10, 0.60], [49.80, -2.20],
-              [50.20, -4.60], [51.20, -4.40]]],
+    // North edge: the Avon and the Thames, as far down as the Darent's mouth —
+    // the old ring's 51.95N horizontal is what read as a seam through Wessex.
+    // East edge: the Darent and the Rother, which Kent shares. West edge: the
+    // Tamar, which Kernow shares and then takes back. The Channel side runs
+    // well out to sea, Wight and Lundy inside it, for the clip.
+    bounds: [[
+      ...THAMES.slice(0, THAMES_AT_DARENT + 1),
+      ...DARENT_ROTHER.slice(1),
+      [50.60,  0.80], // the Channel, off Beachy Head
+      [50.20, -1.20], // south of Wight
+      [50.10, -2.60], // south of Portland
+      ...TAMAR,
+      [51.45, -4.30], // the Bristol Channel, north of Lundy
+    ]],
   },
   {
     id: "deira", name: "Deira", native: "Jorvik", people: "norse", seat: "Jorvik",
     blurb: "The kingdom of York, and the Danelaw's northern half.",
     threshold: SEAT_THRESHOLD, anchor: [53.9591, -1.0815],
-    bounds: [[[54.70, -3.30], [54.70, -0.30], [53.50, 0.25], [53.50, -3.30]]],
+    // This was a 4-point rectangle and both of its long sides were ruled lines
+    // across northern England. The kingdom of York is bounded by water on
+    // three of them: the Humber and the Trent and the Don below, the Mersey
+    // across to the Irish Sea, the Tees above — and the fell wall from Cross
+    // Fell down to Morecambe Bay, where the water gives out.
+    bounds: [[
+      ...HUMBER_TRENT,
+      ...MERSEY.slice(1),
+      ...rev(TEES_AND_FELLS),
+    ]],
   },
   {
     id: "bernicia", name: "Bernicia", native: "Bryneich", people: "saxon",
     blurb: "Northumbria above the Tees: Bamburgh, Lindisfarne and Lothian.",
     threshold: FIELD_THRESHOLD, anchor: [55.61, -1.71],
-    bounds: [[[56.10, -3.20], [56.10, -1.20], [54.55, -0.40], [54.55, -2.60], [55.00, -3.30]]],
+    // Northumbria above the Tees, and the horizontal at 56.10N that used to be
+    // its northern edge cut the Firth of Forth in half and ruled a line across
+    // Fife. The Tees below, the Solway and the Cheviots and the Ettrick
+    // watershed west, the Forth above. Cumbria is inside it: Strathclyde did
+    // not come south of the Solway until well after this season's year.
+    bounds: [[
+      ...TEES_AND_FELLS,
+      ...SOLWAY_CHEVIOT,
+      ...FORTH.slice(1),
+      [55.60, -1.20], // the North Sea, east of Bamburgh
+    ]],
   },
   {
     id: "five_boroughs", name: "The Five Boroughs", native: "Fif Burgas", people: "norse",
     blurb: "Derby, Leicester, Nottingham, Lincoln and Stamford — Danish Mercia.",
     threshold: FIELD_THRESHOLD, anchor: [52.95, -1.15],
-    bounds: [[[53.55, -2.60], [53.55, -0.10], [52.85, -0.15], [52.13, -0.99], [52.67, -2.65]]],
+    // Danish Mercia, and every side of it is a real edge: the Ouse below
+    // Bedford out to the Wash, the Lincolnshire coast, the Humber and the
+    // Trent and the Don against Deira, and Watling Street and the Dove back
+    // down to Stony Stratford.
+    bounds: [[
+      ...OUSE_TO_WASH,
+      [53.40, 0.60], // at sea, off the Lincolnshire coast
+      ...HUMBER_TRENT,
+      ...rev(WATLING_DOVE).slice(1),
+      ...rev(TREATY_LINE.slice(11)).slice(1, -1),
+    ]],
   },
   {
     id: "east_anglia", name: "East Anglia", native: "East Engle", people: "norse",
     blurb: "Guthrum's, settled by the treaty and farmed by his army.",
     threshold: FIELD_THRESHOLD, anchor: [52.41, 0.75],
-    bounds: [[[53.10, -0.35], [53.10, 1.95], [51.70, 1.95], [51.55, 0.20], [52.20, -0.70]]],
+    // Guthrum's share of the treaty, read off the treaty: up the Lea from the
+    // Thames, the straight run to Bedford, then the Ouse — which above Bedford
+    // is Mercia's edge and below it is the Five Boroughs' — down to the Wash.
+    // Essex is in it because the treaty put it in it; its southern shore is
+    // the Thames, shared with Wessex and Kent on the far bank.
+    bounds: [[
+      ...TREATY_LINE.slice(0, 12),
+      ...OUSE_TO_WASH.slice(1),
+      [53.20, 1.20], // the North Sea, off the north Norfolk coast
+      [52.40, 2.20], // east of Lowestoft
+      ...rev(THAMES.slice(THAMES_AT_LEA + 1)),
+    ]],
   },
   {
     id: "kent", name: "Kent", native: "Cantware", people: "saxon",
     blurb: "The landing ground. Canterbury, and the shortest crossing there is.",
     threshold: FIELD_THRESHOLD, anchor: [51.28, 1.08],
-    bounds: [[[51.75, 0.15], [51.75, 1.75], [50.85, 1.75], [50.85, 0.15]]],
+    // This was a four-point box and its north-west corner stood in the middle
+    // of the Thames estuary, which is the boxy Kent and the "line over the
+    // water" of the report: the box's top edge at 51.75N ran on across the
+    // Essex shore and its ink landed on Foulness and the Crouch islands. Kent
+    // is now the Thames down to the Darent, the Darent up, the Weald across,
+    // and the Rother down to Rye.
+    bounds: [[
+      ...rev(THAMES.slice(THAMES_AT_DARENT)),
+      ...DARENT_ROTHER.slice(1),
+      [50.70, 0.85], // the Channel, off Dungeness
+      [50.75, 1.60], // and east, into the strait
+    ]],
   },
   {
     id: "ystrad_clud", name: "Ystrad Clud", native: "Ystrad Clud", people: "briton",
     blurb: "Strathclyde, out of Dumbarton Rock — Britons who outlasted the rest.",
     threshold: FIELD_THRESHOLD, anchor: [55.94, -4.56],
-    bounds: [[[56.20, -5.60], [56.15, -3.55], [54.60, -2.90], [54.55, -5.20]]],
+    // Galloway, Ayrshire, Clydesdale and the Lennox. Its landward side is the
+    // Solway and the Cheviots and the watershed above them, shared with
+    // Bernicia; its top is the Forth above Stirling, shared with Fib; its west
+    // runs down just outside Dal Riata, which is drawn and never filled.
+    bounds: [[
+      [54.55, -5.40], // the Irish Sea, south-west of the Mull of Galloway
+      ...SOLWAY_CHEVIOT,
+      ...LENNOX.slice(1),
+      [56.28, -4.88], // and south along Argyll's edge, a hair outside Dal Riata
+      [55.97, -5.06], // so Cowal is Strathclyde's and Knapdale is not
+      [55.61, -5.46],
+      [55.30, -5.45], // the Kilbrannan Sound, Arran inside and Kintyre out
+      [54.90, -5.45],
+    ]],
   },
   {
     id: "dyfed", name: "Dyfed", native: "Dyfed a Phowys", people: "briton",
@@ -172,50 +682,122 @@ export const TERRITORIES = Object.freeze([
     // is east of Hereford and Gloucester, and the render showed a Welsh fill
     // laid across Somerset and the Cotswolds with a dead-straight border down
     // the middle of England. Nothing in `wartest` could see it and one PNG
-    // could not miss it. The south edge is 51.42 for the same reason: the
-    // Welsh coast of the Bristol Channel is at 51.4 and the Somerset coast at
-    // 51.2, so anything lower puts Dyfed on the English shore.
-    bounds: [[[52.70, -5.50], [52.70, -3.05], [51.90, -2.95], [51.42, -3.10], [51.42, -5.60]]],
+    // could not miss it.
+    // It is now the earthwork itself rather than a straight line drawn near
+    // it, which is what closed the strip of nobody's ground the straight line
+    // left between Tintern and Monmouth. The north edge is the Dyfi and the
+    // Dee, shared with Gwynedd; the south edge stays out in the Severn and the
+    // Bristol Channel, since the Welsh shore is at 51.4 and the Somerset shore
+    // at 51.2 and anything drawn between them lands on the wrong one.
+    bounds: [[
+      ...WALES_DIVIDE,
+      ...OFFAS_DYKE.slice(5),
+      [51.45, -3.00], // the Severn estuary
+      [51.28, -3.65], // the Bristol Channel
+      [51.40, -5.90], // the Atlantic, west of St Davids
+      [52.50, -5.70],
+    ]],
   },
   {
     id: "gwynedd", name: "Gwynedd", native: "Gwynedd", people: "briton",
     blurb: "Snowdonia and Anglesey. Rhodri Mawr's, and hard country to take.",
     threshold: FIELD_THRESHOLD, anchor: [53.19, -4.47],
-    bounds: [[[53.60, -5.00], [53.60, -3.00], [52.60, -3.05], [52.60, -4.95]]],
+    // The Dyfi and the Dee below, shared with Dyfed, and the northern third of
+    // Offa's Dyke — Chirk up over Halkyn Mountain to where it meets the sea at
+    // Prestatyn. Anglesey is inside the offshore leg, and the clip finds it.
+    bounds: [[
+      ...WALES_DIVIDE,
+      ...rev(OFFAS_DYKE.slice(0, 5)).slice(1),
+      [53.60, -3.60], // the Irish Sea, off the Dee
+      [53.60, -4.95], // and west of Anglesey
+      [52.50, -5.30], // Cardigan Bay
+    ]],
   },
   {
     id: "kernow", name: "Kernow", native: "Kernow", people: "briton", seat: "Tintagel",
     blurb: "Cornwall, the last British ground in the south, and Tintagel above it.",
     threshold: SEAT_THRESHOLD, anchor: [50.6667, -4.75],
-    // The Tamar, near enough: Bude on the north coast down to the Plymouth
-    // sound. The first cut ran its north edge along 51.25, which is the north
+    // The Tamar, and now the river and not a chord across it: Marsland Mouth
+    // on the north coast, the Tamar's head at Woolley two miles inland of it,
+    // and the water down through Launceston and Gunnislake to the Plymouth
+    // Sound. The first cut ran its north edge along 51.25, which is the north
     // DEVON coast, and the render put a British fill on forty miles of
-    // Wessex's shoreline.
-    bounds: [[[51.05, -6.20], [50.95, -4.52], [50.30, -4.12], [49.80, -6.40]]],
+    // Wessex's shoreline. Wessex reads the same array the other way, so the
+    // one line the two of them share is the one the eye sees.
+    bounds: [[
+      ...rev(TAMAR),
+      [49.85, -4.60], // the Channel, south of the Lizard
+      [49.80, -6.50], // west of Scilly
+      [50.60, -6.40],
+      [51.05, -5.60],
+    ]],
   },
   {
     id: "fib", name: "Fib", native: "Fib", people: "pict",
     blurb: "Fife and the Tay, and Scone where the Picts made kings.",
     threshold: FIELD_THRESHOLD, anchor: [56.42, -3.44],
-    bounds: [[[56.60, -4.40], [56.60, -2.35], [56.00, -2.20], [56.00, -4.30]]],
+    // Fife, Kinross, Strathearn and Menteith: the Forth below, the Forth's own
+    // upper water and Loch Lomond's head to the west, the Firth of Tay and the
+    // Sidlaws and the Tay above. The line leaves the water at Dundee on
+    // purpose — Scone stands on the north bank, and Fib is the province that
+    // made kings there.
+    bounds: [[
+      ...rev(FORTH),
+      ...LENNOX.slice(1, 3),
+      ...rev(TAY_SIDLAW),
+      [56.50, -2.20], // the North Sea, off the Tay's mouth
+    ]],
   },
   {
     id: "circinn", name: "Circinn", native: "Circinn", people: "pict",
     blurb: "Angus and the Mearns, where the symbol stones stand thickest.",
     threshold: FIELD_THRESHOLD, anchor: [56.65, -2.89],
-    bounds: [[[57.15, -4.20], [57.15, -1.90], [56.45, -2.10], [56.45, -4.30]]],
+    // Angus and the Mearns, between the Mounth above and the Tay below — the
+    // two features the Pictish provinces were actually divided by, in place of
+    // the 57.15N and 56.45N horizontals that used to rule two lines clean
+    // across Scotland. It reaches west over Rannoch to the head of Loch
+    // Lomond, because four Pictish territories have to hold seven provinces'
+    // worth of ground and the mountain has to belong to somebody.
+    bounds: [[
+      ...MOUNTH,
+      [56.45, -4.90], // Glen Falloch, with Strathclyde
+      [56.25, -4.62], // Loch Lomond's head, where Fib begins
+      ...rev(TAY_SIDLAW),
+      [56.55, -2.10], // the North Sea, off Arbroath
+      [57.15, -1.40],
+    ]],
   },
   {
     id: "fortriu", name: "Fortriu", native: "Fortriu", people: "pict", seat: "Burghead",
     blurb: "Moray and the great fort at Burghead. The Pictish heartland.",
     threshold: SEAT_THRESHOLD, anchor: [57.7017, -3.4906],
-    bounds: [[[58.35, -6.60], [58.35, -1.90], [57.05, -1.85], [57.05, -6.20]]],
+    // Moray, Badenoch, Lochaber and Ross: the Mounth below it, the Dornoch
+    // Firth and the Oykel above. Its old south edge at 57.05N ran a ruled line
+    // from Aberdeen to Skye, and its old east edge at -1.85 left Buchan
+    // unclaimed; both are gone.
+    bounds: [[
+      ...MOUNTH,
+      [56.95, -5.35], // north-west of Glen Orchy, keeping clear of Dal Riata
+      [57.05, -6.20],
+      ...rev(OYKEL),
+      [57.90, -1.60], // the North Sea, beyond Fraserburgh
+      [57.30, -1.45], // and beyond Aberdeen
+    ]],
   },
   {
     id: "cait", name: "Cait", native: "Cait", people: "pict",
     blurb: "Caithness, Sutherland and Orkney — the far north, and the Norse at its door.",
     threshold: FIELD_THRESHOLD, anchor: [58.65, -3.37],
-    bounds: [[[59.60, -6.00], [59.60, -2.20], [58.25, -2.20], [58.25, -6.00]]],
+    // Caithness and Sutherland are cut off from Moray by water for most of
+    // their length, so the border is water: the Dornoch Firth in to Bonar
+    // Bridge, the Kyle, the Oykel, and the Assynt watershed out to Enard Bay.
+    // The rest runs well out to sea with Orkney inside it.
+    bounds: [[
+      ...OYKEL,
+      [59.60, -6.20], // the Atlantic
+      [59.60, -2.10], // north and east of Orkney
+      [58.20, -2.20], // and back down the Moray Firth
+    ]],
   },
   {
     id: "sudreyjar", name: "Sudreyjar", native: "Sudreyjar", people: "norse",

@@ -18,12 +18,28 @@
 // ============================================================
 
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
+import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
+import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
+import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
 import { readCreds } from "../profileLink";
 
 const PEOPLES = ["saxon", "norse", "briton", "pict"] as const;
 type PeopleId = (typeof PEOPLES)[number];
+
+/**
+ * The flip thresholds, READ OFF the territory table rather than written out
+ * here. `FIELD_THRESHOLD` and `SEAT_THRESHOLD` are module-private in war.mjs,
+ * so quoting them as literals would be a second copy of a rule that is already
+ * written down once — and this repository has recorded five separate defects
+ * caused by exactly that. If someone re-balances the table, this copy follows.
+ */
+const THRESHOLDS = TERRITORIES.map((t: { threshold: number }) => t.threshold) as number[];
+const FLIP_LOW = Math.min(...THRESHOLDS);
+const FLIP_HIGH = Math.max(...THRESHOLDS);
 
 /** One line each, from `docs/FACTIONS.md` §2. Not a history lesson. */
 const NOTE: Record<PeopleId, { ground: string; seat: string; note: string }> = {
@@ -45,13 +61,16 @@ const NOTE: Record<PeopleId, { ground: string; seat: string; note: string }> = {
   },
 };
 
-interface SelfView {
-  allegiance: string | null;
-  points: number;
-  matches: number;
-  bretwaldaSeasons: number[];
-  locked: boolean;
-}
+/**
+ * The client's view of a man's own standing. NOT a second declaration of the
+ * shape — `StandingSelf` in `factionMap/Standing.tsx` is the one client-side
+ * copy of `WarSelfView` in `src/db/war.ts`, and this alias exists so there is
+ * nowhere for a third to appear. It already went wrong once: this file carried
+ * its own copy for a commit, `warSelf` grew `agoMinutes` on the last match,
+ * and the two silently disagreed. `docs/PROCESS.md` failure mode 3 — caught
+ * here only because the shape was finally passed somewhere that knew better.
+ */
+type SelfView = StandingSelf;
 
 /**
  * WHOSE OATH THIS IS.
@@ -71,6 +90,14 @@ export default function WarPage() {
   const [choice, setChoice] = useState<PeopleId | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * The newest flip this browser had already been shown when it arrived.
+   * `undefined` until the war has been read — see `takeWatermark`, which both
+   * answers this and raises the stored value. It is read HERE, in the fetch
+   * callback below, for the same reason every setState on this screen is: an
+   * effect body is the one place this repository does not put them.
+   */
+  const [seen, setSeen] = useState<number | null | undefined>(undefined);
 
   /**
    * Read the war rolls. Every setState below happens in a promise callback and
@@ -91,6 +118,18 @@ export default function WarPage() {
         if (body.mode === "local" || !body.war) { setMode("local"); return; }
         setMode("server");
         setWar(body.war);
+        // Read OUTSIDE the updater, because a state updater must be pure and
+        // this one both reads a store and writes to it. `takeWatermark` is
+        // idempotent — the read is cached per season and the write stores the
+        // same value — so calling it on a second load costs nothing.
+        const watermark = takeWatermark(
+          body.war.season.index,
+          body.war.recent.reduce((m, f) => Math.max(m, f.at), 0),
+        );
+        // Once per visit: the SECOND load — after swearing, say — must keep the
+        // value the FIRST one answered, or the dispatch would go quiet in the
+        // middle of the visit that was showing it.
+        setSeen((had) => (had !== undefined ? had : watermark));
         setSelf(body.self ?? null);
         if (body.self?.allegiance) setChoice(body.self.allegiance as PeopleId);
       })
@@ -139,6 +178,13 @@ export default function WarPage() {
       <div className="backdrop backdrop-hall"><div className="embers" /></div>
       <div className="shell-inner">
         <div className="wrap wrap-wide screen">
+          {/* Back first in the DOM, so a screen reader and a Tab both reach the
+              way out before the map. `btn-back` already carries `--tap`, so it
+              is thumb-sized on a phone without a second rule here. */}
+          <Link href="/" className="btn-back" data-snd="back" aria-label="Back to the hall">
+            <ArrowLeft size={16} /> BACK
+          </Link>
+
           <header className="screen-head screen-head-center">
             <span className="label-overline">Britain, c. 878</span>
             <h1>{sworn ? "The war for Britain" : "Choose your people"}</h1>
@@ -158,9 +204,55 @@ export default function WarPage() {
             </div>
           )}
 
+          {/* WHO YOU ARE AND WHAT THE OATH BOUGHT — first, and above the
+              map. The owner's two words were PROGRESS and IDENTITY, and both
+              of them used to live in one sentence two screens below the
+              coastline on a phone. */}
+          {mode === "server" && <Standing war={war} self={self} />}
+
+          {/* WHAT MOVED WHILE YOU WERE AWAY — above the map, and that
+              placement is the point. The map plate is taller than a 390px
+              viewport, so anything below it is off-screen on the phone this
+              defect was reported from. The one sentence a returning player
+              came back for cannot be a thing he has to go and find. */}
+          {mode === "server" && <Dispatch war={war} mine={sworn ?? null} seen={seen} />}
+
           {mode === "loading"
             ? <p className="war-loading">Reading the war rolls…</p>
-            : <WarMap war={war} mine={sworn ?? choice} onPick={(p) => { if (!locked) setChoice(p as PeopleId); }} />}
+            : <WarMap war={war} mine={sworn ?? choice} fought={self?.ground}
+                      onPick={(p) => { if (!locked) setChoice(p as PeopleId); }} />}
+
+          {/* ------------------------------------------- how the war works */}
+          {/* The owner's words: "no clarity about how it works either". Every
+              number below is READ FROM `war.mjs`, not typed out here, so the
+              screen cannot drift away from the rules it describes. */}
+          <section className="war-how">
+            <div className="section-title">How the war is won</div>
+            <ol className="war-how-steps">
+              <li>
+                <b>You are dealt ground.</b> Every match is fought over one named
+                territory, drawn from the {FRONT_WINDOW} most bitterly contested on
+                the map. You do not pick it — the front does.
+              </li>
+              <li>
+                <b>You earn for your people.</b> Turning up is worth {POINTS.turnout}.
+                Every kill is {POINTS.perKill}. Taking the win is {POINTS.victory}.
+                One match can carry at most {POINTS.cap} to the cause, so a long night
+                of good fights beats one lucky rout.
+              </li>
+              <li>
+                <b>Ground changes hands on a lead, not a win.</b> A territory only
+                turns when a challenger is ahead of whoever holds it by {FLIP_LOW}
+                {" "}points in open field, or {FLIP_HIGH} at a seat of power. Holders
+                dig in; capitals cost more to take.
+              </li>
+              <li>
+                <b>The season ends after {SEASON_DAYS} days.</b> Whoever holds most of
+                Britain when it closes crowns a Bretwalda, the map resets, and the
+                mark on your name does not.
+              </li>
+            </ol>
+          </section>
 
           {/* ---------------------------------------------------- the oath */}
           <section className="war-oath">
@@ -242,6 +334,36 @@ const CSS = `
   border: 1px solid rgba(217,164,65,0.35); color: #f2e5cb;
 }
 .war-notice button { margin-left: auto; background: none; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; line-height: 1; }
+
+/* HOW THE WAR IS WON. Four numbered steps because the war genuinely IS a
+   sequence — dealt, earned, flipped, crowned — so the numerals carry meaning
+   rather than decorating a list. Ordinals sit in the gutter on a wide screen
+   and inline on a phone, where there is no gutter to spare. */
+.war-how { margin-top: 1.25rem; }
+.war-how-steps {
+  list-style: none; counter-reset: step; margin: 0; padding: 0;
+  display: grid; gap: 0.55rem;
+}
+@media (min-width: 48rem) { .war-how-steps { grid-template-columns: 1fr 1fr; } }
+.war-how-steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0.7rem 0.85rem 0.7rem 2.4rem;
+  border: 1px solid rgba(217,164,65,0.16);
+  border-radius: 0.4rem;
+  background: rgba(20,15,11,0.42);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: rgba(238,226,204,0.72);
+}
+.war-how-steps > li::before {
+  content: counter(step);
+  position: absolute; left: 0.85rem; top: 0.7rem;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--gilt); opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.war-how-steps b { color: rgba(238,226,204,0.94); font-weight: 700; }
 
 .war-oath { margin-top: 1.25rem; }
 .war-oath-note { margin: 0 0 0.75rem; font-size: 0.8rem; color: rgba(238,226,204,0.66); line-height: 1.5; }

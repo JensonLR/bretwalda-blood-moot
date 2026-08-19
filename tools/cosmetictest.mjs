@@ -229,6 +229,24 @@ const unmapped = ARMOURY.filter((s) => !(s.slot in SLOT_FIELD)).map((s) => s.slo
 // is measured against this and nothing else, because a measurement taken on a
 // different skull is not comparable and the review that compared two helmets on
 // two faces is in docs/SUTTON-HOO.md.
+//
+// AND THAT ONE CLASS IS THE HUSCARL, SO THIS FILE IS NOT A GATE FOR THE OTHER
+// THREE. Instance seventeen, written down here rather than left to be
+// rediscovered. Round seven changed the warden, the berserker and the
+// runekeeper and did not touch the huscarl, so every cell it moved was
+// invisible to this harness — and "cosmetictest holds main's baseline exactly"
+// was cited by two agents and by a merge message as proof that nothing paid had
+// been taken away. It was a tautology. Round eight then hit the same hole live:
+// hoisting `napeHalf` deleted 4 to 6 components of hair coils from every
+// warden, berserker and runekeeper rung of the two deep-cheek helms, and this
+// file read unchanged through it.
+//
+// The comparability argument above is real and the rig stays one class. What
+// this file therefore CANNOT say is "no paid content was lost". For that use
+// `tools/rungcensus.mjs`, which counts connected components and triangles of
+// the welded index graph over all four classes, ten helms and eight rungs,
+// twice each, against a saved baseline. Run both: they answer different
+// questions, and only one of them can see three quarters of the shop.
 // ============================================================
 const RIG = { cls: "huscarl", seed: 13, detail: "high", accents: 0 };
 // Three-quarter, negative. The sign is not cosmetic and the reason is in

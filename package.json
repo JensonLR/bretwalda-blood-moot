@@ -43,11 +43,15 @@
     "wartest": "node tools/wartest.mjs",
     "warflow": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/warflow.mjs",
     "warshot": "node tools/warshot.mjs",
+    "warseed": "node tools/warseed.mjs",
+    "warseen": "node tools/warseen.mjs",
     "warrace": "node tools/warrace.mjs",
     "bottest": "node tools/bottest.mjs",
     "readytest": "node tools/readytest.mjs",
     "mustershot": "node tools/mustershot.mjs",
     "helmclash": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/helmclash.mjs",
+    "factionread": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/factionread.mjs",
+    "nametest": "node tools/nametest.mjs",
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {

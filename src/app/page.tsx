@@ -5,8 +5,9 @@ import {
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
   Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
-  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX, Map
+  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX, Map, Dices
 } from "lucide-react";
+import { forgeName } from "@/game/names.mjs";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
   EmoteId,
@@ -17,8 +18,8 @@ import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, D
 // `statshape.mjs` for the two warriors this screen used to draw identically.
 import { cardBars, type StatAxis } from "@/game/statshape.mjs";
 import {
-  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance,
-  type Appearance, type ArmouryOption,
+  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, isPeople, peopleOf,
+  type Allegiance, type Appearance, type ArmouryOption,
 } from "../game/client/characters";
 // The registry only — a Map, a queue and a set of watchers, with every import
 // inside it erased at compile time. The renderer that fills it lives in
@@ -37,7 +38,7 @@ import {
 import type { ForgeProgress, WireHitMessage } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchAllegiance, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 // Statically imported, unlike the canvas: this module builds no AudioContext
 // until a gesture and pulls in nothing else, so the landing screen pays a
@@ -143,6 +144,18 @@ export default function Page() {
    */
   const [muster, setMuster] = useState<{ waitingFor: string[]; until: number } | null>(null);
   const [playerName, setPlayerName] = useState("");
+  /**
+   * What the forged name MEANS, shown under the field. A generator that hands
+   * back "Wulfstan" and nothing else is a dice roll; one that says "wolf-stone"
+   * teaches the player how the language builds names, which is what makes the
+   * next one his own idea rather than another press of the button.
+   */
+  const [nameGloss, setNameGloss] = useState<string | null>(null);
+  const forgeWarriorName = useCallback(() => {
+    const forged = forgeName();
+    setPlayerName(forged.name);
+    setNameGloss(`${forged.name} — ${forged.gloss}`);
+  }, []);
   const [playerId, setPlayerId] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -280,6 +293,38 @@ export default function Page() {
   }, [saveProfile]);
 
   /**
+   * The people a man swore to, off the war rolls and onto his warrior.
+   *
+   * ONE DIRECTION ONLY, AND THAT IS THE POINT. This reads the server's
+   * `players.allegiance` — the record written over an authenticated route when
+   * he took the oath — and writes it into the local `Appearance` as the LIVERY
+   * he fights in. It never writes the other way: nothing a player can do on
+   * this screen can change which people banks his points, because the only
+   * route that can is `/api/war/swear` and it locks once he has fought.
+   *
+   * `null` back — no credentials, no database, an unreachable host, or a man
+   * who simply has not sworn — all land on `"none"`, which is the issued kit
+   * and is what `defaultAppearance` already ships. A no is never a hole.
+   *
+   * The live room is told too, but only if the value actually moved: a
+   * `set_appearance` on every boot would rebuild every rig in the lobby for
+   * nothing. See `createWarriorRig` — an appearance change disposes and rebuilds
+   * a man. In practice there is no room at boot — the oath is taken on
+   * `/factions`, which is a page navigation, so coming back remounts this
+   * screen with no socket — and the send is there for the day that stops being
+   * true rather than for today.
+   */
+  const adoptAllegiance = useCallback(async () => {
+    const sworn = await fetchAllegiance();
+    const people: Allegiance = isPeople(sworn) ? sworn : "none";
+    const current = peopleOf(profileRef.current.appearance);
+    if (current === people) return;
+    const ap = { ...profileRef.current.appearance, people };
+    saveProfile({ appearance: ap });
+    transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
+  }, [saveProfile]);
+
+  /**
    * The key bindings, taken off the roll or carried up to it.
    *
    * Two cases, and the second is the one that is easy to get wrong. A profile
@@ -378,6 +423,17 @@ export default function Page() {
         const roll = result.profile?.muted === true;
         if (audio.muted && !roll) { void syncMuted(true); noteMutedSynced(true); }
         else { noteMutedSynced(roll); audio.setMuted(roll); }
+        // THE OATH, FETCHED AND DRESSED. `BACKLOG.md` 4.3: "a man swears to a
+        // people and then looks exactly as he did before". This is where that
+        // stops being true — the war rolls are asked who he swore to and the
+        // answer is written into his appearance as a livery.
+        //
+        // Behind the screen like everything else in this block, and it fails
+        // into the unsworn, which is a deliberate look and not a hole. It also
+        // runs on EVERY boot rather than once: the oath is taken on `/factions`,
+        // which is a different page, so coming back from the map is exactly the
+        // moment a man's people can have changed under this screen's feet.
+        void adoptAllegiance();
       }
       if (result.carried && (result.carried.gold > 0 || result.carried.unlocks > 0)) {
         // The server counts every id it folded in, free starting kit included.
@@ -392,7 +448,7 @@ export default function Page() {
       if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
     }).catch(() => settleLink("local"));
     return () => { dropped = true; setBindingsPersister(null); };
-  }, [adoptServer, settleLink, adoptBindings, audio]);
+  }, [adoptServer, settleLink, adoptBindings, adoptAllegiance, audio]);
 
   // The three moments the game speaks without being pressed. Each is guarded by
   // what it last said, because a re-render is not an event — and each of the
@@ -1619,10 +1675,26 @@ export default function Page() {
             <input
               type="text"
               value={playerName}
-              onChange={(e) => setPlayerName(e.target.value.substring(0, 20))}
+              onChange={(e) => { setPlayerName(e.target.value.substring(0, 20)); setNameGloss(null); }}
               placeholder="Enter warrior name..."
               className="input-frame text-center text-lg"
             />
+            {/* The forge. Sits under the field rather than inside it so the tap
+                target is its own — a 44px control crammed into the input's right
+                edge is the classic way to make a phone user miss and start
+                editing instead. */}
+            <button
+              type="button"
+              onClick={forgeWarriorName}
+              className="btn-ghost w-full !min-h-[var(--tap)] !text-xs"
+            >
+              <Dices size={16} /> FORGE ME A NAME
+            </button>
+            {nameGloss && (
+              <p className="-mt-1 text-center text-xs text-[rgba(238,226,204,0.6)]">
+                {nameGloss}
+              </p>
+            )}
             <button onClick={() => setScreen("create")} disabled={busy}
               className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
               <Swords size={20} /> CREATE BATTLE

@@ -21,6 +21,15 @@
 //     THROUGH a helm it is supposed to be inside of.
 //
 // ------------------------------------------------------------
+// WHAT IS SWEPT
+// ------------------------------------------------------------
+//
+// Four classes x nine helms x EIGHT HAIR AND BEARD RUNGS, free and paid. The
+// rung list and the argument for its shape are over `BEARD_RUNGS`; the short
+// version is that this file used to build `defaultAppearance` and nothing else,
+// so no cosmetic anybody paid for had ever been under a helm in front of it.
+//
+// ------------------------------------------------------------
 // WHAT THIS READS, AND WHY IT IS THE MESH AND NOT THE MATHS
 // ------------------------------------------------------------
 //
@@ -132,7 +141,7 @@ const THREE = await import("three");
 
 const CLASSES = flag("cls", "") ? flag("cls").split(",") : ["huscarl", "warden", "berserker", "runekeeper"];
 const HELMS = flag("helm", "") ? flag("helm").split(",") : Object.keys(HELM).filter((h) => h !== "none");
-const SECTIONS = new Set((flag("section", "1,2,3,4,5")).split(",").map(Number));
+const SECTIONS = new Set((flag("section", "1,2,3,4,5,6")).split(",").map(Number));
 /**
  * ONE SEED, and it is the seed and not an average.
  *
@@ -160,35 +169,220 @@ const hexOf = (m) => {
 };
 
 /**
+ * TWO TINTS THAT TELL THE BEARD FROM THE HAIR, and they are labels rather than
+ * a change to the subject.
+ *
+ * The catalogue ships Oak Brown as the default for BOTH the hair slot and the
+ * beard slot — `defaultAppearance` sets `hairColor` and `beardColor` to the same
+ * 0x4a3220 — so on every head this file used to build, the hair and the beard
+ * carried one tint and were one label. That is the whole of the blindness in
+ * section 5: its denominator was hair AND beard together, so deleting the beard
+ * outright moved the reading DOWN and no line said the beard was gone.
+ *
+ * The builder takes a colour as a colour. Measured rather than assumed: eight
+ * heads (four classes, bare and Sutton Hoo) build the same mesh count and the
+ * same triangle count with these tints as with the catalogue's, and
+ * `assertTintsAreLabels` re-checks it at every run rather than trusting this
+ * paragraph. The hair material also draws the lashes, so a "hair" piece list is
+ * hair and lashes; the beard material draws the beard and nothing else, which is
+ * the list section 5 needs.
+ */
+const HAIR_TINT = 0x00fe01;
+const BEARD_TINT = 0x00fe02;
+
+/**
+ * THE RUNGS A PLAYER CAN ACTUALLY BUY — and until this pass, none of them.
+ *
+ * Every head this file built was `{ ...defaultAppearance(cls), helm }`, so the
+ * warden and the runekeeper were only ever measured with `beard_short` and
+ * `hair_short`, both free. No paid cosmetic had ever been under a helm in front
+ * of this ruler. The consequence was found by hand rather than by the gate:
+ * with the 40-gold `beard_full`, a hard-edged brown wedge of beard punches out
+ * through the mail rings at the throat under the Sutton Hoo, on warden,
+ * berserker and runekeeper, and nothing measured it.
+ *
+ * WHAT IS SWEPT, AND WHY NOT EVERYTHING. The shop has eight slots. Five of them
+ * — the three colour ladders, the cloak, the armour finish — cannot put a
+ * surface inside a helmet: `cosmetictest` reads every rung of Hair Colour, Beard
+ * Colour and Armour Finish at 0.00% in silhouette AND form, because a tint is
+ * what they are, and a cloak hangs off the shoulders. The two that can are the
+ * two the helm sits on: HAIR and BEARD. Both are swept whole, every rung, free
+ * and paid.
+ *
+ * They are swept as two ladders and not as a cross-product. Each rung is built
+ * with the other slot at the class's own default, which is 5 + 4 - 1 = 8 heads
+ * per class per helm rather than 20 — 288 heads across the battery instead of
+ * 720. The cross-product would be worth its price if hair and beard interacted,
+ * and on this tree they do not: they are separate parts, built by separate
+ * branches, and neither reads the other's style. If somebody writes a rule that
+ * makes them interact — a gathered braid that tucks a beard, say — this comment
+ * is the one to come back to, and the answer will be to sweep the product.
+ */
+const BEARD_RUNGS = ["none", "short", "full", "forked", "braided"];
+const HAIR_RUNGS = ["shaved", "short", "long", "braids"];
+const getupCache = new Map();
+function getupsOf(cls) {
+  let list = getupCache.get(cls);
+  if (list) return list;
+  const d = defaultAppearance(cls);
+  list = [];
+  const seen = new Set();
+  const add = (name, hairStyle, beardStyle) => {
+    // The class default IS one of the rungs — the berserker's default beard is
+    // `full`, the others' is `short` — so it is deduplicated by what it builds
+    // rather than by what it is called, and the head is built once.
+    const k = `${hairStyle}/${beardStyle}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    list.push({ name, hairStyle, beardStyle });
+  };
+  add("default", d.hairStyle, d.beardStyle);
+  for (const b of BEARD_RUNGS) add(`beard=${b}`, d.hairStyle, b);
+  for (const h of HAIR_RUNGS) add(`hair=${h}`, h, d.beardStyle);
+  getupCache.set(cls, list);
+  return list;
+}
+const defaultGetup = (cls) => getupsOf(cls)[0];
+
+/** The appearance this file measures: one rung of the shop, with the two labels on. */
+const apOf = (cls, g = defaultGetup(cls)) => ({
+  ...defaultAppearance(cls), hairColor: HAIR_TINT, beardColor: BEARD_TINT,
+  hairStyle: g.hairStyle, beardStyle: g.beardStyle,
+});
+
+/**
+ * THE ATLAS PLANE — where this ruler's scope stops, and why it is not the head
+ * pivot's child list.
+ *
+ * `headPieces` used to be `pivot.traverse(...)`, and PARENTAGE IS THE WRONG
+ * QUESTION. In this rig a node hangs off `rig:headPivot` when it has to TURN
+ * with the head, not when the player sees it beside the head. `characters.ts`
+ * says so in as many words over its own neck: the neck "hangs off `root`
+ * exactly as the torso does, so `insertSpine` carries it with the chest and
+ * `severBody` leaves it alone" — a deliberate animation decision, correct on
+ * its own terms, and nothing to do with what is on show around a helmet.
+ *
+ * So `rig:neck` — 380 triangles of complexion, `c99d75` — is a SIBLING of the
+ * head pivot and was outside every reading this file has ever taken. Six rounds
+ * of section 3 measured a head with no neck in it and called the nape covered;
+ * the bare band the owner photographed under the Sutton Hoo IS that neck. The
+ * instrument was structurally unable to see the defect it was pointed at, which
+ * is instance sixteen of a measurement answering the wrong question and is
+ * recorded as such in `docs/OPEN-DEFECTS.md`.
+ *
+ * THE REPLACEMENT IS SPATIAL, BECAUSE THE QUESTION IS SPATIAL. Walk the whole
+ * rig and keep what reaches the head, where "reaches the head" is at or above
+ * the ATLAS — y = 0 in the head pivot's own frame, which is where
+ * `characters.ts` puts that pivot: `headPivot.position.set(0, S.neckTop, 0)`.
+ * That is the rig's own landmark for where the neck ends and the head begins,
+ * read off the build rather than typed in here, so a stature change moves it
+ * without an edit.
+ *
+ * WHAT THAT ADMITS AND WHAT IT REFUSES, measured over the whole battery — four
+ * classes x nine helms x eight rungs, and `helm=none` on top — rather than
+ * argued. Exactly ONE node outside the pivot crosses the atlas plane:
+ *
+ *   CROSSES   rig:neck    max y   +95.0 mm    380 tri   c99d75
+ *   below     rig:torso   max y   -19.1 mm    252 tri   c2b69c   <- the next one up
+ *   below     rig:arm±1   max y   -27.1 mm
+ *   below     rig:cloak   max y   -87.8 mm
+ *
+ * so the boundary clears the highest thing it excludes by 19.1 mm, and the neck
+ * clears it by 95. NOTHING IS HARD-CODED TO THE NECK: the test is the plane, and
+ * a hauberk collar or a pauldron authored tomorrow that rises past the atlas is
+ * inside this instrument the day it is written, which is the whole point of
+ * fixing the traversal instead of naming the one node that got missed.
+ *
+ * WHY THE PLANE IS NOT LOWER, and this is the constraint that sets it. The body
+ * must stay OUT. `bareTints` learns what "the man" is made of by building the
+ * same head bare and taking every tint on it, and a scope that reached the torso
+ * would enrol the torso's `bfa25c` — 1466 triangles of it — as flesh. `bfa25c`
+ * is also the Wyrm-Crest's gilt and the Jarl's circlet, so sections 2 and 4
+ * would file those helmets as skin and go blind, which is the identical trap the
+ * note over `bareTints` describes for the braided rung's brass rings. A wider
+ * scope is not automatically a better one; this one is as wide as it can be
+ * without blinding two sections, and the 19.1 mm margin is the room it has.
+ *
+ * THE UNION IS DELIBERATE. Everything under the pivot is kept whether or not it
+ * crosses the plane, so this change can only ADD to what was measured before and
+ * never silently drop a piece the old scope had. Outside the pivot the `rig:`
+ * tag is required as well, because `anim.ts` hangs weapons, shields and bone
+ * chains off this rig and that prefix is what `characters.ts` provides to tell
+ * body from baggage "without a whitelist that goes stale".
+ *
+ * A PIECE IS KEPT WHOLE once it qualifies — the neck is admitted on its +95 mm
+ * top and comes in with all 380 triangles, down to its -212 mm hem. Clipping it
+ * to the plane would put a cut edge in the ray's way and invent a surface the
+ * player never sees; the sections sample the heights they sample, and geometry
+ * below them is simply never hit.
+ */
+const ATLAS_Y = 0;
+
+/**
+ * The meshes this ruler is allowed to see, and the ONE place that decides it.
+ *
+ * `headPieces` and `assertTintsAreLabels` each had their own `pivot.traverse`,
+ * so the scope fault lived in the file twice. It is answered here once, and both
+ * call this, because two copies of a scope rule are two chances to fix one of
+ * them. Each mesh is handed over with its vertices already in the pivot's frame
+ * and with the top height that admitted it, so no caller transforms twice.
+ */
+function headScope(root, pivot, fn) {
+  const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
+  const underPivot = (o) => { for (let c = o; c; c = c.parent) if (c === pivot) return true; return false; };
+  root.traverse((o) => {
+    if (!o.isMesh || !o.geometry?.attributes?.position) return;
+    // Body, not baggage — see the note above. Anything under the pivot was in
+    // scope before this change and stays in scope unconditionally, so widening
+    // the ruler can only add to what it measured and never quietly drop a piece.
+    const inHead = underPivot(o);
+    if (!inHead && !o.name.startsWith(RIG)) return;
+    const pos = o.geometry.attributes.position;
+    const mw = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+    const P = new Float64Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    // The true maximum height in the pivot's frame, taken off the vertices
+    // themselves. A transformed bounding box would only bound it, and the margin
+    // this plane runs on is 19.1 mm — small enough that a bound which overshoots
+    // could let the torso in and blind sections 2 and 4.
+    let topY = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mw);
+      if (v.y > topY) topY = v.y;
+      P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z;
+    }
+    // Outboard of the head pivot, the atlas plane decides. `P` is in the game's
+    // metres and the plane is the pivot's own origin, so the comparison is
+    // against zero in either unit.
+    if (!inHead && topY < ATLAS_Y) return;
+    fn(o, P, topY);
+  });
+}
+
+/**
  * Every piece worn on the head, in the head pivot's own frame, in millimetres
  * of the game's own metres.
  *
  * A "piece" is one connected component of the merged index graph — see the head
  * of this file. Returned in build order, which is `Part.merge`'s slot order and
  * then the order of the `p.add` calls inside each slot: deterministic, and the
- * same list twice for the same arguments.
+ * same list twice for the same arguments. The walk is over `root` now rather
+ * than over the pivot, and `characters.ts` adds the head pivot to `root` before
+ * it emits the neck, so the head's own pieces keep the order they always had and
+ * the neck lands after them.
  */
-function headPieces(cls, helm, seed = SEED) {
-  const root = buildCharacter(cls, { ...defaultAppearance(cls), helm }, 0x8a6b3f, undefined, LOD, seed).group;
+function headPieces(cls, helm, g = defaultGetup(cls), seed = SEED) {
+  const root = buildCharacter(cls, { ...apOf(cls, g), helm }, 0x8a6b3f, undefined, LOD, seed).group;
   root.updateMatrixWorld(true);
   let pivot = null;
   root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
   if (!pivot) { console.error(`[clash] ${cls}/${helm}: no ${RIG}headPivot in the rig`); process.exit(2); }
-  const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
   const pieces = [];
-  pivot.traverse((o) => {
-    if (!o.isMesh || !o.geometry?.attributes?.position) return;
+  headScope(root, pivot, (o, P) => {
     const hex = hexOf(o);
     const pos = o.geometry.attributes.position;
     const idx = o.geometry.index;
     const n = idx ? idx.count : pos.count;
-    const mw = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
-    const P = new Float64Array(pos.count * 3);
-    const v = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(mw);
-      P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z;
-    }
     // Union-find over the triangles' own vertex indices. No welding, no
     // tolerance: two `p.add` calls never share an index, so this splits the
     // buffer back into the geometries that were concatenated into it.
@@ -239,11 +433,25 @@ function extent(T) {
  * cannot silently become "kit" and blind a section.
  */
 const bareCache = new Map();
+/** The same rung with no helm on it, built once and kept — see `bareTints`. */
+function barePieces(cls, g = defaultGetup(cls)) {
+  const k = `${cls}/${g.name}/${SEED}`;
+  let p = bareCache.get(k);
+  if (!p) { p = headPieces(cls, "none", g); bareCache.set(k, p); }
+  return p;
+}
+/**
+ * THE BARE REFERENCE IS THE CLASS'S DEFAULT RUNG, ON EVERY RUNG, and that is a
+ * choice with a measured reason. Braided War-locks bring 320 triangles of BRASS
+ * with them — the rings the plait is bound in — and brass is `bfa25c`, which is
+ * also the Wyrm-Crest's gilt and the Jarl's circlet. Take the bare reference
+ * from the braided rung and every one of those tints becomes "the man", so the
+ * Wyrm's crest is filed as flesh and sections 2 and 4 lose it. Taking it from
+ * the default rung files the braid's own rings as kit instead, which is what
+ * they are made of, and leaves the helmets where they belong.
+ */
 function bareTints(cls) {
-  const k = `${cls}/${SEED}`;
-  let s = bareCache.get(k);
-  if (!s) { s = new Set(headPieces(cls, "none").map((p) => p.hex)); bareCache.set(k, s); }
-  return s;
+  return new Set(barePieces(cls).map((p) => p.hex));
 }
 
 /** The mail tint this class's kit is issued in, read from the game's own kit. */
@@ -251,24 +459,82 @@ function mailTint(cls) {
   return finishKit(defaultAppearance(cls).armorColor).mail.toString(16).padStart(6, "0");
 }
 
-/** Split a head into pelt (skin, hair, beard, eye), mail and plate. */
-function sortPieces(cls, helm) {
+const hex6 = (n) => n.toString(16).padStart(6, "0");
+
+/**
+ * Split a head into pelt (skin, hair, beard, eye), mail and plate — and, inside
+ * the pelt, THE BEARD ON ITS OWN. See `HAIR_TINT`: hair and beard used to share
+ * the catalogue's one Oak Brown and were therefore one list, which is what let a
+ * deleted beard hide inside a hair denominator.
+ */
+/**
+ * ONE HEAD PER (CLASS, HELM, RUNG), BUILT ONCE. Five sections ask for the same
+ * head, and before the sweep that was five builds of 36 heads; with the sweep it
+ * would have been five builds of 288. The cache is cleared at the head of every
+ * `battery()` so that `--twice` still proves what it says it proves — two full
+ * runs, builds included, byte for byte — rather than proving that a Map returns
+ * what was put in it.
+ */
+const pieceCache = new Map();
+function sortPieces(cls, helm, g = defaultGetup(cls)) {
+  const key = `${cls}|${helm}|${g.name}|${SEED}`;
+  const hit = pieceCache.get(key);
+  if (hit) return hit;
   const bare = bareTints(cls);
   const mailHex = mailTint(cls);
-  const ap = defaultAppearance(cls);
-  const hairHex = ap.hairColor.toString(16).padStart(6, "0");
-  const beardHex = ap.beardColor.toString(16).padStart(6, "0");
-  const all = headPieces(cls, helm);
-  const pelt = [], mail = [], plate = [], flesh = [], fur = [];
+  const hairHex = hex6(HAIR_TINT);
+  const beardHex = hex6(BEARD_TINT);
+  const all = headPieces(cls, helm, g);
+  const pelt = [], mail = [], plate = [], flesh = [], fur = [], hair = [], beard = [];
   for (const p of all) {
     if (bare.has(p.hex)) {
       pelt.push(p);
-      (p.hex === hairHex || p.hex === beardHex ? fur : flesh).push(p);
+      if (p.hex === beardHex) { fur.push(p); beard.push(p); }
+      else if (p.hex === hairHex) { fur.push(p); hair.push(p); }
+      else flesh.push(p);
     } else if (p.hex === mailHex) mail.push(p);
     else plate.push(p);
   }
-  return { all, pelt, flesh, fur, mail, plate, kit: [...mail, ...plate] };
+  const out = { all, pelt, flesh, fur, hair, beard, mail, plate, kit: [...mail, ...plate] };
+  pieceCache.set(key, out);
+  return out;
 }
+
+/**
+ * What this head's KIT is, to the vertex — the accelerator behind sections 1
+ * and 4 only measuring the kits that differ.
+ *
+ * Sections 1 and 4 read kit against kit: a plate against the mail it is driven
+ * through, a fitting against the cap it sits on. A hair or beard rung that
+ * builds an identical kit therefore has an identical answer, and measuring it
+ * eight times prints the same row eight times. This is a checksum and not an
+ * assumption: the rungs are grouped by what they actually build, so if a rung
+ * ever does move a helmet the group splits and both are measured. It splits
+ * today — Braided War-locks bring 320 triangles of brass rings, which sort as
+ * kit, so every helm has two distinct kits across the eight rungs and not one.
+ */
+function kitSignature(kit) {
+  let tris = 0, s = 0;
+  for (const p of kit) {
+    tris += p.tris;
+    for (let i = 0; i < p.T.length; i += 3) s += p.T[i] + 2 * p.T[i + 1] + 3 * p.T[i + 2];
+  }
+  return `${kit.length}/${tris}/${s.toFixed(9)}`;
+}
+
+/** The rungs of this (class, helm) grouped by the kit they build. */
+function kitGroups(cls, helm) {
+  const groups = new Map();
+  for (const g of getupsOf(cls)) {
+    const sig = kitSignature(sortPieces(cls, helm, g).kit);
+    const e = groups.get(sig);
+    if (e) e.also.push(g.name);
+    else groups.set(sig, { g, also: [] });
+  }
+  return [...groups.values()];
+}
+/** How a row names the rung it measured, and how many rungs share the reading. */
+const rungLabel = (g, also) => (also?.length ? `${g.name} +${also.length}` : g.name);
 
 /** One flat triangle array out of a list of pieces. */
 function soup(list) {
@@ -396,6 +662,82 @@ function nearestDist(T, px, py, pz) {
 }
 
 /** Möller-Trumbore. Nearest forward hit, or -1 past `cap`. */
+/**
+ * The FARTHEST surface a ray crosses, where `rayHit` gives the nearest.
+ *
+ * Cast outward from the head's own axis, the nearest hit is the INNERMOST shell
+ * and the farthest is the one the player actually looks at. Both questions are
+ * legitimate and this file asks both; what it must not do is ask one and print
+ * the other. See the note in section 3 for the reading that turned on it.
+ */
+function rayHitFar(T, ox, oy, oz, dx, dy, dz, cap) {
+  let best = -1;
+  for (let i = 0; i < T.length; i += 9) {
+    const ax = T[i], ay = T[i + 1], az = T[i + 2];
+    const e1x = T[i + 3] - ax, e1y = T[i + 4] - ay, e1z = T[i + 5] - az;
+    const e2x = T[i + 6] - ax, e2y = T[i + 7] - ay, e2z = T[i + 8] - az;
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (det > -1e-12 && det < 1e-12) continue;
+    const inv = 1 / det;
+    const tx = ox - ax, ty = oy - ay, tz = oz - az;
+    const u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < 0 || u > 1) continue;
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+    const v = (dx * qx + dy * qy + dz * qz) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    if (t > 1e-6 && t < cap && t > best) best = t;
+  }
+  return best;
+}
+
+/**
+ * The nearest forward hit AND THE FACING OF THE SURFACE IT LANDS ON.
+ *
+ * Section 6 needs to know not only that another piece is in the way but whether
+ * it is LYING ALONG this one or CUTTING ACROSS it — see the note over that
+ * section: a rib's flank descending into the shell it is riveted to is metal
+ * within a millimetre of metal and is not a fault, and the thing that says so
+ * is that the two surfaces are at right angles there. Returns the unit normal
+ * of the triangle that was hit, unoriented, in `outN`.
+ */
+function rayHitFacing(T, ox, oy, oz, dx, dy, dz, cap, outN) {
+  let best = cap, bi = -1;
+  for (let i = 0; i < T.length; i += 9) {
+    const ax = T[i], ay = T[i + 1], az = T[i + 2];
+    const e1x = T[i + 3] - ax, e1y = T[i + 4] - ay, e1z = T[i + 5] - az;
+    const e2x = T[i + 6] - ax, e2y = T[i + 7] - ay, e2z = T[i + 8] - az;
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (det > -1e-12 && det < 1e-12) continue;
+    const inv = 1 / det;
+    const tx = ox - ax, ty = oy - ay, tz = oz - az;
+    const u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < 0 || u > 1) continue;
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+    const v = (dx * qx + dy * qy + dz * qz) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    if (t > 1e-6 && t < best) { best = t; bi = i; }
+  }
+  if (bi < 0) return -1;
+  const ax = T[bi], ay = T[bi + 1], az = T[bi + 2];
+  const e1x = T[bi + 3] - ax, e1y = T[bi + 4] - ay, e1z = T[bi + 5] - az;
+  const e2x = T[bi + 6] - ax, e2y = T[bi + 7] - ay, e2z = T[bi + 8] - az;
+  let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+  const l = Math.hypot(nx, ny, nz) || 1;
+  outN[0] = nx / l; outN[1] = ny / l; outN[2] = nz / l;
+  return best;
+}
+/** `hitFlat` with the facing, over the height index. */
+function hitFlatFacing(ix, x, y, z, dx, dz, cap, outN) {
+  if (!ix.n) return -1;
+  const k = Math.floor((y - ix.y0) / ix.bin);
+  if (k < 0 || k >= ix.n) return -1;
+  return rayHitFacing(ix.cells[k], x, y, z, dx, 0, dz, cap, outN);
+}
+
 function rayHit(T, ox, oy, oz, dx, dy, dz, cap) {
   let best = cap;
   for (let i = 0; i < T.length; i += 9) {
@@ -476,6 +818,48 @@ function assertFaceIsPlusZ() {
 }
 
 // ============================================================
+// THE TWO TINTS ARE LABELS — asserted, not assumed
+// ============================================================
+//
+// `HAIR_TINT` and `BEARD_TINT` exist so that the beard can be measured against
+// its own surface, and they are only sound if a colour is a colour. A builder
+// that branched on a hair colour — a blond that grew a different lock, a snow
+// white that dropped a course — would make every reading in sections 2, 3 and 5
+// a reading of a head no player wears. So it is checked rather than believed,
+// on the two heads that carry the most hair and the most beard.
+function assertTintsAreLabels() {
+  const count = (cls, ap) => {
+    const root = buildCharacter(cls, ap, 0x8a6b3f, undefined, LOD, SEED).group;
+    root.updateMatrixWorld(true);
+    let pivot = null, tris = 0, meshes = 0;
+    root.traverse((o) => { if (!pivot && o.name === `${RIG}headPivot`) pivot = o; });
+    // The SAME scope the sections measure in — this check had its own
+    // `pivot.traverse` and so certified a head the ruler no longer reads.
+    headScope(root, pivot, (o) => {
+      meshes++;
+      tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    });
+    return `${meshes} meshes / ${tris} tri`;
+  };
+  let bad = 0;
+  const seen = [];
+  for (const cls of ["berserker", "huscarl"]) {
+    for (const helm of ["none", "suttonhoo"]) {
+      const shop = count(cls, { ...defaultAppearance(cls), helm });
+      const label = count(cls, { ...apOf(cls), helm });
+      seen.push(`${cls}/${helm} ${label}`);
+      if (shop !== label) { bad++; console.error(`[clash] ${cls}/${helm}: catalogue tints build ${shop}, label tints build ${label}`); }
+    }
+  }
+  if (bad) {
+    console.error("[clash] A HAIR OR BEARD COLOUR MOVES GEOMETRY on this build, so the two label");
+    console.error("[clash] tints are measuring a head nobody wears. Stopping rather than printing it.");
+    process.exit(2);
+  }
+  console.log(`[clash] tint check: hair and beard labels move no geometry — ${seen.join(", ")}.`);
+}
+
+// ============================================================
 // 1. LAYERS — a plate driven through the mail
 // ============================================================
 //
@@ -503,27 +887,38 @@ const LAYER_MM = 5.0;
  * it: both surfaces are tessellated and a garment's chord dips up to 3 mm
  * inside the analytic curve, so a gap that only covers the mathematics is not a
  * gap. A plate more than that far the WRONG side of the mail is not a rounding
- * error. Nothing measured here is anywhere near the bar: the eleven failures
- * run 10.7 to 14.5 mm and there is no reading between 0 and 10.7.
+ * error.
+ *
+ * Nothing measured here is anywhere near the bar, and the paragraph this
+ * replaces said so about a tree that no longer exists ("the eleven failures run
+ * 10.7 to 14.5 mm"). Across the 19 distinct kits that have mail, 18 read 0.0,
+ * 0.4, 0.8, 1.8, 2.0 or 4.2 mm and one reads 61.5 — huscarl / suttonhoo /
+ * hair=braids, where an 80-triangle brass braid ring has 100.0% of its outward
+ * face inboard of the rings. So the bar sits in a 57 mm gap, and the one reading
+ * over it is a 100-gold cosmetic buried inside a 2400-gold coif.
  */
 function sectionLayers(rows) {
   console.log("");
   console.log("[clash] 1. LAYERS — a plate driven through the mail.");
   console.log("[clash]    horizontal rays out of the head's axis; bar " + LAYER_MM.toFixed(1) + " mm (the build's own LAYER_GAP).");
   console.log("");
-  console.log("[clash] class       helm         mail?   depth mm   clash%   deepest piece            where");
-  console.log("[clash] ---------------------------------------------------------------------------------------------");
+  console.log("[clash]    kit against kit, so the rungs are grouped by the kit they build — see `kitSignature`.");
+  console.log("");
+  console.log("[clash] class       helm         rung           mail?   depth mm   clash%   deepest piece            where");
+  console.log("[clash] ------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { mail, plate } = sortPieces(cls, helm);
+     for (const { g, also } of kitGroups(cls, helm)) {
+      const rung = rungLabel(g, also);
+      const { mail, plate } = sortPieces(cls, helm, g);
       if (!mail.length) {
         // A GATE GREEN BECAUSE THE CASE IS ABSENT IS NOT A GATE. This head wears
         // no mail, so there is nothing for a plate to be driven through, and
         // this line is not a pass — it is a line saying the question does not
         // arise here.
         absent++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} none    —          —        (no mail on this head — nothing to measure)`);
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} none    —          —        (no mail on this head — nothing to measure)`);
         continue;
       }
       cases++;
@@ -558,15 +953,16 @@ function sectionLayers(rows) {
       const bad = worst * 1000 > LAYER_MM;
       if (bad) fails++;
       const where = wat ? at(wat) : "";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} yes    ${mm(worst).padStart(7)}   ${(100 * bestFrac).toFixed(1).padStart(6)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(22)} ${where}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 1, cls, helm, fail: bad, depth: worst, frac: bestFrac });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} yes    ${mm(worst).padStart(7)}   ${(100 * bestFrac).toFixed(1).padStart(6)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(22)} ${where}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 1, cls, helm, rung: g.name, fail: bad, depth: worst, frac: bestFrac });
       if (bad && bf) {
         console.log(`[clash]             ^ worst-buried piece ${bf.hex} (${bf.tris} tri), ${(100 * bestFrac).toFixed(1)}% of its outward face is inboard of the rings`);
       }
+     }
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} combinations that HAVE mail are red; ${absent} more have no mail and are not a case.`);
+  console.log(`[clash]    ${fails} of ${cases} distinct kits that HAVE mail are red; ${absent} more have no mail and are not a case.`);
   return fails;
 }
 
@@ -656,38 +1052,152 @@ function outboardShare(subject, kitT) {
 // hairline exemption: `helmForm` is a 12 mm low-pass with nothing under a 45 mm
 // radius, so THE BLOCK A PLATE IS BEATEN OVER HAS NO EAR ON IT. The plate is
 // drawn correctly on a head that has had its ears filed off.
+//
+// ------------------------------------------------------------
+// WHICH HELMS ARE A CASE IS READ OFF THE MESH, NOT OFF A BOOLEAN
+// ------------------------------------------------------------
+//
+// This section used to open with `if (!HELM[helm].mask) { absent++; continue; }`
+// — a property of the catalogue, not of the head that gets drawn. A gate whose
+// case list is a declaration is a gate anybody can switch off by editing one
+// word, and round five's adversary switched it off: with the ruler's own case
+// test forced false and NOT ONE VERTEX MOVED, the section went from "4 of 4
+// masked combinations are red" to "0 of 0" and the battery printed ALL SECTIONS
+// PASS.
+//
+// So the case is now measured. A helm is a face plate when the KIT COVERS THE
+// FACE: of the head's own skin within 45 degrees of dead ahead, what share has
+// kit outboard of it, weighted by area. Measured on this tree, every class,
+// every helm, every hair and beard rung — 288 heads, and the range below is the
+// section's own footer:
+//
+//     Sutton Hoo                          81.2 - 88.8 %
+//     Shadow Hood                         43.3 - 44.4
+//     Wyrm-Crest                          41.7 - 43.7
+//     Spectacle / Boar / Jarl's Crowned   35.4 - 37.4
+//     Nasal / Ridge                       20.4 - 21.2
+//     Iron Spangenhelm                    17.5 - 18.9
+//
+// The bar is 65%, in a 37-point gap with 16 points of margin on the near side
+// and 20 on the far. Nothing in the shop is near it, which is what a case test
+// should look like — the same shape of argument `CREST_MM` makes.
+//
+// AND THE CATALOGUE IS CHECKED AGAINST THE MESH RATHER THAN OBEYED. `HELM[].mask`
+// is still read, but only to be disagreed with: a helm the shop declares a mask
+// and the builder does not draw as one is a FAIL in its own right — that is a
+// player paying 2400 gold for a face and getting an open helm — and a helm built
+// as a face plate without the declaration is measured anyway, with a note.
+//
+// One hole is left open and named rather than papered over. Flipping
+// `mask: true -> false` at `characters.ts:925` is not the declaration-only edit
+// it looks like: `style.mask` also gates the whole Sutton Hoo mask block, and
+// the flip was measured here to take the berserker's head from 23838 to 13312
+// triangles. After it, no helm in the shop covers a face, both the mesh and the
+// declaration agree about that, and this section has nothing to disagree with.
+// What catches it is the last rule below: a section that finds NO case at all is
+// red, because a gate green because the case is absent is not a gate.
 const FLESH_PCT = 1.0;
 /**
  * 1.0% of the skin's area, and it is a tessellation allowance rather than a
  * tolerance. Zero is the only defensible answer for a face plate, and nothing
- * on this tree is anywhere near the bar: the four masked combinations measure
- * 3.51, 5.02, 5.76 and 6.14, so no verdict here turns on where exactly the bar
- * sits.
+ * on this tree is anywhere near the bar: the 32 face-plate rows — the Sutton
+ * Hoo on four classes across eight hair and beard rungs — measure 2.10, 2.43,
+ * 2.97, 3.75 and 3.84, so no verdict here turns on where exactly the bar sits.
  */
+const FACE_PCT = 65.0;
+const FACE_AZ = 45;
+/**
+ * How much of the face this helm actually covers, off the built mesh: the share
+ * of the head's own skin AREA within `FACE_AZ` degrees of dead ahead that has
+ * kit outboard of it. Outward rays, the same horizontal ray every other section
+ * uses, pointed the way section 1 points it.
+ */
+function faceCover(flesh, kitT) {
+  const kitIx = heightIndex(kitT);
+  const buf = new Float64Array(BARY.length * 3);
+  let cov = 0, all = 0;
+  for (const p of flesh) {
+    for (let i = 0; i < p.T.length; i += 9) {
+      const ux = p.T[i + 3] - p.T[i], uy = p.T[i + 4] - p.T[i + 1], uz = p.T[i + 5] - p.T[i + 2];
+      const vx = p.T[i + 6] - p.T[i], vy = p.T[i + 7] - p.T[i + 1], vz = p.T[i + 8] - p.T[i + 2];
+      const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+      const c = samples(p.T, i, buf);
+      let hit = 0, tot = 0;
+      for (let s = 0; s < c; s++) {
+        const x = buf[s * 3], y = buf[s * 3 + 1], z = buf[s * 3 + 2];
+        const r = Math.hypot(x, z);
+        if (r < 1e-6) continue;
+        let a = azOf(x, z);
+        if (a > 180) a -= 360;
+        if (Math.abs(a) > FACE_AZ) continue;
+        tot++;
+        if (hitFlat(kitIx, x, y, z, x / r, z / r, 0.30) >= 0) hit++;
+      }
+      if (!tot) continue;
+      all += area; cov += area * hit / tot;
+    }
+  }
+  return all ? 100 * cov / all : 0;
+}
 function sectionFlesh(rows) {
   console.log("");
   console.log("[clash] 2. FLESH — skin outboard of a helm that is a face plate.");
   console.log(`[clash]    inward horizontal rays off every skin triangle, area-weighted; bar ${FLESH_PCT.toFixed(1)}% of the skin.`);
+  console.log(`[clash]    a case is a helm whose MESH covers the face: ${FACE_PCT.toFixed(1)}%+ of the skin within ${FACE_AZ} deg of dead ahead has kit outboard.`);
   console.log("");
-  console.log("[clash] class       helm         skin out%   worst patch                deepest       where");
-  console.log("[clash] ------------------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         rung           face cov%  skin out%   worst patch                deepest       where");
+  console.log("[clash] ---------------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
+  let openLo = Infinity, openHi = -Infinity;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      if (!HELM[helm].mask) { absent++; continue; }
+     for (const g of getupsOf(cls)) {
+      const rung = g.name;
+      const { flesh, kit } = sortPieces(cls, helm, g);
+      const KT = soup(kit);
+      const cover = faceCover(flesh, KT);
+      const isPlate = cover >= FACE_PCT;
+      const declared = !!HELM[helm].mask;
+      if (!isPlate) {
+        if (declared) {
+          // DECLARED A FACE MASK, BUILT AS AN OPEN HELM. The shop is selling a
+          // face and the builder is not drawing one. This is the disagreement
+          // the old case test could not have — it took the declaration's word.
+          fails++;
+          console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${cover.toFixed(1).padStart(8)}          —   DECLARED A FACE MASK, BUILT AS AN OPEN HELM — the catalogue says mask, the mesh covers ${cover.toFixed(1)}% of the face  FAIL`);
+          rows.push({ section: 2, cls, helm, rung, fail: true, cover });
+          continue;
+        }
+        absent++;
+        if (cover < openLo) openLo = cover;
+        if (cover > openHi) openHi = cover;
+        continue;
+      }
       cases++;
-      const { flesh, kit } = sortPieces(cls, helm);
-      const r = outboardShare(flesh, soup(kit));
+      const r = outboardShare(flesh, KT);
       const pct = 100 * r.share;
       const bad = pct > FLESH_PCT;
       if (bad) fails++;
       const patch = r.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 2, cls, helm, fail: bad, pct });
+      const note = declared ? "" : "  (built as a face plate, not declared one)";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${cover.toFixed(1).padStart(8)}   ${pct.toFixed(2).padStart(8)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 2, cls, helm, rung, fail: bad, pct, cover });
+     }
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} masked combinations are red; ${absent} open-faced combinations are not a case for this section.`);
+  if (!cases) {
+    // NO HELM IN THE SHOP COVERS A FACE. Not a pass: this section measured
+    // nothing, and a section that measured nothing cannot be green. It is also
+    // the only thing standing between this gate and a one-word edit that takes
+    // the Sutton Hoo's mask out of the build entirely — see the note over
+    // `FLESH_PCT` about `characters.ts:925`.
+    fails++;
+    console.log("[clash]    NO COMBINATION IN THE SHOP BUILDS A FACE PLATE — this section measured nothing,");
+    console.log("[clash]    which is not a pass. The shop sold a face mask the last time anyone looked.  FAIL");
+  } else {
+    console.log(`[clash]    ${fails} of ${cases} combinations whose mesh covers the face are red; ${absent} do not cover a face (${openLo.toFixed(1)} - ${openHi.toFixed(1)}%) and are not a case.`);
+  }
   return fails;
 }
 // ============================================================
@@ -704,6 +1214,54 @@ function sectionFlesh(rows) {
 // sweep asks, for every half-degree of azimuth, what the outermost surface is:
 // kit, or skin and hair.
 //
+// AND IT ASKS WITH `rayHitFar`, WHICH IS THE SECOND HALF OF THE NECK FAULT.
+// This sweep used `rayHit` — the NEAREST surface — on both lists, and compared
+// those. Nested shells make that look right: cast outward from the axis, the
+// first pelt is the skin and the first kit is the helmet over it, so "kit
+// farther than pelt" does read as "covered". It stops being right the moment
+// there are TWO pelt shells, because the nearest one is still the skin deep
+// inside the helmet and the outer one is never consulted. `rig:neck` is exactly
+// that second shell, so widening the scope to admit it moved not one digit in
+// this section until this line changed too — the two faults are one fault, and
+// either repair alone is inert.
+//
+// GROUND TRUTH, warden / suttonhoo, every surface a horizontal ray crosses at
+// az 180, y 50 mm, in order out from the axis:
+//
+//     r =  22.4 mm  PELT  rig:head c99d75     <- `rayHit` stopped here
+//     r =  86.8 mm  PELT  rig:head 917050
+//     r =  88.3 mm  KIT   rig:head 9aa6ae     <- and here, and called it covered
+//     r =  92.7 mm  KIT   rig:head d9b45f
+//     r =  96.3 mm  KIT   rig:head 9aa6ae
+//     r =  98.7 mm  KIT   rig:head d9b45f     <- outermost metal
+//     r = 100.4 mm  PELT  rig:neck c99d75     <- what the player actually sees
+//
+// The outermost thing on that bearing is bare neck, standing 1.7 mm proud of
+// the last of the Sutton Hoo's metal, and the old comparison returned COVERED.
+//
+// WHAT THE CHANGE DID, and it is checkable against an independent ray probe
+// taken over the whole rig rather than against this file's own opinion:
+//
+//   huscarl   suttonhoo   14.0 deg bare  ->   0.0 deg, covered at all 137 heights
+//   warden    suttonhoo  149.5 deg      -> 159.5 deg at y 48, radius 82.0 mm
+//   berserker suttonhoo  149.5 deg      -> 156.5 deg at y 51, radius 86.8 mm
+//   runekeeper suttonhoo 152.5 deg      -> 162.5 deg at y 45, radius 77.3 mm
+//
+// The huscarl is the one class whose coif closes all the way round, and the
+// independent probe puts 0 degrees of proud neck on him and 61-67 degrees on
+// the other three. So this repair DELETED a false positive on the huscarl —
+// 14.0 degrees that were never bare — and sharpened three true ones. It also
+// restores the reading recorded over `WRAP_DEG` below, "huscarl / suttonhoo 137
+// wrapped heights, bare arc 0.0 deg at ALL 137", which the tree had silently
+// drifted off. A ruler agreeing with an instrument built separately, on the
+// class that should pass AND the three that should fail, is the evidence here.
+//
+// PELT AND NOT FLESH, deliberately, though `sortPieces` offers both. Comparing
+// only skin against kit would let a hairstyle cover a nape that no neck defence
+// covers, and hair is a cosmetic a player can take off or has to buy. A gate
+// that goes green because a 100-gold braid happens to hang over the gap is a
+// gate that reports the shop rather than the armour.
+//
 // A height is a case only if the THROAT IS GENUINELY WRAPPED — at least
 // `THROAT_DEG` of continuous cover through dead ahead. That is the filter that
 // turns this from a head-wide sweep into a neck measurement, and it is not
@@ -716,23 +1274,76 @@ function sectionFlesh(rows) {
 // radius the flesh sits at across that arc, because degrees alone do not say
 // how much neck is showing: 150 degrees on a 30 mm throat and on a 90 mm one
 // are different amounts of sloppiness.
-const WRAP_DEG = 90;
+//
+// A WRAPPED THROAT WITH A COVERED NAPE IS A PASS AND IS PRINTED AS ONE. The
+// last column is how many heights of this head were a case, which is what makes
+// a pass readable: "137 wrapped heights, 0.0 degrees bare at all of them" is a
+// nape that is finished, and it is a different statement from a head that never
+// wraps a throat and appears nowhere in the table.
+/**
+ * 2.0 DEGREES, AND THE BAR IT REPLACES WAS 90 — which is why round five's gate
+ * printed "0 of 3 combinations with a wrapped throat are red" on the same table
+ * that printed 69.5, 63.5 and 76.5 degrees of bare arc. An adversary then built
+ * the app, shot the render and found bare skin from the Sutton Hoo's rim to the
+ * hauberk collar on those exact three classes: a 4-5 px flesh stripe at play
+ * scale, sampled at (148,88,55), (150,94,60), (144,76,40) — complexion, not mail.
+ *
+ * 90 DEGREES WAS NEVER A DESCRIPTION OF THE DEFECT. The owner's words are "there's
+ * a full neck mesh on the front with a clear back? That's really sloppy", and a
+ * quarter-turn of naked nape is not the thing that sentence complains about — it
+ * is a number that let a partial fix pass. A nape under a wrapped throat is bare
+ * or it is not; the only question a bar has to answer here is how much bare arc
+ * is TESSELLATION rather than nape.
+ *
+ * MEASURED, on this tree, at every wrapped height of every combination:
+ *
+ *   huscarl / suttonhoo    137 wrapped heights, bare arc 0.0 deg at ALL 137
+ *   berserker / hood         1 wrapped height,  bare arc 0.0 deg
+ *   warden / suttonhoo     137 wrapped heights, 98 at 0.0, then 0.5 x14,
+ *                          1.5, 4.5, 7.5 ... 25.5, then 44.5 ... 69.5
+ *   berserker / suttonhoo  147 wrapped heights, 105 at 0.0, then 0.5 x19,
+ *                          2.5 ... 24.5, then 44.5 ... 63.5
+ *   runekeeper / suttonhoo 131 wrapped heights,  95 at 0.0, then 0.5 x14,
+ *                          16.5 ... 23.5, then 42.5 ... 76.5
+ *
+ * So a nape that IS covered reads exactly zero — 137 heights of it, on the one
+ * combination in the shop whose coif closes all the way round. There is no
+ * tessellation floor to allow for at all, and the bar could defensibly be 0.5.
+ *
+ * It is 2.0 because the head of this file records the one artefact that can put
+ * a sliver of skin outside a garment that encloses it: a tessellated ring's
+ * chords dip up to 1.19 mm inside the analytic curve they were sampled from. At
+ * the 78-88 mm radii this section reports, 1.19 mm of chord dip subtends 0.82
+ * degrees, so a seam where two such dips meet can show 1.6 degrees of skin that
+ * is not a bare nape. 2.0 covers that and stops.
+ *
+ * The gap this bar sits in is therefore 2.0 to 42.5 — twenty times wider, in
+ * ratio, than the gap section 4's bar sits in — and the reading it has to catch
+ * is thirty times over it. Nothing here turns on the exact figure; what turned
+ * on the exact figure was 90.
+ */
+const WRAP_DEG = 2.0;
 const THROAT_DEG = 100;
 const WRAP_STEP = 0.5;
 function sectionWrap(rows) {
   console.log("");
   console.log("[clash] 3. WRAP — a bare nape under a covered throat.");
-  console.log(`[clash]    ${WRAP_STEP} deg sweeps at every mm of height; a case needs ${THROAT_DEG} deg of throat wrapped, a fault ${WRAP_DEG} deg bare behind.`);
+  console.log(`[clash]    ${WRAP_STEP} deg sweeps at every mm of height; a case needs ${THROAT_DEG} deg of throat wrapped, a fault MORE THAN ${WRAP_DEG.toFixed(1)} deg bare behind.`);
   console.log("");
-  console.log("[clash] class       helm         bare arc     at radius   height   centred      throat cover");
-  console.log("[clash] ---------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         rung           bare arc     at radius   height   centred      throat cover   wrapped hts");
+  console.log("[clash] ---------------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, quiet = 0;
   const M = Math.round(360 / WRAP_STEP);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { pelt, kit } = sortPieces(cls, helm);
+     for (const g of getupsOf(cls)) {
+      const rung = g.name;
+      const { pelt, kit } = sortPieces(cls, helm, g);
       const PT = soup(pelt), KT = soup(kit);
-      let best = null;
+      // `best` is the widest BARE arc; `wrapped` counts the heights that are a
+      // case at all, and the two are separate because a head can be the second
+      // without ever being the first — see the note over `!wrapped` below.
+      let best = null, wrapped = 0, widest = null;
       for (let ymm = 10; ymm <= 175; ymm++) {
         const y = ymm / 1000;
         const P = slabAt(PT, y), K = slabAt(KT, y);
@@ -742,8 +1353,8 @@ function sectionWrap(rows) {
         for (let i = 0; i < M; i++) {
           const t = i * WRAP_STEP * Math.PI / 180;
           const dx = Math.sin(t), dz = Math.cos(t);
-          const f = rayHit(P, 0, y, 0, dx, 0, dz, 0.40);
-          const g = rayHit(K, 0, y, 0, dx, 0, dz, 0.40);
+          const f = rayHitFar(P, 0, y, 0, dx, 0, dz, 0.40);
+          const g = rayHitFar(K, 0, y, 0, dx, 0, dz, 0.40);
           flags[i] = (f < 0 && g < 0) ? 0 : (g > f ? 1 : -1);
           rad[i] = f;
         }
@@ -753,7 +1364,17 @@ function sectionWrap(rows) {
         let fwd = 1;
         for (let k = 1; k < M && flags[k] === 1; k++) fwd++;
         for (let k = 1; k < M && flags[(M - k) % M] === 1; k++) fwd++;
+        // A RING THAT IS COVERED ALL THE WAY ROUND IS 360 DEGREES, NOT 720. The
+        // two runs above walk out of dead ahead in both directions and both stop
+        // at the far side when nothing stops them sooner, so a fully covered
+        // height counted 2M-1 of M samples. It never showed while the section
+        // printed only heights with a bare arc — a height with no bare arc is
+        // exactly the height where both runs go all the way round — and the
+        // first fully covered head to reach the table printed "719.5 deg".
+        fwd = Math.min(fwd, M);
         if (fwd * WRAP_STEP < THROAT_DEG) continue;
+        wrapped++;
+        if (!widest || fwd > widest.fwd) widest = { ymm, fwd };
         let w = 0, wat = 0;
         for (let s = 0; s < M; s++) {
           if (flags[s] !== -1) continue;
@@ -767,17 +1388,41 @@ function sectionWrap(rows) {
         const rec = { ymm, deg: w * WRAP_STEP, az: ((wat + w / 2) % M) * WRAP_STEP, r: rn ? rs / rn : 0, fwd: fwd * WRAP_STEP };
         if (!best || rec.deg > best.deg) best = rec;
       }
-      if (!best) {
+      if (!wrapped) {
         // No height on this head has a wrapped throat at all, so there is no
         // nape for it to be missing behind. Not a pass — not a case.
         quiet++;
         continue;
       }
       cases++;
-      const bad = best.deg >= WRAP_DEG;
+      if (!best) {
+        // WRAPPED EVERYWHERE AND BARE NOWHERE — the only shape a PASS can have
+        // in this section, and until this line it was invisible.
+        //
+        // The height loop skipped every height whose bare arc was zero, so a
+        // head whose nape is covered at all of them left `best` null and fell
+        // into the branch above, where it was counted as "never wraps a throat
+        // and is not a case" — the same line as a bare head. Measured on this
+        // tree, that hid the huscarl's Sutton Hoo: 137 wrapped heights, 0.0
+        // degrees bare at every one of them, the one combination in the shop
+        // whose coif closes all the way round, filed under "not a case".
+        //
+        // A gate green because the case is absent is not a gate, and neither is
+        // a gate whose only PASS is absent: it means the section cannot tell
+        // the difference between a fixed nape and a head with no neck defence,
+        // so the next fixer gets no signal that he is done.
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}   0.0 deg        — mm   y ${String(widest.ymm).padStart(3)}   —            ${(widest.fwd * WRAP_STEP).toFixed(1)} deg    ${String(wrapped).padStart(3)}   covered at every wrapped height`);
+        rows.push({ section: 3, cls, helm, rung, fail: false, deg: 0, r: 0 });
+        continue;
+      }
+      // STRICTLY GREATER: 2.0 degrees is the tessellation allowance argued over
+      // `WRAP_DEG` and is allowed; 2.5 is four consecutive samples of nape and
+      // is not.
+      const bad = best.deg > WRAP_DEG;
       if (bad) fails++;
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${best.deg.toFixed(1).padStart(6)} deg   ${mm(best.r).padStart(6)} mm   y ${String(best.ymm).padStart(3)}   az ${best.az.toFixed(0).padStart(3)}deg      ${best.fwd.toFixed(1)} deg${bad ? "   FAIL" : ""}`);
-      rows.push({ section: 3, cls, helm, fail: bad, deg: best.deg, r: best.r });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${best.deg.toFixed(1).padStart(6)} deg   ${mm(best.r).padStart(6)} mm   y ${String(best.ymm).padStart(3)}   az ${best.az.toFixed(0).padStart(3)}deg      ${best.fwd.toFixed(1)} deg    ${String(wrapped).padStart(3)}${bad ? "   FAIL" : ""}`);
+      rows.push({ section: 3, cls, helm, rung, fail: bad, deg: best.deg, r: best.r });
+     }
     }
   }
   console.log("");
@@ -802,6 +1447,70 @@ function sectionWrap(rows) {
 // 36 combinations at 36 to 372 mm, because the flank of a bowl has the nape fall
 // a long way below it and a hood has its own shoulder drape 340 mm down. Neither
 // is daylight under a crest; both are just the side of a head.
+//
+// AND THE HELM LIST IS NOT NAMED EITHER, NOT ANY MORE. This section used to open
+// with `if (!HELM[helm].cap) { absent++; continue; }`, which is the catalogue's
+// opinion about which helms have a cap rather than the mesh's — the same fault
+// section 2 carried, and switchable by the same one-word edit. It was never even
+// necessary: the cap is found below by dropping a disc of columns through the
+// crown and taking what they land on, and that machinery already prints "nothing
+// of this helm crosses the crown — no cap to sit on" when there is no cap. The
+// declaration was doing nothing but hiding four combinations from a test that
+// can decide for itself, and the Shadow Hood — `cap: false` in the catalogue,
+// and a garment that covers the crown in the mesh — is exactly the case it hid.
+//
+// THE FOUR HOOD ROWS ARE A CONFIRMED FALSE POSITIVE, AND THEY STILL STAND.
+// Letting the mesh decide admits the Shadow Hood, and the hood fails at
+// 41.9 - 44.7 mm on a 48-triangle piece: a flap at az 180, radius 136-144 mm,
+// spanning y 134-252 mm, whose nearest approach to the cowl is 0.0 mm — it is
+// ATTACHED at its root and hangs to 60.5 mm at its tip. That is the shape of the
+// false positive this section's own history warns about twice ("the flank of a
+// bowl has the nape fall a long way below it, and that is the side of a head,
+// not daylight under a crest"): the "over the cap" test was written for a bowl
+// sitting on a crown, and a hood's cap is a cowl that drapes to the shoulders,
+// so a thing hanging BESIDE the head still lands on it.
+//
+// THE RENDER WAS OPENED, which is what the previous pass asked for and could not
+// do. Shadow Hood on the berserker, turn 180 and turn 135, brightened 2.6x to
+// read a black garment: the flap is continuous cloth emerging from under the
+// cowl's own edge and draping down the back, with a visible step where the dome
+// curves away from it and NO sky behind it at any bearing. It is the back of a
+// hood. It is not a fitting floating off a cap, which is the thing this section
+// exists to catch and which the owner photographed on the Wyrm.
+//
+// IT STANDS ANYWAY, and this is the part worth writing down, because three
+// repairs were measured and all three are worse than the fault:
+//
+//  1. "Exclude a fitting that never rises to the cap's own crown." There is no
+//     gap to put that bar in. Genuine combs sit FLUSH with the crown (0.0 mm
+//     below it) and the closest excluded piece in the shop sits 0.3 mm below
+//     its own crown, so the bar would be splitting 0.0 from 0.3. Pushing it out
+//     to the widest measured gap in the distribution (38.6 -> 65.5 mm) makes it
+//     a 50 mm tolerance chosen to hit one helmet, and it removes EVERY fitting
+//     the hood has — 75.7, 78.5, 81.3, and the rest — so all four rows stop
+//     being cases at all. A gate that goes quiet because the case is absent is
+//     not a gate, and trading four loud false positives for four silent rows is
+//     the wrong direction.
+//
+//  2. "Station along the fitting's own longest horizontal axis instead of always
+//     z." The idea is that a crest runs fore-and-aft and a rear flap runs across,
+//     so z-stations chop a drape into slices that each see only part of it.
+//     MEASURED, and it is simply not true of this flap: 100.0 mm in x, 124.9 in
+//     z, 118.4 in y — very nearly equidimensional, and its longest horizontal
+//     axis IS z, the same as a crest's. Worse, plenty of genuine fittings run in
+//     x (the Boar's 256-triangle piece, the Jarl's Crowned's), so the change
+//     would move them and leave the hood exactly where it is.
+//
+//  3. "Only count stations over the crown's own footprint." That drops the
+//     Wyrm's worst station, at az 6, which is the defect the owner actually
+//     photographed. Not acceptable at any price.
+//
+// So the repair is not a threshold: it is teaching this section what "sitting
+// on" means when the cap is a DRAPE rather than a bowl, and that is a redesign
+// with its own before and after. Recorded in docs/OPEN-DEFECTS.md with these
+// numbers so the next pass does not re-derive them. Until then the hood is red,
+// and the row is a false positive that is known, named and cheap to read past —
+// which is a better state than a green row nobody has looked at.
 //
 // The cap is found rather than named: drop a ray down the head's own axis and
 // take the LAST piece of kit it passes through before the skull. A crest crosses
@@ -836,33 +1545,43 @@ const CREST_MM = 40.0;
  * 40 mm, and the gap it sits in is wide and measured. On this tree the worst
  * station of every fitting in the shop reads:
  *
- *     Sutton Hoo crest and its garnets    13.9 - 15.4
+ *     Sutton Hoo crest and its garnets    14.4 - 15.4
+ *     Wyrm-Crest's serpent                23.4 - 24.7   <- the owner's photograph
  *     berserker's fur crest under a cap   10.3 - 23.6
  *     warden's steel comb                  4.7 - 18.0
- *     Ridge Helm's comb                    4.7 -  7.7
+ *     Ridge Helm's comb                    4.7 -  5.6
  *     Boar-Crest's animal                 32.5 - 33.1   (a snout thrown forward)
- *     Wyrm-Crest's serpent                50.0 - 54.2   <- the owner's photograph
+ *     Shadow Hood's rear flap             41.9 - 44.7   <- see the note above
  *
- * so the bar is in a 17 mm gap and against neither side of it. The Boar is the
- * nearest honest reading and it is a snout carried out past the brow, which is
- * a shape; the Wyrm never comes down at all. And the Wyrm's own author asks for
- * 46 mm of rise in as many words, so this section is disagreeing with an
- * intention rather than finding a typo — which is exactly the argument the owner
- * made with a photograph.
+ * so the bar is in an 8.8 mm gap, between the Boar's snout at 33.1 and the
+ * hood's flap at 41.9, and against neither side of it.
+ *
+ * THE WYRM PASSES NOW, AND THAT IS NOT THE END OF THE OWNER'S NOTE. The serpent
+ * read 50.0 - 54.2 when this bar was written and reads 23.4 - 24.7 today: round
+ * five brought it down onto the cap, and this section is measuring attachment,
+ * which is the half of "unrecognisable & also floating" that a nearest-approach
+ * ruler can see. `docs/OPEN-DEFECTS.md` records the other half still open —
+ * cropped to 46x60 it is "a gold line 2-3 px thick with one bend along the
+ * crown", with no head, no jaw and no taper — and nothing in this file measures
+ * whether a shape reads as an animal. A green row here is not a claim that it
+ * does.
  */
 function sectionCrest(rows) {
   console.log("");
   console.log("[clash] 4. CREST — daylight under a fitting sitting on the cap.");
   console.log(`[clash]    nearest approach to the cap at every 4 mm station of the run; bar ${CREST_MM.toFixed(1)} mm of air.`);
   console.log("");
-  console.log("[clash] class       helm         air mm   run deep       fitting              where");
-  console.log("[clash] ---------------------------------------------------------------------------------------");
+  console.log("[clash]    kit against kit, so the rungs are grouped by the kit they build — see `kitSignature`.");
+  console.log("");
+  console.log("[clash] class       helm         rung           air mm   run deep       fitting              where");
+  console.log("[clash] ------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, absent = 0;
   const buf = new Float64Array(BARY.length * 3);
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      if (!HELM[helm].cap) { absent++; continue; }
-      const { kit } = sortPieces(cls, helm);
+     for (const { g, also } of kitGroups(cls, helm)) {
+      const rung = rungLabel(g, also);
+      const { kit } = sortPieces(cls, helm, g);
       // THE CAP: the piece that is lowest under the crown.
       //
       // A DISC OF COLUMNS AND NOT ONE RAY, which the first cut of this got
@@ -894,13 +1613,13 @@ function sectionCrest(rows) {
       }
       if (!cap) {
         absent++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      (nothing of this helm crosses the crown — no cap to sit on)`);
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}      —      (nothing of this helm crosses the crown — no cap to sit on)`);
         continue;
       }
       const fittings = kit.filter((p) => p !== cap && p.tris >= 12);
       if (!fittings.length) {
         absent++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      (a bare cap with no fitting on it — nothing to measure)`);
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}      —      (a bare cap with no fitting on it — nothing to measure)`);
         continue;
       }
       cases++;
@@ -964,12 +1683,20 @@ function sectionCrest(rows) {
       }
       const bad = air * 1000 > CREST_MM;
       if (bad) fails++;
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${mm(air).padStart(6)}   ${mm(deep).padStart(12)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(20)} ${wat ? at(wat) : ""}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 4, cls, helm, fail: bad, air });
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${mm(air).padStart(6)}   ${mm(deep).padStart(12)}   ${(wp ? `${wp.hex} (${wp.tris} tri)` : "-").padEnd(20)} ${wat ? at(wat) : ""}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 4, cls, helm, rung: g.name, fail: bad, air });
+     }
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} combinations with a fitting on the cap are red; ${absent} have no cap or no fitting and are not a case.`);
+  if (!cases) {
+    // Same rule as section 2's: nothing measured is not a pass.
+    fails++;
+    console.log("[clash]    NO COMBINATION IN THE SHOP HAS A FITTING ON A CAP — this section measured");
+    console.log("[clash]    nothing, which is not a pass. Six of the nine rungs are sold on a crest.  FAIL");
+  } else {
+    console.log(`[clash]    ${fails} of ${cases} combinations with a fitting on the cap are red; ${absent} have no cap or no fitting and are not a case.`);
+  }
   return fails;
 }
 
@@ -986,9 +1713,41 @@ function sectionCrest(rows) {
 //
 // So this section is written to see a beard that is OUTSIDE a face mask, and to
 // keep on seeing it if somebody makes the beard vanish instead of pressing it
-// inside the plate. THE DENOMINATOR IS THE PELT'S OWN SURFACE, which means a
-// deleted beard scores zero out of zero and is printed as an absent case, not
-// as a pass. `NO PELT AT ALL` is louder than a failure here, and deliberately.
+// inside the plate.
+//
+// THE DENOMINATOR IS THE BEARD'S OWN SURFACE, AND THE PARAGRAPH THAT USED TO
+// STAND HERE WAS FALSE. It said "a deleted beard scores zero out of zero and is
+// printed as an absent case, not as a pass" and that "`NO PELT AT ALL` is louder
+// than a failure". It was not: the denominator was hair AND beard together —
+// `defaultAppearance` issues the same Oak Brown 0x4a3220 to both slots, so one
+// tint was one list — and the `!fur.length` guard only fired when the HAIR was
+// gone too, which this gate never builds, because it always asks for hairStyle
+// "short". Round four's deletion was re-applied to prove it: `&& !style.mask` on
+// the beard branch took the berserker's Sutton Hoo from 23838 to 21202 triangles
+// and this section from 0.88% to 0.00%, worst patch "-", no warning, footer
+// still reading "0 have NO hair or beard mesh at all". Three paid beards — Full
+// 40g, Forked 80g, Ringed Braid 120g — could be deleted under every masked helm
+// and the ruler got QUIETER.
+//
+// So the beard is measured against the beard, the hair against the hair, and
+// the beard is checked for being there at all:
+//
+//   * `BEARD GONE` — the rung asks for a beard and the build emits no beard
+//     mesh. A hard FAIL, counted in the section's red total. Zero out of zero
+//     is not a pass and it is not an absent case either; it is the regression
+//     this section exists to catch.
+//   * `BEARD CUT` — the rung's beard exists but is smaller under the helm than
+//     it is bare. Also a hard FAIL: half a deletion is a deletion. On this tree
+//     every beard keeps every triangle under every helm, so this is a tripwire
+//     rather than a reading, and the tripwire is the point.
+//
+// Hair gets the share but not the absence check, and deliberately: the hair
+// material also draws the LASHES, so a hair piece list is never empty even on a
+// shaved head, and a check that cannot fire is worse than no check. What the
+// hair is losing under the deep helms is a real fault with a real owner —
+// `docs/OPEN-DEFECTS.md`, "every 80-triangle hair-coil component that main
+// builds under the Wyrm-Crest and the Sutton Hoo is absent on the branch" — and
+// it wants a ruler that names components, not this one.
 //
 // MEASURED with the same horizontal ray as section 1, pointed the other way. A
 // hair or beard sample is out through the helm when the ray INWARD, toward the
@@ -999,47 +1758,396 @@ function sectionCrest(rows) {
 // route `cheekHem` and the coif's hem were built to give it.
 const PELT_PCT = 2.0;
 /**
- * 2.0% of the pelt's own area, and NO RECORDED BASELINE stands behind it — this
- * section is new, so the bar is argued from this tree's own spread and nothing
- * else. The open metal rungs, where hair comes out from under a hem the way it
- * is meant to, read 0.00 to 0.10% on the three classes without a coif. The
- * rungs with a face plate over a beard read 3.2 to 4.9%. The bar sits in that
- * gap. It will need re-arguing the first time somebody changes a hem.
+ * 2.0%, AND IT IS RE-ARGUED RATHER THAN CARRIED OVER. The figure is the same as
+ * the one this section shipped with, but the thing it is a percentage OF has
+ * changed — hair-and-beard-together became hair against hair and beard against
+ * beard — so the old argument for it ("open metal rungs read 0.00 to 0.10%,
+ * rungs with a face plate over a beard read 3.2 to 4.9%") is an argument about a
+ * different measurement and cannot stand. A bar kept without re-measuring is a
+ * bar nobody has checked.
+ *
+ * The spread across the whole sweep — 288 rows, four classes, nine helms, eight
+ * hair and beard rungs, sorted and read off the run rather than sampled:
+ *
+ *   hair    ... 1.28  1.29  1.32  1.33  1.57  1.63  1.68 | 2.32  2.46  2.66 ...
+ *   beard   ... 1.00  1.02  1.19  1.23  1.57               | 2.47  2.68  2.71 ...
+ *
+ * so the bar sits in a gap on BOTH denominators — 1.68 to 2.32 on the hair,
+ * 1.57 to 2.47 on the beard — and no verdict in the section turns on where in
+ * those gaps it sits. The tails run to 6.94% of a hair and 9.29% of a beard.
+ *
+ * What moved when the denominator split: the berserker's full beard under the
+ * Sutton Hoo was 0.88% mixed into the hair and green, and is 2.71% against its
+ * own surface and red. What moved when the paid rungs came in: the 40-gold Full
+ * Beard under the Sutton Hoo reads 3.66 on the huscarl, 3.72 on the warden and
+ * 4.77 on the runekeeper — the berserker wears it by default and is the 2.71 —
+ * 17.5 to 23.2 mm deep, at az 1-2 deg and y -44 to -47 mm. That is dead ahead
+ * and below the chin, which is the throat, and it is exactly the wedge of beard
+ * through the mail rings that round five's adversary found by hand and no ruler
+ * had ever seen.
  */
+const trisOf = (list) => list.reduce((a, p) => a + p.tris, 0);
 function sectionPelt(rows) {
   console.log("");
   console.log("[clash] 5. PELT — hair or beard out through the helm, not under its hem.");
-  console.log(`[clash]    inward horizontal rays off every hair and beard triangle, area-weighted; bar ${PELT_PCT.toFixed(1)}% of the pelt.`);
+  console.log(`[clash]    inward horizontal rays, area-weighted, EACH AGAINST ITS OWN SURFACE; bar ${PELT_PCT.toFixed(1)}%.`);
   console.log("");
-  console.log("[clash] class       helm         pelt out%   worst patch                deepest       where");
-  console.log("[clash] ------------------------------------------------------------------------------------------------");
+  console.log("[clash] class       helm         rung           hair out%  beard out%   worst patch                deepest       where");
+  console.log("[clash] -------------------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, gone = 0;
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
-      const { fur, kit } = sortPieces(cls, helm);
+     for (const g of getupsOf(cls)) {
+      const rung = g.name;
+      const { hair, beard, kit } = sortPieces(cls, helm, g);
       if (!kit.length) continue;
-      if (!fur.length) {
-        // NOT A PASS. A head with no hair and no beard mesh scores nothing out
-        // of nothing, and the last pass's fixer reached exactly that state by
-        // deleting three paid beards. This line is louder than a FAIL on
-        // purpose.
-        gone++;
-        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)}      —      NO PELT AT ALL — no hair or beard mesh on this head to measure`);
-        rows.push({ section: 5, cls, helm, fail: false, absent: true });
+      const wantBeard = g.beardStyle !== "none";
+      const bareBeard = trisOf(barePieces(cls, g).filter((p) => p.hex === hex6(BEARD_TINT)));
+      const gotBeard = trisOf(beard);
+      cases++;
+      if (wantBeard && !gotBeard) {
+        // A HARD FAULT, not an absent case. The rung is paying for a beard and
+        // the build emits none: nothing to measure is the regression, not an
+        // excuse from measuring.
+        gone++; fails++;
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}      —          —      BEARD GONE — the rung asks for "${g.beardStyle}" and the build emits no beard mesh (bare head has ${bareBeard} tri)  FAIL`);
+        rows.push({ section: 5, cls, helm, rung, fail: true, absent: true });
         continue;
       }
-      cases++;
-      const r = outboardShare(fur, soup(kit));
-      const pct = 100 * r.share;
-      const bad = pct > PELT_PCT;
+      const KT = soup(kit);
+      const rh = hair.length ? outboardShare(hair, KT) : null;
+      const rb = beard.length ? outboardShare(beard, KT) : null;
+      const hp = rh ? 100 * rh.share : 0, bp = rb ? 100 * rb.share : 0;
+      // The worse of the two is what gets named, because the row has one slot
+      // for a patch and the reader wants the piece that is actually outside.
+      const r = (rb && (!rh || rb.share > rh.share)) ? rb : rh;
+      const cut = wantBeard && gotBeard < bareBeard;
+      const bad = hp > PELT_PCT || bp > PELT_PCT || cut;
       if (bad) fails++;
-      const patch = r.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
-      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${pct.toFixed(2).padStart(9)}   ${patch.padEnd(24)} ${mm(r.depth).padStart(7)} mm  ${r.wat ? at(r.wat) : ""}${bad ? "  FAIL" : ""}`);
-      rows.push({ section: 5, cls, helm, fail: bad, pct });
+      const patch = r?.wp ? `${r.wp.hex} (${r.wp.tris} tri) ${(100 * r.worst).toFixed(1)}%` : "-";
+      const note = cut ? `  BEARD CUT — ${gotBeard} tri under this helm, ${bareBeard} bare` : "";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${hp.toFixed(2).padStart(8)}  ${(rb ? bp.toFixed(2) : "—").padStart(9)}   ${patch.padEnd(24)} ${mm(r ? r.depth : 0).padStart(7)} mm  ${r?.wat ? at(r.wat) : ""}${note}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 5, cls, helm, rung, fail: bad, hairPct: hp, beardPct: bp });
+     }
     }
   }
   console.log("");
-  console.log(`[clash]    ${fails} of ${cases} combinations with a pelt are red; ${gone} have NO hair or beard mesh at all.`);
+  console.log(`[clash]    ${fails} of ${cases} combinations are red; ${gone} of those are a beard the build did not emit at all.`);
+  return fails;
+}
+
+// ============================================================
+// 6. SEAM — one piece of kit grazing through another
+// ============================================================
+//
+// NOTHING IN THIS REPOSITORY COULD SEE METAL THROUGH METAL, and that is why the
+// defect this section exists for shipped green through eight rounds.
+//
+//   * 2 FLESH and 3 WRAP both judge SKIN outboard of metal.
+//   * 1 LAYERS judges a PLATE through MAIL — one ordered pair out of the
+//     hundreds a helmet has, and it is that pair because it is the pair the
+//     owner photographed.
+//   * 5 PELT judges hair and beard.
+//   * `wearmeasure` 3 judges a hanging plate against the SKULL, 4 judges hair
+//     against the stack, 10 judges what a hole frames.
+//
+// A kit piece interpenetrating another kit piece was unmeasured. So the gilt
+// edging on the Sutton Hoo's nape guard — the one strip that says the helmet in
+// front of you is the 2400-gold one — has hard stair-stepped bites of
+// bowl-coloured plate eaten out of it at the rear bearings, and every gate in
+// the tree is green about it.
+//
+// ------------------------------------------------------------
+// WHY THIS IS NOT "ONE PIECE INSIDE ANOTHER"
+// ------------------------------------------------------------
+//
+// A helmet is layers of metal on metal BY DESIGN and most of them overlap. The
+// bowl runs under the band. The band runs under the ribs. The cheek guard laps
+// the mask. A rib is authored half sunk into the shell it is riveted to and the
+// gilt lip is authored to STRADDLE the guard — 2.5 mm outside it and 3.5 mm
+// inside — precisely so its long rims are buried and there is no coplanar pair
+// to fight for depth. Every one of those is one piece inside another over the
+// region they share and every one of them is correct.
+//
+// The first cut of this section measured the crossing directly — over and under
+// on the same ordered pair, minority share of the overlap — and it cannot tell
+// those apart: it reads the Sutton Hoo's gilt crest rib against its own bowl at
+// **49.0% and 3.9 mm**, which is a rib sitting in the shell exactly as drawn.
+// A measurement that calls the shop's construction a fault is not a gate, it is
+// a wall of red somebody will switch off.
+//
+// ------------------------------------------------------------
+// WHAT A SEAM IS: A STRIP THAT IS PROUD OF ITS PARTNER IN SOME PLACES AND
+// SWALLOWED BY IT IN OTHERS
+// ------------------------------------------------------------
+//
+// Two false starts are recorded here because each of them is a measurement
+// somebody will otherwise reach for again.
+//
+// FALSE START ONE — "one piece inside another". A helmet is layers of metal on
+// metal by design and most of them overlap: the bowl runs under the band, the
+// band under the ribs, the cheek guard laps the mask, a rib is authored half
+// sunk into the shell it is riveted to and the gilt lip is authored to STRADDLE
+// the guard, 2.5 mm outside it and 3.5 mm inside, precisely so its long rims
+// are buried and there is no coplanar pair to fight for depth. Measured as
+// "crossing", that reads the Sutton Hoo's gilt crest rib against its own bowl
+// at **49.0% and 3.9 mm** — a rib sitting in a shell exactly as drawn.
+//
+// FALSE START TWO — "a hider closer than `LAYER_GAP`". Metal within 5 mm of
+// metal is everywhere in this shop, because that is what a rivet, a rib flank
+// and a taper-to-nothing all look like: **62 of 65 kits red at 5.1 to 27.9%**,
+// naming a 68-triangle spangen strip on nine helmets out of nine. Adding the
+// facing test to it — only count a hider LYING ALONG this face — took it to 61
+// of 65. Neither number is a gate. It is a wall of red somebody switches off.
+//
+// WHAT IS ACTUALLY WRONG in the render is narrower and it has a name: along one
+// strip, the SAME PAIR of pieces changes its mind about which of the two is in
+// front. Gold, a hard step of silver, gold again. A lap never does that — the
+// bowl is under the band at every point of their overlap, and a rib tapering to
+// nothing on the crown approaches its shell but never comes out the other side.
+// So:
+//
+//   For an ordered pair (A, B), over A's OUTWARD FACE, and only where the two
+//   surfaces LIE ALONG each other (|n_A . n_B| > 0.80, about 37 degrees, so a
+//   rib's flank cutting across a shell is not a case — at right angles two
+//   surfaces meet in a LINE, and a line has no area):
+//
+//     PROUD      B is inboard of this sample. A is in front here.
+//     SWALLOWED  B is outboard of this sample. B is in front here.
+//
+//   A lap is all of one. A seam is both, and the MINORITY of the two is the
+//   size of the tear: the part of the overlap that disagrees with the rest of
+//   the overlap about which piece the player is looking at.
+//
+// Read on the OUTWARD FACE ONLY — section 1's trick, and load-bearing here.
+// Every piece is a closed shell with a lining, and a lining is inboard of its
+// own outer wall by construction; measuring both walls would call every
+// deliberate straddle in the shop a seam. The outward face is the face the
+// player looks at, and the question is whether THAT is torn.
+//
+// AREA-WEIGHTED. A rivet with 40 triangles must not outvote a 300-triangle
+// plate, and the fittings on a noble helm are the densest mesh on the head.
+const SEAM_MM2 = 800.0;
+const SEAM_MM = 1.0;
+const SEAM_ALONG = 0.80;
+const SEAM_CAP = 0.02;
+/**
+ * TWO BARS, BOTH IN A MEASURED GAP, AND THE SWEEP IS PRINTED UNDER THE TABLE
+ * EVERY RUN so the gap can be argued with in one look rather than taken from
+ * this paragraph on trust.
+ *
+ * `SEAM_MM` first. The head of this file measures what a tessellated ring does
+ * against the analytic curve it was sampled from — 1.19 mm on the huscarl's
+ * coif at the rear — so a minority a few tenths of a millimetre deep is two
+ * grids disagreeing about a shared edge and not one piece coming through
+ * another. 1.0 mm is under that measured chord dip on purpose: the AREA bar is
+ * what carries the verdict and the depth bar is only there to throw out a
+ * two-triangle corner.
+ *
+ * `SEAM_MM2` is read off the sweep, and the sweep is PRINTED UNDER THE TABLE ON
+ * EVERY RUN so this paragraph can be checked against the tree rather than
+ * believed. On the tree as it ships, every distinct kit in the shop, sorted:
+ *
+ *     0.0 x12    88.4 x2   137.9 x2   139.8 x2   153.9 x2   183.2 x2   230.0 x4
+ *   251.5 x2    356.6     448.9 x6   501.8 x4   533.7 x2   541.5 x4   555.1 x2
+ *   555.7       564.2 x2   597.9 x2
+ *   ------------------------------ the bar, 800 ------------------------------
+ *   904.5      1114.7 x2  1699.1 x2  1888.4 x2  2091.2 x2  2402.6 x2  2659.7 x2
+ *
+ * Twelve kits with no seam at all, a body that stops at 597.9 mm2, a 306 mm2
+ * hole, and then thirteen readings above it. The body is what an authored
+ * fitting reads when it is sampled on a grid that is not its neighbour's; the
+ * readings above the hole are pieces genuinely half in and half out of each
+ * other.
+ *
+ * THE 306 IS NOT THE 500 AN EARLIER DRAFT OF THIS PARAGRAPH CLAIMED. That draft
+ * quoted a sweep taken BEFORE the band was mended and left it standing as
+ * present tense, which is this repository's most-repeated fault and the one its
+ * own rules name first. Mending the band moved two readings down into the body
+ * (356.6, 555.7) and left one, 904.5, sitting just above the bar in the space
+ * the old prose called empty. The bar still falls in a real gap and is unmoved;
+ * only the description of it was wrong.
+ *
+ * 904.5 IS A KNOWN RESIDUAL, not a surprise: the warden's nape guard at its hem
+ * row, 3.2% of the overlap, named in the round that mended the rest. A bar
+ * placed to exclude it would be a bar chosen to make a number pass.
+ *
+ * THIRTEEN RED IS NOT A FAILURE OF THE BAR. This section is new and the thing it
+ * measures has never been measured here, so every reading in it is a finding.
+ * The round that added it mends the largest.
+ */
+function seamPair(A, aIx, aN, B, bIx) {
+  const buf = new Float64Array(BARY.length * 3);
+  const nB = [0, 0, 0];
+  let proud = 0, swall = 0, dProud = 0, dSwall = 0, atProud = null, atSwall = null;
+  for (let i = 0; i < A.T.length; i += 9) {
+    const n = aN[i / 9];
+    if (!n) continue;
+    const c = samples(A.T, i, buf);
+    let nP = 0, nS = 0, tot = 0;
+    for (let s = 0; s < c; s++) {
+      const x = buf[s * 3], y = buf[s * 3 + 1], z = buf[s * 3 + 2];
+      const r = Math.hypot(x, z);
+      if (r < 1e-6) continue;
+      const dx = x / r, dz = z / r;
+      // A's own shell in front means this sample is on A's LINING.
+      const self = hitFlat(aIx, x, y, z, dx, dz, SEAM_CAP);
+      const outB = hitFlatFacing(bIx, x, y, z, dx, dz, SEAM_CAP, nB);
+      if (self >= 0 && (outB < 0 || self < outB)) continue;
+      if (outB >= 0) {
+        if (Math.abs(n[0] * nB[0] + n[1] * nB[1] + n[2] * nB[2]) <= SEAM_ALONG) continue;
+        tot++; nS++;
+        if (outB > dSwall) { dSwall = outB; atSwall = [x, y, z]; }
+        continue;
+      }
+      const inB = hitFlatFacing(bIx, x, y, z, -dx, -dz, Math.min(r, SEAM_CAP), nB);
+      if (inB < 0) continue;
+      if (Math.abs(n[0] * nB[0] + n[1] * nB[1] + n[2] * nB[2]) <= SEAM_ALONG) continue;
+      const selfIn = hitFlat(aIx, x, y, z, -dx, -dz, Math.min(r, SEAM_CAP));
+      if (selfIn >= 0 && selfIn < inB) continue;
+      // AND B'S LINING IS NOT B BEING IN FRONT OF ANYTHING. The first cut of
+      // this skipped A's lining and not B's, and that is not symmetrical: a
+      // strip authored to STRADDLE — the gilt lip is 2.5 mm outside the guard
+      // and 3.5 mm inside it, on purpose — has an inner wall sitting between
+      // the guard's two walls, so an inward ray off the guard's face finds the
+      // lip's LINING at 3.5 mm and files the deliberate straddle as the guard
+      // being proud of its own gilt. It reads 3.5 to 4.2 mm on every noble rung
+      // and it is the whole of the residue left after the band was mended.
+      // The test is B's own shell between the hit and this sample.
+      if (hitFlat(bIx, x - dx * inB, y, z - dz * inB, dx, dz, inB - 1e-5) >= 0) continue;
+      tot++; nP++;
+      if (inB > dProud) { dProud = inB; atProud = [x, y, z]; }
+    }
+    if (!tot) continue;
+    const ux = A.T[i + 3] - A.T[i], uy = A.T[i + 4] - A.T[i + 1], uz = A.T[i + 5] - A.T[i + 2];
+    const vx = A.T[i + 6] - A.T[i], vy = A.T[i + 7] - A.T[i + 1], vz = A.T[i + 8] - A.T[i + 2];
+    const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+    proud += area * nP / tot;
+    swall += area * nS / tot;
+  }
+  const lap = proud + swall;
+  if (lap <= 0) return null;
+  const minorityIsSwallowed = swall <= proud;
+  return {
+    lap,
+    area: Math.min(proud, swall),
+    share: Math.min(proud, swall) / lap,
+    depth: minorityIsSwallowed ? dSwall : dProud,
+    at: minorityIsSwallowed ? atSwall : atProud,
+    side: minorityIsSwallowed ? "swallowed by" : "proud of",
+  };
+}
+/** Do two pieces' boxes come within the ray's own cap of each other? */
+function boxesTouch(a, b, m) {
+  return a.x0 - m <= b.x1 && b.x0 - m <= a.x1
+    && a.y0 - m <= b.y1 && b.y0 - m <= a.y1
+    && a.z0 - m <= b.z1 && b.z0 - m <= a.z1;
+}
+/** Per-triangle unit normals, computed once per piece rather than per pair. */
+function normalsOf(T) {
+  const out = [];
+  for (let i = 0; i < T.length; i += 9) {
+    const ux = T[i + 3] - T[i], uy = T[i + 4] - T[i + 1], uz = T[i + 5] - T[i + 2];
+    const vx = T[i + 6] - T[i], vy = T[i + 7] - T[i + 1], vz = T[i + 8] - T[i + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz);
+    out.push(l > 0 ? [nx / l, ny / l, nz / l] : null);
+  }
+  return out;
+}
+function sectionSeam(rows) {
+  console.log("");
+  console.log("[clash] 6. SEAM — one piece of kit driven through another.");
+  console.log(`[clash]    horizontal rays both ways off each piece's outward face, where the two surfaces lie ALONG`);
+  console.log(`[clash]    each other (|n.n| > ${SEAM_ALONG.toFixed(2)}). A pair is torn when it is proud in some places and swallowed`);
+  console.log(`[clash]    in others: bars ${SEAM_MM2.toFixed(0)} mm2 of torn face AND ${SEAM_MM.toFixed(1)} mm deep, both.`);
+  console.log("");
+  console.log("[clash]    kit against kit, so the rungs are grouped by the kit they build — see `kitSignature`.");
+  console.log("");
+  console.log("[clash] class       helm         rung           pairs  torn mm2   torn%   depth mm   the pair                                    where");
+  console.log("[clash] -----------------------------------------------------------------------------------------------------------------------------------");
+  let fails = 0, cases = 0, absent = 0;
+  const spread = [];
+  for (const cls of CLASSES) {
+    for (const helm of HELMS) {
+     for (const { g, also } of kitGroups(cls, helm)) {
+      const rung = rungLabel(g, also);
+      const { plate } = sortPieces(cls, helm, g);
+      // Rivets and studs are a dozen triangles of a ball and their share is
+      // noise; 24 is the smallest primitive on a helmet that has a face.
+      //
+      // PLATE, NOT KIT. Section 1 owns the plate-through-MAIL pair and measures
+      // it with a bar taken from the build's own `LAYER_GAP`; measuring it here
+      // too would be two gates on one fault and a second bar to argue with.
+      const big = plate.filter((p) => p.tris >= 24);
+      if (big.length < 2) {
+        // A GATE GREEN BECAUSE THE CASE IS ABSENT IS NOT A GATE — section 1's
+        // line, and the same rule. One piece of kit cannot tear itself.
+        absent++;
+        console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)}     —      —          —      (fewer than two kit pieces — nothing to measure)`);
+        continue;
+      }
+      cases++;
+      const ix = big.map((p) => heightIndex(p.T));
+      const nrm = big.map((p) => normalsOf(p.T));
+      let pairs = 0, wArea = 0, wShare = 0, wDepth = 0, wA = null, wB = null, wAt = null, wSide = "";
+      for (let a = 0; a < big.length; a++) {
+        for (let b = a + 1; b < big.length; b++) {
+          // ONE TINT CANNOT TEAR ITSELF WHERE ANYBODY CAN SEE IT. Two pieces
+          // of the same metal that interpenetrate draw the same pixels either
+          // way round; there is nothing in the frame to tell the player which
+          // surface won, and a bowl with a rib of its own colour half sunk into
+          // it is how a spangenhelm is drawn. What the render shows, and what
+          // this section is for, is a seam BETWEEN TWO METALS — gilt eaten by
+          // bowl silver, brass by iron — where the boundary is a colour change
+          // and every step in it is visible at portrait size.
+          if (big[a].hex === big[b].hex) continue;
+          if (!boxesTouch(big[a], big[b], SEAM_CAP)) continue;
+          const ab = seamPair(big[a], ix[a], nrm[a], big[b], ix[b]);
+          const ba = seamPair(big[b], ix[b], nrm[b], big[a], ix[a]);
+          if (!ab || !ba) continue;
+          pairs++;
+          // THE MINIMUM OF THE TWO DIRECTIONS, AND IT IS THE WHOLE
+          // DISCRIMINATOR. A LAP IS CLEAN FROM AT LEAST ONE SIDE. Read from the
+          // shell, a rib authored half sunk into it is "proud over 29% and
+          // swallowed over 71%" — the buried base and the proud top, both
+          // parallel to the shell, exactly as drawn. Read from the RIB, its own
+          // outward face is outside the shell along its whole length and the
+          // reading is nothing. A TEAR IS A TEAR FROM BOTH SIDES: where a strip
+          // has bites out of it, the strip is swallowed in the bites and the
+          // piece doing the biting is proud in the same places, so neither
+          // direction comes out clean.
+          const r = ab.area <= ba.area ? ab : ba;
+          const A = ab.area <= ba.area ? big[a] : big[b];
+          const B = ab.area <= ba.area ? big[b] : big[a];
+          if (r.depth * 1000 <= SEAM_MM) continue;
+          if (r.area > wArea) {
+            wArea = r.area; wShare = r.share; wDepth = r.depth;
+            wA = A; wB = B; wAt = r.at; wSide = r.side;
+          }
+        }
+      }
+      const mm2 = wArea * 1e6;
+      const bad = mm2 > SEAM_MM2 && wDepth * 1000 > SEAM_MM;
+      if (bad) fails++;
+      spread.push(mm2);
+      const who = wA ? `${wA.hex} (${wA.tris} tri) ${wSide} ${wB.hex} (${wB.tris} tri)` : "-";
+      console.log(`[clash] ${cls.padEnd(11)} ${helm.padEnd(12)} ${rung.padEnd(14)} ${String(pairs).padStart(5)} ${mm2.toFixed(1).padStart(8)} ${(100 * wShare).toFixed(1).padStart(7)}   ${mm(wDepth).padStart(8)}   ${who.padEnd(42)} ${wAt ? at(wAt) : ""}${bad ? "  FAIL" : ""}`);
+      rows.push({ section: 6, cls, helm, rung: g.name, fail: bad, area: mm2, depth: wDepth });
+     }
+    }
+  }
+  console.log("");
+  // THE SPREAD, PRINTED EVERY RUN. A bar defended by a paragraph in a source
+  // file is a bar nobody re-checks; a bar printed under its own table beside
+  // the distribution it sits in is one an adversary can argue with in one look.
+  spread.sort((x, y) => x - y);
+  console.log(`[clash]    the torn mm2 of every kit measured, sorted — the bar is ${SEAM_MM2.toFixed(0)} and it is meant to sit in a gap:`);
+  for (let i = 0; i < spread.length; i += 13) {
+    console.log("[clash]      " + spread.slice(i, i + 13).map((v) => v.toFixed(1).padStart(7)).join(""));
+  }
+  console.log("");
+  console.log(`[clash]    ${fails} of ${cases} distinct kits with two or more pieces are red; ${absent} more have one piece and are not a case.`);
   return fails;
 }
 
@@ -1049,17 +2157,26 @@ function sectionPelt(rows) {
 function battery() {
   const rows = [];
   const fails = {};
+  // EVERY HEAD IS REBUILT. `sortPieces` keeps what it builds so that five
+  // sections asking for one head cost one build, and clearing it here is what
+  // keeps `--twice` honest: the second run does the same 288 builds as the
+  // first, so byte-identical means the BUILD is deterministic and not merely
+  // that a Map gave back what was put in it.
+  pieceCache.clear();
+  bareCache.clear();
   assertFaceIsPlusZ();
+  assertTintsAreLabels();
   if (SECTIONS.has(1)) fails[1] = sectionLayers(rows);
   if (SECTIONS.has(2)) fails[2] = sectionFlesh(rows);
   if (SECTIONS.has(3)) fails[3] = sectionWrap(rows);
   if (SECTIONS.has(4)) fails[4] = sectionCrest(rows);
   if (SECTIONS.has(5)) fails[5] = sectionPelt(rows);
-  const names = { 1: "LAYERS", 2: "FLESH", 3: "WRAP", 4: "CREST", 5: "PELT" };
+  if (SECTIONS.has(6)) fails[6] = sectionSeam(rows);
+  const names = { 1: "LAYERS", 2: "FLESH", 3: "WRAP", 4: "CREST", 5: "PELT", 6: "SEAM" };
   console.log("");
   console.log("[clash] ============================================================");
   let red = 0;
-  for (const s of [1, 2, 3, 4, 5]) {
+  for (const s of [1, 2, 3, 4, 5, 6]) {
     if (!(s in fails)) continue;
     if (fails[s]) red++;
     console.log(`[clash] ${s} ${names[s].padEnd(7)} ${fails[s] ? `FAIL — ${fails[s]} combination(s)` : "pass"}`);
@@ -1067,7 +2184,8 @@ function battery() {
   const ran = Object.keys(fails).length;
   console.log(`[clash] ${ran === 0 ? "NO SECTIONS SELECTED — nothing was measured, which is not a pass"
     : red === 0 ? "ALL SECTIONS PASS" : `${red} of ${ran} sections RED`}`);
-  console.log(`[clash] seed ${SEED}, lod ${LOD}, ${CLASSES.length} classes x ${HELMS.length} helms, read off the built mesh.`);
+  const rungs = CLASSES.reduce((a, c) => a + getupsOf(c).length, 0) / CLASSES.length;
+  console.log(`[clash] seed ${SEED}, lod ${LOD}, ${CLASSES.length} classes x ${HELMS.length} helms x ${rungs} hair-and-beard rungs, read off the built mesh.`);
   console.log("[clash] ============================================================");
   return { rows, fails };
 }
@@ -1078,13 +2196,19 @@ if (has("twice")) {
   const cap = [];
   const real = console.log;
   console.log = (...a) => cap.push(a.join(" "));
-  battery();
+  const { fails } = battery();
   const first = cap.splice(0).join("\n");
   battery();
   const second = cap.join("\n");
   console.log = real;
   console.log(first);
   console.log("");
+  // AND THE VERDICT STILL COUNTS. This branch used to return 0 whatever the
+  // battery found, so `helmclash -- --twice` exited SUCCESS with five sections
+  // red: anything running the determinism mode in a pipeline was told the helms
+  // were fine by a check that only ever asked whether two runs agreed. Two runs
+  // agreeing about a defect is agreement about a defect.
+  process.exitCode = Object.values(fails).some((n) => n > 0) ? 1 : 0;
   if (first === second) console.log(`[clash] --twice: two runs, ${first.length} characters, BYTE-IDENTICAL.`);
   else {
     const lines1 = first.split("\n"), lines2 = second.split("\n");
