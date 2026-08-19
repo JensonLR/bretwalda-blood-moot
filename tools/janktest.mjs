@@ -603,14 +603,23 @@ function errorOf(samples) {
 // ---------------------------------------------------------------------------
 // §5 THE PICTURE. R5 — a still cannot show a stutter.
 // ---------------------------------------------------------------------------
-function plotSVG(file, series, title) {
+function plotSVG(file, series, title, { clip = 0 } = {}) {
   const W = 1200, H = 440, PAD = 64;
   const all = series.flatMap((s) => s.pts);
   if (!all.length) return;
   const tMax = Math.max(...all.map((p) => p[0]));
-  const vMax = Math.max(...all.map((p) => p[1])) * 1.08 || 1;
+  // A single respawn teleport is a real event and a thousand times the height of
+  // everything else, so left alone it flattens every jolt in the fight into the
+  // baseline and the plot shows one spike and no defect. `clip` puts the scale on
+  // a high percentile instead and SAYS SO on the axis, because a silently
+  // truncated axis is a lie and a labelled one is a magnification.
+  const vals = all.map((p) => p[1]).sort((a, b) => a - b);
+  const clipped = clip ? pct(vals, clip) * 1.15 : 0;
+  const trueMax = vals[vals.length - 1];
+  const vMax = (clipped && clipped < trueMax ? clipped : trueMax * 1.08) || 1;
+  const over = clipped && clipped < trueMax ? all.filter((p) => p[1] > vMax).length : 0;
   const X = (t) => PAD + (t / tMax) * (W - PAD * 2);
-  const Y = (v) => H - PAD - (v / vMax) * (H - PAD * 2);
+  const Y = (v) => H - PAD - (Math.min(v, vMax) / vMax) * (H - PAD * 2);
   const grid = [];
   for (let i = 0; i <= 5; i++) {
     const v = (vMax / 5) * i;
@@ -628,7 +637,7 @@ function plotSVG(file, series, title) {
   writeFileSync(file,
 `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <rect width="${W}" height="${H}" fill="#111"/>
-<text x="${PAD}" y="${H - 16}" fill="#888" font-size="12" font-family="monospace">seconds into the fight  (0 - ${tMax.toFixed(1)} s)</text>
+<text x="${PAD}" y="${H - 18}" fill="#888" font-size="12" font-family="monospace">seconds into the fight  (0 - ${tMax.toFixed(1)} s)${over ? `   —   scale clipped at p${clip}; ${over} point(s) run off the top, the tallest to ${trueMax.toFixed(1)}` : ""}</text>
 <text x="${W / 2}" y="22" fill="#eee" font-size="15" font-family="monospace" text-anchor="middle">${title}</text>
 ${grid.join("")}${legend}${paths.join("")}${marks.join("")}
 </svg>`);
@@ -641,7 +650,7 @@ ${grid.join("")}${legend}${paths.join("")}${marks.join("")}
  * whoever reads this harness's output without a browser to hand.
  */
 async function plotsToPng(browser, files) {
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 440 } });
   const page = await ctx.newPage();
   for (const f of files) {
     if (!existsSync(f)) continue;
@@ -865,7 +874,7 @@ async function main() {
             if (dt > 1e-5) spd.push([(sample[i].t - t0) / 1000, Math.hypot(sample[i].rx - sample[i - 1].rx, sample[i].rz - sample[i - 1].rz) / dt]);
           }
           plotSVG(resolve(OUT, "motion-speed.svg"), [{ label: "drawn speed m/s", colour: "#e2554a", pts: spd }],
-            `speed of the drawn man, frame by frame — ${worst.id}. Every spike is a jolt.`);
+            `speed of the drawn man, frame by frame — ${worst.id}. Every spike is a jolt.`, { clip: 99.5 });
         }
         result.motion = { perMan, extrap: r.extrap.length, totalFrames, stalls: r.stalls, resets: r.resets.length, resetsNotTeleport: r.resets.length - tele, ex };
       }
