@@ -108,6 +108,8 @@ const argv = process.argv.slice(2);
 const argOf = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); return h ? h.slice(n.length + 3) : d; };
 const SECS = Math.max(10, parseInt(argOf("secs", "60"), 10) || 60);
 const PHASES = (argOf("phases", "idle,collapse,freeze")).split(",").map((s) => s.trim());
+/** Filled by §3 from `idleClocks()`. The verdict prints these or says it cannot. */
+let IDLE_CLOCKS = null;
 const has = (p) => PHASES.includes(p);
 const GATE = argv.includes("--gate");
 const PORT = parseInt(process.env.PORT || String(3910 + (process.pid % 40)), 10);
@@ -162,6 +164,66 @@ const rule = (t) => { say(); say("=".repeat(78)); say(t); say("=".repeat(78)); }
 // gore's `stepPiece`, the cloak drape and the anatomical stops all run after
 // it, and any of them can still be moving when the layer has stopped. So this
 // drives the REAL `poseWarrior` frame by frame and watches `rig.last`.
+/**
+ * THE IDLE CLOCKS, READ OUT OF `anim.ts` RATHER THAN COPIED FROM IT.
+ *
+ * This function exists because the block it feeds was a lie for a fortnight. It
+ * printed "read out of anim.ts's own coefficients" over five hard-coded
+ * literals, and when the clocks in `idleLayer` were changed — which was the
+ * larger half of the fix this harness was built to measure — it went on printing
+ * "period 15.0 s / 20.3 s / 27.3 s" against code that had become 7.7 / 7.4 /
+ * 9.5 s. A reader takes a number under those words as a measurement. It was
+ * mirrored definition, failure mode 3 in `docs/PROCESS.md`, four instances in
+ * `characters.ts` alone and this was the fifth outside it.
+ *
+ * SO IT IS READ, AND A MISSED READ IS LOUD. Each term is anchored on the whole
+ * assignment it belongs to, not on a bare `Math.sin` — there are dozens of those
+ * in the file and picking up the wrong one silently would be a worse fault than
+ * the literal was. The search is scoped to `idleLayer`'s own body. Any anchor
+ * that misses returns null for that term, the block prints WHAT IT COULD NOT
+ * READ in place of a number, and the verdict line stops claiming a period at
+ * all — the same discipline the freeze phase's patch counting already has.
+ *
+ * @returns { shift, breathWell, breathHurt, scan, swaySlow, swayFast, drift, nod }
+ *          in radians per second, each null if its anchor did not match.
+ */
+function idleClocks() {
+  let src;
+  try { src = readFileSync(resolve(ROOT, "src/game/client/render/anim.ts"), "utf8"); }
+  catch { return { missed: ["anim.ts could not be read"] }; }
+  const at = src.indexOf("function idleLayer(");
+  if (at < 0) return { missed: ["`function idleLayer(` is not in anim.ts"] };
+  // To the next top-level `function` declaration, so a term that moved out of
+  // this layer reads as missing rather than as somebody else's sine.
+  const end = src.indexOf("\nfunction ", at + 1);
+  const body = src.slice(at, end < 0 ? src.length : end);
+  const missed = [];
+  const grab = (label, rx) => {
+    const m = rx.exec(body);
+    if (!m) { missed.push(label); return null; }
+    return Number(m[1]);
+  };
+  const grab2 = (label, rx) => {
+    const m = rx.exec(body);
+    if (!m) { missed.push(label); return [null, null]; }
+    return [Number(m[1]), Number(m[2])];
+  };
+  const [bWell, bHurtStep] = grab2("breath",
+    /const br = Math\.sin\(t \* \(([\d.]+) \+ wounded \* ([\d.]+)\) \+ seed\);/);
+  const [swaySlow, swayFast] = grab2("postural sway",
+    /const sway = Math\.sin\(t \* ([\d.]+) \+ seed \* [\d.]+\) \* [\d.]+ \+ Math\.sin\(t \* ([\d.]+) \+ seed \* [\d.]+\) \* [\d.]+;/);
+  return {
+    shift: grab("weight shift", /const shift = Math\.sin\(t \* ([\d.]+) \+ seed\);/),
+    breathWell: bWell,
+    breathHurt: bWell === null || bHurtStep === null ? null : bWell + bHurtStep,
+    scan: grab("scan", /const scan = Math\.sin\(t \* ([\d.]+) \+ seed \* [\d.]+\);/),
+    swaySlow, swayFast,
+    drift: grab("head drift", /P\.hry \+= \(Math\.sin\(t \* ([\d.]+) \+ seed \* [\d.]+\)/),
+    nod: grab("head nod", /P\.hrx \+= \(br \* [\d.]+ \+ Math\.sin\(t \* ([\d.]+) \+ seed\)/),
+    missed,
+  };
+}
+
 /**
  * The shipped `anim.ts`, compiled and imported so a harness can call the exact
  * function production calls. Same seam `tools/facelook.mjs` uses; nothing in
@@ -482,13 +544,32 @@ async function phaseIdle(anim) {
   say(`    A walking man's head travels ${w05.toFixed(1)} mm in the same window,`);
   say(`    which is ${(w05 / (c05 || 1)).toFixed(0)}x as far.`);
   say();
-  say(`  THE PERIODS the idle motion is built on, read out of anim.ts's own`);
-  say(`  coefficients — an amplitude is only half of whether motion reads:`);
-  say(`    weight shift   sin(t * 0.42)              period ${(2 * Math.PI / 0.42).toFixed(1)} s`);
-  say(`    breath         sin(t * 1.70) unhurt       period ${(2 * Math.PI / 1.7).toFixed(1)} s`);
-  say(`                   sin(t * 3.60) at death's door  period ${(2 * Math.PI / 3.6).toFixed(1)} s`);
-  say(`    head drift     sin(t * 0.31)              period ${(2 * Math.PI / 0.31).toFixed(1)} s`);
-  say(`    head nod       sin(t * 0.23)              period ${(2 * Math.PI / 0.23).toFixed(1)} s`);
+  const K = idleClocks();
+  IDLE_CLOCKS = K;
+  say(`  THE PERIODS the idle motion is built on, READ out of anim.ts's own`);
+  say(`  coefficients — an amplitude is only half of whether motion reads.`);
+  say(`  Each is matched on its whole assignment inside idleLayer's body; a term`);
+  say(`  this cannot find is named rather than guessed at.`);
+  const per = (k) => (k === null || k === undefined ? "     -" : (2 * Math.PI / k).toFixed(1).padStart(6));
+  // Rounded for display only — `breathHurt` is a SUM of two read coefficients
+  // and 2.3 + 1.9 is 4.199999999999999 in IEEE, which printed raw looks like a
+  // number somebody typed. The period beside it is computed from the full value.
+  const coe = (k) => (k === null || k === undefined ? "NOT FOUND" : `sin(t * ${Number(k.toFixed(4))})`);
+  const row = (label, k, note = "") =>
+    say(`    ${label.padEnd(14)} ${coe(k).padEnd(18)} period ${per(k)} s${note ? `   ${note}` : ""}`);
+  row("weight shift", K.shift);
+  row("breath", K.breathWell, "unhurt");
+  row("", K.breathHurt, "at death's door");
+  row("scan", K.scan, "the term that carries a half-second glance");
+  row("postural sway", K.swaySlow);
+  row("", K.swayFast, "incommensurate with the one above");
+  row("head drift", K.drift);
+  row("head nod", K.nod);
+  if (K.missed && K.missed.length) {
+    say();
+    say(`    NOT READ, so NOT PRINTED AS A NUMBER: ${K.missed.join(", ")}.`);
+    say(`    Those terms moved or were renamed. Nothing above stands in for them.`);
+  }
 
   // R5 — WATCH IT MOVE, and for THIS defect a trace is the honest artefact.
   // R5 exists because a still cannot show motion; that argument applies with
@@ -1101,7 +1182,19 @@ function finish(R) {
   if (R.idle) {
     say(`  IDLE          a standing man's head travels ${R.idle.idle.toFixed(1)} mm in half a second and his`);
     say(`                weapon tip ${R.idle.weapon.toFixed(1)} mm; a walking man's head ${R.idle.walk.toFixed(1)} mm — ${R.idle.ratio.toFixed(0)}x as far.`);
-    say(`                The motion is built on cycles of 15 s, 20 s and 27 s.`);
+    const K = IDLE_CLOCKS;
+    const p = (k) => (k === null || k === undefined ? null : 2 * Math.PI / k);
+    const three = K ? [p(K.shift), p(K.drift), p(K.nod)] : [null, null, null];
+    if (three.every((x) => x !== null)) {
+      say(`                Its slowest cycles, read out of anim.ts: ${three.map((x) => `${x.toFixed(1)} s`).join(", ")}`);
+      const fast = K ? [p(K.breathWell), p(K.scan), p(K.swayFast)].filter((x) => x !== null) : [];
+      if (fast.length) {
+        say(`                — and the terms inside a half-second glance: ${fast.map((x) => `${x.toFixed(1)} s`).join(", ")}.`);
+      }
+    } else {
+      say(`                THE PERIODS ARE NOT REPORTED HERE: §3 could not read one or more`);
+      say(`                of anim.ts's idle clocks off their assignments. See §3.`);
+    }
   }
   say();
   say(`  DEFERRALS, on the verdict line and not below it (R4):`);
@@ -1129,8 +1222,37 @@ function finish(R) {
   if (GATE) {
     const f = R.freeze;
     const bad = f && !f.void && (f.totalMissed > 0 || f.rigChurn > 0 || f.zeroDt > 0 || (f.wigCalm?.p50 ?? 0) < 0.02);
-    if (bad) { say(`\n  FAIL (--gate): a warrior stood bit-identical for 0.25 s or more.`); process.exitCode = 1; }
-    else say(`\n  PASS (--gate): no upright warrior held one pose for 0.25 s.`);
+    // WHAT THIS GATE ACTUALLY TESTS, said in the words of the condition above it
+    // and not in the words of the defect it was built beside. It was labelled
+    // "a warrior stood bit-identical for 0.25 s" in both directions, which is a
+    // fifth condition that is not in the `bad` expression at all — the four that
+    // are, are three lifecycle counters and a p50 on §1's calm wiggle.
+    //
+    // AND IT IS GREEN ON THE UNFIXED TREE. Copied onto origin/main, where a
+    // standing man's head travels 9.3 mm in half a second, this gate passes:
+    // none of its four conditions moves for an amplitude. §3, which this file's
+    // own verdict names as the instrument, is not gated at all. That is failure
+    // mode 2 — a measurement nobody has to look at — and it is stated here
+    // rather than in a footnote because the line above is the one people read.
+    // A GATE WITH NO EVIDENCE UNDER IT IS NOT A PASS, and it used to be one:
+    // `bad` is false when `f` is null, so `--gate --phases=collapse` printed a
+    // green line and exited 0 having measured nothing at all. That is failure
+    // mode 2 with the volume turned up — a deferral that reads as a verdict.
+    if (!f || f.void) {
+      say(`\n  CANNOT JUDGE (--gate): the freeze phase did not run, or a patch missed and`);
+      say(`  voided it. There is nothing to gate on. Exiting non-zero rather than green.`);
+      process.exitCode = 1;
+    } else if (bad) {
+      say(`\n  FAIL (--gate): lifecycle or in-fight wiggle — unposed ${f.totalMissed}, rig swaps ${f.rigChurn}, `
+        + `dt<=0 ${f.zeroDt}, calm wiggle p50 ${f3(f.wigCalm?.p50)} rad.`);
+      process.exitCode = 1;
+    } else {
+      say(`\n  PASS (--gate): lifecycle clean and the in-fight calm wiggle above its floor — `
+        + `unposed ${f.totalMissed}, rig swaps ${f.rigChurn}, dt<=0 ${f.zeroDt}, `
+        + `calm wiggle p50 ${f3(f.wigCalm?.p50)} rad.`);
+    }
+    say(`  WHAT THIS GATE DOES NOT SEE: the idle AMPLITUDE of §3. It passes on the`);
+    say(`  unfixed tree, where a standing man's crown moves 9.3 mm in half a second.`);
   }
 }
 
