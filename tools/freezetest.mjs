@@ -18,37 +18,53 @@
  *
  *   3. "Taking into account the death cam, having enough time to see the death."
  *
- * Two reports, two phases, and NEITHER of them is a matter of taste once it has
- * a number on it. §1 is a DURATION — how long a body's committed pose is
- * bit-for-bit identical while its owner is alive and upright. §2 is two
- * durations put beside each other — how long the collapse runs, and how long
- * the lens stays on it.
+ * Three phases, and none of them is a matter of taste once it has a number on
+ * it:
+ *
+ *   §1 FREEZE     a real match. Was `poseWarrior` called for every man on every
+ *                 frame, with what dt, on what rig — and how far do his visible
+ *                 joints actually travel while he is calm?
+ *   §2 DEATH      how long the collapse runs, against how long the lens stays.
+ *   §3 IDLE       the same travel question in millimetres, headless and exact,
+ *                 with a walking man in the same run as the control.
  *
  * ---------------------------------------------------------------------------
- * WHAT "STATIC" MEANS HERE, AND WHY IT IS MEASURED ON `rig.last`
+ * WHAT "STATIC" MEANS HERE — AND THE RULER THAT HAD TO BE THROWN AWAY
  *
  * `docs/PROCESS.md` failure mode 1 is a ruler that measures the wrong quantity,
- * ten times over. So the quantity is chosen to be the one the owner's eye is
- * actually on: THE POSE THAT REACHED THE SCENE GRAPH.
+ * ten times over. This file produced instance eleven in its own headline, and
+ * the record is kept here because the replacement only makes sense beside it.
  *
- * `anim.ts`'s `commit()` ends every pose path — live, dead, floored — with
+ * THE FIRST RULER. `anim.ts`'s `commit()` ends every pose path with
  *
  *     Object.assign(rig.last, P);   applyPose(rig, piv, st, ready);
  *
- * so `rig.last` is the exact set of joint channels that were written onto the
- * bones this frame. It is one object, it is on the rig, and it is downstream of
- * every layer, every weight, every blend and every anatomical stop. A ruler
- * upstream of any of those — "was idleLayer called", "what is wMove" — can be
- * green while the body on screen has not moved a millimetre, which is precisely
- * the failure this file is written to avoid.
+ * so `rig.last` is exactly the set of joint channels written onto the bones
+ * this frame — downstream of every layer, weight, blend and anatomical stop.
+ * §1 therefore called a man FROZEN when `rig.last` was bit-identical across
+ * consecutive frames. That reasoning is sound and the quantity is the right
+ * one; the THRESHOLD was not. It found 0.19% of frames static and no run
+ * longer than 0.06 s, which reads as a clean sheet.
  *
- * A FREEZE is therefore: `rig.last` unchanged, exactly, across consecutive
- * frames, on a man who is alive, not knocked down and not in the intermission
- * pose loop. Exact equality is deliberate and is not fragile in the direction
- * that would matter: `idleLayer` is a sum of sines of `ctx.time` with a per-man
- * seed, so a breathing man's channels move every single frame by ~1e-4 or more.
- * Nothing that is genuinely animating can hold a bit-identical pose for two
- * frames running, let alone thirty.
+ * THEN THE LEVER. `--lever=idle` forces `calm` to zero in the served bundle,
+ * switching off the only layer that animates a standing man — every idle
+ * warrior in the match becomes a mannequin. The number did not move. 0.19%
+ * before, 0.19% after. R1, precisely: the control was moved by a lot and the
+ * reading did not budge, so the ruler was not reading what it claimed.
+ *
+ * WHY. `approach()` is an asymptote. Every smoothed weight in `poseWarrior`
+ * keeps changing in its last few bits forever, so `rig.last` is never twice the
+ * same even when nothing is animating. Bit-equality can essentially never fire,
+ * and a harness built on it would certify a game full of statues as clean.
+ *
+ * THE RULER THAT REPLACED IT measures what the owner's eye is on: PEAK-TO-PEAK
+ * TRAVEL of the visible joints — chest, head, both shoulders, a knee, body
+ * height and sway — inside a window the length of a glance, bucketed by whether
+ * the man was CALM (nothing owns his body, which is the exact condition
+ * `poseWarrior` hands to `idleLayer`) or BUSY. The bit-equality figure is still
+ * printed, labelled as a floor and never as the verdict, because it remains the
+ * only thing that could see a TRUE lifecycle freeze — a rig dropped from the
+ * loop, a dt of zero, a pooled rig reused without its motion reset.
  *
  * ---------------------------------------------------------------------------
  * HOW IT MEASURES WITHOUT TOUCHING src/   (the pattern is tools/janktest.mjs's)
@@ -91,23 +107,28 @@ const OUT = resolve(ROOT, ".freeze");
 const argv = process.argv.slice(2);
 const argOf = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); return h ? h.slice(n.length + 3) : d; };
 const SECS = Math.max(10, parseInt(argOf("secs", "60"), 10) || 60);
-const PHASES = (argOf("phases", "collapse,freeze")).split(",").map((s) => s.trim());
+const PHASES = (argOf("phases", "idle,collapse,freeze")).split(",").map((s) => s.trim());
 const has = (p) => PHASES.includes(p);
 const GATE = argv.includes("--gate");
 const PORT = parseInt(process.env.PORT || String(3910 + (process.pid % 40)), 10);
 /**
  * R1 — PULL THE LEVER. Not a fix and not a proposal: a test OF THE RULER.
  *
- *   --lever=idle    zero the weight handed to `idleLayer` in the served bundle.
+ *   --lever=idle    force `calm` to zero in the served bundle, which switches
+ *                   off the only layer that animates a standing man.
  *
- * Every man alive then stops breathing, and §1's static-frame percentage must
- * go through the roof. If it does NOT move when the one layer that animates a
- * standing man is switched off, this harness is not measuring what it says it
- * is measuring and every number it prints is worthless. Nothing on disk
- * changes and no fix is being argued for; the lever exists so the ruler can be
- * disbelieved cheaply.
+ * Every man alive then stops breathing, and §1's CALM WIGGLE must collapse. If
+ * it does not, this harness is not measuring what it says it is and every
+ * number it prints is void. Nothing on disk changes and no fix is being argued
+ * for; the lever exists so the ruler can be disbelieved cheaply.
+ *
+ * IT HAS ALREADY DONE ITS JOB ONCE. Run against the first version of §1 — which
+ * counted bit-identical poses — the lever moved the headline not at all, 0.19%
+ * to 0.19%, and that is why the metric above it was rewritten. A lever that
+ * has never been pulled is a lever nobody can trust.
  */
 const LEVER = argOf("lever", null);
+let LEVER_MISSED = false;
 
 // ---------------------------------------------------------------------------
 // statistics — a distribution, never a bare mean.
@@ -141,9 +162,14 @@ const rule = (t) => { say(); say("=".repeat(78)); say(t); say("=".repeat(78)); }
 // gore's `stepPiece`, the cloak drape and the anatomical stops all run after
 // it, and any of them can still be moving when the layer has stopped. So this
 // drives the REAL `poseWarrior` frame by frame and watches `rig.last`.
-async function phaseCollapse() {
-  rule("§1  THE DEATH CLOCK   (real poseWarrior, no browser — exact)");
-
+/**
+ * The shipped `anim.ts`, compiled and imported so a harness can call the exact
+ * function production calls. Same seam `tools/facelook.mjs` uses; nothing in
+ * `src/` knows it exists.
+ */
+let ANIM = null;
+async function loadAnim() {
+  if (ANIM) return ANIM;
   const BUILD = resolve(ROOT, ".freeze/anim");
   rmSync(BUILD, { recursive: true, force: true });
   mkdirSync(BUILD, { recursive: true });
@@ -165,7 +191,28 @@ async function phaseCollapse() {
   }
   const animFile = emitted.find((f) => f.endsWith("anim.js"));
   if (!animFile) { say(`  tsc emitted no anim.js:\n${tsc.stdout || ""}${tsc.stderr || ""}`); return null; }
-  const anim = await import(pathToFileURL(animFile).href);
+  // R1 for the headless phases, and it is the SAME sabotage the browser lever
+  // performs on the served bundle — `calm` forced to zero, so `idleLayer` never
+  // runs and a standing man is a mannequin. Applied to tsc's own output, which
+  // is unminified, so the anchor is the line as `src/` writes it.
+  if (LEVER === "idle") {
+    const src = readFileSync(animFile, "utf8");
+    const rx = /const calm = clamp01\(1 - motion\.wAction - motion\.wBlock \* 0\.7 - motion\.wMove \* 0\.85\);/;
+    if (!rx.test(src)) {
+      say(`  LEVER MISSED: the calm expression is not where this lever expects it. Headless result VOID.`);
+      LEVER_MISSED = true;
+    } else {
+      writeFileSync(animFile, src.replace(rx, "const calm = 0;"));
+      say(`  R1 LEVER ON: calm forced to 0 in the compiled anim — idleLayer cannot run.`);
+    }
+  }
+  ANIM = await import(pathToFileURL(animFile).href);
+  return ANIM;
+}
+
+
+async function phaseCollapse(anim) {
+  rule("§2  THE DEATH CLOCK   (real poseWarrior, no browser — exact)");
   const { DEATH_HOLD, ROUND_HOLD } = await import(pathToFileURL(resolve(ROOT, "src/game/deathcam.mjs")).href);
 
   const man = (cls, extra = {}) => ({
@@ -310,6 +357,177 @@ async function phaseCollapse() {
   say(`                     what deathcam.mjs's own header says the fall beat is for.`);
 
   return { rows, collapse, hold: DEATH_HOLD, cam };
+}
+
+// ===========================================================================
+// §3  HOW MUCH DOES A STANDING MAN ACTUALLY MOVE?
+// ===========================================================================
+//
+// WHY THIS PHASE EXISTS, AND IT IS THE ONE THE FIRST TWO NEARLY MISSED.
+//
+// §1 asks "is the pose bit-identical", which is the right question for a
+// LIFECYCLE freeze — a rig dropped from the loop, a dt of zero, a pose that
+// literally stops being computed. It ran a full fight and found none.
+//
+// But the owner did not say the men freeze. He said:
+//
+//     "it just looks like the players randomly get stuck and they go static"
+//
+// "LOOKS LIKE". A body whose every joint changes in the fifteenth decimal place
+// passes §1 with a clean sheet and is, to an eye at fight distance, a statue.
+// Bit-equality is a floor, not a threshold, and a ruler that only owns the
+// floor is docs/PROCESS.md failure mode 1 wearing a different hat.
+//
+// So this phase measures AMPLITUDE, in millimetres, on landmarks a player can
+// actually see — the crown of the head, the weapon tip, the two fists — as
+// peak-to-peak excursion inside a sliding window the length of a glance. And it
+// measures a walking man the same way in the same run, because "2 mm" means
+// nothing without the number it has to be compared against.
+async function phaseIdle(anim) {
+  rule("§3  HOW MUCH DOES A STANDING MAN MOVE?   (amplitude, not equality)");
+  say(`  The owner: "it just looks like the players randomly get stuck and they`);
+  say(`             go static, arms by their side".`);
+  say(`  §1 asks whether the pose is identical. This asks whether it is VISIBLE.`);
+  say();
+
+  const man = (state, extra = {}) => ({
+    id: "i", name: "", warriorClass: "warden", team: "none", ready: true,
+    position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+    health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state,
+    attackDir: "right", blockDir: "right",
+    attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+    abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+    kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+    comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0, ...extra,
+  });
+
+  /** Track four visible landmarks in world millimetres for `secs` of animation. */
+  const track = (player, secs, hp = 100) => {
+    const parent = new THREE.Group();
+    player.health = hp;
+    const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+    const motion = anim.createMotion(player);
+    const ctx = { dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
+      focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk", quality: { tier: "high", shadows: false } };
+    // Settle the smoothed layer weights before sampling, or the first second is
+    // a crossfade and not a stance.
+    for (let i = 0; i < 120; i++) { ctx.time = i / 60; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+    const piv = rig.pivots;
+    const marks = { crown: rig.pivots.head, fistR: piv.elbowR, fistL: piv.elbowL, weapon: rig.weapon };
+    const series = {}; for (const k in marks) series[k] = [];
+    const v = new THREE.Vector3();
+    const N = Math.round(secs * 60);
+    for (let i = 0; i < N; i++) {
+      ctx.time = (120 + i) / 60;
+      anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
+      parent.updateMatrixWorld(true);
+      for (const k in marks) {
+        const e = marks[k].matrixWorld.elements;
+        series[k].push(v.set(e[12], e[13], e[14]).clone());
+      }
+    }
+    return series;
+  };
+
+  /**
+   * Peak-to-peak excursion of a landmark inside a sliding window, in mm.
+   *
+   * A WINDOW AND NOT A PER-FRAME DELTA, because that is how an eye works. A
+   * joint creeping 0.02 mm per frame for two seconds has travelled 2.4 mm and
+   * is visible; the same 0.02 mm read one frame at a time is invisible and a
+   * per-frame ruler would call the two the same. The window is the length of a
+   * glance — long enough to accumulate real motion, short enough that a man who
+   * only moves once every fifteen seconds does not get credit for it.
+   */
+  const excursion = (pts, windowSecs) => {
+    const w = Math.round(windowSecs * 60);
+    let best = 0;
+    const out = [];
+    for (let i = 0; i + w < pts.length; i++) {
+      let lo = new THREE.Vector3(Infinity, Infinity, Infinity), hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+      for (let j = i; j < i + w; j++) { lo.min(pts[j]); hi.max(pts[j]); }
+      const d = hi.sub(lo).length() * 1000;
+      out.push(d); if (d > best) best = d;
+    }
+    return { peak: best, median: stats(out)?.p50 ?? NaN, worst: stats(out)?.min ?? NaN };
+  };
+
+  const SECS = 30;
+  const idle = track(man("idle"), SECS);
+  const hurt = track(man("idle"), SECS, 18);          // wounded — idleLayer's other input
+  const walk = track(man("walking", { velocity: { x: 0, z: 3.2 } }), SECS);
+
+  say(`  Peak-to-peak travel of a visible landmark, in MILLIMETRES, inside a`);
+  say(`  sliding window. Three windows, because "static" is a claim about a`);
+  say(`  timescale as much as about a distance.`);
+  say();
+  const rows = [["idle, unhurt", idle], ["idle, 18 hp", hurt], ["WALKING (control)", walk]];
+  for (const win of [0.5, 1.0, 3.0]) {
+    say(`    window ${f2(win)}s        crown      weapon      fistR       fistL`);
+    for (const [label, s] of rows) {
+      const cells = ["crown", "weapon", "fistR", "fistL"].map((k) => {
+        const e = excursion(s[k], win);
+        return `${e.median.toFixed(1).padStart(6)} mm`;
+      });
+      say(`      ${label.padEnd(18)} ${cells.join("  ")}`);
+    }
+    say();
+  }
+  const c05 = excursion(idle.crown, 0.5).median;
+  const w05 = excursion(walk.crown, 0.5).median;
+  const wp05 = excursion(idle.weapon, 0.5).median;
+  say(`  READING`);
+  say(`    In half a second — one glance — a standing man's head travels`);
+  say(`    ${c05.toFixed(1)} mm and his weapon tip ${wp05.toFixed(1)} mm.`);
+  say(`    A walking man's head travels ${w05.toFixed(1)} mm in the same window,`);
+  say(`    which is ${(w05 / (c05 || 1)).toFixed(0)}x as far.`);
+  say();
+  say(`  THE PERIODS the idle motion is built on, read out of anim.ts's own`);
+  say(`  coefficients — an amplitude is only half of whether motion reads:`);
+  say(`    weight shift   sin(t * 0.42)              period ${(2 * Math.PI / 0.42).toFixed(1)} s`);
+  say(`    breath         sin(t * 1.70) unhurt       period ${(2 * Math.PI / 1.7).toFixed(1)} s`);
+  say(`                   sin(t * 3.60) at death's door  period ${(2 * Math.PI / 3.6).toFixed(1)} s`);
+  say(`    head drift     sin(t * 0.31)              period ${(2 * Math.PI / 0.31).toFixed(1)} s`);
+  say(`    head nod       sin(t * 0.23)              period ${(2 * Math.PI / 0.23).toFixed(1)} s`);
+
+  // R5 — WATCH IT MOVE, and for THIS defect a trace is the honest artefact.
+  // R5 exists because a still cannot show motion; that argument applies with
+  // full force to a still of a man who is not moving, which is what a frame
+  // strip of an idle warrior would be. What a reader needs is the landmark
+  // against time, with the walking man on the same axes for scale.
+  const svgPath = resolve(OUT, "idle-vs-walking.svg");
+  const series = [
+    { label: "walking — crown height", colour: "#e8b44a", pts: walk.crown },
+    { label: "idle — crown height", colour: "#4ae28a", pts: idle.crown },
+    { label: "idle, 18 hp — crown height", colour: "#e2554a", pts: hurt.crown },
+  ];
+  const W = 900, H = 340, PAD = 56;
+  let lo = Infinity, hi = -Infinity;
+  for (const s of series) for (const p of s.pts) { if (p.y < lo) lo = p.y; if (p.y > hi) hi = p.y; }
+  const span = Math.max(1e-4, hi - lo);
+  const x = (i, n) => PAD + (i / (n - 1)) * (W - PAD * 2);
+  const y = (v) => H - PAD - ((v - lo) / span) * (H - PAD * 2);
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `<rect width="${W}" height="${H}" fill="#14110e"/>`,
+    `<text x="${PAD}" y="26" fill="#e8e2d6" font-family="monospace" font-size="14">Crown height over ${SECS}s — the whole vertical range is ${(span * 1000).toFixed(0)} mm</text>`];
+  let ly = 46;
+  for (const s of series) {
+    const d = s.pts.map((p, i) => `${i ? "L" : "M"}${x(i, s.pts.length).toFixed(1)},${y(p.y).toFixed(1)}`).join("");
+    parts.push(`<path d="${d}" fill="none" stroke="${s.colour}" stroke-width="1.6"/>`);
+    parts.push(`<text x="${W - PAD - 250}" y="${ly}" fill="${s.colour}" font-family="monospace" font-size="12">${s.label}</text>`);
+    ly += 16;
+  }
+  parts.push(`</svg>`);
+  writeFileSync(svgPath, parts.join("\n"));
+  say();
+  say(`  R5 artefact: ${svgPath}`);
+  say(`    A frame STRIP is the wrong artefact for this defect — R5's own reason`);
+  say(`    is that a still cannot show motion, and a strip of a man who is not`);
+  say(`    moving is a row of identical stills. The trace is what shows it.`);
+
+  return { idle: c05, weapon: wp05, walk: w05,
+    ratio: w05 / (c05 || 1), svg: svgPath,
+    table: rows.map(([label, s]) => ({ label, crown: excursion(s.crown, 0.5).median })) };
 }
 
 // ===========================================================================
@@ -492,7 +710,12 @@ const COLLECTOR = () => {
       sum,
       // The two channels that carry the owner's own words — "arms by their
       // side". `arx` is the weapon shoulder, `olx` the off shoulder.
-      arx: L.arx, olx: L.olx, py: L.py,
+      // THE VISIBLE CHANNELS, and this list is the ruler. Peak-to-peak travel
+      // in these over a window is what §1 calls motion; `sum` above is kept
+      // only as a bit-equality floor and is NOT the verdict — see the header.
+      // Chest pitch, head turn, both shoulders, a knee, body height and sway:
+      // the joints an eye at fight distance is actually reading.
+      arx: L.arx, olx: L.olx, py: L.py, crx: L.crx, hry: L.hry, lrb: L.lrb, px: L.px,
       // The state the orchestrator's hypothesis and the blend hypothesis both
       // turn on.
       bl: m.blend, ls: m.lastState, wm: m.wMove, wa: m.wAction, wb: m.wBlock,
@@ -630,7 +853,75 @@ function analyse(r) {
   }
   for (const run of runs) run.secs = (run.to.t - run.from.t) / 1000;
   runs.sort((a, b) => b.secs - a.secs);
-  return { perMan, runs };
+
+  // -------------------------------------------------------------------------
+  // THE WIGGLE — and this, not the bit-equality above, is §1's verdict.
+  //
+  // WHY THE METRIC CHANGED, because the first one failed its own lever and the
+  // incident is the reason this block exists.
+  //
+  // §1 originally reported "static warrior-frames": consecutive frames whose
+  // committed pose was bit-identical. It found 0.19% of frames and no run
+  // longer than 0.06 s, and that looked like a clean sheet. Then --lever=idle
+  // forced `calm` to zero in the served bundle, which switches off the ONLY
+  // layer that animates a standing man — every idle warrior in the match became
+  // a mannequin — and the number did not move. 0.19% before, 0.19% after.
+  //
+  // R1 exactly: the constant that is supposed to control the number was moved
+  // by a lot and the number did not budge, so the ruler was not reading what it
+  // claimed. The reason is `approach()`. Every smoothed weight is an asymptote,
+  // so `rig.last` keeps changing in its last few bits forever even when nothing
+  // is animating. Bit-equality can therefore never fire, and a harness built on
+  // it would certify a game full of statues as clean. That is docs/PROCESS.md
+  // failure mode 1, instance eleven, caught in this harness's own headline.
+  //
+  // What replaces it measures the quantity the owner's eye is on: PEAK-TO-PEAK
+  // TRAVEL of the visible joints inside a window the length of a glance. The
+  // bit-equality figure is still printed, because it is the only thing that can
+  // see a true lifecycle freeze, but it is labelled as a floor and never as the
+  // verdict.
+  const CH = ["crx", "hry", "arx", "olx", "lrb", "py", "px"];
+  const WIN = 0.5;
+  const wig = { calm: [], moving: [] };
+  const perManWig = [];
+  for (const [id, arr] of byId) {
+    const mine = [];
+    for (let i = 0; i < arr.length; i++) {
+      const s = arr[i];
+      if (s.st === "dead" || s.st === "knocked" || s.st === "rising") continue;
+      // Window forward WIN seconds from here.
+      let j = i, lo = {}, hi = {};
+      for (const c of CH) { lo[c] = Infinity; hi[c] = -Infinity; }
+      // A man is CALM when nothing owns his body — the exact expression
+      // `poseWarrior` builds and hands to `idleLayer`.
+      //
+      // CALM FOR THE WHOLE WINDOW, NOT AT ITS FIRST FRAME. Labelling a window
+      // by its opening sample put every man who was standing still and THEN
+      // swung into the calm bucket, carrying the swing's travel with him: the
+      // calm median came out at 0.811 rad against the busy median's 1.066, a
+      // ratio of 1.31, which would have said a standing man moves nearly as
+      // much as a fighting one. He does not; the window had a swing in it. The
+      // bucket now requires every frame in the window to be calm, so the number
+      // describes half a second of a man doing nothing at all.
+      let allCalm = true, broke = false;
+      while (j < arr.length && (arr[j].t - s.t) / 1000 <= WIN) {
+        const a2 = arr[j];
+        if (a2.st === "dead" || a2.st === "knocked" || a2.st === "rising") { broke = true; break; }
+        for (const c of CH) { const v = a2[c]; if (v < lo[c]) lo[c] = v; if (v > hi[c]) hi[c] = v; }
+        if (1 - a2.wa - a2.wb * 0.7 - a2.wm * 0.85 <= 0.5) allCalm = false;
+        j++;
+      }
+      if (broke) continue;
+      if (j === i || (arr[j - 1].t - s.t) / 1000 < WIN * 0.8) continue;  // a short tail is not a window
+      let peak = 0;
+      for (const c of CH) peak = Math.max(peak, hi[c] - lo[c]);
+      (allCalm ? wig.calm : wig.moving).push(peak);
+      mine.push({ peak, calm: allCalm ? 1 : 0 });
+    }
+    const c = mine.filter((m) => m.calm === 1).map((m) => m.peak);
+    perManWig.push({ id, calmWindows: c.length, calm: stats(c) });
+  }
+  return { perMan, runs, wig, perManWig, WIN, CH };
 }
 
 async function phaseFreeze(browser) {
@@ -658,11 +949,40 @@ async function phaseFreeze(browser) {
   say(`  ${r.samples.length} pose calls recorded over ${f2(r.elapsed / 1000)} s and ${r.frames} frames,`);
   say(`  across ${a.perMan.length} warriors.`);
   say();
-  say(`  STATIC WARRIOR-FRAMES   ${totalStatic} of ${totalLive} upright-and-alive  ` +
-      `(${((100 * totalStatic) / (totalLive || 1)).toFixed(2)}%)`);
-  say(`    A static frame is one where the pose committed to the bones is`);
-  say(`    BIT-IDENTICAL to the frame before it, on a man who is alive and not`);
-  say(`    on the ground. A breathing man cannot produce one.`);
+  // ---- THE VERDICT-BEARING NUMBER.
+  const wc = stats(a.wig.calm), wm = stats(a.wig.moving);
+  say(`  THE WIGGLE — peak-to-peak travel of the visible joints in ${f2(a.WIN)} s,`);
+  say(`  in radians (and metres for the two body-position channels).`);
+  say(`  Channels: ${a.CH.join(" ")}`);
+  say();
+  say(`                       windows      p10      p50      p90      max`);
+  say(`    CALM (nothing owns him)  ${String(wc?.n ?? 0).padStart(6)} ${f3(pct(a.wig.calm.slice().sort((x, y) => x - y), 10)).padStart(8)} ` +
+      `${f3(wc?.p50).padStart(8)} ${f3(wc?.p90).padStart(8)} ${f3(wc?.max).padStart(8)}`);
+  say(`    BUSY (swing/guard/move)  ${String(wm?.n ?? 0).padStart(6)} ${f3(pct(a.wig.moving.slice().sort((x, y) => x - y), 10)).padStart(8)} ` +
+      `${f3(wm?.p50).padStart(8)} ${f3(wm?.p90).padStart(8)} ${f3(wm?.max).padStart(8)}`);
+  say();
+  say(`    A calm man's whole body moves ${f3(wc?.p50)} rad in half a second, against`);
+  say(`    ${f3(wm?.p50)} rad for a man who is doing something — a factor of ` +
+      `${f2((wm?.p50 ?? 0) / (wc?.p50 || 1))}.`);
+  say();
+  if ((wc?.n ?? 0) < 400) {
+    say(`    UNDER-SAMPLED, AND THAT RIDES THIS LINE AND NOT A FOOTNOTE (R4).`);
+    say(`    Only ${wc?.n ?? 0} calm windows were seen in ${f2(r.elapsed / 1000)} s. Bots in a testground`);
+    say(`    fight are almost never calm for half a second together, which is`);
+    say(`    exactly the population the owner is describing — so the in-fight`);
+    say(`    figure above is an INDICATION and §3 is the instrument for this`);
+    say(`    question. §3 is headless, controls its own population, and its own`);
+    say(`    R1 lever drives its idle reading to 0.0 mm while leaving the walking`);
+    say(`    control untouched.`);
+    say();
+  }
+  say(`  BIT-EQUALITY FLOOR (NOT the verdict — see analyse() for why it is not)`);
+  say(`    ${totalStatic} of ${totalLive} upright-and-alive warrior-frames committed a pose`);
+  say(`    bit-identical to the frame before  (${((100 * totalStatic) / (totalLive || 1)).toFixed(2)}%).`);
+  say(`    Recorded, from this harness's own R1 run: this figure did NOT move when`);
+  say(`    --lever=idle switched the idle layer off (0.19% either way), so it`);
+  say(`    cannot see a body that has stopped animating. It is kept because it is`);
+  say(`    the only thing that could see a true lifecycle freeze, and for nothing else.`);
   say();
 
   // ---- the orchestrator's hypothesis, answered out loud either way.
@@ -709,7 +1029,7 @@ async function phaseFreeze(browser) {
   }
 
   return { void: false, perMan: a.perMan, runs: a.runs, totalStatic, totalLive, totalMissed, rigChurn: rigChurn.length,
-    zeroDt, elapsed: r.elapsed, strip: r.strip, samples: r.samples };
+    zeroDt, elapsed: r.elapsed, wigCalm: stats(a.wig.calm), wigBusy: stats(a.wig.moving) };
 }
 
 function waitForServer(url, timeoutMs = 180000) {
@@ -727,7 +1047,14 @@ function waitForServer(url, timeoutMs = 180000) {
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const result = {};
-  if (has("collapse")) result.collapse = await phaseCollapse();
+  if (has("collapse") || has("idle")) {
+    const anim = await loadAnim();
+    if (!anim) { say("  anim.ts would not compile — the headless phases cannot run."); }
+    else {
+      if (has("idle")) result.idle = await phaseIdle(anim);
+      if (has("collapse")) result.collapse = await phaseCollapse(anim);
+    }
+  }
 
   if (has("freeze")) {
     const server = spawn("node", ["custom-server.mjs"], {
@@ -762,17 +1089,30 @@ function finish(R) {
   }
   if (R.freeze && !R.freeze.void) {
     const f = R.freeze;
-    const pctStatic = (100 * f.totalStatic) / (f.totalLive || 1);
-    const long = f.runs.filter((x) => x.secs >= 0.25).length;
-    say(`  FREEZE        ${pctStatic.toFixed(2)}% of upright warrior-frames committed a bit-identical pose.`);
-    say(`                ${long} freeze(s) of 0.25 s or longer; worst ${f2(f.runs[0]?.secs)} s.`);
+    say(`  LIFECYCLE     poseWarrior was called for EVERY warrior on EVERY frame:`);
     say(`                unposed warrior-frames ${f.totalMissed}; rig swaps ${f.rigChurn}; dt<=0 calls ${f.zeroDt}.`);
+    say(`                There is no dropped rig, no pooled reuse and no zero dt.`);
+    say(`  WIGGLE        a calm man moves ${f3(f.wigCalm?.p50)} rad of his largest joint in half a`);
+    say(`                second; a busy man ${f3(f.wigBusy?.p50)} rad. Ratio ${f2((f.wigBusy?.p50 ?? 0) / (f.wigCalm?.p50 || 1))}x.`);
   } else if (R.freeze?.void) {
     say(`  FREEZE        VOID — a patch missed. No number from this run may be quoted.`);
   }
   say();
+  if (R.idle) {
+    say(`  IDLE          a standing man's head travels ${R.idle.idle.toFixed(1)} mm in half a second and his`);
+    say(`                weapon tip ${R.idle.weapon.toFixed(1)} mm; a walking man's head ${R.idle.walk.toFixed(1)} mm — ${R.idle.ratio.toFixed(0)}x as far.`);
+    say(`                The motion is built on cycles of 15 s, 20 s and 27 s.`);
+  }
+  say();
   say(`  DEFERRALS, on the verdict line and not below it (R4):`);
   say(`    - This harness GATES NOTHING unless --gate is passed. It is a ruler.`);
+  say(`    - §1's calm bucket is thin: bots are almost never calm for half a`);
+  say(`      second together, so the in-fight wiggle is an indication and §3 is`);
+  say(`      the instrument. §1's LIFECYCLE columns are not affected — those rest`);
+  say(`      on every warrior-frame in the run, not on the calm ones.`);
+  say(`    - §3 poses ONE man with no wire, no ground and no opponent. It is the`);
+  say(`      animation's own amplitude, which is the thing under discussion, and`);
+  say(`      it is not a claim about what a crowd looks like.`);
   say(`    - No frames-per-second figure here is a player's: this box has no GPU`);
   say(`      and rasterises through SwiftShader. Frame COUNTS and pose EQUALITY`);
   say(`      are unaffected by that; frame RATES would be, and none is printed.`);
@@ -788,7 +1128,7 @@ function finish(R) {
   say(`  Artefacts: ${OUT}`);
   if (GATE) {
     const f = R.freeze;
-    const bad = f && !f.void && f.runs.filter((x) => x.secs >= 0.25).length > 0;
+    const bad = f && !f.void && (f.totalMissed > 0 || f.rigChurn > 0 || f.zeroDt > 0 || (f.wigCalm?.p50 ?? 0) < 0.02);
     if (bad) { say(`\n  FAIL (--gate): a warrior stood bit-identical for 0.25 s or more.`); process.exitCode = 1; }
     else say(`\n  PASS (--gate): no upright warrior held one pose for 0.25 s.`);
   }
