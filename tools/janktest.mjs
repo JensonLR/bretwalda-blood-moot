@@ -284,11 +284,23 @@ const PATCHES = {
   // arrives with a non-positive or absurd gap — which is exactly what a BURST
   // of queued packets looks like after the main thread has been blocked. A
   // reset is a hard discontinuity with no smoothing behind it.
+  // ANCHORED ON STRUCTURE, NOT ON THE MINIFIER'S ALPHABET. The literal form of
+  // this line was `if((c=Math.hypot(a-o.x,r-o.z)>6)||i<=0||i>8*e.netInterval)`.
+  // Adding ONE parameter to `ingestNet` in src/ shifted every one of those
+  // letters (c->u, a->r, o->l, r->i, i->a) and the patch matched nothing — the
+  // harness correctly declared itself VOID, but a ruler that has to be re-tuned
+  // by hand after each fix is a ruler that will eventually be re-tuned wrongly.
+  //
+  // The identifiers are capture groups; what pins the match is the shape no
+  // rename can touch — the hypot against NET_TELEPORT, the two gap tests
+  // against `.netInterval`, and the `.netCount=0` they guard. Property names
+  // survive the minifier, so this is the same anchoring rule the rest of the
+  // file already argues for, applied one level deeper.
   reset: {
     name: "count buffer resets",
     subs: [[
-      `if((c=Math.hypot(a-o.x,r-o.z)>6)||i<=0||i>8*e.netInterval)e.netCount=0;`,
-      `if((c=Math.hypot(a-o.x,r-o.z)>6)||i<=0||i>8*e.netInterval)window.__jankReset&&window.__jankReset(c,i),e.netCount=0;`,
+      /if\(\((\w+)=Math\.hypot\((\w+)-(\w+)\.x,(\w+)-\3\.z\)>6\)\|\|(\w+)<=0\|\|\5>8\*(\w+)\.netInterval\)\6\.netCount=0;/,
+      `if(($1=Math.hypot($2-$3.x,$4-$3.z)>6)||$5<=0||$5>8*$6.netInterval)window.__jankReset&&window.__jankReset($1,$5),$6.netCount=0;`,
     ]],
   },
   // The other end of the buffer: render time is BEFORE the oldest sample held,
@@ -316,6 +328,14 @@ async function installPatches(ctx, names) {
     for (const n of names) {
       for (const [from, to0] of PATCHES[n].subs) {
         const to = to0.replace("__LEVER__", String(LEVER));
+        if (from instanceof RegExp) {
+          // Same accounting as the string branch: count first, so a patch that
+          // matched nothing still reports 0 and voids its own result.
+          const rx = new RegExp(from.source, from.flags.includes("g") ? from.flags : from.flags + "g");
+          const n0 = (body.match(rx) || []).length;
+          if (n0) { hits[n] += n0; body = body.replace(rx, to); touched = true; }
+          continue;
+        }
         const parts = body.split(from);
         if (parts.length > 1) { hits[n] += parts.length - 1; body = parts.join(to); touched = true; }
       }
