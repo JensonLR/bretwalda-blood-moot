@@ -5212,3 +5212,48 @@ cylinder did wrong, and moving the bar is buying a pass.
   the ear row `917050 (224 tri) 91.7% 9.9 mm az 114`   0 occurrences
   rungcensus vs origin/main       360 identical, 280 gained, 0 LOST, 0 rungs gone
 ```
+
+## jank2 costs one input-rate check, and main does not — 15 Aug 2026
+
+**Do not merge `jank2` until this is closed.** The branch is otherwise a large, verified win
+and the temptation to wave this through is exactly why it is written down.
+
+```
+              run 1                                   run 2
+main    37/37 controls working              (same load, control)
+jank2   36/37  BROKEN: F sends a shove      36/37  BROKEN: input reaches the server
+               and the sim answers it              at a usable rate, space dodges
+```
+
+**It is not flake, and the shape of the evidence is the argument.** Both runs of `jank2` drop
+exactly one check; the check DIFFERS between runs; and both are input-RATE sensitive. `main`
+was rebuilt in its own worktree and run under the IDENTICAL load — three concurrent agent
+workflows on the same box — and read 37/37. A marginal timing regression fails whichever
+rate-sensitive assertion sits closest to the line on that run, which is precisely what "a
+different check each time, always exactly one" looks like.
+
+**The likely cause is new per-frame main-thread work, not the network fix.** The diff against
+main is 452 lines over five files, and the report that came with it said "`anim.ts` is
+untouched" — true of round TWO, not of the branch:
+
+```
+ src/app/page.tsx                   68 ++    wireSeq stamped in handleMessage, on the hot path
+ src/game/client/GameCanvas.tsx     73 ++
+ src/game/client/render/anim.ts     88 ++    round one's ingestNet fix
+ src/game/client/render/hud3d.ts   218 ++    per-frame four-corner quad projection, NEW
+ src/game/client/render/quality.ts  34 ++
+```
+
+`hud3d.ts` is the newest and heaviest addition and it projects four corners per HUD quad every
+frame. Round two measured JS work at `p50 1.20 ms` with the profile 86.25% idle and concluded
+there was nothing on the main thread to cut — that measurement was taken to refute a
+CPU-budget panic and it did, but it is NOT evidence that ADDING per-frame work is free.
+
+**The harness's own honesty matters too.** `playtest` is timing-sensitive enough to drop a
+check on a loaded box, so it is a weak gate under load — but not weak enough to explain this,
+because the control passed. Whoever picks this up should decide whether `playtest` ought to be
+made load-robust as well: a gate that fails differently each run is hard to trust in either
+direction.
+
+Verified green on `jank2` alongside this: typecheck, csscheck, protocoltest 81/81, wartest
+79/79, and the production build.
