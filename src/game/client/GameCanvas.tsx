@@ -706,6 +706,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // ---------- main loop ----------
   useEffect(() => {
     let running = true;
+    // Scratch for the one consumer that must NOT see `wireEpoch`. Made once
+    // and refilled; see the summary call below for why it is stripped.
+    const summaryCtx = {} as FrameContext;
 
     const loop = (time: number) => {
       if (!running) return;
@@ -1018,7 +1021,28 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             stage.audio.setBurning(id, false, 0, false, { x: 0, y: 0, z: 0 });
           },
         });
-        summaryRef.current.update(dt, ctx, roomState, verdict, warriorsRef.current, playerId);
+        // THE SUMMARY IS HANDED A CONTEXT WITH NO WIRE ON IT.
+        //
+        // `wireEpoch` tells the interpolator that an unchanged record is a
+        // fresh authoritative sample rather than silence (see `quality.ts`).
+        // That is right for a live fight and it is not this stage's bargain:
+        // the podium record is deliberately FROZEN, the men are carried to
+        // marks by this module, and `summary.ts` calls `cutNetHistory` at the
+        // moments it wants the wire forgotten. Leaving the epoch on would put
+        // this stage's behaviour under a mechanism no summary harness has
+        // measured, to buy nothing the staging does not already do.
+        //
+        // Reversible on purpose, and the argument for reversing it is real:
+        // confirming a frozen man drives his segment velocity to ZERO, which
+        // is the exact failure `cutNetHistory` exists to prevent. If the
+        // podium is ever revisited, hand it `ctx` whole and delete this.
+        //
+        // Mutated in place rather than spread: a fresh object here would be an
+        // allocation every frame of the summary, and this screen holds for
+        // several seconds.
+        Object.assign(summaryCtx, ctx);
+        summaryCtx.wireEpoch = undefined;
+        summaryRef.current.update(dt, summaryCtx, roomState, verdict, warriorsRef.current, playerId);
         // A press from the summary surface plays on the staged tableau — the
         // motion is shared, so the flourish lands on the man mid-portrait. It
         // is drained AFTER the stage has been built, because who is standing is
