@@ -359,6 +359,13 @@ export interface WarriorMotion {
   /** How late arrivals have been running lately. Widens the phase window. */
   netJit: number;
   /**
+   * The room snapshot count this motion last ingested, from `ctx.wireEpoch`.
+   * -1 until the first frame. It is what lets `ingestNet` tell a man the server
+   * says is STANDING STILL from a man the server has said nothing about; see
+   * the note there.
+   */
+  netEpoch: number;
+  /**
    * Error smoothing. The zero-delay local rig extrapolates, and an
    * extrapolation is a guess: when the next packet disagrees with it the
    * difference has to go somewhere. Applied on the frame it appears it is a
@@ -496,7 +503,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     rx: p.position.x, rz: p.position.z, yaw: p.rotation,
     net: Array.from({ length: SNAP_KEEP }, () => ({ t: 0, x: 0, z: 0, yaw: 0, yawRaw: 0 })),
     netHead: 0, netCount: 0, netClock: 0,
-    netInterval: NET_INTERVAL_GUESS, netArrive: 0, netJit: 0,
+    netInterval: NET_INTERVAL_GUESS, netArrive: 0, netJit: 0, netEpoch: -1,
     errX: 0, errZ: 0, errYaw: 0,
     rawX: p.position.x, rawZ: p.position.z, rawYaw: p.rotation,
     rawVx: 0, rawVz: 0, rawVyaw: 0, rawPrimed: false,
@@ -1619,12 +1626,51 @@ function snapAt(m: WarriorMotion, k: number): NetSnapshot {
  * period after the one before it, and the arrival is only allowed to correct
  * that grid, never to set it. The result is exactly-even segments.
  */
-function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
+function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number, epoch: number | undefined): boolean {
   const x = p.position.x;
   const z = p.position.z;
   const rawYaw = p.rotation;
   const newest = m.netCount ? snapAt(m, m.netCount - 1) : null;
-  if (newest && newest.x === x && newest.z === z && newest.yawRaw === rawYaw) return false;
+  // A STILL MAN IS NOT A SILENT WIRE, AND THEY USED TO BE THE SAME BYTES HERE.
+  //
+  // Comparing the record with the one held is the only way to notice a new
+  // packet from a wire that stamps nothing per player — but it answers "did
+  // this man move", and the question is "did a packet land". They part company
+  // exactly when a man holds position, and that is not a rare case: measured on
+  // a 40 s seven-bot fight, a record is byte-identical to the tick before it on
+  // 7.9%-69.5% of ticks per man — 99-100% for a corpse, 26-35% for a staggered
+  // man, 6-13% for a man mid-swing — with freeze runs reaching 7400 ms.
+  //
+  // Read as silence, every one of those ticks left the newest stamp where it
+  // was while `netClock` ran on, so `sampleNet` fell into its extrapolation
+  // branch and carried the body down the last segment velocity it had — up to
+  // 3.19 m/s measured on the tick before a freeze — for the full
+  // NET_MAX_EXTRAPOLATE. Two thirds of a metre of motion the simulation never
+  // had, on a man the server was reporting as motionless, ending in a snap back
+  // when the silence finally tripped the buffer reset below. That is the
+  // owner's JOLTY and his JUMPY, and they were one defect.
+  //
+  // `ctx.wireEpoch` is the witness the record cannot be: a snapshot is a
+  // whole-room broadcast, so its arrival confirms EVERY man in it, the still
+  // ones included. When it has advanced, an unchanged record is an
+  // authoritative "he is exactly here" and is ingested as one — placed on the
+  // grid like any other packet, with a segment velocity of zero, so the
+  // extrapolator has nothing to invent. When it has NOT advanced the wire is
+  // genuinely silent and this returns false exactly as it always did, leaving
+  // the extrapolator to cover a real hole. That is the distinction, and it is
+  // the whole fix.
+  //
+  // It does NOT replace the slot count below. Epoch delta counts PACKETS; the
+  // grid is spaced in sim STEPS, and one wake can ship two steps in one packet
+  // (engine.mjs:2203). Different quantities — the long argument below still
+  // stands and is untouched.
+  //
+  // undefined = a caller with no wire at all. `summary.ts` and `armouryStage`
+  // pose frozen records, where a still man IS the whole intent, so they keep
+  // the original behaviour.
+  const confirmed = epoch !== undefined && epoch !== m.netEpoch;
+  if (epoch !== undefined) m.netEpoch = epoch;
+  if (newest && newest.x === x && newest.z === z && newest.yawRaw === rawYaw && !confirmed) return false;
 
   const now = m.netClock;
   // A seed, not an observation. All that is known of an arrival is that it fell
@@ -1931,7 +1977,7 @@ export function stepWarriorTransform(
   // off frame counts, which is what makes the motion identical at 30, 60 and
   // 120 fps instead of converging twice as fast on the better phone.
   motion.netClock += Math.max(0, dt);
-  const teleported = ingestNet(motion, player, dt > 1e-4 ? dt : 1 / 60);
+  const teleported = ingestNet(motion, player, dt > 1e-4 ? dt : 1 / 60, ctx.wireEpoch);
   // Local: zero delay, carried forward to the present instant. Remote: rendered
   // 1.5 packet intervals back so there is always a snapshot on each side. See
   // the section header for why the two are not the same problem.

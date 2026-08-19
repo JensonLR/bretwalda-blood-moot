@@ -211,6 +211,19 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // The loop is started once; the network state it reads lives in refs so a
   // packet does not tear down and rebuild the animation frame callback.
   const roomStateRef = useRef<RoomState | null>(roomState);
+  /**
+   * How many authoritative snapshots have reached this component. Rides into
+   * the frame as `ctx.wireEpoch`; see the field's note in `quality.ts` for why
+   * the interpolator cannot work it out for itself.
+   *
+   * Counted off object IDENTITY, not off contents. `page.tsx` calls
+   * `setRoomState` with a freshly parsed object for every `game_state`, so a
+   * new reference IS a new packet — including the packet in which nobody moved,
+   * which is the whole case this exists to catch. A `useEffect` is the right
+   * home for it because it fires once per committed value; counting in render
+   * would double under StrictMode and skip nothing on a bailout.
+   */
+  const wireEpochRef = useRef(0);
   const sendInputRef = useRef(onSendInput);
   // The verdict rides a ref for the same reason roomState does: the loop reads
   // it, and a match ending must not rebuild the animation frame callback.
@@ -275,7 +288,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // would have run, and a build that could not see its consumer would silently
   // decide it had none and stop yielding.
   const onForgeRef = useRef(onForge);
-  useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
+  useEffect(() => { roomStateRef.current = roomState; wireEpochRef.current++; }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
   useEffect(() => { matchEndRef.current = matchEnd ?? null; }, [matchEnd]);
   // Held in a ref rather than read from the effect's closure: a parent that
@@ -724,6 +737,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         localState: localPlayer?.state ?? null,
         mood,
         quality: stage.quality,
+        wireEpoch: wireEpochRef.current,
       };
 
       stage.world.update(dt, ctx);
