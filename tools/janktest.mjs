@@ -268,7 +268,15 @@ const PATCHES = {
   // surrounding comma sequence is untouched.
   nodraw: {
     name: "suppress the draw call",
-    subs: [[`.postfx.render(l,p)`, `.postfx[window.__jankNoDraw?"__none":"render"]?.(l,p)`]],
+    // Structural, for the reason spelled out on the `reset` patch below: this
+    // was pinned on `.postfx.render(l,p)` and a single added local in
+    // GameCanvas's loop renamed the two arguments to (u,m), so the patch
+    // matched nothing and §3 voided itself. The property path is the anchor;
+    // the arguments are captured, whatever the minifier decided to call them.
+    subs: [[
+      /\.postfx\.render\((\w+),(\w+)\)/g,
+      `.postfx[window.__jankNoDraw?"__none":"render"]?.($1,$2)`,
+    ]],
   },
   // The interpolator's own output, per warrior per frame, taken at the line
   // that commits it to the scene graph.
