@@ -7,6 +7,7 @@
  *   node tools/gravitytest.mjs --only=corpse      §2 where the corpse stops
  *   node tools/gravitytest.mjs --only=spine       §3 how far the spine bends
  *   node tools/gravitytest.mjs --gate             exit non-zero on a red verdict
+ *   node tools/gravitytest.mjs --strip            §1 as a picture: .gravity/strip.svg
  *   node tools/gravitytest.mjs --lever=park       R1 for §1
  *   node tools/gravitytest.mjs --lever=flat       R1 for §2
  *   node tools/gravitytest.mjs --lever=stops      R1 for §3
@@ -100,6 +101,7 @@ const argOf = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); r
 const ONLY = (argOf("only", "down,corpse,spine")).split(",").map((s) => s.trim());
 const has = (s) => ONLY.includes(s);
 const GATE = argv.includes("--gate");
+const STRIP = argv.includes("--strip");
 const LEVER = argOf("lever", "");
 let LEVER_MISSED = false;
 
@@ -245,6 +247,70 @@ async function loadAnim() {
   return ANIM;
 }
 
+/**
+ * THE FRAME SEQUENCE, AS A PICTURE. R5 says open the render and watch it move,
+ * and three of the four defects the owner reported were invisible to every
+ * number in this repository and obvious in one image.
+ *
+ * THIS IS NOT A SCREENSHOT AND MUST NOT BE READ AS ONE. There is no GPU and no
+ * browser on the box this was written on — `npm run shoot` and freezetest's own
+ * `--phases=freeze` both need Chromium and neither can run here. What this draws
+ * is the RIG'S OWN JOINT POSITIONS in world space, side elevation, straight off
+ * `getWorldPosition` after the frame's pose has been committed to the bones. It
+ * carries no mesh, no armour, no cloak and no ground. It is a stick figure of
+ * where the skeleton actually is, and for "is this man standing up or lying
+ * down" that is the whole question — but anything about silhouette, material or
+ * light has to wait for a machine that can run the real renderer.
+ *
+ * Verified coherent before it was trusted: a standing warden's head pivot sits
+ * at y 1.45 m and his hip at y -0.08; four seconds after a plain death the same
+ * head is at y 0.18, z -1.72, and his knee at y 0.04. The skeleton lies down.
+ */
+const JOINTS = ["head", "chest", "rightArm", "elbowR", "rightLeg", "kneeR"];
+function shootFrame(parent, rig) {
+  parent.updateMatrixWorld(true);
+  const V = new THREE.Vector3();
+  const out = {};
+  rig.body.getWorldPosition(V); out.hip = [V.z, V.y];
+  for (const j of JOINTS) { rig.pivots[j].getWorldPosition(V); out[j] = [V.z, V.y]; }
+  return out;
+}
+/** Side elevation, one panel per sample, ground line at y = 0. */
+function writeStrip(frames, path, caption) {
+  const W = 150, H = 190, PAD = 8;
+  const SCALE = 52;                       // px per metre
+  const ox = W / 2, oy = H - 40;          // origin: ground, mid-panel
+  const X = (z) => ox - z * SCALE;        // -z is "away from the blow"
+  const Y = (y) => oy - y * SCALE;
+  const seg = (f, a, b) => `<line x1="${X(f[a][0]).toFixed(1)}" y1="${Y(f[a][1]).toFixed(1)}" `
+    + `x2="${X(f[b][0]).toFixed(1)}" y2="${Y(f[b][1]).toFixed(1)}"/>`;
+  const panels = frames.map((f, i) => {
+    const x0 = PAD + i * (W + PAD);
+    const bones = [["hip", "chest"], ["chest", "head"], ["chest", "rightArm"],
+      ["rightArm", "elbowR"], ["hip", "rightLeg"], ["rightLeg", "kneeR"]]
+      .map(([a, b]) => seg(f.j, a, b)).join("");
+    const dots = ["head", "chest", "hip", "kneeR"].map((k) =>
+      `<circle cx="${X(f.j[k][0]).toFixed(1)}" cy="${Y(f.j[k][1]).toFixed(1)}" r="2.6"/>`).join("");
+    return `<g transform="translate(${x0},${PAD})">`
+      + `<rect x="0" y="0" width="${W}" height="${H}" fill="none" stroke="#3a3a3a"/>`
+      + `<line x1="6" y1="${oy}" x2="${W - 6}" y2="${oy}" stroke="#666" stroke-dasharray="3 3"/>`
+      + `<g stroke="#e8e0d0" stroke-width="4.5" stroke-linecap="round" fill="none">${bones}</g>`
+      + `<g fill="#c8552a">${dots}</g>`
+      + `<text x="6" y="14" fill="#8a8a8a" font-family="monospace" font-size="10">t+${f.t}s</text>`
+      + `<text x="6" y="${H - 20}" fill="#c9c9c9" font-family="monospace" font-size="10">${f.state}</text>`
+      + `<text x="6" y="${H - 8}" fill="#c8552a" font-family="monospace" font-size="10">${f.pitch}</text>`
+      + `</g>`;
+  }).join("");
+  const total = PAD + frames.length * (W + PAD);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${H + PAD * 2 + 26}" `
+    + `viewBox="0 0 ${total} ${H + PAD * 2 + 26}"><rect width="100%" height="100%" fill="#141414"/>`
+    + panels
+    + `<text x="${PAD}" y="${H + PAD * 2 + 18}" fill="#8a8a8a" font-family="monospace" font-size="11">${caption}</text>`
+    + `</svg>`;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, svg);
+}
+
 /** A rig, a motion and a frame context — everything `poseWarrior` needs. */
 function stand(anim, player) {
   const parent = new THREE.Group();
@@ -334,7 +400,7 @@ async function sectionDown(anim) {
   const hold = (S, data) => engine.message(S.sid, { type: "input", data: { ...NEUTRAL, ...data } });
 
   // A rig for B, posed from the wire every render frame.
-  const { rig, motion, ctx } = stand(anim, me(B));
+  const { parent, rig, motion, ctx } = stand(anim, me(B));
   const RENDER = 3;                                  // render frames per sim tick (20 Hz -> 60 fps)
   const DT = TICK / RENDER;
   let time = 0;
@@ -346,7 +412,7 @@ async function sectionDown(anim) {
       anim.poseWarrior(rig, motion, b, DT, ctx);
       track.push({ t: time, state: b.state, mortal: !!b.mortal,
         mercy: b.mercyTimer ?? 0, downTimer: b.downTimer ?? 0, health: b.health,
-        pitch: topple(rig.last) });
+        pitch: topple(rig.last), j: STRIP ? shootFrame(parent, rig) : null });
     }
   };
 
@@ -403,6 +469,19 @@ async function sectionDown(anim) {
     + `  (${knocked.length ? f1(100 * upright.length / knocked.length) : "  -"}%)`);
   say(`    longest unbroken run of that                 ${f2(worstRun)} s`);
   say(`    biggest ONE-FRAME move of the drawn trunk    ${f1(step)}°  at t+${f2(stepAt)}s, ${stepFrom} -> ${stepTo}`);
+  if (STRIP) {
+    // Ten samples across the window plus the two frames either side of the snap,
+    // because the snap is one frame long and an even sampling would miss it.
+    const snapAt = win.findIndex((s2, i) => i > 0 && Math.abs(s2.pitch - win[i - 1].pitch) === step);
+    const idx = new Set();
+    for (let i = 0; i < 8; i++) idx.add(Math.round(i * (win.length - 1) / 9));
+    if (snapAt > 0) { idx.add(snapAt - 1); idx.add(snapAt); idx.add(Math.min(win.length - 1, snapAt + 6)); }
+    const frames = [...idx].sort((a, b2) => a - b2).map((i) => ({
+      t: f2(win[i].t - t0), state: win[i].state, pitch: `${f1(win[i].pitch)} deg`, j: win[i].j }));
+    const out = resolve(ROOT, ".gravity/strip.svg");
+    writeStrip(frames, out, "gravitytest §1 — rig joint positions, side elevation. NOT a screenshot: no mesh, no ground, no light.");
+    say(`    STRIP written: ${out}   (${frames.length} panels)`);
+  }
   say("");
   if (upright.length > 0) {
     bad(`§1 a man the server calls \`knocked\` is drawn STANDING for ${f2(worstRun)} s `
