@@ -102,6 +102,17 @@ const OUT = resolve(ROOT, ".jank");
 const argv = process.argv.slice(2);
 const argOf = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); return h ? h.slice(n.length + 3) : d; };
 const SECS = Math.max(5, parseInt(argOf("secs", "20"), 10) || 20);
+/**
+ * R1 — PULL THE LEVER. Not a fix and not a proposal: a test OF THE RULER.
+ *
+ * `--lever=N` rewrites `REMOTE_DELAY_PACKETS` in the served bundle from its
+ * shipped 1.5 to N and re-measures. If the extrapolation figure this harness
+ * reports does not MOVE when the constant that is supposed to control it moves
+ * by a lot, then this harness is not measuring what it says it is measuring and
+ * every number above it is worthless. Nothing on disk changes and no fix is
+ * being argued for; the lever exists so the ruler can be disbelieved cheaply.
+ */
+const LEVER = argOf("lever", null);
 const PHASES = (argOf("phases", "server,wire,motion,render,strip")).split(",").map((s) => s.trim());
 const has = (p) => PHASES.includes(p);
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
@@ -282,6 +293,12 @@ const PATCHES = {
   },
   // The other end of the buffer: render time is BEFORE the oldest sample held,
   // so the man is pinned to a stale position and does not move at all.
+  // R1's lever. Anchored on the ternary that chooses a remote man's delay, which
+  // is the only place REMOTE_DELAY_PACKETS is read.
+  lever: {
+    name: "move REMOTE_DELAY_PACKETS",
+    subs: [[`l=n.id===r.localId?0:1.5*t.netInterval;`, `l=n.id===r.localId?0:__LEVER__*t.netInterval;`]],
+  },
   stall: {
     name: "count buffer stalls",
     subs: [[`let i=ac(e,0);if(t<=i.t){e.rx=i.x,e.rz=i.z,e.yaw=i.yaw;return}`,
@@ -297,7 +314,8 @@ async function installPatches(ctx, names) {
     let body; try { body = await res.text(); } catch { return route.fulfill({ response: res }); }
     let touched = false;
     for (const n of names) {
-      for (const [from, to] of PATCHES[n].subs) {
+      for (const [from, to0] of PATCHES[n].subs) {
+        const to = to0.replace("__LEVER__", String(LEVER));
         const parts = body.split(from);
         if (parts.length > 1) { hits[n] += parts.length - 1; body = parts.join(to); touched = true; }
       }
@@ -739,6 +757,7 @@ async function main() {
     if (has("motion")) {
       rule("§3  THE MOTION PIPELINE   (draw suppressed, so the client runs FAST — this is NOT an fps measurement)");
       const names = ["nodraw", "motion", "extrap", "reset", "stall"];
+      if (LEVER) { names.push("lever"); say(`  R1 LEVER ENGAGED: REMOTE_DELAY_PACKETS 1.5 -> ${LEVER}. This is a test of the RULER, not a fix.`); }
       const r = await runFight(browser, { patches: names, noDraw: true, record: true, secs: SECS, viewport: { width: 960, height: 540 } });
       for (const n of names) say(`  patch "${PATCHES[n].name}": ${r.hits[n]} site(s)`);
       if (!patchesLanded(r.hits, names)) { result.motionVoid = true; }
@@ -801,11 +820,16 @@ async function main() {
         say(`\n  BUFFER DEPTH — what the client is actually holding, and how far back it draws`);
         say(`    netInterval (the client's own estimate of the packet period, target 50 ms)`);
         say(`      p50 ${f2(ni?.p50)}  p95 ${f2(ni?.p95)}  p99 ${f2(ni?.p99)}  worst ${f2(ni?.max)}`);
-        say(`    effective render delay for a REMOTE man = 1.5 x netInterval  (REMOTE_DELAY_PACKETS, anim.ts)`);
-        say(`      p50 ${f2(ni?.p50 * 1.5)} ms   — this is the entire jitter budget the buffer has`);
+        // The multiplier printed must be the one the RUNNING build holds, not the
+        // one this file remembers: under `--lever` they differ, and a label that
+        // said 1.5 while the bundle said 4 would be R7's defect exactly — a
+        // comment describing a value the code does not have.
+        const packets = LEVER ? Number(LEVER) : 1.5;
+        say(`    effective render delay for a REMOTE man = ${packets} x netInterval  (REMOTE_DELAY_PACKETS, anim.ts${LEVER ? ", LEVERED" : ""})`);
+        say(`      p50 ${f2(ni?.p50 * packets)} ms   — this is the entire jitter budget the buffer has`);
         say(`    snapshots held in the buffer   p50 ${f2(nc?.p50)}  min ${f2(nc?.min)}  max ${f2(nc?.max)}`);
         if (result.wireNoDraw) {
-          const budget = ni ? ni.p50 * 1.5 : NaN;
+          const budget = ni ? ni.p50 * packets : NaN;
           const jitter = result.wireNoDraw.s.p99;
           say(`    AGAINST THE WIRE: buffer ${f2(budget)} ms vs arrival p99 ${f2(jitter)} ms  ->  ` +
               (jitter > budget ? `THE JITTER EXCEEDS THE BUFFER by ${f2(jitter - budget)} ms. It must run dry.`
