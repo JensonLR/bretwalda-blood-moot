@@ -9,6 +9,7 @@
  *   node tools/janktest.mjs --phases=render    what a frame costs, with drawing on
  *   node tools/janktest.mjs --phases=strip     a frame sequence and a frame-time plot
  *   node tools/janktest.mjs --secs=30          longer sample
+ *   node tools/janktest.mjs --nostop          R1: run §3 with the hit-stop out
  *
  * ---------------------------------------------------------------------------
  * WHY THIS EXISTS. The owner said, of the shipped game:
@@ -114,6 +115,8 @@ const SECS = Math.max(5, parseInt(argOf("secs", "20"), 10) || 20);
  * being argued for; the lever exists so the ruler can be disbelieved cheaply.
  */
 const LEVER = argOf("lever", null);
+/** R1's second lever — see the `nostop` patch. A ruler test, never a fix. */
+const NOSTOP = argv.includes("--nostop");
 const PHASES = (argOf("phases", "server,wire,epoch,motion,render,strip")).split(",").map((s) => s.trim());
 const has = (p) => PHASES.includes(p);
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
@@ -349,6 +352,28 @@ const PATCHES = {
    * The value is monotonic, so the harness accumulates DELTAS rather than
    * counting change events: two advances inside one frame are still two.
    */
+  /**
+   * R1, AND IT IS A TEST OF THE RULER AND NOT A PROPOSAL.
+   *
+   * `--nostop` rewrites the hit-stop's `dt = rawDt * 0.22` to `rawDt * 1`, so
+   * the frame loop stops slowing the world on a heavy blow. NOTHING ON DISK
+   * CHANGES and no fix is being argued for: the attribution table says the
+   * hit-stop owns about half of every hard speed change in the fight, and the
+   * only way to know whether it also owns the DEPRESSED PACKET PERIOD — the
+   * client's own `netInterval` reads under 50 ms against a wire measured at
+   * 50.00 — is to take it away and look.
+   *
+   * Anchored on structure. `es.current>0&&(es.current-=l,u=.22*l)` has three
+   * minified locals in it and every one of them is a capture group; what pins
+   * the match is the shape, which is the same rule every other patch here uses.
+   */
+  nostop: {
+    name: "take the hit-stop out (RULER TEST, not a fix)",
+    subs: [[
+      /(\w+)\.current>0&&\(\1\.current-=(\w+),(\w+)=\.22\*\2\)/,
+      `$1.current>0&&($1.current-=$2,$3=1*$2)`,
+    ]],
+  },
   epoch: {
     name: "read the wire epoch",
     subs: [[
@@ -469,6 +494,18 @@ const COLLECTOR = () => {
       wyaw: player.rotation,
       ex: motion.errX, ez: motion.errZ, eyaw: motion.errYaw, // what is being hidden
       ni: motion.netInterval, nc: motion.netCount, nj: motion.netJit,
+      // THE THINGS THAT MOVE A MAN WITHOUT THE WIRE MOVING HIM, so a jolt can
+      // be ATTRIBUTED instead of merely counted. Reading them costs three
+      // property loads on a recorder that was already running.
+      //   rc  the hit-shove impulse. `stepWarriorTransform` adds
+      //       sin(ang) * recoil * 0.5 to the DRAWN position, so a rise in this
+      //       is a step of up to half a metre that no interpolation produced.
+      //   dt  the sim delta the frame was advanced by. Held against the wall
+      //       clock it says whether this frame was slowed — by the hit-stop,
+      //       which is deliberate, or by the 0.05 s clamp in GameCanvas's loop,
+      //       which is a safety rail. A ruler that cannot see those two is a
+      //       ruler that reports design decisions as defects.
+      rc: motion.recoil,
     });
   };
 };
@@ -645,14 +682,22 @@ function joltOf(samples, kx = "rx", kz = "rz") {
   // actually moving — a standing man has no jolt to measure and averaging him
   // in is how a harness reports smooth motion for a fight nobody could watch.
   const jolt = [];
+  // AND THE SAME THING IN METRES PER SECOND, because the normalised figure is
+  // only as meaningful as what it is normalised BY. A man who spends the fight
+  // shuffling has a small median speed, and "eight times the median" is then a
+  // change nobody could see; a man who sprints has a large one, and the same
+  // multiple is a teleport. The two have to be read together and neither is
+  // sufficient on its own.
+  const joltAbs = [];
   for (let i = 1; i < speed.length; i++) {
     if (speed[i] < 0.05 && speed[i - 1] < 0.05) continue;
+    joltAbs.push(Math.abs(speed[i] - speed[i - 1]));
     if (medSpeed > 1e-6) jolt.push(Math.abs(speed[i] - speed[i - 1]) / medSpeed);
   }
   const jumps4 = medStep > 1e-9 ? step.filter((d) => d > 4 * medStep).length : 0;
   const jumps8 = medStep > 1e-9 ? step.filter((d) => d > 8 * medStep).length : 0;
   const hard = step.filter((d) => d > 0.5).length;       // half a metre in one frame
-  return { jolt: stats(jolt), step: stats(step), speed: stats(moving), medStep, medSpeed, jumps4, jumps8, hard, frames: samples.length };
+  return { jolt: stats(jolt), joltAbs: stats(joltAbs), step: stats(step), speed: stats(moving), medStep, medSpeed, jumps4, jumps8, hard, frames: samples.length };
 }
 
 /**
@@ -674,6 +719,33 @@ function joltOf(samples, kx = "rx", kz = "rz") {
  *   drawn jolt >> wire jolt   the client is ADDING motion that is not in the
  *                             simulation, and that addition is the defect
  */
+/**
+ * THE DRAWN TRACK, READ AT THE WIRE'S OWN CADENCE — and it is the control the
+ * control needed.
+ *
+ * `wireTrack` deduplicates to the 20 Hz the packets arrive at, so WIRE jolt is a
+ * speed differenced over ~50 ms. DRAWN jolt is differenced over ~17 ms. Those
+ * are not the same statistic and the shorter one is noisier by construction:
+ * any position error e appears as a velocity error e/dt, so the same underlying
+ * wobble reads about three times larger at 60 Hz than at 20 Hz. Comparing the
+ * two directly and calling the difference "motion the client invented" charges
+ * the client for the sampling rate.
+ *
+ * So the drawn track is also decimated to the wire's spacing and differenced
+ * there. Read the three together:
+ *   drawn@20Hz ~ wire   the client is drawing the motion it was asked to draw,
+ *                       and the gap at 60 Hz is the differencing interval.
+ *   drawn@20Hz >> wire  the client really is adding motion, at a timescale the
+ *                       eye can follow.
+ */
+function decimate(samples, minMs) {
+  const out = [];
+  for (const s of samples) {
+    if (!out.length || s.t - out[out.length - 1].t >= minMs) out.push(s);
+  }
+  return out;
+}
+
 function wireTrack(samples) {
   const out = [];
   for (const s of samples) {
@@ -914,6 +986,7 @@ async function main() {
       rule("§3  THE MOTION PIPELINE   (draw suppressed, so the client runs FAST — this is NOT an fps measurement)");
       const names = ["nodraw", "motion", "extrap", "reset", "stall"];
       if (LEVER) { names.push("lever"); say(`  R1 LEVER ENGAGED: REMOTE_DELAY_PACKETS 1.5 -> ${LEVER}. This is a test of the RULER, not a fix.`); }
+      if (NOSTOP) { names.push("nostop"); say(`  R1 LEVER ENGAGED: the hit-stop's dt scale 0.22 -> 1.0. This is a test of the RULER, not a fix.`); }
       const r = await runFight(browser, { patches: names, noDraw: true, record: true, secs: SECS, viewport: { width: 960, height: 540 } });
       for (const n of names) say(`  patch "${PATCHES[n].name}": ${r.hits[n]} site(s)`);
       if (!patchesLanded(r.hits, names)) { result.motionVoid = true; }
@@ -931,7 +1004,42 @@ async function main() {
         say(`\n  ${ids.length} warriors recorded, ${ids.reduce((a, i) => a + r.rec[i].length, 0)} interpolator samples`);
         const perMan = ids.map((id) => {
           const wt = wireTrack(r.rec[id]);
+          // THE SAME TRACK WITH THE ERROR SMOOTHER TAKEN BACK OFF IT.
+          //
+          // `smoothNetError` finishes with `m.rx += m.errX`, and the recorder
+          // reads `motion.rx` after that, so the drawn track is
+          // interpolator + carried error and `rx - ex` is the interpolator on
+          // its own. Differencing the two says how much of the jolt the
+          // SMOOTHER is putting there rather than absorbing — which matters,
+          // because that mechanism exists precisely to take a step in position
+          // and spread it, and a mechanism that spread it badly would look
+          // identical in every number this harness printed before this line.
+          const bare = r.rec[id].map((v) => ({ t: v.t, bx: v.rx - v.ex, bz: v.rz - v.ez }));
+          // 45 ms, not 50: the frame clock will not land on the packet clock, so
+          // asking for 50 drops every other frame pair to ~66 ms and biases the
+          // other way. 45 is the largest spacing that never skips a slot.
+          const slow = decimate(r.rec[id], 45);
+          // THE SAME TRACK ON THE CLIENT'S OWN CLOCK.
+          //
+          // Every speed above is a displacement over a WALL-CLOCK interval —
+          // `performance.now()` at the moment the recorder runs, which is
+          // partway through the frame and moves with however much JS work
+          // happened in front of it. The motion itself is a function of `dt`,
+          // the rAF timestamp delta. Those two are the same number only if the
+          // work per frame is constant, and §4 measures it at p50 17 ms with a
+          // p95 near 44, so they are not.
+          //
+          // Rebuilding the time axis by accumulating the `dt` the client
+          // actually stepped with separates the two questions that the wall
+          // clock welds together: is the motion the client COMPUTED smooth, and
+          // is it PRESENTED at even instants. The first is this file's §3. The
+          // second is §4, and no change to the interpolator can touch it.
+          let simT = 0;
+          const onSim = r.rec[id].map((v) => { simT += (v.dt || 0) * 1000; return { t: simT, rx: v.rx, rz: v.rz }; });
           return { id, ...joltOf(r.rec[id]), ...errorOf(r.rec[id]),
+                   bare: joltOf(bare, "bx", "bz").jolt,
+                   slow: joltOf(slow).jolt, slowN: slow.length,
+                   sim: joltOf(onSim).jolt,
                    wire: joltOf(wt, "wx", "wz").jolt, wireN: wt.length };
         }).filter((m) => m.frames > 30);
         // The local warrior is rendered with ZERO delay and carried forward to
@@ -942,12 +1050,112 @@ async function main() {
         say(`         (0 is perfectly smooth; 1 means the speed changed by his whole median speed in one frame)`);
         say(`         DRAWN is what the client put on screen. WIRE is the 20 Hz motion the server`);
         say(`         actually asked for. Drawn worse than wire is motion the client INVENTED.`);
-        say(`    ${"warrior".padEnd(22)} ${"DRAWN p50".padStart(9)} ${"p95".padStart(8)} ${"p99".padStart(8)} ${"worst".padStart(9)}  |  ${"WIRE p95".padStart(8)} ${"p99".padStart(8)}  |  ${"p99 ratio".padStart(9)}`);
+        say(`         SIM-CLOCK is the same track with its time axis rebuilt from the dt the`);
+        say(`         client stepped with, instead of from the wall clock the recorder read.`);
+        say(`         Drawn much worse than sim-clock means the motion COMPUTED is smooth and`);
+        say(`         the FRAMES are uneven — which is §4's problem and not this one's.`);
+        say(`         @20Hz is the SAME DRAWN TRACK decimated to the wire's own cadence, so`);
+        say(`         the two are differenced over the same interval. The last two columns`);
+        say(`         are the drawn-to-wire ratio, p99 at 60 Hz and p95 at 20 Hz; where they`);
+        say(`         differ, the difference is the SAMPLING RATE, not the client. See decimate().`);
+        say(`         AND THE NORMALISER IS PRINTED, because "eight times the median" means`);
+        say(`         nothing until you know what the median IS. med is his median moving`);
+        say(`         speed in m/s; abs p99 is the same jolt in m/s, undivided.`);
+        say(`    ${"warrior".padEnd(22)} ${"med m/s".padStart(8)} ${"DRAWN p95".padStart(9)} ${"p99".padStart(8)} ${"abs p99".padStart(8)}  |  ${"SIM-CLOCK p95".padStart(13)} ${"p99".padStart(8)}  |  ${"@20Hz p95".padStart(9)}  |  ${"WIRE p95".padStart(8)} ${"p99".padStart(8)}  |  ${"60Hz".padStart(6)} ${"20Hz".padStart(6)}`);
         for (const m of perMan.sort((a, b) => (b.jolt?.p99 || 0) - (a.jolt?.p99 || 0))) {
           if (!m.jolt) continue;
           const ratio = m.wire && m.wire.p99 > 1e-6 ? m.jolt.p99 / m.wire.p99 : NaN;
-          say(`    ${m.id.padEnd(22)} ${f2(m.jolt.p50).padStart(9)} ${f2(m.jolt.p95).padStart(8)} ${f2(m.jolt.p99).padStart(8)} ${f2(m.jolt.max).padStart(9)}  |  ${f2(m.wire?.p95).padStart(8)} ${f2(m.wire?.p99).padStart(8)}  |  ${(Number.isFinite(ratio) ? ratio.toFixed(2) + "x" : "n/a").padStart(9)}`);
+          // p95 AND p99 AND the sample count, because decimating to 45 ms leaves
+          // about a third of the frames and a p99 on 270 samples is the third
+          // worst value in the set — one respawn moves it and nothing else does.
+          // p95 is the honest column here and p99 is printed beside it so a
+          // reader can see when the two disagree.
+          const rSlow = m.wire && m.wire.p95 > 1e-6 && m.slow ? m.slow.p95 / m.wire.p95 : NaN;
+          say(`    ${m.id.padEnd(22)} ${f2(m.medSpeed).padStart(8)} ${f2(m.jolt.p95).padStart(9)} ${f2(m.jolt.p99).padStart(8)} ${f2(m.joltAbs?.p99).padStart(8)}  |  ${f2(m.sim?.p95).padStart(13)} ${f2(m.sim?.p99).padStart(8)}  |  ${f2(m.slow?.p95).padStart(9)}  |  ${f2(m.wire?.p95).padStart(8)} ${f2(m.wire?.p99).padStart(8)}  |  ${(Number.isFinite(ratio) ? ratio.toFixed(2) + "x" : "n/a").padStart(6)} ${(Number.isFinite(rSlow) ? rSlow.toFixed(2) + "x" : "n/a").padStart(6)}`);
         }
+        // ---- JOLT, ATTRIBUTED --------------------------------------------
+        // WITHOUT THIS THE JOLT NUMBER IS FAILURE MODE 1 AGAIN. It is a speed
+        // differenced over WALL time, and three things in the shipped client
+        // move a man, or stop him, without the interpolator doing anything
+        // wrong at all:
+        //
+        //   HIT-STOP  `dt = rawDt * 0.22` on a heavy blow. The whole world runs
+        //             at a fifth speed for a tenth of a second, on purpose,
+        //             because that is what a blow landing feels like. Measured
+        //             against the wall clock it is a 78% speed change and then
+        //             another one coming out — two enormous jolts per blow, and
+        //             every one of them is the feature working.
+        //   dt CLAMP  `Math.min(..., 0.05)` in the same loop. A frame that took
+        //             400 ms advances the world 50 ms, so the drawn motion is an
+        //             eighth of real speed for that frame and back to full on
+        //             the next. That is a real defect — it is the frame budget
+        //             showing up as motion — but it is NOT the interpolator, and
+        //             fixing the interpolator will never move it.
+        //   RECOIL    the hit-shove, added straight onto the drawn position as
+        //             `recoil * 0.5`. It goes 0 -> up to 1.6 in ONE frame, which
+        //             is up to 0.8 m of position appearing between two frames.
+        //
+        // So each jolt sample is charged to whichever of those was happening
+        // across it, and only what is left over is the interpolator's.
+        // THE HIT-STOP IS DETECTED FROM THE SIM CLOCK ALONE, and the first
+        // version of this got that wrong. It compared the sim `dt` against the
+        // WALL delta between two records — and those two disagree even with no
+        // hit-stop anywhere, because a record is taken partway through a frame
+        // and how far through moves with the JS work in front of it. Run with
+        // `--nostop`, which removes the hit-stop from the bundle outright, that
+        // test still charged 11.07% of every sample to it. A bin that is 11%
+        // full when the thing it counts has been deleted is not a bin.
+        //
+        // Every warrior in a frame is stepped with the SAME dt, and the
+        // hit-stop is the only thing that scales it (by 0.22). So the test is
+        // dt against this man's own median dt, which needs no wall clock at
+        // all: below half of it, the frame was slowed. `--nostop` now empties
+        // this bin, which is the proof the first version could not offer.
+        const CLAMP_DT = 0.05;
+        const charge = { hitstop: 0, clamp: 0, recoil: 0, plain: 0 };
+        const chargedJolt = { hitstop: [], clamp: [], recoil: [], plain: [] };
+        for (const m of perMan) {
+          const ss = r.rec[m.id];
+          const dts = ss.map((v) => v.dt).filter((x) => x > 1e-6).sort((x, y) => x - y);
+          const medDt = pct(dts, 50) || 1 / 60;
+          for (let i = 2; i < ss.length; i++) {
+            const a = ss[i - 2], b = ss[i - 1], c = ss[i];
+            const dtb = (b.t - a.t) / 1000, dtc = (c.t - b.t) / 1000;
+            if (dtb <= 1e-5 || dtc <= 1e-5) continue;
+            const vb = Math.hypot(b.rx - a.rx, b.rz - a.rz) / dtb;
+            const vc = Math.hypot(c.rx - b.rx, c.rz - b.rz) / dtc;
+            if (vb < 0.05 && vc < 0.05) continue;
+            if (!(m.medSpeed > 1e-6)) continue;
+            const j = Math.abs(vc - vb) / m.medSpeed;
+            const slowed = b.dt < medDt * 0.5 || c.dt < medDt * 0.5;
+            // Clamped: the frame ran long enough that the 0.05 s cap bit, so the
+            // world advanced less than the wall clock did and the man was drawn
+            // in slow motion for one frame.
+            const capped = (dtb > CLAMP_DT * 1.05 && b.dt >= CLAMP_DT - 1e-4) ||
+                           (dtc > CLAMP_DT * 1.05 && c.dt >= CLAMP_DT - 1e-4);
+            const shoved = (b.rc ?? 0) > (a.rc ?? 0) + 1e-3 || (c.rc ?? 0) > (b.rc ?? 0) + 1e-3;
+            const bin = slowed ? "hitstop" : capped ? "clamp" : shoved ? "recoil" : "plain";
+            charge[bin]++;
+            chargedJolt[bin].push(j);
+          }
+        }
+        const totalJ = charge.hitstop + charge.clamp + charge.recoil + charge.plain || 1;
+        say(`\n  JOLT, ATTRIBUTED — the same statistic, charged to what was happening across it.`);
+        say(`         Three things in the client move a man without the interpolator doing`);
+        say(`         anything: the hit-stop (deliberate), the 0.05 s dt clamp (the frame`);
+        say(`         budget arriving as motion) and the hit-shove (a step, not a lerp).`);
+        say(`    ${"cause".padEnd(26)} ${"samples".padStart(8)} ${"share".padStart(7)}  ${"jolt p50".padStart(9)} ${"p95".padStart(8)} ${"p99".padStart(8)} ${">8x".padStart(7)}`);
+        for (const [k, label] of [["hitstop", "HIT-STOP (deliberate)"], ["clamp", "dt CLAMP (frame budget)"], ["recoil", "HIT-SHOVE (a step)"], ["plain", "everything else"]]) {
+          const st = stats(chargedJolt[k]);
+          const over8 = chargedJolt[k].filter((x) => x > 8).length;
+          say(`    ${label.padEnd(26)} ${String(charge[k]).padStart(8)} ${(100 * charge[k] / totalJ).toFixed(2).padStart(6)}%  ${f2(st?.p50).padStart(9)} ${f2(st?.p95).padStart(8)} ${f2(st?.p99).padStart(8)} ${String(over8).padStart(7)}`);
+        }
+        const over8All = Object.values(chargedJolt).reduce((a, v) => a + v.filter((x) => x > 8).length, 0);
+        const over8Plain = chargedJolt.plain.filter((x) => x > 8).length;
+        say(`    of ${over8All} samples changing speed by more than 8x the median, ${over8Plain} are left unexplained` +
+            ` (${(100 * over8Plain / Math.max(1, over8All)).toFixed(1)}%).`);
+        result.charge = { charge, over8All, over8Plain, plain: stats(chargedJolt.plain) };
+
         say(`\n  JUMP — single frames that moved more than 4x and 8x the median frame's step`);
         for (const m of perMan.sort((a, b) => b.jumps8 - a.jumps8)) {
           say(`    ${m.id.padEnd(22)} >4x ${String(m.jumps4).padStart(5)}   >8x ${String(m.jumps8).padStart(5)}   >0.5 m in one frame ${String(m.hard).padStart(5)}   of ${m.frames} frames`);
@@ -1064,6 +1272,19 @@ function finish(result) {
       const ratio = worst.wire && worst.wire.p99 > 1e-6 ? worst.jolt.p99 / worst.wire.p99 : NaN;
       say(`  JOLT              worst man ${worst.id}: drawn p95 ${f2(worst.jolt.p95)}x, p99 ${f2(worst.jolt.p99)}x his own median speed, in ONE frame.`);
       say(`                    against the WIRE he was asked to draw: p99 ${f2(worst.wire?.p99)}x  =  ${Number.isFinite(ratio) ? ratio.toFixed(2) + "x worse than the motion the server sent" : "no wire control"}.`);
+      // AND THE ONE LINE THAT SAYS WHICH DEFECT IT IS. Every number above is a
+      // speed over a wall-clock interval. The same track on the client's own
+      // clock is the motion it COMPUTED; where that is small and the wall-clock
+      // figure is large, the interpolator is producing smooth motion and the
+      // frames are arriving at uneven instants, which is §4 and not §3.
+      say(`                    ON THE CLIENT'S OWN CLOCK, the same track: p95 ${f2(worst.sim?.p95)}x, p99 ${f2(worst.sim?.p99)}x.`);
+      const gap = worst.sim && worst.sim.p95 > 1e-6 ? worst.jolt.p95 / worst.sim.p95 : NaN;
+      say(`                    ${Number.isFinite(gap) && gap > 2
+        ? `The computed motion is ${gap.toFixed(1)}x smoother than the drawn one. THE JOLT IS FRAME PACING,`
+        : `Computed and drawn agree, so the jolt is in the motion pipeline,`}`);
+      say(`                    ${Number.isFinite(gap) && gap > 2
+        ? `not interpolation — read §4, and no change to anim.ts can move it.`
+        : `and §3 is where to look for it.`}`);
     }
     const jumper = R.motion.perMan.slice().sort((a, b) => b.jumps8 - a.jumps8)[0];
     if (jumper) say(`  JUMP              worst man ${jumper.id}: ${jumper.jumps8} frames moved >8x the median step, ${jumper.hard} moved >0.5 m.`);
