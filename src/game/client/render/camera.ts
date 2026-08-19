@@ -272,9 +272,47 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
   let adoptedFrom = 0;
   /** Set by an adoption, consumed by the same frame's `follow`: no ease-in. */
   let snapNext = false;
-  /** Last point the follow rig framed. Only the readback below reads it. */
+  /**
+   * Last point the FOLLOW rig framed. Only `shoulder` reads it, and `shoulder`
+   * is a follow-mode measurement — the camera's lateral offset from the warrior
+   * it is behind — so a value written by any other path would be meaningless in
+   * it. This pair is deliberately NOT the aim readback; see `aimAt` below for
+   * why that distinction cost a false claim.
+   */
   let focusX = 0;
   let focusZ = 0;
+
+  /**
+   * WHERE THE LENS IS ACTUALLY POINTED, recorded where it is actually decided.
+   *
+   * This exists because the readback that replaced it could not work. A getter
+   * was added over `focusX`/`focusZ` and offered as proof that the dead man's
+   * orbit points at the fight. `focusX`/`focusZ` are assigned in exactly one
+   * place — the end of `follow()` — and `follow()` never runs in spectate mode,
+   * so on a dead client the getter returned (0, 0) and the "focus lands 0.61 m
+   * from the nearest living man" it was quoted for was a distance from the world
+   * ORIGIN. `tools/spectatetest.mjs --blind` reproduces that reading.
+   *
+   * THE LESSON IS THE PLACEMENT, not the arithmetic. A readback assigned inside
+   * one of five aiming paths is a readback about that path. So every aim in this
+   * file goes through here, beside the `lookAt` it records, and a new mode that
+   * forgets to call it is visible as a bare call — `grep -nE 'camera\.lookAt\('
+   * camera.ts` should find exactly one line, the one at the bottom of this
+   * function.
+   *
+   * `aimFrame` counts recordings rather than frames, so a harness can tell "this
+   * is where the lens is pointed" from "this is where it was pointed the last
+   * time anything aimed it".
+   */
+  let aimX = 0;
+  let aimY = 0;
+  let aimZ = 0;
+  let aimFrame = 0;
+  function aimAt(x: number, y: number, z: number): void {
+    aimX = x; aimY = y; aimZ = z;
+    aimFrame++;
+    camera.lookAt(x, y, z);
+  }
 
   /**
    * Take the heading the round starts on. Called from `follow` on the first
@@ -330,7 +368,7 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     camera.position.x += (ctx.focus.x - fwdX * CAM_DIST + sideX - camera.position.x) * damp;
     camera.position.z += (ctx.focus.z - fwdZ * CAM_DIST + sideZ - camera.position.z) * damp;
     camera.position.y += (CAM_HEIGHT + bob - camera.position.y) * (snapNext ? 1 : Math.min(1, dt * 10));
-    camera.lookAt(
+    aimAt(
       ctx.focus.x + fwdX * LOOK_AHEAD,
       LOOK_HEIGHT + bob * 0.7,
       ctx.focus.z + fwdZ * LOOK_AHEAD,
@@ -503,7 +541,7 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     yaw += dt * spin;
     orbitTarget.set(cx + Math.sin(yaw) * radius, height, cz + Math.cos(yaw) * radius);
     camera.position.lerp(orbitTarget, lerp);
-    camera.lookAt(cx, lookY, cz);
+    aimAt(cx, lookY, cz);
   }
 
   // The handedness store lives in `input.ts` and reads itself out of
@@ -575,7 +613,7 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
       if (mode === "photo") {
         if (photoFraming) {
           camera.position.set(...photoFraming.position);
-          camera.lookAt(...photoFraming.target);
+          aimAt(...photoFraming.target);
           const want = photoFraming.fov ?? FOV_BASE;
           if (camera.fov !== want) {
             camera.fov = want;
@@ -597,7 +635,7 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
           const [fx, fy, fz] = summaryShot.from;
           const [tx, ty, tz] = summaryShot.to;
           camera.position.set(fx + (tx - fx) * e, fy + (ty - fy) * e, fz + (tz - fz) * e);
-          camera.lookAt(...summaryShot.target);
+          aimAt(...summaryShot.target);
           const want = summaryShot.fov ?? FOV_BASE;
           if (camera.fov !== want) {
             camera.fov = want;
@@ -626,16 +664,31 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
         // that floats over the roofs would hand a dead player the one thing he
         // must not be able to pass on: where a living man is hiding.
         //
-        // So this camera stands rather than flies. 2.2 m is a head above a
-        // standing warrior — enough to clear the bank the ring sits in, not
-        // enough to see over anything a man could hide behind — and it circles
-        // the fight at 11 m instead of sitting 15 m out from a centre the fight
-        // may have left. What it shows is what somebody standing at the ropes
-        // would see, which is the honest reading of "a fixed view of the ring".
+        // So this camera stands rather than flies, and it stands at exactly
+        // `CAM_HEIGHT` — the height a LIVING player's own follow lens rides at,
+        // off the same constant rather than a number near it. That is the whole
+        // safety claim and it is worth having as an identity instead of an
+        // argument: elevation is the one axis on which a spectator lens can see
+        // past cover a living man cannot, so a dead lens at a living lens's own
+        // height cannot see over anything a living player's camera cannot see
+        // over. Bearing is no leak — a living man can walk to any bearing — and
+        // nor is distance, which at a fixed height makes a sightline over cover
+        // SHALLOWER rather than steeper.
+        //
+        // It was 2.2 m, chosen as "a head above a standing warrior", which is
+        // the same intent arrived at by eye; `tools/spectatetest.mjs` measured
+        // it 0.138 m ABOVE the living lens and the claim was therefore false as
+        // written, by a hand's breadth. The constant now cannot drift from the
+        // thing it is claimed equal to.
+        //
+        // It circles the fight at 11 m instead of sitting 15 m out from a centre
+        // the fight may have left. What it shows is what somebody standing at
+        // the ropes would see, which is the honest reading of "a fixed view of
+        // the ring".
         //
         // Where it points is `ctx.focus`, which `GameCanvas.tsx` now puts on the
         // men who are still alive rather than on the origin.
-        orbit(dt, 11, 2.2, 0.16, 0.045, 1.35, ctx.focus.x, ctx.focus.z);
+        orbit(dt, 11, CAM_HEIGHT, 0.16, 0.045, 1.35, ctx.focus.x, ctx.focus.z);
       } else orbit(dt, 15, 7.5, 0.22, 0.04, 1.4);
       // After the rig has moved, so the reticle is projected through this
       // frame's camera rather than the last one's — a lag of one frame here is
@@ -677,17 +730,6 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
       /** The yaw thrown away by the adoption — what the orbit had left behind. */
       get adoptedFrom() { return adoptedFrom; },
       /**
-       * How far the camera sits to the warrior's own right, in metres. Positive
-       * is over the right shoulder. Measured off the camera's world position and
-       * this frame's yaw, not off `CAM_SIDE`.
-       *
-       * NOTE, not fixed here: this comment is orphaned. The `shoulder` getter it
-       * documents is gone, and `tools/cameratest.mjs` still reads `c.shoulder`
-       * at two assertions — it gets `undefined`, prints it as 0.00 and asserts
-       * nothing. That is a harness question, not a camera one, and belongs to
-       * whoever owns cameratest.
-       */
-      /**
        * Where the lens actually is, in world metres. A readback and nothing
        * else — no game code reads it. It exists because "the dead man's camera
        * points at the fight and stands at a man's height rather than flying
@@ -695,8 +737,19 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
        * measure a position from outside the module.
        */
       get position() { return { x: camera.position.x, y: camera.position.y, z: camera.position.z }; },
-      /** Where the lens is pointed this frame, as the rig was last told. */
-      get focusAt() { return { x: focusX, z: focusZ }; },
+      /**
+       * The world point the lens was last aimed at, from whichever path aimed
+       * it, with a count of aimings so a stale read is visible as one.
+       *
+       * THIS REPLACES A GETTER THAT COULD NOT WORK — see `aimAt` above. It is
+       * still only half an instrument on its own, because a readback of a value
+       * the caller handed in agrees with itself by construction; that is failure
+       * mode 1 in `docs/PROCESS.md`, ten instances. So `tools/spectatetest.mjs`
+       * does not trust this number on its own: it scores the point against the
+       * ray `camera.getWorldDirection()` gives, which comes off the world matrix
+       * `lookAt` wrote and which nothing here can fake.
+       */
+      get aim() { return { x: aimX, y: aimY, z: aimZ, frame: aimFrame }; },
       /** Where the lock reticle was last painted, and the numbers behind it. */
       get lockPaint() { return { ...lockPaint }; },
       /**
@@ -714,6 +767,22 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
         }
         return out;
       },
+      /**
+       * How far the camera sits to the warrior's own right, in metres. Positive
+       * is over the right shoulder. Measured off the camera's world position and
+       * this frame's yaw, not off `CAM_SIDE` — an assertion against the sign of
+       * a constant would only prove the constant.
+       *
+       * FOLLOW MODE ONLY, and that is why it reads `focusX`/`focusZ` rather than
+       * `aim`: it wants the man the lens is behind, not the point the lens is
+       * pointed at, and the two are only the same thing in follow. Read in any
+       * other mode it reports the offset from the last man followed.
+       *
+       * (A comment above this used to say this getter was gone and that
+       * `tools/cameratest.mjs` was reading `undefined` at two assertions. It was
+       * never gone — it is right here, and cameratest reads it. The claim was
+       * false and is deleted rather than moved.)
+       */
       get shoulder() {
         return (camera.position.x - focusX) * -Math.cos(yaw)
           + (camera.position.z - focusZ) * Math.sin(yaw);

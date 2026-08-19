@@ -37,6 +37,7 @@
     "weightprobe": "node tools/weightprobe.mjs",
     "weightshot": "node tools/weightshot.mjs",
     "deathcamtest": "node tools/deathcamtest.mjs",
+    "spectatetest": "node tools/spectatetest.mjs",
     "tuitiontest": "node tools/tuitiontest.mjs",
     "hudshot": "node tools/hudshot.mjs",
     "roundbeatshot": "node tools/roundbeatshot.mjs",
