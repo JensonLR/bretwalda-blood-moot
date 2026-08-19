@@ -1641,9 +1641,10 @@ const NET_INTERVAL_MAX = 0.3;
 const REMOTE_DELAY_PACKETS = 1.5;
 /**
  * HOW MUCH OF THE MEASURED ARRIVAL LATENESS THE BUFFER IS ALLOWED TO ABSORB,
- * as a share of one packet interval. This is the whole of a fix for the last
- * piece of the owner's JOLTY, and it exists because a FIXED buffer cannot be
- * right on a wire whose jitter is not fixed.
+ * as a share of one packet interval. It exists because a FIXED buffer cannot be
+ * right on a wire whose jitter is not fixed. It was landed as "the last piece of
+ * the owner's JOLTY"; it is not, and the paragraph beginning THE FIRST CLAIM
+ * says what happened to that claim and what is left standing.
  *
  * `REMOTE_DELAY_PACKETS * netInterval` is 75 ms. `tools/janktest.mjs` §3 prints
  * that budget against the wire it just measured and, on this box, says outright:
@@ -1669,23 +1670,36 @@ const REMOTE_DELAY_PACKETS = 1.5;
  * a packet — 25 ms — because it must cover the 21 ms deficit measured above and
  * must not become a licence to render arbitrarily far back.
  *
- * WHAT IT COST AND WHAT IT BOUGHT, three runs a side on ONE binary — the lever
- * reproduces the old expression exactly, so the two arms differ in nothing but
- * this term. The statistic is the drawn track's >8x speed changes at the WIRE'S
- * OWN CADENCE divided by the wire's own rate, because both the fight and this
- * box's jitter move between runs and the ratio is the part that does not:
+ * THE FIRST CLAIM MADE FOR THIS LINE IS WITHDRAWN, AND THE REPLACEMENT IS
+ * NARROWER. It was landed on a "ratio" column — the drawn track's >8x speed
+ * changes at the wire's cadence divided by the wire's own rate — reading
+ * 1.28 / 1.03 / 1.30 before against 0.57 / 0.64 / 0.50 after. Two adversaries
+ * refuted it. The denominator of that ratio was itself normalised by the man's
+ * median DRAWN speed, so the control moved with the treatment; `origin/main`,
+ * the build everyone agrees is broken, scored BETTER on it than the branch did;
+ * and on a paired same-binary lever the arms did not separate. It was circular.
+ * Do not resurrect it.
  *
- *     REMOTE_DELAY_PACKETS alone   ratio 1.28  1.03  1.30    delay 74 ms
- *     + this term, ring at 14      ratio 0.57  0.64  0.50    delay 99 ms
+ * WHAT DOES HOLD, on a measure nothing in the client can flatter: EXTRAPOLATION
+ * itself — the share of warrior-frames where render time ran past the newest
+ * snapshot and a position had to be invented. Three runs a side on ONE binary,
+ * `--lever=1.5` reproducing the old expression exactly:
  *
- * Every run before is above 1.00 — the client drawing MORE hard speed changes
- * than it was handed — and every run after is below, which is what a buffer is
- * for. Extrapolation over the same runs: 9.7 / 12.0 / 30.0% against
- * 9.0 / 13.7 / 11.7%, so the median barely moves and the WORST CASE is bounded,
- * which is the design. Buffer stalls 0.2 / 0.2 / 0.3% against 0.4 / 0.3 / 0.3%;
- * buffer resets every one a real respawn, 0 unexplained, both arms; the drawn
- * man's distance from the newest packet p50 0.01-0.04 m on both arms, so the
- * extra 25 ms of render delay did not show up as positional error.
+ *     REMOTE_DELAY_PACKETS alone   extrapolation 17.8  14.2  13.5 %   delay 74.5 ms
+ *     + this term, ring at 14                     10.2  10.6   9.6 %   delay 99.5 ms
+ *
+ * Every run with the term is below every run without it — invented motion cut by
+ * about a third, and invented motion is taken back when the next packet lands,
+ * which is a step on the screen. Buffer stalls 0.3 / 0.3 / 0.2% against
+ * 0.2 / 0.1 / 0.2%, a tenth of a point paid. THE FLOOR IS UNMOVED: the
+ * motionless-man drift reads p50 0.01 m on BOTH arms with zero holds over 0.25 m
+ * on either, so the "median moved 0.00-0.01 -> 0.05-0.06 m" this comment used to
+ * carry was run variance and is deleted rather than defended.
+ *
+ * THE JOLT FIGURE ITSELF DOES NOT MOVE, and that is not a failure of this line.
+ * The same six runs decompose it: of about 2% at 60 Hz, roughly a point is the
+ * DIFFERENCING INTERVAL and the rest is in the wire, leaving the client within
+ * half a point of zero on every run. See docs/OPEN-DEFECTS.md.
  *
  * THE COST IS 25 ms OF REMOTE RENDER DELAY ON A WIRE THAT IS LATE, and LAGGY is
  * the same owner's word as JOLTY. It is bounded, it is paid only when earned,

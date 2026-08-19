@@ -99,6 +99,124 @@ against 1.83 / 1.79 / 1.80 / 2.23 m here — the branch's worst four are tighter
 than the baseline's worst one, and neither arm put a number over 3 m on more than
 that single baseline run.
 
+**R5 — fourteen frames of the fixed build, at `high`, read one at a time.**
+Last round reported "read h004/h009, clean" about a set that had a "139" printed
+straight through a "116" in it, and the ruler had silently dropped ten of
+fourteen screenshots. Both are fixed: `hudspace` prints every lost frame and
+exits non-zero, and this run wrote **14 of 14**.
+
+* BEFORE, on the merge commit, `h006.png`: "92" and "72" with their strokes
+  crossing at (110-178, 282-325), and "66" with a third number reading as one
+  impossible "667" at (195-247, 358-388) — **fourteen** numbers alive in one
+  frame. The owner's "337" verbatim.
+* AFTER, all fourteen: **not one pair of damage numbers printed through each
+  other.** `h009` carries "28 / 74 / 60 / 106 / 32" and eight nameplates; `h013`
+  seven nameplates and "41 / 21 / 8"; `h012` five plates and "108 / 63 / 9x";
+  `h004` "12 / 23 / 107 / 80". Every one legible.
+
+### OPEN — two nameplates ABUT sideways and read as one run-on name
+
+Seen by eye in `h009` of that same set, and it is a new finding rather than a
+regression: **"Godwine the Ste." and "Leofgar the Wary" sit at the same height
+with their glyphs touching**, so they read as `Godwine the Ste.Leofgar the Wary`.
+Their health bars below are plainly separate.
+
+The mechanism is in `settle`: it moves along **y only**, and only acts when two
+boxes overlap in x AND y. Two plates side by side at the same height do not
+overlap — they touch — so nothing fires. `PUSH_PAD_X` is **0.004 NDC**, about
+three pixels at 720p, which is the whole of the horizontal margin between two
+names. This is the `name/name` INK TOUCHING column, 1.73-3.78% of pair-frames on
+both arms of the battery above.
+
+**Not fixed here, and the reason is that the obvious fix has a cost nobody has
+measured.** Widening `PUSH_PAD_X` for names makes more plates count as colliding,
+which pushes more of them vertically, which drives more of them into the
+compaction branch and then into `COMPACT_MAX_PUSH` — where a plate is hidden
+outright (see the disclosure below). That is a trade between two kinds of lost
+information and it wants its own measurement, not a constant nudged at the end
+of a landing round.
+
+### OPEN — damage numbers are drawn BEHIND warriors, on a layer meant to prevent it
+
+Also seen by eye: `h007` has a "2x" more than half behind a cloak, `h003` a "2x"
+behind a shield boss, `h000` a "10x" behind a helmet. A damage number is put on
+`LAYER_UNOCCLUDED` precisely so this cannot happen, so either that layer is not
+doing what its name says for these meshes or the numbers are being sorted behind
+them. **Nothing in this repository measures it** — `hudspace` reads rectangles
+and cannot see what is in front of what — so there is no figure to put here, only
+three frames.
+
+### STOP CHASING THE JOLT. Here is the arithmetic that ends it — CLOSED AS A CHASE
+
+Three rounds aimed at one figure: *"the unexplained share of DRAWN 60 Hz samples
+changing speed by more than 8x the median"*, about 2.4%. It is three things added
+together and only one of them is the client's.
+
+`tools/janktest.mjs` §3 runs the identical test on three tracks and now prints
+the subtraction. Six runs on this branch, `--phases=motion --secs=25`, three with
+the jitter term and three with `--lever=1.5` (which reproduces the delay
+expression `origin/main` and `jank2` ship):
+
+```
+                       DRAWN 60 Hz   = differencing interval + wire + CLIENT
+  with jitter    r1       2.56%           1.56        1.24       -0.24
+                 r2       2.01%           1.04        1.49       -0.52
+                 r3       1.87%           1.38        0.40       +0.09
+  without        r1       1.63%           0.75        0.53       +0.35
+                 r2       1.74%           0.81        0.99       -0.06
+                 r3       2.17%           1.20        0.91       +0.06
+```
+
+**The client's share is within half a point of ZERO in all six runs, and
+negative in three.** The drawn track, decimated to the 20 Hz it was handed, is no
+rougher than the wire it was asked to draw. Most of the headline is the
+DIFFERENCING INTERVAL — differencing at 60 Hz instead of 20 Hz, which is a
+property of the statistic and not of the screen — and the rest was asked for by
+the server.
+
+**And the figure does not move with the treatment.** 2.56 / 2.01 / 1.87 with the
+jitter term against 1.63 / 1.74 / 2.17 without it, on ONE binary: fully
+overlapping, the treated arm no better. Any future claim of the form "this change
+reduced the jolt figure" needs a paired lever and non-overlapping arms, and this
+figure has never produced them for anybody.
+
+**Two rulers that manufactured the appearance of progress are fixed** (commit
+`3bca635`): the wire CONTROL was normalised by the man's median DRAWN speed, so
+it moved with any treatment — an exogenous column normalised by the wire's own
+median is printed beside it now; and the verdict line asserted "THE JOLT IS
+FRAME PACING, and no change to `anim.ts` can move it" off a comparison of the
+same positions on two clocks, which is circular and now says so in its own
+output.
+
+### The jitter-sized buffer PAYS, but not for the reason it was landed for — KEPT
+
+`anim.ts:JITTER_DELAY_PACKETS` adds `min(netJit, 0.5 x netInterval)` to a remote
+man's render delay. It was landed as a jolt fix and **that claim is withdrawn** —
+see above, the jolt figure does not move.
+
+It was re-tested on a **non-circular** measure against a **same-binary** lever:
+remote EXTRAPOLATION, the share of warrior-frames where render time ran past the
+newest snapshot and the client had to invent a position from velocity. Three runs
+a side, one build, `--lever=1.5` reproducing the old expression:
+
+```
+                        extrapolation   buffer stalls   render delay   floor: motionless-man drift
+  + jitter term          10.2  10.6  9.6    0.3 0.3 0.2%    99.5 ms     p50 0.01 0.01 0.01, over 0.25 m 0/0/0
+  flat 1.5 x interval    17.8  14.2 13.5    0.2 0.1 0.2%    74.5 ms     p50 0.01 0.01 0.02, over 0.25 m 0/0/0
+```
+
+**The arms do not overlap: every run with the term is below every run without
+it.** Invented motion is cut by about a third. The cost is stated: **25 ms of
+extra render delay for a REMOTE man**, and a tenth of a point of buffer stalls.
+
+**The floor cost claimed last round does NOT reproduce.** That round reported the
+motionless-man median moving 0.00-0.01 -> 0.05-0.06 m and called it "the 25 ms
+arriving where arithmetic says it should". On a paired same-binary lever the
+median is **0.01 m on both arms** and neither arm puts a single hold over 0.25 m.
+An adversary said this was run variance and he was right.
+
+So it stays, with the claim rewritten to what was actually shown.
+
 ### `playtest`'s input-rate check is LOAD-SENSITIVE, and the branch does not drop it — SETTLED
 
 The accusation: `jank2` read `[playtest] 36/37 controls working` twice, a
