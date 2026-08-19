@@ -267,7 +267,7 @@ const PATCHES = {
   // metre that will be taken back when the packet lands.
   extrap: {
     name: "count extrapolation",
-    subs: [[`let s=Math.min(t-r.t,.22);`, `let s=Math.min(t-r.t,.22);window.__jankEx&&window.__jankEx(s),`]],
+    subs: [[`let s=Math.min(t-r.t,.22);`, `let s=Math.min(t-r.t,.22);window.__jankEx&&window.__jankEx(s,n&&n.id),`]],
   },
   // The buffer reset. `ingestNet` empties its whole history when a packet
   // arrives with a non-positive or absurd gap — which is exactly what a BURST
@@ -361,7 +361,7 @@ const COLLECTOR = () => {
     }).observe({ entryTypes: ["longtask"] });
   } catch { /* not every build ships it */ }
   // ---- the probes the bundle patches call
-  w.__jankEx = (ahead) => { const j = w.__jank; if (j.extrap.length < 200000) j.extrap.push(ahead); };
+  w.__jankEx = (ahead, id) => { const j = w.__jank; if (j.extrap.length < 200000) j.extrap.push({ ahead, id }); };
   w.__jankStall = () => { w.__jank.stalls++; };
   w.__jankReset = (teleport, gap) => { const j = w.__jank; if (j.resets.length < 100000) j.resets.push({ teleport: !!teleport, gap }); };
   w.__jankRec = (player, motion, dt) => {
@@ -616,6 +616,23 @@ ${grid.join("")}${legend}${paths.join("")}${marks.join("")}
 </svg>`);
 }
 
+/**
+ * R5 is "open the render", and an SVG nobody can open is not opened. The plots
+ * are re-shot as PNGs through the browser that is already running, so the
+ * artefact directory can be LOOKED AT with any image viewer — including by
+ * whoever reads this harness's output without a browser to hand.
+ */
+async function plotsToPng(browser, files) {
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
+  const page = await ctx.newPage();
+  for (const f of files) {
+    if (!existsSync(f)) continue;
+    await page.goto(`file://${f}`, { waitUntil: "load" }).catch(() => {});
+    await page.screenshot({ path: f.replace(/\.svg$/, ".png") }).catch(() => {});
+  }
+  await ctx.close();
+}
+
 function contactSheet(file, strip, frameTimes) {
   // The strip is written as an HTML sheet rather than a montage binary: this
   // box has no image tooling, and a sheet of <img> in file order is the same
@@ -638,8 +655,11 @@ ${cells}`);
 
 // ---------------------------------------------------------------------------
 async function main() {
-  rmSync(OUT, { recursive: true, force: true });
+  // Only what THIS run will rewrite is cleared. An earlier `rmSync(OUT)` wiped
+  // the frame strip whenever `--phases=motion` was run on its own, which threw
+  // away the one artefact R5 asks a human to look at.
   mkdirSync(OUT, { recursive: true });
+  if (has("strip")) rmSync(resolve(OUT, "strip"), { recursive: true, force: true });
   const result = {};
   if (has("server")) result.server = await phaseServer();
 
@@ -763,12 +783,45 @@ async function main() {
           if (!m.err) continue;
           say(`    ${m.id.padEnd(22)} err p50 ${f2(m.err.p50)} m  p99 ${f2(m.err.p99)} m  worst ${f2(m.err.max)} m   hidden p99 ${f2(m.hidden.p99)} m`);
         }
-        const ex = stats(r.extrap.map((x) => x * 1000));
+        const ex = stats(r.extrap.map((x) => x.ahead * 1000));
         say(`\n  EXTRAPOLATION — frames where render time ran PAST the newest snapshot and`);
         say(`                  position was invented from velocity. Every one is taken back later.`);
         const totalFrames = perMan.reduce((a, m) => a + m.frames, 0) || 1;
         say(`    ${r.extrap.length} of ${totalFrames} warrior-frames (${(100 * r.extrap.length / totalFrames).toFixed(1)}%)` +
             (ex ? `   ahead by p50 ${f2(ex.p50)} ms  p99 ${f2(ex.p99)} ms  worst ${f2(ex.max)} ms (cap 220)` : ""));
+        // THE BUFFER, measured rather than assumed. `REMOTE_DELAY_PACKETS` is
+        // 1.5 in anim.ts, but `netInterval` ADAPTS, so the delay a remote man is
+        // actually rendered at is a measured quantity and not 1.5 x 50 ms by
+        // assertion. This is the number to hold the arrival jitter against: a
+        // buffer shallower than the jitter it exists to absorb WILL run dry, and
+        // every frame it runs dry is a frame of invented position.
+        const allNi = [], allNc = [];
+        for (const id of ids) for (const s of r.rec[id]) { allNi.push(s.ni * 1000); allNc.push(s.nc); }
+        const ni = stats(allNi), nc = stats(allNc);
+        say(`\n  BUFFER DEPTH — what the client is actually holding, and how far back it draws`);
+        say(`    netInterval (the client's own estimate of the packet period, target 50 ms)`);
+        say(`      p50 ${f2(ni?.p50)}  p95 ${f2(ni?.p95)}  p99 ${f2(ni?.p99)}  worst ${f2(ni?.max)}`);
+        say(`    effective render delay for a REMOTE man = 1.5 x netInterval  (REMOTE_DELAY_PACKETS, anim.ts)`);
+        say(`      p50 ${f2(ni?.p50 * 1.5)} ms   — this is the entire jitter budget the buffer has`);
+        say(`    snapshots held in the buffer   p50 ${f2(nc?.p50)}  min ${f2(nc?.min)}  max ${f2(nc?.max)}`);
+        if (result.wireNoDraw) {
+          const budget = ni ? ni.p50 * 1.5 : NaN;
+          const jitter = result.wireNoDraw.s.p99;
+          say(`    AGAINST THE WIRE: buffer ${f2(budget)} ms vs arrival p99 ${f2(jitter)} ms  ->  ` +
+              (jitter > budget ? `THE JITTER EXCEEDS THE BUFFER by ${f2(jitter - budget)} ms. It must run dry.`
+                               : `the buffer covers the jitter.`));
+        }
+
+        const byMan = {};
+        for (const e of r.extrap) { const k = e.id || "?"; (byMan[k] = byMan[k] || []).push(e.ahead * 1000); }
+        say(`    broken down, because the local man extrapolates BY DESIGN (his delay is 0)`);
+        say(`    and a remote man extrapolating has RUN OUT OF BUFFER — two different defects:`);
+        for (const m of perMan.sort((a, b) => (byMan[b.id]?.length || 0) - (byMan[a.id]?.length || 0))) {
+          const a = byMan[m.id] || []; const st = stats(a);
+          const kind = m.id.startsWith("bot_") ? "remote" : "LOCAL ";
+          say(`      ${kind} ${m.id.padEnd(22)} ${String(a.length).padStart(5)}/${m.frames} frames (${(100 * a.length / m.frames).toFixed(1).padStart(5)}%)` +
+              (st ? `  ahead p50 ${f2(st.p50).padStart(6)} ms  p99 ${f2(st.p99).padStart(6)} ms` : ""));
+        }
         say(`  BUFFER STALLS — render time fell BEHIND the oldest snapshot held; the man is pinned.`);
         say(`    ${r.stalls} warrior-frames (${(100 * r.stalls / totalFrames).toFixed(1)}%)`);
         say(`  BUFFER RESETS — the whole interpolation history thrown away mid-fight.`);
@@ -793,6 +846,9 @@ async function main() {
         result.motion = { perMan, extrap: r.extrap.length, totalFrames, stalls: r.stalls, resets: r.resets.length, resetsNotTeleport: r.resets.length - tele, ex };
       }
     }
+    await plotsToPng(browser, [
+      "frametime-drawing-on.svg", "snapshot-drawing-on.svg", "motion-track.svg", "motion-speed.svg",
+    ].map((f) => resolve(OUT, f))).catch(() => {});
   } finally {
     await browser.close().catch(() => {});
     if (server && !server.killed) server.kill("SIGTERM");
