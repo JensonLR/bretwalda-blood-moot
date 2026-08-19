@@ -4,9 +4,48 @@
 //
 //   node tools/spectatetest.mjs                 both phases
 //   node tools/spectatetest.mjs --phases=rig    headless, real createCameraRig, ~20 s
-//   node tools/spectatetest.mjs --phases=moot   a real engine-driven moot, no browser, ~90 s
+//   node tools/spectatetest.mjs --phases=moot   a real engine-driven moot, no browser, seeded, ~5 s
 //   node tools/spectatetest.mjs --phases=match  a real browser client driven to a death, ~5 min
 //   node tools/spectatetest.mjs --blind         the readback as it was, kept as the failure
+//   node tools/spectatetest.mjs --seed=N        §2's die; the default is printed on every run
+//
+// §2 IS DETERMINISTIC, AND IT WAS NOT WHEN IT SHIPPED. This is worth the space
+// because the first cut of this phase was put into `npm test` while it failed
+// about one run in three, and a gate that fails differently each run is worse
+// than no gate — `docs/PROCESS.md` has that lesson recorded more than once.
+//
+// Run seven times on the tip it shipped on, `--phases=moot` gave 5/6, 6/6, 6/6,
+// 6/6, 0/1, 6/6, 6/6 — two reds from two unrelated causes. Six runs of my own on
+// the same tip were all green and still disagreed with each other about every
+// number they printed: 411, 449, 456, 484, 492 and 541 snapshots, 70 to 208 of
+// them inside the window, the aim 0.59 m to 0.87 m from the nearest living man.
+// Nothing in the branch changed between those runs. TWO INDEPENDENT SOURCES:
+//
+//   THE DIE. `getEngine()` was driven with the process's own `Math.random`, so
+//   every bot block, dodge, swing roll and strafe direction was redrawn on each
+//   run and a different fight happened. `tools/seeddie.mjs` says what that costs
+//   and every other headless harness here already pins it.
+//
+//   THE CLOCK. `getEngine()` starts a 20 Hz `setInterval` and the harness slept
+//   against `Date.now()`, so how much fight fitted inside the sleep was a
+//   measurement of how busy the box was. Under load the run collected fewer
+//   snapshots, and a short enough window missed the case entirely — which is
+//   the 0/1 run: "0 of them with him down and the fight still live".
+//
+// Both are gone. §2 now seeds the stream, builds its OWN engine with
+// `autoTick: false`, and advances it with `engine.step(1/20)` — the fixed-step
+// door `docs/PLATFORM-PATH.md` §2 exists for, the one `classmatrix`, `wartest`
+// and `tiebreak` already use. Sim time replaces the wall clock everywhere,
+// including the snapshot timestamps, and the drive stops on a COUNT of window
+// snapshots rather than on an elapsed sleep. Two runs of this phase now print
+// the same numbers on a quiet box and on a loaded one.
+//
+// WHAT IS STILL NOT PINNED, said here rather than discovered: session, player
+// and bot ids come from `crypto.randomUUID`, which `seeddie.mjs` deliberately
+// does not touch. Nothing in §2 orders or branches on an id — the room's Map is
+// insertion-ordered and the local player is identified by the `join` packet —
+// so this does not reach the numbers. If it ever does, this is the first thing
+// to look at.
 //
 // WHY THIS FILE EXISTS, and it is a failure of measurement rather than of code.
 //
@@ -91,6 +130,26 @@ const argOf = (n, d) => { const hit = argv.find((a) => a.startsWith(`--${n}=`));
 const PHASES = argOf("phases", "rig,moot,match").split(",").map((s) => s.trim());
 const has = (p) => PHASES.includes(p);
 const BLIND = argv.includes("--blind");
+/**
+ * §2's die, and it is printed on every run rather than left to be guessed.
+ *
+ * mulberry32, the same generator `tools/classmatrix.mjs` seeds per bout with —
+ * so a difference between the two instruments is never the stream. Installed
+ * around the drive and put back afterwards, because `--phases=rig` has no die
+ * and should not acquire one.
+ */
+const SEED = Number(argOf("seed", "20260819"));
+const TRUE_RANDOM = Math.random;
+function seedStream(seed) {
+  let a = (seed >>> 0) || 1;
+  Math.random = function mulberry32() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const releaseStream = () => { Math.random = TRUE_RANDOM; };
 
 const results = [];
 const check = (name, pass, detail) => {
@@ -103,6 +162,10 @@ const f2 = (x) => (x === null || x === undefined || Number.isNaN(x) ? "  -  " : 
 /** Deferrals collected here and printed on the verdict line, never below it (R4). */
 const DEFERRALS = [];
 
+/** tsc emit trees this process owns, removed before it exits. */
+const BUILD_DIRS = [];
+const sweepBuilds = () => { for (const d of BUILD_DIRS) rmSync(d, { recursive: true, force: true }); };
+
 // ---------------------------------------------------------------- §1 the rig
 //
 // The same compile-and-import seam `tools/freezetest.mjs` uses for `anim.ts`.
@@ -110,10 +173,19 @@ const DEFERRALS = [];
 // loader will not resolve them, so the emitted tree is rewritten once inside
 // `.spectate`.
 async function loadCamera() {
-  const BUILD = resolve(ROOT, ".spectate");
+  // PER PROCESS, and that is the third thing that made this file flake. The emit
+  // directory used to be `.spectate` flat, so two spectatetests running at once
+  // — or a `--phases=rig` beside a `--phases=moot` — took turns deleting each
+  // other's tree, and one of six concurrent runs died with
+  // `ERR_MODULE_NOT_FOUND: .spectate/client/targeting` importing a half-written
+  // emit. It is under `.spectate/` so the one .gitignore line still covers it,
+  // and it is removed on the way out.
+  const BUILD = resolve(ROOT, ".spectate", `p${process.pid}`);
+  const OUT = `.spectate/p${process.pid}`;
   rmSync(BUILD, { recursive: true, force: true });
   mkdirSync(BUILD, { recursive: true });
-  const tsc = spawnSync("npx", ["tsc", "src/game/client/render/camera.ts", "--outDir", ".spectate",
+  BUILD_DIRS.push(BUILD);
+  const tsc = spawnSync("npx", ["tsc", "src/game/client/render/camera.ts", "--outDir", OUT,
     "--target", "es2022", "--module", "esnext", "--moduleResolution", "bundler", "--skipLibCheck"],
     { cwd: ROOT, encoding: "utf8" });
   const emitted = [];
@@ -377,27 +449,48 @@ function focusByRule(players, meId) {
 
 async function phaseMoot() {
   rule("§2  A REAL MOOT       (real engine, real deaths, real createCameraRig)");
+  console.log(`  seed ${SEED}, fixed ${(1 / 20).toFixed(3)}s steps on an autoTick:false engine — this phase reads no wall clock.\n`);
   shimBrowser();
   const THREE = await import("three");
   const mod = await loadCamera();
-  const { getEngine } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+  const { makeEngine } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
   if (!mod) { check("camera.ts compiles for the moot phase", false, "tsc emitted nothing"); return; }
-  const engine = getEngine();
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const t0 = Date.now();
+  // THE DIE AND THE CLOCK, BOTH PINNED. See the note at the top of this file for
+  // what each of them was worth in flake. `makeEngine({ autoTick: false })` is
+  // its own simulation with no timer on it: the only way it advances is the
+  // `step` call in the drive below, so a busy box makes this phase SLOWER and
+  // does not make it DIFFERENT.
+  const TICK = 1 / 20;
+  /** Sim seconds the drive may run before it gives up and says so. */
+  const SIM_CAP = 300;
+  /** Window snapshots that end the drive. 200 at 20 Hz is ten seconds of it. */
+  const WANT = 200;
+  seedStream(SEED);
+  const engine = makeEngine({ autoTick: false, epoch: 1e12 });
+
+  /** Sim seconds, read off the engine — no wall clock is read in this phase. */
+  let simS = 0;
   const log = [];
   let room = null;
-  let done = null;
-  const settled = new Promise((r) => { done = r; });
+  /** The local player's id, off the `join` packet rather than off an `isBot` scan. */
+  let meId = null;
   const sid = engine.connect((str) => {
     const m = JSON.parse(str);
     const d = m.data || {};
+    if (m.type === "join" && d.playerId) meId = d.playerId;
     if (d.players) room = { ...d };
     else if (room) room = { ...room, ...d };
     if (m.type === "countdown") room = { ...(room || {}), state: "countdown", countdown: d.countdown };
-    if (room && room.players) log.push({ t: Date.now() - t0, room });
-    if (room && room.state === "fighting" && (room.roundIndex || 0) >= 2 && done) { done(); done = null; }
+    // ONE SNAPSHOT PER SIM INSTANT. Several packets can land inside one fixed
+    // step — a `round_end` and the `game_state` that carries it — and the rig
+    // below is driven at the snapshot spacing, so two rows stamped the same
+    // instant would be a frame of zero length. The later packet wins, which is
+    // the state at the end of that step.
+    if (room && room.players) {
+      if (log.length && log[log.length - 1].t === simS) log[log.length - 1] = { t: simS, room };
+      else log.push({ t: simS, room });
+    }
   });
   // FIVE RECRUITS, NOT THREE JARLS, and the reason is the window this phase
   // needs. The harness sends no input, so its man is defenceless and dies early —
@@ -410,26 +503,50 @@ async function phaseMoot() {
   engine.message(sid, { type: "create", data: { name: "Moot", mode: "blood_moot", bestOf: 3 } });
   for (let i = 0; i < 5; i++) engine.message(sid, { type: "add_bot", data: { difficulty: "recruit" } });
   engine.message(sid, { type: "start", data: {} });
-  await Promise.race([settled, sleep(95000)]);
-  await sleep(900);
-
-  const fullest = log.reduce((best, r) => (
-    !best || Object.keys(r.room.players).length > Object.keys(best.room.players).length ? r : best), null);
-  const ids = fullest ? Object.keys(fullest.room.players) : [];
-  const meId = ids.find((id) => !fullest.room.players[id].isBot) ?? ids[0];
 
   // THE WINDOW UNDER TEST, and it is named rather than assumed: snapshots where
   // the harness's man is DOWN, the room is still FIGHTING, and somebody else is
   // still up. That is exactly when `GameCanvas` hands the rig `spectate`.
-  const window_ = log.filter((r) => {
+  const inWindow = (r) => {
     const p = r.room.players;
-    if (!p || !p[meId] || p[meId].state !== "dead") return false;
+    if (!p || !meId || !p[meId] || p[meId].state !== "dead") return false;
     if (r.room.state !== "fighting" && r.room.state !== "last_stand") return false;
     return Object.keys(p).some((id) => id !== meId && p[id].state !== "dead");
-  });
+  };
+
+  // THE DRIVE, AND THE STOP CONDITION IS A COUNT AND NOT A SLEEP. The shipped
+  // version raced a 95 s `setTimeout` against the round counter, so how much
+  // fight fitted inside it was a measurement of the box: 411 snapshots on a
+  // loaded run, 541 on a quiet one, and on one run in seven none of them inside
+  // the window at all, which scored the phase 0/1. This asks for the window
+  // itself and stops when it has it. Nothing here reads a wall clock.
+  const MAX_STEPS = Math.round(SIM_CAP / TICK);
+  let steps = 0;
+  let windowCount = 0;
+  let logSeen = 0;
+  while (steps < MAX_STEPS && windowCount < WANT) {
+    engine.step(TICK);
+    steps++;
+    simS = engine.simTime() / 1000;
+    while (logSeen < log.length) { if (inWindow(log[logSeen])) windowCount++; logSeen++; }
+  }
+  engine.stop();
+  releaseStream();
+
+  const fullest = log.reduce((best, r) => (
+    !best || Object.keys(r.room.players).length > Object.keys(best.room.players).length ? r : best), null);
+  const ids = fullest ? Object.keys(fullest.room.players) : [];
+  if (!meId) meId = ids.find((id) => !fullest.room.players[id].isBot) ?? ids[0];
+
+  const window_ = log.filter(inWindow);
   check("a real blood moot was driven, the local warrior was killed, and the fight ran on without him",
     !!meId && window_.length > 20,
-    `${ids.length} men, ${log.length} snapshots, ${window_.length} of them with him down and the fight still live`);
+    `${ids.length} men, ${log.length} snapshots over ${(steps * TICK).toFixed(1)}s of SIM time (seed ${SEED}, `
+    + `fixed ${TICK}s steps, no wall clock read), ${window_.length} of them with him down and the fight still live`
+    + (window_.length <= 20
+      ? ` — the drive ran to its ${SIM_CAP}s cap without reaching ${WANT}. This is a DETERMINISTIC failure: `
+        + `the same seed will produce it again, and \`--seed=N\` is the lever`
+      : ""));
   if (window_.length <= 20) return;
 
   // Drive the real rig over that window. `dt` is the snapshot spacing, so the
@@ -448,8 +565,10 @@ async function phaseMoot() {
   for (let i = 0; i < window_.length; i++) {
     const snap = window_[i];
     const want = focusByRule(snap.room.players, meId);
-    const dt = i === 0 ? 1 / 20 : Math.min(0.2, Math.max(1 / 60, (snap.t - window_[i - 1].t) / 1000));
-    rig.update(dt, { focus: { x: want.x, y: 0, z: want.z }, time: snap.t / 1000, dt,
+    // `snap.t` is SIM seconds. The spacing is one fixed step everywhere inside
+    // one round; the clamp is for the gap across a round boundary.
+    const dt = i === 0 ? TICK : Math.min(0.2, Math.max(1 / 60, snap.t - window_[i - 1].t));
+    rig.update(dt, { focus: { x: want.x, y: 0, z: want.z }, time: snap.t, dt,
       localState: "dead", quality: { tier: "high" } });
     rig.camera.updateMatrixWorld(true);
     rig.camera.getWorldDirection(dir);
@@ -463,7 +582,7 @@ async function phaseMoot() {
     const alive = men.filter((m) => m.state !== "dead");
     let near = Infinity;
     for (const m of alive) near = Math.min(near, Math.hypot(aim.x - m.position.x, aim.z - m.position.z));
-    rows.push({ t: snap.t / 1000, want, off, aim, pos: { ...p }, near,
+    rows.push({ t: snap.t, want, off, aim, pos: { ...p }, near,
       fromOrigin: Math.hypot(aim.x, aim.z), lensR: Math.hypot(p.x, p.z), alive: alive.length,
       miss: Math.hypot(aim.x - want.x, aim.z - want.z) });
   }
@@ -834,6 +953,7 @@ async function main() {
   console.log(`  living man sees. He stands somewhere else, so he does not. The claim is about`);
   console.log(`  the one axis a spectator lens can cheat on — elevation — and it is measured`);
   console.log(`  off the running rig in both modes rather than argued from a constant.`);
+  sweepBuilds();
   // EXIT RATHER THAN RETURN. `getEngine()` is a live singleton with a tick timer
   // on it, so a run that has printed its verdict will otherwise sit at the prompt
   // for ever — the same trap `tools/deathcamtest.mjs` ends with `process.exit`
