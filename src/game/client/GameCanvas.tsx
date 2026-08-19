@@ -1538,7 +1538,75 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       } else {
         // The hold has run out, been skipped, or never armed. This is where a
         // dead man went straight from the frame he died on before this change.
-        focusRef.current.set(0, 0, 0);
+        //
+        // SPECTATING, AND WHAT IT IS ALLOWED TO SHOW HIM.
+        //
+        // This used to be `focusRef.current.set(0, 0, 0)`, and that line was
+        // doing nothing at all: `camera.ts`'s orbit hard-wired both its target
+        // and its `lookAt` to the origin and never read the focus. So a dead man
+        // watched the centre of the arena until the round ended, whatever was
+        // happening and wherever it was happening — and with the last two men
+        // fighting at the edge, he watched empty turf while they finished it.
+        // That is the whole of "the dead have nothing to do".
+        //
+        // THE RULE THIS PICKS BY, and it is a competitive rule before it is a
+        // camera one: a dead man may be shown what a LIVING man could already
+        // see, and nothing else. Two cases, in this order:
+        //
+        //   1. A LIVING TEAMMATE. Watch him. Everything in that frame is
+        //      something his own side already knows, so nothing crosses a line
+        //      by being shown to a man on it. This is the honest option in team
+        //      play and it is the first choice because it is the better watch.
+        //
+        //   2. NO LIVING TEAMMATE — a free-for-all, or the last of your side is
+        //      down. Then there is no one whose knowledge you may borrow, so
+        //      the lens takes the other honest option and becomes a seat at the
+        //      ringside: it frames the men still standing from OUTSIDE, at the
+        //      height of a man standing there (see camera.ts). It is pointed at
+        //      the fight, which is the fix, but it is not given sight through
+        //      anything, which is the constraint.
+        //
+        // In both cases the aim is a position the wire already sent this client
+        // for its own drawing — no new information is requested, revealed, or
+        // derived. What changes is where the lens looks, not what it knows.
+        const me = roomState.players[playerId];
+        const live: { x: number; z: number }[] = [];
+        let mate: { x: number; z: number } | null = null;
+        for (const id in roomState.players) {
+          const q = roomState.players[id];
+          if (q.state === "dead" || id === playerId) continue;
+          // His rig's smoothed position where we have it, so the lens rides the
+          // same interpolated body the player is watching rather than the last
+          // snapshot, which would jog it at the tick rate.
+          const slot = warriorsRef.current.get(id);
+          const at = { x: slot?.motion.rx ?? q.position.x, z: slot?.motion.rz ?? q.position.z };
+          if (!mate && me?.team && me.team !== "none" && q.team === me.team) mate = at;
+          live.push(at);
+        }
+        if (mate) {
+          focusRef.current.set(mate.x, 0, mate.z);
+        } else if (live.length > 1) {
+          // THE CLOSEST PAIR, NOT THE CENTROID. A centroid of four men spread
+          // round the ring is a point with nobody standing on it, and the lens
+          // would frame empty turf between them — which is the defect this whole
+          // branch exists to fix, arrived at by a different route. The two men
+          // nearest each other are the two who are about to fight, so their
+          // midpoint is where the round is actually being decided.
+          let bx = live[0].x, bz = live[0].z, best = Infinity;
+          for (let i = 0; i < live.length; i++) {
+            for (let j = i + 1; j < live.length; j++) {
+              const d = (live[i].x - live[j].x) ** 2 + (live[i].z - live[j].z) ** 2;
+              if (d < best) { best = d; bx = (live[i].x + live[j].x) / 2; bz = (live[i].z + live[j].z) / 2; }
+            }
+          }
+          focusRef.current.set(bx, 0, bz);
+        } else if (live.length === 1) {
+          focusRef.current.set(live[0].x, 0, live[0].z);
+        } else {
+          // Nobody left standing. The round is over bar the tally; the middle of
+          // the ring is the right place to be looking for what comes next.
+          focusRef.current.set(0, 0, 0);
+        }
         stage.rig.setMode(photoFramedRef.current ? "photo" : "spectate");
       }
       stage.rig.update(dt, ctx);

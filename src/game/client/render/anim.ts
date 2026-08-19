@@ -72,7 +72,7 @@
 // already generating and not overwrite it.
 
 import * as THREE from "three";
-import type { GamePlayer, WarriorClass } from "../../types";
+import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildShield, shieldBoard,
@@ -2483,7 +2483,21 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
   P.prx += -0.03 * w;
   P.cry += (0.14 + ready * 0.09) * carry * w;
   P.crx += (0.05 + ready * 0.06) * w;
-  P.arx += (0.16 - ready * 0.32) * w;
+  // THE REST POSE IS A LOW READY, NOT A MAN WITH HIS ARMS DOWN.
+  //
+  // The owner: "they go static, arms by their side". Measured on the committed
+  // pose of a calm warden, `arx` sat at 0.163 rad — nine degrees off hanging —
+  // with the elbow at 0.26. The same man on his guard carries 0.766 and 1.614.
+  // That gap IS the complaint: `ready` is zero whenever nothing is moving, and
+  // this layer read zero-ready as "standing in a field" when the man is standing
+  // in a shield wall between exchanges. He does not let his axe hang; he carries
+  // it low and in front, and the weight of it is the reason.
+  //
+  // Rebalanced so the BRACED end is bit-identical and only the rest end moves:
+  // 0.34 - 0.50·ready is 0.34 at ease and -0.16 on the guard, which is exactly
+  // what 0.16 - 0.32·ready gave at ready = 1. Every attack, block, stagger and
+  // walk pose in the game is reached at ready ≈ 1 and is therefore untouched.
+  P.arx += (0.34 - ready * 0.50) * w;
   const abduct = (st.spread + 0.10) * w;
   P.arz += abduct;
   // ...and the wrist gives it straight back to anything carried butt-down, so
@@ -2503,9 +2517,13 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
   P.hry += -0.09 * w;
   // Elbows. The off arm is always the more folded of the two — it is not
   // carrying anything long — and the weapon arm closes as the guard comes up.
-  const fold = 0.26 + ready * 0.40;
+  // Same rebalance, same invariant: 0.42 + 0.24·ready is 0.66 on the guard,
+  // which is what 0.26 + 0.40·ready gave there. `P.wx` below gives the fold
+  // straight back to the wrist, so a heavier resting elbow does not swing the
+  // weapon's carry angle by a degree — the axe comes up, its aim does not move.
+  const fold = 0.42 + ready * 0.24;
   P.arb += -fold * w;
-  P.olb += -(0.46 + ready * 0.46) * w;
+  P.olb += -(0.56 + ready * 0.36) * w;
   // The wrist gives back exactly what the elbow took. `rest` and `live` say
   // where the weapon *points*, and they were measured against an arm that was
   // one rigid stick from shoulder to fist; folding an elbow under them without
@@ -2524,16 +2542,68 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
  * is what the closeup has been photographing.
  */
 function idleLayer(t: number, seed: number, wounded: number, w: number): void {
-  const shift = Math.sin(t * 0.42 + seed);
+  // THE CLOCKS, and they are most of why this layer was not being seen.
+  //
+  // An amplitude is only half of whether motion reads; the other half is how
+  // much of the cycle a glance contains. This layer shipped on periods of 15.0 s
+  // (weight shift), 20.3 s (head drift) and 27.3 s (head nod). A man who is calm
+  // for one second in a fight — which is a long time to be calm in a fight — was
+  // being shown a FIFTEENTH of one swing of the slowest term, and a fifteenth of
+  // a sine near its own turning point is nothing at all. Measured: his crown
+  // travelled 9.3 mm in half a second where a walking man's travels 136 mm.
+  //
+  // So the periods come down to the length of the thing they portray. A man at
+  // ease changes his standing leg every few seconds, not every quarter minute;
+  // he breathes; and in a fight he looks about him rather than drifting his gaze
+  // across half a minute. The amplitudes come up with them, but the clocks are
+  // the larger half of the fix and were the part that was actually wrong.
+  //
+  // THE SHIFT'S AMPLITUDE IS DELIBERATELY BARELY RAISED, and the first cut of
+  // this got it wrong in the other direction. Scaling the weight-shift terms up
+  // with the clock put 320 mm of lateral travel through the crown between one
+  // standing leg and the other — a third of a metre, which is not a man changing
+  // feet, it is a man swaying. What a half-second glance actually contains is
+  // the BREATH, the SCAN and the sway below; the shift is a six-to-eight second
+  // event and its job is the read over seconds, not the read over a glance. So
+  // the clock came down and these four stayed near where they were.
+  const shift = Math.sin(t * 0.82 + seed);
+  // `dwell` still squares the shift off into a hold-and-transfer rather than a
+  // sway: he stands on one leg, then changes. Faster now, so the transfer is a
+  // thing you can catch, but it is the same shape.
   const dwell = Math.sign(shift) * smooth(Math.min(1, Math.abs(shift) * 1.7));
-  const br = Math.sin(t * (1.7 + wounded * 1.9) + seed);
+  const br = Math.sin(t * (2.3 + wounded * 1.9) + seed);
+  // A man between exchanges scans his flanks. This is the only fast term in the
+  // layer and it is small, because a head that whips is a head that twitches —
+  // but it is the term that carries a HALF-SECOND glance, which is the window
+  // the owner is looking through, and the layer had nothing in that band at all.
+  const scan = Math.sin(t * 1.35 + seed * 3.7);
+  // POSTURAL SWAY, and this is the term the layer never had.
+  //
+  // `dwell` is a hold-transfer-hold by construction — it saturates at |shift| >
+  // 0.59, which is 60% of every half cycle — so while a man is standing on a leg
+  // the whole weight-shift half of this layer contributes a CONSTANT. Measured
+  // on the committed pose after the clocks came down: `lrb` and `llb` moved
+  // 0.000 rad in the median half-second window. The knees were still rigid; they
+  // were merely rigid at a better angle.
+  //
+  // A standing body is an inverted pendulum and it never stops correcting. The
+  // two frequencies are deliberately incommensurate (0.9 and 1.63 are not a
+  // ratio of small integers), so the sum never repeats and the correction never
+  // reads as a loop — which a single sine at this amplitude very quickly does.
+  // Small: 12 mm at the hip. It is not meant to be seen as sway. It is meant to
+  // mean the man has not been switched off.
+  const sway = Math.sin(t * 0.90 + seed * 1.7) * 0.62 + Math.sin(t * 1.63 + seed * 4.3) * 0.38;
 
-  P.px += dwell * 0.035 * w;
-  P.prz += -dwell * 0.055 * w;
-  P.py += (-0.004 - Math.abs(dwell) * 0.006 + br * 0.005) * w;
-  P.crz += dwell * 0.075 * w;
-  P.cry += dwell * 0.05 * w;
-  P.crx += (br * 0.022 - 0.01) * w;
+  P.px += (dwell * 0.040 + sway * 0.012) * w;
+  P.prz += (-dwell * 0.062 - sway * 0.020) * w;
+  // The knees take the sway too, and out of phase with each other — that is what
+  // makes it a balance correction rather than the whole man rocking as one board.
+  P.lrb += sway * 0.030 * w;
+  P.llb += -sway * 0.030 * w;
+  P.py += (-0.004 - Math.abs(dwell) * 0.010 + br * 0.009) * w;
+  P.crz += dwell * 0.082 * w;
+  P.cry += dwell * 0.056 * w;
+  P.crx += (br * 0.038 - 0.01) * w;
   // The free leg unlocks and turns out; the loaded one carries straight. The
   // knee is where "unlocked" actually lives — a hip that turns out over a
   // locked knee is a mannequin turned out at the hip.
@@ -2543,13 +2613,16 @@ function idleLayer(t: number, seed: number, wounded: number, w: number): void {
   P.llx += load * 0.10 * w;
   P.lrb += (free * 0.24 - load * 0.10) * w;
   P.llb += (load * 0.24 - free * 0.10) * w;
-  P.hry += (Math.sin(t * 0.31 + seed * 2.1) * 0.16 - dwell * 0.06) * w;
-  P.hrx += (br * 0.02 + Math.sin(t * 0.23 + seed) * 0.03) * w;
-  P.arx += br * 0.024 * w;
-  P.olx += -br * 0.02 * w;
-  P.arb += -br * 0.022 * w;
-  P.olb += br * 0.028 * w;
-  P.wx += br * 0.03 * w;
+  P.hry += (Math.sin(t * 0.85 + seed * 2.1) * 0.17 + scan * 0.075 - dwell * 0.09) * w;
+  P.hrx += (br * 0.03 + Math.sin(t * 0.66 + seed) * 0.045) * w;
+  // The weapon is heavy and the breath is under it. A carried axe rising and
+  // falling on the chest that carries it is the single clearest tell that a man
+  // is alive and not a prop, and it is nearly free — the arm is already posed.
+  P.arx += br * 0.045 * w;
+  P.olx += -br * 0.034 * w;
+  P.arb += -br * 0.038 * w;
+  P.olb += br * 0.046 * w;
+  P.wx += br * 0.055 * w;
 
   // Blood loss shows in the stance before it shows anywhere else. It shows in
   // the knees first of all: a man who has lost blood is not standing at his own
@@ -3214,7 +3287,7 @@ function abilityLayer(d: number, w: number): void {
  * drop is taken in full, and the leg that actually reaches furthest is the one
  * the body stands on.
  */
-function settleOnFeet(legLen: number, plant: number): void {
+function settleOnFeet(legLen: number, plant: number, slack = 0): void {
   const hip = Math.hypot(P.prx, P.prz);
   // Past about a right angle at the hips the man is going over, not standing,
   // and his height is the height of a body on the ground. Faded rather than
@@ -3225,8 +3298,21 @@ function settleOnFeet(legLen: number, plant: number): void {
   const bx = clamp(P.lrx + P.prx, -1.5, 1.5);
   const latL = Math.cos(Math.min(1.4, Math.abs(P.llz + P.prz)));
   const latR = Math.cos(Math.min(1.4, Math.abs(P.lrz + P.prz)));
-  const reachL = legDrop(ax, P.llb) * latL;
-  const reachR = legDrop(bx, P.lrb) * latR;
+  // A BODY RESTS ON THE LOWEST THING IT HAS, AND ON A FOLDED LEG THAT IS THE
+  // KNEE. `legDrop` is the SOLE's drop below the hip, and once the shin has
+  // folded past the vertical its `cos(t + f)` term goes negative — the sole is
+  // now higher than the knee. Solving the body down onto the sole then drives
+  // the knee through the turf, and that is not a corner case: the collapse folds
+  // both knees to 1.58 rad in its first quarter second, which is precisely a man
+  // going down onto them.
+  //
+  // Measured on the real rig before this line existed, a warden dying of a plain
+  // blow put his knee 330 mm UNDER the ground at t+0.20 s, and his crown fell
+  // 790 mm in one tenth of a second, rose 240 mm, and fell again — a body whose
+  // height is not monotonic is not falling under gravity, it is being pushed
+  // about by two solves disagreeing. That is the deckchair.
+  const reachL = Math.max(legDrop(ax, P.llb), KNEE_ALONG * Math.cos(ax)) * latL;
+  const reachR = Math.max(legDrop(bx, P.lrb), KNEE_ALONG * Math.cos(bx)) * latR;
   const lead = Math.max(reachL, reachR);
   P.py += legLen * (lead - Math.cos(Math.min(1.4, hip))) * standing;
 
@@ -3243,10 +3329,28 @@ function settleOnFeet(legLen: number, plant: number): void {
   // Off during locomotion, and it has to be: a foot in mid-stride is supposed
   // to be off the ground, and a solve that plants it would straighten the swing
   // leg into a goose step.
+  //
+  // AND THE TRAILING SOLE DOES NOT HAVE TO BE FLAT. `slack` is how far above
+  // the leading foot's ground the other one is allowed to hang, as a fraction
+  // of the leg, before any of it is charged to the knee.
+  //
+  // It is zero for a stride and for a guard, where both boots really are on the
+  // turf. It is NOT zero for a man standing at ease, and that is the whole of
+  // the owner's "stand straight up": at ease `idleLayer` bends the free knee
+  // 0.24 rad and turns it out, which is the one thing in the idle that reads as
+  // a man resting rather than a mannequin — and this solve took every radian of
+  // it straight back out again, because the free leg is by construction the
+  // SHORTER-reaching one and this is the leg it straightens. Measured on the
+  // committed pose, `lrb` sat at 0.015 rad with a peak-to-peak wiggle over half
+  // a second of 0.000: not small, not slow, RIGID. A man rests on one leg and
+  // lets the other heel come off the ground; a few centimetres of slack is what
+  // that heel is, and it costs the leading foot nothing because the body's
+  // height is solved off `lead`, which is the loaded leg.
   const k = plant * standing;
   if (k <= 0.001) return;
-  if (reachL < reachR) P.llb = mix(P.llb, kneeFor(ax, P.llb, lead / (latL || 1)), k);
-  else P.lrb = mix(P.lrb, kneeFor(bx, P.lrb, lead / (latR || 1)), k);
+  const want = Math.max(0, lead - slack * standing);
+  if (reachL < reachR) P.llb = mix(P.llb, kneeFor(ax, P.llb, want / (latL || 1)), k);
+  else P.lrb = mix(P.lrb, kneeFor(bx, P.lrb, want / (latR || 1)), k);
 }
 
 /**
@@ -3925,14 +4029,101 @@ function reassemble(rig: WarriorRig): void {
  * it: the same three beats, about an axis that has swung round toward the leg
  * that is missing, or with no topple in it at all because the head has gone.
  */
-function deathLayer(d: number, fall: number, shape: FallShape): void {
-  const buckle = smooth(clamp01(d / 0.24));
-  const over = easeInCubic(clamp01((d - 0.16) / 0.44));
-  const rest = clamp01((d - 0.6) / 0.5);
-  const bounce = Math.exp(-9 * Math.max(0, d - 0.58)) * Math.sin((d - 0.58) * 22) * (d > 0.58 ? 1 : 0);
+/**
+ * What the MANNER of death does to the collapse — which is a different question
+ * from what came off the body, and the two are read separately on purpose.
+ *
+ * `FallShape` is what he is missing. This is how he was killed. A man cut down
+ * on his feet, a man burned, and a man already on the ground whose killer chose
+ * to end it do not go down alike, and until this existed they went down
+ * identically: `tools/freezetest.mjs` measured seven kinds of death and printed
+ * three rows — plain blow, torso hit, and BURNING — with the same landing time
+ * to the frame and the same shape columns. That is the "one canned clip played
+ * on everyone" the brief exists to escape, and it was measurable.
+ */
+interface FallCause {
+  /** Time scale on the whole collapse. Above 1 is a slower going-down. */
+  pace: number;
+  /** How far he folds up over himself instead of toppling out. */
+  curl: number;
+  /** How hard the ground is met — the size of every arrival jolt. */
+  drive: number;
+  /** How far the slack limbs spread once they are down. */
+  splay: number;
+}
+
+/**
+ * A cause, and the weight behind the blow that made it.
+ *
+ * FIRE is not a topple. Nobody pushed him; he stops being able to stand, and a
+ * man who is burning is already folded over the thing that is hurting him. He
+ * sags — slower than a felled man, because nothing is driving him — and he goes
+ * down small, arms in rather than flung out.
+ *
+ * A FINISH is the opposite in every term. He was on the ground, he was not
+ * resisting, and somebody swung with intent: it is the fastest and the hardest
+ * of the three, and the least like a fall, because most of the distance was
+ * already gone.
+ */
+function causeOf(cause: DeathCause | null | undefined, heavy: boolean): FallCause {
+  const h = heavy ? 1.3 : 1;
+  switch (cause) {
+    case "fire":   return { pace: 1.16, curl: 0.85, drive: 0.55 * h, splay: 0.45 };
+    case "finish": return { pace: 0.84, curl: 0.28, drive: 1.50 * h, splay: 0.72 };
+    default:       return { pace: 1.00, curl: 0.00, drive: 1.00 * h, splay: 1.00 };
+  }
+}
+
+function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
+                    cause: DeathCause | null | undefined, heavy: boolean): void {
+  const c = causeOf(cause, heavy);
+  // NO TWO MEN GO DOWN AT THE SAME SPEED. `seed` is the per-warrior constant the
+  // idle already rides on; one sine of it is a decorrelated number in [-1, 1]
+  // and costs nothing. +/-8% on the clock is not a thing anyone can name in a
+  // single death and is the whole difference between eight men dropping in a
+  // round and eight instances of one recording.
+  const pace = c.pace * (1 + Math.sin(seed * 12.9898) * 0.08);
+  const D = d / pace;
+
+  const buckle = smooth(clamp01(D / 0.24));
+  const over = easeInCubic(clamp01((D - 0.16) / 0.44));
+  const rest = clamp01((D - 0.6) / 0.5);
+
+  /**
+   * THE GROUND STOPS A BODY UNEVENLY, and this is what replaces the single
+   * `bounce` term the collapse used to share out across every joint it had.
+   *
+   * That term was one damped sine, evaluated once, added to the pelvis, both
+   * shoulders, both elbows, both knees and the spine at THE SAME PHASE. A body
+   * whose every joint rings together on one clock is a body that hit the ground
+   * all at once, which is the one thing a falling man never does: he lands on
+   * the knees he folded, then the hip and the shoulder he is going over onto,
+   * and the head last. Three arrivals, three clocks, and the ringing of each is
+   * its own — a knee against turf is a shorter, harder note than a head is.
+   *
+   * Scaled by `drive`, so a man driven down by a finishing blow meets the
+   * ground harder than a man who sagged out of a fire.
+   */
+  const jolt = (at: number, ring: number, damp: number) =>
+    D > at ? Math.exp(-damp * (D - at)) * Math.sin((D - at) * ring) * c.drive : 0;
+  //
+  // THE DAMPING IS WHAT MAKES THESE ARRIVALS AND NOT WOBBLES. The first cut ran
+  // the head at 7.5, which rings for better than half a second — a skull still
+  // moving on the turf 0.6 s after it got there, which is not a corpse, it is a
+  // bobblehead. Measured through the whole pose path it also dragged the death
+  // out to 1.55 s at 1e-2... at 1e-3, where nothing is visible anyway, and it
+  // was the tail that no camera could cover rather than anything anyone sees.
+  // Turf takes almost everything on the first contact; what is left is one
+  // shallow settle. Meat damps hard.
+  const hitKnee = jolt(0.30, 27, 14);
+  const hitBody = jolt(0.58, 21, 12);
+  const hitHead = jolt(0.76, 17, 11);
+  // Kept under the old name for `halfLayer`, whose clock is its own and whose
+  // legs are the only thing left to meet anything.
+  const bounce = hitBody;
 
   if (shape.halved) {
-    halfLayer(buckle, bounce, fall, d);
+    halfLayer(buckle, bounce, fall, D);
     return;
   }
 
@@ -3953,15 +4144,23 @@ function deathLayer(d: number, fall: number, shape: FallShape): void {
   // crumple's job is to change *how* he gets there, not whether: the knees go
   // first and `settleOnFeet` drops him onto them, and only then does what is
   // left of him go over. He still lands in his own footprint.
-  const flat = (Math.PI / 2) * (1 - shape.crumple * 0.18);
+  // `curl` takes the same fraction off the topple that `crumple` does, and for
+  // the same reason: a man who folds up over himself ends nearer his own feet
+  // than a man who is pushed over. He still gets all the way down — the knees
+  // fold and `settleOnFeet` reads the fold as reach — he just does not travel.
+  const flat = (Math.PI / 2) * (1 - shape.crumple * 0.18 - c.curl * 0.16);
   const pitch = fall * flat * Math.cos(sway);
   const roll = flat * Math.sin(sway);
+  // And he does not land square. A tenth of a radian of settling roll off the
+  // seed is the difference between a body lying where it fell and a body laid
+  // out, and it is the cheapest variation in the whole layer.
+  const tilt = Math.sin(seed * 3.71) * 0.11;
 
-  P.prx = mix(fall * 0.34 * buckle, pitch * 1.03, over) + bounce * 0.06;
+  P.prx = mix(fall * 0.34 * buckle, pitch * 1.03, over) + hitBody * 0.06;
   P.prx = mix(P.prx, pitch, rest);
   // The old 0.2 of settling roll survives untouched on a whole body and gives
   // way to the real one as the lean takes over.
-  P.prz = (roll + fall * 0.2 * (1 - Math.abs(shape.lean))) * over;
+  P.prz = (roll + fall * 0.2 * (1 - Math.abs(shape.lean))) * over + tilt * over + hitBody * 0.03;
   // Losing an arm is a torque and not a push: the shoulder that was balancing
   // the other one is gone, so the body keeps turning about the weight it has
   // left all the way to the ground. It builds over the whole fall rather than
@@ -3973,30 +4172,64 @@ function deathLayer(d: number, fall: number, shape: FallShape): void {
   // `settleOnFeet` takes the body down onto them — which is the difference
   // between a man whose legs went and a felled tree, and it is a difference
   // this rig could not express at all before there were knees to fold.
-  P.py = 0.12 * Math.abs(Math.sin(P.prx)) + bounce * 0.03;
+  P.py = 0.12 * Math.abs(Math.sin(P.prx)) + hitKnee * 0.022 + hitBody * 0.030;
   P.pz = fall * 0.06 * buckle;
 
   // A body going down rather than over folds at the spine on the way: it is the
   // only thing left saying which way he was facing once the topple is gone.
-  P.crx = mix(fall * 0.42 * buckle, 0.05, over) + shape.crumple * 0.5 * over;
+  P.crx = mix(fall * 0.42 * buckle, 0.05, over) + (shape.crumple * 0.5 + c.curl * 0.62) * over
+    + hitBody * 0.05;
   P.crz = -fall * 0.16 * over;
-  P.hrx = mix(fall * 0.5 * buckle, 0.08, over);
-  P.hry = 0.55 * over;
-  P.hrz = -0.25 * over;
+
+  // THE HEAD IS LAST AND IT IS THE HEAVIEST THING ON HIM.
+  //
+  // It used to run on `over` — the torso's own clock — so the skull arrived at
+  // the turf on the same frame as the ribs, which is a head bolted to a spine.
+  // A head is a fifth of a body's mass on the end of the most slack joint in it:
+  // the neck goes first, the head trails the shoulders all the way down, and
+  // when the shoulders stop the head is still travelling and has to be stopped
+  // separately by the ground.
+  //
+  // Two terms, and they are the two halves of that sentence. `lag` is the neck
+  // giving out and the head arriving 0.15 s behind the body over a longer ramp;
+  // `hitHead` is the ground taking the rest of it, on the latest and softest of
+  // the three arrival clocks, because a head does not ring like a knee.
+  //
+  // And where it ENDS is the cause's too. A man who curled up round a fire has
+  // his chin on his own chest; a man flung down by an axe has his head thrown
+  // back off the shoulder he landed on. Without this the skull came to rest at
+  // 0.08 rad whatever had killed him, which is three different collapses
+  // arriving at one corpse — and the corpse is what stays on screen.
+  const lag = easeInCubic(clamp01((D - 0.31) / 0.52));
+  P.hrx = mix(fall * 0.5 * buckle, 0.08 + c.curl * 0.42, lag) + hitHead * 0.30 + hitBody * 0.16;
+  P.hry = (0.55 - c.curl * 0.30) * lag + hitHead * 0.20 + tilt * 0.6;
+  P.hrz = -0.25 * lag + hitHead * 0.16 - tilt * 0.5;
 
   // Limbs go slack and arrive after the body does. Once the body is flat its
   // local Z is world up, so a limb splayed on the pitch axis stands out of the
   // ground or buries itself in it — the settled pose spreads on roll instead,
   // which is the axis that still lies in the turf.
-  const limp = clamp01((d - 0.1) / 0.5);
-  P.arx = mix(0.2, 0.04, limp) + bounce * 0.2;
-  P.arz = mix(0.1, 0.92, limp);
-  P.olx = mix(0.1, -0.06, limp) + bounce * 0.16;
-  P.olz = mix(-0.1, -0.98, limp);
-  P.arb = mix(-0.52, -0.20, limp) + bounce * 0.16;
-  P.olb = mix(-0.60, -0.16, limp) + bounce * 0.14;
-  P.llx = mix(fall * 0.62 * buckle, -0.04, over) + bounce * 0.08;
-  P.lrx = mix(fall * 0.48 * buckle, 0.05, over) + bounce * 0.1;
+  // The two arms do not go slack together and they do not land together. The
+  // one he goes over onto is trapped under him early; the other is still being
+  // carried when the body stops and drops afterwards. A tenth of a second
+  // between them, off the same seed the rest of the collapse rides on.
+  const skew = 0.06 + Math.sin(seed * 7.13) * 0.04;
+  const limpA = clamp01((D - 0.10) / 0.5);
+  const limpB = clamp01((D - 0.10 - skew) / 0.5);
+  // `splay` is how far they end up FROM him. A man flung down by an axe lands
+  // spread; a man who curled up round a fire lands with his arms against him,
+  // and the difference is most of what tells the two apart on the ground.
+  const spread = c.splay;
+  P.arx = mix(0.2, 0.04, limpA) + hitBody * 0.20 + hitHead * 0.10;
+  P.arz = mix(0.1, 0.92 * spread, limpA);
+  P.olx = mix(0.1, -0.06, limpB) + hitBody * 0.16 + hitHead * 0.08;
+  P.olz = mix(-0.1, -0.98 * spread, limpB);
+  // Elbows fold IN as he curls and open out as he sprawls — the same one number
+  // read the other way, so a burned man ends up holding himself.
+  P.arb = mix(-0.52, mix(-0.20, -1.05, c.curl), limpA) + hitBody * 0.16;
+  P.olb = mix(-0.60, mix(-0.16, -1.15, c.curl), limpB) + hitBody * 0.14;
+  P.llx = mix(fall * 0.62 * buckle, -0.04, over) + hitKnee * 0.14 + hitBody * 0.08;
+  P.lrx = mix(fall * 0.48 * buckle, 0.05, over) + hitKnee * 0.17 + hitBody * 0.10;
   // The knees are the first beat of the collapse and they go before anything
   // else moves — he drops onto them, and only then does the body carry over.
   // They straighten out again as he goes flat, which is both what a body on the
@@ -4008,11 +4241,28 @@ function deathLayer(d: number, fall: number, shape: FallShape): void {
   // takes the body down onto it, so a knee held at 1.2 rad is a man in a heap
   // rather than a man laid out, and that is the whole of "he went down where he
   // stood" — it is measured against his own leg rather than authored as a drop.
-  P.lrb = mix(1.58 * buckle, mix(0.12, 1.24, shape.crumple), over);
-  P.llb = mix(1.34 * buckle, mix(0.09, 1.10, shape.crumple), over);
-  P.llz = -0.3 * over;
-  P.lrz = 0.36 * over;
-  P.wx = mix(0.4, -1.0, limp);
+  // `curl` holds the knees the same way `crumple` does and for the same reason —
+  // a man folding up does not straighten out on the ground, he stays gathered.
+  const held = Math.max(shape.crumple, c.curl);
+  // AND THEY STRAIGHTEN AFTER THE CHEST HAS LANDED, NOT WHILE IT IS FALLING.
+  //
+  // These ran on `over`, the topple's own clock, so the legs extended at exactly
+  // the rate the trunk was going down — and a leg extending under a body that is
+  // pitching forward LIFTS the knee off the ground it just knelt on. Measured on
+  // the real rig: the knee rose from 0.07 m to 0.47 m between t+0.30 s and
+  // t+0.45 s while the head was still falling. A man does not push himself up
+  // with his legs on the way down.
+  //
+  // What actually happens is the other order: he drops onto his knees, his shins
+  // stay where they are while the trunk carries over them, and the legs only
+  // come out once his chest is on the turf and there is nothing left to hold up.
+  // Hence a clock of its own, starting where `over` is already two thirds spent.
+  const legOut = easeInCubic(clamp01((D - 0.46) / 0.44));
+  P.lrb = mix(1.58 * buckle, mix(0.12, 1.24, held), legOut) + hitKnee * 0.20;
+  P.llb = mix(1.34 * buckle, mix(0.09, 1.10, held), legOut) + hitKnee * 0.17;
+  P.llz = -0.3 * over * spread;
+  P.lrz = 0.36 * over * spread;
+  P.wx = mix(0.4, -1.0, limpA);
   P.cloak = 0.55 * over;
 }
 
@@ -4137,7 +4387,8 @@ export function poseWarrior(
     // The cut goes in before the pose is built, so the collapse's first frame is
     // already the collapse of a body that is missing something.
     beginGore(rig, motion, player, hooks);
-    deathLayer(motion.actT, motion.fall, rig.gore.shape);
+    deathLayer(motion.actT, motion.fall, rig.gore.shape, motion.seed,
+      player.deathCause, !!player.deathHeavy);
     stops();
     settleOnFeet(legLen, 0);
     motion.leanX *= 0.9;
@@ -4292,7 +4543,13 @@ export function poseWarrior(
   stops();
   // The plant is off while he is walking and back on the moment he is not, so a
   // stride keeps its foot clearance and a guard keeps both boots on the ground.
-  settleOnFeet(legLen, 1 - motion.wMove);
+  //
+  // The SLACK rides on `calm`, not on the plant. A man on his guard has both
+  // boots flat and gets none; a man standing at ease is resting on one leg with
+  // the other heel off the turf, and 50 mm of leg is what that heel is worth.
+  // Without it the plant straightens the very knee `idleLayer` just bent — see
+  // `settleOnFeet` — and the free leg is the one it straightens, every time.
+  settleOnFeet(legLen, 1 - motion.wMove, calm * 0.05);
   commit(rig, piv, st, motion.blend, ready);
   drapeCloak(rig, motion, dt, t, P.cloak);
   fadeBlob(rig, 0);

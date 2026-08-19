@@ -56,6 +56,12 @@ art/ui/
 .vfxprobe/
 # transpile cache for tools/teamread.mjs
 .teamread/
+# transpile cache and artefacts for tools/freezetest.mjs (same reason as above:
+# it tsc-emits anim.ts so node can resolve `three` from the repo's node_modules)
+.freeze/
+# transpile cache for tools/spectatetest.mjs (it tsc-emits camera.ts for the
+# same reason freezetest emits anim.ts)
+.spectate/
 
 # Git worktrees the agent harness creates for isolated parallel work. These are
 # whole checkouts of this repository living inside it — `git worktree list`
