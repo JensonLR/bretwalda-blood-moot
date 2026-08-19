@@ -718,8 +718,21 @@ async function main() {
   await page.evaluate(() => { window.__probe.sent.length = 0; });
   await page.waitForTimeout(1000);
   const rate = await page.evaluate(() => window.__probe.sent.length);
+  // AND THIS ONE IS LOAD-SENSITIVE, WHICH IT NOW SAYS ON ITS OWN LINE.
+  //
+  // It is a count over a WALL-CLOCK second on a box with no GPU, so it measures
+  // the render loop's rate, and the render loop's rate moves with whatever else
+  // is running on the machine. A branch was accused of dropping a check on the
+  // strength of one 36/37 run against a 37/37 control taken at a different
+  // machine load — twice, on a different check each time. Measured properly, six
+  // runs alternating between that branch and a clean `origin/main` inside one
+  // window, every run read 37/37 and this figure read 61-63 either side. So a
+  // single low reading here is a reading about the BOX, and the way to settle it
+  // is alternating runs in one window, never one run against a remembered
+  // control. See docs/OPEN-DEFECTS.md.
   check("input reaches the server at a usable rate", rate >= 45,
-    `${rate} input msgs/sec (render loop samples ~60/sec; <45 means samples are being dropped)`);
+    `${rate} input msgs/sec (render loop samples ~60/sec; <45 means samples are being dropped). ` +
+    `LOAD-SENSITIVE: a wall-clock rate on a software rasteriser — one low run is a reading about this box, not about the branch.`);
 
   // ---- 2. WASD actually moves the warrior ----
   // PHYSICAL codes, not characters. The game binds `event.code` (docs/KEYBINDS.md)

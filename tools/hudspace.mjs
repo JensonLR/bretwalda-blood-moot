@@ -713,6 +713,18 @@ async function main() {
   const pairI = (key, wKey, pKey, title, note, denFilter) => {
     const rows = data.dmg.filter(denFilter);
     const st = stats(rows.map((d) => d[wKey]));
+    // TOUCHING AT ALL, AND IT IS THE COLUMN THAT MATCHES WHAT A PERSON SEES.
+    //
+    // This ruler reported "more than HALF buried" as its headline for four
+    // rounds, and a frame photographed on the branch it had just called clean
+    // showed "92" and "72" with their strokes crossing and "66" and a third
+    // number reading as one impossible "667" — the owner's "337" verbatim. Both
+    // pairs are far under half buried. Half of a two-glyph number is a WHOLE
+    // GLYPH, so by the time this column moves the damage is long done. Any ink
+    // overlap at all is the honest test for legibility, and it is added here
+    // KNOWING it can only make every branch look worse, which is the only kind
+    // of new column worth adding.
+    const touch = rows.filter((d) => d[wKey] > 0).length;
     const over25 = rows.filter((d) => d[wKey] > 0.25).length;
     const over50 = rows.filter((d) => d[wKey] > 0.5).length;
     const pairs = data.dmg.reduce((a, d) => a + (d[pKey] || 0), 0);
@@ -720,11 +732,12 @@ async function main() {
     say(`\n  ${key}. ${title}`);
     for (const line of note) say(`     ${line}`);
     say(`       frames where the pair was possible ${String(rows.length).padStart(6)}   <- the denominator`);
+    say(`       ...INK TOUCHING INK AT ALL         ${String(touch).padStart(6)}  (${(100 * touch / den).toFixed(2)}%)  <- the legibility column`);
     say(`       ...one more than a QUARTER buried  ${String(over25).padStart(6)}  (${(100 * over25 / den).toFixed(2)}%)`);
     say(`       ...one more than HALF buried       ${String(over50).padStart(6)}  (${(100 * over50 / den).toFixed(2)}%)`);
     if (st) say(`       worst burial in the frame          p50 ${f2(st.p50)}  p95 ${f2(st.p95)}  worst ${f2(st.max)}`);
     say(`       colliding pairs over 25%, all frames ${String(pairs).padStart(4)}`);
-    return { over50, den, p50: st ? st.p50 : NaN, max: st ? st.max : NaN };
+    return { over50, touch, den, p50: st ? st.p50 : NaN, max: st ? st.max : NaN };
   };
   say(`\n  ---- and now on the INK, which is not the quad ----`);
   say(`     Everything above measures the QUAD. A damage number is drawn centred into a`);
@@ -779,6 +792,8 @@ async function main() {
   say(`  ORPHANED NUMBERS    ${far === 0 ? `none over 3 m from a warrior (worst ${f2(om && om.max)} m) — the "over empty ground"` : `${far} frames with a number over 3 m from any warrior`}`);
   if (far === 0) say(`                      report is NOT a number drifting off a body.`);
   say(`  NUMBERS CUT BY EDGE ${cutNums === 0 ? "none" : `${cutNums} quads over ${cutFrames} frames`}.`);
+  say(`  INK TOUCHING INK    num/num ${(100 * NN.touch / NN.den).toFixed(2)}%   name/name ${(100 * MM.touch / MM.den).toFixed(2)}%   num/name ${(100 * NM.touch / NM.den).toFixed(2)}%   num/bar ${(100 * NB.touch / NB.den).toFixed(2)}%`);
+  say(`                      — ANY overlap, which is what makes two glyphs read as one number.`);
   say(`  ON THE INK          num/num  ${(100 * NN.over50 / NN.den).toFixed(2)}% of pair-frames over half buried, p50 ${f2(NN.p50)}, worst ${f2(NN.max)}`);
   say(`                      name/name ${(100 * MM.over50 / MM.den).toFixed(2)}%, p50 ${f2(MM.p50)}, worst ${f2(MM.max)}`);
   say(`                      num/name  ${(100 * NM.over50 / NM.den).toFixed(2)}%, p50 ${f2(NM.p50)}, worst ${f2(NM.max)}`);

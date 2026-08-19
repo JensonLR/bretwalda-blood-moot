@@ -374,8 +374,16 @@ const COMPACT_MAX_PUSH = 0.5;
  */
 const NUM_MAX_PUSH = 0.16;
 /**
- * HOW MANY FLOATING NUMBERS THE SCREEN IS ALLOWED TO CARRY AT ONCE, and this is
- * the constant that closes the owner's "337".
+ * HOW MANY FLOATING NUMBERS THE SCREEN IS ALLOWED TO CARRY AT ONCE.
+ *
+ * ON ITS OWN THIS CONSTANT DID NOT CLOSE ANYTHING, and it is written at the top
+ * because the first draft of this comment claimed it did. Measured, four runs
+ * an arm at `--quality=high`, ink number-across-number more than half buried:
+ * 12.44 / 3.91 / 3.67% without it against 4.50 / 12.00 / 3.17% with it — two
+ * ranges sitting on top of each other. What closed the blob is the delta/
+ * absolute confusion in the layout pass, three hundred lines down. This is kept
+ * anyway, on the argument below, and the measurement is here so that nobody
+ * credits it with the win.
  *
  * `damageNumberBudget` — 12 on low, 24 on medium, 48 on high — is a MEMORY
  * budget. It says how many quads this module is willing to keep alive, and it
@@ -384,14 +392,16 @@ const NUM_MAX_PUSH = 0.16;
  * p50 2, p95 5-9, worst 7-12, and the frame photographed for this fix
  * (`.jank/hudspace/h006.png`, R5, read by hand) carries FOURTEEN.
  *
- * Fourteen cannot be laid out. A number's own de-overlap budget is
- * `NUM_MAX_PUSH`, one glyph height and a bit, deliberately small because a
- * number shoved a fifth of the screen from the blow is no longer telling you
- * where you were hit. Fourteen boxes in one melee need several screens of
- * vertical room, so the solver runs out, every push clamps at the same offset,
- * and the glyphs print through each other. In h006, "92" and "72" interlock at
+ * Fourteen cannot be laid out at any burial threshold. A number's own
+ * de-overlap budget is `NUM_MAX_PUSH`, one glyph height and a bit, deliberately
+ * small because a number shoved a fifth of the screen from the blow is no
+ * longer telling you where you were hit — and fourteen boxes in one melee need
+ * several screens of vertical room. In h006, "92" and "72" interlock at
  * (110-178, 282-325) and "66" and a third number read as one impossible "667"
  * at (195-247, 358-388). That is the owner's frame, verbatim, four rounds on.
+ *
+ * So the cap is a bound on a quantity nothing else bounds, and it holds: worst
+ * numbers-up-at-once over four runs an arm went 9 / 16 / 12 / 9 to 6 / 6 / 6 / 6.
  *
  * WHAT THIS IS NOT. It is not the same-victim MERGE — that was tried, it
  * rewound each glyph's age so a window measured from the last blow never
@@ -2038,7 +2048,8 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         const scale = base * distanceScale(dist) * (n.weight === 2 ? 1.1 : 1);
         n.mesh.scale.set(scale * n.glyphs.aspect, scale, 1);
         n.mesh.quaternion.copy(camera.quaternion);
-        if (n.spin !== 0) n.mesh.rotateZ(n.spin * (1 - n.age / n.life));
+        const roll = n.spin * (1 - n.age / n.life);
+        if (n.spin !== 0) n.mesh.rotateZ(roll);
 
         // Posed at LAST frame's offset, which is what the layout below is about
         // to correct. Seeding the projection with it rather than with the raw
@@ -2051,13 +2062,38 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         // Into the same square space the plates use, so one gap means one thing
         // — NDC x carries the aspect — and on the INK rather than on the quad,
         // because a damage number is drawn centred into a canvas it covers less
-        // than a third of and laying out the padding lays out nothing. The spin
+        // than a third of and laying out the padding lays out nothing.
+        //
+        // AND THE SPIN IS IN THE BOX NOW. The line this replaces said "the spin
         // is left out and paid for by the pads: a quarter radian on a glyph this
-        // size moves its corner by well under a hundredth of the screen.
-        n.sx = ndc.x * aspect + (n.mesh.scale.x * n.glyphs.inkCX) / n.worldPerNdc;
-        n.sy = ndc.y + (n.mesh.scale.y * n.glyphs.inkCY) / n.worldPerNdc;
-        n.hx = (n.mesh.scale.x * n.glyphs.inkW * 0.5) / n.worldPerNdc;
-        n.hy = (n.mesh.scale.y * n.glyphs.inkH * 0.5) / n.worldPerNdc;
+        // size moves its corner by well under a hundredth of the screen", and
+        // that arithmetic is wrong — R7, and it is wrong in the direction that
+        // hides the defect.
+        //
+        // A damage number is WIDER THAN IT IS TALL: at `high` the glyph canvas
+        // is 112x74, so a three-digit number's ink is about 1.26 half-widths for
+        // every half-height. Rolling that by the shipped `spin` — up to a
+        // quarter radian on a heavy blow — grows its axis-aligned box by
+        // |sin|*w on the VERTICAL, which is `0.247 * 1.26 = 0.31` of a
+        // half-height, about 28%. `PUSH_PAD_Y` is 0.006 NDC against a
+        // half-height near 0.028, so the pad pays for a fifth of it. The solver
+        // was therefore clearing a box a quarter shorter than the one three.js
+        // draws, declaring two glyphs separated, and printing them through each
+        // other — which is exactly what the photograph of h006 shows.
+        //
+        // The ink CENTRE rotates with it, so it is rotated too rather than
+        // being added along the screen axes it no longer lies on. `sx` is in
+        // `x * aspect` space, which is isotropic with `y`, so one rotation is
+        // correct in it.
+        const rc = Math.cos(roll), rs = Math.sin(roll);
+        const inkOX = (n.mesh.scale.x * n.glyphs.inkCX) / n.worldPerNdc;
+        const inkOY = (n.mesh.scale.y * n.glyphs.inkCY) / n.worldPerNdc;
+        const inkHX = (n.mesh.scale.x * n.glyphs.inkW * 0.5) / n.worldPerNdc;
+        const inkHY = (n.mesh.scale.y * n.glyphs.inkH * 0.5) / n.worldPerNdc;
+        n.sx = ndc.x * aspect + (inkOX * rc - inkOY * rs);
+        n.sy = ndc.y + (inkOX * rs + inkOY * rc);
+        n.hx = Math.abs(rc) * inkHX + Math.abs(rs) * inkHY;
+        n.hy = Math.abs(rs) * inkHX + Math.abs(rc) * inkHY;
       }
 
       // ---- the numbers join the plates' layout --------------------------
@@ -2086,10 +2122,37 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         // number across HEALTH BAR 13.13% -> 22.49% on the same run. It moved
         // the collision, it did not solve it.
         //
-        // So both exits are solved and the shorter is taken, and a push that
-        // cannot clear inside the budget is abandoned rather than clamped: half
-        // an escape is worse than none, because none at least leaves the number
-        // where the blow put it.
+        // So both exits are solved and the shorter is taken.
+        //
+        // `down` and `up` are DELTAS FROM WHERE THE NUMBER IS ALREADY DRAWN, and
+        // that is the whole of the defect this block used to carry. `n.sy` is
+        // projected from `n.mesh.position`, which the integrate pass has already
+        // offset by LAST frame's `n.push` — the comment up there says so, and it
+        // is right to do it. So `settle(...) - n.sy` is what is STILL needed on
+        // top of the offset the number is holding, while `n.push` is the offset
+        // ITSELF, measured from the raw arc. The line that landed read
+        //
+        //     n.push += (want - n.push) * ease(...)
+        //
+        // which drives `n.push` towards `want` as if `want` were the absolute
+        // answer. Solve its fixed point: it stops moving when `want === n.push`,
+        // and `want` is (total needed - already applied), so it comes to rest at
+        // exactly HALF the clearance it asked for. EVERY damage number in the
+        // game was settling half-way out of every collision it solved — which is
+        // the "half an escape" this comment used to warn against, produced by
+        // the arithmetic three lines under the warning. It is why "more than
+        // HALF buried" would not go away however the spawn fan was tuned: the
+        // solver was not failing to find the answer, it was applying half of it.
+        //
+        // `n.sy += n.push` was the same confusion again, adding the whole offset
+        // to a coordinate that already contained it, so every number placed
+        // after this one settled against a phantom a full offset away from where
+        // this one is drawn.
+        //
+        // Now: the delta is added to the current offset to get the TARGET
+        // offset, the target is what gets bounded by the budget, and the step
+        // actually taken this frame is added to both `n.push` and `n.sy` so the
+        // two never disagree again.
         const down = settle(n.sx, n.sy, n.hx, n.hy, placed.length, -1) - n.sy;
         const up = settle(n.sx, n.sy, n.hx, n.hy, placed.length, 1) - n.sy;
         // Hysteresis, because a number that changes its mind about which side
@@ -2098,8 +2161,20 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         // by a third before it swaps.
         const bias = n.push < -1e-4 ? -1 : n.push > 1e-4 ? 1 : 0;
         const cost = (d: number) => Math.abs(d) * (bias !== 0 && Math.sign(d) !== bias ? 1.35 : 1);
-        let want = cost(down) <= cost(up) ? down : up;
-        want = Math.max(-NUM_MAX_PUSH, Math.min(NUM_MAX_PUSH, want));
+        const want = cost(down) <= cost(up) ? down : up;
+        // THE BUDGET BOUNDS THE TOTAL OFFSET, NOT THE STEP. `NUM_MAX_PUSH` is
+        // about how far a number may end up from the blow that made it, which is
+        // a property of the total. Bounding the per-frame delta instead — which
+        // is what clamping `want` did — bounds nothing at all over a second.
+        //
+        // ABANDONING A PUSH THAT CANNOT CLEAR IS NOT TRIED HERE, and it is worth
+        // writing down rather than leaving as a silent choice. The argument for
+        // it is that a number stopped part-way is out of collision with nothing
+        // and has left its own body as well. The argument against is that the
+        // budget is over a glyph and a half, so the cases it would abandon are
+        // the deepest stacks — the ones where SOME separation is all that is on
+        // offer. It is untested either way and this line is where to test it.
+        const target = Math.max(-NUM_MAX_PUSH, Math.min(NUM_MAX_PUSH, n.push + want));
         // Same easing as the plates, and for a sharper reason: a number LIVES
         // for about a second. At the old flat `dt * 12` it needed a sixth of
         // that second to reach a place it had already worked out, so a sixth of
@@ -2107,8 +2182,9 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         // sixth in question is the first one, which is the punch, which is when
         // the eye is actually on it. `hy` is its own half-height, so "one glyph
         // out of place" is what makes this arrive in about two frames.
-        n.push += (want - n.push) * ease(dt, want - n.push, n.hy);
-        n.sy += n.push;
+        const step = (target - n.push) * ease(dt, target - n.push, n.hy);
+        n.push += step;
+        n.sy += step;
         placed.push(n);
       }
 
