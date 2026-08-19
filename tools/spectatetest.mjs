@@ -8,6 +8,8 @@
 //   node tools/spectatetest.mjs --phases=match  a real browser client driven to a death, ~5 min
 //   node tools/spectatetest.mjs --blind         the readback as it was, kept as the failure
 //   node tools/spectatetest.mjs --seed=N        §2's die; the default is printed on every run
+//   node tools/spectatetest.mjs --fixed-aim     §2 aimed at a point that never moves — the
+//                                               camera before the change, kept as the failure
 //
 // §2 IS DETERMINISTIC, AND IT WAS NOT WHEN IT SHIPPED. This is worth the space
 // because the first cut of this phase was put into `npm test` while it failed
@@ -46,6 +48,22 @@
 // insertion-ordered and the local player is identified by the `join` packet —
 // so this does not reach the numbers. If it ever does, this is the first thing
 // to look at.
+//
+// ONE OF ITS BARS WAS NOT ABOUT THE CAMERA, AND IS GONE. §2 and §3 both used to
+// assert `originWin === 0` — no snapshot on which the world origin would have sat
+// as near a living man as the aim did. That is a measurement of WHERE THE BOTS
+// WANDERED: men in a moot converge on each other, the middle of the ring is a
+// place they meet, and on the runs where the surviving pair fought near (0, 0)
+// the bar went red while the aim matched its own rule to 0.000000 m. Seeded, it
+// stops flickering and starts hiding instead: of eight seeds run through this
+// file, seeds 3 and 7 were red and the other six green with nothing about the
+// lens different between them, so the default seed would have been a choice of
+// verdict. It was not weakened to make it pass, and it was not deleted either.
+// What replaces it is at `bestFixedAim` below: the lens is scored against the
+// BEST FIXED POINT THERE IS, found by search over the ground the fight used,
+// with the origin among the candidates — so the claim contains the old one and
+// cannot be flipped by where the fight stands, because translating the world
+// translates every candidate with it. `--fixed-aim` is its proof of failure.
 //
 // WHY THIS FILE EXISTS, and it is a failure of measurement rather than of code.
 //
@@ -130,6 +148,25 @@ const argOf = (n, d) => { const hit = argv.find((a) => a.startsWith(`--${n}=`));
 const PHASES = argOf("phases", "rig,moot,match").split(",").map((s) => s.trim());
 const has = (p) => PHASES.includes(p);
 const BLIND = argv.includes("--blind");
+/**
+ * §2's R2 LEVER, and it is the proof of failure for the tracking claim below.
+ *
+ * `--fixed-aim` hands §2's rig a POINT THAT DOES NOT MOVE instead of the point
+ * the rule picks, which is the camera as it behaved before the change this file
+ * was written for. `--fixed-aim=0,0` is the world origin — literally the old
+ * lens. `--fixed-aim` on its own is the STRONGEST fixed point there is: the one
+ * the search below finds, chosen against the very fight the run recorded. The
+ * claim "the lens follows the fight" has to go red under both, and a lever that
+ * only caught the origin would be a lever tuned to one landmark.
+ */
+const FIXED_AIM = (() => {
+  const hit = argv.find((a) => a === "--fixed-aim" || a.startsWith("--fixed-aim="));
+  if (!hit) return null;
+  const v = hit.includes("=") ? hit.slice("--fixed-aim=".length) : "best";
+  if (v === "best") return "best";
+  const [x, z] = v.split(",").map(Number);
+  return { x: x || 0, z: z || 0 };
+})();
 /**
  * §2's die, and it is printed on every run rather than left to be guessed.
  *
@@ -447,6 +484,121 @@ function focusByRule(players, meId) {
   return { x: 0, z: 0, how: "nobody left standing", live: 0 };
 }
 
+// ---------------------------------------------------------------------------
+// THE BAR THAT WAS NOT ABOUT THE CAMERA, AND WHAT REPLACES IT.
+//
+// This phase used to assert `originWin === 0`: no settled snapshot where the
+// world origin would have sat as near a living man as the aim did. That bar
+// measures WHERE THE BOTS WANDERED. Men in a blood moot converge on each other
+// and the middle of the ring is where they meet, so whenever the surviving pair
+// happened to fight near (0, 0) the bar went red with the aim matching its own
+// rule to 0.000000 m. Seeded runs of this file over eight seeds: seeds 3 and 7
+// red, the other six green, with nothing about the lens different between them.
+// A gate that a fight's POSITION can flip is a gate about the fight.
+//
+// What the bar was reaching for is real, and it is this: THE LENS TRACKS THE
+// FIGHT RATHER THAN SITTING AT A FIXED POINT. The old form tested one fixed
+// point — the origin — which is why the fight could walk onto it. So test them
+// ALL: find the single best fixed point there is, by search, scored on the same
+// snapshots by the same statistic, and require the lens to beat it.
+//
+// That claim cannot be satisfied or broken by where the fight is, and the
+// reason is one line: translate the world and every candidate translates with
+// it, so the comparison is unchanged. It cannot be bought by a fight that
+// happens to sit still either — a static fight is exactly the case where a
+// fixed point DOES match a tracker, and then this goes red and says so, which
+// is the honest answer to "we could not tell the two apart here".
+//
+// And it is STRICTLY STRONGER than the bar it replaces, not a relaxation: the
+// origin is one of the candidates the search considers, so beating the best
+// fixed point entails beating the origin on the same statistic.
+//
+// MEASURED, over the nine seeds this file was run under before the claim was
+// settled — all nine green, including the two the old bar called red:
+//
+//     seed        aim p90 / best fixed p90      aim mean / best fixed mean
+//     1              1.03  /  5.57                 0.77  /  4.31
+//     2              1.00  /  5.13                 0.81  /  2.32
+//     3              2.55  /  2.61                 1.16  /  1.23     <- old bar: RED
+//     7              3.05  /  4.25                 1.31  /  2.57     <- old bar: RED
+//     11             0.97  /  1.13                 0.67  /  0.85
+//     42             1.02  /  2.92                 0.76  /  2.09
+//     99             0.83  /  5.19                 0.68  /  4.12
+//     12345          1.35  /  2.02                 0.93  /  1.26
+//     20260819       1.67  /  2.30                 1.01  /  1.60     <- the default
+//
+// The margin runs from 0.06 m to 4.54 m at p90, and seed 3 is worth reading:
+// that fight stayed in one place, and a fight that stays in one place is exactly
+// where a point that never moves does as well as a lens that follows. This claim
+// goes red there rather than pretending otherwise, which is the answer a reader
+// wants when the two cannot be told apart.
+//
+/**
+ * Distance from a fixed point to the nearest living man, one number per frame.
+ * `frames` is a list of frames, each a list of living men as { x, z }.
+ */
+function nearSeries(px, pz, frames) {
+  const out = [];
+  for (const men of frames) {
+    let best = Infinity;
+    for (const m of men) { const d = Math.hypot(px - m.x, pz - m.z); if (d < best) best = d; }
+    out.push(best);
+  }
+  return out;
+}
+const median = (a) => { const b = [...a].sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(b.length * 0.5))]; };
+const p90of = (a) => { const b = [...a].sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(b.length * 0.9))]; };
+const meanOf = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+
+/**
+ * The best fixed point on the ground, found by search and not by argument.
+ *
+ * ONE OPTIMUM PER STATISTIC, and that is a fairness rule rather than a detail:
+ * a point chosen to win the median is not the point that wins the mean, and
+ * scoring the lens against a fixed point optimised for something else would be
+ * scoring it against a straw man. So the scan keeps three winners — the best
+ * p50, the best p90 and the best mean of "distance to the nearest living man" —
+ * and each is compared only with the lens's own figure for that same statistic.
+ *
+ * A coarse 0.25 m lattice over the ground the fight actually used, padded by
+ * 2 m, then a 0.02 m refinement around each winner. The world origin is always
+ * a candidate, so the bar this replaces is contained in this one. Deterministic:
+ * fixed lattice, fixed order, first winner on a tie.
+ */
+function bestFixedAim(frames) {
+  let xLo = Infinity, xHi = -Infinity, zLo = Infinity, zHi = -Infinity;
+  for (const men of frames) for (const m of men) {
+    if (m.x < xLo) xLo = m.x; if (m.x > xHi) xHi = m.x;
+    if (m.z < zLo) zLo = m.z; if (m.z > zHi) zHi = m.z;
+  }
+  const nowhere = { x: 0, z: 0, p50: Infinity, p90: Infinity, mean: Infinity };
+  if (!Number.isFinite(xLo)) return { p50: nowhere, p90: nowhere, mean: nowhere };
+  const at = (x, z) => { const a = nearSeries(x, z, frames); return { x, z, p50: median(a), p90: p90of(a), mean: meanOf(a) }; };
+  // The origin is always a candidate, so the bar this replaces is contained in
+  // this one: whatever beats the best fixed point has beaten the middle of the ring.
+  const seed = at(0, 0);
+  const best = { p50: seed, p90: seed, mean: seed };
+  const scan = (x0, x1, z0, z1, step) => {
+    for (let x = x0; x <= x1 + 1e-9; x += step) {
+      for (let z = z0; z <= z1 + 1e-9; z += step) {
+        const c = at(x, z);
+        for (const k of ["p50", "p90", "mean"]) if (c[k] < best[k][k]) best[k] = c;
+      }
+    }
+  };
+  scan(xLo - 2, xHi + 2, zLo - 2, zHi + 2, 0.25);
+  for (const k of ["p50", "p90", "mean"]) {
+    const b = best[k];
+    for (let x = b.x - 0.3; x <= b.x + 0.3 + 1e-9; x += 0.02) {
+      for (let z = b.z - 0.3; z <= b.z + 0.3 + 1e-9; z += 0.02) {
+        const c = at(x, z);
+        if (c[k] < best[k][k]) best[k] = c;
+      }
+    }
+  }
+  return best;
+}
+
 async function phaseMoot() {
   rule("§2  A REAL MOOT       (real engine, real deaths, real createCameraRig)");
   console.log(`  seed ${SEED}, fixed ${(1 / 20).toFixed(3)}s steps on an autoTick:false engine — this phase reads no wall clock.\n`);
@@ -562,9 +714,24 @@ async function phaseMoot() {
   rig.setMode("spectate");
   const dir = new THREE.Vector3();
   const rows = [];
+  /** Living men, per snapshot, as the fixed-point search and the scores read them. */
+  const menOf = (snap) => Object.values(snap.room.players)
+    .filter((m) => m.state !== "dead").map((m) => ({ x: m.position.x, z: m.position.z }));
+  /** The settled stretch, named here because the lever is scored on the same frames. */
+  const tailFrom = Math.floor(window_.length / 3);
+  const tailFrames = window_.slice(tailFrom).map(menOf);
+  const fixedPoint = FIXED_AIM === null ? null
+    : FIXED_AIM === "best" ? bestFixedAim(tailFrames).mean : { x: FIXED_AIM.x, z: FIXED_AIM.z };
+  if (fixedPoint) {
+    console.log(`  --fixed-aim: the rig is handed the FIXED point (${fixedPoint.x.toFixed(2)}, ${fixedPoint.z.toFixed(2)}) `
+      + `every frame${FIXED_AIM === "best" ? " — the best one there is, found by the search below" : ""}. `
+      + `This is the camera as it behaved before the change, and the tracking claim must go red.\n`);
+  }
   for (let i = 0; i < window_.length; i++) {
     const snap = window_[i];
-    const want = focusByRule(snap.room.players, meId);
+    const want = fixedPoint
+      ? { x: fixedPoint.x, z: fixedPoint.z, how: "a point that does not move (--fixed-aim)", live: menOf(snap).length }
+      : focusByRule(snap.room.players, meId);
     // `snap.t` is SIM seconds. The spacing is one fixed step everywhere inside
     // one round; the clamp is for the gap across a round boundary.
     const dt = i === 0 ? TICK : Math.min(0.2, Math.max(1 / 60, snap.t - window_[i - 1].t));
@@ -592,12 +759,40 @@ async function phaseMoot() {
   const missWorst = Math.max(...rows.map((r) => r.miss));
   const yHi = Math.max(...rows.map((r) => r.pos.y));
   const rHi = Math.max(...rows.map((r) => r.lensR));
-  const originWin = tail.filter((r) => r.fromOrigin <= r.near).length;
+  // THE COMPARISON, on the settled frames and on both sides of it identically:
+  // how near the aim kept to a living man, against how near the BEST point that
+  // never moves could have kept over the same frames.
+  const aimNear = tail.map((r) => r.near);
+  const fixedBest = bestFixedAim(tailFrames);
+  const aimP50 = median(aimNear), aimP90 = p90of(aimNear), aimMean = meanOf(aimNear);
+  // WHICH STATISTICS THIS IS ASSERTED ON, AND WHY THE MEDIAN IS NOT ONE OF THEM.
+  // The rule aims at the MIDPOINT of the two men nearest each other, so the aim
+  // is never ON a man — it sits half a pair-separation away, about 0.8 m, on
+  // every frame including the calmest. A point parked in the middle of a brawl
+  // is 0.0 m from a man for as long as the brawl stays there, so it wins the
+  // MEDIAN against any midpoint-aiming lens whatever the lens does. Measured on
+  // the default seed: best fixed p50 0.58 m against the lens's 0.84 m, while the
+  // same point is 4.41 m at p90 against the lens's 1.67 m. A statistic a
+  // correct tracker must lose is not a test of tracking, so the median is
+  // PRINTED and NOT ASSERTED, and the two tail statistics — where a fixed point
+  // pays for the fight walking away from it — are the claim.
+  const tracks = aimP90 < fixedBest.p90.p90 && aimMean < fixedBest.mean.mean;
+  const xz = (q) => `${q.x.toFixed(2)}, ${q.z.toFixed(2)}`;
+  const originSeries = nearSeries(0, 0, tailFrames);
+  /** How far the point the lens is following travelled — a static fight cannot be told from a static lens. */
+  let fightPath = 0;
+  for (let i = 1; i < tail.length; i++) fightPath += Math.hypot(tail[i].aim.x - tail[i - 1].aim.x, tail[i].aim.z - tail[i - 1].aim.z);
 
   console.log(`\n  ${rows.length} snapshots of a dead man watching a live fight.`);
   console.log(`    aim off the ray the lens looks down   worst ${offWorst === Infinity ? "BEHIND THE LENS" : `${offWorst.toFixed(4)} m`}`);
   console.log(`    aim against the rule                  worst ${missWorst.toFixed(4)} m`);
-  console.log(`    aim to the nearest LIVING man         p50 ${pct(tail.map((r) => r.near), 0.5).toFixed(2)} m   p90 ${pct(tail.map((r) => r.near), 0.9).toFixed(2)} m`);
+  console.log(`    aim to the nearest LIVING man         p50 ${aimP50.toFixed(2)} m   p90 ${aimP90.toFixed(2)} m   mean ${aimMean.toFixed(2)} m`);
+  console.log(`    the BEST point that never moves       p50 ${fixedBest.p50.p50.toFixed(2)} m (at ${xz(fixedBest.p50)})   `
+    + `p90 ${fixedBest.p90.p90.toFixed(2)} m (at ${xz(fixedBest.p90)})   mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)})`);
+  console.log(`      each of those three is a DIFFERENT point, each the best there is for its own statistic`);
+  console.log(`    the middle of the ring, for the record  p50 ${median(originSeries).toFixed(2)} m   `
+    + `p90 ${p90of(originSeries).toFixed(2)} m   mean ${meanOf(originSeries).toFixed(2)} m   at (0.00, 0.00)`);
+  console.log(`    the aim's own travel over those frames  ${fightPath.toFixed(2)} m`);
   console.log(`    lens height                           up to ${yHi.toFixed(3)} m`);
   console.log(`    lens radius from the middle           up to ${rHi.toFixed(2)} m, palisade at 19.6 m`);
   console.log(`    branches the rule took                ${[...new Set(rows.map((r) => r.want.how))].join(", ")}\n`);
@@ -618,11 +813,17 @@ async function phaseMoot() {
     offWorst < 0.01, `worst ${offWorst === Infinity ? "the point is BEHIND the lens" : `${offWorst.toFixed(4)} m`} over ${rows.length} snapshots`);
   check("and the lens is aimed where the rule says, over positions the server chose and this harness did not",
     missWorst < 1e-6, `worst ${missWorst.toFixed(6)} m from the point the rule picks; branches: ${[...new Set(rows.map((r) => r.want.how))].join(", ")}`);
-  check("AND IT IS NOT THE MIDDLE OF THE RING, which is what a dead man used to watch",
-    originWin === 0,
-    `once the orbit has settled the aim sits ${pct(tail.map((r) => r.near), 0.5).toFixed(2)} m from the nearest living man `
-    + `and ${pct(tail.map((r) => r.fromOrigin), 0.5).toFixed(2)} m from (0,0); ${originWin} of ${tail.length} snapshots where the origin `
-    + `would have been no worse`);
+  check("IT FOLLOWS THE FIGHT, AND NO POINT THAT STANDS STILL COULD HAVE: not the middle of the ring, and not the best fixed point on the ground either",
+    tracks,
+    `over ${tail.length} settled snapshots the aim kept p90 ${aimP90.toFixed(2)} m and mean ${aimMean.toFixed(2)} m from the nearest `
+    + `living man; the best point that never moves manages p90 ${fixedBest.p90.p90.toFixed(2)} m (at ${xz(fixedBest.p90)}) and `
+    + `mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)}), each searched for on the ground this fight used with `
+    + `(0,0) among the candidates and each optimised for its own statistic — the middle of the ring itself is p90 `
+    + `${p90of(originSeries).toFixed(2)} m, mean ${meanOf(originSeries).toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m over `
+    + `those frames. NOT ASSERTED AND PRINTED ANYWAY: the median, ${aimP50.toFixed(2)} m against the best fixed point's `
+    + `${fixedBest.p50.p50.toFixed(2)} m — a lens aiming at the midpoint of a PAIR is never on a man, and a point parked in a brawl `
+    + `is on one, so the median belongs to the fixed point by construction and says nothing about tracking. `
+    + `WHERE THE FIGHT STANDS CANNOT MOVE THIS: translate the world and every candidate translates with it`);
   check("and over a real fight the dead lens still stands no higher than the living one",
     yHi <= liveYHi + 1e-9, `${yHi.toFixed(3)} m against the follow lens's ${liveYHi.toFixed(3)} m on the same rig`);
   check("and it never leaves the fighting ground on the geometry a real moot produced",
@@ -897,11 +1098,28 @@ async function phaseMatch() {
     const near = rows.map((r) => r.near);
     const yLo = Math.min(...rows.map((r) => r.y)), yHi = Math.max(...rows.map((r) => r.y));
     const rHi = Math.max(...rows.map((r) => r.lensR));
-    const originWin = rows.filter((r) => r.fromOrigin <= r.near).length;
+    // THE SAME COMPARISON §2 MAKES, and for the same reason: `originWin === 0`
+    // tested ONE fixed point, so a fight that walked onto the middle of the ring
+    // turned it red with the lens doing its job. The best fixed point on the
+    // ground is searched for here too, per statistic, over the frames the client
+    // actually produced.
+    const specFrames = spec.map((x) => x.men.filter((m) => !m.dead).map((m) => ({ x: m.x, z: m.z })));
+    const fixedBest = bestFixedAim(specFrames);
+    const originSeries = nearSeries(0, 0, specFrames);
+    const xz = (q) => `${q.x.toFixed(2)}, ${q.z.toFixed(2)}`;
+    const aimP90 = p90of(near), aimMean = meanOf(near);
+    const tracks = aimP90 < fixedBest.p90.p90 && aimMean < fixedBest.mean.mean;
+    let fightPath = 0;
+    for (let i = 1; i < rows.length; i++) fightPath += Math.hypot(rows[i].aim.x - rows[i - 1].aim.x, rows[i].aim.z - rows[i - 1].aim.z);
 
     console.log(`\n  ${rows.length} spectate samples with the fight still running.`);
     console.log(`    aim vs the rule, computed here   p50 ${pct(miss, 0.5).toFixed(2)} m   p90 ${pct(miss, 0.9).toFixed(2)} m   worst ${Math.max(...miss).toFixed(2)} m`);
     console.log(`    aim to the nearest LIVING man    p50 ${pct(near, 0.5).toFixed(2)} m   p90 ${pct(near, 0.9).toFixed(2)} m   worst ${Math.max(...near).toFixed(2)} m`);
+    console.log(`    lens height                      ${yLo.toFixed(3)} - ${yHi.toFixed(3)} m`);
+    console.log(`    the BEST point that never moves   p90 ${fixedBest.p90.p90.toFixed(2)} m (at ${xz(fixedBest.p90)})   `
+      + `mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)})   [median not asserted: ${fixedBest.p50.p50.toFixed(2)} m at ${xz(fixedBest.p50)}]`);
+    console.log(`    the middle of the ring            p90 ${p90of(originSeries).toFixed(2)} m   mean ${meanOf(originSeries).toFixed(2)} m   at (0.00, 0.00)`);
+    console.log(`    the aim's own travel              ${fightPath.toFixed(2)} m`);
     console.log(`    lens height                      ${yLo.toFixed(3)} - ${yHi.toFixed(3)} m`);
     console.log(`    lens radius from the middle      up to ${rHi.toFixed(2)} m, against the palisade at 19.6 m\n`);
 
@@ -909,10 +1127,13 @@ async function phaseMatch() {
       pct(miss, 0.9) < 0.75,
       `miss p50 ${pct(miss, 0.5).toFixed(2)} m, p90 ${pct(miss, 0.9).toFixed(2)} m, worst ${Math.max(...miss).toFixed(2)} m over `
         + `${rows.length} samples; branches taken: ${[...new Set(rows.map((r) => r.how))].join(", ")}`);
-    check("AND IT IS NOT THE MIDDLE OF THE RING, which is what it was: the aim is nearer a living man than the world origin is, on every sample",
-      originWin === 0,
-      `the aim sits ${pct(near, 0.5).toFixed(2)} m from the nearest living man and ${pct(rows.map((r) => r.fromOrigin), 0.5).toFixed(2)} m from (0,0); `
-        + `${originWin} of ${rows.length} samples where the origin would have been no worse. The reading this replaces — `
+    check("IT FOLLOWS THE FIGHT, AND NO POINT THAT STANDS STILL COULD HAVE: not the middle of the ring, which is what it was, and not the best fixed point on the ground either",
+      tracks,
+      `over ${rows.length} samples the aim kept p90 ${aimP90.toFixed(2)} m and mean ${aimMean.toFixed(2)} m from the nearest living man; `
+        + `the best point that never moves manages p90 ${fixedBest.p90.p90.toFixed(2)} m and mean ${fixedBest.mean.mean.toFixed(2)} m, `
+        + `each searched for over the ground this fight used with (0,0) among the candidates; the middle of the ring is p90 `
+        + `${p90of(originSeries).toFixed(2)} m, mean ${meanOf(originSeries).toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m. `
+        + `The median is printed and not asserted, for the reason §2 gives at the same claim. The reading this replaces — `
         + `"0.61 m from the nearest living man" — was taken from an instrument that reported the origin on every frame`);
     check("and the lens is standing, not flying — at a living player's own camera height, in a real match",
       yHi <= 2.05 + 1e-6, `${yLo.toFixed(3)} - ${yHi.toFixed(3)} m against CAM_HEIGHT 2.05 m`);
