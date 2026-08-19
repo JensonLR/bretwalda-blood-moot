@@ -66,11 +66,11 @@
 //
 // So:
 //
-//   YOUR OWN DEATH — `createDeathCamera`, above. 3.10 s. Opens on the exact
+//   YOUR OWN DEATH — `createDeathCamera`, above. 3.35 s. Opens on the exact
 //                    frame the follow camera left, because you were already
 //                    looking at yourself and a cut would throw away the one
 //                    thing you are trying to understand. NO CUT.
-//   THE ROUND'S     — `createRoundCamera`, below. 2.20 s. Everybody watches the
+//   THE ROUND'S     — `createRoundCamera`, below. 2.95 s. Everybody watches the
 //   FINAL DEATH      killing blow that ends the round, winner and losers alike.
 //                    It CUTS, and the cut is the point: you were fighting
 //                    somebody else twenty metres away, there is no continuity to
@@ -89,8 +89,8 @@
 // round beat never arms for you — not then, and not when your hold finishes. You
 // were already being seen; that was your beat. Two reasons, and the second is
 // the one that makes it non-negotiable: cutting off your own collapse to watch
-// somebody else's is the exact cut this module exists to refuse, and 3.10 s of
-// hold followed by 2.20 s of beat is 5.30 s inside a break the server gives five
+// somebody else's is the exact cut this module exists to refuse, and 3.35 s of
+// hold followed by 2.95 s of beat is 6.30 s inside a break the server gives five
 // seconds — the next round would be dealt over the top of it.
 //
 // In an honour duel that resolves to precisely what the owner asked for: the man
@@ -102,20 +102,26 @@ export const DEATH_HOLD = {
   /**
    * Watching yourself go down, lens still.
    *
-   * 1.35 s, and the number is not a taste. `tools/freezetest.mjs` drives the
-   * real `poseWarrior` over seven kinds of death and reports when the committed
-   * pose stops changing. The collapse now carries weight — the head trails the
-   * ribs and is stopped separately by the ground — and it runs longer than the
-   * ~1.1 s this constant was set against: worst case 1.25 s at 1e-2 rad/frame.
+   * 1.50 s, and the number is not a taste. `tools/freezetest.mjs --phases=collapse`
+   * drives the real `poseWarrior` over seven kinds of death and reports when the
+   * committed pose stops changing. The collapse now carries weight — the head
+   * trails the ribs and is stopped separately by the ground — and it runs longer
+   * than the ~1.1 s this constant was set against. Its table, run on this tree:
    *
-   * 1e-2 IS THE RIGHT FLOOR TO SIZE THIS AGAINST, and freezetest says so in its
-   * own words: "1e-3 rad is about 0.06 degrees per frame — well below what an
-   * eye reads as motion at fight distance". Holding the lens still until the
-   * pose is quiet to 1e-3 would be holding it for something nobody can see.
-   * 1e-2 is 0.6 degrees per frame, which is 36 degrees a second, which is plain.
+   *     landed            0.52 - 1.17 s
+   *     quiet to 1e-2     0.45 - 1.13 s
+   *     quiet to 1e-3     0.82 - 1.38 s   (p50 1.23 s)
    *
-   * So: 1.35 s covers the worst of the seven at 1e-2 with a tenth of a second
-   * to spare, and covers the LANDING of all seven (0.52-1.25 s) outright.
+   * SIZED AGAINST THE STRICT FLOOR AND NOT THE FORGIVING ONE, which is a change
+   * of mind from the first draft of this comment and is worth saying out loud.
+   * That draft argued for 1e-2 on the grounds that freezetest calls 1e-3 "about
+   * 0.06 degrees per frame — well below what an eye reads as motion at fight
+   * distance". True of one joint in isolation, and the wrong test here: the
+   * whole body is settling at once, the beat costs 0.25 s, and the beat's job
+   * is to be over before the eye has to wonder whether it is.
+   *
+   * So: 1.50 s covers the worst of the seven at 1e-3 with 0.12 s to spare, and
+   * covers the LANDING of all seven (0.52-1.17 s) with a third of a second over.
    */
   fall: 1.50,
   /** Easing round to the wound. */
@@ -132,18 +138,25 @@ export const DEATH_FOV = { from: 55, to: 44 };
 /**
  * THE ROUND'S FINAL DEATH. Shorter than your own on purpose.
  *
- * Your own death is 3.10 s because you are trying to read what happened to you
- * and the collapse alone takes 1.10 s. The round beat is a beat: the blow lands,
- * everybody looks, the round tally comes up. 2.20 s inside a 5 s break leaves
- * 2.80 s of slack, so NOTHING WAITS ON IT — the server has already set
+ * Your own death is 3.35 s because you are trying to read what happened to you
+ * and the collapse alone takes up to 1.38 s. The round beat is a beat: the blow
+ * lands, everybody looks, the round tally comes up. 2.95 s inside a 5 s break
+ * leaves about 2.0 s of slack — `deathcamtest` measures 2.03 s on a real
+ * recording — so NOTHING WAITS ON IT — the server has already set
  * `nextRoundAt` and this module sends nothing, decides nothing the server
  * decides, and is not read by any other client.
  *
- * `fall` is short for the same reason it is long above. There the lens is
- * already on the body and the stillness is the shot; here the lens has just cut
- * in from wherever the viewer was, so a long still opening is a freeze on a
- * stranger. It is 0.45 s — long enough to read the frame before it starts to
- * move, short enough that the move is what you remember.
+ * `fall` WAS short for a reason that did not survive being measured, and the
+ * argument is left here because it is the interesting half. It ran: there the
+ * lens is already on the body and the stillness is the shot; here the lens has
+ * just cut in from wherever the viewer was, so a long still opening is a freeze
+ * on a stranger, and 0.45 s is long enough to read the frame before it starts to
+ * move. The flaw is "a freeze on a stranger". The cut lands ON THE BODY —
+ * `deathcamtest` claim 11 measures the opening frame at 5.95 m with the wound
+ * 0.4 degrees off axis — and the body is FALLING for the whole of this beat. A
+ * still lens on a moving subject is not a freeze; it is the shot. What 0.45 s
+ * actually bought was a dolly that started with two thirds of the collapse left
+ * to run, measured 7/7. See the constant itself below.
  *
  * ---------------------------------------------------------------------------
  * THE TOTAL IS NOT A FREE CHOICE. `src/app/page.tsx` already holds the round-end
@@ -155,12 +168,21 @@ export const DEATH_FOV = { from: 55, to: 44 };
  * showing you the lobby orbit.
  *
  * So the beat is the length of the window that was already open for it, and the
- * window was widened WITH it: 2.20 s here and 2200 ms there both became 2.90 s,
+ * window was widened WITH it: 2.20 s here and 2200 ms there both became 2.95 s,
  * in the same commit, because the collapse this beat exists to show is longer
  * than the beat was. THE CEILING IS THE `left > 2` GUARD IN page.tsx, not this
  * constant: the card takes over once fewer than three whole seconds of a five
  * second break remain, so anything past about 3.0 s is a beat that gets cut off
- * by its own screen. 2.90 s leaves a tenth of a second under that.
+ * by its own screen. 2.95 s leaves five hundredths of a second under that.
+ *
+ * AND THAT CEILING IS WHY `move` AND `linger` GAVE GROUND, which the first
+ * report of this change did not mention and should have. `fall` took a whole
+ * second (0.45 -> 1.45) and the total could not follow it that far, so `move`
+ * went 1.05 -> 0.90 and `linger` 0.70 -> 0.60: total 2.20 -> 2.95, which is
+ * +0.75 against the +1.00 the still asked for. The dolly is 0.15 s quicker over
+ * the same 5.4 m -> 2.05 m as a consequence, and that is a real cost, taken
+ * knowingly, because a dolly that starts over a body still falling is worse than
+ * a dolly that arrives a sixth of a second sooner.
  *
  * THE TWO CONSTANTS ARE NOT WIRED TOGETHER — `page.tsx` belongs to another unit and a
  * camera reaching into the summary flow to import a number is not a trade worth
@@ -183,8 +205,17 @@ export const ROUND_HOLD = {
    * to travel, with roughly two thirds of the collapse left to run.
    *
    * That is a dolly starting while the man is still falling, which is the shot
-   * fighting its own subject. 1.30 s covers the worst of the seven at 1e-2
-   * rad/frame (1.25 s) and the landing of all seven outright.
+   * fighting its own subject. 1.45 s covers the worst of the seven at the strict
+   * 1e-3 rad/frame floor (1.38 s) and the landing of all seven outright — the
+   * same floor `DEATH_HOLD.fall` is sized against, and the same table.
+   *
+   * IT IS WITHIN 0.05 s OF `DEATH_HOLD.fall` AND THAT IS NOT A DUPLICATE. Both
+   * beats are the beat during which the lens does not move, and both are sized
+   * against one physical fact — how long the man takes to land. Two beats
+   * measured against one collapse are supposed to land in the same place. What
+   * makes these two different cameras is where the shot OPENS, the lens, the
+   * length of the move and the total; see `tools/deathcamtest.mjs` claim 12,
+   * which was rewritten around exactly this and says so at length.
    */
   fall: 1.45,
   /** In onto the wound. */
@@ -556,7 +587,7 @@ export function createDeathCamera() {
  *                    was built for.
  *   WHOSE BODY       the LAST man to fall, not the viewer. The caller names him.
  *   HOW IT OPENS     with a cut, at `roundOpening`. See the note there.
- *   HOW LONG         `ROUND_HOLD`, 2.20 s inside the server's own 5 s break.
+ *   HOW LONG         `ROUND_HOLD`, 2.95 s inside the server's own 5 s break.
  *   WHEN IT ARMS     on the rising edge of `ended` — the frame the round turns
  *                    to the break — and never again for that round.
  *
