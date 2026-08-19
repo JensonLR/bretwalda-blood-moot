@@ -74,6 +74,27 @@
  * IT GATES NOTHING (R4). It is a ruler. The three counts are printed as
  * distributions with the frame count they came from, and the verdict line says
  * what moved and what did not.
+ *
+ * ---------------------------------------------------------------------------
+ * HOW MUCH THIS RULER WANDERS BETWEEN RUNS, because a single reading off it
+ * would be quoted as if it were exact and it is not.
+ *
+ * The overlap figure is the restless one. It depends on how busy the fight
+ * happened to be, and a scripted robot at the keys does not fight the same
+ * fight twice. THREE runs of the identical build, share of the frames carrying
+ * two or more numbers on which the smaller was more than half buried:
+ *
+ *     27.91%   30.07%   37.50%      against 41.37% before the fan
+ *
+ * So the fan reduced it, and by somewhere between four points and thirteen. The
+ * MEDIAN overlap is the steadier statistic and it moved further and repeated:
+ * 0.36 before, 0.17-0.20 after, on every run.
+ *
+ * The other two counts are quiet by comparison — off-screen plates read 0 or 1
+ * on every run after the edge fade against 76 before, and number quads cut by
+ * the frame edge read 9, 19 and 21 against 88. Quote a range from those; quote
+ * a range from all three.
+
  */
 import { chromium } from "playwright";
 import { spawn } from "child_process";
