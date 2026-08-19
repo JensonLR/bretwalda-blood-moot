@@ -1578,8 +1578,38 @@ const STANCE: Record<WarriorClass, Stance> = {
 // continuously rather than snapping, because the correction rides in through
 // the newest snapshot, which is what the extrapolation is anchored on.
 
-/** How many authoritative states are kept per warrior. */
-const SNAP_KEEP = 4;
+/**
+ * How many authoritative states are kept per warrior.
+ *
+ * EIGHT, NOT FOUR, AND THE REASON IS THE OTHER END OF THE BUFFER. Four slots
+ * span three packet gaps — 150 ms — and a remote body is drawn 74.7 ms behind
+ * the newest of them, so there were only ~75 ms of history in front of the
+ * render point. A burst of two queued packets advances the grid 100 ms in one
+ * frame, pushes the OLDEST sample past the render time, and `sampleNet` clamps
+ * to it: the man is pinned where he was and does not move at all.
+ *
+ * That was invisible while a still man emitted nothing, because his ring stayed
+ * stale and the render point sat comfortably inside it. Confirming still men
+ * (see `ingestNet`) fills the ring with genuinely recent history, and the
+ * stall it exposed went 1.7% -> 5.0% of warrior-frames.
+ *
+ * Eight slots span 350 ms, which puts 275 ms in front of the render point —
+ * past the 220 ms extrapolation cap and past any burst this wire produces.
+ * Measured, three runs: stalls 5.0% -> 0.2 / 0.1 / 0.1% of warrior-frames.
+ *
+ * Extrapolation is untouched by this constant and the runs say so rather than
+ * assuming it: 7.9% at four slots against 19.2 / 7.8 / 8.0% at eight. The
+ * first of those three is an outlier and is reported because it was seen —
+ * nothing here reaches the head of the grid, which is what decides whether a
+ * frame extrapolates, so run-to-run wire quality is the only thing that moved.
+ *
+ * It is NOT a licence to render further back. `REMOTE_DELAY_PACKETS` is
+ * unchanged at 1.5; deeper history is only insurance against the buffer being
+ * overrun from the old end, and the R1 lever in `tools/janktest.mjs` still
+ * shows raising the delay trading extrapolation for stalls the way it always
+ * did. Cost is eight small records per warrior.
+ */
+const SNAP_KEEP = 8;
 /** Assumed wire period until the real one has been measured. 20 Hz. */
 const NET_INTERVAL_GUESS = 0.05;
 const NET_INTERVAL_MIN = 0.02;
