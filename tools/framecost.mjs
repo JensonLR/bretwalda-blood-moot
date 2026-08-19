@@ -145,7 +145,7 @@ const PATCHES = {
  */
 const COLLECTOR = () => {
   const w = window;
-  w.__fc = { frames: [], cur: null, on: false, marks: {}, gl: { calls: 0, tris: 0 }, glFrames: [], body: null };
+  w.__fc = { frames: [], cur: null, on: false, marks: {}, gl: { calls: 0, tris: 0 }, glFrames: [], body: null, bodies: new Set() };
   const KEY = "__fcTimed";
   w.__fcWrap = (name) => {
     // The method the call site will actually invoke. Installed lazily on the
@@ -180,7 +180,14 @@ const COLLECTOR = () => {
     });
   }
   w.__fcMark = () => undefined;
-  w.__fcBody = (g) => { if (g && !w.__fc.body) w.__fc.body = g; };
+  // EVERY BODY, NOT THE FIRST ONE. This kept only the first group it was
+  // handed, and "ONE WARRIOR is 32 meshes" was then quoted for two rounds as if
+  // it were a property of the build. It is a property of whichever man the
+  // first frame happened to hand over: measured across the three tiers, the
+  // sampled warrior read 32, 49 and 29 meshes and 13030, 26248 and 9305
+  // triangles — and those are four classes with four kits, not three tiers.
+  // A stage-5 estimate built on the 29 would be wrong by 70%.
+  w.__fcBody = (g) => { if (!g) return; if (!w.__fc.body) w.__fc.body = g; w.__fc.bodies.add(g); };
 
   /**
    * THE SCENE CENSUS — what is actually in the frame, and how it is grouped.
@@ -218,15 +225,31 @@ const COLLECTOR = () => {
     // ONE WARRIOR, COUNTED ON HIS OWN. 410 meshes in a scene is a number with
     // nowhere to put the blame; "one man is N of them, and there are eight of
     // him" is the whole answer or it rules the men out.
-    let bodyMeshes = 0, bodyTris = 0, bodyShadow = 0;
-    g.traverse((o) => {
-      if (!(o.isMesh || o.isSkinnedMesh || o.isInstancedMesh) || !o.visible) return;
-      bodyMeshes++;
-      if (o.castShadow) bodyShadow++;
-      const idx = o.geometry && o.geometry.index;
-      const pos = o.geometry && o.geometry.attributes && o.geometry.attributes.position;
-      bodyTris += idx ? idx.count / 3 : pos ? pos.count / 3 : 0;
-    });
+    const perBody = [];
+    for (const b of w.__fc.bodies) {
+      let bm = 0, bt = 0, bs = 0;
+      const mats = new Set();
+      b.traverse((o) => {
+        if (!(o.isMesh || o.isSkinnedMesh || o.isInstancedMesh) || !o.visible) return;
+        bm++;
+        if (o.castShadow) bs++;
+        const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+        if (mat) mats.add(mat.uuid);
+        const idx = o.geometry && o.geometry.index;
+        const pos = o.geometry && o.geometry.attributes && o.geometry.attributes.position;
+        bt += idx ? idx.count / 3 : pos ? pos.count / 3 : 0;
+      });
+      // MATERIALS is the number that decides the stage-5 ceiling and nothing was
+      // reporting it. Every mesh on a man is one draw call; merging by material
+      // is the only merge available while the men are skinned individually, so
+      // the floor a merge could reach is his DISTINCT MATERIAL COUNT, and the
+      // saving is meshes minus materials.
+      if (bm) perBody.push({ meshes: bm, tris: bt, shadow: bs, mats: mats.size });
+    }
+    perBody.sort((a, b) => a.meshes - b.meshes);
+    const bodyMeshes = perBody.length ? perBody[perBody.length >> 1].meshes : 0;
+    const bodyTris = perBody.length ? perBody[perBody.length >> 1].tris : 0;
+    const bodyShadow = perBody.length ? perBody[perBody.length >> 1].shadow : 0;
     // And how many meshes in the WHOLE scene are asked for twice, once for the
     // picture and once for the shadow map. A shadow-casting mesh is a second
     // draw call, and that is why the GL counter reads higher than the census.
@@ -235,7 +258,7 @@ const COLLECTOR = () => {
       if (o.isLight) { lights++; if (o.castShadow) shadowLights++; }
       if ((o.isMesh || o.isSkinnedMesh || o.isInstancedMesh) && o.visible && o.castShadow) casters++;
     });
-    return { meshes, objects, bodyMeshes, bodyTris, bodyShadow, casters, lights, shadowLights,
+    return { meshes, objects, bodyMeshes, bodyTris, bodyShadow, casters, lights, shadowLights, perBody,
              pairs: [...byPair.values()].sort((a, b) => b.n - a.n).slice(0, 12) };
   };
 
@@ -490,11 +513,25 @@ async function main() {
   const C = data.census;
   if (C) {
     say(`\n  THE SCENE, CENSUSED — ${C.meshes} visible meshes in ${C.objects} objects.`);
-    say(`    ONE WARRIOR is ${C.bodyMeshes} visible meshes and ${Math.round(C.bodyTris)} triangles, ${C.bodyShadow} of them shadow casters.`);
-    say(`    Eight of him is ${C.bodyMeshes * 8} meshes — ${(100 * C.bodyMeshes * 8 / Math.max(1, C.meshes)).toFixed(0)}% of everything visible in the arena.`);
+    const P = C.perBody || [];
+    const tot = P.reduce((a, b) => a + b.meshes, 0);
+    const mats = P.reduce((a, b) => a + b.mats, 0);
+    say(`    EVERY WARRIOR ON THE FIELD, counted one at a time — the classes differ and`);
+    say(`    quoting one man as "a warrior" was worth up to 70% either way.`);
+    say(`    ${"".padEnd(6)} ${"meshes".padStart(7)} ${"triangles".padStart(10)} ${"casters".padStart(8)} ${"materials".padStart(10)}   <- materials is the stage-5 FLOOR`);
+    for (const b of P) {
+      say(`    ${"".padEnd(6)} ${String(b.meshes).padStart(7)} ${String(Math.round(b.tris)).padStart(10)} ${String(b.shadow).padStart(8)} ${String(b.mats).padStart(10)}`);
+    }
+    say(`    ${"all".padEnd(6)} ${String(tot).padStart(7)} ${"".padStart(10)} ${"".padStart(8)} ${String(mats).padStart(10)}`);
+    say(`    ${P.length} warriors are ${tot} meshes — ${(100 * tot / Math.max(1, C.meshes)).toFixed(0)}% of everything visible in the arena, and a merge`);
+    say(`    by material could take them to ${mats} (${tot - mats} fewer draws before the shadow pass doubles it).`);
     say(`    ${C.lights} lights, ${C.shadowLights} of them casting; ${C.casters} visible meshes cast into a shadow map,`);
-    say(`    and every one of those is drawn a SECOND time. That is why the GL counter reads`);
-    say(`    higher than this census.`);
+    say(`    and every one of those is drawn ONCE MORE PER CASTING LIGHT. The arithmetic:`);
+    say(`      ${C.meshes} for the picture + ${C.casters} casters x ${C.shadowLights} shadow light(s) = ${C.meshes + C.casters * C.shadowLights} before anything else.`);
+    say(`      THE SHADOW LIGHT COUNT IS THE LARGEST SINGLE MULTIPLIER IN THIS FILE, and it`);
+    say(`      is 1 on low, 3 on medium and 4 on high. Dropping one is the cheapest way to`);
+    say(`      move every number below and it is STAGE 6 — it changes what the player sees.`);
+    say(`      It is named here so it is not reached for by accident. See R11.`);
     say(`  Grouped by the (geometry, material) pair, because that pair is what decides`);
     say(`  whether three.js can batch. A row with a large count and ONE pair is that many`);
     say(`  draw calls that could be one instanced call drawing the same pixels.`);
@@ -525,7 +562,7 @@ async function main() {
   if (drawn && drawn.glFrames.length) {
     const calls = stats(drawn.glFrames.map((f) => f.calls));
     say(`  THE GPU ASK   ${Math.round(calls.p50)} draw calls a frame is where the cost has gone, and it is`);
-    say(`              not on this thread. ${C ? `${C.bodyMeshes} meshes per warrior, eight of them, and ${C.casters} of ${C.meshes}` : "Most"}`);
+    say(`              not on this thread. ${C ? `${C.bodyMeshes} meshes on the median warrior, ${(C.perBody || []).length} of them, and ${C.casters} of ${C.meshes}` : "Most"}`);
     say(`              ${C ? `visible meshes drawn twice for one shadow-casting light.` : "visible meshes cast shadows."}`);
   }
   say();
