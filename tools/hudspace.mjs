@@ -144,9 +144,14 @@ const PATCHES = {
    * flags and the real camera — all of which run in full whether or not the
    * frame is then rasterised. So this reads WHAT THE HUD DECIDED TO PUT ON
    * SCREEN, at a realistic desktop frame rate, and that is the quantity the
-   * three defects live in. The frames written by `--shots` are taken from a
-   * SECOND page with the draw left on, because a picture is the one thing this
-   * trade does cost.
+   * three defects live in.
+   *
+   * A picture is the one thing this trade costs, and `--shots` buys it back:
+   * once the measurement window has closed and its data is off the page, the
+   * draw is switched back ON and the shots are taken of the same fight. This
+   * note used to say the shots came from a second page with the draw left on.
+   * There was no second page. `--shots` wrote black PNGs for a whole round and
+   * the R5 affordance in this ruler showed nothing.
    */
   frame: {
     name: "hook the frame after hud.update, and suppress the draw",
@@ -270,10 +275,10 @@ const COLLECTOR = ({ W, H }) => {
     // four points in the mesh's own space. Projected one at a time, so spin and
     // depth scaling are included rather than estimated.
     const CORNERS = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]];
-    const rectOf = (mesh) => {
+    const boxOf = (mesh, b) => {
       mesh.updateWorldMatrix(true, false);
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      for (const [cx, cy] of CORNERS) {
+      for (const [cx, cy] of b) {
         tmp.set(cx, cy, 0).applyMatrix4(mesh.matrixWorld);
         const p = proj(V, tmp, camera, c0);
         if (!p) return null;
@@ -281,6 +286,79 @@ const COLLECTOR = ({ W, H }) => {
         x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
       }
       return { x0, y0, x1, y1 };
+    };
+    const rectOf = (mesh) => boxOf(mesh, CORNERS);
+
+    /**
+     * THE QUAD IS NOT THE GLYPH, AND UNTIL NOW THIS FILE MEASURED THE QUAD.
+     *
+     * A damage number is drawn centred into a 112x74 (low) or 192x128 canvas at
+     * 44-76 px, so a two-digit number covers well under half the texture and the
+     * rest is transparent. `hud3d` itself records this for names — `Glyphs.ink`
+     * is "fraction of the canvas width the drawn glyphs actually cover", and the
+     * plate de-overlap already spreads by the ink and not by the quad — but
+     * `buildDamageGlyphs` returns `ink: 1` and the numbers carry their padding
+     * everywhere. So every "damage numbers overlap" figure this repository has
+     * quoted, before and after the spawn fan, is the overlap of two rectangles
+     * of mostly empty texture. It is the wrong quantity: it is not what the
+     * owner can see, and a fix tuned against it is tuned against padding.
+     *
+     * This reads the pixels. The alpha channel of the glyph canvas is scanned
+     * once per texture, and the box of pixels at least HALF opaque is kept —
+     * the letterform, its hard stroke and the dense part of its halo, not the
+     * wide soft shadow, which is exactly what has to land on another glyph
+     * before a person calls two numbers one wrong number. The box is in UV, so
+     * it is turned back into the unit quad's own coordinates (three.js flips V,
+     * so image row 0 is the TOP of the quad) and projected through the same
+     * four-corner path as everything else — spin and depth included.
+     *
+     * A mesh with no map (the health bar is a ShaderMaterial that fills its
+     * quad) falls back to the full quad, which for that mesh is the truth.
+     */
+    const INK = (w.__hudInk = w.__hudInk || new Map());
+    const inkCornersOf = (mesh) => {
+      const map = mesh.material && mesh.material.map;
+      const img = map && map.image;
+      if (!img || !img.width || typeof img.getContext !== "function") return CORNERS;
+      let box = INK.get(map.uuid);
+      if (box === undefined) {
+        box = null;
+        try {
+          const c2 = img.getContext("2d");
+          const d = c2.getImageData(0, 0, img.width, img.height).data;
+          let r0 = Infinity, r1 = -Infinity, k0 = Infinity, k1 = -Infinity;
+          for (let row = 0; row < img.height; row++) {
+            for (let col = 0; col < img.width; col++) {
+              if (d[(row * img.width + col) * 4 + 3] < 128) continue;
+              if (row < r0) r0 = row; if (row > r1) r1 = row;
+              if (col < k0) k0 = col; if (col > k1) k1 = col;
+            }
+          }
+          if (r1 >= r0) {
+            // UV box -> unit-quad box. u maps straight to x + 0.5; v is flipped.
+            box = [
+              [k0 / img.width - 0.5, 0.5 - (r1 + 1) / img.height],
+              [(k1 + 1) / img.width - 0.5, 0.5 - (r1 + 1) / img.height],
+              [(k1 + 1) / img.width - 0.5, 0.5 - r0 / img.height],
+              [k0 / img.width - 0.5, 0.5 - r0 / img.height],
+            ];
+          }
+        } catch { box = null; }
+        INK.set(map.uuid, box);
+      }
+      return box || CORNERS;
+    };
+    const inkRectOf = (mesh) => boxOf(mesh, inkCornersOf(mesh));
+
+    /** Fraction of the SMALLER rectangle that the other one is sitting on. */
+    const bury = (a, b) => {
+      if (!a || !b) return 0;
+      const iw = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+      const ih = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+      if (iw <= 0 || ih <= 0) return 0;
+      const areaA = (a.x1 - a.x0) * (a.y1 - a.y0);
+      const areaB = (b.x1 - b.x0) * (b.y1 - b.y0);
+      return (iw * ih) / Math.max(1, Math.min(areaA, areaB));
     };
     const onScreen = (r) => r && r.x1 > 0 && r.x0 < W && r.y1 > 0 && r.y0 < H;
     const inside = (r) => r && r.x0 >= 0 && r.x1 <= W && r.y0 >= 0 && r.y1 <= H;
@@ -323,18 +401,46 @@ const COLLECTOR = ({ W, H }) => {
     let worst = 0;
     for (let i = 0; i < rects.length; i++) {
       for (let k = i + 1; k < rects.length; k++) {
-        const a = rects[i].r, b = rects[k].r;
-        const iw = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
-        const ih = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
-        if (iw <= 0 || ih <= 0) continue;
-        const areaA = (a.x1 - a.x0) * (a.y1 - a.y0);
-        const areaB = (b.x1 - b.x0) * (b.y1 - b.y0);
         // Fraction of the SMALLER glyph that the other one is sitting on. A
         // number half-buried under a bigger one is unreadable however small a
         // share of the bigger one it covers, so the min is the right divisor.
-        worst = Math.max(worst, (iw * ih) / Math.max(1, Math.min(areaA, areaB)));
+        worst = Math.max(worst, bury(rects[i].r, rects[k].r));
       }
     }
+
+    // ---- the same three collisions, measured on the INK ---------------------
+    // Number against number is the one the fan was tuned against and it is kept
+    // above, on quads, so the series is comparable with what was quoted. These
+    // are the same pairs measured on what is actually drawn, plus the two
+    // collisions in the owner's photograph that nothing has ever measured:
+    // a damage number laid across a NAMEPLATE, and a nameplate stacked into
+    // another NAMEPLATE.
+    const numInk = [], nameInk = [], barInk = [];
+    for (const m of nums) { const r = inkRectOf(m); if (onScreen(r)) numInk.push(r); }
+    for (const m of names) { const r = inkRectOf(m); if (onScreen(r)) nameInk.push(r); }
+    for (const m of bars) { const r = rectOf(m); if (onScreen(r)) barInk.push(r); }
+
+    const pairWorst = (A, B) => {
+      let wst = 0, pairs = 0;
+      if (A === B) {
+        for (let i = 0; i < A.length; i++) for (let k = i + 1; k < A.length; k++) {
+          const v = bury(A[i], A[k]);
+          if (v > 0.25) pairs++;
+          if (v > wst) wst = v;
+        }
+      } else {
+        for (let i = 0; i < A.length; i++) for (let k = 0; k < B.length; k++) {
+          const v = bury(A[i], B[k]);
+          if (v > 0.25) pairs++;
+          if (v > wst) wst = v;
+        }
+      }
+      return { wst, pairs };
+    };
+    const nnI = pairWorst(numInk, numInk);
+    const mmI = pairWorst(nameInk, nameInk);
+    const nmI = pairWorst(numInk, nameInk);
+    const nbI = pairWorst(numInk, barInk);
     // Orphans: how far the number is from the nearest warrior. Measured in
     // METRES on the ground, which is the honest quantity — screen pixels would
     // call a number over a man 40 m behind it "attached".
@@ -358,7 +464,15 @@ const COLLECTOR = ({ W, H }) => {
       if (Number.isFinite(best)) orphanM = Math.max(orphanM ?? 0, best);
       if (Number.isFinite(bestPx)) orphanPx = Math.max(orphanPx ?? 0, bestPx);
     }
-    j.dmg.push({ n: rects.length, worst, orphanM, orphanPx, cut: cutNum });
+    j.dmg.push({
+      n: rects.length, worst, orphanM, orphanPx, cut: cutNum,
+      // ink-space, and the counts the quad ruler never had
+      ni: numInk.length, mi: nameInk.length,
+      nnW: nnI.wst, nnP: nnI.pairs,
+      mmW: mmI.wst, mmP: mmI.pairs,
+      nmW: nmI.wst, nmP: nmI.pairs,
+      nbW: nbI.wst, nbP: nbI.pairs,
+    });
   };
 };
 
@@ -446,16 +560,30 @@ async function main() {
       const j = window.__hud;
       j.frames = 0; j.plates.length = 0; j.dmg.length = 0; j.started = 0;
     });
-    if (SHOTS) {
-      mkdirSync(OUT, { recursive: true });
-      for (let i = 0; i < SHOTS; i++) await page.screenshot({ path: resolve(OUT, `h${String(i).padStart(3, "0")}.png`) }).catch(() => {});
-    }
     await new Promise((r) => setTimeout(r, SECS * 1000));
-    stop = true; await fight.catch(() => {});
     data = await page.evaluate(() => {
       const j = window.__hud;
       return { frames: j.frames, plates: j.plates, dmg: j.dmg, bodies: j.bodies.size, three: !!window.__hudTHREE };
     });
+    // ---- and now LOOK AT IT (R5) -------------------------------------------
+    // This used to screenshot with `__hudNoDraw` still true and wrote eight
+    // black PNGs, under a header claiming a second page with the draw left on
+    // that did not exist — the one affordance in this ruler for actually seeing
+    // the defect showed nothing, for a whole round. The draw is turned back ON
+    // here, on the SAME page and the SAME fight that was just measured, and
+    // each shot waits for two real frames to go through the renderer, because
+    // SwiftShader takes seconds over one. The measurement is already off the
+    // page by this point, so nothing below can contaminate it.
+    if (SHOTS) {
+      mkdirSync(OUT, { recursive: true });
+      await page.evaluate(() => { window.__hudNoDraw = false; });
+      for (let i = 0; i < SHOTS; i++) {
+        const before = await page.evaluate(() => window.__hud.frames);
+        await page.waitForFunction((b) => window.__hud.frames > b + 1, before, { timeout: 180000 }).catch(() => {});
+        await page.screenshot({ path: resolve(OUT, `h${String(i).padStart(3, "0")}.png`) }).catch(() => {});
+      }
+    }
+    stop = true; await fight.catch(() => {});
     await ctx.close();
   } finally {
     await browser.close().catch(() => {});
@@ -511,6 +639,48 @@ async function main() {
   say(`       frames overlapping >50%           ${String(badFrames).padStart(7)}  (${(100 * badFrames / den).toFixed(2)}% of those)`);
   if (ov) say(`       overlap when 2+ are up            p50 ${f2(ov.p50)}  p95 ${f2(ov.p95)}  worst ${f2(ov.max)}`);
 
+  // ---- 2b: the same collisions on the INK, and the two never measured ------
+  const pairI = (key, wKey, pKey, title, note, denFilter) => {
+    const rows = data.dmg.filter(denFilter);
+    const st = stats(rows.map((d) => d[wKey]));
+    const over25 = rows.filter((d) => d[wKey] > 0.25).length;
+    const over50 = rows.filter((d) => d[wKey] > 0.5).length;
+    const pairs = data.dmg.reduce((a, d) => a + (d[pKey] || 0), 0);
+    const den = Math.max(1, rows.length);
+    say(`\n  ${key}. ${title}`);
+    for (const line of note) say(`     ${line}`);
+    say(`       frames where the pair was possible ${String(rows.length).padStart(6)}   <- the denominator`);
+    say(`       ...one more than a QUARTER buried  ${String(over25).padStart(6)}  (${(100 * over25 / den).toFixed(2)}%)`);
+    say(`       ...one more than HALF buried       ${String(over50).padStart(6)}  (${(100 * over50 / den).toFixed(2)}%)`);
+    if (st) say(`       worst burial in the frame          p50 ${f2(st.p50)}  p95 ${f2(st.p95)}  worst ${f2(st.max)}`);
+    say(`       colliding pairs over 25%, all frames ${String(pairs).padStart(4)}`);
+    return { over50, den, p50: st ? st.p50 : NaN, max: st ? st.max : NaN };
+  };
+  say(`\n  ---- and now on the INK, which is not the quad ----`);
+  say(`     Everything above measures the QUAD. A damage number is drawn centred into a`);
+  say(`     112x74 canvas at 44 px, so most of that quad is transparent, and \`hud3d\` says`);
+  say(`     so itself for names (\`Glyphs.ink\`) while returning \`ink: 1\` for numbers. The`);
+  say(`     three counts below are the box of pixels at least HALF opaque, projected the`);
+  say(`     same way. That is what a person can see land on another glyph.`);
+  const NN = pairI("2i", "nnW", "nnP", "NUMBER across NUMBER, on the ink",
+    ["The owner's \"337\": two damage numbers printed through each other."],
+    (d) => d.ni > 1);
+  const MM = pairI("4", "mmW", "mmP", "NAMEPLATE across NAMEPLATE — NEVER MEASURED BEFORE",
+    ["Five nameplates stacked into each other were photographed on the build this",
+     "ruler is being extended from. The de-overlap in `hud3d` runs every frame and",
+     "is supposed to prevent exactly this; past MAX_PUSH it gives up, drops the",
+     "name and re-places on the bar — and the clamp it uses lands every plate that",
+     "gave up on the SAME line."],
+    (d) => d.mi > 1);
+  const NM = pairI("5", "nmW", "nmP", "NUMBER across NAMEPLATE — NEVER MEASURED BEFORE",
+    ["In the owner's frame and in .jank/strip/f005.png. A damage number is not in",
+     "the plate de-overlap pass at all: it is fanned once at spawn against other",
+     "NUMBERS and never looks at a plate again, so it is free to fly through one."],
+    (d) => d.ni > 0 && d.mi > 0);
+  const NB = pairI("6", "nbW", "nbP", "NUMBER across HEALTH BAR — NEVER MEASURED BEFORE",
+    ["Also in the owner's frame. Same cause as 5."],
+    (d) => d.ni > 0);
+
   // ---- 3 -------------------------------------------------------------------
   const om = stats(data.dmg.map((d) => d.orphanM).filter((x) => x != null));
   const op = stats(data.dmg.map((d) => d.orphanPx).filter((x) => x != null));
@@ -539,6 +709,10 @@ async function main() {
   say(`  ORPHANED NUMBERS    ${far === 0 ? `none over 3 m from a warrior (worst ${f2(om && om.max)} m) — the "over empty ground"` : `${far} frames with a number over 3 m from any warrior`}`);
   if (far === 0) say(`                      report is NOT a number drifting off a body.`);
   say(`  NUMBERS CUT BY EDGE ${cutNums === 0 ? "none" : `${cutNums} quads over ${cutFrames} frames`}.`);
+  say(`  ON THE INK          num/num  ${(100 * NN.over50 / NN.den).toFixed(2)}% of pair-frames over half buried, p50 ${f2(NN.p50)}, worst ${f2(NN.max)}`);
+  say(`                      name/name ${(100 * MM.over50 / MM.den).toFixed(2)}%, p50 ${f2(MM.p50)}, worst ${f2(MM.max)}`);
+  say(`                      num/name  ${(100 * NM.over50 / NM.den).toFixed(2)}%, p50 ${f2(NM.p50)}, worst ${f2(NM.max)}`);
+  say(`                      num/bar   ${(100 * NB.over50 / NB.den).toFixed(2)}%, p50 ${f2(NB.p50)}, worst ${f2(NB.max)}`);
   say();
   say(`  DEFERRALS, on the verdict line and not below it (R4):`);
   say(`    - THIS GATES NOTHING. It is a ruler. No count here fails a build.`);
@@ -547,10 +721,11 @@ async function main() {
   say(`      counts; what is portable is that a count above zero is a defect.`);
   say(`    - Legibility is not measured. Two numbers that do not overlap can still`);
   say(`      be hard to read, and no rectangle can see that.`);
-  say(`    - A damage number printed over a NAMEPLATE is not counted. It is visible`);
-  say(`      in .jank/strip/f005.png ("18" across "Hrothric Long-Strider") and it is`);
-  say(`      a real collision between two HUD elements; only number-against-number`);
-  say(`      is measured above, so that case is UNMEASURED and not clean.`);
+  say(`    - The INK box is the box of pixels at least half opaque. The soft halo`);
+  say(`      outside it is deliberately not counted, so two glyphs whose shadows`);
+  say(`      touch read as clear here. That is a judgement and it is arguable.`);
+  say(`    - Rectangles, not letterforms: two glyphs can share a bounding box and`);
+  say(`      still not print through each other.`);
   if (SHOTS) say(`\n  frames: ${OUT}`);
 }
 

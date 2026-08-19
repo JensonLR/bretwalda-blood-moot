@@ -349,6 +349,24 @@ function edgeAlpha(pos: number, half: number, limit: number): number {
  * answer is to make it smaller rather than to keep moving it.
  */
 const MAX_PUSH = 0.38;
+/**
+ * And how far a COMPACTED plate — a bare health bar, a twentieth the height of
+ * the full plate — may be pushed. Larger than `MAX_PUSH` because the case it
+ * exists for is a deep column that has already given up its names: the bars
+ * are thin, so the whole column fits in a stretch of screen a single full plate
+ * would fill, and the old code clamping them all to `MAX_PUSH` is what printed
+ * them through each other. Past this the bar is hidden.
+ */
+const COMPACT_MAX_PUSH = 0.5;
+/**
+ * How far a damage NUMBER may be pushed down to clear a plate or another
+ * number. Much smaller than a plate's budget, and deliberately: a number that
+ * has been shoved a fifth of the screen away from the blow that made it is no
+ * longer telling you where you were hit, and `tools/hudspace.mjs` measures that
+ * as "damage numbers over empty ground". 0.08 NDC is about one glyph height at
+ * fight range, and the layout is allowed a couple of them.
+ */
+const NUM_MAX_PUSH = 0.16;
 const PUSH_PAD_Y = 0.006;
 const PUSH_PAD_X = 0.004;
 
@@ -588,12 +606,33 @@ interface Glyphs {
   /** Width / height of the drawn area, so the quad never stretches the type. */
   aspect: number;
   /**
-   * Fraction of the canvas width the drawn glyphs actually cover. The quad is a
-   * fixed aspect so type never stretches, which means a short name carries a lot
-   * of empty texture — and de-overlap has to spread plates by the ink, not by
-   * the quad, or four-letter names shove each other halfway up the screen.
+   * THE BOX OF PIXELS THAT ARE ACTUALLY DRAWN, as a fraction of the quad, and
+   * where that box sits inside it.
+   *
+   * The quad is a fixed aspect so type never stretches, which means a short name
+   * carries a lot of empty texture — and de-overlap has to spread plates by the
+   * ink, not by the quad, or four-letter names shove each other halfway up the
+   * screen. That much this file already knew, for names.
+   *
+   * IT DID NOT KNOW IT FOR NUMBERS, AND IT SAID SO IN THE WRONG DIRECTION.
+   * `buildDamageGlyphs` returned a flat `ink: 1` while drawing a two-digit
+   * number centred at 44 px into a 112x74 canvas — under a third of the quad's
+   * area. Every damage-number layout decision in this file, and every overlap
+   * figure any harness has quoted off it, was made about a rectangle that is
+   * mostly nothing. `inkH` and `inkCY` are here because the vertical is worse
+   * than the horizontal: the digits sit low in their canvas, so the quad's
+   * centre is not the glyph's centre and a layout that assumes it is places
+   * every number about a fifth of a glyph height off.
+   *
+   * All four are read off the canvas alpha rather than derived from font
+   * metrics — `tools/hudspace.mjs` measures the same box the same way off the
+   * same pixels, so the ruler and the layout cannot drift apart.
    */
-  ink: number;
+  inkW: number;
+  inkH: number;
+  /** Ink centre relative to the quad centre, in quad widths / heights, y up. */
+  inkCX: number;
+  inkCY: number;
   /** Cache key, carried so a release is a delete rather than a search. */
   key: string;
   refs: number;
@@ -622,8 +661,61 @@ function glyphCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: Ca
 }
 
 /** Shared shape for a glyph set that could not be drawn. Fails the gate below. */
+/**
+ * Alpha at or above which a pixel counts as ink. Half opaque: the letterform,
+ * its hard stroke and the dense core of its halo, and not the wide soft shadow
+ * — which is what has to land on another glyph before a person reads two things
+ * as one. `tools/hudspace.mjs` uses the same threshold on the same canvases.
+ */
+const INK_ALPHA = 128;
+
+/**
+ * The drawn extent of a glyph canvas, in quad coordinates.
+ *
+ * Read off the pixels, not computed from font metrics, for two reasons. The
+ * strokes, halo and the heavy blow's gash all widen the mark by amounts no
+ * `measureText` reports; and a second implementation derived from metrics is
+ * exactly the mirrored definition `docs/PROCESS.md` names as failure mode 3 —
+ * it would agree with the ruler until somebody changed a `lineWidth`.
+ *
+ * Falls back to the whole quad if the read fails, which is the conservative
+ * direction: a layout then spreads by more than it needs to rather than less.
+ */
+function inkBox(ctx: CanvasRenderingContext2D, w: number, h: number): {
+  inkW: number; inkH: number; inkCX: number; inkCY: number;
+} {
+  const whole = { inkW: 1, inkH: 1, inkCX: 0, inkCY: 0 };
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return whole;
+  }
+  let r0 = h, r1 = -1, c0 = w, c1 = -1;
+  for (let row = 0; row < h; row++) {
+    const base = row * w * 4;
+    for (let col = 0; col < w; col++) {
+      if (data[base + col * 4 + 3] < INK_ALPHA) continue;
+      if (row < r0) r0 = row;
+      if (row > r1) r1 = row;
+      if (col < c0) c0 = col;
+      if (col > c1) c1 = col;
+    }
+  }
+  if (r1 < r0 || c1 < c0) return whole;
+  const left = c0 / w, right = (c1 + 1) / w;
+  const top = r0 / h, bottom = (r1 + 1) / h;
+  return {
+    inkW: right - left,
+    inkH: bottom - top,
+    inkCX: (left + right) * 0.5 - 0.5,
+    // Canvas rows run down the image and the quad's y runs up it.
+    inkCY: 0.5 - (top + bottom) * 0.5,
+  };
+}
+
 function unusableGlyphs(key: string, aspect: number): Glyphs {
-  return { texture: null, aspect, ink: 1, key, refs: 0 };
+  return { texture: null, aspect, inkW: 1, inkH: 1, inkCX: 0, inkCY: 0, key, refs: 0 };
 }
 
 /**
@@ -829,7 +921,7 @@ function buildNameGlyphs(key: string, name: string, isLocal: boolean, tier: Qual
   // The plate crosses a lot of the frame edge-on at range; without this the
   // type crawls under SMAA.
   tex.anisotropy = 4;
-  return { texture: tex, aspect: spec.w / spec.h, ink: width / spec.w, key, refs: 0 };
+  return { texture: tex, aspect: spec.w / spec.h, ...inkBox(ctx, spec.w, spec.h), key, refs: 0 };
 }
 
 // Same argument as NAME_CANVAS, and a smaller number: 192x128 is 98 KB against
@@ -916,7 +1008,7 @@ function buildDamageGlyphs(key: string, amount: number, weight: 0 | 1 | 2, tier:
   tex.generateMipmaps = true;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  return { texture: tex, aspect: spec.w / spec.h, ink: 1, key, refs: 0 };
+  return { texture: tex, aspect: spec.w / spec.h, ...inkBox(ctx, spec.w, spec.h), key, refs: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -983,6 +1075,14 @@ interface Plate {
   live: boolean;
 }
 
+/** A rectangle in the square screen space the de-overlap works in. */
+interface ScreenBox {
+  sx: number;
+  sy: number;
+  hx: number;
+  hy: number;
+}
+
 interface FloatingNumber {
   mesh: THREE.Mesh;
   mat: THREE.MeshBasicMaterial;
@@ -993,6 +1093,24 @@ interface FloatingNumber {
   vel: THREE.Vector3;
   spin: number;
   base: number;
+  /**
+   * WHERE THE BLOW PUT IT, which is not where it is drawn.
+   *
+   * The ballistic arc is integrated here and the de-overlap offset is added on
+   * top when the mesh is posed. They have to be two fields: the offset is
+   * re-decided every frame against a layout that is also moving, and folding it
+   * back into the integrated position would compound it — the number would walk
+   * off down the screen at a few hundredths of a frame each, for as long as
+   * anything was in its way.
+   */
+  pos: THREE.Vector3;
+  /** Smoothed de-overlap offset, in the same square NDC space the plates use. */
+  push: number;
+  sx: number;
+  sy: number;
+  hx: number;
+  hy: number;
+  worldPerNdc: number;
 }
 
 export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3D {
@@ -1000,23 +1118,44 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
   const order: Plate[] = [];
   const live: FloatingNumber[] = [];
   const pool: FloatingNumber[] = [];
-  /** This frame's visible plates, nearest first. Reused so a frame allocates nothing. */
-  const placed: Plate[] = [];
+  /**
+   * EVERYTHING THE HUD IS PUTTING ON SCREEN THIS FRAME, in the one square space
+   * they all have to share: plates first, nearest first, then the damage
+   * numbers. Reused so a frame allocates nothing.
+   *
+   * The numbers used to be laid out only against each other, once, at the
+   * instant they spawned. A spawn-time fan cannot see a collision that forms a
+   * third of a second later between a rising number and a nameplate that walked
+   * into it, and that collision is most of what the owner was looking at.
+   */
+  const placed: ScreenBox[] = [];
+  /** Visible numbers this frame, oldest first — the order they are settled in. */
+  const flying: FloatingNumber[] = [];
+  /** This frame's live plates, nearest first, before they enter `placed`. */
+  const standing: Plate[] = [];
 
   /**
-   * Slide `p` up until it clears everything already placed. Three sweeps,
-   * because clearing one plate can walk into another and a small fixed number
-   * is cheaper and steadier under a moving camera than iterating to a fixpoint.
+   * Slide a box clear of everything already placed, along y, in the direction
+   * `dir` (+1 up, -1 down). Three sweeps, because clearing one box can walk into
+   * another and a small fixed number is cheaper and steadier under a moving
+   * camera than iterating to a fixpoint.
+   *
+   * PLATES GO UP AND NUMBERS GO DOWN, and that is not arbitrary. A plate hangs
+   * over a man's head, so the free space is above it. A damage number is thrown
+   * off his chest and rises INTO the plate — pushing it up would drive it
+   * further into the thing it is colliding with, and would also carry it away
+   * from the body it belongs to, which is the other defect this file is under
+   * orders not to trade.
    */
-  function settle(p: Plate, upto: number, from: number, hx: number, hy: number): number {
+  function settle(sx: number, from: number, hx: number, hy: number, upto: number, dir: 1 | -1): number {
     let y = from;
     for (let pass = 0; pass < 3; pass++) {
       for (let j = 0; j < upto; j++) {
         const q = placed[j];
-        if (Math.abs(p.sx - q.sx) > hx + q.hx + PUSH_PAD_X) continue;
+        if (Math.abs(sx - q.sx) > hx + q.hx + PUSH_PAD_X) continue;
         const minGap = hy + q.hy + PUSH_PAD_Y;
         if (Math.abs(y - q.sy) >= minGap) continue;
-        y = q.sy + minGap;
+        y = q.sy + dir * minGap;
       }
     }
     return y;
@@ -1345,7 +1484,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         fill: FILL_HEALTHY,
         anchorY: headTop !== undefined ? headTop + HEAD_CLEARANCE : ANCHOR_FALLBACK,
         barUniforms, ghostOpacity, nameMat,
-        halfW: Math.max(BAR_W, nameMesh ? nameW * glyphs.ink : 0) * 0.5,
+        halfW: Math.max(BAR_W, nameMesh ? nameW * glyphs.inkW : 0) * 0.5,
         halfH: (top - bottom) * 0.5,
         centreY: (top + bottom) * 0.5,
         pct: 1, lag: 1, lagHold: 0, flash: 0, guardTruth: 0, guard: 0, dying: -1, push: 0,
@@ -1441,7 +1580,10 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
           }
           const mesh = new THREE.Mesh(quad, mat);
           mesh.renderOrder = 996;
-          n = { mesh, mat, glyphs, age: 0, life: 1, weight, vel: new THREE.Vector3(), spin: 0, base: 0 };
+          n = {
+            mesh, mat, glyphs, age: 0, life: 1, weight, vel: new THREE.Vector3(), spin: 0, base: 0,
+            pos: new THREE.Vector3(), push: 0, sx: 0, sy: 0, hx: 0, hy: 0, worldPerNdc: 1,
+          };
         }
       }
 
@@ -1452,9 +1594,31 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       n.life = weight === 2 ? 1.25 : 0.98;
       n.weight = weight;
 
-      // Chest height, pulled a little toward the camera so a number never opens
-      // inside the body that earned it.
-      scratch.set(at.x, 1.52, at.z);
+      // THE NUMBER AND THE PLATE ARE NOT ALLOWED TO WANT THE SAME BAND.
+      //
+      // The plate hangs at `headTop + HEAD_CLEARANCE`, about 2.29 m, so its bar
+      // occupies 2.24-2.34 m and its name runs up to about 2.69 m. A number used
+      // to open at 1.52 m and leave with `vy` 2.35, which against `g` 3.4 puts
+      // its apex at 1.52 + 2.35^2/6.8 = 2.33 m — dead on the bar of the man it
+      // was thrown at, every single time, by construction. That is not a
+      // collision a screen-space solver should be asked to clean up afterwards;
+      // it is two pieces of HUD authored into the same forty centimetres.
+      //
+      // Measured, `tools/hudspace.mjs` on the build before this, share of the
+      // frames where a number and a plate were both up on which one was more
+      // than half buried: 21.14% across a NAMEPLATE and 13.13% across a HEALTH
+      // BAR. The screen-space push alone moved the first to 9.62% and the second
+      // the wrong way to 22.49%, because clearing a plate downward from inside
+      // it means travelling the whole plate and the budget ran out on the bar.
+      //
+      // So the arc is authored to stay under the plate: it opens at mid-torso
+      // and its apex is `RISE_*^2 / 6.8` above that, which for the heaviest blow
+      // is 1.34 + 0.27 = 1.61 m, and the tallest glyph's own half-height on top
+      // of that still leaves a third of a metre of daylight under the bar. The
+      // solver below is now a BACKSTOP for the case world space cannot reach —
+      // one man's number printed across a DIFFERENT man's plate, which is a
+      // screen collision between two objects that are nowhere near each other.
+      scratch.set(at.x, 1.34, at.z);
       scratch2.copy(camPos).sub(scratch);
       scratch.addScaledVector(scratch2, 0.42 / (scratch2.length() || 1));
 
@@ -1463,7 +1627,8 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       // as it goes: 0 centre, 1 right, 2 left, 3 further right, 4 further left.
       // Deterministic on purpose — a random side collides with the last one half
       // the time, which is exactly how "62" and "102" ended up printed across
-      // each other. See the note on CROWD_RADIUS.
+      // each other. See the note on CROWD_ANGLE. (This said CROWD_RADIUS for a
+      // round; there has never been a constant by that name in this file.)
       const rank = crowdAt(scratch);
       const lane = Math.ceil(rank / 2);
       const dir = rank === 0 ? 0 : (rank % 2 === 1 ? 1 : -1);
@@ -1482,20 +1647,39 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         ? (Math.random() - 0.5) * 0.34 * spread
         : (dir * (0.46 + lane * 0.40) + (Math.random() - 0.5) * 0.12) * spread;
 
-      n.mesh.position.copy(scratch);
+      n.pos.copy(scratch);
       // A rung each, so two numbers thrown to opposite sides of the same lane
       // still start clear of each other vertically, and never sit at one height
       // waiting for their sideways drift to do all the work. Scaled with the
       // fan, and for the same reason.
-      n.mesh.position.y += rank * 0.30 * spread;
-      n.base = n.mesh.position.y;
+      //
+      // THE RUNGS GO DOWN NOW. They used to go up, at 0.30 m a rank scaled by a
+      // spread that reaches 2.5 — so the fourth number of a flurry opened three
+      // metres above the third, which is well above the nameplate the paragraph
+      // above is trying to stay clear of. Downward costs nothing: the flurry is
+      // separated either way, and the free space is below.
+      n.pos.y = Math.max(0.55, n.pos.y - rank * 0.34 * spread);
+      n.base = n.pos.y;
+      n.mesh.position.copy(n.pos);
+      // A recycled number must not inherit the offset the last one had ended up
+      // holding, or it opens a glyph height below the blow that made it.
+      n.push = 0;
       // Fan across the camera's right, not the world's X, or the separation
       // collapses to nothing whenever the fight lines up with the view axis.
       n.vel.copy(camRight).multiplyScalar(side);
       // A little quicker per rung as well. Two numbers on opposite lanes are
       // already apart; two on the SAME lane — rank 1 and rank 3 — are not, and
       // without this they would rise in step for their whole life.
-      n.vel.y += (weight === 2 ? 2.35 : 1.85) + rank * 0.16 * spread;
+      // Apex is vy^2/(2*3.4) above the opening height; see the note there.
+      //
+      // AND THE RUNGS ARE ONLY SEPARATION IF THE RISE DOES NOT UNDO THEM. The
+      // rise used to get FASTER with rank, which was right when the rungs went
+      // up — rung and speed pulled the same way. Now that the rungs go down, a
+      // faster rise on a lower rung closes the gap it just opened, and the
+      // measurement said so: number across number went 14.53% of pair-frames
+      // more than half buried to 17.16% on the run that turned the rungs over.
+      // Slower with rank, floored so a deep flurry still moves.
+      n.vel.y += Math.max(0.55, (weight === 2 ? 1.35 : 1.12) - rank * 0.05 * spread);
       n.spin = weight === 2 ? (Math.random() - 0.5) * 0.5 : (Math.random() - 0.5) * 0.22;
       n.mesh.visible = true;
       n.mesh.layers.set(LAYER_UNOCCLUDED);
@@ -1619,12 +1803,14 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       // Warriors lining up behind each other is the normal case in a shield
       // wall, not an edge case, so this runs every frame rather than on demand.
       placed.length = 0;
-      for (const plate of order) if (plate.live) placed.push(plate);
-      placed.sort(byDistance);
+      standing.length = 0;
+      for (const plate of order) if (plate.live) standing.push(plate);
+      standing.sort(byDistance);
+      for (const plate of standing) placed.push(plate);
 
       for (let i = 0; i < placed.length; i++) {
-        const p = placed[i];
-        const y = settle(p, i, p.sy, p.hx, p.hy);
+        const p = placed[i] as Plate;
+        const y = settle(p.sx, p.sy, p.hx, p.hy, i, 1);
 
         if (y - p.sy <= MAX_PUSH) {
           p.compact = false;
@@ -1635,16 +1821,58 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
           // the bar alone — eight bars in a column still read, eight names on
           // top of each other read as nothing, and the bar is the part that is
           // actually changing during a fight.
+          //
+          // AND THE CLAMP HERE USED TO PUT THEM ALL ON ONE LINE. It was
+          // `Math.min(settle(...), p.ndcY + MAX_PUSH)`: every plate whose
+          // solved position was out of budget got the SAME answer, `MAX_PUSH`,
+          // so the branch that exists to stop plates stacking finished by
+          // stacking them — five nameplates into each other in the frame the
+          // owner was shown. A compacted plate is a bar and nothing else, and a
+          // column of bars is thin: the budget it needs is its own, not the
+          // full plate's, so it gets `COMPACT_MAX_PUSH` and the settled answer
+          // is respected inside it. Past even that the bar is HIDDEN rather
+          // than drawn on top of another one — a bar that is printed through
+          // another bar is not information, it is the blob.
           p.compact = true;
           p.hx = p.barHx;
           p.hy = p.barHy;
-          const compactY = Math.min(settle(p, i, p.ndcY, p.barHx, p.barHy), p.ndcY + MAX_PUSH);
+          const compactY = settle(p.sx, p.ndcY, p.barHx, p.barHy, i, 1);
+          if (compactY - p.ndcY > COMPACT_MAX_PUSH) {
+            p.group.visible = false;
+            p.live = false;
+            p.push = 0;
+            placed.splice(i, 1);
+            i--;
+            continue;
+          }
           p.push += (compactY - p.ndcY - p.push) * Math.min(1, dt * 10);
           p.sy = p.ndcY + p.push;
         }
 
         if (p.name) p.name.visible = !p.compact;
         if (Math.abs(p.push) > 1e-4) p.group.position.addScaledVector(camUp, p.push * p.worldPerNdc);
+
+        // THE EDGE FADE, RE-ASKED AFTER THE PUSH AND NOT BEFORE IT.
+        // `edgeAlpha` was applied up in the placement pass, against the plate's
+        // un-pushed `sy`, and the de-overlap then moved that same plate by up to
+        // MAX_PUSH — nearly a fifth of the screen — so a plate shoved off the
+        // top of the frame was still drawn at whatever opacity its old position
+        // had earned. Horizontal is unchanged by the push and is left where it
+        // was; only the vertical is re-asked, and only downward, so this can
+        // hide a plate the first pass allowed and never reveal one it hid.
+        if (p.push !== 0) {
+          const after = edgeAlpha(p.sy, p.hy, 1);
+          if (after < p.alpha) {
+            p.alpha = after;
+            if (p.alpha <= 0.01) {
+              p.group.visible = false;
+              p.live = false;
+              p.push = 0;
+              placed.splice(i, 1);
+              i--;
+            }
+          }
+        }
       }
 
       // ---- per-plate material state ----
@@ -1699,7 +1927,13 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         }
       }
 
-      // ---- floating numbers ----
+      // ---- floating numbers: integrate, then LAY OUT, then fade ----
+      //
+      // Three passes and it has to be three. The arc is integrated first
+      // because a box cannot be placed before it exists; the layout is second
+      // because it needs every box in the frame, plates included, before it can
+      // decide anything; the fade is last because it asks where the quad ended
+      // up, and until the second pass has run that is not known.
       for (let i = live.length - 1; i >= 0; i--) {
         const n = live[i];
         // The one way a number that spawned with a valid map can lose it is the
@@ -1717,14 +1951,14 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
           continue;
         }
 
-        n.mesh.position.addScaledVector(n.vel, dt);
+        n.pos.addScaledVector(n.vel, dt);
         n.vel.y -= 3.4 * dt;
         n.vel.x *= 1 - Math.min(0.9, dt * 2.2);
         n.vel.z *= 1 - Math.min(0.9, dt * 2.2);
         // Never let a number fall back through the body that threw it.
-        if (n.mesh.position.y < n.base) n.mesh.position.y = n.base;
+        if (n.pos.y < n.base) n.pos.y = n.base;
 
-        const dist = n.mesh.position.distanceTo(camPos);
+        const dist = n.pos.distanceTo(camPos);
         // A punch out of the gate, settling in about a tenth of a second. This
         // is most of what makes a number read before it is consciously seen.
         const pop = n.age < 0.11 ? 0.5 * (1 - n.age / 0.11) : 0;
@@ -1733,6 +1967,76 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         n.mesh.scale.set(scale * n.glyphs.aspect, scale, 1);
         n.mesh.quaternion.copy(camera.quaternion);
         if (n.spin !== 0) n.mesh.rotateZ(n.spin * (1 - n.age / n.life));
+
+        // Posed at LAST frame's offset, which is what the layout below is about
+        // to correct. Seeding the projection with it rather than with the raw
+        // arc is what stops a number that is holding station under a plate from
+        // reading as clear every other frame and jittering between the two.
+        n.worldPerNdc = Math.max(dist * tanHalf, 1e-3);
+        n.mesh.position.copy(n.pos).addScaledVector(camUp, n.push * n.worldPerNdc);
+
+        ndc.copy(n.mesh.position).project(camera);
+        // Into the same square space the plates use, so one gap means one thing
+        // — NDC x carries the aspect — and on the INK rather than on the quad,
+        // because a damage number is drawn centred into a canvas it covers less
+        // than a third of and laying out the padding lays out nothing. The spin
+        // is left out and paid for by the pads: a quarter radian on a glyph this
+        // size moves its corner by well under a hundredth of the screen.
+        n.sx = ndc.x * aspect + (n.mesh.scale.x * n.glyphs.inkCX) / n.worldPerNdc;
+        n.sy = ndc.y + (n.mesh.scale.y * n.glyphs.inkCY) / n.worldPerNdc;
+        n.hx = (n.mesh.scale.x * n.glyphs.inkW * 0.5) / n.worldPerNdc;
+        n.hy = (n.mesh.scale.y * n.glyphs.inkH * 0.5) / n.worldPerNdc;
+      }
+
+      // ---- the numbers join the plates' layout --------------------------
+      // Oldest first, because the oldest is the highest — it has been rising
+      // longest — and it is also the one about to fade out. It keeps its place
+      // and the younger ones go underneath it, which is the same order the
+      // spawn fan already builds and means the two do not argue.
+      //
+      // `placed` still holds this frame's plates. Numbers are appended to it, so
+      // a number clears the plates AND every number settled before it, and a
+      // plate is never moved by a number: the plate is anchored to a man and the
+      // number is a transient the plate should not have to give way to.
+      flying.length = 0;
+      for (const n of live) flying.push(n);
+      for (const n of flying) {
+        // BOTH WAYS OUT, AND THE CHEAPER ONE WINS.
+        //
+        // The first version of this only pushed DOWN, on the argument that a
+        // number rises into the plate from below so down is the way back out.
+        // That argument is only true of the name. A plate is a name AND a bar,
+        // so clearing it downward from anywhere inside means travelling the
+        // whole plate — and when that came to more than the budget the number
+        // was clamped PART of the way, which parked it on the health bar rather
+        // than above the name. Measured, `tools/hudspace.mjs`: number across
+        // NAMEPLATE 21.14% of pair-frames more than half buried -> 9.62%, and
+        // number across HEALTH BAR 13.13% -> 22.49% on the same run. It moved
+        // the collision, it did not solve it.
+        //
+        // So both exits are solved and the shorter is taken, and a push that
+        // cannot clear inside the budget is abandoned rather than clamped: half
+        // an escape is worse than none, because none at least leaves the number
+        // where the blow put it.
+        const down = settle(n.sx, n.sy, n.hx, n.hy, placed.length, -1) - n.sy;
+        const up = settle(n.sx, n.sy, n.hx, n.hy, placed.length, 1) - n.sy;
+        // Hysteresis, because a number that changes its mind about which side
+        // to leave by is a number that vibrates, and "jumpy" is the same
+        // owner's word as "buggy". The side it is already on has to be beaten
+        // by a third before it swaps.
+        const bias = n.push < -1e-4 ? -1 : n.push > 1e-4 ? 1 : 0;
+        const cost = (d: number) => Math.abs(d) * (bias !== 0 && Math.sign(d) !== bias ? 1.35 : 1);
+        let want = cost(down) <= cost(up) ? down : up;
+        want = Math.max(-NUM_MAX_PUSH, Math.min(NUM_MAX_PUSH, want));
+        n.push += (want - n.push) * Math.min(1, dt * 12);
+        n.sy += n.push;
+        placed.push(n);
+      }
+
+      // ---- pose and fade -------------------------------------------------
+      for (const n of flying) {
+        n.mesh.position.copy(n.pos).addScaledVector(camUp, n.push * n.worldPerNdc);
+        const dist = n.mesh.position.distanceTo(camPos);
 
         const inFade = Math.min(1, n.age / 0.05);
         const outFade = 1 - smooth(n.life * 0.5, n.life, n.age);
@@ -1749,11 +2053,6 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         // 3 m — so the world-space half of that report is refuted by its own
         // ruler and this is the whole of the defect.
         ndc.copy(n.mesh.position).project(camera);
-        // Into the same square space the plates use, so one band means one
-        // thing: NDC x carries the aspect, and both half-extents are the quad's
-        // world size over the world-per-NDC at this depth. The spin is left out
-        // and paid for by the band — a quarter radian on a glyph this size moves
-        // its corner by well under a hundredth of the screen.
         const nWorldPerNdc = Math.max(dist * tanHalf, 1e-3);
         const edgeFade =
           edgeAlpha(ndc.x * aspect, (n.mesh.scale.x * 0.5) / nWorldPerNdc, aspect) *
