@@ -76,24 +76,32 @@
  * what moved and what did not.
  *
  * ---------------------------------------------------------------------------
- * HOW MUCH THIS RULER WANDERS BETWEEN RUNS, because a single reading off it
- * would be quoted as if it were exact and it is not.
+ * HOW MUCH THIS RULER WANDERS BETWEEN RUNS, AND IT WANDERS FAR ENOUGH TO HAVE
+ * BEATEN TWO ROUNDS OF THIS WORK. A single reading off it will be quoted as if
+ * it were exact and it is not.
  *
- * The overlap figure is the restless one. It depends on how busy the fight
- * happened to be, and a scripted robot at the keys does not fight the same
- * fight twice. THREE runs of the identical build, share of the frames carrying
- * two or more numbers on which the smaller was more than half buried:
+ * FOUR runs of one identical build (a08a967), same box, same 30 s, nothing
+ * changed between them, share of pair-frames with one element MORE THAN HALF
+ * buried on the ink:
  *
- *     27.91%   30.07%   37.50%      against 41.37% before the fan
+ *     num / num     10.02%  15.17%  17.60%  20.58%     pooled 16.17% of 2653
+ *     name / name    2.63%   3.01%   3.74%   4.76%     pooled  3.55% of 4871
  *
- * So the fan reduced it, and by somewhere between four points and thirteen. The
- * MEDIAN overlap is the steadier statistic and it moved further and repeated:
- * 0.36 before, 0.17-0.20 after, on every run.
+ * That is a factor of two on num/num from noise alone. A before measured ONCE
+ * against an after measured once is worth nothing here, and that asymmetry is
+ * exactly what made the previous round's HUD figures fail to reproduce in an
+ * adversary's hands: it claimed median overlap 0.36 -> 0.17-0.20 "on every
+ * run" and two independent re-measurements got 0.57/0.45/0.44 -> 0.37/0.25/0.26
+ * and a BASELINE run of 0.16, inside the claimed after-band. The direction was
+ * right; the magnitude was overstated because the before was one run.
  *
- * The other two counts are quiet by comparison — off-screen plates read 0 or 1
- * on every run after the edge fade against 76 before, and number quads cut by
- * the frame edge read 9, 19 and 21 against 88. Quote a range from those; quote
- * a range from all three.
+ * So: FOUR runs a side, pool the numerators over the denominators, and quote
+ * the per-run spread beside the pooled figure. Anything smaller than the spread
+ * is not a result.
+ *
+ * The other counts are quieter. Off-screen plates read 0 on every run of the
+ * four above, against 76-150 before the edge fade; number quads cut by the
+ * frame edge read 12-45.
 
  */
 import { chromium } from "playwright";
@@ -110,6 +118,25 @@ const SECS = Math.max(5, parseInt(argOf("secs", "30"), 10) || 30);
 const SHOTS = parseInt(argOf("shots", "0"), 10) || 0;
 const PORT = parseInt(process.env.PORT || String(4120 + (process.pid % 30)), 10);
 const VIEW = { width: 1280, height: 720 };
+/**
+ * WHICH TIER THE HUD IS MEASURED ON, AND IT USED TO BE `low` WITH NO LABEL.
+ *
+ * That is not a neutral default for THIS ruler. `damageNumberBudget` is 12 on
+ * low, 24 on medium and 48 on high (`render/quality.ts`), so the tier decides
+ * the ceiling on the very thing being counted: every overlap figure this
+ * repository has quoted for the HUD was taken with at most twelve numbers
+ * allowed on screen, and a desktop build allows forty-eight. Low is also where
+ * `characters.ts` collapses near-neighbour materials, so it is the cheapest
+ * frame in the game in every sense.
+ *
+ * The default stays `low` so the figures remain comparable with everything
+ * already recorded, and it is now printed on the header rather than hidden.
+ */
+const QUALITY = (() => {
+  const q = argOf("quality", "low");
+  if (q !== "low" && q !== "medium" && q !== "high") { console.log(`  --quality=${q} is not a tier.`); process.exit(1); }
+  return q;
+})();
 
 const pct = (sorted, p) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))] : NaN;
 function stats(values) {
@@ -209,6 +236,8 @@ const COLLECTOR = ({ W, H }) => {
     bodies: new Map(),
     started: 0,
     voided: "",
+    /** Frames dropped because the Vector3 lift had not run yet. See __hudFrame. */
+    noThree: 0,
   };
   w.__hudBody = (id, group) => { if (id && group) w.__hud.bodies.set(id, group); };
 
@@ -233,6 +262,14 @@ const COLLECTOR = ({ W, H }) => {
     let root = null;
     for (const g of j.bodies.values()) { let o = g; while (o.parent) o = o.parent; root = o; break; }
     if (!root) return;
+    // `__hudTHREE` is lifted off the first body the scene hands over, on a 60 ms
+    // interval, so there is a window of a frame or two where a body exists and
+    // the lift has not run. This used to THROW — "Cannot read properties of
+    // undefined (reading 'Vector3')", printed on the page-error line twice a
+    // run — and a throw here leaves the frame COUNTED and empty, so every
+    // denominator that divides by `frames` carried a couple of rows that could
+    // not have contained anything. Named and counted instead of thrown.
+    if (!w.__hudTHREE) { j.noThree++; return; }
     j.frames++;
 
     camera.updateMatrixWorld();
@@ -538,7 +575,7 @@ async function main() {
     });
     const page = await ctx.newPage();
     page.on("pageerror", (e) => say(`  [page-error] ${String(e).slice(0, 200)}`));
-    await reachFight(page, `http://127.0.0.1:${PORT}/?quality=low`);
+    await reachFight(page, `http://127.0.0.1:${PORT}/?quality=${QUALITY}`);
     const canvas = page.locator("canvas").first();
     await canvas.click({ position: { x: 640, y: 360 } }).catch(() => {});
     let stop = false;
@@ -558,12 +595,12 @@ async function main() {
     await new Promise((r) => setTimeout(r, 4000));
     await page.evaluate(() => {
       const j = window.__hud;
-      j.frames = 0; j.plates.length = 0; j.dmg.length = 0; j.started = 0;
+      j.frames = 0; j.plates.length = 0; j.dmg.length = 0; j.started = 0; j.noThree = 0;
     });
     await new Promise((r) => setTimeout(r, SECS * 1000));
     data = await page.evaluate(() => {
       const j = window.__hud;
-      return { frames: j.frames, plates: j.plates, dmg: j.dmg, bodies: j.bodies.size, three: !!window.__hudTHREE };
+      return { frames: j.frames, plates: j.plates, dmg: j.dmg, bodies: j.bodies.size, three: !!window.__hudTHREE, noThree: j.noThree };
     });
     // ---- and now LOOK AT IT (R5) -------------------------------------------
     // This used to screenshot with `__hudNoDraw` still true and wrote eight
@@ -597,10 +634,12 @@ async function main() {
     say(`\n  NO ROSTER — ${data ? data.frames : 0} frames, ${data ? data.bodies : 0} bodies. Result VOID rather than clean.`);
     process.exitCode = 1; return;
   }
-  say(`\n  ${data.frames} frames of a seven-bot fight at ${VIEW.width}x${VIEW.height}, ${data.bodies} warriors on the roster.`);
+  say(`\n  ${data.frames} frames of a seven-bot fight at ${VIEW.width}x${VIEW.height}, ${data.bodies} warriors on the roster,`);
+  say(`  at quality=${QUALITY} — which caps damage numbers at ${QUALITY === "high" ? 48 : QUALITY === "medium" ? 24 : 12} on screen. See the note on QUALITY.`);
   say(`  The draw is SUPPRESSED (see the patch note): every rectangle below is what the HUD`);
   say(`  decided to put on screen, which runs in full either way, sampled at a realistic`);
   say(`  frame rate instead of SwiftShader's 0.3 fps. No frames-per-second figure is implied.`);
+  if (data.noThree) say(`  ${data.noThree} frame(s) dropped before the Vector3 lift landed — not counted in the ${data.frames}.`);
 
   // ---- 1 -------------------------------------------------------------------
   const platesOn = data.plates.reduce((a, p) => a + p.on, 0);
@@ -626,6 +665,13 @@ async function main() {
   say(`     a number half-buried under a bigger one is unreadable whatever share of the`);
   say(`     bigger one it covers.`);
   say(`       frames with a number on screen    ${String(withNums.length).padStart(7)}`);
+  // HOW MANY ARE UP AT ONCE, which is the quantity any fix of the form "fewer
+  // things competing for the same pixels" has to move. A de-overlap solver can
+  // only be judged against it: three glyphs in a cluster is a layout problem
+  // and seven is a design one, and the overlap percentages above cannot tell
+  // those apart.
+  const nStat = stats(withNums.map((d) => d.n));
+  if (nStat) say(`       numbers up AT ONCE                p50 ${f2(nStat.p50)}  p95 ${f2(nStat.p95)}  worst ${f2(nStat.max)}  mean ${f2(nStat.mean)}`);
   // THE DENOMINATOR IS FRAMES THAT COULD HAVE OVERLAPPED, and it has to be.
   // These were once printed as a share of ALL frames, and two runs of the same
   // build then disagreed by five points for no reason but how busy the fight

@@ -7,18 +7,28 @@
  *   node tools/framecost.mjs --profile       also take a V8 CPU profile
  *
  * ---------------------------------------------------------------------------
- * WHY. `tools/janktest.mjs` §4 established the size of the problem and stopped
- * there, because that is all a wrapped `requestAnimationFrame` can see:
+ * WHY, AND THE PREMISE THIS FILE WAS BUILT ON WAS WRONG. It used to open:
  *
- *     JS work per frame, DRAW SUPPRESSED:  p50 17.10 ms   p95 44-53   p99 61-80
+ *     "JS work per frame, DRAW SUPPRESSED: p50 17.10 ms ... 17 ms of
+ *      JavaScript is already over a 60 Hz frame before a triangle is drawn."
  *
- * 17 ms of JavaScript is already over a 60 Hz frame before a single triangle is
- * drawn, and §3 of the same harness has since shown that the owner's JOLTY is
- * this: the motion the client computes is three to five times SMOOTHER than the
- * motion the server sends, and it is PRESENTED at uneven instants. So this is
- * not one of four defects. It is the one the other three keep pointing at.
+ * That 17.10 ms was `janktest` §3's FRAME INTERVAL, not the work inside a
+ * frame. A frame interval of 16.7 ms is vsync BY DEFINITION; reading it as a
+ * workload and then panicking about it is failure mode 1 in one line, and this
+ * file's own opening paragraph carried it for a round after the harness that
+ * produced it had been corrected. It is corrected here too.
  *
- * A total is not actionable. This splits it.
+ * WHAT THIS FILE ACTUALLY MEASURED, once it existed: main-thread JS work
+ * p50 1.20-1.50 ms, p95 2.20-3.90, with a V8 profile 86.2-86.4% idle over
+ * 74k samples. There is nothing on the main thread to cut at the median. The
+ * TAIL is a different question and this file cannot attribute it — its own
+ * UNACCOUNTED line says 61.2% of the frame is outside the wrapped calls, and
+ * this box runs three other agents' builds while it measures.
+ *
+ * What IS large, and what this file is now for, is the SCENE: draw calls and
+ * triangles, counted at the WebGL context so the figure is portable off a box
+ * with no GPU. A total is not actionable, so the census splits it by the
+ * (geometry, material) pair that decides whether three.js can batch it.
  *
  * ---------------------------------------------------------------------------
  * HOW. Two instruments, and they check each other.
@@ -58,6 +68,24 @@ const argv = process.argv.slice(2);
 const argOf = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); return h ? h.slice(n.length + 3) : d; };
 const SECS = Math.max(5, parseInt(argOf("secs", "30"), 10) || 30);
 const PROFILE = argv.includes("--profile");
+/**
+ * WHICH TIER IS BEING COUNTED, AND IT USED TO BE HARDCODED AND UNLABELLED.
+ *
+ * Both fights below fetched `?quality=low` and every draw-call figure this
+ * repository has quoted came off that page without saying so. `low` is the
+ * FLOOR of the range, not what a desktop build asks for: on one build, `low`
+ * read 747 calls / 391,757 triangles and `high` read 4280 / 3,068,914 — a
+ * factor of five and a half. Quoting the low figure as "the Steam number" is
+ * an understatement of the thing it is trying to size.
+ */
+const QUALITY = (() => {
+  const q = argOf("quality", "low");
+  if (q !== "low" && q !== "medium" && q !== "high") {
+    console.log(`  --quality=${q} is not a tier. Use low, medium or high.`);
+    process.exit(1);
+  }
+  return q;
+})();
 const PORT = parseInt(process.env.PORT || String(4260 + (process.pid % 30)), 10);
 
 const pct = (v, p) => v.length ? v[Math.min(v.length - 1, Math.max(0, Math.ceil((p / 100) * v.length) - 1))] : NaN;
@@ -345,7 +373,7 @@ async function main() {
     await ctx.addInitScript(() => { window.__fcNoDraw = true; });
     const page = await ctx.newPage();
     page.on("pageerror", (e) => say(`  [page-error] ${String(e).slice(0, 200)}`));
-    await reachFight(page, `http://127.0.0.1:${PORT}/?quality=low`);
+    await reachFight(page, `http://127.0.0.1:${PORT}/?quality=${QUALITY}`);
     const canvas = page.locator("canvas").first();
     await canvas.click({ position: { x: 640, y: 360 } }).catch(() => {});
     let stop = false;
@@ -387,7 +415,7 @@ async function main() {
     await ctx2.addInitScript(COLLECTOR);
     const page2 = await ctx2.newPage();
     page2.on("pageerror", () => {});
-    await reachFight(page2, `http://127.0.0.1:${PORT}/?quality=low`);
+    await reachFight(page2, `http://127.0.0.1:${PORT}/?quality=${QUALITY}`);
     await page2.evaluate(() => { window.__fc.glFrames.length = 0; window.__fc.on = true; });
     await new Promise((r) => setTimeout(r, 40000));
     drawn = await page2.evaluate(() => {
@@ -403,7 +431,9 @@ async function main() {
     if (server && !server.killed) server.kill("SIGTERM");
   }
 
-  rule("FRAMECOST — where the frame goes, per module, DRAW SUPPRESSED");
+  rule(`FRAMECOST — where the frame goes, per module, DRAW SUPPRESSED  [quality=${QUALITY}]`);
+  say(`  EVERY FIGURE BELOW IS THE \`${QUALITY}\` TIER. See the note on QUALITY: the tiers differ by`);
+  say(`  more than five times on draw calls, so a number quoted without its tier says nothing.`);
   for (const n of ["nodraw", "modules", "body"]) say(`  patch "${PATCHES[n].name}": ${hits[n]} site(s)`);
   if (!hits.nodraw || !hits.modules) { say("\n  PATCH MISSED — nothing matched. Result VOID."); process.exitCode = 1; return; }
   const F = data.frames;

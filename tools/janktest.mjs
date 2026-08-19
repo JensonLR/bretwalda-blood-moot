@@ -426,7 +426,7 @@ const COLLECTOR = () => {
     stalls: 0,
     // The wire epoch as the interpolator receives it, plus the window it was
     // observed over, so the packet count can be held against the SAME window.
-    epoch: { first: null, last: null, t0: 0, t1: 0 },
+    epoch: { first: null, last: null, cur: null, t0: 0, t1: 0 },
     emotesSent: 0,
     started: performance.now(),
   };
@@ -477,6 +477,9 @@ const COLLECTOR = () => {
   w.__jankEx = (ahead, id) => { const j = w.__jank; if (j.extrap.length < 200000) j.extrap.push({ ahead, id }); };
   w.__jankEpoch = (e) => {
     const p = w.__jank.epoch;
+    // `cur` is kept ALWAYS, zeroed or not, and it is what makes the two counts
+    // in §6 share a window. See the note at the zeroing.
+    p.cur = e;
     if (p.first === null) { p.first = e; p.t0 = performance.now(); }
     p.last = e; p.t1 = performance.now();
   };
@@ -560,7 +563,23 @@ async function runFight(browser, { patches = [], noDraw = false, viewport = { wi
     const j = window.__jank;
     j.frames.length = 0; j.snaps.length = 0; j.snapBytes.length = 0;
     j.longTasks.length = 0; j.extrap.length = 0; j.resets.length = 0; j.stalls = 0;
-    j.epoch = { first: null, last: null, t0: 0, t1: 0 }; j.emotesSent = 0;
+    // THE TWO COUNTS §6 COMPARES MUST SHARE A WINDOW, AND THEY DID NOT.
+    //
+    // `snaps` is emptied on this line, so packets are counted from THIS instant.
+    // The epoch's `first` used to be left null and filled by the next probe
+    // call, which is one frame to several frames later — and every game_state
+    // that landed in between was counted as a packet with its epoch advance
+    // outside the window. An adversary ran §6's verdict on the BROKEN build and
+    // it printed "COUNTS PACKETS" three times out of three (+4, +3, -3 phantom
+    // against a |phantom| > 4 threshold), because that structural slip is
+    // several packets wide and the defect it was written to catch is only 1-7.
+    // A gate that certifies the build it was written against is not a gate.
+    //
+    // `cur` is the epoch value AT THIS INSTANT, so both ends are pinned to the
+    // same two moments and the slip is at most one message either side.
+    j.epoch = { first: j.epoch && j.epoch.cur != null ? j.epoch.cur : null, cur: j.epoch ? j.epoch.cur : null,
+                last: j.epoch && j.epoch.cur != null ? j.epoch.cur : null, t0: performance.now(), t1: performance.now() };
+    j.emotesSent = 0;
     j.started = performance.now();
     if (rec) j.rec = {};
   }, record);
@@ -948,12 +967,15 @@ async function main() {
       ]) {
         const r = await runFight(browser, { patches: names, noDraw: true, secs: SECS, emoteEvery: cfg.emoteEvery, viewport: { width: 960, height: 540 } });
         if (!patchesLanded(r.hits, names)) { result.epochVoid = true; runs.push(null); continue; }
-        // Advances are read as last-minus-first because the value is monotonic;
-        // packets are the game_state arrivals counted over the SAME zeroed
-        // window. Both ends can slip by at most one message — a packet that
-        // landed a hair before the window opened commits its advance a hair
-        // after it — so a difference of 1 or 2 is measurement and a difference
-        // of ten is not.
+        // Advances are read as last-minus-first because the value is
+        // monotonic; packets are the game_state arrivals counted over the SAME
+        // zeroed window — and "the same" is now true, which it was not: see the
+        // note at the zeroing in the collector. Both ends can still slip by at
+        // most ONE message, because a packet that landed a hair before the
+        // window opened commits its advance a hair after it. So ±1 is
+        // measurement. The threshold below is ±2 and it is derived from paired
+        // runs rather than assumed; the reading that set it is printed under
+        // the table.
         const adv = (r.epoch.last ?? 0) - (r.epoch.first ?? 0);
         const pkts = r.snaps.length;
         runs.push({ ...cfg, adv, pkts, ratio: pkts ? adv / pkts : NaN, emotes: r.emotesSent, span: (r.epoch.t1 - r.epoch.t0) / 1000 });
@@ -974,9 +996,15 @@ async function main() {
         const delta = (spam.adv - spam.pkts) - (ctl.adv - ctl.pkts);
         say(`  READING: phantom advances went ${ctl.adv - ctl.pkts} -> ${spam.adv - spam.pkts} (${delta >= 0 ? "+" : ""}${delta}) when flourishes were added`);
         say(`           to a wire whose packet rate did not change. ` +
-            (Math.abs(spam.adv - spam.pkts) > 4
+            (Math.abs(spam.adv - spam.pkts) > 2 || Math.abs(ctl.adv - ctl.pkts) > 2
               ? "The epoch is NOT counting packets."
               : "The epoch tracks the packet count."));
+        say(`           THE THRESHOLD IS ±2 ON EITHER CASE, and it was ±4 on the flourish case alone.`);
+        say(`           At ±4 this verdict printed "COUNTS PACKETS" on the BROKEN build three times`);
+        say(`           out of three in an adversary's hands, because the two counts did not share`);
+        say(`           a window and the structural slip was wider than the defect. The window is`);
+        say(`           pinned now and the control case is gated too — a build that phantom-advances`);
+        say(`           does it on the control as well, and the old line could not see that.`);
         result.epoch = { ctl, spam };
       }
     }
@@ -1168,6 +1196,78 @@ async function main() {
         say(`    of ${over8All} samples changing speed by more than 8x the median, ${over8Plain} are left unexplained` +
             ` (${(100 * over8Plain / Math.max(1, over8All)).toFixed(1)}%).`);
         result.charge = { charge, over8All, over8Plain, plain: stats(chargedJolt.plain) };
+
+        // ---- AND THE SAME COUNT ON THE WIRE ------------------------------
+        //
+        // THE TABLE ABOVE HAS NO CONTROL, AND WITHOUT ONE ITS LAST ROW IS AN
+        // ACCUSATION AND NOT A MEASUREMENT.
+        //
+        // "Of N samples changing speed by more than 8x the median, M are left
+        // unexplained" reads as if those M were the client's doing. Three
+        // rounds of work have been aimed at that sentence. But `everything
+        // else` is not a cause, it is a residue: it holds every hard speed
+        // change that is not hit-stop, not the dt clamp and not the hit-shove,
+        // and the largest single thing in that set may simply be THE SERVER
+        // ASKING FOR ONE. A warrior who is stopped dead by the sim when his
+        // swing commits, or turned through 180 degrees by a bot's target
+        // change, changes speed by many times his median in one tick, and a
+        // client that draws it is doing its job.
+        //
+        // So the identical statistic is taken on the WIRE — the authoritative
+        // positions, deduplicated to the 20 Hz they arrive at — and on the
+        // DRAWN track decimated to that same 20 Hz, so all three are
+        // differenced over the same interval and the sampling rate cannot be
+        // mistaken for a defect. One normaliser throughout: the man's own
+        // median DRAWN speed, so the three columns are the same units.
+        //
+        // Read it as:
+        //   wire >= drawn@20Hz   the hard speed changes are in the SIMULATION.
+        //                        The client is drawing what it was handed, and
+        //                        no interpolator change can remove them —
+        //                        only the sim, or a deliberate decision to
+        //                        smooth motion the server authored.
+        //   wire <<  drawn@20Hz  the client really is inventing them, at a
+        //                        timescale the eye can follow, and the fix is
+        //                        here.
+        const rate8 = (samples, kx, kz, medSpeed) => {
+          let n = 0, over = 0;
+          for (let i = 2; i < samples.length; i++) {
+            const a = samples[i - 2], b = samples[i - 1], c = samples[i];
+            const dtb = (b.t - a.t) / 1000, dtc = (c.t - b.t) / 1000;
+            if (dtb <= 1e-5 || dtc <= 1e-5) continue;
+            const vb = Math.hypot(b[kx] - a[kx], b[kz] - a[kz]) / dtb;
+            const vc = Math.hypot(c[kx] - b[kx], c[kz] - b[kz]) / dtc;
+            if (vb < 0.05 && vc < 0.05) continue;
+            n++;
+            if (Math.abs(vc - vb) / medSpeed > 8) over++;
+          }
+          return { n, over };
+        };
+        const tot = { drawn: { n: 0, over: 0 }, slow: { n: 0, over: 0 }, wire: { n: 0, over: 0 } };
+        const perManRate = [];
+        for (const m of perMan) {
+          if (!(m.medSpeed > 1e-6)) continue;
+          const ss = r.rec[m.id];
+          const d = rate8(ss, "rx", "rz", m.medSpeed);
+          const sl = rate8(decimate(ss, 45), "rx", "rz", m.medSpeed);
+          const wi = rate8(wireTrack(ss), "wx", "wz", m.medSpeed);
+          perManRate.push({ id: m.id, d, sl, wi });
+          for (const [k, v] of [["drawn", d], ["slow", sl], ["wire", wi]]) { tot[k].n += v.n; tot[k].over += v.over; }
+        }
+        const rp = (v) => `${String(v.over).padStart(6)} of ${String(v.n).padStart(6)}  ${(100 * v.over / Math.max(1, v.n)).toFixed(2).padStart(6)}%`;
+        say(`\n  >8x SPEED CHANGES, AGAINST THE WIRE CONTROL — the same test on three tracks.`);
+        say(`      All three are normalised by the man's median DRAWN speed and counted over`);
+        say(`      moving samples only. @20Hz and WIRE are differenced over the SAME interval.`);
+        say(`    ${"track".padEnd(34)} ${">8x".padStart(6)}    ${"of".padStart(6)}  ${"rate".padStart(7)}`);
+        say(`    ${"DRAWN, 60 Hz (all causes)".padEnd(34)} ${rp(tot.drawn)}`);
+        say(`    ${"DRAWN, decimated to 20 Hz".padEnd(34)} ${rp(tot.slow)}`);
+        say(`    ${"WIRE, 20 Hz — what was ASKED for".padEnd(34)} ${rp(tot.wire)}`);
+        say(`    unexplained share of DRAWN 60 Hz samples: ${(100 * over8Plain / Math.max(1, totalJ)).toFixed(2)}%` +
+            `  (${over8Plain} of ${totalJ}) — the figure previous rounds quoted.`);
+        for (const m of perManRate.sort((a, b) => (b.wi.over / Math.max(1, b.wi.n)) - (a.wi.over / Math.max(1, a.wi.n)))) {
+          say(`    ${m.id.padEnd(22)} 60Hz ${(100 * m.d.over / Math.max(1, m.d.n)).toFixed(2).padStart(6)}%   @20Hz ${(100 * m.sl.over / Math.max(1, m.sl.n)).toFixed(2).padStart(6)}%   WIRE ${(100 * m.wi.over / Math.max(1, m.wi.n)).toFixed(2).padStart(6)}%`);
+        }
+        result.rate8 = tot;
 
         say(`\n  JUMP — single frames that moved more than 4x and 8x the median frame's step`);
         for (const m of perMan.sort((a, b) => b.jumps8 - a.jumps8)) {

@@ -305,7 +305,13 @@ const NEAR_FADE_FULL = 2.6;
  * ground with nothing under them. That is the owner's BUGGY, and it is
  * measured: `tools/hudspace.mjs` on the build before this constant existed
  * counted 103 bar-frames of 4861 (2.12%) whose warrior was outside the frame,
- * on 99 frames of 1229 (8.06%), and 588 plate quads cut by the edge.
+ * on 99 frames of 1229 (8.06%), and 588 plate quads cut by the edge. THAT IS
+ * ONE RUN AND THE RULER WANDERS: separate runs of the same broken build read
+ * 76, 96, 112, 129 and 150 off-screen bar-frames, and this file and the
+ * harness's own header have each quoted a different one of those as "the"
+ * before-figure, which reads as three numbers for one quantity. They are three
+ * samples of one distribution. See the run-to-run note at the head of
+ * `tools/hudspace.mjs`; quote a range from this ruler or quote nothing.
  *
  * IT IS RAMPED ON THE QUAD'S OUTER EDGE, NOT ON ITS CENTRE, and the first
  * attempt at this fix got that wrong in a way worth recording. Ramping on the
@@ -367,6 +373,40 @@ const COMPACT_MAX_PUSH = 0.5;
  * fight range, and the layout is allowed a couple of them.
  */
 const NUM_MAX_PUSH = 0.16;
+/**
+ * MERGING A FLURRY INTO ONE RUNNING TOTAL WAS TRIED HERE AND REVERTED. R1, and
+ * the record is kept because the next person will have the same idea.
+ *
+ * The idea: three blows on one man inside a third of a second are one exchange,
+ * so add them into his live number instead of opening a second glyph on top of
+ * it. It needed the victim's id threaded down from `GameCanvas`, about fifty
+ * lines of state, and a merge window.
+ *
+ * MEASURED, `tools/hudspace.mjs`, four runs an arm, pooled, share of pair-frames
+ * with one number more than half buried on the ink:
+ *
+ *     a08a967 baseline                                   16.17%
+ *     de-overlap easing alone, no merge                  11.67%
+ *     easing + merge, window from the LAST blow           9.00%
+ *     easing + merge, window from the FIRST blow         11.66%
+ *
+ * The third row is what sold it and the third row was a BUG. Merging rewinds
+ * `age` to re-punch the glyph, so a window measured from the last blow never
+ * closes under a stream of blows: the number never expired and the total never
+ * stopped climbing. Photographed on that build — four warriors round a bonfire
+ * wearing "468", "338", "228", "216" and "184" against a pool of about a
+ * hundred, with every overlap figure in the harness GREEN, because the glyphs
+ * were beautifully separated and simply wrong. Bound the window to the first
+ * blow, which is what it always should have been, and the gain goes to nothing:
+ * 11.66% against 11.67% for not doing it at all.
+ *
+ * So it buys nothing this ruler can resolve, it changes what a number MEANS to
+ * the player, and it had already produced a worse defect than the one it was
+ * aimed at. `ease()` is what actually moved these figures and it is still here.
+ * If someone wants this back, the case has to be made on legibility rather than
+ * on overlap, and it has to be measured against `nomerge` and not against the
+ * runaway.
+ */
 const PUSH_PAD_Y = 0.006;
 const PUSH_PAD_X = 0.004;
 
@@ -1814,7 +1854,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
 
         if (y - p.sy <= MAX_PUSH) {
           p.compact = false;
-          p.push += (y - p.sy - p.push) * Math.min(1, dt * 10);
+          p.push += (y - p.sy - p.push) * ease(dt, y - p.sy - p.push, p.hy);
           p.sy += p.push;
         } else {
           // Too deep a stack to solve by moving. Drop the name and re-place on
@@ -1845,7 +1885,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
             i--;
             continue;
           }
-          p.push += (compactY - p.ndcY - p.push) * Math.min(1, dt * 10);
+          p.push += (compactY - p.ndcY - p.push) * ease(dt, compactY - p.ndcY - p.push, p.barHy);
           p.sy = p.ndcY + p.push;
         }
 
@@ -2028,7 +2068,14 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         const cost = (d: number) => Math.abs(d) * (bias !== 0 && Math.sign(d) !== bias ? 1.35 : 1);
         let want = cost(down) <= cost(up) ? down : up;
         want = Math.max(-NUM_MAX_PUSH, Math.min(NUM_MAX_PUSH, want));
-        n.push += (want - n.push) * Math.min(1, dt * 12);
+        // Same easing as the plates, and for a sharper reason: a number LIVES
+        // for about a second. At the old flat `dt * 12` it needed a sixth of
+        // that second to reach a place it had already worked out, so a sixth of
+        // every number's life was spent on its way out of a collision — and the
+        // sixth in question is the first one, which is the punch, which is when
+        // the eye is actually on it. `hy` is its own half-height, so "one glyph
+        // out of place" is what makes this arrive in about two frames.
+        n.push += (want - n.push) * ease(dt, want - n.push, n.hy);
         n.sy += n.push;
         placed.push(n);
       }
@@ -2093,6 +2140,44 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
 /** Nearest first: the plate closest to the camera is the one that keeps its spot. */
 function byDistance(a: Plate, b: Plate): number {
   return a.dist - b.dist;
+}
+
+/**
+ * How fast a de-overlap offset chases its target this frame.
+ *
+ * A FLAT RATE IS WRONG AT BOTH ENDS AND THE SLOW END IS THE VISIBLE ONE. This
+ * was `Math.min(1, dt * 10)` — about a sixth of the remaining error per frame at
+ * 60 Hz, so a plate took a sixth of a second to reach a place it had already
+ * decided on. For the small corrections that make up most frames that is exactly
+ * right: it is what stops the HUD twitching. But the layout also gets handed
+ * step changes — two warriors cross in depth and `byDistance` swaps them, so the
+ * plate that was keeping its spot has to move a full plate height and the one
+ * that was moving has to come back — and a sixth of a second of that is two
+ * nameplates printed through each other while they trade places.
+ *
+ * So the rate scales with how far out of place the element is, measured in its
+ * own half-heights, and the ramp is QUADRATIC so that the common case is
+ * untouched: at a tenth of a half-height the rate is 10.9 against the old 10,
+ * which is the same glide. At a full half-height it is 100, and at 60 Hz
+ * `dt * 100` clamps to 1 — the element ARRIVES IN ONE FRAME.
+ *
+ * THAT SNAP IS DELIBERATE AND IT IS A TRADE, SAID OUT LOUD BECAUSE THE RULER
+ * CANNOT SEE BOTH HALVES OF IT. What is bought is that two plates trading
+ * places stop printing through each other for the ten frames the old rate took:
+ * measured, `tools/hudspace.mjs` over four runs a side, nameplate-across-
+ * nameplate more than half buried went 3.55% of pair-frames to 0.02%. What is
+ * paid is that the plate moves a half-height between two frames and a person
+ * may catch it. `hudspace` measures per-frame rectangles, so it can see the
+ * collision and CANNOT see the pop; stills cannot show it either. The
+ * justification is that ten frames of two names printed through each other is
+ * the defect the owner reported and a single-frame step of one plate-height is
+ * not, but it is a judgement and this is where to come back to it.
+ *
+ * `err` is signed and `size` is a half-extent.
+ */
+function ease(dt: number, err: number, size: number): number {
+  const t = Math.min(1, Math.abs(err) / Math.max(size, 1e-4));
+  return Math.min(1, dt * (10 + 90 * t * t));
 }
 
 /** Hermite ramp, matching GLSL smoothstep so shader and CPU fades agree. */

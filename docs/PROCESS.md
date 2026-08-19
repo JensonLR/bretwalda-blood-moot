@@ -131,6 +131,44 @@ comment is reverted with it or rewritten to say it was tried and rejected.
 Re-run the harness yourself. Report the number you saw, not the number you were
 told.
 
+### R9. Run the whole battery, not the one that moved
+
+A fix is judged on every harness the area owns, not on the one it was aimed at.
+Half the regressions recorded in Part 1 were bought by a number that went green
+while the one next to it went red and was never run.
+
+### R10. When the brief and the code disagree, say so
+
+A brief is written by someone who read the code earlier than you did. Twice now
+a round has opened with a briefed premise the code did not support — a frame
+INTERVAL briefed as a frame WORKLOAD, and an overlap figure briefed at a
+magnitude that would not reproduce. Both were caught by an agent who checked
+rather than complied. Report the disagreement in the deliverable, with the
+reading that settles it. Complying with a wrong brief is not obedience, it is a
+defect with a citation.
+
+### R11. Name the stage of every performance fix, and do not reach for stage 6
+
+Every way of making a frame cheaper sits somewhere on this ladder. Stages 1-5
+leave the picture the player sees **identical**. Stage 6 changes it.
+
+| stage | what it does | example |
+|---|---|---|
+| 1 | draw nothing that is not seen | frustum and edge culling, retiring a quad at zero opacity |
+| 2 | do the same work fewer times | cache a glyph texture instead of rebuilding it per spawn |
+| 3 | do the work off the hot path | build a warrior's geometry once at spawn, not per frame |
+| 4 | make the same work cheaper | tighter maths, fewer allocations, no per-frame garbage |
+| 5 | draw the SAME pixels in fewer calls | merge by material, instance repeats, atlas textures |
+| 6 | draw fewer or worse pixels | render scale, resolution, blur, LOD, killing lights, dropping shadow casters |
+
+Name the stage in the commit message. A stage-6 change is sometimes the right
+answer — but it is a **design decision about what the game looks like**, it
+belongs to the owner, and it must never be reached for because it is the
+quickest way to move a number that a reviewer will read. If the honest answer is
+that the stage-5 fix is expensive, say that and cost it. Refusing stage 6 in
+writing, with the two easy levers named, is a result and should be reported as
+one.
+
 ---
 
 ## Part 3 — Token and usage efficiency
