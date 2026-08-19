@@ -856,7 +856,28 @@ async function phaseMoot() {
       fromOrigin: Math.hypot(aim.x, aim.z), lensR: Math.hypot(p.x, p.z), alive: alive.length,
       miss: Math.hypot(aim.x - want.x, aim.z - want.z) });
   }
-  const tail = rows.slice(Math.floor(rows.length / 3));
+  /**
+   * THE SETTLE, NAMED — because it was not, and that was a defect.
+   *
+   * An orbit does not start where it belongs: it is handed a fight already in
+   * progress and swings onto it, so the opening third is the lens ARRIVING and
+   * scoring a tracker while it arrives measures the swing, not the tracking.
+   * §1 has always cut its own settle explicitly (`LIVE_SETTLE`, `DEAD_SETTLE`)
+   * and printed "over N settled frames" beside every number it took there.
+   *
+   * §2 did the same cut and did NOT say so. It printed "200 snapshots of a dead
+   * man watching a live fight" and then computed every statistic under that
+   * heading over the last 134. An adversary caught it, and the number matters:
+   * over the whole 200 the tracking claim is FALSE — aim p90 2.018 against the
+   * best fixed point's 2.013 — so the undisclosed cut was carrying the verdict.
+   *
+   * The cut stays, because judging a camera on frames where it is still swinging
+   * onto the fight is the wrong measurement. What changes is that it is named,
+   * counted in the heading, and the full-record figure is PRINTED BESIDE the
+   * asserted one, so a reader can see exactly what the settle is worth.
+   */
+  const MOOT_SETTLE = Math.floor(rows.length / 3);
+  const tail = rows.slice(MOOT_SETTLE);
   const pct = (arr, q) => { const a = [...arr].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(a.length * q))]; };
   const offWorst = Math.max(...rows.map((r) => r.off));
   const missWorst = Math.max(...rows.map((r) => r.miss));
@@ -870,7 +891,16 @@ async function phaseMoot() {
   const aimP50 = aimS.p50, aimP90 = aimS.p90, aimMean = aimS.mean;
   const fightPath = aimTravel(tail);
 
-  console.log(`\n  ${rows.length} snapshots of a dead man watching a live fight.`);
+  // The full record, scored the same way, so the settle is visible rather than
+  // implied. This line is NOT asserted on — see the claim below and its own
+  // sentence for why — but it is printed every run so nobody has to take the
+  // cut on trust the way this section previously asked them to.
+  const wholeScore = scoreTracking(window_.slice(0).map(menOf), rows.map((r) => r.near));
+  console.log(`\n  ${rows.length} snapshots of a dead man watching a live fight, `
+    + `scored over the last ${tail.length} — the first ${MOOT_SETTLE} are the lens swinging onto the fight.`);
+  console.log(`    over ALL ${rows.length}, unasserted: aim p90 ${wholeScore.aim.p90.toFixed(3)} m `
+    + `against the best fixed point's ${wholeScore.fixedBest.p90.p90.toFixed(3)} m `
+    + `— ${wholeScore.tracks ? "the claim would hold" : "the claim would NOT hold"} there, which is what the settle is worth`);
   console.log(`    aim off the ray the lens looks down   worst ${offWorst === Infinity ? "BEHIND THE LENS" : `${offWorst.toFixed(4)} m`}`);
   console.log(`    aim against the rule                  worst ${missWorst.toFixed(4)} m`);
   console.log(`    aim to the nearest LIVING man         p50 ${aimP50.toFixed(2)} m   p90 ${aimP90.toFixed(2)} m   mean ${aimMean.toFixed(2)} m`);
@@ -879,7 +909,8 @@ async function phaseMoot() {
   console.log(`      each of those three is a DIFFERENT point, each the best there is for its own statistic`);
   console.log(`    ${"the middle of the ring, on the record".padEnd(38)}p50 ${originS.p50.toFixed(2)} m   `
     + `p90 ${originS.p90.toFixed(2)} m   mean ${originS.mean.toFixed(2)} m   at (0.00, 0.00)`);
-  console.log(`    ${"the aim's own travel over them".padEnd(38)}${fightPath.toFixed(2)} m`);
+  console.log(`    ${`the aim's travel over those ${tail.length}`.padEnd(38)}${fightPath.toFixed(2)} m`
+    + `   (${aimTravel(rows).toFixed(2)} m over all ${rows.length})`);
   console.log(`    lens height                           up to ${yHi.toFixed(3)} m`);
   console.log(`    lens radius from the middle           up to ${rHi.toFixed(2)} m, palisade at ${q(CONSTS.palisade, 1)}`);
   console.log(`    branches the rule took                ${[...new Set(rows.map((r) => r.want.how))].join(", ")}\n`);
@@ -907,7 +938,7 @@ async function phaseMoot() {
     + `mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)}), each searched for on the ground this fight used with `
     + `(0,0) among the candidates and each optimised for its own statistic — the middle of the ring itself is p90 `
     + `${originS.p90.toFixed(2)} m, mean ${originS.mean.toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m over `
-    + `those frames. NOT ASSERTED AND PRINTED ANYWAY: the median, ${aimP50.toFixed(2)} m against the best fixed point's `
+    + `those ${tail.length} settled frames, and ${aimTravel(rows).toFixed(2)} m over all ${rows.length}. NOT ASSERTED AND PRINTED ANYWAY: the median, ${aimP50.toFixed(2)} m against the best fixed point's `
     + `${fixedBest.p50.p50.toFixed(2)} m — a lens aiming at the midpoint of a PAIR is never on a man, and a point parked in a brawl `
     + `is on one, so the median belongs to the fixed point by construction and says nothing about tracking. `
     + `WHERE THE FIGHT STANDS CANNOT MOVE THIS: translate the world and every candidate translates with it`);
