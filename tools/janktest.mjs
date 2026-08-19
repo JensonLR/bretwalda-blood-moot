@@ -202,6 +202,12 @@ async function phaseServer() {
   for (let i = 0; i < 7; i++) eng.message(sid, { type: "add_bot", data: { difficulty: "warrior", warriorClass: "warden" } });
   eng.message(sid, { type: "start", data: {} });
   await new Promise((r) => setTimeout(r, (SECS + 4) * 1000));
+  // `autoTick` is a live setInterval and it holds the event loop open, so
+  // `--phases=server` printed its whole verdict and then hung for ever —
+  // measured, exit 124 under `timeout` with the reading already on screen.
+  // Harmless in the full run, where the browser phases exit the process anyway,
+  // and fatal to anything scripting this phase on its own.
+  eng.stop?.();
 
   const iv = [];
   for (let i = 1; i < arrive.length; i++) iv.push(arrive[i] - arrive[i - 1]);
