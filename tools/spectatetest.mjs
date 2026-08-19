@@ -875,9 +875,9 @@ async function phaseMoot() {
   console.log(`    the BEST point that never moves       p50 ${fixedBest.p50.p50.toFixed(2)} m (at ${xz(fixedBest.p50)})   `
     + `p90 ${fixedBest.p90.p90.toFixed(2)} m (at ${xz(fixedBest.p90)})   mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)})`);
   console.log(`      each of those three is a DIFFERENT point, each the best there is for its own statistic`);
-  console.log(`    the middle of the ring, for the record  p50 ${originS.p50.toFixed(2)} m   `
+  console.log(`    ${"the middle of the ring, on the record".padEnd(38)}p50 ${originS.p50.toFixed(2)} m   `
     + `p90 ${originS.p90.toFixed(2)} m   mean ${originS.mean.toFixed(2)} m   at (0.00, 0.00)`);
-  console.log(`    the aim's own travel over those frames  ${fightPath.toFixed(2)} m`);
+  console.log(`    ${"the aim's own travel over them".padEnd(38)}${fightPath.toFixed(2)} m`);
   console.log(`    lens height                           up to ${yHi.toFixed(3)} m`);
   console.log(`    lens radius from the middle           up to ${rHi.toFixed(2)} m, palisade at ${q(CONSTS.palisade, 1)}`);
   console.log(`    branches the rule took                ${[...new Set(rows.map((r) => r.want.how))].join(", ")}\n`);
