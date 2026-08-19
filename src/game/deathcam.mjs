@@ -99,8 +99,25 @@
 
 /** Seconds in each beat. The total is what a player experiences as "the hold". */
 export const DEATH_HOLD = {
-  /** Watching yourself go down, lens still. `deathLayer` settles at ~1.1 s. */
-  fall: 1.25,
+  /**
+   * Watching yourself go down, lens still.
+   *
+   * 1.35 s, and the number is not a taste. `tools/freezetest.mjs` drives the
+   * real `poseWarrior` over seven kinds of death and reports when the committed
+   * pose stops changing. The collapse now carries weight — the head trails the
+   * ribs and is stopped separately by the ground — and it runs longer than the
+   * ~1.1 s this constant was set against: worst case 1.25 s at 1e-2 rad/frame.
+   *
+   * 1e-2 IS THE RIGHT FLOOR TO SIZE THIS AGAINST, and freezetest says so in its
+   * own words: "1e-3 rad is about 0.06 degrees per frame — well below what an
+   * eye reads as motion at fight distance". Holding the lens still until the
+   * pose is quiet to 1e-3 would be holding it for something nobody can see.
+   * 1e-2 is 0.6 degrees per frame, which is 36 degrees a second, which is plain.
+   *
+   * So: 1.35 s covers the worst of the seven at 1e-2 with a tenth of a second
+   * to spare, and covers the LANDING of all seven (0.52-1.25 s) outright.
+   */
+  fall: 1.50,
   /** Easing round to the wound. */
   move: 1.15,
   /** Sitting on it. `vfx.ts` runs a stump for ~1.8 s and pools at the end. */
@@ -129,16 +146,23 @@ export const DEATH_FOV = { from: 55, to: 44 };
  * move, short enough that the move is what you remember.
  *
  * ---------------------------------------------------------------------------
- * 2.20 s IS NOT A FREE CHOICE. `src/app/page.tsx` already holds the round-end
- * screen for `ROUND_HOLD_MS = 2200` — for exactly that long after a round ends,
+ * THE TOTAL IS NOT A FREE CHOICE. `src/app/page.tsx` already holds the round-end
+ * screen for `ROUND_HOLD_MS` — for exactly that long after a round ends,
  * `RoundBreak` draws only a verdict line and the victor's flourish row over the
  * LIVE ARENA, and only then does the opaque `data-break-card` scrim come down.
  * The presentation half of `BACKLOG.md` 2.6 was already built and pointed at
  * nothing: for 2.2 seconds the game showed you the arena and the arena was
  * showing you the lobby orbit.
  *
- * So the beat is the length of the window that was already open for it. THE TWO
- * CONSTANTS ARE NOT WIRED TOGETHER — `page.tsx` belongs to another unit and a
+ * So the beat is the length of the window that was already open for it, and the
+ * window was widened WITH it: 2.20 s here and 2200 ms there both became 2.90 s,
+ * in the same commit, because the collapse this beat exists to show is longer
+ * than the beat was. THE CEILING IS THE `left > 2` GUARD IN page.tsx, not this
+ * constant: the card takes over once fewer than three whole seconds of a five
+ * second break remain, so anything past about 3.0 s is a beat that gets cut off
+ * by its own screen. 2.90 s leaves a tenth of a second under that.
+ *
+ * THE TWO CONSTANTS ARE NOT WIRED TOGETHER — `page.tsx` belongs to another unit and a
  * camera reaching into the summary flow to import a number is not a trade worth
  * making — which makes this the mirrored-definition fault `docs/PROCESS.md`
  * records five times in `characters.ts` alone, sitting one edit away. It is not
@@ -147,12 +171,26 @@ export const DEATH_FOV = { from: 55, to: 44 };
  * about the other.
  */
 export const ROUND_HOLD = {
-  /** Cut in, hold still, let the eye find the body. */
-  fall: 0.45,
+  /**
+   * Cut in, hold still, let the eye find the body — AND LET IT LAND.
+   *
+   * This was 0.45 s and that was the one measurable defect in either camera.
+   * Neither lens ever cut away before the body stopped; both outlast the
+   * collapse comfortably. But `fall` is the beat during which the lens does not
+   * move, and freezetest asked the sharper question — is the lens STILL for the
+   * whole collapse, which is what this beat is for? — and answered it 7/7 NO:
+   * every one of the seven deaths was still moving on the frame the lens began
+   * to travel, with roughly two thirds of the collapse left to run.
+   *
+   * That is a dolly starting while the man is still falling, which is the shot
+   * fighting its own subject. 1.30 s covers the worst of the seven at 1e-2
+   * rad/frame (1.25 s) and the landing of all seven outright.
+   */
+  fall: 1.45,
   /** In onto the wound. */
-  move: 1.05,
+  move: 0.90,
   /** The killer standing over him while the stump runs. */
-  linger: 0.70,
+  linger: 0.60,
 };
 
 ROUND_HOLD.total = ROUND_HOLD.fall + ROUND_HOLD.move + ROUND_HOLD.linger;

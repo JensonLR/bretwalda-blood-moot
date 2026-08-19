@@ -2570,8 +2570,18 @@ function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
  * is outlive the break. The `left > 2` guard below is what enforces that, so a
  * late joiner or a slow socket gets the card immediately rather than a hold that
  * runs past the bell.
+ *
+ * 2200 -> 2950 WITH `ROUND_HOLD.total` IN src/game/deathcam.mjs, which is the
+ * round camera's clock and plays inside exactly this window. The camera's beat
+ * opens with a still frame while the dying man falls, and the collapse got
+ * longer when it got its weight: measured over seven kinds of death, the worst
+ * is still moving at 1.25 s where the still beat was 0.45 s. The two numbers
+ * are not wired together — deathcam.mjs belongs to another unit — and
+ * tools/deathcamtest.mjs fails if they stop agreeing, so change one and the
+ * harness will tell you about the other. The `left > 2` guard caps this at
+ * about 3.0 s of a five second break; 2950 leaves a twentieth of a second under it.
  */
-const ROUND_HOLD_MS = 2200;
+const ROUND_HOLD_MS = 2950;
 
 /**
  * The end of a round, in two beats.

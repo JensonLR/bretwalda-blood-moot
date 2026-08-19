@@ -3915,7 +3915,7 @@ interface FallCause {
 function causeOf(cause: DeathCause | null | undefined, heavy: boolean): FallCause {
   const h = heavy ? 1.3 : 1;
   switch (cause) {
-    case "fire":   return { pace: 1.24, curl: 0.85, drive: 0.55 * h, splay: 0.45 };
+    case "fire":   return { pace: 1.16, curl: 0.85, drive: 0.55 * h, splay: 0.45 };
     case "finish": return { pace: 0.84, curl: 0.28, drive: 1.50 * h, splay: 0.72 };
     default:       return { pace: 1.00, curl: 0.00, drive: 1.00 * h, splay: 1.00 };
   }
@@ -3953,9 +3953,18 @@ function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
    */
   const jolt = (at: number, ring: number, damp: number) =>
     D > at ? Math.exp(-damp * (D - at)) * Math.sin((D - at) * ring) * c.drive : 0;
-  const hitKnee = jolt(0.30, 27, 13);
-  const hitBody = jolt(0.58, 21, 9);
-  const hitHead = jolt(0.76, 17, 7.5);
+  //
+  // THE DAMPING IS WHAT MAKES THESE ARRIVALS AND NOT WOBBLES. The first cut ran
+  // the head at 7.5, which rings for better than half a second — a skull still
+  // moving on the turf 0.6 s after it got there, which is not a corpse, it is a
+  // bobblehead. Measured through the whole pose path it also dragged the death
+  // out to 1.55 s at 1e-2... at 1e-3, where nothing is visible anyway, and it
+  // was the tail that no camera could cover rather than anything anyone sees.
+  // Turf takes almost everything on the first contact; what is left is one
+  // shallow settle. Meat damps hard.
+  const hitKnee = jolt(0.30, 27, 14);
+  const hitBody = jolt(0.58, 21, 12);
+  const hitHead = jolt(0.76, 17, 11);
   // Kept under the old name for `halfLayer`, whose clock is its own and whose
   // legs are the only thing left to meet anything.
   const bounce = hitBody;
