@@ -1605,11 +1605,28 @@ const STANCE: Record<WarriorClass, Stance> = {
  *
  * It is NOT a licence to render further back. `REMOTE_DELAY_PACKETS` is
  * unchanged at 1.5; deeper history is only insurance against the buffer being
- * overrun from the old end, and the R1 lever in `tools/janktest.mjs` still
- * shows raising the delay trading extrapolation for stalls the way it always
- * did. Cost is eight small records per warrior.
+ * overrun from the old end.
+ *
+ * AND EIGHT WAS NOT ENOUGH ONCE THE JITTER TERM WENT ON THE DELAY. Eight slots
+ * span 350 ms. The render point moved from 74 ms behind the newest to about 99
+ * (see JITTER_DELAY_PACKETS), leaving 250 ms of margin at the old end — and the
+ * arrival grid a few hundred lines down tolerates the client clock and the wire
+ * parting company by up to 500 ms before it snaps them together. So the margin
+ * was HALF the divergence the code already allows, and one run in three fell
+ * off the old end and pinned: measured, three paired runs, buffer stalls
+ * 0.2 / 0.2 / 0.3% at eight slots against 18.4 / 0.3 / 0.3% at eight slots WITH
+ * the jitter term. Fourteen slots span 700 ms, which is past that 500 ms
+ * tolerance with room: three runs at fourteen read 0.4 / 0.3 / 0.3%, which is
+ * the eight-slot baseline back again with the jitter term kept. Cost is
+ * fourteen small records per warrior instead of eight.
+ *
+ * SO THE STALL WAS A MARGIN AND NOT A TRADE, which is the opposite of what the
+ * paragraph above used to say — it said raising the delay trades extrapolation
+ * for stalls "the way it always did", and that sentence had been true of every
+ * attempt before this one. It is not true when the ring is deep enough to hold
+ * the clock tolerance the grid already allows.
  */
-const SNAP_KEEP = 8;
+const SNAP_KEEP = 14;
 /** Assumed wire period until the real one has been measured. 20 Hz. */
 const NET_INTERVAL_GUESS = 0.05;
 const NET_INTERVAL_MIN = 0.02;
@@ -1622,6 +1639,60 @@ const NET_INTERVAL_MAX = 0.3;
  * the interval in which a packet went missing entirely.
  */
 const REMOTE_DELAY_PACKETS = 1.5;
+/**
+ * HOW MUCH OF THE MEASURED ARRIVAL LATENESS THE BUFFER IS ALLOWED TO ABSORB,
+ * as a share of one packet interval. This is the whole of a fix for the last
+ * piece of the owner's JOLTY, and it exists because a FIXED buffer cannot be
+ * right on a wire whose jitter is not fixed.
+ *
+ * `REMOTE_DELAY_PACKETS * netInterval` is 75 ms. `tools/janktest.mjs` §3 prints
+ * that budget against the wire it just measured and, on this box, says outright:
+ *
+ *     AGAINST THE WIRE: buffer 74.44 ms vs arrival p99 95.90 ms
+ *     -> THE JITTER EXCEEDS THE BUFFER by 21.46 ms. It must run dry.
+ *
+ * And it does: 10.7-19.6% of every remote man's frames were EXTRAPOLATED, which
+ * is position invented from a stale velocity and taken back when the next packet
+ * lands. That take-back is a step, and the step is what is left of JOLTY.
+ *
+ * PROVEN WITH THE LEVER BEFORE IT WAS FIXED (R1). `--lever=4` raises the delay
+ * to four packets in the served bundle. Remote extrapolation goes to 0.0% on
+ * every bot, and the drawn track's >8x speed changes AT THE WIRE'S OWN CADENCE
+ * fall from 2.66x the wire's own rate to 1.15x. So the client's share of the
+ * residual jolt is this and nothing else. A fixed 4 packets is not the fix — it
+ * is 199 ms of render delay, and LAGGY is the same owner's word as JOLTY.
+ *
+ * `netJit` is already computed a few lines up, for the arrival grid: it is how
+ * late arrivals have been running lately, and it DECAYS TO ZERO ON A CLEAN
+ * WIRE. So adding it to the delay is exactly zero change on a wire that does
+ * not need it, and buys buffer precisely when the wire is late. Capped at half
+ * a packet — 25 ms — because it must cover the 21 ms deficit measured above and
+ * must not become a licence to render arbitrarily far back.
+ *
+ * WHAT IT COST AND WHAT IT BOUGHT, three runs a side on ONE binary — the lever
+ * reproduces the old expression exactly, so the two arms differ in nothing but
+ * this term. The statistic is the drawn track's >8x speed changes at the WIRE'S
+ * OWN CADENCE divided by the wire's own rate, because both the fight and this
+ * box's jitter move between runs and the ratio is the part that does not:
+ *
+ *     REMOTE_DELAY_PACKETS alone   ratio 1.28  1.03  1.30    delay 74 ms
+ *     + this term, ring at 14      ratio 0.57  0.64  0.50    delay 99 ms
+ *
+ * Every run before is above 1.00 — the client drawing MORE hard speed changes
+ * than it was handed — and every run after is below, which is what a buffer is
+ * for. Extrapolation over the same runs: 9.7 / 12.0 / 30.0% against
+ * 9.0 / 13.7 / 11.7%, so the median barely moves and the WORST CASE is bounded,
+ * which is the design. Buffer stalls 0.2 / 0.2 / 0.3% against 0.4 / 0.3 / 0.3%;
+ * buffer resets every one a real respawn, 0 unexplained, both arms; the drawn
+ * man's distance from the newest packet p50 0.01-0.04 m on both arms, so the
+ * extra 25 ms of render delay did not show up as positional error.
+ *
+ * THE COST IS 25 ms OF REMOTE RENDER DELAY ON A WIRE THAT IS LATE, and LAGGY is
+ * the same owner's word as JOLTY. It is bounded, it is paid only when earned,
+ * and this box's wire is worse than a real one — `netJit` decays at 0.985 a
+ * packet, so on a clean wire this line is arithmetically the one it replaced.
+ */
+const JITTER_DELAY_PACKETS = 0.5;
 /**
  * The furthest the interpolator will carry a body past its newest snapshot when
  * the buffer runs dry. A lost packet then STRETCHES the motion for a fifth of a
@@ -2009,9 +2080,15 @@ export function stepWarriorTransform(
   motion.netClock += Math.max(0, dt);
   const teleported = ingestNet(motion, player, dt > 1e-4 ? dt : 1 / 60, ctx.wireEpoch);
   // Local: zero delay, carried forward to the present instant. Remote: rendered
-  // 1.5 packet intervals back so there is always a snapshot on each side. See
-  // the section header for why the two are not the same problem.
-  const delay = player.id === ctx.localId ? 0 : REMOTE_DELAY_PACKETS * motion.netInterval;
+  // 1.5 packet intervals back so there is always a snapshot on each side, PLUS
+  // however late this wire has actually been running, bounded. See
+  // JITTER_DELAY_PACKETS — on a clean wire `netJit` is zero and this line is the
+  // one it replaces, exactly. See the section header for why local and remote
+  // are not the same problem.
+  const delay = player.id === ctx.localId
+    ? 0
+    : REMOTE_DELAY_PACKETS * motion.netInterval +
+      Math.min(motion.netJit, JITTER_DELAY_PACKETS * motion.netInterval);
   sampleNet(motion, motion.netClock - delay, player);
   smoothNetError(motion, dt, teleported);
 

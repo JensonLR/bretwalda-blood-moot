@@ -325,9 +325,22 @@ const PATCHES = {
   // so the man is pinned to a stale position and does not move at all.
   // R1's lever. Anchored on the ternary that chooses a remote man's delay, which
   // is the only place REMOTE_DELAY_PACKETS is read.
+  //
+  // IT IS A REGEX AND NOT A LITERAL, and the reason is that the literal broke
+  // the first time the expression it quoted was edited. The delay is now
+  // `1.5*netInterval + min(netJit, 0.5*netInterval)` (see JITTER_DELAY_PACKETS
+  // in anim.ts), and a lever anchored on the old text would have matched
+  // nothing and reported 0 sites — which `patchesLanded` voids, but only
+  // because somebody wrote that guard. The regex takes the whole right-hand
+  // side of the ternary, whatever it has become, and REPLACES it outright with
+  // a flat multiple: the lever's job is to hold the delay at a chosen value, so
+  // the jitter term is deliberately gone while it is engaged.
   lever: {
     name: "move REMOTE_DELAY_PACKETS",
-    subs: [[`l=n.id===r.localId?0:1.5*t.netInterval;`, `l=n.id===r.localId?0:__LEVER__*t.netInterval;`]],
+    subs: [[
+      /localId\?0:1\.5\*(\w+)\.netInterval[^;]*;/,
+      `localId?0:__LEVER__*$1.netInterval;`,
+    ]],
   },
   stall: {
     name: "count buffer stalls",
@@ -1302,11 +1315,28 @@ async function main() {
         // said 1.5 while the bundle said 4 would be R7's defect exactly — a
         // comment describing a value the code does not have.
         const packets = LEVER ? Number(LEVER) : 1.5;
+        // AND THE JITTER TERM, which is the rest of the delay and was not in
+        // this line. `anim.ts` adds `min(netJit, 0.5 * netInterval)` on top of
+        // the fixed multiple — see JITTER_DELAY_PACKETS — so a line that printed
+        // the multiple alone would understate the buffer by up to half a packet
+        // and would be R7's defect: a report describing a value the code does
+        // not have. It is measured off the recorded `nj` rather than assumed,
+        // and it is ZERO under `--lever`, which replaces the whole expression.
+        const jitAdd = [];
+        for (const id of Object.keys(r.rec || {})) {
+          for (const v of r.rec[id]) {
+            if (!(v.ni > 0)) continue;
+            jitAdd.push(1000 * Math.min(LEVER ? 0 : (v.nj || 0), 0.5 * v.ni));
+          }
+        }
+        const ja = stats(jitAdd);
+        const budgetMs = (ni ? ni.p50 * packets : NaN) + (ja ? ja.p50 : 0);
         say(`    effective render delay for a REMOTE man = ${packets} x netInterval  (REMOTE_DELAY_PACKETS, anim.ts${LEVER ? ", LEVERED" : ""})`);
-        say(`      p50 ${f2(ni?.p50 * packets)} ms   — this is the entire jitter budget the buffer has`);
+        say(`      ${f2(ni?.p50 * packets)} ms fixed  +  ${f2(ja?.p50)} ms measured jitter (p95 ${f2(ja?.p95)}, cap ${f2(ni?.p50 * 0.5)})  =  p50 ${f2(budgetMs)} ms`);
+        say(`      — this is the entire jitter budget the buffer has`);
         say(`    snapshots held in the buffer   p50 ${f2(nc?.p50)}  min ${f2(nc?.min)}  max ${f2(nc?.max)}`);
         if (result.wireNoDraw) {
-          const budget = ni ? ni.p50 * packets : NaN;
+          const budget = budgetMs;
           const jitter = result.wireNoDraw.s.p99;
           say(`    AGAINST THE WIRE: buffer ${f2(budget)} ms vs arrival p99 ${f2(jitter)} ms  ->  ` +
               (jitter > budget ? `THE JITTER EXCEEDS THE BUFFER by ${f2(jitter - budget)} ms. It must run dry.`
@@ -1411,8 +1441,12 @@ function finish(result) {
   say(`    - BUGGY is not measured. A wrong pixel is a picture, not a pacing`);
   say(`      number; .jank/strip/index.html is where it would be seen and a human`);
   say(`      has to look at it.`);
-  say(`    - Input latency (the other half of LAGGY) is tools/latencytest.mjs's`);
-  say(`      "input" phase and is not duplicated here.`);
+  say(`    - Input latency (the other half of LAGGY) IS MEASURED BY NOTHING IN THIS`);
+  say(`      REPOSITORY. This line used to send the reader to tools/latencytest.mjs's`);
+  say(`      "input" phase; that phase does not exist — the dispatcher handles tick,`);
+  say(`      judder and all, and anything else exited 0 in silence, which reads as a`);
+  say(`      clean sheet. It fails loudly now. The gap is real and it is stated here`);
+  say(`      rather than pointed at.`);
   say();
   say(`  Artefacts: ${OUT}`);
 }
