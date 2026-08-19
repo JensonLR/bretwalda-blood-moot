@@ -565,6 +565,13 @@ function focusByRule(players, meId) {
 // origin is one of the candidates the search considers, so beating the best
 // fixed point entails beating the origin on the same statistic.
 //
+// THE COMPARISON IS DELIBERATELY GENEROUS TO THE THING BEING RULED OUT. The
+// fixed point is chosen WITH HINDSIGHT — searched for over the very frames it is
+// then scored on, so it knows where the fight went before it stands anywhere.
+// The lens has no such advantage: it sees one snapshot at a time. A lens that
+// beats a point chosen after the fact has beaten every point that could have
+// been chosen before it.
+//
 // MEASURED, over the nine seeds this file was run under before the claim was
 // settled — all nine green, including the two the old bar called red:
 //
