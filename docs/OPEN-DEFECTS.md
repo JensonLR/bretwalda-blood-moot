@@ -5543,3 +5543,38 @@ cylinder did wrong, and moving the bar is buying a pass.
   the ear row `917050 (224 tri) 91.7% 9.9 mm az 114`   0 occurrences
   rungcensus vs origin/main       360 identical, 280 gained, 0 LOST, 0 rungs gone
 ```
+
+## Correction: the blob table measures two commits, not one — 19 Aug 2026
+
+`4019ead`'s message says "Baseline is this branch's own merge commit `14bc361` … so the
+comparison is the change alone", and lists `LEGIBLE_AT_ONCE = 6` among the things that
+"went with it". **Both sentences are wrong, and `git` says so:**
+
+```
+git show 14bc361:src/game/client/render/hud3d.ts | grep -c LEGIBLE_AT_ONCE   ->  0
+git show 3bca635:src/game/client/render/hud3d.ts | grep -c LEGIBLE_AT_ONCE   ->  3
+git diff --stat 14bc361 3bca635 -- hud3d.ts                                  ->  60 ++ / 28 --
+```
+
+The constant and the rewritten spawn/retire path around it landed one commit EARLIER, in
+`3bca635`, whose own message is about merging main and repairing rulers and never mentions
+it. So:
+
+* the pooled `28.21% -> 10.64%` TOUCHING table measures **`3bca635` AND `4019ead` together**,
+  not the half-push fix alone;
+* the `worst numbers at once 9/16/12/9 -> 6/6/6/6` column is **entirely the earlier commit's
+  cap** and none of it belongs to the half-push fix;
+* the 3-run pair offered to decompose the two (12.44/3.91/3.67 against 4.50/12.00/3.17) has
+  completely overlapping ranges and settles nothing either way.
+
+**What is NOT affected, and an adversary checked the thing that would have mattered most:**
+the win is not bought by drawing fewer numbers. Over a paired run the two trees carry the
+same population — main mean 2.58 numbers at once, p50 2, p95 6, worst 8; branch mean 2.63,
+p50 2, p95 6, worst 6. The branch carries slightly MORE numbers on average and still reads
+10.32% ink-touching against 29.77%. An 8-to-6 ceiling cannot produce a threefold drop; the
+layout arithmetic is doing the work, and the half-push fix is real regardless of which
+commit the cap arrived in.
+
+**The process fault worth keeping:** a player-visible cut of damage numbers on screen from
+48 to 6 at `high` landed inside a commit whose title is about rulers. A change a player can
+see belongs in a commit that says so, whatever else is in the same push.
