@@ -483,11 +483,27 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     }
   }
 
-  function orbit(dt: number, radius: number, height: number, spin: number, lerp: number, lookY: number): void {
+  /**
+   * A slow circle about a point on the turf.
+   *
+   * `cx`/`cz` DID NOT USED TO EXIST and their absence was the whole of the dead
+   * man's problem. This function set its target from the origin and called
+   * `lookAt(0, lookY, 0)` — both ends hard-wired to the middle of the arena — so
+   * `GameCanvas.tsx` writing `focusRef.current.set(0, 0, 0)` before selecting
+   * "spectate" was not choosing the arena centre, it was writing a value nothing
+   * downstream read. A dead man watched the middle of the ring for the rest of
+   * the round whether or not anything was happening there, and if the last two
+   * men were fighting at the edge he watched empty turf while they did it.
+   *
+   * The lobby still passes nothing and still turns about the origin, which is
+   * right: before the fight there is no fight to point at.
+   */
+  function orbit(dt: number, radius: number, height: number, spin: number, lerp: number,
+                 lookY: number, cx = 0, cz = 0): void {
     yaw += dt * spin;
-    orbitTarget.set(Math.sin(yaw) * radius, height, Math.cos(yaw) * radius);
+    orbitTarget.set(cx + Math.sin(yaw) * radius, height, cz + Math.cos(yaw) * radius);
     camera.position.lerp(orbitTarget, lerp);
-    camera.lookAt(0, lookY, 0);
+    camera.lookAt(cx, lookY, cz);
   }
 
   // The handedness store lives in `input.ts` and reads itself out of
@@ -600,7 +616,27 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
       }
 
       if (mode === "follow") follow(dt, ctx);
-      else orbit(dt, 15, 7.5, 0.22, 0.04, 1.4);
+      else if (mode === "spectate") {
+        // A RINGSIDE SEAT, AND THE HEIGHT IS THE POINT.
+        //
+        // The dead must not be given sight a living man does not have. This
+        // arena is not open turf — `world.ts` keeps a 6.2 m clear radius at the
+        // middle and puts huts, rocks and props outside it, and `solidground`
+        // collides against them — so a man CAN be behind something, and a lens
+        // that floats over the roofs would hand a dead player the one thing he
+        // must not be able to pass on: where a living man is hiding.
+        //
+        // So this camera stands rather than flies. 2.2 m is a head above a
+        // standing warrior — enough to clear the bank the ring sits in, not
+        // enough to see over anything a man could hide behind — and it circles
+        // the fight at 11 m instead of sitting 15 m out from a centre the fight
+        // may have left. What it shows is what somebody standing at the ropes
+        // would see, which is the honest reading of "a fixed view of the ring".
+        //
+        // Where it points is `ctx.focus`, which `GameCanvas.tsx` now puts on the
+        // men who are still alive rather than on the origin.
+        orbit(dt, 11, 2.2, 0.16, 0.045, 1.35, ctx.focus.x, ctx.focus.z);
+      } else orbit(dt, 15, 7.5, 0.22, 0.04, 1.4);
       // After the rig has moved, so the reticle is projected through this
       // frame's camera rather than the last one's — a lag of one frame here is
       // a reticle that trails the man at 120 Hz on a phone.
@@ -644,7 +680,23 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
        * How far the camera sits to the warrior's own right, in metres. Positive
        * is over the right shoulder. Measured off the camera's world position and
        * this frame's yaw, not off `CAM_SIDE`.
+       *
+       * NOTE, not fixed here: this comment is orphaned. The `shoulder` getter it
+       * documents is gone, and `tools/cameratest.mjs` still reads `c.shoulder`
+       * at two assertions — it gets `undefined`, prints it as 0.00 and asserts
+       * nothing. That is a harness question, not a camera one, and belongs to
+       * whoever owns cameratest.
        */
+      /**
+       * Where the lens actually is, in world metres. A readback and nothing
+       * else — no game code reads it. It exists because "the dead man's camera
+       * points at the fight and stands at a man's height rather than flying
+       * over the roofs" is a claim about a POSITION, and there was no way to
+       * measure a position from outside the module.
+       */
+      get position() { return { x: camera.position.x, y: camera.position.y, z: camera.position.z }; },
+      /** Where the lens is pointed this frame, as the rig was last told. */
+      get focusAt() { return { x: focusX, z: focusZ }; },
       /** Where the lock reticle was last painted, and the numbers behind it. */
       get lockPaint() { return { ...lockPaint }; },
       /**
