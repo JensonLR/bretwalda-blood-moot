@@ -604,7 +604,7 @@ function errorOf(samples) {
 // §5 THE PICTURE. R5 — a still cannot show a stutter.
 // ---------------------------------------------------------------------------
 function plotSVG(file, series, title) {
-  const W = 1200, H = 420, PAD = 56;
+  const W = 1200, H = 440, PAD = 64;
   const all = series.flatMap((s) => s.pts);
   if (!all.length) return;
   const tMax = Math.max(...all.map((p) => p[0]));
@@ -624,12 +624,12 @@ function plotSVG(file, series, title) {
   const marks = series.filter((s) => s.mark).map((s) =>
     s.pts.map((p) => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.4" fill="${s.colour}"/>`).join(""));
   const legend = series.map((s, i) =>
-    `<rect x="${PAD + i * 210}" y="18" width="14" height="4" fill="${s.colour}"/><text x="${PAD + i * 210 + 22}" y="24" fill="#bbb" font-size="12" font-family="monospace">${s.label}</text>`).join("");
+    `<rect x="${PAD + i * 260}" y="40" width="14" height="4" fill="${s.colour}"/><text x="${PAD + i * 260 + 22}" y="46" fill="#bbb" font-size="12" font-family="monospace">${s.label}</text>`).join("");
   writeFileSync(file,
 `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <rect width="${W}" height="${H}" fill="#111"/>
 <text x="${PAD}" y="${H - 16}" fill="#888" font-size="12" font-family="monospace">seconds into the fight  (0 - ${tMax.toFixed(1)} s)</text>
-<text x="${W / 2}" y="${H - 396}" fill="#eee" font-size="15" font-family="monospace" text-anchor="middle">${title}</text>
+<text x="${W / 2}" y="22" fill="#eee" font-size="15" font-family="monospace" text-anchor="middle">${title}</text>
 ${grid.join("")}${legend}${paths.join("")}${marks.join("")}
 </svg>`);
 }
