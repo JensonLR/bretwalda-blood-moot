@@ -1251,8 +1251,11 @@ function finish(R) {
         + `unposed ${f.totalMissed}, rig swaps ${f.rigChurn}, dt<=0 ${f.zeroDt}, `
         + `calm wiggle p50 ${f3(f.wigCalm?.p50)} rad.`);
     }
-    say(`  WHAT THIS GATE DOES NOT SEE: the idle AMPLITUDE of §3. It passes on the`);
-    say(`  unfixed tree, where a standing man's crown moves 9.3 mm in half a second.`);
+    say(`  WHAT THIS GATE DOES NOT SEE: the idle AMPLITUDE of §3 — the gate is`);
+    say(`  lifecycle and in-fight wiggle, and it passes on the unfixed tree. HOW`);
+    say(`  SMALL THE UNFIXED IDLE IS IS NOT MEASURED BY THIS RUN and no figure for`);
+    say(`  it is printed here: \`node tools/freezetest.mjs --phases=idle\` on the tree`);
+    say(`  in question prints its own crown-travel table, and that is the instrument.`);
   }
 }
 

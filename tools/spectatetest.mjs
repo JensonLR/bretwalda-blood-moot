@@ -125,10 +125,12 @@
 //   wrong is taken again.
 //
 //   §3 IS THE ONLY PHASE THAT EXERCISES `GameCanvas.tsx`'s OWN CHOOSING RULE,
-//   and on a box with no GPU it may not reach the case at all. `GameCanvas.tsx:701`
-//   clamps the frame delta to 0.05 s, so `DEATH_HOLD.total` costs 67 animation
-//   frames whatever they cost in wall clock, and `spectate` is only set after
-//   that hold releases. Rasterising a six-man moot through SwiftShader here, the
+//   and on a box with no GPU it may not reach the case at all. `GameCanvas.tsx`
+//   clamps the frame delta, so `DEATH_HOLD.total` costs a FIXED NUMBER OF
+//   ANIMATION FRAMES whatever they cost in wall clock, and `spectate` is only set
+//   after that hold releases. Both numbers in that arithmetic — the hold and the
+//   clamp — are read out of the files that own them at run time and printed with
+//   where they were read; none is typed into this file. Rasterising a six-man moot through SwiftShader here, the
 //   client's own animation frame runs at about two a second — 67 of them is over
 //   half a minute, which outlasts the round the man died in, so the lens is still
 //   on his own death camera when the round ends. That is correct behaviour and an
@@ -198,6 +200,48 @@ const f2 = (x) => (x === null || x === undefined || Number.isNaN(x) ? "  -  " : 
 
 /** Deferrals collected here and printed on the verdict line, never below it (R4). */
 const DEFERRALS = [];
+
+// ---------------------------------------------------------------------------
+// EVERY NUMBER THIS FILE PRINTS ABOUT ANOTHER FILE IS READ OUT OF THAT FILE.
+//
+// The first cut of this harness printed `19.6` for the palisade, `2.05` for the
+// camera height, `4.4` for how far the follow rig stands back, `3.35` for the
+// death hold and `0.05` for GameCanvas's frame clamp — five literals typed into
+// sentences that read like measurements, one of them (`2.05`) doing duty as a
+// BAR. That is the same fault this branch was sent to fix in `freezetest`, where
+// five idle periods were being printed "read out of anim.ts's own coefficients"
+// while anim.ts held different numbers entirely.
+//
+// So: each is read from the file that owns it, on its own assignment, and if the
+// read FAILS the number is not printed and any claim resting on it CANNOT JUDGE
+// and says so. A renamed or reshaped constant makes this harness go quiet rather
+// than go stale. `--lever=blindconst` proves that: it makes every read fail.
+const LEVER = argOf("lever", "");
+/**
+ * One number, out of one file, off its own assignment.
+ * @returns { value, line, where } or null — and null is a fact, not a default.
+ */
+function readNumber(relPath, re, label) {
+  if (LEVER === "blindconst") return null;
+  let src;
+  try { src = readFileSync(resolve(ROOT, relPath), "utf8"); } catch { return null; }
+  const m = src.match(re);
+  if (!m) return null;
+  const line = src.slice(0, m.index).split("\n").length;
+  const value = Number(m[1]);
+  if (!Number.isFinite(value)) return null;
+  return { value, line, where: `${relPath}:${line}`, label };
+}
+const CONSTS = {
+  palisade: readNumber("src/game/client/render/world.ts", /const PALISADE_RADIUS = ([0-9.]+);/, "PALISADE_RADIUS"),
+  camHeight: readNumber("src/game/client/render/camera.ts", /const CAM_HEIGHT = ([0-9.]+);/, "CAM_HEIGHT"),
+  camDist: readNumber("src/game/client/render/camera.ts", /const CAM_DIST = ([0-9.]+);/, "CAM_DIST"),
+  frameClamp: readNumber("src/game/client/GameCanvas.tsx",
+    /Math\.min\(\(time - \(lastTimeRef\.current \|\| time\)\) \/ 1000, ([0-9.]+)\)/, "the frame-delta clamp"),
+};
+/** How a read is quoted: the number and where it was read, or the fact that it was not. */
+const q = (c, digits = 2, unit = " m") => (c ? `${c.value.toFixed(digits)}${unit} (${c.label}, ${c.where})` : "NOT READ");
+const n = (c, digits = 2) => (c ? c.value.toFixed(digits) : "?");
 
 /** tsc emit trees this process owns, removed before it exits. */
 const BUILD_DIRS = [];
@@ -324,16 +368,18 @@ async function phaseRig() {
   // see the spectate aim.
   rig.setMode("follow");
   const live = drive(THREE, rig, hook, () => ALIVE, 240, "idle", true);
-  const liveYs = live.slice(60).map((r) => r.pos.y);
+  /** The settled stretch, named once so the sentences below count it rather than assert it. */
+  const LIVE_SETTLE = 60, DEAD_SETTLE = 420;
+  const liveYs = live.slice(LIVE_SETTLE).map((r) => r.pos.y);
   const liveYHi = Math.max(...liveYs);
   const liveYLo = Math.min(...liveYs);
   const liveYMean = liveYs.reduce((a, b) => a + b, 0) / liveYs.length;
-  const liveOff = live.slice(60).reduce((m, r) => Math.max(m, r.off ?? Infinity), 0);
+  const liveOff = live.slice(LIVE_SETTLE).reduce((m, r) => Math.max(m, r.off ?? Infinity), 0);
 
   // Then he dies, and the lens goes to the fight at the far side of the ring.
   rig.setMode("spectate");
   const dead = drive(THREE, rig, hook, () => FIGHT, 600, "dead", true);
-  const settled = dead.slice(420);
+  const settled = dead.slice(DEAD_SETTLE);
   const deadOff = settled.reduce((m, r) => Math.max(m, r.off ?? Infinity), 0);
   const deadPos = settled[settled.length - 1].pos;
   const deadDist = settled.reduce((s, r) => s + r.dist, 0) / settled.length;
@@ -351,9 +397,9 @@ async function phaseRig() {
   console.log();
 
   check("THE READBACK MEASURES THE LENS AND NOT ITS INPUT: the point it reports lies on the ray the camera is actually looking down, in FOLLOW",
-    liveOff < 0.01, `worst ${liveOff === Infinity ? "the reported point is BEHIND the lens" : `${liveOff.toFixed(4)} m off the view ray`} over 180 settled frames`);
+    liveOff < 0.01, `worst ${liveOff === Infinity ? "the reported point is BEHIND the lens" : `${liveOff.toFixed(4)} m off the view ray`} over ${live.length - LIVE_SETTLE} settled frames`);
   check("AND IN SPECTATE, which is the mode a dead man is in and the mode the old readback could not see at all",
-    deadOff < 0.01, `worst ${deadOff === Infinity ? "the reported point is BEHIND the lens" : `${deadOff.toFixed(4)} m off the view ray`} over 180 settled frames`
+    deadOff < 0.01, `worst ${deadOff === Infinity ? "the reported point is BEHIND the lens" : `${deadOff.toFixed(4)} m off the view ray`} over ${dead.length - DEAD_SETTLE} settled frames`
       + (BLIND ? " — this is `--blind`, the readback as it shipped" : ""));
   check("and it reports the FIGHT, not the middle of the arena: a dead man at the far side of the ring is looking at the men who are still up",
     aimMiss < 0.05, `the reported aim sits ${aimMiss === Infinity ? "nowhere" : `${aimMiss.toFixed(3)} m`} from the fight at `
@@ -417,19 +463,25 @@ async function phaseRig() {
     for (const r of tail) { const d = Math.hypot(r.pos.x, r.pos.z); if (d < lo) lo = d; if (d > hi) hi = d; }
     sweep.push({ r0, lo, hi });
   }
-  const PALISADE = 19.6;
-  const outside = sweep.filter((s) => s.hi > PALISADE);
-  console.log(`\n  HOW FAR OUT THE ORBIT GOES, against the palisade at ${PALISADE} m (world.ts:991).`);
+  // BOTH NUMBERS IN THIS BLOCK ARE READ, NOT TYPED: the palisade out of world.ts
+  // and how far the follow rig stands back out of camera.ts. If either read
+  // fails the sentence says so instead of printing a figure.
+  const PAL = CONSTS.palisade;
+  const outside = PAL ? sweep.filter((s) => s.hi > PAL.value) : [];
+  console.log(`\n  HOW FAR OUT THE ORBIT GOES, against the palisade at ${q(PAL, 1)}.`);
+  console.log(`    the last column is the focus radius plus ${q(CONSTS.camDist)} — how far a LIVING man's own`);
+  console.log(`    lens stands back from him, so it is how far out of the middle he can take it himself.`);
   console.log(`    focus at r     dead lens sits between       a living man's own lens can reach`);
   for (const s of sweep) {
     console.log(`      ${String(s.r0).padStart(2)} m           ${s.lo.toFixed(2)} - ${s.hi.toFixed(2)} m`
-      + `${"".padEnd(15)}${(s.r0 + 4.4).toFixed(2)} m   (4.4 m behind a man standing there)`);
+      + `${"".padEnd(15)}${CONSTS.camDist ? `${(s.r0 + CONSTS.camDist.value).toFixed(2)} m` : "NOT READ"}`);
   }
+  const edge = radii[radii.length - 1];
   DEFERRALS.push(
     `The ringside orbit is UNBOUNDED in radius. With the fight at the play disc's edge the lens`,
-    `  reaches ${sweep[sweep.length - 1].hi.toFixed(2)} m from the middle, outside the palisade at ${PALISADE} m — ${outside.length} of ${sweep.length} swept focus`,
-    `  radii do it. NOT ASSERTED EITHER WAY. It is not an elevation leak (the height claim above`,
-    `  holds at every radius) and a living man's own lens leaves the palisade too at ${(18 + 4.4).toFixed(1)} m, but a`,
+    `  reaches ${sweep[sweep.length - 1].hi.toFixed(2)} m from the middle, ${PAL ? `against the palisade at ${n(PAL, 1)} m (${PAL.where}) — ${outside.length} of ${sweep.length} swept focus` : `and the palisade radius COULD NOT BE READ out of world.ts, so how many of the ${sweep.length} swept focus`}`,
+    `  radii ${PAL ? "cross it" : "cross it is not stated here"}. NOT ASSERTED EITHER WAY. It is not an elevation leak (the height claim above`,
+    `  holds at every radius) and a living man's own lens leaves the palisade too, at ${CONSTS.camDist ? `${(edge + CONSTS.camDist.value).toFixed(1)} m with the fight at ${edge} m` : "a radius this run could not read CAM_DIST to compute"}, but a`,
     `  lens on the wrong side of a wall is a shot looking through it. §2 measures whether real play`,
     `  reaches those radii; nothing here bounds what a human could do at the edge.`);
 }
@@ -794,7 +846,7 @@ async function phaseMoot() {
     + `p90 ${p90of(originSeries).toFixed(2)} m   mean ${meanOf(originSeries).toFixed(2)} m   at (0.00, 0.00)`);
   console.log(`    the aim's own travel over those frames  ${fightPath.toFixed(2)} m`);
   console.log(`    lens height                           up to ${yHi.toFixed(3)} m`);
-  console.log(`    lens radius from the middle           up to ${rHi.toFixed(2)} m, palisade at 19.6 m`);
+  console.log(`    lens radius from the middle           up to ${rHi.toFixed(2)} m, palisade at ${q(CONSTS.palisade, 1)}`);
   console.log(`    branches the rule took                ${[...new Set(rows.map((r) => r.want.how))].join(", ")}\n`);
 
   console.log(`  A SPECTATING DEAD MAN, over a real fight:\n`);
@@ -827,7 +879,11 @@ async function phaseMoot() {
   check("and over a real fight the dead lens still stands no higher than the living one",
     yHi <= liveYHi + 1e-9, `${yHi.toFixed(3)} m against the follow lens's ${liveYHi.toFixed(3)} m on the same rig`);
   check("and it never leaves the fighting ground on the geometry a real moot produced",
-    rHi < 19.6, `worst ${rHi.toFixed(2)} m from the middle against the palisade at 19.6 m (world.ts:991)`);
+    !!CONSTS.palisade && rHi < CONSTS.palisade.value,
+    CONSTS.palisade
+      ? `worst ${rHi.toFixed(2)} m from the middle against the palisade at ${q(CONSTS.palisade, 1)}`
+      : `worst ${rHi.toFixed(2)} m from the middle — CANNOT JUDGE: PALISADE_RADIUS could not be read out of `
+        + `src/game/client/render/world.ts, and this file does not carry its own copy of that number`);
   DEFERRALS.push(
     `§2's focus rule is a SECOND COPY of GameCanvas.tsx's — that file is a React component and`,
     `  cannot be imported here. This phase proves the RIG, not the CHOOSING. §3 is the only`,
@@ -1028,13 +1084,27 @@ async function phaseMatch() {
     // It stays RED rather than being carved out: a claim nobody has to look at
     // is failure mode 2 in `docs/PROCESS.md`. What is added is the number that
     // says WHICH of the two it is.
-    const holdSeconds = 3.35;
-    const holdFrames = Math.round(holdSeconds / 0.05);
-    const holdWall = fps > 0 ? holdFrames / fps : Infinity;
+    // THE TWO NUMBERS IN THIS ARITHMETIC ARE READ. `DEATH_HOLD.total` is imported
+    // from the module that owns it and the clamp is read off GameCanvas's own
+    // assignment; if either read fails, the arithmetic is not printed at all
+    // rather than printed from a literal that used to be right.
+    const { DEATH_HOLD } = await import(pathToFileURL(resolve(ROOT, "src/game/deathcam.mjs")).href);
+    const holdSeconds = LEVER === "blindconst" ? null : DEATH_HOLD.total;
+    const clamp = CONSTS.frameClamp;
+    const holdFrames = holdSeconds !== null && clamp ? Math.round(holdSeconds / clamp.value) : null;
+    const holdWall = holdFrames !== null && fps > 0 ? holdFrames / fps : Infinity;
     const deathCamSamples = data.filter((s) => s.meDead && s.mode === "summary").length;
-    console.log(`  THE CLIENT'S OWN ANIMATION FRAME ran at ${fps.toFixed(2)}/s here. The death hold is`);
-    console.log(`  ${holdFrames} frames (${holdSeconds}s at the 0.05s clamp in GameCanvas.tsx:701), so it takes`);
-    console.log(`  ${holdWall === Infinity ? "for ever" : `${holdWall.toFixed(1)}s of wall clock`} before the rig can hand over to "spectate".\n`);
+    console.log(`  THE CLIENT'S OWN ANIMATION FRAME ran at ${fps.toFixed(2)}/s here.`);
+    if (holdFrames === null) {
+      console.log(`  HOW MANY FRAMES THE DEATH HOLD COSTS IS NOT STATED HERE: `
+        + `${holdSeconds === null ? "DEATH_HOLD.total could not be imported from src/game/deathcam.mjs" : ""}`
+        + `${holdSeconds === null && !clamp ? " and " : ""}`
+        + `${!clamp ? "the frame-delta clamp could not be read off GameCanvas.tsx's own assignment" : ""}.\n`);
+    } else {
+      console.log(`  The death hold is ${holdFrames} frames — ${holdSeconds.toFixed(2)}s (DEATH_HOLD.total, imported from`);
+      console.log(`  src/game/deathcam.mjs) at the ${q(clamp, 2, "s")} clamp — so it takes`);
+      console.log(`  ${holdWall === Infinity ? "for ever" : `${holdWall.toFixed(1)}s of wall clock`} before the rig can hand over to "spectate".\n`);
+    }
     check("the local warrior died and the rig went to the spectate lens",
       data.some((s) => s.mode === "spectate"),
       `${data.length} rig samples; modes seen: ${[...new Set(data.map((s) => s.mode))].join(", ") || "none"}; `
@@ -1042,8 +1112,10 @@ async function phaseMatch() {
       + (deathCamSamples > 0
         ? `. He DID die and the lens DID take him — ${deathCamSamples} samples of his own death camera `
           + `("summary" is how GameCanvas puts a deathcam shot on the rig). It never released inside a round `
-          + `because ${holdFrames} frames at ${fps.toFixed(2)}/s is ${holdWall.toFixed(1)}s. That is this box, `
-          + `not the camera — §2 measures the same lens on the same rig over a real fight`
+          + (holdFrames === null
+            ? `, and how long that hold costs is not stated here because one of its two numbers could not be read`
+            : ` because ${holdFrames} frames at ${fps.toFixed(2)}/s is ${holdWall.toFixed(1)}s`)
+          + `. That is this box, not the camera — §2 measures the same lens on the same rig over a real fight`
         : ". He never went down"));
 
     const spec = data.filter((s) => s.mode === "spectate" && s.aim && s.men.some((m) => !m.dead));
@@ -1121,7 +1193,7 @@ async function phaseMatch() {
     console.log(`    the middle of the ring            p90 ${p90of(originSeries).toFixed(2)} m   mean ${meanOf(originSeries).toFixed(2)} m   at (0.00, 0.00)`);
     console.log(`    the aim's own travel              ${fightPath.toFixed(2)} m`);
     console.log(`    lens height                      ${yLo.toFixed(3)} - ${yHi.toFixed(3)} m`);
-    console.log(`    lens radius from the middle      up to ${rHi.toFixed(2)} m, against the palisade at 19.6 m\n`);
+    console.log(`    lens radius from the middle      up to ${rHi.toFixed(2)} m, against the palisade at ${q(CONSTS.palisade, 1)}\n`);
 
     check("THE DEAD MAN IS LOOKING WHERE THE RULE SAYS: the aim matches the closest-pair midpoint this harness computes from the server's own table",
       pct(miss, 0.9) < 0.75,
@@ -1135,10 +1207,20 @@ async function phaseMatch() {
         + `${p90of(originSeries).toFixed(2)} m, mean ${meanOf(originSeries).toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m. `
         + `The median is printed and not asserted, for the reason §2 gives at the same claim. The reading this replaces — `
         + `"0.61 m from the nearest living man" — was taken from an instrument that reported the origin on every frame`);
+    // THE BAR IS READ OUT OF camera.ts. It used to be the literal 2.05 — a number
+    // typed into a comparison, which is the worst place for one: an edit to
+    // CAM_HEIGHT would have left this claim passing against the old height.
     check("and the lens is standing, not flying — at a living player's own camera height, in a real match",
-      yHi <= 2.05 + 1e-6, `${yLo.toFixed(3)} - ${yHi.toFixed(3)} m against CAM_HEIGHT 2.05 m`);
+      !!CONSTS.camHeight && yHi <= CONSTS.camHeight.value + 1e-6,
+      CONSTS.camHeight
+        ? `${yLo.toFixed(3)} - ${yHi.toFixed(3)} m against ${q(CONSTS.camHeight)}`
+        : `${yLo.toFixed(3)} - ${yHi.toFixed(3)} m — CANNOT JUDGE: CAM_HEIGHT could not be read off its own `
+          + `assignment in src/game/client/render/camera.ts, and this file does not carry a copy of it`);
     check("and it never leaves the fighting ground in real play",
-      rHi < 19.6, `worst ${rHi.toFixed(2)} m from the middle against the palisade at 19.6 m`);
+      !!CONSTS.palisade && rHi < CONSTS.palisade.value,
+      CONSTS.palisade
+        ? `worst ${rHi.toFixed(2)} m from the middle against the palisade at ${q(CONSTS.palisade, 1)}`
+        : `worst ${rHi.toFixed(2)} m from the middle — CANNOT JUDGE: PALISADE_RADIUS could not be read out of world.ts`);
 
     // The frame sequence, printed rather than summarised — R5 for a lens is
     // where it was, frame by frame, with the men it was looking at.

@@ -676,10 +676,13 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
         // SHALLOWER rather than steeper.
         //
         // It was 2.2 m, chosen as "a head above a standing warrior", which is
-        // the same intent arrived at by eye; `tools/spectatetest.mjs` measured
-        // it 0.138 m ABOVE the living lens and the claim was therefore false as
-        // written, by a hand's breadth. The constant now cannot drift from the
-        // thing it is claimed equal to.
+        // the same intent arrived at by eye; `node tools/spectatetest.mjs
+        // --phases=rig` with 2.2 put back in place of `CAM_HEIGHT` prints
+        // "the dead man's ringside lens at 2.200 m — 0.134 m against the living
+        // lens at its highest", so the claim was false as written, by a hand's
+        // breadth. (0.134 m, measured by running it. This comment said 0.138 m
+        // for a round, which is a number that harness does not print.) The
+        // constant now cannot drift from the thing it is claimed equal to.
         //
         // It circles the fight at 11 m instead of sitting 15 m out from a centre
         // the fight may have left. What it shows is what somebody standing at

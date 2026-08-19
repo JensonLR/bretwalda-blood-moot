@@ -106,7 +106,9 @@ export const DEATH_HOLD = {
    * drives the real `poseWarrior` over seven kinds of death and reports when the
    * committed pose stops changing. The collapse now carries weight — the head
    * trails the ribs and is stopped separately by the ground — and it runs longer
-   * than the ~1.1 s this constant was set against. Its table, run on this tree:
+   * than the ~1.1 s this constant was set against. Its table, QUOTED — run
+   * `node tools/freezetest.mjs --phases=collapse` for the figures of the day;
+   * nothing in this file measures them and nothing keeps this copy fresh:
    *
    *     landed            0.52 - 1.17 s
    *     quiet to 1e-2     0.45 - 1.13 s
@@ -126,7 +128,12 @@ export const DEATH_HOLD = {
   fall: 1.50,
   /** Easing round to the wound. */
   move: 1.15,
-  /** Sitting on it. `vfx.ts` runs a stump for ~1.8 s and pools at the end. */
+  /**
+   * Sitting on it. `vfx.ts` runs a stump on the order of a second and a half —
+   * `JET_LIFE` there is 1.6 s on high and the severance scales it — and drops a
+   * pool at the end of it. Not measured here, and no harness in this repository
+   * prints it: it is read off `vfx.ts`'s own constant.
+   */
   linger: 0.70,
 };
 
@@ -207,7 +214,9 @@ export const ROUND_HOLD = {
    * That is a dolly starting while the man is still falling, which is the shot
    * fighting its own subject. 1.45 s covers the worst of the seven at the strict
    * 1e-3 rad/frame floor (1.38 s) and the landing of all seven outright — the
-   * same floor `DEATH_HOLD.fall` is sized against, and the same table.
+   * same floor `DEATH_HOLD.fall` is sized against, and the same table, QUOTED
+   * from `node tools/freezetest.mjs --phases=collapse` there and here alike.
+   * Nothing in this file measures it and nothing keeps either copy fresh.
    *
    * IT IS WITHIN 0.05 s OF `DEATH_HOLD.fall` AND THAT IS NOT A DUPLICATE. Both
    * beats are the beat during which the lens does not move, and both are sized
@@ -534,9 +543,13 @@ export function createDeathCamera() {
      *   being dealt and you are standing up again) and for the match summary
      *   (`render/summary.ts` owns the lens there and stages its own tableau).
      *
-     *   The break is 5 s and the hold is 3.1 s, so the hold is over with nearly
-     *   two seconds to spare — `tools/deathcamtest.mjs` measures both off the
-     *   real engine rather than trusting either number.
+     *   The break is 5 s and the hold is `DEATH_HOLD.total` above — 3.35 s as
+     *   these constants stand, not the 3.1 s this sentence claimed for a round
+     *   after the constant moved — so the hold is over with about two seconds to
+     *   spare. NEITHER NUMBER IS MEASURED HERE: `tools/deathcamtest.mjs` takes
+     *   both off the real engine and prints them ("Ns of beat inside the Ms
+     *   break measured on this run"), which is why that harness and not this
+     *   comment is the place to read them.
      *
      * @param s.camera where the lens is THIS frame, used only to seed the hold.
      * @param s...    the rest is `frameDeathShot`'s view.
