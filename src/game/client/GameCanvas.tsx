@@ -157,6 +157,13 @@ interface RoomState {
    * backstop for exactly that case.
    */
   roundIndex?: number;
+  /**
+   * HOW MANY AUTHORITATIVE SNAPSHOTS HAVE LANDED. Stamped by `page.tsx` in the
+   * message handler — the only place in the client that can see whether a
+   * committed room record came off a whole-room broadcast or off a message with
+   * no positions on it. See `stampSnapshot` there, and `wireEpochRef` below.
+   */
+  wireSeq?: number;
 }
 
 /** Everything the render modules build, held together so teardown is one call. */
@@ -216,12 +223,28 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
    * the frame as `ctx.wireEpoch`; see the field's note in `quality.ts` for why
    * the interpolator cannot work it out for itself.
    *
-   * Counted off object IDENTITY, not off contents. `page.tsx` calls
-   * `setRoomState` with a freshly parsed object for every `game_state`, so a
-   * new reference IS a new packet — including the packet in which nobody moved,
-   * which is the whole case this exists to catch. A `useEffect` is the right
-   * home for it because it fires once per committed value; counting in render
-   * would double under StrictMode and skip nothing on a bailout.
+   * CARRIED, NOT COUNTED, AND THAT IS THE REPAIR. This used to be `++` on a
+   * `useEffect` keyed on `[roomState]` — one advance per committed room record.
+   * The argument was that `page.tsx` parses a fresh object for every
+   * `game_state`, so a new reference is a new packet. True, and incomplete: a
+   * new reference is not ONLY a packet. `emote`, `last_stand` and a bare
+   * `countdown` tick each commit a fresh record built by spreading the last one
+   * and changing a field, with no player positions anywhere in the message, and
+   * every one of them advanced this counter. `ingestNet` then read the advance
+   * as an authoritative "he is exactly here" for every still man in the room
+   * and put a phantom sample on his interpolation grid — a whole 50 ms slot
+   * against a wire that had not moved.
+   *
+   * Measured by `tools/janktest.mjs --phases=epoch` on the build before this
+   * change: 596 advances / 598 snapshots on a quiet wire, 602 / 597 with an
+   * emote pressed every 600 ms. Seven phantom advances, one per flourish the
+   * server relayed. The intermission branch further down is the worst of it —
+   * its own comment says "the wire is static here", and it is exactly where the
+   * break card puts the emote buttons, so there the true packet count is ZERO.
+   *
+   * `page.tsx` now stamps the packet number onto the record itself, so this
+   * reads it rather than deriving it. Same effect, same commit-once timing, and
+   * a record that was not a packet arrives carrying the number it already had.
    */
   const wireEpochRef = useRef(0);
   const sendInputRef = useRef(onSendInput);
@@ -288,7 +311,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // would have run, and a build that could not see its consumer would silently
   // decide it had none and stop yielding.
   const onForgeRef = useRef(onForge);
-  useEffect(() => { roomStateRef.current = roomState; wireEpochRef.current++; }, [roomState]);
+  useEffect(() => {
+    roomStateRef.current = roomState;
+    // `?? wireEpochRef.current` and not `?? 0`: a caller that never stamps —
+    // any embedder of this component that is not `page.tsx` — then holds the
+    // epoch STILL rather than pinning it to zero, and a held epoch is read as a
+    // silent wire, which is the conservative answer and the pre-fix behaviour
+    // for an unchanged record.
+    wireEpochRef.current = roomState?.wireSeq ?? wireEpochRef.current;
+  }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
   useEffect(() => { matchEndRef.current = matchEnd ?? null; }, [matchEnd]);
   // Held in a ref rather than read from the effect's closure: a parent that

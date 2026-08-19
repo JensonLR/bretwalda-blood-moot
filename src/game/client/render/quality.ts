@@ -1029,6 +1029,15 @@ export interface FrameContext {
    * move. When it has NOT moved, the wire really is silent and the
    * extrapolator should cover the hole exactly as it does today.
    *
+   * IT COUNTS PACKETS, AND IT HAS TO BE SAID OUT LOUD BECAUSE IT ONCE DID NOT.
+   * The first implementation incremented once per committed `roomState` object,
+   * which is a different quantity: `emote`, `last_stand` and a bare `countdown`
+   * tick all commit a fresh record with no player positions on it, and each one
+   * advanced this and put a phantom sample on every still man's grid. It is now
+   * stamped in `page.tsx`'s message handler, which is the only place that can
+   * see which messages carried a snapshot. `tools/janktest.mjs --phases=epoch`
+   * holds the number against the socket and prints the difference.
+   *
    * Optional because only the live fight loop has a wire. The summary stage
    * (`summary.ts`) and the armoury (`armouryStage.ts`) pose frozen records off
    * no socket at all, and they leave this undefined to keep the old behaviour.

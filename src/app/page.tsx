@@ -71,6 +71,16 @@ interface RoomState {
   bestOf: number; roundIndex: number; roundTarget: number;
   roundWins: Record<string, number>; roundScoreBy: RoundScoreBy;
   lastRound: RoundResult | null; nextRoundAt: number;
+  /**
+   * HOW MANY AUTHORITATIVE SNAPSHOTS HAVE LANDED, stamped by this client and
+   * never by the server. Read by `GameCanvas` as `ctx.wireEpoch` and by nothing
+   * else; see `stampSnapshot` below for why it is counted here and what went
+   * wrong when it was counted anywhere else.
+   *
+   * Optional because it is absent for exactly one value — the `null` this holds
+   * before the first packet — and because the wire itself never carries it.
+   */
+  wireSeq?: number;
 }
 
 interface ProfileData {
@@ -167,6 +177,52 @@ export default function Page() {
   const [botDifficulty, setBotDifficulty] = useState<Difficulty>("warrior");
   const [bestOf, setBestOf] = useState<BestOf>(DEFAULT_BEST_OF);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
+  /**
+   * THE PACKET COUNT, AND IT COUNTS PACKETS.
+   *
+   * `GameCanvas` hands this to the interpolator as `ctx.wireEpoch`, which is
+   * what lets `ingestNet` tell a man the server says is STANDING STILL from a
+   * man the server has said nothing about (see the long note at
+   * `anim.ts:ingestNet`). The witness has to be "a snapshot landed".
+   *
+   * IT USED TO BE COUNTED OFF ROOM-RECORD IDENTITY — a `useEffect` on
+   * `[roomState]` that incremented once per committed value. That is a
+   * different quantity and the difference is not academic: `emote`,
+   * `last_stand` and a bare `countdown` tick all call `setRoomState` with a
+   * fresh object carrying NO player positions, so each one advanced the epoch
+   * with no packet behind it and told every still warrior that an authoritative
+   * "he is exactly here" had arrived when nothing had. Measured on a 30 s
+   * seven-bot fight by `tools/janktest.mjs --phases=epoch`: 596 advances
+   * against 598 snapshots with a quiet wire, and 602 against 597 — seven
+   * phantom advances, one per relayed flourish — with an emote pressed every
+   * 600 ms. The exposure is worst on the intermission path in
+   * `GameCanvas.tsx`, whose own comment says "the wire is static here", because
+   * that is precisely where the break card offers the emote buttons: there the
+   * packet count is ZERO and every advance is phantom.
+   *
+   * So the count is taken HERE, at the only place in the client that knows the
+   * difference — the message handler, which can see the message type. A ref
+   * rather than state: it is stamped onto the value being committed, so it
+   * rides the same render as the record it describes and cannot be read out of
+   * step with it. Incrementing in an effect keyed on the record cannot express
+   * "this particular commit was a packet" at all, which is the whole defect.
+   */
+  const wireSeqRef = useRef(0);
+  /**
+   * Stamp a whole-room snapshot with its packet number. Every caller is a
+   * message that came out of `serializeRoom` with every player's authoritative
+   * position on it, and no other caller is allowed.
+   *
+   * The messages that are NOT snapshots need no counterpart and deliberately
+   * have none: they all build their next record with `{ ...prev }`, which
+   * carries the previous `wireSeq` forward unchanged. Silence on the wire then
+   * reads as silence, which is the entire contract.
+   */
+  const stampSnapshot = useCallback(<T extends RoomState>(d: T): T => {
+    wireSeqRef.current += 1;
+    d.wireSeq = wireSeqRef.current;
+    return d;
+  }, []);
   const [matchResults, setMatchResults] = useState<MatchEndData | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -503,7 +559,7 @@ export default function Page() {
         setPlayerId(d.playerId);
         playerIdRef.current = d.playerId;
         setRoomCode(d.code);
-        setRoomState(d);
+        setRoomState(stampSnapshot(d));
         setPayState("none");
         setMatchResults(null);
         // Reserve this fight's pay before there is any. An unreserved payout
@@ -528,7 +584,7 @@ export default function Page() {
         break;
       }
       case "lobby_update": {
-        setRoomState(msg.data as unknown as RoomState);
+        setRoomState(stampSnapshot(msg.data as unknown as RoomState));
         // The rematch loop: the room has rolled back to its lobby — ready
         // flags freshly cleared — and this player already said "again" from
         // the summary screen. Now the ready can actually stick.
@@ -543,7 +599,7 @@ export default function Page() {
       }
       case "countdown": {
         const d = msg.data as unknown as RoomState;
-        if (d.players) setRoomState(d);
+        if (d.players) setRoomState(stampSnapshot(d));
         else setRoomState((prev) => prev ? { ...prev, state: "countdown", countdown: (msg.data?.countdown as number) || 0 } : prev);
         setBusy(false);
         // A new match is starting: strike the last one's summary set, or the
@@ -556,7 +612,7 @@ export default function Page() {
       }
       case "game_state": {
         const d = msg.data as unknown as RoomState;
-        setRoomState(d);
+        setRoomState(stampSnapshot(d));
         // `loading` IS THE REASON THE CANVAS EXISTS YET. The server holds the
         // bell until this client reports its arena standing, and the arena is
         // built by GameCanvas — which is only mounted on the game screen. Enter
@@ -587,7 +643,7 @@ export default function Page() {
       // card; the round result itself is read back out of `lastRound`.
       case "round_end": {
         const d = msg.data as unknown as RoomState;
-        if (d.players) setRoomState(d);
+        if (d.players) setRoomState(stampSnapshot(d));
         break;
       }
       case "match_end": {
@@ -663,7 +719,7 @@ export default function Page() {
         break;
       }
     }
-  }, [adoptServer, tallyLocally, showError, settled, sendMsg]);
+  }, [adoptServer, tallyLocally, showError, settled, sendMsg, stampSnapshot]);
 
   const ensureTransport = useCallback(async (): Promise<boolean> => {
     if (transportRef.current && transportRef.current.mode) return true;

@@ -4,6 +4,7 @@
  *
  *   node tools/janktest.mjs                    everything, ~6 min
  *   node tools/janktest.mjs --phases=server    the tick and the wire, no browser
+ *   node tools/janktest.mjs --phases=epoch     does the wire epoch count PACKETS?
  *   node tools/janktest.mjs --phases=motion    the interpolator, GPU-free
  *   node tools/janktest.mjs --phases=render    what a frame costs, with drawing on
  *   node tools/janktest.mjs --phases=strip     a frame sequence and a frame-time plot
@@ -113,7 +114,7 @@ const SECS = Math.max(5, parseInt(argOf("secs", "20"), 10) || 20);
  * being argued for; the lever exists so the ruler can be disbelieved cheaply.
  */
 const LEVER = argOf("lever", null);
-const PHASES = (argOf("phases", "server,wire,motion,render,strip")).split(",").map((s) => s.trim());
+const PHASES = (argOf("phases", "server,wire,epoch,motion,render,strip")).split(",").map((s) => s.trim());
 const has = (p) => PHASES.includes(p);
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
 
@@ -330,6 +331,31 @@ const PATCHES = {
     subs: [[`let i=ac(e,0);if(t<=i.t){e.rx=i.x,e.rz=i.z,e.yaw=i.yaw;return}`,
             `let i=ac(e,0);if(t<=i.t){window.__jankStall&&window.__jankStall(),e.rx=i.x,e.rz=i.z,e.yaw=i.yaw;return}`]],
   },
+  /**
+   * THE EPOCH, READ WHERE THE INTERPOLATOR READS IT.
+   *
+   * `ctx.wireEpoch` is what tells `ingestNet` that an unchanged record is a
+   * fresh authoritative sample rather than silence. Its contract — written on
+   * the field in `GameCanvas.tsx` — is "how many authoritative snapshots have
+   * reached this component". This probe checks that claim against the socket.
+   *
+   * Anchored on the CONSUMPTION site and not on the increment, deliberately.
+   * The increment's shape is the thing under repair, so a probe pinned to it
+   * would go MISSED the moment the repair landed and could never read the two
+   * builds with one ruler. The consumption site is a property name in a ctx
+   * object literal, which is what every other patch in this file anchors on and
+   * what no minifier and no reimplementation of the counter can move.
+   *
+   * The value is monotonic, so the harness accumulates DELTAS rather than
+   * counting change events: two advances inside one frame are still two.
+   */
+  epoch: {
+    name: "read the wire epoch",
+    subs: [[
+      /wireEpoch:(\w+)\.current\}/,
+      `wireEpoch:(window.__jankEpoch&&window.__jankEpoch($1.current),$1.current)}`,
+    ]],
+  },
 };
 
 async function installPatches(ctx, names) {
@@ -373,6 +399,10 @@ const COLLECTOR = () => {
     extrap: [],        // seconds ahead of the newest snapshot, per occurrence
     resets: [],        // { teleport, gap }
     stalls: 0,
+    // The wire epoch as the interpolator receives it, plus the window it was
+    // observed over, so the packet count can be held against the SAME window.
+    epoch: { first: null, last: null, t0: 0, t1: 0 },
+    emotesSent: 0,
     started: performance.now(),
   };
   // ---- frames. The rAF callback is wrapped so the JS work inside the frame is
@@ -400,6 +430,12 @@ const COLLECTOR = () => {
       w.__jank.snaps.push(performance.now());
       w.__jank.snapBytes.push(d.length);
     });
+    // Kept so the harness can send the EXACT bytes the app sends — `transport.ts`
+    // does `ws.send(JSON.stringify(msg))` and nothing else, so a message put on
+    // this socket is indistinguishable from a button press. Driving the emote
+    // through the UI instead would measure the button, and the button is not
+    // what is under test.
+    w.__jank.ws = s;
     return s;
   }
   Tapped.prototype = RealWS.prototype;
@@ -414,6 +450,11 @@ const COLLECTOR = () => {
   } catch { /* not every build ships it */ }
   // ---- the probes the bundle patches call
   w.__jankEx = (ahead, id) => { const j = w.__jank; if (j.extrap.length < 200000) j.extrap.push({ ahead, id }); };
+  w.__jankEpoch = (e) => {
+    const p = w.__jank.epoch;
+    if (p.first === null) { p.first = e; p.t0 = performance.now(); }
+    p.last = e; p.t1 = performance.now();
+  };
   w.__jankStall = () => { w.__jank.stalls++; };
   w.__jankReset = (teleport, gap) => { const j = w.__jank; if (j.resets.length < 100000) j.resets.push({ teleport: !!teleport, gap }); };
   w.__jankRec = (player, motion, dt) => {
@@ -448,7 +489,7 @@ async function reachFight(page, url) {
  * rasteriser does" and "what the motion pipeline does", and every caller says
  * which one it wanted out loud.
  */
-async function runFight(browser, { patches = [], noDraw = false, viewport = { width: 1280, height: 720 }, quality = "low", record = false, secs = SECS, shots = null } = {}) {
+async function runFight(browser, { patches = [], noDraw = false, viewport = { width: 1280, height: 720 }, quality = "low", record = false, secs = SECS, shots = null, emoteEvery = 0 } = {}) {
   const ctx = await browser.newContext({ viewport });
   const hits = await installPatches(ctx, patches);
   await ctx.addInitScript(COLLECTOR);
@@ -482,9 +523,23 @@ async function runFight(browser, { patches = [], noDraw = false, viewport = { wi
     const j = window.__jank;
     j.frames.length = 0; j.snaps.length = 0; j.snapBytes.length = 0;
     j.longTasks.length = 0; j.extrap.length = 0; j.resets.length = 0; j.stalls = 0;
+    j.epoch = { first: null, last: null, t0: 0, t1: 0 }; j.emotesSent = 0;
     j.started = performance.now();
     if (rec) j.rec = {};
   }, record);
+  // FLOURISHES, if the caller asked for them. An emote is a room message with
+  // NO player positions on it; the room record it produces is a spread of the
+  // one before with one field changed. It is the cheapest thing on the wire
+  // that is not a snapshot, which is exactly why it is the probe for whether
+  // the epoch can tell a snapshot from a message.
+  const emoteTimer = emoteEvery ? setInterval(() => {
+    page.evaluate(() => {
+      const ws = window.__jank.ws;
+      if (!ws || ws.readyState !== 1) return;
+      ws.send(JSON.stringify({ type: "emote", data: { emote: "raise" } }));
+      window.__jank.emotesSent++;
+    }).catch(() => {});
+  }, emoteEvery) : null;
   const heapTimer = setInterval(() => {
     page.evaluate(() => {
       const m = performance.memory;
@@ -508,6 +563,7 @@ async function runFight(browser, { patches = [], noDraw = false, viewport = { wi
   }
   await new Promise((r) => setTimeout(r, secs * 1000));
   clearInterval(heapTimer);
+  if (emoteTimer) clearInterval(emoteTimer);
   stop = true; await fight.catch(() => {});
   const data = await page.evaluate(() => {
     const j = window.__jank;
@@ -515,6 +571,7 @@ async function runFight(browser, { patches = [], noDraw = false, viewport = { wi
       frames: j.frames, snaps: j.snaps, snapBytes: j.snapBytes,
       longTasks: j.longTasks, heap: j.heap, extrap: j.extrap,
       resets: j.resets, stalls: j.stalls, rec: j.rec, elapsed: performance.now() - j.started,
+      epoch: j.epoch, emotesSent: j.emotesSent,
     };
   });
   await ctx.close();
@@ -724,7 +781,7 @@ async function main() {
   const result = {};
   if (has("server")) result.server = await phaseServer();
 
-  const needBrowser = has("wire") || has("motion") || has("render") || has("strip");
+  const needBrowser = has("wire") || has("motion") || has("render") || has("strip") || has("epoch");
   if (!needBrowser) return finish(result);
 
   if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) {
@@ -793,6 +850,62 @@ async function main() {
       if (shots && r.strip.length) {
         contactSheet(resolve(OUT, "strip", "index.html"), r.strip, fiv);
         say(`\n  strip: ${r.strip.length} consecutive frames -> .jank/strip/index.html`);
+      }
+    }
+
+    // ---- §6 THE EPOCH: does the witness count packets, or does it count
+    // renders of the room record?
+    if (has("epoch")) {
+      rule("\u00a76  THE WIRE EPOCH   (does it count PACKETS, or room-record identity?)");
+      say("  `ctx.wireEpoch` is what lets the interpolator tell a man the server says is");
+      say("  STANDING STILL from a man the server has said nothing about. Its field note in");
+      say("  GameCanvas.tsx claims it is \"how many authoritative snapshots have reached this");
+      say("  component\". This phase holds that claim against the socket.");
+      say();
+      say("  A snapshot confirms every man in it. A message that is NOT a snapshot — an");
+      say("  emote, a last_stand, a bare countdown tick — carries no positions at all, so an");
+      say("  epoch that advances on one is telling every still warrior that an authoritative");
+      say("  \"he is exactly here\" landed when nothing did. That pushes his interpolation grid");
+      say("  forward a whole packet slot against a wire that did not move.");
+      say();
+      const names = ["nodraw", "epoch"];
+      const runs = [];
+      for (const cfg of [
+        { label: "CONTROL — no flourishes, only game_state on the wire", emoteEvery: 0 },
+        { label: "FLOURISHES — an emote pressed every 600 ms as well", emoteEvery: 600 },
+      ]) {
+        const r = await runFight(browser, { patches: names, noDraw: true, secs: SECS, emoteEvery: cfg.emoteEvery, viewport: { width: 960, height: 540 } });
+        if (!patchesLanded(r.hits, names)) { result.epochVoid = true; runs.push(null); continue; }
+        // Advances are read as last-minus-first because the value is monotonic;
+        // packets are the game_state arrivals counted over the SAME zeroed
+        // window. Both ends can slip by at most one message — a packet that
+        // landed a hair before the window opened commits its advance a hair
+        // after it — so a difference of 1 or 2 is measurement and a difference
+        // of ten is not.
+        const adv = (r.epoch.last ?? 0) - (r.epoch.first ?? 0);
+        const pkts = r.snaps.length;
+        runs.push({ ...cfg, adv, pkts, ratio: pkts ? adv / pkts : NaN, emotes: r.emotesSent, span: (r.epoch.t1 - r.epoch.t0) / 1000 });
+      }
+      say();
+      say(`    ${"case".padEnd(52)} ${"epoch+".padStart(7)} ${"packets".padStart(8)} ${"per packet".padStart(11)} ${"PHANTOM".padStart(8)}`);
+      for (const r of runs) {
+        if (!r) { say("    (void — a patch matched nothing)"); continue; }
+        say(`    ${r.label.padEnd(52)} ${String(r.adv).padStart(7)} ${String(r.pkts).padStart(8)} ${r.ratio.toFixed(4).padStart(11)} ${String(r.adv - r.pkts).padStart(8)}`);
+      }
+      const [ctl, spam] = runs;
+      if (ctl && spam) {
+        say();
+        say(`  ${spam.emotes} emote presses were put on the socket over ${spam.span.toFixed(1)} s; the server throttles`);
+        say(`  them to one per ${2500} ms per man and refuses a committed or staggered one, so only`);
+        say(`  some are relayed. Every relayed one is a room record with no positions on it.`);
+        say();
+        const delta = (spam.adv - spam.pkts) - (ctl.adv - ctl.pkts);
+        say(`  READING: phantom advances went ${ctl.adv - ctl.pkts} -> ${spam.adv - spam.pkts} (${delta >= 0 ? "+" : ""}${delta}) when flourishes were added`);
+        say(`           to a wire whose packet rate did not change. ` +
+            (Math.abs(spam.adv - spam.pkts) > 4
+              ? "The epoch is NOT counting packets."
+              : "The epoch tracks the packet count."));
+        result.epoch = { ctl, spam };
       }
     }
 
@@ -939,6 +1052,11 @@ function finish(result) {
   if (R.wireDraw) {
     say(`  WIRE (draw on)    p99 ${f2(R.wireDraw.s.p99)} ms, ${R.wireDraw.holes} holes, ${R.wireDraw.bursts} bursts` +
         ` — a burst here is the MAIN THREAD, not the network.`);
+  }
+  if (R.epoch) {
+    const ph = R.epoch.spam.adv - R.epoch.spam.pkts;
+    say(`  WIRE EPOCH        ${Math.abs(ph) <= 4 ? "COUNTS PACKETS" : "COUNTS THE WRONG EVENTS"} — ${R.epoch.spam.adv} advances against ${R.epoch.spam.pkts} snapshots under flourishes` +
+        ` (${ph >= 0 ? "+" : ""}${ph} phantom); control ${R.epoch.ctl.adv - R.epoch.ctl.pkts}.`);
   }
   if (R.motion) {
     const worst = R.motion.perMan.slice().sort((a, b) => (b.jolt?.p99 || 0) - (a.jolt?.p99 || 0))[0];
