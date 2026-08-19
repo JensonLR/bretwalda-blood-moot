@@ -553,6 +553,8 @@ async function main() {
     args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
   });
   let data = null, hits = null;
+  let shotsWritten = 0;
+  const shotFails = [];
   try {
     const ctx = await browser.newContext({ viewport: VIEW });
     hits = await installPatches(ctx, ["frame", "body"]);
@@ -614,10 +616,24 @@ async function main() {
     if (SHOTS) {
       mkdirSync(OUT, { recursive: true });
       await page.evaluate(() => { window.__hudNoDraw = false; });
+      // EVERY FAILURE HERE IS PRINTED. Both of these used to end in a bare
+      // `.catch(() => {})`. At `--quality=high` SwiftShader takes long enough
+      // over a frame that `page.screenshot` times out, and an adversary caught
+      // this ruler writing FOUR of fourteen frames and saying nothing — the one
+      // affordance in this file for actually LOOKING at the defect (R5) lost
+      // two thirds of its evidence silently, at exactly the tier a desktop
+      // player runs. A missing frame is now a line of output and a count on the
+      // header, so nobody can read "read h004, clean" off a set that was never
+      // written. The timeout is generous for the same reason.
       for (let i = 0; i < SHOTS; i++) {
+        const name = `h${String(i).padStart(3, "0")}.png`;
         const before = await page.evaluate(() => window.__hud.frames);
-        await page.waitForFunction((b) => window.__hud.frames > b + 1, before, { timeout: 180000 }).catch(() => {});
-        await page.screenshot({ path: resolve(OUT, `h${String(i).padStart(3, "0")}.png`) }).catch(() => {});
+        const advanced = await page.waitForFunction((b) => window.__hud.frames > b + 1, before, { timeout: 180000 })
+          .then(() => true).catch((e) => { shotFails.push(`${name}: no new frame — ${String(e).split("\n")[0]}`); return false; });
+        void advanced;
+        await page.screenshot({ path: resolve(OUT, name), timeout: 180000 })
+          .then(() => shotsWritten++)
+          .catch((e) => shotFails.push(`${name}: screenshot — ${String(e).split("\n")[0]}`));
       }
     }
     stop = true; await fight.catch(() => {});
@@ -640,6 +656,14 @@ async function main() {
   say(`  decided to put on screen, which runs in full either way, sampled at a realistic`);
   say(`  frame rate instead of SwiftShader's 0.3 fps. No frames-per-second figure is implied.`);
   if (data.noThree) say(`  ${data.noThree} frame(s) dropped before the Vector3 lift landed — not counted in the ${data.frames}.`);
+  if (SHOTS) {
+    say(`  R5: ${shotsWritten} of ${SHOTS} frame(s) written to ${OUT}.`);
+    for (const f of shotFails) say(`     FRAME LOST — ${f}`);
+    if (shotsWritten < SHOTS) {
+      say(`     ${SHOTS - shotsWritten} frame(s) are MISSING. Do not read a verdict off this set.`);
+      process.exitCode = 1;
+    }
+  }
 
   // ---- 1 -------------------------------------------------------------------
   const platesOn = data.plates.reduce((a, p) => a + p.on, 0);

@@ -241,7 +241,7 @@ property of the build):
 `medium` and `high` build the identical warrior; only `low` differs, because
 `characters.ts` collapses near-neighbour substances there (`thrifty`).
 
-## What a stage-5 fix can and cannot buy (R11)
+## What a stage-5 fix can and cannot buy (R12)
 
 `Part.merge()` already merges by material **within** one emitted part, and there
 are eight parts (two legs, two arms, torso, neck, head, cloak). Merging **across**
@@ -275,7 +275,7 @@ face and not for the kit. Collapse the kit onto shared materials and the merge
 floor drops toward single digits per man, which is a different order of saving
 and would also let identical loadouts share one material across warriors.
 
-## What was NOT done, and it is the point (R11)
+## What was NOT done, and it is the point (R12)
 
 The two cheapest ways to move every number above are **fewer shadow casters per
 warrior** and **fewer of the 22 lights**. `framecost` prints the arithmetic that

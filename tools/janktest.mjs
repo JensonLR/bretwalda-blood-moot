@@ -396,12 +396,40 @@ const PATCHES = {
   },
 };
 
-async function installPatches(ctx, names) {
+/**
+ * READ-ONLY PROBES: what the SERVED BUNDLE actually contains.
+ *
+ * A ruler must read the tree it is pointed at. This file is copied onto other
+ * branches on purpose — that is how one ruler reads three trees — and the
+ * moment it does, anything it *assumes* about the source becomes a lie about
+ * whichever tree does not have it. It already happened: the buffer line below
+ * added `min(netJit, 0.5*netInterval)` to the reported delay unconditionally,
+ * so pointed at `origin/main` or `jank2` — neither of which has a jitter term
+ * in `anim.ts` at all — it printed a 25 ms buffer they do not have and then
+ * declared "the buffer covers the jitter" on their behalf. An adversary caught
+ * it. These probes do not modify a byte; they only report what is there.
+ */
+const PROBES = {
+  // `1.5*m.netInterval + Math.min(m.netJit, 0.5*m.netInterval)` after minifying.
+  // Any multiple, any local name, but the netJit term must be present.
+  jitterDelay: /localId\?0:[\d.]+\*(\w+)\.netInterval\+Math\.min\(\1\.netJit,/,
+  // The plain form main and jank2 ship: the ternary ends at `netInterval`.
+  plainDelay: /localId\?0:[\d.]+\*(\w+)\.netInterval[,;)]/,
+};
+
+async function installPatches(ctx, names, probes) {
   const hits = Object.fromEntries(names.map((n) => [n, 0]));
-  if (!names.length) return hits;
+  if (probes) for (const k of Object.keys(PROBES)) probes[k] = 0;
+  if (!names.length && !probes) return hits;
   await ctx.route("**/*.js*", async (route) => {
     let res; try { res = await route.fetch(); } catch { return route.abort(); }
     let body; try { body = await res.text(); } catch { return route.fulfill({ response: res }); }
+    if (probes) {
+      for (const [k, rx] of Object.entries(PROBES)) {
+        const g = new RegExp(rx.source, "g");
+        probes[k] += (body.match(g) || []).length;
+      }
+    }
     let touched = false;
     for (const n of names) {
       for (const [from, to0] of PATCHES[n].subs) {
@@ -544,7 +572,8 @@ async function reachFight(page, url) {
  */
 async function runFight(browser, { patches = [], noDraw = false, viewport = { width: 1280, height: 720 }, quality = "low", record = false, secs = SECS, shots = null, emoteEvery = 0 } = {}) {
   const ctx = await browser.newContext({ viewport });
-  const hits = await installPatches(ctx, patches);
+  const probes = {};
+  const hits = await installPatches(ctx, patches, probes);
   await ctx.addInitScript(COLLECTOR);
   if (noDraw) await ctx.addInitScript(() => { window.__jankNoDraw = true; });
   const page = await ctx.newPage();
@@ -644,7 +673,7 @@ async function runFight(browser, { patches = [], noDraw = false, viewport = { wi
     };
   });
   await ctx.close();
-  return { ...data, hits, strip };
+  return { ...data, hits, probes, strip };
 }
 
 /** A patch that matched nothing voids its own experiment. R2's sibling. */
@@ -1256,16 +1285,38 @@ async function main() {
           }
           return { n, over };
         };
-        const tot = { drawn: { n: 0, over: 0 }, slow: { n: 0, over: 0 }, wire: { n: 0, over: 0 } };
+        // THE CONTROL MUST NOT MOVE WITH THE TREATMENT, and for a round it did.
+        //
+        // All three rows are normalised by the man's median DRAWN speed so the
+        // columns share units — but that makes the WIRE row, which exists to be
+        // a CONTROL, depend on the drawn track a change to `anim.ts` alters. An
+        // adversary caught it and was right. The wire row is therefore printed
+        // TWICE: once on the shared normaliser, so the decomposition adds up,
+        // and once on the wire's OWN median speed, which nothing on the client
+        // can touch. If those two disagree about a branch, believe the
+        // exogenous one.
+        const wireMed = (ss) => {
+          const w = wireTrack(ss), v = [];
+          for (let i = 1; i < w.length; i++) {
+            const dt = (w[i].t - w[i - 1].t) / 1000;
+            if (dt <= 1e-5) continue;
+            const sp = Math.hypot(w[i].wx - w[i - 1].wx, w[i].wz - w[i - 1].wz) / dt;
+            if (sp >= 0.05) v.push(sp);
+          }
+          return v.length ? pct(v.sort((a, b) => a - b), 50) : 0;
+        };
+        const tot = { drawn: { n: 0, over: 0 }, slow: { n: 0, over: 0 }, wire: { n: 0, over: 0 }, wireOwn: { n: 0, over: 0 } };
         const perManRate = [];
         for (const m of perMan) {
           if (!(m.medSpeed > 1e-6)) continue;
           const ss = r.rec[m.id];
+          const wm = wireMed(ss);
           const d = rate8(ss, "rx", "rz", m.medSpeed);
           const sl = rate8(decimate(ss, 45), "rx", "rz", m.medSpeed);
           const wi = rate8(wireTrack(ss), "wx", "wz", m.medSpeed);
-          perManRate.push({ id: m.id, d, sl, wi });
-          for (const [k, v] of [["drawn", d], ["slow", sl], ["wire", wi]]) { tot[k].n += v.n; tot[k].over += v.over; }
+          const wo = wm > 1e-6 ? rate8(wireTrack(ss), "wx", "wz", wm) : { n: 0, over: 0 };
+          perManRate.push({ id: m.id, d, sl, wi, wo });
+          for (const [k, v] of [["drawn", d], ["slow", sl], ["wire", wi], ["wireOwn", wo]]) { tot[k].n += v.n; tot[k].over += v.over; }
         }
         const rp = (v) => `${String(v.over).padStart(6)} of ${String(v.n).padStart(6)}  ${(100 * v.over / Math.max(1, v.n)).toFixed(2).padStart(6)}%`;
         say(`\n  >8x SPEED CHANGES, AGAINST THE WIRE CONTROL — the same test on three tracks.`);
@@ -1275,8 +1326,21 @@ async function main() {
         say(`    ${"DRAWN, 60 Hz (all causes)".padEnd(34)} ${rp(tot.drawn)}`);
         say(`    ${"DRAWN, decimated to 20 Hz".padEnd(34)} ${rp(tot.slow)}`);
         say(`    ${"WIRE, 20 Hz — what was ASKED for".padEnd(34)} ${rp(tot.wire)}`);
+        say(`    ${"  ...same wire, EXOGENOUS control".padEnd(34)} ${rp(tot.wireOwn)}   <- normalised by the WIRE's own median`);
         say(`    unexplained share of DRAWN 60 Hz samples: ${(100 * over8Plain / Math.max(1, totalJ)).toFixed(2)}%` +
             `  (${over8Plain} of ${totalJ}) — the figure previous rounds quoted.`);
+        // THE ARITHMETIC, SPELLED OUT, because three rounds chased the first
+        // number without ever subtracting the other two. It is not a fourth
+        // measurement; it is the three rows above, differenced.
+        {
+          const pc = (v) => (100 * v.over / Math.max(1, v.n));
+          const d60 = pc(tot.drawn), d20 = pc(tot.slow), wir = pc(tot.wire);
+          say(`    DECOMPOSITION of the ${d60.toFixed(2)}% figure:`);
+          say(`      ${(d60 - d20).toFixed(2)} points are the DIFFERENCING INTERVAL — 60 Hz against 20 Hz, in the`);
+          say(`        statistic and not on the screen. Nothing in the client can move it.`);
+          say(`      ${wir.toFixed(2)} points are IN THE WIRE — the server asked for them.`);
+          say(`      ${(d20 - wir).toFixed(2)} points are what is left for the CLIENT to answer for.`);
+        }
         for (const m of perManRate.sort((a, b) => (b.wi.over / Math.max(1, b.wi.n)) - (a.wi.over / Math.max(1, a.wi.n)))) {
           say(`    ${m.id.padEnd(22)} 60Hz ${(100 * m.d.over / Math.max(1, m.d.n)).toFixed(2).padStart(6)}%   @20Hz ${(100 * m.sl.over / Math.max(1, m.sl.n)).toFixed(2).padStart(6)}%   WIRE ${(100 * m.wi.over / Math.max(1, m.wi.n)).toFixed(2).padStart(6)}%`);
         }
@@ -1374,17 +1438,34 @@ async function main() {
         // and would be R7's defect: a report describing a value the code does
         // not have. It is measured off the recorded `nj` rather than assumed,
         // and it is ZERO under `--lever`, which replaces the whole expression.
+        //
+        // AND WHETHER THIS TREE HAS ONE AT ALL IS READ OFF THE SERVED BUNDLE.
+        // This term used to be added unconditionally. This file is copied onto
+        // other branches so that ONE ruler reads several trees, and `origin/main`
+        // and `jank2` have no jitter term in `anim.ts` — their delay is the bare
+        // `1.5 * netInterval`. Pointed at them, this line printed a buffer 25 ms
+        // deeper than the code they run, and then let the verdict below announce
+        // "the buffer covers the jitter" for a build that has no such cover. See
+        // PROBES.jitterDelay: it matches the `Math.min(netJit, ...)` term in the
+        // bundle the page was actually served, not in the checkout this file
+        // happens to sit in.
+        const hasJit = (r.probes?.jitterDelay || 0) > 0;
         const jitAdd = [];
         for (const id of Object.keys(r.rec || {})) {
           for (const v of r.rec[id]) {
             if (!(v.ni > 0)) continue;
-            jitAdd.push(1000 * Math.min(LEVER ? 0 : (v.nj || 0), 0.5 * v.ni));
+            jitAdd.push(1000 * Math.min(LEVER || !hasJit ? 0 : (v.nj || 0), 0.5 * v.ni));
           }
         }
         const ja = stats(jitAdd);
         const budgetMs = (ni ? ni.p50 * packets : NaN) + (ja ? ja.p50 : 0);
         say(`    effective render delay for a REMOTE man = ${packets} x netInterval  (REMOTE_DELAY_PACKETS, anim.ts${LEVER ? ", LEVERED" : ""})`);
-        say(`      ${f2(ni?.p50 * packets)} ms fixed  +  ${f2(ja?.p50)} ms measured jitter (p95 ${f2(ja?.p95)}, cap ${f2(ni?.p50 * 0.5)})  =  p50 ${f2(budgetMs)} ms`);
+        if (hasJit && !LEVER) {
+          say(`      ${f2(ni?.p50 * packets)} ms fixed  +  ${f2(ja?.p50)} ms measured jitter (p95 ${f2(ja?.p95)}, cap ${f2(ni?.p50 * 0.5)})  =  p50 ${f2(budgetMs)} ms`);
+        } else {
+          say(`      ${f2(ni?.p50 * packets)} ms fixed  +  NO JITTER TERM IN THE SERVED BUNDLE  =  p50 ${f2(budgetMs)} ms`);
+          say(`      (PROBES: jitterDelay ${r.probes?.jitterDelay ?? "?"} site(s), plainDelay ${r.probes?.plainDelay ?? "?"} site(s)${LEVER ? ", and --lever replaces the whole expression" : ""})`);
+        }
         say(`      — this is the entire jitter budget the buffer has`);
         say(`    snapshots held in the buffer   p50 ${f2(nc?.p50)}  min ${f2(nc?.min)}  max ${f2(nc?.max)}`);
         if (result.wireNoDraw) {
@@ -1467,19 +1548,28 @@ function finish(result) {
       const ratio = worst.wire && worst.wire.p99 > 1e-6 ? worst.jolt.p99 / worst.wire.p99 : NaN;
       say(`  JOLT              worst man ${worst.id}: drawn p95 ${f2(worst.jolt.p95)}x, p99 ${f2(worst.jolt.p99)}x his own median speed, in ONE frame.`);
       say(`                    against the WIRE he was asked to draw: p99 ${f2(worst.wire?.p99)}x  =  ${Number.isFinite(ratio) ? ratio.toFixed(2) + "x worse than the motion the server sent" : "no wire control"}.`);
-      // AND THE ONE LINE THAT SAYS WHICH DEFECT IT IS. Every number above is a
-      // speed over a wall-clock interval. The same track on the client's own
-      // clock is the motion it COMPUTED; where that is small and the wall-clock
-      // figure is large, the interpolator is producing smooth motion and the
-      // frames are arriving at uneven instants, which is §4 and not §3.
+      // THIS COLUMN IS CIRCULAR AND IT NOW SAYS SO ON ITS OWN LINE.
+      //
+      // It compares the same drawn track sampled on two clocks. Both sides are
+      // the SAME positions; only the denominator changes, so a large ratio says
+      // the frames arrived at uneven instants and says nothing whatever about
+      // where the positions came from. For three rounds it was printed as a
+      // VERDICT — "THE JOLT IS FRAME PACING, not interpolation, and no change to
+      // anim.ts can move it" — on branches whose anim.ts changes demonstrably
+      // moved remote extrapolation from 24-55% to single figures. An adversary
+      // refuted it twice. It is kept because the ratio is a real reading of
+      // frame pacing on THIS box, and it is caveated because it is not a reading
+      // of anything else. See §3's DECOMPOSITION line and docs/OPEN-DEFECTS.md.
       say(`                    ON THE CLIENT'S OWN CLOCK, the same track: p95 ${f2(worst.sim?.p95)}x, p99 ${f2(worst.sim?.p99)}x.`);
       const gap = worst.sim && worst.sim.p95 > 1e-6 ? worst.jolt.p95 / worst.sim.p95 : NaN;
       say(`                    ${Number.isFinite(gap) && gap > 2
-        ? `The computed motion is ${gap.toFixed(1)}x smoother than the drawn one. THE JOLT IS FRAME PACING,`
-        : `Computed and drawn agree, so the jolt is in the motion pipeline,`}`);
-      say(`                    ${Number.isFinite(gap) && gap > 2
-        ? `not interpolation — read §4, and no change to anim.ts can move it.`
-        : `and §3 is where to look for it.`}`);
+        ? `Frames arrived ${gap.toFixed(1)}x less evenly than the client computed them.`
+        : `Computed and drawn agree: this box's frame pacing is not adding to it.`}`);
+      say(`                    CIRCULAR, SAID OUT LOUD: both sides are the SAME positions and`);
+      say(`                    only the clock differs, so this reads FRAME PACING ON THIS BOX and`);
+      say(`                    is NOT evidence about the interpolator either way. It does not`);
+      say(`                    license "no change to anim.ts can move it" — anim.ts changes have`);
+      say(`                    moved remote extrapolation by 20 points with this column unmoved.`);
     }
     const jumper = R.motion.perMan.slice().sort((a, b) => b.jumps8 - a.jumps8)[0];
     if (jumper) say(`  JUMP              worst man ${jumper.id}: ${jumper.jumps8} frames moved >8x the median step, ${jumper.hard} moved >0.5 m.`);

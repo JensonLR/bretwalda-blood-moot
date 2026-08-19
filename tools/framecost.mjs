@@ -198,7 +198,7 @@ const COLLECTOR = () => {
    * is a list rather than a guess. A group of two hundred meshes sharing one
    * geometry and one material is two hundred draw calls that could be ONE
    * instanced call, drawing exactly the same pixels — which is a merge, not a
-   * detail reduction, and stays on the right side of R11.
+   * detail reduction, and stays on the right side of R12.
    */
   w.__fcCensus = () => {
     const g = w.__fc.body;
@@ -531,7 +531,7 @@ async function main() {
     say(`      THE SHADOW LIGHT COUNT IS THE LARGEST SINGLE MULTIPLIER IN THIS FILE, and it`);
     say(`      is 1 on low, 3 on medium and 4 on high. Dropping one is the cheapest way to`);
     say(`      move every number below and it is STAGE 6 — it changes what the player sees.`);
-    say(`      It is named here so it is not reached for by accident. See R11.`);
+    say(`      It is named here so it is not reached for by accident. See R12.`);
     say(`  Grouped by the (geometry, material) pair, because that pair is what decides`);
     say(`  whether three.js can batch. A row with a large count and ONE pair is that many`);
     say(`  draw calls that could be one instanced call drawing the same pixels.`);

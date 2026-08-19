@@ -374,6 +374,42 @@ const COMPACT_MAX_PUSH = 0.5;
  */
 const NUM_MAX_PUSH = 0.16;
 /**
+ * HOW MANY FLOATING NUMBERS THE SCREEN IS ALLOWED TO CARRY AT ONCE, and this is
+ * the constant that closes the owner's "337".
+ *
+ * `damageNumberBudget` — 12 on low, 24 on medium, 48 on high — is a MEMORY
+ * budget. It says how many quads this module is willing to keep alive, and it
+ * was doing duty as a legibility budget, which it never was. Measured on the
+ * merged tree, `tools/hudspace.mjs --quality=high`: numbers up at once runs
+ * p50 2, p95 5-9, worst 7-12, and the frame photographed for this fix
+ * (`.jank/hudspace/h006.png`, R5, read by hand) carries FOURTEEN.
+ *
+ * Fourteen cannot be laid out. A number's own de-overlap budget is
+ * `NUM_MAX_PUSH`, one glyph height and a bit, deliberately small because a
+ * number shoved a fifth of the screen from the blow is no longer telling you
+ * where you were hit. Fourteen boxes in one melee need several screens of
+ * vertical room, so the solver runs out, every push clamps at the same offset,
+ * and the glyphs print through each other. In h006, "92" and "72" interlock at
+ * (110-178, 282-325) and "66" and a third number read as one impossible "667"
+ * at (195-247, 358-388). That is the owner's frame, verbatim, four rounds on.
+ *
+ * WHAT THIS IS NOT. It is not the same-victim MERGE — that was tried, it
+ * rewound each glyph's age so a window measured from the last blow never
+ * closed, and it photographed as "468, 338, 228, 216, 184" against a pool of
+ * about a hundred with every overlap figure green. Nothing here touches `age`
+ * or `amount`: every blow still prints its own true number.
+ *
+ * WHAT IT COSTS, SAID PLAINLY. In a melee dense enough to exceed six, the
+ * OLDEST number on screen is retired early — the one that has been readable
+ * longest and is already inside its own fade (`outFade` starts at half life).
+ * The common case is untouched: at p50 2 and p95 5-9 this bites only in the
+ * tail, which is exactly the tail that is the defect. The trade is a number
+ * that is legible for a shorter time against several that are legible for no
+ * time at all, and "667" is not a shorter reading of anything, it is a wrong
+ * one.
+ */
+const LEGIBLE_AT_ONCE = 6;
+/**
  * MERGING A FLURRY INTO ONE RUNNING TOTAL WAS TRIED HERE AND REVERTED. R1, and
  * the record is kept because the next person will have the same idea.
  *
@@ -1594,37 +1630,33 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         return;
       }
 
+      // MAKE ROOM BEFORE TAKING A QUAD. The cap is the tighter of the memory
+      // budget and the legibility one — see LEGIBLE_AT_ONCE — and the oldest
+      // goes through the ordinary `retire`, which is what the pool pop below
+      // then hands back. Recycling the oldest beats dropping the newest either
+      // way: a hit that produced no feedback reads as a hit that did not land.
+      //
+      // A LOOP AND NOT AN `if`, because the cap can be lowered under a live
+      // screen — `settings` is read every spawn, and a tier change mid-fight
+      // would otherwise leave the surplus on screen until it aged out.
+      // `max(1, ...)` is not decoration: a tier that ever declared a budget of
+      // zero would make the loop below shift an empty array for ever.
+      const atOnce = Math.max(1, Math.min(settings.damageNumberBudget, LEGIBLE_AT_ONCE));
+      while (live.length >= atOnce) retire(live.shift()!);
+
       let n = pool.pop();
       if (!n) {
-        if (live.length >= settings.damageNumberBudget) {
-          // Recycling the oldest beats dropping the newest: a hit that produced
-          // no feedback reads as a hit that did not land.
-          n = live.shift()!;
-          scene.remove(n.mesh);
-          // Bind before release, exactly as `retire` does. `glyphs` is already
-          // held so the sweep cannot evict what we are about to draw, but the
-          // rule that a material never *holds* a releasable texture is worth
-          // more as an invariant than as a case-by-case argument.
-          //
-          // Swapping one texture for another rebinds a sampler; it does not
-          // change the program, because a pooled material was built with a map
-          // and has never been without one. That is the whole reason the old
-          // `needsUpdate` dance is gone rather than merely unnecessary.
-          n.mat.map = tex;
-          releaseDamage(n.glyphs);
-        } else {
-          const mat = glyphMaterial(glyphs, `damage number ${amount}`);
-          if (!mat) {
-            releaseDamage(glyphs);
-            return;
-          }
-          const mesh = new THREE.Mesh(quad, mat);
-          mesh.renderOrder = 996;
-          n = {
-            mesh, mat, glyphs, age: 0, life: 1, weight, vel: new THREE.Vector3(), spin: 0, base: 0,
-            pos: new THREE.Vector3(), push: 0, sx: 0, sy: 0, hx: 0, hy: 0, worldPerNdc: 1,
-          };
+        const mat = glyphMaterial(glyphs, `damage number ${amount}`);
+        if (!mat) {
+          releaseDamage(glyphs);
+          return;
         }
+        const mesh = new THREE.Mesh(quad, mat);
+        mesh.renderOrder = 996;
+        n = {
+          mesh, mat, glyphs, age: 0, life: 1, weight, vel: new THREE.Vector3(), spin: 0, base: 0,
+          pos: new THREE.Vector3(), push: 0, sx: 0, sy: 0, hx: 0, hy: 0, worldPerNdc: 1,
+        };
       }
 
       n.glyphs = glyphs;

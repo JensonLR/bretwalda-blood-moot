@@ -627,6 +627,62 @@ And two the record has *optimistic*:
   assignment* problem as much as a draw-call problem, and the numbers below
   should be argued at the tier a phone lands on, not at `high`.
 
+### The draw-call cut, costed and NOT DONE — 19 Aug 2026
+
+Recorded here rather than built, because the round that measured it delivered
+tools and documents and **not one removed draw call**, and that is the honest
+label for it. Everything in this box is a reading off `tools/framecost.mjs` at
+the WebGL context in a seven-bot fight; nothing here is an estimate except the
+line that says it is.
+
+**The briefed "614 draw calls" is the `low` preset.** What the tiers actually
+cost, and the spread is 7x on calls and 9x on triangles:
+
+```
+                draw calls p50   triangles p50   meshes   lights (casting)
+    low              595            391.5k         400        11  (1)
+    medium         3,079          2,155.7k         526        16  (3)
+    high           4,204          3,399.2k         530        22  (4)
+```
+
+An adversary reproduced this on his own worktree and read 649 / 4,050 p50 with
+4,204 at p95, and made a fair caveat that belongs with the numbers: at `high`
+the distribution is over **two frames** on a SwiftShader box, so the `high` p50
+is a sample and not a distribution. Read the tier ordering, not the third digit.
+
+**Warriors are the cost, and the unit is MATERIALS.** Every warrior counted,
+not the first one — an earlier reading kept one body and threw the rest away:
+
+```
+    low              32-40 meshes   13.0k-16.6k tris   18-24 materials
+    medium / high    44-57 meshes   22.5k-32.9k tris   26-33 materials
+```
+
+Warriors are **72-79% of visible meshes**. The arena is already instanced (up to
+301 repeats in one call), so there is nothing left to win there.
+
+**The merge floor is the material count: 417 -> 229 at `high`, about 940 calls
+of 4,204 — 22%.** That is the whole of what merging can buy, because two parts
+cannot share a call unless they share a material, and it is the number to hold
+any proposal against.
+
+**What is already built, and what actually blocks it.** This is R12 stage 5 and
+it is NOT "add skinning": `anim.ts`'s `articulate` already builds one 17-bone
+`THREE.Skeleton` per warrior and rebinds limbs as `SkinnedMesh`. What blocks the
+merge is that the eight kit parts are posed by **pivot transforms**, not bones,
+so merging them into one buffer loses the pose. The cheaper lever is the 26-33
+materials themselves, and the mechanism for that is also already in the tree:
+`VERTEX_TINTED` and `Part.paint` exist in `characters.ts` and are used for the
+FACE and not for the kit. Painting kit colour into vertices instead of into a
+material is the same trick applied one level out.
+
+**Refused, in writing: R12 stage 6.** The two easy levers are named so nobody
+has to rediscover them and so nobody reaches for them quietly — render scale,
+and the shadow-caster count (`530 for the picture + 477 casters x 4 shadow
+lights = 2,438` of the high tier's calls). Both change what the game looks like,
+which is the owner's decision and not a fixer's, and both are the quickest way
+to move this number without making anything cheaper.
+
 Measured matrix, from `art/perf/fpstest.json` (`when: 2026-08-05T15:31:44Z`,
 `prod: true`, SwiftShader, 4 cores, dpr 1 — **no GPU on the capture box**):
 
