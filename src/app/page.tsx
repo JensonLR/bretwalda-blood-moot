@@ -2574,8 +2574,12 @@ function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
  * 2200 -> 2950 WITH `ROUND_HOLD.total` IN src/game/deathcam.mjs, which is the
  * round camera's clock and plays inside exactly this window. The camera's beat
  * opens with a still frame while the dying man falls, and the collapse got
- * longer when it got its weight: measured over seven kinds of death, the worst
- * is still moving at 1.25 s where the still beat was 0.45 s. The two numbers
+ * longer when it got its weight — over the seven kinds of death
+ * `node tools/freezetest.mjs --phases=collapse` drives, the worst of them
+ * outlasts the 0.45 s the still beat used to be by most of a second. THE
+ * FIGURE IS NOT WRITTEN DOWN HERE: that harness prints its own range and this
+ * file measures none of it. (This sentence carried "1.25 s" for a round, which
+ * is a number the named harness does not print.) The two numbers
  * are not wired together — deathcam.mjs belongs to another unit — and
  * tools/deathcamtest.mjs fails if they stop agreeing, so change one and the
  * harness will tell you about the other. The `left > 2` guard caps this at
