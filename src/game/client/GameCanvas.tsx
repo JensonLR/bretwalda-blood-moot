@@ -157,6 +157,13 @@ interface RoomState {
    * backstop for exactly that case.
    */
   roundIndex?: number;
+  /**
+   * HOW MANY AUTHORITATIVE SNAPSHOTS HAVE LANDED. Stamped by `page.tsx` in the
+   * message handler — the only place in the client that can see whether a
+   * committed room record came off a whole-room broadcast or off a message with
+   * no positions on it. See `stampSnapshot` there, and `wireEpochRef` below.
+   */
+  wireSeq?: number;
 }
 
 /** Everything the render modules build, held together so teardown is one call. */
@@ -211,6 +218,35 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // The loop is started once; the network state it reads lives in refs so a
   // packet does not tear down and rebuild the animation frame callback.
   const roomStateRef = useRef<RoomState | null>(roomState);
+  /**
+   * How many authoritative snapshots have reached this component. Rides into
+   * the frame as `ctx.wireEpoch`; see the field's note in `quality.ts` for why
+   * the interpolator cannot work it out for itself.
+   *
+   * CARRIED, NOT COUNTED, AND THAT IS THE REPAIR. This used to be `++` on a
+   * `useEffect` keyed on `[roomState]` — one advance per committed room record.
+   * The argument was that `page.tsx` parses a fresh object for every
+   * `game_state`, so a new reference is a new packet. True, and incomplete: a
+   * new reference is not ONLY a packet. `emote`, `last_stand` and a bare
+   * `countdown` tick each commit a fresh record built by spreading the last one
+   * and changing a field, with no player positions anywhere in the message, and
+   * every one of them advanced this counter. `ingestNet` then read the advance
+   * as an authoritative "he is exactly here" for every still man in the room
+   * and put a phantom sample on his interpolation grid — a whole 50 ms slot
+   * against a wire that had not moved.
+   *
+   * Measured by `tools/janktest.mjs --phases=epoch` on the build before this
+   * change: 596 advances / 598 snapshots on a quiet wire, 602 / 597 with an
+   * emote pressed every 600 ms. Seven phantom advances, one per flourish the
+   * server relayed. The intermission branch further down is the worst of it —
+   * its own comment says "the wire is static here", and it is exactly where the
+   * break card puts the emote buttons, so there the true packet count is ZERO.
+   *
+   * `page.tsx` now stamps the packet number onto the record itself, so this
+   * reads it rather than deriving it. Same effect, same commit-once timing, and
+   * a record that was not a packet arrives carrying the number it already had.
+   */
+  const wireEpochRef = useRef(0);
   const sendInputRef = useRef(onSendInput);
   // The verdict rides a ref for the same reason roomState does: the loop reads
   // it, and a match ending must not rebuild the animation frame callback.
@@ -275,7 +311,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // would have run, and a build that could not see its consumer would silently
   // decide it had none and stop yielding.
   const onForgeRef = useRef(onForge);
-  useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
+  useEffect(() => {
+    roomStateRef.current = roomState;
+    // `?? wireEpochRef.current` and not `?? 0`: a caller that never stamps —
+    // any embedder of this component that is not `page.tsx` — then holds the
+    // epoch STILL rather than pinning it to zero, and a held epoch is read as a
+    // silent wire, which is the conservative answer and the pre-fix behaviour
+    // for an unchanged record.
+    wireEpochRef.current = roomState?.wireSeq ?? wireEpochRef.current;
+  }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
   useEffect(() => { matchEndRef.current = matchEnd ?? null; }, [matchEnd]);
   // Held in a ref rather than read from the effect's closure: a parent that
@@ -693,6 +737,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // ---------- main loop ----------
   useEffect(() => {
     let running = true;
+    // Scratch for the one consumer that must NOT see `wireEpoch`. Made once
+    // and refilled; see the summary call below for why it is stripped.
+    const summaryCtx = {} as FrameContext;
 
     const loop = (time: number) => {
       if (!running) return;
@@ -724,6 +771,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         localState: localPlayer?.state ?? null,
         mood,
         quality: stage.quality,
+        wireEpoch: wireEpochRef.current,
       };
 
       stage.world.update(dt, ctx);
@@ -1004,7 +1052,28 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             stage.audio.setBurning(id, false, 0, false, { x: 0, y: 0, z: 0 });
           },
         });
-        summaryRef.current.update(dt, ctx, roomState, verdict, warriorsRef.current, playerId);
+        // THE SUMMARY IS HANDED A CONTEXT WITH NO WIRE ON IT.
+        //
+        // `wireEpoch` tells the interpolator that an unchanged record is a
+        // fresh authoritative sample rather than silence (see `quality.ts`).
+        // That is right for a live fight and it is not this stage's bargain:
+        // the podium record is deliberately FROZEN, the men are carried to
+        // marks by this module, and `summary.ts` calls `cutNetHistory` at the
+        // moments it wants the wire forgotten. Leaving the epoch on would put
+        // this stage's behaviour under a mechanism no summary harness has
+        // measured, to buy nothing the staging does not already do.
+        //
+        // Reversible on purpose, and the argument for reversing it is real:
+        // confirming a frozen man drives his segment velocity to ZERO, which
+        // is the exact failure `cutNetHistory` exists to prevent. If the
+        // podium is ever revisited, hand it `ctx` whole and delete this.
+        //
+        // Mutated in place rather than spread: a fresh object here would be an
+        // allocation every frame of the summary, and this screen holds for
+        // several seconds.
+        Object.assign(summaryCtx, ctx);
+        summaryCtx.wireEpoch = undefined;
+        summaryRef.current.update(dt, summaryCtx, roomState, verdict, warriorsRef.current, playerId);
         // A press from the summary surface plays on the staged tableau — the
         // motion is shared, so the flourish lands on the man mid-portrait. It
         // is drained AFTER the stage has been built, because who is standing is
@@ -1469,7 +1538,75 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       } else {
         // The hold has run out, been skipped, or never armed. This is where a
         // dead man went straight from the frame he died on before this change.
-        focusRef.current.set(0, 0, 0);
+        //
+        // SPECTATING, AND WHAT IT IS ALLOWED TO SHOW HIM.
+        //
+        // This used to be `focusRef.current.set(0, 0, 0)`, and that line was
+        // doing nothing at all: `camera.ts`'s orbit hard-wired both its target
+        // and its `lookAt` to the origin and never read the focus. So a dead man
+        // watched the centre of the arena until the round ended, whatever was
+        // happening and wherever it was happening — and with the last two men
+        // fighting at the edge, he watched empty turf while they finished it.
+        // That is the whole of "the dead have nothing to do".
+        //
+        // THE RULE THIS PICKS BY, and it is a competitive rule before it is a
+        // camera one: a dead man may be shown what a LIVING man could already
+        // see, and nothing else. Two cases, in this order:
+        //
+        //   1. A LIVING TEAMMATE. Watch him. Everything in that frame is
+        //      something his own side already knows, so nothing crosses a line
+        //      by being shown to a man on it. This is the honest option in team
+        //      play and it is the first choice because it is the better watch.
+        //
+        //   2. NO LIVING TEAMMATE — a free-for-all, or the last of your side is
+        //      down. Then there is no one whose knowledge you may borrow, so
+        //      the lens takes the other honest option and becomes a seat at the
+        //      ringside: it frames the men still standing from OUTSIDE, at the
+        //      height of a man standing there (see camera.ts). It is pointed at
+        //      the fight, which is the fix, but it is not given sight through
+        //      anything, which is the constraint.
+        //
+        // In both cases the aim is a position the wire already sent this client
+        // for its own drawing — no new information is requested, revealed, or
+        // derived. What changes is where the lens looks, not what it knows.
+        const me = roomState.players[playerId];
+        const live: { x: number; z: number }[] = [];
+        let mate: { x: number; z: number } | null = null;
+        for (const id in roomState.players) {
+          const q = roomState.players[id];
+          if (q.state === "dead" || id === playerId) continue;
+          // His rig's smoothed position where we have it, so the lens rides the
+          // same interpolated body the player is watching rather than the last
+          // snapshot, which would jog it at the tick rate.
+          const slot = warriorsRef.current.get(id);
+          const at = { x: slot?.motion.rx ?? q.position.x, z: slot?.motion.rz ?? q.position.z };
+          if (!mate && me?.team && me.team !== "none" && q.team === me.team) mate = at;
+          live.push(at);
+        }
+        if (mate) {
+          focusRef.current.set(mate.x, 0, mate.z);
+        } else if (live.length > 1) {
+          // THE CLOSEST PAIR, NOT THE CENTROID. A centroid of four men spread
+          // round the ring is a point with nobody standing on it, and the lens
+          // would frame empty turf between them — which is the defect this whole
+          // branch exists to fix, arrived at by a different route. The two men
+          // nearest each other are the two who are about to fight, so their
+          // midpoint is where the round is actually being decided.
+          let bx = live[0].x, bz = live[0].z, best = Infinity;
+          for (let i = 0; i < live.length; i++) {
+            for (let j = i + 1; j < live.length; j++) {
+              const d = (live[i].x - live[j].x) ** 2 + (live[i].z - live[j].z) ** 2;
+              if (d < best) { best = d; bx = (live[i].x + live[j].x) / 2; bz = (live[i].z + live[j].z) / 2; }
+            }
+          }
+          focusRef.current.set(bx, 0, bz);
+        } else if (live.length === 1) {
+          focusRef.current.set(live[0].x, 0, live[0].z);
+        } else {
+          // Nobody left standing. The round is over bar the tally; the middle of
+          // the ring is the right place to be looking for what comes next.
+          focusRef.current.set(0, 0, 0);
+        }
         stage.rig.setMode(photoFramedRef.current ? "photo" : "spectate");
       }
       stage.rig.update(dt, ctx);

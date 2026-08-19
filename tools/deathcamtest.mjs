@@ -353,8 +353,12 @@ const blindFrames = replay({ blind: true });
 const blindHeld = heldFor(blindFrames);
 check("THE DEFECT REPRODUCES: on the shipped client the lens leaves the body at once",
   blindHeld < 0.35,
-  `the death is the subject of the frame for ${blindHeld.toFixed(2)}s after death `
-  + `(the collapse alone takes 1.10s, the stump runs 1.80s)`);
+  `the death is the subject of the frame for ${blindHeld.toFixed(2)}s after death, against the `
+  + `${DEATH_HOLD.total.toFixed(2)}s this camera asks for. HOW LONG THE COLLAPSE AND THE STUMP RUN IS NOT `
+  + `MEASURED IN THIS FILE and no figure for either is quoted here: `
+  + `\`node tools/freezetest.mjs --phases=collapse\` is the instrument for the first and vfx.ts's JET_LIFE `
+  + `sizes the second. Two figures that used to sit in this sentence — 1.10s and 0.88-1.45s — were both `
+  + `numbers the named harness never printed`);
 const blindEnd = blindFrames.find((f) => f.since >= 1.0);
 check("THE DEFECT IS A RETREAT: the shipped lens is running for the middle of the arena",
   !!blindEnd && frameAngles(P(blindEnd.shot.position), P(blindEnd.shot.target), blindEnd.shot.fov, blindEnd.wound).dist
@@ -371,8 +375,11 @@ const frames = replay({ blind: BLIND });
 const held = heldFor(frames);
 check("THE HOLD IS LONG ENOUGH: the wound is the subject for the whole collapse and past it",
   held >= DEATH_HOLD.total - 0.05,
-  `${held.toFixed(2)}s held against ${DEATH_HOLD.total.toFixed(2)}s asked for; `
-  + `the collapse settles at 1.10s and the stump stops at 1.80s`);
+  `${held.toFixed(2)}s held against ${DEATH_HOLD.total.toFixed(2)}s asked for, both measured on this `
+  + `recording. WHETHER THAT COVERS THE COLLAPSE IS A DIFFERENT MEASUREMENT AND IT IS NOT TAKEN HERE: `
+  + `\`node tools/freezetest.mjs --phases=collapse\` drives the real \`poseWarrior\` over seven kinds of `
+  + `death and prints the range, and \`src/game/deathcam.mjs\` records that range beside DEATH_HOLD.fall `
+  + `where the constant is set. This file measures the CAMERA`);
 
 const first = frames.find((f) => f.shot);
 const preDeath = blindFrames.length ? null : null;
@@ -474,11 +481,13 @@ check("THE HOLD FITS INSIDE THE BREAK THE SERVER ALREADY TAKES",
 // 7. A PUNISHING FRAME RATE. The hold is seconds, not frames: a phone running
 //    at 12 fps must get the same hold and must not overshoot it.
 // ============================================================
-const slow = replay({ blind: BLIND, fps: 12 });
+/** The punishing frame rate, and the one the rest of the file replays at. Named so the sentences below cannot drift from the call. */
+const SLOW_FPS = 12, FAST_FPS = 60;
+const slow = replay({ blind: BLIND, fps: SLOW_FPS });
 const slowHeld = heldFor(slow);
-check("the same hold at 12 fps as at 60",
+check(`the same hold at ${SLOW_FPS} fps as at ${FAST_FPS}`,
   slowHeld >= DEATH_HOLD.total - 1 / 6 && slow.reduce((m, f) => (f.shot ? f.since : m), 0) <= DEATH_HOLD.total + 1 / 6,
-  `${slowHeld.toFixed(2)}s held at 12 fps against ${held.toFixed(2)}s at 60`);
+  `${slowHeld.toFixed(2)}s held at ${SLOW_FPS} fps against ${held.toFixed(2)}s at ${FAST_FPS}`);
 
 // ============================================================
 // 8. THE TURF. `frameDeathShot` hammered directly on the lumpy bank, over a
@@ -791,27 +800,139 @@ check("and it closes in from there rather than sitting at the cut",
 //     different cameras are `hold` and `fov`, and this is R1 on both of them —
 //     move the lever, watch the number move. A second copy of the arithmetic
 //     that had drifted would show up here as two identical answers.
+//
+//     THIS CLAIM WAS REWRITTEN, AND THE REASON IS WORTH MORE THAN THE CLAIM.
+//
+//     The first cut of it probed ONE instant, `t = 1.6 s`, and asserted a
+//     consequence of the constants that happened to hold there: the death hold
+//     in "move" while the round beat was already in "linger", with the round's
+//     `moved` more than 0.2 ahead. That was true when `ROUND_HOLD.fall` was
+//     0.45 s against `DEATH_HOLD.fall` 1.25 s — a whole beat apart — and it is
+//     true at no time at all now that they are 1.45 and 1.50.
+//
+//     THE CONVERGENCE IS NOT THE DEFECT. Both `fall` beats are the beat during
+//     which the lens does not move, and both are sized against ONE physical
+//     fact: how long the man takes to land. `tools/freezetest.mjs --phases=collapse`
+//     drives the real `poseWarrior` over seven kinds of death and prints that
+//     range; NO FIGURE FOR IT IS QUOTED HERE, because this file has now been
+//     caught quoting two different wrong ones — "0.88-1.45 s" on this line and
+//     "the collapse settles at 1.10s" at claim 2 — against a harness that prints
+//     neither. The range that sized the constants is recorded where the
+//     constants are, in `src/game/deathcam.mjs` beside `DEATH_HOLD.fall`, and it
+//     is a QUOTATION there too and says so.
+//     Two beats measured against one collapse are supposed to land in the same
+//     place, and it would be the defect if they did not — the shorter of them
+//     would be starting its dolly over a body still falling, which is precisely
+//     the 7/7 failure that moved `ROUND_HOLD.fall` off 0.45 in the first place.
+//     What makes these two different cameras was never the length of the still:
+//     it is where the shot OPENS (claims 9 and 11 — your own death opens where
+//     your lens already was, the round beat CUTS to 5.4 m and 2.5 m up), the
+//     lens (55->44 against 50->42, two bands that never touch), the length of
+//     the move (1.15 s against 0.90 s) and the total (3.35 s against 2.95 s,
+//     because the round beat lives inside a window `page.tsx` already holds and
+//     your own death does not).
+//
+//     SO THE DEFECT WAS THE INSTANT, and picking a better instant would be the
+//     same defect with a different literal in it — the discriminating instant is
+//     a function of the constants, so a harness that hard-codes one is a harness
+//     that has to be re-tuned every time the camera is. That is the fault
+//     `freezetest.mjs` was caught printing 15 s / 20 s / 27 s for.
+//
+//     What replaces it does not pick an instant and does not carry a bar under a
+//     measured number. It SWEEPS each clock and reads that clock's own
+//     boundaries back out of the geometry — the frame the lens starts moving on,
+//     the frame it stops, the field of view at each end — and requires each
+//     measurement to land on what the clock handed in PREDICTS. Ignore `hold`
+//     and the round's still would measure 1.50 s instead of its own 1.45 and its
+//     move would end 0.30 s late; ignore `fov` and the round would open at 55
+//     degrees instead of its own 50. Either is red, and neither needs a taste.
+//     The 4x lever is kept as it was, because a clock stretched a long way is
+//     the cheap guard `beardvolume` did not have.
 // ============================================================
 const leverBody = { x: 0, y: 0, z: 0 };
 const leverArgs = { body: leverBody, wound: { x: 0, y: 1.46, z: 0 }, spray: { x: 1, y: 0.4, z: 0 }, from: { x: 0, y: 2.05, z: 4.4 } };
 const LEVER_T = 1.6;
-const atDeath = frameDeathShot({ ...leverArgs, t: LEVER_T });
-const atRound = frameDeathShot({ ...leverArgs, t: LEVER_T, hold: ROUND_HOLD, fov: ROUND_FOV });
-// A doubled clock, to prove the parameter is READ rather than merely accepted.
+// A stretched clock, to prove the parameter is READ rather than merely accepted.
 // `beardvolume` gated on a p10 that doubling `cut.thick` left untouched; the
 // cheap guard against that is to move the lever a long way and watch.
-const stretched = { fall: ROUND_HOLD.fall * 4, move: ROUND_HOLD.move * 4, linger: ROUND_HOLD.linger * 4 };
+const STRETCH = 4;
+const stretched = { fall: ROUND_HOLD.fall * STRETCH, move: ROUND_HOLD.move * STRETCH, linger: ROUND_HOLD.linger * STRETCH };
 stretched.total = stretched.fall + stretched.move + stretched.linger;
 const atStretched = frameDeathShot({ ...leverArgs, t: LEVER_T, hold: stretched, fov: ROUND_FOV });
-check("the two cameras are two clocks over ONE geometry, and BOTH levers move the number",
-  atDeath.beat === "move" && atRound.beat === "linger"
-  && atRound.moved > atDeath.moved + 0.2
-  && atRound.fov < atDeath.fov
+
+/**
+ * Sweep one clock and read ITS OWN boundaries back out of the returned frames.
+ * Nothing here is told what to expect; the caller compares against the clock.
+ * `STEP` is the grid, and it is also the tolerance — the only slack in this
+ * claim is "which sample did the transition land between", not a margin.
+ */
+const LEVER_STEP = 0.005;
+const sweepClock = (hold, fov) => {
+  const out = { moveStarts: null, moveEnds: null, fovFrom: null, fovAtEnd: null, frames: [] };
+  const last = Math.round((hold.total + 0.5) / LEVER_STEP);
+  for (let i = 0; i <= last; i++) {
+    const t = i * LEVER_STEP;
+    const f = frameDeathShot({ ...leverArgs, t, hold, fov });
+    out.frames.push({ t, beat: f.beat, moved: f.moved, fov: f.fov });
+    if (i === 0) out.fovFrom = f.fov;
+    if (out.moveStarts === null && f.moved > 0) out.moveStarts = t;
+    if (out.moveEnds === null && f.moved >= 1) { out.moveEnds = t; out.fovAtEnd = f.fov; }
+  }
+  return out;
+};
+const swDeath = sweepClock(DEATH_HOLD, DEATH_FOV);
+const swRound = sweepClock(ROUND_HOLD, ROUND_FOV);
+const swStretch = sweepClock(stretched, ROUND_FOV);
+/** How far a swept boundary sits from the boundary its own clock declares. */
+const boundaryErr = (sw, hold) => Math.max(
+  Math.abs((sw.moveStarts ?? Infinity) - hold.fall),
+  Math.abs((sw.moveEnds ?? Infinity) - (hold.fall + hold.move)),
+);
+const errDeath = boundaryErr(swDeath, DEATH_HOLD);
+const errRound = boundaryErr(swRound, ROUND_HOLD);
+const errStretch = boundaryErr(swStretch, stretched);
+const readsHold = Math.max(errDeath, errRound, errStretch) <= LEVER_STEP * 1.5;
+const readsFov = Math.abs(swDeath.fovFrom - DEATH_FOV.from) < 1e-9
+  && Math.abs(swDeath.fovAtEnd - DEATH_FOV.to) < 1e-9
+  && Math.abs(swRound.fovFrom - ROUND_FOV.from) < 1e-9
+  && Math.abs(swRound.fovAtEnd - ROUND_FOV.to) < 1e-9;
+check("BOTH LEVERS ARE READ: each clock's own boundaries fall out of the geometry, and each lens's own band does",
+  readsHold && readsFov,
+  `the still ends at ${swDeath.moveStarts.toFixed(3)}s / ${swRound.moveStarts.toFixed(3)}s / ${swStretch.moveStarts.toFixed(3)}s `
+  + `against the ${DEATH_HOLD.fall} / ${ROUND_HOLD.fall} / ${stretched.fall.toFixed(2)} handed in, and the move ends at `
+  + `${swDeath.moveEnds.toFixed(3)}s / ${swRound.moveEnds.toFixed(3)}s / ${swStretch.moveEnds.toFixed(3)}s against `
+  + `${(DEATH_HOLD.fall + DEATH_HOLD.move).toFixed(2)} / ${(ROUND_HOLD.fall + ROUND_HOLD.move).toFixed(2)} / `
+  + `${(stretched.fall + stretched.move).toFixed(2)} — worst miss ${Math.max(errDeath, errRound, errStretch).toFixed(4)}s on a `
+  + `${LEVER_STEP}s grid; the lens opens at ${swDeath.fovFrom.toFixed(1)}°/${swRound.fovFrom.toFixed(1)}° and closes to `
+  + `${swDeath.fovAtEnd.toFixed(1)}°/${swRound.fovAtEnd.toFixed(1)}°`);
+
+// The two shipped clocks, held against each other rather than against an
+// instant. The round beat is the shorter shot and must be AHEAD of the death
+// hold everywhere and strictly ahead somewhere; the two lenses must not overlap.
+const pairs = swRound.frames.map((r, i) => ({ t: r.t, r, d: swDeath.frames[i] })).filter((p) => p.d);
+const everAhead = pairs.filter((p) => p.r.moved > p.d.moved + 1e-9);
+const everBehind = pairs.filter((p) => p.r.moved < p.d.moved - 1e-9);
+const beatsDiffer = pairs.filter((p) => p.r.beat !== p.d.beat);
+const fovOverlap = pairs.filter((p) => p.r.fov >= p.d.fov);
+const gapMax = pairs.reduce((m, p) => Math.max(m, p.r.moved - p.d.moved), 0);
+const gapAt = pairs.reduce((b, p) => (p.r.moved - p.d.moved > b.r.moved - b.d.moved ? p : b), pairs[0]);
+check("AND THEY ARE STILL TWO CAMERAS: the round beat runs ahead of the death hold throughout and finishes first, on two lenses that never meet",
+  everAhead.length > 0 && everBehind.length === 0 && beatsDiffer.length > 0
+  && fovOverlap.length === 0
+  && swRound.moveEnds < swDeath.moveEnds - 0.2
+  && ROUND_HOLD.total < DEATH_HOLD.total - 0.2
   && atStretched.beat === "fall" && atStretched.moved === 0,
-  `at t=${LEVER_T.toFixed(2)}s the death hold is in "${atDeath.beat}" (moved ${atDeath.moved.toFixed(2)}, fov ${atDeath.fov.toFixed(1)}°), `
-  + `the round beat is in "${atRound.beat}" (moved ${atRound.moved.toFixed(2)}, fov ${atRound.fov.toFixed(1)}°), `
-  + `and a clock stretched 4x on the same frame falls back to "${atStretched.beat}" (moved ${atStretched.moved.toFixed(2)}) — `
-  + `so the clock is read and not decoration`);
+  `the round beat is ahead on ${everAhead.length} of ${pairs.length} swept frames and behind on ${everBehind.length}, `
+  + `by at most ${gapMax.toFixed(3)} of the move at t=${gapAt.t.toFixed(3)}s; they sit in different beats for `
+  + `${(beatsDiffer.length * LEVER_STEP).toFixed(2)}s (${beatsDiffer[0] ? beatsDiffer[0].t.toFixed(2) : "?"}-`
+  + `${beatsDiffer.length ? beatsDiffer[beatsDiffer.length - 1].t.toFixed(2) : "?"}s); the round's move is done at `
+  + `${swRound.moveEnds.toFixed(2)}s against ${swDeath.moveEnds.toFixed(2)}s and the whole beat at `
+  + `${ROUND_HOLD.total.toFixed(2)}s against ${DEATH_HOLD.total.toFixed(2)}s; the round lens is tighter on `
+  + `${pairs.length - fovOverlap.length} of ${pairs.length} frames; and a clock stretched ${STRETCH}x is still in "${atStretched.beat}" (moved `
+  + `${atStretched.moved.toFixed(2)}) at t=${LEVER_T.toFixed(2)}s. `
+  + `NOT ASSERTED, AND SAID SO: the two 'moved' curves are only ${gapMax.toFixed(2)} apart at their widest, because `
+  + `the two stills are now within ${Math.abs(DEATH_HOLD.fall - ROUND_HOLD.fall).toFixed(2)}s of each other by measurement and not by accident — the old form of this `
+  + `claim asked for 0.2 at a hard-coded t=${LEVER_T.toFixed(2)}s and that is why it went red`);
 
 // ============================================================
 // 13. EVERY LOSER WATCHES IT TOO — and the man who was inside his OWN death
@@ -916,11 +1037,11 @@ check("THE BEAT FITS INSIDE THE BREAK THE SERVER ALREADY TAKES, so the next roun
     ? `${ROUND_HOLD.total.toFixed(2)}s of beat inside the ${breakSec.toFixed(2)}s break measured on this run — `
       + `${(breakSec - ROUND_HOLD.total).toFixed(2)}s of slack. The server set nextRoundAt before this armed and the beat sends nothing.`
     : "no round break in the recording to measure against");
-const slowBeat = replayBeat(duel, { viewerId: winnerId, victimId: fell.id, killerId: fell.killer, zone: fell.zone, fps: 12 });
-check("the same beat at 12 fps as at 60",
+const slowBeat = replayBeat(duel, { viewerId: winnerId, victimId: fell.id, killerId: fell.killer, zone: fell.zone, fps: SLOW_FPS });
+check(`the same beat at ${SLOW_FPS} fps as at ${FAST_FPS}`,
   watchedFor(slowBeat) >= ROUND_HOLD.total - 1 / 6
   && slowBeat.reduce((m, f) => (f.beat ? f.since : m), 0) <= ROUND_HOLD.total + 1 / 6,
-  `${watchedFor(slowBeat).toFixed(2)}s watched at 12 fps against ${watched.toFixed(2)}s at 60`);
+  `${watchedFor(slowBeat).toFixed(2)}s watched at ${SLOW_FPS} fps against ${watched.toFixed(2)}s at ${FAST_FPS}`);
 
 // ============================================================
 // 15. THE CUT, HAMMERED. `roundOpening` over a full circle of spray bearings,

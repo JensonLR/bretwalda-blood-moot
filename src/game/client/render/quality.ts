@@ -1009,6 +1009,40 @@ export interface FrameContext {
   localState: PlayerState | null;
   mood: Mood;
   quality: QualitySettings;
+  /**
+   * Counts authoritative snapshots as they reach the page. It exists so the
+   * interpolator can tell "the server says this man has not moved" from "we
+   * have heard nothing about this man", which are the same bytes and opposite
+   * facts.
+   *
+   * The wire carries no per-player timestamp, so `ingestNet` decides a record
+   * is new by comparing it with the one it holds. A man standing still,
+   * staggered, or DEAD therefore emits nothing the interpolator can see, its
+   * newest stamp freezes while the render clock runs on, and the extrapolator
+   * carries the body down its last segment velocity to the cap. Measured on a
+   * 40 s seven-bot fight: a corpse is byte-identical on 99-100% of ticks, a
+   * staggered man on 26-35%, and freeze runs reach 7400 ms.
+   *
+   * A snapshot is a whole-room broadcast, so its arrival is a fact about the
+   * ROOM, not about one player: when this number has moved, every player in
+   * that snapshot has been freshly confirmed, including the ones who did not
+   * move. When it has NOT moved, the wire really is silent and the
+   * extrapolator should cover the hole exactly as it does today.
+   *
+   * IT COUNTS PACKETS, AND IT HAS TO BE SAID OUT LOUD BECAUSE IT ONCE DID NOT.
+   * The first implementation incremented once per committed `roomState` object,
+   * which is a different quantity: `emote`, `last_stand` and a bare `countdown`
+   * tick all commit a fresh record with no player positions on it, and each one
+   * advanced this and put a phantom sample on every still man's grid. It is now
+   * stamped in `page.tsx`'s message handler, which is the only place that can
+   * see which messages carried a snapshot. `tools/janktest.mjs --phases=epoch`
+   * holds the number against the socket and prints the difference.
+   *
+   * Optional because only the live fight loop has a wire. The summary stage
+   * (`summary.ts`) and the armoury (`armouryStage.ts`) pose frozen records off
+   * no socket at all, and they leave this undefined to keep the old behaviour.
+   */
+  wireEpoch?: number;
 }
 
 /** Every module returns a handle shaped like this. */

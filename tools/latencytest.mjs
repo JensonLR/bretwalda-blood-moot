@@ -5,8 +5,15 @@
 //   node tools/latencytest.mjs            # everything
 //   node tools/latencytest.mjs tick       # server tick regularity
 //   node tools/latencytest.mjs judder     # client interpolation trace
-//   node tools/latencytest.mjs input      # end-to-end input latency
-//   node tools/latencytest.mjs live       # the production server
+//
+// `input` and `live` USED TO BE LISTED HERE AND NEITHER EXISTS. The dispatcher
+// at the foot of this file handles `tick`, `judder` and `all`, and anything
+// else fell through it and exited 0 IN SILENCE — so `node tools/latencytest.mjs
+// input` printed nothing and returned success, which reads as "measured, clean"
+// to anyone who ran it. `tools/janktest.mjs` sent readers here for input
+// latency on its own verdict line for a round. An unknown command now fails
+// loudly; end-to-end input latency is measured by nothing in this repository
+// and that is a gap, not a phase.
 //
 // WHY THIS EXISTS. The owner said "the frame rate feels laggy". Three
 // different faults feel exactly like that and only one of them is the
@@ -519,6 +526,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     gaps = worst?.rawGaps?.length > 10 ? worst.rawGaps.slice(0, 240) : null;
   }
   if (CMD === "judder" || CMD === "all") await runJudder({ jitterGaps: gaps });
+  // A COMMAND THAT DOES NOTHING MUST NOT EXIT 0. See the note in the header.
+  if (CMD !== "tick" && CMD !== "judder" && CMD !== "all") {
+    console.log(`  "${CMD}" is not a phase of this harness. It handles: tick, judder, all.`);
+    console.log(`  Nothing was measured. Exiting non-zero rather than reporting a clean sheet.`);
+    process.exit(2);
+  }
   process.exit(0);
 }
 export { runTick, runJudder, traceWalk, loadAnim };

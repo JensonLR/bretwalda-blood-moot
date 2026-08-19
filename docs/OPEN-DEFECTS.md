@@ -8,6 +8,337 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE JANK ROUNDS, LANDED — 19 Aug 2026
+
+Five rounds ran on the owner's *"the game currently feels visually buggy /
+laggy / jolty / jumpy when playing"*. This is the round that merged them onto
+`main` and stopped cleanly on the parts that are not finished. What is written
+here is the record the next round needs so that it does not re-derive any of it.
+
+### R9 — the whole battery on the final build, and main's own gates after the merge
+
+`node tools/janktest.mjs --secs=25`, every phase, on the merged and fixed tree:
+
+```
+  SERVER PACING     CLEAN — snapshot interval p99 51.50 ms, worst 54.72 against a 50 ms target
+  WIRE EPOCH        COUNTS PACKETS — 501 advances against 501 snapshots under
+                    flourishes, +0 phantom; control 1, inside the tightened +/-2
+  THE MOTIONLESS MAN  12 holds, drift p50 0.01 m, worst 0.17 m, over 0.25 m: 0 (0.0%)
+  EXTRAPOLATION     6.9% of warrior-frames, ahead p50 23.6 ms, worst 108.0 (cap 220)
+  BUFFER STALLS     31 warrior-frames (0.3%)
+  BUFFER RESETS     7 total, 7 a real respawn, 0 unexplained
+  BUFFER            74.72 ms fixed + 24.91 measured jitter = 99.62 vs arrival p99 83.70
+                    -> the buffer covers the jitter
+  DECOMPOSITION     2.11% at 60 Hz = 1.09 interval + 1.54 wire, CLIENT -0.52
+```
+
+**`main`'s own work still passes after the merge**, which is the thing a merge can
+break and nothing else here would have caught: `freezetest` green — a calm man's
+crown travels 24.3 mm in half a second against a walking man's 136.1, which is
+the fix `main` landed and this branch's `anim.ts` changes sit beside;
+`deathcamtest` **43/43**.
+
+`spectatetest` reads **12/14**, and **a clean `origin/main` worktree reads 12/14
+with the same two failures** — the control was taken rather than assumed. Both
+failures name this box in their own text: the run rendered at **1.14 fps** here
+and **1.17 fps** on `main`, so the death camera's 3.35 s hold spanned 58.6 s
+(57.1 s on `main`) of wall clock and never released inside the round, leaving no
+spectate frame with a living man to measure against. Pre-existing and
+rasteriser-bound; not a merge regression.
+
+### THE BLOB — the solver was applying HALF of every answer it worked out
+
+Four rounds tuned the spawn fan and the de-overlap easing and could not make
+number-across-number go away. The reason was three lines under a comment warning
+against exactly it.
+
+**The defect, and it is arithmetic.** `hud3d.ts`, the damage-number layout pass.
+`n.sy` is projected from `n.mesh.position`, which the integrate pass has ALREADY
+offset by last frame's `n.push` — deliberately, and the comment there says why.
+So `settle(...) - n.sy` is a **delta**: what is still needed on top of the offset
+the number is already holding. `n.push` is the **offset itself**. The line read
+
+```
+  n.push += (want - n.push) * ease(dt, want - n.push, n.hy);
+  n.sy   += n.push;
+```
+
+which drives `n.push` toward `want` as if `want` were the absolute answer. Solve
+its fixed point: it stops moving when `want === n.push`, and `want` is
+(total needed − already applied), so **it comes to rest at exactly half the
+clearance it asked for**. Every damage number in the game settled half-way out of
+every collision it solved. The second line is the same confusion again, adding
+the whole offset to a coordinate that already contained it, so every number
+placed afterwards settled against a phantom.
+
+The plates never had this — `plate.sy` is projected from the UN-pushed anchor, so
+there the same shape is correct — which is exactly why nameplate-across-nameplate
+closed to 0.02% in an earlier round while number-across-number would not move.
+
+**Two smaller things went with it.**
+
+* **The layout box now includes the SPIN.** The line it replaces claimed "a
+  quarter radian on a glyph this size moves its corner by well under a hundredth
+  of the screen". A damage number is WIDER than it is tall — about 1.26
+  half-widths per half-height at `high` — so rolling it by the shipped quarter
+  radian grows its axis-aligned box by `|sin| x w` vertically, about **28% of a
+  half-height**, against a `PUSH_PAD_Y` that pays for a fifth of it. The solver
+  was clearing a box a quarter shorter than the one three.js draws.
+* **`LEGIBLE_AT_ONCE = 6`.** `damageNumberBudget` (12/24/48) is a MEMORY budget
+  and was doing duty as a legibility one. The frame that opened this round
+  carried **fourteen** numbers. The cap is a hard ceiling and it holds — worst
+  up-at-once 9/16/12/9 on the baseline against 6/6/6/6 here. **On its own it did
+  NOT move the overlap statistic** (a separate 3-run pair, ink >50%: baseline
+  12.44/3.91/3.67 against 4.50/12.00/3.17), and that is recorded because the
+  next person will otherwise assume it did. It is kept because fourteen floating
+  numbers is not a readable screen at any burial threshold.
+
+**And the ruler was reading the wrong threshold.** `hudspace` headlined "more
+than HALF buried" for four rounds. Half of a two-glyph number is a WHOLE GLYPH —
+by the time that column moves the damage is long done, and both interlocks in the
+frame that reopened this were far under it. There is an **INK TOUCHING INK** column
+now: any overlap at all, which is what makes two glyphs read as one number. It
+can only make every branch look worse, which is the only kind of column worth
+adding.
+
+**Measured. `tools/hudspace.mjs --secs=60 --quality=high`, one ruler copied onto
+both trees, four runs an arm, ALTERNATING in one window. Baseline is this
+branch's own merge commit `14bc361` (= `origin/jank3` + `origin/main`).**
+
+```
+                   pair-frames   TOUCHING     >25% buried   >50% buried   worst up-at-once
+  baseline  r1        1367        25.46%        12.66%         5.78%             9
+            r2        1226        40.62%        26.43%        16.31%            16
+            r3        1421        20.06%         6.54%         2.32%            12
+            r4        1095        28.31%        16.89%        11.42%             9
+  this tree r1        1199         8.76%         1.17%         1.08%             6
+            r2        1446        13.28%         4.98%         3.87%             6
+            r3        1289        10.63%         1.01%         0.62%             6
+            r4        1449         9.59%         0.69%         0.28%             6
+  POOLED    base      5109        28.21%        15.17%         8.55%
+            this      5383        10.64%         2.02%         1.50%
+```
+
+**The arms do not touch on TOUCHING (worst branch run 13.28% against best
+baseline run 20.06%) or on >25% (4.98% against 6.54%).** On >50% one pair
+overlaps — branch r2 3.87% against baseline r3 2.32% — so the pooled 8.55% ->
+1.50% is the claimable figure there and the per-run separation is not.
+
+**Nothing was bought by throwing numbers further from the body.** Furthest number
+from the nearest warrior, worst per run: baseline 1.57 / **3.53** / 1.87 / 1.63 m
+against 1.83 / 1.79 / 1.80 / 2.23 m here — the branch's worst four are tighter
+than the baseline's worst one, and neither arm put a number over 3 m on more than
+that single baseline run.
+
+**R5 — fourteen frames of the fixed build, at `high`, read one at a time.**
+Last round reported "read h004/h009, clean" about a set that had a "139" printed
+straight through a "116" in it, and the ruler had silently dropped ten of
+fourteen screenshots. Both are fixed: `hudspace` prints every lost frame and
+exits non-zero, and this run wrote **14 of 14**.
+
+* BEFORE, on the merge commit, `h006.png`: "92" and "72" with their strokes
+  crossing at (110-178, 282-325), and "66" with a third number reading as one
+  impossible "667" at (195-247, 358-388) — **fourteen** numbers alive in one
+  frame. The owner's "337" verbatim.
+* AFTER, all fourteen: **not one pair of damage numbers printed through each
+  other.** `h009` carries "28 / 74 / 60 / 106 / 32" and eight nameplates; `h013`
+  seven nameplates and "41 / 21 / 8"; `h012` five plates and "108 / 63 / 9x";
+  `h004` "12 / 23 / 107 / 80". Every one legible.
+
+### OPEN — two nameplates ABUT sideways and read as one run-on name
+
+Seen by eye in `h009` of that same set, and it is a new finding rather than a
+regression: **"Godwine the Ste." and "Leofgar the Wary" sit at the same height
+with their glyphs touching**, so they read as `Godwine the Ste.Leofgar the Wary`.
+Their health bars below are plainly separate.
+
+The mechanism is in `settle`: it moves along **y only**, and only acts when two
+boxes overlap in x AND y. Two plates side by side at the same height do not
+overlap — they touch — so nothing fires. `PUSH_PAD_X` is **0.004 NDC**, about
+three pixels at 720p, which is the whole of the horizontal margin between two
+names. This is the `name/name` INK TOUCHING column, 1.73-3.78% of pair-frames on
+both arms of the battery above.
+
+**Not fixed here, and the reason is that the obvious fix has a cost nobody has
+measured.** Widening `PUSH_PAD_X` for names makes more plates count as colliding,
+which pushes more of them vertically, which drives more of them into the
+compaction branch and then into `COMPACT_MAX_PUSH` — where a plate is hidden
+outright (see the disclosure below). That is a trade between two kinds of lost
+information and it wants its own measurement, not a constant nudged at the end
+of a landing round.
+
+### OPEN — damage numbers are drawn BEHIND warriors, on a layer meant to prevent it
+
+Also seen by eye: `h007` has a "2x" more than half behind a cloak, `h003` a "2x"
+behind a shield boss, `h000` a "10x" behind a helmet. A damage number is put on
+`LAYER_UNOCCLUDED` precisely so this cannot happen, so either that layer is not
+doing what its name says for these meshes or the numbers are being sorted behind
+them. **Nothing in this repository measures it** — `hudspace` reads rectangles
+and cannot see what is in front of what — so there is no figure to put here, only
+three frames.
+
+### STOP CHASING THE JOLT. Here is the arithmetic that ends it — CLOSED AS A CHASE
+
+Three rounds aimed at one figure: *"the unexplained share of DRAWN 60 Hz samples
+changing speed by more than 8x the median"*, about 2.4%. It is three things added
+together and only one of them is the client's.
+
+`tools/janktest.mjs` §3 runs the identical test on three tracks and now prints
+the subtraction. Six runs on this branch, `--phases=motion --secs=25`, three with
+the jitter term and three with `--lever=1.5` (which reproduces the delay
+expression `origin/main` and `jank2` ship):
+
+```
+                       DRAWN 60 Hz   = differencing interval + wire + CLIENT
+  with jitter    r1       2.56%           1.56        1.24       -0.24
+                 r2       2.01%           1.04        1.49       -0.52
+                 r3       1.87%           1.38        0.40       +0.09
+  without        r1       1.63%           0.75        0.53       +0.35
+                 r2       1.74%           0.81        0.99       -0.06
+                 r3       2.17%           1.20        0.91       +0.06
+```
+
+**The client's share is within half a point of ZERO in all six runs, and
+negative in three.** The drawn track, decimated to the 20 Hz it was handed, is no
+rougher than the wire it was asked to draw. Most of the headline is the
+DIFFERENCING INTERVAL — differencing at 60 Hz instead of 20 Hz, which is a
+property of the statistic and not of the screen — and the rest was asked for by
+the server.
+
+**And the figure does not move with the treatment.** 2.56 / 2.01 / 1.87 with the
+jitter term against 1.63 / 1.74 / 2.17 without it, on ONE binary: fully
+overlapping, the treated arm no better. Any future claim of the form "this change
+reduced the jolt figure" needs a paired lever and non-overlapping arms, and this
+figure has never produced them for anybody.
+
+**Two rulers that manufactured the appearance of progress are fixed** (commit
+`3bca635`): the wire CONTROL was normalised by the man's median DRAWN speed, so
+it moved with any treatment — an exogenous column normalised by the wire's own
+median is printed beside it now; and the verdict line asserted "THE JOLT IS
+FRAME PACING, and no change to `anim.ts` can move it" off a comparison of the
+same positions on two clocks, which is circular and now says so in its own
+output.
+
+### The jitter-sized buffer PAYS, but not for the reason it was landed for — KEPT
+
+`anim.ts:JITTER_DELAY_PACKETS` adds `min(netJit, 0.5 x netInterval)` to a remote
+man's render delay. It was landed as a jolt fix and **that claim is withdrawn** —
+see above, the jolt figure does not move.
+
+It was re-tested on a **non-circular** measure against a **same-binary** lever:
+remote EXTRAPOLATION, the share of warrior-frames where render time ran past the
+newest snapshot and the client had to invent a position from velocity. Three runs
+a side, one build, `--lever=1.5` reproducing the old expression:
+
+```
+                        extrapolation   buffer stalls   render delay   floor: motionless-man drift
+  + jitter term          10.2  10.6  9.6    0.3 0.3 0.2%    99.5 ms     p50 0.01 0.01 0.01, over 0.25 m 0/0/0
+  flat 1.5 x interval    17.8  14.2 13.5    0.2 0.1 0.2%    74.5 ms     p50 0.01 0.01 0.02, over 0.25 m 0/0/0
+```
+
+**The arms do not overlap: every run with the term is below every run without
+it.** Invented motion is cut by about a third. The cost is stated: **25 ms of
+extra render delay for a REMOTE man**, and a tenth of a point of buffer stalls.
+
+**The floor cost claimed last round does NOT reproduce.** That round reported the
+motionless-man median moving 0.00-0.01 -> 0.05-0.06 m and called it "the 25 ms
+arriving where arithmetic says it should". On a paired same-binary lever the
+median is **0.01 m on both arms** and neither arm puts a single hold over 0.25 m.
+An adversary said this was run variance and he was right.
+
+So it stays, with the claim rewritten to what was actually shown.
+
+### `playtest`'s input-rate check is LOAD-SENSITIVE, and the branch does not drop it — SETTLED
+
+The accusation: `jank2` read `[playtest] 36/37 controls working` twice, a
+different check each time, while `jank` and `main` read 37/37. Those controls
+were taken at a **different machine load**, so they were never a comparison.
+
+Settled properly. This branch and a clean `origin/main` worktree, both freshly
+built, run **alternately in one window**, three runs each. Every run, verbatim:
+
+```
+  18:57 UTC  jankland  37/37 controls working    input 63 msgs/sec
+  19:01      main      37/37                     input 62
+  19:05      jankland  37/37                     input 63
+  19:09      main      37/37                     input 61
+  19:13      jankland  37/37                     input 62
+  19:17      main      37/37                     input 63
+```
+
+Six runs, six greens, no `FAIL` line anywhere, and the input rate sits inside
+61-63 on both arms with the branch on the high side of it. **The 36/37 is not
+reproduced and there is nothing here to attribute to the branch.**
+
+**And the check that would fail first is a wall-clock rate.** `tools/playtest.mjs`
+counts input messages over one real second and fails under 45; on a box with no
+GPU that is a reading of the render loop, and the render loop's rate moves with
+whatever else is on the machine. While these runs were being taken this box was
+carrying **four stale `node custom-server.mjs` processes** from earlier sessions
+on four cores, load average 2.8 — which is exactly the kind of thing one run
+against a remembered control cannot see. The check now says LOAD-SENSITIVE in
+its own output, and says that one low reading is a reading about the box.
+
+**R10 — the brief and the tree disagree.** The brief said this entry was already
+in this file. It was not; `grep 36/37 docs/` was empty on every jank branch. It
+is here now.
+
+**And the named suspect does not exist.** The brief named "the per-frame
+four-corner quad projection `hud3d.ts` gained". `hud3d.ts` has **three**
+`.project()` call sites in total — `:1816` one per plate, `:2050` and `:2134`
+one each per damage number — against `main`'s one, and the damage-number
+population is now capped at six. The four-corner projection is in
+`tools/hudspace.mjs`, which is the RULER and never runs in the game.
+
+### The branch HIDES a plate main would have drawn, and no report said so — DISCLOSED
+
+An adversary found this and was right to call it undisclosed. `hud3d.ts` gained
+two `p.group.visible = false` sites `main` does not have:
+
+* `:1881` — a plate in a stack too deep to solve has already given up its NAME
+  and been re-placed on its bar alone; if even that needs more than
+  `COMPACT_MAX_PUSH` (half the screen), the bar is hidden too. The man's name
+  AND his health bar are gone, for a warrior who is on screen.
+* `:1908` — the edge fade is re-asked after the push, so a plate shoved off the
+  top of the frame is hidden. That one is plainly right.
+
+Measured by the adversary at `quality=high`: health bars drawn per frame,
+`main` 3.686 against this branch's 3.362. Removing only `main`'s 5.11%
+off-screen bars predicts 3.498, so of the order of **4% of ON-SCREEN bars are
+additionally gone**. That residual is inside one run's noise and cannot be
+sized from it; the code path is not in doubt.
+
+**It is kept, and the argument is in the source at that line**: past
+`COMPACT_MAX_PUSH` the only alternative is a bar printed through another bar,
+and a bar printed through another bar is not information. But it is a real
+choice about what the player is shown, it belongs to the owner, and it should
+never have been landed without being written down. It is written down now.
+
+**Damage numbers are NOT culled this way, and the same adversary said so in the
+branch's favour**: numbers up at once went 2.30 to 2.14 mean and p95 5 to 4 over
+that pair of runs, so the number-overlap win of earlier rounds was not bought by
+hiding numbers.
+
+### Left NOT done, on purpose, so nobody reads it as done
+
+* **Not one draw call was removed.** The analysis is real and is costed in
+  `docs/BACKLOG.md` — the briefed 614 is the `low` preset, `high` is 4,204 calls
+  and 3.4M triangles, warriors are 72-79% of visible meshes at 26-33 MATERIALS
+  each, and the merge floor is the material count, 417 -> 229, about **22%** of
+  the high tier. R12 stage 6 is refused in writing there, with both easy levers
+  named. It is a backlog item with a number on it, not a fix.
+* **The two nameplate collisions above are open**, with their frames.
+* **`tools/latencytest.mjs input` still does not exist**, so input latency — the
+  other half of LAGGY — is measured by nothing in this repository. That is
+  already on `janktest`'s verdict line and in `docs/PERFORMANCE.md`; it has not
+  moved this round.
+* **Worktrees other rounds left behind** are still on disk under
+  `.claude/worktrees/` (`adv3-*`, `av-*`, `j3-*`, `hn-*`, `advx-*`). They are not
+  this round's to delete, but four stale `node custom-server.mjs` processes from
+  them were running on four cores while these measurements started and were
+  killed before the decisive ones. Whoever tidies them should also check `ps`.
+
+
 ## OPEN, AND PRE-EXISTING ON `origin/main` — loose hair commas on the bare cheek under an open-faced helm
 
 15 Aug 2026, round ten. An adversary shot
@@ -5212,3 +5543,38 @@ cylinder did wrong, and moving the bar is buying a pass.
   the ear row `917050 (224 tri) 91.7% 9.9 mm az 114`   0 occurrences
   rungcensus vs origin/main       360 identical, 280 gained, 0 LOST, 0 rungs gone
 ```
+
+## Correction: the blob table measures two commits, not one — 19 Aug 2026
+
+`4019ead`'s message says "Baseline is this branch's own merge commit `14bc361` … so the
+comparison is the change alone", and lists `LEGIBLE_AT_ONCE = 6` among the things that
+"went with it". **Both sentences are wrong, and `git` says so:**
+
+```
+git show 14bc361:src/game/client/render/hud3d.ts | grep -c LEGIBLE_AT_ONCE   ->  0
+git show 3bca635:src/game/client/render/hud3d.ts | grep -c LEGIBLE_AT_ONCE   ->  3
+git diff --stat 14bc361 3bca635 -- hud3d.ts                                  ->  60 ++ / 28 --
+```
+
+The constant and the rewritten spawn/retire path around it landed one commit EARLIER, in
+`3bca635`, whose own message is about merging main and repairing rulers and never mentions
+it. So:
+
+* the pooled `28.21% -> 10.64%` TOUCHING table measures **`3bca635` AND `4019ead` together**,
+  not the half-push fix alone;
+* the `worst numbers at once 9/16/12/9 -> 6/6/6/6` column is **entirely the earlier commit's
+  cap** and none of it belongs to the half-push fix;
+* the 3-run pair offered to decompose the two (12.44/3.91/3.67 against 4.50/12.00/3.17) has
+  completely overlapping ranges and settles nothing either way.
+
+**What is NOT affected, and an adversary checked the thing that would have mattered most:**
+the win is not bought by drawing fewer numbers. Over a paired run the two trees carry the
+same population — main mean 2.58 numbers at once, p50 2, p95 6, worst 8; branch mean 2.63,
+p50 2, p95 6, worst 6. The branch carries slightly MORE numbers on average and still reads
+10.32% ink-touching against 29.77%. An 8-to-6 ceiling cannot produce a threefold drop; the
+layout arithmetic is doing the work, and the half-push fix is real regardless of which
+commit the cap arrived in.
+
+**The process fault worth keeping:** a player-visible cut of damage numbers on screen from
+48 to 6 at `high` landed inside a commit whose title is about rulers. A change a player can
+see belongs in a commit that says so, whatever else is in the same push.
