@@ -207,3 +207,62 @@ survive to the end.
 6. **Put deferrals on the verdict line** (R4).
 7. **Commit with the incident in the message**, so the next person inherits the
    reasoning and not just the diff.
+
+## R11 — Build in the order a thing is actually made
+
+The owner, 15 Aug 2026:
+
+> "I feel like when we build things we need progressive refinement: basic shape,
+> joints + proportions, muscles + silhouette, materials + shadows, motion +
+> weight & finally lighting + world detail."
+
+That is a sculptor's order and it is also a debugging order, which is why it
+belongs here rather than in a style guide. Each stage is only meaningful once the
+one before it is right, and **a defect at stage N cannot be fixed at stage N+2.**
+
+| # | stage | the question it answers |
+|---|---|---|
+| 1 | basic shape | is the mass in the right place at all |
+| 2 | joints and proportions | does it articulate where a body articulates |
+| 3 | muscles and silhouette | is it readable as a black shape at fight distance |
+| 4 | materials and shadows | does the surface say what it is made of |
+| 5 | motion and weight | does it move like it has mass |
+| 6 | lighting and world detail | does it sit in the scene |
+
+### Why this is a process rule and not a preference
+
+This repository has eighteen recorded instances of a measurement answering the
+wrong question, and a striking number of them are STAGE ERRORS — a stage-4 or
+stage-6 answer given to a stage-1 or stage-3 problem:
+
+* **The beard, four passes running.** The owner said it read "flat", then "really
+  sharp & thin / folded in areas". Four passes answered with GEOMETRY — stage 1
+  and 2 — because a beard looks like the shape it is made of. The actual fault
+  was that the SUBSTANCE had no direction in it: hair was dressed in `wool` for
+  the whole life of the project. A stage-4 defect, answered at stage 1, four
+  times. `tools/hairmap.mjs` exists because of it.
+* **The ear.** Seven rounds of helm geometry, and the fault was that `helmForm`
+  is a 12 mm low-pass with nothing under a 45 mm radius — the block a plate is
+  beaten over HAS NO EAR ON IT. Stage 1, and every pass before it was arguing
+  about stage 4.
+* **The Saxon cloak.** Faction kit shipped `--gilt` flat on cloth. `--gilt` is a
+  MAP TOKEN whose own CSS calls it "the brightest thing on the map", ~20 L-points
+  above every other flat field in the game. It clipped 30.9% of the body at the
+  rear bearing. A stage-6 value used as a stage-4 material.
+
+### How to use it
+
+**Name the stage before you fix anything.** If the owner reports "it looks
+wrong", the first job is deciding WHICH STAGE is wrong, and the answer is
+frequently earlier than it feels. A silhouette problem cannot be lit away; a
+material problem cannot be re-modelled away.
+
+**A ruler belongs to a stage too.** `helmclash` §1 LAYERS is stage 1 (is the mass
+inside the other mass). `hairmap` is stage 4 (does the surface have a lay).
+`weightprobe` is stage 5. When a gate is green and the render is wrong, ask which
+stage the gate lives at and which stage the defect lives at — that mismatch has
+been the answer eighteen times.
+
+**Do not skip forward to buy a demo.** Lighting and world detail flatter
+everything, which is exactly why they come last: they hide stage-3 faults from
+the person checking, and hide them until a player sees the thing move.
