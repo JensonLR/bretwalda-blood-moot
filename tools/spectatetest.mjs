@@ -593,6 +593,48 @@ function focusByRule(players, meId) {
 // wants when the two cannot be told apart.
 //
 /**
+ * THE WHOLE COMPARISON, in one place because §2 and §3 both make it.
+ *
+ * `frames` is one list of living men per frame; `aimNear` is how far the lens's
+ * own aim sat from the nearest living man on those same frames, in the same
+ * order. Returns everything the two claims print and the verdict they assert.
+ *
+ * WHICH STATISTICS IT IS ASSERTED ON, AND WHY THE MEDIAN IS NOT ONE OF THEM.
+ * The rule aims at the MIDPOINT of the two men nearest each other, so the aim is
+ * never ON a man — it sits half a pair-separation away, about 0.8 m, on every
+ * frame including the calmest. A point parked in the middle of a brawl is 0.0 m
+ * from a man for as long as the brawl stays there, so it wins the MEDIAN against
+ * any midpoint-aiming lens whatever the lens does. Measured on the default seed:
+ * best fixed p50 0.58 m against the lens's 0.84 m, while at p90 the lens is
+ * 1.67 m against 2.30 m. A statistic a correct tracker must lose is not a test
+ * of tracking, so the median is PRINTED and NOT ASSERTED, and the two tail
+ * statistics — where a fixed point pays for the fight walking away from it —
+ * are the claim.
+ *
+ * §2 runs on every battery run and §3 only reaches its case on a box with a GPU,
+ * so this lives here rather than twice: the arithmetic §3 depends on is
+ * exercised by §2 whatever §3 manages to reach.
+ */
+function scoreTracking(frames, aimNear) {
+  const fixedBest = bestFixedAim(frames);
+  const originSeries = nearSeries(0, 0, frames);
+  const aim = { p50: median(aimNear), p90: p90of(aimNear), mean: meanOf(aimNear) };
+  return {
+    aim, fixedBest, originSeries,
+    origin: { p50: median(originSeries), p90: p90of(originSeries), mean: meanOf(originSeries) },
+    tracks: aim.p90 < fixedBest.p90.p90 && aim.mean < fixedBest.mean.mean,
+  };
+}
+/** How far a lens's aim travelled — a fight that stands still cannot be told from a lens that does. */
+function aimTravel(rows) {
+  let d = 0;
+  for (let i = 1; i < rows.length; i++) d += Math.hypot(rows[i].aim.x - rows[i - 1].aim.x, rows[i].aim.z - rows[i - 1].aim.z);
+  return d;
+}
+/** "x, z", for the fixed points printed beside their statistics. */
+const xz = (c) => `${c.x.toFixed(2)}, ${c.z.toFixed(2)}`;
+
+/**
  * Distance from a fixed point to the nearest living man, one number per frame.
  * `frames` is a list of frames, each a list of living men as { x, z }.
  */
@@ -821,26 +863,10 @@ async function phaseMoot() {
   // THE COMPARISON, on the settled frames and on both sides of it identically:
   // how near the aim kept to a living man, against how near the BEST point that
   // never moves could have kept over the same frames.
-  const aimNear = tail.map((r) => r.near);
-  const fixedBest = bestFixedAim(tailFrames);
-  const aimP50 = median(aimNear), aimP90 = p90of(aimNear), aimMean = meanOf(aimNear);
-  // WHICH STATISTICS THIS IS ASSERTED ON, AND WHY THE MEDIAN IS NOT ONE OF THEM.
-  // The rule aims at the MIDPOINT of the two men nearest each other, so the aim
-  // is never ON a man — it sits half a pair-separation away, about 0.8 m, on
-  // every frame including the calmest. A point parked in the middle of a brawl
-  // is 0.0 m from a man for as long as the brawl stays there, so it wins the
-  // MEDIAN against any midpoint-aiming lens whatever the lens does. Measured on
-  // the default seed: best fixed p50 0.58 m against the lens's 0.84 m, while the
-  // same point is 4.41 m at p90 against the lens's 1.67 m. A statistic a
-  // correct tracker must lose is not a test of tracking, so the median is
-  // PRINTED and NOT ASSERTED, and the two tail statistics — where a fixed point
-  // pays for the fight walking away from it — are the claim.
-  const tracks = aimP90 < fixedBest.p90.p90 && aimMean < fixedBest.mean.mean;
-  const xz = (q) => `${q.x.toFixed(2)}, ${q.z.toFixed(2)}`;
-  const originSeries = nearSeries(0, 0, tailFrames);
-  /** How far the point the lens is following travelled — a static fight cannot be told from a static lens. */
-  let fightPath = 0;
-  for (let i = 1; i < tail.length; i++) fightPath += Math.hypot(tail[i].aim.x - tail[i - 1].aim.x, tail[i].aim.z - tail[i - 1].aim.z);
+  const score = scoreTracking(tailFrames, tail.map((r) => r.near));
+  const { aim: aimS, fixedBest, origin: originS, tracks } = score;
+  const aimP50 = aimS.p50, aimP90 = aimS.p90, aimMean = aimS.mean;
+  const fightPath = aimTravel(tail);
 
   console.log(`\n  ${rows.length} snapshots of a dead man watching a live fight.`);
   console.log(`    aim off the ray the lens looks down   worst ${offWorst === Infinity ? "BEHIND THE LENS" : `${offWorst.toFixed(4)} m`}`);
@@ -849,8 +875,8 @@ async function phaseMoot() {
   console.log(`    the BEST point that never moves       p50 ${fixedBest.p50.p50.toFixed(2)} m (at ${xz(fixedBest.p50)})   `
     + `p90 ${fixedBest.p90.p90.toFixed(2)} m (at ${xz(fixedBest.p90)})   mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)})`);
   console.log(`      each of those three is a DIFFERENT point, each the best there is for its own statistic`);
-  console.log(`    the middle of the ring, for the record  p50 ${median(originSeries).toFixed(2)} m   `
-    + `p90 ${p90of(originSeries).toFixed(2)} m   mean ${meanOf(originSeries).toFixed(2)} m   at (0.00, 0.00)`);
+  console.log(`    the middle of the ring, for the record  p50 ${originS.p50.toFixed(2)} m   `
+    + `p90 ${originS.p90.toFixed(2)} m   mean ${originS.mean.toFixed(2)} m   at (0.00, 0.00)`);
   console.log(`    the aim's own travel over those frames  ${fightPath.toFixed(2)} m`);
   console.log(`    lens height                           up to ${yHi.toFixed(3)} m`);
   console.log(`    lens radius from the middle           up to ${rHi.toFixed(2)} m, palisade at ${q(CONSTS.palisade, 1)}`);
@@ -878,7 +904,7 @@ async function phaseMoot() {
     + `living man; the best point that never moves manages p90 ${fixedBest.p90.p90.toFixed(2)} m (at ${xz(fixedBest.p90)}) and `
     + `mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)}), each searched for on the ground this fight used with `
     + `(0,0) among the candidates and each optimised for its own statistic — the middle of the ring itself is p90 `
-    + `${p90of(originSeries).toFixed(2)} m, mean ${meanOf(originSeries).toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m over `
+    + `${originS.p90.toFixed(2)} m, mean ${originS.mean.toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m over `
     + `those frames. NOT ASSERTED AND PRINTED ANYWAY: the median, ${aimP50.toFixed(2)} m against the best fixed point's `
     + `${fixedBest.p50.p50.toFixed(2)} m — a lens aiming at the midpoint of a PAIR is never on a man, and a point parked in a brawl `
     + `is on one, so the median belongs to the fixed point by construction and says nothing about tracking. `
@@ -1183,13 +1209,9 @@ async function phaseMatch() {
     // ground is searched for here too, per statistic, over the frames the client
     // actually produced.
     const specFrames = spec.map((x) => x.men.filter((m) => !m.dead).map((m) => ({ x: m.x, z: m.z })));
-    const fixedBest = bestFixedAim(specFrames);
-    const originSeries = nearSeries(0, 0, specFrames);
-    const xz = (q) => `${q.x.toFixed(2)}, ${q.z.toFixed(2)}`;
-    const aimP90 = p90of(near), aimMean = meanOf(near);
-    const tracks = aimP90 < fixedBest.p90.p90 && aimMean < fixedBest.mean.mean;
-    let fightPath = 0;
-    for (let i = 1; i < rows.length; i++) fightPath += Math.hypot(rows[i].aim.x - rows[i - 1].aim.x, rows[i].aim.z - rows[i - 1].aim.z);
+    const { aim: aimS, fixedBest, origin: originS, tracks } = scoreTracking(specFrames, near);
+    const aimP90 = aimS.p90, aimMean = aimS.mean;
+    const fightPath = aimTravel(rows);
 
     console.log(`\n  ${rows.length} spectate samples with the fight still running.`);
     console.log(`    aim vs the rule, computed here   p50 ${pct(miss, 0.5).toFixed(2)} m   p90 ${pct(miss, 0.9).toFixed(2)} m   worst ${Math.max(...miss).toFixed(2)} m`);
@@ -1197,7 +1219,7 @@ async function phaseMatch() {
     console.log(`    lens height                      ${yLo.toFixed(3)} - ${yHi.toFixed(3)} m`);
     console.log(`    the BEST point that never moves   p90 ${fixedBest.p90.p90.toFixed(2)} m (at ${xz(fixedBest.p90)})   `
       + `mean ${fixedBest.mean.mean.toFixed(2)} m (at ${xz(fixedBest.mean)})   [median not asserted: ${fixedBest.p50.p50.toFixed(2)} m at ${xz(fixedBest.p50)}]`);
-    console.log(`    the middle of the ring            p90 ${p90of(originSeries).toFixed(2)} m   mean ${meanOf(originSeries).toFixed(2)} m   at (0.00, 0.00)`);
+    console.log(`    the middle of the ring            p90 ${originS.p90.toFixed(2)} m   mean ${originS.mean.toFixed(2)} m   at (0.00, 0.00)`);
     console.log(`    the aim's own travel              ${fightPath.toFixed(2)} m`);
     console.log(`    lens height                      ${yLo.toFixed(3)} - ${yHi.toFixed(3)} m`);
     console.log(`    lens radius from the middle      up to ${rHi.toFixed(2)} m, against the palisade at ${q(CONSTS.palisade, 1)}\n`);
@@ -1211,7 +1233,7 @@ async function phaseMatch() {
       `over ${rows.length} samples the aim kept p90 ${aimP90.toFixed(2)} m and mean ${aimMean.toFixed(2)} m from the nearest living man; `
         + `the best point that never moves manages p90 ${fixedBest.p90.p90.toFixed(2)} m and mean ${fixedBest.mean.mean.toFixed(2)} m, `
         + `each searched for over the ground this fight used with (0,0) among the candidates; the middle of the ring is p90 `
-        + `${p90of(originSeries).toFixed(2)} m, mean ${meanOf(originSeries).toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m. `
+        + `${originS.p90.toFixed(2)} m, mean ${originS.mean.toFixed(2)} m. The aim travelled ${fightPath.toFixed(2)} m. `
         + `The median is printed and not asserted, for the reason §2 gives at the same claim. The reading this replaces — `
         + `"0.61 m from the nearest living man" — was taken from an instrument that reported the origin on every frame`);
     // THE BAR IS READ OUT OF camera.ts. It used to be the literal 2.05 — a number
