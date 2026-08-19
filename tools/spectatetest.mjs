@@ -10,6 +10,8 @@
 //   node tools/spectatetest.mjs --seed=N        §2's die; the default is printed on every run
 //   node tools/spectatetest.mjs --fixed-aim     §2 aimed at a point that never moves — the
 //                                               camera before the change, kept as the failure
+//   node tools/spectatetest.mjs --lever=blindconst   every constant read out of another file
+//                                               fails, so nothing stale can be printed in its place
 //
 // §2 IS DETERMINISTIC, AND IT WAS NOT WHEN IT SHIPPED. This is worth the space
 // because the first cut of this phase was put into `npm test` while it failed
