@@ -1282,6 +1282,58 @@ async function main() {
         }
         result.rate8 = tot;
 
+        // ---- THE FLOOR, MEASURED HERE INSTEAD OF IN SOMEBODY ELSE'S TOOL ----
+        //
+        // THE MOTIONLESS MAN. This is the check that caught the biggest defect
+        // this harness has ever been pointed at, and it was an ADVERSARY'S
+        // private ruler, not this file's — which meant every round since has
+        // been asked to "not trade the floor" against a number it could not
+        // reproduce. It is here now.
+        //
+        // Find every stretch where the WIRE POSITION DID NOT CHANGE for at
+        // least 800 ms — the server saying, repeatedly, "he is exactly there" —
+        // and measure how far the DRAWN man wandered from where he was when the
+        // stretch began. A correct interpolator draws a still man still. The
+        // defect it was written for was `ingestNet` deciding a packet was new by
+        // asking whether the man had MOVED, so a motionless man read as a
+        // silent wire, got extrapolated to the cap and snapped back:
+        //
+        //     origin/main   p50 0.053 m   worst 0.570   25% of holds over 0.25
+        //     after the fix p50 0.006     worst 0.185    0%
+        //
+        // Anything above a couple of centimetres here is that defect returning,
+        // whatever else moved.
+        const HOLD_MS = 800;
+        const drift = [];
+        let holds = 0;
+        for (const m of perMan) {
+          const ss = r.rec[m.id];
+          let i = 0;
+          while (i < ss.length) {
+            let j = i + 1;
+            while (j < ss.length && ss[j].wx === ss[i].wx && ss[j].wz === ss[i].wz) j++;
+            if (ss[j - 1].t - ss[i].t >= HOLD_MS) {
+              holds++;
+              let worst = 0;
+              for (let k = i; k < j; k++) worst = Math.max(worst, Math.hypot(ss[k].rx - ss[i].rx, ss[k].rz - ss[i].rz));
+              drift.push(worst);
+            }
+            i = j;
+          }
+        }
+        const dr = stats(drift);
+        say(`\n  THE MOTIONLESS MAN — how far the DRAWN man wanders while the WIRE says he has not moved.`);
+        say(`      Every stretch of >= ${HOLD_MS} ms in which the server repeated the same position, and the`);
+        say(`      furthest the drawn man got from where he stood when it began. A still man drawn still`);
+        say(`      reads 0. origin/main read p50 0.053 m, worst 0.570, with a quarter of holds over 0.25.`);
+        if (dr) {
+          say(`      ${holds} hold(s)   drift p50 ${f2(dr.p50)} m  p95 ${f2(dr.p95)} m  worst ${f2(dr.max)} m` +
+              `   over 0.25 m: ${drift.filter((x) => x > 0.25).length} (${(100 * drift.filter((x) => x > 0.25).length / drift.length).toFixed(1)}%)`);
+        } else {
+          say(`      NO HOLDS in this run — every man moved throughout. Not a clean sheet: nothing was tested.`);
+        }
+        result.drift = { holds, s: dr, over: drift.filter((x) => x > 0.25).length };
+
         say(`\n  JUMP — single frames that moved more than 4x and 8x the median frame's step`);
         for (const m of perMan.sort((a, b) => b.jumps8 - a.jumps8)) {
           say(`    ${m.id.padEnd(22)} >4x ${String(m.jumps4).padStart(5)}   >8x ${String(m.jumps8).padStart(5)}   >0.5 m in one frame ${String(m.hard).padStart(5)}   of ${m.frames} frames`);
