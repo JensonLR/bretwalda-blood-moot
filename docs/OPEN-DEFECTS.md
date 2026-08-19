@@ -15,6 +15,37 @@ laggy / jolty / jumpy when playing"*. This is the round that merged them onto
 `main` and stopped cleanly on the parts that are not finished. What is written
 here is the record the next round needs so that it does not re-derive any of it.
 
+### R9 — the whole battery on the final build, and main's own gates after the merge
+
+`node tools/janktest.mjs --secs=25`, every phase, on the merged and fixed tree:
+
+```
+  SERVER PACING     CLEAN — snapshot interval p99 51.50 ms, worst 54.72 against a 50 ms target
+  WIRE EPOCH        COUNTS PACKETS — 501 advances against 501 snapshots under
+                    flourishes, +0 phantom; control 1, inside the tightened +/-2
+  THE MOTIONLESS MAN  12 holds, drift p50 0.01 m, worst 0.17 m, over 0.25 m: 0 (0.0%)
+  EXTRAPOLATION     6.9% of warrior-frames, ahead p50 23.6 ms, worst 108.0 (cap 220)
+  BUFFER STALLS     31 warrior-frames (0.3%)
+  BUFFER RESETS     7 total, 7 a real respawn, 0 unexplained
+  BUFFER            74.72 ms fixed + 24.91 measured jitter = 99.62 vs arrival p99 83.70
+                    -> the buffer covers the jitter
+  DECOMPOSITION     2.11% at 60 Hz = 1.09 interval + 1.54 wire, CLIENT -0.52
+```
+
+**`main`'s own work still passes after the merge**, which is the thing a merge can
+break and nothing else here would have caught: `freezetest` green — a calm man's
+crown travels 24.3 mm in half a second against a walking man's 136.1, which is
+the fix `main` landed and this branch's `anim.ts` changes sit beside;
+`deathcamtest` **43/43**.
+
+`spectatetest` reads **12/14**, and **a clean `origin/main` worktree reads 12/14
+with the same two failures** — the control was taken rather than assumed. Both
+failures name this box in their own text: the run rendered at **1.14 fps** here
+and **1.17 fps** on `main`, so the death camera's 3.35 s hold spanned 58.6 s
+(57.1 s on `main`) of wall clock and never released inside the round, leaving no
+spectate frame with a living man to measure against. Pre-existing and
+rasteriser-bound; not a merge regression.
+
 ### THE BLOB — the solver was applying HALF of every answer it worked out
 
 Four rounds tuned the spawn fan and the de-overlap easing and could not make
@@ -287,6 +318,25 @@ never have been landed without being written down. It is written down now.
 branch's favour**: numbers up at once went 2.30 to 2.14 mean and p95 5 to 4 over
 that pair of runs, so the number-overlap win of earlier rounds was not bought by
 hiding numbers.
+
+### Left NOT done, on purpose, so nobody reads it as done
+
+* **Not one draw call was removed.** The analysis is real and is costed in
+  `docs/BACKLOG.md` — the briefed 614 is the `low` preset, `high` is 4,204 calls
+  and 3.4M triangles, warriors are 72-79% of visible meshes at 26-33 MATERIALS
+  each, and the merge floor is the material count, 417 -> 229, about **22%** of
+  the high tier. R12 stage 6 is refused in writing there, with both easy levers
+  named. It is a backlog item with a number on it, not a fix.
+* **The two nameplate collisions above are open**, with their frames.
+* **`tools/latencytest.mjs input` still does not exist**, so input latency — the
+  other half of LAGGY — is measured by nothing in this repository. That is
+  already on `janktest`'s verdict line and in `docs/PERFORMANCE.md`; it has not
+  moved this round.
+* **Worktrees other rounds left behind** are still on disk under
+  `.claude/worktrees/` (`adv3-*`, `av-*`, `j3-*`, `hn-*`, `advx-*`). They are not
+  this round's to delete, but four stale `node custom-server.mjs` processes from
+  them were running on four cores while these measurements started and were
+  killed before the decisive ones. Whoever tidies them should also check `ps`.
 
 
 ## OPEN, AND PRE-EXISTING ON `origin/main` — loose hair commas on the bare cheek under an open-faced helm
