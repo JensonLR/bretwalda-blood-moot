@@ -2330,7 +2330,21 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
   P.prx += -0.03 * w;
   P.cry += (0.14 + ready * 0.09) * carry * w;
   P.crx += (0.05 + ready * 0.06) * w;
-  P.arx += (0.16 - ready * 0.32) * w;
+  // THE REST POSE IS A LOW READY, NOT A MAN WITH HIS ARMS DOWN.
+  //
+  // The owner: "they go static, arms by their side". Measured on the committed
+  // pose of a calm warden, `arx` sat at 0.163 rad — nine degrees off hanging —
+  // with the elbow at 0.26. The same man on his guard carries 0.766 and 1.614.
+  // That gap IS the complaint: `ready` is zero whenever nothing is moving, and
+  // this layer read zero-ready as "standing in a field" when the man is standing
+  // in a shield wall between exchanges. He does not let his axe hang; he carries
+  // it low and in front, and the weight of it is the reason.
+  //
+  // Rebalanced so the BRACED end is bit-identical and only the rest end moves:
+  // 0.34 - 0.50·ready is 0.34 at ease and -0.16 on the guard, which is exactly
+  // what 0.16 - 0.32·ready gave at ready = 1. Every attack, block, stagger and
+  // walk pose in the game is reached at ready ≈ 1 and is therefore untouched.
+  P.arx += (0.34 - ready * 0.50) * w;
   const abduct = (st.spread + 0.10) * w;
   P.arz += abduct;
   // ...and the wrist gives it straight back to anything carried butt-down, so
@@ -2350,9 +2364,13 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
   P.hry += -0.09 * w;
   // Elbows. The off arm is always the more folded of the two — it is not
   // carrying anything long — and the weapon arm closes as the guard comes up.
-  const fold = 0.26 + ready * 0.40;
+  // Same rebalance, same invariant: 0.42 + 0.24·ready is 0.66 on the guard,
+  // which is what 0.26 + 0.40·ready gave there. `P.wx` below gives the fold
+  // straight back to the wrist, so a heavier resting elbow does not swing the
+  // weapon's carry angle by a degree — the axe comes up, its aim does not move.
+  const fold = 0.42 + ready * 0.24;
   P.arb += -fold * w;
-  P.olb += -(0.46 + ready * 0.46) * w;
+  P.olb += -(0.56 + ready * 0.36) * w;
   // The wrist gives back exactly what the elbow took. `rest` and `live` say
   // where the weapon *points*, and they were measured against an arm that was
   // one rigid stick from shoulder to fist; folding an elbow under them without
@@ -2371,16 +2389,68 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
  * is what the closeup has been photographing.
  */
 function idleLayer(t: number, seed: number, wounded: number, w: number): void {
-  const shift = Math.sin(t * 0.42 + seed);
+  // THE CLOCKS, and they are most of why this layer was not being seen.
+  //
+  // An amplitude is only half of whether motion reads; the other half is how
+  // much of the cycle a glance contains. This layer shipped on periods of 15.0 s
+  // (weight shift), 20.3 s (head drift) and 27.3 s (head nod). A man who is calm
+  // for one second in a fight — which is a long time to be calm in a fight — was
+  // being shown a FIFTEENTH of one swing of the slowest term, and a fifteenth of
+  // a sine near its own turning point is nothing at all. Measured: his crown
+  // travelled 9.3 mm in half a second where a walking man's travels 136 mm.
+  //
+  // So the periods come down to the length of the thing they portray. A man at
+  // ease changes his standing leg every few seconds, not every quarter minute;
+  // he breathes; and in a fight he looks about him rather than drifting his gaze
+  // across half a minute. The amplitudes come up with them, but the clocks are
+  // the larger half of the fix and were the part that was actually wrong.
+  //
+  // THE SHIFT'S AMPLITUDE IS DELIBERATELY BARELY RAISED, and the first cut of
+  // this got it wrong in the other direction. Scaling the weight-shift terms up
+  // with the clock put 320 mm of lateral travel through the crown between one
+  // standing leg and the other — a third of a metre, which is not a man changing
+  // feet, it is a man swaying. What a half-second glance actually contains is
+  // the BREATH, the SCAN and the sway below; the shift is a six-to-eight second
+  // event and its job is the read over seconds, not the read over a glance. So
+  // the clock came down and these four stayed near where they were.
+  const shift = Math.sin(t * 0.82 + seed);
+  // `dwell` still squares the shift off into a hold-and-transfer rather than a
+  // sway: he stands on one leg, then changes. Faster now, so the transfer is a
+  // thing you can catch, but it is the same shape.
   const dwell = Math.sign(shift) * smooth(Math.min(1, Math.abs(shift) * 1.7));
-  const br = Math.sin(t * (1.7 + wounded * 1.9) + seed);
+  const br = Math.sin(t * (2.3 + wounded * 1.9) + seed);
+  // A man between exchanges scans his flanks. This is the only fast term in the
+  // layer and it is small, because a head that whips is a head that twitches —
+  // but it is the term that carries a HALF-SECOND glance, which is the window
+  // the owner is looking through, and the layer had nothing in that band at all.
+  const scan = Math.sin(t * 1.35 + seed * 3.7);
+  // POSTURAL SWAY, and this is the term the layer never had.
+  //
+  // `dwell` is a hold-transfer-hold by construction — it saturates at |shift| >
+  // 0.59, which is 60% of every half cycle — so while a man is standing on a leg
+  // the whole weight-shift half of this layer contributes a CONSTANT. Measured
+  // on the committed pose after the clocks came down: `lrb` and `llb` moved
+  // 0.000 rad in the median half-second window. The knees were still rigid; they
+  // were merely rigid at a better angle.
+  //
+  // A standing body is an inverted pendulum and it never stops correcting. The
+  // two frequencies are deliberately incommensurate (0.9 and 1.63 are not a
+  // ratio of small integers), so the sum never repeats and the correction never
+  // reads as a loop — which a single sine at this amplitude very quickly does.
+  // Small: 12 mm at the hip. It is not meant to be seen as sway. It is meant to
+  // mean the man has not been switched off.
+  const sway = Math.sin(t * 0.90 + seed * 1.7) * 0.62 + Math.sin(t * 1.63 + seed * 4.3) * 0.38;
 
-  P.px += dwell * 0.035 * w;
-  P.prz += -dwell * 0.055 * w;
-  P.py += (-0.004 - Math.abs(dwell) * 0.006 + br * 0.005) * w;
-  P.crz += dwell * 0.075 * w;
-  P.cry += dwell * 0.05 * w;
-  P.crx += (br * 0.022 - 0.01) * w;
+  P.px += (dwell * 0.040 + sway * 0.012) * w;
+  P.prz += (-dwell * 0.062 - sway * 0.020) * w;
+  // The knees take the sway too, and out of phase with each other — that is what
+  // makes it a balance correction rather than the whole man rocking as one board.
+  P.lrb += sway * 0.030 * w;
+  P.llb += -sway * 0.030 * w;
+  P.py += (-0.004 - Math.abs(dwell) * 0.010 + br * 0.009) * w;
+  P.crz += dwell * 0.082 * w;
+  P.cry += dwell * 0.056 * w;
+  P.crx += (br * 0.038 - 0.01) * w;
   // The free leg unlocks and turns out; the loaded one carries straight. The
   // knee is where "unlocked" actually lives — a hip that turns out over a
   // locked knee is a mannequin turned out at the hip.
@@ -2390,13 +2460,16 @@ function idleLayer(t: number, seed: number, wounded: number, w: number): void {
   P.llx += load * 0.10 * w;
   P.lrb += (free * 0.24 - load * 0.10) * w;
   P.llb += (load * 0.24 - free * 0.10) * w;
-  P.hry += (Math.sin(t * 0.31 + seed * 2.1) * 0.16 - dwell * 0.06) * w;
-  P.hrx += (br * 0.02 + Math.sin(t * 0.23 + seed) * 0.03) * w;
-  P.arx += br * 0.024 * w;
-  P.olx += -br * 0.02 * w;
-  P.arb += -br * 0.022 * w;
-  P.olb += br * 0.028 * w;
-  P.wx += br * 0.03 * w;
+  P.hry += (Math.sin(t * 0.85 + seed * 2.1) * 0.17 + scan * 0.075 - dwell * 0.09) * w;
+  P.hrx += (br * 0.03 + Math.sin(t * 0.66 + seed) * 0.045) * w;
+  // The weapon is heavy and the breath is under it. A carried axe rising and
+  // falling on the chest that carries it is the single clearest tell that a man
+  // is alive and not a prop, and it is nearly free — the arm is already posed.
+  P.arx += br * 0.045 * w;
+  P.olx += -br * 0.034 * w;
+  P.arb += -br * 0.038 * w;
+  P.olb += br * 0.046 * w;
+  P.wx += br * 0.055 * w;
 
   // Blood loss shows in the stance before it shows anywhere else. It shows in
   // the knees first of all: a man who has lost blood is not standing at his own
@@ -3061,7 +3134,7 @@ function abilityLayer(d: number, w: number): void {
  * drop is taken in full, and the leg that actually reaches furthest is the one
  * the body stands on.
  */
-function settleOnFeet(legLen: number, plant: number): void {
+function settleOnFeet(legLen: number, plant: number, slack = 0): void {
   const hip = Math.hypot(P.prx, P.prz);
   // Past about a right angle at the hips the man is going over, not standing,
   // and his height is the height of a body on the ground. Faded rather than
@@ -3090,10 +3163,28 @@ function settleOnFeet(legLen: number, plant: number): void {
   // Off during locomotion, and it has to be: a foot in mid-stride is supposed
   // to be off the ground, and a solve that plants it would straighten the swing
   // leg into a goose step.
+  //
+  // AND THE TRAILING SOLE DOES NOT HAVE TO BE FLAT. `slack` is how far above
+  // the leading foot's ground the other one is allowed to hang, as a fraction
+  // of the leg, before any of it is charged to the knee.
+  //
+  // It is zero for a stride and for a guard, where both boots really are on the
+  // turf. It is NOT zero for a man standing at ease, and that is the whole of
+  // the owner's "stand straight up": at ease `idleLayer` bends the free knee
+  // 0.24 rad and turns it out, which is the one thing in the idle that reads as
+  // a man resting rather than a mannequin — and this solve took every radian of
+  // it straight back out again, because the free leg is by construction the
+  // SHORTER-reaching one and this is the leg it straightens. Measured on the
+  // committed pose, `lrb` sat at 0.015 rad with a peak-to-peak wiggle over half
+  // a second of 0.000: not small, not slow, RIGID. A man rests on one leg and
+  // lets the other heel come off the ground; a few centimetres of slack is what
+  // that heel is, and it costs the leading foot nothing because the body's
+  // height is solved off `lead`, which is the loaded leg.
   const k = plant * standing;
   if (k <= 0.001) return;
-  if (reachL < reachR) P.llb = mix(P.llb, kneeFor(ax, P.llb, lead / (latL || 1)), k);
-  else P.lrb = mix(P.lrb, kneeFor(bx, P.lrb, lead / (latR || 1)), k);
+  const want = Math.max(0, lead - slack * standing);
+  if (reachL < reachR) P.llb = mix(P.llb, kneeFor(ax, P.llb, want / (latL || 1)), k);
+  else P.lrb = mix(P.lrb, kneeFor(bx, P.lrb, want / (latR || 1)), k);
 }
 
 /**
@@ -4139,7 +4230,13 @@ export function poseWarrior(
   stops();
   // The plant is off while he is walking and back on the moment he is not, so a
   // stride keeps its foot clearance and a guard keeps both boots on the ground.
-  settleOnFeet(legLen, 1 - motion.wMove);
+  //
+  // The SLACK rides on `calm`, not on the plant. A man on his guard has both
+  // boots flat and gets none; a man standing at ease is resting on one leg with
+  // the other heel off the turf, and 50 mm of leg is what that heel is worth.
+  // Without it the plant straightens the very knee `idleLayer` just bent — see
+  // `settleOnFeet` — and the free leg is the one it straightens, every time.
+  settleOnFeet(legLen, 1 - motion.wMove, calm * 0.05);
   commit(rig, piv, st, motion.blend, ready);
   drapeCloak(rig, motion, dt, t, P.cloak);
   fadeBlob(rig, 0);
