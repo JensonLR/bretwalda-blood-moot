@@ -294,6 +294,56 @@ const NEAR_FADE_IN = 1.3;
 const NEAR_FADE_FULL = 2.6;
 
 /**
+ * THE FRAME EDGE, AND WHY IT HAS TO BE FADED HERE RATHER THAN LEFT TO THE
+ * RENDERER.
+ *
+ * A plate is a world-space object sitting over its warrior's head, so three.js
+ * culls it by ITS OWN bounding sphere and not by the man's. The moment the
+ * warrior walks out of the left of the frame his plate does not go with him: it
+ * keeps being drawn for as long as its quad still touches the frustum, sliced
+ * in half against the screen edge, a name and a health bar hanging over empty
+ * ground with nothing under them. That is the owner's BUGGY, and it is
+ * measured: `tools/hudspace.mjs` on the build before this constant existed
+ * counted 103 bar-frames of 4861 (2.12%) whose warrior was outside the frame,
+ * on 99 frames of 1229 (8.06%), and 588 plate quads cut by the edge.
+ *
+ * IT IS RAMPED ON THE QUAD'S OUTER EDGE, NOT ON ITS CENTRE, and the first
+ * attempt at this fix got that wrong in a way worth recording. Ramping on the
+ * centre from 0.92 to 1.0 took the "warrior off screen" count from 76 to 0 and
+ * left the CLIPPED count untouched — 88 number quads cut by the edge before,
+ * 115 after — because a quad whose centre is at 0.95 is already hanging over
+ * the boundary while the ramp still says it is two thirds opaque. The thing the
+ * owner can see is the SLICE, so the quantity the ramp has to be a function of
+ * is where the quad's outer edge has got to, and it has to reach zero before
+ * that edge reaches the frame.
+ *
+ * The band is measured in the same square screen space `plate.sx` and
+ * `plate.hx` already live in — NDC with the aspect folded into x — so a
+ * horizontal margin and a vertical one are the same margin. 0.12 of it is about
+ * a tenth of a second of walking at fight range: enough that the plate goes out
+ * rather than popping, small enough that it is not fading men who are plainly
+ * in the middle of the picture.
+ *
+ * It applies to the LOCAL warrior too. He is normally centre-frame and never
+ * reaches it; when a death camera swings past him he is off screen like anyone
+ * else and his plate has no more business being drawn than theirs.
+ */
+const EDGE_FADE_BAND = 0.12;
+
+/**
+ * How opaque an element is allowed to be given how close its outer edge has got
+ * to the frame boundary. 1 well inside, 0 by the time it would be sliced.
+ *
+ * `pos` is the element's centre and `half` its half-extent, both in the same
+ * space as `limit` — which is `aspect` on the horizontal and 1 on the vertical,
+ * because that is the square space the de-overlap already works in.
+ */
+function edgeAlpha(pos: number, half: number, limit: number): number {
+  const reach = Math.abs(pos) + half;
+  return 1 - smooth(limit - EDGE_FADE_BAND, limit, reach);
+}
+
+/**
  * How far a plate may be pushed off its warrior to clear another, in NDC. Past
  * this the plate has stopped pointing at anything and become furniture, so the
  * answer is to make it smaller rather than to keep moving it.
@@ -1007,11 +1057,62 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
   const ndc = new THREE.Vector3();
   const scratch = new THREE.Vector3();
   const scratch2 = new THREE.Vector3();
+  const crowdTmp = new THREE.Vector3();
 
-  // Damage numbers landing on the same body in the same instant have to be told
-  // apart, so each one remembers where the last one went in.
-  const lastDmgAt = new THREE.Vector3(1e6, 0, 1e6);
-  let lastDmgTime = -10;
+  /**
+   * ONE SLOT WAS NEVER ENOUGH, AND A FLURRY IS NEVER TWO BLOWS.
+   *
+   * This used to be a single remembered point and time — `lastDmgAt` /
+   * `lastDmgTime` — against which the next number asked "am I stacked on the
+   * last one". Two failures, and they compound:
+   *
+   *   The THIRD number of a flurry was compared only with the second, so it was
+   *   free to land back on top of the first.
+   *
+   *   Even when a stack WAS noticed, the side it was thrown to was
+   *   `(Math.random() < 0.5 ? -1 : 1)` — so two consecutive stacked numbers
+   *   picked the same side once every two blows, and then drifted together at
+   *   almost the same speed for the whole 0.98 s they were alive.
+   *
+   * Measured on the build that shipped it, `tools/hudspace.mjs`, 1229 frames of
+   * a seven-bot fight: on the frames carrying two or more numbers the smaller
+   * glyph was buried under another by a MEDIAN of 45%, 473 frames (38.49%) were
+   * over a quarter covered, 348 (28.32%) over half, and the worst was 1.00 —
+   * one number completely inside another. That is the owner's "337": three
+   * numbers printed across each other reading as one wrong one.
+   *
+   * There is no memory now. `live` is the flurry — it is right there, it is
+   * bounded by `damageNumberBudget`, and scanning it is a handful of distance
+   * tests on a code path that runs a few times a second. See `crowdAt`.
+   */
+  /**
+   * How near two numbers have to be TO THE EYE to be one flurry, as an angle in
+   * radians rather than a distance in metres.
+   *
+   * Metres was the wrong space and the measurement said so. A glyph at fight
+   * range is about 0.48 m tall and subtends 0.053 rad; the same glyph 25 m out
+   * subtends a fifth of that. So a world-space radius that is generous in a
+   * shield wall is meaningless across the arena, and — the case that actually
+   * showed up — two numbers thrown by two DIFFERENT warriors two metres apart
+   * can print exactly on top of each other, because what decides whether they
+   * collide is where they land on the SCREEN and not where they are on the
+   * ground. 0.10 rad is about two glyph heights at any distance.
+   */
+  const CROWD_ANGLE = 0.10;
+  /**
+   * And how new. Past this the older one has risen clear on its own.
+   *
+   * R1, AND THE LEVER SAID NO. A number lives 0.98 s (1.25 s for a heavy blow),
+   * so 0.62 leaves the last third of its life out of the crowd count and the
+   * obvious improvement is to raise it. Measured, `tools/hudspace.mjs`, share of
+   * the frames carrying two or more numbers on which the smaller was more than
+   * half buried: 29.4% at 0.62 and 29.9% at 0.95. That is not an improvement, it
+   * is the same number twice, so this stays where it was and the hypothesis is
+   * recorded as refuted rather than quietly dropped. What the older numbers have
+   * by then is HEIGHT, and the ones that still collide are colliding for a
+   * reason this constant cannot reach.
+   */
+  const CROWD_AGE = 0.62;
   let clock = 0;
   // The end-of-match tableau holds the frame. A staged portrait with eight
   // green health bars floating over it is a fight again, so the summary asks
@@ -1127,6 +1228,31 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
   function distanceScale(dist: number): number {
     const t = Math.max(dist, 0.5) / REF_DIST;
     return Math.pow(t, t < 1 ? NEAR_POWER : FAR_POWER);
+  }
+
+  /**
+   * How many numbers are already up where this one is about to be written —
+   * live, young, and close enough TO THE EYE to collide with it.
+   *
+   * Measured across the view, not along it: the offset is resolved onto the
+   * camera's right and up and divided by the range, which is the angle it
+   * subtends and therefore, to within the projection's own nonlinearity, where
+   * it lands on screen. Depth is deliberately dropped — two numbers ten metres
+   * apart along the view axis print on top of each other, and one of them being
+   * behind the other is exactly why the near one buries it.
+   *
+   * `at` is scratch and is not retained.
+   */
+  function crowdAt(at: THREE.Vector3): number {
+    const range = Math.max(0.5, at.distanceTo(camPos));
+    let n = 0;
+    for (const d of live) {
+      if (d.age > CROWD_AGE) continue;
+      crowdTmp.copy(d.mesh.position).sub(at);
+      const r = crowdTmp.dot(camRight), u = crowdTmp.dot(camUp);
+      if (Math.hypot(r, u) / range < CROWD_ANGLE) n++;
+    }
+    return n;
   }
 
   return {
@@ -1332,22 +1458,44 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
       scratch2.copy(camPos).sub(scratch);
       scratch.addScaledVector(scratch2, 0.42 / (scratch2.length() || 1));
 
-      // Blows land in flurries. Two numbers in the same place in the same third
-      // of a second have to be told apart or they read as one.
-      const stacked = clock - lastDmgTime < 0.4 && scratch.distanceToSquared(lastDmgAt) < 1.4;
-      const side = stacked
-        ? (Math.random() < 0.5 ? -1 : 1) * (0.42 + Math.random() * 0.3)
-        : (Math.random() - 0.5) * 0.34;
-      lastDmgAt.copy(scratch);
-      lastDmgTime = clock;
+      // Blows land in flurries, and a flurry is not two blows. Every number
+      // already up near this point takes a LANE, alternating sides and widening
+      // as it goes: 0 centre, 1 right, 2 left, 3 further right, 4 further left.
+      // Deterministic on purpose — a random side collides with the last one half
+      // the time, which is exactly how "62" and "102" ended up printed across
+      // each other. See the note on CROWD_RADIUS.
+      const rank = crowdAt(scratch);
+      const lane = Math.ceil(rank / 2);
+      const dir = rank === 0 ? 0 : (rank % 2 === 1 ? 1 : -1);
+      // THE FAN OPENS WITH RANGE. `side` is metres per second across the view,
+      // so a fixed value separates a duel under your nose and does nothing at
+      // all to a scrap on the far side of the arena — the glyphs there are a
+      // fifth the angular size and the same throw buys a fifth the gap. Scaled
+      // by range over REF_DIST the separation is constant ON SCREEN, which is
+      // where the collision is. Clamped because a number thrown by someone 40 m
+      // away should not sail across the arena to prove a point.
+      const spread = Math.min(2.5, Math.max(0.6, scratch.distanceTo(camPos) / REF_DIST));
+      // Rank 0 keeps the old small random drift, so the common case — one blow,
+      // one number — looks exactly as it always did rather than snapping to a
+      // grid. Only a crowd gets the fan.
+      const side = rank === 0
+        ? (Math.random() - 0.5) * 0.34 * spread
+        : (dir * (0.46 + lane * 0.40) + (Math.random() - 0.5) * 0.12) * spread;
 
       n.mesh.position.copy(scratch);
-      if (stacked) n.mesh.position.y += 0.3;
+      // A rung each, so two numbers thrown to opposite sides of the same lane
+      // still start clear of each other vertically, and never sit at one height
+      // waiting for their sideways drift to do all the work. Scaled with the
+      // fan, and for the same reason.
+      n.mesh.position.y += rank * 0.30 * spread;
       n.base = n.mesh.position.y;
       // Fan across the camera's right, not the world's X, or the separation
       // collapses to nothing whenever the fight lines up with the view axis.
       n.vel.copy(camRight).multiplyScalar(side);
-      n.vel.y += weight === 2 ? 2.35 : 1.85;
+      // A little quicker per rung as well. Two numbers on opposite lanes are
+      // already apart; two on the SAME lane — rank 1 and rank 3 — are not, and
+      // without this they would rise in step for their whole life.
+      n.vel.y += (weight === 2 ? 2.35 : 1.85) + rank * 0.16 * spread;
       n.spin = weight === 2 ? (Math.random() - 0.5) * 0.5 : (Math.random() - 0.5) * 0.22;
       n.mesh.visible = true;
       n.mesh.layers.set(LAYER_UNOCCLUDED);
@@ -1437,6 +1585,16 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
 
         let alpha = 1 - smooth(FADE_START, FADE_END, dist);
         alpha *= smooth(NEAR_FADE_IN, NEAR_FADE_FULL, dist);
+        // OFF THE SIDE OF THE FRAME IS OFF THE FRAME. A plate answers "that man
+        // there", and a man who is not in the picture is not there — so it goes
+        // out before it can be sliced against the edge. Both axes, because a
+        // plate leaving by a corner is leaving. See EDGE_FADE_BAND.
+        //
+        // `hx` is the NAME's half-width here rather than the bar's; if the
+        // de-overlap goes on to compact this plate the quad that survives is
+        // narrower than the one this fades on, which errs toward hiding early
+        // and never toward slicing.
+        alpha *= edgeAlpha(plate.sx, plate.hx, aspect) * edgeAlpha(plate.sy, plate.hy, 1);
         if (plate.dying >= 0) alpha *= 1 - plate.dying / 0.85;
         // The local warrior's health already has a screen HUD. In-world this is
         // a name badge that happens to carry a bar, so it sits back a stop.
@@ -1578,8 +1736,38 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
 
         const inFade = Math.min(1, n.age / 0.05);
         const outFade = 1 - smooth(n.life * 0.5, n.life, n.age);
-        n.mat.opacity = inFade * outFade * (1 - smooth(FADE_START, FADE_END, dist));
+        // THE FRAME EDGE AGAIN, for the same reason and with the same ramp as a
+        // plate. A number is a world-space object too, so when the man it came
+        // off walks out of the side of the picture the number does not go with
+        // him — it is sliced against the edge and left hanging over ground with
+        // nobody on it. That is the other half of "damage numbers persisting
+        // where no warrior is", and it is the half the frame strip actually
+        // showed: measured on the build before this, 80 number quads cut by the
+        // edge across 67 frames, with a worst screen distance of 440 px from
+        // the nearest warrior. The numbers were NOT drifting off bodies — the
+        // same run puts the furthest at 1.58 m on the ground, and 0 frames over
+        // 3 m — so the world-space half of that report is refuted by its own
+        // ruler and this is the whole of the defect.
+        ndc.copy(n.mesh.position).project(camera);
+        // Into the same square space the plates use, so one band means one
+        // thing: NDC x carries the aspect, and both half-extents are the quad's
+        // world size over the world-per-NDC at this depth. The spin is left out
+        // and paid for by the band — a quarter radian on a glyph this size moves
+        // its corner by well under a hundredth of the screen.
+        const nWorldPerNdc = Math.max(dist * tanHalf, 1e-3);
+        const edgeFade =
+          edgeAlpha(ndc.x * aspect, (n.mesh.scale.x * 0.5) / nWorldPerNdc, aspect) *
+          edgeAlpha(ndc.y, (n.mesh.scale.y * 0.5) / nWorldPerNdc, 1);
+        n.mat.opacity = inFade * outFade * edgeFade * (1 - smooth(FADE_START, FADE_END, dist));
         n.mat.color.copy(glyphInk);
+        // A NUMBER AT ZERO OPACITY STOPS BEING DRAWN, exactly as a plate at
+        // zero alpha already did (`plate.group.visible = false`). The two had
+        // drifted apart: the plate has always had this and the number never
+        // did, so a fully transparent number still cost a draw call, a depth
+        // sort and a blend every frame of its tail — and, less forgivably, it
+        // still counted as something on screen to anything measuring the HUD.
+        // The threshold is the plate's 0.01, for one rule and not two.
+        n.mesh.visible = n.mat.opacity > 0.01;
       }
     },
 
