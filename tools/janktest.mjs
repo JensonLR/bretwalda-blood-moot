@@ -994,7 +994,20 @@ async function main() {
         const fiv = [];
         for (let i = 1; i < r.frames.length; i++) fiv.push(r.frames[i].t - r.frames[i - 1].t);
         const fs = stats(fiv);
-        say(`\n  client ran at ${(r.frames.length / (r.elapsed / 1000)).toFixed(1)} fps with the draw suppressed  (frame p50 ${f2(fs?.p50)} ms)`);
+        // THE INTERVAL IS NOT THE WORK, and this line has already been misread as
+        // if it were. A client doing a millisecond of work and then waiting for
+        // the next vsync reports a 16.7 ms FRAME and a 1 ms WORKLOAD; reading
+        // the first as the second turns an idle main thread into one that is
+        // over a 60 Hz budget before the GPU has drawn anything. Measured, this
+        // build, `tools/framecost.mjs`: JS work per frame with the draw
+        // suppressed is p50 1.20 ms and the CPU profile is 86% idle, against a
+        // frame interval that reads 16.70. So both are printed, and which is
+        // which is written on them.
+        const jsw = stats(r.frames.map((f) => f.js));
+        say(`\n  client ran at ${(r.frames.length / (r.elapsed / 1000)).toFixed(1)} fps with the draw suppressed`);
+        say(`    frame INTERVAL  p50 ${f2(fs?.p50)} ms   <- the gap between frames. At 60 Hz this is 16.7 by`);
+        say(`                                        definition and says nothing about the work.`);
+        say(`    JS WORK inside   p50 ${f2(jsw?.p50)} ms  p95 ${f2(jsw?.p95)} ms  p99 ${f2(jsw?.p99)} ms   <- the work.`);
         say(`  — that is the point: a fast client against the real 20 Hz server.`);
         say();
         result.wireNoDraw = reportWire("with drawing OFF — the wire alone", r.snaps,
