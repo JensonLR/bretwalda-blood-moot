@@ -79,17 +79,19 @@ this box:
   previous round's new rose byrnie on, `#9c6d6b`, 1.5° off the garnet — on THIS
   tree, against the same man in the same 130-gold kit sworn to nobody:
 
-  | bearing | sworn | modal | unsworn | modal | delta |
-  |---|---|---|---|---|---|
-  | 0° | 0.690 % | `#d88868` | 0.854 % | `#d87060` | **−0.164 — BELOW its own floor** |
-  | 90° | 1.212 % | `#d89070` | 1.131 % | `#f8b090` | +0.080 — noise |
-  | 180° | 1.088 % | `#e8b098` | 1.030 % | `#b05848` | +0.058 — noise |
+  | bearing | `cc4008e` sworn | over its floor | THIS sworn | over its floor |
+  |---|---|---|---|---|
+  | 0° | 1.387 % `#d89880` | +0.574 | 0.690 % `#d88868` | **−0.164 — BELOW its own floor** |
+  | 90° | 2.603 % `#b86060` | +1.463 | 1.212 % `#d89070` | **+0.080 — noise** |
+  | 180° | 3.148 % `#c86868` | **+2.177, 3.2x** | 1.088 % `#e8b098` | **+0.058 — noise** |
 
-  Read the UNSWORN column before reading the sworn one: a man in Crimson
-  Warplate reads about 1 % rose with no livery on him at all, because the shop
-  sells him madder trousers and `FINISH_KIT`'s own "pale rose-grey" leg wraps.
-  That is what a matched floor is for, and it is why a single global bar could
-  not have graded this finish at all.
+  Both trees' floors are their own unsworn man in the same 130-gold kit, and he
+  reads 0.81-1.14 % rose with no livery on him at all, because the shop sells
+  him madder trousers and `FINISH_KIT`'s own "pale rose-grey" leg wraps. That is
+  what a matched floor is for and why a single global bar could not have graded
+  this finish at all. **At the back — the worst bearing, and the one the round
+  before last's after-set did not contain — the previous tree put its Dane 3.2x
+  over his own floor and this one puts him inside the noise.**
 
 * **A byrnie the vat has let go of reads PICT.** Bare steel is cool, woad is
   cool, and the byrnie is most of the man. Every configuration that clears the

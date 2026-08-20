@@ -1001,13 +1001,17 @@ against **the same man in the same kit sworn to nobody**:
 | Polished Steel, 60g | 0° | +1.373 over its floor (7.8x) | **+0.391** | `#f87868` → `#a07060` |
 | Polished Steel, 60g | 90° | +2.683 (10.5x) | **+0.097 — noise** | `#f88070` → `#886860` |
 | Polished Steel, 60g | 180° | not measured | +0.687 | — → `#b08070` |
-| Crimson Warplate, 130g | 0° | — | **−0.164 — below its floor** | — → `#d88868` |
-| Crimson Warplate, 130g | 90° | — | +0.080 — noise | — → `#d89070` |
-| Crimson Warplate, 130g | 180° | — | +0.058 — noise | — → `#e8b098` |
+| Crimson Warplate, 130g | 0° | +0.574 (`cc4008e`) | **−0.164 — below its floor** | `#d89880` → `#d88868` |
+| Crimson Warplate, 130g | 90° | +1.463 (`cc4008e`) | **+0.080 — noise** | `#b86060` → `#d89070` |
+| Crimson Warplate, 130g | 180° | **+2.177, 3.2x** (`cc4008e`) | **+0.058 — noise** | `#c86868` → `#e8b098` |
 
-"before" is `factionland2`, the tree with no fade in it at all — the state the
-owner reported. `#f87868` is salmon. The profile is the bearing his rose was
-reported at and it is now inside the instrument's own noise floor.
+The Polished Steel "before" is `factionland2`, the tree with no fade in it at
+all — the state the owner reported; `#f87868` is salmon, and the profile is the
+bearing his rose was reported at and is now inside the instrument's own noise
+floor. The Crimson Warplate "before" is `cc4008e`, the tree this branch started
+from, which is where the previous round's own new rose byrnie lived: at the
+BACK it put its Dane 3.2x over his own unsworn floor, and that is a bearing the
+after-set of the round before last did not contain at all.
 
 
 #### THE WHOLE DANELAW, EVERY FINISH, EVERY DYED SURFACE
