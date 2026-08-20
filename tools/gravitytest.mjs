@@ -30,6 +30,12 @@
  * upright while the server calls him floored, §2 is a corpse held off the
  * ground for ever, §3 is a spine bent past where a spine bends. Hence the name.
  *
+ * §1 ALSO CARRIES ITEM 1 OF THE OWNER'S REPORT, and it carries it as a number
+ * rather than as the absence of a file. MERCY OR FINISH held a man at zero
+ * health for 50 server ticks before anything called him dead, and drew him
+ * `knocked` and bolt upright for all of them. `tools/mercytest.mjs` going away
+ * proves nothing about that; `zeroToDead` does. See `docs/MERCY-REMOVED.md`.
+ *
  * ---------------------------------------------------------------------------
  * WHY `tools/freezetest.mjs --phases=collapse` CANNOT SEE §2, AND THIS CAN
  *
@@ -66,8 +72,10 @@
  * HOW IT MEASURES. Two shipped seams, no debug hooks, nothing in `src/` edited.
  *
  *   THE SERVER   `makeEngine({ autoTick: false })` and `engine.step(dt)`, the
- *                driver `tools/mercytest.mjs` uses. This file owns the clock;
- *                nothing races the sim.
+ *                same driver `tools/protocoltest.mjs` uses. This file owns the
+ *                clock; nothing races the sim. (It used to name
+ *                `tools/mercytest.mjs` here — that file went with MERCY OR
+ *                FINISH, see `docs/MERCY-REMOVED.md`.)
  *   THE CLIENT   `src/game/client/render/anim.ts` compiled by `tsc` into
  *                `.gravity/anim` and imported, the seam `tools/freezetest.mjs`
  *                and `tools/facelook.mjs` both use. `poseWarrior` is the exact
@@ -143,8 +151,41 @@ const BAR = {
    * 0.82 of a right angle is 74°, and this bar is set at half of that, because
    * §1 is not grading the shape of a knockdown, it is catching a man drawn
    * STANDING while the wire says he is down.
+   *
+   * A RULER FAULT FOUND BY RE-MEASURING AFTER THE FIX, and it is failure mode 1
+   * again in this file's own §1. The first draft gated on the COUNT of frames
+   * under this angle. That was written against MERCY OR FINISH, which held a
+   * man at 0.0° for 159 frames — a count and a run say the same thing about a
+   * freeze, so the weaker instrument looked adequate. With mercy removed and a
+   * real `knockDown` driven for the first time, §1 came back
+   * `24/96 frames under 37°, longest run 0.20 s` and called it a FAIL. It is
+   * not one: a man knocked over STARTS standing, so every honest topple spends
+   * its first frames near vertical, and 0.2 s to pass 37° is FASTER than a
+   * 1.8 m body falls under gravity, not slower. The ruler was asking "was he
+   * ever near vertical" where the owner asked "was he HELD near vertical".
+   *
+   * So the angle is unchanged and the QUANTITY moved: §1 gates the longest
+   * UNBROKEN RUN. See `uprightRun` below. This is written down rather than
+   * quietly patched because moving a threshold to turn a light green is the one
+   * thing a fixer must never do, and changing WHICH QUANTITY is gated is the
+   * same act unless the reason survives being read out loud.
    */
   knockedDown: 37,
+  /**
+   * How long a man may be drawn within `knockedDown` of upright while the
+   * server says he is off his feet — the FREEZE, in seconds.
+   *
+   * `KNOCKDOWN.down` (0.75 s) is the server's own answer and that is why it is
+   * the bar rather than a number chosen here: it is the half of the floor clock
+   * during which the man is LYING THERE, before `rising` begins. A body still
+   * inside 37° of vertical after the entire down-phase has elapsed is not
+   * falling — the game has already finished putting him on the ground and moved
+   * on. It is read off the engine at run time, so if the floor clock is ever
+   * retuned this bar follows it instead of drifting away from it.
+   *
+   * Mercy scored 2.65 s against it. A real shove-knockdown scores 0.20 s.
+   */
+  uprightRun: null,   // = KNOCKDOWN.down, read from the engine in §1
   /**
    * SPINE EXTENSION RELATIVE TO THE PELVIS, in degrees, on a LIVING man:
    * chest pitch plus neck pitch, which is the thoracolumbar spine plus the
@@ -410,52 +451,122 @@ async function sectionDown(anim) {
     for (let k = 0; k < RENDER; k++) {
       time += DT; ctx.time = time;
       anim.poseWarrior(rig, motion, b, DT, ctx);
-      track.push({ t: time, state: b.state, mortal: !!b.mortal,
-        mercy: b.mercyTimer ?? 0, downTimer: b.downTimer ?? 0, health: b.health,
+      track.push({ t: time, state: b.state, downTimer: b.downTimer ?? 0,
+        health: b.health, cause: b.deathCause ?? "-",
         pitch: topple(rig.last), j: STRIP ? shootFrame(parent, rig) : null });
     }
   };
 
-  // A beats B until B is off his feet. Heavy, because it is faster.
-  let t = 0;
-  while (t < 40) {
+  // THE SERVER'S OWN TICK SERIES, kept beside the render track and not derived
+  // from it. `zeroToDead` below is a claim about the SIM — how many 20 Hz ticks
+  // a man spends at zero health before the server calls him dead — and reading
+  // it off 60 fps render rows would be reading a client's opinion of a server
+  // fact. This is the row MERCY OR FINISH used to put 50 ticks into.
+  const ticks = [];
+
+  // A beats B in TWO PHASES, and the first one exists because of R4 and
+  // failure mode 2. §1 makes two claims — a man the server calls `knocked` is
+  // not drawn standing, and a lethal blow is a death — and driving straight to
+  // the kill answers the second while leaving the first 0/0. A gate that is
+  // green because the case is absent is not a gate, and with MERCY OR FINISH
+  // gone the case is absent by default: mercy was the only thing in the game
+  // that put a LIVING man on the floor for long enough to be worth measuring.
+  //
+  //   FLOOR   SHOVES, and nothing else. A shove costs 46 poise and NO health,
+  //           so it is the one thing in the game that can floor a man without
+  //           killing him. Measured before it was used: shoves alone take a
+  //           huscarl's 100-point bar to 0 and put him down with 162/162 of his
+  //           blood, where alternating shoves with lights killed him at
+  //           balance 49 and lights alone at balance 74. It is slow — the bar
+  //           regenerates at 26/s and a shove costs 25 stamina — which is why
+  //           the budget below is 90 s and not 40.
+  //   KILL    heavies until he is dead.
+  //
+  // The phase turns over when he is back on his feet, or early if the floor
+  // phase is somehow taking his life instead of his balance — and if it never
+  // got him down, the verdict SAYS the case was absent rather than printing 0/0.
+  const ready = (a) => a.state === "idle" || a.state === "walking";
+  const isFloored = (st) => st === "knocked" || st === "rising";
+  let phase = "floor", sawKnocked = false, t = 0;
+  while (t < 90) {
     const a = me(A), b = me(B);
     if (!a || !b) break;
     const dx = b.position.x - a.position.x, dz = b.position.z - a.position.z;
     const d = Math.hypot(dx, dz) || 1;
     const yaw = Math.atan2(dx, dz);
     if (d > 1.5) hold(A, { moveX: dx / d, moveZ: dz / d, rotationY: yaw });
-    else hold(A, { rotationY: yaw, heavyAttack: a.state === "idle" || a.state === "walking" });
+    else if (phase === "floor") hold(A, { rotationY: yaw, shove: ready(a) });
+    else hold(A, { rotationY: yaw, heavyAttack: ready(a) });
     engine.step(TICK); t += TICK; drawB();
-    if (b.mortal || b.state === "dead") break;
+    const b2 = me(B);
+    ticks.push({ t, state: b2.state, health: b2.health });
+    if (b2.state === "knocked") sawKnocked = true;
+    if (phase === "floor" && ((sawKnocked && !isFloored(b2.state)) || b2.health <= b2.maxHealth * 0.35)) phase = "kill";
+    if (b2.state === "dead") break;
   }
-  const fell = track.findIndex((s) => s.mortal || s.state === "knocked" || s.state === "dead");
-  if (fell < 0) { engine.stop(); bad("§1 never got a man off his feet in 40 s — nothing to measure"); return null; }
-  // Let the whole thing play out: the window, the rise, and a beat after it.
+  const died = track.findIndex((s) => s.state === "dead");
+  if (died < 0) { engine.stop(); bad("§1 never killed a man in 90 s — nothing to measure"); return null; }
+  // Four seconds of corpse after the blow, which is what §2 gives every death.
   hold(A, {});
-  const after = Math.ceil((3.5 + KNOCKDOWN.down + KNOCKDOWN.rise) / TICK);
-  for (let i = 0; i < after; i++) { hold(A, {}); engine.step(TICK); drawB(); }
+  const after = Math.ceil(4 / TICK);
+  for (let i = 0; i < after; i++) {
+    hold(A, {}); engine.step(TICK); drawB();
+    const b2 = me(B);
+    ticks.push({ t: (t += TICK), state: b2.state, health: b2.health });
+  }
   engine.stop();
 
+  // ZERO HEALTH TO DEAD, IN SERVER TICKS. The whole of item 1 in one integer.
+  // `goDown` used to intercept here and hold him at zero for MERCY.window —
+  // 2.5 s, 50 ticks — before anything called him dead, and the client drew a
+  // man the server called `knocked` the entire time.
+  const zeroAt = ticks.findIndex((r) => r.health <= 0);
+  const deadAt = ticks.findIndex((r) => r.state === "dead");
+  const zeroToDead = zeroAt >= 0 && deadAt >= 0 ? deadAt - zeroAt : NaN;
+
   // ---- the strip ----
-  const win = track.slice(fell);
-  const t0 = win[0].t;
+  // ANCHORED ON THE MOMENT HIS HEALTH REACHES ZERO, and not on the moment the
+  // server calls him dead, because under MERCY OR FINISH those were 67 ticks
+  // apart and the owner's report lives in the gap: *"always when low health...
+  // the animation of them frozen stood up straight runs out after a few
+  // seconds"*. A strip anchored on the death walks straight past the freeze.
+  // Half a second of the living man is kept in front of it for context.
+  const zeroFrame = track.findIndex((s2) => s2.health <= 0);
+  const anchor = zeroFrame >= 0 ? zeroFrame : died;
+  const from = Math.max(0, anchor - 30);
+  const win = track.slice(from);
+  const t0 = track[anchor].t;
+  // Thin the table rather than let it run to hundreds of rows on a build that
+  // holds the man; the panels below sample the same window either way.
+  const stride = Math.max(6, 6 * Math.ceil(win.length / 360));
   say("");
-  say(`    A FRAME SEQUENCE from the moment he went off his feet. 60 fps, every 6th frame.`);
+  say(`    A FRAME SEQUENCE from the moment his health reached ZERO. 60 fps, every ${stride}th frame.`);
+  say(`    t = 0 is the first frame at zero health; the rows above it are a living man.`);
   say(`    "drawn" is the assembled trunk angle from upright, in degrees, off rig.last.`);
   say("");
-  say(`      t(s)   server state   mortal  mercyTimer  downTimer   hp   drawn`);
-  for (let i = 0; i < win.length; i += 6) {
+  say(`      t(s)   server state   cause   downTimer   hp   drawn`);
+  for (let i = 0; i < win.length; i += stride) {
     const s = win[i];
-    say(`      ${f2(s.t - t0).padStart(5)}   ${s.state.padEnd(13)}  ${(s.mortal ? "yes" : "no").padEnd(6)} `
-      + `${f2(s.mercy).padStart(10)}  ${f2(s.downTimer).padStart(9)}  ${String(s.health).padStart(3)}  ${f1(s.pitch).padStart(6)}°`);
+    say(`      ${f2(s.t - t0).padStart(5)}   ${s.state.padEnd(13)}  ${String(s.cause).padEnd(6)} `
+      + `${f2(s.downTimer).padStart(9)}  ${String(s.health).padStart(3)}  ${f1(s.pitch).padStart(6)}°`);
   }
 
   // ---- the verdict ----
-  const knocked = win.filter((s) => s.state === "knocked");
+  // `knocked` is measured over the WHOLE fight and not only the strip: every
+  // knockdown on the way to the death is a man the server says is on the floor,
+  // and each one is a chance to draw him standing.
+  const knocked = track.filter((s) => s.state === "knocked");
   const upright = knocked.filter((s) => s.pitch < BAR.knockedDown);
   const worstRun = (() => { let run = 0, best = 0;
-    for (const s of win) { if (s.state === "knocked" && s.pitch < BAR.knockedDown) { run++; best = Math.max(best, run); } else run = 0; }
+    for (const s of track) { if (s.state === "knocked" && s.pitch < BAR.knockedDown) { run++; best = Math.max(best, run); } else run = 0; }
+    return best / 60; })();
+  // The corpse, measured the way §2 measures one: where it ENDED, absolutely,
+  // against the ground, four seconds after the blow — not against its own last
+  // frame. This row is the end-to-end claim §2 makes on a synthetic body and §1
+  // makes on a body the real engine killed.
+  const ended = win[win.length - 1].pitch;
+  const deadUpright = (() => { let run = 0, best = 0;
+    for (const s of win) { if (s.state === "dead" && s.pitch < BAR.knockedDown) { run++; best = Math.max(best, run); } else run = 0; }
     return best / 60; })();
   // The flop: the largest one-frame move of the drawn trunk anywhere in the strip.
   let step = 0, stepAt = 0, stepFrom = "", stepTo = "";
@@ -463,12 +574,18 @@ async function sectionDown(anim) {
     const d = Math.abs(win[i].pitch - win[i - 1].pitch);
     if (d > step) { step = d; stepAt = win[i].t - t0; stepFrom = win[i - 1].state; stepTo = win[i].state; }
   }
+  // The bar, read off the engine and not copied into this file.
+  const RUNBAR = KNOCKDOWN.down;
   say("");
-  say(`    frames the server calls \`knocked\`            ${String(knocked.length).padStart(5)}`);
-  say(`    ...of those, drawn under ${String(BAR.knockedDown).padStart(2)}° from upright  ${String(upright.length).padStart(5)}`
+  say(`    server ticks at zero health before he is \`dead\`  ${Number.isFinite(zeroToDead) ? String(zeroToDead).padStart(5) : "    -"}`
+    + `   (20 Hz, so ${Number.isFinite(zeroToDead) ? f2(zeroToDead / 20) : " - "} s)`);
+  say(`    frames the server calls \`knocked\`, whole fight  ${String(knocked.length).padStart(5)}`);
+  say(`    ...of those, drawn under ${String(BAR.knockedDown).padStart(2)}° from upright     ${String(upright.length).padStart(5)}`
     + `  (${knocked.length ? f1(100 * upright.length / knocked.length) : "  -"}%)`);
-  say(`    longest unbroken run of that                 ${f2(worstRun)} s`);
-  say(`    biggest ONE-FRAME move of the drawn trunk    ${f1(step)}°  at t+${f2(stepAt)}s, ${stepFrom} -> ${stepTo}`);
+  say(`    longest unbroken run of that                    ${f2(worstRun)} s   (bar ${f2(RUNBAR)} s = KNOCKDOWN.down)`);
+  say(`    longest run of a DEAD man drawn upright         ${f2(deadUpright)} s   (same bar)`);
+  say(`    where the corpse ENDED, 4 s after the blow      ${f1(ended)}°   (90° is flat)`);
+  say(`    biggest ONE-FRAME move of the drawn trunk       ${f1(step)}°  at t+${f2(stepAt)}s, ${stepFrom} -> ${stepTo}`);
   if (STRIP) {
     // Ten samples across the window plus the two frames either side of the snap,
     // because the snap is one frame long and an even sampling would miss it.
@@ -483,14 +600,39 @@ async function sectionDown(anim) {
     say(`    STRIP written: ${out}   (${frames.length} panels)`);
   }
   say("");
-  if (upright.length > 0) {
+  if (knocked.length === 0) {
+    // R4 — THE DEFERRAL RIDES THE VERDICT LINE. 0/0 is not a pass.
+    bad(`§1 the fight never put a LIVING man on the floor, so the \`knocked\` claim is `
+      + `0/0 and proves nothing — the drive, not the build, is what failed`);
+  }
+  if (worstRun > RUNBAR) {
     bad(`§1 a man the server calls \`knocked\` is drawn STANDING for ${f2(worstRun)} s `
-      + `(${upright.length}/${knocked.length} frames under ${BAR.knockedDown}° from upright)`);
+      + `(bar ${f2(RUNBAR)} s = KNOCKDOWN.down; ${upright.length}/${knocked.length} frames under `
+      + `${BAR.knockedDown}° from upright)`);
+  }
+  if (deadUpright > RUNBAR) {
+    bad(`§1 a DEAD man is drawn STANDING for ${f2(deadUpright)} s (bar ${f2(RUNBAR)} s) — `
+      + `the owner's "frozen stood up straight", on a corpse`);
   }
   if (step > BAR.step) {
     bad(`§1 the drawn trunk moves ${f1(step)}° in one frame at 60 fps (bar ${BAR.step}°) — ${stepFrom} -> ${stepTo}`);
   }
-  return { knocked: knocked.length, upright: upright.length, worstRun, step, stepAt, stepFrom, stepTo, track: win };
+  // ITEM 1, AS A NUMBER. Not "mercytest is gone", which proves nothing: a man
+  // whose health reaches zero must be dead on that tick. The bar is zero ticks
+  // and it is not a threshold anyone can move — it is the feature's absence.
+  if (!Number.isFinite(zeroToDead)) {
+    bad(`§1 could not find the tick where health reached zero or the tick he became dead`);
+  } else if (zeroToDead > 0) {
+    bad(`§1 a man at zero health is not dead for ${zeroToDead} server tick(s) (${f2(zeroToDead / 20)} s) — `
+      + `something is holding him between the blow and the body`);
+  }
+  // The corpse the real engine killed, against the same absolute bar §2 uses.
+  if (ended < BAR.corpseDown) {
+    bad(`§1 the corpse ended ${f1(ended)}° from upright, ${f1(90 - ended)}° short of the turf `
+      + `(bar ${BAR.corpseDown}°) — a body the engine killed did not lie down`);
+  }
+  return { knocked: knocked.length, upright: upright.length, worstRun, step, stepAt, stepFrom, stepTo,
+    zeroToDead, ended, deadUpright, runBar: RUNBAR, track: win };
 }
 
 // ===========================================================================
@@ -498,6 +640,9 @@ async function sectionDown(anim) {
 // ===========================================================================
 async function sectionCorpse(anim) {
   rule("§2  WHERE THE CORPSE STOPS   (absolute terminal topple, not self-relative)");
+  // The floor clock, read off the engine rather than copied: how long a man can
+  // be `knocked` is the server's fact and this section holds him there.
+  const { KNOCKDOWN } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
   const man = (cls) => ({
     id: "d", name: "", warriorClass: cls, team: "none", ready: true,
     position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
@@ -531,7 +676,14 @@ async function sectionCorpse(anim) {
     for (let i = 0; i < 30; i++) { t += 1 / 60; ctx.time = t; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
     if (prior) {
       player.state = prior;
-      const secs = prior === "knocked" ? 2.5 : 0.65;   // 2.5 s is MERCY.window
+      // How long the man can actually have been in that state before the blow.
+      // `knocked` was 2.5 s here — MERCY.window — because a mortal fall parked
+      // the floor clock for exactly that long. With MERCY OR FINISH removed
+      // (`docs/MERCY-REMOVED.md`) the longest a man is `knocked` is
+      // KNOCKDOWN.down, and holding him there for 2.5 s would be measuring a
+      // state the server can no longer produce. 0.65 s is a stagger or a roll
+      // most of the way through its own clock.
+      const secs = prior === "knocked" ? KNOCKDOWN.down : 0.65;
       for (let i = 0; i < secs * 60; i++) {
         t += 1 / 60; ctx.time = t;
         player.downTimer = prior === "knocked" ? 1.30 : 0;
@@ -571,15 +723,20 @@ async function sectionCorpse(anim) {
   const cases = [
     ["warden", null, null], ["berserker", null, "torso"],
     ["huscarl", "fire", null], ["runekeeper", "fire", "torso"],
-    ["runekeeper", null, "head"], ["warden", "finish", "head"],
-    ["berserker", "finish", null], ["warden", null, "armL"],
+    // These two carried `"finish"` until MERCY OR FINISH was removed. A finish
+    // was the only death `deathLayer` gave a second shape to, and the server can
+    // no longer produce one, so they read as what they now are: a huscarl and a
+    // warden killed by steel. Kept as rows rather than deleted, because the
+    // classes and zones are still distinct bodies.
+    ["runekeeper", null, "head"], ["warden", null, "head"],
+    ["berserker", null, null], ["warden", null, "armL"],
     ["berserker", null, "legL"], ["huscarl", null, "waist"],
   ];
   const rows = cases.map((c) => oneDeath(...c));
   // And the same deaths again out of the four states that carry `actT`.
   const PRIORS = ["staggered", "rolling", "knocked"];
   const carryRows = [];
-  for (const pr of PRIORS) for (const c of [["warden", null, null], ["huscarl", "finish", "head"], ["berserker", null, "armL"]]) {
+  for (const pr of PRIORS) for (const c of [["warden", null, null], ["huscarl", null, "head"], ["berserker", null, "armL"]]) {
     carryRows.push(oneDeath(c[0], c[1], c[2], pr));
   }
   say("");
@@ -869,7 +1026,10 @@ async function sectionSpine(anim) {
   }
   if (R.down) {
     say(`  §1 DOWNED   ${R.down.upright}/${R.down.knocked} \`knocked\` frames drawn upright; `
-      + `longest run ${f2(R.down.worstRun)}s; worst one-frame move ${f1(R.down.step)}°.`);
+      + `longest run ${f2(R.down.worstRun)}s (bar ${f2(R.down.runBar)}s); worst one-frame move ${f1(R.down.step)}°.`);
+    say(`              A lethal blow: ${R.down.zeroToDead} server tick(s) at zero health before \`dead\`; `
+      + `the corpse ended ${f1(R.down.ended)}° from upright`
+      + `${R.down.deadUpright > 0 ? `; dead and drawn upright for ${f2(R.down.deadUpright)}s` : ""}.`);
   }
   if (R.corpse) {
     say(`  §2 CORPSE   ${R.corpse.short}/${R.corpse.gated} corpses stop above ${BAR.corpseDown}° from flat `

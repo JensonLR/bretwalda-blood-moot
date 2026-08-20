@@ -682,66 +682,6 @@ export const RIPOSTE = {
   balanceScale: 1.8,
 };
 
-// ---- MERCY OR FINISH ----
-//
-// `docs/DESIGN-SYSTEM.md` §8 and `BACKLOG.md` 3.4. A beaten man is not
-// immediately dead: he goes down, and the man who put him there gets a window
-// to choose. Three properties came out of the design review and all three are
-// load-bearing:
-//
-//   THE PRESSURE IS STATED SOCIALLY. Seven men are watching. Not a meter, not a
-//   score — the `downed` message carries `witnesses`, which is a real count of
-//   the living men in the room who are neither of the two in the moment, so the
-//   UI can say "six men are watching" and be TELLING THE TRUTH. It is a count
-//   off the room, never the literal seven.
-//
-//   THE WINDOW DRAINS, IT DOES NOT COUNT DOWN. A number invites the player to
-//   watch the number instead of the man. So the wire carries `mercyTimer` as
-//   seconds remaining and the `downed` message carries `window` as the full
-//   length, and the client's whole job is one ratio and a shrinking mark. No
-//   digit is ever published for this.
-//
-//   LETTING IT RUN OUT IS ITSELF A CHOICE, AND A MERCIFUL ONE. So the default
-//   is mercy, doing nothing is the merciful act, and the server says so out
-//   loud with its own `spared` message rather than leaving it as an absence
-//   the client has to notice. That is the whole point of the feature: the game
-//   names what you did.
-//
-// WHY THIS IS NOT A FIFTH STATE. It reuses the knockdown wholesale. A downed
-// man IS `knocked` — `isDown` already refuses him his swing, his guard, his
-// turn and his stride, `knockDown` already strips his i-frames and slides him
-// away from the blow, and the client already has a fall animation keyed off it.
-// What is added is three fields and one rule: `mortal` says this fall does not
-// end in getting up, `mercyTimer` is the draining window, and `mercyTo` is
-// whose choice it is — the same "a window owned by one named man" shape the
-// riposte already uses with `vulnerableTo`. The riposte's fields are NOT
-// overloaded; that would have been a mirrored definition of two different
-// ideas, which is this repository's third named failure mode.
-//
-// THE ROUND STILL ENDS, AND THAT IS WHAT `spared` IS FOR. If mercy were
-// unlimited, eight men could spare each other forever and the round would never
-// resolve. A man may be spared ONCE per round; the second time he is put down
-// he dies. That is a bound on the round AND the better design statement — mercy
-// is a thing you are given once — so the termination guarantee and the meaning
-// are the same rule rather than two.
-export const MERCY = {
-  /**
-   * Seconds the choice stays open. 2.5 s is 50 whole ticks. It has to be long
-   * enough that walking away is a decision a player makes rather than one he
-   * misses, and short enough that seven other men are not stood waiting on it:
-   * a huscarl light reaches contact in 0.408 s, so the window is six clean
-   * chances to finish him and still leaves most of itself for hesitating.
-   */
-  window: 2.5,
-  /**
-   * What a spared man gets back. A quarter bar — he is alive, he is not
-   * restored, and the man who spared him has to live with him for the rest of
-   * the round. Any higher and mercy is a tactical error nobody would make
-   * twice; any lower and it is an execution with extra steps.
-   */
-  risesOn: 0.25,
-};
-
 // ---- emotes ----
 // Three flourishes and no more: raise the weapon, beat the shield boss, taunt.
 // They cost nothing and change nothing — no damage, no movement, no state the
@@ -1527,28 +1467,6 @@ export function buildLedger({ roundWins = {}, players = [], teamMode = false }) 
     const gold = 10 + p.kills * 15 + purseGold;
     return {
       id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, damage: p.damage,
-      // WHAT HE DID WITH THE CHOICE — the outcome half of MERCY OR FINISH, and
-      // the recommendation this unit was asked to argue. It is a REPUTATION,
-      // carried on the results table the whole room reads, and it is two
-      // counters and nothing else.
-      //
-      // Why a reputation rather than the alternatives that were on the table.
-      // A spared man REMEMBERING is the most vivid and it evaporates at the
-      // bell — `WHAT-THIS-GAME-IS.md` §1 names the actual problem as *nothing a
-      // player does on Tuesday is still true on Wednesday*, and a behaviour
-      // change inside one round is Tuesday only. A WAR-LAYER consequence is the
-      // right long answer and cannot be built: Wave 4 does not exist, and an
-      // outcome wired into a missing system is a gate that is green because the
-      // case is absent. A PROFILE MARK is seen by nobody, and §8's whole thesis
-      // is that the pressure is social — seven men are watching, and a private
-      // badge is those seven men leaving the room.
-      //
-      // Two counters on the table the room already looks at are the smallest
-      // thing that is still true tomorrow, still social, and still the correct
-      // primitive for the war layer to sum when it arrives. They are also
-      // deliberately powerless: §6 forbids reach, damage, health and speed being
-      // earned, so a reputation that won fights would break the game's own law.
-      menSpared: p.menSpared || 0, menFinished: p.menFinished || 0,
       // Rounds his SIDE won. In a free-for-all that is his own; in a war band it
       // is the band's, and every man on the band carries it — which is the same
       // answer `place` gives, and they must not be able to disagree.
@@ -1901,23 +1819,6 @@ export function makeEngine(options = {}) {
       // `docs/DESIGN-SYSTEM.md` puts that tell on the opponent's brackets for
       // the window's real duration, which needs the real duration on the wire.
       vulnerableTimer: 0, vulnerableTo: "",
-      // MERCY OR FINISH. `mortal` says this fall does not end in getting up;
-      // `mercyTimer` is the DRAINING window, in seconds, published so a client
-      // can shrink a mark by a ratio and never print a digit; `mercyTo` is the
-      // man whose choice it is — the one who put him here. All three on the
-      // wire, because a spectator arriving mid-window must see the same moment
-      // the room is seeing. See MERCY.
-      mortal: false, mercyTimer: 0, mercyTo: "",
-      // Whether he has already been given his life this round. A man is spared
-      // once; the second time he goes down he dies. This is what bounds a round
-      // — see MERCY — and it is why it is cleared by `clearStance` and not by
-      // anything smaller.
-      spared: false,
-      // What he did with the choice, over the whole match, for the results
-      // table. Descriptive and never powerful: `WHAT-THIS-GAME-IS.md` §6 forbids
-      // health, damage, reach and speed being earned, and a reputation that
-      // changed a fight would be exactly that.
-      menSpared: 0, menFinished: 0,
       // The shove's own clock, on the wire so a late joiner can phase it.
       // Meaningful only while state === "shoving".
       shoveTimer: 0,
@@ -3151,20 +3052,13 @@ export function makeEngine(options = {}) {
     if (target.health > 0) spendBalance(room, attacker, target, cost, ax, az);
     if (target.health <= 0) {
       target.health = 0;
-      // MERCY OR FINISH. A man who still has his one life to be given does not
-      // die here — he goes down, and the choice passes to the man who put him
-      // there. Everything below this line is the finish, and it is reached
-      // either because he has already been spared once or because somebody
-      // came back and ended it. See MERCY, and `goDown`.
-      if (goDown(room, attacker, target, hitZone, heavy)) return;
-      // A FINISH IS ITS OWN CAUSE, and it is decided here, ONCE. `deathCause` is
-      // what a renderer, a spectator and a late joiner all rebuild the body
-      // from, and "he was on the ground and a man chose" is not the same death
-      // as "he was cut down on his feet". Read before the mortal marks are
-      // cleared, because clearing them is what makes it no longer readable.
-      const finishing = target.mortal;
-      if (finishing) attacker.menFinished++;
-      target.mortal = false; target.mercyTimer = 0; target.mercyTo = "";
+      // A LETHAL BLOW IS A DEATH, HERE, ON THE TICK IT LANDS.
+      // There is no window between the blow and the body any more. MERCY OR
+      // FINISH used to sit on this line and send the man to `goDown` instead,
+      // which parked him upright for 2.5 s in the middle of a live round; it
+      // was removed on the owner's report and the history is in
+      // `docs/MERCY-REMOVED.md`. Everything below is the only path a man
+      // killed by steel takes.
       target.state = "dead"; target.deaths++;
       target.deadAt = room.matchTimer;
       // The killing blow is marked on the body and not only in the message. The
@@ -3172,7 +3066,11 @@ export function makeEngine(options = {}) {
       // `serializeRoom` reaches everyone else, so a spectator who arrives a minute
       // later rebuilds the same one-armed corpse the room watched drop.
       target.deathZone = hitZone; target.deathDir = attacker.attackDir; target.deathHeavy = heavy;
-      target.deathCause = finishing ? "finish" : "blow";
+      // `deathCause` is what a renderer, a spectator and a late joiner all
+      // rebuild the body from. Steel is "blow" and the fire is "fire"; the
+      // third value, "finish", could only be produced by a man swung at while
+      // he lay inside a mercy window, so it died with the window.
+      target.deathCause = "blow";
       target.hitstop = 0;    // ...and the dead are not held still, they are still
       endSwing(target);      // ...and a corpse is not mid-swing
       clearMotion(target);   // the dead stop running
@@ -3181,107 +3079,6 @@ export function makeEngine(options = {}) {
       broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy, cause: target.deathCause } });
       if (room.mode !== "solo") checkRoundEnd(room);
     }
-  }
-
-  /**
-   * DOWN, BUT NOT DEAD — and the choice that opens.
-   *
-   * Returns true when the blow was answered with a downing instead of a death,
-   * in which case `applyDamage` stops: nobody has died, no kill is credited, no
-   * round has ended.
-   *
-   * The three refusals, and each is a case where offering a choice would be a
-   * lie about what happened:
-   *
-   *   ALREADY GIVEN. A man is spared once a round. The second fall is death.
-   *     This is what guarantees a round terminates — see MERCY.
-   *   ALREADY DOWN. He is inside somebody's window already; a second blow that
-   *     failed to kill him cannot open a second window over the first.
-   *   NOBODY CHOSE. `attacker` is the man the choice belongs to. A death with no
-   *     living author — the fire, a man who has himself just fallen — has no
-   *     one to offer it to, so there is no window and it is simply a death.
-   *
-   * `knockDown` does the rest, and it does ALL of it: the fall, the slide away
-   * from the blow, the swing and guard and i-frames taken off him, the
-   * `knockdown` broadcast the client already animates. This function adds three
-   * fields to that and nothing else, which is the whole reason mercy is not a
-   * fifth state.
-   */
-  function goDown(room, attacker, target, hitZone, heavy) {
-    if (target.spared || target.mortal) return false;
-    if (!attacker || attacker.id === target.id || attacker.state === "dead") return false;
-
-    knockDown(room, attacker, target, attacker.position.x, attacker.position.z);
-    // A mortal fall does not end in getting up. The floor clock is parked at
-    // the full sequence so the client phases him as `knocked` throughout, and
-    // the tick refuses to spend it while `mortal` is set — one clock decides
-    // the pose, another decides the outcome, and neither has to know the other.
-    target.mortal = true;
-    target.mercyTimer = MERCY.window;
-    target.mercyTo = attacker.id;
-    target.health = 0;
-
-    broadcast(room, { type: "downed", data: {
-      targetId: target.id, targetName: target.name,
-      attackerId: attacker.id, attackerName: attacker.name,
-      // The full length, so a client can draw a DRAIN off `mercyTimer` without
-      // ever printing a digit. §8: a number invites the player to watch the
-      // number instead of the man.
-      window: MERCY.window,
-      // The pressure, stated socially and COUNTED rather than asserted. This is
-      // the men who are alive to see it and are neither of the two in it — the
-      // "seven men are watching" of the design review, except that it is the
-      // real number and it goes down as the round does.
-      witnesses: witnessesTo(room, attacker, target),
-      hitZone, direction: attacker.attackDir, heavy,
-    } });
-    return true;
-  }
-
-  /** The living, minus the two men in the moment. Never a hard-coded seven. */
-  function witnessesTo(room, attacker, target) {
-    let n = 0;
-    room.players.forEach((p) => {
-      if (p.id === attacker.id || p.id === target.id) return;
-      if (p.state === "dead") return;
-      n++;
-    });
-    return n;
-  }
-
-  /**
-   * THE WINDOW RAN OUT, AND THAT IS AN ACT.
-   *
-   * The design review's sharpest line, and the reason this is a mechanic and not
-   * a prompt: *letting it run out is ITSELF a choice, and a merciful one, and
-   * the game should say so out loud*. So this is not an absence the client has
-   * to infer from a timer reaching zero — the server sends `spared`, names both
-   * men, and counts it against the sparer's own reputation. Doing nothing is the
-   * only act in this game that the server congratulates you for.
-   *
-   * He comes up on MERCY.risesOn of a bar, carrying `spared` for the rest of the
-   * round, which means the man who let him live has to fight him again and
-   * cannot be merciful twice.
-   */
-  function spare(room, player) {
-    const sparer = room.players.get(player.mercyTo) || null;
-    player.mortal = false;
-    player.mercyTimer = 0;
-    player.mercyTo = "";
-    player.spared = true;
-    player.health = Math.max(1, Math.floor(player.maxHealth * MERCY.risesOn));
-    // Straight into the rising half of the floor clock. He is not handed his
-    // feet the instant the window shuts — he still has to get up, on the same
-    // clock every other knockdown uses.
-    player.downTimer = KNOCKDOWN.rise;
-    player.state = "rising";
-    if (sparer && sparer.state !== "dead") sparer.menSpared++;
-    broadcast(room, { type: "spared", data: {
-      targetId: player.id, targetName: player.name,
-      sparerId: sparer ? sparer.id : "", sparerName: sparer ? sparer.name : "",
-      health: player.health,
-      witnesses: sparer ? witnessesTo(room, sparer, player) : 0,
-    } });
   }
 
   /**
@@ -3359,12 +3156,6 @@ export function makeEngine(options = {}) {
   function burnDeath(room, victim) {
     victim.state = "dead";
     victim.deaths++;
-    // The fire does not honour a window. A man bleeding out inside somebody's
-    // choice who is then taken by the flames is a death nobody authored, so the
-    // claim on his life is dropped rather than resolved — no finish is credited
-    // and no mercy is either, which is the same rule `credited` below applies to
-    // the kill itself.
-    victim.mortal = false; victim.mercyTimer = 0; victim.mercyTo = "";
     victim.deadAt = room.matchTimer;
     victim.deathZone = null; victim.deathDir = null; victim.deathHeavy = false;
     victim.deathCause = "fire";
@@ -3693,11 +3484,6 @@ export function makeEngine(options = {}) {
       const stats = WARRIOR_STATS[p.warriorClass];
       p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;
       p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
-      // The reputation is the MATCH's, so it dies with the match. `clearStance`
-      // deliberately does not touch these two — it runs at every round boundary
-      // and a man's mercies must survive from round one into round three — so
-      // the only place they can be zeroed is here, where a new match begins.
-      p.menSpared = 0; p.menFinished = 0;
       p.position = { x: 0, y: 0, z: 0 }; p.invincible = false;
       clearMotion(p);
       clearStance(p);
@@ -4156,19 +3942,6 @@ export function makeEngine(options = {}) {
     player.staggerTimer = 0;
     player.vulnerableTimer = 0;
     player.vulnerableTo = "";
-    // The mercy marks are STANCE, not score. `mortal`, the window and its owner
-    // leak exactly the way a `knocked` state leaked before `clearStance`
-    // existed: a man who was mid-window when the round ended would come back
-    // frozen on the floor with a dead man's claim on his life. `spared` is
-    // cleared with them because a man's one life is his once per ROUND — the
-    // whole termination guarantee is that sentence, and if it silently became
-    // once per match the second round would have no mercy in it at all.
-    // `menSpared` and `menFinished` are NOT cleared here: they are the match's
-    // reputation and they are meant to survive every round in it.
-    player.mortal = false;
-    player.mercyTimer = 0;
-    player.mercyTo = "";
-    player.spared = false;
     player.maxBalance = BALANCE.max[player.warriorClass] ?? 80;
     player.balance = player.maxBalance;
   }
@@ -4425,17 +4198,10 @@ export function makeEngine(options = {}) {
       // knockdown that spends one tick longer down than it says it does is the
       // kind of off-by-a-tick that a 20 Hz gate has to be written to catch.
       //
-      // A MORTAL FALL SPENDS THE OTHER CLOCK. While `mortal` is set the floor
-      // clock is held — he is `knocked` and he stays `knocked`, because a man
-      // bleeding out on the ground must not stand up halfway through the choice
-      // being made about him. What drains instead is `mercyTimer`, and when it
-      // reaches zero he has been spared. Two clocks, one at a time, and neither
-      // has to know what the other is for.
-      if (player.mortal) {
-        player.mercyTimer -= dt;
-        player.state = "knocked";
-        if (player.mercyTimer <= 0) spare(room, player);
-      } else if (player.downTimer > 0) {
+      // ONE CLOCK, and it is spent every tick. It used to be held whenever
+      // `mortal` was set, which is what left men standing on the floor clock
+      // mid-round; `mortal` is gone with the rest of MERCY OR FINISH.
+      if (player.downTimer > 0) {
         player.downTimer -= dt;
         if (player.downTimer <= 0) {
           player.downTimer = 0;

@@ -4074,17 +4074,17 @@ interface FallCause {
  * sags — slower than a felled man, because nothing is driving him — and he goes
  * down small, arms in rather than flung out.
  *
- * A FINISH is the opposite in every term. He was on the ground, he was not
- * resisting, and somebody swung with intent: it is the fastest and the hardest
- * of the three, and the least like a fall, because most of the distance was
- * already gone.
+ * A FINISH used to be the third shape here — a man on the ground, not
+ * resisting, swung at with intent. It came in with MERCY OR FINISH and it went
+ * out with it (`docs/MERCY-REMOVED.md`), because the server can no longer
+ * produce that cause: a lethal blow is a death on the tick it lands. The branch
+ * is removed rather than left unreachable, so the switch and the wire agree.
  */
 function causeOf(cause: DeathCause | null | undefined, heavy: boolean): FallCause {
   const h = heavy ? 1.3 : 1;
   switch (cause) {
-    case "fire":   return { pace: 1.16, curl: 0.85, drive: 0.55 * h, splay: 0.45 };
-    case "finish": return { pace: 0.84, curl: 0.28, drive: 1.50 * h, splay: 0.72 };
-    default:       return { pace: 1.00, curl: 0.00, drive: 1.00 * h, splay: 1.00 };
+    case "fire": return { pace: 1.16, curl: 0.85, drive: 0.55 * h, splay: 0.45 };
+    default:     return { pace: 1.00, curl: 0.00, drive: 1.00 * h, splay: 1.00 };
   }
 }
 

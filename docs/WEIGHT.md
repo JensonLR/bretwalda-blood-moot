@@ -354,6 +354,7 @@ at the moment you read a blow.
 So `input.ts` now hands the lock to the man you parried, outright, for as long
 as the window lasts. It is the one moment in a fight where the game knows for
 certain which man you care about, because you proved it 50 ms ago. The jaws then
-go warm and **close** over `vulnerableTimer` — a drain, not a countdown, which
-is the same rule §8 praises for the mercy window: a number invites a player to
-watch the number instead of the man.
+go warm and **close** over `vulnerableTimer` — a drain, not a countdown. That
+rule came out of `DESIGN-SYSTEM.md` §8's mercy window; the window is gone
+(`docs/MERCY-REMOVED.md`) and **the rule is not**, because it was never about
+mercy: a number invites a player to watch the number instead of the man.
