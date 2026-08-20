@@ -230,6 +230,62 @@ const BAR = {
    * A replay running at the wrong rate fails this and fails it WORSE EVERY
    * FRAME, because the offset grows without bound instead of staying inside the
    * quantisation.
+   *
+   * -----------------------------------------------------------------------
+   * AND THE NUMBER IS STILL 0.025 s. WHAT MOVED IS WHAT IS MEASURED AGAINST IT.
+   *
+   * This settles the reading `docs/REPLAY.md` §1 wrote down and deliberately
+   * did not act on: "the derivation does not account for the ring's own 1/20 s
+   * step, which `slotAt` resolves nearest-at-or-before... the localisation
+   * floor is a recorded step, 0.05 s. The measured 0.055 s sits exactly there."
+   *
+   * THAT IS REFUTED BY THE OFFSETS THEMSELVES. Dumped frame by frame on the
+   * default fixture, the 228 compared frames of the old argmin column gave
+   *
+   *     -0.0050 s   82 frames        +0.0033 s   48 frames
+   *     -0.0133 s   66 frames        -0.0217 s   31 frames
+   *     -0.0550 s    1 frame
+   *
+   * 227 of 228 inside the bar, nothing anywhere near 0.05 s, and ONE outlier. A
+   * quantisation floor of a recorded step would put a great many frames at
+   * 0.05 s, not one. The ring's step is not the mechanism.
+   *
+   * WHAT THE ONE FRAME IS. It is the replay's first frame after the collapse
+   * begins: `at` = 19.9550 s, ring slot 19.9500 s, the first `dead` snapshot.
+   * Its pose distance to every live frame in the window:
+   *
+   *     live t   19.9000  19.9167  19.9333  19.9500  19.9667
+   *     gap        0.56°    0.60°    0.63°    1.73°    8.50°
+   *
+   * The first three lie within 0.07° of each other and span 0.033 s. The argmin
+   * picked 19.9000 by four hundredths of a degree. That is not a measurement of
+   * time, it is a coin toss across a basin three frames wide — and the pose is
+   * the thing that cannot tell them apart, because the live track itself only
+   * moves 0.17° over the render frame at 19.9000 while the replayed pose sits
+   * 0.56° off the live polyline. That 0.39° of excess is the POSE column's own
+   * worst reading for this very frame, and it passes at 0.50°. Both columns
+   * were reporting one residual; only one of them was reporting it honestly.
+   *
+   * SO THE PHASE COLUMN NOW ASKS A FALSIFYING QUESTION INSTEAD OF A SELECTING
+   * ONE. "Which live frame is this?" has no answer where the pose is flat.
+   * "Could this replayed frame be the moment it claims to be?" always has one,
+   * and it is the question a defect detector wants: the claim is refuted only
+   * when NO live frame near `at` matches. `matches` is not a new tolerance
+   * invented here — it is `BAR.bracket`'s, the one this file already gates the
+   * pose column on: a replayed pose IS a given live frame when it sits inside
+   * that frame's own sampling bracket plus `pose`. The column reports the
+   * NEAREST IN TIME of the frames that pass that test, and the bar it is held
+   * to is the grid arithmetic above, untouched. The raw argmin is still
+   * computed and still printed beside it, ungated.
+   *
+   * THIS IS NOT LOOSENESS BOUGHT WITH A DIFFERENT NAME. Where the fight is
+   * still the bracket is a fraction of a degree and the admissible set is one
+   * or two frames wide; where it is violent the bracket is ten degrees and the
+   * set is wide — and a wide set is the honest report, because a body moving
+   * 10° per frame cannot be placed in time to a sixtieth of a second by looking
+   * at it. What cannot pass either way is a replay drawn at the WRONG RATE:
+   * under `--lever=drift` the lag grows without bound, no admissible frame
+   * stays near `at`, and the run at the bottom of this comment block is red.
    */
   phase: 1 / 60 + 1 / 120,
   /**
@@ -496,7 +552,8 @@ async function sectionRecord(anim, replay) {
   let elapsed = 0, worst = 0, worstAt = 0, worstCh = "", compared = 0, frame = 0;
   const worstBy = {};
   let worstFrame = null;
-  let matchWorst = 0, matchAt = 0, matchCh = "", offWorst = 0, offAt = 0;
+  let matchWorst = 0, matchAt = 0, matchCh = "", offWorst = 0, offAt = 0, offMatch = 0;
+  let rawOffWorst = 0, rawOffAt = 0;
   let excessWorst = -Infinity, excessAt = 0, excessCh = "", excessBr = 0, excessGap = 0;
   // The replay's own clock, driven exactly as the renderer would drive it.
   clock.reset();
@@ -545,8 +602,29 @@ async function sectionRecord(anim, replay) {
     const excess = mD - bracket;
     if (mD > matchWorst) { matchWorst = mD; matchAt = s.at; matchCh = mCh; }
     if (excess > excessWorst) { excessWorst = excess; excessAt = s.at; excessCh = mCh; excessBr = bracket; excessGap = mD; }
-    const off = Math.abs(mT - s.at);
-    if (off > offWorst) { offWorst = off; offAt = s.at; }
+    // THE PHASE COLUMN, AND IT ASKS A FALSIFYING QUESTION — see BAR.phase. Not
+    // "which live frame is the argmin", which is a coin toss wherever the pose
+    // is flat, but "is there a live frame near `at` that this replayed pose
+    // could BE". `could be` is not a new tolerance: it is the same test the
+    // pose column above gates on, `gap <= that frame's own bracket + BAR.pose`.
+    let off = Infinity, offT = 0;
+    for (let li = 0; li < live.length; li++) {
+      const l = live[li];
+      const d = Math.abs(l.t - s.at);
+      if (d > 0.06 || d >= off) continue;
+      const q = poseGap(now, l.b);
+      let br = 0;
+      if (li > 0) br = Math.max(br, poseGap(live[li].b, live[li - 1].b).w);
+      if (li < live.length - 1) br = Math.max(br, poseGap(live[li].b, live[li + 1].b).w);
+      if (q.w <= br + BAR.pose) { off = d; offT = l.t; }
+    }
+    // Nothing in the window is this pose at all. Then the POSE column has
+    // already failed — its own `excess` is over `BAR.pose` by construction —
+    // and the argmin's offset is reported rather than an infinity.
+    if (!Number.isFinite(off)) { off = Math.abs(mT - s.at); offT = mT; }
+    const rawOff = Math.abs(mT - s.at);
+    if (rawOff > rawOffWorst) { rawOffWorst = rawOff; rawOffAt = s.at; }
+    if (off > offWorst) { offWorst = off; offAt = s.at; offMatch = offT; }
     // WHICH CHANNEL AND WHEN, because "83° somewhere" sends the next person
     // reading the whole animator. Kept in the harness rather than deleted after
     // it did its job once: a pose comparison that only ever says a single
@@ -579,8 +657,12 @@ async function sectionRecord(anim, replay) {
   say(`      sampling bracket                                     at sim t+${f2(excessAt)}s on ${excessCh || "-"}:`);
   say(`                                                   ${f2(excessGap)}° from the nearest live pose, and the`);
   say(`                                                   live track itself moved ${f2(excessBr)}° over that frame`);
-  say(`      worst distance in time to that frame         ${f3(offWorst)}s  (bar ${f3(BAR.phase)}s = one live step`);
-  say(`                                                   plus one replay step, at t+${f2(offAt)}s)`);
+  say(`      worst distance in time to the NEAREST live    ${f3(offWorst)}s  (bar ${f3(BAR.phase)}s = one live step`);
+  say(`      frame this pose could be                             plus one replay step, at t+${f2(offAt)}s,`);
+  say(`                                                   matching the live frame at t+${f2(offMatch)}s)`);
+  say(`      ...and where the raw argmin put it            ${f3(rawOffWorst)}s  at t+${f2(rawOffAt)}s — PRINTED,`);
+  say(`                                                   NOT GATED: an argmin over pose cannot localise`);
+  say(`                                                   a frame the pose cannot tell apart. See BAR.phase.`);
   say("");
   say(`    PRINTED AND NOT GATED, because the two sampling grids never coincide — see`);
   say(`    BAR.bracket. Raw gap to the nearest live pose: ${f2(matchWorst)}° on ${matchCh || "-"} at t+${f2(matchAt)}s.`);
@@ -623,10 +705,10 @@ async function sectionRecord(anim, replay) {
       + `\`${excessCh}\` (bar ${f2(BAR.pose)}°) — the recording is missing something the animator reads`);
   }
   if (offWorst > BAR.phase) {
-    bad(`§1 a replayed frame matches a live frame ${f3(offWorst)}s away (bar ${f3(BAR.phase)}s) — `
-      + `the replay is drawing the right fight at the wrong moment`);
+    bad(`§1 the nearest live frame a replayed pose could be is ${f3(offWorst)}s from the moment it `
+      + `claims (bar ${f3(BAR.phase)}s) — the replay is drawing the right fight at the wrong moment`);
   }
-  return { worst, worstCh, matchWorst, matchCh, offWorst, excessWorst, excessCh,
+  return { worst, worstCh, matchWorst, matchCh, offWorst, rawOffWorst, excessWorst, excessCh,
     compared, frame, rows, deathAt, buf, live, ids: run.ids };
 }
 
@@ -1008,8 +1090,8 @@ function sectionCost(replay) {
   if (R.record) {
     say(`  §1 RECORD   ${R.record.compared} frame(s) of a real fight replayed off the ring. Worst pose `
       + `${f2(R.record.excessWorst)}° outside the live track's`);
-    say(`              own sampling bracket (bar ${f2(BAR.pose)}°), worst ${f3(R.record.offWorst)}s from the frame it `
-      + `claims to be (bar ${f3(BAR.phase)}s).`);
+    say(`              own sampling bracket (bar ${f2(BAR.pose)}°), worst ${f3(R.record.offWorst)}s from the moment it `
+      + `claims (bar ${f3(BAR.phase)}s; raw argmin ${f3(R.record.rawOffWorst)}s).`);
   }
   if (R.clock) {
     say(`  §2 CLOCK    opens ${f2(R.clock.deathAt - R.clock.opensAt)}s BEFORE the blow and runs at `

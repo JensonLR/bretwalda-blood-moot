@@ -35,22 +35,21 @@ exactly what `--lever=live` demonstrates:
   RED — 4 finding(s)
 ```
 
-Against the real module, the same section — **and this block used to be one
-lucky draw, which is the fault this project keeps recording**:
+Against the real module, the same section:
 
 ```
   §1 RECORD   228 frame(s) of a real fight replayed off the ring. Worst pose 0.39° outside the live track's
-              own sampling bracket (bar 0.50°), worst 0.055s from the frame it claims to be (bar 0.025s).
+              own sampling bracket (bar 0.50°), worst 0.005s from the moment it claims (bar 0.025s; raw argmin 0.055s).
   §2 CLOCK    opens 0.91s BEFORE the blow and runs at 0.498x over 4.00s of wall clock.
 ```
 
-**`§1` IS RED ON THE DEFAULT FIGHT AND THE NUMBER ABOVE IS THE SEEDED ONE.**
-What was printed here before — `-0.06°` and `0.022s`, green — was a real run and
-not the module's result: `replaytest` was unseeded and drew a different fight
-every time. Measured over twelve consecutive runs of that build it went **red in
-seven of them**, with the phase column swinging 0.022 s to 0.055 s against a
-0.025 s bar. Quoting the good draw is exactly the fault `docs/PROCESS.md` warns
-about, and it is corrected here rather than re-run until it agrees.
+**That line used to read `0.055s from the frame it claims to be (bar 0.025s)`
+and it used to be RED**, and the block before it used to be one lucky draw,
+which is the fault this project keeps recording: `replaytest` was unseeded and
+drew a different fight every time, red in seven runs of twelve. The fixture is
+seeded now. The red that survived the seeding is settled in the next section —
+**the recording was never out; the ruler was**, and the raw argmin above is the
+old number, still measured, still printed, no longer gated.
 
 ### What the flakiness actually was
 
@@ -74,38 +73,90 @@ are byte-identical** (md5 `4d4f3399a431`, 10/10).
 `--seed=N` renames the fixture's two warriors, which is the axis that actually
 varies. Seeds declared first, all ten run, none discarded:
 
-| seed | worst pose outside bracket | worst phase offset | verdict |
+Seeds declared first, all ten run, none discarded. The two right-hand columns
+are the same ten fights measured by the old ruler and by the one that replaced
+it — **the recording did not change between them; every raw-argmin number below
+is identical to the one that round printed.**
+
+| seed | worst pose outside bracket | raw argmin (old gate) | nearest frame it could be (gate) | verdict |
+|---|---|---|---|---|
+| default | 0.39° | 0.055 s | 0.005 s | green |
+| 1 | 0.31° | 0.038 s | 0.005 s | green |
+| 2 | −0.03° | 0.022 s | 0.005 s | green |
+| 3 | 0.21° | 0.038 s | 0.005 s | green |
+| 7 | −0.06° | 0.022 s | 0.005 s | green |
+| 11 | −0.02° | 0.022 s | 0.005 s | green |
+| 42 | −0.04° | 0.022 s | 0.005 s | green |
+| 99 | −0.04° | 0.022 s | 0.005 s | green |
+| 20260820 | 0.27° | 0.055 s | 0.005 s | green |
+| 424242 | −0.06° | 0.022 s | 0.005 s | green |
+
+**Ten of ten. The bar is still `1/60 + 1/120` = 0.025 s and the default fight is
+still the default fight.** What moved is what is measured against it.
+
+### Settling the red — and the previous round's reading is REFUTED
+
+That round wrote down a hypothesis and deliberately did not act on it: the
+offset's floor was said to be "the **ring's own 1/20 s step**, which `slotAt`
+resolves nearest-at-or-before... the localisation floor is a recorded step,
+0.05 s. The measured 0.055 s sits exactly there."
+
+**It is not.** Dumped frame by frame on the default fixture, the 228 compared
+frames of the old column gave
+
+| offset | frames | | offset | frames |
+|---|---|---|---|---|
+| −0.0050 s | 82 | | +0.0033 s | 48 |
+| −0.0133 s | 66 | | −0.0217 s | 31 |
+| −0.0550 s | **1** | | | |
+
+227 of 228 inside the bar, nothing anywhere near 0.05 s, and **one** outlier. A
+quantisation floor of a recorded step would put a great many frames at 0.05 s,
+not one.
+
+**What the one frame is.** It is the replay's first frame after the collapse
+begins — `at` = 19.9550 s, ring slot 19.9500 s, the first `dead` snapshot. Its
+pose distance to every live frame in the search window:
+
+| live t | 19.9000 | 19.9167 | 19.9333 | 19.9500 | 19.9667 |
+|---|---|---|---|---|---|
+| gap | 0.56° | 0.60° | 0.63° | 1.73° | 8.50° |
+
+The first three lie within **0.07° of each other and span 0.033 s**. The argmin
+picked 19.9000 by four hundredths of a degree. That is not a measurement of
+time, it is a coin toss across a basin three frames wide — and the pose is the
+thing that cannot tell them apart: the live track itself moves only 0.17° over
+the render frame at 19.9000, while the replayed pose sits 0.56° off the live
+polyline at the corner where the collapse starts. **That 0.39° of excess is the
+POSE column's own worst reading for this very frame, and it passes at 0.50°.**
+Both columns were reporting one residual; only one was reporting it honestly.
+
+**The fix is to the ruler, and it is the question that changed, not the number.**
+The phase column now asks a falsifying question instead of a selecting one:
+not "which live frame is this?", which has no answer where the pose is flat, but
+"could this replayed frame be the moment it claims to be?" — refuted only when
+**no** live frame near `at` matches. And "matches" is not a new tolerance
+invented for the occasion: it is `BAR.bracket`'s, the one this file already
+gates the pose column on — a replayed pose IS a given live frame when it sits
+inside that frame's own sampling bracket plus `BAR.pose`. The column reports the
+nearest **in time** of the frames that pass that test. The raw argmin is still
+computed and printed beside it, ungated.
+
+**It still has teeth**, and that is the part a bar-move could not have claimed:
+
+| run | worst pose outside bracket | phase (gated) | verdict |
 |---|---|---|---|
-| default | 0.39° | 0.055 s | RED |
-| 1 | 0.31° | 0.038 s | RED |
-| 2 | −0.03° | 0.022 s | green |
-| 3 | 0.21° | 0.038 s | RED |
-| 7 | −0.06° | 0.022 s | green |
-| 11 | −0.02° | 0.022 s | green |
-| 42 | −0.04° | 0.022 s | green |
-| 99 | −0.04° | 0.022 s | green |
-| 20260820 | 0.27° | 0.055 s | RED |
-| 424242 | −0.06° | 0.022 s | green |
+| clean | 0.39° | 0.005 s | green |
+| `--lever=drift` | 25.66° | 0.058 s | **RED, both columns** |
+| `--lever=live` | 77.69° | 0.060 s | **RED, both columns** |
+| `--lever=clock` | 21.67° | 0.055 s | **RED, both columns** |
 
-**Six of ten pass. The bar was not moved and the default was not re-picked.**
-The seed is declared, so a green one could have been made the default with one
-character; that would be choosing the fight to fit the gate, which is the same
-move as choosing the bar to fit the fight.
-
-**What the red means, as far as it has been established.** The pose is inside
-its own bracket on every seed (worst 0.39° against 0.50°), so the recording is
-not missing a field — that is what `--lever=live`, `--lever=drift` and
-`--lever=clock` are for and all three still go red. What exceeds its bar is the
-PHASE column, which locates a replayed frame in time by argmin over pose. Its
-bar is derived as `1/60 + 1/120` — one live step plus one replay step — and that
-derivation does not account for the **ring's own 1/20 s step**, which `slotAt`
-resolves nearest-**at-or-before** rather than nearest. Where a discrete field
-changes (the state enum flips to `dead`) no interpolator smooths it, and the
-localisation floor is a recorded step, 0.05 s. The measured 0.055 s sits exactly
-there. **That is a reading, not a finding, and the bar has been left alone on
-purpose:** correcting a bar's derivation is the move that most resembles moving
-one to buy a pass, and doing it at the end of a round to turn a red green is not
-a call to make alone. It is written down so the next round can settle it.
+Where the fight is still, the bracket is a fraction of a degree and the
+admissible set is one or two frames wide; where it is violent the bracket is ten
+degrees and the set is wide — and a wide set is the honest report, because a
+body moving 10° per frame cannot be placed in time to a sixtieth of a second by
+looking at it. What cannot pass either way is a replay drawn at the wrong rate:
+its lag grows without bound and no admissible frame stays near `at`.
 
 ---
 
