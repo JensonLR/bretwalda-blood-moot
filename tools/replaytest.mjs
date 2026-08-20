@@ -88,6 +88,8 @@ const LEVER = argOf("lever", "");
  * difference between two harnesses is never the seed.
  *
  *   node tools/replaytest.mjs --seed=7        one named fight
+ *   node tools/replaytest.mjs --sweep        the ten declared seeds, as a table
+ *   node tools/replaytest.mjs --repeat=10    the same seed N times, hashed
  *
  * AND THE SEED HAD TO BE MADE TO MEAN SOMETHING, which is the second half of
  * this note. Seeding `Math.random` alone changed NOTHING: ten seeds gave ten
@@ -106,6 +108,15 @@ const LEVER = argOf("lever", "");
 const SEED_ARG = argOf("seed", "");
 /** Decimal, or `0x...` for the default. 0 is not a state xorshift32 can leave. */
 const SEED = ((SEED_ARG ? Number(SEED_ARG) : 0x2545f491) >>> 0) || 0x2545f491;
+/**
+ * THE DECLARED SEEDS. Written down here, in the file, BEFORE any of them was
+ * run — which is the only thing that separates "ten seeds pass" from "ten seeds
+ * were tried and the good ones were kept". `--sweep` runs exactly this list and
+ * prints every row, and `--repeat` re-runs one seed and hashes the output so
+ * determinism is a command rather than a claim.
+ */
+const SEEDS = ["", "1", "2", "3", "7", "11", "42", "99", "20260820", "424242"];
+
 /**
  * The fixture's two warriors, by name. `--seed=N` renames them, which changes
  * `motion.seed` and therefore each man's death pace by up to ±8% — the axis
@@ -130,6 +141,55 @@ const rule = (t) => { say(""); say("=".repeat(78)); say(`  ${t}`); say("=".repea
 const fails = [];
 const bad = (m) => { fails.push(m); say(`    FAIL  ${m}`); };
 const notes = [];
+
+if (argv.includes("--sweep") || argv.some((a) => a.startsWith("--repeat"))) {
+  const { execFileSync, createHash } = { ...await import("child_process"), ...await import("crypto") };
+  const self = fileURLToPath(import.meta.url);
+  const run = (extra) => {
+    try {
+      return execFileSync(process.execPath, [self, "--only=record", ...extra], { encoding: "utf8" });
+    } catch (e) { return (e.stdout || "") + (e.stderr || ""); }
+  };
+  const grab = (out, rx) => { const m = rx.exec(out); return m ? m[1] : "?"; };
+  if (argv.includes("--sweep")) {
+    say("");
+    say("  THE TEN DECLARED SEEDS. Every row printed; none discarded.");
+    say("");
+    say("    seed         pose outside bracket   worst phase offset   verdict");
+    let green = 0;
+    for (const sd of SEEDS) {
+      const out = run(sd ? [`--seed=${sd}`] : []);
+      const pose = grab(out, /worst pose OUTSIDE the live track's own\s+(-?[\d.]+)°/);
+      const off = grab(out, /worst distance in time to that frame\s+([\d.]+)s/);
+      const red = /^\s+FAIL/m.test(out);
+      if (!red) green++;
+      say(`    ${(sd || "default").padEnd(12)} ${(pose + "°").padStart(16)}   ${(off + "s").padStart(18)}   ${red ? "RED" : "green"}`);
+    }
+    say("");
+    say(`    ${green}/${SEEDS.length} green. The bar is not moved and the default is not re-picked:`);
+    say(`    choosing the fight to fit the gate is the same move as choosing the bar`);
+    say(`    to fit the fight. See docs/REPLAY.md §1.`);
+    say("");
+  }
+  const rep = argv.find((a) => a.startsWith("--repeat"));
+  if (rep) {
+    const n = Math.max(2, parseInt(rep.split("=")[1] || "10", 10));
+    const seen = new Map();
+    for (let i = 0; i < n; i++) {
+      const out = run(SEED_ARG ? [`--seed=${SEED_ARG}`] : [])
+        .split("\n").filter((l) => !/Warning|Reparsing|To eliminate|trace-warnings/.test(l)).join("\n");
+      const h = createHash("md5").update(out).digest("hex").slice(0, 12);
+      seen.set(h, (seen.get(h) || 0) + 1);
+    }
+    say("");
+    say(`  DETERMINISM: ${n} runs of seed "${SEED_ARG || "default"}", output hashed.`);
+    for (const [h, c] of seen) say(`    ${c} x ${h}`);
+    say(seen.size === 1 ? `  ONE hash over ${n} runs.` : `  ${seen.size} DIFFERENT hashes over ${n} runs — this file is not deterministic.`);
+    say("");
+  }
+  process.exit(0);
+}
+
 
 // ===========================================================================
 // THE BARS
