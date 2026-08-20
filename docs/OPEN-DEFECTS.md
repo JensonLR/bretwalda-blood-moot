@@ -8,6 +8,81 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — the paid hair under the Shadow Hood is NOT a cull, it is the MANTLE — 20 Aug 2026
+
+`cosmetictest --no-render` on `main`:
+
+```
+  FAIL  every paid hairstyle still reads under every helm, the hood included
+        SWALLOWED  Long Mane (40g) under Shadow Hood — 0.97% (bar 1.00%)
+        SWALLOWED  Braided War-locks (100g) under Shadow Hood — 0.97%
+```
+
+Both paid rungs read **0.97% against a 1.00% bar, and both the same to two
+places** — what survives is the fringe they share, not the mass that tells them
+apart. The owner's ruling is already quoted in the harness: *"long hair
+dissappears fully even if it should be visible at the below the helmet"*.
+
+### Three culls found and removed, and the gate went GREEN — and it was still wrong
+
+```
+  characters.ts  hairCeil    the `hooded` branch had NO rim test, while the
+                             `helmed` branch beside it has always had one. Below
+                             the cowl `clamp01` pins the ramp at 0 and
+                             `hoodLift(u,0)` still returns a finite number, so a
+                             mane a foot below any cloth was capped at 22 mm.
+                 hairFall    `if (hooded) return 0` — no falling mass at ANY
+                             bearing.
+                 the plaits  `if (hooded || (style.mask && !coifed)) continue`,
+                             with every sentence of argument around it about a
+                             MASK and none about a hood.
+```
+
+Removing all three took the gate to **PASS, all clear, `cosmetictest` 15/16**.
+
+**And it is reverted, because `wearmeasure` caught what it bought:**
+
+```
+  [wear] hood  long   89.6 mm through   66.67% of the shell   at -126/-61 deg   <-- FAIL
+```
+
+Against `0.0 mm / 0.00%` on `main`. **A mane through the cloth is a worse defect
+than a mane under it**, and the gate that was green would have shipped it.
+
+### What the cause actually is, measured
+
+The hood is not a cowl. It is **four pieces**, and the one that matters is the
+last:
+
+```
+  cowl     helmWear, v0 = hoodRim(u)                     rim 56 mm above ...
+  mantle   helmWear, v0 = hoodRim(u), v1 = 0.9
+  point    a shell behind the nape
+  DRAPE    rings at skullY - R.y*1.45, -2.10, and a hem at
+           skullY - R.y*2.95 with a half-width of R.x*2.02
+```
+
+The drape's hem is **below the shoulder and more than twice the head's own
+half-breadth**. A mane hanging inside that is not being culled by a bug — **it
+is inside a mantle, and it would be invisible on a real man too.** `hairCeil`'s
+own header admits the shape of this: *"at the nape all three overlap and the
+nearest of the three is the one the hair has to clear, which no single lift
+function knows."*
+
+### So the next round's move, and it is geometry rather than a cull
+
+Hair reads under a hood because it comes out of the **FACE OPENING** — round the
+temples and down the front — not because it escapes at the nape. The work is to
+root the mane's forward courses and the war-locks' plaits in front of the cowl's
+rim so they hang OUTSIDE the cloth, and it has a hard constraint to be measured
+against: anything routed behind `hoodRim(u)` must clear a drape whose hem is at
+`skullY - R.y*2.95` and whose half-width is `R.x*2.02`.
+
+**Do not reach for the three culls again.** They are the obvious move, they turn
+the gate green, and they put 89.6 mm of hair through the cloth.
+
+---
+
 ## THE REPLAY ROUND, LANDED — 20 Aug 2026
 
 The owner's four reports from a played build, and where each one ended up.
