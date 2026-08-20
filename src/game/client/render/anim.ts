@@ -414,8 +414,23 @@ export interface WarriorMotion {
   /** Direction of the last blow in body space: +Z forward, +X weapon side. */
   hitFwd: number;
   hitSide: number;
-  /** Seconds spent in the current one-shot state (dodge, stagger, shout, death). */
+  /**
+   * Seconds spent in the current one-shot MOVE (dodge, stagger, shout, death).
+   *
+   * Per MOVE, and that word is load-bearing — it used to be per "any one-shot
+   * at all", and one clock shared by six different animations is how a man
+   * killed out of a stagger started his collapse 0.65 s into it. See the note
+   * at the assignment in `poseWarrior`.
+   */
   actT: number;
+  /**
+   * `player.state` on the previous frame, RAW — not folded through
+   * `POSE_GROUP`. The only thing that reads it is the one exception to
+   * "restart the clock when the move changes": a man who dies while he is
+   * ALREADY ON THE GROUND is still going down, and `knocked` and `rising` are
+   * the same pose group, so the group alone cannot tell those two apart.
+   */
+  lastRaw: string;
   /**
    * The emote being performed, or null. Client-side only — the server relays
    * the press and keeps the chosen id; the performance itself is this clock.
@@ -511,7 +526,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     stride: hash01(p.id) * Math.PI * 2, land: 0, seed: hash01(p.id + "s") * 6.28,
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
     swingPrev: 0, swingHold: 0, heavy: 0,
-    flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", fall: -1,
+    flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", lastRaw: "", fall: -1,
     emote: null, emoteT: 0,
     struckDead: false,
     wMove: 0, wBlock: 0, wAction: 0,
@@ -4367,10 +4382,58 @@ export function poseWarrior(
   const floored = player.state === "knocked" || player.state === "rising";
   // One clock for whatever one-shot the warrior is in the middle of. Elapsed
   // time is the client's to keep; the server owns when the state ends.
-  motion.actT = dead || rolling || staggered || casting || shoving || floored ? motion.actT + dt : 0;
+  //
+  // ONE CLOCK PER MOVE. NOT ONE CLOCK FOR ALL OF THEM.
+  //
+  // This line read `dead || rolling || staggered || casting || shoving ||
+  // floored ? motion.actT + dt : 0`, so the clock was only ever zeroed by a
+  // frame in which NONE of the six was true. A move entered straight out of
+  // another therefore STARTED LATE — and it is the owner's third report, in
+  // two halves, both of them measured:
+  //
+  //   "the bodies now also randomly lean back after certain actions but it's
+  //    very dramatic — back bending over backwards dramatic, or flopping
+  //    quickly down and up"
+  //
+  //   FLOPPING QUICKLY DOWN. A man killed out of a stagger handed `deathLayer`
+  //   a clock already 0.65 s old, which is past `over`'s whole ramp, so the
+  //   entire collapse — 6.5° to 91° — was crossed in the 0.1 s the crossfade
+  //   takes. Measured at 60 fps on the real `poseWarrior`: worst ONE-FRAME
+  //   move of the pelvis 33.2° out of a stagger and 22.5° out of a shove,
+  //   against 2.1° from a standing start. gravitytest §2 gates it at 12°.
+  //
+  //   RANDOMLY LEAN BACK AFTER CERTAIN ACTIONS. The `motion.fall` edge below
+  //   fires on `motion.actT <= dt`, and a carried clock is never <= dt, so the
+  //   direction of the topple was NOT re-taken on a death out of one of those
+  //   states: the corpse fell whichever way an EARLIER, unrelated event had
+  //   set it. Driven end to end — a man knocked over backwards earlier in the
+  //   round, back on his feet, then staggered, then killed by a blow from
+  //   BEHIND — the current build lands him on his back at prx -90.0° out of a
+  //   stagger, a roll and a shove, and on his face at +90.0° from idle. Same
+  //   blow, same bearing, four different answers. "Randomly", and "after
+  //   certain actions", exactly as reported.
+  //
+  // THE ONE EXCEPTION, and it is not a carve-out to buy a number. A man who
+  // dies while he is ALREADY ON THE GROUND is not starting a new descent; he
+  // is finishing the one he is in. Restarting his clock would evaluate
+  // `deathLayer` at 0, which is a standing man — so the fix would stand a
+  // corpse back up in order to drop him again. `knocked` carries the clock
+  // into `dead` and measures 7.9°/frame, which is the last 17° of a body
+  // settling and is what it should look like. `rising` does NOT carry: he is
+  // on his way back up and nearly vertical, and carrying cost 9.7°/frame
+  // where restarting costs 1.9°. `POSE_GROUP` folds both into "down", which
+  // is right for the crossfade and cannot tell these two apart — hence
+  // `lastRaw`.
+  const group = POSE_GROUP[player.state] ?? player.state;
+  const oneShot = dead || rolling || staggered || casting || shoving || floored;
+  const sameMove = group === motion.lastState || (dead && motion.lastRaw === "knocked");
+  motion.actT = oneShot ? (sameMove ? motion.actT + dt : dt) : 0;
+  motion.lastRaw = player.state;
   // Which way he goes over, taken once on the edge and held for the whole fall
   // — reading `hitFwd` every frame would spin a man on the ground the moment a
-  // second blow landed on him from a different bearing.
+  // second blow landed on him from a different bearing. `stepWarriorTransform`
+  // has already latched the killing blow's bearing this frame (`struckDead`),
+  // so the edge above firing is what makes that latch reach the corpse.
   if ((dead || floored) && motion.actT <= dt) motion.fall = motion.hitFwd >= 0 ? 1 : -1;
   // Every road back to standing goes through here: the server clears the death
   // mark on a respawn, on a countdown and on the lobby reset, and a warrior who
@@ -4383,7 +4446,6 @@ export function poseWarrior(
   // has his shield arm 60° from where the stagger wants it. This is the only
   // thing that smooths across states, and it lasts a twentieth of a second
   // going into a swing, where the windup is doing the work anyway.
-  const group = POSE_GROUP[player.state] ?? player.state;
   if (group !== motion.lastState) {
     // Not on the very first frame: `rig.last` is all zeroes then, so a warrior
     // who arrives mid-swing would spend his opening frame blended into a T-pose
