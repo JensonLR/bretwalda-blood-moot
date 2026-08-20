@@ -820,7 +820,7 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // board's own wood, so the quarters read as painted rather than as inlaid.
     paint: 0x3b2c17, pattern: "quarters", device: "saxon",
     dye: {
-      cloth:   { sat: 0.66, bias: 1.00, lo: 0.26, hi: 0.40 },
+      cloth:   { sat: 0.50, bias: 1.00, lo: 0.12, hi: 0.22 },
       wrap:    { sat: 0.42, bias: 0.96, lo: 0.18, hi: 0.34 },
       leather: { sat: 0.44, bias: 0.98, lo: 0.15, hi: 0.38 },
       // A byrnie stays IRON. 0.12 is a warm cast on steel; the 0.20 this was
