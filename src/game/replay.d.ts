@@ -103,6 +103,13 @@ declare module "@/game/replay.mjs" {
     update(
       dt: number,
       s: {
+        /**
+         * TRUE wall seconds since the last frame, unclamped. The budget
+         * (`REPLAY.wall`) is the server's break and is counted in this, never
+         * in the caller's simulation dt — see `replay.mjs`. Optional only
+         * because the harnesses step at a fixed 1/60 where the two agree.
+         */
+        wall?: number;
         /** Is the round over — `intermission` or `finished`. The rising edge arms it. */
         ended: boolean;
         /** Is this the end of the match rather than of a round. */

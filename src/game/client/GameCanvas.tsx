@@ -845,7 +845,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       if (!running) return;
       animRef.current = requestAnimationFrame(loop);
 
-      const rawDt = Math.min((time - (lastTimeRef.current || time)) / 1000, 0.05);
+      // The frame's REAL length, before the simulation clamp below. Nothing
+      // that integrates may use it; the two things that measure a WALL budget
+      // must — see the replay clock's `s.wall`. A renderer at 0.66 Hz was
+      // otherwise being told every frame that a twentieth of a second had
+      // passed, and a four-second replay took two minutes of the player's life.
+      const wallDt = (time - (lastTimeRef.current || time)) / 1000;
+      const rawDt = Math.min(wallDt, 0.05);
       lastTimeRef.current = time;
       // Hit-stop: brief slow-mo on heavy impacts for punch
       let dt = rawDt;
@@ -1182,6 +1188,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       const fellNow = lastFallRef.current;
       const ring = replayBufRef.current;
       const replayFrame = killReplayRef.current.update(dt, {
+        // The countdown's clock, unclamped and un-hit-stopped. `dt` above is
+        // still what the animator is stepped with.
+        wall: wallDt,
         ended: roomState.state === "intermission" || roomState.state === "finished",
         end: roomState.state === "finished",
         own: replayOwn,

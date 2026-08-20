@@ -404,7 +404,15 @@ export function createKillReplay() {
     reset() { playing = false; armed = false; atEnd = false; elapsed = 0; skipped = false; lastEnded = false; },
 
     /**
-     * @param dt      wall seconds since the last frame
+     * @param dt      seconds to step the ANIMATOR by, before `rate`. This is
+     *                the caller's own frame dt and it is allowed to be clamped
+     *                — a renderer that drops a second must not integrate a
+     *                second of smoothing in one go.
+     * @param s.wall  TRUE wall seconds since the last frame, unclamped, and it
+     *                is what the budget is counted in. Optional only because
+     *                every harness in the tree steps at a fixed 1/60 where the
+     *                two are the same number; the game passes it. See the note
+     *                on `elapsed` below for what counting the clamped one did.
      * @param s.ended is the round over — `intermission` or `finished`. The
      *                RISING EDGE arms the replay; an edge nobody looks at is an
      *                edge that is missed, so call this every frame.
@@ -490,7 +498,33 @@ export function createKillReplay() {
       }
       if (!playing) return null;
 
-      elapsed += Math.max(0, dt);
+      // THE BUDGET IS WALL CLOCK AND IT HAS TO BE COUNTED IN WALL CLOCK.
+      //
+      // `REPLAY.wall` is not this file's number: it is the server's 5 s
+      // `ROUND_BREAK` less the second held back for the countdown, and the
+      // whole argument for this feature fitting inside a round break rests on
+      // it. It was being counted in the ORCHESTRATOR'S dt, which is
+      // `Math.min(frameMs / 1000, 0.05)` and is scaled by 0.22 again during
+      // hit-stop. Both of those are right for a simulation step and neither is
+      // a clock.
+      //
+      // MEASURED on the shipped page, software rasteriser, real duel: the page
+      // drew at 0.66 Hz and the replay spent 9.1 s of the player's life
+      // reaching `elapsed = 0.35` of its 4.0 s. It needs 80 clamped frames
+      // however long a frame takes, so at that rate the "four second" replay
+      // is a TWO MINUTE one. Nothing ended it: the server's rollback out of
+      // `finished` did, ten seconds in, which is the only reason anybody ever
+      // saw the summary at all. A round break would have been dealt over the
+      // top of it.
+      //
+      // So the countdown, and only the countdown, runs on `s.wall`. The dt
+      // handed back to the animator stays the caller's clamped one — a frame
+      // that took a second and a half must not step a body by a second and a
+      // half of smoothing — which means a starved renderer now shows FEWER
+      // frames of the same four seconds instead of the same frames over two
+      // minutes. That is what dropping frames is supposed to look like.
+      const wall = Math.max(0, s.wall ?? dt);
+      elapsed += wall;
       if (elapsed >= REPLAY.wall) { playing = false; return null; }
       const at = deathAt - REPLAY.pre + elapsed * REPLAY.rate;
       return { at, dt: Math.max(0, dt) * REPLAY.rate, through: elapsed / REPLAY.wall, atEnd };

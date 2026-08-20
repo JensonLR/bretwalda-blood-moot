@@ -150,7 +150,22 @@ if (argv.includes("--sweep") || argv.some((a) => a.startsWith("--repeat"))) {
       return execFileSync(process.execPath, [self, "--only=record", ...extra], { encoding: "utf8" });
     } catch (e) { return (e.stdout || "") + (e.stderr || ""); }
   };
-  const grab = (out, rx) => { const m = rx.exec(out); return m ? m[1] : "?"; };
+  // A SCRAPE THAT MISSES IS A FAILURE OF THIS FILE, NOT A BLANK COLUMN.
+  //
+  // It printed "?" and carried on. The branch renamed the emitted line —
+  // "...to that frame" became "...to the NEAREST live frame this pose could
+  // be" — and left this regex matching the old wording, so `--sweep`, the
+  // command that is supposed to REPRODUCE the ten-seed table, printed "?s" ten
+  // times while still counting 10/10 green off the FAIL lines. A number nobody
+  // can check is worse than no number, and a silent "?" is how it got shipped.
+  // Now it fails the sweep outright and names the pattern that stopped
+  // matching, so the next rename cannot go unnoticed.
+  const missed = [];
+  const grab = (out, rx, what) => {
+    const m = rx.exec(out);
+    if (!m) { missed.push(`${what}: /${rx.source}/ matched nothing in --only=record's output`); return "?"; }
+    return m[1];
+  };
   if (argv.includes("--sweep")) {
     say("");
     say("  THE TEN DECLARED SEEDS. Every row printed; none discarded.");
@@ -159,8 +174,12 @@ if (argv.includes("--sweep") || argv.some((a) => a.startsWith("--repeat"))) {
     let green = 0;
     for (const sd of SEEDS) {
       const out = run(sd ? [`--seed=${sd}`] : []);
-      const pose = grab(out, /worst pose OUTSIDE the live track's own\s+(-?[\d.]+)°/);
-      const off = grab(out, /worst distance in time to that frame\s+([\d.]+)s/);
+      const pose = grab(out, /worst pose OUTSIDE the live track's own\s+(-?[\d.]+)°/,
+        "pose outside bracket");
+      // Matched on the stem only, up to the number. The tail of this line has
+      // been reworded twice and the column died silently both times.
+      const off = grab(out, /worst distance in time to the NEAREST live\s+([\d.]+)s/,
+        "worst phase offset");
       const red = /^\s+FAIL/m.test(out);
       if (!red) green++;
       say(`    ${(sd || "default").padEnd(12)} ${(pose + "°").padStart(16)}   ${(off + "s").padStart(18)}   ${red ? "RED" : "green"}`);
@@ -170,6 +189,13 @@ if (argv.includes("--sweep") || argv.some((a) => a.startsWith("--repeat"))) {
     say(`    choosing the fight to fit the gate is the same move as choosing the bar`);
     say(`    to fit the fight. See docs/REPLAY.md §1.`);
     say("");
+    if (missed.length) {
+      const seen = [...new Set(missed)];
+      for (const m of seen) say(`    SWEEP BROKEN — ${m}`);
+      say(`    The table above has a dead column, so it does not reproduce anything.`);
+      say("");
+      process.exit(1);
+    }
   }
   const rep = argv.find((a) => a.startsWith("--repeat"));
   if (rep) {
@@ -856,6 +882,57 @@ async function sectionHole(replay) {
   }
   if (!rEnd.sawEnd) bad("§4 the replay did not flag a match ending, so a caller cannot route the skip to the lobby");
   if (rEnd.sawEnd && rBetween.sawEnd) bad("§4 the replay flags EVERY ending as a match ending");
+
+  // ---- A STARVED RENDERER, AND WHOSE CLOCK THE BUDGET IS ON ----
+  //
+  // `REPLAY.wall` is the SERVER'S number — `ROUND_BREAK` less the second held
+  // back for the countdown — so a replay that overruns it is a replay drawn
+  // over the top of the next round's card, and at match end it is a summary
+  // the player cannot reach. The orchestrator's `dt` is
+  // `Math.min(frameMs / 1000, 0.05)` and is scaled again by 0.22 during
+  // hit-stop; neither is a clock, and counting the budget in it made a four
+  // second replay last as long as the renderer was slow.
+  //
+  // MEASURED on the shipped page before the fix, software rasteriser, real
+  // duel at 390x844: 0.66 Hz, and 9.1 s of the player's life bought
+  // `elapsed = 0.35` of 4.0. Only the server's rollback out of `finished`
+  // ended it.
+  //
+  // So this drives the clock the way a starved frame does: a real frame of
+  // `fps` Hz, handed to the animator CLAMPED at the orchestrator's own 0.05
+  // and handed to the budget whole.
+  const starved = (fps, hitStop) => {
+    const clock = replay.createKillReplay();
+    const wall = 1 / fps;
+    const step = Math.min(wall, 0.05) * (hitStop ? 0.22 : 1);
+    let n = 0, t = 0;
+    for (let i = 0; i < 20000; i++) {
+      const s = clock.update(step, { wall, ended: true, end: true, own: false, deathAt: 10, ready: true });
+      if (!s) break;
+      n++; t += wall;
+    }
+    return { n, t };
+  };
+  say(`    A STARVED RENDERER. The budget is the server's break, so it is counted in`);
+  say(`    WALL seconds and not in the simulation dt the animator is stepped with:`);
+  say("");
+  say(`      frame rate      frames drawn     wall seconds the replay lasted`);
+  for (const [fps, label] of [[60, "60 Hz"], [20, "20 Hz"], [5, "5 Hz"], [0.66, "0.66 Hz"]]) {
+    const r = starved(fps, false);
+    say(`      ${label.padStart(10)}      ${String(r.n).padStart(8)}     ${f2(r.t).padStart(10)}s`);
+    if (r.t > REPLAY.wall + 0.5) {
+      bad(`§4 at ${label} the replay ran ${f2(r.t)}s of wall clock, not the ${f2(REPLAY.wall)}s `
+        + `REPLAY.wall claims — the budget is being counted in the simulation's clamped dt`);
+    }
+    if (r.n < 1) bad(`§4 at ${label} the replay drew no frames at all`);
+  }
+  const hs = starved(60, true);
+  say(`      60 Hz, hit-stop  ${String(hs.n).padStart(8)}     ${f2(hs.t).padStart(10)}s`);
+  if (hs.t > REPLAY.wall + 0.5) {
+    bad(`§4 hit-stop stretched the replay to ${f2(hs.t)}s of wall clock — the countdown is `
+      + `riding the slow-motion dt`);
+  }
+  say("");
 
   // ---- the skip, and what it means at each ending ----
   const skipAt = (end) => {
