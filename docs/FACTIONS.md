@@ -1009,6 +1009,81 @@ against **the same man in the same kit sworn to nobody**:
 owner reported. `#f87868` is salmon. The profile is the bearing his rose was
 reported at and it is now inside the instrument's own noise floor.
 
+
+#### THE WHOLE DANELAW, EVERY FINISH, EVERY DYED SURFACE
+
+Off the shipped resolvers — `kitFor(finishKit(v), "none", "norse")` and
+`wornBy(0xc2b69c, "none", "norse", "linen")` — on all three trees. `ROSE` is
+`tools/lib/roseband.mjs`'s band. `=fl3` means this round did not move it.
+
+```
+finish            surf     source     factionland2    factionland3    THIS TREE
+Rough Iron        mail     #5f6b7a  #93797e         #7d808f         #7a8292
+Rough Iron        tunic    #6a5b42  #6f2100         #6f2100         #6f2100   =fl3
+Rough Iron        trouser  #504a3e  #6e250e         #6e250e         #6e250e   =fl3
+Rough Iron        wrap     #8b7c5c  #94402c         #94402c         #94402c   =fl3
+Rough Iron        hide     #4a3524  #611b00         #611b00         #611b00   =fl3
+Rough Iron        buff     #7a5b38  #6f2100         #6f2100         #6f2100   =fl3
+Rough Iron        fitting  #bfa25c  #bfa25c         #bfa25c         #bfa25c   =fl3
+Rough Iron        linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Polished Steel    mail     #8a97a5  #ac979b         #94a1af         #93a1b0
+Polished Steel    tunic    #5c6068  #662f3c         #662f3c         #662f3c   =fl3
+Polished Steel    trouser  #434b56  #63343f         #63343f         #63343f   =fl3
+Polished Steel    wrap     #b6b2a4  #b46f64 ROSE    #9d9489         #9c968b
+Polished Steel    hide     #453c33  #5d271b         #5d271b         #5d271b   =fl3
+Polished Steel    buff     #8b7c5e  #86331d         #86331d         #86331d   =fl3
+Polished Steel    fitting  #c3c9d0  #c3c9d0         #c3c9d0         #c3c9d0   =fl3
+Polished Steel    linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Blackened Steel   mail     #2a2f38  #93787d         #7c7e90         #7a8092
+Blackened Steel   tunic    #3a3733  #6b251d         #6b251d         #6b251d   =fl3
+Blackened Steel   trouser  #2f2d2c  #6a2224         #6a2224         #6a2224   =fl3
+Blackened Steel   wrap     #6d665a  #8c4e43         #8c4e43         #8c4e43   =fl3
+Blackened Steel   hide     #241f1b  #5c291f         #5c291f         #5c291f   =fl3
+Blackened Steel   buff     #4e4438  #5e2518         #5e2518         #5e2518   =fl3
+Blackened Steel   fitting  #7f838a  #7f838a         #7f838a         #7f838a   =fl3
+Blackened Steel   linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Bronze Scales     mail     #8a6a3a  #af5442         #9a7d6e         #a98151
+Bronze Scales     tunic    #7a5a2e  #6f2100         #6f2100         #6f2100   =fl3
+Bronze Scales     trouser  #5b4527  #6f2100         #6f2100         #6f2100   =fl3
+Bronze Scales     wrap     #c2aa7c  #ba4c30         #9f8673         #a48d6b
+Bronze Scales     hide     #513418  #611b00         #611b00         #611b00   =fl3
+Bronze Scales     buff     #8f6a34  #7e2600         #7e2600         #7e2600   =fl3
+Bronze Scales     fitting  #c79a4a  #c79a4a         #c79a4a         #c79a4a   =fl3
+Bronze Scales     linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Crimson Warplate  mail     #7a2f2a  #b23c34         #9c6d6b ROSE    #af463f
+Crimson Warplate  tunic    #8a3730  #780100         #780100         #780100   =fl3
+Crimson Warplate  trouser  #5d2d29  #6f0100         #6f0100         #6f0100   =fl3
+Crimson Warplate  wrap     #bc9c8c  #b85844         #a08177         #a18375
+Crimson Warplate  hide     #46201a  #610b00         #610b00         #610b00   =fl3
+Crimson Warplate  buff     #8a5241  #7e1f00         #7e1f00         #7e1f00   =fl3
+Crimson Warplate  fitting  #bfa25c  #bfa25c         #bfa25c         #bfa25c   =fl3
+Crimson Warplate  linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Sea Queen's Gift  mail     #2f4a6a  #a75569 ROSE    #877d8f         #7b7c91
+Sea Queen's Gift  tunic    #35506b  #603b43         #603b43         #603b43   =fl3
+Sea Queen's Gift  trouser  #333f52  #623741         #623741         #623741   =fl3
+Sea Queen's Gift  wrap     #93a0aa  #9b6f78 ROSE    #83828c         #80858e
+Sea Queen's Gift  hide     #2b3138  #52363b         #52363b         #52363b   =fl3
+Sea Queen's Gift  buff     #627083  #714d54         #714d54         #714d54   =fl3
+Sea Queen's Gift  fitting  #aab8c0  #aab8c0         #aab8c0         #aab8c0   =fl3
+Sea Queen's Gift  linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Bretwalda Gold    mail     #9a7a2a  #b54525         #9c7d6b         #ad8745
+Bretwalda Gold    tunic    #8a6f2c  #772400         #772400         #772400   =fl3
+Bretwalda Gold    trouser  #6b5726  #6f2100         #6f2100         #6f2100   =fl3
+Bretwalda Gold    wrap     #d2bd7c  #c74c27         #a6957e         #af9d70
+Bretwalda Gold    hide     #4d3a14  #611b00         #611b00         #611b00   =fl3
+Bretwalda Gold    buff     #9c7c34  #892a00         #892a00         #892a00   =fl3
+Bretwalda Gold    fitting  #dcc164  #dcc164         #dcc164         #dcc164   =fl3
+Bretwalda Gold    linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+
+saxon, briton, pict: 168 of 168 surfaces byte-identical to BOTH factionland2 and factionland3
+```
+
+`fitting` is in the table and is never dyed: `factionKit` leaves the cast bronze
+alone on purpose, and it is here so a reader can see that rather than take it on
+trust. `factionland2`'s Crimson Warplate byrnie is `#b23c34`, which is the exact
+hex `roseband`'s `MUST_CLEAR` carries as "crimson-finish mail — blood"; the
+round in between returned `#9c6d6b`, which the same band flags.
+
 #### The ladder, measured through the shipped resolvers
 
 Worst finish pair, CIELAB ΔE76, byrnie-only and over the six dyed surfaces:
