@@ -872,7 +872,7 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // one cloth is what a checked weave is, and two hues would be a flag.
     paint: 0xc4c0aa, pattern: "check", device: "briton",
     dye: {
-      cloth:   { sat: 0.50, bias: 1.00, lo: 0.30, hi: 0.38 },
+      cloth:   { sat: 0.42, bias: 1.00, lo: 0.12, hi: 0.22 },
       wrap:    { sat: 0.26, bias: 0.96, lo: 0.18, hi: 0.34 },
       leather: { sat: 0.34, bias: 1.00, lo: 0.20, hi: 0.40 },
       metal:   { sat: 0.16, bias: 1.12, lo: 0.22, hi: 0.64 },
@@ -886,7 +886,7 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // as pale line on dark ground, which is the contrast this device wants.
     paint: 0xd8d2c2, pattern: "rim", device: "pict",
     dye: {
-      cloth:   { sat: 0.72, bias: 0.96, lo: 0.16, hi: 0.42 },
+      cloth:   { sat: 0.72, bias: 0.96, lo: 0.12, hi: 0.26 },
       // Bare limbs. The wraps come out of the vat almost as they went in, which
       // at fight distance is the pale band up the shin nobody else has.
       //
