@@ -1403,13 +1403,23 @@ console.log("\n[faction] === 5.3 / 5.4 THE ROSE BAND IN ALBEDO (no light, no bro
 // shipped, paid artefact cannot be moved to buy a pass without brightening a
 // thing players own, which is a change nobody could make quietly.
 //
-// COST. This section boots the app and a browser and takes about a hundred and
-// sixty captures at forty to fifty seconds each on a box with no GPU. The rest
-// of this file is two minutes; this is a couple of hours. It is not optional
-// and there is no flag to skip it: the three rounds of this feature that
-// shipped a defect all shipped it past a harness that had no light in it, and
-// the fourth shipped one past a harness that had light in ONE SEVENTH of the
-// shop. See `PLAN`.
+// COST, MEASURED ON THIS PLAN AND NOT ESTIMATED FROM THE OLD ONE. 165 captures:
+// 132 lit frames, 33 matched unsworn floors, plus a warm-up, a repeat and three
+// controls. On a box with no GPU at a load average of about 4, a settled
+// `fightcard` capture measured 75 s wall clock — so the section is between
+// three and four hours, and at the load averages of 18-25 this repository's
+// agents routinely put on a box it is closer to eight. The rest of this file is
+// three minutes.
+//
+// IT IS STILL NOT OPTIONAL AND THERE IS STILL NO FLAG TO SKIP IT: the three
+// rounds of this feature that shipped a defect all shipped it past a harness
+// with no light in it, and the fourth shipped one past a harness that had light
+// in ONE SEVENTH of the shop. See `PLAN`.
+//
+// WHAT TO REACH FOR WHEN THE QUESTION IS NARROWER THAN THE VERDICT:
+// `tools/vatprobe.mjs` asks §7.1's question, with §7.1's band and §7.1's
+// matched control, on finishes you name — six captures instead of 165. It is
+// not a gate and says so. A verdict is still this section's.
 // ============================================================
 
 // ============================================================
