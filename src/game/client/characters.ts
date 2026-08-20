@@ -1216,7 +1216,10 @@ function underCeiling(hex: number, cap: number): number {
  * roster. His identity was never in his shirt. It is in his tunic, his harness
  * and his cloak, all of which sit below `ROSE_LIT` and are untouched.
  *
- * THE OTHER THREE PEOPLES ARE BYTE-IDENTICAL AND THAT IS ASSERTED, NOT HOPED.
+ * THE OTHER THREE PEOPLES ARE BYTE-IDENTICAL AND THAT IS MEASURED, NOT HOPED —
+ * 517 values identical and 79 changed, every one of the 79 the Danelaw's, over
+ * every finish surface, a 197-step hex sweep across all five dye kinds and
+ * every cloak.
  * The window is on the RESULT's hue and it is 36° wide either side of pure red;
  * `HUE_CONE` holds every dyed surface within 8° of its own field, and weld sits
  * at 60°, moss at 153° and woad at 210°. `red` is therefore exactly 0 for
@@ -1229,29 +1232,44 @@ function underCeiling(hex: number, cap: number): number {
  * number chosen by the person who moved these — see its header. Measured
  * across all seven finishes and all six dyed surfaces of all four peoples:
  *
- *     ROSE_LIT / FADE   rose   sleeve   Rough Iron leg wraps   norse ladder
- *     shipped, no fade    3    ROSE     #94402c  russet          5.58
- *     0.38 / 0.04         0    clear    #7e615e  TAUPE           3.94
- *     0.40 / 0.05         2    clear    faded                    2.12
- *     0.44 / 0.04         0    clear    #94402c  russet          2.30
- *     0.44 / 0.06         2    clear    #94402c  russet          2.53
- *     THIS: 0.44 / 0.05   0    clear    #94402c  russet          2.51
+ *     arc shape / LIT / FADE   rose   byrnie C*   leg wraps          ladder
+ *     shipped, no fade           3     11 to 36   #94402c  russet     5.58
+ *     peak / 0.38 / 0.04         0      4         #7e615e  TAUPE      3.94
+ *     peak / 0.44 / 0.04         0      4         #94402c  russet     2.30
+ *     peak / 0.44 / 0.05         0      5         #94402c  russet     2.51
+ *     plateau / 0.44 / 0.08      2      4         #94402c  russet     2.81
+ *     THIS: plateau / 0.44/0.06  0      2         #94402c  russet     2.55
  *
- * THE LEG-WRAP COLUMN IS WHY 0.38 IS NOT THE ANSWER, AND THE RENDER IS WHAT
- * SAID SO. `docs/PROCESS.md` R5, again, and it cost a whole capture session.
- * 0.38 clears the albedo census exactly as well as 0.44 does — and the frame
- * did not move: norse huscarl @180 went 2.654% to 2.626%. Sampling the same
- * pixels found the byrnie fixed (#c07f80 -> #b28c85, C* 27.2 -> 16.2) and the
- * LEG WRAPS RUINED: #c73135 -> #ac645f, C* 67.7 down to 32.4. At 67.7 a wrap
- * is above the band's own chroma ceiling and reads as strong madder; at 32.4
- * it is INSIDE the band. The fade had taken a surface nobody complained about
- * and made it the very thing being fixed, and the two changes cancelled in the
- * count. 0.44 leaves the wraps at the byte they shipped as.
+ * THREE THINGS IN THAT TABLE WERE FOUND BY OPENING THE RENDER AND BY NOTHING
+ * ELSE, `docs/PROCESS.md` R5, and each one cost a capture session.
  *
- * The Danelaw's ladder is halved, 5.58 to 2.51, and that is the price. It is
- * still clear of `cosmetictest`'s JND of 2.3, which is what §5.1 gates, and
- * `LADDER_DE` was already a REPORTED shortfall rather than a gate — §5's own
- * note says which configurations recover it and what each one broke.
+ * ONE — THE LEG WRAPS, which is why `ROSE_LIT` is 0.44 and not 0.38. At 0.38
+ * the albedo census is just as clean and THE FRAME DID NOT MOVE: norse huscarl
+ * @180 went 2.654% to 2.626%. Sampling the same pixels found the byrnie fixed
+ * (#c07f80 -> #b28c85, C* 27.2 -> 16.2) and the LEG WRAPS RUINED: #c73135 ->
+ * #ac645f, C* 67.7 down to 32.4. At 67.7 a wrap is ABOVE the band's own chroma
+ * ceiling and reads as strong madder, which is correct and was never part of
+ * the complaint; at 32.4 it is INSIDE the band. The fade had turned a surface
+ * nobody reported into the very thing being fixed, and the two changes
+ * cancelled in the count. 0.44 sits between his wraps and his sleeves.
+ *
+ * TWO — THE ARC IS A PLATEAU AND NOT A PEAK. A triangular window centred on
+ * pure red gives garnet, which sits 6.9° off it, only 0.81 of the fade, so a
+ * fifth of the dye stays on the byrnie: albedo C* 5 rather than 2. That looked
+ * like nothing and was not. The arena's key is a BONFIRE, and a warm light on a
+ * warm-neutral surface ADDS while the same light on a cool-neutral CANCELS —
+ * measured on the same pixel of the same frame, the unsworn man's cool iron
+ * (albedo C* 9.9, blue) renders at C* 6.5, and the Danelaw's warm iron at
+ * albedo C* 5 renders at C* 18 to 20. Five points of albedo became twenty on
+ * the screen. The plateau takes the byrnie to C* 2, which is iron.
+ *
+ * THREE — the byrnie is the only surface that needed it. His tunic, trousers,
+ * harness and cloak sit below `ROSE_LIT` and come out byte-identical.
+ *
+ * The Danelaw's ladder is more than halved, 5.58 to 2.55, and that is the
+ * price. It is still clear of `cosmetictest`'s JND of 2.3, which is what §5.1
+ * gates, and `LADDER_DE` was already a REPORTED shortfall rather than a gate —
+ * §5's own note says which configurations recover it and what each one broke.
  *
  * AND THE FADE IS NOT A STEP. `softBand` gives the reason two blocks up — a
  * clamp has zero slope and zero slope is where paid rungs go to die — so this
@@ -1260,6 +1278,17 @@ function underCeiling(hex: number, cap: number): number {
  */
 /** How far either side of pure red the arc runs, in turns. 0.10 is 36°. */
 const ROSE_ARC = 0.10;
+/**
+ * How the arc's edge is feathered, in turns, so nothing steps at the boundary.
+ *
+ * IT IS A PLATEAU AND NOT A PEAK, and the difference is a whole capture session.
+ * A triangular window centred on pure red gives `--garnet`, which sits 6.9° off
+ * it, only 0.81 of the fade — a fifth of the dye stays on the byrnie. 0.04 of
+ * taper puts the flat top at 21.6° either side, so every one of the Danelaw's
+ * surfaces gets the whole of it, and the edge still falls to nothing by 36°
+ * rather than stepping. Weld is at 60°, moss at 153°, woad at 210°.
+ */
+const ROSE_TAPER = 0.04;
 /**
  * The value above which the red arc has no dark name left. Perceptual, and it
  * is the surface's own value before the light touches it.
@@ -1271,9 +1300,10 @@ const ROSE_ARC = 0.10;
  */
 const ROSE_LIT = 0.44;
 /** How much value the vat takes to let go over. Short, but not a cliff. */
-const ROSE_FADE = 0.05;
+const ROSE_FADE = 0.06;
 function roseFade(h: number, l: number): number {
-  const red = Math.max(0, 1 - Math.abs(((h + 0.5) % 1) - 0.5) / ROSE_ARC);
+  const off = Math.abs(((h + 0.5) % 1) - 0.5);
+  const red = Math.max(0, Math.min(1, (ROSE_ARC - off) / ROSE_TAPER));
   if (red <= 0 || l <= ROSE_LIT) return 1;
   return 1 - red * (1 - Math.exp(-(l - ROSE_LIT) / ROSE_FADE));
 }
