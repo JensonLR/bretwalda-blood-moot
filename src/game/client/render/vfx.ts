@@ -1598,8 +1598,25 @@ const SIGNATURES = new Map<number, Signature>([
   [0xff3311, { cell: CELL.flame, color: linear(0xff5a1e, 2.6), ring: 0.42, swirl: 0.4, rise: 2.9, size: 0.2, spin: 0.5, shock: 2.6 }],
   // Huscarl: cold hexagonal scales, slow and heavy, a wall assembling itself.
   [0x4488ff, { cell: CELL.scale, color: linear(0x5aa0ff, 2.2), ring: 0.62, swirl: 0.9, rise: 0.8, size: 0.26, spin: 0.9, shock: 2.2 }],
-  // Runekeeper: glyphs orbiting the body, spinning on their own axis.
-  [0x9a55ff, { cell: CELL.rune, color: linear(0xa96bff, 2.6), ring: 0.7, swirl: 2.6, rise: 1.0, size: 0.3, spin: 2.2, shock: 3.0 }],
+  // THE WRECCA'S SHADOW STEP: ash whipped low and close, and it is NOT a glyph.
+  //
+  // This was `CELL.rune` in bright violet — purple runes orbiting the body,
+  // spinning on their own axis. Two things were wrong with it and they are the
+  // same thing. The class has no runes in it anywhere: 92 health, the largest
+  // dodge in the game, the weakest guard, twin seaxes, and an ability called
+  // SHADOW STEP. And purple orbiting glyphs is the single most generic-fantasy
+  // image this renderer could have drawn, which is the one thing this project
+  // has a standing rule against. The name went to WRECCA — the exile, the man
+  // with no shield wall to stand in — and the picture had to follow it.
+  //
+  // So: ash, not glyphs. `rise` 1.0 -> 0.25 because smoke off a snuffed torch
+  // does not ASCEND, it hangs and drifts; `spin` 2.2 -> 0.35 because a flake of
+  // ash has no axis to spin on and a glyph does; `swirl` up, `ring` in, so it
+  // whips CLOSE to the body — a man going out where he stood rather than a
+  // wizard opening a circle. Cold desaturated grey at 1.5 rather than violet at
+  // 2.6: it must read against a night arena lit only by the bonfire, and it
+  // must not be confused with the huscarl's saturated blue at 2.2.
+  [0x6b7280, { cell: CELL.ash, color: linear(0x9aa6b4, 1.5), ring: 0.48, swirl: 3.2, rise: 0.25, size: 0.34, spin: 0.35, shock: 2.4 }],
   // Anything else: gold sparks spiralling up. Also the fallback for a class
   // this table has not been told about yet.
   [0xffaa33, { cell: CELL.spark, color: linear(0xffbb55, 3.2), ring: 0.34, swirl: 1.7, rise: 2.2, size: 0.12, spin: 0, shock: 2.4 }],

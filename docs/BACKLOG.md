@@ -517,7 +517,7 @@ it. The ribs below are re-marked against that.
 |---|---|---|
 | 4.1 | **Persistent territory: the map moves and is shared by everyone** | **DONE.** 16 territories, contest, flips, conservation. Not live-polling — the map is read on open, not streamed. |
 | 4.2 | **Make picking a starting kingdom a big decision** | **DONE, as far as a screen can make it one.** The oath is durable, locks once a man has fought, and is taken on the map itself. It is not yet weighty in a MATCH, because 4.3 is not built. |
-| 4.3 | **Faction scope and plan** — how characters, weapons and colours differ per kingdom | [PARTLY RAISED] `docs/FACTIONS.md`. **Now the biggest gap in Wave 4**: a man swears to a people and then looks exactly as he did before. The map promises an identity the arena does not deliver. **STILL OPEN 15 Aug 2026, and a build report wrongly claimed it shipped.** The war-identity work of that date is entirely MAP-side — your ground cut into the island, your rank, your last match, what moved while you were away — and `characters.ts` is not in its diff. That work answers the owner's *"you can't see any sort of indication of progress or identity"* about the MAP. 4.3 is the arena, and a man still fights looking exactly as he did before he swore. See also 5.7b: the arena does not deliver the PLACE either. |
+| 4.3 | **Faction scope and plan** — how characters, weapons and colours differ per kingdom | **KIT HALF DONE 16 Aug 2026** — `characters.ts` IS in the diff this time. See the entry below. The history is kept: this was *"the biggest gap in Wave 4"*, it was **wrongly reported as shipped on 15 Aug** when that date's work was entirely MAP-side — your ground cut into the island, your rank, your last match, what moved while you were away — and `characters.ts` was not in its diff. 5.7b, the PLACE half, is still open. |
 | 4.4 | **Clans pick a base kingdom** and inherit its variant characters | NEW, and it is the right instinct. Unblocked by 4.1 — a clan is a second attribution key on a write that already exists. |
 | 4.5 | **Team colours override cosmetics in team modes** — red and blue across armour finish and cloaks; clan colours later | NEW |
 | 4.6 | **Ranked: win/loss, a top-50 leaderboard, historically accurate titles by rating** | [PARTLY RAISED] as ranked; titles and leaderboard are new |
@@ -1196,6 +1196,118 @@ E  map three         (BLOCKED on the sim being flat: no jump, x/z only,
 F  matchmaking       (REJECTED until concurrent strangers exist)
 F  flags             (needs profiles — profiles are DONE)
 ```
+
+## 4.3 — THE FACTION KIT, AS BUILT (16 Aug 2026)
+
+The owner: *"it doesn't feel like much of an impact currently when you do swear
+to a kingdom & win a game."* The map half of that shipped 15 Aug. This is the
+arena half, and it is `characters.ts`.
+
+### What a people takes, and what it leaves
+
+`docs/FACTIONS.md` §8's table already scoped this rung and left it unbuilt. It
+is built exactly as scoped, one rung below the team colour:
+
+| | takes | leaves |
+|---|---|---|
+| **a people, in a non-team mode** | the cloak and the shield board, flat, in the people's field; the board's PAINT and the mark on it; the worn cloth — tunic, trousers, wraps, harness and strap leather, linen, pelt, hood cloth and the mail — through a per-people vat | the cast fittings, the helm's own metal, skin, hair, beard, war paint, and **every shape on the man** |
+
+**The four hues are DERIVED, not typed.** `FACTION_FIELD` is `--gilt`,
+`--garnet`, `--moss` and `--woad` out of `globals.css` — the only place those
+four colours exist and what `factionMap` paints the island in — and every hue in
+the livery table is `hueOf()` of one of them. What IS typed is chroma and VALUE
+per surface, and every row is an entry in `FACTIONS.md` §2's Kit column: the
+Norse ceiling on cloth sits below the British floor because his wools are darker
+and their kit is lighter; the Pict's wraps come out of the vat almost as they
+went in because his limbs are bare; his metal goes dark and colourless because
+he has the least armour and none of it may be taken away, since some of it was
+bought.
+
+**Two hue shifts, both making the dye more accurate rather than less.** `--gilt`
+is a METAL — the CSS comment says so, it is the map's chrome — and a Saxon wore
+WELD, a clear yellow further round the circle. `--garnet` is a STONE, and a
+garnet is a deeper, bluer red than the orange it was borrowing from gilt. They
+were 32° apart and 32° is not two peoples at 230 pixels: `factionread` read
+ΔC 8.75 before the shifts and 14.18 after. `TEAM_FIELDS` already does the same
+thing and says so.
+
+**The mark is on the SHIELD, which is the only geometry a people adds.** A
+roundel of the board's own field with the device painted on it, set clear of the
+boss: ~230 mm on a 760 mm board, which is ~29 px at the fight lens. The board's
+paint pattern is per people too — quarters for Wessex, the Gokstad ship's
+alternating staves for the Danelaw, a chequer for the Britons' "checked weave",
+a rim band for the Picts. `FACTIONS.md` §9's tiers are carried into the code:
+the seax, the York Mjölnir and the Pictish crescent-and-V-rod are FINDs, the
+triskele is a find used as a device we composed, and §9.2's AVOID list is
+respected in full.
+
+### The unsworn is a look
+
+`people: "none"` returns by identity at every resolver, so an unsworn man is the
+issued kit — undyed wool, oiled harness leather, cast bronze, a plain limewood
+board with no mark on it — which is what every shot in `art/` has shown since
+the game existed. Most players are unsworn on first load and a default that read
+as "the faction failed to load" would be worse than no feature.
+
+### The gate, and it went red on the build it was written for
+
+`node tools/factionread.mjs`. `--off` is the permanent control and must fail: it
+reads ΔC 0.00 and its sheet is five copies of one man. First run against the
+real build was 12/15, and the three failures split into two build defects and
+one ruler defect, written up in `GATES.md` and in the file itself.
+
+### AND THEN IT PASSED 15/15 WITH THREE DEFECTS LIVE IN IT — 16 Aug 2026
+
+Worth its own heading, because the lesson is the one this project keeps paying
+for. Every assertion the file had asked whether the four peoples were far enough
+APART. None asked whether the shop was still a ladder INSIDE one of them, and
+none of them had any light in it at all. The whole "after" set was five front-on
+turn-0 huscarl cards: one bearing, one class, one pose, and all three defects
+lived outside that frame.
+
+1. **SWEARING FLATTENED THE PAID ARMOUR FINISH LADDER.** Measured through the
+   shipped resolvers, kit-averaged CIELAB ΔE over the six dyed surfaces: **21 of
+   21 finish pairs under `LADDER_DE` on every one of the four peoples, minimum
+   0.00**, against 0 of 21 and minimum 11.85 unsworn. Rough Iron at 0 gold and
+   Blackened Steel at 110 returned the identical hex on every dyed surface under
+   a Saxon or Briton livery — `mail #7c7a6f vs #7c7a6f | tunic #b0a554 vs
+   #b0a554`. A man who paid 110 gold watched it become the free one the moment
+   he swore.
+
+   `rungcensus` could not see it — it counts components and triangles and
+   **nothing was deleted**, the colour was flattened. `cosmetictest` §2 gates
+   this exact ladder on this exact constant, against the RAW STORED HEX, which
+   is the same seven numbers whatever a man swore to. Three instruments green,
+   all answering the question next to the one that mattered.
+
+2. **THE SAXON BLEW OUT.** `--gilt` is a map token — the CSS calls it a metal
+   and "the brightest thing on the map" — and `cloakFor` put it flat on a cloak.
+   Through the real renderer: **1.93% of the man at a fully clipped channel at
+   the front, against 0.11% for the 400 gold Gilded War Cloak.**
+
+3. **THE DANELAW WAS STILL PINK** at the two bearings nobody photographed. The
+   round that "fixed" it removed the Norse hue shift and shot the front; the
+   pink was never in the hue shift, it was in the same clamp — every pale
+   surface, which is the linen sleeves and the leg wraps, onto one light rose.
+
+**Closed 16 Aug 2026, all three by one correction, and both new gates were
+written first and went red before the fix.** `factionread` §5 gates the paid
+ladder through `kitFor(finishKit(value), team, people)`, and §6 boots the app
+and counts clipped pixels under the fire against the shop's own dearest gold.
+The full write-up is `FACTIONS.md` §10.1; what it could not buy, and the number,
+is there too and is printed on every run.
+
+### What is still open here
+
+* **Per-faction class variants** (`FACTIONS.md` §6). Same four classes, same
+  numbers, different KIT — a Pictish runekeeper's shape, not his colour. This
+  pass is colour plus one device; shape is untouched by design and is the next
+  item.
+* **The other three classes have no shield**, so their read is colour only.
+  `render/anim.ts` gives a shield to the huscarl alone.
+* **The oath screen does not show you the kit.** `/factions` still asks a man to
+  swear without showing him what he will look like.
+* **5.7b, the PLACE half**, below.
 
 ## 5.7b — A ground for the territory you were dealt
 

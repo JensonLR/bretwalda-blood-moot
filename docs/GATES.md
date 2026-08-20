@@ -72,6 +72,119 @@ pair is about 1.5× their runtime, and a wave that runs them four times pays it
 four times. Making them deterministic is **backlog item zero** and it buys back
 more wall clock than any other single change.
 
+## The colour gates — `teamread` and `factionread`
+
+Two harnesses, one instrument, one rule. `docs/FACTIONS.md` §8: **team colour
+beats clan colour beats faction colour beats bought cosmetic** — and each of
+these files gates one rung of that ladder at the distance a player fights.
+
+| harness | costs | answers |
+|---|---|---|
+| `node tools/teamread.mjs` | ~1 min, no browser | can a stranger tell friend from foe at 6.8 m, over every finish × cloak × class × bearing, both sides |
+| `node tools/teamread.mjs --off` | ~1 min | the control. Both sides with no team, i.e. the pre-override game. **Must fail** |
+| `node tools/factionread.mjs` | ~3.5 min for §0–§5, then ~55 min for §6/§7 (165 captures at ~19 s on a GPU-less box at load 5) | are the four peoples four men at 6.8 m; does any of them cost a point of anything; is the paid ladder still a ladder after a man swears — **on the kit mean AND on every surface one at a time**; does anything a livery makes blow a channel under the fire; and what COLOUR is each of his surfaces on a graded frame |
+| `node tools/factionread.mjs --off` | same | the control. All four peoples as the unsworn. **Must fail** |
+| either, `--sheet` | +seconds | the flat-albedo contact sheet in `art/look/`, which is the thing to actually LOOK at |
+
+**They share a rasteriser and a verdict quantity on purpose.** A warrior's
+signature is his area-weighted mean albedo over the pixels he covers at the play
+lens, averaged in linear light, converted to CIELAB, and gated on the CHROMA
+PLANE with lightness dropped — because a cloaked man and a bare-backed man on
+one side are 30 points apart in LIGHTNESS and nobody has ever confused them.
+Both bars are borrowed from `cosmetictest`: ΔC 10 is `LADDER_DE`, "what a PAID
+rung has to clear to be a different colour at a glance", and ΔC 2.3 is its JND.
+
+**`factionread` is two gates in one file and the second matters more.** §1 asks
+whether four peoples are told apart; §3 asks whether any of them is told apart
+by anything a fight reads, and it runs the real `engine.mjs` twice — one room
+where every man declares a people in his appearance and one where none does —
+and requires every published field of every man to come out identical over a
+played match. A harness that only measured §1 would go green on a build that
+gave the Picts more health, because more health is invisible in an albedo
+buffer.
+
+**§2 is where the two files meet.** Four peoples on ONE side must collapse to a
+single colour at ΔC 0.00 — not to a tolerance — because the precedence
+resolvers return on the team before a people is consulted. The reason the bar is
+zero rides the same output line: garnet sits ΔC 7.3 from madder and the Pictish
+woad ΔC 15.4 from the team's woad. They are the same two dyestuffs, so a leak
+here is a man who cannot tell an enemy from a countryman.
+
+**§5 and §6 were added after this file passed 15/15 with three defects live in
+it**, and both are about a question that was being asked NEXT TO the one that
+mattered.
+
+§5 gates the PAID LADDER through the shipped resolvers —
+`kitFor(finishKit(value), team, people)` — instead of through the stored hex.
+`cosmetictest` §2 already gates this ladder, on this constant, and could not
+have seen the defect: the seven stored numbers are the same seven numbers
+whatever a man swore to, and it was the RESOLVER that flattened them. Rough Iron
+at 0 gold and Blackened Steel at 110 returned the identical hex on every dyed
+surface under a Saxon livery. `rungcensus` could not see it either, and for the
+more instructive reason: it counts connected components and triangles, and
+nothing was deleted. The colour was flattened. A census of parts cannot see a
+flattened colour, and this project's signature failure is a measurement
+answering the wrong question.
+
+§5 gates `cosmetictest`'s own two rules on the resolved kit — NO TWINS (no two
+rungs are one swatch) and NO REFUND (no paid finish reads as the free one) — and
+**reports the stricter `LADDER_DE` reading with its number on every run rather
+than gating it**. The file carries the whole argument and the five
+configurations it was measured on: the shop's own tightest pair is ΔE 11.85
+apart unsworn, so a livery has 1.85 points of room and would have to be nearly
+an isometry, and every configuration that recovered the ladder to ΔE 8–9 let a
+160-gold finish out-vote a people — §1.3 at **-173°**, the identity read
+inverted. A bar is never moved to buy a pass; adopting one the game cannot meet
+and then not printing the shortfall is the same offence facing the other way.
+
+**AND BOTH OF THOSE RULES ARE ASKED TWICE — once on the kit mean and once per
+surface — because the mean divides by six.** §5.1/§5.2 average ΔE over the six
+dyed surfaces, so a byrnie that collapses all the way to ΔE 0.00 costs the mean
+at most a sixth of what it was worth, against a bar the unsworn shop clears by
+1.85 points. §5.0b is the proof and it is a control, not a claim: give the
+shop's dearest finish the cheapest one's byrnie and the mean still reads ΔE
+18.77 over a bar of 10 while the mail reads 0.00. §5.1b and §5.2b ask the same
+two rules of one surface at a time, and the UNSWORN column is printed beside
+every livery so the floor is visible rather than asserted — `main`'s own shop
+has **no** pair of finishes within a JND on any single dyed surface and its
+worst single-surface pair anywhere is ΔE 7.18.
+
+§6 and §7 are **the lit sections**, and they exist because three
+rounds of this feature shipped a defect past a harness with no light in it. It
+boots the app, drives the real renderer at the play lens, and counts pixels at a
+fully clipped channel inside the warrior's own coverage mask — the mask, not the
+frame, because the bonfire is behind him and contributes about a tenth of a
+percent of every capture including the unsworn ones. The bar is the UNSWORN man
+in the 400 gold Gilded War Cloak and the 160 gold Bretwalda Gold finish: the
+brightest dress a player can buy, so the bar cannot be moved without brightening
+something people own. §6.0 proves the counter can count and §6.2 proves the
+capture repeats, because a clip count is exactly the statistic a moving fire
+moves. **§6.0c proves the mask is the man**: `/shot` publishes the appearance it
+staged and the mask is built from that, checked slot for slot on every capture
+in the run. It used to be built from `defaultAppearance` — for a huscarl a nasal
+helm and a red cloak the card does not stage — and was 20.3% / 25.8% / 32.8%
+larger than the man in the frame at the plan's three bearings.
+
+**§7 asks what colour he is, and §7.1b asks it one surface at a time.** §7.1
+counts the share of the man inside `roseband`'s pink band against the SAME MAN
+IN THE SAME KIT sworn to nobody. Over the whole warrior mask that dilutes: a
+byrnie is about half of him and the other five surfaces are not pink, so a
+byrnie 19% inside the band moved the shipped whole-man figure by 0.391 points
+and was called noise. §7.1b cuts the frame into the surfaces the vat dyes —
+`tools/lib/surfacemask.mjs`, off the client's own scene graph at the capture's
+lens, the sworn frame and its control read through the same array — and §7.1c
+gates the LIFT in value where the surface lands on the red arc, which is where
+`docs/FACTIONS.md` says lifting is the defect rather than the design.
+
+**Both files record a ruler they had to correct, in the file, with the reading
+that forced it.** `teamread` first gated on full ΔE and called two red-team men
+opposite sides for being 30 apart in lightness. `factionread` first asked which
+field a man's chroma was NEAREST and called a Saxon in Blackened Steel a Briton,
+at -27.66, for being DARK — the chroma plane's RADIUS, not its angle, and moss
+is the least chromatic of the four fields. Both corrections are strictly
+tighter, both print the old quantity beside the new one, and neither is a bar
+that moved.
+
 ## Two gates that carry their own proof — `classmatrix` and `gorestat`
 
 Added 2026-08-13, because two existing rulers were caught not discriminating and

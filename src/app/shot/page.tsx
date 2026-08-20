@@ -99,8 +99,16 @@ const GORE_FRAMING: { position: [number, number, number]; target: [number, numbe
 //      test. That is the card marks below.
 // ============================================================
 
-/** Query-string slot name -> the field it sets on `Appearance`. Keys are `ARMOURY`'s. */
-const SLOT_FIELD: Record<string, keyof Appearance> = {
+/**
+ * Query-string slot name -> the field it sets on `Appearance`. Keys are `ARMOURY`'s.
+ *
+ * `people` is deliberately excluded from the value type. It is a field of
+ * `Appearance` but it is NOT an armoury slot — nobody buys a people, and
+ * `resolveSlot` refuses anything that is not in the shop — so it is staged by
+ * `?people=` further down and never through this table. Saying so in the type
+ * is cheaper than a comment nobody reads: adding it here would not compile.
+ */
+const SLOT_FIELD: Record<string, Exclude<keyof Appearance, "people">> = {
   helm: "helm",
   hair: "hairStyle",
   hairColor: "hairColor",
@@ -428,7 +436,7 @@ const PRESETS: Record<string, {
     framing: { position: [0, 2.0, 10.5], target: [0, 1.1, 6.0], fov: 44 },
     poses: (["huscarl", "warden", "runekeeper", "berserker"] as WarriorClass[]).map((cls, i) => ({
       id: i === 0 ? "me" : `p${i}`,
-      name: ["Huscarl", "Warden", "Runekeeper", "Berserker"][i],
+      name: ["Huscarl", "Weard", "Wrecca", "Berserker"][i],
       cls,
       x: -2.55 + i * 1.7,
       z: 6.0,
@@ -792,6 +800,32 @@ function restage(params: URLSearchParams, base: Partial<Appearance>) {
     (ap as Record<string, string | number>)[field] = opt.value;
     asked[slot] = spell(opt.value);
   }
+  // ---- `?people=` — the livery, which is not an armoury slot -------------
+  //
+  // Nobody buys a people, so it does not go through `resolveSlot` and there is
+  // no shop row to check it against. The four ids are `war.mjs`'s and the fifth
+  // token is the unsworn, which is a look and not an absence — see
+  // `defaultAppearance`.
+  //
+  // WRITTEN THROUGH A CAST, AND THAT IS DELIBERATE RATHER THAN LAZY. This page
+  // is the instrument for the before/after of `BACKLOG.md` 4.3, and the "before"
+  // has to be shot against a tree where `Appearance` HAS NO SUCH FIELD. A cast
+  // compiles on both, so the same harness photographs both trees and the only
+  // thing that differs between the two sets of pictures is the renderer. A
+  // typed field here would have forced the baseline to be shot with a different
+  // instrument, which is not a baseline.
+  //
+  // It still REFUSES an unknown token, for the reason the rest of this function
+  // refuses one: a typo that renders a plausible warrior in silence is the most
+  // expensive wrong answer this harness can produce.
+  const people = params.get("people");
+  if (people !== null) {
+    if (!["saxon", "norse", "briton", "pict", "none"].includes(people)) {
+      return { error: `people "${people}" is not one of the four, nor "none"` };
+    }
+    (ap as Record<string, string>).people = people;
+    asked.people = people;
+  }
   return { ap, asked };
 }
 
@@ -799,6 +833,10 @@ function restage(params: URLSearchParams, base: Partial<Appearance>) {
 const subjectOf = (ap: Appearance, cls: WarriorClass, turn: number) => ({
   cls, turn,
   ...Object.fromEntries(Object.entries(SLOT_FIELD).map(([slot, field]) => [slot, spell(ap[field])])),
+  // Read off the merged appearance like everything else, and through the same
+  // cast, so a baseline tree that has no such field publishes `"none"` and says
+  // so out loud instead of publishing nothing.
+  people: String((ap as unknown as Record<string, unknown>).people ?? "none"),
 });
 
 export default function ShotPage() {

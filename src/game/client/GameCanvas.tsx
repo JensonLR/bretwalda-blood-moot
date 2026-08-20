@@ -1761,7 +1761,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
 
         // ability aura
         if (p.abilityActive) {
-          const colAura = p.warriorClass === "berserker" ? 0xff3311 : p.warriorClass === "huscarl" ? 0x4488ff : p.warriorClass === "runekeeper" ? 0x9a55ff : 0xffaa33;
+          const colAura = p.warriorClass === "berserker" ? 0xff3311 : p.warriorClass === "huscarl" ? 0x4488ff : p.warriorClass === "runekeeper" ? 0x6b7280 : 0xffaa33;
           if (Math.floor(ctx.time * 9) % 2 === 0) {
             stage.vfx.burst({ position: { x: at.x, y: 1.3, z: at.z }, color: colAura, count: 2, spread: 1.5, up: 2.6, gravity: 4, kind: "aura" });
           }

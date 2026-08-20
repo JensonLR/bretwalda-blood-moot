@@ -130,7 +130,8 @@ named territory, and the territory is where the heptarchy's names live on.**
   people and inherits its kit variants.
 * **Per-faction class variants.** Same four classes, same numbers (§3), different
   look and kit. What a Pictish Runekeeper looks like is an art question with a
-  hard constraint on it.
+  hard constraint on it. **The COLOUR half of this closed 16 Aug 2026** — see
+  §10 — and what is left is SHAPE, which is deliberately untouched so far.
 * ~~**Team colours override faction colours in team modes**~~ — **CLOSED
   13 Aug 2026. The ordering is written down in §8 and gated by
   `node tools/teamread.mjs`.**
@@ -395,3 +396,722 @@ Every one of these ships with its tier visible to the player. A game that tells
 you *this mark is real and this one is ours* is more interesting than one that
 quietly pretends both are real, and it is the only version of "historically
 accurate" that survives contact with the evidence.
+
+## 10. THE KIT, AS BUILT — 16 Aug 2026
+
+`BACKLOG.md` 4.3, closed on its colour half. The full write-up is there; this
+section records only what §§3, 8 and 9 above are owed.
+
+**§3 held, and it is gated rather than promised.** Nothing in the livery is a
+number a fight reads. `tools/factionread.mjs` §3 runs the real `engine.mjs`
+twice — one room where every man declares a people in his appearance and one
+where none does — and requires every published field of every man to be
+identical over a played match (2001 bytes, identical). §3d seats eight men in
+four liveries and two invented ones in ONE room. And §0.3 asserts the shape
+claim directly: the four peoples and the unsworn cover EXACTLY the same pixels
+at every bearing, so no people moves a silhouette, let alone a hitbox.
+
+**§8's ladder held, and the bar is zero.** `wornBy`, `kitFor` and `cloakFor`
+each test the team FIRST and return before a people is consulted, so the faction
+path is unreachable from a team mode. `factionread` §2.1 measures the collapse
+at ΔC 0.00 — not a tolerance — and prints why the bar has to be zero: garnet
+sits ΔC 7.3 from madder and the Pictish woad ΔC 15.4 from the team's woad. They
+are the same two dyestuffs. `tools/teamread.mjs` is unmoved.
+
+**§9's tiers are in the code, not just in this file.** `deviceOn` in
+`characters.ts` carries the sourcing per device and names the tier: the seax,
+the York Mjölnir and the crescent-and-V-rod are FINDs; the triskele is a find
+used as a device we composed, because the Britons have no attested standard;
+§9.2's AVOID list — Vegvísir, Ægishjálmur, valknut-as-shield-device, and the
+period marks modern extremist movements have taken over — is respected in full
+and none of them is in the file.
+
+**§9.6's build order was NOT followed, and the reason is worth recording.** It
+said to build Alfred's coin iconography first. A coin is a dense circular relief
+and at the 29 px the device gets on a shield board at fight distance it reads as
+a dot; the seax is the blade that names the people, it is as well evidenced, and
+it survives being 29 px. The coinage is still the best untapped source in §9 and
+it belongs on a BANNER or a loading screen, where it has the pixels to be a
+coin. §9.6's other three were built in its order.
+
+**What §2's roster table asked for that this does NOT do.** "Least armour" for
+the Picts, "more metal" for the Norse, "small shield" and "javelins" for the
+Britons are statements about SHAPE and KIT, and every one of them would either
+add or remove geometry. Removing is forbidden — some of it was bought, and
+`tools/rungcensus.mjs` holds the bar at zero components lost — so this pass says
+those things in VALUE instead: the Pict's metal goes dark and colourless, the
+Norseman's is lifted against his darker wools. That is a smaller claim than the
+table makes and it is the honest one until per-faction class variants are built.
+
+### 10.1 THE VAT, AND THE THREE THINGS IT GOT WRONG — corrected 16 Aug 2026
+
+The first cut of `factionDye` ASSIGNED a hue, a chroma and a clamped lightness.
+That one decision produced all three defects the second pass had to close, and
+they are worth keeping written down because they are the same mistake seen from
+three angles.
+
+**1. IT ATE THE PAID LADDER.** `THREE.Color.getHSL` reports lightness in the
+renderer's LINEAR working space; the `lo`/`hi` bands in the `Dye` table were
+written by a hand thinking in the PERCEPTUAL one. Mid-grey is 0.50 perceptual
+and 0.21 linear, so `lo` sat above nearly every surface it was clamping and six
+of the seven finishes came out on the floor. Rough Iron (0 gold) and Blackened
+Steel (110 gold) returned the identical hex on every dyed surface under a Saxon
+or a Briton livery. Measured through the shipped resolvers, kit-averaged ΔE:
+**21 of 21 finish pairs under `LADDER_DE` on all four peoples, minimum 0.00**,
+against 0 of 21 and minimum 11.85 unsworn.
+
+Nothing in the drawer could see it. `rungcensus` counts components and triangles
+and nothing was deleted. `cosmetictest` §2 gates this exact ladder on this exact
+constant — against the raw stored hex, which is the same seven numbers whatever
+a man swore to. `factionread` asked only whether the four peoples were far
+enough APART.
+
+**The fix is that a vat ADDS dyestuff to what is already there.** The lightness
+is converted into the space the bands were written in; the band is a soft knee
+rather than a wall, because a clamp has zero slope and zero slope is where paid
+rungs die; and the chroma plane is a VECTOR SUM — the surface's own chroma plus
+the vat's, at the vat's hue. Addition is the point: it preserves differences
+exactly, which is what a ladder is, and two peoples in the same finish still
+differ by exactly the difference of their two vat vectors because the surface
+term cancels. It is also what actually happened to cloth — yellow in a woad vat
+comes out green, not blue, and that is how a period dyer got a range out of four
+plants.
+
+**2. `--gilt` IS A MAP TOKEN, NOT A CLOTH DYE.** `cloakFor` was putting
+0xd9a441 flat on a cloak. The CSS beside that variable calls it a metal and "the
+brightest thing on the map", and it sits about twenty points of lightness above
+every other flat field this game uses — team madder 34, team woad 32, garnet 28,
+moss 32, faction woad 31, and the shop's dearest cloak at 41. Through the real
+renderer at the play lens, share of the man at a fully clipped channel: the
+Saxon read **1.93% at the front against the 400 gold Gilded War Cloak's 0.11%**,
+sixteen times the shop's dearest gold, and at full scale a channel has no fold
+shading left in it.
+
+The rule now is that **a livery may not make a thing brighter than the brightest
+thing of that kind the shop already sells** — a cloak against `CLOAK_COLORS`, a
+kit surface against `FINISH_KIT` — computed from those tables rather than typed
+out, so a new cloak moves the ceiling with it. `FACTION_FIELD` is untouched: the
+island is still painted in `globals.css`'s four variables, and the cloak is the
+same colour at a wearable value.
+
+**3. THE DANELAW WAS STILL PINK, AND IT WAS THE SAME CLAMP.** The round that
+found it took the Norse hue shift out for making a man pink, and shot the front
+of a huscarl. The pink was never in the hue shift. It was in a clamp that put
+every pale surface onto one light, chroma-0.34 rose — the linen shirt and
+sleeves, the leg wraps and the pale harness leather, which are the arms and the
+shins, which is what you see at the two bearings nobody photographed:
+
+| surface | before | after |
+|---|---|---|
+| linen shirt/sleeves | `#ae7e80` H358 S23 L59 | `#9b6d58` H19 S28 L48 |
+| pelt (berserker's back) | `#792f34` H356 S44 L33 | `#692b00` H25 S100 L21 |
+| Polished Steel wraps | `#b06d70` H357 S30 L56 | `#915a50` H9 S29 L44 |
+| Polished Steel byrnie | `#a89e9e` H0 S5 L64 | `#9ea2b4` H229 S13 L66 |
+
+**A CORRECTION I OWE THE FRAME THAT CAUGHT ME.** The first cut of this fix
+claimed the `Dye` bands had been written in perceptual lightness and that
+`getHSL` reporting LINEAR was the whole defect. That was wrong: the bands were
+tuned against captures, in the space they are read in, and "correcting" them put
+the Danelaw and the Picts so dark that the identity read INVERTED — a Pict in
+Bretwalda Gold reading as a Saxon. Five configurations were built and all five
+measured on the real §1 sweep:
+
+| configuration | §1.2 DISTINCT | §1.3 READS | §5 min ΔE |
+|---|---|---|---|
+| shipped (assign, hard clamp) | 12.52 ΔC | +15.21° | 0.00 |
+| perceptual bands + unbounded sum | 4.41 ΔC | **-173.24°** | 8.93 |
+| linear bands + unbounded sum | 5.75 ΔC | **-173.24°** | 8.97 |
+| linear bands + sum, 22° hue cone | 16.64 ΔC | **-25.80°** | 7.16 |
+| **shipped now:** linear bands, 8° cone | **17.93 ΔC** | **+3.47°** | 2.91 |
+
+So the sum is bounded: a dyed surface's hue is held within 8° of its vat's, 8
+being under half the 52° between weld and garnet — the smallest gap between two
+of the four fields. Two peoples' cones are then 36° of clear air apart, and an
+area-weighted mean of vectors inside a cone stays inside the cone, so a purchase
+cannot out-vote a people. That is §8's ordering one rung below the team colour,
+and every configuration that recovered the ladder to ΔE 8–9 broke it.
+
+**WHAT THIS PASS COULD NOT BUY, stated with its number.** The stricter reading
+of the ladder rule — every one of the 21 pairs clearing `LADDER_DE` under every
+livery — is reported by `factionread` §5 and is not gated. The shop's own
+tightest pair is ΔE 11.85 apart unsworn, so a livery has 1.85 points of room on
+it and would have to be very nearly an isometry. What the fix does buy is the
+COLLAPSE: 84 of 84 pairs at or under `LADDER_DE` on all four peoples with a
+minimum of 0.00 — including 24 paid rungs reading as the FREE kit — becomes 22
+NEAR pairs with a minimum of 2.91 and not one twin, and the four peoples come
+out FURTHER apart than they were before rather than nearer.
+
+**AND §6 THEN FOUND TWO MORE THAT NOBODY HAD MEASURED**, both at bearings the
+round that built this feature never photographed. The Pict blew 8.39% of the man
+at the three-quarter — and the reading did not move when every dyed surface on
+him did, because the clipped pixels were the SHIELD, painted bone white
+(`0xd8d2c2`, the brightest flat area in the build) and standing in front of his
+body. The huscarl is the only class that carries one. And the Saxon read 2.57%
+against a 2.55% bar because the ceiling was measuring HSL LIGHTNESS: `0xe6cd2b`
+sits below the shop's brightest wrap in lightness and twenty points above it in
+its RED CHANNEL, and a channel is what goes to full scale. Every flat colour a
+livery makes is now held under the brightest single channel its own kind reaches
+in the shop, enforced by scaling in linear light so the hue does not move.
+
+`teamDye` carries the identical space mismatch and is deliberately not touched.
+A team's whole product is a collapse — `teamread` gates four peoples on one side
+at ΔC 0.00 — so there the same bug is the feature, and correcting it would move
+a gated, photographed build for no gain.
+
+### 10.2 THE DANELAW WAS STILL PINK — third round, corrected 20 Aug 2026
+
+**§10.1 point 3 above records a fix that this tree does not contain, and that is
+the first thing to say.** Its table claims the linen shirt and sleeves went from
+`#ae7e80` to `#9b6d58`. Built out of the shipped resolvers on 20 Aug,
+`factionWorn(0xc2b69c, "norse", "linen")` returns **`#b9746a` — H8 S36 L57**,
+which is the hex the owner reported off his own capture. Whatever produced
+`#9b6d58` is not in `characters.ts`. `docs/PROCESS.md` R7: a comment or a table
+that describes a value the code does not have is worse than none, because it is
+trusted. The row is superseded by the one at the bottom of this section.
+
+#### What it looked like, before anything was touched
+
+Four peoples, four classes, front, profile and back, at the play lens under the
+arena's own fire — `art/look/faction-before/`. Share of the frame inside the
+rose band `tools/lib/roseband.mjs` defines:
+
+| frame | share | modal |
+|---|---|---|
+| norse huscarl @180 | **2.654%** | `#b87878` |
+| norse warden @180 | **1.655%** | `#b87878` |
+| norse warden @0 | **1.636%** | `#b07070` |
+| norse huscarl @90 | **1.632%** | `#b07070` |
+| norse runekeeper @0 | 0.222% | `#f89088` |
+| saxon / briton / pict, every frame shot | 0.020% – 0.160% | skin and firelight |
+
+Sixteen to a hundred and thirty times the three peoples who are not on the red
+arc, whose reading is the floor nobody can get under.
+
+#### Two rounds aimed at the wrong thing, and the lever that proved it
+
+Round one took the `-0.024` hue shift out of the `norse` livery. Round two took
+`metal.sat` from 0.18 to 0.07. Both are recorded in `characters.ts` and both are
+real improvements. Neither is the mechanism.
+
+The brief for this round said to look at the `wrap` and `metal` vats. So the
+lever was pulled all the way (`docs/PROCESS.md` R1): **`wrap`, `metal` AND
+`linen` set to `sat: 0.00`** — no dyestuff in any of the three vats at all —
+**and the rose got worse.** Scored by `tools/lib/roseband.mjs` over four peoples
+× seven finishes × six dyed surfaces:
+
+| configuration | rose surfaces | the sleeve |
+|---|---|---|
+| shipped | 3 of 168 | `#b9746a` **rose** |
+| `wrap` + `metal` + `linen` all at `sat: 0.00` | **6 of 168** | `#a78a86` greige |
+| this round's fix | **0 of 168** | `#9e9392` greige |
+
+Emptying the vats takes the sleeve out of the band and **doubles everything
+else**, because with no dyestuff of its own the vat has nothing to add and the
+surface's own chroma is all that is left — which `HUE_CONE` then turns onto the
+garnet at exactly the weak magnitude that reads pink. The sleeve leaves the band
+by going greige, which is the vat doing *nothing* rather than the vat doing the
+right thing, and every byrnie is still rose afterwards. A vat's `sat` is not the
+lever and never was.
+
+*(Two intermediate numbers for this experiment reached commit messages before
+the band was settled — 9 → 12 and then 9 → 6, both off looser boxes. The table
+above is the shipped band, imported rather than copied, and is what reproduces:
+`node tools/roselook.mjs` shares its definition. `PROCESS.md` R8, twice, and
+that makes this the third instrument in this feature's history to be read before
+it was finished.)*
+
+#### What it actually is
+
+Red is the only arc on the circle whose pale form has a **name of its own**.
+Pale woad is pale blue, pale moss is pale green, pale weld is pale yellow — the
+word survives the value. Pale garnet is **pink**, and pink is not a lighter
+Danelaw, it is a different colour worn by different people.
+
+`--garnet` is `#7c1420`: L\* 26.4, C\* 48.7. It is a **dark stone**. All four
+vats are free to lift a surface far above their own field's value — the
+Danelaw's `metal` band tops out at 0.68 and his `linen` at 0.50 — and for weld,
+moss and woad that is exactly right and costs nothing. On the red arc it is what
+makes a Viking pink.
+
+**So above `ROSE_LIT` the vat lets go.** A surface on the red arc keeps its
+VALUE and loses the dyestuff: pale wool comes out greige, bright mail comes out
+bare iron. That is what §2's Kit column says the Danelaw is — "more metal,
+darker wools" — and his identity was never in his shirt. It is in his tunic, his
+harness and his cloak, all of which sit below the threshold and are untouched.
+
+#### The other three peoples are byte-identical, and it is measured
+
+The window is 36° either side of pure red and it is keyed on the RESULT hue;
+`HUE_CONE` holds every dyed surface within 8° of its own field, and weld sits at
+60°, moss at 153°, woad at 210°. Compiled both trees and compared every finish
+surface, a 197-step hex sweep across all five dye kinds, and every cloak:
+
+```
+  saxon    BYTE-IDENTICAL
+  norse    97 value(s) changed
+  briton   BYTE-IDENTICAL
+  pict     BYTE-IDENTICAL
+  499 identical, 97 changed
+```
+
+That is why §1, §5 and §6 did not have to be re-argued for three of the four,
+and `factionread` §7.2 asserts the precondition on every run.
+
+#### The surfaces, in albedo
+
+| surface | before | after |
+|---|---|---|
+| linen shirt and sleeves | `#b9746a` H8 S36 L57, C\* 31 | `#9b9695` C\* 2 — undyed flax |
+| Rough Iron byrnie | `#93797e` H348 S11 L53, C\* 11 | `#898384` C\* 2 — bare iron |
+| Polished Steel byrnie | `#ac979b` H349 S11 L63 | near-white steel |
+| Polished Steel leg wraps | `#b46f64` H8 S35 L55 | out of the band |
+| Sea-blue byrnie | `#a75569` H345 S33 L49 | out of the band |
+| **Rough Iron leg wraps** | `#94402c` russet | **`#94402c` — byte-identical** |
+| Danelaw tunic (oxblood) | `#6f2100` | **byte-identical** |
+| Danelaw cloak | flat garnet | **byte-identical** — `cloakFor` never enters the vat |
+
+Rose surfaces over four peoples × seven finishes × six dyed surfaces: **3 → 0**,
+and the sleeve with them.
+
+#### It took two more capture sessions, and both found something no number had
+
+**ONE — THE LEG WRAPS, which is why `ROSE_LIT` is 0.44 and not 0.38.** At 0.38
+the albedo census is just as clean, and **the frame did not move**: norse
+huscarl @180 went 2.654% to 2.626%. Sampling the same pixels found the byrnie
+fixed (`#c07f80` → `#b28c85`, C\* 27.2 → 16.2) and the **leg wraps ruined**:
+`#c73135` → `#ac645f`, C\* 67.7 down to 32.4. At 67.7 a wrap is *above* the
+band's own chroma ceiling and reads as strong madder, which is correct and was
+never part of the complaint; at 32.4 it is *inside* the band. The fade had
+turned a surface nobody reported into the very thing being fixed, and the two
+changes cancelled in the count. 0.44 sits between his wraps (about 0.46 after
+the band) and his sleeves (0.59) and mail (0.53–0.64).
+
+**TWO — THE ARC IS A PLATEAU AND NOT A PEAK, and the unsworn control is what
+showed it.** Same pixel, same frame, huscarl at 180°:
+
+| | albedo | rendered |
+|---|---|---|
+| unsworn byrnie | C\* 9.9, **cool** blue | C\* 6.5 |
+| Danelaw byrnie | C\* 5.0, warm | **C\* 18–20** |
+
+The arena's key light is a bonfire. **A warm light on a warm-neutral surface
+adds; the same light on a cool-neutral cancels.** Five points of warm albedo
+chroma came out as twenty on the screen while ten points of cool came out as
+six. Where the five came from: `ROSE_ARC` was a triangular window centred on
+pure red, and `--garnet` sits 6.9° off it, so the Danelaw was only ever getting
+0.81 of the fade — a fifth of the dye stayed on the byrnie. It looked like
+nothing in the albedo census, C\* 5 against a floor of 14.8, and it was four
+times that on a screen. The window is now flat at 1.0 out to 21.6° either side
+and feathered to nothing by 36°.
+
+`PROCESS.md` R5, twice more in one round. The albedo census could not have found
+either.
+
+Rose surfaces over four peoples × seven finishes × six dyed surfaces:
+**3 → 0**, and the sleeve with them. Ladders unmoved at 2.91 / 6.36 / 4.71 for Wessex, the Britons and the Picts; the
+Danelaw's is 3.94 against `cosmetictest`'s JND of 2.3.
+
+#### And a ruler that can see a graded render, which is what was missing
+
+`factionread`'s own verdict line carried this sentence while the defect was on
+the screen: *"§0-§5 have no light and no grade — albedo only; §6 is the only lit
+section and it measures CLIPPING, not colour."* A harness that knows what it
+cannot see, prints it and goes green anyway is `PROCESS.md` failure mode 2, and
+it cost a green 15/15 and then a green 21/21 with a pink Viking on screen both
+times.
+
+ΔC could never have seen it. §1 asks whether the four peoples are far **apart**.
+Rose is a long way from weld, from moss and from woad. The question §1 cannot
+ask is whether the Dane is the **right** colour, and the right colour is not a
+distance from anybody else — it is a place on the wheel.
+
+* `tools/lib/roseband.mjs` — the band, once, so it cannot be edited in one place
+  and not the other. Four bounds, none of them chosen by whoever wrote the fix:
+  the arc is 25° either side of `--garnet`'s own CIELAB hue; the value floor is
+  L\* 41, below which the red arc still has its dark names and the shipped
+  oxblood tunic at L\* 25.2 and brick wraps at L\* 40.3 are those names; the
+  chroma floor is the **undyed** linen shirt `0xc2b69c` at C\* 14.8, under which
+  a surface is greige; the ceiling is half the dyestuff's own colour-to-light
+  ratio, above which a red surface still has the stone in it and reads as rust
+  or blood. `calibrate()` runs on every use and must flag all five colours the
+  owner reported as rose across three rounds while clearing all ten shipped
+  surfaces that are correct.
+* `factionread` §7 — the gate, on the frames §6 already paid for, over the
+  warrior's own coverage mask. The bar is **the worst frame of a people whose
+  field is not on the red arc**, shot in the same scene at the same bearings.
+  Skin and firelight are on the red arc so no frame reads zero; moving that bar
+  means making a Saxon pink.
+* `tools/roselook.mjs` — the same band over a directory of PNGs in about a
+  second, so a before/after costs no captures. Whole-frame share, no coverage
+  mask, comparative only, and it says so on its own verdict line.
+
+### 10.3 THE DANELAW'S ROSE, FOURTH ROUND — the vat was BLEACHING, not letting go — 20 Aug 2026
+
+§10.2 above fixed the albedo census and left a residue it could not explain, and
+its own closing paragraph is where this round starts: *"the residue is the fire
+on bright iron, and it is inseparable from the identity... The next round that
+wants it green must argue about the BONFIRE or about `norse.metal.bias`, and
+both of those are the owner's decisions and not a fixer's."*
+
+**That conclusion was wrong, and one column of numbers is why.** The residue was
+not inseparable and it needed neither a relight nor a darker byrnie. §10.2 had
+the mechanism exactly right — a warm key ADDS on a warm-neutral and CANCELS on a
+cool one — and then asked the wrong question about it. It asked why the
+Danelaw's mail was *neutral*. The question was why it had *stopped being cool*.
+
+#### The column §10.2 never printed
+
+Every steel in this shop is COOL, because that is what steel is. Here is what
+the vat did to it, off the shipped resolvers, on the tree §10.2 shipped:
+
+| surface | source | through the Danelaw's vat |
+|---|---|---|
+| Rough Iron byrnie | `#5f6b7a` C\* 9.9 **hue 264°** | `#898384` C\* 2.5 **hue 6°** |
+| Polished Steel byrnie | `#8a97a5` C\* 9.1 **hue 260°** | `#a3a2a2` C\* 0.4 **hue 18°** |
+| Sea Queen's Gift byrnie | `#2f4a6a` C\* 21.7 **hue 270°** | `#8f7d80` C\* 7.5 **hue 7°** |
+| linen shirt and sleeves | `#c2b69c` C\* 14.8 hue 90° | `#9b9695` C\* 2.0 **hue 35°** |
+
+Read it twice. A deliberately BLUE armour — Sea Queen's Gift, C\* 21.7 at 270° —
+came out of the Danelaw's vat near-neutral and **pointing at the garnet**. That
+is not a vat letting go. That is a vat bleaching a surface and then aiming the
+remnant at red, and the bonfire finished the job. §10.2's own rendered
+measurement — same pixel, same frame, quoted from the round above — is the
+proof: a Danelaw byrnie read C\* 15.6–17.4 on the screen where the unsworn
+man's cool iron read C\* 6.5.
+
+#### The one line that did it
+
+`factionDye` applied the fade to the MAGNITUDE of the chroma sum:
+
+```
+setHSL(h, Math.min(1, Math.hypot(cx, cy)) * roseFade(h, l), linear(l))
+```
+
+`hypot(cx, cy)` is the surface's own chroma **plus** the vat's, and scaling that
+toward zero throws away the surface's contribution along with the dye. What
+survives is a near-neutral whose hue is whatever `HUE_CONE` last clamped it to —
+the garnet. **Three briefs in a row said the lever was a vat's `sat`; the lever
+was the word "magnitude".**
+
+#### Letting go is a move back to the surface, not a move toward grey
+
+The fade now runs on the dyed vector AS A VECTOR, hue and chroma together, from
+the dyed result back to *the surface undyed*:
+
+> **CORRECTED 20 Aug 2026, and the correction is the point.** The "after"
+> column below was measured on the UNCAPPED fix. The cap in the next section was
+> then added and this table was never re-measured, so §10.3 has been quoting a
+> tree that was never committed. `docs/PROCESS.md` R8. The SHIPPED column is
+> what `kitFor(finishKit(v), "none", "norse")` returns on `cc4008e`.
+
+| surface | before | as §10.3 claimed | as `cc4008e` SHIPPED | §10.4, this round |
+|---|---|---|---|---|
+| Rough Iron byrnie | `#898384` C\* 2.5 hue 6° | `#7b8090` C\* 9.4 hue 280° | `#7d808f` **C\* 8.7 hue 284°** | `#7a8292` C\* 9.6 hue 273° |
+| Sea Queen's Gift byrnie | `#8f7d80` C\* 7.5 hue 7° | `#676e9e` C\* 28.4 hue 289° | `#877d8f` **C\* 11.1 hue 311° — mauve, not blue** | `#7b7c91` C\* 12.2 hue 290° |
+| Crimson Warplate byrnie | `#927a79` C\* 9.9 hue 3° | not printed | `#9c6d6b` **C\* 20.3, 1.5° off the garnet — ROSE** | `#af463f` **C\* 49.9 — brick** |
+| linen shirt and sleeves | `#9b9695` C\* 2.0 hue 35° | `#a89a85` C\* 13.0 hue 83° | `#a89a85` C\* 13.0 hue 83° | `#a89c86` C\* 13.1 hue 87° |
+| Rough Iron leg wraps | `#94402c` russet | byte-identical | `#94402c` byte-identical | `#94402c` byte-identical |
+| Blackened Steel leg wraps | `#8c4e43` brick | byte-identical | `#8c4e43` byte-identical | `#8c4e43` byte-identical |
+
+No value moved: the byrnie is L\* 53.7 against 55.3. **"More metal, near-white
+steel over the darkest wools" is untouched, and nothing was relit** —
+`PROCESS.md` R11 stage 4.
+
+#### AND THE CAP, WHICH IS THE HALF THAT IS NOT OBVIOUS
+
+Letting go *all the way* is too far, and `factionread` §1.3 is what says so. It
+reads a people off the area-weighted mean of the man's surfaces, and a byrnie is
+the largest of them. Uncapped, the vat handed the whole vote back to whatever
+the man had bought. Measured over the seven finishes on a man with **no cloak
+and no shield**:
+
+| finish | reads as |
+|---|---|
+| Bronze Scales | **SAXON** |
+| Bretwalda Gold | **SAXON** |
+| Sea Queen's Gift | **PICT** |
+
+That is `FACTIONS.md` §8's ordering broken — a purchase out-voting a people —
+and it is the same inversion `HUE_CONE` exists to stop, one rung further down. A
+huscarl survived it because his cloak and his board are flat garnet and never
+enter the vat. A berserker has neither, and nobody would have shot a cloakless
+berserker in Bronze Scales.
+
+So the endpoint is the surface **undyed**, capped at `UNDYED_SAT` — the dye load
+of the linen shirt `0xc2b69c`, read off the shipped hex rather than chosen, the
+same colour `tools/lib/roseband.mjs` takes its chroma floor from and for the same
+reason. A surface a vat has let go of carries no dyestuff, and the undyed shirt
+is this game's own statement of how much colour that is.
+
+> **THAT PARAGRAPH USED TO END "After the cap all four peoples read correctly
+> with and without cloak and board." IT IS FALSE ON THE TREE IT WAS WRITTEN
+> ABOUT.** `node tools/factionread.mjs` on `cc4008e`, twice, identical both
+> times: **FAIL 1.2 DISTINCT** at ΔC 6.47 and **FAIL 1.3 PEOPLE** at −53.74° —
+> a cloakless Danelaw huscarl in Polished Steel reads NEARER THE PICT than the
+> Danelaw. The same file on `factionland2` passes both, at 17.88 and +3.47°,
+> and the §1 code is byte-identical between the two trees: one instrument, one
+> bar, two `characters.ts`. The cap made the inversion smaller than the
+> uncapped form would have; it did not close it. §10.4 and
+> `docs/OPEN-DEFECTS.md` carry the eight configurations and the measurement
+> that says why. `docs/PROCESS.md` R8.
+
+**What the cap costs is stated rather than hidden:** the Danelaw's worst finish
+pair goes 2.55 → 2.79 rather than the 5.44 the uncapped version bought, against
+`cosmetictest`'s JND of 2.3. Identity outranks the ladder and §8 says so in
+those words.
+
+#### The other three peoples are byte-identical, and it is by construction
+
+`keep` of 1 reproduces the dyed vector exactly, so a surface the fade cannot
+reach is identical *by construction* rather than by luck. Over every finish
+surface through `factionKit`, a 197-step hex sweep across all five dye kinds for
+all four peoples, and every cloak:
+
+```
+  saxon   BYTE-IDENTICAL
+  norse   803 value(s) changed
+  briton  BYTE-IDENTICAL
+  pict    BYTE-IDENTICAL
+  3357 identical, 803 changed  — 4160 values compared
+```
+
+> **CORRECTED 20 Aug 2026.** This file said "3361 identical, 795 changed" and
+> `characters.ts` said "3360 identical and 796 changed" for the same
+> measurement, and neither reproduced. The block above is `factionland2` against
+> `cc4008e` over a domain that is now written down: seven finishes x seven
+> surfaces, a 197-step sweep of the hex cube through all five dye kinds, every
+> cloak and the shield board, for each of the four peoples — 4160 values. Two
+> numbers for one measurement is `docs/PROCESS.md` failure mode 3.
+
+#### And the gate that would have caught it in a second
+
+`tools/factionread.mjs` **§5.3**, in the albedo half of the file, no browser and
+no light: **no vat may leave a surface pale, under the rose band's own C\* 14.8
+floor, and on the garnet's arc** — because that is the one region where the band
+is *required* to clear a pixel in albedo and the bonfire then puts it over the
+floor. On the tree §10.2 shipped, thirteen of 116 surfaces were in that region
+and every one of the thirteen was the Danelaw: every finish's byrnie, the leg
+wraps and the linen sleeves. That is the whole defect, found in albedo, for the
+cost of a loop.
+
+Three rounds of this feature needed an hour of graded rendering to see what §5.3
+sees for free, and §1 could never have seen it at all: §1 gates how far the four
+peoples are APART, and rose is a long way from weld, moss and woad. **A distance
+cannot ask whether a man is the right colour.**
+
+---
+
+### 10.4 THE CAP WAS ONE NUMBER WHERE IT HAD TO BE A DIRECTION — 20 Aug 2026
+
+§10.3 fixed the direction the vat lets go IN and then bounded how far with a
+single scalar, `min(hsl.s, UNDYED_SAT)`. Both halves are right in intent. The
+scalar is what broke, and it broke on the one surface in the shop whose own
+colour already IS the Danelaw's.
+
+#### It put a new rose byrnie on a 130-gold finish
+
+Crimson Warplate's mail is `0x7a2f2a` — C\* 38.0 at hue 31.6°, and the garnet is
+at 26.5°. It is the Danelaw's own colour, bought. The isotropic cap cut it to an
+undyed shirt's dye load and handed back `#9c6d6b`: **L\* 50.8, C\* 20.3, 1.5° off
+the garnet** — inside `tools/lib/roseband.mjs`'s band, the only member of it in
+all 245 dyed surfaces, and 0.2 L\* from `#b9746a`, the hex the owner reported.
+
+The band's own `MUST_CLEAR` list carries `0xb23c34, "crimson-finish mail —
+blood"` as a surface that ships correct. The change replaced that surface with
+one the same band flags as rose.
+
+#### What a cap is for is the VOTE, and a vote is an ANGLE
+
+`factionread` §1.3 reads a people off the **hue** of the man's area-weighted
+mean. What can out-vote a people is chroma pulling AWAY from its field — a gold
+byrnie under a garnet vat, which is the reading §10.3 correctly recorded. Chroma
+pointing AT the field cannot out-vote anything; it IS the vote.
+
+So the ceiling is on the colour that argues with the vat:
+
+```ts
+const align = Math.cos(TAU * (hsl.h - f.hue));
+const uMag  = Math.min(hsl.s, UNDYED_SAT + Math.max(0, align) * Math.max(0, hsl.s - UNDYED_SAT));
+```
+
+At `align` +1 the cap is the cloth's own load and does nothing; at 0 and below it
+is `UNDYED_SAT` flat. A cloth keeps all of what it shares with the dyestuff and
+at most an undyed shirt's worth of what it does not.
+
+| surface | isotropic cap | this |
+|---|---|---|
+| Crimson Warplate mail `0x7a2f2a` | `#9c6d6b` L\* 50.8 C\* 20.3 — **ROSE** | `#af463f` L\* 44.0 C\* 49.9 — **brick** |
+| Bretwalda Gold mail `0x9a7a2a` | `#9c7d6b` C\* 17.1 | `#ad8745` C\* 41.0 — still capped, from C\* 46.7 |
+| Sea Queen's Gift mail `0x2f4a6a` | `#877d8f` C\* 11.1 hue 311° | `#7b7c91` C\* 12.2 hue **290°** — cool, not mauve |
+| Rough Iron mail `0x5f6b7a` | `#7d808f` C\* 8.7 | `#7a8292` C\* 9.6 — cool steel |
+
+On §1, which is what the cap exists for, the anisotropic form changes **nothing
+either way**: at the same `ROSE_FADE` 0.06 it reads §1.2 6.47 and §1.3 −53.74°,
+byte-for-byte the isotropic form's readings. That is the expected answer and it
+is worth saying out loud — the surfaces the cap stops bleaching are the ones
+whose own hue is already the Danelaw's, and those never voted against him.
+
+> An earlier draft of this section claimed 7.36 and −24.56° here. That reading
+> was real but it was not this change: the worktree it came from also carried
+> `norse.wrap` at `[0.10, 0.14]` and `norse.linen` at `[0.05, 0.12]` from a
+> band experiment that had not been reverted. The number is now in
+> `docs/OPEN-DEFECTS.md` under the configuration that actually produced it,
+> which is the most promising lead this round found and did not finish.
+> `docs/PROCESS.md` R8, caught by diffing the tree against the file it was
+> measured on rather than by trusting the note.
+
+#### `ROSE_FADE` 0.06 → 0.04, and the shop's own two wraps fix it
+
+`ROSE_LIT` 0.44 sits between Rough Iron's leg wraps at 0.4366, which must stay
+russet, and Crimson Warplate's at 0.5510, which `FINISH_KIT` itself calls "a
+pale rose-grey" and which must let go. That gap is 0.114 of value. A fade of
+0.06 leaves 16% of a `sat 0.48` vat on the second one, and 16% of the Danelaw's
+strongest cloth vat on a surface the shop already calls rose-grey is a dusty
+pink: `#a47f71`, L\* 56.4, C\* 17.9, 20.4° off the garnet — **in the band**. At
+0.05 and 0.045 it is still in. At 0.04 it clears at `#a18375`, C\* 15.1.
+
+#### What that costs, and it is the whole of §10.4's honesty
+
+`ROSE_FADE` trades directly against identity, point for point, because the
+byrnie is both the pinkest surface on the Danelaw and — being deliberately the
+brightest thing on him — most of the linear-light mean §1 measures:
+
+| `ROSE_FADE` | §1.2 | §1.3 | Crimson Warplate wraps |
+|---|---|---|---|
+| 0.06 | 6.47 | −53.74° | `#a47f71` **in the band** |
+| 0.05 | 6.39 | −57.11° | `#a28173` **in the band** |
+| 0.04 (this) | 5.97 | −65.38° | `#a18375` clear |
+
+**Both are red on §1.** The tree ships 0.04, because a gate this round added
+(§5.4) exists to catch exactly the surface 0.06 leaves in the band, and shipping
+a tree that fails one's own new gate is what §10.3 did.
+
+`docs/OPEN-DEFECTS.md` carries the nine configurations, the graded frames that
+bound the problem at both ends, and the three owner-level decisions that are the
+only remaining levers.
+
+#### And the frames, which is what R5 asks for
+
+`tools/vatprobe.mjs`, production builds on both trees, settled `fightcard`
+captures at the play lens, the Danelaw huscarl graded over his own pixels
+against **the same man in the same kit sworn to nobody**:
+
+| finish | bearing | before | after | modal, before → after |
+|---|---|---|---|---|
+| Polished Steel, 60g | 0° | +1.373 over its floor (7.8x) | **+0.391** | `#f87868` → `#a07060` |
+| Polished Steel, 60g | 90° | +2.683 (10.5x) | **+0.097 — noise** | `#f88070` → `#886860` |
+| Polished Steel, 60g | 180° | not measured | +0.687 | — → `#b08070` |
+| Crimson Warplate, 130g | 0° | +0.574 (`cc4008e`) | **−0.164 — below its floor** | `#d89880` → `#d88868` |
+| Crimson Warplate, 130g | 90° | +1.463 (`cc4008e`) | **+0.080 — noise** | `#b86060` → `#d89070` |
+| Crimson Warplate, 130g | 180° | **+2.177, 3.2x** (`cc4008e`) | **+0.058 — noise** | `#c86868` → `#e8b098` |
+
+The Polished Steel "before" is `factionland2`, the tree with no fade in it at
+all — the state the owner reported; `#f87868` is salmon, and the profile is the
+bearing his rose was reported at and is now inside the instrument's own noise
+floor. The Crimson Warplate "before" is `cc4008e`, the tree this branch started
+from, which is where the previous round's own new rose byrnie lived: at the
+BACK it put its Dane 3.2x over his own unsworn floor, and that is a bearing the
+after-set of the round before last did not contain at all.
+
+
+#### THE WHOLE DANELAW, EVERY FINISH, EVERY DYED SURFACE
+
+Off the shipped resolvers — `kitFor(finishKit(v), "none", "norse")` and
+`wornBy(0xc2b69c, "none", "norse", "linen")` — on all three trees. `ROSE` is
+`tools/lib/roseband.mjs`'s band. `=fl3` means this round did not move it.
+
+```
+finish            surf     source     factionland2    factionland3    THIS TREE
+Rough Iron        mail     #5f6b7a  #93797e         #7d808f         #7a8292
+Rough Iron        tunic    #6a5b42  #6f2100         #6f2100         #6f2100   =fl3
+Rough Iron        trouser  #504a3e  #6e250e         #6e250e         #6e250e   =fl3
+Rough Iron        wrap     #8b7c5c  #94402c         #94402c         #94402c   =fl3
+Rough Iron        hide     #4a3524  #611b00         #611b00         #611b00   =fl3
+Rough Iron        buff     #7a5b38  #6f2100         #6f2100         #6f2100   =fl3
+Rough Iron        fitting  #bfa25c  #bfa25c         #bfa25c         #bfa25c   =fl3
+Rough Iron        linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Polished Steel    mail     #8a97a5  #ac979b         #94a1af         #93a1b0
+Polished Steel    tunic    #5c6068  #662f3c         #662f3c         #662f3c   =fl3
+Polished Steel    trouser  #434b56  #63343f         #63343f         #63343f   =fl3
+Polished Steel    wrap     #b6b2a4  #b46f64 ROSE    #9d9489         #9c968b
+Polished Steel    hide     #453c33  #5d271b         #5d271b         #5d271b   =fl3
+Polished Steel    buff     #8b7c5e  #86331d         #86331d         #86331d   =fl3
+Polished Steel    fitting  #c3c9d0  #c3c9d0         #c3c9d0         #c3c9d0   =fl3
+Polished Steel    linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Blackened Steel   mail     #2a2f38  #93787d         #7c7e90         #7a8092
+Blackened Steel   tunic    #3a3733  #6b251d         #6b251d         #6b251d   =fl3
+Blackened Steel   trouser  #2f2d2c  #6a2224         #6a2224         #6a2224   =fl3
+Blackened Steel   wrap     #6d665a  #8c4e43         #8c4e43         #8c4e43   =fl3
+Blackened Steel   hide     #241f1b  #5c291f         #5c291f         #5c291f   =fl3
+Blackened Steel   buff     #4e4438  #5e2518         #5e2518         #5e2518   =fl3
+Blackened Steel   fitting  #7f838a  #7f838a         #7f838a         #7f838a   =fl3
+Blackened Steel   linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Bronze Scales     mail     #8a6a3a  #af5442         #9a7d6e         #a98151
+Bronze Scales     tunic    #7a5a2e  #6f2100         #6f2100         #6f2100   =fl3
+Bronze Scales     trouser  #5b4527  #6f2100         #6f2100         #6f2100   =fl3
+Bronze Scales     wrap     #c2aa7c  #ba4c30         #9f8673         #a48d6b
+Bronze Scales     hide     #513418  #611b00         #611b00         #611b00   =fl3
+Bronze Scales     buff     #8f6a34  #7e2600         #7e2600         #7e2600   =fl3
+Bronze Scales     fitting  #c79a4a  #c79a4a         #c79a4a         #c79a4a   =fl3
+Bronze Scales     linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Crimson Warplate  mail     #7a2f2a  #b23c34         #9c6d6b ROSE    #af463f
+Crimson Warplate  tunic    #8a3730  #780100         #780100         #780100   =fl3
+Crimson Warplate  trouser  #5d2d29  #6f0100         #6f0100         #6f0100   =fl3
+Crimson Warplate  wrap     #bc9c8c  #b85844         #a08177         #a18375
+Crimson Warplate  hide     #46201a  #610b00         #610b00         #610b00   =fl3
+Crimson Warplate  buff     #8a5241  #7e1f00         #7e1f00         #7e1f00   =fl3
+Crimson Warplate  fitting  #bfa25c  #bfa25c         #bfa25c         #bfa25c   =fl3
+Crimson Warplate  linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Sea Queen's Gift  mail     #2f4a6a  #a75569 ROSE    #877d8f         #7b7c91
+Sea Queen's Gift  tunic    #35506b  #603b43         #603b43         #603b43   =fl3
+Sea Queen's Gift  trouser  #333f52  #623741         #623741         #623741   =fl3
+Sea Queen's Gift  wrap     #93a0aa  #9b6f78 ROSE    #83828c         #80858e
+Sea Queen's Gift  hide     #2b3138  #52363b         #52363b         #52363b   =fl3
+Sea Queen's Gift  buff     #627083  #714d54         #714d54         #714d54   =fl3
+Sea Queen's Gift  fitting  #aab8c0  #aab8c0         #aab8c0         #aab8c0   =fl3
+Sea Queen's Gift  linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+Bretwalda Gold    mail     #9a7a2a  #b54525         #9c7d6b         #ad8745
+Bretwalda Gold    tunic    #8a6f2c  #772400         #772400         #772400   =fl3
+Bretwalda Gold    trouser  #6b5726  #6f2100         #6f2100         #6f2100   =fl3
+Bretwalda Gold    wrap     #d2bd7c  #c74c27         #a6957e         #af9d70
+Bretwalda Gold    hide     #4d3a14  #611b00         #611b00         #611b00   =fl3
+Bretwalda Gold    buff     #9c7c34  #892a00         #892a00         #892a00   =fl3
+Bretwalda Gold    fitting  #dcc164  #dcc164         #dcc164         #dcc164   =fl3
+Bretwalda Gold    linen    #c2b69c  #b9746a ROSE    #a89a85         #a89c86
+
+saxon, briton, pict: 168 of 168 surfaces byte-identical to BOTH factionland2 and factionland3
+```
+
+`fitting` is in the table and is never dyed: `factionKit` leaves the cast bronze
+alone on purpose, and it is here so a reader can see that rather than take it on
+trust. `factionland2`'s Crimson Warplate byrnie is `#b23c34`, which is the exact
+hex `roseband`'s `MUST_CLEAR` carries as "crimson-finish mail — blood"; the
+round in between returned `#9c6d6b`, which the same band flags.
+
+#### The ladder, measured through the shipped resolvers
+
+Worst finish pair, CIELAB ΔE76, byrnie-only and over the six dyed surfaces:
+
+| | saxon mail | norse mail | briton mail | pict mail | norse 6-surface |
+|---|---|---|---|---|---|
+| `factionland2`, no fade | 0.00 | 0.52 | 0.34 | 2.47 | 5.58 |
+| `cc4008e`, isotropic cap | 0.00 | 1.92 | 0.34 | 2.47 | **2.79** |
+| this | 0.00 | 1.53 | 0.34 | 2.47 | **4.26** |
+
+Half of what `cc4008e` took off the Danelaw's whole-kit ladder is back, and
+saxon, briton and pict are byte-identical to both trees — `keep` of 1 reproduces
+the dyed vector exactly and `red` is 0 for weld, moss and woad.
+
+**The 0.00 in the saxon column is INHERITED and is not this round's.** Rough
+Iron `0x5f6b7a` and Blackened Steel `0x2a2f38` return the identical hex
+`#7d7d6d` under a Saxon livery on `factionland2`, on `cc4008e` and here. The
+cause is `softBand`: its high side is asymptotic and its LOW side is
+`if (x < lo) return lo` — a hard clamp with zero slope, in a function whose own
+note says *"a clamp has zero slope, and zero slope is where paid rungs go to
+die."* In linear light `0x5f6b7a` is 0.1545 and `0x2a2f38` is 0.0313; the Saxon
+metal floor is 0.18 and both land on it exactly. Softening that floor with the
+same knee the ceiling uses repairs **every** mail ladder in the shop at once —
+saxon 0.00 → 5.17, norse 0.52 → 13.78, briton 0.34 → 4.77, pict 2.47 → 5.94, and
+the Danelaw's whole kit 5.58 → 7.59 — and costs §1.3 −77.60°, which is worse
+than any row above. It is measured, it is not shipped, and it is row 7 of the
+table in `docs/OPEN-DEFECTS.md`.

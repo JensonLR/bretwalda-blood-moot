@@ -357,6 +357,115 @@ const SHEETS = {
     title: "WAR PAINT · at fight distance · front, 0°",
     rows: [{ turn: 0 }],
   },
+  // ---- the four peoples, turned (4) ----
+  //
+  // ONE SHEET PER CLASS, AND THE MAN TURNS. `docs/PROCESS.md` R5, and the
+  // reason is in this feature's own history rather than in the rule: three
+  // rounds running, the thing that refuted the build was at a bearing nobody
+  // had shot. Round one's entire "after" set was five front-on turn-0 huscarl
+  // cards — one bearing, one class, one pose — and all three of the defects
+  // that survived it lived outside that frame. The Saxon blow-out is at the
+  // FRONT and the three-quarter; the Danelaw's rose was on the linen sleeves
+  // and the leg wraps, which are what a PROFILE and a BACK show you.
+  //
+  // Front, profile and back, at the lens the player spends the whole match
+  // behind, and the same three for every one of the four classes — because the
+  // huscarl is the only man in the game with a shield, and the shield is the
+  // largest flat field a people paints.
+  ...Object.fromEntries(["huscarl", "warden", "runekeeper", "berserker"].map((cls) => [`faction${cls}`, {
+    file: `faction-${cls}.png`, card: "fightcard", cols: 3,
+    title: `THE FOUR PEOPLES · ${cls} · front, profile, back · fight distance, the arena's own light`,
+    shots: ["saxon", "norse", "briton", "pict"].flatMap((people) =>
+      [["front 0°", 0], ["profile 90°", 90], ["back 180°", 180]].map(([label, turn]) => ({
+        label: `${people} · ${label}`, turn, cls, dress: { people },
+      }))),
+  }])),
+  // ---- the four peoples, at PORTRAIT size (2) ----
+  //
+  // THE SAME MEN, CLOSE ENOUGH TO NAME THE COLOUR. `fightcard` above is the
+  // honest scale and it is the scale the defect has to be judged at; it is NOT
+  // a scale you can read a HUE off, because at 6.8 m a sleeve is nine pixels
+  // wide and every one of them is part sleeve and part grass. The Danelaw's
+  // rose was reported off a portrait and measured off a portrait, and the
+  // before/after has to be shot at the size the report was made at or it is
+  // answering a different question.
+  //
+  // TWO CLASSES AND NOT FOUR, and the choice is by SURFACE rather than by
+  // preference — `kitcard` is 700x900 against `fightcard`'s 520x320, so each of
+  // these frames costs about two and a half of those, and the four peoples at
+  // three bearings on four classes would be an hour of wall clock for pictures
+  // of the same six surfaces:
+  //
+  //   huscarl    the only man with a BYRNIE and the only man with a SHIELD —
+  //              `metal` over the largest area on the roster, and the board.
+  //   berserker   bare limbs and the most `wrap` and `linen` showing of the
+  //              four — the two surfaces the rose was actually reported on.
+  //
+  // The warden's and the runekeeper's surfaces are the union of those two, and
+  // all four classes are still shot at fight scale above.
+  // ---- THE UNSWORN CONTROL (1) ----
+  //
+  // THE SAME MEN, SWORN TO NOBODY, ON THE SAME MARK UNDER THE SAME FIRE.
+  //
+  // This is here because the first after-set refuted the ruler rather than the
+  // fix. `tools/lib/roseband.mjs` takes its chroma floor from `0xc2b69c`, the
+  // undyed linen shirt, at C* 14.8 — and that is an ALBEDO number applied to a
+  // LIT pixel. The arena's key is a bonfire. It puts about eleven points of
+  // WARM chroma into any near-neutral surface it falls on, so bare iron in this
+  // scene renders at C* 16 on the red arc whatever anybody swore to.
+  //
+  // The other three peoples cannot show that, and that is the trap: their kit
+  // is weld, moss and woad, so the fire lands them at hue 81°, 150° and 200° —
+  // OFF the arc — and they read the floor no matter how bright they get. Only a
+  // man in plain iron and plain linen lands where a Dane in plain iron and plain
+  // linen lands. He is the control, and without him the band cannot tell the
+  // bonfire from the dye.
+  //
+  // `people=none` is byte-for-byte what `buildCharacter` did before the livery
+  // existed — `factionWorn` returns the hex by identity — so this row is also
+  // the pre-feature game, and it is a valid floor for the before set and the
+  // after set both.
+  ...Object.fromEntries(["huscarl", "berserker"].map((cls) => [`factionunsworn${cls}`, {
+    file: `faction-unsworn-${cls}.png`, card: "fightcard", cols: 3,
+    title: `THE UNSWORN · ${cls} · front, profile, back · fight distance, the arena's own light`,
+    shots: [["front 0°", 0], ["profile 90°", 90], ["back 180°", 180]].map(([label, turn]) => ({
+      label: `unsworn · ${label}`, turn, cls, dress: { people: "none" },
+    })),
+  }])),
+  // ---- the shop, under a livery (5) ----
+  //
+  // THE SHEET THE LAST ROUND NEEDED AND DID NOT HAVE. Every faction sheet above
+  // this one passes `dress: { people }` and NOTHING ELSE, so every one of them
+  // photographs `defaultAppearance`'s issued Rough Iron. The livery is applied
+  // to SEVEN finishes and the after-set had pictures of one of them — and the
+  // defect that survived the round lived on Crimson Warplate, 130 gold: the
+  // Danelaw's byrnie read 46.6% of the crop inside the rose band at the
+  // profile, modal `#c76b68`, while `factionread` §7 was green about a man in
+  // iron and this file had no frame that could contradict it.
+  //
+  // Seven finishes across, three bearings down, one people per sheet, and the
+  // UNSWORN row is a sheet of its own for the reason `factionunsworn*` already
+  // gives: the band's chroma floor is an albedo number in a lit scene, and only
+  // a man in the SAME KIT sworn to nobody is a floor for it. Shoot
+  // `factionshopunsworn` beside whichever people you are grading.
+  ...Object.fromEntries([["saxon", "saxon"], ["norse", "norse"], ["briton", "briton"], ["pict", "pict"], ["unsworn", "none"]]
+    .map(([tag, people]) => [`factionshop${tag}`, {
+      file: `faction-shop-${tag}.png`, card: "fightcard", slot: "armor", cols: 7,
+      title: `THE SHOP UNDER A LIVERY · ${tag} · seven finishes across, front/profile/back down · fight distance, the arena's own light`,
+      rows: [
+        { turn: 0, tag: "front", dress: { people } },
+        { turn: 90, tag: "profile", dress: { people } },
+        { turn: 180, tag: "back", dress: { people } },
+      ],
+    }])),
+  ...Object.fromEntries(["huscarl", "berserker"].map((cls) => [`factionclose${cls}`, {
+    file: `faction-close-${cls}.png`, card: "kitcard", cols: 3,
+    title: `THE FOUR PEOPLES · ${cls} · front, profile, back · PORTRAIT scale, the arena's own light`,
+    shots: ["saxon", "norse", "briton", "pict"].flatMap((people) =>
+      [["front 0°", 0], ["profile 90°", 90], ["back 180°", 180]].map(([label, turn]) => ({
+        label: `${people} · ${label}`, turn, cls, dress: { people },
+      }))),
+  }])),
 };
 const SHEET_NAMES = Object.keys(SHEETS);
 
@@ -367,6 +476,24 @@ const SHEET_NAMES = Object.keys(SHEETS);
  */
 const GROUPS = {
   armoury: SHEET_NAMES,
+  // The livery review, in ONE server boot: four classes x four peoples x
+  // front/profile/back at fight scale, and the huscarl and the berserker again
+  // at portrait scale. `node tools/shoot.mjs factionturn`. Both scales are in
+  // the one group on purpose — the 8.4 s first frame and the texture bake are
+  // paid once, and a before/after whose two halves were shot in two sessions is
+  // two exposures of one light rather than one measurement.
+  // `factionshop*` is deliberately NOT in here: it is 105 panels against this
+  // group's 60, and it varies the other axis. Shoot `factionshop` when the
+  // question is what a vat did to a PURCHASE, `factionturn` when it is what a
+  // vat did to a MAN.
+  factionturn: SHEET_NAMES.filter((n) => n.startsWith("faction") && !n.startsWith("factionshop")),
+  // The control on its own, for when only the floor needs re-measuring.
+  factionfloor: SHEET_NAMES.filter((n) => n.startsWith("factionunsworn") || n === "factionshopunsworn"),
+  // The SHOP under every livery, plus its own unsworn floor. `node tools/shoot.mjs
+  // factionshop`. This is the axis `factionturn` does not have: it varies the
+  // finish and holds the class, where `factionturn` varies the class and holds
+  // the finish at whatever a man is issued.
+  factionshop: SHEET_NAMES.filter((n) => n.startsWith("factionshop")),
   armouryfight: SHEET_NAMES.filter((n) => SHEETS[n].card === "fightcard"),
 };
 const GROUP_NAMES = Object.keys(GROUPS);
@@ -382,6 +509,13 @@ const GROUP_NAMES = Object.keys(GROUPS);
  */
 function panelsFor(name, spec, roster) {
   const valueOf = (slot, id) => {
+    // `people` is not a purchase and has no armoury row — nobody buys a people.
+    // It still rides in `dress` because `dress` is "what the page is asked to
+    // restage this panel with", and it is still CHECKED, because the page
+    // publishes it on `__shotSubject` like everything else. A sheet that
+    // silently photographed the wrong livery is exactly the failure the
+    // `expect` machinery exists to prevent.
+    if (slot === "people") return id;
     const opt = roster.slots.find((s) => s.slot === slot)?.options.find((o) => o.id === id);
     if (!opt) throw new Error(`[shoot] sheet "${name}" dresses ${slot} in "${id}", which is not in the armoury`);
     return opt.value;
@@ -403,7 +537,7 @@ function panelsFor(name, spec, roster) {
     },
   });
 
-  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress));
+  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress, undefined, s.cls));
 
   const slot = roster.slots.find((s) => s.slot === spec.slot);
   if (!slot) throw new Error(`[shoot] sheet "${name}" wants slot "${spec.slot}", which the armoury does not have`);
@@ -444,7 +578,12 @@ const ORIGIN = `http://localhost:${PORT}`;
 // What a single card may be dressed in from the command line. Same names the
 // page reads off the query string, so there is one vocabulary for the shop and
 // not a translation layer to get wrong.
-const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "cls", "turn"];
+// `people` is in this list and is NOT an armoury slot — nobody buys a people.
+// It rides here because everything in this list is "a thing the card can be
+// restaged with from the command line", which is what the flag machinery below
+// actually does with it, and because `npm run shots -- fightcard --people norse`
+// is the whole of how the four peoples get photographed.
+const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "people", "cls", "turn"];
 // A misspelled preset used to fall through to "no presets named" and quietly
 // shoot the whole default set — twenty minutes of the wrong pictures. Name
 // which words are flag values so anything left over can be called out.

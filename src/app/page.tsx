@@ -19,8 +19,8 @@ import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, D
 // `statshape.mjs` for the two warriors this screen used to draw identically.
 import { cardBars, type StatAxis } from "@/game/statshape.mjs";
 import {
-  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance,
-  type Appearance, type ArmouryOption,
+  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, isPeople, peopleOf,
+  type Allegiance, type Appearance, type ArmouryOption,
 } from "../game/client/characters";
 // The registry only — a Map, a queue and a set of watchers, with every import
 // inside it erased at compile time. The renderer that fills it lives in
@@ -39,7 +39,7 @@ import {
 import type { ForgeProgress, WireHitMessage } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchAllegiance, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 // Statically imported, unlike the canvas: this module builds no AudioContext
 // until a gesture and pulls in nothing else, so the landing screen pays a
@@ -101,10 +101,33 @@ type Link = "reaching" | "server" | "local";
 // say so on the screen the player pressed the button on.
 interface Notice { text: string; tone: "bad" | "good" }
 
+/**
+ * THE FOUR MEN, AND THEY ARE NAMED IN THE LANGUAGE THE GAME IS SET IN.
+ *
+ * `id` is the wire's and the engine's and never changes — `WARRIOR_STATS`,
+ * every save, every harness and the ledger are all keyed on it. What is written
+ * here is only what a player READS, which is why two of these could be
+ * corrected at no cost at all.
+ *
+ *   WEARD, not "warden". The same word, spelled as Old English spells it.
+ *   WRECCA, not "runekeeper". THERE ARE NO RUNES IN THIS CLASS AND THERE NEVER
+ *     WERE — 92 health, the fastest man on the roster, the largest dodge in the
+ *     game at 5.6 m, the weakest guard at 0.35, and SHADOW STEP. That is not a
+ *     mystic, it is a man with no shield wall to stand in. `wrecca` is the Old
+ *     English for exactly that man: the exile, the lordless fighter, the word
+ *     `The Wanderer` is built on. The old name was also a class in somebody
+ *     else's fantasy game, which is the one thing this project has a standing
+ *     rule against.
+ *
+ * And his weapons are named for what `characters.ts` actually builds: the class
+ * "fights with a seax in each hand", single-edged with the broken-back spine
+ * (`characters.ts:10250`). "Twin daggers" was describing real Anglo-Saxon kit
+ * in a word that could belong to anything.
+ */
 const WARRIOR_INFO: Array<{ id: WarriorClass; name: string; desc: string; Icon: typeof Swords }> = [
   { id: "huscarl", name: "HUSCARL", desc: "Shield & sword. Unbreakable.", Icon: Shield },
-  { id: "warden", name: "WARDEN", desc: "Balanced blade. Reliable.", Icon: Swords },
-  { id: "runekeeper", name: "RUNEKEEPER", desc: "Twin daggers. Pure speed.", Icon: Wind },
+  { id: "warden", name: "WEARD", desc: "Balanced blade. Reliable.", Icon: Swords },
+  { id: "runekeeper", name: "WRECCA", desc: "Twin seaxes. The exile's speed.", Icon: Wind },
   { id: "berserker", name: "BERSERKER", desc: "Danish axe. Pure rage.", Icon: Hammer },
 ];
 
@@ -357,6 +380,38 @@ export default function Page() {
   }, [saveProfile]);
 
   /**
+   * The people a man swore to, off the war rolls and onto his warrior.
+   *
+   * ONE DIRECTION ONLY, AND THAT IS THE POINT. This reads the server's
+   * `players.allegiance` — the record written over an authenticated route when
+   * he took the oath — and writes it into the local `Appearance` as the LIVERY
+   * he fights in. It never writes the other way: nothing a player can do on
+   * this screen can change which people banks his points, because the only
+   * route that can is `/api/war/swear` and it locks once he has fought.
+   *
+   * `null` back — no credentials, no database, an unreachable host, or a man
+   * who simply has not sworn — all land on `"none"`, which is the issued kit
+   * and is what `defaultAppearance` already ships. A no is never a hole.
+   *
+   * The live room is told too, but only if the value actually moved: a
+   * `set_appearance` on every boot would rebuild every rig in the lobby for
+   * nothing. See `createWarriorRig` — an appearance change disposes and rebuilds
+   * a man. In practice there is no room at boot — the oath is taken on
+   * `/factions`, which is a page navigation, so coming back remounts this
+   * screen with no socket — and the send is there for the day that stops being
+   * true rather than for today.
+   */
+  const adoptAllegiance = useCallback(async () => {
+    const sworn = await fetchAllegiance();
+    const people: Allegiance = isPeople(sworn) ? sworn : "none";
+    const current = peopleOf(profileRef.current.appearance);
+    if (current === people) return;
+    const ap = { ...profileRef.current.appearance, people };
+    saveProfile({ appearance: ap });
+    transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
+  }, [saveProfile]);
+
+  /**
    * The key bindings, taken off the roll or carried up to it.
    *
    * Two cases, and the second is the one that is easy to get wrong. A profile
@@ -455,6 +510,17 @@ export default function Page() {
         const roll = result.profile?.muted === true;
         if (audio.muted && !roll) { void syncMuted(true); noteMutedSynced(true); }
         else { noteMutedSynced(roll); audio.setMuted(roll); }
+        // THE OATH, FETCHED AND DRESSED. `BACKLOG.md` 4.3: "a man swears to a
+        // people and then looks exactly as he did before". This is where that
+        // stops being true — the war rolls are asked who he swore to and the
+        // answer is written into his appearance as a livery.
+        //
+        // Behind the screen like everything else in this block, and it fails
+        // into the unsworn, which is a deliberate look and not a hole. It also
+        // runs on EVERY boot rather than once: the oath is taken on `/factions`,
+        // which is a different page, so coming back from the map is exactly the
+        // moment a man's people can have changed under this screen's feet.
+        void adoptAllegiance();
       }
       if (result.carried && (result.carried.gold > 0 || result.carried.unlocks > 0)) {
         // The server counts every id it folded in, free starting kit included.
@@ -469,7 +535,7 @@ export default function Page() {
       if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
     }).catch(() => settleLink("local"));
     return () => { dropped = true; setBindingsPersister(null); };
-  }, [adoptServer, settleLink, adoptBindings, audio]);
+  }, [adoptServer, settleLink, adoptBindings, adoptAllegiance, audio]);
 
   // The three moments the game speaks without being pressed. Each is guarded by
   // what it last said, because a re-render is not an event — and each of the
@@ -2491,8 +2557,11 @@ function ClassGrid({ selected, onSelect, compact }: {
   /**
    * Stay two-up at every width. The four-across row is right when this grid
    * owns the page; inside the lobby's 23rem rail it would give each warrior
-   * about 5rem, which is narrower than the word "RUNEKEEPER" and would set
-   * every stat bar to a stub. A card that cannot be read is not a chooser.
+   * about 5rem, which is narrower than the longest name on the roster and would
+   * set every stat bar to a stub. A card that cannot be read is not a chooser.
+   * (That name was "RUNEKEEPER" when this was written and is "BERSERKER" now —
+   * the measurement is the LONGEST label, not any one word, so it is written
+   * that way rather than left naming a string that has since changed.)
    */
   compact?: boolean;
 }) {
