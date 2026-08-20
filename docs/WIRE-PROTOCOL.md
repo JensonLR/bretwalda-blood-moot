@@ -233,15 +233,18 @@ Every player object is the server's own record **minus a denylist**,
 `blockUntil`, `isBlocking`, `yaw`, `baseName`, `aimYaw`, `pendingSwing`,
 `shovePending`, `shoveCooldown`, `emoteUntil`.
 
-That leaves 59 published fields, and it is a **denylist, not an allowlist** —
+That leaves 54 published fields, and it is a **denylist, not an allowlist** —
 see §9.5, this is the most fragile line in the protocol.
 
-(It was 53 until MERCY OR FINISH added `mortal`, `mercyTimer`, `mercyTo`,
-`spared`, `menSpared` and `menFinished`. `protocoltest` no longer hard-codes the
-number — it counts its own list — so this sentence is the only place a human has
-to keep true, and the test will name the real figure if it drifts.)
+(It read 59 here and "the 53 fields" in `protocoltest`, and **both were wrong**:
+MERCY OR FINISH added six fields to a list of 54, and neither number was
+recounted when it did. `protocoltest` holds the list exactly in both directions,
+so 54 is the count it asserts against `serializeRoom` today; the two prose
+figures were a mirrored definition and are now one. Mercy's six —
+`mortal`, `mercyTimer`, `mercyTo`, `spared`, `menSpared`, `menFinished` — were
+removed with the feature, see `docs/MERCY-REMOVED.md`.)
 
-The 59, grouped by what a client does with them:
+The 54, grouped by what a client does with them:
 
 - **Identity** `id, name, warriorClass, team, ready, appearance, bot?,
   difficulty?`
@@ -279,30 +282,6 @@ The 59, grouped by what a client does with them:
     its ordinary weight. `vulnerableTo` is `""` whenever the timer is 0.
     The window is 0.90 s = 18 ticks; the reasoning at 20 Hz is in
     `docs/WEIGHT.md`.
-- **Mercy** `mortal, mercyTimer, mercyTo, spared` — **MERCY OR FINISH**
-  (`docs/DESIGN-SYSTEM.md` §8). A man whose health reaches 0 does not die: he
-  goes down, and the man who put him there gets a window to choose.
-  - `mortal` is true while this fall is a dying one. He is `knocked` throughout
-    and `downTimer` is **held** rather than spent — one clock decides the pose,
-    the other decides the outcome. A client that already animates a knockdown
-    animates this with no new machinery; `mortal` is what tells it the man is
-    not getting up on his own.
-  - `mercyTimer` is the window, in seconds remaining, from `MERCY.window`
-    (2.5 s = 50 ticks). It **DRAINS**, and a client is expected to draw it as a
-    shrinking mark rather than as a digit — the design's own reasoning is that a
-    number invites the player to watch the number instead of the man. The full
-    length arrives on `downed` so the ratio can be formed without hard-coding it.
-  - `mercyTo` is the id of the man whose choice it is, the same
-    "a window owned by one named man" shape as `vulnerableTo`. `""` when there
-    is no window. Note that ANY man may finish him — the window says whose
-    *decision* it is, not who is permitted to strike.
-  - `spared` is true once he has been given his life this round. A man is spared
-    **once**: his second fall is a death with no window. This is what guarantees
-    a round terminates when everybody is merciful, and it is cleared by
-    `clearStance` at every round boundary, so mercy is once per ROUND.
-- **Reputation** `menSpared, menFinished` — what he did with the choice, over
-  the whole match. Counters only; they are never cleared between rounds and they
-  never change what a blow does. Also carried on every `match_end` ledger row.
 - **Ability** `abilityCooldown, abilityActive, abilityTimer`
 - **Score** `kills, deaths, damage, score, lastHitBy, comboCount, comboTimer,
   deadAt`
@@ -346,56 +325,26 @@ A native client must not assume `hitZone` is present. `hitstop` is `0.06` light
 
 `{killerId, killerName, victimId, victimName, hitZone, direction, heavy, cause}`
 
-`cause` is `"blow"`, `"finish"` or `"fire"`. A fire death has `hitZone:null`,
+`cause` is `"blow"` or `"fire"`. A fire death has `hitZone:null`,
 `direction:null`, `heavy:false`, and `killerId:""` **unless** a blow inside
 `BURN_CREDIT_WINDOW` (5 s) drove the man in — then it is that man's kill and
 `killerName` is his. Otherwise `killerName` is the literal string `"The Fire"`,
 which a feed may print verbatim.
 
-`"finish"` is a man killed **while he was already on the ground inside a mercy
-window** — see `downed` below. It carries the limb and the stroke exactly as
-`"blow"` does, and it is a normal kill for score and for `checkRoundEnd`; the
-cause exists because a death chosen over a man's body is not the same event as a
-man cut down on his feet, and a feed, a camera and a sound may all want to know
-which happened. `"blow"` is now specifically a death that had NO window — either
-the man had already been spared this round, or nobody living authored it.
+There was a third cause, `"finish"` — a man killed while he lay inside a mercy
+window. MERCY OR FINISH was removed (`docs/MERCY-REMOVED.md`), so the server
+cannot produce it, and the `DeathCause` union in `types.ts` and the `causeOf`
+branch in `anim.ts` were narrowed with it. **A client written against the old
+protocol must not treat `"finish"` as reachable**: every death by steel is
+`"blow"` again.
 
-### `downed` — MERCY OR FINISH, the window opening
+### `downed` and `spared` — REMOVED
 
-`{targetId, targetName, attackerId, attackerName, window, witnesses, hitZone,
-direction, heavy}`
-
-A man whose health reached 0 has gone **down and not dead**. He is `knocked`,
-`mortal` is true on his snapshot, and `mercyTimer` is counting down from
-`window` (`MERCY.window`, 2.5 s). `attackerId` is the man whose choice it is.
-
-- `window` is the FULL length, sent so a client can form the ratio
-  `mercyTimer / window` and draw a **draining** mark. `docs/DESIGN-SYSTEM.md` §8
-  is explicit that this must not be a number on screen: *a number invites the
-  player to watch the number instead of the man.* The protocol gives you what
-  you need for a drain and deliberately nothing that reads as a countdown.
-- `witnesses` is **a real count of the living men in the room who are neither of
-  the two in the moment** — the design's "seven men are watching", except taken
-  from the room, so it is 6 in a full moot and 0 in a duel and it falls as the
-  round does. It is never the literal seven, and `tools/mercytest.mjs` gates
-  that by opening the window in rooms of 2, 4 and 8 and requiring 0/2/6.
-
-Any man may strike him; the window names whose *decision* it is, not who is
-permitted to swing. Doing nothing is the merciful act and produces `spared`.
-
-### `spared` — the window closed and he lived
-
-`{targetId, targetName, sparerId, sparerName, health, witnesses}`
-
-The window ran out. He rises on `MERCY.risesOn` (25%) of his bar, carries
-`spared: true` for the rest of the round — **a man is spared once; his second
-fall is a death with no window** — and `sparerId`'s `menSpared` goes up.
-
-This message exists because §8's sharpest line is that *letting it run out is
-itself a choice, and a merciful one, and the game should say so out loud*. The
-server states the outcome rather than leaving a client to infer it from a timer
-reaching zero: doing nothing is the only act in this game the server congratulates
-you for, and an inference is not a congratulation.
+Both were MERCY OR FINISH and both are gone; see `docs/MERCY-REMOVED.md`. They
+are recorded here rather than silently dropped because a client written against
+an older build may still be listening for them. **The server never sends either
+message.** A man whose health reaches 0 dies on that tick and the room hears
+`kill`, exactly as it did before mercy was built.
 
 ### `round_end`
 
@@ -411,7 +360,7 @@ band, both null on a draw. Then either `match_end` follows immediately, or
 { winnerKind: "player"|"team"|"none", winnerId, winnerTeam, winnerName, winnerBy,
   bestOf, roundsPlayed, roundTarget, roundWins, roundScoreBy,
   results: [{id, name, kills, deaths, damage, score, isWinner,
-             place, roundsWon, menSpared, menFinished, xpEarned, goldEarned}],
+             place, roundsWon, xpEarned, goldEarned}],
   war: { matchKey, territoryId, entries: [{playerId, name, points}], at } | null }
 ```
 
@@ -852,8 +801,6 @@ S2C countdown live
 S2C game_state live
 S2C hit live
 S2C kill live
-S2C downed
-S2C spared
 S2C ability_used
 S2C last_stand
 S2C round_end live

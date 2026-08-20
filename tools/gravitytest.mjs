@@ -1,0 +1,1536 @@
+#!/usr/bin/env node
+/**
+ * GRAVITYTEST — IS THERE ANY WEIGHT IN THESE BODIES?
+ *
+ *   node tools/gravitytest.mjs                    all four sections, ~90 s
+ *   node tools/gravitytest.mjs --only=down        §1 the downed man
+ *   node tools/gravitytest.mjs --only=corpse      §2 where the corpse stops
+ *   node tools/gravitytest.mjs --only=spine       §3 how far the spine bends
+ *   node tools/gravitytest.mjs --only=fall        §4 which way the corpse goes over
+ *   node tools/gravitytest.mjs --gate             exit non-zero on a red verdict
+ *   node tools/gravitytest.mjs --strip            §1 as a picture: .gravity/strip.svg
+ *   node tools/gravitytest.mjs --lever=park       R1 for §1
+ *   node tools/gravitytest.mjs --lever=flat       R1 for §2 (the topple reducers)
+ *   node tools/gravitytest.mjs --lever=euler      R1 for §2 (the topple COMPOSITION)
+ *   node tools/gravitytest.mjs --lever=stops      R1 for §3
+ *   node tools/gravitytest.mjs --lever=fall       R1 for §4
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS EXISTS. The owner, 19 Aug 2026, having played the merged build.
+ * R6 — his words become the named check, so here they are verbatim:
+ *
+ *   1. "I think the whole vote for mercy or kill thing is what's causing the
+ *      bodies to freeze — it's always when low health. [...] the animation of
+ *      them frozen STOOD UP STRAIGHT still runs out after a few seconds"
+ *   3. "The bodies now also randomly LEAN BACK after certain actions but it's
+ *      very dramatic — like back bending over backwards dramatic, or flopping
+ *      quickly down and up."
+ *   4. "Also the dead bodies are still sometimes freezing PARTIALLY RAISED,
+ *      like there's no gravity to them."
+ *
+ * Three complaints, one sentence between them: a body in this game can be left
+ * in a posture that a body under gravity cannot hold. §1 is a living man held
+ * upright while the server calls him floored, §2 is a corpse held off the
+ * ground for ever, §3 is a spine bent past where a spine bends. Hence the name.
+ *
+ * §1 ALSO CARRIES ITEM 1 OF THE OWNER'S REPORT, and it carries it as a number
+ * rather than as the absence of a file. MERCY OR FINISH held a man at zero
+ * health for 50 server ticks before anything called him dead, and drew him
+ * `knocked` and bolt upright for all of them. `tools/mercytest.mjs` going away
+ * proves nothing about that; `zeroToDead` does. See `docs/MERCY-REMOVED.md`.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY `tools/freezetest.mjs --phases=collapse` CANNOT SEE §2, AND THIS CAN
+ *
+ * This is the important paragraph in the file, because freezetest is a good
+ * harness that has been green over this defect the whole time, and `docs/
+ * PROCESS.md` failure mode 1 — the ruler that measures the wrong quantity — is
+ * this repository's signature fault at ten recorded instances.
+ *
+ * freezetest measures WHEN THE BODY STOPS MOVING. Its verdict column is
+ *
+ *     const settle = (thr) => { let last = 0; for (const s of track) if (s.d > thr) last = s.t; return last; };
+ *
+ * — the last frame on which any joint moved by more than the threshold. And its
+ * landing column is
+ *
+ *     for (const s of track) if (Math.abs(s.prx - finalPrx) <= Math.abs(finalPrx) * 0.01) { landed = s.t; break; }
+ *
+ * where `finalPrx` is THE BODY'S OWN LAST FRAME. Both quantities are measured
+ * RELATIVE TO WHEREVER THE BODY ENDED UP. A corpse that stops 30° short of the
+ * turf and stays there stops moving EARLY and reaches 99% of its own final
+ * angle EARLY, so it scores as a fast, clean landing. The worse the defect, the
+ * better the number. `finalPrx` is computed on line 336 and never printed in
+ * the table — the one quantity that would have shown it is carried through the
+ * function as a denominator and thrown away.
+ *
+ * So freezetest answers "did he stop?" and the owner is asking "did he land?".
+ * §2 below measures the ABSOLUTE terminal topple against the ground: how far
+ * from upright the trunk finished, in degrees, with no reference to the body's
+ * own history. It is the same seam, the same compiled `anim.ts`, the same real
+ * `poseWarrior` — only the question is different, which is the whole of R1's
+ * lesson written as a second tool rather than as a threshold move.
+ *
+ * ---------------------------------------------------------------------------
+ * HOW IT MEASURES. Two shipped seams, no debug hooks, nothing in `src/` edited.
+ *
+ *   THE SERVER   `makeEngine({ autoTick: false })` and `engine.step(dt)`, the
+ *                same driver `tools/protocoltest.mjs` uses. This file owns the
+ *                clock; nothing races the sim. (It used to name
+ *                `tools/mercytest.mjs` here — that file went with MERCY OR
+ *                FINISH, see `docs/MERCY-REMOVED.md`.)
+ *   THE CLIENT   `src/game/client/render/anim.ts` compiled by `tsc` into
+ *                `.gravity/anim` and imported, the seam `tools/freezetest.mjs`
+ *                and `tools/facelook.mjs` both use. `poseWarrior` is the exact
+ *                function production calls.
+ *
+ * §1 runs BOTH AT ONCE and that is the point of it. The player object fed to
+ * `poseWarrior` each frame is the one lifted off the `game_state` broadcast, so
+ * what is drawn is what a client would actually have to draw. The server's
+ * `state` string and the client's pelvis angle are printed on the same row, and
+ * where they disagree is the defect.
+ *
+ * WHAT §1 DOES NOT DO: it does not run `stepWarriorTransform`, so there is no
+ * jitter buffer and no interpolation between snapshots. That layer moves a body
+ * through the world; it does not touch the pose channels, which is what is
+ * being measured. Stated here rather than left for a reader to assume.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THIS FILE GATES: nothing, unless asked. It exits non-zero only on
+ * `--gate`, so the person who writes the fix has a red light to turn green and
+ * does not get to move a threshold to buy it (R3).
+ */
+import { spawnSync } from "child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "fs";
+import { resolve, dirname } from "path";
+import { fileURLToPath, pathToFileURL } from "url";
+import * as THREE from "three";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const argv = process.argv.slice(2);
+const argOf = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); return h ? h.slice(n.length + 3) : d; };
+const ONLY = (argOf("only", "down,corpse,spine,fall")).split(",").map((s) => s.trim());
+const has = (s) => ONLY.includes(s);
+const GATE = argv.includes("--gate");
+const STRIP = argv.includes("--strip");
+const LEVER = argOf("lever", "");
+let LEVER_MISSED = false;
+
+const DEG = 180 / Math.PI;
+const f1 = (n) => (Number.isFinite(n) ? n.toFixed(1) : "  -");
+const f2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : "  -");
+const say = (s) => console.log(s);
+const rule = (t) => { say(""); say("=".repeat(78)); say(`  ${t}`); say("=".repeat(78)); };
+const fails = [];
+const bad = (m) => { fails.push(m); say(`    FAIL  ${m}`); };
+const notes = [];
+const defer = (m) => { notes.push(m); say(`    DEFERRED  ${m}`); };
+
+// ===========================================================================
+// THE DEFERRAL REGISTER — one entry, named, numbered, and watched
+// ===========================================================================
+/**
+ * A BAR IS NEVER MOVED IN THIS REPOSITORY. THIS IS THE OTHER THING THAT CAN BE
+ * DONE WITH A RED LIGHT, AND IT IS DELIBERATELY MORE EXPENSIVE THAN MOVING ONE.
+ *
+ * `§3 ability -> rolling` measures 12.3° of one-frame chest+neck movement
+ * against a 12° bar. The bar stays at 12° — 720°/s is faster than any authored
+ * beat in `anim.ts` and the number is an argument about a body, not about this
+ * transition. What is recorded here instead is that the repair is KNOWN, is
+ * GLOBAL, and is the owner's to make:
+ *
+ *   WHAT IT IS. The ability leaves the spine arched 16.6° BACK; the roll's
+ *   opening folds it 30.3° FORWARD. That is a 47° reversal, and `motion.blend`
+ *   crossfades it in 0.10 s with `k = smooth(blend)`, which concentrates the
+ *   crossfade in its middle at about 1.5x the mean rate. The worst frame is
+ *   therefore ~`1.5 * gap * rate / 60`, which stays under 12°/frame only while
+ *   the gap is under 48°. The game authors 47°. It is marginal by design of the
+ *   crossfade, not by a defect in the pose.
+ *
+ *   WHY IT IS NOT FIXED HERE. Both repairs are global: `motion.blend` 10/s ->
+ *   ~8/s (0.10 s -> 0.125 s), or dropping the `smooth()` on the crossfade
+ *   weight (peak 1.5x -> 1.0x). Either changes the feel of EVERY state
+ *   transition in the game. That is a decision about how the game reads and it
+ *   belongs to the owner. The second-worst pair, `blocking -> ability`, was
+ *   already 11.7° before any of the work on this branch: the seam is systemic
+ *   and older than anything here.
+ *
+ *   WHY IT IS NOT NEW. It was ~8.8° before the per-move `motion.actT` landed,
+ *   and it did not get worse — it stopped being HIDDEN. With one shared clock a
+ *   roll entered out of an ability was handed `actT` = 0.50 s and `dodgeLayer`
+ *   phases off `actT / 0.34`, so the roll opened AT ITS OWN ENDING, a
+ *   near-neutral pose. The man did not roll; he snapped to the shape of a
+ *   finished roll. Now he rolls, and this is what rolling out of that pose
+ *   costs.
+ *
+ * THE DEFERRAL COVERS A NUMBER, NOT A NAME. `step` below is what it measured on
+ * the build that deferred it. If this pair gets WORSE than that, or if any
+ * OTHER pair crosses the bar, it is a red finding again — a deferral that can
+ * grow is a bar that has been moved with extra steps. `slack` is 0.05°, which
+ * is float noise: §3's numbers are byte-identical run to run, and the run
+ * recorded below is reproduced by `node tools/gravitytest.mjs --only=spine`.
+ */
+const DEFERRED_STEP = {
+  "ability -> rolling": { step: 12.3, slack: 0.05, on: "20 Aug 2026" },
+};
+
+// ===========================================================================
+// THE BARS, STATED ONCE, IN DEGREES, WITH THE ANATOMY BEHIND THEM
+// ===========================================================================
+//
+// R11 stage 5 is motion and weight, and a bar at this stage is a claim about a
+// body rather than about a frame. Each of these is a real articular range, so
+// the number can be argued with on its own terms rather than because a harness
+// went red.
+/**
+ * How far from upright a dead trunk must finish. Named out here because
+ * `pelvisDown` below is derived from it and an object literal cannot read its
+ * own field.
+ */
+const CORPSE_DOWN = 70;
+const BAR = {
+  /**
+   * How far from upright a DEAD trunk must finish. A corpse lies down. 70° is
+   * generous — a body on its side or face-down is at 90° — and it is set below
+   * a right angle on purpose, because `deathLayer` deliberately shortens the
+   * topple for a man who crumples rather than topples and that is a good idea
+   * that must not be allowed to run to a body left kneeling.
+   *
+   * `deathLayer`'s own comment names the failure this catches:
+   *   "At 0.62 the trunk stopped 34° off vertical and the capture is a beheaded
+   *    warrior still standing with his guard up — which is the one failure this
+   *    whole feature cannot survive."
+   * That was fixed for `crumple` alone. This bar is over the ASSEMBLED angle,
+   * so it also covers the reducers that were added afterwards.
+   */
+  corpseDown: CORPSE_DOWN,
+  /**
+   * AND HOW LOW THE PELVIS MUST GET, as a fraction of the man's own leg.
+   *
+   * WHY A SECOND RULER AT ALL. The angle above cannot answer the owner's
+   * question on every body in the table, and pretending it could is what put a
+   * `!r.halved` filter on line 789 of this file for a whole round.
+   * `sever("waist")` takes the trunk, the head and both arms off the rig; what
+   * is left is a pelvis and two legs, and "how far from upright is the trunk"
+   * is a question about a trunk that is no longer attached. That is failure
+   * mode 1 — the ruler measuring the wrong quantity — and the previous cut of
+   * this file answered it by EXCLUDING the body, which is failure mode 3 on top
+   * of it: a gate that cannot fail on the one case it was written for. The
+   * answer to a ruler that cannot see a body is a ruler that can.
+   *
+   * A body lying on the turf has its hip sockets on the turf. A body kneeling,
+   * sitting or propped has them most of a leg up. So: the hip pivot's world
+   * height over the length of that man's own leg — no reference to the body's
+   * own final frame, and it reads the same on a whole man, a beheaded one and a
+   * pair of legs.
+   *
+   * AND THE BAR IS DERIVED, NOT PICKED, and this paragraph is here because the
+   * first cut of it WAS picked and was wrong. It was set at 0.25 — a quarter of
+   * a leg — on nothing but the words "a hip lying on the ground with a thigh's
+   * thickness under it", and it went red on seven of ten bodies including two
+   * that `deathLayer` deliberately and defensibly stops short of flat.
+   *
+   * That is because on an intact body the two rulers are NOT independent.
+   * `deathLayer` writes `P.py = 0.12 * lay`, and the hip socket hangs one leg
+   * along the trunk's own up, so
+   *
+   *     hipFrac  =  P.py / leg  +  cos(tilt)  =  0.12 + cos(tilt)
+   *
+   * — measured and confirmed on this build: fire ends at 78.0° and 0.34
+   * (0.12 + cos 78.0° = 0.33); beheaded ends at 74.1° and 0.41 (0.12 + cos 74.1°
+   * = 0.39). So a hip bar at 0.25 is an ANGLE bar at 82.5° smuggled in through
+   * the back door, stricter than the 70° this file argues for at length and
+   * contradicting it. Stacking a second, hidden bar is not a second opinion.
+   *
+   * Derived instead FROM `corpseDown`, so the two are one claim asked two ways:
+   * the hip height a body sitting exactly on the angle bar would have. A body
+   * that satisfies one now satisfies the other, and the hip ruler earns its
+   * place on the bodies the angle cannot measure — the halved one — and on the
+   * bodies where the angle LIES, which is what it caught here.
+   */
+  pelvisDown: 0.12 + Math.cos(CORPSE_DOWN / DEG),
+  /**
+   * AND HOW FAR ANY JOINT MAY BE UNDER THE TURF, in metres.
+   *
+   * The other side of the same defect, and the one a fix for "he will not lie
+   * down" is most likely to buy its pass with. `settleOnFeet` — the solve that
+   * puts a body on the ground — switches OFF above 1.1 rad of hip, on the
+   * grounds that "past about a right angle at the hips the man is going over,
+   * not standing"; a corpse is therefore held up by nothing but `deathLayer`'s
+   * own `P.py`, and if that authored lift is short the man sinks.
+   *
+   * 0.06 m is a joint PIVOT six centimetres under, which is a limb whose centre
+   * line is at the turf and whose flesh is half in it. Pivots are not surfaces,
+   * so this is not zero; it is the thickness at which a limb stops being a limb
+   * resting on the ground and starts being a limb inside it. `settleOnFeet`'s
+   * own comment measures the same class of fault in the same units — "a warden
+   * dying of a plain blow put his knee 330 mm UNDER the ground".
+   */
+  sink: 0.06,
+  /**
+   * How far from upright a man the server calls `knocked` must be drawn. He is
+   * on the floor. `knockLayer` itself calls flat `(π/2) * 0.82` = 47°... no:
+   * 0.82 of a right angle is 74°, and this bar is set at half of that, because
+   * §1 is not grading the shape of a knockdown, it is catching a man drawn
+   * STANDING while the wire says he is down.
+   *
+   * A RULER FAULT FOUND BY RE-MEASURING AFTER THE FIX, and it is failure mode 1
+   * again in this file's own §1. The first draft gated on the COUNT of frames
+   * under this angle. That was written against MERCY OR FINISH, which held a
+   * man at 0.0° for 159 frames — a count and a run say the same thing about a
+   * freeze, so the weaker instrument looked adequate. With mercy removed and a
+   * real `knockDown` driven for the first time, §1 came back
+   * `24/96 frames under 37°, longest run 0.20 s` and called it a FAIL. It is
+   * not one: a man knocked over STARTS standing, so every honest topple spends
+   * its first frames near vertical, and 0.2 s to pass 37° is FASTER than a
+   * 1.8 m body falls under gravity, not slower. The ruler was asking "was he
+   * ever near vertical" where the owner asked "was he HELD near vertical".
+   *
+   * So the angle is unchanged and the QUANTITY moved: §1 gates the longest
+   * UNBROKEN RUN. See `uprightRun` below. This is written down rather than
+   * quietly patched because moving a threshold to turn a light green is the one
+   * thing a fixer must never do, and changing WHICH QUANTITY is gated is the
+   * same act unless the reason survives being read out loud.
+   */
+  knockedDown: 37,
+  /**
+   * How long a man may be drawn within `knockedDown` of upright while the
+   * server says he is off his feet — the FREEZE, in seconds.
+   *
+   * `KNOCKDOWN.down` (0.75 s) is the server's own answer and that is why it is
+   * the bar rather than a number chosen here: it is the half of the floor clock
+   * during which the man is LYING THERE, before `rising` begins. A body still
+   * inside 37° of vertical after the entire down-phase has elapsed is not
+   * falling — the game has already finished putting him on the ground and moved
+   * on. It is read off the engine at run time, so if the floor clock is ever
+   * retuned this bar follows it instead of drifting away from it.
+   *
+   * Mercy scored 2.65 s against it. A real shove-knockdown scores 0.20 s.
+   */
+  uprightRun: null,   // = KNOCKDOWN.down, read from the engine in §1
+  /**
+   * SPINE EXTENSION RELATIVE TO THE PELVIS, in degrees, on a LIVING man:
+   * chest pitch plus neck pitch, which is the thoracolumbar spine plus the
+   * cervical one. NOT the body's own pitch — see `spineArch` for why summing
+   * that in produced a false positive on every knockdown in the game.
+   *
+   * The thoracolumbar spine extends about 30° and the cervical about 70°, and
+   * a man in mail standing on his feet does not get to use both at once. 55°
+   * over the two is already a generous fighting-game arch; past it he is doing
+   * a backbend, which is the owner's "back bending over backwards dramatic".
+   *
+   * Measured as a SUM because that is what a viewer sees: `applyPose` hangs
+   * `head` under `chest`, so the two pitches compose, and a clamp on one of
+   * them alone bounds nothing. `stops()` clamps `crx` and does not clamp `hrx`.
+   */
+  spineBack: 55,
+  /** The same two joints flexing FORWARD. A bow is about 60° of real spine. */
+  spineFwd: 75,
+  /**
+   * The flop. How far the drawn pelvis pitch may move in ONE FRAME at 60 fps
+   * on a LIVING body. 12°/frame is 720°/s, which is faster than any authored
+   * beat in `anim.ts` and is only reachable by a discontinuity — a state whose
+   * clock jumps, or a pose written straight over another one.
+   */
+  step: 12,
+};
+
+// ===========================================================================
+// THE COMPILED CLIENT
+// ===========================================================================
+let ANIM = null;
+async function loadAnim() {
+  if (ANIM) return ANIM;
+  const BUILD = resolve(ROOT, ".gravity/anim");
+  rmSync(BUILD, { recursive: true, force: true });
+  mkdirSync(BUILD, { recursive: true });
+  const tsc = spawnSync("npx", ["tsc", "src/game/client/render/anim.ts", "--outDir", ".gravity/anim",
+    "--target", "es2022", "--module", "esnext", "--moduleResolution", "bundler", "--skipLibCheck"],
+    { cwd: ROOT, encoding: "utf8" });
+  const emitted = [];
+  const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) {
+    const f = resolve(d, e.name);
+    if (e.isDirectory()) walk(f); else if (e.name.endsWith(".js")) emitted.push(f);
+  } };
+  if (existsSync(BUILD)) walk(BUILD);
+  // tsc emits extensionless relative specifiers; node's ESM loader will not
+  // resolve them. One rewrite over the emitted tree, inside .gravity.
+  for (const f of emitted) {
+    const src = readFileSync(f, "utf8");
+    const fixed = src.replace(/(from\s+")(\.[^"]*?)(")/g, (m, a, b, c) => (b.endsWith(".js") ? m : a + b + ".js" + c));
+    if (fixed !== src) writeFileSync(f, fixed);
+  }
+  const animFile = emitted.find((f) => f.endsWith("anim.js"));
+  if (!animFile) { say(`  tsc emitted no anim.js:\n${tsc.stdout || ""}${tsc.stderr || ""}`); return null; }
+
+  // -------------------------------------------------------------------------
+  // R1 — PULL THE LEVER. Not fixes and not proposals: tests OF THE RULER. Each
+  // one sabotages the exact expression this file blames for a defect, applied
+  // to tsc's own unminified output. If a section's number does not MOVE when
+  // its lever is pulled, this file is not measuring what it says it is and the
+  // section says so and voids itself.
+  // -------------------------------------------------------------------------
+  const patch = (label, rx, to) => {
+    const src = readFileSync(animFile, "utf8");
+    if (!rx.test(src)) {
+      say(`  LEVER MISSED (${label}): the anchor is not where this lever expects it. Result VOID.`);
+      LEVER_MISSED = true;
+      return;
+    }
+    writeFileSync(animFile, src.replace(rx, to));
+    say(`  R1 LEVER ON (${label}).`);
+  };
+  if (LEVER === "park") {
+    // Phase the floored pose off the CLIENT's own elapsed clock instead of off
+    // the server's parked `downTimer`. §1 must move.
+    patch("park", /const left = player\.downTimer \?\? 0;/, "const left = Math.max(0, total - motion.actT);");
+  } else if (LEVER === "flat") {
+    // Take the two topple reducers out. §2 must move.
+    patch("flat", /const flat = \(Math\.PI \/ 2\) \* \(1 - shape\.crumple \* 0\.18 - c\.curl \* 0\.16\);/,
+      "const flat = (Math.PI / 2);");
+  } else if (LEVER === "euler") {
+    // PUT THE OLD COMPOSITION BACK. `setTopple`'s early return is the exact
+    // behaviour it replaced — pitch straight into `P.prx`, roll straight into
+    // `P.prz`, three Euler angles committed as if they were an axis and an
+    // angle — so forcing `mag` to zero takes that branch on every frame.
+    //
+    // §2's `ENDED` column must MOVE on the two bodies with a `lean`, and the
+    // `euler` column beside it must NOT, or `trunkTilt` is not reading the bone
+    // and this whole finding is a rewrite of the same false ruler.
+    patch("euler", /const mag = Math\.hypot\(pitch, roll\);/, "const mag = 0;");
+  } else if (LEVER === "stops") {
+    // THIS LEVER IS KEPT BECAUSE IT MOVED NOTHING, AND THAT IS THE RESULT.
+    //
+    // It removes the ONE spine clamp `stops()` has. Run against the shipping
+    // build every number in §3 came back BYTE-IDENTICAL. That is not a broken
+    // ruler — §3's `arch` lever below moves it 3x on demand — it is the finding:
+    // the peak chest pitch across every action and every transition this file
+    // drives is 25.2°, and the clamp is at 28.6°. `P.crx = clamp(P.crx, -0.5,
+    // 0.62)` is INERT on everything the game actually does, so the only stop
+    // guarding the spine is not guarding anything.
+    patch("stops", /P\.crx = clamp\(P\.crx, -0\.5, 0\.62\);/, "");
+  } else if (LEVER === "fall") {
+    // Nail the topple to one direction. §4 must go red on every row that wants
+    // a man on his face — if it does not, §4 is not reading the latch it blames.
+    patch("fall", /motion\.fall = motion\.hitFwd >= 0 \? 1 : -1;/, "motion.fall = -1;");
+  } else if (LEVER === "arch") {
+    // The ruler's own lever: treble the committed chest and neck. §3's `back`
+    // and `fwd` columns must treble with it or `spineArch` is not reading the
+    // pose that reaches the bones.
+    patch("arch", /Object\.assign\(rig\.last, P\);/, "P.crx *= 3; P.hrx *= 3; Object.assign(rig.last, P);");
+  }
+
+  ANIM = await import(pathToFileURL(animFile).href);
+  return ANIM;
+}
+
+/**
+ * THE FRAME SEQUENCE, AS A PICTURE. R5 says open the render and watch it move,
+ * and three of the four defects the owner reported were invisible to every
+ * number in this repository and obvious in one image.
+ *
+ * THIS IS NOT A SCREENSHOT AND MUST NOT BE READ AS ONE. There is no GPU and no
+ * browser on the box this was written on — `npm run shoot` and freezetest's own
+ * `--phases=freeze` both need Chromium and neither can run here. What this draws
+ * is the RIG'S OWN JOINT POSITIONS in world space, side elevation, straight off
+ * `getWorldPosition` after the frame's pose has been committed to the bones. It
+ * carries no mesh, no armour, no cloak and no ground. It is a stick figure of
+ * where the skeleton actually is, and for "is this man standing up or lying
+ * down" that is the whole question — but anything about silhouette, material or
+ * light has to wait for a machine that can run the real renderer.
+ *
+ * Verified coherent before it was trusted: a standing warden's head pivot sits
+ * at y 1.45 m and his hip at y -0.08; four seconds after a plain death the same
+ * head is at y 0.18, z -1.72, and his knee at y 0.04. The skeleton lies down.
+ */
+const JOINTS = ["head", "chest", "rightArm", "elbowR", "rightLeg", "kneeR"];
+function shootFrame(parent, rig) {
+  parent.updateMatrixWorld(true);
+  const V = new THREE.Vector3();
+  const out = {};
+  rig.body.getWorldPosition(V); out.hip = [V.z, V.y];
+  for (const j of JOINTS) { rig.pivots[j].getWorldPosition(V); out[j] = [V.z, V.y]; }
+  return out;
+}
+/** Side elevation, one panel per sample, ground line at y = 0. */
+function writeStrip(frames, path, caption) {
+  const W = 150, H = 190, PAD = 8;
+  const SCALE = 52;                       // px per metre
+  const ox = W / 2, oy = H - 40;          // origin: ground, mid-panel
+  const X = (z) => ox - z * SCALE;        // -z is "away from the blow"
+  const Y = (y) => oy - y * SCALE;
+  const seg = (f, a, b) => `<line x1="${X(f[a][0]).toFixed(1)}" y1="${Y(f[a][1]).toFixed(1)}" `
+    + `x2="${X(f[b][0]).toFixed(1)}" y2="${Y(f[b][1]).toFixed(1)}"/>`;
+  const panels = frames.map((f, i) => {
+    const x0 = PAD + i * (W + PAD);
+    const bones = [["hip", "chest"], ["chest", "head"], ["chest", "rightArm"],
+      ["rightArm", "elbowR"], ["hip", "rightLeg"], ["rightLeg", "kneeR"]]
+      .map(([a, b]) => seg(f.j, a, b)).join("");
+    const dots = ["head", "chest", "hip", "kneeR"].map((k) =>
+      `<circle cx="${X(f.j[k][0]).toFixed(1)}" cy="${Y(f.j[k][1]).toFixed(1)}" r="2.6"/>`).join("");
+    return `<g transform="translate(${x0},${PAD})">`
+      + `<rect x="0" y="0" width="${W}" height="${H}" fill="none" stroke="#3a3a3a"/>`
+      + `<line x1="6" y1="${oy}" x2="${W - 6}" y2="${oy}" stroke="#666" stroke-dasharray="3 3"/>`
+      + `<g stroke="#e8e0d0" stroke-width="4.5" stroke-linecap="round" fill="none">${bones}</g>`
+      + `<g fill="#c8552a">${dots}</g>`
+      + `<text x="6" y="14" fill="#8a8a8a" font-family="monospace" font-size="10">t+${f.t}s</text>`
+      + `<text x="6" y="${H - 20}" fill="#c9c9c9" font-family="monospace" font-size="10">${f.state}</text>`
+      + `<text x="6" y="${H - 8}" fill="#c8552a" font-family="monospace" font-size="10">${f.pitch}</text>`
+      + `</g>`;
+  }).join("");
+  const total = PAD + frames.length * (W + PAD);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${H + PAD * 2 + 26}" `
+    + `viewBox="0 0 ${total} ${H + PAD * 2 + 26}"><rect width="100%" height="100%" fill="#141414"/>`
+    + panels
+    + `<text x="${PAD}" y="${H + PAD * 2 + 18}" fill="#8a8a8a" font-family="monospace" font-size="11">${caption}</text>`
+    + `</svg>`;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, svg);
+}
+
+/** A rig, a motion and a frame context — everything `poseWarrior` needs. */
+function stand(anim, player) {
+  const parent = new THREE.Group();
+  const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+  const motion = anim.createMotion(player);
+  const ctx = { dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
+    focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",
+    quality: { tier: "high", shadows: false } };
+  return { parent, rig, motion, ctx };
+}
+
+/**
+ * The assembled trunk angle, in degrees from upright, off the pose the frame
+ * actually committed.
+ *
+ * `body.rotation` is the pelvis and `applyPose` writes it from `prx`/`pry`/
+ * `prz`; the topple is authored as ONE angle about ONE axis (`deathLayer` says
+ * so in its own comment — "resolving it as an axis rather than adding a roll
+ * term is what keeps the total a right angle however far round it goes"), so
+ * the magnitude is the hypotenuse of pitch and roll and NOT the pitch alone.
+ * Reading `prx` by itself is how a body that went over sideways reads as a body
+ * still standing, and that is a ruler this repository has shipped before.
+ */
+const topple = (last) => Math.hypot(last.prx, last.prz) * DEG;
+
+/**
+ * HOW FAR THE BODY IS ACTUALLY FROM UPRIGHT, off the matrix the frame committed.
+ *
+ * `topple()` above is a HYPOTENUSE OF TWO EULER ANGLES, and it is wrong. It was
+ * written from `deathLayer`'s own comment —
+ *
+ *   "The topple is one angle about one axis, and `lean` says where that axis
+ *    lies ... Resolving it as an axis rather than adding a roll term is what
+ *    keeps the total a right angle however far round it goes"
+ *
+ * — and the comment describes an axis-angle rotation that the code does not
+ * perform. `applyPose` does `body.rotation.set(P.prx, P.pry, P.prz)`, which is
+ * a three.js Euler in XYZ order: Rx·Ry·Rz. Composing a pitch and a roll as
+ * Euler is NOT a single rotation of `hypot(pitch, roll)` about a horizontal
+ * axis, and once `P.pry` is non-zero — which is exactly the case for a man who
+ * has lost an arm or a leg, because `shape.spin` drives the yaw — the two
+ * answers come apart completely.
+ *
+ * MEASURED on the shipped build, a warden killed with his left arm off:
+ *   prx -77.9°, prz -47.0°  ->  hypot 90.2°, which reads as flat on the turf.
+ *   His head finished at y 1.190 m and his hip socket at y 0.819 m. Standing,
+ *   the same two are 1.648 m and 1.001 m. He is at 72% of his standing height.
+ *
+ * So the harness and the code shared one false premise and therefore agreed
+ * with each other, which is `docs/PROCESS.md` failure mode 1 in its purest
+ * form: a ruler that cannot see the defect because it was derived from the
+ * same wrong sentence as the defect.
+ *
+ * This reads the bone. `rig.body`'s local +Y is the trunk's own up; the angle
+ * between it and world up is how far from upright the body is, whatever Euler
+ * triple produced it, and it needs no assumption about order or composition.
+ */
+const _UP = new THREE.Vector3(0, 1, 0);
+const _bv = new THREE.Vector3();
+function trunkTilt(parent, rig) {
+  parent.updateMatrixWorld(true);
+  _bv.set(0, 1, 0).applyQuaternion(rig.body.getWorldQuaternion(new THREE.Quaternion()));
+  return Math.acos(Math.max(-1, Math.min(1, _bv.dot(_UP)))) * DEG;
+}
+
+/**
+ * THE SPINE, AND NOT THE MAN'S PITCH — a distinction this file got wrong once.
+ *
+ * `applyPose` hangs `chest` under `body` and `head` under `chest`, so the three
+ * pitches compose and the first draft of §3 summed all three. That is the wrong
+ * quantity and it produced a confident false positive: `knockLayer` writes
+ * `P.prx = fall * flat * lie`, which is -73.8° for a man knocked over BACKWARDS
+ * — and a man going over backwards is not a man arching his back, he is a man
+ * falling. Summed, every knockdown in the game read as a spine defect.
+ *
+ * `prx` is the whole body pitching about its feet. `crx` + `hrx` is the spine
+ * bending relative to the pelvis, which is the thing that has an articular
+ * limit and the thing the owner is describing. They are reported separately and
+ * only the second is gated.
+ */
+const spineArch = (last) => (last.crx + last.hrx) * DEG;
+/** Whole-body pitch about the feet. Topple, not articulation. Reported, not gated. */
+const bodyPitch = (last) => last.prx * DEG;
+
+// ===========================================================================
+// §1  THE DOWNED MAN — the server's word against the client's pelvis
+// ===========================================================================
+async function sectionDown(anim) {
+  rule("§1  THE DOWNED MAN   (real engine at 20 Hz + real poseWarrior at 60 fps)");
+  const eng = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+  const { makeEngine, KNOCKDOWN } = eng;
+  const TICK = 1 / 20;
+  const NEUTRAL = { moveX: 0, moveZ: 0, rotationY: 0, sprint: false, attack: false,
+    heavyAttack: false, block: false, dodge: false, crouch: false, ability: false,
+    shove: false, attackDir: "right" };
+
+  const session = (engine) => {
+    const st = { latest: null, id: null, join: null, msgs: [] };
+    const sid = engine.connect((str) => {
+      const m = JSON.parse(str);
+      if (m.type === "join") { st.id = m.data.playerId; st.join = m.data; }
+      if (m.data && m.data.players) st.latest = m.data;
+      st.msgs.push(m);
+    });
+    return { sid, st };
+  };
+
+  const engine = makeEngine({ autoTick: false });
+  const A = session(engine);
+  engine.message(A.sid, { type: "create", data: { name: "Aethel", mode: "blood_moot", bestOf: 1 } });
+  engine.message(A.sid, { type: "select_class", data: { warriorClass: "berserker" } });
+  const B = session(engine);
+  engine.message(B.sid, { type: "join", data: { code: A.st.join.code } });
+  engine.message(B.sid, { type: "select_class", data: { warriorClass: "huscarl" } });
+  // Two spectators, so the room is a moot and the round does not end the moment
+  // one man falls — the owner's report is explicitly NOT about the final 1v1.
+  const C = session(engine), D = session(engine);
+  engine.message(C.sid, { type: "join", data: { code: A.st.join.code } });
+  engine.message(D.sid, { type: "join", data: { code: A.st.join.code } });
+  engine.message(A.sid, { type: "start", data: {} });
+  let guard = 0;
+  while (guard++ < 600 && A.st.latest?.state !== "fighting") engine.step(TICK);
+  if (A.st.latest?.state !== "fighting") { engine.stop(); bad("§1 never reached `fighting`"); return null; }
+  for (let i = 0; i < 50; i++) engine.step(TICK);   // spawn i-frames
+
+  const me = (S) => S.st.latest.players[S.st.id];
+  const hold = (S, data) => engine.message(S.sid, { type: "input", data: { ...NEUTRAL, ...data } });
+
+  // A rig for B, posed from the wire every render frame.
+  const { parent, rig, motion, ctx } = stand(anim, me(B));
+  const RENDER = 3;                                  // render frames per sim tick (20 Hz -> 60 fps)
+  const DT = TICK / RENDER;
+  let time = 0;
+  const track = [];
+  const drawB = () => {
+    const b = me(B);
+    for (let k = 0; k < RENDER; k++) {
+      time += DT; ctx.time = time;
+      anim.poseWarrior(rig, motion, b, DT, ctx);
+      track.push({ t: time, state: b.state, downTimer: b.downTimer ?? 0,
+        health: b.health, cause: b.deathCause ?? "-",
+        pitch: trunkTilt(parent, rig), j: STRIP ? shootFrame(parent, rig) : null });
+    }
+  };
+
+  // THE SERVER'S OWN TICK SERIES, kept beside the render track and not derived
+  // from it. `zeroToDead` below is a claim about the SIM — how many 20 Hz ticks
+  // a man spends at zero health before the server calls him dead — and reading
+  // it off 60 fps render rows would be reading a client's opinion of a server
+  // fact. This is the row MERCY OR FINISH used to put 50 ticks into.
+  const ticks = [];
+
+  // A beats B in TWO PHASES, and the first one exists because of R4 and
+  // failure mode 2. §1 makes two claims — a man the server calls `knocked` is
+  // not drawn standing, and a lethal blow is a death — and driving straight to
+  // the kill answers the second while leaving the first 0/0. A gate that is
+  // green because the case is absent is not a gate, and with MERCY OR FINISH
+  // gone the case is absent by default: mercy was the only thing in the game
+  // that put a LIVING man on the floor for long enough to be worth measuring.
+  //
+  //   FLOOR   SHOVES, and nothing else. A shove costs 46 poise and NO health,
+  //           so it is the one thing in the game that can floor a man without
+  //           killing him. Measured before it was used: shoves alone take a
+  //           huscarl's 100-point bar to 0 and put him down with 162/162 of his
+  //           blood, where alternating shoves with lights killed him at
+  //           balance 49 and lights alone at balance 74. It is slow — the bar
+  //           regenerates at 26/s and a shove costs 25 stamina — which is why
+  //           the budget below is 90 s and not 40.
+  //   KILL    heavies until he is dead.
+  //
+  // The phase turns over when he is back on his feet, or early if the floor
+  // phase is somehow taking his life instead of his balance — and if it never
+  // got him down, the verdict SAYS the case was absent rather than printing 0/0.
+  const ready = (a) => a.state === "idle" || a.state === "walking";
+  const isFloored = (st) => st === "knocked" || st === "rising";
+  let phase = "floor", sawKnocked = false, t = 0;
+  while (t < 90) {
+    const a = me(A), b = me(B);
+    if (!a || !b) break;
+    const dx = b.position.x - a.position.x, dz = b.position.z - a.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const yaw = Math.atan2(dx, dz);
+    if (d > 1.5) hold(A, { moveX: dx / d, moveZ: dz / d, rotationY: yaw });
+    else if (phase === "floor") hold(A, { rotationY: yaw, shove: ready(a) });
+    else hold(A, { rotationY: yaw, heavyAttack: ready(a) });
+    engine.step(TICK); t += TICK; drawB();
+    const b2 = me(B);
+    ticks.push({ t, state: b2.state, health: b2.health });
+    if (b2.state === "knocked") sawKnocked = true;
+    if (phase === "floor" && ((sawKnocked && !isFloored(b2.state)) || b2.health <= b2.maxHealth * 0.35)) phase = "kill";
+    if (b2.state === "dead") break;
+  }
+  const died = track.findIndex((s) => s.state === "dead");
+  if (died < 0) { engine.stop(); bad("§1 never killed a man in 90 s — nothing to measure"); return null; }
+  // Four seconds of corpse after the blow, which is what §2 gives every death.
+  hold(A, {});
+  const after = Math.ceil(4 / TICK);
+  for (let i = 0; i < after; i++) {
+    hold(A, {}); engine.step(TICK); drawB();
+    const b2 = me(B);
+    ticks.push({ t: (t += TICK), state: b2.state, health: b2.health });
+  }
+  engine.stop();
+
+  // ZERO HEALTH TO DEAD, IN SERVER TICKS. The whole of item 1 in one integer.
+  // `goDown` used to intercept here and hold him at zero for MERCY.window —
+  // 2.5 s, 50 ticks — before anything called him dead, and the client drew a
+  // man the server called `knocked` the entire time.
+  const zeroAt = ticks.findIndex((r) => r.health <= 0);
+  const deadAt = ticks.findIndex((r) => r.state === "dead");
+  const zeroToDead = zeroAt >= 0 && deadAt >= 0 ? deadAt - zeroAt : NaN;
+
+  // ---- the strip ----
+  // ANCHORED ON THE MOMENT HIS HEALTH REACHES ZERO, and not on the moment the
+  // server calls him dead, because under MERCY OR FINISH those were 67 ticks
+  // apart and the owner's report lives in the gap: *"always when low health...
+  // the animation of them frozen stood up straight runs out after a few
+  // seconds"*. A strip anchored on the death walks straight past the freeze.
+  // Half a second of the living man is kept in front of it for context.
+  const zeroFrame = track.findIndex((s2) => s2.health <= 0);
+  const anchor = zeroFrame >= 0 ? zeroFrame : died;
+  const from = Math.max(0, anchor - 30);
+  const win = track.slice(from);
+  const t0 = track[anchor].t;
+  // Thin the table rather than let it run to hundreds of rows on a build that
+  // holds the man; the panels below sample the same window either way.
+  const stride = Math.max(6, 6 * Math.ceil(win.length / 360));
+  say("");
+  say(`    A FRAME SEQUENCE from the moment his health reached ZERO. 60 fps, every ${stride}th frame.`);
+  say(`    t = 0 is the first frame at zero health; the rows above it are a living man.`);
+  say(`    "drawn" is the assembled trunk angle from upright, in degrees, off rig.last.`);
+  say("");
+  say(`      t(s)   server state   cause   downTimer   hp   drawn`);
+  for (let i = 0; i < win.length; i += stride) {
+    const s = win[i];
+    say(`      ${f2(s.t - t0).padStart(5)}   ${s.state.padEnd(13)}  ${String(s.cause).padEnd(6)} `
+      + `${f2(s.downTimer).padStart(9)}  ${String(s.health).padStart(3)}  ${f1(s.pitch).padStart(6)}°`);
+  }
+
+  // ---- the verdict ----
+  // `knocked` is measured over the WHOLE fight and not only the strip: every
+  // knockdown on the way to the death is a man the server says is on the floor,
+  // and each one is a chance to draw him standing.
+  const knocked = track.filter((s) => s.state === "knocked");
+  const upright = knocked.filter((s) => s.pitch < BAR.knockedDown);
+  const worstRun = (() => { let run = 0, best = 0;
+    for (const s of track) { if (s.state === "knocked" && s.pitch < BAR.knockedDown) { run++; best = Math.max(best, run); } else run = 0; }
+    return best / 60; })();
+  // The corpse, measured the way §2 measures one: where it ENDED, absolutely,
+  // against the ground, four seconds after the blow — not against its own last
+  // frame. This row is the end-to-end claim §2 makes on a synthetic body and §1
+  // makes on a body the real engine killed.
+  const ended = win[win.length - 1].pitch;
+  const deadUpright = (() => { let run = 0, best = 0;
+    for (const s of win) { if (s.state === "dead" && s.pitch < BAR.knockedDown) { run++; best = Math.max(best, run); } else run = 0; }
+    return best / 60; })();
+  // The flop: the largest one-frame move of the drawn trunk anywhere in the strip.
+  let step = 0, stepAt = 0, stepFrom = "", stepTo = "";
+  for (let i = 1; i < win.length; i++) {
+    const d = Math.abs(win[i].pitch - win[i - 1].pitch);
+    if (d > step) { step = d; stepAt = win[i].t - t0; stepFrom = win[i - 1].state; stepTo = win[i].state; }
+  }
+  // The bar, read off the engine and not copied into this file.
+  const RUNBAR = KNOCKDOWN.down;
+  say("");
+  say(`    server ticks at zero health before he is \`dead\`  ${Number.isFinite(zeroToDead) ? String(zeroToDead).padStart(5) : "    -"}`
+    + `   (20 Hz, so ${Number.isFinite(zeroToDead) ? f2(zeroToDead / 20) : " - "} s)`);
+  say(`    frames the server calls \`knocked\`, whole fight  ${String(knocked.length).padStart(5)}`);
+  say(`    ...of those, drawn under ${String(BAR.knockedDown).padStart(2)}° from upright     ${String(upright.length).padStart(5)}`
+    + `  (${knocked.length ? f1(100 * upright.length / knocked.length) : "  -"}%)`);
+  say(`    longest unbroken run of that                    ${f2(worstRun)} s   (bar ${f2(RUNBAR)} s = KNOCKDOWN.down)`);
+  say(`    longest run of a DEAD man drawn upright         ${f2(deadUpright)} s   (same bar)`);
+  say(`    where the corpse ENDED, 4 s after the blow      ${f1(ended)}°   (90° is flat)`);
+  say(`    biggest ONE-FRAME move of the drawn trunk       ${f1(step)}°  at t+${f2(stepAt)}s, ${stepFrom} -> ${stepTo}`);
+  if (STRIP) {
+    // Ten samples across the window plus the two frames either side of the snap,
+    // because the snap is one frame long and an even sampling would miss it.
+    const snapAt = win.findIndex((s2, i) => i > 0 && Math.abs(s2.pitch - win[i - 1].pitch) === step);
+    const idx = new Set();
+    for (let i = 0; i < 8; i++) idx.add(Math.round(i * (win.length - 1) / 9));
+    if (snapAt > 0) { idx.add(snapAt - 1); idx.add(snapAt); idx.add(Math.min(win.length - 1, snapAt + 6)); }
+    const frames = [...idx].sort((a, b2) => a - b2).map((i) => ({
+      t: f2(win[i].t - t0), state: win[i].state, pitch: `${f1(win[i].pitch)} deg`, j: win[i].j }));
+    const out = resolve(ROOT, ".gravity/strip.svg");
+    writeStrip(frames, out, "gravitytest §1 — rig joint positions, side elevation. NOT a screenshot: no mesh, no ground, no light.");
+    say(`    STRIP written: ${out}   (${frames.length} panels)`);
+  }
+  say("");
+  if (knocked.length === 0) {
+    // R4 — THE DEFERRAL RIDES THE VERDICT LINE. 0/0 is not a pass.
+    bad(`§1 the fight never put a LIVING man on the floor, so the \`knocked\` claim is `
+      + `0/0 and proves nothing — the drive, not the build, is what failed`);
+  }
+  if (worstRun > RUNBAR) {
+    bad(`§1 a man the server calls \`knocked\` is drawn STANDING for ${f2(worstRun)} s `
+      + `(bar ${f2(RUNBAR)} s = KNOCKDOWN.down; ${upright.length}/${knocked.length} frames under `
+      + `${BAR.knockedDown}° from upright)`);
+  }
+  if (deadUpright > RUNBAR) {
+    bad(`§1 a DEAD man is drawn STANDING for ${f2(deadUpright)} s (bar ${f2(RUNBAR)} s) — `
+      + `the owner's "frozen stood up straight", on a corpse`);
+  }
+  if (step > BAR.step) {
+    bad(`§1 the drawn trunk moves ${f1(step)}° in one frame at 60 fps (bar ${BAR.step}°) — ${stepFrom} -> ${stepTo}`);
+  }
+  // ITEM 1, AS A NUMBER. Not "mercytest is gone", which proves nothing: a man
+  // whose health reaches zero must be dead on that tick. The bar is zero ticks
+  // and it is not a threshold anyone can move — it is the feature's absence.
+  if (!Number.isFinite(zeroToDead)) {
+    bad(`§1 could not find the tick where health reached zero or the tick he became dead`);
+  } else if (zeroToDead > 0) {
+    bad(`§1 a man at zero health is not dead for ${zeroToDead} server tick(s) (${f2(zeroToDead / 20)} s) — `
+      + `something is holding him between the blow and the body`);
+  }
+  // The corpse the real engine killed, against the same absolute bar §2 uses.
+  if (ended < BAR.corpseDown) {
+    bad(`§1 the corpse ended ${f1(ended)}° from upright, ${f1(90 - ended)}° short of the turf `
+      + `(bar ${BAR.corpseDown}°) — a body the engine killed did not lie down`);
+  }
+  return { knocked: knocked.length, upright: upright.length, worstRun, step, stepAt, stepFrom, stepTo,
+    zeroToDead, ended, deadUpright, runBar: RUNBAR, track: win };
+}
+
+// ===========================================================================
+// §2  THE CORPSE — where it stops, measured against the GROUND
+// ===========================================================================
+async function sectionCorpse(anim) {
+  rule("§2  WHERE THE CORPSE STOPS   (absolute terminal topple, not self-relative)");
+  // The floor clock, read off the engine rather than copied: how long a man can
+  // be `knocked` is the server's fact and this section holds him there.
+  const { KNOCKDOWN } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+  const man = (cls) => ({
+    id: "d", name: "", warriorClass: cls, team: "none", ready: true,
+    position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+    health: 0, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
+    attackDir: "right", blockDir: "right",
+    attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+    abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+    kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+    comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
+  });
+
+  /**
+   * One death, driven for 4 s, reported by WHERE IT ENDED and not by when.
+   *
+   * `prior` is the state he was in when the blow landed, and it is not a
+   * garnish — `poseWarrior` keeps ONE clock for every one-shot,
+   *
+   *     motion.actT = dead || rolling || staggered || casting || shoving || floored
+   *       ? motion.actT + dt : 0;
+   *
+   * and `dead`, `floored`, `staggered` and `rolling` are all in that set. So a
+   * man killed out of any of them hands `deathLayer` a clock that is ALREADY
+   * RUNNING, and every ramp in the collapse — `over`, `rest`, `lag` — is part
+   * or all of the way through on the first frame of his death. Nothing in this
+   * repository was driving that case, which is why nothing had seen it.
+   */
+  const oneDeath = (cls, cause, zone, prior = null) => {
+    const player = man(cls);
+    const { parent, rig, motion, ctx } = stand(anim, player);
+    // The hip socket and the leg, in world space, off the bones the frame
+    // actually committed. `rightLeg` is the hip pivot; its standing height IS
+    // the length of the leg the body has to stand on, so the ratio below is
+    // measured against the man himself and not against a number in this file.
+    const V = new THREE.Vector3();
+    const hipY = () => { parent.updateMatrixWorld(true); rig.pivots.rightLeg.getWorldPosition(V); return V.y; };
+    // AND HOW FAR ANY OF HIM IS UNDER IT. A body that will not lie down and a
+    // body that has sunk into the turf are the same defect read from the two
+    // sides, and a harness that gates only the first will happily accept the
+    // second — which is the trade a fix for the first is most likely to make.
+    // Every joint on the rig, lowest wins, world space, off the same matrix.
+    const BONES = ["head", "chest", "rightArm", "elbowR", "leftArm", "elbowL",
+      "rightLeg", "kneeR", "leftLeg", "kneeL"];
+    const lowest = () => {
+      parent.updateMatrixWorld(true);
+      let lo = Infinity;
+      rig.body.getWorldPosition(V); lo = Math.min(lo, V.y);
+      for (const b of BONES) { const pv = rig.pivots[b]; if (!pv) continue; pv.getWorldPosition(V); lo = Math.min(lo, V.y); }
+      return lo;
+    };
+    let t = 0;
+    for (let i = 0; i < 30; i++) { t += 1 / 60; ctx.time = t; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+    if (prior) {
+      player.state = prior;
+      // How long the man can actually have been in that state before the blow.
+      // `knocked` was 2.5 s here — MERCY.window — because a mortal fall parked
+      // the floor clock for exactly that long. With MERCY OR FINISH removed
+      // (`docs/MERCY-REMOVED.md`) the longest a man is `knocked` is
+      // KNOCKDOWN.down, and holding him there for 2.5 s would be measuring a
+      // state the server can no longer produce. 0.65 s is a stagger or a roll
+      // most of the way through its own clock.
+      //
+      // A SECOND RULER FAULT, AND IT WAS MANUFACTURING A FLOP. `downTimer` was
+      // PINNED at 1.30 for every frame of the hold. `knockLayer` phases the
+      // whole fall off that number, so a pinned clock is a pinned pose: this
+      // fixture's `knocked` man never fell at all — he stood bolt upright at
+      // 0.0° for the entire hold and the death then had 90° to cross at once.
+      // §2 reported that as 31.6°/frame and blamed `motion.actT`. It is the
+      // same picture MERCY OR FINISH used to put on a real screen, which is
+      // exactly why it looked plausible.
+      //
+      // The server sets `downTimer = KNOCKDOWN.down + KNOCKDOWN.rise` and
+      // spends it; a man is `knocked` while it is above `KNOCKDOWN.rise`. So
+      // the clock is now counted DOWN from 1.30 across the same 0.75 s, which
+      // is the window the server actually gives him. Re-measured on the same
+      // build, the transition is 7.9°/frame and not 31.6° — the last 17° of a
+      // body settling, which is what it should be.
+      const secs = prior === "knocked" ? KNOCKDOWN.down : 0.65;
+      const full = KNOCKDOWN.down + KNOCKDOWN.rise;
+      for (let i = 0; i < secs * 60; i++) {
+        t += 1 / 60; ctx.time = t;
+        player.downTimer = prior === "knocked" ? Math.max(0, full - i / 60) : 0;
+        player.staggerTimer = 0.6;
+        anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
+      }
+    }
+    const legLen = hipY();
+    const carried = motion.actT;
+    player.state = "dead"; player.deathCause = cause; player.deathZone = zone;
+    let peak = 0, step = 0, prevPitch = trunkTilt(parent, rig);
+    const keys = Object.keys(rig.last);
+    let prev = keys.map((k) => rig.last[k]);
+    let settle3 = 0;
+    for (let i = 0; i < 4 * 60; i++) {
+      t += 1 / 60; ctx.time = t;
+      anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
+      const now = keys.map((k) => rig.last[k]);
+      let d = 0; for (let k = 0; k < now.length; k++) d = Math.max(d, Math.abs(now[k] - prev[k]));
+      if (d > 1e-3) settle3 = (i + 1) / 60;
+      prev = now;
+      const p = trunkTilt(parent, rig);
+      peak = Math.max(peak, p);
+      step = Math.max(step, Math.abs(p - prevPitch));
+      prevPitch = p;
+    }
+    const sh = rig.gore.shape;
+    const hip = hipY();
+    const under = lowest();
+    return { cls, cause: cause ?? "-", zone: zone ?? "-", prior: prior ?? "-", carried,
+      seam: rig.gore.cut ? rig.gore.cut.seam : null, halved: sh.halved,
+      ended: trunkTilt(parent, rig), euler: topple(rig.last), peak, settle3, step,
+      hip, legLen, hipFrac: hip / (legLen || 1), under,
+      shape: sh.halved ? "halved" : `crum${f2(sh.crumple)} lean${f2(sh.lean)}` };
+  };
+
+  // Zone names are `HitZone`'s, verbatim — see src/game/types.ts. freezetest
+  // records that its own first draft invented "leftArm"/"leftLeg", `sever()`
+  // refused both, and the table printed six identical rows that looked like
+  // proof and were proof of nothing.
+  const cases = [
+    ["warden", null, null], ["berserker", null, "torso"],
+    ["huscarl", "fire", null], ["runekeeper", "fire", "torso"],
+    // These two carried `"finish"` until MERCY OR FINISH was removed. A finish
+    // was the only death `deathLayer` gave a second shape to, and the server can
+    // no longer produce one, so they read as what they now are: a huscarl and a
+    // warden killed by steel. Kept as rows rather than deleted, because the
+    // classes and zones are still distinct bodies.
+    ["runekeeper", null, "head"], ["warden", null, "head"],
+    ["berserker", null, null], ["warden", null, "armL"],
+    ["berserker", null, "legL"], ["huscarl", null, "waist"],
+  ];
+  const rows = cases.map((c) => oneDeath(...c));
+  // And the same deaths again out of the four states that carry `actT`.
+  const PRIORS = ["staggered", "rolling", "knocked"];
+  const carryRows = [];
+  for (const pr of PRIORS) for (const c of [["warden", null, null], ["huscarl", null, "head"], ["berserker", null, "armL"]]) {
+    carryRows.push(oneDeath(c[0], c[1], c[2], pr));
+  }
+  say("");
+  say(`    "ended" is how far from upright the trunk finished, in degrees, after 4 s.`);
+  say(`    90° is flat on the turf. The bar is ${BAR.corpseDown}°, and it is ABSOLUTE —`);
+  say(`    nothing here is measured against the body's own final frame.`);
+  say("");
+  say(`    "HIP" is the hip socket's world height over that man's OWN leg length,`);
+  say(`    which is the same question asked of a body that has no trunk left to`);
+  say(`    measure. 1.00 is standing, ~0.45 is kneeling, the bar is ${f2(BAR.pelvisDown)}.`);
+  say("");
+  say(`    "euler" is the OLD ruler — hypot(prx, prz) — kept in the table so the two`);
+  say(`    can be read against each other. Where they disagree the old one is wrong;`);
+  say(`    see trunkTilt.`);
+  say("");
+  say(`    class        cause    zone   seam      shape            settled   peak   ENDED   euler    HIP  UNDER`);
+  for (const r of rows) {
+    const flag = (r.ended < BAR.corpseDown ? "  <-- PARTLY RAISED" : "")
+      + (r.hipFrac > BAR.pelvisDown ? "  <-- HIP OFF THE TURF" : "")
+      + (r.under < -BAR.sink ? "  <-- IN THE TURF" : "");
+    say(`    ${r.cls.padEnd(11)} ${String(r.cause).padEnd(8)} ${r.zone.padEnd(6)} `
+      + `${String(r.seam ?? "-").padEnd(9)} ${r.shape.padEnd(16)} ${f2(r.settle3).padStart(6)}s `
+      + `${f1(r.peak).padStart(6)}° ${f1(r.ended).padStart(6)}° ${f1(r.euler).padStart(6)}° ${f2(r.hipFrac).padStart(5)} ${f2(r.under).padStart(6)}${flag}`);
+  }
+  // THE EXCLUSION IS GONE, AND THIS IS THE PARAGRAPH THAT USED TO BE HERE.
+  //
+  // This file gated `rows.filter((r) => !r.halved)`, so the ONE body in the
+  // table that stopped 65° short of the turf was the one body the gate could
+  // not fail on. The argument written above it was half right and wholly
+  // misused: it is true that "how far from upright is the trunk" is the wrong
+  // question to ask of a rig whose trunk has been thrown off it as a physics
+  // piece — and the answer to a ruler that cannot see a body is A RULER THAT
+  // CAN, not a filter. `hipFrac` above is that ruler, and it is asked of all
+  // ten bodies on the same terms.
+  //
+  // What the old paragraph asserted, and what was never measured: "a pelvis
+  // sitting at 25° on two knees folded to 1.95 rad is a bottom half sitting
+  // down, which is correct." It was not sitting down. Measured off the bones,
+  // that body finished with its hip socket 0.477 m up — 0.47 of its own leg,
+  // higher off the turf than a man on his knees — held there for ever by a
+  // `halfLayer` that authored no topple at all. See `docs/PROCESS.md` failure
+  // mode 3, and R3: a case removed from a gate is a bar moved to zero.
+  const gated = rows;
+  const short = gated.filter((r) => r.ended < BAR.corpseDown);
+  const propped = gated.filter((r) => r.hipFrac > BAR.pelvisDown);
+  const sunk = gated.filter((r) => r.under < -BAR.sink);
+  const worstSink = gated.reduce((a, b) => (b.under < a.under ? b : a));
+  const worst = gated.reduce((a, b) => (b.ended < a.ended ? b : a));
+  const worstHip = gated.reduce((a, b) => (b.hipFrac > a.hipFrac ? b : a));
+  say("");
+  say(`    worst corpse: ${worst.cls} / ${worst.cause} / ${worst.zone} ended ${f1(worst.ended)}° `
+    + `from upright — ${f1(90 - worst.ended)}° short of the turf,`);
+  say(`    and it STOPPED MOVING at ${f2(worst.settle3)}s, which is why a settle-time ruler calls it clean.`);
+  say(`    highest hip: ${worstHip.cls} / ${worstHip.cause} / ${worstHip.zone} finished with its hip `
+    + `${f2(worstHip.hip)} m up, ${f2(worstHip.hipFrac)} of its own leg.`);
+  say("");
+  say(`    THE SAME DEATHS, OUT OF A STATE THAT WAS ALREADY RUNNING A CLOCK.`);
+  say(`    "carried" is \`motion.actT\` on the last frame BEFORE he died. It used to be`);
+  say(`    handed straight to \`deathLayer\`, which left a collapse with no ramp to run;`);
+  say(`    the clock is now restarted per move, except out of \`knocked\` — a man already`);
+  say(`    on the ground is finishing the descent he is in. See anim.ts.`);
+  say("");
+  say(`    prior state   class        cause/zone     carried   ENDED    biggest one-frame move`);
+  for (const r of carryRows) {
+    const flag = r.step > BAR.step ? "  <-- FLOP" : "";
+    say(`    ${r.prior.padEnd(13)} ${r.cls.padEnd(11)} ${(r.cause + "/" + r.zone).padEnd(14)} `
+      + `${f2(r.carried).padStart(6)}s  ${f1(r.ended).padStart(6)}°  ${f1(r.step).padStart(10)}°${flag}`);
+  }
+  const baseStep = Math.max(...rows.map((r) => r.step));
+  const carryStep = Math.max(...carryRows.map((r) => r.step));
+  say("");
+  say(`    dying from a standing start   worst one-frame move ${f1(baseStep)}°`);
+  say(`    dying out of a running clock  worst one-frame move ${f1(carryStep)}°   ${f1(carryStep / (baseStep || 1))}x`);
+  say("");
+  if (short.length) {
+    bad(`§2 ${short.length}/${gated.length} corpses finish more than ${90 - BAR.corpseDown}° short of flat — `
+      + `worst ends ${f1(worst.ended)}° from upright (${worst.cls} ${worst.cause}/${worst.zone})`);
+  }
+  if (sunk.length) {
+    bad(`§2 ${sunk.length}/${gated.length} corpses finish with a joint more than ${f2(BAR.sink)} m under the turf — `
+      + `worst ${f2(worstSink.under)} m (${worstSink.cls} ${worstSink.cause}/${worstSink.zone})`);
+  }
+  if (propped.length) {
+    bad(`§2 ${propped.length}/${gated.length} corpses finish with the hip socket more than `
+      + `${f2(BAR.pelvisDown)} of a leg off the turf — worst ${f2(worstHip.hipFrac)} `
+      + `(${worstHip.cls} ${worstHip.cause}/${worstHip.zone}, ${f2(worstHip.hip)} m). A hip that high is a body propped on something.`);
+  }
+  const flopped = carryRows.filter((r) => r.step > BAR.step);
+  if (flopped.length) {
+    bad(`§2 ${flopped.length}/${carryRows.length} deaths out of a running clock snap the trunk `
+      + `more than ${BAR.step}° in one frame — worst ${f1(carryStep)}° `
+      + `(vs ${f1(baseStep)}° from a standing start). \`motion.actT\` is not reset into \`dead\`.`);
+  }
+  return { rows, carryRows, gated: gated.length,
+    short: short.length, worst, worstHip, propped: propped.length,
+    sunk: sunk.length, worstSink,
+    baseStep, carryStep, flopped: flopped.length };
+}
+
+// ===========================================================================
+// §3  THE SPINE — how far it bends, and which action bends it
+// ===========================================================================
+async function sectionSpine(anim) {
+  rule("§3  THE SPINE   (chest+neck arch relative to the pelvis, per action)");
+  const man = (cls, extra) => ({
+    id: "s", name: "", warriorClass: cls, team: "none", ready: true,
+    position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+    health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
+    attackDir: "right", blockDir: "right",
+    attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+    abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+    kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+    comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
+    ...extra,
+  });
+
+  /**
+   * Hold one state for `secs`, from a real standing start, and report the
+   * extremes of the assembled spine and the biggest one-frame move of it.
+   *
+   * The timers are ticked down here because the client reads them: a stagger
+   * whose `staggerTimer` never falls is a stagger frozen at phase zero, which
+   * would be measuring a bug this section is not about.
+   */
+  const hold = (label, cls, state, secs, mutate) => {
+    const player = man(cls);
+    const { rig, motion, ctx } = stand(anim, player);
+    let time = 0;
+    for (let i = 0; i < 45; i++) { time += 1 / 60; ctx.time = time; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+    player.state = state;
+    let back = 0, fwd = 0, step = 0, at = 0, prev = spineArch(rig.last);
+    let peakPrx = 0, peakCrx = 0, peakHrx = 0;
+    for (let i = 0; i < secs * 60; i++) {
+      time += 1 / 60; ctx.time = time;
+      if (mutate) mutate(player, i / 60);
+      anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
+      const c = spineArch(rig.last);
+      back = Math.min(back, c); fwd = Math.max(fwd, c);
+      const d = Math.abs(c - prev);
+      if (d > step) { step = d; at = i / 60; }
+      prev = c;
+      if (Math.abs(rig.last.prx) > Math.abs(peakPrx)) peakPrx = rig.last.prx;
+      if (Math.abs(rig.last.crx) > Math.abs(peakCrx)) peakCrx = rig.last.crx;
+      if (Math.abs(rig.last.hrx) > Math.abs(peakHrx)) peakHrx = rig.last.hrx;
+    }
+    return { label, back: -back, fwd, step, at,
+      prx: peakPrx * DEG, crx: peakCrx * DEG, hrx: peakHrx * DEG };
+  };
+
+  // `motion.hitFwd` / `hitSide` are what the impact layers steer off, and the
+  // client sets them from the `hit` broadcast. The worst case is a blow taken
+  // square from the front, so that is what is driven here.
+  const hitFront = (rig, motion) => { motion.hitFwd = -1; motion.hitSide = 0; };
+  const rows = [];
+  const CASES = [
+    ["idle", "warden", "idle", 3, null],
+    ["walking", "warden", "walking", 3, (p) => { p.velocity = { x: 0, y: 0, z: 4.2 }; }],
+    ["attacking (light)", "berserker", "attacking", 1.2,
+      (p, t) => { p.swingT = t / 0.55; p.swingDuration = 0.55; p.attackTimer = Math.max(0, 0.55 - t); p.swingHeavy = false; }],
+    ["attacking (heavy)", "huscarl", "attacking", 1.2,
+      (p, t) => { p.swingT = t / 0.85; p.swingDuration = 0.85; p.attackTimer = Math.max(0, 0.85 - t); p.swingHeavy = true; }],
+    ["blocking", "huscarl", "blocking", 1.5, (p, t) => { p.blockTimer = t; }],
+    ["shoving", "warden", "shoving", 1.2, null],
+    ["staggered", "warden", "staggered", 1.5, (p, t) => { p.staggerTimer = Math.max(0, 0.6 - t); }],
+    ["rolling", "runekeeper", "rolling", 1.0, null],
+    ["ability", "berserker", "ability", 1.5, (p) => { p.abilityActive = true; p.abilityTimer = 1; }],
+    ["riposte target", "warden", "idle", 1.5, (p, t) => { p.vulnerableTo = "x"; p.vulnerableTimer = Math.max(0, 0.9 - t); }],
+  ];
+  for (const [label, cls, state, secs, mut] of CASES) rows.push(hold(label, cls, state, secs, mut));
+  // The stagger and the flinch both steer off the impact bearing, so the two
+  // that can arch a man are run again with a blow taken square in the chest.
+  {
+    const player = man("warden");
+    const { rig, motion, ctx } = stand(anim, player);
+    let time = 0;
+    for (let i = 0; i < 45; i++) { time += 1 / 60; ctx.time = time; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+    player.state = "staggered"; hitFront(rig, motion); motion.flinch = 1;
+    let back = 0, fwd = 0, step = 0, at = 0, prev = spineArch(rig.last);
+    let peakPrx = 0, peakCrx = 0, peakHrx = 0;
+    for (let i = 0; i < 90; i++) {
+      time += 1 / 60; ctx.time = time;
+      player.staggerTimer = Math.max(0, 0.6 - i / 60);
+      motion.hitFwd = -1;
+      anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
+      const c = spineArch(rig.last);
+      back = Math.min(back, c); fwd = Math.max(fwd, c);
+      const d = Math.abs(c - prev); if (d > step) { step = d; at = i / 60; }
+      prev = c;
+      if (Math.abs(rig.last.prx) > Math.abs(peakPrx)) peakPrx = rig.last.prx;
+      if (Math.abs(rig.last.crx) > Math.abs(peakCrx)) peakCrx = rig.last.crx;
+      if (Math.abs(rig.last.hrx) > Math.abs(peakHrx)) peakHrx = rig.last.hrx;
+    }
+    rows.push({ label: "staggered, hit from FRONT", back: -back, fwd, step, at,
+      prx: peakPrx * DEG, crx: peakCrx * DEG, hrx: peakHrx * DEG });
+  }
+
+  say("");
+  say(`    "back" is the worst BACKWARD arch of CHEST+NECK, in degrees. Bar ${BAR.spineBack}°.`);
+  say(`    "step" is the biggest one-frame move of that arch at 60 fps. Bar ${BAR.step}°.`);
+  say(`    prx is the WHOLE BODY pitching about its feet — topple, not articulation,`);
+  say(`    reported beside the arch and deliberately NOT summed into it. See spineArch.`);
+  say("");
+  say(`    action                       back    fwd     step   @s      prx     crx     hrx`);
+  for (const r of rows) {
+    const flag = r.back > BAR.spineBack ? "  <-- BACKBEND" : (r.step > BAR.step ? "  <-- FLOP" : "");
+    say(`    ${r.label.padEnd(26)} ${f1(r.back).padStart(5)}° ${f1(r.fwd).padStart(6)}° `
+      + `${f1(r.step).padStart(6)}° ${f2(r.at).padStart(5)}  ${f1(r.prx).padStart(6)}° `
+      + `${f1(r.crx).padStart(6)}° ${f1(r.hrx).padStart(6)}°${flag}`);
+  }
+  const arched = rows.filter((r) => r.back > BAR.spineBack);
+  const flopped = rows.filter((r) => r.step > BAR.step);
+  say("");
+  // WHAT `stops()` ACTUALLY BOUNDS. Read out of anim.ts rather than asserted,
+  // because the whole point of §3 is that the clamp list and the comment above
+  // it do not agree, and a hard-coded claim here would be the same fault.
+  const src = readFileSync(resolve(ROOT, "src/game/client/render/anim.ts"), "utf8");
+  const at = src.indexOf("function stops(");
+  const body = at < 0 ? "" : src.slice(at, src.indexOf("\n}", at));
+  const clamped = [...body.matchAll(/P\.(\w+) = clamp/g)].map((m) => m[1]);
+  const SPINE = ["prx", "pry", "prz", "crx", "cry", "crz", "hrx", "hry", "hrz"];
+  const unclamped = SPINE.filter((c) => !clamped.includes(c));
+  if (at < 0) say(`    COULD NOT READ stops() — the clamp audit below is void.`);
+  else {
+    say(`    stops() clamps: ${clamped.join(", ") || "(nothing)"}`);
+    say(`    of the nine spine channels, UNCLAMPED: ${unclamped.join(", ") || "(none)"}`);
+    say(`    stops()'s own comment says layers stacking is "how a spine ends up turned`);
+    say(`    further than a spine turns". It bounds the chest and neither end of it.`);
+  }
+  // -------------------------------------------------------------------------
+  // THE TRANSITION MATRIX. The owner said "after certain ACTIONS", and an
+  // action is a thing you come OUT of. Every ordered pair of one-shot states,
+  // held half a second then switched, because `motion.actT` is shared by all of
+  // them and a state entered straight out of another one starts partway through
+  // its own animation.
+  // -------------------------------------------------------------------------
+  const STATES = ["idle", "walking", "attacking", "blocking", "shoving", "staggered", "rolling", "ability"];
+  const drive = (p, st, t) => {
+    p.state = st;
+    if (st === "attacking") { p.swingT = t / 0.6; p.swingDuration = 0.6; p.attackTimer = Math.max(0, 0.6 - t); }
+    if (st === "blocking") p.blockTimer = t;
+    if (st === "staggered") p.staggerTimer = Math.max(0, 0.6 - t);
+    if (st === "ability") { p.abilityActive = true; p.abilityTimer = Math.max(0, 1 - t); }
+    p.velocity = st === "walking" ? { x: 0, y: 0, z: 4.5 } : { x: 0, y: 0, z: 0 };
+  };
+  const pairs = [];
+  for (const A of STATES) for (const B of STATES) {
+    if (A === B) continue;
+    const player = man("warden");
+    const { rig, motion, ctx } = stand(anim, player);
+    let t = 0;
+    for (let i = 0; i < 45; i++) { t += 1 / 60; ctx.time = t; drive(player, "idle", 0); anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+    for (let i = 0; i < 30; i++) { t += 1 / 60; ctx.time = t; motion.hitFwd = -1; motion.hitSide = 0.3; drive(player, A, i / 60); anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+    const entered = motion.actT;
+    let back = 0, step = 0, prev = spineArch(rig.last), pitch = 0;
+    for (let i = 0; i < 72; i++) {
+      t += 1 / 60; ctx.time = t; motion.hitFwd = -1; motion.hitSide = 0.3;
+      drive(player, B, i / 60);
+      anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
+      const c = spineArch(rig.last);
+      back = Math.min(back, c); step = Math.max(step, Math.abs(c - prev)); prev = c;
+      if (Math.abs(bodyPitch(rig.last)) > Math.abs(pitch)) pitch = bodyPitch(rig.last);
+    }
+    pairs.push({ k: `${A} -> ${B}`, back: -back, step, entered, pitch });
+  }
+  const worstArch = [...pairs].sort((a, b) => b.back - a.back).slice(0, 5);
+  const worstStep = [...pairs].sort((a, b) => b.step - a.step).slice(0, 5);
+  say("");
+  say(`    TRANSITIONS — ${pairs.length} ordered pairs of one-shot states, 0.5 s in the first.`);
+  say(`    "carried" is \`motion.actT\` on the LAST frame of the first state — how old`);
+  say(`    the outgoing move's clock was. It used to be inherited by the incoming one:`);
+  say(`    a single clock served rolling, staggered, shoving, casting, floored and dead,`);
+  say(`    and was only zeroed by a frame in which NONE of them was true, so a move`);
+  say(`    entered out of another STARTED LATE. It is now restarted per move — see the`);
+  say(`    note on \`motion.actT\` in anim.ts — and this column is what it no longer costs.`);
+  say("");
+  say(`    worst spine arch out of a transition          worst one-frame chest+neck move`);
+  for (let i = 0; i < 5; i++) {
+    const a = worstArch[i], b = worstStep[i];
+    say(`    ${a.k.padEnd(24)} ${f1(a.back).padStart(5)}°       ${b.k.padEnd(24)} ${f1(b.step).padStart(5)}°  carried ${f2(b.entered)}s`);
+  }
+  const pairArch = pairs.filter((r) => r.back > BAR.spineBack);
+  const pairStep = pairs.filter((r) => r.step > BAR.step);
+  say("");
+  say(`    pairs past ${BAR.spineBack}° of arch: ${pairArch.length}/${pairs.length}    `
+    + `pairs past ${BAR.step}°/frame: ${pairStep.length}/${pairs.length}`);
+  say("");
+  if (pairArch.length) bad(`§3 ${pairArch.length} transition(s) arch the spine past ${BAR.spineBack}°: `
+    + pairArch.slice(0, 4).map((r) => `${r.k} ${f1(r.back)}°`).join(", "));
+  // OVER THE BAR, AND SORTED INTO TWO PILES: the one entry in the deferral
+  // register at the top of this file, and everything else. See DEFERRED_STEP —
+  // the register carries a NUMBER, so a deferred pair that got worse comes back
+  // as a finding, and a pair that is not in the register was never deferred.
+  const deferredStep = [], liveStep = [];
+  for (const r of pairStep) {
+    const d = DEFERRED_STEP[r.k];
+    (d && r.step <= d.step + d.slack ? deferredStep : liveStep).push(r);
+  }
+  if (liveStep.length) {
+    // A REGISTERED PAIR IN THIS PILE IS THE WORST CASE, NOT THE MILDEST: it
+    // means the thing that was deferred at a number has grown past it.
+    const grown = liveStep.filter((r) => DEFERRED_STEP[r.k]);
+    bad(`§3 ${liveStep.length} transition(s) move the spine more than ${BAR.step}° in one frame: `
+      + liveStep.slice(0, 4).map((r) => `${r.k} ${f1(r.step)}°`).join(", ")
+      + (grown.length
+        ? ` — and ${grown.map((r) => `${r.k} is WORSE than the ${f1(DEFERRED_STEP[r.k].step)}° it was deferred at`).join("; ")}`
+        : ""));
+  }
+  for (const r of deferredStep) {
+    const d = DEFERRED_STEP[r.k];
+    defer(`§3 ${r.k} moves the spine ${f1(r.step)}° in one frame, past the ${BAR.step}° bar. `
+      + `KNOWN AND THE OWNER'S CALL since ${d.on}, not a new failure: the ability leaves the `
+      + `spine 16.6° BACK and the roll opens 30.3° FORWARD, and \`motion.blend\` crossfades that `
+      + `47° reversal in 0.10 s with a \`smooth()\` that peaks at 1.5x. Both repairs — blend `
+      + `10/s -> ~8/s, or dropping the smooth() — change the feel of EVERY transition in the `
+      + `game. The bar stays at ${BAR.step}° and this is watched at ${f1(d.step)}°.`);
+  }
+
+  say("");
+  if (arched.length) bad(`§3 ${arched.length} action(s) arch the spine past ${BAR.spineBack}°: `
+    + arched.map((r) => `${r.label} ${f1(r.back)}°`).join(", "));
+  if (flopped.length) bad(`§3 ${flopped.length} action(s) move the spine more than ${BAR.step}° in one frame: `
+    + flopped.map((r) => `${r.label} ${f1(r.step)}°`).join(", "));
+  return { rows, pairs, arched: arched.length, flopped: flopped.length,
+    pairArch: pairArch.length, pairStep: pairStep.length,
+    deferredStep: deferredStep.length, liveStep: liveStep.length,
+    deferredRows: deferredStep, unclamped };
+}
+
+// ===========================================================================
+// §4  WHICH WAY HE GOES OVER — the corpse against the blow that made it
+// ===========================================================================
+/**
+ * R6 — THE OWNER'S WORDS BECOME A NAMED CHECK. This section is named after
+ * half of his third report and it quotes it:
+ *
+ *   "The bodies now also RANDOMLY LEAN BACK AFTER CERTAIN ACTIONS but it's very
+ *    dramatic — back bending over backwards dramatic"
+ *
+ * Both qualifiers are load-bearing and neither §1, §2 nor §3 could see either
+ * one. They measure HOW FAR a body goes and HOW FAST; this measures WHICH WAY,
+ * which is a property no angle magnitude contains: `topple()` is a hypotenuse
+ * and `Math.hypot(-1.57, 0)` and `Math.hypot(1.57, 0)` are the same number.
+ * A man laid on his back when the blow came from behind scores identically to
+ * the same man laid on his face, and §2 was green over it the whole time.
+ *
+ * WHAT DECIDES IT. `motion.fall` is latched once, on the frame the corpse's
+ * clock starts, off `motion.hitFwd`; `stepWarriorTransform` latches `hitFwd`
+ * from the ATTACKER'S POSITION at the moment of death (`struckDead`), because
+ * the packet that empties the health bar is the same packet that says `dead`
+ * and the ordinary flinch edge is structurally a frame too late for it.
+ *
+ * SO THIS SECTION DRIVES THE REAL BEARING PATH AND POKES NOTHING. It runs
+ * `stepWarriorTransform(rig, motion, player, dt, ctx, attacker)` — the shipped
+ * function, with a real attacker object standing in a real place — every frame
+ * before `poseWarrior`, which is the order `GameCanvas` calls them in. No field
+ * of `motion` is written by this file. That matters: writing `hitFwd` by hand
+ * would substitute the VALUE for the MECHANISM and would still have passed with
+ * the defect present, because the defect is that the latch never reaches the
+ * corpse, not that the bearing is wrong.
+ *
+ * THE POISON IS AN EARLIER, UNRELATED FALL, which is what makes it read as
+ * "random" to a player: every man in this table is knocked over BACKWARDS
+ * earlier in the round, gets back on his feet, and is then killed by a blow
+ * from a stated bearing. If the state he was in when it landed lets the stale
+ * `fall` through, he goes over backwards again — for a reason that happened
+ * ten seconds ago and that nobody watching can connect to anything.
+ */
+async function sectionFall(anim) {
+  rule("§4  WHICH WAY HE GOES OVER   (the corpse against the blow that made it)");
+  const eng = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+  const { KNOCKDOWN } = eng;
+  const man = (cls, x, z) => ({
+    id: "d", name: "", warriorClass: cls, team: "none", ready: true,
+    position: { x, y: 0, z }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+    health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
+    attackDir: "right", blockDir: "right",
+    attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+    abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+    kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+    comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
+  });
+
+  /**
+   * `prior` is the state he was in when the killing blow landed; `fromZ` is
+   * where the killer was standing. The victim stands at the origin facing +Z,
+   * so a killer at -Z is BEHIND him and a killer at +Z is in front — see
+   * `takeBearing`, whose own comment says a blow from behind "puts the man on
+   * his face".
+   */
+  const oneFall = (prior, fromZ, poisonZ, label) => {
+    const player = man("warden", 0, 0);
+    const killer = man("huscarl", 0, poisonZ);
+    const { rig, motion, ctx } = stand(anim, player);
+    let t = 0;
+    const frame = (att) => {
+      t += 1 / 60; ctx.time = t;
+      anim.stepWarriorTransform(rig, motion, player, 1 / 60, ctx, att);
+      anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
+    };
+    for (let i = 0; i < 60; i++) frame(undefined);
+    // ---- the earlier knockdown, from `poisonZ`. This is what sets
+    // `motion.fall` long before the killing blow, and it is the value that
+    // leaked. Both bearings are driven so the claim below is two-sided.
+    //
+    // `motion.recoil` IS RAISED HERE BECAUSE THAT IS THE ORCHESTRATOR'S JOB,
+    // NOT ANIM'S. `stepWarriorTransform`'s own comment says so — "the
+    // orchestrator raises recoil on the frame damage lands. A rise is the only
+    // edge we get for 'struck just now'" — and `GameCanvas.tsx` does it with
+    // `slot.motion.recoil = Math.min(1.6, 0.6 + dmg * 0.03)`. This harness is
+    // standing in for GameCanvas for one frame; it is not reaching past a seam.
+    // Without it the earlier blow has no bearing at all, `hitFwd` stays at the
+    // spawn default of -1, and the two `poisonZ` halves of this table would be
+    // the same run twice — which is what the first draft of §4 was, and it
+    // reported a false FAIL on the two `knocked` rows for exactly that reason.
+    killer.position.z = poisonZ;
+    motion.recoil = 0.6 + 10 * 0.03;
+    player.state = "knocked";
+    const full = KNOCKDOWN.down + KNOCKDOWN.rise;
+    for (let i = 0; i < KNOCKDOWN.down * 60; i++) { player.downTimer = Math.max(0, full - i / 60); frame(killer); }
+    player.state = "rising";
+    for (let i = 0; i < KNOCKDOWN.rise * 60; i++) { player.downTimer = Math.max(0, KNOCKDOWN.rise - i / 60); frame(killer); }
+    player.state = "idle"; player.downTimer = 0;
+    for (let i = 0; i < 60; i++) frame(killer);
+    const poisoned = motion.fall;
+    // ---- the action he is killed out of ----
+    if (prior) {
+      player.state = prior; player.staggerTimer = 0.6;
+      for (let i = 0; i < 0.65 * 60; i++) frame(killer);
+    }
+    // ---- and the killing blow, from where it says ----
+    killer.position.z = fromZ;
+    player.state = "dead"; player.health = 0;
+    player.deathCause = "blow"; player.deathZone = null;
+    for (let i = 0; i < 120; i++) frame(killer);
+    const prx = rig.last.prx * DEG;
+    const lands = prx > 0 ? "face" : "back";
+    // TWO PROPERTIES, AND THE SECOND IS NOT A CARVE-OUT FOR THE FIRST.
+    //
+    //   ON HIS FEET  the corpse follows THE BLOW. Struck from behind
+    //     (`fromZ < 0`) he ends on his face; struck in front, on his back.
+    //   ALREADY ON THE GROUND  the corpse keeps THE FALL THAT PUT HIM THERE.
+    //     A man lying on his back is not turned over by the man who finishes
+    //     him — he is on the turf, nothing can roll him, and the direction was
+    //     settled by the blow that floored him. So for `knocked` the expected
+    //     answer is the EARLIER bearing, and it is asserted just as hard.
+    //
+    // The second is why `poisonZ` is swept as well as `fromZ`: if it were only
+    // ever "back", "he keeps the earlier fall" and "he always falls back" would
+    // be the same table and the row would prove nothing.
+    const down = prior === "knocked";
+    const want = (down ? poisonZ : fromZ) < 0 ? "face" : "back";
+    return { label, prior: prior ?? "idle", from: fromZ < 0 ? "behind" : "in front",
+      poison: poisonZ < 0 ? "behind" : "in front",
+      poisoned: poisoned > 0 ? "face" : "back", prx, lands, want, down,
+      ok: lands === want };
+  };
+
+  const rows = [];
+  for (const [prior, label] of [[null, "killed on his feet"], ["staggered", "killed out of a stagger"],
+    ["rolling", "killed out of a roll"], ["shoving", "killed out of a shove"],
+    ["knocked", "killed while already down"], ["rising", "killed getting up"]]) {
+    for (const poisonZ of [+2, -2]) for (const fromZ of [-2, +2]) rows.push(oneFall(prior, fromZ, poisonZ, label));
+  }
+  say("");
+  say(`    Every man here is knocked over EARLIER in the round by a blow from`);
+  say(`    "earlier blow", gets back on his feet, and is then killed by a blow from`);
+  say(`    "killing blow". \`motion.fall\` is already set when the second one lands.`);
+  say("");
+  say(`    A man ON HIS FEET must go over the way the KILLING blow says. A man`);
+  say(`    ALREADY ON THE GROUND must keep the way the EARLIER one put him —`);
+  say(`    nothing rolls a body that is already on the turf.`);
+  say("");
+  say(`    killed out of        earlier blow   killing blow   wants   LANDS   pelvis`);
+  for (const r of rows) {
+    say(`    ${r.prior.padEnd(20)} ${r.poison.padEnd(14)} ${r.from.padEnd(14)} `
+      + `${r.want.padEnd(7)} ${r.lands.padEnd(7)} ${f1(r.prx).padStart(6)}°${r.ok ? "" : "   <-- WRONG WAY"}`);
+  }
+  const wrong = rows.filter((r) => !r.ok);
+  say("");
+  say(`    corpses that went over the wrong way: ${wrong.length}/${rows.length}`);
+  say("");
+  if (wrong.length) {
+    const feet = wrong.filter((r) => !r.down), floor = wrong.filter((r) => r.down);
+    if (feet.length) {
+      bad(`§4 ${feet.length}/${rows.length - 8} corpses killed ON THEIR FEET topple AGAINST the blow that `
+        + `killed them — ${[...new Set(feet.map((r) => r.prior))].join(", ")}. \`motion.fall\` is inherited `
+        + `from an earlier fall, which is the owner's "randomly lean back after certain actions"`);
+    }
+    if (floor.length) {
+      bad(`§4 ${floor.length}/8 corpses killed ON THE GROUND flip over between the fall and the death — `
+        + `a body on the turf is not rolled by the man who finishes it`);
+    }
+  }
+  return { rows, wrong: wrong.length, total: rows.length };
+}
+
+// ===========================================================================
+(async () => {
+  say("");
+  say(`  GRAVITYTEST — a body in this game must not hold a posture a body cannot hold.`);
+  say(`  Sections: ${ONLY.join(", ")}${LEVER ? `   LEVER: ${LEVER}` : ""}`);
+  const anim = await loadAnim();
+  if (!anim) { say("  anim.ts would not compile — nothing can be measured. VOID."); process.exit(2); }
+
+  const R = {};
+  if (has("down")) R.down = await sectionDown(anim);
+  if (has("corpse")) R.corpse = await sectionCorpse(anim);
+  if (has("spine")) R.spine = await sectionSpine(anim);
+  if (has("fall")) R.fall = await sectionFall(anim);
+
+  rule("VERDICT");
+  if (LEVER_MISSED) {
+    say(`  VOID — a lever anchor missed, so this run measured the unsabotaged build`);
+    say(`  while claiming otherwise. No verdict is offered.`);
+    process.exit(2);
+  }
+  if (LEVER) {
+    say(`  This run was SABOTAGED (--lever=${LEVER}). It is a test of the ruler, not of`);
+    say(`  the build: compare its numbers with an unlevered run. If they did not MOVE,`);
+    say(`  this harness is not measuring what it claims and R1 says stop.`);
+  }
+  if (R.down) {
+    say(`  §1 DOWNED   ${R.down.upright}/${R.down.knocked} \`knocked\` frames drawn upright; `
+      + `longest run ${f2(R.down.worstRun)}s (bar ${f2(R.down.runBar)}s); worst one-frame move ${f1(R.down.step)}°.`);
+    say(`              A lethal blow: ${R.down.zeroToDead} server tick(s) at zero health before \`dead\`; `
+      + `the corpse ended ${f1(R.down.ended)}° from upright`
+      + `${R.down.deadUpright > 0 ? `; dead and drawn upright for ${f2(R.down.deadUpright)}s` : ""}.`);
+  }
+  if (R.corpse) {
+    say(`  §2 CORPSE   ${R.corpse.short}/${R.corpse.gated} corpses stop short of ${BAR.corpseDown}° from upright `
+      + `(worst ends ${f1(R.corpse.worst.ended)}°), ${R.corpse.propped}/${R.corpse.gated} finish with the hip`);
+    say(`              more than ${f2(BAR.pelvisDown)} of a leg up (worst ${f2(R.corpse.worstHip.hipFrac)}), and ${R.corpse.sunk}/${R.corpse.gated} finish `
+      + `with a joint under the turf (worst ${f2(R.corpse.worstSink.under)} m).`);
+    say(`              EVERY body is gated, including the halved one; and`);
+    say(`              ${R.corpse.flopped}/${R.corpse.carryRows.length} deaths out of a running clock snapping up to ${f1(R.corpse.carryStep)}°/frame.`);
+  }
+  if (R.fall) {
+    say(`  §4 FALL     ${R.fall.wrong}/${R.fall.total} corpses toppled AGAINST the blow that killed them.`);
+  }
+  if (R.spine) {
+    say(`  §3 SPINE    ${R.spine.arched} action(s) and ${R.spine.pairArch} transition(s) past ${BAR.spineBack}° of arch; `
+      + `${R.spine.flopped} action(s) and ${R.spine.pairStep} transition(s) past ${BAR.step}°/frame`
+      + `${R.spine.deferredStep ? `, ${R.spine.deferredStep} of them DEFERRED` : ""}.`);
+    // THE DEFERRAL RIDES THE VERDICT LINE AND NAMES ITSELF. A reader who scrolls
+    // to the bottom must not be able to mistake this for a clean §3.
+    for (const r of R.spine.deferredRows) {
+      say(`              DEFERRED: ${r.k} at ${f1(r.step)}°/frame (bar ${BAR.step}°) — the two repairs are `
+        + `\`motion.blend\` 10/s -> ~8/s or dropping the crossfade's \`smooth()\`, and both`);
+      say(`              change the feel of EVERY transition in the game. The owner's call, not `
+        + `this harness's, and not a bar to move. See DEFERRED_STEP.`);
+    }
+    say(`              Unclamped spine channels in stops(): ${R.spine.unclamped.join(", ") || "none"}.`);
+  }
+  say("");
+  if (fails.length) {
+    say(`  RED — ${fails.length} finding(s):`);
+    for (const f of fails) say(`    - ${f}`);
+    if (notes.length) {
+      say(`  ...and ${notes.length} deferral(s), which are NOT among the findings above:`);
+      for (const n of notes) say(`    - ${n}`);
+    }
+  } else if (notes.length) {
+    // NOT "GREEN", AND THE WORD IS WITHHELD ON PURPOSE. A deferral is a number
+    // over a bar that somebody decided not to spend on. It is not a pass, it is
+    // a debt with a name and a watchdog on it, and the verdict says so in the
+    // same breath as it says nothing else failed.
+    say(`  PASS WITH ${notes.length} DEFERRAL(S) — and a deferral is not a clean sheet. Every body`);
+    say(`  measured lay down, stayed inside its own joints and moved continuously EXCEPT:`);
+    for (const n of notes) say(`    - ${n}`);
+    say(``);
+    say(`  Each of these is over its bar. The bar was not moved; the repair was costed and`);
+    say(`  handed to the owner, and the register at the top of this file watches the number`);
+    say(`  so it cannot grow quietly. See DEFERRED_STEP.`);
+  } else {
+    say(`  GREEN — every body measured lay down, stayed inside its own joints, and`);
+    say(`  moved continuously. This is a ruler and not a bar; see R3 before trusting it.`);
+  }
+  say("");
+  process.exit(GATE && fails.length ? 1 : 0);
+})();

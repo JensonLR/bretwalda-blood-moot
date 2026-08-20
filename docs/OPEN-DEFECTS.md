@@ -8,6 +8,60 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE REPLAY ROUND, LANDED — 20 Aug 2026
+
+The owner's four reports from a played build, and where each one ended up.
+
+| the report | what it was | where |
+|---|---|---|
+| *"the whole vote for mercy or kill … is what's causing the bodies to freeze … it's every player at low health, not the final 1v1 … I imagine it wasn't even a thing for Anglo Saxons and would be more Roman"* | `goDown` parked the floor clock for `MERCY.window` = 2.5 s on **any** man reaching 0 hp, mid-round, and left him `knocked` and upright throughout | MERCY OR FINISH removed entire, `docs/MERCY-REMOVED.md` |
+| *"the bodies now also randomly lean back after certain actions but it's very dramatic like back bending over backwards … or flopping quickly down & up"* | one clock served six animations | one clock per MOVE |
+| *"the dead bodies are still sometimes freezing partially raised, like there's no gravity to them"* | `topple()` read three Euler angles as an axis-and-angle, so a man who lost a limb never reached the ground — and the ruler shared the same false premise (`hypot(prx, prz)`) | both repaired; `gravitytest` §2 0/10 stop short, §4 0/24 topple against the blow |
+| *"the final kill camera would be better as a slow mo replay before the next round … & also before a match ends too (Skippable … just take them to the lobby)"* | did not exist | `src/game/replay.mjs`, 57.6 KB ring, half speed, 4.0 s inside a 5.0 s break, SKIP at match end only |
+
+Two defects the round found in its own work and closed rather than filed:
+
+* **The replay cut away 0.09 s before a burnt man hit the turf.** Carried as a
+  deferral for two rounds — *"freezetest measures a body reaching the ground
+  between 0.52 s and 1.17 s"*. That range averaged two different deaths. Steel
+  lands by 0.82 s and always fitted; the FIRE lands at 1.17 s and was being given
+  0.92 s of run-up derived from the slowest SWING, for a stroke it never had. The
+  derivation now inverts per cause and `replaytest` §3 gates it. See
+  `docs/REPLAY.md` §3.
+* **The 3D name plates were STALE, and read backwards.** `stage.hud.update` was
+  called on the summary branch and the fight path and nowhere else, so plates
+  kept the last fighting frame's transform through the death hold, the round
+  beat, the replay and the lobby orbit; seen from behind a `DoubleSide` plate is
+  the name reversed. Pre-existing on `main`; the replay is simply the longest the
+  camera has ever moved while the HUD was not looking. Ticked now on the
+  non-fight path, suppressed in the lobby, and a replayed man's bar reads the
+  RECORDED health. Photographed: `.replay/shots/held-replay-1.png`.
+
+**The battery on the merged tip.** `replaytest` GREEN with no deferrals (first
+time), `deathcamtest` 45/45, `protocoltest` 81/81, `playtest` 37/37,
+`summaryflow` **15/15 with 2 not run — against a `main` control of 14/14 with 3
+not run, taken on the same box in the same window**, `gravitytest` PASS with the
+one owner's-call deferral (`ability -> rolling` 12.3°/frame against a 12° bar),
+`tsc` clean.
+
+**One thing this branch is measurably worse at, recorded rather than buried.**
+`hudspace --secs=25 --quality=high`, alternating paired runs:
+
+```
+                 num/num    name/name   num/name   num/bar
+  main   r1       5.47%       2.47%       0.00%     0.00%
+         r2       3.90%       1.59%       0.00%     0.00%
+  mw5    r1       3.15%       1.83%       0.10%     0.42%
+         r2      17.22%       2.93%       0.00%     0.45%
+```
+
+`name/name` and `num/num` overlap completely — no signal either way, and `num/num`
+is plainly load-bound. `num/bar` is the one consistent column: **0.00% on main
+twice, 0.4% on this branch twice.** That is ANY ink contact between a damage
+number and a health bar; more-than-a-quarter-buried is 0.00% on both. The cause is
+this branch's pose timing moving bodies slightly differently so numbers spawn at
+slightly different places. Not enough to hold the merge, and not something to
+discover later from a screenshot.
 ## OPEN — the Danelaw's rose is SETTLED; §1 is not, and the cause is now proven rather than argued — 20 Aug 2026
 
 **Row 9 of the table below is shipped.** `norse.wrap` `lo 0.16 -> 0.10, hi 0.42 -> 0.12`
@@ -6125,3 +6179,60 @@ commit the cap arrived in.
 **The process fault worth keeping:** a player-visible cut of damage numbers on screen from
 48 to 6 at `high` landed inside a commit whose title is about rulers. A change a player can
 see belongs in a commit that says so, whatever else is in the same push.
+
+---
+
+## `summaryflow`'s war-band veto check is a coin flip — 20 Aug 2026
+
+`tools/summaryflow.mjs:395 vetoCheck()` asserts *"a man lying dead does not
+perform"* and is called unconditionally at the end of `teamPhase`. It can only be
+judged when the stage left the LOCAL man dead. `teamPhase` fights a real 2v2 that
+nothing drives into the fire, so which band wins is the fight's business:
+
+* local man DEAD  — the row is not offered, `notOffered` is true, PASS.
+* local man STANDING — the row is correctly offered, the press is correctly
+  honoured, `refusals 0->0`, and the check FAILS on a build that is behaving.
+
+Observed on `mercyweight5`, run 2 of 2 in this window:
+`FAIL war band: a man lying dead does not perform — pressed, refusals 0->0;
+corpsesPerforming=0`, with the NOTE two lines above it reading *"after the
+rollback the row is OFFERED to a man the stage left standing"*. Run 1 of 2 passed
+it with the man left dead.
+
+This is the failure mode the same file already names in another place — *"it made
+summaryflow's war band check fail about half the time … the answer depended on
+which side the local man happened to be on"* — surviving in the one check that
+still assumes it. `corpsesPerforming === 0` is judgeable either way; the
+offered/refused half is not.
+
+**Not changed here.** The rule is never to touch a harness in the round that a
+branch needs it green, and this one failed on this branch in exactly the run that
+would have benefited. It is recorded so the next round can make the unjudgeable
+half a named skip — this file's own doctrine, "a skip is not a pass, so it is
+named, counted, and printed beside the score" — rather than a false red.
+
+---
+
+## `summaryflow` is flaky on a contended software rasteriser, on BOTH trees — 20 Aug 2026
+
+Round eleven's brief carried "**GREEN 14/14 on `origin/main`, run twice, alone, on
+the same box**". Three runs of `origin/main` (`2011c28`) in a fresh build in this
+window read:
+
+```
+  run 1   12/14 passed, 3 NOT RUN   exit 1
+  run 2   12/14 passed, 3 NOT RUN   exit 1
+  run 3   15/15 passed, 2 NOT RUN   exit 0
+```
+
+Runs 1 and 2 failed on the same two lines and for the same reason — the first
+summary frame jams the main thread, so the FIGHT AGAIN press landed at
+**19316 ms** and **15531 ms** with `state=lobby`, outside the server's ten-second
+window. That is the 8-25 s stall `summaryflow`'s own header documents. The result
+count is not fixed either: 14, 14, then 15, because the war-band flourish check is
+sometimes judgeable and sometimes a skip.
+
+The box was carrying `load average 10.13` on four cores with other agents' browsers
+on it. **The number "14/14" is not a property of `main`; it is a property of a
+quiet box.** Anything compared against it has to be run beside it, in the same
+window, which is what the R2 evidence on `mercyweight5` does.

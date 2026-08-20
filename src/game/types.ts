@@ -30,15 +30,15 @@ export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "tor
  * it; "fire" never does — nobody was swinging, so there is nothing to sever and
  * the body falls whole. Null on a man who is still standing.
  *
- * "finish" IS SENT BY THE SERVER AND WAS MISSING FROM THIS UNION. `engine.mjs`
- * has written `deathCause = finishing ? "finish" : "blow"` since the mercy rules
- * landed, with a comment beside it saying in as many words that "he was on the
- * ground and a man chose" is not the same death as "he was cut down on his
- * feet". The wire has been carrying a third value that this type said could not
- * exist, so every client narrowed it away and `anim.ts` played one collapse on
- * all three. Widened to what the sender actually sends.
+ * "finish" WAS THE THIRD VALUE AND IT IS GONE. It could only be produced by a
+ * man swung at while he lay inside a mercy window — `engine.mjs` wrote
+ * `deathCause = finishing ? "finish" : "blow"` — and MERCY OR FINISH was removed
+ * on the owner's report (`docs/MERCY-REMOVED.md`). Narrowed back to what the
+ * sender can still send, rather than left as a value no code path reaches: a
+ * union that admits an impossible case is the same defect as one that excludes
+ * a real one, and this file has now made both mistakes about the same name.
  */
-export type DeathCause = "blow" | "finish" | "fire";
+export type DeathCause = "blow" | "fire";
 /**
  * What a warrior's body is doing. The server owns every one of these and a
  * client may present them but never decide them.

@@ -62,7 +62,7 @@ ninety seconds, and it is the foundation the war layer sits on.
 | 2.3 | **Parry upgrade: animation you feel, plus a real riposte window** to capitalise with extra damage | NEW — the mastery ceiling |
 | 2.4 | **Satisfying combat sound** that complements the fighting | [ALREADY RAISED] `docs/SOUND.md`, still unbuilt |
 | 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | DONE — `src/game/deathcam.mjs`, `tools/deathcamtest.mjs` |
-| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | MOSTLY DONE, 13 Aug — see below |
+| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | **DONE, 20 Aug 2026** — the beat landed 13 Aug, the match-end hole closed and the slow-motion replay wired 20 Aug. See below |
 | 2.7 | **More blood, over the top** — spray and splatter | [ALREADY RAISED] `docs/GORE-DESIGN.md` |
 | 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | **DONE and WIRED.** `solidground.mjs` + `grounds.mjs` declarations, called twice a tick by `engine.mjs`; `tools/solidtest.mjs` 12/12. See the note below |
 
@@ -182,14 +182,47 @@ you the lobby orbit. The beat is the length of that window on purpose. The two
 constants are **not wired together** — `page.tsx` belongs to another unit — so
 `deathcamtest` reads that file and fails if they stop agreeing.
 
-**STILL OPEN, and it rides the harness's verdict line rather than hiding here:
-the death that ends the LAST round of a match.** `endRound` sets
-`state = "finished"` and calls `endMatch` in the same tick — there is no break —
-and `render/summary.ts` takes the lens for the victor's portrait, with
-`page.tsx` laying the results panel over it. Holding that back for two seconds
-is a change to the match-summary flow (`page.tsx`, `summaryflow`), not to the
-camera, and it belongs to whoever owns those files. Until then the last round
-ends on the portrait, which is *a* beat and not *the* beat.
+**THAT HOLE IS NOW CLOSED — 20 Aug 2026, see below.** It read: *"STILL OPEN, and
+it rides the harness's verdict line rather than hiding here: the death that ends
+the LAST round of a match. `endRound` sets `state = "finished"` and calls
+`endMatch` in the same tick — there is no break — and `render/summary.ts` takes
+the lens for the victor's portrait, with `page.tsx` laying the results panel over
+it. Holding that back for two seconds is a change to the match-summary flow
+(`page.tsx`, `summaryflow`), not to the camera, and it belongs to whoever owns
+those files."* The summary flow is exactly where it was fixed: `GameCanvas`
+withholds the tableau while a match-ending replay is running and `page.tsx`
+withholds the results panel with it.
+
+**20 Aug 2026 — and the owner asked for something better than a beat.** *"The
+final kill camera would be better as a slow-mo replay before the next round
+starts, and before a match ends too — skippable at end of match, just take them
+to the lobby."* `src/game/replay.mjs` and `tools/replaytest.mjs` are the answer
+and `docs/REPLAY.md` is the record: a ring of the fields `anim.ts` actually
+reads, 57,600 bytes allocated once with no per-frame garbage, played back at
+half speed from 0.92 s BEFORE the killing swing — which is the one thing the
+live camera cannot do, because it arms a frame after the blow has landed.
+Measured on the shipping build, the live round beat holds **0 frames** at match
+end and the replay holds **240**, which is this row's hole.
+
+**THE RENDER WIRING IS NOW LANDED, AND THE REASON GIVEN FOR NOT LANDING IT WAS
+FALSE.** This paragraph used to say *"There is no browser on the machine it was
+built on"*, and `docs/REPLAY.md` §5 said the same. There is one:
+`/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`,
+which launches and reports Chromium 141.0.7390.37. What is true is narrower and
+was never the claim: the Playwright package resolves a browser directory by
+version and asks for `chromium_headless_shell-1234`, so `chromium.launch()` with
+no arguments fails and every harness in this repository that calls it that way
+fails with it. An `executablePath` opens it. A refusal is only worth what its
+reason is worth, and this one's reason did not survive being checked.
+
+Wired 20 Aug 2026: the ring records one frame per snapshot off `wireEpoch`, the
+clock is asked every frame above the summary branch so the match-end edge is
+seen, playback replaces the posed bodies in the break, the animator alone takes
+the slowed `dt`, `onSever` is withheld so the arena is not sprayed twice, and
+the round camera now takes the lens at match end as well. `ROUND_HOLD_MS` is
+`REPLAY.wall * 1000` and `deathcamtest` gates the derivation, the containment,
+**and that `GameCanvas` imports the module at all** — that last check exists
+because its absence is the whole of the previous round's failure.
 
 ### WAVE 3 — balance and the enemy
 
@@ -200,7 +233,7 @@ ends on the portrait, which is *a* beat and not *the* beat.
 | 3.2b | **What the bot brain change did to the roster matrix** | `classmatrix --seed=4242`, 1000 bouts a cell, before and after. The verdict line is the SAME shape — 4 of 6 matchups decisively inside 30-70%, every class inside 40-60% of the field, 2 on the band edge — but the composition changed and the spread nearly doubled. Matchups: huscarl v warden **68.3% → 44.3%**, huscarl v berserker 65.5% → **70.7%**, huscarl v runekeeper 28.3% → 30.4%, warden v runekeeper 64.8% → 58.5%, warden v berserker 44.5% → 54.1%, runekeeper v berserker 52.8% → 47.7%. Against the field: huscarl 53.9 → 48.2, warden 46.6 → **55.7**, runekeeper 52.9 → 52.6, berserker 46.3 → **42.6**; SPREAD 7.5 pts [4.0-11.1] → **13.1 pts [9.6-16.7]**. **NOT ONE NUMBER ON THE SHEET MOVED.** The damage was real and it reproduces: re-measured 14 Aug on the committed sheet across three master seeds, spread **13.1 / 12.5 / 12.7**, with `huscarl v berserker` 70.7/70.3/69.0 and `huscarl v runekeeper` 30.4/31.3/31.3 — two matchups on the bar, one each side. **THE MECHANISM THIS ENTRY ASSERTED IS WRONG, AND IT IS RETRACTED HERE RATHER THAN QUIETLY EDITED.** It said bots "now punish recovery in proportion to skill" and that the long-stroke class pays for it. `classmatrix` fights at **`warrior`**, and a warrior's recovery punish went from **certain** (`aiSkill > 0.6`) to **0.32** — the opposite direction. Pulled, 400 bouts a cell, seed 4242, berserker against the field: shipping brain **44.0%**; graded punish reverted to the old boolean **37.9%** (he gets *worse*); temperament removed **42.3%**; phantom guard restored **43.2%**; all three reverted together **40.4%**. Not one of them raises him and all three together do not reach 46.3. **The cause is not among the three edits this entry names, and no replacement mechanism is asserted, because none was measured.** The useful half is the negative: do not tune against that story. Closed by 3.2c |
 | 3.2c | **Re-level the roster under the bot brain that now ships** | **DONE, 14 Aug 2026 — and the debt 3.2b declared is paid.** Wave 3 balanced the roster against a `botThink` that Wave 4 replaced, so the balance was certified against an instrument that no longer exists. Re-measured first on the committed sheet (spread 13.1/12.5/12.7, two matchups on the bar), then re-levelled. **FOUR NUMBERS MOVED, ALL IN ONE COLUMN:** huscarl `maxHealth` 158→**162**, berserker 126→**134**, warden 114→**108**, runekeeper 96→**92**. Nothing else — no stroke, no damage, no reach, no arc, no guard, no stamina, no stride — so every ratio the weight pass and the class rework are documented on survives untouched, and the four-shape gate is unmoved by construction. Health was chosen because it is one of only **two** axes this ruler can read (see the inert-lever table above); re-levelling on `blockReduction` or `moveSpeed` would have been a balance claim with no measurement under it. **RESULT: six of six matchups DECISIVELY inside 30-70% with no EDGE cell and no deferral**, against four-of-six-plus-two-on-the-bar before. Median TTK still runs 8.7 s (runekeeper mirror) to 23.0 s (huscarl mirror), so the spread that is a feature is intact. **The one move to argue with is the runekeeper's four health**, which goes against the owner's own words about that class — it is called out in `engine.mjs` rather than buried, he keeps the best damage rate in the game untouched, and giving it back costs `huscarl v runekeeper` about three points, which the cell can now afford. **VERIFIED ON TEN MASTER SEEDS DECLARED BEFORE THE RUN** (20260813, 424242, 90210, 4242, 1, 7, 31337, 555555, 987654321, 20260814 — 160,000 duels), **and the WORST is quoted, not the best: every seed PASS, zero EDGE cells on all ten, lowest interval bound 35.7 against a 30 bar, highest 69.0 against a 70 bar, largest field spread 4.8 points, every class between 47.2% and 52.9% on every seed.** The hot cell is `huscarl v berserker` — 65.2-67.0 across the ten, worst upper bound 69.0, so inside on every seed but by one point on the worst draw. Costed next move if the band is ever tightened: berserker `maxHealth` 134 → 137, buying ~2 points at the top for ~2 at the bottom where `runekeeper v berserker` has 5 to give. Not taken: it trades a measured margin for a predicted one |
 | 3.3 | **Weapon styles and looks as armoury purchases** | NEW |
-| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | **DONE on the server**, gated by `tools/mercytest.mjs`. The UI is not built — see the note below |
+| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | **BUILT, PLAYED, REMOVED 20 Aug 2026.** It froze men upright mid-round and it is Roman arena procedure, not Anglo-Saxon. Full record and the two reasons: `docs/MERCY-REMOVED.md`. **Do not re-open this row without reading it** |
 
 ### 3.1 and 3.4, as built
 
@@ -451,22 +484,20 @@ scroller, 16 of 16 bars are fully clear of it — so it is a scroll position, no
 covered screen, and it is recorded here so the next person to shoot this screen
 scrolls before they judge it.
 
-**Mercy or Finish is on the server and has no UI.** A killing blow puts a man
-down instead of killing him; `mortal`, `mercyTimer` and `mercyTo` ride the wire;
-`downed` carries a witness count taken from the room (0 in a duel, 6 in a full
-moot — never a decorative seven); the window drains for 2.5 s; letting it run
-out sends `spared` and he rises on a quarter bar. A man is spared **once per
-round**, which is both the design statement and what guarantees a round of
-merciful men still ends. The outcome is a **reputation** — `menSpared` /
-`menFinished` on the results table — chosen over a remembering AI (evaporates at
-the bell), a war-layer hook (Wave 4 does not exist yet) and a private profile
-mark (seen by nobody, and §8's whole thesis is that the pressure is social).
+**Mercy or Finish was removed on 20 Aug 2026 and the reasoning is in
+`docs/MERCY-REMOVED.md`.** It was on the server, it had no UI, and the owner
+found it by playing: it fired on every player at 0 health rather than on a last
+man standing, in the middle of live rounds, and it parked the floor clock so the
+body was drawn standing upright for 2.5 s with no vote to make. It is also
+Roman — *missio*, the editor and the crowd — where the Anglo-Saxon thing,
+`grið` / `feorhgrið`, is quarter granted by a lord or asked by a man who yields.
 
-**NOT built, and these are the next items:** the HUD for the window (it must be
-a drain and never a digit — the protocol deliberately ships no countdown), a
-kill-feed line for a sparing, profile persistence for the two counters, any
-war-layer consequence, and any bot policy that *chooses* — bots finish because
-they keep swinging, not because they decided to.
+The mechanic is gone. Three of its ideas are not, and they are worth keeping in
+view when this row is next read: the pressure stated **socially** rather than as
+a meter, a window that **drains** rather than counting down (the riposte already
+does this), and **the absence of an act being an act the game names**. If a
+yielding mechanic is ever wanted, build `grið`: the beaten man asks and a lord
+grants. That is player-initiated, it needs no timer, and it freezes nobody.
 
 ### WAVE 4 — THE WAR (the spine)
 
