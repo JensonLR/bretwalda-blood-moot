@@ -154,15 +154,16 @@
 // ============================================================
 import * as THREE from "three";
 import { chromium } from "playwright";
-import { spawnSync, spawn } from "child_process";
-import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { spawn } from "child_process";
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import { deflateSync } from "zlib";
 import { makeBand, calibrate, roseShare, arcTo, hueOfLab, labOf, chromaOf, ARC, ROSE_L, MUST_FLAG, MUST_CLEAR } from "./lib/roseband.mjs";
+import { rasterise, surfaceMasks, patchLab, MIN_PIXELS } from "./lib/surfacemask.mjs";
+import { loadClient } from "./lib/clientmodule.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const WORK = resolve(ROOT, ".factionread");
 const T0 = Date.now();
 
 const argv = process.argv.slice(2);
@@ -190,30 +191,14 @@ const die = (m) => { console.error(`[faction] ${m}`); process.exit(2); };
 // this — a harness that keeps its own copy of a constant audits the constant it
 // was written against.
 // ============================================================
-rmSync(WORK, { recursive: true, force: true });
-mkdirSync(WORK, { recursive: true });
-const tsc = spawnSync("npx", ["tsc", "src/game/client/render/anim.ts",
-  "--outDir", ".factionread", "--target", "es2022", "--module", "esnext",
-  "--moduleResolution", "bundler", "--skipLibCheck"], { cwd: ROOT, encoding: "utf8" });
-const emitted = [];
-let charJs = null, animJs = null;
-const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) {
-  const f = resolve(d, e.name);
-  if (e.isDirectory()) walk(f);
-  else if (e.name.endsWith(".js")) {
-    emitted.push(f);
-    if (e.name === "characters.js") charJs = f;
-    if (e.name === "anim.js") animJs = f;
-  }
-} };
-if (existsSync(WORK)) walk(WORK);
-for (const f of emitted) {
-  const src = readFileSync(f, "utf8");
-  const fixed = src.replace(/(from\s+")(\.[^"]*?)(")/g, (m, a, b, c) => (b.endsWith(".js") ? m : a + b + ".js" + c));
-  if (fixed !== src) writeFileSync(f, fixed);
-}
-if (!charJs) die(`tsc emitted nothing:\n${tsc.stdout || ""}${tsc.stderr || ""}`);
-const CH = await import(pathToFileURL(charJs).href);
+let CH = null, ANIM = null;
+try {
+  // The emit-and-import lives in `tools/lib/clientmodule.mjs`: `tools/vatprobe.mjs`
+  // needs the identical compile to cut the identical per-surface masks, and two
+  // harnesses compiling the client two ways is a difference nobody can see.
+  const loaded = await loadClient(ROOT, ".factionread");
+  CH = loaded.CH; ANIM = loaded.ANIM;
+} catch (e) { die(String(e.message || e)); }
 const {
   ARMOURY, buildCharacter, buildShield, buildWeaponForClass, defaultAppearance,
   shieldBoard, FACTION_FIELD, PEOPLE_IDS, TEAM_FIELD,
@@ -222,7 +207,6 @@ const {
 if (!finishKit || !kitFor || !cloakFor)
   die("characters.ts does not export finishKit / kitFor / cloakFor — §5 must measure the SHIPPED resolvers, not a copy of them");
 if (!FACTION_FIELD || !PEOPLE_IDS) die("characters.ts does not export FACTION_FIELD / PEOPLE_IDS — the four colours this harness must not guess");
-const ANIM = animJs && existsSync(animJs) ? await import(pathToFileURL(animJs).href) : null;
 const CLASS_TUNIC = ANIM?.CLASS_TUNIC ?? null;
 if (!CLASS_TUNIC) die("render/anim.ts does not export CLASS_TUNIC — the accent this harness must not guess");
 
@@ -256,95 +240,19 @@ function framing(turnDeg) {
 }
 
 /**
- * Rasterises a scene graph into an albedo buffer and a coverage mask. Lifted
- * unchanged from `tools/teamread.mjs` — same lens algebra, same nearest-surface
- * z test, same linear-light material read.
+ * Rasterises a scene graph into an albedo buffer and a coverage mask. The lens
+ * algebra is `tools/teamread.mjs`'s — same nearest-surface z test, same
+ * linear-light material read — and it now lives in `tools/lib/surfacemask.mjs`
+ * because §7.1b and `tools/vatprobe.mjs` both need the same rasterisation to
+ * carry one more thing with it: WHICH MESH won each pixel. That is what turns a
+ * coverage mask into six per-surface masks, and a mask written out twice is a
+ * mask that gets corrected once. docs/PROCESS.md failure mode 3.
+ *
+ * The return shape is unchanged for every existing caller — `{ cov, rgb, area,
+ * mean }` — with `mesh` and `meshHex` added beside them.
  */
 function raster(root, turnDeg) {
-  const W = LENS.w, H = LENS.h;
-  const f = framing(turnDeg);
-  const [ex, ey, ez] = f.eye, [tx, ty, tz] = f.target;
-  let fx = tx - ex, fy = ty - ey, fz = tz - ez;
-  const fl = Math.hypot(fx, fy, fz); fx /= fl; fy /= fl; fz /= fl;
-  let sx = -fz, sy = 0, sz = fx;
-  const sl = Math.hypot(sx, sy, sz); sx /= sl; sy /= sl; sz /= sl;
-  const vx = sy * fz - sz * fy, vy = sz * fx - sx * fz, vz = sx * fy - sy * fx;
-  const tanH = Math.tan((LENS.fov * Math.PI) / 360);
-  const aspect = LENS.w / LENS.h;
-
-  const depth = new Float32Array(W * H).fill(Infinity);
-  const cov = new Uint8Array(W * H);
-  const rgb = new Float32Array(W * H * 3);
-  root.rotation.y = f.rot;
-  root.updateMatrixWorld(true);
-
-  const NEAR = 0.05;
-  const A = [0, 0, 0], B = [0, 0, 0], C = [0, 0, 0];
-  const toScreen = (px, py, pz, out) => {
-    const dx = px - ex, dy = py - ey, dz = pz - ez;
-    const cz = dx * fx + dy * fy + dz * fz;
-    out[2] = cz;
-    if (cz < NEAR) return false;
-    out[0] = ((dx * sx + dy * sy + dz * sz) / (cz * tanH * aspect)) * 0.5 * W + W * 0.5;
-    out[1] = H * 0.5 - ((dx * vx + dy * vy + dz * vz) / (cz * tanH)) * 0.5 * H;
-    return true;
-  };
-
-  root.traverse((o) => {
-    if (!o.isMesh || !o.visible) return;
-    const g = o.geometry;
-    const pos = g.attributes?.position;
-    if (!pos) return;
-    const col = o.material?.color;
-    if (!col) return;
-    const cr = col.r, cg = col.g, cb = col.b;
-    const idx = g.index;
-    const m = o.matrixWorld.elements;
-    const n = idx ? idx.count : pos.count;
-    const pa = pos.array, ia = idx?.array;
-    for (let t = 0; t < n; t += 3) {
-      let ok = true;
-      for (let k = 0; k < 3 && ok; k++) {
-        const j = ia ? ia[t + k] : t + k;
-        const x = pa[j * 3], y = pa[j * 3 + 1], z = pa[j * 3 + 2];
-        ok = toScreen(
-          m[0] * x + m[4] * y + m[8] * z + m[12],
-          m[1] * x + m[5] * y + m[9] * z + m[13],
-          m[2] * x + m[6] * y + m[10] * z + m[14],
-          k === 0 ? A : k === 1 ? B : C);
-      }
-      if (!ok) continue;
-      const minx = Math.max(0, Math.floor(Math.min(A[0], B[0], C[0])));
-      const maxx = Math.min(W - 1, Math.ceil(Math.max(A[0], B[0], C[0])));
-      const miny = Math.max(0, Math.floor(Math.min(A[1], B[1], C[1])));
-      const maxy = Math.min(H - 1, Math.ceil(Math.max(A[1], B[1], C[1])));
-      if (minx > maxx || miny > maxy) continue;
-      const d = (B[0] - A[0]) * (C[1] - A[1]) - (C[0] - A[0]) * (B[1] - A[1]);
-      if (d === 0) continue;
-      for (let y = miny; y <= maxy; y++) {
-        for (let x = minx; x <= maxx; x++) {
-          const px = x + 0.5, py = y + 0.5;
-          const w0 = ((B[0] - A[0]) * (py - A[1]) - (px - A[0]) * (B[1] - A[1])) / d;
-          const w1 = ((px - A[0]) * (C[1] - A[1]) - (C[0] - A[0]) * (py - A[1])) / d;
-          const w2 = 1 - w0 - w1;
-          if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-          const z = w2 * A[2] + w1 * B[2] + w0 * C[2];
-          const o2 = y * W + x;
-          if (z < depth[o2]) {
-            depth[o2] = z; cov[o2] = 1;
-            rgb[o2 * 3] = cr; rgb[o2 * 3 + 1] = cg; rgb[o2 * 3 + 2] = cb;
-          }
-        }
-      }
-    }
-  });
-
-  let area = 0, r = 0, g = 0, b = 0;
-  for (let i = 0; i < W * H; i++) {
-    if (!cov[i]) continue;
-    area++; r += rgb[i * 3]; g += rgb[i * 3 + 1]; b += rgb[i * 3 + 2];
-  }
-  return { cov, rgb, area, mean: area ? [r / area, g / area, b / area] : [0, 0, 0] };
+  return rasterise(root, LENS, turnDeg);
 }
 
 // ============================================================
@@ -448,6 +356,42 @@ const CLOAKS = slotOf("cloak").options.map((o) => ({ label: o.label, value: Stri
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 const PEOPLES = [...PEOPLE_IDS];
 const SEED = 13;
+
+// ============================================================
+// THE DYED SURFACES, ASKED FOR RATHER THAN LISTED
+//
+// §5 has always probed this — "a surface the vat does not move carries the
+// whole of its unsworn spacing for free" — and §7.1b needs the same list one
+// scope up, so it is computed once here and both read it. The probe follows the
+// code: if a future change starts or stops dyeing something, the list moves
+// with it and no comment has to be believed.
+//
+// `fitting` comes out UNTOUCHED on this tree and is carried through the lit
+// tables anyway, marked so, because an undyed surface is a free per-frame
+// control: whatever the bonfire does to a Danelaw's buckles it does to an
+// unsworn man's, and a per-surface reading that moved on the FITTING would be
+// telling you about the light and not about the vat.
+//
+// The linen shirt and sleeves are dyed by `wornBy` and are not a `FinishKit`
+// key at all, so they are added by hand — the same way §5.3 adds them.
+// ============================================================
+const LINEN_SRC = 0xc2b69c;
+const DYED_SURFACES = (() => {
+  const probe = finishKit(FINISHES[0].value);
+  return Object.keys(probe).filter((k) => PEOPLES.some((p) => kitFor(probe, "none", p)[k] !== probe[k]));
+})();
+const UNDYED_SURFACES = (() => {
+  const probe = finishKit(FINISHES[0].value);
+  return Object.keys(probe).filter((k) => !DYED_SURFACES.includes(k));
+})();
+/** Every surface a mask is cut for: the dyed ones, the linen, and the undyed control. */
+const MASK_SURFACES = [...DYED_SURFACES, "linen", ...UNDYED_SURFACES];
+/** Gated per surface. The undyed ones are reported and not gated. */
+const GATED_SURFACES = [...DYED_SURFACES, "linen"];
+const kitWithLinen = (finishValue, people) => ({
+  ...kitFor(finishKit(finishValue), "none", people),
+  linen: CH.wornBy(LINEN_SRC, "none", people, "linen"),
+});
 
 const build = (cls, finish, cloak, people, team = "none") => buildCharacter(
   cls,
@@ -1177,16 +1121,116 @@ let laddering = null;
   // move is the whole fix to the instrument: the seven stored numbers are the
   // same seven numbers whatever a man swore to, so the shop's existing gate
   // could not have seen this and did not.
-  check(`5.1 NO TWINS — no two of the seven finishes are one swatch (ΔE ${JND}) under any livery`,
+  check(`5.1 NO TWINS, KIT MEAN — no two of the seven finishes are one swatch (ΔE ${JND}) under any livery, averaged over the ${SURFACES.length} dyed surfaces`,
     sameColour.length === 0,
     sameColour.length ? `${sameColour.length} pairs below a JND, worst ΔE ${worstAll.toFixed(2)} (${worstAllAt})`
       : `worst pair of all, under any livery, ΔE ${worstAll.toFixed(2)} — ${worstAllAt}`,
     sameColour);
-  check("5.2 NO REFUND — no paid finish is one swatch with the FREE one under any livery",
+  check("5.2 NO REFUND, KIT MEAN — no paid finish is one swatch with the FREE one under any livery, averaged over the dyed surfaces",
     freeTwins.length === 0,
     freeTwins.length ? `${freeTwins.length} paid rungs collapse onto Rough Iron (0g)`
       : `worst paid-against-free pair ΔE ${worstFree.toFixed(2)}`,
     freeTwins);
+
+  // ==========================================================================
+  // 5.1b / 5.2b — THE SAME TWO RULES, PER SURFACE, BECAUSE THE MEAN CANNOT SEE
+  //
+  // THE BLINDNESS THIS CLOSES IS THIS SECTION'S OWN AND IT IS ONE LINE LONG.
+  // `kitDE` divides by `SURFACES.length`. Six surfaces, so a surface that
+  // collapses ALL THE WAY to ΔE 0.00 costs the mean at most one sixth of what
+  // it was worth — and the mean is measured against a bar the unsworn shop only
+  // clears by 1.85 points in the first place. §5.0's straw vat flattens all six
+  // at once and is therefore caught; a vat that flattens ONE is not.
+  //
+  // That is not a hypothetical. On the tree this was written on, the Saxon's
+  // Rough Iron (0g) byrnie and his Blackened Steel (110g) byrnie are the SAME
+  // HEX — ΔE 0.00, a 110 gold refund on the largest surface a huscarl wears —
+  // and §5.1 above reports PASS. The gate titled "THE PAID LADDER SURVIVES
+  // SWEARING" was green about a byte-identical byrnie.
+  //
+  // WHY THE BAR IS NOT A NEW ONE. Both rules below are `cosmetictest`'s own,
+  // the same two the kit mean is already gated on, asked of one surface at a
+  // time. And the UNSWORN column is printed beside every livery precisely so
+  // nobody has to take that on trust: main's own shop has NO pair of finishes
+  // within a JND on ANY single dyed surface, and its worst single-surface pair
+  // anywhere is the hide at ΔE 7.18. So this is main's floor applied per
+  // surface, exactly as §5.1 is main's floor applied to the mean — not a bar
+  // this file invented to fail a tree with.
+  // ==========================================================================
+  const surfDE = (ka, kb, k) => dE(lab(ka[k]), lab(kb[k]));
+
+  // ---- §5.0b THE CONTROL, AND IT IS THE MEAN THAT IS ON TRIAL --------------
+  //
+  // docs/PROCESS.md R2. Take the shop's own two finishes, unsworn, and give the
+  // dearer one the cheaper one's BYRNIE — one surface collapsed to nothing,
+  // five untouched. If the kit mean still clears `LADDER_DE` on that kit, the
+  // mean is proven blind to a refunded byrnie, and every green §5.1 above is
+  // green for a reason that has nothing to do with the mail. It is a control
+  // and not a code path: nothing in `src/` builds this man.
+  {
+    const A = FINISH_ROWS[0], B = FINISH_ROWS[FINISH_ROWS.length - 1];
+    const ka = kitFor(finishKit(A.value), "none", "none");
+    const kb = { ...kitFor(finishKit(B.value), "none", "none"), mail: ka.mail };
+    const mean = kitDE(ka, kb), mail = surfDE(ka, kb, "mail");
+    check(`5.0b CONTROL — the KIT MEAN cannot see a byte-identical byrnie (${A.label} ${A.cost}g vs ${B.label} ${B.cost}g with one mail between them)`,
+      mail === 0 && mean >= LADDER_DE,
+      `mail ΔE ${mail.toFixed(2)} — one swatch — while the kit mean reads ΔE ${mean.toFixed(2)}, over the ${LADDER_DE} bar. The mean is the instrument that is blind, not the vat.`);
+  }
+
+  console.log("");
+  console.log(`  PER SURFACE — every one of the 21 finish pairs, on ONE surface at a time. "twins" is ΔE < ${JND}.`);
+  console.log("");
+  console.log(`  livery    surface    min ADJ    min of 21   pairs < ${LADDER_DE}   TWINS < ${JND}   the closest pair`);
+  console.log("  ------------------------------------------------------------------------------------------------");
+  const surfTwins = [];      // GATED — 5.1b
+  const surfFreeTwins = [];  // GATED — 5.2b
+  const perSurface = {};
+  for (const people of ["none", ...PEOPLES]) {
+    const kits = FINISH_ROWS.map((f) => ({ ...f, kit: kitFor(finishKit(f.value), "none", OFF ? "none" : people) }));
+    for (const k of SURFACES) {
+      let adjMin = Infinity, allMin = Infinity, allMinAt = "", under = 0, twins = 0;
+      for (let i = 0; i < kits.length; i++) {
+        for (let j = i + 1; j < kits.length; j++) {
+          const a = kits[i], b = kits[j];
+          const d = surfDE(a.kit, b.kit, k);
+          if (d < allMin) { allMin = d; allMinAt = `${a.label} vs ${b.label}`; }
+          if (j === i + 1 && d < adjMin) adjMin = d;
+          if (d < LADDER_DE) under++;
+          if (d < JND) {
+            twins++;
+            if (people !== "none") surfTwins.push(`${people} ${k}: ${a.label} (${a.cost}g) and ${b.label} (${b.cost}g) are ΔE ${d.toFixed(2)} apart — ${hx(a.kit[k])} vs ${hx(b.kit[k])}`);
+          }
+          if ((a.cost === 0 || b.cost === 0) && d < JND && people !== "none") {
+            const paid = a.cost === 0 ? b : a, free = a.cost === 0 ? a : b;
+            surfFreeTwins.push(`${people} ${k}: ${paid.label} costs ${paid.cost}g and its ${k} is ΔE ${d.toFixed(2)} from the FREE ${free.label}'s — ${hx(free.kit[k])} vs ${hx(paid.kit[k])}`);
+          }
+        }
+      }
+      perSurface[`${people}|${k}`] = { adjMin, allMin, allMinAt, under, twins };
+      console.log(`  ${people.padEnd(8)}  ${k.padEnd(9)} ${adjMin.toFixed(2).padStart(8)} ${allMin.toFixed(2).padStart(11)} ${String(under).padStart(11)} ${String(twins).padStart(12)}   ${allMinAt}`);
+    }
+    console.log("");
+  }
+  const unswornWorstSurface = SURFACES.reduce((m, k) => Math.min(m, perSurface[`none|${k}`].allMin), Infinity);
+  const unswornTwins = SURFACES.reduce((m, k) => m + perSurface[`none|${k}`].twins, 0);
+  note(`THE UNSWORN COLUMN IS THE CONTROL: ${unswornTwins} twins over ${SURFACES.length} surfaces x 21 pairs, worst single-surface pair anywhere ΔE ${unswornWorstSurface.toFixed(2)}. That is the floor these two gates are set at.`);
+  const swornWorstSurface = SURFACES.reduce((m, k) => Math.min(m, ...PEOPLES.map((p) => perSurface[`${p}|${k}`].allMin)), Infinity);
+
+  for (const t of surfTwins.slice(0, 12)) note(`TWIN   ${t}`);
+  if (surfTwins.length > 12) note(`... and ${surfTwins.length - 12} more`);
+
+  check(`5.1b NO TWINS PER SURFACE — no two of the seven finishes are one swatch (ΔE ${JND}) on any single dyed surface under any livery`,
+    surfTwins.length === 0,
+    surfTwins.length
+      ? `${surfTwins.length} surface-pairs below a JND across the ${PEOPLES.length} peoples, worst ΔE ${swornWorstSurface.toFixed(2)} — against ${unswornTwins} and ΔE ${unswornWorstSurface.toFixed(2)} for the same shop unsworn`
+      : `worst single-surface pair under any livery ΔE ${swornWorstSurface.toFixed(2)}, against ${unswornWorstSurface.toFixed(2)} unsworn`,
+    surfTwins);
+  check("5.2b NO REFUND PER SURFACE — no paid finish is one swatch with the FREE one on any single dyed surface under any livery",
+    surfFreeTwins.length === 0,
+    surfFreeTwins.length
+      ? `${surfFreeTwins.length} paid surfaces collapse onto the FREE ${FINISH_ROWS.find((f) => f.cost === 0)?.label ?? "0g"}'s own`
+      : "no paid surface reads as the issued one",
+    surfFreeTwins);
 
   // ---- REPORTED, NOT GATED, AND THE ARGUMENT IS WRITTEN OUT ------------------
   //
@@ -1499,14 +1543,103 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
   }
 
   const CLIP_BEARINGS = BEARINGS;
+
   /**
-   * The mask, off the rasteriser, at the capture's own scale. §0.3 has already
-   * asserted that a livery moves NO geometry, so ONE mask per class and bearing
-   * serves all five liveries and the control — which is also why a mask can be
-   * used at all: if a people moved a triangle this denominator would be a
-   * different denominator for each of them.
+   * THE MASK, AND IT WAS THE WRONG MAN.
+   *
+   * §0.3 has asserted that a livery moves NO geometry, so ONE mask per class
+   * and bearing serves all five liveries and the control — which is also why a
+   * mask can be used at all: if a people moved a triangle this denominator
+   * would be a different denominator for each of them.
+   *
+   * WHAT THIS LINE USED TO BE, AND WHY IT WAS WRONG. It read
+   *
+   *     raster(build(cls, FINISHES[0].value, "red", "none").group, turn).cov
+   *
+   * — `defaultAppearance`'s dress, which for a huscarl is a NASAL HELM and a
+   * RED CLOAK. The page stages `cardPose`, whose `AUDIT_DRESS` is bare-headed
+   * and cloakless on purpose, so every `% of the man` in §6 and §7 was taken
+   * over a silhouette carrying a helmet and a cloak that are not in the frame.
+   * Measured on this tree, at the three bearings of the plan, that mask is
+   * 20.3% / 25.8% / 32.8% larger than the man actually captured. A denominator
+   * a third too big is a gate a third too quiet, and it is exactly the shape of
+   * dilution §7.1b below exists to end — so it is fixed here rather than noted.
+   *
+   * THE FIX IS NOT A SECOND COPY OF THE DRESS. `/shot` publishes the appearance
+   * it staged, slot for slot, on `window.__shotSubject`; the mask is built from
+   * THAT, and §6.0c asserts every capture in the run was dressed the same way.
+   * A harness that kept its own copy of the base dress would audit the dress it
+   * was written against — docs/PROCESS.md failure mode 3, one more time.
    */
-  const maskFor = (cls, turn) => raster(build(cls, FINISHES[0].value, "red", "none").group, turn).cov;
+  const SUBJECT_FIELD = {
+    helm: "helm", hair: "hairStyle", hairColor: "hairColor",
+    beard: "beardStyle", beardColor: "beardColor",
+    cloak: "cloak", armor: "armorColor", warPaint: "warPaint",
+  };
+  {
+    const slots = ARMOURY.map((x) => x.slot).sort().join(",");
+    const known = Object.keys(SUBJECT_FIELD).sort().join(",");
+    if (slots !== known) die(`the shop has slots this harness cannot stage a mask from: ARMOURY [${slots}] vs [${known}]`);
+    const fields = Object.keys(defaultAppearance(SHOP_CLASS));
+    for (const f of Object.values(SUBJECT_FIELD)) if (!fields.includes(f)) die(`Appearance has no field "${f}" — the mask would be built from a default`);
+  }
+  /** The appearance `/shot` says it staged, as `buildCharacter` wants it. */
+  const apFromSubject = (subject, people) => {
+    const ap = { ...defaultAppearance(SHOP_CLASS) };
+    for (const [slot, field] of Object.entries(SUBJECT_FIELD)) {
+      const v = subject?.[slot];
+      if (v === undefined || v === null) die(`the page published no ${slot} for the subject — the mask cannot be the staged man`);
+      ap[field] = /^0x[0-9a-f]+$/i.test(String(v)) ? Number(v) : String(v);
+    }
+    ap.people = people ?? String(subject.people ?? "none");
+    return ap;
+  };
+  /**
+   * The dress every capture in this run is checked against. Set from the
+   * warm-up capture, which is the first thing the page stages, so it is the
+   * page's own answer and not this file's.
+   */
+  let STAGED_SUBJECT = null;
+  const dressDrift = [];
+  const stagedDress = (subject) => Object.fromEntries(Object.keys(SUBJECT_FIELD).filter((k) => k !== "armor").map((k) => [k, String(subject?.[k])]));
+  const sameDress = (subject) => {
+    const a = stagedDress(STAGED_SUBJECT), b = stagedDress(subject);
+    for (const k of Object.keys(a)) if (a[k] !== b[k]) return `${k}: staged ${a[k]}, this frame ${b[k]}`;
+    return null;
+  };
+  const maskCache = new Map();
+  const maskFor = (cls, turn) => {
+    if (!STAGED_SUBJECT) die("maskFor was asked for a mask before the page had staged anybody");
+    const key = `${cls}|${turn}`;
+    if (!maskCache.has(key)) {
+      const ap = apFromSubject(STAGED_SUBJECT, "none");
+      maskCache.set(key, raster(buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, undefined, "high", SEED, "none").group, turn).cov);
+    }
+    return maskCache.get(key);
+  };
+
+  /**
+   * THE PER-SURFACE MASKS — six byrnie-and-tunic-and-wraps masks where there
+   * used to be one warrior-shaped one. `tools/lib/surfacemask.mjs` carries the
+   * argument; what matters here is that the labelling is done off the FOUR
+   * VATS whatever `--off` is doing, because a mask is a fact about geometry and
+   * geometry is what `--off` cannot change.
+   */
+  const surfCache = new Map();
+  const masksFor = (cls, turn, finish) => {
+    if (!STAGED_SUBJECT) die("masksFor was asked for a mask before the page had staged anybody");
+    const key = `${cls}|${turn}|${finish.id}`;
+    if (!surfCache.has(key)) {
+      const buildGroup = (people) => buildCharacter(cls,
+        { ...apFromSubject(STAGED_SUBJECT, people), armorColor: finish.value },
+        CLASS_TUNIC[cls] ?? 0x5a4a2c, undefined, "high", SEED, "none").group;
+      const r = surfaceMasks({ buildGroup, kitOf: (p) => kitWithLinen(finish.value, p),
+        peoples: PEOPLES, surfaces: MASK_SURFACES, lens: LENS, turnDeg: turn });
+      if (r.problems.length) die(`the per-surface mask cannot be trusted at ${key}: ${r.problems[0]}`);
+      surfCache.set(key, { masks: r.masks, counts: r.counts });
+    }
+    return surfCache.get(key);
+  };
 
   const server = await bootServer();
   let browser = null, page = null;
@@ -1521,11 +1654,16 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     const capture = async (q) => {
       await page.goto(`${server.origin}/shot?${q}`, { waitUntil: "domcontentloaded", timeout: 300000 });
       await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string", null, { timeout: 300000 });
-      const staged = await page.evaluate(() => ({ subject: window.__shotSubject ?? null, refused: window.__shotError ?? null }));
-      if (staged.refused) die(`the page refused the stage: ${staged.refused} (${q})`);
+      const got = await page.evaluate(() => ({ subject: window.__shotSubject ?? null, refused: window.__shotError ?? null }));
+      if (got.refused) die(`the page refused the stage: ${got.refused} (${q})`);
+      // EVERY FRAME IS CHECKED AGAINST THE DRESS THE RUN STARTED IN. The mask
+      // below is built from the warm-up's published appearance; a capture that
+      // came back wearing a different helm or cloak would be measured through a
+      // silhouette that is not its own, which is the defect this run just fixed.
+      if (STAGED_SUBJECT) { const why = sameDress(got.subject); if (why) dressDrift.push(`${q} — ${why}`); }
       const buf = await page.screenshot({ timeout: 300000 });
       shots++;
-      return { subject: staged.subject, px: await page.evaluate(async (b64) => {
+      return { subject: got.subject, px: await page.evaluate(async (b64) => {
         const img = new Image();
         await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = "data:image/png;base64," + b64; });
         const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
@@ -1553,7 +1691,13 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // pass of procedural texture generation, and neither is on the clock. Same
     // reasoning, and the same measurement, as `tools/cosmetictest.mjs`.
     console.log("        warming the page (one capture, discarded)");
-    await capture(stageQ(SHOP_CLASS, 0, "none", ISSUED));
+    {
+      const w = await capture(stageQ(SHOP_CLASS, 0, "none", ISSUED));
+      STAGED_SUBJECT = w.subject;
+      note(`the page staged: ${Object.entries(stagedDress(STAGED_SUBJECT)).map(([k, v]) => `${k}=${v}`).join("  ")}`);
+      note("EVERY MASK IN §6 AND §7 IS BUILT FROM THAT LINE. It used to be built from defaultAppearance —");
+      note("a nasal helm and a red cloak the page does not stage — and was 20-33% too big at these bearings.");
+    }
 
     // §6.2 — THE FLOOR, MEASURED. The clock is fixed and the die is seeded, and
     // this is what proves it: the same subject twice, through the whole capture
@@ -1613,6 +1757,16 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     }
     console.log("");
     for (const o of over.slice(0, 10)) note(`BLOWN   ${o}`);
+    // ---- §6.0c THE MASK IS THE STAGED MAN, AND IT IS CHECKED PER FRAME -----
+    // Threshold-free: `/shot` publishes the appearance it staged and every
+    // capture above was compared against the warm-up's, slot for slot. A run
+    // where one frame arrived in a different helm would be a run whose
+    // denominators are not each other's, and that is worth failing outright
+    // rather than absorbing into a percentage.
+    check("6.0c STAGED — every capture so far wore the dress the mask is cut from, slot for slot",
+      dressDrift.length === 0,
+      dressDrift.length ? `${dressDrift.length} of ${shots} captures came back in a different dress` : `${shots} captures, one dress`,
+      dressDrift);
     check(`6.1 CLIP — no livery blows a channel past the shop's own dearest gold (${bar.toFixed(2)}% of the man)`,
       over.length === 0,
       over.length
@@ -1774,6 +1928,8 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       // old reading stays comparable across rounds, but it is not what gates.
       console.log("");
       const floor = new Map();
+      /** The unsworn frames' PIXELS, kept for §7.1b — the per-surface half. */
+      const floorPx = new Map();
       const floorKey = (cls, finishId, turn) => `${cls}|${finishId}|${turn}`;
       for (const st of PLAN) {
         const row = [];
@@ -1784,6 +1940,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
           if (String(subject?.armor) !== hexOf(st.finish.value)) die(`the floor staged wrong: armor=${subject?.armor}, asked ${st.finish.id}`);
           const r = { cls: st.cls, finish: st.finish, turn, ...roseShare(band, Uint8ClampedArray.from(px.data), mask) };
           floor.set(floorKey(st.cls, st.finish.id, turn), r);
+          floorPx.set(floorKey(st.cls, st.finish.id, turn), Uint8ClampedArray.from(px.data));
           row.push(r);
         }
         console.log(`  UNSWORN ${st.cls.padEnd(11)} ${st.finish.label.padEnd(17)} ${row.map((x) => `@${x.turn}° ${x.pct.toFixed(3)}%`).join("   ")}   modal ${row.reduce((m, x) => (x.pct > m.pct ? x : m), row[0]).modal}`);
@@ -1842,6 +1999,184 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
           ? `${over.length} of ${lit.length} frames over their own matched unsworn floor, worst +${overBy(worstOver).toFixed(3)} points at ${worstOver.people}/${worstOver.cls}/${worstOver.finish.label}@${worstOver.turn}°`
           : `worst sworn frame is ${overBy(worstOver).toFixed(3)} points against its own unsworn kit (${worstOver.people}/${worstOver.cls}/${worstOver.finish.label}@${worstOver.turn}°); ${lit.length} frames over ${PLAN.length} staged men`,
         over);
+
+      // ======================================================================
+      // 7.1b / 7.1c — THE SAME QUESTION, PER SURFACE, BECAUSE THE MAN AVERAGES
+      //
+      // THE BLINDNESS THIS CLOSES IS THE GATE DIRECTLY ABOVE. §7.1 counts the
+      // rose share over the WHOLE WARRIOR MASK. A warrior is a byrnie, a tunic,
+      // trousers, leg wraps, hide, buff and a linen shirt, and the byrnie is
+      // about half of him at these bearings — so a surface that goes ALL THE
+      // WAY pink can only move the whole-man figure by the fraction of him it
+      // covers, and the smaller surfaces cannot move it at all.
+      //
+      // An adversary took the matched pair by hand and it is the reason this
+      // section exists: huscarl / Polished Steel 60g / 0°, identical crop,
+      // differing only in `people` — byrnie rose 1.5% UNSWORN against 19.4%
+      // DANELAW, mean #5e4039 L* 30.3 against #7e615f L* 44.0. Twelve times
+      // pinker and thirteen points lighter, on the largest thing the man wears.
+      // §7.1 scored that same loadout **+0.391 points** and the shipped probe
+      // called it noise.
+      //
+      // WHAT A SURFACE MASK IS. Not a crop — a crop is a guess that moves with
+      // the pose and cannot tell a byrnie from the arm in front of it. The
+      // client's own scene graph, rasterised at the capture's lens with the
+      // same nearest-surface z test §6's coverage mask has always used, with
+      // every pixel remembering WHICH MESH won it; a mesh is named by matching
+      // its material colour against what the SHIPPED resolvers give that
+      // surface under all four peoples at once. `tools/lib/surfacemask.mjs`
+      // carries the argument and the erosion.
+      //
+      // AND THE MASK IS THE SAME ARRAY ON BOTH SIDES. The sworn frame and its
+      // unsworn control are read through one mask — literally the same
+      // `Uint8Array` — so a difference here cannot be a difference of
+      // denominator, of pose or of silhouette. That is what makes a one-pixel
+      // comparison honest and it is why the gate is a strict `>` and not a
+      // tolerance: §6.2 has already asserted that the same subject captured
+      // twice reads identically, so there is no noise to allow for.
+      //
+      // TWO RULES AND NOT ONE, AND THE SECOND IS NARROWER THAN THE BRIEF ASKED
+      // — docs/PROCESS.md R4 and R10, argued rather than quietly taken.
+      //
+      //   7.1b ROSE   no livery may make any single dyed surface PINKER than
+      //               that same surface was unsworn. Every people, because a
+      //               Pict driven into the rose band is the same defect wearing
+      //               woad.
+      //   7.1c VALUE  no livery may make a dyed surface LIGHTER than it was
+      //               unsworn WHERE THAT SURFACE LANDS ON THE RED ARC.
+      //
+      // The brief that ordered this section wrote the second rule without the
+      // arc clause — "a people may not make any single surface pinker or
+      // lighter than it was unsworn" — and that is a bar this file must not
+      // set, because `docs/FACTIONS.md` sets the opposite one on purpose:
+      // "All four vats are free to lift a surface far above their own field's
+      // value ... for weld, moss and woad that is exactly right and costs
+      // nothing. On the red arc it is what makes a Viking pink." §2's Kit
+      // column sells the Britons on "lighter kit" in so many words. An
+      // unconditional no-lightening gate would be RED for a thing the design
+      // buys deliberately, which is a bar invented by a harness rather than
+      // taken off the product — the one thing this file's own header forbids.
+      //
+      // So the LIFT IS PRINTED FOR EVERY PEOPLE AND EVERY SURFACE, gated where
+      // the docs say lightening is the defect. On the red arc, lighter IS
+      // pinker: `--garnet` is a dark stone at L* 26.4, and "pale garnet is
+      // pink, and pink is not a lighter Danelaw".
+      //
+      // `fitting` IS THE PER-FRAME CONTROL AND IS NOT GATED. No vat touches it
+      // — §5's own probe says so — so whatever the bonfire does to a Danelaw's
+      // buckles it does to an unsworn man's. A fitting row that MOVED would be
+      // telling you the two frames are not comparable, which is worth more than
+      // an assertion about it.
+      // ======================================================================
+      console.log("");
+      console.log("[faction] === 7.1b / 7.1c PER SURFACE (the same frames, cut into the surfaces the vat dyes) ===\n");
+      const rosePer = [], liftPer = [], thin = [];
+      const perRow = new Map();     // people|cls|finish|surface -> worst-bearing reading
+      const perPeople = new Map();  // people|surface -> worst over the whole plan
+      for (const fr of litFrames) {
+        const key = floorKey(fr.cls, fr.finish.id, fr.turn);
+        const fpx = floorPx.get(key);
+        if (!fpx) die(`§7.1b has no unsworn frame for ${key}`);
+        const { masks, counts } = masksFor(fr.cls, fr.turn, fr.finish);
+        for (const surf of MASK_SURFACES) {
+          const m = masks[surf];
+          const n = counts[surf].eroded;
+          if (n < MIN_PIXELS) {
+            thin.push(`${fr.people}/${fr.cls}/${fr.finish.label}@${fr.turn}° ${surf}: ${n} px after erosion (${counts[surf].raw} before) — NOT MEASURABLE`);
+            continue;
+          }
+          const sw = roseShare(band, fr.px.data, m), un = roseShare(band, fpx, m);
+          const swL = patchLab(fr.px.data, m), unL = patchLab(fpx, m);
+          const onArc = arcTo(hueOfLab(swL.lab), band.fieldH) <= ARC || arcTo(hueOfLab(unL.lab), band.fieldH) <= ARC;
+          const gated = GATED_SURFACES.includes(surf);
+          const rec = { people: fr.people, cls: fr.cls, finish: fr.finish, turn: fr.turn, surf, n,
+            sworn: sw.pct, unsworn: un.pct, dRose: sw.pct - un.pct, modal: sw.modal,
+            swL: swL.lab[0], unL: unL.lab[0], dL: swL.lab[0] - unL.lab[0],
+            swHex: swL.hex, unHex: unL.hex, onArc, gated };
+          const rk = `${fr.people}|${fr.cls}|${fr.finish.id}|${surf}`;
+          if (!perRow.has(rk) || rec.dRose > perRow.get(rk).dRose) perRow.set(rk, rec);
+          const pk = `${fr.people}|${surf}`;
+          const cur = perPeople.get(pk);
+          if (!cur || rec.dRose > cur.rose.dRose) perPeople.set(pk, { rose: rec, lift: cur?.lift ?? rec });
+          const cur2 = perPeople.get(pk);
+          if (!cur2.lift || rec.dL > cur2.lift.dL) cur2.lift = rec;
+          if (gated && rec.dRose > 0) rosePer.push(rec);
+          if (gated && rec.dL > 0 && rec.onArc) liftPer.push(rec);
+        }
+      }
+
+      // ---- TABLE A: every people x every surface, worst over the whole plan --
+      console.log(`  WORST OVER THE WHOLE PLAN — ${PLAN.length} staged men x ${CLIP_BEARINGS.length} bearings, ${litFrames.length} lit frames, each against its own matched unsworn`);
+      console.log("");
+      console.log("  people   surface    worst ROSE  sworn -> unsworn        worst L* LIFT  sworn -> unsworn     on the arc   where");
+      console.log("  --------------------------------------------------------------------------------------------------------------------");
+      for (const p2 of PEOPLES) {
+        for (const surf of MASK_SURFACES) {
+          const e = perPeople.get(`${p2}|${surf}`);
+          if (!e) { console.log(`  ${p2.padEnd(8)} ${surf.padEnd(9)}  — not measurable at any bearing in the plan`); continue; }
+          const r = e.rose, l = e.lift;
+          console.log(`  ${p2.padEnd(8)} ${(surf + (GATED_SURFACES.includes(surf) ? "" : "*")).padEnd(9)} `
+            + `${(r.dRose >= 0 ? "+" : "") + r.dRose.toFixed(2)}`.padStart(9)
+            + `  ${r.sworn.toFixed(2).padStart(6)}% -> ${r.unsworn.toFixed(2).padStart(6)}%   `
+            + `${(l.dL >= 0 ? "+" : "") + l.dL.toFixed(2)}`.padStart(10)
+            + `  ${l.swL.toFixed(1).padStart(5)} -> ${l.unL.toFixed(1).padStart(5)}  `
+            + `  ${l.onArc ? "ON ARC " : "off    "}    ${r.cls}/${r.finish.label}@${r.turn}° ${r.swHex} vs ${r.unHex}`);
+        }
+        console.log("");
+      }
+      console.log("  * = a surface no vat touches. It is the control, not a rule: it should not move.");
+
+      // ---- TABLE B: every staged man, every people, all surfaces at once -----
+      console.log("");
+      console.log(`  EVERY STAGED MAN — worst bearing per surface. "rose" is the sworn share minus the same surface unsworn; "L*" the same in value.`);
+      console.log("");
+      for (const st of PLAN) {
+        for (const p2 of PEOPLES) {
+          const cells = MASK_SURFACES.map((surf) => {
+            const r = perRow.get(`${p2}|${st.cls}|${st.finish.id}|${surf}`);
+            if (!r) return `${surf} —`;
+            return `${surf} ${(r.dRose >= 0 ? "+" : "") + r.dRose.toFixed(1)}%/${(r.dL >= 0 ? "+" : "") + r.dL.toFixed(1)}L`;
+          });
+          console.log(`  ${p2.padEnd(7)} ${st.cls.padEnd(11)} ${st.finish.label.padEnd(17)} ${cells.join("  ")}`);
+        }
+      }
+      console.log("");
+      if (thin.length) {
+        note(`${thin.length} of ${litFrames.length * MASK_SURFACES.length} surface-readings were under ${MIN_PIXELS} px after erosion and are NOT MEASURABLE rather than gated:`);
+        for (const t of thin.slice(0, 4)) note(`  THIN  ${t}`);
+        if (thin.length > 4) note(`  ... and ${thin.length - 4} more, overwhelmingly the linen shirt under a byrnie`);
+      }
+
+      rosePer.sort((a, b) => b.dRose - a.dRose);
+      liftPer.sort((a, b) => b.dL - a.dL);
+      for (const r of rosePer.slice(0, 12))
+        note(`ROSE   ${r.people}/${r.cls}/${r.finish.label} ${r.surf} at ${r.turn}° reads ${r.sworn.toFixed(2)}% of ${r.n} px in the band against the SAME PIXELS unsworn at ${r.unsworn.toFixed(2)}% — +${r.dRose.toFixed(2)} points, mean ${r.swHex} vs ${r.unHex}, modal ${r.modal}`);
+      if (rosePer.length > 12) note(`... and ${rosePer.length - 12} more`);
+      for (const r of liftPer.slice(0, 8))
+        note(`LIFT   ${r.people}/${r.cls}/${r.finish.label} ${r.surf} at ${r.turn}° is L* ${r.swL.toFixed(1)} against ${r.unL.toFixed(1)} on the SAME PIXELS unsworn — +${r.dL.toFixed(1)}, ON THE RED ARC (${r.swHex} vs ${r.unHex})`);
+      if (liftPer.length > 8) note(`... and ${liftPer.length - 8} more`);
+
+      // THE DILUTION, PRINTED. The whole-man reading of the very frame the
+      // per-surface gate fails hardest on, so the two instruments are on one
+      // line and nobody has to take "it averages" on trust.
+      let diluted = "";
+      if (rosePer.length) {
+        const w = rosePer[0];
+        const whole = lit.find((x) => x.people === w.people && x.cls === w.cls && x.turn === w.turn && x.finish === w.finish);
+        if (whole) diluted = ` — §7.1 scored that same frame ${(overBy(whole) >= 0 ? "+" : "") + overBy(whole).toFixed(3)} points over the WHOLE MAN`;
+      }
+      check("7.1b ROSE PER SURFACE — no livery makes any single dyed surface pinker than that same surface was unsworn",
+        rosePer.length === 0,
+        rosePer.length
+          ? `${rosePer.length} surface-readings over their own matched unsworn, worst +${rosePer[0].dRose.toFixed(2)} points at ${rosePer[0].people}/${rosePer[0].cls}/${rosePer[0].finish.label} ${rosePer[0].surf}@${rosePer[0].turn}° (${rosePer[0].sworn.toFixed(2)}% vs ${rosePer[0].unsworn.toFixed(2)}%)${diluted}`
+          : `no dyed surface of any people is pinker than its own unsworn`,
+        rosePer.map((r) => `${r.people}/${r.cls}/${r.finish.label} ${r.surf}@${r.turn}° +${r.dRose.toFixed(2)}`));
+      check("7.1c VALUE ON THE RED ARC — no livery makes a dyed surface LIGHTER than it was unsworn where that surface lands on the arc",
+        liftPer.length === 0,
+        liftPer.length
+          ? `${liftPer.length} surface-readings lifted on the arc, worst +${liftPer[0].dL.toFixed(1)} L* at ${liftPer[0].people}/${liftPer[0].cls}/${liftPer[0].finish.label} ${liftPer[0].surf}@${liftPer[0].turn}° (${liftPer[0].swHex} L* ${liftPer[0].swL.toFixed(1)} vs ${liftPer[0].unHex} L* ${liftPer[0].unL.toFixed(1)})`
+          : "no dyed surface on the red arc is lighter than its own unsworn",
+        liftPer.map((r) => `${r.people}/${r.cls}/${r.finish.label} ${r.surf}@${r.turn}° +${r.dL.toFixed(1)} L*`));
 
       // ---- §7.2 THE FADE CANNOT REACH THE OTHER THREE ----------------------
       //
