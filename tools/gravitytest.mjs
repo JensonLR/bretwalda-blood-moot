@@ -148,6 +148,30 @@ const BAR = {
    */
   corpseDown: 70,
   /**
+   * AND HOW LOW THE PELVIS MUST GET, as a fraction of the man's own leg.
+   *
+   * The angle above cannot answer the owner's question on every body in the
+   * table, and pretending it could is what put a `!r.halved` filter on line 789
+   * of this file for a whole round. `sever("waist")` takes the trunk, the head
+   * and both arms off the rig; what is left is a pelvis and two legs, and
+   * "how far from upright is the trunk" is a question about a trunk that is no
+   * longer attached. That is failure mode 1 — the ruler measuring the wrong
+   * quantity — and the previous cut of this file answered it by EXCLUDING the
+   * body, which is failure mode 3 on top of it: a gate that cannot fail on the
+   * one case it was written for.
+   *
+   * A body lying on the turf has its hip sockets on the turf. A body kneeling,
+   * sitting or propped has them a leg's length up. So: the hip pivot's world
+   * height, over the length of that man's own leg — no threshold about angles,
+   * no reference to the body's own final frame, and it reads the same on a
+   * whole man, a beheaded one and a pair of legs.
+   *
+   * 0.25 is a quarter of a leg — about 26 cm on this rig, which is a hip lying
+   * on the ground with a thigh's thickness under it. A man on his knees has it
+   * at 0.45 of a leg and a man standing at 1.0.
+   */
+  pelvisDown: 0.25,
+  /**
    * How far from upright a man the server calls `knocked` must be drawn. He is
    * on the floor. `knockLayer` itself calls flat `(π/2) * 0.82` = 47°... no:
    * 0.82 of a right angle is 74°, and this bar is set at half of that, because
@@ -384,6 +408,46 @@ function stand(anim, player) {
 const topple = (last) => Math.hypot(last.prx, last.prz) * DEG;
 
 /**
+ * HOW FAR THE BODY IS ACTUALLY FROM UPRIGHT, off the matrix the frame committed.
+ *
+ * `topple()` above is a HYPOTENUSE OF TWO EULER ANGLES, and it is wrong. It was
+ * written from `deathLayer`'s own comment —
+ *
+ *   "The topple is one angle about one axis, and `lean` says where that axis
+ *    lies ... Resolving it as an axis rather than adding a roll term is what
+ *    keeps the total a right angle however far round it goes"
+ *
+ * — and the comment describes an axis-angle rotation that the code does not
+ * perform. `applyPose` does `body.rotation.set(P.prx, P.pry, P.prz)`, which is
+ * a three.js Euler in XYZ order: Rx·Ry·Rz. Composing a pitch and a roll as
+ * Euler is NOT a single rotation of `hypot(pitch, roll)` about a horizontal
+ * axis, and once `P.pry` is non-zero — which is exactly the case for a man who
+ * has lost an arm or a leg, because `shape.spin` drives the yaw — the two
+ * answers come apart completely.
+ *
+ * MEASURED on the shipped build, a warden killed with his left arm off:
+ *   prx -77.9°, prz -47.0°  ->  hypot 90.2°, which reads as flat on the turf.
+ *   His head finished at y 1.190 m and his hip socket at y 0.819 m. Standing,
+ *   the same two are 1.648 m and 1.001 m. He is at 72% of his standing height.
+ *
+ * So the harness and the code shared one false premise and therefore agreed
+ * with each other, which is `docs/PROCESS.md` failure mode 1 in its purest
+ * form: a ruler that cannot see the defect because it was derived from the
+ * same wrong sentence as the defect.
+ *
+ * This reads the bone. `rig.body`'s local +Y is the trunk's own up; the angle
+ * between it and world up is how far from upright the body is, whatever Euler
+ * triple produced it, and it needs no assumption about order or composition.
+ */
+const _UP = new THREE.Vector3(0, 1, 0);
+const _bv = new THREE.Vector3();
+function trunkTilt(parent, rig) {
+  parent.updateMatrixWorld(true);
+  _bv.set(0, 1, 0).applyQuaternion(rig.body.getWorldQuaternion(new THREE.Quaternion()));
+  return Math.acos(Math.max(-1, Math.min(1, _bv.dot(_UP)))) * DEG;
+}
+
+/**
  * THE SPINE, AND NOT THE MAN'S PITCH — a distinction this file got wrong once.
  *
  * `applyPose` hangs `chest` under `body` and `head` under `chest`, so the three
@@ -459,7 +523,7 @@ async function sectionDown(anim) {
       anim.poseWarrior(rig, motion, b, DT, ctx);
       track.push({ t: time, state: b.state, downTimer: b.downTimer ?? 0,
         health: b.health, cause: b.deathCause ?? "-",
-        pitch: topple(rig.last), j: STRIP ? shootFrame(parent, rig) : null });
+        pitch: trunkTilt(parent, rig), j: STRIP ? shootFrame(parent, rig) : null });
     }
   };
 
@@ -677,7 +741,13 @@ async function sectionCorpse(anim) {
    */
   const oneDeath = (cls, cause, zone, prior = null) => {
     const player = man(cls);
-    const { rig, motion, ctx } = stand(anim, player);
+    const { parent, rig, motion, ctx } = stand(anim, player);
+    // The hip socket and the leg, in world space, off the bones the frame
+    // actually committed. `rightLeg` is the hip pivot; its standing height IS
+    // the length of the leg the body has to stand on, so the ratio below is
+    // measured against the man himself and not against a number in this file.
+    const V = new THREE.Vector3();
+    const hipY = () => { parent.updateMatrixWorld(true); rig.pivots.rightLeg.getWorldPosition(V); return V.y; };
     let t = 0;
     for (let i = 0; i < 30; i++) { t += 1 / 60; ctx.time = t; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
     if (prior) {
@@ -714,9 +784,10 @@ async function sectionCorpse(anim) {
         anim.poseWarrior(rig, motion, player, 1 / 60, ctx);
       }
     }
+    const legLen = hipY();
     const carried = motion.actT;
     player.state = "dead"; player.deathCause = cause; player.deathZone = zone;
-    let peak = 0, step = 0, prevPitch = topple(rig.last);
+    let peak = 0, step = 0, prevPitch = trunkTilt(parent, rig);
     const keys = Object.keys(rig.last);
     let prev = keys.map((k) => rig.last[k]);
     let settle3 = 0;
@@ -727,15 +798,17 @@ async function sectionCorpse(anim) {
       let d = 0; for (let k = 0; k < now.length; k++) d = Math.max(d, Math.abs(now[k] - prev[k]));
       if (d > 1e-3) settle3 = (i + 1) / 60;
       prev = now;
-      const p = topple(rig.last);
+      const p = trunkTilt(parent, rig);
       peak = Math.max(peak, p);
       step = Math.max(step, Math.abs(p - prevPitch));
       prevPitch = p;
     }
     const sh = rig.gore.shape;
+    const hip = hipY();
     return { cls, cause: cause ?? "-", zone: zone ?? "-", prior: prior ?? "-", carried,
       seam: rig.gore.cut ? rig.gore.cut.seam : null, halved: sh.halved,
-      ended: topple(rig.last), peak, settle3, step,
+      ended: trunkTilt(parent, rig), euler: topple(rig.last), peak, settle3, step,
+      hip, legLen, hipFrac: hip / (legLen || 1),
       shape: sh.halved ? "halved" : `crum${f2(sh.crumple)} lean${f2(sh.lean)}` };
   };
 
@@ -767,33 +840,51 @@ async function sectionCorpse(anim) {
   say(`    90° is flat on the turf. The bar is ${BAR.corpseDown}°, and it is ABSOLUTE —`);
   say(`    nothing here is measured against the body's own final frame.`);
   say("");
-  say(`    class        cause    zone   seam      shape            settled   peak   ENDED`);
+  say(`    "HIP" is the hip socket's world height over that man's OWN leg length,`);
+  say(`    which is the same question asked of a body that has no trunk left to`);
+  say(`    measure. 1.00 is standing, ~0.45 is kneeling, the bar is ${f2(BAR.pelvisDown)}.`);
+  say("");
+  say(`    "euler" is the OLD ruler — hypot(prx, prz) — kept in the table so the two`);
+  say(`    can be read against each other. Where they disagree the old one is wrong;`);
+  say(`    see trunkTilt.`);
+  say("");
+  say(`    class        cause    zone   seam      shape            settled   peak   ENDED   euler    HIP`);
   for (const r of rows) {
-    const flag = r.halved ? "  <-- halved: UNGATED, see below"
-      : (r.ended < BAR.corpseDown ? "  <-- PARTLY RAISED" : "");
+    const flag = (r.ended < BAR.corpseDown ? "  <-- PARTLY RAISED" : "")
+      + (r.hipFrac > BAR.pelvisDown ? "  <-- HIP OFF THE TURF" : "");
     say(`    ${r.cls.padEnd(11)} ${String(r.cause).padEnd(8)} ${r.zone.padEnd(6)} `
       + `${String(r.seam ?? "-").padEnd(9)} ${r.shape.padEnd(16)} ${f2(r.settle3).padStart(6)}s `
-      + `${f1(r.peak).padStart(6)}° ${f1(r.ended).padStart(6)}°${flag}`);
+      + `${f1(r.peak).padStart(6)}° ${f1(r.ended).padStart(6)}° ${f1(r.euler).padStart(6)}° ${f2(r.hipFrac).padStart(5)}${flag}`);
   }
-  // R4 — THE DEFERRAL RIDES THE VERDICT LINE AND NOT A FOOTNOTE.
+  // THE EXCLUSION IS GONE, AND THIS IS THE PARAGRAPH THAT USED TO BE HERE.
   //
-  // The halved body is measured and NOT gated on the angle, and the reason is
-  // that the angle is the wrong question for it. `sever("waist")` really does
-  // take the torso, head and both arms off the rig and throw them as a physics
-  // piece; what `halfLayer` poses is a pelvis and two legs, and its own comment
-  // says so — "there is no topple in this because there is nothing above the
-  // belt to topple". A pelvis sitting at 25° on two knees folded to 1.95 rad is
-  // a bottom half sitting down, which is correct. The first cut of this file
-  // flagged it as the worst corpse in the table, which would have been failure
-  // mode 1 committed by the harness written to catch failure mode 1.
-  const gated = rows.filter((r) => !r.halved);
-  const deferred = rows.filter((r) => r.halved);
+  // This file gated `rows.filter((r) => !r.halved)`, so the ONE body in the
+  // table that stopped 65° short of the turf was the one body the gate could
+  // not fail on. The argument written above it was half right and wholly
+  // misused: it is true that "how far from upright is the trunk" is the wrong
+  // question to ask of a rig whose trunk has been thrown off it as a physics
+  // piece — and the answer to a ruler that cannot see a body is A RULER THAT
+  // CAN, not a filter. `hipFrac` above is that ruler, and it is asked of all
+  // ten bodies on the same terms.
+  //
+  // What the old paragraph asserted, and what was never measured: "a pelvis
+  // sitting at 25° on two knees folded to 1.95 rad is a bottom half sitting
+  // down, which is correct." It was not sitting down. Measured off the bones,
+  // that body finished with its hip socket 0.477 m up — 0.47 of its own leg,
+  // higher off the turf than a man on his knees — held there for ever by a
+  // `halfLayer` that authored no topple at all. See `docs/PROCESS.md` failure
+  // mode 3, and R3: a case removed from a gate is a bar moved to zero.
+  const gated = rows;
   const short = gated.filter((r) => r.ended < BAR.corpseDown);
+  const propped = gated.filter((r) => r.hipFrac > BAR.pelvisDown);
   const worst = gated.reduce((a, b) => (b.ended < a.ended ? b : a));
+  const worstHip = gated.reduce((a, b) => (b.hipFrac > a.hipFrac ? b : a));
   say("");
   say(`    worst corpse: ${worst.cls} / ${worst.cause} / ${worst.zone} ended ${f1(worst.ended)}° `
     + `from upright — ${f1(90 - worst.ended)}° short of the turf,`);
   say(`    and it STOPPED MOVING at ${f2(worst.settle3)}s, which is why a settle-time ruler calls it clean.`);
+  say(`    highest hip: ${worstHip.cls} / ${worstHip.cause} / ${worstHip.zone} finished with its hip `
+    + `${f2(worstHip.hip)} m up, ${f2(worstHip.hipFrac)} of its own leg.`);
   say("");
   say(`    THE SAME DEATHS, OUT OF A STATE THAT WAS ALREADY RUNNING A CLOCK.`);
   say(`    "carried" is \`motion.actT\` on the last frame BEFORE he died. It used to be`);
@@ -814,8 +905,13 @@ async function sectionCorpse(anim) {
   say(`    dying out of a running clock  worst one-frame move ${f1(carryStep)}°   ${f1(carryStep / (baseStep || 1))}x`);
   say("");
   if (short.length) {
-    bad(`§2 ${short.length}/${gated.length} corpses finish above ${BAR.corpseDown}° from flat — `
-      + `worst ${f1(worst.ended)}° (${worst.cause}/${worst.zone})`);
+    bad(`§2 ${short.length}/${gated.length} corpses finish more than ${90 - BAR.corpseDown}° short of flat — `
+      + `worst ends ${f1(worst.ended)}° from upright (${worst.cls} ${worst.cause}/${worst.zone})`);
+  }
+  if (propped.length) {
+    bad(`§2 ${propped.length}/${gated.length} corpses finish with the hip socket more than `
+      + `${f2(BAR.pelvisDown)} of a leg off the turf — worst ${f2(worstHip.hipFrac)} `
+      + `(${worstHip.cls} ${worstHip.cause}/${worstHip.zone}, ${f2(worstHip.hip)} m). A hip that high is a body propped on something.`);
   }
   const flopped = carryRows.filter((r) => r.step > BAR.step);
   if (flopped.length) {
@@ -823,8 +919,9 @@ async function sectionCorpse(anim) {
       + `more than ${BAR.step}° in one frame — worst ${f1(carryStep)}° `
       + `(vs ${f1(baseStep)}° from a standing start). \`motion.actT\` is not reset into \`dead\`.`);
   }
-  return { rows, carryRows, gated: gated.length, deferred: deferred.length,
-    short: short.length, worst, baseStep, carryStep, flopped: flopped.length };
+  return { rows, carryRows, gated: gated.length,
+    short: short.length, worst, worstHip, propped: propped.length,
+    baseStep, carryStep, flopped: flopped.length };
 }
 
 // ===========================================================================
@@ -1257,10 +1354,11 @@ async function sectionFall(anim) {
       + `${R.down.deadUpright > 0 ? `; dead and drawn upright for ${f2(R.down.deadUpright)}s` : ""}.`);
   }
   if (R.corpse) {
-    say(`  §2 CORPSE   ${R.corpse.short}/${R.corpse.gated} corpses stop above ${BAR.corpseDown}° from flat `
-      + `(worst ends ${f1(R.corpse.worst.ended)}°) — WITH ${R.corpse.deferred} halved bod(y/ies) measured and`);
-    say(`              NOT gated, which is a deferral and not a clean sheet; and `
-      + `${R.corpse.flopped}/${R.corpse.carryRows.length} deaths out of a running clock snapping up to ${f1(R.corpse.carryStep)}°/frame.`);
+    say(`  §2 CORPSE   ${R.corpse.short}/${R.corpse.gated} corpses stop short of ${BAR.corpseDown}° from upright `
+      + `(worst ends ${f1(R.corpse.worst.ended)}°), and ${R.corpse.propped}/${R.corpse.gated} finish with the hip`);
+    say(`              more than ${f2(BAR.pelvisDown)} of a leg up (worst ${f2(R.corpse.worstHip.hipFrac)}). EVERY body is gated, `
+      + `including the halved one; and`);
+    say(`              ${R.corpse.flopped}/${R.corpse.carryRows.length} deaths out of a running clock snapping up to ${f1(R.corpse.carryStep)}°/frame.`);
   }
   if (R.fall) {
     say(`  §4 FALL     ${R.fall.wrong}/${R.fall.total} corpses toppled AGAINST the blow that killed them.`);
