@@ -97,14 +97,40 @@ const manMask = (a) => {
   return m;
 };
 
-console.log("\nfinish            turn  SWORN rose%   modal      UNSWORN rose%  modal      delta");
+/** Pixels of the man with any channel at full scale, and the hottest of them. */
+const clipOf = (a, m) => {
+  let n = 0, clipped = 0, hot = null, hotL = -1;
+  for (let i = 0, p = 0; i < a.length; i += 4, p++) {
+    if (!m[p]) continue;
+    n++;
+    if (a[i] < 255 && a[i + 1] < 255 && a[i + 2] < 255) continue;
+    clipped++;
+    const lum = 0.2126 * a[i] + 0.7152 * a[i + 1] + 0.0722 * a[i + 2];
+    if (lum > hotL) { hotL = lum; hot = `#${a[i].toString(16).padStart(2, "0")}${a[i + 1].toString(16).padStart(2, "0")}${a[i + 2].toString(16).padStart(2, "0")}`; }
+  }
+  return { n, clipped, pct: n ? (100 * clipped) / n : 0, hot: hot ?? "—" };
+};
+/** The most chromatic pixel on the man — a flat painted field shows up here. */
+const peakChroma = (a, m) => {
+  let best = null, bestC = -1;
+  for (let i = 0, p = 0; i < a.length; i += 4, p++) {
+    if (!m[p]) continue;
+    const C = chromaOf(labOf((a[i] << 16) | (a[i + 1] << 8) | a[i + 2]));
+    if (C > bestC) { bestC = C; best = `#${a[i].toString(16).padStart(2, "0")}${a[i + 1].toString(16).padStart(2, "0")}${a[i + 2].toString(16).padStart(2, "0")}`; }
+  }
+  return { hex: best ?? "—", C: bestC };
+};
+
+console.log("\nfinish            turn  SWORN rose%   modal      UNSWORN rose%  modal      delta     clipped px (hottest)   peak C*");
 for (const f of FINISHES) {
   for (const turn of BEARINGS) {
     const s = await cap(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=huscarl&people=${PEOPLE}&armor=${f}`);
     const u = await cap(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=huscarl&people=none&armor=${f}`);
-    const rs = roseShare(band, s.data, manMask(s.data));
-    const ru = roseShare(band, u.data, manMask(u.data));
-    console.log(`${f.padEnd(16)} ${String(turn).padStart(5)}  ${rs.pct.toFixed(3).padStart(9)}%  ${rs.modal.padEnd(9)}  ${ru.pct.toFixed(3).padStart(9)}%  ${ru.modal.padEnd(9)}  ${(rs.pct - ru.pct >= 0 ? "+" : "")}${(rs.pct - ru.pct).toFixed(3)}   (${s.ms}ms/${u.ms}ms)`);
+    const ms = manMask(s.data), mu = manMask(u.data);
+    const rs = roseShare(band, s.data, ms);
+    const ru = roseShare(band, u.data, mu);
+    const cs = clipOf(s.data, ms), cu = clipOf(u.data, mu), pk = peakChroma(s.data, ms);
+    console.log(`${f.padEnd(16)} ${String(turn).padStart(5)}  ${rs.pct.toFixed(3).padStart(9)}%  ${rs.modal.padEnd(9)}  ${ru.pct.toFixed(3).padStart(9)}%  ${ru.modal.padEnd(9)}  ${(rs.pct - ru.pct >= 0 ? "+" : "")}${(rs.pct - ru.pct).toFixed(3)}   ${String(cs.clipped).padStart(5)} of ${cs.n} (${cs.hot}) vs unsworn ${cu.clipped}   ${pk.hex} C* ${pk.C.toFixed(1)}   (${s.ms}ms/${u.ms}ms)`);
   }
 }
 await browser.close();

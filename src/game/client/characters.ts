@@ -1489,11 +1489,15 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   //     Bretwalda Gold mail    0x9a7a2a  ->  this      #ae8143  L* 57.2 C* 41.2  still capped
   //     Rough Iron mail        0x5f6b7a  ->  this      #7d808f  C* 8.7 hue 284°  cool steel
   //
-  // and on `factionread` §1, which is what the cap exists for, the anisotropic
-  // form is the BETTER of the two on both readings: §1.2 6.47 -> 7.36 ΔC and
-  // §1.3 -53.74° -> -24.56°. Both are still short and §1 is still red; the
-  // measurement of why, and the eight configurations it took, are in
-  // `docs/OPEN-DEFECTS.md`. It is not this line's to close.
+  // On `factionread` §1, which is what the cap exists for, this changes nothing
+  // either way and that is stated rather than claimed the other way round: at
+  // the same `ROSE_FADE` the anisotropic form reads §1.2 6.47 and §1.3 -53.74°,
+  // byte-for-byte the isotropic form's readings, because the surfaces the cap
+  // moves are the ones whose own hue is already the Danelaw's and those never
+  // voted against him. §1 is RED on this tree and on the one below it, the
+  // reason is structural, and `docs/OPEN-DEFECTS.md` carries the eight
+  // configurations, the two graded frames that bound it and the three
+  // owner-level levers. It is not this line's to close.
   const align = Math.cos(TAU * (hsl.h - f.hue));
   const uMag = Math.min(hsl.s, UNDYED_SAT + Math.max(0, align) * Math.max(0, hsl.s - UNDYED_SAT));
   const ux = uMag * Math.cos(TAU * hsl.h);

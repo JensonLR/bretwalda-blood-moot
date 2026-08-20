@@ -945,9 +945,20 @@ at most an undyed shirt's worth of what it does not.
 | Sea Queen's Gift mail `0x2f4a6a` | `#877d8f` C\* 11.1 hue 311° | `#7b7c91` C\* 12.2 hue **290°** — cool, not mauve |
 | Rough Iron mail `0x5f6b7a` | `#7d808f` C\* 8.7 | `#7a8292` C\* 9.6 — cool steel |
 
-And on §1, which is what the cap exists for, the anisotropic form is the better
-of the two on both readings: **§1.2 6.47 → 7.36 ΔC and §1.3 −53.74° → −24.56°**
-at `ROSE_FADE` 0.06.
+On §1, which is what the cap exists for, the anisotropic form changes **nothing
+either way**: at the same `ROSE_FADE` 0.06 it reads §1.2 6.47 and §1.3 −53.74°,
+byte-for-byte the isotropic form's readings. That is the expected answer and it
+is worth saying out loud — the surfaces the cap stops bleaching are the ones
+whose own hue is already the Danelaw's, and those never voted against him.
+
+> An earlier draft of this section claimed 7.36 and −24.56° here. That reading
+> was real but it was not this change: the worktree it came from also carried
+> `norse.wrap` at `[0.10, 0.14]` and `norse.linen` at `[0.05, 0.12]` from a
+> band experiment that had not been reverted. The number is now in
+> `docs/OPEN-DEFECTS.md` under the configuration that actually produced it,
+> which is the most promising lead this round found and did not finish.
+> `docs/PROCESS.md` R8, caught by diffing the tree against the file it was
+> measured on rather than by trusting the note.
 
 #### `ROSE_FADE` 0.06 → 0.04, and the shop's own two wraps fix it
 
@@ -967,7 +978,8 @@ brightest thing on him — most of the linear-light mean §1 measures:
 
 | `ROSE_FADE` | §1.2 | §1.3 | Crimson Warplate wraps |
 |---|---|---|---|
-| 0.06 | 7.36 | −24.56° | `#a47f71` **in the band** |
+| 0.06 | 6.47 | −53.74° | `#a47f71` **in the band** |
+| 0.05 | 6.39 | −57.11° | `#a28173` **in the band** |
 | 0.04 (this) | 5.97 | −65.38° | `#a18375` clear |
 
 **Both are red on §1.** The tree ships 0.04, because a gate this round added

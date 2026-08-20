@@ -80,6 +80,7 @@ surfaces, on the Danelaw.
 | 6 | 5 + norse cloth/leather floors lifted | 9.16 | −44.56° | 0 | 0 | — | 4.04 |
 | 7 | 4 + a soft floor under every value band | 5.87 | −77.60° | 0 | 0 | **13.78** | **7.59** |
 | 8 | **the surface, capped ACROSS the vat's hue (this tree)** | 5.97 | −65.38° | **0** | **0** | 1.53 | 4.26 |
+| 9 | 8 + `norse.wrap` `[0.10,0.14]`, `norse.linen` `[0.05,0.12]` | **7.36** | **−24.56°** | 1 | 0 | 1.92 | — |
 
 Rows 1 and 2 are the only green §1 in the table and both are RED on the owner's
 defect — row 1 is the frames above, row 2 puts nineteen surfaces in the region
@@ -87,10 +88,47 @@ the fire dyes. Rows 3–8 are green on the defect and red on §1. **There is no
 setting of this vat that is green on both.**
 
 The knob is continuous and it is `ROSE_FADE`. On row 8's shape, holding
-everything else: 0.06 reads §1.2 7.36 / §1.3 −24.56° and leaves Crimson
-Warplate's leg wraps `#a47f71` INSIDE the band; 0.04 reads 5.97 / −65.38° and
-clears it. **More dye left on the byrnie is more identity and more pink, point
-for point.**
+everything else, run three times through the shipped `factionread`:
+
+| `ROSE_FADE` | §1.2 | §1.3 | Crimson Warplate leg wraps |
+|---|---|---|---|
+| 0.06 | 6.47 | −53.74° | `#a47f71` C\* 17.9 — **in the band** |
+| 0.05 | 6.39 | −57.11° | `#a28173` C\* 16.3 — **in the band** |
+| 0.04 (ships) | 5.97 | −65.38° | `#a18375` C\* 15.1 — clear |
+
+**More dye left on the byrnie is more identity and more pink, point for point.**
+The anisotropic cap itself changes §1 by nothing at all — row 8 at 0.06 reads
+exactly row 3's 6.47 / −53.74°, because the surfaces it stops bleaching are the
+ones whose own hue is already the Danelaw's, and those never voted against him.
+What it buys is the band and the ladder.
+
+### ROW 9 IS THE LEAD, AND IT IS THE ONE THIS ROUND DID NOT FINISH
+
+Row 9 is the only configuration in the table that is green on the owner's
+surfaces AND materially better than `factionland3` on BOTH §1 readings — §1.2
+6.47 → 7.36 and §1.3 −53.74° → **−24.56°**, which is half the remaining gap. It
+gets there by taking the Danelaw's **linen and leg-wrap value bands down to
+where his own field lives**, so those two large, pale surfaces come out dark
+madder instead of being let go to flax and greige — and the vote they carry is
+the vote the byrnie stopped carrying. It is `FACTIONS.md` §2's "darker wools"
+taken literally, and §10.3's own diagnosis pointed straight at it: *"every one
+of the four vats is allowed to lift a surface far above its own field's
+value — the Danelaw's `metal` band tops out at 0.68 and his `linen` at 0.50 —
+and on the red arc that is what makes a Viking pink."* The round that wrote that
+sentence built a fade instead of following it.
+
+What stops it shipping today is one surface: Sea Queen's Gift leg wraps come out
+`#7f5a61`, L\* 42.3, C\* 16.5, 19.4° off the garnet — inside the band, a hair
+over its L\* 41 floor. It wants one more tuning pass on the wrap band and a
+graded capture set, and it is where the next round should start.
+
+> **This row was nearly mis-reported as row 8's.** The worktree the 7.36 /
+> −24.56° reading came from also carried these two band edits, left over from an
+> experiment that had not been reverted, and the number was written into
+> `characters.ts` and `FACTIONS.md` §10.4 as the anisotropic cap's. It was
+> caught by diffing the measured tree against the file it was attributed to.
+> `docs/PROCESS.md` R8 — the failure this round is here to stop, committed by
+> this round, and corrected in the same session.
 
 ### WHAT IS ACTUALLY BLOCKED, AND WHOSE CALL IT IS
 
