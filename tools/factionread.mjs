@@ -1586,7 +1586,15 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
           if (String(subject?.armor) !== hexOf(st.finish.value)) die(`asked for armor=${st.finish.id} (${hexOf(st.finish.value)}), got ${subject?.armor}`);
           const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);
           row.push(`${people.slice(0, 3)}@${turn}° ${r.pct.toFixed(2)}%`);
-          litFrames.push({ people, cls: st.cls, turn, finish: st.finish, pct: r.pct, px });
+          // The frame is kept for §7 and for the sheet, and it is kept as BYTES.
+          // `page.evaluate` can only hand back a plain Array, which is ~8 bytes
+          // per channel in V8: at the old 48 frames that was about 250 MB and
+          // survived; at this plan's 132 it is 700 MB before overhead, and an
+          // out-of-memory two hours into a capture run is a gate nobody will
+          // run twice. `Uint8ClampedArray` is 1 byte per channel and every
+          // consumer below already indexes it the same way.
+          litFrames.push({ people, cls: st.cls, turn, finish: st.finish, pct: r.pct,
+            px: { w: px.w, h: px.h, data: Uint8ClampedArray.from(px.data) } });
           if (r.pct > worst) { worst = r.pct; worstAt = `${people}/${st.cls}/${st.finish.label}@${turn}°`; }
           if (r.pct > bar) over.push(`${people}/${st.cls}/${st.finish.label} ${st.finish.cost}g at ${turn}° clips ${r.pct.toFixed(2)}% of the man — ${(r.pct / (bar || 1e-9)).toFixed(1)}x the 400g gold cloak's ${bar.toFixed(2)}%, hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
         }
@@ -1702,7 +1710,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
 
       const lit = [];
       for (const fr of litFrames) {
-        const r = roseShare(band, Uint8ClampedArray.from(fr.px.data), maskFor(fr.cls, fr.turn));
+        const r = roseShare(band, fr.px.data, maskFor(fr.cls, fr.turn));
         lit.push({ ...r, people: fr.people, cls: fr.cls, turn: fr.turn });
       }
 
@@ -1864,7 +1872,15 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // writes them, and the picture a reviewer opens is by construction the
     // picture the number came from. A sheet made by a second, separate run
     // could disagree with the gate and nobody would know which to believe.
-    if (litFrames.length) {
+    //
+    // TWO SHEETS AND NOT ONE, because the plan has two axes and a reviewer can
+    // only look at one question at a time. `factionlit-class.png` is every
+    // class in what a man is issued; `factionlit-shop.png` is every finish on
+    // the man who wears the most of it. Stacked into one file they are a
+    // 14 000-pixel strip nobody scrolls.
+    const writeSheet = (frames, name) => {
+      if (!frames.length) return;
+      const litFrames = frames;
       const cols = CLIP_BEARINGS.length;
       const rows = Math.ceil(litFrames.length / cols);
       const W = cols * LENS.w, H = rows * LENS.h;
@@ -1893,7 +1909,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       const ihdr = Buffer.alloc(13);
       ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
       mkdirSync(resolve(ROOT, "art/look"), { recursive: true });
-      const out = resolve(ROOT, `art/look/factionlit${OFF ? "-off" : ""}.png`);
+      const out = resolve(ROOT, `art/look/factionlit-${name}${OFF ? "-off" : ""}.png`);
       writeFileSync(out, Buffer.concat([
         Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
         chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0)),
@@ -1901,9 +1917,11 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       console.log(`\n[faction] LIT SHEET ${out}  ${W}x${H}  ${litFrames.length} frames, ${rows} rows of ${cols}`);
       for (let r2 = 0; r2 < rows; r2++) {
         const row2 = litFrames.slice(r2 * cols, r2 * cols + cols);
-        console.log(`        row ${String(r2 + 1).padStart(2)}: ${row2[0].people} / ${row2[0].cls} — ${row2.map((f) => `@${f.turn}° ${f.pct.toFixed(2)}%`).join("  ")}`);
+        console.log(`        row ${String(r2 + 1).padStart(2)}: ${row2[0].people} / ${row2[0].cls} / ${row2[0].finish.label} — ${row2.map((f) => `@${f.turn}° ${f.pct.toFixed(2)}%`).join("  ")}`);
       }
-    }
+    };
+    writeSheet(litFrames.filter((f) => f.finish === ISSUED), "class");
+    writeSheet(litFrames.filter((f) => f.finish !== ISSUED), "shop");
   } finally {
     if (browser) await browser.close().catch(() => {});
     server.stop();
