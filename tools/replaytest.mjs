@@ -807,10 +807,77 @@ async function sectionHole(replay) {
   })();
   say(`    PRECEDENCE, the rule deathcam.mjs states: your own death outranks this and`);
   say(`    the beat is never queued. With the viewer's own hold running the replay held`);
-  say(`    ${own} frame(s).`);
+  say(`    ${own} frame(s) between rounds.`);
   say("");
   if (own !== 0) bad(`§4 the replay took the lens over the viewer's own death hold (${own} frames)`);
-  return { betweenRounds, atMatchEnd, rBetween: rBetween.n, rEnd: rEnd.n, own };
+
+  // ---- AND WHAT THE MAN WHO DIED SEES, WHICH IS THE HALF THAT WAS WRONG ----
+  //
+  // The line above drives `own` as a flag held true forever. That is not a
+  // viewer; it is a hypothesis about one. This drives the REAL
+  // `createDeathCamera` beside the real replay clock, in the order and with the
+  // arguments `GameCanvas.tsx` uses — `own` read BEFORE the cameras run, so it
+  // is the previous frame's answer here exactly as it is there, and `live` =
+  // fighting | last_stand | intermission, which is `runDeathCam`'s own list.
+  //
+  // The axis is HOW LONG BEFORE THE ROOM ENDED THE VIEWER DIED, because that is
+  // what decides whether his hold is still running on the edge. It is swept
+  // rather than sampled at one value: the refutation this section was rewritten
+  // for named "the man who dies last", and the man who dies last (gap 0) was the
+  // one case that already worked — his hold has not armed on the previous frame
+  // either. Everything from one render frame up to `DEATH_HOLD.total` was the
+  // hole, and one sample would have found either the hole or the exception
+  // depending on which value it picked.
+  const GAPS = [0, DT, 0.10, 0.50, 1.00, 2.00, 3.00, dc.DEATH_HOLD.total - 0.01,
+    dc.DEATH_HOLD.total + 0.05, 5.00];
+  const viewer = (gap, endState) => {
+    const clock = replay.createKillReplay();
+    const hold = dc.createDeathCamera();
+    let own = false, n = 0, held = 0, sawEnd = false;
+    const endAt = Math.round(gap / DT);
+    for (let i = 0; i < 900; i++) {
+      const state = i < endAt ? "fighting" : endState;
+      const s = clock.update(DT, {
+        ended: state === "intermission" || state === "finished",
+        end: state === "finished",
+        own, deathAt: 10, ready: true,
+      });
+      if (s) { n++; sawEnd = sawEnd || s.atEnd; }
+      // `runDeathCam`'s own list, and `finished` is not on it: the transition
+      // into it STOPS the hold, later in the same frame that offered the edge.
+      const live = state === "fighting" || state === "last_stand" || state === "intermission";
+      hold.update(DT, { dead: true, live, camera: { x: 0, y: 2, z: 6 },
+        body, wound, spray, part: null, killer, groundAt: null });
+      if (hold.holding) held++;
+      own = hold.holding;              // GameCanvas reads it here: LAST frame's
+    }
+    return { n, held, sawEnd };
+  };
+  const want = Math.floor(REPLAY.wall * 60);
+  say(`    THE VIEWER WHO DIED, driven against the real createDeathCamera in`);
+  say(`    GameCanvas's order. How long before the room ended did he die:`);
+  say("");
+  say(`      gap(s)   his own hold ran   replay frames, MATCH END   ...ROUND END`);
+  let endWorst = Infinity, endWorstGap = 0;
+  for (const gap of GAPS) {
+    const e = viewer(gap, "finished"), m = viewer(gap, "intermission");
+    if (e.n < endWorst) { endWorst = e.n; endWorstGap = gap; }
+    say(`      ${f2(gap).padStart(6)}   ${String(e.held).padStart(16)}   ${String(e.n).padStart(23)}   ${String(m.n).padStart(12)}`);
+  }
+  say("");
+  say(`    THE MATCH-END COLUMN IS THE GATE. Every gap must draw the whole ${want}, because`);
+  say(`    at match end the viewer's hold does not survive the edge that offers the`);
+  say(`    replay — deathcam.mjs's \`live\` excludes "finished" — so there is no hold`);
+  say(`    left for it to outrank. The ROUND-END column is deathcam.mjs's rule and is`);
+  say(`    printed, not gated: there the hold does survive, it keeps the lens, and`);
+  say(`    3.35s of hold plus ${f2(REPLAY.wall)}s of replay does not fit a 5s break.`);
+  say("");
+  if (endWorst < want) {
+    bad(`§4 a viewer who died ${f2(endWorstGap)}s before the match ended saw ${endWorst} replay frames, not ${want} — `
+      + `the owner asked for the replay "before a match ends too" and this is the man it landed on`);
+  }
+  return { betweenRounds, atMatchEnd, rBetween: rBetween.n, rEnd: rEnd.n, own,
+    endWorst, endWorstGap };
 }
 
 // ===========================================================================

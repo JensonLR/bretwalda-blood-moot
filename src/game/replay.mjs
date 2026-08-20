@@ -409,11 +409,35 @@ export function createKillReplay() {
      *                RISING EDGE arms the replay; an edge nobody looks at is an
      *                edge that is missed, so call this every frame.
      * @param s.end   is this the end of the MATCH rather than of a round
-     * @param s.own   is the viewer's own death hold running. It outranks this,
-     *                for the same two reasons `deathcam.mjs` gives: cutting off
-     *                a man's own collapse to watch somebody else's is the cut
-     *                that module exists to refuse, and the two do not both fit
-     *                in the break.
+     * @param s.own   is the viewer's own death hold running. Between rounds it
+     *                outranks this, for the two reasons `deathcam.mjs` gives:
+     *                cutting off a man's own collapse to watch somebody else's
+     *                is the cut that module exists to refuse, and the two do not
+     *                both fit in the break.
+     *
+     *                AT MATCH END IT DOES NOT, AND THAT IS NOT A TRADE — IT IS
+     *                THIS FLAG BEING OUT OF DATE. `runDeathCam` in
+     *                `GameCanvas.tsx` passes `live` = fighting | last_stand |
+     *                `intermission`, and `createDeathCamera` stops on any frame
+     *                `live` is false. So the transition into `finished` ENDS THE
+     *                HOLD, later in the same frame that offers this edge. `own`
+     *                here is the hold's answer from the PREVIOUS frame — the
+     *                orchestrator says so — and refusing on it at match end
+     *                protects a hold that the same edge has already taken away.
+     *                Nothing is cut off; the viewer simply gets the summary
+     *                instead of the replay, which is the hole this feature was
+     *                built to close.
+     *
+     *                MEASURED, and it is a bigger hole than "the man who dies
+     *                last": `replaytest` §4 sweeps how long before the room
+     *                ended the viewer died. On the shipped build every gap from
+     *                one render frame to `DEATH_HOLD.total` (3.35 s) drew ZERO
+     *                replay frames at match end, permanently — `armed` is only
+     *                cleared while `!ended`, and at match end the room never
+     *                leaves `finished` in time. The man whose death IS the last
+     *                one (gap 0) always got his 240 frames, because his hold had
+     *                not armed on the previous frame either. That is the one
+     *                case the refutation named and the one case that worked.
      * @param s.deathAt sim time of the killing blow, as the recorder stamped it
      * @param s.ready is the buffer holding `REPLAY.pre` seconds before it yet
      * @returns {{at:number, dt:number, through:number, atEnd:boolean}|null}
@@ -427,20 +451,40 @@ export function createKillReplay() {
       const edge = ended && !lastEnded;
       lastEnded = ended;
 
+      // WHOSE BEAT IS THIS. The viewer's own hold outranks a ROUND-end replay and
+      // does not outrank a MATCH-end one, and the difference is not a taste:
+      // between rounds the hold survives the edge and keeps the lens, at match
+      // end the same edge has already ended it. See `s.own` above.
+      const outranked = !!s.own && !s.end;
+
       if (!ended) { if (!playing) { armed = false; atEnd = false; skipped = false; } }
-      if (playing && (!ended || s.own)) {
+      if (playing && (!ended || (s.own && !atEnd))) {
         // The round was dealt out from under it, or the viewer's own death took
         // the lens. Either way this beat is over and it does not resume.
+        //
+        // `!atEnd` for the same reason the arming test carries `!s.end`: a hold
+        // cannot be running at match end, so a `true` here would be the stale
+        // flag again, and it would cut the replay off on its second frame.
         playing = false;
         return null;
       }
-      if (edge && !armed && !s.own && s.ready) {
+      if (edge && !armed && !outranked && s.ready) {
         armed = true; playing = true; skipped = false; elapsed = 0;
         atEnd = !!s.end;
         deathAt = s.deathAt;
       } else if (edge) {
         // Armed-and-refused is still armed: a replay that could not open on the
         // edge does not open three frames later over a body that has settled.
+        //
+        // AND IT IS PERMANENT, which is why the test above had to be the fix
+        // rather than a retry: `armed` is cleared only inside `if (!ended)`, and
+        // a finished room does not become un-finished. Between rounds that is
+        // deathcam.mjs's rule stated exactly — "the round's is never queued" —
+        // and the budget behind it is real, 3.35 s of hold plus 4.0 s of replay
+        // does not fit a 5 s break. At match end this branch is now
+        // unreachable for `own`, and the only thing that can still land here is
+        // a ring too short to serve the run-up, which no amount of waiting
+        // fixes.
         armed = true;
         atEnd = !!s.end && playing;
       }

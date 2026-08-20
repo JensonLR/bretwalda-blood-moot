@@ -1148,9 +1148,29 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       // rule — but it is LAST FRAME's answer, because `runDeathCam` is called
       // below inside the branch this may divert. That is a sixtieth of a
       // second of lag on a precedence test that is asked over a whole beat, and
-      // it is written down rather than hidden. At match end the point is moot:
-      // the summary branch resets the death camera, so `holding` is already
-      // false by the time a `finished` edge arrives.
+      // it is written down rather than hidden.
+      //
+      // AND AT MATCH END THAT LAG WAS THE WHOLE DEFECT. This comment used to
+      // end "at match end the point is moot: the summary branch resets the
+      // death camera, so `holding` is already false by the time a `finished`
+      // edge arrives." That was false on the only frame that matters. The
+      // summary branch is BELOW this call and cannot have run yet on the edge
+      // frame, and what actually ends the hold is `runDeathCam`'s own `live`,
+      // which excludes `finished` — also below this call. So on the `finished`
+      // edge `holding` still carries the answer from the previous frame, and
+      // for any viewer who died inside the last `DEATH_HOLD.total` (3.35 s) of
+      // the match that answer is `true`. `replay.mjs` refused on it, and
+      // "armed-and-refused is still armed" made the refusal permanent: he got
+      // the results panel and no replay and no SKIP, which is exactly the beat
+      // the owner asked for and the one BACKLOG 2.6 was opened about.
+      //
+      // The rule now lives where precedence lives — `replay.mjs` ignores `own`
+      // when `end` is set, because a hold cannot survive the transition that
+      // sets it. Nothing here manufactures a second copy of the death camera's
+      // arming rule to get a fresher answer; the module is simply told which
+      // ending it is in, which it already needed for `atEnd`.
+      // `tools/replaytest.mjs` §4 sweeps the gap between the viewer's death and
+      // the room ending and gates every value of it.
       const replayOwn = deathCamRef.current.holding;
       const fellNow = lastFallRef.current;
       const ring = replayBufRef.current;
