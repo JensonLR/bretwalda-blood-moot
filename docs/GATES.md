@@ -82,7 +82,7 @@ these files gates one rung of that ladder at the distance a player fights.
 |---|---|---|
 | `node tools/teamread.mjs` | ~1 min, no browser | can a stranger tell friend from foe at 6.8 m, over every finish × cloak × class × bearing, both sides |
 | `node tools/teamread.mjs --off` | ~1 min | the control. Both sides with no team, i.e. the pre-override game. **Must fail** |
-| `node tools/factionread.mjs` | ~3.5 min for §0–§5, then most of an hour for §6 | are the four peoples four men at 6.8 m; does any of them cost a point of anything; is the paid ladder still a ladder after a man swears; and does anything a livery makes blow a channel under the fire |
+| `node tools/factionread.mjs` | ~3.5 min for §0–§5, then ~55 min for §6/§7 (165 captures at ~19 s on a GPU-less box at load 5) | are the four peoples four men at 6.8 m; does any of them cost a point of anything; is the paid ladder still a ladder after a man swears — **on the kit mean AND on every surface one at a time**; does anything a livery makes blow a channel under the fire; and what COLOUR is each of his surfaces on a graded frame |
 | `node tools/factionread.mjs --off` | same | the control. All four peoples as the unsworn. **Must fail** |
 | either, `--sheet` | +seconds | the flat-albedo contact sheet in `art/look/`, which is the thing to actually LOOK at |
 
@@ -137,7 +137,19 @@ an isometry, and every configuration that recovered the ladder to ΔE 8–9 let 
 inverted. A bar is never moved to buy a pass; adopting one the game cannot meet
 and then not printing the shortfall is the same offence facing the other way.
 
-§6 is **the only lit section in either file**, and it exists because three
+**AND BOTH OF THOSE RULES ARE ASKED TWICE — once on the kit mean and once per
+surface — because the mean divides by six.** §5.1/§5.2 average ΔE over the six
+dyed surfaces, so a byrnie that collapses all the way to ΔE 0.00 costs the mean
+at most a sixth of what it was worth, against a bar the unsworn shop clears by
+1.85 points. §5.0b is the proof and it is a control, not a claim: give the
+shop's dearest finish the cheapest one's byrnie and the mean still reads ΔE
+18.77 over a bar of 10 while the mail reads 0.00. §5.1b and §5.2b ask the same
+two rules of one surface at a time, and the UNSWORN column is printed beside
+every livery so the floor is visible rather than asserted — `main`'s own shop
+has **no** pair of finishes within a JND on any single dyed surface and its
+worst single-surface pair anywhere is ΔE 7.18.
+
+§6 and §7 are **the lit sections**, and they exist because three
 rounds of this feature shipped a defect past a harness with no light in it. It
 boots the app, drives the real renderer at the play lens, and counts pixels at a
 fully clipped channel inside the warrior's own coverage mask — the mask, not the
@@ -147,7 +159,22 @@ in the 400 gold Gilded War Cloak and the 160 gold Bretwalda Gold finish: the
 brightest dress a player can buy, so the bar cannot be moved without brightening
 something people own. §6.0 proves the counter can count and §6.2 proves the
 capture repeats, because a clip count is exactly the statistic a moving fire
-moves.
+moves. **§6.0c proves the mask is the man**: `/shot` publishes the appearance it
+staged and the mask is built from that, checked slot for slot on every capture
+in the run. It used to be built from `defaultAppearance` — for a huscarl a nasal
+helm and a red cloak the card does not stage — and was 20.3% / 25.8% / 32.8%
+larger than the man in the frame at the plan's three bearings.
+
+**§7 asks what colour he is, and §7.1b asks it one surface at a time.** §7.1
+counts the share of the man inside `roseband`'s pink band against the SAME MAN
+IN THE SAME KIT sworn to nobody. Over the whole warrior mask that dilutes: a
+byrnie is about half of him and the other five surfaces are not pink, so a
+byrnie 19% inside the band moved the shipped whole-man figure by 0.391 points
+and was called noise. §7.1b cuts the frame into the surfaces the vat dyes —
+`tools/lib/surfacemask.mjs`, off the client's own scene graph at the capture's
+lens, the sworn frame and its control read through the same array — and §7.1c
+gates the LIFT in value where the surface lands on the red arc, which is where
+`docs/FACTIONS.md` says lifting is the defect rather than the design.
 
 **Both files record a ruler they had to correct, in the file, with the reading
 that forced it.** `teamread` first gated on full ΔE and called two red-team men

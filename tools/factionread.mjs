@@ -1595,28 +1595,35 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     return ap;
   };
   /**
-   * The dress every capture in this run is checked against. Set from the
-   * warm-up capture, which is the first thing the page stages, so it is the
-   * page's own answer and not this file's.
+   * THE MASK FOLLOWS THE FRAME'S OWN DRESS, not the run's.
+   *
+   * The first cut of this fix took ONE dress off the warm-up capture and cut
+   * every mask from it. That is wrong for a reason §6 puts three frames of on
+   * the screen: the CLIP CONTROL deliberately stages `cloak=cloak_gold`, and a
+   * cloaked man measured through a cloakless silhouette both loses the cloak
+   * from the denominator and loses the cloak's own blown pixels from the count
+   * — on the very frames that SET the bar. So the key includes the dress, and a
+   * capture that changes a slot gets its own mask.
+   *
+   * `people` is deliberately NOT in the key: §0.3 has asserted that a livery
+   * moves no geometry, so one mask serves all five liveries and is what makes
+   * the sworn/unsworn comparison a comparison at all.
    */
   let STAGED_SUBJECT = null;
-  const dressDrift = [];
-  const stagedDress = (subject) => Object.fromEntries(Object.keys(SUBJECT_FIELD).filter((k) => k !== "armor").map((k) => [k, String(subject?.[k])]));
-  const sameDress = (subject) => {
-    const a = stagedDress(STAGED_SUBJECT), b = stagedDress(subject);
-    for (const k of Object.keys(a)) if (a[k] !== b[k]) return `${k}: staged ${a[k]}, this frame ${b[k]}`;
-    return null;
-  };
+  const missingSlots = [];
+  const dressKey = (subject) => Object.keys(SUBJECT_FIELD).filter((k) => k !== "armor").map((k) => `${k}=${subject?.[k]}`).join(" ");
   const maskCache = new Map();
-  const maskFor = (cls, turn) => {
-    if (!STAGED_SUBJECT) die("maskFor was asked for a mask before the page had staged anybody");
-    const key = `${cls}|${turn}`;
+  const maskFor = (cls, turn, subject) => {
+    if (!subject) die("maskFor was asked for a mask without the appearance the page staged");
+    for (const slot of Object.keys(SUBJECT_FIELD)) if (subject[slot] === undefined || subject[slot] === null) missingSlots.push(`${cls}@${turn}: no ${slot}`);
+    const key = `${cls}|${turn}|${dressKey(subject)}`;
     if (!maskCache.has(key)) {
-      const ap = apFromSubject(STAGED_SUBJECT, "none");
+      const ap = apFromSubject(subject, "none");
       maskCache.set(key, raster(buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, undefined, "high", SEED, "none").group, turn).cov);
     }
     return maskCache.get(key);
   };
+  const areaOf = (m) => { let n = 0; for (let i = 0; i < m.length; i++) if (m[i]) n++; return n; };
 
   /**
    * THE PER-SURFACE MASKS — six byrnie-and-tunic-and-wraps masks where there
@@ -1626,12 +1633,12 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
    * geometry is what `--off` cannot change.
    */
   const surfCache = new Map();
-  const masksFor = (cls, turn, finish) => {
-    if (!STAGED_SUBJECT) die("masksFor was asked for a mask before the page had staged anybody");
-    const key = `${cls}|${turn}|${finish.id}`;
+  const masksFor = (cls, turn, finish, subject) => {
+    if (!subject) die("masksFor was asked for a mask without the appearance the page staged");
+    const key = `${cls}|${turn}|${finish.id}|${dressKey(subject)}`;
     if (!surfCache.has(key)) {
       const buildGroup = (people) => buildCharacter(cls,
-        { ...apFromSubject(STAGED_SUBJECT, people), armorColor: finish.value },
+        { ...apFromSubject(subject, people), armorColor: finish.value },
         CLASS_TUNIC[cls] ?? 0x5a4a2c, undefined, "high", SEED, "none").group;
       const r = surfaceMasks({ buildGroup, kitOf: (p) => kitWithLinen(finish.value, p),
         peoples: PEOPLES, surfaces: MASK_SURFACES, lens: LENS, turnDeg: turn });
@@ -1656,11 +1663,6 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string", null, { timeout: 300000 });
       const got = await page.evaluate(() => ({ subject: window.__shotSubject ?? null, refused: window.__shotError ?? null }));
       if (got.refused) die(`the page refused the stage: ${got.refused} (${q})`);
-      // EVERY FRAME IS CHECKED AGAINST THE DRESS THE RUN STARTED IN. The mask
-      // below is built from the warm-up's published appearance; a capture that
-      // came back wearing a different helm or cloak would be measured through a
-      // silhouette that is not its own, which is the defect this run just fixed.
-      if (STAGED_SUBJECT) { const why = sameDress(got.subject); if (why) dressDrift.push(`${q} — ${why}`); }
       const buf = await page.screenshot({ timeout: 300000 });
       shots++;
       return { subject: got.subject, px: await page.evaluate(async (b64) => {
