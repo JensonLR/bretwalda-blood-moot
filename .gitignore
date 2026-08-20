@@ -124,3 +124,6 @@ next-env.d.ts
 .ident-*/
 .ident-*.keep.ts
 .census/
+.vat2/
+.s72/
+.dyeprobe/
