@@ -55,6 +55,7 @@
     "janktest": "node tools/janktest.mjs",
     "freezetest": "node tools/freezetest.mjs",
     "gravitytest": "node tools/gravitytest.mjs",
+    "replaytest": "node tools/replaytest.mjs",
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {

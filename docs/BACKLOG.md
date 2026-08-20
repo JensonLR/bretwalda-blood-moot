@@ -191,6 +191,25 @@ is a change to the match-summary flow (`page.tsx`, `summaryflow`), not to the
 camera, and it belongs to whoever owns those files. Until then the last round
 ends on the portrait, which is *a* beat and not *the* beat.
 
+**20 Aug 2026 — and the owner asked for something better than a beat.** *"The
+final kill camera would be better as a slow-mo replay before the next round
+starts, and before a match ends too — skippable at end of match, just take them
+to the lobby."* `src/game/replay.mjs` and `tools/replaytest.mjs` are the answer
+and `docs/REPLAY.md` is the record: a ring of the fields `anim.ts` actually
+reads, 57,600 bytes allocated once with no per-frame garbage, played back at
+half speed from 0.92 s BEFORE the killing swing — which is the one thing the
+live camera cannot do, because it arms a frame after the blow has landed.
+Measured on the shipping build, the live round beat holds **0 frames** at match
+end and the replay holds **240**, which is this row's hole.
+
+**THE RENDER WIRING IS NOT LANDED AND THAT IS A REFUSAL, not an oversight.**
+There is no browser on the machine it was built on, so a playback branch in
+`GameCanvas.tsx`'s warrior loop could not be looked at, and its two likeliest
+faults — blood spawning twice and the HUD running at half speed with the bodies
+— are invisible to every headless number in this repository. `docs/REPLAY.md` §5
+lists the six remaining steps, the single line that is the seam, and the one
+hazard that the shipped code already handles.
+
 ### WAVE 3 — balance and the enemy
 
 | # | Item | Note |
