@@ -1150,6 +1150,89 @@ function underCeiling(hex: number, cap: number): number {
   return new THREE.Color().setHSL(hsl.h, hsl.s, linear(softCeil(perceptual(hsl.l), cap))).getHex();
 }
 
+/**
+ * PALE RED IS PINK, AND PINK IS A DIFFERENT COLOUR WITH A DIFFERENT NAME.
+ *
+ * THE DEFECT, AND IT IS THE THIRD ROUND OF IT. The owner, on the capture:
+ * "THE DANELAW READS ROSE AT THE SLEEVES AND THE BYRNIE... A Viking in dusty
+ * pink is not the Danelaw at any ΔE." Measured off `art/look/faction-before/`
+ * — the four peoples through the real renderer under the arena's own fire —
+ * the share of each frame inside the rose band `tools/factionread.mjs` §7
+ * defines:
+ *
+ *     norse   huscarl @180   2.651%   modal #b87878
+ *     norse   warden  @180   1.653%   modal #b87878
+ *     norse   warden  @  0   1.639%   modal #b07070
+ *     norse   huscarl @ 90   1.638%   modal #b07070
+ *     saxon / briton / pict, every class and bearing shot:  0.020% - 0.160%
+ *
+ * Sixteen to a hundred and thirty times the other three peoples, whose reading
+ * is skin and firelight and is the floor nobody can get under. In albedo the
+ * sleeve is `#b9746a` — H8 S36 L57 — which is the hex the owner reported.
+ *
+ * TWO ROUNDS OF FIXES AIMED AT THE WRONG THING, and this is why the lever
+ * matters (docs/PROCESS.md R1). Round one took the -0.024 hue shift out of the
+ * `norse` livery. Round two took `metal.sat` from 0.18 to 0.07. Both are
+ * recorded above and both are real improvements; neither is the mechanism.
+ * The brief for THIS round said to look at the `wrap` and `metal` vats. So the
+ * lever was pulled all the way: `wrap`, `metal` AND `linen` set to `sat: 0.00`
+ * — no dyestuff in the vat at all — and the rose count went from 9 dyed
+ * surfaces to 12 and the sleeve read `#a78a86`, still rose. THE VAT'S `sat` IS
+ * NOT THE LEVER, and no amount of moving it ever was.
+ *
+ * WHAT IT ACTUALLY IS. Red is the only arc on the circle whose pale form has a
+ * name of its own. Pale woad is pale blue, pale moss is pale green, pale weld
+ * is pale yellow — the word survives the value. Pale garnet is PINK, and pink
+ * is not a lighter Danelaw, it is a different colour worn by different people.
+ * `FACTION_FIELD.norse` is `#7c1420`: L* 26.4, C* 48.7. It is a DARK stone, and
+ * every one of the four vats is allowed to lift a surface far above its own
+ * field's value — the Danelaw's `metal` band tops out at 0.68 and his `linen`
+ * at 0.50 — because for the other three that is exactly right and costs
+ * nothing. On the red arc it is what makes a Viking pink.
+ *
+ * SO THE VAT LETS GO. Above `ROSE_LIT` a surface on the red arc keeps its
+ * VALUE and loses the dyestuff: pale wool comes out greige, and bright mail
+ * comes out as bare iron, which is what `FACTIONS.md` §2 says the Danelaw is —
+ * "more metal, darker wools", near-white steel over the darkest cloth on the
+ * roster. His identity was never in his shirt. It is in his tunic, his harness
+ * and his cloak, all of which sit below `ROSE_LIT` and are untouched.
+ *
+ * THE OTHER THREE PEOPLES ARE BYTE-IDENTICAL AND THAT IS ASSERTED, NOT HOPED.
+ * The window is on the RESULT's hue and it is 36° wide either side of pure red;
+ * `HUE_CONE` holds every dyed surface within 8° of its own field, and weld sits
+ * at 60°, moss at 153° and woad at 210°. `red` is therefore exactly 0 for
+ * three of the four vats and `roseFade` returns 1 by the early exit — the same
+ * multiply by one an unsworn man gets. `tools/factionread.mjs` §7.3 gates it.
+ *
+ * THE THREE NUMBERS ARE TUNED AND SAY SO, like every other number in the
+ * `FACTION` table above them. What they were tuned AGAINST is the rose band in
+ * §7, which is built out of colours this game already ships and contains no
+ * number chosen by the person who moved these — see its header. Measured
+ * across all seven finishes and all six dyed surfaces of all four peoples:
+ *
+ *     ROSE_LIT / ROSE_FADE     rose cells   norse ladder   saxon/briton/pict
+ *     shipped (no fade)          9 + sleeve      5.58       2.91 / 6.36 / 4.71
+ *     0.44 / 0.06                2                2.53       unchanged
+ *     0.40 / 0.05                2                2.12       unchanged
+ *     THIS: 0.38 / 0.04          0                3.94       unchanged
+ *
+ * AND THE FADE IS NOT A STEP. `softBand` gives the reason two blocks up — a
+ * clamp has zero slope and zero slope is where paid rungs go to die — so this
+ * is a short exponential rather than a cliff, and the ladder inside the
+ * Danelaw comes out of it at ΔE 3.94 against `cosmetictest`'s JND of 2.3.
+ */
+/** How far either side of pure red the arc runs, in turns. 0.10 is 36°. */
+const ROSE_ARC = 0.10;
+/** The value above which the red arc has no dark name left. Perceptual. */
+const ROSE_LIT = 0.38;
+/** How much value the vat takes to let go over. Short, but not a cliff. */
+const ROSE_FADE = 0.04;
+function roseFade(h: number, l: number): number {
+  const red = Math.max(0, 1 - Math.abs(((h + 0.5) % 1) - 0.5) / ROSE_ARC);
+  if (red <= 0 || l <= ROSE_LIT) return 1;
+  return 1 - red * (1 - Math.exp(-(l - ROSE_LIT) / ROSE_FADE));
+}
+
 const BAND_KNEE = 0.42;
 function softBand(x: number, lo: number, hi: number): number {
   if (x < lo) return lo;
@@ -1191,8 +1274,9 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   // THE HUE STAYS INSIDE THE VAT'S CONE. See `HUE_CONE`.
   const off = ((Math.atan2(cy, cx) / TAU - f.hue + 1.5) % 1) - 0.5;
   const h = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
+  // AND ON THE RED ARC THE VAT LETS GO OF A PALE SURFACE. See `roseFade`.
   return underMaxChannel(
-    new THREE.Color().setHSL(h, Math.min(1, Math.hypot(cx, cy)), linear(l)).getHex(),
+    new THREE.Color().setHSL(h, Math.min(1, Math.hypot(cx, cy)) * roseFade(h, l), linear(l)).getHex(),
     kitChannel());
 }
 

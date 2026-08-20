@@ -119,3 +119,5 @@ next-env.d.ts
 
 # tools/factionread.mjs's tsc scratch, same as .teamread and .rungcensus
 .factionread/
+.vatprobe/
+.dyeprobe/

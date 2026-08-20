@@ -380,6 +380,37 @@ const SHEETS = {
         label: `${people} · ${label}`, turn, cls, dress: { people },
       }))),
   }])),
+  // ---- the four peoples, at PORTRAIT size (2) ----
+  //
+  // THE SAME MEN, CLOSE ENOUGH TO NAME THE COLOUR. `fightcard` above is the
+  // honest scale and it is the scale the defect has to be judged at; it is NOT
+  // a scale you can read a HUE off, because at 6.8 m a sleeve is nine pixels
+  // wide and every one of them is part sleeve and part grass. The Danelaw's
+  // rose was reported off a portrait and measured off a portrait, and the
+  // before/after has to be shot at the size the report was made at or it is
+  // answering a different question.
+  //
+  // TWO CLASSES AND NOT FOUR, and the choice is by SURFACE rather than by
+  // preference — `kitcard` is 700x900 against `fightcard`'s 520x320, so each of
+  // these frames costs about two and a half of those, and the four peoples at
+  // three bearings on four classes would be an hour of wall clock for pictures
+  // of the same six surfaces:
+  //
+  //   huscarl    the only man with a BYRNIE and the only man with a SHIELD —
+  //              `metal` over the largest area on the roster, and the board.
+  //   berserker   bare limbs and the most `wrap` and `linen` showing of the
+  //              four — the two surfaces the rose was actually reported on.
+  //
+  // The warden's and the runekeeper's surfaces are the union of those two, and
+  // all four classes are still shot at fight scale above.
+  ...Object.fromEntries(["huscarl", "berserker"].map((cls) => [`factionclose${cls}`, {
+    file: `faction-close-${cls}.png`, card: "kitcard", cols: 3,
+    title: `THE FOUR PEOPLES · ${cls} · front, profile, back · PORTRAIT scale, the arena's own light`,
+    shots: ["saxon", "norse", "briton", "pict"].flatMap((people) =>
+      [["front 0°", 0], ["profile 90°", 90], ["back 180°", 180]].map(([label, turn]) => ({
+        label: `${people} · ${label}`, turn, cls, dress: { people },
+      }))),
+  }])),
 };
 const SHEET_NAMES = Object.keys(SHEETS);
 
@@ -390,8 +421,12 @@ const SHEET_NAMES = Object.keys(SHEETS);
  */
 const GROUPS = {
   armoury: SHEET_NAMES,
-  // The livery review: four classes x four peoples x front/profile/back, in one
-  // server boot. `node tools/shoot.mjs factionturn`.
+  // The livery review, in ONE server boot: four classes x four peoples x
+  // front/profile/back at fight scale, and the huscarl and the berserker again
+  // at portrait scale. `node tools/shoot.mjs factionturn`. Both scales are in
+  // the one group on purpose — the 8.4 s first frame and the texture bake are
+  // paid once, and a before/after whose two halves were shot in two sessions is
+  // two exposures of one light rather than one measurement.
   factionturn: SHEET_NAMES.filter((n) => n.startsWith("faction")),
   armouryfight: SHEET_NAMES.filter((n) => SHEETS[n].card === "fightcard"),
 };
