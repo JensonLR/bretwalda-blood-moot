@@ -62,55 +62,80 @@ number and a health bar; more-than-a-quarter-buried is 0.00% on both. The cause 
 this branch's pose timing moving bodies slightly differently so numbers spawn at
 slightly different places. Not enough to hold the merge, and not something to
 discover later from a screenshot.
-## OPEN — the Saxon reads as a JERSEY, and the vat's value bands are NOT the lever — 20 Aug 2026
+## CLOSED, with the capture — the vat lifted TUNIC and TROUSER off the field's own value, on every people — 20 Aug 2026
 
-Photographed at play scale, four peoples, four classes, the arena's own light:
-`art/look/final/faction-*.png`. The peoples are instantly told apart at fight
-distance and the Danelaw is deep blood-red rather than salmon. **The Saxon is
-fluorescent**, and the warden sheet is the one to look at because he carries no
-shield in front of his legs.
+**This entry replaces one written earlier in the same session that said "the
+value band is NOT the lever". That entry was measured with the wrong ruler and
+is corrected here rather than left standing — R8, on myself.**
 
-Measured over every pixel of each people's front card, same lens, same light:
+### The wrong ruler, and why it read a false negative
 
-```
-                CLIPPED >=250                 JERSEY (sat>.55 & V>200)
-  people    row9    calm    final       row9    calm    final
-  saxon     0.19%   0.04%   0.04%       3.43%   3.02%   2.88%
-  norse     0.00%   0.00%   0.00%       0.45%   0.45%   0.45%
-  briton    0.01%   0.01%   0.01%       0.33%   0.35%   0.35%
-  pict      0.06%   0.09%   0.09%       0.35%   0.38%   0.38%
-```
+The first three passes were scored on the **huscarl** card. A huscarl carries a
+shield, and the Saxon's board is gold — which §4.1 *requires*, at ΔE 33.5 from
+the other three peoples. So the statistic was dominated by the one surface on the
+man that is supposed to shout, and it read "unmoved" while the cloth underneath
+was changing. The **weard** carries no shield and is the ruler for cloth.
 
-The Saxon carries **six to eight times the saturated-and-bright area of any
-other people**, at every pass.
+### The surface, named in one second with no browser
 
-### TWO LEVERS PULLED, AND BOTH LANDED ALMOST NOWHERE — R1
-
-This is recorded as a NEGATIVE result because the next hand will otherwise reach
-for the same knob. `FACTIONS.md` §10.3's diagnosis — *"every one of the four vats
-is allowed to lift a surface far above its own field's value"* — is what fixed
-the Danelaw, and it does **not** fix the Saxon.
+`finishKit` and `kitFor` are the shipped resolvers. Every surface, every finish,
+post-vat, sorted by L\*, takes a second — and it is the same surface for every
+people:
 
 ```
-  pass    saxon wrap        saxon linen       saxon cloth    clipped   jersey
-  row9    lo .38 hi .76     lo .44 hi .78     hi .66          0.19%     3.43%
-  calm    lo .24 hi .46     lo .28 hi .50     hi .50          0.04%     3.02%
-  final   lo .18 hi .34     lo .20 hi .36     hi .40          0.04%     2.88%
+  saxon    trouser  Crimson Warplate  #bfa400  L* 67.7  C* 70.8   lifted +42.9
+  saxon    tunic    Rough Iron        #bfa600  L* 68.3  C* 71.3   lifted +28.8
+  saxon    trouser  Blackened Steel   #b2a44d  L* 66.9  C* 46.6   lifted +48.3
+  briton   trouser  Sea Queen's Gift  #4bc0a1  L* 70.7  C* 40.8   lifted +44.4
+  briton   tunic    Sea Queen's Gift  #28c8a3  L* 72.5  C* 48.8   lifted +39.5
 ```
 
-Halving the wrap band twice — 0.76 to 0.46 to 0.34, with `bias` 1.16 to 0.96 —
-moved the jersey area by **0.55 points in total**, and the second cut moved it by
-0.14. The clipping DID respond and is the one real win: 0.19% to 0.04%, a 79%
-cut, and the pinned `#ffd300` is gone from his leg wraps, replaced by `#efa215`.
-So the value band owns the CLIPPING and owns almost none of the SATURATION.
+Six of the Saxon's twenty brightest surfaces were tunic and trouser at **chroma
+70**, lifted by the vat as much as **forty-eight points of L\***. `wrap` — the
+band three passes were spent cutting — sits ABOVE them at L\* 75.7 with
+`dL −1.3`: the vat is not lifting it at all, the shop's own Bretwalda Gold kit is.
 
-**What that means, and it is not yet proven:** the remaining garishness is
-chroma against a weld-gold field, not value, and it may not even be on the
-surfaces changed here — `vatprobe`'s surface list is `mail / tunic / trouser /
-wrap / hide / buff / linen / fitting`, and which of those carries the bright
-yellow has **not been measured**. The next round's first move is that
-measurement — one `vatprobe` run on the Saxon naming the surface — and not a
-third swing at a band. Two blind swings is already one too many.
+```
+  saxon.cloth    sat 0.66 -> 0.50   lo 0.26 -> 0.12   hi 0.66 -> 0.22
+  briton.cloth   sat 0.50 -> 0.42   lo 0.30 -> 0.12   hi 0.72 -> 0.22
+  pict.cloth                        lo 0.16 -> 0.12   hi 0.54 -> 0.26
+  norse.cloth                                         hi 0.34 -> 0.28
+```
+
+### On the frame, on the man with no shield
+
+`art/look/v2/faction-warden.png` against `art/look/calm/faction-warden.png`,
+same lens, same light, every pixel of each people's front card:
+
+```
+                  saturated + bright        pale-or-saturated + bright
+    people        before     after           before      after
+    saxon          3070       1203            3503        1580    -55%
+    briton          166        167            1880         622    -67%
+    norse           225        233             344         344      --
+    pict            186        189             275         274      --
+```
+
+Both outliers cut by more than half; the two peoples that were never garish do
+not move at all, which is what says the change went where it was aimed. The
+Briton goes mint to sage, the Saxon highlighter to weld, and `#ffd300` — a
+channel pinned at 255 — is gone from the Saxon's leg wraps.
+
+### What this did to the PAID LADDER, and it is the lead for the next round
+
+`5.2b NO REFUND PER SURFACE` moved 20 -> 19 -> 16 -> 17 across the passes, and
+its own line says why it responds to `sat` at all:
+
+```
+  the worst is 3.66 (norse: Bronze Scales vs Bretwalda Gold),
+  against 11.85 for the same pair UNSWORN
+```
+
+The shop has an ΔE 11.85 ladder on that pair and **swearing collapses it to
+3.66**. The vat is not TINTING a finish, it is REPLACING it: a high `sat`
+overwrites whatever the player bought. `sat` is the lever, demonstrated on one
+surface of one people. That is the next round's work, and it now has a proven
+knob rather than a theory.
 
 ---
 
