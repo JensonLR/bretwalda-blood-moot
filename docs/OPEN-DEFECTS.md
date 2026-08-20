@@ -8,6 +8,67 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED — the Danelaw read ROSE at the sleeves and the byrnie, and it took three rounds because nothing could see it — 20 Aug 2026
+
+The owner, off his own capture: *"THE DANELAW READS ROSE AT THE SLEEVES AND THE
+BYRNIE"*, `#b9746a`, and *"A Viking in dusty pink is not the Danelaw at any
+delta-E."*
+
+**Fixed, and the whole write-up is `docs/FACTIONS.md` §10.2.** What belongs here
+is the part the next round needs and would otherwise re-derive.
+
+### Why it survived a green 15/15 and then a green 21/21
+
+`tools/factionread.mjs` gates ΔC — how far the four peoples are APART. Rose is a
+long way from weld, from moss and from woad, so a pink Dane clears §1
+comfortably, and did, twice. **The question that gate cannot ask is whether the
+Dane is the RIGHT colour, and the right colour is not a distance from anybody
+else — it is a place on the wheel.** The file also carried this on its own
+verdict line the whole time: *"§0-§5 have no light and no grade — albedo only;
+§6 is the only lit section and it measures CLIPPING, not colour."* That is
+`PROCESS.md` failure mode 2 — a harness that knows what it cannot see, prints
+it, and goes green anyway — and the cost was two rounds.
+
+### Two rounds moved the wrong constant, and the lever is what proved it
+
+Round one took the `-0.024` hue shift out of the `norse` livery. Round two took
+`metal.sat` from 0.18 to 0.07. The brief for round three said to look at the
+`wrap` and `metal` vats. **`wrap`, `metal` AND `linen` were set to `sat: 0.00`
+— no dyestuff in any of the three — and the rose count went UP, 9 dyed surfaces
+to 12, with the sleeve still reading `#a78a86`.** A vat's `sat` is not the lever
+and three briefs in a row said it was. `PROCESS.md` R1 is the only reason that
+took twenty minutes instead of a round.
+
+### The one sentence to keep
+
+Red is the only arc on the circle whose pale form has a name of its own. Pale
+woad is pale blue, pale moss is pale green, pale weld is pale yellow — the word
+survives the value. **Pale garnet is pink.** `--garnet` is a dark stone at L\*
+26.4, and every vat is free to lift a surface far above its own field's value;
+for the other three that is right and free, and on the red arc it makes a
+Viking pink. So above `ROSE_LIT` the vat lets go.
+
+### What now exists that did not
+
+* `tools/lib/roseband.mjs` — the band, with every bound taken off a colour this
+  game already ships, and a `calibrate()` that runs on every use and must flag
+  the five reported roses while clearing ten shipped-correct surfaces.
+* `factionread` §7 — the gate, on graded captures, over the warrior's own mask,
+  barred by the worst frame of a people **not** on the red arc.
+* `tools/roselook.mjs` — the same band over a directory of PNGs in a second.
+
+### STILL OPEN, and it is the same shape one rung along
+
+`roseFade` keys on the surface's **albedo** value. The arena's key light lifts a
+surface by roughly twenty points, so a colour that is legitimately oxblood in
+the albedo buffer can still cross into the band once it is lit. §7 measures the
+lit frame and would catch it; nothing measures whether the ALBEDO threshold is
+the right place to stand. If a later round finds rose returning on the tunic or
+the trousers rather than on the sleeves and the byrnie, that is this, and the
+answer is not to relight the scene — `PROCESS.md` R11 stage 4.
+
+---
+
 ## THE JANK ROUNDS, LANDED — 19 Aug 2026
 
 Five rounds ran on the owner's *"the game currently feels visually buggy /
