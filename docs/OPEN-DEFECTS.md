@@ -62,6 +62,58 @@ number and a health bar; more-than-a-quarter-buried is 0.00% on both. The cause 
 this branch's pose timing moving bodies slightly differently so numbers spawn at
 slightly different places. Not enough to hold the merge, and not something to
 discover later from a screenshot.
+## OPEN — the Saxon reads as a JERSEY, and the vat's value bands are NOT the lever — 20 Aug 2026
+
+Photographed at play scale, four peoples, four classes, the arena's own light:
+`art/look/final/faction-*.png`. The peoples are instantly told apart at fight
+distance and the Danelaw is deep blood-red rather than salmon. **The Saxon is
+fluorescent**, and the warden sheet is the one to look at because he carries no
+shield in front of his legs.
+
+Measured over every pixel of each people's front card, same lens, same light:
+
+```
+                CLIPPED >=250                 JERSEY (sat>.55 & V>200)
+  people    row9    calm    final       row9    calm    final
+  saxon     0.19%   0.04%   0.04%       3.43%   3.02%   2.88%
+  norse     0.00%   0.00%   0.00%       0.45%   0.45%   0.45%
+  briton    0.01%   0.01%   0.01%       0.33%   0.35%   0.35%
+  pict      0.06%   0.09%   0.09%       0.35%   0.38%   0.38%
+```
+
+The Saxon carries **six to eight times the saturated-and-bright area of any
+other people**, at every pass.
+
+### TWO LEVERS PULLED, AND BOTH LANDED ALMOST NOWHERE — R1
+
+This is recorded as a NEGATIVE result because the next hand will otherwise reach
+for the same knob. `FACTIONS.md` §10.3's diagnosis — *"every one of the four vats
+is allowed to lift a surface far above its own field's value"* — is what fixed
+the Danelaw, and it does **not** fix the Saxon.
+
+```
+  pass    saxon wrap        saxon linen       saxon cloth    clipped   jersey
+  row9    lo .38 hi .76     lo .44 hi .78     hi .66          0.19%     3.43%
+  calm    lo .24 hi .46     lo .28 hi .50     hi .50          0.04%     3.02%
+  final   lo .18 hi .34     lo .20 hi .36     hi .40          0.04%     2.88%
+```
+
+Halving the wrap band twice — 0.76 to 0.46 to 0.34, with `bias` 1.16 to 0.96 —
+moved the jersey area by **0.55 points in total**, and the second cut moved it by
+0.14. The clipping DID respond and is the one real win: 0.19% to 0.04%, a 79%
+cut, and the pinned `#ffd300` is gone from his leg wraps, replaced by `#efa215`.
+So the value band owns the CLIPPING and owns almost none of the SATURATION.
+
+**What that means, and it is not yet proven:** the remaining garishness is
+chroma against a weld-gold field, not value, and it may not even be on the
+surfaces changed here — `vatprobe`'s surface list is `mail / tunic / trouser /
+wrap / hide / buff / linen / fitting`, and which of those carries the bright
+yellow has **not been measured**. The next round's first move is that
+measurement — one `vatprobe` run on the Saxon naming the surface — and not a
+third swing at a band. Two blind swings is already one too many.
+
+---
+
 ## OPEN — the Danelaw's rose is SETTLED; §1 is not, and the cause is now proven rather than argued — 20 Aug 2026
 
 **Row 9 of the table below is shipped.** `norse.wrap` `lo 0.16 -> 0.10, hi 0.42 -> 0.12`
