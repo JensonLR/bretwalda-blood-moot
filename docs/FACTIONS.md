@@ -661,30 +661,51 @@ and `factionread` §7.2 asserts the precondition on every run.
 
 | surface | before | after |
 |---|---|---|
-| linen shirt and sleeves | `#b9746a` H8 S36 L57 | `#9f9291` H4 S7 L60 |
-| Rough Iron byrnie | `#93797e` H348 S11 L53 | `#8c8183` H349 S5 L53 |
-| Polished Steel byrnie | `#ac979b` H349 S11 L63 | near-neutral steel |
+| linen shirt and sleeves | `#b9746a` H8 S36 L57, C\* 31 | `#9b9695` C\* 2 — undyed flax |
+| Rough Iron byrnie | `#93797e` H348 S11 L53, C\* 11 | `#898384` C\* 2 — bare iron |
+| Polished Steel byrnie | `#ac979b` H349 S11 L63 | near-white steel |
 | Polished Steel leg wraps | `#b46f64` H8 S35 L55 | out of the band |
 | Sea-blue byrnie | `#a75569` H345 S33 L49 | out of the band |
 | **Rough Iron leg wraps** | `#94402c` russet | **`#94402c` — byte-identical** |
-| Danelaw tunic (oxblood) | `#6f2100` | **unchanged** |
-| Danelaw cloak | flat garnet | **unchanged** — `cloakFor` never enters the vat |
+| Danelaw tunic (oxblood) | `#6f2100` | **byte-identical** |
+| Danelaw cloak | flat garnet | **byte-identical** — `cloakFor` never enters the vat |
 
-#### The threshold was wrong once, and the render is what said so
+Rose surfaces over four peoples × seven finishes × six dyed surfaces: **3 → 0**,
+and the sleeve with them.
 
-The first cut used `ROSE_LIT = 0.38`. It cleared the albedo census exactly as
-well as 0.44 does — **and the frame did not move**: norse huscarl @180 went
-2.654% to 2.626%. Sampling the same pixels found the byrnie fixed (`#c07f80` →
-`#b28c85`, C\* 27.2 → 16.2, hue 21° → 35°) and the **leg wraps ruined**:
-`#c73135` → `#ac645f`, C\* 67.7 down to 32.4. At 67.7 a wrap is above the
-band's own chroma ceiling and reads as strong madder; at 32.4 it is *inside* the
-band. The fade had taken a surface nobody complained about and turned it into
-the thing being fixed, and the two changes cancelled in the count.
+#### It took two more capture sessions, and both found something no number had
 
-`PROCESS.md` R5, a third time in this feature's history, and it cost a whole
-capture session. 0.44 sits between the Danelaw's wraps (about 0.46 after the
-band) and his sleeves (0.59) and mail (0.53–0.64): the vat lets go of the two
-surfaces the owner named and keeps its grip on the russet.
+**ONE — THE LEG WRAPS, which is why `ROSE_LIT` is 0.44 and not 0.38.** At 0.38
+the albedo census is just as clean, and **the frame did not move**: norse
+huscarl @180 went 2.654% to 2.626%. Sampling the same pixels found the byrnie
+fixed (`#c07f80` → `#b28c85`, C\* 27.2 → 16.2) and the **leg wraps ruined**:
+`#c73135` → `#ac645f`, C\* 67.7 down to 32.4. At 67.7 a wrap is *above* the
+band's own chroma ceiling and reads as strong madder, which is correct and was
+never part of the complaint; at 32.4 it is *inside* the band. The fade had
+turned a surface nobody reported into the very thing being fixed, and the two
+changes cancelled in the count. 0.44 sits between his wraps (about 0.46 after
+the band) and his sleeves (0.59) and mail (0.53–0.64).
+
+**TWO — THE ARC IS A PLATEAU AND NOT A PEAK, and the unsworn control is what
+showed it.** Same pixel, same frame, huscarl at 180°:
+
+| | albedo | rendered |
+|---|---|---|
+| unsworn byrnie | C\* 9.9, **cool** blue | C\* 6.5 |
+| Danelaw byrnie | C\* 5.0, warm | **C\* 18–20** |
+
+The arena's key light is a bonfire. **A warm light on a warm-neutral surface
+adds; the same light on a cool-neutral cancels.** Five points of warm albedo
+chroma came out as twenty on the screen while ten points of cool came out as
+six. Where the five came from: `ROSE_ARC` was a triangular window centred on
+pure red, and `--garnet` sits 6.9° off it, so the Danelaw was only ever getting
+0.81 of the fade — a fifth of the dye stayed on the byrnie. It looked like
+nothing in the albedo census, C\* 5 against a floor of 14.8, and it was four
+times that on a screen. The window is now flat at 1.0 out to 21.6° either side
+and feathered to nothing by 36°.
+
+`PROCESS.md` R5, twice more in one round. The albedo census could not have found
+either.
 
 Rose surfaces over four peoples × seven finishes × six dyed surfaces:
 **3 → 0**, and the sleeve with them. Ladders unmoved at 2.91 / 6.36 / 4.71 for Wessex, the Britons and the Picts; the
