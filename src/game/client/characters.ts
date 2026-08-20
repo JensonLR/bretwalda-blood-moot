@@ -854,7 +854,7 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     paint: 0x14100e, pattern: "staves", device: "norse",
     dye: {
       cloth:   { sat: 0.74, bias: 0.66, lo: 0.08, hi: 0.34 },
-      wrap:    { sat: 0.48, bias: 0.70, lo: 0.16, hi: 0.42 },
+      wrap:    { sat: 0.48, bias: 0.70, lo: 0.10, hi: 0.12 },
       leather: { sat: 0.56, bias: 0.68, lo: 0.06, hi: 0.26 },
       // "More metal" is a statement about how MUCH iron he has and how bright
       // it is, not about what colour it is. 0.07 and a lift: near-white steel
@@ -862,7 +862,7 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
       // Danelaw silhouette is actually made of. At 0.18 it read #8a5359 in the
       // capture — rose — and that is what took the hue shift out with it.
       metal:   { sat: 0.07, bias: 1.16, lo: 0.24, hi: 0.68 },
-      linen:   { sat: 0.34, bias: 0.72, lo: 0.24, hi: 0.50 },
+      linen:   { sat: 0.34, bias: 0.72, lo: 0.05, hi: 0.12 },
     },
   },
   briton: {

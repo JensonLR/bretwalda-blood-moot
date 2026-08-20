@@ -8,7 +8,85 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## OPEN — the Danelaw cannot be the right colour AND read as himself, and eight configurations say so — 20 Aug 2026
+## OPEN — the Danelaw's rose is SETTLED; §1 is not, and the cause is now proven rather than argued — 20 Aug 2026
+
+**Row 9 of the table below is shipped.** `norse.wrap` `lo 0.16 -> 0.10, hi 0.42 -> 0.12`
+and `norse.linen` `lo 0.24 -> 0.05, hi 0.50 -> 0.12` — `FACTIONS.md` §2's *"darker
+wools"* taken literally, which is what §10.3's own diagnosis pointed at and what the
+round before it built a fade instead of doing. Measured on this tree, `factionread`:
+
+| | shipped before | row 9 (ships) |
+|---|---|---|
+| 1.1 SWORN | **FAIL** 2.30 against a bar of 2.3 | **PASS** (worst 2.41, and it is a Saxon warden, not the Dane) |
+| 1.2 DISTINCT | FAIL 5.97 | FAIL **6.59** |
+| 1.3 PEOPLE | FAIL **−65.38°** | FAIL **−35.65°** |
+| 5.3 near-neutral on the arc | PASS | **PASS**, all 196 |
+| 5.4 vat puts a surface IN the band | **FAIL** 1 of 196 (Sea Queen's Gift wrap) | **PASS**, all 196 |
+
+**The owner's defect — the pink Viking — is closed on this instrument.** Both band
+gates are green on all 196 dyed surfaces. `wrap.hi` is `0.12` and not row 9's `0.14`
+for exactly one reason, which the previous round had already isolated and could not
+finish: at `0.14` the Sea Queen's Gift leg wrap comes out `#7f5a61`, L\* 42.3 — **1.3
+points over the band's own L\* 41 floor**, in the band, and §5.4 names it. At `0.12`
+it drops under the floor, where the red arc still has its dark names, and clears.
+
+### WHY §1.2 AND §1.3 CANNOT BE TUNED OUT, AND IT IS ONE MEASUREMENT
+
+Four configurations were run through the shipped `factionread`, each changing one
+thing from row 9. Every one of them holds 5.3 and 5.4 green:
+
+| what changed | 1.2 | 1.3 |
+|---|---|---|
+| row 9 as shipped | 6.59 | −35.65° |
+| `metal.bias` 1.16 → 1.00 (dimmer mail) | — | −33.47° |
+| + `cloth/wrap/linen/leather` sat raised hard (0.74/0.48/0.34/0.56 → 0.85/0.75/0.70/0.70) | 7.83 | −33.05° |
+| **`metal.sat` 0.07 → 1.00 — the mail carrying the FULL garnet hue** | — | **−32.84°** |
+
+**Read the last row.** Turning the Danelaw's mail all the way up to his own field's
+hue — fourteen times the shipped saturation, the single largest thing that can be
+done to the largest surface he owns — moves §1.3 by **0.2 degrees**. The knob is
+disconnected, and it is disconnected *by the fix that stopped him being pink*: the
+anisotropic cap hands the mail back UNDYED, so `metal.sat` has nothing to act on.
+
+That is the trade stated as a measurement instead of an argument:
+
+> A cloakless huscarl in Polished Steel is mostly mail. His mean hue can only be
+> made to read garnet by warming the mail. A warm near-neutral mail is precisely
+> the surface §5.3 exists to forbid, because it is the one the bonfire finishes
+> dyeing pink. **§1.3 and §5.3 are asking the same surface for opposite things**,
+> and no setting of this vat answers both.
+
+### WHAT IS NOT YET KNOWN, AND IT IS THE NEXT INSTRUMENT AND NOT A TUNING PASS
+
+`factionread` §1 measures the man **WITHOUT HIS SHIELD** — its own header says so
+under "WHAT THIS FILE DOES NOT MEASURE", and calls the body-only reading *"the
+CONSERVATIVE one: the bar is cleared by the man without his shield"*. That framing
+is right for a PASS and it is **not right for a FAIL**. The failing loadout is
+`huscarl | Polished Steel | No Cloak` at bearing **0°** — the front — and a huscarl
+always carries a board, which §4.1 measures at **ΔE 33.5** between peoples and which
+is the largest flat colour he holds. So the man §1 is failing on is not a man the
+game ever draws.
+
+**Nothing here claims the failure is therefore false.** It claims the reading does
+not yet answer the question, and names what would: a posed capture with the board
+mounted, under light, which is `§6`/`vatprobe`'s path and not this file's. That is
+where the next round starts, and it is an instrument job, not a knob job.
+
+### AND THE PAID LADDER IS NOW VISIBLE, WHICH IS WHY IT IS RED
+
+`5.1b NO TWINS PER SURFACE` and `5.2b NO REFUND PER SURFACE` are **FAIL** — *"20 paid
+surfaces collapse onto the FREE Rough Iron's own"*, and Saxon tunic reads Rough Iron
+(0g) against Bronze Scales (110g) at ΔE 1.24, `#bfa600` vs `#bfa400`. These are not
+new defects and this configuration did not cause them: the old §5.1/§5.2 averaged six
+surfaces through `kitDE`, and §5.0b is the control that proves the mean is blind —
+**a byte-identical byrnie, ΔE 0.00, reads ΔE 18.77 through the kit mean.** The gate
+titled "THE PAID LADDER SURVIVES SWEARING" could not see the thing it was named for.
+The per-surface gates are the fix to the ruler; the twenty surfaces are the next
+round's work.
+
+---
+
+## SUPERSEDED — the eight-configuration table, kept for its numbers — 20 Aug 2026
 
 **This entry replaces two CLOSED ones below it.** Both were marked closed by the
 round that made the change, against this file's own rule — *"Delete an entry
