@@ -56,6 +56,40 @@ this box:
 
   `#f87868` is salmon. §5.3's premise — a warm near-neutral on the arc is a
   surface the bonfire finishes dyeing — is confirmed on a frame, not relayed.
+  **I did not capture the 180° pair on that tree**; the run was stopped to free
+  the box for the after-set, and a number I did not see printed is not reported.
+
+  The same three, on THIS tree, same build path, same lens, same control:
+
+  | bearing | sworn | modal | unsworn | modal | delta | vs the tree above |
+  |---|---|---|---|---|---|---|
+  | 0° | 0.584 % | `#a07060` | 0.193 % | `#c88880` | +0.391, 3.0x | **1.574 → 0.584, −63 %** |
+  | 90° | 0.362 % | `#886860` | 0.264 % | `#a05838` | **+0.097, 1.4x — inside the noise floor** | **2.964 → 0.362, −88 %** |
+  | 180° | 1.147 % | `#b08070` | 0.460 % | `#886068` | +0.687, 2.5x | not measured on that tree |
+
+  The profile is the bearing the owner's rose was reported at, and at the
+  profile the Danelaw is now within `vatprobe`'s own measured noise of the man
+  who swore to nobody. The modal colour goes salmon → dark warm grey at every
+  bearing. **It is not zero**: the front and the back still read 2.5-3x the
+  matched floor, and that residue is the bonfire on the brightest mail on the
+  roster, which is the standing reading below and is `norse.metal.bias`'s to
+  answer, not a fixer's.
+
+  And on **Crimson Warplate**, 130 gold — the finish an adversary found the
+  previous round's new rose byrnie on, `#9c6d6b`, 1.5° off the garnet — on THIS
+  tree, against the same man in the same 130-gold kit sworn to nobody:
+
+  | bearing | sworn | modal | unsworn | modal | delta |
+  |---|---|---|---|---|---|
+  | 0° | 0.690 % | `#d88868` | 0.854 % | `#d87060` | **−0.164 — BELOW its own floor** |
+  | 90° | 1.212 % | `#d89070` | 1.131 % | `#f8b090` | +0.080 — noise |
+  | 180° | 1.088 % | `#e8b098` | 1.030 % | `#b05848` | +0.058 — noise |
+
+  Read the UNSWORN column before reading the sworn one: a man in Crimson
+  Warplate reads about 1 % rose with no livery on him at all, because the shop
+  sells him madder trousers and `FINISH_KIT`'s own "pale rose-grey" leg wraps.
+  That is what a matched floor is for, and it is why a single global bar could
+  not have graded this finish at all.
 
 * **A byrnie the vat has let go of reads PICT.** Bare steel is cool, woad is
   cool, and the byrnie is most of the man. Every configuration that clears the

@@ -986,9 +986,28 @@ brightest thing on him — most of the linear-light mean §1 measures:
 (§5.4) exists to catch exactly the surface 0.06 leaves in the band, and shipping
 a tree that fails one's own new gate is what §10.3 did.
 
-`docs/OPEN-DEFECTS.md` carries the eight configurations, the two graded frames
-that bound the problem at both ends, and the three owner-level decisions that
-are the only remaining levers.
+`docs/OPEN-DEFECTS.md` carries the nine configurations, the graded frames that
+bound the problem at both ends, and the three owner-level decisions that are the
+only remaining levers.
+
+#### And the frames, which is what R5 asks for
+
+`tools/vatprobe.mjs`, production builds on both trees, settled `fightcard`
+captures at the play lens, the Danelaw huscarl graded over his own pixels
+against **the same man in the same kit sworn to nobody**:
+
+| finish | bearing | before | after | modal, before → after |
+|---|---|---|---|---|
+| Polished Steel, 60g | 0° | +1.373 over its floor (7.8x) | **+0.391** | `#f87868` → `#a07060` |
+| Polished Steel, 60g | 90° | +2.683 (10.5x) | **+0.097 — noise** | `#f88070` → `#886860` |
+| Polished Steel, 60g | 180° | not measured | +0.687 | — → `#b08070` |
+| Crimson Warplate, 130g | 0° | — | **−0.164 — below its floor** | — → `#d88868` |
+| Crimson Warplate, 130g | 90° | — | +0.080 — noise | — → `#d89070` |
+| Crimson Warplate, 130g | 180° | — | +0.058 — noise | — → `#e8b098` |
+
+"before" is `factionland2`, the tree with no fade in it at all — the state the
+owner reported. `#f87868` is salmon. The profile is the bearing his rose was
+reported at and it is now inside the instrument's own noise floor.
 
 #### The ladder, measured through the shipped resolvers
 
