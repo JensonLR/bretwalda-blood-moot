@@ -451,3 +451,22 @@ can be concluded from a page that is not drawing the game — not that it ran an
 not that it did not. That case is gated in `replaytest` §4 against the real
 `createDeathCamera` instead, and `replayshot`'s verdict says **NOT PROVEN**
 rather than green when every pass is routed past the scoring.
+
+**And `summaryflow` is RED, on this branch and on the one before it.** The duel
+phase reaches
+
+```
+  PASS  the verdict names the phone player — winner Prober
+  PASS  pressed before the rollback, the intent parks
+  PASS  the summary overlay stands over a live canvas
+[flow] failed: Error: timed out waiting for the stage to report its cast
+```
+
+and it fails identically on `origin/mercyweight3` with the same three passes
+before it, so it is not the match-end precedence fix — that fix is a no-op for a
+viewer who is ALIVE, which the phone player in this fixture is. It is either the
+summary-withholding this branch added (`castNow` allows 30 s for
+`__summaryBodies` and the beat now stands in front of it) or the box, which
+draws this arena at **0.32–0.83 frames a second**. It is written down here
+rather than left in a scrollback: **whoever picks this up should run
+`summaryflow` on a machine with a GPU before touching the withholding.**
