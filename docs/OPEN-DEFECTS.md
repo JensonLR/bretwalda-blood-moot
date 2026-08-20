@@ -8,7 +8,132 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## CLOSED — the Danelaw's rose, fourth and last round: the vat was BLEACHING the steel — 20 Aug 2026
+## OPEN — the Danelaw cannot be the right colour AND read as himself, and eight configurations say so — 20 Aug 2026
+
+**This entry replaces two CLOSED ones below it.** Both were marked closed by the
+round that made the change, against this file's own rule — *"Delete an entry
+when a capture proves it gone, not when a change is made"* — and the round's own
+message says the after-set had not finished. One of the two claims is false on
+the tree it shipped, and `tools/factionread.mjs` says so out loud on every run:
+
+```
+node tools/factionread.mjs   @ origin/factionland3 (cc4008e), twice, identical
+  FAIL 1.2 DISTINCT  worst ΔC 6.47 (ΔE 7.56) — huscarl|Polished Steel|No Cloak|0: norse vs pict
+  FAIL 1.3 PEOPLE    worst norse/huscarl/Polished Steel/No Cloak at 160° — -53.74° NEARER THE PICT
+  FAIL 5.3 NO NEAR-NEUTRAL ON THE ARC  1 of 196: norse Crimson Warplate wrap #a08177, C* 14.3
+```
+
+The same file on `origin/factionland2`: **PASS 1.2 at 17.88, PASS 1.3 at
++3.47°.** The §1 code is byte-identical between the two trees. One instrument,
+one bar, two `characters.ts`. And §5.3 was added by the last commit of that
+branch, on a tree that fails it.
+
+`docs/FACTIONS.md` §10.3 asserts *"After the cap all four peoples read correctly
+with and without cloak and board"*. It does not reproduce.
+
+### THE TRADE, AND IT IS STRUCTURAL RATHER THAN A TUNING MISS
+
+`factionread` §1's signature is the warrior's **area-weighted mean albedo,
+averaged in LINEAR light**. `FACTIONS.md` §2 gives the Danelaw *"more metal,
+darker wools"*, and `norse.metal` implements it with `bias 1.16` over a floor of
+`lo 0.24` — so his byrnie is deliberately the brightest surface on him, and in a
+linear mean the brightest surface is most of the answer. **The Danelaw's byrnie
+IS his identity vote on this ruler**, and every other surface he owns is a
+rounding error beside it.
+
+That collides head-on with the owner's defect. Both ends are measured, by me, on
+this box:
+
+* **A byrnie the vat still holds is PINK.** `origin/factionland2`, production
+  build, settled `fightcard` captures of the Danelaw huscarl in Polished Steel,
+  graded with `tools/lib/roseband.mjs` over the man's own pixels, against the
+  SAME man in the SAME kit sworn to nobody on the same mark:
+
+  | bearing | sworn | modal | unsworn | modal | delta |
+  |---|---|---|---|---|---|
+  | 0° | **1.574 %** | `#f87868` | 0.202 % | `#c89090` | **+1.373, 7.8x** |
+  | 90° | **2.964 %** | `#f88070` | 0.281 % | `#a05838` | **+2.683, 10.5x** |
+
+  `#f87868` is salmon. §5.3's premise — a warm near-neutral on the arc is a
+  surface the bonfire finishes dyeing — is confirmed on a frame, not relayed.
+
+* **A byrnie the vat has let go of reads PICT.** Bare steel is cool, woad is
+  cool, and the byrnie is most of the man. Every configuration that clears the
+  band fails §1.2 and §1.3, and every configuration that passes §1 puts the
+  Danelaw back in the band.
+
+### THE EIGHT CONFIGURATIONS, ALL RUN THROUGH THE SHIPPED `factionread`
+
+`rose` and `near` are `tools/lib/roseband.mjs` over the 196 dyed surfaces of the
+four peoples: members of the band, and surfaces PALE and ON the arc but under
+its C\* 14.8 floor, which is the region §5.3 gates and the fire lights up.
+`mail`/`kit` are the worst finish pair's ΔE, byrnie-only and over the six dyed
+surfaces, on the Danelaw.
+
+| # | what the vat lets go TO | §1.2 | §1.3 | rose | near | norse mail | norse kit |
+|---|---|---|---|---|---|---|---|
+| 1 | nothing — no fade (`factionland2`) | **17.88** | **+3.47°** | 10 | 3 | 0.52 | 5.58 |
+| 2 | grey, along the cone (`7aa306d`) | **11.04** | **+3.47°** | 0 | 19 | 0.00 | 2.55 |
+| 3 | the surface, capped isotropically (`factionland3`) | 6.47 | −53.74° | 1 | 1 | 1.92 | 2.79 |
+| 4 | the surface, uncapped | 6.47 | −59.48° | 1 | 0 | 2.02 | 5.44 |
+| 5 | 4 + the vat's load never cancelled | 7.59 | −57.02° | 1 | 0 | 2.02 | 5.44 |
+| 6 | 5 + norse cloth/leather floors lifted | 9.16 | −44.56° | 0 | 0 | — | 4.04 |
+| 7 | 4 + a soft floor under every value band | 5.87 | −77.60° | 0 | 0 | **13.78** | **7.59** |
+| 8 | **the surface, capped ACROSS the vat's hue (this tree)** | 5.97 | −65.38° | **0** | **0** | 1.53 | 4.26 |
+
+Rows 1 and 2 are the only green §1 in the table and both are RED on the owner's
+defect — row 1 is the frames above, row 2 puts nineteen surfaces in the region
+the fire dyes. Rows 3–8 are green on the defect and red on §1. **There is no
+setting of this vat that is green on both.**
+
+The knob is continuous and it is `ROSE_FADE`. On row 8's shape, holding
+everything else: 0.06 reads §1.2 7.36 / §1.3 −24.56° and leaves Crimson
+Warplate's leg wraps `#a47f71` INSIDE the band; 0.04 reads 5.97 / −65.38° and
+clears it. **More dye left on the byrnie is more identity and more pink, point
+for point.**
+
+### WHAT IS ACTUALLY BLOCKED, AND WHOSE CALL IT IS
+
+Not a fixer's. Three of the four numbers involved are the owner's design:
+
+* `norse.metal.bias 1.16` and `lo 0.24` — *"near-white steel over the darkest
+  wools"*. This is what makes the byrnie dominate a linear mean. Row 7 shows
+  what softening the floor buys — **every mail ladder in the shop repaired at
+  once**, saxon 0.00 → 5.17, norse 0.52 → 13.78, briton 0.34 → 4.77, pict 2.47 →
+  5.94 — and what it costs: §1.3 −77.60°.
+* the arena's **bonfire**, which is what turns a warm near-neutral pink and is
+  `R11` stage 4's neighbour rather than its subject. Not to be relit to fix a
+  material.
+* `FACTIONS.md` §2's *"more metal, darker wools"* itself. A Danelaw whose
+  identity lived in his WOOL instead of his mail would have neither problem, and
+  that is a design change and not a constant.
+
+### WHAT A LATER ROUND MUST NOT RE-DERIVE
+
+* **A vat's `sat` is not the lever.** Four briefs said it was. Emptying three
+  vats made the rose worse; see the entry below.
+* **`ROSE_LIT` 0.44 is bounded on both sides by the shop's own leg wraps** —
+  Rough Iron's land at 0.4366 and must stay russet, Crimson Warplate's at 0.5510
+  and must let go. That gap of 0.114 is what fixes `ROSE_FADE` at 0.04.
+* **The cap on what a vat hands back must be ANISOTROPIC.** Capping the
+  magnitude turned Crimson Warplate's blood-red byrnie `0x7a2f2a` into `#9c6d6b`
+  — 1.5° off the garnet, L\* 50.8, C\* 20.3 — which is the only band member the
+  previous tree had left, on a 130-gold finish, and which `roseband`'s own
+  `MUST_CLEAR` list carries as a surface that ships CORRECT. What threatens a
+  people is chroma pulling AWAY from its field; chroma pointing AT it never can.
+* **§1's failing man has no cloak and no shield, and §1 removes his board by
+  its own documented deferral.** That is the conservative reading and it is
+  still the gate. A huscarl in play carries a flat garnet board.
+
+---
+
+## REOPENED (was CLOSED without a capture) — the Danelaw's rose, fourth round: the vat was BLEACHING the steel — 20 Aug 2026
+
+> **The diagnosis in this entry is correct and stands. The verdict does not.** It
+> was marked CLOSED on the day the change was made, and the round's own message
+> says the after-set had not finished; the tree it closed on FAILS `factionread`
+> §1.2, §1.3 and §5.3, and §5.3 is the gate the same round added. The entry
+> above carries the readings. Keep the mechanism, drop the word CLOSED.
 
 The entry below this one closed the same defect on 20 Aug and left a residue it
 called inseparable: *"the residue is the fire on bright iron... The next round
@@ -71,7 +196,13 @@ lights up.
 
 ---
 
-## CLOSED — the Danelaw read ROSE at the sleeves and the byrnie, and it took three rounds because nothing could see it — 20 Aug 2026
+## REOPENED (was CLOSED without a capture) — the Danelaw read ROSE at the sleeves and the byrnie — 20 Aug 2026
+
+> **The albedo half of this is genuinely gone** — the owner's `#b9746a` sleeve
+> resolves to `#a89c86`, undyed flax, and no dyed surface of any people is in
+> the band. What is not gone is what the entry's own last section already says
+> is left, and it now has a matched frame behind it rather than a reading of
+> one man: see the top of this file.
 
 The owner, off his own capture: *"THE DANELAW READS ROSE AT THE SLEEVES AND THE
 BYRNIE"*, `#b9746a`, and *"A Viking in dusty pink is not the Danelaw at any

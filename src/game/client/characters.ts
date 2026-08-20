@@ -986,7 +986,16 @@ const linear = (l: number): number => (l <= 0.04045 ? l / 12.92 : Math.pow((l + 
  *     bands moved to perceptual + full sum       4.41 ΔC     -173.24°     8.93
  *     linear bands + full sum, no cone           5.75 ΔC     -173.24°     8.97
  *     linear bands + sum, 22° cone              16.64 ΔC      -25.80°     7.16
- *     THIS: linear bands + sum, 8° cone         17.93 ΔC       +3.47°     3.23
+ *     linear bands + sum, 8° cone (THIS)        17.93 ΔC       +3.47°     3.23
+ *
+ * THAT TABLE IS A READING OF A TREE WITH NO ROSE FADE IN IT, and it has been
+ * left as it was because it is what settled the CONE. It is no longer what
+ * this file reads: the fade `roseFade` adds below takes the vat off the
+ * Danelaw's pale surfaces, and his byrnie is the largest surface on him and
+ * therefore most of the area-weighted mean §1 measures. On the shipped tree
+ * §1.2 reads 5.97 and §1.3 -65.38°, both RED. `docs/OPEN-DEFECTS.md` carries
+ * the whole curve — eight configurations, and the frame that proves the other
+ * end of it is not available either.
  *
  * The trade is real and it is stated rather than hidden: the ladder does not
  * come all the way back. The configurations that recover it to ΔE 8-9 are the
@@ -1229,13 +1238,20 @@ function underCeiling(hex: number, cap: number): number {
  * the red arc — pink — while the unsworn man's cool iron rendered C* 6.5. The
  * fade is therefore applied to the dyed vector AS A VECTOR, hue and chroma
  * together, and a vat that has let go returns the steel its own blue-grey.
- * `tools/factionread.mjs` §7.3 gates it in albedo, in a second, with no browser
- * — which is what three rounds of this defect did not have.
+ * `tools/factionread.mjs` §5.3 and §5.4 gate it in albedo, in a second, with no
+ * browser — which is what three rounds of this defect did not have.
  *
- * THE OTHER THREE PEOPLES ARE BYTE-IDENTICAL AND THAT IS MEASURED, NOT HOPED —
- * 3360 values identical and 796 changed, every one of the 796 the Danelaw's,
- * over every finish surface through `factionKit`, a 197-step hex sweep across
- * all five dye kinds for all four peoples, and every cloak. `keep` of 1
+ * THE OTHER THREE PEOPLES ARE BYTE-IDENTICAL AND THAT IS MEASURED, NOT HOPED.
+ * The domain is stated because the last round's two numbers for this — 3360/796
+ * here and 3361/795 in `FACTIONS.md` §10.3 — disagreed with each other and
+ * neither reproduced, which is `docs/PROCESS.md` R8 on a claim about
+ * reproducibility. Seven finishes x seven surfaces, plus a 197-step sweep of
+ * the hex cube through all five dye kinds, plus every cloak and the shield
+ * board, for each of the four peoples — 4160 values:
+ *
+ *     against the tree before this change   3361 identical, 799 changed
+ *     against the tree before the fade      3357 identical, 803 changed
+ *     saxon, briton and pict                BYTE-IDENTICAL in both `keep` of 1
  * reproduces the dyed vector exactly, so a surface the fade cannot reach is
  * identical by construction and not by luck.
  * The window is on the RESULT's hue and it is 36° wide either side of pure red;
@@ -1340,8 +1356,30 @@ const UNDYED_SAT = (() => {
   new THREE.Color(0xc2b69c).getHSL(t);
   return t.s;
 })();
-/** How much value the vat takes to let go over. Short, but not a cliff. */
-const ROSE_FADE = 0.06;
+/**
+ * How much value the vat takes to let go over. Short, but not a cliff.
+ *
+ * 0.04 AND NOT 0.06, AND THE SHOP'S OWN TWO WRAPS FIX IT. `ROSE_LIT` sits at
+ * 0.44 because Rough Iron's leg wraps land at 0.4366 and must stay RUSSET;
+ * Crimson Warplate's leg wraps are `0xbc9c8c`, which `FINISH_KIT` calls "a pale
+ * rose-grey" in the shop's own words, and they land at 0.5510 and must LET GO.
+ * That is a gap of 0.114 of value, and a fade long enough to leave a twentieth of
+ * the vat on the second one is a fade that leaves a fifth on it. Measured
+ * through the shipped resolvers with `tools/lib/roseband.mjs`, on the tree
+ * below this line:
+ *
+ *     ROSE_FADE   Crimson Warplate leg wraps   the band
+ *     0.06        #a47f71  L* 56.4  C* 17.9    IN — 20.4° off the garnet
+ *     0.05        #a28173  L* 56.7  C* 16.3    IN
+ *     0.045       #a28274  L* 57.0  C* 15.9    IN
+ *     0.04        #a18375  L* 57.2  C* 15.1    clear
+ *
+ * At 0.06 the surface keeps 16% of a `sat 0.48` vat, and 16% of the strongest
+ * cloth vat the Danelaw owns on a surface the shop already calls rose-grey is a
+ * dusty pink. Nothing else in the shop moves between 0.06 and 0.04:
+ * `factionread` §5.3 reads zero at both.
+ */
+const ROSE_FADE = 0.04;
 function roseFade(h: number, l: number): number {
   const off = Math.abs(((h + 0.5) % 1) - 0.5);
   const red = Math.max(0, Math.min(1, (ROSE_ARC - off) / ROSE_TAPER));
@@ -1421,7 +1459,43 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   // inversion `HUE_CONE` was introduced to stop, one rung further down. His
   // cloak and his board are flat garnet and never enter the vat, so a huscarl
   // survived it; a berserker with no cloak and no shield did not.
-  const uMag = Math.min(hsl.s, UNDYED_SAT);
+  //
+  // THE CAP IS ANISOTROPIC, AND THAT IS THIS ROUND'S CORRECTION. Capping the
+  // MAGNITUDE — one number, applied whatever colour the cloth was — put a NEW
+  // rose byrnie on a PAID finish and `tools/lib/roseband.mjs`'s own MUST_CLEAR
+  // list is the proof: it carries `0xb23c34, "crimson-finish mail — blood"` as
+  // a surface that ships CORRECT, and the isotropic cap replaced that exact
+  // surface with `#9c6d6b` — L* 50.8, C* 20.3, 1.5° off the garnet, the only
+  // band member left in all 245 and dead centre of the thing the owner
+  // reported. Crimson Warplate's mail is `0x7a2f2a`: C* 38.0 at hue 31.6°,
+  // which IS the Danelaw's own colour. Cutting its chroma to an undyed shirt's
+  // did not stop a purchase out-voting a people; it turned blood into pink.
+  //
+  // WHAT THE CAP IS ACTUALLY FOR is the VOTE, and a vote is an ANGLE. §1.3
+  // reads a people off the hue of the man's area-weighted mean, so what
+  // threatens a people is chroma pulling AWAY from its field — a gold byrnie
+  // under a garnet vat — and what cannot possibly threaten it is chroma
+  // pointing AT it. So the ceiling is on the colour that ARGUES with the vat:
+  // a cloth may keep all of what it shares with the dyestuff and at most an
+  // undyed shirt's worth of what it does not. `align` is the cosine between
+  // the cloth's own hue and the vat's; at +1 the cap is the cloth's own load
+  // and the ceiling does nothing, at 0 and below it is `UNDYED_SAT` flat.
+  //
+  // Measured through the shipped resolvers, and it is the difference between a
+  // brick and a pink on a 130-gold finish:
+  //
+  //     Crimson Warplate mail  0x7a2f2a  ->  isotropic #9c6d6b  L* 50.8 C* 20.3  ROSE
+  //                                          this      #af463f  L* 44.4 C* 50.6  brick
+  //     Bretwalda Gold mail    0x9a7a2a  ->  this      #ae8143  L* 57.2 C* 41.2  still capped
+  //     Rough Iron mail        0x5f6b7a  ->  this      #7d808f  C* 8.7 hue 284°  cool steel
+  //
+  // and on `factionread` §1, which is what the cap exists for, the anisotropic
+  // form is the BETTER of the two on both readings: §1.2 6.47 -> 7.36 ΔC and
+  // §1.3 -53.74° -> -24.56°. Both are still short and §1 is still red; the
+  // measurement of why, and the eight configurations it took, are in
+  // `docs/OPEN-DEFECTS.md`. It is not this line's to close.
+  const align = Math.cos(TAU * (hsl.h - f.hue));
+  const uMag = Math.min(hsl.s, UNDYED_SAT + Math.max(0, align) * Math.max(0, hsl.s - UNDYED_SAT));
   const ux = uMag * Math.cos(TAU * hsl.h);
   const uy = uMag * Math.sin(TAU * hsl.h);
   const vx = ux + (dc * Math.cos(TAU * dh) - ux) * keep;
