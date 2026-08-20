@@ -1176,9 +1176,17 @@ function underCeiling(hex: number, cap: number): number {
  * recorded above and both are real improvements; neither is the mechanism.
  * The brief for THIS round said to look at the `wrap` and `metal` vats. So the
  * lever was pulled all the way: `wrap`, `metal` AND `linen` set to `sat: 0.00`
- * — no dyestuff in the vat at all — and the rose count went from 9 dyed
- * surfaces to 12 and the sleeve read `#a78a86`, still rose. THE VAT'S `sat` IS
- * NOT THE LEVER, and no amount of moving it ever was.
+ * — no dyestuff in any of the three vats at all. Scored on the band this round
+ * ships, the rose count went from 9 dyed surfaces to 6: it removes a THIRD of
+ * the defect, at the price of taking the Danelaw's dye out of three surfaces
+ * entirely, and every byrnie is still in the six. The sleeve came out
+ * `#a78a86` — it leaves the band only by going greige, which is the vat doing
+ * nothing rather than the vat doing the right thing. THE VAT'S `sat` IS NOT THE
+ * LEVER, and no amount of moving it ever was.
+ *
+ * (An earlier, wider box scored that same experiment 9 -> 12 and that number
+ * reached a commit message before this band existed. It is not reproducible
+ * with what ships and is corrected here. docs/PROCESS.md R8.)
  *
  * WHAT IT ACTUALLY IS. Red is the only arc on the circle whose pale form has a
  * name of its own. Pale woad is pale blue, pale moss is pale green, pale weld

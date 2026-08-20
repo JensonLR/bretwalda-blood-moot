@@ -595,9 +595,17 @@ real improvements. Neither is the mechanism.
 
 The brief for this round said to look at the `wrap` and `metal` vats. So the
 lever was pulled all the way (`docs/PROCESS.md` R1): **`wrap`, `metal` AND
-`linen` set to `sat: 0.00`** — no dyestuff in any of the three vats at all. The
-rose count over the seven finishes went from **9 dyed surfaces to 12**, and the
-sleeve still read `#a78a86`. A vat's `sat` is not the lever and never was.
+`linen` set to `sat: 0.00`** — no dyestuff in any of the three vats at all.
+Scored on the band this round ships, the rose count over the seven finishes went
+from **9 dyed surfaces to 6** — a third of the defect removed, at the price of
+taking the Danelaw's dye out of three surfaces entirely, and **every byrnie is
+still in the six**. The sleeve came out `#a78a86`, which leaves the band only by
+going greige: the vat doing nothing, not the vat doing the right thing. A vat's
+`sat` is not the lever and never was.
+
+*(An earlier, wider box scored that experiment 9 → 12 and that number reached a
+commit message before this band existed. It is not reproducible with what ships
+and is corrected here. `PROCESS.md` R8.)*
 
 #### What it actually is
 
