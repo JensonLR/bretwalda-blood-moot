@@ -432,6 +432,32 @@ const SHEETS = {
       label: `unsworn · ${label}`, turn, cls, dress: { people: "none" },
     })),
   }])),
+  // ---- the shop, under a livery (5) ----
+  //
+  // THE SHEET THE LAST ROUND NEEDED AND DID NOT HAVE. Every faction sheet above
+  // this one passes `dress: { people }` and NOTHING ELSE, so every one of them
+  // photographs `defaultAppearance`'s issued Rough Iron. The livery is applied
+  // to SEVEN finishes and the after-set had pictures of one of them — and the
+  // defect that survived the round lived on Crimson Warplate, 130 gold: the
+  // Danelaw's byrnie read 46.6% of the crop inside the rose band at the
+  // profile, modal `#c76b68`, while `factionread` §7 was green about a man in
+  // iron and this file had no frame that could contradict it.
+  //
+  // Seven finishes across, three bearings down, one people per sheet, and the
+  // UNSWORN row is a sheet of its own for the reason `factionunsworn*` already
+  // gives: the band's chroma floor is an albedo number in a lit scene, and only
+  // a man in the SAME KIT sworn to nobody is a floor for it. Shoot
+  // `factionshopunsworn` beside whichever people you are grading.
+  ...Object.fromEntries([["saxon", "saxon"], ["norse", "norse"], ["briton", "briton"], ["pict", "pict"], ["unsworn", "none"]]
+    .map(([tag, people]) => [`factionshop${tag}`, {
+      file: `faction-shop-${tag}.png`, card: "fightcard", slot: "armor", cols: 7,
+      title: `THE SHOP UNDER A LIVERY · ${tag} · seven finishes across, front/profile/back down · fight distance, the arena's own light`,
+      rows: [
+        { turn: 0, tag: "front", dress: { people } },
+        { turn: 90, tag: "profile", dress: { people } },
+        { turn: 180, tag: "back", dress: { people } },
+      ],
+    }])),
   ...Object.fromEntries(["huscarl", "berserker"].map((cls) => [`factionclose${cls}`, {
     file: `faction-close-${cls}.png`, card: "kitcard", cols: 3,
     title: `THE FOUR PEOPLES · ${cls} · front, profile, back · PORTRAIT scale, the arena's own light`,
@@ -456,9 +482,18 @@ const GROUPS = {
   // the one group on purpose — the 8.4 s first frame and the texture bake are
   // paid once, and a before/after whose two halves were shot in two sessions is
   // two exposures of one light rather than one measurement.
-  factionturn: SHEET_NAMES.filter((n) => n.startsWith("faction")),
+  // `factionshop*` is deliberately NOT in here: it is 105 panels against this
+  // group's 60, and it varies the other axis. Shoot `factionshop` when the
+  // question is what a vat did to a PURCHASE, `factionturn` when it is what a
+  // vat did to a MAN.
+  factionturn: SHEET_NAMES.filter((n) => n.startsWith("faction") && !n.startsWith("factionshop")),
   // The control on its own, for when only the floor needs re-measuring.
-  factionfloor: SHEET_NAMES.filter((n) => n.startsWith("factionunsworn")),
+  factionfloor: SHEET_NAMES.filter((n) => n.startsWith("factionunsworn") || n === "factionshopunsworn"),
+  // The SHOP under every livery, plus its own unsworn floor. `node tools/shoot.mjs
+  // factionshop`. This is the axis `factionturn` does not have: it varies the
+  // finish and holds the class, where `factionturn` varies the class and holds
+  // the finish at whatever a man is issued.
+  factionshop: SHEET_NAMES.filter((n) => n.startsWith("factionshop")),
   armouryfight: SHEET_NAMES.filter((n) => SHEETS[n].card === "fightcard"),
 };
 const GROUP_NAMES = Object.keys(GROUPS);

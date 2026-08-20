@@ -443,7 +443,7 @@ const GLANCE_DE = LADDER_DE;
 // THE SWEEP SET — the shop's own ladders, enumerated. Nothing is sampled.
 // ============================================================
 const slotOf = (n) => ARMOURY.find((s) => s.slot === n);
-const FINISHES = slotOf("armor").options.map((o) => ({ label: o.label, value: Number(o.value) }));
+const FINISHES = slotOf("armor").options.map((o) => ({ id: o.id, label: o.label, cost: o.cost, value: Number(o.value) }));
 const CLOAKS = slotOf("cloak").options.map((o) => ({ label: o.label, value: String(o.value) }));
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 const PEOPLES = [...PEOPLE_IDS];
@@ -1271,22 +1271,35 @@ let laddering = null;
 // Dane clears it comfortably. The question a distance cannot ask is whether a
 // man is the RIGHT colour. This section asks it, and it costs a second.
 // ============================================================
-console.log("\n[faction] === 5.3 NO NEAR-NEUTRAL ON THE RED ARC (albedo, and it needs no light) ===\n");
+console.log("\n[faction] === 5.3 / 5.4 THE ROSE BAND IN ALBEDO (no light, no browser, one second) ===\n");
 {
   const band53 = makeBand(FACTION_FIELD.norse);
   const hx53 = (n) => `#${n.toString(16).padStart(6, "0")}`;
-  note(`the band: ${band53.describe()} — this section gates the region JUST UNDER its C* ${band53.floor.toFixed(1)} floor`);
+  note(`the band: ${band53.describe()}`);
+  note(`5.3 gates the region JUST UNDER its C* ${band53.floor.toFixed(1)} floor, where the fire finishes the dyeing; 5.4 gates the band ITSELF, against the shop's own undyed cloth.`);
   const flat = [];
+  const inband = [];
   const LINEN_SRC = 0xc2b69c;
+  const hits = (c) => band53.test((c >> 16) & 255, (c >> 8) & 255, c & 255);
   for (const people of PEOPLES) {
     for (const f2 of FINISHES) {
-      const k = kitFor(finishKit(f2.value), "none", people);
-      const surfaces = ["mail", "tunic", "trouser", "wrap", "hide", "buff"].map((s) => [s, k[s]]);
-      surfaces.push(["linen shirt and sleeves", CH.wornBy(LINEN_SRC, "none", people, "linen")]);
-      for (const [surf, c] of surfaces) {
+      const kit = finishKit(f2.value);
+      const k = kitFor(kit, "none", people);
+      const surfaces = ["mail", "tunic", "trouser", "wrap", "hide", "buff"].map((s) => [s, kit[s], k[s]]);
+      surfaces.push(["linen shirt and sleeves", LINEN_SRC, CH.wornBy(LINEN_SRC, "none", people, "linen")]);
+      for (const [surf, src, c] of surfaces) {
         const L = labOf(c), C = chromaOf(L), d = arcTo(hueOfLab(L), band53.fieldH);
         if (d <= ARC && L[0] >= ROSE_L && C < band53.floor)
           flat.push(`${people} ${f2.label} ${surf} ${hx53(c)} — C* ${C.toFixed(1)} under the band's ${band53.floor.toFixed(1)} floor, L* ${L[0].toFixed(1)}, ${d.toFixed(1)}° off the garnet`);
+        // §5.4 — IN the band, and MATCHED against the surface the shop ships.
+        // A vat may not put a surface into the band that the unsworn man's own
+        // cloth was not already in; where the shop itself ships a rose-grey
+        // (`FINISH_KIT` calls `0xbc9c8c` exactly that) swearing is allowed to
+        // leave it there and is not allowed to have PUT it there.
+        if (hits(c) && !hits(src)) {
+          const S = labOf(src);
+          inband.push(`${people} ${f2.label} ${surf} ${hx53(src)} (L* ${S[0].toFixed(1)}, C* ${chromaOf(S).toFixed(1)}) -> ${hx53(c)} L* ${L[0].toFixed(1)}, C* ${C.toFixed(1)}, ${d.toFixed(1)}° off the garnet — the vat put it there`);
+        }
       }
     }
   }
@@ -1307,6 +1320,35 @@ console.log("\n[faction] === 5.3 NO NEAR-NEUTRAL ON THE RED ARC (albedo, and it 
       ? `${flat.length} of ${walked} surfaces are pale, near-neutral and on the arc`
       : `all ${walked} surfaces clear — every near-neutral keeps its own hue off the arc`,
     flat);
+
+  // ---- §5.4 THE OTHER HALF OF THE SAME BLINDNESS -------------------------
+  //
+  // §5.3 gates the region JUST UNDER the band's C* floor, and that is exactly
+  // half of the answer. It cannot see a surface the vat drops INSIDE the band,
+  // because being in the band is not, by itself, a fault: the band's own
+  // `MUST_CLEAR` list exists because the Danelaw is allowed to be red.
+  //
+  // WHAT THIS COST, ONE ROUND AGO. `roseband`'s MUST_CLEAR carries
+  // `0xb23c34, "crimson-finish mail — blood"` as a surface that ships CORRECT.
+  // The round that wrote §5.3 then replaced that exact surface with `#9c6d6b` —
+  // L* 50.8, C* 20.3, 1.5° off the garnet, the only band member left in all 245
+  // and dead centre of the thing the owner reported. §5.3 could not see it
+  // (C* 20.3 is ABOVE the 14.8 floor it gates) and §7 could not see it (every
+  // lit frame in this file wore the issued iron). It shipped, and an adversary
+  // found it by opening a render.
+  //
+  // THE CONTROL IS THE SHOP'S OWN CLOTH, which is the albedo twin of §7.1's
+  // unsworn man: the same surface, same finish, before anybody swore. That is
+  // what makes this a gate on the VAT rather than a gate on the Danelaw being
+  // red — a surface the shop already ships inside the band stays allowed, and a
+  // surface the vat carries in does not.
+  for (const st of inband.slice(0, 8)) note(`THE VAT MADE IT PINK  ${st}`);
+  check(`5.4 NO VAT PUTS A SURFACE IN THE ROSE BAND — every band member was already one before anybody swore (${band53.describe()})`,
+    inband.length === 0,
+    inband.length
+      ? `${inband.length} of ${walked} surfaces are carried into the band by a livery`
+      : `all ${walked} surfaces clear — no livery moves a surface into the band`,
+    inband);
 }
 
 // ============================================================
@@ -1361,12 +1403,62 @@ console.log("\n[faction] === 5.3 NO NEAR-NEUTRAL ON THE RED ARC (albedo, and it 
 // shipped, paid artefact cannot be moved to buy a pass without brightening a
 // thing players own, which is a change nobody could make quietly.
 //
-// COST. This section boots the app and a browser and takes about forty
-// captures at forty to fifty seconds each on a box with no GPU. The rest of
-// this file is two minutes; this is most of an hour. It is not optional and
-// there is no flag to skip it: the three rounds of this feature that shipped a
-// defect all shipped it past a harness that had no light in it.
+// COST. This section boots the app and a browser and takes about a hundred and
+// sixty captures at forty to fifty seconds each on a box with no GPU. The rest
+// of this file is two minutes; this is a couple of hours. It is not optional
+// and there is no flag to skip it: the three rounds of this feature that
+// shipped a defect all shipped it past a harness that had no light in it, and
+// the fourth shipped one past a harness that had light in ONE SEVENTH of the
+// shop. See `PLAN`.
 // ============================================================
+
+// ============================================================
+// THE FRAME PLAN — WHICH MEN §6 AND §7 PHOTOGRAPH, AND IT IS THE SHOP AND NOT
+// ONE RUNG OF IT.
+//
+// THE BLINDNESS THIS CLOSES, and it is this file's own, one round old. §6 and
+// §7 captured `preset=fightcard&clean=1&settle=16&turn=..&cls=..&people=..`
+// with NO `armor=` in the query at all, so every lit frame in both sections was
+// `defaultAppearance`'s issued Rough Iron. Seven finishes are in the shop; the
+// graded ruler graded one of them. An adversary then found the residue on
+// another: the Danelaw's Crimson Warplate byrnie read 46.6% of the crop inside
+// the rose band at the profile, modal #c76b68 — within 0.2 L* of the very hex
+// the owner reported — while this section was green about a man in iron.
+//
+// A GRID IS NOT AFFORDABLE AND IS NOT NEEDED. Four classes x seven finishes x
+// four peoples x three bearings is 336 captures and most of a day, and the two
+// axes answer different questions:
+//
+//   the CLASS axis   asks which SURFACES are on screen — the huscarl is the
+//                    only man with a byrnie and the only man with a shield, the
+//                    berserker the only one with bare limbs and the most wrap
+//                    and linen showing. That is what §6 found the Pict's board
+//                    on and it does not need seven finishes to find it again.
+//   the FINISH axis  asks what the VAT did to the cloth a player paid for, and
+//                    every surface it can reach is on the huscarl.
+//
+// So the plan is two sweeps that cross at the issued finish: every class in
+// what a man is issued, and every finish on the man who wears the most of it.
+// 11 stages x 4 peoples x 3 bearings = 132 lit frames, and a matched UNSWORN
+// frame for each of the 11 stages x 3 bearings on top.
+//
+// The issued finish is read off `defaultAppearance` rather than assumed to be
+// the armoury's first row, because "the first row" is a fact about a table's
+// order and this needs the fact about what an unequipped man wears.
+// ============================================================
+const SHOP_CLASS = "huscarl";
+const ISSUED_HEX = defaultAppearance(SHOP_CLASS).armorColor;
+const ISSUED = FINISHES.find((f) => f.value === Number(ISSUED_HEX));
+if (!ISSUED) die(`defaultAppearance's armorColor ${ISSUED_HEX} is not one of the armoury's ${FINISHES.length} finishes`);
+const PLAN = [
+  ...CLASSES.map((cls) => ({ cls, finish: ISSUED })),
+  ...FINISHES.filter((f) => f !== ISSUED).map((finish) => ({ cls: SHOP_CLASS, finish })),
+];
+const hexOf = (v) => `0x${v.toString(16).padStart(6, "0")}`;
+/** One staged man, spelled the way `/shot` spells him. The finish is NAMED. */
+const stageQ = (cls, turn, people, finish) =>
+  `preset=fightcard&clean=1&settle=16&turn=${turn}&cls=${cls}&people=${people}&armor=${finish.id}`;
+
 console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the fire in it) ===\n");
 {
   /**
@@ -1451,7 +1543,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // pass of procedural texture generation, and neither is on the clock. Same
     // reasoning, and the same measurement, as `tools/cosmetictest.mjs`.
     console.log("        warming the page (one capture, discarded)");
-    await capture(`preset=fightcard&clean=1&settle=16&turn=0&cls=huscarl&people=none`);
+    await capture(stageQ(SHOP_CLASS, 0, "none", ISSUED));
 
     // §6.2 — THE FLOOR, MEASURED. The clock is fixed and the die is seeded, and
     // this is what proves it: the same subject twice, through the whole capture
@@ -1459,7 +1551,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // re-rolled until it passed, and nobody would be able to tell.
     {
       const m = maskFor("huscarl", 0);
-      const q = `preset=fightcard&clean=1&settle=16&turn=0&cls=huscarl&people=saxon`;
+      const q = stageQ(SHOP_CLASS, 0, "saxon", ISSUED);
       const a = clipShare(Uint8ClampedArray.from((await capture(q)).px.data), m, LENS.w);
       const b = clipShare(Uint8ClampedArray.from((await capture(q)).px.data), m, LENS.w);
       check("6.2 REPEATABLE — one subject captured twice reads the same clip count",
@@ -1484,28 +1576,29 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     console.log("");
     const over = [];
     let worst = 0, worstAt = "";
-    for (const cls of CLASSES) {
+    for (const st of PLAN) {
+      const row = [];
       for (const people of PEOPLES) {
-        const row = [];
         for (const turn of CLIP_BEARINGS) {
-          const mask = maskFor(cls, turn);
-          const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=${cls}&people=${OFF ? "none" : people}`);
+          const mask = maskFor(st.cls, turn);
+          const { px, subject } = await capture(`${stageQ(st.cls, turn, OFF ? "none" : people, st.finish)}`);
           if (String(subject?.people) !== (OFF ? "none" : people)) die(`asked for people=${people}, got ${subject?.people}`);
+          if (String(subject?.armor) !== hexOf(st.finish.value)) die(`asked for armor=${st.finish.id} (${hexOf(st.finish.value)}), got ${subject?.armor}`);
           const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);
-          row.push(`@${turn}° ${r.pct.toFixed(2)}%`);
-          litFrames.push({ people, cls, turn, pct: r.pct, px });
-          if (r.pct > worst) { worst = r.pct; worstAt = `${people}/${cls}@${turn}°`; }
-          if (r.pct > bar) over.push(`${people}/${cls} at ${turn}° clips ${r.pct.toFixed(2)}% of the man — ${(r.pct / (bar || 1e-9)).toFixed(1)}x the 400g gold cloak's ${bar.toFixed(2)}%, hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
+          row.push(`${people.slice(0, 3)}@${turn}° ${r.pct.toFixed(2)}%`);
+          litFrames.push({ people, cls: st.cls, turn, finish: st.finish, pct: r.pct, px });
+          if (r.pct > worst) { worst = r.pct; worstAt = `${people}/${st.cls}/${st.finish.label}@${turn}°`; }
+          if (r.pct > bar) over.push(`${people}/${st.cls}/${st.finish.label} ${st.finish.cost}g at ${turn}° clips ${r.pct.toFixed(2)}% of the man — ${(r.pct / (bar || 1e-9)).toFixed(1)}x the 400g gold cloak's ${bar.toFixed(2)}%, hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
         }
-        console.log(`  ${people.padEnd(7)} ${cls.padEnd(11)} ${row.join("   ")}`);
       }
+      console.log(`  ${st.cls.padEnd(11)} ${st.finish.label.padEnd(17)} ${row.join("  ")}`);
     }
     console.log("");
     for (const o of over.slice(0, 10)) note(`BLOWN   ${o}`);
     check(`6.1 CLIP — no livery blows a channel past the shop's own dearest gold (${bar.toFixed(2)}% of the man)`,
       over.length === 0,
       over.length
-        ? `${over.length} of ${CLASSES.length * PEOPLES.length * CLIP_BEARINGS.length} frames over the bar, worst ${worst.toFixed(2)}% at ${worstAt}`
+        ? `${over.length} of ${PLAN.length * PEOPLES.length * CLIP_BEARINGS.length} frames over the bar, worst ${worst.toFixed(2)}% at ${worstAt}`
         : `worst livery frame ${worst.toFixed(2)}% at ${worstAt}, under the ${bar.toFixed(2)}% bar`,
       over);
     console.log(`        ${shots} captures at ${LENS.w}x${LENS.h}, the play lens, through the real renderer`);
@@ -1642,35 +1735,71 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       // feature existed — `factionWorn` returns the hex by identity — so this
       // is also the pre-livery game, and moving this bar means changing what an
       // unsworn warrior looks like, which is a change nobody could make quietly.
+      //
+      // AND THE BAR IS MATCHED — SAME CLASS, SAME BEARING, **SAME FINISH**.
+      //
+      // The first cut of this took the bar as ONE number: the worst unsworn
+      // frame of any class at any bearing, against which every sworn frame in
+      // the sweep was measured. That was defensible while every lit frame in
+      // this file wore the same issued iron, and it stops being defensible the
+      // moment the sweep walks the shop — because the unsworn man's own rose
+      // reading MOVES with what he bought. Crimson Warplate's leg wraps are
+      // `0xbc9c8c`, which `FINISH_KIT` calls "a pale rose-grey" in the shop's
+      // own words; an unsworn man in them reads more rose than an unsworn man
+      // in iron, and a single global bar would have handed that slack to every
+      // other finish at once. It is also LOOSER in the other direction: a
+      // Danelaw in Crimson Warplate was being compared against a floor shot on
+      // a man in a different kit.
+      //
+      // So every sworn frame is barred against the SAME MAN IN THE SAME KIT
+      // sworn to nobody. The global worst is still computed and printed, so the
+      // old reading stays comparable across rounds, but it is not what gates.
       console.log("");
-      const floor = [];
-      for (const cls of CLASSES) {
+      const floor = new Map();
+      const floorKey = (cls, finishId, turn) => `${cls}|${finishId}|${turn}`;
+      for (const st of PLAN) {
+        const row = [];
         for (const turn of CLIP_BEARINGS) {
-          const mask = maskFor(cls, turn);
-          const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=${cls}&people=none`);
+          const mask = maskFor(st.cls, turn);
+          const { px, subject } = await capture(stageQ(st.cls, turn, "none", st.finish));
           if (String(subject?.people) !== "none") die(`the floor staged wrong: people=${subject?.people}`);
-          floor.push({ cls, turn, ...roseShare(band, Uint8ClampedArray.from(px.data), mask) });
+          if (String(subject?.armor) !== hexOf(st.finish.value)) die(`the floor staged wrong: armor=${subject?.armor}, asked ${st.finish.id}`);
+          const r = { cls: st.cls, finish: st.finish, turn, ...roseShare(band, Uint8ClampedArray.from(px.data), mask) };
+          floor.set(floorKey(st.cls, st.finish.id, turn), r);
+          row.push(r);
         }
-        const row = floor.filter((x) => x.cls === cls);
-        console.log(`  UNSWORN ${cls.padEnd(11)} ${row.map((x) => `@${x.turn}° ${x.pct.toFixed(3)}%`).join("   ")}   modal ${row.reduce((m, x) => (x.pct > m.pct ? x : m), row[0]).modal}`);
+        console.log(`  UNSWORN ${st.cls.padEnd(11)} ${st.finish.label.padEnd(17)} ${row.map((x) => `@${x.turn}° ${x.pct.toFixed(3)}%`).join("   ")}   modal ${row.reduce((m, x) => (x.pct > m.pct ? x : m), row[0]).modal}`);
       }
-      const bar = floor.reduce((m, x) => Math.max(m, x.pct), 0);
-      const barAt = floor.find((x) => x.pct === bar);
-      note(`the bar is ${bar.toFixed(3)}% — the worst UNSWORN frame (${barAt ? `${barAt.cls}@${barAt.turn}°` : "n/a"}). It is skin, firelight and bare iron, and it is the floor nobody can get under.`);
+      const floorRows = [...floor.values()];
+      const bar = floorRows.reduce((m, x) => Math.max(m, x.pct), 0);
+      const barAt = floorRows.find((x) => x.pct === bar);
+      note(`REPORTED, NOT GATED — the worst UNSWORN frame anywhere in the plan is ${bar.toFixed(3)}% (${barAt ? `${barAt.cls}/${barAt.finish.label}@${barAt.turn}°` : "n/a"}). It is skin, firelight, bare iron and whatever the shop's own cloth does under the fire.`);
+      note(`WHAT GATES is the MATCHED floor: each sworn frame against the same class, the same finish and the same bearing, sworn to nobody. ${floorRows.length} floor frames, one per staged man.`);
 
       console.log("");
       const ARC_PEOPLE = new Set(PEOPLES.filter((pp) => band.onArc(FACTION_FIELD[pp])));
       for (const p2 of PEOPLES) {
         const rows = lit.filter((x) => x.people === p2);
-        const w = rows.reduce((m, x) => (x.pct > m.pct ? x : m), rows[0] ?? { pct: 0, modal: "—", cls: "", turn: 0 });
-        console.log(`  ${p2.padEnd(7)} ${ARC_PEOPLE.has(p2) ? "ON THE ARC " : "off the arc"}  worst ${w.pct.toFixed(3).padStart(7)}% of the man  (${w.cls} @${w.turn}°, modal ${w.modal})   mean ${(rows.reduce((a, x) => a + x.pct, 0) / (rows.length || 1)).toFixed(3)}%`);
+        const w = rows.reduce((m, x) => (x.pct > m.pct ? x : m), rows[0] ?? { pct: 0, modal: "—", cls: "", turn: 0, finish: { label: "" } });
+        console.log(`  ${p2.padEnd(7)} ${ARC_PEOPLE.has(p2) ? "ON THE ARC " : "off the arc"}  worst ${w.pct.toFixed(3).padStart(7)}% of the man  (${w.cls}/${w.finish.label} @${w.turn}°, modal ${w.modal})   mean ${(rows.reduce((a, x) => a + x.pct, 0) / (rows.length || 1)).toFixed(3)}%`);
+      }
+      console.log("");
+      // The worst SWORN frame of each finish, so a reader can see which rung of
+      // the shop the residue lives on rather than only which people.
+      for (const f2 of FINISHES) {
+        const rows = lit.filter((x) => x.finish === f2);
+        if (!rows.length) continue;
+        const w = rows.reduce((m, x) => (x.pct - (floor.get(floorKey(x.cls, x.finish.id, x.turn))?.pct ?? 0) > m.pct - (floor.get(floorKey(m.cls, m.finish.id, m.turn))?.pct ?? 0) ? x : m), rows[0]);
+        const fl = floor.get(floorKey(w.cls, w.finish.id, w.turn))?.pct ?? 0;
+        console.log(`  ${f2.label.padEnd(17)} ${String(f2.cost).padStart(4)}g  worst OVER ITS OWN UNSWORN: ${w.people}/${w.cls}@${w.turn}° ${w.pct.toFixed(3)}% vs ${fl.toFixed(3)}%  (${(w.pct - fl >= 0 ? "+" : "")}${(w.pct - fl).toFixed(3)}, modal ${w.modal})`);
       }
       console.log("");
       // Every people is gated, not only the one on the arc: a livery that put a
       // Pict into the rose band would be the same defect wearing woad.
-      const over = lit.filter((x) => x.pct > bar)
-        .sort((a, b) => b.pct - a.pct)
-        .map((x) => `${x.people}/${x.cls} at ${x.turn}° reads ${x.pct.toFixed(3)}% rose against the unsworn ${bar.toFixed(3)}% — ${(x.pct / (bar || 1e-9)).toFixed(1)}x, modal ${x.modal}`);
+      const over = lit.filter((x) => x.pct > (floor.get(floorKey(x.cls, x.finish.id, x.turn))?.pct ?? 0))
+        .sort((a, b) => (b.pct - (floor.get(floorKey(b.cls, b.finish.id, b.turn))?.pct ?? 0)) - (a.pct - (floor.get(floorKey(a.cls, a.finish.id, a.turn))?.pct ?? 0)))
+        .map((x) => { const fl = floor.get(floorKey(x.cls, x.finish.id, x.turn))?.pct ?? 0;
+          return `${x.people}/${x.cls}/${x.finish.label} at ${x.turn}° reads ${x.pct.toFixed(3)}% rose against the SAME MAN UNSWORN IN THE SAME KIT at ${fl.toFixed(3)}% — ${(x.pct / (fl || 1e-9)).toFixed(1)}x, modal ${x.modal}`; });
       for (const o of over.slice(0, 10)) note(`ROSE   ${o}`);
       if (over.length) {
         note("WHAT A RED 7.1 MEANS, AND IT IS NOT ALWAYS A DYE. Read the modal colour beside each");
@@ -1687,11 +1816,13 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
         note("fixer's, and neither is fixed at stage 4. docs/OPEN-DEFECTS.md carries the standing");
         note("reading so a later round can tell a regression from the residue.");
       }
-      check(`7.1 ROSE — no livery makes a man pinker than he was before he swore (the unsworn floor, ${bar.toFixed(3)}% of the man)`,
+      const overBy = (x) => x.pct - (floor.get(floorKey(x.cls, x.finish.id, x.turn))?.pct ?? 0);
+      const worstOver = lit.length ? lit.reduce((m, x) => (overBy(x) > overBy(m) ? x : m), lit[0]) : null;
+      check(`7.1 ROSE — no livery makes a man pinker than he was before he swore (each frame against the SAME class, finish and bearing, unsworn)`,
         over.length === 0,
         over.length
-          ? `${over.length} of ${lit.length} frames over the unsworn floor, worst ${Math.max(...lit.map((x) => x.pct)).toFixed(3)}%`
-          : `worst sworn frame ${(lit.length ? Math.max(...lit.map((x) => x.pct)) : 0).toFixed(3)}%, under the ${bar.toFixed(3)}% floor`,
+          ? `${over.length} of ${lit.length} frames over their own matched unsworn floor, worst +${overBy(worstOver).toFixed(3)} points at ${worstOver.people}/${worstOver.cls}/${worstOver.finish.label}@${worstOver.turn}°`
+          : `worst sworn frame is ${overBy(worstOver).toFixed(3)} points against its own unsworn kit (${worstOver.people}/${worstOver.cls}/${worstOver.finish.label}@${worstOver.turn}°); ${lit.length} frames over ${PLAN.length} staged men`,
         over);
 
       // ---- §7.2 THE FADE CANNOT REACH THE OTHER THREE ----------------------
