@@ -436,7 +436,7 @@ const PRESETS: Record<string, {
     framing: { position: [0, 2.0, 10.5], target: [0, 1.1, 6.0], fov: 44 },
     poses: (["huscarl", "warden", "runekeeper", "berserker"] as WarriorClass[]).map((cls, i) => ({
       id: i === 0 ? "me" : `p${i}`,
-      name: ["Huscarl", "Warden", "Runekeeper", "Berserker"][i],
+      name: ["Huscarl", "Weard", "Wrecca", "Berserker"][i],
       cls,
       x: -2.55 + i * 1.7,
       z: 6.0,

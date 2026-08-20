@@ -820,14 +820,14 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // board's own wood, so the quarters read as painted rather than as inlaid.
     paint: 0x3b2c17, pattern: "quarters", device: "saxon",
     dye: {
-      cloth:   { sat: 0.66, bias: 1.00, lo: 0.26, hi: 0.50 },
-      wrap:    { sat: 0.42, bias: 0.96, lo: 0.24, hi: 0.46 },
+      cloth:   { sat: 0.66, bias: 1.00, lo: 0.26, hi: 0.40 },
+      wrap:    { sat: 0.42, bias: 0.96, lo: 0.18, hi: 0.34 },
       leather: { sat: 0.44, bias: 0.98, lo: 0.15, hi: 0.38 },
       // A byrnie stays IRON. 0.12 is a warm cast on steel; the 0.20 this was
       // photographed at gave him a gold shirt, and mail that is not metal is
       // the one thing §2's Kit column will not have from the Anglo-Saxons.
       metal:   { sat: 0.12, bias: 1.06, lo: 0.18, hi: 0.60 },
-      linen:   { sat: 0.32, bias: 0.94, lo: 0.28, hi: 0.50 },
+      linen:   { sat: 0.32, bias: 0.94, lo: 0.20, hi: 0.36 },
     },
   },
   norse: {
@@ -872,11 +872,11 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // one cloth is what a checked weave is, and two hues would be a flag.
     paint: 0xc4c0aa, pattern: "check", device: "briton",
     dye: {
-      cloth:   { sat: 0.50, bias: 1.00, lo: 0.30, hi: 0.48 },
-      wrap:    { sat: 0.26, bias: 0.96, lo: 0.26, hi: 0.46 },
+      cloth:   { sat: 0.50, bias: 1.00, lo: 0.30, hi: 0.38 },
+      wrap:    { sat: 0.26, bias: 0.96, lo: 0.18, hi: 0.34 },
       leather: { sat: 0.34, bias: 1.00, lo: 0.20, hi: 0.40 },
       metal:   { sat: 0.16, bias: 1.12, lo: 0.22, hi: 0.64 },
-      linen:   { sat: 0.18, bias: 0.94, lo: 0.28, hi: 0.50 },
+      linen:   { sat: 0.18, bias: 0.94, lo: 0.20, hi: 0.36 },
     },
   },
   pict: {
@@ -886,7 +886,7 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     // as pale line on dark ground, which is the contrast this device wants.
     paint: 0xd8d2c2, pattern: "rim", device: "pict",
     dye: {
-      cloth:   { sat: 0.72, bias: 0.96, lo: 0.16, hi: 0.46 },
+      cloth:   { sat: 0.72, bias: 0.96, lo: 0.16, hi: 0.42 },
       // Bare limbs. The wraps come out of the vat almost as they went in, which
       // at fight distance is the pale band up the shin nobody else has.
       //

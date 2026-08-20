@@ -101,10 +101,33 @@ type Link = "reaching" | "server" | "local";
 // say so on the screen the player pressed the button on.
 interface Notice { text: string; tone: "bad" | "good" }
 
+/**
+ * THE FOUR MEN, AND THEY ARE NAMED IN THE LANGUAGE THE GAME IS SET IN.
+ *
+ * `id` is the wire's and the engine's and never changes — `WARRIOR_STATS`,
+ * every save, every harness and the ledger are all keyed on it. What is written
+ * here is only what a player READS, which is why two of these could be
+ * corrected at no cost at all.
+ *
+ *   WEARD, not "warden". The same word, spelled as Old English spells it.
+ *   WRECCA, not "runekeeper". THERE ARE NO RUNES IN THIS CLASS AND THERE NEVER
+ *     WERE — 92 health, the fastest man on the roster, the largest dodge in the
+ *     game at 5.6 m, the weakest guard at 0.35, and SHADOW STEP. That is not a
+ *     mystic, it is a man with no shield wall to stand in. `wrecca` is the Old
+ *     English for exactly that man: the exile, the lordless fighter, the word
+ *     `The Wanderer` is built on. The old name was also a class in somebody
+ *     else's fantasy game, which is the one thing this project has a standing
+ *     rule against.
+ *
+ * And his weapons are named for what `characters.ts` actually builds: the class
+ * "fights with a seax in each hand", single-edged with the broken-back spine
+ * (`characters.ts:10250`). "Twin daggers" was describing real Anglo-Saxon kit
+ * in a word that could belong to anything.
+ */
 const WARRIOR_INFO: Array<{ id: WarriorClass; name: string; desc: string; Icon: typeof Swords }> = [
   { id: "huscarl", name: "HUSCARL", desc: "Shield & sword. Unbreakable.", Icon: Shield },
-  { id: "warden", name: "WARDEN", desc: "Balanced blade. Reliable.", Icon: Swords },
-  { id: "runekeeper", name: "RUNEKEEPER", desc: "Twin daggers. Pure speed.", Icon: Wind },
+  { id: "warden", name: "WEARD", desc: "Balanced blade. Reliable.", Icon: Swords },
+  { id: "runekeeper", name: "WRECCA", desc: "Twin seaxes. The exile's speed.", Icon: Wind },
   { id: "berserker", name: "BERSERKER", desc: "Danish axe. Pure rage.", Icon: Hammer },
 ];
 
@@ -2534,8 +2557,11 @@ function ClassGrid({ selected, onSelect, compact }: {
   /**
    * Stay two-up at every width. The four-across row is right when this grid
    * owns the page; inside the lobby's 23rem rail it would give each warrior
-   * about 5rem, which is narrower than the word "RUNEKEEPER" and would set
-   * every stat bar to a stub. A card that cannot be read is not a chooser.
+   * about 5rem, which is narrower than the longest name on the roster and would
+   * set every stat bar to a stub. A card that cannot be read is not a chooser.
+   * (That name was "RUNEKEEPER" when this was written and is "BERSERKER" now —
+   * the measurement is the LONGEST label, not any one word, so it is written
+   * that way rather than left naming a string that has since changed.)
    */
   compact?: boolean;
 }) {
