@@ -64,6 +64,9 @@ import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { chromium } from "playwright";
 import { WebSocket } from "ws";
+// The beat's own length, so the observability floor is stated against the thing
+// under test rather than against a number copied into this file.
+import { REPLAY } from "../src/game/replay.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -98,7 +101,18 @@ const VIEW = (() => { const [w, h] = argOf("viewport", "640x400").split("x").map
  * not scored. It is a fact about the OBSERVER and is read off `frames / held`
  * before the result is looked at.
  */
-const MIN_RING_HZ = 5;
+const MIN_RING_HZ_DEFAULT = 5;
+/**
+ * And it is OVERRIDABLE, so the excuse can be audited rather than trusted.
+ * `--floor=0` turns the whole "a starved observer cannot support a negative"
+ * rule off and scores every assertion, which is how you check that the rule is
+ * excusing the OBSERVER and not the GAME: run it once each way and the findings
+ * must be the same list, moved between "NOT JUDGED" and "RED".
+ */
+const MIN_RING_HZ = (() => {
+  const v = argOf("floor", null);
+  return v === null ? MIN_RING_HZ_DEFAULT : Number(v);
+})();
 const SHOTS = resolve(ROOT, ".replay/shots");
 
 const say = (s) => console.log(s);
@@ -524,27 +538,64 @@ async function playCase(browser, kind, pass) {
     return { kind, pass, gapMs, drawn, skipFrames, notObservable: true, ringHz, shots: [] };
   }
 
+  // A STARVED OBSERVER CANNOT SUPPORT A NEGATIVE, AND THAT IS EVERY NEGATIVE.
+  //
+  // The rule was already written four lines above — "It is a negative that a
+  // starved page cannot support, and only that" — and then applied to exactly
+  // one negative: the all-zero run. Everything else was scored against a page
+  // the same paragraph had just declared unable to draw the game.
+  //
+  // MEASURED, this branch, default 640x400 on this software rasteriser: the
+  // `last`/`shoot` pass drew 1 replay frame, sampled the SKIP 0 times and took
+  // 0 screenshots at 0.34 Hz — one frame every three seconds against a beat
+  // that is `REPLAY.wall` = 4.0 s long. There is no reading of that in which
+  // "no SKIP was ever on screen" is a fact about the GAME. It is a fact about
+  // the observer, and it was going in the findings list under a bare RED.
+  // Shrinking to 440x280 bought 1.15-3.90 Hz — still under this file's own
+  // floor — and produced a different set of the same kind of negative.
+  //
+  // So below MIN_RING_HZ a failing assertion is printed, named and counted as
+  // NOT JUDGED, and the case is kept out of the scored set entirely. What it
+  // cannot do is buy a pass: a case with an unjudged assertion in it is never
+  // counted GREEN, and a run in which nothing was judged says NOT PROVEN. A
+  // page ABOVE the floor is untouched by any of this — every assertion below
+  // is scored exactly as before.
+  const starved = ringHz !== null && ringHz < MIN_RING_HZ;
+  const unjudged = [];
+  const find = (m) => { if (starved) unjudged.push(`${kind}/${pass}: ${m}`); else bad(m); };
   say("");
   if (drawn > 0) good(`the viewer drew ${drawn} frames of replay`);
-  else bad(`the viewer drew NO replay frames at match end (gap ${f2((gapMs ?? 0) / 1000)}s)`);
+  else find(`the viewer drew NO replay frames at match end (gap ${f2((gapMs ?? 0) / 1000)}s)`);
   if (skipFrames > 0) good(`a SKIP was on screen for him — ${skipFrames} sampled frames of it`);
-  else bad(`NO SKIP was ever on screen. The owner asked for one: "skippable at end of match"`);
+  else find(`NO SKIP was ever on screen. The owner asked for one: "skippable at end of match"`);
+  // NOT ROUTED THROUGH `find`. This one is a POSITIVE observation of a defect —
+  // the harness saw the panel and the replay on screen together — and a slow
+  // observer that SAW something is believed. See the paragraph above.
   if (bothUp === 0) good(`the results panel never overlapped the replay`);
   else bad(`the results panel was up on ${bothUp} samples while the replay was still playing`);
   if (pass === "shoot") {
     if (shots.length) good(`the beat was photographed while it was on screen`);
-    else bad(`no screenshot was taken while the replay was playing`);
+    else find(`no screenshot was taken while the replay was playing`);
   } else if (leftTo === "landing") {
     good(`pressing SKIP took him to the lobby, which is what the owner asked for`);
   } else if (leftTo) {
-    bad(`pressing SKIP left him on "${leftTo}", not the lobby`);
+    find(`pressing SKIP left him on "${leftTo}", not the lobby`);
   } else {
-    bad(`the SKIP was gone before it could be pressed — nothing exercised the route out`);
+    find(`the SKIP was gone before it could be pressed — nothing exercised the route out`);
+  }
+  if (unjudged.length) {
+    say("");
+    say(`    NOT JUDGED — the page drew ${f2(ringHz)} frames a second, under this file's own`);
+    say(`    ${MIN_RING_HZ} Hz floor, against a beat ${f2(REPLAY.wall)}s long. A starved observer cannot support`);
+    say(`    a negative, so these are named and counted and NOT scored, and this case is`);
+    say(`    kept out of the GREEN count:`);
+    for (const m of unjudged) say(`      - ${m}`);
   }
 
   await A.close();
   if (B) await B.close();
-  return { kind, pass, gapMs, drawn, skipFrames, bothUp, ownEver, shots, leftTo, skipShot };
+  return { kind, pass, gapMs, drawn, skipFrames, bothUp, ownEver, shots, leftTo, skipShot,
+    ringHz, starved, unjudged };
 }
 
 async function main() {
@@ -593,15 +644,41 @@ async function main() {
       + `Not scored; see replaytest §4.`); continue; }
     say(`  ${r.kind.padEnd(5)} ${r.pass.padEnd(6)} died ${f2((r.gapMs ?? 0) / 1000)}s before the end; ${r.drawn} replay frames drawn; `
       + `SKIP on ${r.skipFrames} samples`
-      + (r.pass === "press" ? `; press landed on "${r.leftTo}"` : `; ${r.shots.length} shot(s)`) + `.`);
+      + (r.pass === "press" ? `; press landed on "${r.leftTo}"` : `; ${r.shots.length} shot(s)`) + `.`
+      + (r.unjudged && r.unjudged.length ? `  ${r.unjudged.length} NOT JUDGED at ${f2(r.ringHz)} Hz.` : ""));
   }
   say("");
+  // WHAT THIS BOX CAN AND CANNOT BE ASKED, SAID PLAINLY AND AT THE TOP OF THE
+  // VERDICT rather than left for a reader to derive from four scattered Hz
+  // readings. `record()` runs once per RENDER, so the ring's fill rate IS the
+  // page's frame rate; below MIN_RING_HZ the beat is a handful of frames and
+  // this harness's default viewport is not a thing this machine can serve.
+  const unjudged = out.flatMap((r) => r.unjudged ?? []);
+  const rates = out.filter((r) => Number.isFinite(r.ringHz)).map((r) => r.ringHz);
+  if (rates.length && Math.min(...rates) < MIN_RING_HZ) {
+    say(`  THE OBSERVER. At ${VIEW.w}x${VIEW.h} this page drew ${f2(Math.min(...rates))}-${f2(Math.max(...rates))} frames a second`);
+    say(`  against a ${f2(REPLAY.wall)}s beat and this file's own ${MIN_RING_HZ} Hz floor. THE DEFAULT VIEWPORT OF THIS`);
+    say(`  HARNESS NEEDS A REAL GPU. On a software rasteriser it will watch the beat`);
+    say(`  through a handful of frames whatever --viewport is passed — 440x280 was`);
+    say(`  measured at 1.15-3.90 Hz on the same box — so what it can still prove here is`);
+    say(`  what it SAW, and every negative it could not support is listed as NOT JUDGED.`);
+    say("");
+  }
   // A VERDICT THAT CANNOT SAY GREEN BECAUSE EVERYTHING WAS ROUTED PAST THE
   // SCORING. This is `replayseen`'s own rule and this file needed it on its
   // second outing: both `held` passes came back NOT OBSERVABLE, `fails` was
   // empty, and the first draft printed GREEN over a run that had watched
   // nothing. A run that observed nothing must say so.
-  const scored = out.filter((r) => !r.skipped && !r.notObservable);
+  // A case carrying an unjudged assertion is NOT a scored pass. Its positives
+  // are still believed and still printed; what it may not do is add to the
+  // GREEN count, or a starved box would score green for the assertions it
+  // happened to satisfy while the ones it could not reach went quiet.
+  const scored = out.filter((r) => !r.skipped && !r.notObservable && !(r.unjudged ?? []).length);
+  if (unjudged.length) {
+    say(`  ${unjudged.length} assertion(s) NOT JUDGED — named, counted, and not passes:`);
+    for (const m of unjudged) say(`    - ${m}`);
+    say("");
+  }
   if (fails.length) {
     say(`  RED — ${fails.length} finding(s):`);
     for (const f of fails) say(`    - ${f}`);
@@ -609,9 +686,13 @@ async function main() {
     say(`  NOT PROVEN — and this is not a pass. Every case asked for was routed past the`);
     say(`  scoring for the reason printed above it, so nothing here has watched a replay.`);
   } else {
-    say(`  GREEN on ${scored.length} of ${out.length} pass(es) — the man who died saw the replay, had a`);
-    say(`  skip, and the skip took him to the lobby. The frames are counted in the client's`);
-    say(`  own loop and the pictures are in ${SHOTS}.`);
+    say(`  GREEN on ${scored.length} of ${out.length} pass(es)${unjudged.length ? ", AND NOT A CLEAN SHEET" : ""} — the man who died saw the`);
+    say(`  replay, had a skip, and the skip took him to the lobby. The frames are counted`);
+    say(`  in the client's own loop and the pictures are in ${SHOTS}.`);
+    if (unjudged.length) {
+      say(`  ${unjudged.length} assertion(s) above were NOT JUDGED by this observer. That is coverage this`);
+      say(`  run does not have, and it is not the same thing as coverage that passed.`);
+    }
     if (scored.length < out.length) {
       say(`  The rest were not scored and are listed above; they are not part of this.`);
     }
