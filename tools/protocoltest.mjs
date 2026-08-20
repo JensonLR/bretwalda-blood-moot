@@ -188,10 +188,17 @@ const NEUTRAL = {
   block: false, dodge: false, crouch: false, ability: false, shove: false, attackDir: "right",
 };
 
-// The 53 fields serializeRoom publishes for a human warrior. Held exactly, in
+// The 54 fields serializeRoom publishes for a human warrior. Held exactly, in
 // both directions: a leak of server scratch fails here, and so does a field
 // quietly removed from under a client. See WIRE-PROTOCOL.md §9.5 — this is a
 // denylist upstream, so this assertion is the only thing standing under it.
+//
+// THIS COMMENT SAID 53 AND THE LIST HELD 54, and WIRE-PROTOCOL.md said 59 while
+// the list held 60: MERCY OR FINISH added six fields and nobody recounted at
+// either end. Both prose figures were wrong in the same direction and neither
+// could ever have failed, because the assertion below counts the array. Fixed
+// at the removal (docs/MERCY-REMOVED.md) — R7, a comment that asserts a value
+// the code does not have is worse than no comment because it is trusted.
 const PUBLISHED = [
   "id", "name", "warriorClass", "team", "ready", "appearance",
   // THE MUSTER. `loaded` is whether this man's arena is standing; the room is
@@ -210,11 +217,6 @@ const PUBLISHED = [
   // how close he is to being floored, which half of the fall he is in, and the
   // window he earned on the man he read. See WIRE-PROTOCOL.md §2.
   "balance", "maxBalance", "downTimer", "vulnerableTimer", "vulnerableTo",
-  // MERCY OR FINISH. Public for the same reason the weight wave's five are: the
-  // window has to be SEEN, by the man making the choice, by the man on the
-  // ground, and by the seven watching. `mercyTimer` is seconds remaining and a
-  // client draws a drain off it — see WIRE-PROTOCOL.md §2.
-  "mortal", "mercyTimer", "mercyTo", "spared", "menSpared", "menFinished",
   "emote", "abilityCooldown", "abilityActive", "abilityTimer",
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",
@@ -454,12 +456,12 @@ async function scenarioMelee() {
   // against a fixture that lands a parry on purpose every run.
   check("the hit zone is always one the client can draw",
     hits.every((h) => h.hitZone === undefined || HIT_ZONES.includes(h.hitZone)));
-  // TWO WEAPON DEATHS NOW, NOT ONE. `MERCY` (engine.mjs) makes a man's first
-  // fall a downing rather than a death, so the blow that ends him is a `finish`
-  // and this fixture — a man stood still in a pit of seven bots — reliably dies
-  // that way rather than by `blow`. Both cases were checked before the
-  // assertion moved: with mercy in, `cause` is "finish" here, and the old line
-  // failed for that reason alone.
+  // ONE WEAPON DEATH AGAIN. This briefly read `blow || finish`, because `MERCY`
+  // made a man's first fall a downing and the blow that ended him a `finish`.
+  // MERCY OR FINISH was removed on the owner's report — see
+  // `docs/MERCY-REMOVED.md` — so the server has one steel cause once more and
+  // widening the filter to accept `finish` would now be accepting a value
+  // nothing can send. The union in `types.ts` was narrowed with it.
   //
   // It is asserted over EVERY weapon death rather than over one found death,
   // which is deliberately a stronger claim than the line it replaces: the old
@@ -476,7 +478,7 @@ async function scenarioMelee() {
   // fail is not an assertion. Both halves were re-run before this line: strict,
   // protocoltest is 76/76; the empty-string case the `fire` check above relies
   // on is a different cause and is unaffected.
-  const steel = c.got("kill").filter((k) => k.cause === "blow" || k.cause === "finish");
+  const steel = c.got("kill").filter((k) => k.cause === "blow");
   check("a killing blow says which limb and which stroke took him",
     steel.length > 0 && steel.every((k) => HIT_ZONES.includes(k.hitZone) &&
       typeof k.direction === "string" && typeof k.heavy === "boolean" &&
@@ -484,7 +486,7 @@ async function scenarioMelee() {
     `${steel.length} weapon death(s), causes: ${[...new Set(steel.map((k) => k.cause))].join("/")}`);
   check("the corpse carries its own death on every later snapshot",
     c.got("game_state").some((d) => d.players[me] && d.players[me].state === "dead" &&
-      (d.players[me].deathCause === "blow" || d.players[me].deathCause === "finish") &&
+      d.players[me].deathCause === "blow" &&
       HIT_ZONES.includes(d.players[me].deathZone)),
     "a spectator arriving late rebuilds the same body");
   check("the kill feed is on the snapshot and is capped at ten",

@@ -8,6 +8,7 @@ import {
   Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX, Map, Dices
 } from "lucide-react";
 import { forgeName } from "@/game/names.mjs";
+import { REPLAY } from "@/game/replay.mjs";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
   EmoteId,
@@ -270,6 +271,13 @@ export default function Page() {
    * matching that function's own fallback.
    */
   const [canEmote, setCanEmote] = useState(true);
+  /**
+   * THE SLOW-MOTION REPLAY, as `GameCanvas` reports it. `null` when nothing is
+   * playing. Two things hang off it and both are the owner's words: the match
+   * summary waits ("before a match ends"), and the skip is offered ("skippable
+   * at end of match, just take them to the lobby").
+   */
+  const [replay, setReplay] = useState<{ playing: boolean; atEnd: boolean; skip: () => void } | null>(null);
   const [rematchWaiting, setRematchWaiting] = useState(false);
   // The sign-in, as a promise. Anything that must not guess where the gold
   // lives — a purchase, a payout — waits on this rather than reading a link
@@ -1128,7 +1136,7 @@ export default function Page() {
     return (
       <div className="fixed inset-0 bg-black">
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} matchEnd={matchResults} onForge={setForge}
-          onEmote={sendEmote} onCanEmote={setCanEmote} emoteFeed={emoteFeedRef} hitFeed={hitFeedRef} />
+          onEmote={sendEmote} onCanEmote={setCanEmote} onReplay={setReplay} emoteFeed={emoteFeedRef} hitFeed={hitFeedRef} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
@@ -1203,8 +1211,30 @@ export default function Page() {
             bottom, with the picture left alone in between. It outlives the
             server's rollback to "lobby" on purpose: the player leaves the
             tableau when he presses something, not when a timer does. */}
+        {/* THE LAST KILL OF THE MATCH, BEFORE THE SUMMARY.
+            The owner: "a slow motion replay of the last kill before the next
+            round and before a match ends, skippable at end of match, just take
+            them to the lobby." The canvas holds the victor's tableau back
+            while this runs; this is the skip, and it is offered ONLY at match
+            end — a round break is four seconds and deals itself, and a skip
+            there would just be a button that shortens a break nobody is
+            waiting on.
+
+            `replay.skip()` is `replay.mjs`'s own, so the beat ends in one
+            place. The route out is the same one `onLeave` takes below, because
+            "take them to the lobby" is a screen and not a camera. */}
+        {replay?.playing && replay.atEnd && (
+          <div className="pointer-events-none absolute inset-0 z-40 flex items-end justify-center p-6 pb-10">
+            <button
+              onClick={() => { replay.skip(); leaveRoom(); setMatchResults(null); setScreen("landing"); }}
+              className="pointer-events-auto rounded-full border border-amber-400/40 bg-black/60 px-6 py-2 text-xs font-bold tracking-[0.25em] text-amber-200 backdrop-blur transition hover:border-amber-300 hover:text-amber-100">
+              SKIP
+            </button>
+          </div>
+        )}
         {matchResults && roomState && roomState.mode !== "solo" &&
-          (roomState.state === "finished" || roomState.state === "lobby") && (
+          (roomState.state === "finished" || roomState.state === "lobby") &&
+          !replay?.playing && (
           <MatchSummary
             data={matchResults}
             playerId={playerId}
@@ -2627,6 +2657,29 @@ function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
  * late joiner or a slow socket gets the card immediately rather than a hold that
  * runs past the bell.
  *
+ * 2950 -> 4000, AND IT IS NO LONGER A NUMBER TYPED HERE. The round break now
+ * carries the slow-motion replay of the kill that ended the round
+ * (`src/game/replay.mjs`, wired in `GameCanvas`), and the arena has to be left
+ * alone for the whole of it or the break card comes down over the replay. So
+ * this is `REPLAY.wall * 1000` — 4000 ms — and `REPLAY.wall` is itself derived
+ * from the server's `ROUND_BREAK` of 5 s with one second held back so the
+ * countdown is still dealt on time.
+ *
+ * WHAT THE BREAK NOW COSTS, spelled out because the honest version of this is a
+ * budget and not a reassurance. The break is the same 5 s it always was; what
+ * changed is what is inside it:
+ *
+ *   before   2.95 s  round-beat camera over the corpse, at life speed
+ *            2.05 s  break card and countdown
+ *   after    4.00 s  the replay: 0.92 s of run-up + 1.08 s of collapse,
+ *                    2.00 s of fight shown over 4.00 s of wall clock
+ *            1.00 s  break card and countdown
+ *
+ * The card loses 1.05 s and never less than its countdown — see the `left > 1`
+ * guard below, which was `left > 2` and had to move with this or it would have
+ * capped the hold at 3.0 s and cut the replay off a second early. Nothing on
+ * the server waits on any of it.
+ *
  * 2200 -> 2950 WITH `ROUND_HOLD.total` IN src/game/deathcam.mjs, which is the
  * round camera's clock and plays inside exactly this window. The camera's beat
  * opens with a still frame while the dying man falls, and the collapse got
@@ -2638,10 +2691,9 @@ function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
  * is a number the named harness does not print.) The two numbers
  * are not wired together — deathcam.mjs belongs to another unit — and
  * tools/deathcamtest.mjs fails if they stop agreeing, so change one and the
- * harness will tell you about the other. The `left > 2` guard caps this at
- * about 3.0 s of a five second break; 2950 leaves a twentieth of a second under it.
+ * harness will tell you about the other.
  */
-const ROUND_HOLD_MS = 2950;
+const ROUND_HOLD_MS = REPLAY.wall * 1000;
 
 /**
  * The end of a round, in two beats.
@@ -2703,7 +2755,11 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
 
   // The card never gets less than its countdown: if the break is already nearly
   // spent when this mounts, there is no beat to hold and we go straight to it.
-  if (now - endedAt < ROUND_HOLD_MS && left > 2) {
+  // `left > 1` and not `> 2`: the hold is now the replay's 4.0 s and the guard
+  // is what stops it outliving the break, so it has to leave the card the one
+  // second `REPLAY.wall` held back rather than the two the old 2.95 s beat did.
+  // A late joiner or a slow socket still gets the card immediately.
+  if (now - endedAt < ROUND_HOLD_MS && left > 1) {
     return (
       /* `pt-[6.6rem]` clears the round tally the game screen keeps pinned at
          top-[4.6rem] — a `.round-hud` pill is about 1.4rem tall, so the verdict
