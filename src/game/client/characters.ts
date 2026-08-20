@@ -1210,16 +1210,34 @@ function underCeiling(hex: number, cap: number): number {
  * nothing. On the red arc it is what makes a Viking pink.
  *
  * SO THE VAT LETS GO. Above `ROSE_LIT` a surface on the red arc keeps its
- * VALUE and loses the dyestuff: pale wool comes out greige, and bright mail
+ * VALUE and loses the dyestuff: the linen comes out undyed flax and bright mail
  * comes out as bare iron, which is what `FACTIONS.md` §2 says the Danelaw is —
  * "more metal, darker wools", near-white steel over the darkest cloth on the
  * roster. His identity was never in his shirt. It is in his tunic, his harness
  * and his cloak, all of which sit below `ROSE_LIT` and are untouched.
  *
+ * AND LETTING GO IS A MOVE BACK TO THE SURFACE, NOT A MOVE TOWARD GREY. That
+ * sentence is the fourth round of this defect and it is the whole of it. For
+ * one round the fade scaled the magnitude of the SUM, which bleaches away the
+ * chroma the surface brought with it and leaves the remnant pointing wherever
+ * `HUE_CONE` last put it — at the garnet. Rough Iron's byrnie is `#5f6b7a`,
+ * C* 9.9 at hue 264°, and it came out `#898384`, C* 2.5 at hue 6°; Sea Queen's
+ * Gift is `#2f4a6a`, C* 21.7 at hue 270°, and it came out `#8f7d80`, C* 7.5 at
+ * hue 7°. Both are COOL in the shop and both left the vat near-neutral and
+ * aimed at red. THE ARENA'S KEY LIGHT IS A BONFIRE: a warm light ADDS on a
+ * warm-neutral and CANCELS on a cool one, so those byrnies rendered C* 16-20 on
+ * the red arc — pink — while the unsworn man's cool iron rendered C* 6.5. The
+ * fade is therefore applied to the dyed vector AS A VECTOR, hue and chroma
+ * together, and a vat that has let go returns the steel its own blue-grey.
+ * `tools/factionread.mjs` §7.3 gates it in albedo, in a second, with no browser
+ * — which is what three rounds of this defect did not have.
+ *
  * THE OTHER THREE PEOPLES ARE BYTE-IDENTICAL AND THAT IS MEASURED, NOT HOPED —
- * 517 values identical and 79 changed, every one of the 79 the Danelaw's, over
- * every finish surface, a 197-step hex sweep across all five dye kinds and
- * every cloak.
+ * 3360 values identical and 796 changed, every one of the 796 the Danelaw's,
+ * over every finish surface through `factionKit`, a 197-step hex sweep across
+ * all five dye kinds for all four peoples, and every cloak. `keep` of 1
+ * reproduces the dyed vector exactly, so a surface the fade cannot reach is
+ * identical by construction and not by luck.
  * The window is on the RESULT's hue and it is 36° wide either side of pure red;
  * `HUE_CONE` holds every dyed surface within 8° of its own field, and weld sits
  * at 60°, moss at 153° and woad at 210°. `red` is therefore exactly 0 for
@@ -1342,16 +1360,44 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   const hsl = { h: 0, s: 0, l: 0 };
   new THREE.Color(hex).getHSL(hsl);
   const l = softCeil(perceptual(softBand(hsl.l * d.bias, d.lo, d.hi)), kitCeiling());
+  // WHAT THE SURFACE ALREADY CARRIED, as a vector in the chroma plane. Rough
+  // Iron's byrnie is `#5f6b7a` — C* 9.9 at hue 264°, which is COOL, because
+  // that is what steel is. Keep it named: it is one of the two ends the fade
+  // runs between, and the round that lost it is the subject of `roseFade`.
+  const sx = hsl.s * Math.cos(TAU * hsl.h);
+  const sy = hsl.s * Math.sin(TAU * hsl.h);
   // THE CHROMA PLANE, AS A VECTOR SUM: what the cloth already carried, plus what
   // the vat puts in, at the vat's hue.
-  const cx = hsl.s * Math.cos(TAU * hsl.h) + d.sat * Math.cos(TAU * f.hue);
-  const cy = hsl.s * Math.sin(TAU * hsl.h) + d.sat * Math.sin(TAU * f.hue);
+  const cx = sx + d.sat * Math.cos(TAU * f.hue);
+  const cy = sy + d.sat * Math.sin(TAU * f.hue);
   // THE HUE STAYS INSIDE THE VAT'S CONE. See `HUE_CONE`.
   const off = ((Math.atan2(cy, cx) / TAU - f.hue + 1.5) % 1) - 0.5;
-  const h = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
+  const dh = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
+  const dc = Math.min(1, Math.hypot(cx, cy));
   // AND ON THE RED ARC THE VAT LETS GO OF A PALE SURFACE. See `roseFade`.
+  //
+  // LETTING GO IS A MOVE BACK TO THE SURFACE, NOT A MOVE TOWARD GREY, and that
+  // distinction is this whole function's history. The fade is applied to the
+  // DYED VECTOR AS A VECTOR — hue and chroma together — so a vat that has let
+  // go returns the byrnie its own colour, which for every steel in the shop is
+  // a cool blue-grey. Scaling the SUM's magnitude instead, which is what this
+  // line did for one round, bleaches that cool away and leaves the remnant
+  // pointing wherever `HUE_CONE` last put it: the Danelaw's own vat took Rough
+  // Iron from C* 9.9 at hue 264° to C* 2.5 at hue 6°, and Sea Queen's Gift —
+  // a deliberately BLUE armour at C* 21.7, hue 270° — to C* 7.5 at hue 7°.
+  // Both come out near-neutral and aimed at the red arc, and the arena's key
+  // light is a bonfire: a warm light ADDS to a warm-neutral and CANCELS on a
+  // cool one. That is the whole of why the byrnie and the sleeves still read
+  // rose on a graded frame after the albedo census had gone clean.
+  const keep = roseFade(dh, l);
+  const vx = sx + (dc * Math.cos(TAU * dh) - sx) * keep;
+  const vy = sy + (dc * Math.sin(TAU * dh) - sy) * keep;
+  // `keep` of 1 reproduces the dyed vector exactly, so every surface off the
+  // red arc — all of Wessex, the Britons and the Picts, and the Danelaw's own
+  // tunic, harness and cloak below `ROSE_LIT` — is byte-identical.
   return underMaxChannel(
-    new THREE.Color().setHSL(h, Math.min(1, Math.hypot(cx, cy)) * roseFade(h, l), linear(l)).getHex(),
+    new THREE.Color().setHSL((Math.atan2(vy, vx) / TAU + 1) % 1,
+      Math.min(1, Math.hypot(vx, vy)), linear(l)).getHex(),
     kitChannel());
 }
 
