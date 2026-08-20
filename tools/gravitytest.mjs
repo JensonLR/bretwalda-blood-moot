@@ -10,7 +10,8 @@
  *   node tools/gravitytest.mjs --gate             exit non-zero on a red verdict
  *   node tools/gravitytest.mjs --strip            §1 as a picture: .gravity/strip.svg
  *   node tools/gravitytest.mjs --lever=park       R1 for §1
- *   node tools/gravitytest.mjs --lever=flat       R1 for §2
+ *   node tools/gravitytest.mjs --lever=flat       R1 for §2 (the topple reducers)
+ *   node tools/gravitytest.mjs --lever=euler      R1 for §2 (the topple COMPOSITION)
  *   node tools/gravitytest.mjs --lever=stops      R1 for §3
  *   node tools/gravitytest.mjs --lever=fall       R1 for §4
  *
@@ -131,6 +132,12 @@ const bad = (m) => { fails.push(m); say(`    FAIL  ${m}`); };
 // body rather than about a frame. Each of these is a real articular range, so
 // the number can be argued with on its own terms rather than because a harness
 // went red.
+/**
+ * How far from upright a dead trunk must finish. Named out here because
+ * `pelvisDown` below is derived from it and an object literal cannot read its
+ * own field.
+ */
+const CORPSE_DOWN = 70;
 const BAR = {
   /**
    * How far from upright a DEAD trunk must finish. A corpse lies down. 70° is
@@ -146,31 +153,70 @@ const BAR = {
    * That was fixed for `crumple` alone. This bar is over the ASSEMBLED angle,
    * so it also covers the reducers that were added afterwards.
    */
-  corpseDown: 70,
+  corpseDown: CORPSE_DOWN,
   /**
    * AND HOW LOW THE PELVIS MUST GET, as a fraction of the man's own leg.
    *
-   * The angle above cannot answer the owner's question on every body in the
-   * table, and pretending it could is what put a `!r.halved` filter on line 789
-   * of this file for a whole round. `sever("waist")` takes the trunk, the head
-   * and both arms off the rig; what is left is a pelvis and two legs, and
-   * "how far from upright is the trunk" is a question about a trunk that is no
-   * longer attached. That is failure mode 1 — the ruler measuring the wrong
-   * quantity — and the previous cut of this file answered it by EXCLUDING the
-   * body, which is failure mode 3 on top of it: a gate that cannot fail on the
-   * one case it was written for.
+   * WHY A SECOND RULER AT ALL. The angle above cannot answer the owner's
+   * question on every body in the table, and pretending it could is what put a
+   * `!r.halved` filter on line 789 of this file for a whole round.
+   * `sever("waist")` takes the trunk, the head and both arms off the rig; what
+   * is left is a pelvis and two legs, and "how far from upright is the trunk"
+   * is a question about a trunk that is no longer attached. That is failure
+   * mode 1 — the ruler measuring the wrong quantity — and the previous cut of
+   * this file answered it by EXCLUDING the body, which is failure mode 3 on top
+   * of it: a gate that cannot fail on the one case it was written for. The
+   * answer to a ruler that cannot see a body is a ruler that can.
    *
    * A body lying on the turf has its hip sockets on the turf. A body kneeling,
-   * sitting or propped has them a leg's length up. So: the hip pivot's world
-   * height, over the length of that man's own leg — no threshold about angles,
-   * no reference to the body's own final frame, and it reads the same on a
-   * whole man, a beheaded one and a pair of legs.
+   * sitting or propped has them most of a leg up. So: the hip pivot's world
+   * height over the length of that man's own leg — no reference to the body's
+   * own final frame, and it reads the same on a whole man, a beheaded one and a
+   * pair of legs.
    *
-   * 0.25 is a quarter of a leg — about 26 cm on this rig, which is a hip lying
-   * on the ground with a thigh's thickness under it. A man on his knees has it
-   * at 0.45 of a leg and a man standing at 1.0.
+   * AND THE BAR IS DERIVED, NOT PICKED, and this paragraph is here because the
+   * first cut of it WAS picked and was wrong. It was set at 0.25 — a quarter of
+   * a leg — on nothing but the words "a hip lying on the ground with a thigh's
+   * thickness under it", and it went red on seven of ten bodies including two
+   * that `deathLayer` deliberately and defensibly stops short of flat.
+   *
+   * That is because on an intact body the two rulers are NOT independent.
+   * `deathLayer` writes `P.py = 0.12 * lay`, and the hip socket hangs one leg
+   * along the trunk's own up, so
+   *
+   *     hipFrac  =  P.py / leg  +  cos(tilt)  =  0.12 + cos(tilt)
+   *
+   * — measured and confirmed on this build: fire ends at 78.0° and 0.34
+   * (0.12 + cos 78.0° = 0.33); beheaded ends at 74.1° and 0.41 (0.12 + cos 74.1°
+   * = 0.39). So a hip bar at 0.25 is an ANGLE bar at 82.5° smuggled in through
+   * the back door, stricter than the 70° this file argues for at length and
+   * contradicting it. Stacking a second, hidden bar is not a second opinion.
+   *
+   * Derived instead FROM `corpseDown`, so the two are one claim asked two ways:
+   * the hip height a body sitting exactly on the angle bar would have. A body
+   * that satisfies one now satisfies the other, and the hip ruler earns its
+   * place on the bodies the angle cannot measure — the halved one — and on the
+   * bodies where the angle LIES, which is what it caught here.
    */
-  pelvisDown: 0.25,
+  pelvisDown: 0.12 + Math.cos(CORPSE_DOWN / DEG),
+  /**
+   * AND HOW FAR ANY JOINT MAY BE UNDER THE TURF, in metres.
+   *
+   * The other side of the same defect, and the one a fix for "he will not lie
+   * down" is most likely to buy its pass with. `settleOnFeet` — the solve that
+   * puts a body on the ground — switches OFF above 1.1 rad of hip, on the
+   * grounds that "past about a right angle at the hips the man is going over,
+   * not standing"; a corpse is therefore held up by nothing but `deathLayer`'s
+   * own `P.py`, and if that authored lift is short the man sinks.
+   *
+   * 0.06 m is a joint PIVOT six centimetres under, which is a limb whose centre
+   * line is at the turf and whose flesh is half in it. Pivots are not surfaces,
+   * so this is not zero; it is the thickness at which a limb stops being a limb
+   * resting on the ground and starts being a limb inside it. `settleOnFeet`'s
+   * own comment measures the same class of fault in the same units — "a warden
+   * dying of a plain blow put his knee 330 mm UNDER the ground".
+   */
+  sink: 0.06,
   /**
    * How far from upright a man the server calls `knocked` must be drawn. He is
    * on the floor. `knockLayer` itself calls flat `(π/2) * 0.82` = 47°... no:
@@ -292,6 +338,16 @@ async function loadAnim() {
     // Take the two topple reducers out. §2 must move.
     patch("flat", /const flat = \(Math\.PI \/ 2\) \* \(1 - shape\.crumple \* 0\.18 - c\.curl \* 0\.16\);/,
       "const flat = (Math.PI / 2);");
+  } else if (LEVER === "euler") {
+    // PUT THE OLD COMPOSITION BACK. `setTopple`'s early return is the exact
+    // behaviour it replaced — pitch straight into `P.prx`, roll straight into
+    // `P.prz`, three Euler angles committed as if they were an axis and an
+    // angle — so forcing `mag` to zero takes that branch on every frame.
+    //
+    // §2's `ENDED` column must MOVE on the two bodies with a `lean`, and the
+    // `euler` column beside it must NOT, or `trunkTilt` is not reading the bone
+    // and this whole finding is a rewrite of the same false ruler.
+    patch("euler", /const mag = Math\.hypot\(pitch, roll\);/, "const mag = 0;");
   } else if (LEVER === "stops") {
     // THIS LEVER IS KEPT BECAUSE IT MOVED NOTHING, AND THAT IS THE RESULT.
     //
@@ -748,6 +804,20 @@ async function sectionCorpse(anim) {
     // measured against the man himself and not against a number in this file.
     const V = new THREE.Vector3();
     const hipY = () => { parent.updateMatrixWorld(true); rig.pivots.rightLeg.getWorldPosition(V); return V.y; };
+    // AND HOW FAR ANY OF HIM IS UNDER IT. A body that will not lie down and a
+    // body that has sunk into the turf are the same defect read from the two
+    // sides, and a harness that gates only the first will happily accept the
+    // second — which is the trade a fix for the first is most likely to make.
+    // Every joint on the rig, lowest wins, world space, off the same matrix.
+    const BONES = ["head", "chest", "rightArm", "elbowR", "leftArm", "elbowL",
+      "rightLeg", "kneeR", "leftLeg", "kneeL"];
+    const lowest = () => {
+      parent.updateMatrixWorld(true);
+      let lo = Infinity;
+      rig.body.getWorldPosition(V); lo = Math.min(lo, V.y);
+      for (const b of BONES) { const pv = rig.pivots[b]; if (!pv) continue; pv.getWorldPosition(V); lo = Math.min(lo, V.y); }
+      return lo;
+    };
     let t = 0;
     for (let i = 0; i < 30; i++) { t += 1 / 60; ctx.time = t; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
     if (prior) {
@@ -805,10 +875,11 @@ async function sectionCorpse(anim) {
     }
     const sh = rig.gore.shape;
     const hip = hipY();
+    const under = lowest();
     return { cls, cause: cause ?? "-", zone: zone ?? "-", prior: prior ?? "-", carried,
       seam: rig.gore.cut ? rig.gore.cut.seam : null, halved: sh.halved,
       ended: trunkTilt(parent, rig), euler: topple(rig.last), peak, settle3, step,
-      hip, legLen, hipFrac: hip / (legLen || 1),
+      hip, legLen, hipFrac: hip / (legLen || 1), under,
       shape: sh.halved ? "halved" : `crum${f2(sh.crumple)} lean${f2(sh.lean)}` };
   };
 
@@ -848,13 +919,14 @@ async function sectionCorpse(anim) {
   say(`    can be read against each other. Where they disagree the old one is wrong;`);
   say(`    see trunkTilt.`);
   say("");
-  say(`    class        cause    zone   seam      shape            settled   peak   ENDED   euler    HIP`);
+  say(`    class        cause    zone   seam      shape            settled   peak   ENDED   euler    HIP  UNDER`);
   for (const r of rows) {
     const flag = (r.ended < BAR.corpseDown ? "  <-- PARTLY RAISED" : "")
-      + (r.hipFrac > BAR.pelvisDown ? "  <-- HIP OFF THE TURF" : "");
+      + (r.hipFrac > BAR.pelvisDown ? "  <-- HIP OFF THE TURF" : "")
+      + (r.under < -BAR.sink ? "  <-- IN THE TURF" : "");
     say(`    ${r.cls.padEnd(11)} ${String(r.cause).padEnd(8)} ${r.zone.padEnd(6)} `
       + `${String(r.seam ?? "-").padEnd(9)} ${r.shape.padEnd(16)} ${f2(r.settle3).padStart(6)}s `
-      + `${f1(r.peak).padStart(6)}° ${f1(r.ended).padStart(6)}° ${f1(r.euler).padStart(6)}° ${f2(r.hipFrac).padStart(5)}${flag}`);
+      + `${f1(r.peak).padStart(6)}° ${f1(r.ended).padStart(6)}° ${f1(r.euler).padStart(6)}° ${f2(r.hipFrac).padStart(5)} ${f2(r.under).padStart(6)}${flag}`);
   }
   // THE EXCLUSION IS GONE, AND THIS IS THE PARAGRAPH THAT USED TO BE HERE.
   //
@@ -877,6 +949,8 @@ async function sectionCorpse(anim) {
   const gated = rows;
   const short = gated.filter((r) => r.ended < BAR.corpseDown);
   const propped = gated.filter((r) => r.hipFrac > BAR.pelvisDown);
+  const sunk = gated.filter((r) => r.under < -BAR.sink);
+  const worstSink = gated.reduce((a, b) => (b.under < a.under ? b : a));
   const worst = gated.reduce((a, b) => (b.ended < a.ended ? b : a));
   const worstHip = gated.reduce((a, b) => (b.hipFrac > a.hipFrac ? b : a));
   say("");
@@ -908,6 +982,10 @@ async function sectionCorpse(anim) {
     bad(`§2 ${short.length}/${gated.length} corpses finish more than ${90 - BAR.corpseDown}° short of flat — `
       + `worst ends ${f1(worst.ended)}° from upright (${worst.cls} ${worst.cause}/${worst.zone})`);
   }
+  if (sunk.length) {
+    bad(`§2 ${sunk.length}/${gated.length} corpses finish with a joint more than ${f2(BAR.sink)} m under the turf — `
+      + `worst ${f2(worstSink.under)} m (${worstSink.cls} ${worstSink.cause}/${worstSink.zone})`);
+  }
   if (propped.length) {
     bad(`§2 ${propped.length}/${gated.length} corpses finish with the hip socket more than `
       + `${f2(BAR.pelvisDown)} of a leg off the turf — worst ${f2(worstHip.hipFrac)} `
@@ -921,6 +999,7 @@ async function sectionCorpse(anim) {
   }
   return { rows, carryRows, gated: gated.length,
     short: short.length, worst, worstHip, propped: propped.length,
+    sunk: sunk.length, worstSink,
     baseStep, carryStep, flopped: flopped.length };
 }
 
@@ -1355,9 +1434,10 @@ async function sectionFall(anim) {
   }
   if (R.corpse) {
     say(`  §2 CORPSE   ${R.corpse.short}/${R.corpse.gated} corpses stop short of ${BAR.corpseDown}° from upright `
-      + `(worst ends ${f1(R.corpse.worst.ended)}°), and ${R.corpse.propped}/${R.corpse.gated} finish with the hip`);
-    say(`              more than ${f2(BAR.pelvisDown)} of a leg up (worst ${f2(R.corpse.worstHip.hipFrac)}). EVERY body is gated, `
-      + `including the halved one; and`);
+      + `(worst ends ${f1(R.corpse.worst.ended)}°), ${R.corpse.propped}/${R.corpse.gated} finish with the hip`);
+    say(`              more than ${f2(BAR.pelvisDown)} of a leg up (worst ${f2(R.corpse.worstHip.hipFrac)}), and ${R.corpse.sunk}/${R.corpse.gated} finish `
+      + `with a joint under the turf (worst ${f2(R.corpse.worstSink.under)} m).`);
+    say(`              EVERY body is gated, including the halved one; and`);
     say(`              ${R.corpse.flopped}/${R.corpse.carryRows.length} deaths out of a running clock snapping up to ${f1(R.corpse.carryStep)}°/frame.`);
   }
   if (R.fall) {

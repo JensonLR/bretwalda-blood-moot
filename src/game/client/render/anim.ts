@@ -4103,8 +4103,69 @@ function causeOf(cause: DeathCause | null | undefined, heavy: boolean): FallCaus
   }
 }
 
+/**
+ * THE TOPPLE, COMMITTED AS THE ROTATION IT HAS ALWAYS BEEN DESCRIBED AS.
+ *
+ * `deathLayer` has said this in its own comment for as long as it has existed:
+ *
+ *   "The topple is one angle about one axis, and `lean` says where that axis
+ *    lies ... Resolving it as an axis rather than adding a roll term is what
+ *    keeps the total a right angle however far round it goes — pitch and roll
+ *    authored independently and both at 90° is a body lying on its face and its
+ *    side at the same time, which is a body screwed into the turf."
+ *
+ * The sentence is right and the code was not doing it. It wrote the pitch into
+ * `P.prx` and the roll into `P.prz`, and `applyPose` commits those with
+ * `body.rotation.set(P.prx, P.pry, P.prz)` — a three.js Euler in XYZ order,
+ * Rx·Ry·Rz. Three Euler angles are not an axis and an angle. Composed that way
+ * the body's own up-vector does NOT end up `hypot(pitch, roll)` from vertical,
+ * and the error is worst exactly where `P.pry` is largest — which is a man who
+ * has lost an arm or a leg, because `shape.spin` drives the yaw.
+ *
+ * MEASURED on the build before this function existed, a warden killed with his
+ * left arm off, four seconds after the blow:
+ *
+ *     prx -77.9°   prz -47.0°   ->  hypot 90.2°, which reads as flat on the turf
+ *     head y 1.190 m, hip socket y 0.819 m
+ *     standing, the same two joints are 1.648 m and 1.001 m
+ *
+ * He is at 72% of his standing height with his guard down and his arm off, and
+ * he stays there for ever. That is the owner's fourth report, verbatim: "the
+ * dead bodies are still sometimes freezing PARTIALLY RAISED, like there's no
+ * gravity to them" — and "sometimes" is the tell, because it needs a severed
+ * limb to show up at all.
+ *
+ * So: build the rotation. One angle about one horizontal axis, `mag` from
+ * vertical whatever `lean` does with the axis, and the yaw laid on afterwards
+ * about WORLD up — which cannot change how far from vertical he is, only which
+ * way his head points once he is there. Then decompose it back into the same
+ * three channels, so everything downstream that reads `P.prx`/`P.prz` —
+ * `settleOnFeet`, `stops()`, the pose the harness measures — is reading one
+ * orientation and not two.
+ *
+ * For small angles this is exactly what the old lines did; the two only come
+ * apart as a body actually goes over, which is when it matters.
+ *
+ * No allocation: four module scratch objects, reused. This is per corpse per
+ * frame and R12 is the performance ladder.
+ */
+const _tq = new THREE.Quaternion();
+const _tyaw = new THREE.Quaternion();
+const _tax = new THREE.Vector3();
+const _teu = new THREE.Euler();
+const _TUP = new THREE.Vector3(0, 1, 0);
+function setTopple(pitch: number, roll: number, yaw: number): void {
+  const mag = Math.hypot(pitch, roll);
+  if (mag < 1e-6) { P.prx = pitch; P.pry = yaw; P.prz = roll; return; }
+  _tq.setFromAxisAngle(_tax.set(pitch / mag, 0, roll / mag), mag);
+  _tyaw.setFromAxisAngle(_TUP, yaw).multiply(_tq);
+  _teu.setFromQuaternion(_tyaw, "XYZ");
+  P.prx = _teu.x; P.pry = _teu.y; P.prz = _teu.z;
+}
+
 function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
-                    cause: DeathCause | null | undefined, heavy: boolean): void {
+                    cause: DeathCause | null | undefined, heavy: boolean,
+                    halfWidth: number): void {
   const c = causeOf(cause, heavy);
   // NO TWO MEN GO DOWN AT THE SAME SPEED. `seed` is the per-warrior constant the
   // idle already rides on; one sine of it is a decorrelated number in [-1, 1]
@@ -4185,23 +4246,59 @@ function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
   // out, and it is the cheapest variation in the whole layer.
   const tilt = Math.sin(seed * 3.71) * 0.11;
 
-  P.prx = mix(fall * 0.34 * buckle, pitch * 1.03, over) + hitBody * 0.06;
-  P.prx = mix(P.prx, pitch, rest);
+  // The three channels are worked out exactly as they always were, and then
+  // COMMITTED AS ONE ROTATION rather than as three independent Euler angles.
+  // See `setTopple` above for the measurement that made this necessary.
+  const wantX = mix(mix(fall * 0.34 * buckle, pitch * 1.03, over), pitch, rest) + hitBody * 0.06;
   // The old 0.2 of settling roll survives untouched on a whole body and gives
   // way to the real one as the lean takes over.
-  P.prz = (roll + fall * 0.2 * (1 - Math.abs(shape.lean))) * over + tilt * over + hitBody * 0.03;
+  const wantZ = (roll + fall * 0.2 * (1 - Math.abs(shape.lean))) * over + tilt * over + hitBody * 0.03;
   // Losing an arm is a torque and not a push: the shoulder that was balancing
   // the other one is gone, so the body keeps turning about the weight it has
   // left all the way to the ground. It builds over the whole fall rather than
   // with the topple, or the twist is over before the body has gone anywhere.
-  P.pry = -fall * 0.16 * over + shape.spin * 0.95 * smooth(clamp01(d / 0.6));
+  const wantY = -fall * 0.16 * over + shape.spin * 0.95 * smooth(clamp01(d / 0.6));
+  setTopple(wantX, wantZ, wantY);
+  // How far from vertical he now is, and it is the hypotenuse HERE — at the one
+  // place that is entitled to it, because this is the number handed to
+  // `setTopple` as the angle and not a quantity read back off three Euler
+  // channels. Everything below that used to ask `Math.abs(Math.sin(P.prx))`
+  // asks this instead: after the decomposition `P.prx` is one component of an
+  // orientation and no longer the topple, so a man who went over sideways read
+  // as a man barely tilted and was dropped into the turf.
+  const tmag = Math.hypot(wantX, wantZ);
+  const lay = Math.abs(Math.sin(tmag));
+  // Which body-local direction is pointing at the sky now he is over. Declared
+  // here because the height solve below uses it too; the paragraph that derives
+  // it sits with the limb spread, which is the other thing it decides.
+  const spreadZ = tmag > 1e-6 ? -wantX / tmag : 1;
+  const spreadX = tmag > 1e-6 ? wantZ / tmag : 0;
 
   // Rise as the body goes flat, or half of it ends up under the turf. The drop
   // of the collapse itself is not authored here: both knees fold below and
   // `settleOnFeet` takes the body down onto them — which is the difference
   // between a man whose legs went and a felled tree, and it is a difference
   // this rig could not express at all before there were knees to fold.
-  P.py = 0.12 * Math.abs(Math.sin(P.prx)) + hitKnee * 0.022 + hitBody * 0.030;
+  //
+  // AND HOW FAR IT RISES DEPENDS ON WHICH WAY HE WENT OVER, because a man is
+  // not as thick as he is wide. 0.12 is the trunk's half-depth, chest to back,
+  // and it was the whole of this term for as long as every corpse in the game
+  // landed on its face — `settleOnFeet` is switched off above 1.1 rad of hip,
+  // so once he is down this lift is the only thing holding him off the turf.
+  // A man lying on his SIDE has to clear his own shoulder instead, and that is
+  // twice as far: measured on a berserker who had lost a leg and therefore went
+  // over sideways, his left shoulder pivot finished 0.082 m UNDER the turf,
+  // which is exactly the 0.203 m the rig hangs that shoulder out at, less the
+  // 0.12 m this line gave him.
+  //
+  // `halfWidth` is that shoulder offset read off the rig the frame is posing,
+  // not a number typed in here, so a broader class of warrior clears his own
+  // shoulder and not a warden's. `spreadX`/`spreadZ` say how much of each the
+  // topple has turned toward the ground; they are the same two numbers the
+  // limb spread below is resolved on, and they are a unit vector, so this is
+  // the body's own half-extent along the direction that is now pointing down.
+  P.py = (0.12 * Math.abs(spreadZ) + halfWidth * Math.abs(spreadX)) * lay
+    + hitKnee * 0.022 + hitBody * 0.030;
   P.pz = fall * 0.06 * buckle;
 
   // A body going down rather than over folds at the spine on the way: it is the
@@ -4238,6 +4335,29 @@ function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
   // local Z is world up, so a limb splayed on the pitch axis stands out of the
   // ground or buries itself in it — the settled pose spreads on roll instead,
   // which is the axis that still lies in the turf.
+  //
+  // THAT SENTENCE IS ONLY TRUE FOR A MAN WHO WENT OVER FORWARDS, and until the
+  // topple was committed as a real rotation (see `setTopple`) no man ever went
+  // over any other way, so it was never wrong on anything that happened. It is
+  // wrong now. "Local Z is world up" holds when the topple axis is X; when
+  // `lean` swings that axis round toward Z it is local X that ends up pointing
+  // at the sky, and a limb spread on local Z is then spread straight down into
+  // the turf. Measured the first time a warden with his left arm off actually
+  // reached the ground: his right knee finished 0.10 m under it, and a
+  // berserker who had lost a leg finished 0.37 m under.
+  //
+  // So resolve the spread the same way the topple is resolved, and resolve it
+  // off the topple ITSELF rather than off `sway` — the first cut of these two
+  // lines was written from `sway` and had the sign of the X term backwards,
+  // which made the one-armed man WORSE (0.10 m under the turf to 0.18 m). The
+  // topple is a rotation of `mag` about u = (wantX, 0, wantZ)/mag, so by
+  // Rodrigues the body-local direction that ends up pointing at the sky is
+  //
+  //     v = R⁻¹·(0,1,0) = (wantZ, 0, -wantX)/mag   at a right angle of topple
+  //
+  // and THAT is the axis a limb has to spread about to stay in the turf. For a
+  // man going straight over forwards it is local +Z and these lines are exactly
+  // what they were. There is no free sign left in it.
   // The two arms do not go slack together and they do not land together. The
   // one he goes over onto is trapped under him early; the other is still being
   // carried when the body stops and drops afterwards. A tenth of a second
@@ -4249,16 +4369,20 @@ function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
   // spread; a man who curled up round a fire lands with his arms against him,
   // and the difference is most of what tells the two apart on the ground.
   const spread = c.splay;
-  P.arx = mix(0.2, 0.04, limpA) + hitBody * 0.20 + hitHead * 0.10;
-  P.arz = mix(0.1, 0.92 * spread, limpA);
-  P.olx = mix(0.1, -0.06, limpB) + hitBody * 0.16 + hitHead * 0.08;
-  P.olz = mix(-0.1, -0.98 * spread, limpB);
+  const armSpreadR = mix(0.1, 0.92 * spread, limpA);
+  const armSpreadL = mix(-0.1, -0.98 * spread, limpB);
+  P.arx = mix(0.2, 0.04, limpA) + hitBody * 0.20 + hitHead * 0.10 + armSpreadR * spreadX;
+  P.arz = armSpreadR * spreadZ;
+  P.olx = mix(0.1, -0.06, limpB) + hitBody * 0.16 + hitHead * 0.08 + armSpreadL * spreadX;
+  P.olz = armSpreadL * spreadZ;
   // Elbows fold IN as he curls and open out as he sprawls — the same one number
   // read the other way, so a burned man ends up holding himself.
   P.arb = mix(-0.52, mix(-0.20, -1.05, c.curl), limpA) + hitBody * 0.16;
   P.olb = mix(-0.60, mix(-0.16, -1.15, c.curl), limpB) + hitBody * 0.14;
-  P.llx = mix(fall * 0.62 * buckle, -0.04, over) + hitKnee * 0.14 + hitBody * 0.08;
-  P.lrx = mix(fall * 0.48 * buckle, 0.05, over) + hitKnee * 0.17 + hitBody * 0.10;
+  const legSpreadL = -0.3 * over * spread;
+  const legSpreadR = 0.36 * over * spread;
+  P.llx = mix(fall * 0.62 * buckle, -0.04, over) + hitKnee * 0.14 + hitBody * 0.08 + legSpreadL * spreadX;
+  P.lrx = mix(fall * 0.48 * buckle, 0.05, over) + hitKnee * 0.17 + hitBody * 0.10 + legSpreadR * spreadX;
   // The knees are the first beat of the collapse and they go before anything
   // else moves — he drops onto them, and only then does the body carry over.
   // They straighten out again as he goes flat, which is both what a body on the
@@ -4289,8 +4413,8 @@ function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
   const legOut = easeInCubic(clamp01((D - 0.46) / 0.44));
   P.lrb = mix(1.58 * buckle, mix(0.12, 1.24, held), legOut) + hitKnee * 0.20;
   P.llb = mix(1.34 * buckle, mix(0.09, 1.10, held), legOut) + hitKnee * 0.17;
-  P.llz = -0.3 * over * spread;
-  P.lrz = 0.36 * over * spread;
+  P.llz = legSpreadL * spreadZ;
+  P.lrz = legSpreadR * spreadZ;
   P.wx = mix(0.4, -1.0, limpA);
   P.cloak = 0.55 * over;
 }
@@ -4298,20 +4422,51 @@ function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
 /**
  * The bottom half of a bisection.
  *
- * There is no topple in this because there is nothing above the belt to topple:
- * the pelvis and both legs are all that is left on the rig, and what they do is
- * give. The knees fold past anything a living man's would and stay folded, and
- * `settleOnFeet` — which measures reach off the fold — takes the pelvis down the
- * two thirds of a leg that buys, so the half that stayed sits down roughly where
- * it was standing while the other half is still in the air.
+ * THIS USED TO SAY "there is no topple in this because there is nothing above
+ * the belt to topple", and it authored none. That sentence has the physics
+ * backwards, and the harness that should have caught it was told not to look.
+ *
+ * What is left on the rig after `sever("waist")` is a pelvis and two legs. It
+ * is not a tripod and there is no longer anything above it holding a line: what
+ * kept a standing man's pelvis over his feet was a trunk being balanced there.
+ * Take the trunk off and the half that stays has no reason to end upright and
+ * every reason to go over. Measured on the build before this comment, it did
+ * not: the pelvis stopped 24.7° from vertical with the hip socket 0.477 m up —
+ * 0.50 of its own leg, HIGHER OFF THE TURF THAN A MAN ON HIS KNEES — and held
+ * there for the rest of the round. That is the owner's fourth report on the one
+ * body `tools/gravitytest.mjs` had a `!r.halved` filter over.
+ *
+ * So it goes down in the two beats a body with legs goes down in, and the
+ * second one is the beat that was missing:
+ *
+ *   `sink`    the knees give and the pelvis drops onto them. `settleOnFeet`
+ *             reads the fold as reach and takes it down; unchanged.
+ *   `over`    and then it keeps going, because nothing is holding it up. One
+ *             angle about one axis through `setTopple`, the same call the whole
+ *             body uses, so the pelvis really does arrive flat rather than
+ *             arriving at a hypotenuse that claims it did.
+ *   `legOut`  the shins come out from under it as it goes, or the thing lands
+ *             kneeling on top of its own folded calves. It is the same order as
+ *             a whole body's collapse — knees first, legs out only once there is
+ *             nothing left to hold up — and it is what lets `settleOnFeet`'s
+ *             own drop fade out under the topple instead of dropping away.
+ *
+ * `flat` is short of a right angle by the same crumple fraction `deathLayer`
+ * gives a man who folds rather than topples, because that is what this is.
  */
 function halfLayer(buckle: number, bounce: number, fall: number, d: number): void {
   const sink = smooth(clamp01(d / 0.5));
-  P.prx = fall * 0.42 * sink + bounce * 0.05;
-  P.prz = fall * 0.1 * sink;
-  P.py = -0.05 * sink + bounce * 0.03;
-  P.lrb = mix(1.7 * buckle, 1.95, sink);
-  P.llb = mix(1.5 * buckle, 1.85, sink);
+  const over = easeInCubic(clamp01((d - 0.24) / 0.52));
+  const legOut = easeInCubic(clamp01((d - 0.42) / 0.5));
+  const flat = (Math.PI / 2) * (1 - 0.06);
+  const wantX = mix(fall * 0.42 * sink, fall * flat, over) + bounce * 0.05;
+  const wantZ = fall * 0.1 * sink + 0.26 * over;
+  setTopple(wantX, wantZ, 0);
+  // Same law as the whole body's: rise as it goes flat, or half of what is left
+  // ends up under the turf once `settleOnFeet` has faded out from under it.
+  P.py = -0.05 * sink + 0.12 * Math.abs(Math.sin(Math.hypot(wantX, wantZ))) + bounce * 0.03;
+  P.lrb = mix(mix(1.7 * buckle, 1.95, sink), 0.62, legOut);
+  P.llb = mix(mix(1.5 * buckle, 1.85, sink), 0.54, legOut);
   P.lrx = -0.25 * sink;
   P.llx = -0.18 * sink;
   // Splayed, because a pair of legs folding under nothing has no reason to keep
@@ -4464,7 +4619,7 @@ export function poseWarrior(
     // already the collapse of a body that is missing something.
     beginGore(rig, motion, player, hooks);
     deathLayer(motion.actT, motion.fall, rig.gore.shape, motion.seed,
-      player.deathCause, !!player.deathHeavy);
+      player.deathCause, !!player.deathHeavy, Math.abs(piv.rightArm.position.x));
     stops();
     settleOnFeet(legLen, 0);
     motion.leanX *= 0.9;
