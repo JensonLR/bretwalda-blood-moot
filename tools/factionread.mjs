@@ -159,7 +159,7 @@ import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import { deflateSync } from "zlib";
-import { makeBand, calibrate, roseShare, arcTo, hueOfLab, labOf, ARC, MUST_FLAG, MUST_CLEAR } from "./lib/roseband.mjs";
+import { makeBand, calibrate, roseShare, arcTo, hueOfLab, labOf, chromaOf, ARC, ROSE_L, MUST_FLAG, MUST_CLEAR } from "./lib/roseband.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WORK = resolve(ROOT, ".factionread");
@@ -1226,6 +1226,87 @@ let laddering = null;
   for (const c of collapsed.slice(0, 10)) note(`  NEAR  ${c}`);
   if (collapsed.length > 10) note(`  ... and ${collapsed.length - 10} more`);
   laddering = { collapsed: collapsed.length, worstAll, worstAllAt, worstAdj, unswornWorstAll, adjacent: dullAdjacent.length };
+}
+
+// ============================================================
+// 5.3 NO NEAR-NEUTRAL ON THE RED ARC — THE ALBEDO GATE THIS DEFECT NEEDED
+//
+// This is the cheapest section in the file and it is the one that would have
+// closed the Danelaw's rose three rounds early. No browser, no server, no
+// light: it walks the shipped resolvers and asks one question of every surface
+// a warrior can wear.
+//
+// THE ROSE BAND HAS A CHROMA FLOOR AND IT SAYS WHY IT CANNOT BE TRUSTED. C*
+// 14.8, the undyed linen shirt, under which a surface is "greige — cloth with
+// no dye in it — and greige is not pink". That is TRUE OF AN ALBEDO PIXEL AND
+// FALSE OF A LIT ONE, and `tools/lib/roseband.mjs` carries the warning inside
+// the floor's own paragraph: the arena's key is a bonfire and it puts about
+// eleven points of warm chroma into any near-neutral surface it falls on.
+//
+// So the dangerous place in the whole colour space is JUST UNDER that floor
+// and ON the arc. A surface there is obliged to pass §7.0's calibration and
+// §7.1 cannot see it coming — and then the fire finishes the dyeing. It is the
+// one region where the band is required to be wrong.
+//
+// THAT IS EXACTLY WHERE EVERY REPORTED SURFACE WAS. On the tree this section
+// was added to fix, thirteen of the 116 surfaces below came out near-neutral
+// AND pale AND on the garnet's arc, and every one of the thirteen was the
+// Danelaw — every finish's byrnie, the leg wraps, and the linen sleeves:
+//
+//     norse  Polished Steel byrnie   #8a97a5 -> #a3a2a2  C* 0.4  hue  18.2°
+//     norse  linen shirt and sleeves #c2b69c -> #9b9695  C* 2.0  hue  35.4°
+//     norse  Rough Iron byrnie       #5f6b7a -> #898384  C* 2.5  hue   6.0°
+//     norse  Sea Queen's Gift byrnie #2f4a6a -> #8f7d80  C* 7.5  hue   6.9°
+//     ...nine more, all norse, all byrnies and leg wraps
+//
+// READ THE SOURCE COLUMN, because it is the whole diagnosis. Rough Iron is
+// C* 9.9 at hue 264° and Sea Queen's Gift is C* 21.7 at hue 270°: both COOL,
+// because that is what steel is. The vat took the cool out and left the
+// remnant aimed at the garnet. A warm light ADDS on a warm-neutral and CANCELS
+// on a cool one, so those byrnies rendered C* 16-20 on the red arc — pink —
+// while the unsworn man's cool iron rendered C* 6.5.
+//
+// A GREEN 15/15 AND THEN A GREEN 21/21 SHIPPED THAT. §1 gates how far the four
+// peoples are APART and rose is a long way from weld, moss and woad, so a pink
+// Dane clears it comfortably. The question a distance cannot ask is whether a
+// man is the RIGHT colour. This section asks it, and it costs a second.
+// ============================================================
+console.log("\n[faction] === 5.3 NO NEAR-NEUTRAL ON THE RED ARC (albedo, and it needs no light) ===\n");
+{
+  const band53 = makeBand(FACTION_FIELD.norse);
+  const hx53 = (n) => `#${n.toString(16).padStart(6, "0")}`;
+  note(`the band: ${band53.describe()} — this section gates the region JUST UNDER its C* ${band53.floor.toFixed(1)} floor`);
+  const flat = [];
+  const LINEN_SRC = 0xc2b69c;
+  for (const people of PEOPLES) {
+    for (const f2 of FINISHES) {
+      const k = kitFor(finishKit(f2.value), "none", people);
+      const surfaces = ["mail", "tunic", "trouser", "wrap", "hide", "buff"].map((s) => [s, k[s]]);
+      surfaces.push(["linen shirt and sleeves", CH.wornBy(LINEN_SRC, "none", people, "linen")]);
+      for (const [surf, c] of surfaces) {
+        const L = labOf(c), C = chromaOf(L), d = arcTo(hueOfLab(L), band53.fieldH);
+        if (d <= ARC && L[0] >= ROSE_L && C < band53.floor)
+          flat.push(`${people} ${f2.label} ${surf} ${hx53(c)} — C* ${C.toFixed(1)} under the band's ${band53.floor.toFixed(1)} floor, L* ${L[0].toFixed(1)}, ${d.toFixed(1)}° off the garnet`);
+      }
+    }
+  }
+  const walked = PEOPLES.length * FINISHES.length * 7;
+  for (const st of flat.slice(0, 8)) note(`FIRE WILL DYE IT  ${st}`);
+  if (flat.length) {
+    note("Every line above is a surface the BONFIRE finishes dyeing. It is under the band's albedo");
+    note("floor, so §7.0's calibration is obliged to clear it and §7.1 cannot see it coming; it is");
+    note("pale and on the garnet's arc, so eleven points of warm key put it over that floor the");
+    note("moment it is lit. Before blaming a vat's `sat`, read the SOURCE hex: if the source was");
+    note("COOL and the result is neutral, the vat has BLEACHED the surface rather than let go of");
+    note("it, and `characters.ts` `factionDye` is where letting go is defined. A vat adds dyestuff");
+    note("to what is there; it does not repaint, and it does not strip.");
+  }
+  check(`5.3 NO NEAR-NEUTRAL ON THE ARC — no vat leaves a pale surface under the band's own C* ${band53.floor.toFixed(1)} floor and on the garnet's arc, where the fire would finish dyeing it`,
+    flat.length === 0,
+    flat.length
+      ? `${flat.length} of ${walked} surfaces are pale, near-neutral and on the arc`
+      : `all ${walked} surfaces clear — every near-neutral keeps its own hue off the arc`,
+    flat);
 }
 
 // ============================================================

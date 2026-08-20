@@ -744,3 +744,131 @@ distance from anybody else — it is a place on the wheel.
 * `tools/roselook.mjs` — the same band over a directory of PNGs in about a
   second, so a before/after costs no captures. Whole-frame share, no coverage
   mask, comparative only, and it says so on its own verdict line.
+
+### 10.3 THE DANELAW'S ROSE, FOURTH ROUND — the vat was BLEACHING, not letting go — 20 Aug 2026
+
+§10.2 above fixed the albedo census and left a residue it could not explain, and
+its own closing paragraph is where this round starts: *"the residue is the fire
+on bright iron, and it is inseparable from the identity... The next round that
+wants it green must argue about the BONFIRE or about `norse.metal.bias`, and
+both of those are the owner's decisions and not a fixer's."*
+
+**That conclusion was wrong, and one column of numbers is why.** The residue was
+not inseparable and it needed neither a relight nor a darker byrnie. §10.2 had
+the mechanism exactly right — a warm key ADDS on a warm-neutral and CANCELS on a
+cool one — and then asked the wrong question about it. It asked why the
+Danelaw's mail was *neutral*. The question was why it had *stopped being cool*.
+
+#### The column §10.2 never printed
+
+Every steel in this shop is COOL, because that is what steel is. Here is what
+the vat did to it, off the shipped resolvers, on the tree §10.2 shipped:
+
+| surface | source | through the Danelaw's vat |
+|---|---|---|
+| Rough Iron byrnie | `#5f6b7a` C\* 9.9 **hue 264°** | `#898384` C\* 2.5 **hue 6°** |
+| Polished Steel byrnie | `#8a97a5` C\* 9.1 **hue 260°** | `#a3a2a2` C\* 0.4 **hue 18°** |
+| Sea Queen's Gift byrnie | `#2f4a6a` C\* 21.7 **hue 270°** | `#8f7d80` C\* 7.5 **hue 7°** |
+| linen shirt and sleeves | `#c2b69c` C\* 14.8 hue 90° | `#9b9695` C\* 2.0 **hue 35°** |
+
+Read it twice. A deliberately BLUE armour — Sea Queen's Gift, C\* 21.7 at 270° —
+came out of the Danelaw's vat near-neutral and **pointing at the garnet**. That
+is not a vat letting go. That is a vat bleaching a surface and then aiming the
+remnant at red, and the bonfire finished the job. §10.2's own rendered
+measurement — same pixel, same frame, quoted from the round above — is the
+proof: a Danelaw byrnie read C\* 15.6–17.4 on the screen where the unsworn
+man's cool iron read C\* 6.5.
+
+#### The one line that did it
+
+`factionDye` applied the fade to the MAGNITUDE of the chroma sum:
+
+```
+setHSL(h, Math.min(1, Math.hypot(cx, cy)) * roseFade(h, l), linear(l))
+```
+
+`hypot(cx, cy)` is the surface's own chroma **plus** the vat's, and scaling that
+toward zero throws away the surface's contribution along with the dye. What
+survives is a near-neutral whose hue is whatever `HUE_CONE` last clamped it to —
+the garnet. **Three briefs in a row said the lever was a vat's `sat`; the lever
+was the word "magnitude".**
+
+#### Letting go is a move back to the surface, not a move toward grey
+
+The fade now runs on the dyed vector AS A VECTOR, hue and chroma together, from
+the dyed result back to *the surface undyed*:
+
+| surface | before | after |
+|---|---|---|
+| Rough Iron byrnie | `#898384` C\* 2.5 hue 6° | `#7b8090` **C\* 9.4 hue 280° — cool steel** |
+| Sea Queen's Gift byrnie | `#8f7d80` C\* 7.5 hue 7° | `#676e9e` **C\* 28.4 hue 289° — still blue** |
+| linen shirt and sleeves | `#9b9695` C\* 2.0 hue 35° | `#a89a85` **C\* 13.0 hue 83° — undyed flax** |
+| Rough Iron leg wraps | `#94402c` russet | **byte-identical** |
+| Blackened Steel leg wraps | `#8c4e43` brick | **byte-identical** |
+
+No value moved: the byrnie is L\* 53.7 against 55.3. **"More metal, near-white
+steel over the darkest wools" is untouched, and nothing was relit** —
+`PROCESS.md` R11 stage 4.
+
+#### AND THE CAP, WHICH IS THE HALF THAT IS NOT OBVIOUS
+
+Letting go *all the way* is too far, and `factionread` §1.3 is what says so. It
+reads a people off the area-weighted mean of the man's surfaces, and a byrnie is
+the largest of them. Uncapped, the vat handed the whole vote back to whatever
+the man had bought. Measured over the seven finishes on a man with **no cloak
+and no shield**:
+
+| finish | reads as |
+|---|---|
+| Bronze Scales | **SAXON** |
+| Bretwalda Gold | **SAXON** |
+| Sea Queen's Gift | **PICT** |
+
+That is `FACTIONS.md` §8's ordering broken — a purchase out-voting a people —
+and it is the same inversion `HUE_CONE` exists to stop, one rung further down. A
+huscarl survived it because his cloak and his board are flat garnet and never
+enter the vat. A berserker has neither, and nobody would have shot a cloakless
+berserker in Bronze Scales.
+
+So the endpoint is the surface **undyed**, capped at `UNDYED_SAT` — the dye load
+of the linen shirt `0xc2b69c`, read off the shipped hex rather than chosen, the
+same colour `tools/lib/roseband.mjs` takes its chroma floor from and for the same
+reason. A surface a vat has let go of carries no dyestuff, and the undyed shirt
+is this game's own statement of how much colour that is. After the cap all four
+peoples read correctly with and without cloak and board.
+
+**What the cap costs is stated rather than hidden:** the Danelaw's worst finish
+pair goes 2.55 → 2.79 rather than the 5.44 the uncapped version bought, against
+`cosmetictest`'s JND of 2.3. Identity outranks the ladder and §8 says so in
+those words.
+
+#### The other three peoples are byte-identical, and it is by construction
+
+`keep` of 1 reproduces the dyed vector exactly, so a surface the fade cannot
+reach is identical *by construction* rather than by luck. Over every finish
+surface through `factionKit`, a 197-step hex sweep across all five dye kinds for
+all four peoples, and every cloak:
+
+```
+  saxon   BYTE-IDENTICAL
+  norse   795 value(s) changed
+  briton  BYTE-IDENTICAL
+  pict    BYTE-IDENTICAL
+  3361 identical, 795 changed
+```
+
+#### And the gate that would have caught it in a second
+
+`tools/factionread.mjs` **§5.3**, in the albedo half of the file, no browser and
+no light: **no vat may leave a surface pale, under the rose band's own C\* 14.8
+floor, and on the garnet's arc** — because that is the one region where the band
+is *required* to clear a pixel in albedo and the bonfire then puts it over the
+floor. On the tree §10.2 shipped, thirteen of 116 surfaces were in that region
+and every one of the thirteen was the Danelaw: every finish's byrnie, the leg
+wraps and the linen sleeves. That is the whole defect, found in albedo, for the
+cost of a loop.
+
+Three rounds of this feature needed an hour of graded rendering to see what §5.3
+sees for free, and §1 could never have seen it at all: §1 gates how far the four
+peoples are APART, and rose is a long way from weld, moss and woad. **A distance
+cannot ask whether a man is the right colour.**

@@ -8,6 +8,69 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED — the Danelaw's rose, fourth and last round: the vat was BLEACHING the steel — 20 Aug 2026
+
+The entry below this one closed the same defect on 20 Aug and left a residue it
+called inseparable: *"the residue is the fire on bright iron... The next round
+that wants it green must argue about the BONFIRE or about `norse.metal.bias`,
+and both of those are the owner's decisions and not a fixer's."*
+
+**That was wrong and it cost a round.** The full write-up is `docs/FACTIONS.md`
+§10.3. What belongs here is the part a later round needs.
+
+### The mechanism was right and the question about it was wrong
+
+§10.2 established that a warm key ADDS on a warm-neutral and CANCELS on a cool
+one, then asked why the Danelaw's mail was *neutral* and concluded that being
+neutral was inseparable from "more metal". The question it never asked was why
+the mail had **stopped being cool**. Every steel in the shop is cool — Rough
+Iron `#5f6b7a` is C\* 9.9 at hue 264°, Sea Queen's Gift `#2f4a6a` is C\* 21.7 at
+hue 270° — and both came out of the vat near-neutral and aimed at the garnet.
+
+`factionDye` was applying the rose fade to the MAGNITUDE of the chroma sum. That
+sum is the surface's own chroma plus the vat's, so scaling it toward zero threw
+away the steel's blue along with the dye and left a remnant pointing wherever
+`HUE_CONE` had clamped it. **A vat that "lets go" by moving toward grey is not
+letting go, it is bleaching**, and a bleached near-neutral on the red arc is
+precisely what a bonfire finishes dyeing.
+
+### The two sentences worth keeping
+
+**Letting go is a move back to the SURFACE, not a move toward GREY.**
+
+**And what it lets go to is the surface UNDYED, not the surface.** Letting go all
+the way hands the whole identity vote back to whatever the man bought: uncapped,
+a cloakless Dane in Bronze Scales or Bretwalda Gold read SAXON and one in Sea
+Queen's Gift read PICT. The cap is `UNDYED_SAT`, off the shipped linen shirt.
+
+### What a later round must not re-derive
+
+* **A vat's `sat` is not the lever.** Three briefs said it was. §10.2 proved it
+  by emptying three vats and making the rose worse.
+* **`ROSE_LIT` 0.44 and `ROSE_TAPER` 0.04 are load-bearing** and the captures
+  that fixed them are in §10.2. Do not move them for this defect.
+* **The cloak and the board never enter the vat.** `cloakFor` and `shieldBoard`
+  both return `wornField(field)`, so a huscarl's identity survives things a
+  berserker's does not. Shoot a cloakless berserker before believing an
+  identity number.
+* **§5.3 is the cheap gate and it is the one that was missing.** No vat may
+  leave a surface pale, under the rose band's own C\* 14.8 floor, and on the
+  garnet's arc. Thirteen surfaces were in that region on the tree §10.2 shipped
+  and all thirteen were the Danelaw's byrnies, leg wraps and sleeves.
+
+### The blindness this round actually closed
+
+`factionread` §7 grades a GRADED render and that is the right instrument for a
+verdict, but it costs most of an hour and three rounds of this defect were spent
+paying it. §5.3 answers the same question in albedo, in a second, with no
+browser, because the failure has an albedo signature: **a near-neutral pointed at
+the red arc.** The band could not see it — the band is *required* to clear
+anything under its own chroma floor, and its floor is an albedo number in a lit
+scene. §5.3 gates exactly the region the band must clear and the fire then
+lights up.
+
+---
+
 ## CLOSED — the Danelaw read ROSE at the sleeves and the byrnie, and it took three rounds because nothing could see it — 20 Aug 2026
 
 The owner, off his own capture: *"THE DANELAW READS ROSE AT THE SLEEVES AND THE
