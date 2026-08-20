@@ -62,7 +62,7 @@ ninety seconds, and it is the foundation the war layer sits on.
 | 2.3 | **Parry upgrade: animation you feel, plus a real riposte window** to capitalise with extra damage | NEW — the mastery ceiling |
 | 2.4 | **Satisfying combat sound** that complements the fighting | [ALREADY RAISED] `docs/SOUND.md`, still unbuilt |
 | 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | DONE — `src/game/deathcam.mjs`, `tools/deathcamtest.mjs` |
-| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | MOSTLY DONE, 13 Aug — see below |
+| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | **DONE, 20 Aug 2026** — the beat landed 13 Aug, the match-end hole closed and the slow-motion replay wired 20 Aug. See below |
 | 2.7 | **More blood, over the top** — spray and splatter | [ALREADY RAISED] `docs/GORE-DESIGN.md` |
 | 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | **DONE and WIRED.** `solidground.mjs` + `grounds.mjs` declarations, called twice a tick by `engine.mjs`; `tools/solidtest.mjs` 12/12. See the note below |
 
@@ -182,14 +182,16 @@ you the lobby orbit. The beat is the length of that window on purpose. The two
 constants are **not wired together** — `page.tsx` belongs to another unit — so
 `deathcamtest` reads that file and fails if they stop agreeing.
 
-**STILL OPEN, and it rides the harness's verdict line rather than hiding here:
-the death that ends the LAST round of a match.** `endRound` sets
-`state = "finished"` and calls `endMatch` in the same tick — there is no break —
-and `render/summary.ts` takes the lens for the victor's portrait, with
-`page.tsx` laying the results panel over it. Holding that back for two seconds
-is a change to the match-summary flow (`page.tsx`, `summaryflow`), not to the
-camera, and it belongs to whoever owns those files. Until then the last round
-ends on the portrait, which is *a* beat and not *the* beat.
+**THAT HOLE IS NOW CLOSED — 20 Aug 2026, see below.** It read: *"STILL OPEN, and
+it rides the harness's verdict line rather than hiding here: the death that ends
+the LAST round of a match. `endRound` sets `state = "finished"` and calls
+`endMatch` in the same tick — there is no break — and `render/summary.ts` takes
+the lens for the victor's portrait, with `page.tsx` laying the results panel over
+it. Holding that back for two seconds is a change to the match-summary flow
+(`page.tsx`, `summaryflow`), not to the camera, and it belongs to whoever owns
+those files."* The summary flow is exactly where it was fixed: `GameCanvas`
+withholds the tableau while a match-ending replay is running and `page.tsx`
+withholds the results panel with it.
 
 **20 Aug 2026 — and the owner asked for something better than a beat.** *"The
 final kill camera would be better as a slow-mo replay before the next round
@@ -202,13 +204,25 @@ live camera cannot do, because it arms a frame after the blow has landed.
 Measured on the shipping build, the live round beat holds **0 frames** at match
 end and the replay holds **240**, which is this row's hole.
 
-**THE RENDER WIRING IS NOT LANDED AND THAT IS A REFUSAL, not an oversight.**
-There is no browser on the machine it was built on, so a playback branch in
-`GameCanvas.tsx`'s warrior loop could not be looked at, and its two likeliest
-faults — blood spawning twice and the HUD running at half speed with the bodies
-— are invisible to every headless number in this repository. `docs/REPLAY.md` §5
-lists the six remaining steps, the single line that is the seam, and the one
-hazard that the shipped code already handles.
+**THE RENDER WIRING IS NOW LANDED, AND THE REASON GIVEN FOR NOT LANDING IT WAS
+FALSE.** This paragraph used to say *"There is no browser on the machine it was
+built on"*, and `docs/REPLAY.md` §5 said the same. There is one:
+`/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`,
+which launches and reports Chromium 141.0.7390.37. What is true is narrower and
+was never the claim: the Playwright package resolves a browser directory by
+version and asks for `chromium_headless_shell-1234`, so `chromium.launch()` with
+no arguments fails and every harness in this repository that calls it that way
+fails with it. An `executablePath` opens it. A refusal is only worth what its
+reason is worth, and this one's reason did not survive being checked.
+
+Wired 20 Aug 2026: the ring records one frame per snapshot off `wireEpoch`, the
+clock is asked every frame above the summary branch so the match-end edge is
+seen, playback replaces the posed bodies in the break, the animator alone takes
+the slowed `dt`, `onSever` is withheld so the arena is not sprayed twice, and
+the round camera now takes the lens at match end as well. `ROUND_HOLD_MS` is
+`REPLAY.wall * 1000` and `deathcamtest` gates the derivation, the containment,
+**and that `GameCanvas` imports the module at all** — that last check exists
+because its absence is the whole of the previous round's failure.
 
 ### WAVE 3 — balance and the enemy
 

@@ -11,6 +11,8 @@ import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
+import { createReplayBuffer, createKillReplay, REPLAY,
+  type ReplayPlayer } from "@/game/replay.mjs";
 import { createSpectateAim } from "@/game/spectate.mjs";
 import {
   resolveQuality, configureRenderer,
@@ -78,6 +80,13 @@ interface GameCanvasProps {
    * answers. Fired only on a change — this is evaluated every frame.
    */
   onCanEmote?: (can: boolean) => void;
+  /**
+   * THE SLOW-MOTION REPLAY OF THE LAST KILL, reported outward so the surface
+   * can hold its own beat back and offer a skip. `null` when nothing is
+   * playing. `skip` is `replay.mjs`'s own — there is one definition of when a
+   * replay ends and this is a handle on it, not a second copy.
+   */
+  onReplay?: (s: { playing: boolean; atEnd: boolean; skip: () => void } | null) => void;
   /**
    * Emote relays from the server, pushed by page.tsx and drained by the frame
    * loop, which is the only thing that can reach the rigs. A ref'd array for
@@ -204,7 +213,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, emoteFeed, hitFeed }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -276,6 +285,44 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
    */
   const roundCamRef = useRef(createRoundCamera());
   /**
+   * THE SLOW-MOTION REPLAY OF THE LAST KILL — the ring, and the clock that
+   * reads it. Both live in `@/game/replay.mjs` for the reason the two cameras
+   * above do: `tools/replaytest.mjs` drives the same module the player does,
+   * and a decision that only a browser can reach is a decision that drifts.
+   *
+   * The ring is allocated ONCE, here, and never grows: 57,600 bytes of typed
+   * arrays for eight seats and five seconds at the server's own 20 Hz. Nothing
+   * in the record path allocates. See `replaytest` §5.
+   */
+  const replayBufRef = useRef(createReplayBuffer());
+  const killReplayRef = useRef(createKillReplay());
+  /** The men of one recorded frame, rebuilt into this and reused. */
+  const replayOutRef = useRef<ReplayPlayer[]>([]);
+  /**
+   * THE RECORDER'S CLOCK, and it is not the render clock.
+   *
+   * `docs/REPLAY.md` §5 said to stamp frames with "the SERVER's clock". There
+   * is no such clock on this side of the wire — `engine.simTime()` is the
+   * host's and `serializeRoom` does not publish it — so this is written down
+   * rather than quietly substituted. What the ring actually needs is one stamp
+   * per SNAPSHOT, monotonic, in real seconds, and shared with `deathAtRef`
+   * below; the client's own `performance.now()` sampled on the frame a packet
+   * lands is all three. What it must NOT be is the render clock sampled every
+   * frame, which would write the same snapshot into the ring three times over
+   * and make a 20 Hz recording out of a 60 Hz one.
+   *
+   * `wireEpoch` is the packet number `page.tsx` stamps on the record itself —
+   * the same number the interpolator rides — so "has a snapshot landed" is
+   * asked once in this component and answered the same way twice.
+   */
+  const replayEpochRef = useRef(-1);
+  /** Real seconds at which the last recorded snapshot landed. */
+  const replayStampRef = useRef(0);
+  /** And the stamp on the packet that first showed the round's last fall. */
+  const deathAtRef = useRef(0);
+  /** What the surface was last told, so it is told again only on a change. */
+  const replayToldRef = useRef(false);
+  /**
    * Where the lens points when you are dead and not following a teammate. All
    * of the deciding is in `@/game/spectate.mjs`, so `tools/spectatetest.mjs`
    * drives the same module the player does instead of a copy of it.
@@ -332,6 +379,37 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
     // silent wire, which is the conservative answer and the pre-fix behaviour
     // for an unchanged record.
     wireEpochRef.current = roomState?.wireSeq ?? wireEpochRef.current;
+
+    // ---- THE REPLAY RING, AND IT IS RECORDED HERE AND NOT IN THE FRAME LOOP ----
+    //
+    // THIS WAS IN THE RENDER LOOP AND IT WAS WRONG, and only the browser said
+    // so. The recorder fired once per rAF frame on which the packet number had
+    // changed, which caps the recording at the RENDER rate: on a healthy client
+    // 60 fps comfortably covers a 20 Hz wire, and on a struggling one it does
+    // not. Measured by `tools/replayseen.mjs` against the real client on this
+    // box's software rasteriser, the ring held **16 frames spanning 45.08 s** —
+    // one sample every three seconds, a slideshow — where it should hold 100
+    // frames spanning 5. Every headless number was green: `replaytest` calls
+    // `record()` itself, once per simulated tick, so it can never see this.
+    //
+    // A recording is a property of the WIRE, not of how fast this machine can
+    // draw. This effect runs once per committed room record, which is once per
+    // message, whatever the frame rate is doing — so the ring fills at the
+    // server's rate on a phone that is dropping frames, which is exactly the
+    // machine whose owner most wants to see what just happened.
+    //
+    // The epoch guard stays and still earns its place: `emote`, `last_stand`
+    // and a bare `countdown` each commit a fresh record built by spreading the
+    // last one, with no player positions on it. `wireSeq` is what tells a
+    // packet from a re-commit, and recording a re-commit would push real fight
+    // frames out of the ring in favour of duplicates — worst during the break,
+    // where the true packet count is ZERO.
+    const seq = roomState?.wireSeq;
+    if (roomState && seq !== undefined && seq !== replayEpochRef.current) {
+      replayEpochRef.current = seq;
+      replayStampRef.current = performance.now() / 1000;
+      replayBufRef.current.record(replayStampRef.current, Object.values(roomState.players));
+    }
   }, [roomState]);
   useEffect(() => { sendInputRef.current = onSendInput; }, [onSendInput]);
   useEffect(() => { matchEndRef.current = matchEnd ?? null; }, [matchEnd]);
@@ -344,6 +422,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   useEffect(() => { onEmoteRef.current = onEmote; }, [onEmote]);
   const onCanEmoteRef = useRef(onCanEmote);
   useEffect(() => { onCanEmoteRef.current = onCanEmote; }, [onCanEmote]);
+  const onReplayRef = useRef(onReplay);
+  useEffect(() => { onReplayRef.current = onReplay; }, [onReplay]);
   /** Last value pushed, so a per-frame reading becomes a per-change callback. */
   const canEmoteRef = useRef<boolean | null>(null);
   const emoteFeedRef = useRef(emoteFeed);
@@ -832,6 +912,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // than being reset on the frame it was armed.
         deathCamRef.current.reset();
         roundCamRef.current.reset();
+        killReplayRef.current.reset();
         spectateAimRef.current.reset();
         seversRef.current.clear();
         lastFallRef.current = null;
@@ -851,6 +932,14 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // reconnect — never manufactures a fall that this client did not watch.
         if (dead && deadWasRef.current.get(id) === false) {
           lastFallRef.current = { id, killerId: roomState.players[id].lastHitBy || null };
+          // WHEN, on the recorder's own clock. `runRoundCam` needs only WHO
+          // fell; a replay needs the moment, and the only moment that can be
+          // read off this wire is the stamp of the packet that first showed him
+          // dead. `REPLAY.pre` is measured backwards from here, and it is sized
+          // (0.92 s) as the longest a swing can be between starting and its
+          // contact window closing — so the blow is inside the window even
+          // though this stamp is its trailing edge and not its instant.
+          deathAtRef.current = replayStampRef.current;
         }
         deadWasRef.current.set(id, dead);
       }
@@ -983,7 +1072,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // The break, and only the break. `countdown` is the next round being
         // dealt and `finished` is the match summary's, which stages its own
         // tableau — see the deferral on `tools/deathcamtest.mjs`'s verdict line.
-        const ended = roomState.state === "intermission";
+        // The break, and — since the replay landed — the match's own last
+        // death as well. `finished` used to be excluded here with the note
+        // "the match summary's, which stages its own tableau"; that was true
+        // and it is exactly the hole `docs/BACKLOG.md` 2.6 names, because the
+        // tableau stages the VICTOR and the death was never shown at all. The
+        // summary is now held back while a match-ending replay runs (see the
+        // replay clock above), so for those frames there is no tableau to
+        // fight over and this beat has the lens.
+        const ended = roomState.state === "intermission" || killReplayRef.current.playing;
         const fell = lastFallRef.current;
         const him = fell ? bodyOf(fell.id) : null;
         const killer = fell && fell.killerId ? roomState.players[fell.killerId] : null;
@@ -1037,9 +1134,78 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       // state because the server rolls the room back to "lobby" ten seconds
       // in, and the picture must hold until the player actually leaves it; a
       // "countdown" (next match starting under the summary) breaks it anyway.
+      // ---- THE REPLAY CLOCK ----
+      //
+      // Asked EVERY frame and asked HERE, above the summary branch, because it
+      // arms on the rising edge of "the round is over" and the match summary
+      // returns out of this function. An edge nobody looks at is an edge that
+      // is missed, and at match end that edge IS the feature: the room goes
+      // `fighting` -> `finished` in one tick with no break at all, which is
+      // why the last death of a match was seen by nobody and why
+      // `docs/BACKLOG.md` 2.6 has stood open.
+      //
+      // `own` is the death camera's own answer and not a second copy of the
+      // rule — but it is LAST FRAME's answer, because `runDeathCam` is called
+      // below inside the branch this may divert. That is a sixtieth of a
+      // second of lag on a precedence test that is asked over a whole beat, and
+      // it is written down rather than hidden. At match end the point is moot:
+      // the summary branch resets the death camera, so `holding` is already
+      // false by the time a `finished` edge arrives.
+      const replayOwn = deathCamRef.current.holding;
+      const fellNow = lastFallRef.current;
+      const ring = replayBufRef.current;
+      const replayFrame = killReplayRef.current.update(dt, {
+        ended: roomState.state === "intermission" || roomState.state === "finished",
+        end: roomState.state === "finished",
+        own: replayOwn,
+        deathAt: deathAtRef.current,
+        // Is there a death to show, and is the ring still holding the run-up to
+        // it. A replay that opens PART WAY THROUGH the killing swing is the one
+        // thing this feature exists not to do, so it refuses rather than
+        // showing a short one.
+        ready: !!fellNow && ring.first !== null && ring.first <= deathAtRef.current - REPLAY.pre,
+      });
+      const replaying = killReplayRef.current.playing;
+      // A READBACK FOR `tools/replayseen.mjs`, the same shape of hook
+      // `camera.ts` hangs on the window for `cameratest` and `audio.ts` for
+      // `phonesound`. Nothing in the game reads it.
+      //
+      // It exists because the first browser run of that harness came back RED
+      // with every headless number green, and the DOM alone could not say WHY:
+      // "no skip appeared" is the same observation whether the clock never
+      // armed, armed and was outranked, or armed with an empty ring. These
+      // five fields are the arming decision's own inputs and its answer.
+      if (typeof window !== "undefined") {
+        (window as unknown as Record<string, unknown>).__bretwaldaReplay = {
+          playing: replaying,
+          atEnd: killReplayRef.current.atEnd,
+          elapsed: killReplayRef.current.elapsed,
+          frames: ring.frames,
+          held: ring.first === null ? -1 : (ring.last ?? 0) - ring.first,
+          deathAt: deathAtRef.current,
+          ready: !!fellNow && ring.first !== null && ring.first <= deathAtRef.current - REPLAY.pre,
+          own: replayOwn,
+          state: roomState.state,
+          at: replayFrame ? replayFrame.at : null,
+        };
+      }
+      if (replaying !== replayToldRef.current) {
+        replayToldRef.current = replaying;
+        onReplayRef.current?.(replaying
+          ? { playing: true, atEnd: killReplayRef.current.atEnd, skip: () => killReplayRef.current.skip() }
+          : null);
+      }
+
       const verdict = matchEndRef.current;
+      // AND THE SUMMARY WAITS FOR IT. This is the whole of the match-end half:
+      // `render/summary.ts` takes the lens for the victor's portrait on the
+      // same frame the match ends, and it took it from the last death of the
+      // match. While a match-ending replay is running the tableau is simply not
+      // built yet, so control falls through to the branch below — `finished` is
+      // not a fight state — and that is where the replay is drawn.
       const isSummary = verdict !== null && roomState.mode !== "solo" &&
-        (roomState.state === "finished" || roomState.state === "lobby");
+        (roomState.state === "finished" || roomState.state === "lobby") &&
+        !replaying;
       if (isSummary) {
         // The match tableau owns the lens from here, and it aims the same rig
         // through the same `summary` mode the hold does. Cleared rather than
@@ -1124,7 +1290,45 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // relayed during the break — which is where the touch surface offers
         // it — plays on the man who pressed it. The wire is static here (the
         // sim only broadcasts while fighting), so this is pure animation.
-        if (roomState.state === "intermission") {
+        if (replayFrame) {
+          // ---- THE LAST KILL, AGAIN, AT HALF SPEED ----
+          //
+          // THE ANIMATOR IS STEPPED WITH THE REPLAY'S dt AND NOTHING ELSE IS.
+          // `replayFrame.dt` is this frame's wall dt already multiplied by
+          // `REPLAY.rate`, and slow motion is a property of every clock a body
+          // rides on, not of the positions alone: `replaytest` §1 measured
+          // 83.27 degrees of error on a knee from getting exactly this wrong.
+          // The world, the sky, the fires and the HUD below keep the frame's
+          // real `dt` — a bonfire at half speed is not slow motion, it is a
+          // broken bonfire.
+          const rdt = replayFrame.dt;
+          const wasTime = ctx.time;
+          ctx.time = replayFrame.at;
+          const out = replayOutRef.current;
+          const n = ring.readInto(replayFrame.at, out);
+          for (let i = 0; i < n; i++) {
+            const rp = out[i] as unknown as GamePlayer;
+            // The men on screen are the men who were in the fight, so their
+            // rigs already exist. A recorded record is NOT a whole
+            // `GamePlayer` — it carries the fields `anim.ts` reads and no name,
+            // no stamina, no ready flag — so it must never be handed to
+            // `ensureSlot`, which would build a rig and a name plate out of it.
+            const slot = warriorsRef.current.get(rp.id);
+            if (!slot) continue;
+            stepWarriorTransform(slot.rig, slot.motion, rp, rdt, ctx);
+            // NO `onSever`. The rig puts itself back together and re-cuts on
+            // its own — `poseWarrior` calls `reassemble(rig)` on any frame the
+            // man is not dead, which clears `gore.done` — but the VFX side does
+            // not: `animHooks.onSever` spawns blood, a decal and a stump
+            // through `stage.vfx`, and a replayed death would spray the arena a
+            // second time over the first spray. Only `groundAt` is passed, so
+            // a severed piece still lands on the bank rather than through it.
+            poseWarrior(slot.rig, slot.motion, rp, rdt, ctx, { groundAt: stage.world.heightAt });
+            slot.prevHp = rp.health;
+            slot.prevState = rp.state;
+          }
+          ctx.time = wasTime;
+        } else if (roomState.state === "intermission") {
           drainEmotes();
           for (const p of Object.values(roomState.players)) {
             const slot = ensureSlot(p);

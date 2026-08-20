@@ -51,7 +51,7 @@
 // ============================================================
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { getEngine } from "../src/game/engine.mjs";
 import {
   createDeathCamera, createRoundCamera, frameDeathShot, roundOpening,
@@ -1113,13 +1113,61 @@ check("GameCanvas.tsx imports the round camera, runs it and binds the same skip"
 //     so it is not left to a comment. This reads the number out of that file.
 // ============================================================
 const pageSrc = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
-const holdMs = /const ROUND_HOLD_MS\s*=\s*(\d+)/.exec(pageSrc);
-check("the beat is exactly as long as the round-end screen page.tsx already holds",
-  !!holdMs && Math.abs(Number(holdMs[1]) / 1000 - ROUND_HOLD.total) < 1e-6,
-  holdMs
-    ? `page.tsx ROUND_HOLD_MS = ${holdMs[1]}ms against ROUND_HOLD.total = ${(ROUND_HOLD.total * 1000).toFixed(0)}ms. `
-      + `They are two declarations of one number and nothing in the code makes them agree — if you moved one, move the other`
+const canvasSrc = readFileSync(resolve(ROOT, "src/game/client/GameCanvas.tsx"), "utf8");
+const { REPLAY } = await import(pathToFileURL(resolve(ROOT, "src/game/replay.mjs")).href);
+
+// THE CLAIM THIS REPLACES ASKED FOR EQUALITY WITH THE WRONG CONSTANT, and it
+// went red the moment the window it guards stopped being the round beat's.
+//
+// It was: `ROUND_HOLD_MS / 1000 === ROUND_HOLD.total`, both 2.95, "two
+// declarations of one number and nothing in the code makes them agree". That
+// was right while the beat WAS the window. The round break now carries the
+// slow-motion replay (`src/game/replay.mjs`), the window is `REPLAY.wall`, and
+// the beat plays inside it rather than filling it.
+//
+// So the equality does not go away, it MOVES to the constant that now governs —
+// and it is asked of the SOURCE rather than of the value, because `page.tsx`
+// now derives the number instead of typing it. A declaration that reads
+// `REPLAY.wall * 1000` cannot drift from `REPLAY.wall` at all, which is a
+// stronger answer to the mirrored-definition fault than any numeric compare.
+// The containment is then asked separately.
+const holdExpr = /const ROUND_HOLD_MS\s*=\s*([^;]+);/.exec(pageSrc);
+const derived = !!holdExpr && /REPLAY\.wall\s*\*\s*1000/.test(holdExpr[1]);
+check("the window page.tsx holds the arena open for is DERIVED from the replay's, not typed beside it",
+  derived,
+  holdExpr
+    ? `page.tsx declares ROUND_HOLD_MS = ${holdExpr[1].trim()}. It must be REPLAY.wall * 1000, or it is a `
+      + `second declaration of the replay's length sitting one edit away from disagreeing with it`
     : "page.tsx no longer declares ROUND_HOLD_MS; the window this beat plays inside has moved or gone");
+
+check("and the round beat still fits inside that window",
+  ROUND_HOLD.total <= REPLAY.wall + 1e-9,
+  `ROUND_HOLD.total = ${ROUND_HOLD.total.toFixed(2)}s inside a window of REPLAY.wall = ${REPLAY.wall.toFixed(2)}s `
+    + `(${(REPLAY.wall - ROUND_HOLD.total).toFixed(2)}s spare). The beat is the lens over the corpse and the replay is `
+    + `what it is pointed at; a beat that outlived the window would be a camera holding on a body the replay had stopped drawing`);
+
+// AND THE MODULE IS ACTUALLY IN THE GAME.
+//
+// THIS CHECK EXISTS BECAUSE ITS ABSENCE IS THE WHOLE OF THE LAST ROUND'S
+// FAILURE. `src/game/replay.mjs` shipped with a green unit test of 830 lines
+// and ZERO importers anywhere in `src/`, `tools/`, `custom-server.mjs` or
+// `dev-server.mjs`. A player saw no replay and had no skip, and the green test
+// read as coverage. `docs/PROCESS.md` failure mode 3 is a copy a test can never
+// fail on; an unimported module with a passing test is the same fault with the
+// copy count set to zero.
+//
+// A grep is a crude gate and it is the right crude gate: what it asserts is
+// exactly what was false — that the shipped renderer references the module at
+// all. tsc would not have caught it and neither would any harness that drives
+// `replay.mjs` directly, which is every harness that drives it.
+check("the replay module is imported by the renderer that has to play it",
+  /from\s+["']@\/game\/replay\.mjs["']/.test(canvasSrc)
+    && /createReplayBuffer\s*\(/.test(canvasSrc)
+    && /createKillReplay\s*\(/.test(canvasSrc),
+  `GameCanvas.tsx: imports replay.mjs = ${/from\s+["']@\/game\/replay\.mjs["']/.test(canvasSrc)}, `
+    + `builds a ring = ${/createReplayBuffer\s*\(/.test(canvasSrc)}, `
+    + `builds a clock = ${/createKillReplay\s*\(/.test(canvasSrc)}. `
+    + `All three must be true or the replay is a module with a green test and no player`);
 
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} passed`
@@ -1127,8 +1175,12 @@ console.log(`\n${results.length - failed.length}/${results.length} passed`
   + ` no cut, IDENTICAL ON EVERY TIER — the death is the one moment a phone has nothing else to draw.`
   + `\n  THE ROUND'S      ${ROUND_HOLD.fall}s cut + ${ROUND_HOLD.move}s in + ${ROUND_HOLD.linger}s linger = ${ROUND_HOLD.total.toFixed(2)}s,`
   + ` everybody watches, and your own death outranks it.`
-  + `\n  WITH ONE DEFERRAL ON THIS LINE AND NOT BELOW IT: the death that ends the LAST round of a match`
-  + ` is not measured here, because the server goes straight from "fighting" to "finished" and`
-  + ` render/summary.ts takes the lens for the victor's portrait. That is a screen the beat is not`
-  + ` allowed to hold up from a file this unit owns — see docs/BACKLOG.md 2.6.`);
+  + `\n  THE DEFERRAL THAT USED TO BE ON THIS LINE IS CLOSED. It read: "the death that ends the LAST`
+  + ` round of a match is not measured here, because the server goes straight from 'fighting' to`
+  + ` 'finished' and render/summary.ts takes the lens for the victor's portrait. That is a screen the`
+  + ` beat is not allowed to hold up from a file this unit owns." The screen IS held up now, by`
+  + ` src/game/replay.mjs and not by this unit: GameCanvas withholds the tableau while a match-ending`
+  + ` replay runs, and the round beat takes the lens over it. What this file still does not measure is`
+  + ` the PICTURE — see tools/replaytest.mjs for the clock and the record, and the shot harnesses for`
+  + ` the render.`);
 process.exit(failed.length ? 1 : 0);

@@ -61,6 +61,66 @@ const has = (s) => ONLY.includes(s);
 const GATE = argv.includes("--gate");
 const LEVER = argOf("lever", "");
 
+// ===========================================================================
+// THE DIE — FIXED, AND IT WAS NOT
+// ===========================================================================
+/**
+ * THIS FILE WAS FLAKY AND ITS FLAKINESS WAS PRINTED IN A DOC AS A RESULT.
+ *
+ * `docs/REPLAY.md` §1 reprinted one run of §1 — "worst pose -0.04° outside the
+ * live track's own sampling bracket" — as the module's result. Run without a
+ * seed it is not the module's result, it is one draw. Measured over twelve
+ * consecutive runs of the build that shipped it, §1 went RED in seven of them,
+ * with the worst time-offset column swinging 0.022 s to 0.055 s against a
+ * 0.025 s bar. A gate that is red more often than not is worse than no gate,
+ * because the first thing anyone does with it is stop reading it.
+ *
+ * The variance is not in the replay. It is in the FIGHT: `engine.mjs` rolls
+ * every bot block, dodge, ability and swing off `Math.random()`, and a fight
+ * that goes differently ends at a different moment, in a different pose, with a
+ * different joint moving fastest on the frame §1 happens to catch. The recorder
+ * was faithful on every one of those runs; what moved was the thing recorded.
+ *
+ * So: the same fixed die `tools/seeddie.mjs` hands the spawned server, rolled
+ * in this process before `engine.mjs` is imported, and seedable so that "it
+ * passes" can be a claim about more than one fight. Same xorshift32, same
+ * constant, so this instrument and `cosmetictest` roll one stream and a
+ * difference between two harnesses is never the seed.
+ *
+ *   node tools/replaytest.mjs --seed=7        one named fight
+ *
+ * AND THE SEED HAD TO BE MADE TO MEAN SOMETHING, which is the second half of
+ * this note. Seeding `Math.random` alone changed NOTHING: ten seeds gave ten
+ * byte-identical runs. This fixture has no bots in it — four scripted sessions
+ * — so the bot rolls the die decides are not rolled, and the variance that had
+ * been mistaken for them was somewhere else entirely (see `makeRig`). The die
+ * is kept because the engine may reach for it at any time and an unseeded one
+ * is a hole waiting to open; `--seed` now also names the fixture's warriors,
+ * which is the axis this fixture actually varies on.
+ *
+ * WHAT IT DOES NOT BUY, in the words `seeddie.mjs` uses: it removes an
+ * INDEPENDENT source of variance, not all variance. Player ids still come from
+ * `crypto.randomUUID`, which is deliberately untouched, so nothing downstream
+ * can start depending on a fixed identity by accident.
+ */
+const SEED_ARG = argOf("seed", "");
+/** Decimal, or `0x...` for the default. 0 is not a state xorshift32 can leave. */
+const SEED = ((SEED_ARG ? Number(SEED_ARG) : 0x2545f491) >>> 0) || 0x2545f491;
+/**
+ * The fixture's two warriors, by name. `--seed=N` renames them, which changes
+ * `motion.seed` and therefore each man's death pace by up to ±8% — the axis
+ * this fixture really varies on. Unsuffixed is the declared default fight.
+ */
+const LABEL_A = `fixture-A${SEED_ARG ? `-${SEED_ARG}` : ""}`;
+const LABEL_B = `fixture-B${SEED_ARG ? `-${SEED_ARG}` : ""}`;
+let _die = SEED;
+Math.random = () => {
+  _die ^= _die << 13;
+  _die ^= _die >>> 17;
+  _die ^= _die << 5;
+  return (_die >>> 0) / 4294967296;
+};
+
 const DEG = 180 / Math.PI;
 const f1 = (n) => (Number.isFinite(n) ? n.toFixed(1) : "  -");
 const f2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : "  -");
@@ -190,10 +250,33 @@ const CHANNELS = ["px", "py", "pz", "prx", "pry", "prz", "crx", "cry", "crz",
   "hrx", "hry", "hrz", "arx", "ary", "arz", "olx", "oly", "olz",
   "lrx", "lrz", "llx", "llz", "arb", "olb", "lrb", "llb", "waw"];
 
-function makeRig(anim, player) {
+/**
+ * @param label a STABLE id for the rig and its motion, and the second half of
+ *   this file's determinism. `createMotion` sets
+ *
+ *       stride: hash01(p.id) * 2π,  seed: hash01(p.id + "s") * 6.28
+ *
+ *   once, off the player's id — and `deathLayer` rides that seed:
+ *   `pace = c.pace * (1 + sin(seed * 12.9898) * 0.08)`, which is ±8% on the
+ *   whole collapse clock. The ids come from `crypto.randomUUID`, which
+ *   `tools/seeddie.mjs` deliberately leaves alone ("nothing downstream can
+ *   start depending on a fixed identity by accident") — and this is downstream,
+ *   and it does depend on it.
+ *
+ *   Seeding `Math.random` alone left this file still drawing a different fight
+ *   every run: ten seeded runs of §1 gave ten different outputs, with the worst
+ *   time offset swinging 0.022 s to 0.038 s across them. It was never the bots
+ *   on their own; it was that every warrior fell at a different speed.
+ *
+ *   Both paths share these slots, so a fixed label changes WHICH fight is
+ *   measured and not whether the replay matches it — the live track and the
+ *   replayed track are posed by the same `motion` either way.
+ */
+function makeRig(anim, player, label) {
   const parent = new THREE.Group();
-  const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
-  const motion = anim.createMotion(player);
+  const named = label ? { ...player, id: label } : player;
+  const rig = anim.createWarriorRig(parent, named, undefined, { tier: "high", shadows: false });
+  const motion = anim.createMotion(named);
   const ctx = { dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
     focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",
     quality: { tier: "high", shadows: false } };
@@ -267,7 +350,7 @@ async function fight(anim, replay) {
 
   const me = (S) => S.st.latest.players[S.st.id];
   const hold = (S, data) => engine.message(S.sid, { type: "input", data: { ...NEUTRAL, ...data } });
-  const slotA = makeRig(anim, me(A)), slotB = makeRig(anim, me(B));
+  const slotA = makeRig(anim, me(A), LABEL_A), slotB = makeRig(anim, me(B), LABEL_B);
   const live = [];                 // { t, a, b } poses, one per render frame
   let sim = 0, deathAt = -1;
   const buf = replay.createReplayBuffer();
@@ -347,7 +430,7 @@ async function sectionRecord(anim, replay) {
   let n = buf.readInto(deathAt, out);
   if (n < 0) { bad("§1 the ring did not hold the moment of the blow"); return null; }
   const first = out.find((p) => p.id === run.ids.b) || out[0];
-  const slot = makeRig(anim, first);
+  const slot = makeRig(anim, first, LABEL_B);
   const rows = [];
   const DT = 1 / 60;
   let elapsed = 0, worst = 0, worstAt = 0, worstCh = "", compared = 0, frame = 0;

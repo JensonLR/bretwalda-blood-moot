@@ -35,14 +35,77 @@ exactly what `--lever=live` demonstrates:
   RED — 4 finding(s)
 ```
 
-Against the real module, the same section:
+Against the real module, the same section — **and this block used to be one
+lucky draw, which is the fault this project keeps recording**:
 
 ```
-  §1 RECORD   228 frame(s) of a real fight replayed off the ring. Worst pose -0.06°
-              outside the live track's own sampling bracket (bar 0.50°), worst
-              0.022s from the frame it claims to be (bar 0.025s).
+  §1 RECORD   228 frame(s) of a real fight replayed off the ring. Worst pose 0.39° outside the live track's
+              own sampling bracket (bar 0.50°), worst 0.055s from the frame it claims to be (bar 0.025s).
   §2 CLOCK    opens 0.91s BEFORE the blow and runs at 0.498x over 4.00s of wall clock.
 ```
+
+**`§1` IS RED ON THE DEFAULT FIGHT AND THE NUMBER ABOVE IS THE SEEDED ONE.**
+What was printed here before — `-0.06°` and `0.022s`, green — was a real run and
+not the module's result: `replaytest` was unseeded and drew a different fight
+every time. Measured over twelve consecutive runs of that build it went **red in
+seven of them**, with the phase column swinging 0.022 s to 0.055 s against a
+0.025 s bar. Quoting the good draw is exactly the fault `docs/PROCESS.md` warns
+about, and it is corrected here rather than re-run until it agrees.
+
+### What the flakiness actually was
+
+Not the bots. `tools/seeddie.mjs`'s die was added first and changed **nothing**:
+ten seeded runs still gave ten different outputs. This fixture has no bots in it
+— four scripted sessions — so the rolls that die governs are never made.
+
+It was the **warriors' names**. `createMotion` sets `seed: hash01(p.id + "s")`
+once, off the player id, and `deathLayer` rides it:
+`pace = c.pace * (1 + sin(seed * 12.9898) * 0.08)` — **±8% on the whole collapse
+clock**. The ids come from `crypto.randomUUID`, which `seeddie.mjs` deliberately
+leaves alone on the grounds that "nothing downstream can start depending on a
+fixed identity by accident". This was downstream and it did depend on it. Every
+run, every warrior fell at a different speed.
+
+`makeRig` now takes a stable label. **Ten consecutive runs of `--only=record`
+are byte-identical** (md5 `4d4f3399a431`, 10/10).
+
+### The seeded spread, over ten seeds declared before the run
+
+`--seed=N` renames the fixture's two warriors, which is the axis that actually
+varies. Seeds declared first, all ten run, none discarded:
+
+| seed | worst pose outside bracket | worst phase offset | verdict |
+|---|---|---|---|
+| default | 0.39° | 0.055 s | RED |
+| 1 | 0.31° | 0.038 s | RED |
+| 2 | −0.03° | 0.022 s | green |
+| 3 | 0.21° | 0.038 s | RED |
+| 7 | −0.06° | 0.022 s | green |
+| 11 | −0.02° | 0.022 s | green |
+| 42 | −0.04° | 0.022 s | green |
+| 99 | −0.04° | 0.022 s | green |
+| 20260820 | 0.27° | 0.055 s | RED |
+| 424242 | −0.06° | 0.022 s | green |
+
+**Six of ten pass. The bar was not moved and the default was not re-picked.**
+The seed is declared, so a green one could have been made the default with one
+character; that would be choosing the fight to fit the gate, which is the same
+move as choosing the bar to fit the fight.
+
+**What the red means, as far as it has been established.** The pose is inside
+its own bracket on every seed (worst 0.39° against 0.50°), so the recording is
+not missing a field — that is what `--lever=live`, `--lever=drift` and
+`--lever=clock` are for and all three still go red. What exceeds its bar is the
+PHASE column, which locates a replayed frame in time by argmin over pose. Its
+bar is derived as `1/60 + 1/120` — one live step plus one replay step — and that
+derivation does not account for the **ring's own 1/20 s step**, which `slotAt`
+resolves nearest-**at-or-before** rather than nearest. Where a discrete field
+changes (the state enum flips to `dead`) no interpolator smooths it, and the
+localisation floor is a recorded step, 0.05 s. The measured 0.055 s sits exactly
+there. **That is a reading, not a finding, and the bar has been left alone on
+purpose:** correcting a bar's derivation is the move that most resembles moving
+one to buy a pass, and doing it at the end of a round to turn a red green is not
+a call to make alone. It is written down so the next round can settle it.
 
 ---
 
@@ -139,54 +202,95 @@ running, the replay holds 0 frames.
 
 ---
 
-## 5. NOT LANDED: the render wiring, and why not
+## 5. LANDED: the render wiring, and what the browser then found
 
-**The module and its harness are done. The renderer is not wired to them, and
-this is a refusal rather than an oversight.**
-
-There is no GPU and no browser on the machine this was built on —
+**The reason this section previously gave for NOT wiring it was false.** It
+read: *"There is no GPU and no browser on the machine this was built on —
 `npx playwright` reports `Executable doesn't exist at .../chrome-headless-shell`
 — so `npm run shoot`, `roundbeatshot` and `freezetest --phases=freeze` cannot
-run. R5 says open the render before telling the owner anything is fixed. A
-playback branch in `GameCanvas.tsx`'s main warrior loop is a change nobody here
-can look at, and the two most likely failure modes are both invisible to every
-headless number in this repository: blood spawning twice, and the HUD running at
-half speed with the bodies.
+run. R5 says open the render before telling the owner anything is fixed."*
 
-So the recorder is **not** wired either. An unused 56 KiB ring and a per-frame
-call in every player's browser, for a feature nobody can see, is not a
-foundation — it is dead code with a cost.
+There is a browser: `/opt/pw-browsers/chromium`, a symlink to
+`chromium-1194/chrome-linux/chrome`, which launches and reports **Chromium
+141.0.7390.37**. The error quoted above is real and is about something else —
+the installed Playwright resolves its browser directory by version and asks for
+`chromium_headless_shell-1234`, which is not there, so a bare `chromium.launch()`
+fails. Every harness in this repository already passes `executablePath` when that
+symlink exists and every one of them opens the browser. `npm run build` also
+succeeds and `custom-server.mjs` serves. A refusal is worth exactly what its
+reason is worth.
 
-### What remains, precisely
+### What is wired
 
-`src/game/client/GameCanvas.tsx`, main frame function:
+`src/game/client/GameCanvas.tsx`:
 
-1. **Record.** One call where snapshots land, beside `lastFallRef`:
-   `buf.record(simTime, Object.values(roomState.players))`. The recorder needs
-   the SERVER's clock for its stamps, not the render clock.
-2. **The seam is already single.** `const players = roomState.players;` (one
-   line, ~1157) feeds the whole warrior loop. Swap it for `readInto`'s output
-   while `update()` returns a frame.
-3. **Thread the slowed dt.** `update()` hands back `dt` already multiplied by
-   `rate`; the two calls in the warrior loop (`stepWarriorTransform`,
-   `poseWarrior`) must take THAT, and nothing else in the frame may. Set
-   `ctx.time = at`. Both are in `replay.mjs`'s header with the numbers behind
-   them — §1 measured 83.27° of error on a knee from getting the first one
-   wrong.
-4. **Suppress the second cut's VFX.** `animHooks.onSever` spawns blood, decals
-   and a stump through `stage.vfx`. The replay re-runs the death, so it fires
-   again. *(The rig's own gore needs nothing: `poseWarrior` calls
-   `reassemble(rig)` on any frame the man is not dead, and that clears
-   `g.done`, so the body puts itself back together and re-cuts on its own.
-   Verified by reading `anim.ts`; it is only the VFX side that needs a guard.)*
-5. **The camera.** `runRoundCam` already reads the wound off the RIG via
-   `bodyOf`, so pointing it at a rewound rig needs no change to
-   `frameDeathShot`. Time is this module's; space stays `deathcam.mjs`'s.
-6. **`src/app/page.tsx`.** `ROUND_HOLD_MS` is 2950 and `deathcamtest` fails if
-   it stops agreeing with `ROUND_HOLD.total`. If the replay replaces the round
-   beat, that constant becomes `REPLAY.wall * 1000` = 4000 and the gate must be
-   pointed at the new number. At match end the summary has to be held off for
-   `REPLAY.wall` and a skip routed to the lobby.
+1. **Record** — one `buf.record()` per SNAPSHOT, in the effect keyed on
+   `[roomState]`, guarded on `wireSeq`. **Not in the frame loop**; see below.
+2. **Playback** — the branch that poses bodies between rounds draws the ring's
+   frame instead while `update()` returns one, with `ctx.time = at`.
+3. **The slowed dt** — `replayFrame.dt` goes to `stepWarriorTransform` and
+   `poseWarrior` and to nothing else. The world, sky, fires and HUD keep the
+   frame's real `dt`.
+4. **No second cut** — playback passes `groundAt` only, never `onSever`, so the
+   arena is not sprayed twice. The rig re-cuts itself, as this document said.
+5. **The camera** — `runRoundCam`'s `ended` now includes a running match-end
+   replay, which is the hole `docs/BACKLOG.md` 2.6 named.
+6. **`src/app/page.tsx`** — `ROUND_HOLD_MS = REPLAY.wall * 1000`, the break
+   card's guard moved `left > 2` -> `left > 1` to match, the results panel waits
+   while a match-end replay runs, and a **SKIP** is offered at match end which
+   ends the beat and leaves the arena.
 
-Whoever has a browser should run `roundbeatshot` across the break and at match
-end before this is called done.
+`deathcamtest` gates the derivation, the containment, **and that GameCanvas
+imports the module at all** — the last of those exists because its absence was
+the whole of the previous round's failure, and it was shown failing before it
+was trusted.
+
+### What opening the render actually found, which no headless number could
+
+`tools/replayseen.mjs` drives the real client against the real server and reads
+the DOM and a `window.__bretwaldaReplay` readback — the same shape of hook
+`camera.ts` hangs on the window for `cameratest`. It photographs nothing, on
+purpose: one screenshot on this box's software rasteriser blocks the page for
+about **nine seconds** (`roundbeatshot`'s own discard lines say so) and the beat
+is 4.0 s, so it cannot be photographed here. That is the true limitation, and it
+is a much narrower one than "there is no browser".
+
+**It found a real defect in the first cut of the wiring.** The recorder was in
+the render loop, firing once per rAF frame on which the packet number had
+changed — which caps the recording at the RENDER rate. Measured in the real
+client:
+
+```
+  before   the ring held  16 frames spanning 45.08s   (one sample every 3 s)
+  after    the ring held 100 frames spanning  ~5s     (100 of 100)
+```
+
+`replaytest` cannot see this and never could: it calls `record()` itself, once
+per simulated tick. A recording is a property of the wire, not of how fast the
+machine can draw, so it now runs on the packet-driven effect and fills at the
+server's rate on a client that is dropping frames.
+
+### What is still NOT proven, and it is not a pass
+
+`replayseen` ends **NOT PROVEN** on this box, and says so rather than printing
+green over a run in which every claim was skipped. The clock reported PLAYING on
+**0 frames** across three runs, for two reasons that are both this box:
+
+* The sim runs far enough behind the wall clock that the server's 5.00 s
+  `ROUND_BREAK` reaches the client as **1.64 s**, so `RoundBreak`'s `left > 1`
+  guard correctly covers the arena before any replay could finish.
+* The harness's warrior does not fight, so he dies first or last, and his own
+  death hold outranks the beat every time — `replay.mjs`'s stated precedence.
+
+**The case not reached is a viewer who is ALIVE when somebody else falls**, and
+reaching it needs a harness that fights. Nothing here says the picture is right:
+whether the bodies look right, whether blood spawns twice and whether the HUD
+runs at half speed all need a shutter faster than the beat.
+
+### And one question for the owner, raised by the measurement
+
+The man who dies last is the commonest viewer of a match's final kill, and for
+him that kill is his own — so `own` outranks and he gets his 3.35 s hold and no
+slow motion. At a round break that precedence is clearly right (the two do not
+both fit). At match END nothing is waiting on either. Whether the replay should
+outrank the hold there is a call about the game and has been left alone.
