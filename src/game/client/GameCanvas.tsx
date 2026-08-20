@@ -11,7 +11,7 @@ import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
-import { createReplayBuffer, createKillReplay, REPLAY,
+import { createReplayBuffer, createKillReplay, REPLAY, runUpOf,
   type ReplayPlayer } from "@/game/replay.mjs";
 import { createSpectateAim } from "@/game/spectate.mjs";
 import {
@@ -316,6 +316,16 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
    * asked once in this component and answered the same way twice.
    */
   const replayEpochRef = useRef(-1);
+  /**
+   * ...and WHAT took the man who fell last. The run-up is as long as the swing
+   * it has to contain, and the fire swings nothing: `runUpOf` gives 0.92 s for
+   * steel and 0.75 s for a burn, and the 0.17 s difference is spent at the far
+   * end putting the body on the turf. `freezetest --phases=collapse` lands a
+   * burn at 1.17 s, the slowest landing in the game, and a 1.08 s tail left it
+   * still in the air — which is the corpse-frozen-part-way picture this whole
+   * branch is about.
+   */
+  const deathCauseRef = useRef<string | null>(null);
   /** Real seconds at which the last recorded snapshot landed. */
   const replayStampRef = useRef(0);
   /** And the stamp on the packet that first showed the round's last fall. */
@@ -953,6 +963,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // contact window closing — so the blow is inside the window even
           // though this stamp is its trailing edge and not its instant.
           deathAtRef.current = replayStampRef.current;
+          deathCauseRef.current = roomState.players[id].deathCause ?? null;
         }
         deadWasRef.current.set(id, dead);
       }
@@ -1195,11 +1206,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         end: roomState.state === "finished",
         own: replayOwn,
         deathAt: deathAtRef.current,
+        cause: deathCauseRef.current,
         // Is there a death to show, and is the ring still holding the run-up to
         // it. A replay that opens PART WAY THROUGH the killing swing is the one
         // thing this feature exists not to do, so it refuses rather than
         // showing a short one.
-        ready: !!fellNow && ring.first !== null && ring.first <= deathAtRef.current - REPLAY.pre,
+        ready: !!fellNow && ring.first !== null
+          && ring.first <= deathAtRef.current - runUpOf(deathCauseRef.current),
       });
       const replaying = killReplayRef.current.playing;
       if (replayFrame) replayDrawnRef.current++;
@@ -1221,7 +1234,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           frames: ring.frames,
           held: ring.first === null ? -1 : (ring.last ?? 0) - ring.first,
           deathAt: deathAtRef.current,
-          ready: !!fellNow && ring.first !== null && ring.first <= deathAtRef.current - REPLAY.pre,
+          cause: deathCauseRef.current,
+          ready: !!fellNow && ring.first !== null
+          && ring.first <= deathAtRef.current - runUpOf(deathCauseRef.current),
           own: replayOwn,
           state: roomState.state,
           at: replayFrame ? replayFrame.at : null,

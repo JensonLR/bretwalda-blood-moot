@@ -240,13 +240,67 @@ again.
 | `pre` | 0.92 s | The longest time in this game between a swing STARTING and its contact window CLOSING: `swingDurationOf("berserker", true)` = 1.663 s × `(SWING_PHASES.windup + contact)` = 0.55 → 0.915 s. Below this the replay opens part way through the killing swing. |
 | `wall` | 4.0 s | `ROUND_BREAK` is 5 s and one second is held back so the countdown is still dealt on time. `replaytest` §3 reads `ROUND_BREAK` out of `engine.mjs` and fails if this stops fitting. |
 | `post` | 1.08 s | The remainder: `wall * rate - pre`. |
+| `preFire` | 0.75 s | The remainder for a FIRE death — see below. |
+| `postFire` | 1.25 s | Derived: the burn lands at 1.17 s. |
 | `history` | 5.0 s | The read-head lag above, with margin. |
 
-**One deferral, and it rides the verdict line.** `freezetest --phases=collapse`
-measures a body reaching the ground between 0.52 s and 1.17 s. `post` is 1.08 s,
-so **the slowest death is still moving when the replay ends** — 0.09 s short of
-the turf. It is not gated, because the budget above is the server's and not this
-feature's, and `replaytest` prints it on its `PASS` line every run.
+### The deferral that was on the verdict line for two rounds, and what it was hiding
+
+It read: *"`freezetest --phases=collapse` measures a body reaching the ground
+between 0.52 s and 1.17 s, `post` is 1.08 s, so the slowest death is 0.09 s
+short of the turf."* Not gated, printed on the `PASS` line every run.
+
+**That range was two different deaths averaged into one number, and the average
+is what made it look unfixable.** freezetest prints `landed` per cause:
+
+```
+  class        cause  zone   seam    landed
+  berserker    -      legL   hipL     0.53s
+  warden       -      armL   elbowL   0.62s
+  runekeeper   -      head   neck     0.67s
+  warden       -      -      -        0.68s
+  berserker    -      torso  -        0.68s
+  huscarl      -      waist  waist    0.82s
+  huscarl      fire   -      -        1.17s     <-- the only one that did not fit
+```
+
+Every death by STEEL lands by 0.82 s and always fitted inside 1.08 s with a
+quarter of a second to spare. The one that did not fit is **the fire — the only
+death in the game with no swing in front of it**, and it was nonetheless being
+given `pre` = 0.92 s of run-up, a number derived entirely from the slowest
+SWING. It was buying nine tenths of a second of approach for a stroke that never
+happened, and paying for it out of the seconds in which the body has to reach
+the ground.
+
+So the derivation inverts per cause, and each case derives the quantity that has
+a physical constraint on it and takes the other as the remainder:
+
+| cause | run-up | tail | lands at | spare |
+|---|---|---|---|---|
+| `blow` | 0.92 s *(derived: the slowest swing)* | 1.08 s *(remainder)* | 0.82 s | **+0.26 s** |
+| `fire` | 0.75 s *(remainder)* | 1.25 s *(derived: the burn's landing)* | 1.17 s | **+0.08 s** |
+
+`wall`, `rate` and `fight` are untouched; both splits still sum to `fight` =
+2.00 s and `replaytest` §3 asserts both identities. The 0.08 s margin on the
+fire is one and a half recorded frames, which is the same margin `history` was
+rejected for being sized on — so it is a **gate** and not a comfort. §3 now
+fails `postOf(cause) >= landing(cause)` by name:
+
+```
+  fire    0.92s    1.08s   1.17s   -0.09s
+  FAIL  §3 a fire death lands at 1.17s and the replay's tail is 1.08s — the body
+        is 0.09s off the turf when the replay cuts, which is the frozen-part-way
+        corpse this beat exists to show properly
+```
+
+(that is the fix backed out — R1, the lever pulled, so the gate is known to be
+able to fail on the case it was written for.) With it in, `+0.08s` and GREEN.
+
+**And there is exactly one definition of the run-up.** `runUpOf(cause)` is
+exported and used by both `update()`, which positions the read head, and
+`GameCanvas`'s `ready` test, which asks whether the ring still holds that far
+back. A second copy in either place is this repository's third named failure
+mode; §3 asserts the export agrees with the constants rather than trusting it.
 
 ---
 

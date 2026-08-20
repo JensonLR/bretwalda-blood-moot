@@ -12,6 +12,11 @@ declare module "@/game/replay.mjs" {
     pre: number;
     /** Seconds after it. What the budget leaves. */
     post: number;
+    /** The same two for a FIRE death, which has no swing to open before, so
+     *  the derivation inverts: the tail is derived from the burn's 1.17 s
+     *  landing and the run-up is the remainder. See `replay.mjs`. */
+    preFire: number;
+    postFire: number;
     /** Wall seconds the player waits. Fits inside the server's ROUND_BREAK. */
     wall: number;
     /** Seconds of fight shown. `wall * rate`. */
@@ -118,11 +123,21 @@ declare module "@/game/replay.mjs" {
         own: boolean;
         /** Sim time of the killing blow, as the recorder stamped it. */
         deathAt: number;
-        /** Is the ring holding `REPLAY.pre` seconds before it yet. */
+        /** `deathCause` of the man who fell last. Sets the run-up — see `runUpOf`. */
+        cause?: string | null;
+        /** Is the ring holding `runUpOf(cause)` seconds before it yet. */
         ready: boolean;
       },
     ): ReplayFrame | null;
   }
 
   export function createKillReplay(): KillReplayState;
+
+  /**
+   * The ONE definition of how long the run-up is for a given death. Asked by
+   * `update()` and by the caller's `ready` test, which must never disagree.
+   */
+  export function runUpOf(cause: string | null | undefined): number;
+  /** The other half, `fight - runUpOf(cause)`. */
+  export function landingOf(cause: string | null | undefined): number;
 }

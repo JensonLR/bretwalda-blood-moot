@@ -159,13 +159,47 @@ export const REPLAY = {
    * the server's break, `rate` is a half, `pre` is derived, and `post` is the
    * remainder.
    *
-   * 1.08 s is worth having. `freezetest --phases=collapse` measures a body
-   * reaching the ground between 0.52 s and 1.17 s depending on the death, so
-   * this carries all but the slowest of them onto the turf. The slowest is
-   * 0.09 s short, `replaytest` prints exactly that on its verdict line, and it
-   * is a deferral rather than a clean sheet.
+   * 1.08 s carries every death BY STEEL onto the turf with room to spare:
+   * `freezetest --phases=collapse` lands them between 0.53 s and 0.82 s, so the
+   * worst clears by 0.26 s. This used to carry a deferral saying the slowest
+   * death was 0.09 s short — that reading averaged steel and fire together, and
+   * the fire is the one that did not fit. It has its own pair below.
    */
   post: 1.08,
+  /**
+   * AND THE SAME TWO NUMBERS FOR A MAN THE FIRE TOOK.
+   *
+   * `pre` above is derived from the slowest SWING, because the one thing this
+   * feature exists not to do is open part way through the killing blow. The
+   * fire does not swing. Opening 0.92 s before a burn death was buying run-up
+   * for a stroke that never happened, and paying for it out of the only budget
+   * that matters here — the seconds after, in which the body has to reach the
+   * ground.
+   *
+   * So for the fire the derivation is INVERTED, and each case derives the
+   * quantity that has a physical constraint on it and takes the other as the
+   * remainder:
+   *
+   *   steel   `pre` is derived (the slowest swing, 0.915 s) and `post` is the
+   *           remainder, 1.08 s. `freezetest --phases=collapse` lands every
+   *           steel death between 0.53 s and 0.82 s, so the body is down with
+   *           at least a quarter of a second to spare. Nothing deferred.
+   *   fire    `post` is derived (the burn lands at 1.17 s, the slowest landing
+   *           in the game) and `pre` is the remainder.
+   *
+   * The margin over 1.17 s is 0.08 s — one and a half recorded frames at 20 Hz
+   * — which is the same margin `history` was rejected for being sized on, so it
+   * is stated as a floor and not a comfort: `replaytest` §3 GATES
+   * `postOf(cause) >= landing(cause)` for both causes and fails if a retune
+   * eats it.
+   *
+   * These are not free-standing numbers. `preFire + postFire` must equal
+   * `fight` exactly, the same identity `pre + post` satisfies, and the harness
+   * checks both.
+   */
+  postFire: 1.25,
+  /** The remainder, `fight - postFire`. There is no swing to contain. */
+  preFire: 0.75,
   /**
    * THE BUDGET, AND IT IS THE SERVER'S AND NOT THIS FILE'S.
    *
@@ -210,6 +244,30 @@ export const REPLAY = {
   /** The record rate. The server's tick, so one recorded frame is one snapshot. */
   hz: 20,
 };
+
+/**
+ * HOW LONG THE RUN-UP IS FOR THIS DEATH, and there is exactly one of these.
+ *
+ * Asked in two places — `update()` below, which positions the read head, and
+ * `GameCanvas`'s `ready` test, which asks whether the ring still holds that far
+ * back. Those two must never be able to disagree: a `ready` computed off a
+ * longer run-up than the one played would refuse a replay it could have shown,
+ * and a shorter one would open on a frame the ring had already overwritten.
+ * That is this repository's third named failure mode and it is not being
+ * committed here.
+ *
+ * @param cause `deathCause` off the wire: "blow", "fire", or null/unknown,
+ *              which is treated as steel because steel is the case with the
+ *              hard constraint on the run-up.
+ */
+export function runUpOf(cause) {
+  return cause === "fire" ? REPLAY.preFire : REPLAY.pre;
+}
+
+/** The other half. `fight - runUpOf(cause)`, stated so a harness can gate it. */
+export function landingOf(cause) {
+  return cause === "fire" ? REPLAY.postFire : REPLAY.post;
+}
 
 /**
  * THE RING.
@@ -391,6 +449,11 @@ export function createKillReplay() {
   let atEnd = false;
   let elapsed = 0;
   let deathAt = 0;            // sim time of the killing blow
+  // ...and WHAT killed him, because the run-up is as long as the swing it has
+  // to contain and the fire swings nothing. Latched on the arming frame with
+  // `deathAt` so a wire update mid-beat cannot move the window under the
+  // playhead. See `runUpOf`.
+  let deathCause = null;
   let skipped = false;
   let lastEnded = false;
 
@@ -446,6 +509,10 @@ export function createKillReplay() {
      *                one (gap 0) always got his 240 frames, because his hold had
      *                not armed on the previous frame either. That is the one
      *                case the refutation named and the one case that worked.
+     * @param s.cause  `deathCause` of the man who fell last — "blow" or "fire".
+     *                It sets the run-up: 0.92 s of swing for steel, 0.75 s for
+     *                the fire, which has no swing and needs the difference at
+     *                the other end to put the body on the turf. See `runUpOf`.
      * @param s.deathAt sim time of the killing blow, as the recorder stamped it
      * @param s.ready is the buffer holding `REPLAY.pre` seconds before it yet
      * @returns {{at:number, dt:number, through:number, atEnd:boolean}|null}
@@ -480,6 +547,7 @@ export function createKillReplay() {
         armed = true; playing = true; skipped = false; elapsed = 0;
         atEnd = !!s.end;
         deathAt = s.deathAt;
+        deathCause = s.cause ?? null;
       } else if (edge) {
         // Armed-and-refused is still armed: a replay that could not open on the
         // edge does not open three frames later over a body that has settled.
@@ -526,7 +594,7 @@ export function createKillReplay() {
       const wall = Math.max(0, s.wall ?? dt);
       elapsed += wall;
       if (elapsed >= REPLAY.wall) { playing = false; return null; }
-      const at = deathAt - REPLAY.pre + elapsed * REPLAY.rate;
+      const at = deathAt - runUpOf(deathCause) + elapsed * REPLAY.rate;
       return { at, dt: Math.max(0, dt) * REPLAY.rate, through: elapsed / REPLAY.wall, atEnd };
     },
   };

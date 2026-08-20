@@ -813,12 +813,53 @@ async function sectionBudget(replay) {
   if (Math.abs(REPLAY.wall * REPLAY.rate - (REPLAY.pre + REPLAY.post)) > 1e-6) {
     bad(`§3 the constants do not close: wall*rate is ${f2(REPLAY.wall * REPLAY.rate)} and pre+post is ${f2(REPLAY.pre + REPLAY.post)}`);
   }
-  // R4 — the deferral rides the verdict line.
-  notes.push(`REPLAY.post is ${f2(REPLAY.post)}s and freezetest measures a body reaching the ground `
-    + `between 0.52s and 1.17s, so the slowest death is ${f2(1.17 - REPLAY.post)}s short of the turf when the replay ends`);
-  say(`    DEFERRED, and it is on the verdict line: the slowest collapse measured by`);
-  say(`    freezetest lands at 1.17s and REPLAY.post is ${f2(REPLAY.post)}s. That death is still`);
-  say(`    moving when the replay ends. Not gated — the budget above is the server's.`);
+  if (Math.abs(REPLAY.wall * REPLAY.rate - (REPLAY.preFire + REPLAY.postFire)) > 1e-6) {
+    bad(`§3 the FIRE constants do not close: wall*rate is ${f2(REPLAY.wall * REPLAY.rate)} `
+      + `and preFire+postFire is ${f2(REPLAY.preFire + REPLAY.postFire)}`);
+  }
+
+  // ---- DOES THE BODY REACH THE TURF BEFORE THE REPLAY ENDS ----
+  //
+  // This was a DEFERRAL on the verdict line for two rounds: "the slowest death
+  // is 0.09s short of the turf". It is a gate now, and the reason it could
+  // become one is that the deferral was averaging two different deaths
+  // together. `freezetest --phases=collapse` prints a `landed` column PER
+  // CAUSE, and the 1.17s that did not fit is the FIRE — the one death in the
+  // game with no swing in front of it, which was nonetheless being given
+  // 0.92s of run-up derived from the slowest swing. Steel lands between 0.53s
+  // and 0.82s and always did fit.
+  //
+  // The numbers below are freezetest's own, copied with the run they came from
+  // named, and the gate is `postOf(cause) >= landing(cause)`. If a retune of
+  // `wall`, `rate` or either split eats the margin, this fails and names the
+  // cause rather than printing a note under a green count.
+  const LANDINGS = [
+    { cause: "blow", land: 0.82, of: "huscarl, waist/waist — the slowest STEEL landing of the seven" },
+    { cause: "fire", land: 1.17, of: "huscarl, burnt — the slowest landing in the game" },
+  ];
+  say("");
+  say("    THE BODY REACHES THE TURF BEFORE THE REPLAY ENDS   (freezetest --phases=collapse)");
+  say("      cause   run-up   tail    lands    spare");
+  for (const L of LANDINGS) {
+    const pre = replay.runUpOf(L.cause);
+    const post = replay.landingOf(L.cause);
+    const spare = post - L.land;
+    say(`      ${L.cause.padEnd(6)}  ${f2(pre)}s    ${f2(post)}s   ${f2(L.land)}s   ${spare >= 0 ? "+" : ""}${f2(spare)}s   ${L.of}`);
+    if (spare < 0) {
+      bad(`§3 a ${L.cause} death lands at ${f2(L.land)}s and the replay's tail is ${f2(post)}s — `
+        + `the body is ${f2(-spare)}s off the turf when the replay cuts, which is the frozen-part-way `
+        + `corpse this beat exists to show properly`);
+    }
+  }
+  // AND THE RUN-UP THE CALLER COMPUTES MUST BE THE ONE THE MODULE PLAYS.
+  // `GameCanvas` asks "is the ring still holding that far back" and `update()`
+  // positions the read head; a second copy of the run-up in either place is
+  // this repository's third named failure mode, so the export is asserted to
+  // be the only definition rather than trusted to be.
+  if (replay.runUpOf("fire") !== REPLAY.preFire || replay.runUpOf("blow") !== REPLAY.pre
+      || replay.runUpOf(null) !== REPLAY.pre) {
+    bad("§3 runUpOf does not agree with the constants it is supposed to be the single reading of");
+  }
   return { brk, slowest, margin: brk - REPLAY.wall };
 }
 
@@ -1101,7 +1142,11 @@ function sectionCost(replay) {
   // object and never the module, so a levered run and a clean run go down the
   // same code path with one function swapped underneath them.
   const replay = { REPLAY: mod.REPLAY, createReplayBuffer: mod.createReplayBuffer,
-    createKillReplay: mod.createKillReplay };
+    createKillReplay: mod.createKillReplay,
+    // The run-up split, forwarded rather than re-derived. §3 gates that these
+    // ARE the module's own reading of the constants; a copy here would make
+    // that gate a tautology.
+    runUpOf: mod.runUpOf, landingOf: mod.landingOf };
 
   // -------------------------------------------------------------------------
   // R1 — PULL THE LEVER. Both of these sabotage the ruler's own claim rather
