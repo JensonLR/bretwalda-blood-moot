@@ -60,15 +60,48 @@ Viking pink. So above `ROSE_LIT` the vat lets go.
   barred by the worst frame of a people **not** on the red arc.
 * `tools/roselook.mjs` — the same band over a directory of PNGs in a second.
 
-### STILL OPEN, and it is the same shape one rung along
+### WHAT IS LEFT IS THE BONFIRE, AND §7.1 IS RED ABOUT IT
 
-`roseFade` keys on the surface's **albedo** value. The arena's key light lifts a
-surface by roughly twenty points, so a colour that is legitimately oxblood in
-the albedo buffer can still cross into the band once it is lit. §7 measures the
-lit frame and would catch it; nothing measures whether the ALBEDO threshold is
-the right place to stand. If a later round finds rose returning on the tunic or
-the trousers rather than on the sleeves and the byrnie, that is this, and the
-answer is not to relight the scene — `PROCESS.md` R11 stage 4.
+The material is exhausted. The Danelaw's byrnie is `#898384` in albedo — C\* 2,
+which is bare iron — and his sleeves `#9b9695`, C\* 2, which is undyed flax.
+There is no dye left on either to take away.
+
+They still read warm on the screen, and this is the measurement that says why.
+Same pixel, same frame, huscarl at 180°:
+
+| | albedo | rendered |
+|---|---|---|
+| unsworn byrnie | C\* 9.9, **cool** blue, L\* 44.7 | C\* 6.5 |
+| Danelaw byrnie | C\* 2, neutral, L\* 55.1 | C\* 15.6–17.4 |
+
+Two things are doing it and neither is a dye. **The arena's key light is a
+bonfire**, so a warm light on a neutral surface adds while the same light on a
+cool one cancels — and **the Danelaw's mail is deliberately the brightest on the
+roster** (`metal.bias` 1.16, band `lo` 0.24), because "near-white steel over the
+darkest wools" is what `FACTIONS.md` §2 says the Danelaw *is*. A brighter
+surface returns more of the key, so it returns more of the key's colour.
+
+So the residue is the fire on bright iron, and it is inseparable from the
+identity. Removing it means either darkening the byrnie — undoing "more metal" —
+or relighting the scene, and `PROCESS.md` R11 stage 4 is explicit that a
+material is not fixed at stage 6.
+
+**`factionread` §7.1 is therefore RED and should be**, at roughly 1.7% of the
+frame against an unsworn floor of 0.16–0.28%. `docs/GATES.md`: *"a red gate with
+a written defect behind it is the correct state"*. What it is red about has
+changed completely — it is no longer a pink Viking, it is a warm-lit one — and
+the frames beside it show the difference. The next round that wants it green
+must argue about the **bonfire** or about **`norse.metal.bias`**, and both of
+those are the owner's decisions and not a fixer's.
+
+### AND THE BAND'S CHROMA FLOOR IS AN ALBEDO NUMBER IN A LIT SPACE
+
+`tools/lib/roseband.mjs` takes C\* 14.8 off `0xc2b69c`, the undyed linen shirt.
+That is measured with no light on it. Every lit near-neutral in this scene sits
+above it, which is why §7 needs the unsworn control at all and why
+`tools/roselook.mjs` refuses to be a gate. The band is right about which pixels
+are *pale and on the red arc*; it is not, and does not claim to be, a statement
+that those pixels were dyed.
 
 ---
 
