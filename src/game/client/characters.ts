@@ -1317,6 +1317,29 @@ const ROSE_TAPER = 0.04;
  * of the two surfaces the owner named and keeps its grip on the russet.
  */
 const ROSE_LIT = 0.44;
+/**
+ * THE DYE LOAD OF A CLOTH WITH NO DYE IN IT, and it is read off the shipped
+ * linen shirt rather than chosen — move `0xc2b69c` and this moves with it.
+ *
+ * It is the ceiling on what a vat that has LET GO may hand back. Letting go
+ * returns a surface its own hue, which is the whole of the fix above; letting
+ * it hand back a strongly-coloured purchase's full chroma as well is a
+ * different bug, because `factionread` §1.3 reads a people off the area-
+ * weighted mean of the man's surfaces and Bretwalda Gold at C* 46.7 out-votes
+ * a Danelaw. Measured: uncapped, three of the Danelaw's seven finishes misread
+ * on a man with no cloak and no shield — gold and bronze as SAXON, sea-blue as
+ * PICT. Capped here, all seven read Danelaw with or without them.
+ *
+ * "Undyed" is the right ceiling because it is what the vat is saying: a surface
+ * it has let go of carries no dyestuff, and the undyed shirt is this game's own
+ * statement of how much colour that is. `tools/lib/roseband.mjs` takes its
+ * chroma floor off the same hex for the same reason.
+ */
+const UNDYED_SAT = (() => {
+  const t = { h: 0, s: 0, l: 0 };
+  new THREE.Color(0xc2b69c).getHSL(t);
+  return t.s;
+})();
 /** How much value the vat takes to let go over. Short, but not a cliff. */
 const ROSE_FADE = 0.06;
 function roseFade(h: number, l: number): number {
@@ -1390,8 +1413,19 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   // cool one. That is the whole of why the byrnie and the sleeves still read
   // rose on a graded frame after the albedo census had gone clean.
   const keep = roseFade(dh, l);
-  const vx = sx + (dc * Math.cos(TAU * dh) - sx) * keep;
-  const vy = sy + (dc * Math.sin(TAU * dh) - sy) * keep;
+  // AND WHAT IT LETS GO TO IS THE SURFACE UNDYED, which is not the same thing
+  // as the surface. `UNDYED_SAT` is the cap and the reason is `factionread`
+  // §1.3: a vat that lets go all the way hands the whole vote back to whatever
+  // the man bought, and measured without the cap a Dane in Bretwalda Gold or
+  // Bronze Scales read SAXON and one in Sea Queen's Gift read PICT — the same
+  // inversion `HUE_CONE` was introduced to stop, one rung further down. His
+  // cloak and his board are flat garnet and never enter the vat, so a huscarl
+  // survived it; a berserker with no cloak and no shield did not.
+  const uMag = Math.min(hsl.s, UNDYED_SAT);
+  const ux = uMag * Math.cos(TAU * hsl.h);
+  const uy = uMag * Math.sin(TAU * hsl.h);
+  const vx = ux + (dc * Math.cos(TAU * dh) - ux) * keep;
+  const vy = uy + (dc * Math.sin(TAU * dh) - uy) * keep;
   // `keep` of 1 reproduces the dyed vector exactly, so every surface off the
   // red arc — all of Wessex, the Britons and the Picts, and the Danelaw's own
   // tunic, harness and cloak below `ROSE_LIT` — is byte-identical.
