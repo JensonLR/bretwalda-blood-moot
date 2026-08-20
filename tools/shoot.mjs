@@ -403,6 +403,35 @@ const SHEETS = {
   //
   // The warden's and the runekeeper's surfaces are the union of those two, and
   // all four classes are still shot at fight scale above.
+  // ---- THE UNSWORN CONTROL (1) ----
+  //
+  // THE SAME MEN, SWORN TO NOBODY, ON THE SAME MARK UNDER THE SAME FIRE.
+  //
+  // This is here because the first after-set refuted the ruler rather than the
+  // fix. `tools/lib/roseband.mjs` takes its chroma floor from `0xc2b69c`, the
+  // undyed linen shirt, at C* 14.8 — and that is an ALBEDO number applied to a
+  // LIT pixel. The arena's key is a bonfire. It puts about eleven points of
+  // WARM chroma into any near-neutral surface it falls on, so bare iron in this
+  // scene renders at C* 16 on the red arc whatever anybody swore to.
+  //
+  // The other three peoples cannot show that, and that is the trap: their kit
+  // is weld, moss and woad, so the fire lands them at hue 81°, 150° and 200° —
+  // OFF the arc — and they read the floor no matter how bright they get. Only a
+  // man in plain iron and plain linen lands where a Dane in plain iron and plain
+  // linen lands. He is the control, and without him the band cannot tell the
+  // bonfire from the dye.
+  //
+  // `people=none` is byte-for-byte what `buildCharacter` did before the livery
+  // existed — `factionWorn` returns the hex by identity — so this row is also
+  // the pre-feature game, and it is a valid floor for the before set and the
+  // after set both.
+  ...Object.fromEntries(["huscarl", "berserker"].map((cls) => [`factionunsworn${cls}`, {
+    file: `faction-unsworn-${cls}.png`, card: "fightcard", cols: 3,
+    title: `THE UNSWORN · ${cls} · front, profile, back · fight distance, the arena's own light`,
+    shots: [["front 0°", 0], ["profile 90°", 90], ["back 180°", 180]].map(([label, turn]) => ({
+      label: `unsworn · ${label}`, turn, cls, dress: { people: "none" },
+    })),
+  }])),
   ...Object.fromEntries(["huscarl", "berserker"].map((cls) => [`factionclose${cls}`, {
     file: `faction-close-${cls}.png`, card: "kitcard", cols: 3,
     title: `THE FOUR PEOPLES · ${cls} · front, profile, back · PORTRAIT scale, the arena's own light`,
@@ -428,6 +457,8 @@ const GROUPS = {
   // paid once, and a before/after whose two halves were shot in two sessions is
   // two exposures of one light rather than one measurement.
   factionturn: SHEET_NAMES.filter((n) => n.startsWith("faction")),
+  // The control on its own, for when only the floor needs re-measuring.
+  factionfloor: SHEET_NAMES.filter((n) => n.startsWith("factionunsworn")),
   armouryfight: SHEET_NAMES.filter((n) => SHEETS[n].card === "fightcard"),
 };
 const GROUP_NAMES = Object.keys(GROUPS);
