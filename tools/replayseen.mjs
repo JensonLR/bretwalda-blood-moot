@@ -27,16 +27,25 @@
  * and `docs/BACKLOG.md` both said there was not, and that was simply wrong; it
  * is corrected in both.
  *
- * What is true is narrower and is measured rather than assumed: the shutter is
- * far too slow to photograph this beat. `npm run roundbeatshot` on this box
- * reports `+9147ms of wall clock, during which the page's own loop was blocked`
- * for ONE screenshot on the software rasteriser. The replay is 4.0 s long. A
- * frame that takes nine seconds to take cannot be taken during it, and every
- * shot that tool attempted came back stamped from a later round.
+ * The shutter is slow: `npm run roundbeatshot` on this box reports `+9147ms of
+ * wall clock, during which the page's own loop was blocked` for ONE screenshot
+ * on the software rasteriser, and the replay is 4.0 s long.
  *
- * So this harness photographs nothing. It reads the DOM and the wire, which
- * cost nothing and do not block the page's loop — and the two things the owner
- * asked for are both DOM facts:
+ * THE INFERENCE THIS FILE USED TO DRAW FROM THAT WAS WRONG, and it is corrected
+ * here rather than left standing. It said "a frame that takes nine seconds to
+ * take cannot be taken during it". `GameCanvas.tsx` clamps the frame clock —
+ *
+ *     const rawDt = Math.min((time - (lastTimeRef.current || time)) / 1000, 0.05);
+ *
+ * — and `createKillReplay` spends `dt` out of `REPLAY.wall`, so a nine-second
+ * frame costs the beat one-twentieth of a second of it, the same as any other
+ * slow frame. The beat CAN be photographed on this box.
+ * `tools/replayshot.mjs` does it, and prints the shots it took.
+ *
+ * This harness still photographs nothing, because that is a different question
+ * from the one it asks. It reads the DOM and the wire, which cost nothing and
+ * do not block the page's loop — and the two things the owner asked for are
+ * both DOM facts:
  *
  *   "before a match ends"   the results panel must NOT be up while the last
  *                           kill is playing, and must arrive after it.
@@ -296,11 +305,13 @@ async function main() {
     say(`    warrior died last and his own death hold had the lens — replay.mjs's own`);
     say(`    precedence, which it states and tools/replaytest.mjs §2 drives. Nothing here`);
     say(`    is evidence about the wiring either way, and it is not scored.`);
-    say(`    THE OPEN QUESTION THIS RAISES, for the owner and not for this file: the man`);
-    say(`    who dies last is the commonest viewer of a match's final kill, and for him`);
-    say(`    that kill is his own. He gets his hold and no slow motion. Whether the`);
-    say(`    replay should outrank the hold AT MATCH END — where, unlike a round break,`);
-    say(`    nothing is waiting on either — is a call about the game, not a bug.`);
+    say(`    THAT QUESTION IS NOW SETTLED AND THIS BRANCH IS THE WRONG SIDE OF IT. At`);
+    say(`    match end the hold does NOT survive the edge: runDeathCam's \`live\` is`);
+    say(`    fighting | last_stand | intermission, so "finished" stops the hold in the`);
+    say(`    same frame that offers the replay its edge, and \`own\` here was the previous`);
+    say(`    frame's answer to a question already settled. replay.mjs no longer reads it`);
+    say(`    when \`end\` is set. If this branch is still being taken, the readback above`);
+    say(`    is showing a hold that is about to be ended by the state it is printed with.`);
   } else {
     if (sawSkip) good(`a SKIP was on screen at match end — ${skipFrames} sampled frames of it`);
     else bad(`NO SKIP was ever on screen at match end. The owner asked for one: "skippable at end of match"`);
@@ -386,11 +397,12 @@ async function main() {
     say(`  and there was a skip.`);
   }
   say("");
-  say(`  WHAT THIS DOES NOT SAY: anything about the PICTURE. One screenshot on this`);
-  say(`  box's software rasteriser blocks the page for about nine seconds and the`);
-  say(`  beat is ${f2(REPLAY.wall)}s, so it cannot be photographed here — see roundbeatshot's own`);
-  say(`  discard lines. Whether the bodies look right, whether the blood spawns`);
-  say(`  twice and whether the HUD runs at half speed need a faster shutter.`);
+  say(`  WHAT THIS DOES NOT SAY: anything about the PICTURE. It takes no screenshots —`);
+  say(`  not because it cannot (GameCanvas clamps rawDt at 0.05s, so a nine-second`);
+  say(`  shutter costs the ${f2(REPLAY.wall)}s beat a twentieth of a second, and`);
+  say(`  tools/replayshot.mjs photographs it) but because this file's question is`);
+  say(`  whether the beat REACHES the screen, which is a DOM fact. Whether the bodies`);
+  say(`  look right and whether the blood spawns twice are replayshot's and the eye's.`);
   say("");
 
   await browser.close();

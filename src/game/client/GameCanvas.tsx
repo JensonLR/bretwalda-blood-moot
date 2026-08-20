@@ -323,6 +323,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   /** What the surface was last told, so it is told again only on a change. */
   const replayToldRef = useRef(false);
   /**
+   * HOW MANY FRAMES OF REPLAY THIS CLIENT HAS ACTUALLY DRAWN, for the readback
+   * below and for nothing else. A DOM poll cannot count frames — it samples at
+   * 50 ms while the beat runs at whatever the box renders — and "did he see the
+   * replay" is a question about frames. `tools/replayshot.mjs` reads it.
+   */
+  const replayDrawnRef = useRef(0);
+  /**
    * Where the lens points when you are dead and not following a teammate. All
    * of the deciding is in `@/game/spectate.mjs`, so `tools/spectatetest.mjs`
    * drives the same module the player does instead of a copy of it.
@@ -1186,6 +1193,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         ready: !!fellNow && ring.first !== null && ring.first <= deathAtRef.current - REPLAY.pre,
       });
       const replaying = killReplayRef.current.playing;
+      if (replayFrame) replayDrawnRef.current++;
       // A READBACK FOR `tools/replayseen.mjs`, the same shape of hook
       // `camera.ts` hangs on the window for `cameratest` and `audio.ts` for
       // `phonesound`. Nothing in the game reads it.
@@ -1200,6 +1208,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           playing: replaying,
           atEnd: killReplayRef.current.atEnd,
           elapsed: killReplayRef.current.elapsed,
+          drawn: replayDrawnRef.current,
           frames: ring.frames,
           held: ring.first === null ? -1 : (ring.last ?? 0) - ring.first,
           deathAt: deathAtRef.current,

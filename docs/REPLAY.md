@@ -247,9 +247,53 @@ summary off and route a skip to the lobby — *"skippable at end of match, just
 take them to the lobby"*. Skipped on frame 30, it ends on frame 30, with
 `skipped=true` and `atEnd=true`.
 
-Precedence is unchanged and is `deathcam.mjs`'s rule, enforced here too: **your
-own death outranks it and the beat is never queued.** With the viewer's own hold
-running, the replay holds 0 frames.
+Precedence is `deathcam.mjs`'s rule at a ROUND break — **your own death outranks
+it and the beat is never queued** — and at a round break the replay holds 0
+frames with the viewer's own hold running. **At match end it is not, and the
+next section is why.**
+
+### 4.1 The match-end hole under the hole — 20 Aug 2026
+
+The line above ("the REPLAY: 240 at the end of a match") was driven with
+`own: false`. Drive it against the REAL `createDeathCamera`, in the order and
+with the arguments `GameCanvas.tsx` uses, and sweep the one axis that decides
+whether the viewer's hold is running on the edge — **how long before the room
+ended he died** — and the shipping build reads:
+
+| gap | his own hold ran | replay frames, MATCH END | …ROUND END |
+|---|---|---|---|
+| 0.00 s | 0 | **240** | 1 |
+| 0.02 s | 1 | **0** | 0 |
+| 0.50 s | 30 | **0** | 0 |
+| 2.00 s | 120 | **0** | 0 |
+| 3.34 s | 200 | **0** | 0 |
+| 3.40 s | 201 | **240** | 240 |
+
+Zero, and **permanently** — `update()` armed on
+`if (edge && !armed && !s.own && s.ready)` and then `else if (edge) { armed =
+true; }`, and `armed` is cleared only inside `if (!ended)`. A finished room does
+not become un-finished.
+
+**The refutation that opened this named "the man who dies last". He is the one
+case that already worked** (gap 0): his hold has not armed on the previous frame
+either, so `own` was false and he drew all 240. The hole was everyone who died
+in the last **3.35 s** of the match — `DEATH_HOLD.total`.
+
+**And `own` was stale, which is what makes this a bug rather than a design
+call.** `GameCanvas` reads `deathCamRef.current.holding` ABOVE the cameras, so
+it is the previous frame's answer; `runDeathCam` passes
+`live` = `fighting | last_stand | intermission`; and `createDeathCamera` stops on
+any frame `live` is false. **The transition into `finished` ends the hold, later
+in the same frame that offers the edge.** The replay was refusing to outrank a
+hold the same edge had already taken away — nothing was being protected, and the
+viewer got the results panel instead of the beat.
+
+So `s.own` outranks a round-end replay and is ignored at match end. The comment
+at `GameCanvas.tsx:1150` asserted the opposite ("the summary branch resets the
+death camera, so `holding` is already false by the time a `finished` edge
+arrives" — the summary branch is BELOW that call and cannot have run) and is
+replaced by what the code does. `replaytest` §4 sweeps the gap and gates the
+match-end column; back the fix out and it reports RED at gap 0.02 s.
 
 ---
 
@@ -338,10 +382,72 @@ reaching it needs a harness that fights. Nothing here says the picture is right:
 whether the bodies look right, whether blood spawns twice and whether the HUD
 runs at half speed all need a shutter faster than the beat.
 
-### And one question for the owner, raised by the measurement
+### The question this raised for the owner — ANSWERED, and it was not a call
 
-The man who dies last is the commonest viewer of a match's final kill, and for
-him that kill is his own — so `own` outranks and he gets his 3.35 s hold and no
-slow motion. At a round break that precedence is clearly right (the two do not
-both fit). At match END nothing is waiting on either. Whether the replay should
-outrank the hold there is a call about the game and has been left alone.
+That question was: the man who dies last is the commonest viewer of a match's
+final kill, and for him that kill is his own; whether the replay should outrank
+the hold at match end is a call about the game.
+
+**It was not a call.** It is §4.1: at match end the hold does not survive the
+edge, so there is nothing to outrank and no collapse being cut off. What the
+viewer was losing the beat to was the results panel.
+
+### 5.1 PHOTOGRAPHED — `tools/replayshot.mjs`, 20 Aug 2026
+
+The reason this section gave for photographing nothing was also wrong, and the
+correction is read off the client rather than argued. `GameCanvas.tsx`:
+
+```
+const rawDt = Math.min((time - (lastTimeRef.current || time)) / 1000, 0.05);
+```
+
+The frame clock is **clamped at 0.05 s**, and `createKillReplay` spends `dt` out
+of `REPLAY.wall` — so a nine-second frame costs the 4.0 s beat a twentieth of a
+second, not nine. The beat can be photographed here.
+
+What it does cost is the SERVER's budget: `endMatch` sets
+`phaseAt = simMs + SUMMARY_HOLD * 1000` and `SUMMARY_HOLD` is 10 s, after which
+the room is a lobby and `ended` goes false. A first run took three shots at ~9 s
+each, the room rolled over underneath them, and the replay ended 0.28 s in. So
+the beat is photographed in one match and the SKIP is pressed in another.
+
+A real blood moot in Chromium 141 against `custom-server`, one round, the viewer
+standing still until a bot kills him — the death that ends the match:
+
+```
+    the viewer is down at t+55.53s; 1 man/men still alive
+    SHOT .replay/shots/last-replay-1.png
+         0.05s into the beat, 1 frames drawn, SKIP ON screen, results panel held back
+    gap: the viewer died 0.00s before the room said "finished"
+    PASS  a SKIP was on screen for him
+    PASS  the results panel never overlapped the replay
+```
+
+and in the second match, pressing it:
+
+```
+    pressed SKIP 0.05s in
+    SHOT .replay/shots/last-after-skip.png   (what he is looking at now: landing)
+    PASS  pressing SKIP took him to the lobby, which is what the owner asked for
+```
+
+### What is still NOT proven on this box, and it is not a pass
+
+**The gap > 0 case cannot be watched here.** `replayshot --case=held` forces it
+— a socket warrior kills the viewer and then leaves the moot a chosen interval
+later, so `disconnectSession` calls `checkRoundEnd` and the match ends on that
+tick — and three runs all came back **NOT OBSERVABLE**, which the file prints
+instead of a finding:
+
+```
+      the ring filled at   0.71 Hz against the server's 20 Hz
+```
+
+`record()` is called once per rendered frame, so the ring's fill rate IS the
+client's frame rate. With three men in the arena this box draws about **one
+frame every 1.4 s** and the whole match-end window is 10 s; at 480x300 it was no
+better, so it is not pixel-bound, it is a saturated box. Nothing about the beat
+can be concluded from a page that is not drawing the game — not that it ran and
+not that it did not. That case is gated in `replaytest` §4 against the real
+`createDeathCamera` instead, and `replayshot`'s verdict says **NOT PROVEN**
+rather than green when every pass is routed past the scoring.
