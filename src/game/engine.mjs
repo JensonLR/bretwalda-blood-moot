@@ -109,7 +109,11 @@ const SPAWN_INVINCIBLE = 2.0;
 
 // Centre-to-centre gap two warriors are held apart at. It is the only statement
 // the sim makes about how wide a man is, which is why the fire borrows it below.
-const BODY_MIN_SEP = 1.05;
+// EXPORTED because `src/game/spectate.mjs` needs "how far apart can two men be
+// and still be fighting" and that answer is this plus the longest weapon. A
+// second copy of 1.05 in the client would be the mirrored definition this file
+// has five recorded instances of.
+export const BODY_MIN_SEP = 1.05;
 
 // ---- the fire ----
 // The bonfire at the origin is the only terrain in the game, and this block is

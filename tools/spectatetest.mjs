@@ -501,41 +501,32 @@ async function phaseRig() {
 //   REAL — the fight. The men, their positions, who is down and when, are the
 //          server's own and not a fixture.
 //   REAL — the camera. The rig is the compiled `createCameraRig` from §1.
-//   MIRRORED, AND IT IS A GAP — the choosing rule. `GameCanvas.tsx` picks the
-//          focus (a living teammate, else the closest pair's midpoint, else the
-//          lone survivor, else the middle) and that code is inside a React
-//          component this cannot import. `focusByRule` below is a SECOND COPY
-//          of it, which is failure mode 3 in `docs/PROCESS.md` by construction.
-//          So this phase can prove the RIG aims where it is told and stands at a
-//          man's height over real fight geometry; it CANNOT prove `GameCanvas`
-//          hands it the right point. That is what §3 is for, and it is the
-//          reason §3 exists at all rather than this being the whole file.
+//   REAL, AND IT WAS NOT — the choosing rule. This paragraph used to read
+//          "MIRRORED, AND IT IS A GAP", because `GameCanvas.tsx` held the rule
+//          inside a React component no node harness can import and
+//          `focusByRule` here was a SECOND COPY of it — failure mode 3 in
+//          `docs/PROCESS.md` by construction, and a copy this file could never
+//          fail on. The rule is now `src/game/spectate.mjs`, the component
+//          imports it, and so does this: ONE definition, driven by the harness
+//          exactly as the player drives it.
 //
-// The rule, copied here, with the same order of preference GameCanvas states.
+//          What this phase still cannot prove is the WIRING — that `GameCanvas`
+//          hands the module the right men and the rig the point it returns.
+//          That is §3's job and §3 needs a browser.
+//
+// `menOf` shapes the server's table for it. The renderer passes the SMOOTHED
+// rig position instead; that difference is the slack §3 explains and prints.
+const spectateMod = await import(pathToFileURL(resolve(ROOT, "src/game/spectate.mjs")).href);
+const AIM = spectateMod.createSpectateAim();
 function focusByRule(players, meId) {
-  const me = players[meId];
-  const live = [];
-  let mate = null;
+  const men = [];
   for (const id in players) {
     const q = players[id];
-    if (q.state === "dead" || id === meId) continue;
-    const at = { x: q.position.x, z: q.position.z };
-    if (!mate && me && me.team && me.team !== "none" && q.team === me.team) mate = at;
-    live.push(at);
+    men.push({ id, team: q.team, dead: q.state === "dead", x: q.position.x, z: q.position.z });
   }
-  if (mate) return { x: mate.x, z: mate.z, how: "a living teammate", live: live.length };
-  if (live.length > 1) {
-    let bx = live[0].x, bz = live[0].z, best = Infinity;
-    for (let i = 0; i < live.length; i++) {
-      for (let j = i + 1; j < live.length; j++) {
-        const d = (live[i].x - live[j].x) ** 2 + (live[i].z - live[j].z) ** 2;
-        if (d < best) { best = d; bx = (live[i].x + live[j].x) / 2; bz = (live[i].z + live[j].z) / 2; }
-      }
-    }
-    return { x: bx, z: bz, how: "the closest pair's midpoint", live: live.length };
-  }
-  if (live.length === 1) return { x: live[0].x, z: live[0].z, how: "the lone survivor", live: 1 };
-  return { x: 0, z: 0, how: "nobody left standing", live: 0 };
+  const me = players[meId];
+  const r = AIM.update(men, { id: meId, team: me ? me.team : null });
+  return { x: r.x, z: r.z, how: r.how, live: r.live };
 }
 
 // ---------------------------------------------------------------------------
@@ -951,9 +942,9 @@ async function phaseMoot() {
       : `worst ${rHi.toFixed(2)} m from the middle — CANNOT JUDGE: PALISADE_RADIUS could not be read out of `
         + `src/game/client/render/world.ts, and this file does not carry its own copy of that number`);
   DEFERRALS.push(
-    `§2's focus rule is a SECOND COPY of GameCanvas.tsx's — that file is a React component and`,
-    `  cannot be imported here. This phase proves the RIG, not the CHOOSING. §3 is the only`,
-    `  place the shipped rule itself is exercised.`);
+    `§2 drives the SHIPPED focus rule — src/game/spectate.mjs, the module GameCanvas imports —`,
+    `  but not the WIRING: whether that component hands it the right men, and hands the rig the`,
+    `  point it returns, is still only exercised by §3, and §3 needs a browser.`);
 }
 
 // ------------------------------------------------------------- §3 the match
@@ -1205,18 +1196,18 @@ async function phaseMatch() {
     // 20 Hz snapshot, so the two disagree by however far a man moves between
     // ticks — up to about 0.3 m at a sprint. 0.75 m is that with room, and the
     // measured distribution is printed beside it so the bar is checkable.
+    //
+    // AND THE RULE IS THE MODULE'S NOW, NOT A THIRD COPY. This used to
+    // re-derive the closest-pair midpoint inline. What §3 is for is the
+    // WIRING — does the component hand the module the right men, and the rig
+    // the point it gets back — so the thing to compare against is the module
+    // itself. Re-deriving the rule here only tested whether two copies of it
+    // agreed, and there are no longer two copies.
+    const expectAim = spectateMod.createSpectateAim();
     const expected = (men) => {
-      const alive = men.filter((m) => !m.dead);
-      if (alive.length === 0) return { x: 0, z: 0, how: "middle of the ring" };
-      if (alive.length === 1) return { x: alive[0].x, z: alive[0].z, how: "the lone survivor" };
-      let bx = alive[0].x, bz = alive[0].z, best = Infinity;
-      for (let i = 0; i < alive.length; i++) {
-        for (let j = i + 1; j < alive.length; j++) {
-          const d = (alive[i].x - alive[j].x) ** 2 + (alive[i].z - alive[j].z) ** 2;
-          if (d < best) { best = d; bx = (alive[i].x + alive[j].x) / 2; bz = (alive[i].z + alive[j].z) / 2; }
-        }
-      }
-      return { x: bx, z: bz, how: "the closest pair's midpoint" };
+      const r = expectAim.update(men.map((m) => ({ ...m, team: m.team ?? "none" })),
+        { id: "__viewer__", team: null });
+      return { x: r.x, z: r.z, how: r.how };
     };
     const rows = spec.map((s) => {
       const alive = s.men.filter((m) => !m.dead);

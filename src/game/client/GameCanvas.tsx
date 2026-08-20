@@ -11,6 +11,7 @@ import { sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
+import { createSpectateAim } from "@/game/spectate.mjs";
 import {
   resolveQuality, configureRenderer,
   type FrameContext, type Mood, type QualitySettings,
@@ -274,6 +275,18 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
    * which one outranks which.
    */
   const roundCamRef = useRef(createRoundCamera());
+  /**
+   * Where the lens points when you are dead and not following a teammate. All
+   * of the deciding is in `@/game/spectate.mjs`, so `tools/spectatetest.mjs`
+   * drives the same module the player does instead of a copy of it.
+   */
+  const spectateAimRef = useRef(createSpectateAim());
+  /**
+   * The array handed to it, reused every frame. A brawl is eight men and this
+   * runs at 60 Hz; a fresh array and eight fresh objects per frame is 480
+   * allocations a second for a lens that needs none. R12 stage 4.
+   */
+  const spectateMenRef = useRef<{ id: string; team: string; dead: boolean; x: number; z: number }[]>([]);
   /**
    * EVERY warrior's cut, keyed by the man it was taken out of, and kept live
    * rather than as a snapshot. `cut.stump` is a node parented into the body and
@@ -819,6 +832,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // than being reset on the frame it was armed.
         deathCamRef.current.reset();
         roundCamRef.current.reset();
+        spectateAimRef.current.reset();
         seversRef.current.clear();
         lastFallRef.current = null;
         deadWasRef.current.clear();
@@ -1038,6 +1052,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // whole feature is careful not to be.
         deathCamRef.current.reset();
         roundCamRef.current.reset();
+        spectateAimRef.current.reset();
         for (const p of Object.values(roomState.players)) ensureSlot(p);
         // The portrait owns the whole frame: no floating names, no health
         // bars over men the match has already judged. Cleared on the way out
@@ -1569,44 +1584,32 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // In both cases the aim is a position the wire already sent this client
         // for its own drawing — no new information is requested, revealed, or
         // derived. What changes is where the lens looks, not what it knows.
+        // THE RULE ITSELF IS NOT HERE ANY MORE, and that is the point. It used
+        // to be thirty lines of this component, which meant `spectatetest` had
+        // to keep a SECOND COPY of it and said so above its own `focusByRule`:
+        // a harness that cannot fail when this code changes is not measuring
+        // this code. It lives in `src/game/spectate.mjs` now, both callers
+        // import it, and there is one answer to where a dead man looks. What
+        // stays here is what only the renderer knows — the SMOOTHED rig
+        // position, so the lens rides the same interpolated body the player is
+        // watching rather than the last snapshot, which would jog it at the
+        // tick rate.
         const me = roomState.players[playerId];
-        const live: { x: number; z: number }[] = [];
-        let mate: { x: number; z: number } | null = null;
+        const spectateMen = spectateMenRef.current;
+        let sn = 0;
         for (const id in roomState.players) {
           const q = roomState.players[id];
-          if (q.state === "dead" || id === playerId) continue;
-          // His rig's smoothed position where we have it, so the lens rides the
-          // same interpolated body the player is watching rather than the last
-          // snapshot, which would jog it at the tick rate.
           const slot = warriorsRef.current.get(id);
-          const at = { x: slot?.motion.rx ?? q.position.x, z: slot?.motion.rz ?? q.position.z };
-          if (!mate && me?.team && me.team !== "none" && q.team === me.team) mate = at;
-          live.push(at);
+          let m = spectateMen[sn];
+          if (!m) m = spectateMen[sn] = { id, team: q.team, dead: false, x: 0, z: 0 };
+          m.id = id; m.team = q.team; m.dead = q.state === "dead";
+          m.x = slot?.motion.rx ?? q.position.x; m.z = slot?.motion.rz ?? q.position.z;
+          sn++;
         }
-        if (mate) {
-          focusRef.current.set(mate.x, 0, mate.z);
-        } else if (live.length > 1) {
-          // THE CLOSEST PAIR, NOT THE CENTROID. A centroid of four men spread
-          // round the ring is a point with nobody standing on it, and the lens
-          // would frame empty turf between them — which is the defect this whole
-          // branch exists to fix, arrived at by a different route. The two men
-          // nearest each other are the two who are about to fight, so their
-          // midpoint is where the round is actually being decided.
-          let bx = live[0].x, bz = live[0].z, best = Infinity;
-          for (let i = 0; i < live.length; i++) {
-            for (let j = i + 1; j < live.length; j++) {
-              const d = (live[i].x - live[j].x) ** 2 + (live[i].z - live[j].z) ** 2;
-              if (d < best) { best = d; bx = (live[i].x + live[j].x) / 2; bz = (live[i].z + live[j].z) / 2; }
-            }
-          }
-          focusRef.current.set(bx, 0, bz);
-        } else if (live.length === 1) {
-          focusRef.current.set(live[0].x, 0, live[0].z);
-        } else {
-          // Nobody left standing. The round is over bar the tally; the middle of
-          // the ring is the right place to be looking for what comes next.
-          focusRef.current.set(0, 0, 0);
-        }
+        spectateMen.length = sn;
+        const aim = spectateAimRef.current.update(spectateMen,
+          me ? { id: playerId, team: me.team } : { id: playerId, team: null });
+        focusRef.current.set(aim.x, 0, aim.z);
         stage.rig.setMode(photoFramedRef.current ? "photo" : "spectate");
       }
       stage.rig.update(dt, ctx);
