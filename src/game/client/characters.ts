@@ -1229,11 +1229,29 @@ function underCeiling(hex: number, cap: number): number {
  * number chosen by the person who moved these — see its header. Measured
  * across all seven finishes and all six dyed surfaces of all four peoples:
  *
- *     ROSE_LIT / ROSE_FADE   rose surfaces   sleeve   norse ladder   the other three
- *     shipped, no fade         3 of 168      ROSE        5.58     2.91/6.36/4.71
- *     0.44 / 0.06              2 of 168      clear       2.53     unchanged
- *     0.40 / 0.05              2 of 168      clear       2.12     unchanged
- *     THIS: 0.38 / 0.04        0 of 168      clear       3.94     unchanged
+ *     ROSE_LIT / FADE   rose   sleeve   Rough Iron leg wraps   norse ladder
+ *     shipped, no fade    3    ROSE     #94402c  russet          5.58
+ *     0.38 / 0.04         0    clear    #7e615e  TAUPE           3.94
+ *     0.40 / 0.05         2    clear    faded                    2.12
+ *     0.44 / 0.04         0    clear    #94402c  russet          2.30
+ *     0.44 / 0.06         2    clear    #94402c  russet          2.53
+ *     THIS: 0.44 / 0.05   0    clear    #94402c  russet          2.51
+ *
+ * THE LEG-WRAP COLUMN IS WHY 0.38 IS NOT THE ANSWER, AND THE RENDER IS WHAT
+ * SAID SO. `docs/PROCESS.md` R5, again, and it cost a whole capture session.
+ * 0.38 clears the albedo census exactly as well as 0.44 does — and the frame
+ * did not move: norse huscarl @180 went 2.654% to 2.626%. Sampling the same
+ * pixels found the byrnie fixed (#c07f80 -> #b28c85, C* 27.2 -> 16.2) and the
+ * LEG WRAPS RUINED: #c73135 -> #ac645f, C* 67.7 down to 32.4. At 67.7 a wrap
+ * is above the band's own chroma ceiling and reads as strong madder; at 32.4
+ * it is INSIDE the band. The fade had taken a surface nobody complained about
+ * and made it the very thing being fixed, and the two changes cancelled in the
+ * count. 0.44 leaves the wraps at the byte they shipped as.
+ *
+ * The Danelaw's ladder is halved, 5.58 to 2.51, and that is the price. It is
+ * still clear of `cosmetictest`'s JND of 2.3, which is what §5.1 gates, and
+ * `LADDER_DE` was already a REPORTED shortfall rather than a gate — §5's own
+ * note says which configurations recover it and what each one broke.
  *
  * AND THE FADE IS NOT A STEP. `softBand` gives the reason two blocks up — a
  * clamp has zero slope and zero slope is where paid rungs go to die — so this
@@ -1242,10 +1260,18 @@ function underCeiling(hex: number, cap: number): number {
  */
 /** How far either side of pure red the arc runs, in turns. 0.10 is 36°. */
 const ROSE_ARC = 0.10;
-/** The value above which the red arc has no dark name left. Perceptual. */
-const ROSE_LIT = 0.38;
+/**
+ * The value above which the red arc has no dark name left. Perceptual, and it
+ * is the surface's own value before the light touches it.
+ *
+ * 0.44 sits between the Danelaw's LEG WRAPS and his SLEEVES, which is the whole
+ * of why it is that and not lower. Rough Iron's wraps land at about 0.46 after
+ * the band, his linen at 0.59 and his mail at 0.53 to 0.64 — so the vat lets go
+ * of the two surfaces the owner named and keeps its grip on the russet.
+ */
+const ROSE_LIT = 0.44;
 /** How much value the vat takes to let go over. Short, but not a cliff. */
-const ROSE_FADE = 0.04;
+const ROSE_FADE = 0.05;
 function roseFade(h: number, l: number): number {
   const red = Math.max(0, 1 - Math.abs(((h + 0.5) % 1) - 0.5) / ROSE_ARC);
   if (red <= 0 || l <= ROSE_LIT) return 1;
