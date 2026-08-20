@@ -1377,6 +1377,14 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             // second time over the first spray. Only `groundAt` is passed, so
             // a severed piece still lands on the bank rather than through it.
             poseWarrior(slot.rig, slot.motion, rp, rdt, ctx, { groundAt: stage.world.heightAt });
+            // AND THE PLATE OVER HIM SHOWS THE RECORDED BAR, not the live one.
+            // The plate is anchored to the rig's own matrix (`hud3d.ts:1817`)
+            // so it already follows the recorded body; its HEALTH would
+            // otherwise still read the wire, and the wire says every man in
+            // this replay is dead. A full bar over a man about to be cut open
+            // is the point of the beat — a zero over him is the plate calling
+            // the recording a lie.
+            stage.hud.setHealth(rp.id, rp.health, rp.maxHealth);
             slot.prevHp = rp.health;
             slot.prevState = rp.state;
           }
@@ -1422,6 +1430,36 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // the lobby and the intermission for the same reason vfx runs here: the
         // establishing orbit is looking straight at it.
         stage.audio.update(dt, ctx);
+        // AND THE NAME PLATES, which this branch did not look at until now.
+        //
+        // `stage.hud.update` was called in exactly two places — the match
+        // summary above and the fight path below — so on `lobby`,
+        // `intermission` and `finished` every plate kept the transform, the
+        // visibility and the alpha it had on the last FIGHTING frame while the
+        // camera went on to the death hold, the round beat, the match-end
+        // replay and the lobby orbit. A plate frozen facing where the camera
+        // used to be is seen off-axis, which is the tilt; once the lens has
+        // swung past ninety degrees it is seen from BEHIND, and the name
+        // material is `THREE.DoubleSide` (`hud3d.ts:864`), so the back of a
+        // plate is the man's name printed backwards. That is the `blidoebood`
+        // in `art/defects/nameplate-mirrored-last-replay-1.png`.
+        //
+        // PRE-EXISTING — `origin/main` has the same two call sites and the same
+        // gap — but the match-end replay is the longest the camera has ever
+        // moved while the HUD was not looking, so it is where it photographed
+        // itself, and it is the one beat on this branch a player is asked to sit
+        // and watch. Fixed here rather than filed.
+        //
+        // AND IT IS A PICTURE DECISION, not a sign flip: ticking this decides
+        // WHICH SCREENS SHOW NAME PLATES. The round break and the match-end
+        // replay get live plates, which is what the two frames in `art/defects/`
+        // were taken to compare. The LOBBY does not: it has never drawn a plate
+        // before a first fight and the establishing orbit is a landscape, not a
+        // roster. `setSuppressed` is the summary branch's own control, used the
+        // same way and cleared the same way, so the next fight gets its plates
+        // back without rebuilding one of them.
+        stage.hud.setSuppressed(roomState.state === "lobby");
+        stage.hud.update(dt, ctx);
         stage.postfx.render(dt, ctx);
         return;
       }
