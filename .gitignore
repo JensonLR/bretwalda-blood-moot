@@ -64,6 +64,8 @@ art/ui/
 .spectate/
 # transpile cache for tools/gravitytest.mjs (it tsc-emits anim.ts, same seam)
 .gravity/
+# ...and for tools/replaytest.mjs, which uses the same seam
+.replay/
 
 # Git worktrees the agent harness creates for isolated parallel work. These are
 # whole checkouts of this repository living inside it — `git worktree list`
