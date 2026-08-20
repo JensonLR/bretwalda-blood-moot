@@ -8,6 +8,63 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE REPLAY ROUND, LANDED — 20 Aug 2026
+
+The owner's four reports from a played build, and where each one ended up.
+
+| the report | what it was | where |
+|---|---|---|
+| *"the whole vote for mercy or kill … is what's causing the bodies to freeze … it's every player at low health, not the final 1v1 … I imagine it wasn't even a thing for Anglo Saxons and would be more Roman"* | `goDown` parked the floor clock for `MERCY.window` = 2.5 s on **any** man reaching 0 hp, mid-round, and left him `knocked` and upright throughout | MERCY OR FINISH removed entire, `docs/MERCY-REMOVED.md` |
+| *"the bodies now also randomly lean back after certain actions but it's very dramatic like back bending over backwards … or flopping quickly down & up"* | one clock served six animations | one clock per MOVE |
+| *"the dead bodies are still sometimes freezing partially raised, like there's no gravity to them"* | `topple()` read three Euler angles as an axis-and-angle, so a man who lost a limb never reached the ground — and the ruler shared the same false premise (`hypot(prx, prz)`) | both repaired; `gravitytest` §2 0/10 stop short, §4 0/24 topple against the blow |
+| *"the final kill camera would be better as a slow mo replay before the next round … & also before a match ends too (Skippable … just take them to the lobby)"* | did not exist | `src/game/replay.mjs`, 57.6 KB ring, half speed, 4.0 s inside a 5.0 s break, SKIP at match end only |
+
+Two defects the round found in its own work and closed rather than filed:
+
+* **The replay cut away 0.09 s before a burnt man hit the turf.** Carried as a
+  deferral for two rounds — *"freezetest measures a body reaching the ground
+  between 0.52 s and 1.17 s"*. That range averaged two different deaths. Steel
+  lands by 0.82 s and always fitted; the FIRE lands at 1.17 s and was being given
+  0.92 s of run-up derived from the slowest SWING, for a stroke it never had. The
+  derivation now inverts per cause and `replaytest` §3 gates it. See
+  `docs/REPLAY.md` §3.
+* **The 3D name plates were STALE, and read backwards.** `stage.hud.update` was
+  called on the summary branch and the fight path and nowhere else, so plates
+  kept the last fighting frame's transform through the death hold, the round
+  beat, the replay and the lobby orbit; seen from behind a `DoubleSide` plate is
+  the name reversed. Pre-existing on `main`; the replay is simply the longest the
+  camera has ever moved while the HUD was not looking. Ticked now on the
+  non-fight path, suppressed in the lobby, and a replayed man's bar reads the
+  RECORDED health. Photographed: `.replay/shots/held-replay-1.png`.
+
+**The battery on the merged tip.** `replaytest` GREEN with no deferrals (first
+time), `deathcamtest` 45/45, `protocoltest` 81/81, `playtest` 37/37,
+`summaryflow` **15/15 with 2 not run — against a `main` control of 14/14 with 3
+not run, taken on the same box in the same window**, `gravitytest` PASS with the
+one owner's-call deferral (`ability -> rolling` 12.3°/frame against a 12° bar),
+`tsc` clean.
+
+**One thing this branch is measurably worse at, recorded rather than buried.**
+`hudspace --secs=25 --quality=high`, alternating paired runs:
+
+```
+                 num/num    name/name   num/name   num/bar
+  main   r1       5.47%       2.47%       0.00%     0.00%
+         r2       3.90%       1.59%       0.00%     0.00%
+  mw5    r1       3.15%       1.83%       0.10%     0.42%
+         r2      17.22%       2.93%       0.00%     0.45%
+```
+
+`name/name` and `num/num` overlap completely — no signal either way, and `num/num`
+is plainly load-bound. `num/bar` is the one consistent column: **0.00% on main
+twice, 0.4% on this branch twice.** That is ANY ink contact between a damage
+number and a health bar; more-than-a-quarter-buried is 0.00% on both. The cause is
+this branch's pose timing moving bodies slightly differently so numbers spawn at
+slightly different places. Not enough to hold the merge, and not something to
+discover later from a screenshot.
+
+---
+
 ## THE JANK ROUNDS, LANDED — 19 Aug 2026
 
 Five rounds ran on the owner's *"the game currently feels visually buggy /
@@ -5578,68 +5635,6 @@ commit the cap arrived in.
 **The process fault worth keeping:** a player-visible cut of damage numbers on screen from
 48 to 6 at `high` landed inside a commit whose title is about rulers. A change a player can
 see belongs in a commit that says so, whatever else is in the same push.
-
----
-
-## The 3D nameplates are STALE, not mirrored — 20 Aug 2026
-
-**The frame the report came from.** `art/defects/nameplate-mirrored-last-replay-1.png`
-(the `mercyweight4` worktree's own `.replay/shots/last-replay-1.png`). A name plate
-lies almost flat on the turf behind the man, tilted, with its health bar tilted the
-same way, and the name reads backwards — the round-one reading of it was
-`blidoebood`. Every DOM string on the same screen is correct.
-
-**It is not a mirror and it is not a sign error.** Two things were offered as
-causes and neither is it:
-
-* `rig.mirror.scale.x` (`anim.ts:698`) cannot reach a plate. Plates are added to
-  the SCENE, not to the warrior's rig — `hud3d.ts:1584 scene.add(group)` — and
-  `anim.ts:109`'s "the HUD hangs its nameplate off `group`, and a mirrored plate
-  would print the man's name backwards" is describing a graph this file has not
-  had for some time.
-* There is no sign error in the plate's own transform. The billboard is
-  `plate.group.quaternion.copy(camera.quaternion)` at `hud3d.ts:1879`, which is
-  correct, and the glyph canvas (`buildNameGlyphs`, `hud3d.ts:911`) draws
-  left-to-right with no flip anywhere in it.
-
-**What it actually is: `GameCanvas.tsx` does not tick the HUD on the non-fight
-path.** `stage.hud.update(dt, ctx)` is called in exactly two places —
-`GameCanvas.tsx:1315` inside the match-summary branch and `GameCanvas.tsx:1867` on
-the fight path. The branch that handles `lobby`, `intermission` and `finished`
-returns at `GameCanvas.tsx:1411` without it. So every plate keeps the transform,
-the visibility and the alpha it had on the last **fighting** frame, while the
-camera goes on to the death hold, the round beat, the match-end replay and the
-lobby orbit.
-
-A plate frozen facing where the camera used to be is seen off-axis — that is the
-tilt. Once the camera has swung past ninety degrees it is seen from BEHIND, and
-the name material is built `side: THREE.DoubleSide` (`hud3d.ts:864`), so the back
-of a nameplate is the name printed backwards. That is `blidoebood`.
-
-**Demonstrated, two frames from the same beat on the same box, one line apart:**
-
-* `art/defects/nameplate-stale-during-replay.png` — shipped code, a match-end
-  replay at 900x560, SKIP on screen and the results panel held back. Two men on
-  their feet and NO plates at all: they were left invisible by the last fight
-  frame and nothing has looked at them since.
-* `art/defects/nameplate-live-during-replay.png` — the same probe against a build
-  with one line added, `stage.hud.update(dt, ctx)` before the `postfx.render` at
-  `GameCanvas.tsx:1410`. The plate reads `Doomed1`, upright, square to the lens,
-  with its bar under it.
-
-**PRE-EXISTING, and not this branch's doing.** `git show
-origin/main:src/game/client/GameCanvas.tsx | grep -n 'hud.update'` gives the same
-two call sites (1096 and 1622) and the same gap. The match-end replay did not
-create this; it is simply the longest the camera has ever moved while the HUD was
-not looking, so it is where the defect finally photographed itself.
-
-**Why the one-line fix is written down here and not shipped.** It is a one-liner,
-but it is not a sign flip — it decides WHICH SCREENS SHOW NAME PLATES. Adding the
-tick puts live plates on the round break, on the match-end replay and on the lobby
-establishing orbit; the lobby has never drawn one before a first fight, so that is
-a picture nobody has approved. Suppressing in `lobby` and ticking otherwise is the
-other obvious shape and it is also a picture decision. Both frames are in
-`art/defects/` so the choice can be a look rather than an argument.
 
 ---
 
