@@ -1365,10 +1365,27 @@ if (WEAR) {
   const r = spawnSync("node", ["tools/wearmeasure.mjs"], { cwd: ROOT, encoding: "utf8" });
   const lines = (r.stdout || "").split("\n");
   for (const l of lines.filter((l) => /FAIL|PASS:|bars:/.test(l))) console.log(`  ${l}`);
-  const verdict = lines.filter((l) => /PASS:|FAIL:/.test(l)).pop() ?? "";
+  // THE REASON MUST BE THE LINE THAT FAILED, NOT THE LAST LINE PRINTED.
+  //
+  // This took `.pop()` of every `PASS:`/`FAIL:` line, and `wearmeasure`'s LAST
+  // verdict is the openings, which passes. So a run whose real finding was
+  // "FAIL: 6/8 helmets with hanging plates keep them on the head" reported
+  //
+  //   FAIL  no helmet shears through the head ... — PASS: the openings — WITH 7
+  //         ungated window(s) reported above, which is a deferral ...
+  //
+  // A FAIL whose stated reason is the word PASS sends the next reader after a
+  // phantom, and it hid a 49.8 deg nape-guard flare for as long as it stood.
+  // The failing lines are what is quoted now, all of them, and the passing
+  // verdicts only when there are none.
+  const strip = (l) => l.replace(/^\[wear\] /, "");
+  const failed = lines.filter((l) => /FAIL/.test(l)).map(strip);
+  const verdict = failed.length
+    ? failed.join(" | ")
+    : (lines.filter((l) => /PASS:/.test(l)).pop() ?? "").replace(/^\[wear\] /, "");
   check("no helmet shears through the head it is worn on (32 heads x every shell)",
-    r.status === 0, verdict.replace(/^\[wear\] /, "") || `wearmeasure exited ${r.status}`);
-  TABLE.notes.push(`wearmeasure: ${verdict.replace(/^\[wear\] /, "")}`);
+    r.status === 0, verdict || `wearmeasure exited ${r.status}`);
+  TABLE.notes.push(`wearmeasure: ${verdict}`);
 }
 
 // ============================================================
