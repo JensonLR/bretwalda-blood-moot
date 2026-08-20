@@ -1176,17 +1176,28 @@ function underCeiling(hex: number, cap: number): number {
  * recorded above and both are real improvements; neither is the mechanism.
  * The brief for THIS round said to look at the `wrap` and `metal` vats. So the
  * lever was pulled all the way: `wrap`, `metal` AND `linen` set to `sat: 0.00`
- * — no dyestuff in any of the three vats at all. Scored on the band this round
- * ships, the rose count went from 9 dyed surfaces to 6: it removes a THIRD of
- * the defect, at the price of taking the Danelaw's dye out of three surfaces
- * entirely, and every byrnie is still in the six. The sleeve came out
- * `#a78a86` — it leaves the band only by going greige, which is the vat doing
- * nothing rather than the vat doing the right thing. THE VAT'S `sat` IS NOT THE
- * LEVER, and no amount of moving it ever was.
+ * — no dyestuff in any of the three vats at all — and the rose got WORSE.
+ * Scored by `tools/lib/roseband.mjs` over all four peoples x seven finishes x
+ * six dyed surfaces:
  *
- * (An earlier, wider box scored that same experiment 9 -> 12 and that number
- * reached a commit message before this band existed. It is not reproducible
- * with what ships and is corrected here. docs/PROCESS.md R8.)
+ *     configuration                          rose surfaces   the sleeve
+ *     shipped                                   3 of 168     #b9746a  ROSE
+ *     wrap + metal + linen all at sat 0.00      6 of 168     #a78a86  greige
+ *     THIS                                      0 of 168     #9e9392  greige
+ *
+ * Emptying the vats takes the SLEEVE out of the band and DOUBLES everything
+ * else, because with no dyestuff of its own the vat has nothing to add and the
+ * surface's own chroma is all that is left — which `HUE_CONE` then turns onto
+ * the garnet at exactly the weak magnitude that reads pink. The sleeve leaves
+ * the band by going greige, which is the vat doing NOTHING rather than the vat
+ * doing the right thing, and every byrnie is still rose afterwards. THE VAT'S
+ * `sat` IS NOT THE LEVER, and no amount of moving it ever was.
+ *
+ * (Two intermediate numbers for this experiment reached commit messages before
+ * the band was settled — 9 -> 12 and then 9 -> 6, both off looser boxes. The
+ * three rows above are the shipped band, imported rather than copied, and are
+ * what reproduces. docs/PROCESS.md R8, twice, and it is the third instrument in
+ * this feature's history to be read before it was finished.)
  *
  * WHAT IT ACTUALLY IS. Red is the only arc on the circle whose pale form has a
  * name of its own. Pale woad is pale blue, pale moss is pale green, pale weld
@@ -1210,7 +1221,7 @@ function underCeiling(hex: number, cap: number): number {
  * `HUE_CONE` holds every dyed surface within 8° of its own field, and weld sits
  * at 60°, moss at 153° and woad at 210°. `red` is therefore exactly 0 for
  * three of the four vats and `roseFade` returns 1 by the early exit — the same
- * multiply by one an unsworn man gets. `tools/factionread.mjs` §7.3 gates it.
+ * multiply by one an unsworn man gets. `tools/factionread.mjs` §7.2 gates it.
  *
  * THE THREE NUMBERS ARE TUNED AND SAY SO, like every other number in the
  * `FACTION` table above them. What they were tuned AGAINST is the rose band in
@@ -1218,11 +1229,11 @@ function underCeiling(hex: number, cap: number): number {
  * number chosen by the person who moved these — see its header. Measured
  * across all seven finishes and all six dyed surfaces of all four peoples:
  *
- *     ROSE_LIT / ROSE_FADE     rose cells   norse ladder   saxon/briton/pict
- *     shipped (no fade)          9 + sleeve      5.58       2.91 / 6.36 / 4.71
- *     0.44 / 0.06                2                2.53       unchanged
- *     0.40 / 0.05                2                2.12       unchanged
- *     THIS: 0.38 / 0.04          0                3.94       unchanged
+ *     ROSE_LIT / ROSE_FADE   rose surfaces   sleeve   norse ladder   the other three
+ *     shipped, no fade         3 of 168      ROSE        5.58     2.91/6.36/4.71
+ *     0.44 / 0.06              2 of 168      clear       2.53     unchanged
+ *     0.40 / 0.05              2 of 168      clear       2.12     unchanged
+ *     THIS: 0.38 / 0.04        0 of 168      clear       3.94     unchanged
  *
  * AND THE FADE IS NOT A STEP. `softBand` gives the reason two blocks up — a
  * clamp has zero slope and zero slope is where paid rungs go to die — so this

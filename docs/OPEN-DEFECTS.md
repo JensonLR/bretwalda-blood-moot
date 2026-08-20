@@ -34,9 +34,11 @@ it, and goes green anyway — and the cost was two rounds.
 Round one took the `-0.024` hue shift out of the `norse` livery. Round two took
 `metal.sat` from 0.18 to 0.07. The brief for round three said to look at the
 `wrap` and `metal` vats. **`wrap`, `metal` AND `linen` were set to `sat: 0.00`
-— no dyestuff in any of the three — and the rose count went 9 dyed surfaces to
-6, with every byrnie still in the six and the sleeve leaving the band only by
-going greige at `#a78a86`.** A vat's `sat` is not the lever
+— no dyestuff in any of the three — and the rose count DOUBLED, 3 dyed surfaces
+to 6. Emptying a vat leaves the surface's own chroma as all there is, and
+`HUE_CONE` turns that onto the garnet at exactly the weak magnitude that reads
+pink. The sleeve leaves the band only by going greige at `#a78a86`, which is the
+vat doing nothing.** A vat's `sat` is not the lever
 and three briefs in a row said it was. `PROCESS.md` R1 is the only reason that
 took twenty minutes instead of a round.
 

@@ -595,17 +595,30 @@ real improvements. Neither is the mechanism.
 
 The brief for this round said to look at the `wrap` and `metal` vats. So the
 lever was pulled all the way (`docs/PROCESS.md` R1): **`wrap`, `metal` AND
-`linen` set to `sat: 0.00`** — no dyestuff in any of the three vats at all.
-Scored on the band this round ships, the rose count over the seven finishes went
-from **9 dyed surfaces to 6** — a third of the defect removed, at the price of
-taking the Danelaw's dye out of three surfaces entirely, and **every byrnie is
-still in the six**. The sleeve came out `#a78a86`, which leaves the band only by
-going greige: the vat doing nothing, not the vat doing the right thing. A vat's
-`sat` is not the lever and never was.
+`linen` set to `sat: 0.00`** — no dyestuff in any of the three vats at all —
+**and the rose got worse.** Scored by `tools/lib/roseband.mjs` over four peoples
+× seven finishes × six dyed surfaces:
 
-*(An earlier, wider box scored that experiment 9 → 12 and that number reached a
-commit message before this band existed. It is not reproducible with what ships
-and is corrected here. `PROCESS.md` R8.)*
+| configuration | rose surfaces | the sleeve |
+|---|---|---|
+| shipped | 3 of 168 | `#b9746a` **rose** |
+| `wrap` + `metal` + `linen` all at `sat: 0.00` | **6 of 168** | `#a78a86` greige |
+| this round's fix | **0 of 168** | `#9e9392` greige |
+
+Emptying the vats takes the sleeve out of the band and **doubles everything
+else**, because with no dyestuff of its own the vat has nothing to add and the
+surface's own chroma is all that is left — which `HUE_CONE` then turns onto the
+garnet at exactly the weak magnitude that reads pink. The sleeve leaves the band
+by going greige, which is the vat doing *nothing* rather than the vat doing the
+right thing, and every byrnie is still rose afterwards. A vat's `sat` is not the
+lever and never was.
+
+*(Two intermediate numbers for this experiment reached commit messages before
+the band was settled — 9 → 12 and then 9 → 6, both off looser boxes. The table
+above is the shipped band, imported rather than copied, and is what reproduces:
+`node tools/roselook.mjs` shares its definition. `PROCESS.md` R8, twice, and
+that makes this the third instrument in this feature's history to be read before
+it was finished.)*
 
 #### What it actually is
 
@@ -656,8 +669,8 @@ and `factionread` §7.2 asserts the precondition on every run.
 | Danelaw tunic (oxblood) | `#6f2100` | **unchanged** |
 | Danelaw cloak | flat garnet | **unchanged** — `cloakFor` never enters the vat |
 
-Rose cells over four peoples × seven finishes × six dyed surfaces: **9 → 0**.
-Ladders unmoved at 2.91 / 6.36 / 4.71 for Wessex, the Britons and the Picts; the
+Rose surfaces over four peoples × seven finishes × six dyed surfaces:
+**3 → 0**, and the sleeve with them. Ladders unmoved at 2.91 / 6.36 / 4.71 for Wessex, the Britons and the Picts; the
 Danelaw's is 3.94 against `cosmetictest`'s JND of 2.3.
 
 #### And a ruler that can see a graded render, which is what was missing
