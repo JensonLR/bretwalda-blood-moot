@@ -557,3 +557,131 @@ in the shop, enforced by scaling in linear light so the hue does not move.
 A team's whole product is a collapse — `teamread` gates four peoples on one side
 at ΔC 0.00 — so there the same bug is the feature, and correcting it would move
 a gated, photographed build for no gain.
+
+### 10.2 THE DANELAW WAS STILL PINK — third round, corrected 20 Aug 2026
+
+**§10.1 point 3 above records a fix that this tree does not contain, and that is
+the first thing to say.** Its table claims the linen shirt and sleeves went from
+`#ae7e80` to `#9b6d58`. Built out of the shipped resolvers on 20 Aug,
+`factionWorn(0xc2b69c, "norse", "linen")` returns **`#b9746a` — H8 S36 L57**,
+which is the hex the owner reported off his own capture. Whatever produced
+`#9b6d58` is not in `characters.ts`. `docs/PROCESS.md` R7: a comment or a table
+that describes a value the code does not have is worse than none, because it is
+trusted. The row is superseded by the one at the bottom of this section.
+
+#### What it looked like, before anything was touched
+
+Four peoples, four classes, front, profile and back, at the play lens under the
+arena's own fire — `art/look/faction-before/`. Share of the frame inside the
+rose band `tools/lib/roseband.mjs` defines:
+
+| frame | share | modal |
+|---|---|---|
+| norse huscarl @180 | **2.654%** | `#b87878` |
+| norse warden @180 | **1.655%** | `#b87878` |
+| norse warden @0 | **1.636%** | `#b07070` |
+| norse huscarl @90 | **1.632%** | `#b07070` |
+| norse runekeeper @0 | 0.222% | `#f89088` |
+| saxon / briton / pict, every frame shot | 0.020% – 0.160% | skin and firelight |
+
+Sixteen to a hundred and thirty times the three peoples who are not on the red
+arc, whose reading is the floor nobody can get under.
+
+#### Two rounds aimed at the wrong thing, and the lever that proved it
+
+Round one took the `-0.024` hue shift out of the `norse` livery. Round two took
+`metal.sat` from 0.18 to 0.07. Both are recorded in `characters.ts` and both are
+real improvements. Neither is the mechanism.
+
+The brief for this round said to look at the `wrap` and `metal` vats. So the
+lever was pulled all the way (`docs/PROCESS.md` R1): **`wrap`, `metal` AND
+`linen` set to `sat: 0.00`** — no dyestuff in any of the three vats at all. The
+rose count over the seven finishes went from **9 dyed surfaces to 12**, and the
+sleeve still read `#a78a86`. A vat's `sat` is not the lever and never was.
+
+#### What it actually is
+
+Red is the only arc on the circle whose pale form has a **name of its own**.
+Pale woad is pale blue, pale moss is pale green, pale weld is pale yellow — the
+word survives the value. Pale garnet is **pink**, and pink is not a lighter
+Danelaw, it is a different colour worn by different people.
+
+`--garnet` is `#7c1420`: L\* 26.4, C\* 48.7. It is a **dark stone**. All four
+vats are free to lift a surface far above their own field's value — the
+Danelaw's `metal` band tops out at 0.68 and his `linen` at 0.50 — and for weld,
+moss and woad that is exactly right and costs nothing. On the red arc it is what
+makes a Viking pink.
+
+**So above `ROSE_LIT` the vat lets go.** A surface on the red arc keeps its
+VALUE and loses the dyestuff: pale wool comes out greige, bright mail comes out
+bare iron. That is what §2's Kit column says the Danelaw is — "more metal,
+darker wools" — and his identity was never in his shirt. It is in his tunic, his
+harness and his cloak, all of which sit below the threshold and are untouched.
+
+#### The other three peoples are byte-identical, and it is measured
+
+The window is 36° either side of pure red and it is keyed on the RESULT hue;
+`HUE_CONE` holds every dyed surface within 8° of its own field, and weld sits at
+60°, moss at 153°, woad at 210°. Compiled both trees and compared every finish
+surface, a 197-step hex sweep across all five dye kinds, and every cloak:
+
+```
+  saxon    BYTE-IDENTICAL
+  norse    97 value(s) changed
+  briton   BYTE-IDENTICAL
+  pict     BYTE-IDENTICAL
+  499 identical, 97 changed
+```
+
+That is why §1, §5 and §6 did not have to be re-argued for three of the four,
+and `factionread` §7.2 asserts the precondition on every run.
+
+#### The surfaces, in albedo
+
+| surface | before | after |
+|---|---|---|
+| linen shirt and sleeves | `#b9746a` H8 S36 L57 | `#9e9392` H5 S6 L60 |
+| Rough Iron byrnie | `#93797e` H348 S11 L53 | `#8b8283` H353 S4 L53 |
+| Polished Steel byrnie | `#ac979b` H349 S11 L63 | `#a69fa0` H351 S4 L64 |
+| Polished Steel leg wraps | `#b46f64` H8 S35 L55 | `#9c8c8a` H7 S8 L58 |
+| Sea-blue byrnie | `#a75569` H345 S33 L49 | `#96737a` H348 S14 L52 |
+| Danelaw tunic (oxblood) | `#6f2100` | **unchanged** |
+| Danelaw cloak | flat garnet | **unchanged** — `cloakFor` never enters the vat |
+
+Rose cells over four peoples × seven finishes × six dyed surfaces: **9 → 0**.
+Ladders unmoved at 2.91 / 6.36 / 4.71 for Wessex, the Britons and the Picts; the
+Danelaw's is 3.94 against `cosmetictest`'s JND of 2.3.
+
+#### And a ruler that can see a graded render, which is what was missing
+
+`factionread`'s own verdict line carried this sentence while the defect was on
+the screen: *"§0-§5 have no light and no grade — albedo only; §6 is the only lit
+section and it measures CLIPPING, not colour."* A harness that knows what it
+cannot see, prints it and goes green anyway is `PROCESS.md` failure mode 2, and
+it cost a green 15/15 and then a green 21/21 with a pink Viking on screen both
+times.
+
+ΔC could never have seen it. §1 asks whether the four peoples are far **apart**.
+Rose is a long way from weld, from moss and from woad. The question §1 cannot
+ask is whether the Dane is the **right** colour, and the right colour is not a
+distance from anybody else — it is a place on the wheel.
+
+* `tools/lib/roseband.mjs` — the band, once, so it cannot be edited in one place
+  and not the other. Four bounds, none of them chosen by whoever wrote the fix:
+  the arc is 25° either side of `--garnet`'s own CIELAB hue; the value floor is
+  L\* 41, below which the red arc still has its dark names and the shipped
+  oxblood tunic at L\* 25.2 and brick wraps at L\* 40.3 are those names; the
+  chroma floor is the **undyed** linen shirt `0xc2b69c` at C\* 14.8, under which
+  a surface is greige; the ceiling is half the dyestuff's own colour-to-light
+  ratio, above which a red surface still has the stone in it and reads as rust
+  or blood. `calibrate()` runs on every use and must flag all five colours the
+  owner reported as rose across three rounds while clearing all ten shipped
+  surfaces that are correct.
+* `factionread` §7 — the gate, on the frames §6 already paid for, over the
+  warrior's own coverage mask. The bar is **the worst frame of a people whose
+  field is not on the red arc**, shot in the same scene at the same bearings.
+  Skin and firelight are on the red arc so no frame reads zero; moving that bar
+  means making a Saxon pink.
+* `tools/roselook.mjs` — the same band over a directory of PNGs in about a
+  second, so a before/after costs no captures. Whole-frame share, no coverage
+  mask, comparative only, and it says so on its own verdict line.
