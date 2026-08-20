@@ -165,6 +165,88 @@ Not a fixer's. Three of the four numbers involved are the owner's design:
 
 ---
 
+## OPEN — the brightness ceiling bounds ONE channel and not the distance between three, and the Saxon's leg wraps are where it shows — 20 Aug 2026
+
+Reported off a capture: the Saxon's leg wraps render **`#fdd701`** — L\* 86.8,
+C\* 86.9, **blue channel at 1** — with 558 clipped pixels on the man at the back
+bearing and 540 in profile. Highlighter yellow, not weld.
+
+**It is a material and it is measurable in albedo, and here it is.** The rule
+`characters.ts` enforces is *"a livery may not make a thing brighter in any one
+CHANNEL than the brightest thing of that kind the shop already sells"*, and
+`underMaxChannel` implements it by scaling the colour down in linear light —
+which divides all three channels by the same number and therefore **moves
+neither the hue nor the saturation, only the exposure**. That sentence is in the
+code as a virtue. It is also the hole: a colour twice as saturated at the same
+peak passes the ceiling untouched.
+
+The shop's own brightest kit surface, which is what sets the bar:
+
+| | rgb | max | min | **spread** | C\* |
+|---|---|---|---|---|---|
+| `0xd2bd7c` Bretwalda Gold leg wraps, UNSWORN | 210, 189, 124 | 210 | 124 | **86** | 35.6 |
+| saxon, Bretwalda Gold | 210, 187, **38** | 210 | 38 | **172 — 2.0x** | **71.2** |
+| saxon, Bronze Scales | 210, 183, **60** | 210 | 60 | **150 — 1.7x** | 62.9 |
+| saxon, Rough Iron | 210, 187, **70** | 210 | 70 | **140 — 1.6x** | 60.2 |
+| saxon, Crimson Warplate | 210, 187, 94 | 210 | 94 | 116 — 1.3x | 49.5 |
+
+Every one of them is AT the ceiling on its top channel and none of them is
+anywhere near it on its bottom one. Put a warm key on that and the two high
+channels go to full scale while the low one is crushed: `#fdd701` is
+`(253, 215, 1)`, which is `(210, 187, 70)` with the top two saturated and the
+bottom one gone. **A channel at full scale has no fold shading, no weave and no
+form left in it — and so has a channel at 1.** The shop's own wrap keeps 124 of
+blue and therefore keeps its folds.
+
+### WHY IT IS NOT FIXED HERE
+
+The bound that closes it is a second ceiling on the same table — no wider a
+spread between a livery's brightest and darkest channel than the shop's own
+brightest surface of that kind has — and it is one line beside
+`underMaxChannel`. What stops it this round is scope, stated rather than
+skipped: it moves the **Saxon, the Briton and the Pict**, all three of which are
+byte-identical across everything above, and every reading in this file and in
+`FACTIONS.md` §10.4 would have to be re-taken behind it — §1's whole sweep, §5's
+ladder, and §6's clip counter, which is the only instrument that can say whether
+the new bound actually buys the folds back. That is a round's work and it is a
+round that starts with `factionread`'s §6 sweeping the shop, which it now does.
+
+**Inherited, not this round's.** Byte-identical on `factionland2`, on
+`factionland3` and here — `factionWorn` never reaches a surface off the red arc,
+so no fade this branch shipped can have touched a Saxon.
+
+---
+
+## OPEN — the Danelaw's shield board renders `#a7043d` and the material is `--garnet` exactly — 20 Aug 2026
+
+Reported off a capture: the board reads **`#a7043d`, C\* 61.8** — hot magenta.
+
+**The albedo is not the defect and that is the whole entry.** `shieldBoard`
+returns `wornField(FACTION_FIELD.norse)`, and for the Danelaw that resolves to
+`#7c1420` **unchanged** — L\* 26.4, C\* 48.7, hue 26.5° — because `wornField`'s
+cloak ceiling does not bite on a colour that dark. `#7c1420` is `--garnet` in
+`globals.css`, it is what `factionMap/territories.ts` paints the island with,
+and `characters.ts` says in as many words that it *"is NOT changed and must not
+be"* — the whole point of the feature is that the map and the man are the same
+four colours.
+
+So the 124 → 167 on red, 20 → 4 on green and 32 → 61 on blue happen downstream
+of every material this stage owns. `--garnet` is the most saturated dark colour
+in the game: 1.84 points of chroma for every point of value, which is the ratio
+`tools/lib/roseband.mjs` takes its own ceiling from. A grade that meters each
+frame and stretches contrast about that frame's own pivot — `adaptBand` in
+`postfx.ts`, which `src/app/shot/page.tsx` already warns about in its own header
+— has the least headroom exactly there, and green is the channel with the least
+of it.
+
+**`docs/PROCESS.md` R11 stage 4 is materials and shadows, and cuts both ways: a
+material must not be fixed by relighting the scene, and a grade must not be
+fixed by repainting a kingdom.** What this needs is a reading of `postfx.ts`
+against the four fields, which is a different stage and a different file. The
+number is here so a later round can tell a regression from the standing state.
+
+---
+
 ## REOPENED (was CLOSED without a capture) — the Danelaw's rose, fourth round: the vat was BLEACHING the steel — 20 Aug 2026
 
 > **The diagnosis in this entry is correct and stands. The verdict does not.** It

@@ -31,6 +31,15 @@
 //     and identical between the sworn frame and its control — so the DELTA is
 //     sound and the absolute share is not comparable to §7.1's.
 //   * NOT A PERCEPTUAL MODEL. A pixel count. Open the frame.
+//   * NOT CLOCKED. `factionread` §6 installs a virtual clock and a seeded die
+//     and then ASSERTS repeatability (§6.2: the same subject twice must give
+//     the same count). This does neither, so the arena's fire is at a different
+//     phase in every capture. The size of that is measured rather than guessed:
+//     the same UNSWORN huscarl in Polished Steel at 0°, on two trees whose
+//     unsworn path is byte-identical by construction, read 0.202% and 0.193% —
+//     about 5% of the floor, and the modal moved `#c89090` to `#c88880`. Treat
+//     anything inside a tenth of a point as noise. The deltas this file was
+//     built to settle are ten times that. A verdict still belongs to §7.1.
 // ============================================================
 import { chromium } from "playwright";
 import { spawn } from "child_process";
