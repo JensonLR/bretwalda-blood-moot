@@ -81,6 +81,20 @@ roster** (`metal.bias` 1.16, band `lo` 0.24), because "near-white steel over the
 darkest wools" is what `FACTIONS.md` §2 says the Danelaw *is*. A brighter
 surface returns more of the key, so it returns more of the key's colour.
 
+**AND THE CLASS SPLIT PROVES IT.** Share of the frame in the band, Danelaw,
+after the fix, against the unsworn floor of 0.162–0.273%:
+
+| class | byrnie? | @0° | @90° | @180° |
+|---|---|---|---|---|
+| huscarl | yes | 0.631% | 0.878% | **1.706%** |
+| warden | yes | 1.168% | 0.431% | 1.026% |
+| runekeeper | **no** | 0.160% | 0.151% | 0.139% |
+| berserker | **no** | 0.107% | 0.090% | 0.087% |
+
+The two classes that wear no mail are **at or below the unsworn man**. The
+livery adds nothing to the band on a man without a byrnie. Every point of the
+excess is on the two classes that have one, and their mail is neutral in albedo.
+
 So the residue is the fire on bright iron, and it is inseparable from the
 identity. Removing it means either darkening the byrnie — undoing "more metal" —
 or relighting the scene, and `PROCESS.md` R11 stage 4 is explicit that a
