@@ -159,6 +159,7 @@ import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import { deflateSync } from "zlib";
+import { makeBand, calibrate, roseShare, arcTo, hueOfLab, labOf, ARC, MUST_FLAG, MUST_CLEAR } from "./lib/roseband.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WORK = resolve(ROOT, ".factionread");
@@ -1428,6 +1429,157 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       over);
     console.log(`        ${shots} captures at ${LENS.w}x${LENS.h}, the play lens, through the real renderer`);
 
+    // ============================================================
+    // 7. THE LIT COLOUR READ — WHAT COLOUR THE MAN ACTUALLY IS ON A SCREEN
+    //
+    // THE BLINDNESS THIS CLOSES IS WRITTEN ON THIS FILE'S OWN VERDICT LINE.
+    // It said, in these words: "§0-§5 have no light and no grade — albedo
+    // only; §6 is the only lit section and it measures CLIPPING, not colour."
+    // A harness that knows what it cannot see, prints it, and goes green
+    // anyway is `docs/PROCESS.md` failure mode 2, and this is what it cost:
+    // THREE ROUNDS of the Danelaw shipping ROSE past this file. 15/15 green,
+    // then 21/21 green, with a Viking in dusty pink on the screen both times.
+    // The owner found it the only way it could be found — by opening the
+    // render — and said what the number could not:
+    //
+    //   "A Viking in dusty pink is not the Danelaw at any ΔE."
+    //
+    // docs/PROCESS.md R6: the report becomes a named check. This is it.
+    //
+    // WHY ΔC COULD NEVER HAVE SEEN IT. §1 asks whether the four peoples are
+    // FAR APART. Rose is far from weld, far from moss and far from woad — a
+    // pink Dane passes §1 comfortably, and did, twice. The question §1 cannot
+    // ask is whether the Dane is the RIGHT colour, and "the right colour" is
+    // not a distance from anybody else. It is a place on the wheel.
+    //
+    // WHAT THE BAND IS, AND EVERY BOUND IN IT IS A COLOUR THIS GAME ALREADY
+    // SHIPS. Not one number below was chosen by the person who wrote the fix:
+    //
+    //   the arc     within 25° of `FACTION_FIELD.norse`'s own CIELAB hue
+    //               angle, 27°. Off the garnet, so it moves if the map moves.
+    //   the value   L* 41 and up. Below that the red arc still has its dark
+    //               names — oxblood, maroon, garnet — and the shipped
+    //               Danelaw tunic at L* 25.2 and dark wrap at L* 40.3 are
+    //               those names and must not be flagged.
+    //   the floor   C* 14.8, the chroma of `0xc2b69c`, the UNDYED linen shirt
+    //               this game has always had. Below it a surface is greige —
+    //               cloth with no dye in it — and greige is not pink.
+    //   the ceiling C* at half the dyestuff's own ratio of colour to light.
+    //               Garnet is C* 48.7 at L* 26.4, so 1.84 points of chroma
+    //               per point of value; half is 0.92. Above that line a red
+    //               surface still has the stone in it. Below it, the light is
+    //               in and the colour is out, and that is what pink IS.
+    //
+    // §7.0 asserts all four bounds against a fixed table of hexes — the ones
+    // the owner reported as rose across three rounds, and the ones that
+    // shipped as russet, brick and oxblood and are correct. A band that stops
+    // separating those goes RED before it is allowed to grade anything.
+    //
+    // THE BAR IS MEASURED IN THE SAME RUN AND IT IS NOT MINE TO MOVE. Skin is
+    // on the red arc and so is firelight, so no frame reads zero. The three
+    // peoples whose fields are NOT on the red arc — weld at 60°, moss at 153°,
+    // woad at 210° — are photographed in the same scene, on the same mark,
+    // under the same fire, and whatever the worst of THEM reads is the floor a
+    // Dane is allowed. Moving this bar means making a Saxon pink.
+    // ============================================================
+    console.log("\n[faction] === 7. THE LIT COLOUR READ (the same frames, asked what colour they are) ===\n");
+    {
+      const band = makeBand(FACTION_FIELD.norse);
+      note(`the band: ${band.describe()} — every bound of it is a colour this game already ships, see tools/lib/roseband.mjs`);
+
+      // ---- §7.0 THE BAND CARRIES ITS OWN PROOF. docs/PROCESS.md R2, R3. ----
+      //
+      // Left list: reported as ROSE by the owner, across three rounds, off real
+      // captures. Right list: shipped Danelaw surfaces that are russet, brick,
+      // oxblood or bare iron and are CORRECT. A band that cannot keep those
+      // apart cannot grade a frame, and this runs before it is asked to.
+      const hx = (n) => `#${n.toString(16).padStart(6, "0")}`;
+      {
+        const { missed, overreach } = calibrate(band);
+        for (const [h, w] of missed) note(`MISSED  ${hx(h)}  ${w}`);
+        for (const [h, w] of overreach) note(`OVERREACH  ${hx(h)}  ${w}`);
+        check(`7.0 CONTROL — the band flags all ${MUST_FLAG.length} colours reported as rose and clears all ${MUST_CLEAR.length} that shipped correct`,
+          missed.length === 0 && overreach.length === 0,
+          missed.length || overreach.length
+            ? `${missed.length} missed, ${overreach.length} over-reached`
+            : `${MUST_FLAG.length} flagged, ${MUST_CLEAR.length} cleared — the band separates rose from russet`,
+          [...missed, ...overreach].map(([h, w]) => `${hx(h)} ${w}`));
+      }
+
+      // ---- §7.1 THE SWEEP, over the frames §6 already paid for -------------
+      // §7.0b — the counter, on a frame with a known answer, before it is
+      // believed. Same discipline as §6.0.
+      {
+        const mk = (v) => { const d = new Uint8ClampedArray(4 * 100); for (let i = 0; i < 400; i += 4) { d[i] = v[0]; d[i + 1] = v[1]; d[i + 2] = v[2]; d[i + 3] = 255; } return d; };
+        const m = new Uint8Array(100).fill(1);
+        const pink = roseShare(band, mk([0xb9, 0x74, 0x6a]), m).pct;
+        const grey = roseShare(band, mk([0x86, 0x86, 0x86]), m).pct;
+        const ox = roseShare(band, mk([0x6f, 0x21, 0x00]), m).pct;
+        check("7.0b CONTROL — the counter reads 100% on a rose patch, 0% on grey, 0% on oxblood",
+          pink === 100 && grey === 0 && ox === 0,
+          `rose ${pink.toFixed(0)}%, grey ${grey.toFixed(0)}%, oxblood ${ox.toFixed(0)}%`);
+      }
+
+      const lit = [];
+      for (const fr of litFrames) {
+        const r = roseShare(band, Uint8ClampedArray.from(fr.px.data), maskFor(fr.cls, fr.turn));
+        lit.push({ ...r, people: fr.people, cls: fr.cls, turn: fr.turn });
+      }
+      // The bar: the worst frame belonging to a people whose field is NOT on
+      // the red arc. Measured here, in this run, on these frames.
+      const ARC_PEOPLE = new Set(PEOPLES.filter((pp) => band.onArc(FACTION_FIELD[pp])));
+      note(`on the red arc: ${[...ARC_PEOPLE].join(", ") || "none"} — the other ${PEOPLES.length - ARC_PEOPLE.size} are the control`);
+      const offArc = lit.filter((x) => !ARC_PEOPLE.has(x.people));
+      const onArc = lit.filter((x) => ARC_PEOPLE.has(x.people));
+      const bar = offArc.reduce((m, x) => Math.max(m, x.pct), 0);
+      const barAt = offArc.find((x) => x.pct === bar);
+      for (const p2 of PEOPLES) {
+        const rows = lit.filter((x) => x.people === p2);
+        const w = rows.reduce((m, x) => (x.pct > m.pct ? x : m), rows[0] ?? { pct: 0, modal: "—", cls: "", turn: 0 });
+        console.log(`  ${p2.padEnd(7)} worst ${w.pct.toFixed(3).padStart(7)}% of the man  (${w.cls} @${w.turn}°, modal ${w.modal})   mean ${(rows.reduce((a, x) => a + x.pct, 0) / (rows.length || 1)).toFixed(3)}%`);
+      }
+      console.log("");
+      note(`the bar is ${bar.toFixed(3)}% — the worst frame of a people not on the red arc (${barAt ? `${barAt.people}/${barAt.cls}@${barAt.turn}°` : "n/a"}), which is skin and firelight`);
+      const over = onArc.filter((x) => x.pct > bar)
+        .map((x) => `${x.people}/${x.cls} at ${x.turn}° reads ${x.pct.toFixed(3)}% rose — ${(x.pct / (bar || 1e-9)).toFixed(0)}x the bar, modal ${x.modal}`);
+      for (const o of over.slice(0, 10)) note(`ROSE   ${o}`);
+      check(`7.1 ROSE — no people on the red arc reads pinker than a people that is not (${bar.toFixed(3)}% of the man)`,
+        over.length === 0,
+        over.length
+          ? `${over.length} of ${onArc.length} frames over the bar, worst ${Math.max(...onArc.map((x) => x.pct)).toFixed(3)}%`
+          : `worst red-arc frame ${(onArc.length ? Math.max(...onArc.map((x) => x.pct)) : 0).toFixed(3)}%, under the ${bar.toFixed(3)}% bar`,
+        over);
+
+      // ---- §7.2 THE FADE CANNOT REACH THE OTHER THREE ----------------------
+      //
+      // `characters.ts`'s `roseFade` is keyed on the RESULT hue and is exactly
+      // zero-effect outside the arc, so the three peoples off it are
+      // byte-identical to the build before the fade existed. That is only true
+      // while no dyed surface of theirs lands on the arc, and `HUE_CONE` is
+      // what keeps it true. Asserted through the shipped resolvers rather than
+      // trusted, because it is the whole reason §1, §5 and §6 for those three
+      // did not have to be re-argued.
+      {
+        const strays = [];
+        for (const people of PEOPLES) {
+          if (ARC_PEOPLE.has(people)) continue;
+          for (const f2 of FINISHES) {
+            const k = kitFor(finishKit(f2.value), "none", people);
+            for (const surf of ["mail", "tunic", "trouser", "wrap", "hide", "buff"]) {
+              const c = k[surf];
+              const d = arcTo(hueOfLab(labOf(c)), band.fieldH);
+              if (d <= ARC) strays.push(`${people} ${f2.label} ${surf} ${hx(c)} is ${d.toFixed(0)}° from the garnet`);
+            }
+          }
+        }
+        for (const st of strays.slice(0, 6)) note(`ON THE ARC  ${st}`);
+        check(`7.2 UNTOUCHED — no dyed surface of the ${PEOPLES.length - ARC_PEOPLE.size} peoples off the red arc lands on it`,
+          strays.length === 0,
+          strays.length ? `${strays.length} surfaces on the arc` : `all ${(PEOPLES.length - ARC_PEOPLE.size) * FINISHES.length * 6} surfaces clear of it`,
+          strays);
+      }
+    }
+
     // ---- THE SHEET, AND IT IS NOT AN EXTRA ---------------------------------
     //
     // docs/PROCESS.md R5. Three rounds of this feature shipped a defect past a
@@ -1543,7 +1695,7 @@ if (SHEET && sheet.length) {
 const deferrals = [
   `the shield is NOT in the raster (four boards, worst pair ΔE ${boardMin === null ? "n/a" : boardMin.toFixed(1)})`,
   "the gated comparison is MATCHED, not the cross-product",
-  "§0-§5 have no light and no grade — albedo only; §6 is the only lit section and it measures CLIPPING, not colour",
+  "§0-§5 have no light and no grade — albedo only; §6 and §7 are the lit sections — §6 measures CLIPPING and §7 measures COLOUR, both on the same graded captures",
   "the roster sheet is `tools/classmatrix.mjs`, not this file",
   laddering
     ? `§5 gates NO TWINS and NO REFUND on the resolved kit at ΔE ${JND}; LADDER_DE is REPORTED — ${laddering.collapsed} of 84 pairs within it (${laddering.adjacent} adjacent), worst ΔE ${laddering.worstAll.toFixed(2)} (${laddering.worstAllAt}) against ${laddering.unswornWorstAll.toFixed(2)} unsworn, and §5's note says which configurations recover it and what each one broke`
