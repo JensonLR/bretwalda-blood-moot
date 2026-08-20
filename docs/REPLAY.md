@@ -94,6 +94,27 @@ is identical to the one that round printed.**
 **Ten of ten. The bar is still `1/60 + 1/120` = 0.025 s and the default fight is
 still the default fight.** What moved is what is measured against it.
 
+**AND THE COMMAND THAT REPRODUCES THIS TABLE RUNS AGAIN.** `node
+tools/replaytest.mjs --sweep` printed `?s` for every one of the ten offsets: the
+round that rewrote the gate renamed the emitted line at `tools/replaytest.mjs:660`
+— "worst distance in time to **that frame**" became "...to the **NEAREST live**
+frame this pose could be" — and left the scraper regex at `:163` matching the old
+wording. The green count still worked, because it greps FAIL lines, so a table
+whose whole argument is that column was reproduced by a command that could not
+print it. Fixed by matching the stem, and a scrape that misses now FAILS the
+sweep and names the pattern instead of printing a blank column under a green
+count:
+
+```
+    SWEEP BROKEN — worst phase offset: /worst distance in time to the NEAREST live\s+([\d.]+)s/
+                   matched nothing in --only=record's output
+    The table above has a dead column, so it does not reproduce anything.
+```
+
+The live run reproduces the two right-hand columns of the table above digit for
+digit: `10/10 green`, every offset `0.005s`, poses
+`0.39 / 0.31 / −0.03 / 0.21 / −0.06 / −0.02 / −0.04 / −0.04 / 0.27 / −0.06`.
+
 ### Settling the red — and the previous round's reading is REFUTED
 
 That round wrote down a hypothesis and deliberately did not act on it: the
@@ -452,8 +473,12 @@ not that it did not. That case is gated in `replaytest` §4 against the real
 `createDeathCamera` instead, and `replayshot`'s verdict says **NOT PROVEN**
 rather than green when every pass is routed past the scoring.
 
-**And `summaryflow` is RED, on this branch and on the one before it.** The duel
-phase reaches
+### `summaryflow` was RED, and the cause was the CLOCK, not the withholding
+
+The paragraph that stood here said `summaryflow` was RED on this branch and on
+the one before it, that it was "either the summary-withholding this branch added
+or the box", and that somebody should run it on a machine with a GPU before
+touching the withholding. The duel phase reached
 
 ```
   PASS  the verdict names the phone player — winner Prober
@@ -462,11 +487,45 @@ phase reaches
 [flow] failed: Error: timed out waiting for the stage to report its cast
 ```
 
-and it fails identically on `origin/mercyweight3` with the same three passes
-before it, so it is not the match-end precedence fix — that fix is a no-op for a
-viewer who is ALIVE, which the phone player in this fixture is. It is either the
-summary-withholding this branch added (`castNow` allows 30 s for
-`__summaryBodies` and the beat now stands in front of it) or the box, which
-draws this arena at **0.32–0.83 frames a second**. It is written down here
-rather than left in a scrollback: **whoever picks this up should run
-`summaryflow` on a machine with a GPU before touching the withholding.**
+**It was neither of those two things, and the either/or was the wrong pair.** An
+adversary narrowed it correctly to the withholding by deleting the one token
+`&& !replaying` from `isSummary` and watching the harness go green — but that
+experiment names the CARRIER, not the cause. The withholding was only fatal
+because it lasted thirty times longer than it was designed to.
+
+`REPLAY.wall` is 4.0 s and it is not this module's number: it is the server's 5 s
+`ROUND_BREAK` less the second held back for the countdown. The countdown was
+being run on the ORCHESTRATOR'S dt — `Math.min(frameMs / 1000, 0.05)` in
+`GameCanvas.tsx`, multiplied by 0.22 again during hit-stop. Neither is a clock.
+The replay therefore needed **eighty rendered frames however long a frame takes**,
+so on a page drawing at 0.66 Hz the four second replay is a **two minute** one,
+and `castNow`'s thirty seconds never came close.
+
+Measured on the real page, same duel, same box, back to back, the one token
+`s.wall` toggled and nothing else:
+
+```
+  budget on the clamped dt   the replay stopped at elapsed 0.20 / 0.25 of 4.00,
+                             with state "lobby" — the SERVER'S ROLLBACK ended it,
+                             ten seconds in. The cast appeared at 27.4s / 27.9s,
+                             a hair inside castNow's 30 s, by accident.
+  budget on wall clock       the replay stopped at elapsed 4.08 / 4.60 of 4.00,
+                             with state "finished" — its OWN clock ended it.
+```
+
+The fix is in `replay.mjs`'s `update` (`s.wall`) and `GameCanvas.tsx`'s `wallDt`,
+and it is gated by `replaytest` §4's starved-renderer table at 60 / 20 / 5 /
+0.66 Hz and under hit-stop. Backed out, verbatim:
+`FAIL §4 at 0.66 Hz the replay ran 121.21s of wall clock, not the 4.00s
+REPLAY.wall claims`.
+
+**The withholding is untouched.** `isSummary` still carries `&& !replaying`, the
+results panel is still held back for the whole beat, and `replayshot` still
+photographs `SKIP ON screen, results panel held back` with `the results panel
+never overlapped the replay` passing on every scored case.
+
+**And "GREEN 14/14 on main" is a property of a quiet box.** Three runs of
+`origin/main` in one window here read 12/14 RED, 12/14 RED, 15/15 GREEN, the two
+reds failing on a FIGHT AGAIN press that landed 19.3 s and 15.5 s after the
+verdict because the first summary frame jams the main thread. See
+`docs/OPEN-DEFECTS.md`.
