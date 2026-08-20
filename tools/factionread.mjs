@@ -1591,6 +1591,21 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
         .sort((a, b) => b.pct - a.pct)
         .map((x) => `${x.people}/${x.cls} at ${x.turn}° reads ${x.pct.toFixed(3)}% rose against the unsworn ${bar.toFixed(3)}% — ${(x.pct / (bar || 1e-9)).toFixed(1)}x, modal ${x.modal}`);
       for (const o of over.slice(0, 10)) note(`ROSE   ${o}`);
+      if (over.length) {
+        note("WHAT A RED 7.1 MEANS, AND IT IS NOT ALWAYS A DYE. Read the modal colour beside each");
+        note("line above. The band asks whether a pixel is PALE and ON THE RED ARC; it cannot ask");
+        note("what made it that, and in this scene two things can. The arena's key is a BONFIRE, so");
+        note("a warm light on a near-neutral surface ADDS while the same light on a cool one CANCELS");
+        note("— measured on one pixel of one frame, the unsworn man's cool iron at albedo C* 9.9");
+        note("renders C* 6.5 and a neutral byrnie at albedo C* 2 renders C* 16. And the Danelaw's");
+        note("mail is deliberately the brightest on the roster, because `FACTIONS.md` §2 says he is");
+        note('"more metal". A brighter surface returns more of the key, so it returns more of the');
+        note("key's colour. Before calling this a dye, check the ALBEDO: `node tools/roselook.mjs`");
+        note("and the census in docs/FACTIONS.md §10.2. If the albedo is neutral the dye is gone and");
+        note("what is left belongs to the bonfire or to `norse.metal.bias` — both the owner's, not a");
+        note("fixer's, and neither is fixed at stage 4. docs/OPEN-DEFECTS.md carries the standing");
+        note("reading so a later round can tell a regression from the residue.");
+      }
       check(`7.1 ROSE — no livery makes a man pinker than he was before he swore (the unsworn floor, ${bar.toFixed(3)}% of the man)`,
         over.length === 0,
         over.length
