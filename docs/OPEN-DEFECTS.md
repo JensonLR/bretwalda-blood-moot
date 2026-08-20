@@ -5578,3 +5578,122 @@ commit the cap arrived in.
 **The process fault worth keeping:** a player-visible cut of damage numbers on screen from
 48 to 6 at `high` landed inside a commit whose title is about rulers. A change a player can
 see belongs in a commit that says so, whatever else is in the same push.
+
+---
+
+## The 3D nameplates are STALE, not mirrored — 20 Aug 2026
+
+**The frame the report came from.** `art/defects/nameplate-mirrored-last-replay-1.png`
+(the `mercyweight4` worktree's own `.replay/shots/last-replay-1.png`). A name plate
+lies almost flat on the turf behind the man, tilted, with its health bar tilted the
+same way, and the name reads backwards — the round-one reading of it was
+`blidoebood`. Every DOM string on the same screen is correct.
+
+**It is not a mirror and it is not a sign error.** Two things were offered as
+causes and neither is it:
+
+* `rig.mirror.scale.x` (`anim.ts:698`) cannot reach a plate. Plates are added to
+  the SCENE, not to the warrior's rig — `hud3d.ts:1584 scene.add(group)` — and
+  `anim.ts:109`'s "the HUD hangs its nameplate off `group`, and a mirrored plate
+  would print the man's name backwards" is describing a graph this file has not
+  had for some time.
+* There is no sign error in the plate's own transform. The billboard is
+  `plate.group.quaternion.copy(camera.quaternion)` at `hud3d.ts:1879`, which is
+  correct, and the glyph canvas (`buildNameGlyphs`, `hud3d.ts:911`) draws
+  left-to-right with no flip anywhere in it.
+
+**What it actually is: `GameCanvas.tsx` does not tick the HUD on the non-fight
+path.** `stage.hud.update(dt, ctx)` is called in exactly two places —
+`GameCanvas.tsx:1315` inside the match-summary branch and `GameCanvas.tsx:1867` on
+the fight path. The branch that handles `lobby`, `intermission` and `finished`
+returns at `GameCanvas.tsx:1411` without it. So every plate keeps the transform,
+the visibility and the alpha it had on the last **fighting** frame, while the
+camera goes on to the death hold, the round beat, the match-end replay and the
+lobby orbit.
+
+A plate frozen facing where the camera used to be is seen off-axis — that is the
+tilt. Once the camera has swung past ninety degrees it is seen from BEHIND, and
+the name material is built `side: THREE.DoubleSide` (`hud3d.ts:864`), so the back
+of a nameplate is the name printed backwards. That is `blidoebood`.
+
+**Demonstrated, two frames from the same beat on the same box, one line apart:**
+
+* `art/defects/nameplate-stale-during-replay.png` — shipped code, a match-end
+  replay at 900x560, SKIP on screen and the results panel held back. Two men on
+  their feet and NO plates at all: they were left invisible by the last fight
+  frame and nothing has looked at them since.
+* `art/defects/nameplate-live-during-replay.png` — the same probe against a build
+  with one line added, `stage.hud.update(dt, ctx)` before the `postfx.render` at
+  `GameCanvas.tsx:1410`. The plate reads `Doomed1`, upright, square to the lens,
+  with its bar under it.
+
+**PRE-EXISTING, and not this branch's doing.** `git show
+origin/main:src/game/client/GameCanvas.tsx | grep -n 'hud.update'` gives the same
+two call sites (1096 and 1622) and the same gap. The match-end replay did not
+create this; it is simply the longest the camera has ever moved while the HUD was
+not looking, so it is where the defect finally photographed itself.
+
+**Why the one-line fix is written down here and not shipped.** It is a one-liner,
+but it is not a sign flip — it decides WHICH SCREENS SHOW NAME PLATES. Adding the
+tick puts live plates on the round break, on the match-end replay and on the lobby
+establishing orbit; the lobby has never drawn one before a first fight, so that is
+a picture nobody has approved. Suppressing in `lobby` and ticking otherwise is the
+other obvious shape and it is also a picture decision. Both frames are in
+`art/defects/` so the choice can be a look rather than an argument.
+
+---
+
+## `summaryflow`'s war-band veto check is a coin flip — 20 Aug 2026
+
+`tools/summaryflow.mjs:395 vetoCheck()` asserts *"a man lying dead does not
+perform"* and is called unconditionally at the end of `teamPhase`. It can only be
+judged when the stage left the LOCAL man dead. `teamPhase` fights a real 2v2 that
+nothing drives into the fire, so which band wins is the fight's business:
+
+* local man DEAD  — the row is not offered, `notOffered` is true, PASS.
+* local man STANDING — the row is correctly offered, the press is correctly
+  honoured, `refusals 0->0`, and the check FAILS on a build that is behaving.
+
+Observed on `mercyweight5`, run 2 of 2 in this window:
+`FAIL war band: a man lying dead does not perform — pressed, refusals 0->0;
+corpsesPerforming=0`, with the NOTE two lines above it reading *"after the
+rollback the row is OFFERED to a man the stage left standing"*. Run 1 of 2 passed
+it with the man left dead.
+
+This is the failure mode the same file already names in another place — *"it made
+summaryflow's war band check fail about half the time … the answer depended on
+which side the local man happened to be on"* — surviving in the one check that
+still assumes it. `corpsesPerforming === 0` is judgeable either way; the
+offered/refused half is not.
+
+**Not changed here.** The rule is never to touch a harness in the round that a
+branch needs it green, and this one failed on this branch in exactly the run that
+would have benefited. It is recorded so the next round can make the unjudgeable
+half a named skip — this file's own doctrine, "a skip is not a pass, so it is
+named, counted, and printed beside the score" — rather than a false red.
+
+---
+
+## `summaryflow` is flaky on a contended software rasteriser, on BOTH trees — 20 Aug 2026
+
+Round eleven's brief carried "**GREEN 14/14 on `origin/main`, run twice, alone, on
+the same box**". Three runs of `origin/main` (`2011c28`) in a fresh build in this
+window read:
+
+```
+  run 1   12/14 passed, 3 NOT RUN   exit 1
+  run 2   12/14 passed, 3 NOT RUN   exit 1
+  run 3   15/15 passed, 2 NOT RUN   exit 0
+```
+
+Runs 1 and 2 failed on the same two lines and for the same reason — the first
+summary frame jams the main thread, so the FIGHT AGAIN press landed at
+**19316 ms** and **15531 ms** with `state=lobby`, outside the server's ten-second
+window. That is the 8-25 s stall `summaryflow`'s own header documents. The result
+count is not fixed either: 14, 14, then 15, because the war-band flourish check is
+sometimes judgeable and sometimes a skip.
+
+The box was carrying `load average 10.13` on four cores with other agents' browsers
+on it. **The number "14/14" is not a property of `main`; it is a property of a
+quiet box.** Anything compared against it has to be run beside it, in the same
+window, which is what the R2 evidence on `mercyweight5` does.
