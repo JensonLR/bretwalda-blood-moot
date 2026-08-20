@@ -166,6 +166,14 @@ graded capture set, and it is where the next round should start.
 > `docs/PROCESS.md` R8 — the failure this round is here to stop, committed by
 > this round, and corrected in the same session.
 
+### AND §1.1 IS THE SAME MAN A THIRD TIME
+
+On this tree §1.1 SWORN also goes red, at **2.30 against a bar of 2.3** — a
+floating-point hair, on `huscarl|Polished Steel|No Cloak|0 -> norse`, which is
+the same loadout §1.2 and §1.3 both name. Three readings, one man, one cause:
+his byrnie. Swearing to the Danelaw barely moves a man in Polished Steel any
+more, because what the vat used to do to that byrnie was the move.
+
 ### WHAT IS ACTUALLY BLOCKED, AND WHOSE CALL IT IS
 
 Not a fixer's. Three of the four numbers involved are the owner's design:
