@@ -1476,11 +1476,17 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // separating those goes RED before it is allowed to grade anything.
     //
     // THE BAR IS MEASURED IN THE SAME RUN AND IT IS NOT MINE TO MOVE. Skin is
-    // on the red arc and so is firelight, so no frame reads zero. The three
-    // peoples whose fields are NOT on the red arc — weld at 60°, moss at 153°,
-    // woad at 210° — are photographed in the same scene, on the same mark,
-    // under the same fire, and whatever the worst of THEM reads is the floor a
-    // Dane is allowed. Moving this bar means making a Saxon pink.
+    // on the red arc, so is firelight, and so is bare iron once the fire is on
+    // it — no frame reads zero. The bar is therefore THE SAME MAN SWORN TO
+    // NOBODY, shot on the same mark at the same bearing under the same fire,
+    // and `people=none` is byte-for-byte the pre-livery game. Moving it means
+    // changing what an unsworn warrior looks like.
+    //
+    // The first cut of this section barred against the three peoples who are
+    // NOT on the red arc and that was wrong for a reason worth keeping: their
+    // kit is weld, moss and woad, the fire lands them at 81°, 150° and 200°,
+    // and they read the floor however bright they get. The long note beside the
+    // sweep below has the measurement that caught it.
     // ============================================================
     console.log("\n[faction] === 7. THE LIT COLOUR READ (the same frames, asked what colour they are) ===\n");
     {
@@ -1525,29 +1531,71 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
         const r = roseShare(band, Uint8ClampedArray.from(fr.px.data), maskFor(fr.cls, fr.turn));
         lit.push({ ...r, people: fr.people, cls: fr.cls, turn: fr.turn });
       }
-      // The bar: the worst frame belonging to a people whose field is NOT on
-      // the red arc. Measured here, in this run, on these frames.
+
+      // ---- THE BAR IS THE UNSWORN MAN, AND THAT TOOK A WRONG ONE FIRST -----
+      //
+      // The first cut of this section barred the Danelaw against THE OTHER
+      // THREE PEOPLES, on the reasoning that they are not on the red arc and
+      // whatever they read is skin and firelight. It is a trap, and the fix
+      // this section was written to grade is what sprang it: after a change
+      // that took the byrnie from #c07f80 to #b28c85 — C* 27.2 down to 16.2,
+      // hue 21° round to 35°, which is most of the chroma gone and the rest of
+      // it off the pink corner — the COUNT moved 2.654% to 2.626%.
+      //
+      // THE ARENA'S KEY LIGHT IS A BONFIRE. It puts about eleven points of warm
+      // chroma into any near-neutral surface it falls on, so bare iron in this
+      // scene renders around C* 16 on the red arc whatever anybody swore to,
+      // and `roseband`'s chroma floor — the undyed linen shirt at C* 14.8 — is
+      // an ALBEDO number. Applying it to a LIT pixel is the same shape of error
+      // `docs/FACTIONS.md` §10.1 records for the linear-against-perceptual band
+      // mix-up, one space along.
+      //
+      // The other three peoples cannot show that. Their kit is weld, moss and
+      // woad, so the fire lands them at hue 81°, 150° and 200° — OFF the arc —
+      // and they read the floor however bright they get. Only a man in plain
+      // iron and plain linen lands where a Dane in plain iron and plain linen
+      // lands, so the bar is THE SAME MAN SWORN TO NOBODY, on the same mark,
+      // at the same bearing, under the same fire.
+      //
+      // `people=none` is byte-for-byte what `buildCharacter` did before this
+      // feature existed — `factionWorn` returns the hex by identity — so this
+      // is also the pre-livery game, and moving this bar means changing what an
+      // unsworn warrior looks like, which is a change nobody could make quietly.
+      console.log("");
+      const floor = [];
+      for (const cls of CLASSES) {
+        for (const turn of CLIP_BEARINGS) {
+          const mask = maskFor(cls, turn);
+          const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=${cls}&people=none`);
+          if (String(subject?.people) !== "none") die(`the floor staged wrong: people=${subject?.people}`);
+          floor.push({ cls, turn, ...roseShare(band, Uint8ClampedArray.from(px.data), mask) });
+        }
+        const row = floor.filter((x) => x.cls === cls);
+        console.log(`  UNSWORN ${cls.padEnd(11)} ${row.map((x) => `@${x.turn}° ${x.pct.toFixed(3)}%`).join("   ")}   modal ${row.reduce((m, x) => (x.pct > m.pct ? x : m), row[0]).modal}`);
+      }
+      const bar = floor.reduce((m, x) => Math.max(m, x.pct), 0);
+      const barAt = floor.find((x) => x.pct === bar);
+      note(`the bar is ${bar.toFixed(3)}% — the worst UNSWORN frame (${barAt ? `${barAt.cls}@${barAt.turn}°` : "n/a"}). It is skin, firelight and bare iron, and it is the floor nobody can get under.`);
+
+      console.log("");
       const ARC_PEOPLE = new Set(PEOPLES.filter((pp) => band.onArc(FACTION_FIELD[pp])));
-      note(`on the red arc: ${[...ARC_PEOPLE].join(", ") || "none"} — the other ${PEOPLES.length - ARC_PEOPLE.size} are the control`);
-      const offArc = lit.filter((x) => !ARC_PEOPLE.has(x.people));
-      const onArc = lit.filter((x) => ARC_PEOPLE.has(x.people));
-      const bar = offArc.reduce((m, x) => Math.max(m, x.pct), 0);
-      const barAt = offArc.find((x) => x.pct === bar);
       for (const p2 of PEOPLES) {
         const rows = lit.filter((x) => x.people === p2);
         const w = rows.reduce((m, x) => (x.pct > m.pct ? x : m), rows[0] ?? { pct: 0, modal: "—", cls: "", turn: 0 });
-        console.log(`  ${p2.padEnd(7)} worst ${w.pct.toFixed(3).padStart(7)}% of the man  (${w.cls} @${w.turn}°, modal ${w.modal})   mean ${(rows.reduce((a, x) => a + x.pct, 0) / (rows.length || 1)).toFixed(3)}%`);
+        console.log(`  ${p2.padEnd(7)} ${ARC_PEOPLE.has(p2) ? "ON THE ARC " : "off the arc"}  worst ${w.pct.toFixed(3).padStart(7)}% of the man  (${w.cls} @${w.turn}°, modal ${w.modal})   mean ${(rows.reduce((a, x) => a + x.pct, 0) / (rows.length || 1)).toFixed(3)}%`);
       }
       console.log("");
-      note(`the bar is ${bar.toFixed(3)}% — the worst frame of a people not on the red arc (${barAt ? `${barAt.people}/${barAt.cls}@${barAt.turn}°` : "n/a"}), which is skin and firelight`);
-      const over = onArc.filter((x) => x.pct > bar)
-        .map((x) => `${x.people}/${x.cls} at ${x.turn}° reads ${x.pct.toFixed(3)}% rose — ${(x.pct / (bar || 1e-9)).toFixed(0)}x the bar, modal ${x.modal}`);
+      // Every people is gated, not only the one on the arc: a livery that put a
+      // Pict into the rose band would be the same defect wearing woad.
+      const over = lit.filter((x) => x.pct > bar)
+        .sort((a, b) => b.pct - a.pct)
+        .map((x) => `${x.people}/${x.cls} at ${x.turn}° reads ${x.pct.toFixed(3)}% rose against the unsworn ${bar.toFixed(3)}% — ${(x.pct / (bar || 1e-9)).toFixed(1)}x, modal ${x.modal}`);
       for (const o of over.slice(0, 10)) note(`ROSE   ${o}`);
-      check(`7.1 ROSE — no people on the red arc reads pinker than a people that is not (${bar.toFixed(3)}% of the man)`,
+      check(`7.1 ROSE — no livery makes a man pinker than he was before he swore (the unsworn floor, ${bar.toFixed(3)}% of the man)`,
         over.length === 0,
         over.length
-          ? `${over.length} of ${onArc.length} frames over the bar, worst ${Math.max(...onArc.map((x) => x.pct)).toFixed(3)}%`
-          : `worst red-arc frame ${(onArc.length ? Math.max(...onArc.map((x) => x.pct)) : 0).toFixed(3)}%, under the ${bar.toFixed(3)}% bar`,
+          ? `${over.length} of ${lit.length} frames over the unsworn floor, worst ${Math.max(...lit.map((x) => x.pct)).toFixed(3)}%`
+          : `worst sworn frame ${(lit.length ? Math.max(...lit.map((x) => x.pct)) : 0).toFixed(3)}%, under the ${bar.toFixed(3)}% floor`,
         over);
 
       // ---- §7.2 THE FADE CANNOT REACH THE OTHER THREE ----------------------

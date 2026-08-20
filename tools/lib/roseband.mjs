@@ -47,6 +47,15 @@
 //                game has shipped since before liveries existed: C* 14.8.
 //                Under it a surface is greige — cloth with no dye in it — and
 //                greige is not pink, it is undyed.
+//                **THIS ONE IS AN ALBEDO NUMBER AND A LIT PIXEL IS NOT AN
+//                ALBEDO PIXEL.** The arena's key is a bonfire and it puts about
+//                eleven points of warm chroma into any near-neutral surface, so
+//                bare iron in that scene lands around C* 16 — over this floor —
+//                whatever anybody swore to. The band is still right about which
+//                pixels are on the red arc and pale; it is NOT a statement that
+//                those pixels were dyed. That is what the caller's control is
+//                for, and why `factionread` §7's is the UNSWORN MAN and not the
+//                other peoples. See the note beside §7's sweep.
 //   the ceiling  half the dyestuff's own ratio of colour to light. Garnet is
 //                C* 48.7 at L* 26.4, which is 1.84 points of chroma for every
 //                point of value; half of it is 0.92. ABOVE that line a red
@@ -63,11 +72,13 @@
 // ------------------------------------------------------------
 // WHAT THIS DOES NOT MEASURE — docs/PROCESS.md R4
 //
-//   * IT IS NOT A JUDGE OF ROSE ANYWHERE ELSE. Skin is on the red arc and so
-//     is firelight, so no frame of any people reads zero. This band counts;
-//     the CALLER supplies the control. `factionread` §7 uses the peoples whose
-//     fields are off the arc, shot in the same scene at the same bearings, and
-//     `roselook` prints every frame side by side so the floor is visible.
+//   * IT IS NOT A JUDGE OF ROSE ANYWHERE ELSE. Skin is on the red arc, so is
+//     firelight, and so is bare iron under firelight — no frame of any people
+//     reads zero. This band COUNTS; the caller supplies the CONTROL, and the
+//     control has to be a man wearing the same undyed materials. `factionread`
+//     §7 uses the UNSWORN warrior on the same mark at the same bearing;
+//     `roselook` prints every frame side by side so the floor is visible, and
+//     shoot the `factionfloor` sheet beside any set you grade with it.
 //   * IT IS A PIXEL COUNT AND NOT A PERCEPTUAL MODEL. Two frames with the same
 //     count can look different. It is a screen for one named defect, and the
 //     render is still opened — R5 is not discharged by this file.
