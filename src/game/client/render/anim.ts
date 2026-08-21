@@ -72,6 +72,7 @@
 // already generating and not overwrite it.
 
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
@@ -83,6 +84,20 @@ import {
 import { getHandedness, subscribeHandedness } from "../input";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
+
+/**
+ * The one material every warrior's shadow proxy shares. It writes NOTHING —
+ * no colour, no depth — so the proxy costs a single draw call and changes not
+ * one pixel of the picture, while still being a real drawn object, which is
+ * what the shadow pass requires (see the note at the traverse in
+ * `buildWarrior`). Shared because a material per warrior would be a program
+ * per warrior for a shader that does nothing.
+ */
+const SHADOW_PROXY_MATERIAL = new THREE.MeshBasicMaterial({
+  colorWrite: false,
+  depthWrite: false,
+});
+
 
 // ---------------------------------------------------------------------------
 // Handedness
@@ -681,12 +696,89 @@ export function createWarriorRig(
   // Weapon and shield are mounted by now, so one walk covers the whole warrior.
   // Every mesh casts and every mesh receives: a pauldron has to darken the
   // sleeve under it, or layered kit reads as one painted shape.
+  //
+  // EVERY MESH RECEIVES. THE SHADOW IS CAST BY ONE MERGED PROXY PER BONE.
+  //
+  // Receiving is a shader lookup and costs nothing per mesh, so the note above
+  // holds in full: a pauldron still darkens the sleeve under it. CASTING is what
+  // draws a mesh a second time — once more per shadow-casting light, and that
+  // count is 1 on `low`, 3 on `medium` and 4 on `high`.
+  //
+  // Measured with `tools/framecost.mjs` on an eight-man brawl: warriors were
+  // **292 of the 352 casters and 227 of the 664 draw calls**, a third of the
+  // frame spent drawing men twice.
+  //
+  // The parts are layered per bone — nine meshes on `rig:torso`, seven on each
+  // arm, six on the head. SIBLINGS SHARE A PARENT, so their relative transform
+  // is fixed for the life of the rig and one merged geometry in the parent's
+  // frame is the exact union of them: the same triangles, so the shadow is
+  // unchanged pixel for pixel, self-shadowing included. The proxy casts, the
+  // real meshes do not, and 43 casters become one per bone.
+  //
+  // WHY THE PROXY IS DRAWN AT ALL, since it renders nothing. Two cheaper tricks
+  // were tried against the three.js source and BOTH ARE DEAD:
+  //   - parking it on another layer — the shadow pass reads
+  //     `object.layers.test(camera.layers)` against the MAIN camera, so an
+  //     object the camera does not render is not shadowed either;
+  //   - `material.visible = false` — that gates the shadow pass as well as the
+  //     colour list.
+  // So it is a real object with `colorWrite` and `depthWrite` off: one draw call
+  // that touches no pixel, against the many it removes.
+  //
+  // POSITION AND NORMAL, NO UVS — see the note at the merge for why the normal
+  // has to be there. About 2 MB of duplicated data a warrior.
   body.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      o.castShadow = settings.shadows;
       o.receiveShadow = settings.shadows;
+      o.castShadow = false;
     }
   });
+  if (settings.shadows) {
+    const byBone = new Map<THREE.Object3D, THREE.Mesh[]>();
+    body.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || !o.parent) return;
+      const list = byBone.get(o.parent);
+      if (list) list.push(o); else byBone.set(o.parent, [o]);
+    });
+    for (const [bone, group] of byBone) {
+      const parts: THREE.BufferGeometry[] = [];
+      for (const m of group) {
+        const src = m.geometry;
+        const pos = src.getAttribute("position");
+        if (!pos) continue;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", pos.clone());
+        // NORMALS ARE NOT OPTIONAL, and the first cut of this left them out on
+        // the reasoning that a depth pass has no use for them. `light.shadow.
+        // normalBias` does: it pushes each sample along its own surface normal
+        // to keep a curved surface off its own shadow. Stripped, the proxy lost
+        // that offset and the ground under a man measured **8.57 luma darker**
+        // than the same frame before the change — a shadow that had grown, not
+        // a shadow that had gone. With the normals carried it is inside the
+        // capture noise. Measured, not reasoned about.
+        const nrm = src.getAttribute("normal");
+        if (nrm) g.setAttribute("normal", nrm.clone());
+        if (src.index) g.setIndex(src.index.clone());
+        // Into the BONE's frame, which is the frame the group shares.
+        m.updateMatrix();
+        g.applyMatrix4(m.matrix);
+        parts.push(g);
+      }
+      if (!parts.length) continue;
+      // One mesh means merging buys nothing: cast from it directly and skip the
+      // copy, which is most of the memory on a bone that carries a single part.
+      if (parts.length === 1) { parts[0].dispose(); group[0].castShadow = true; continue; }
+      const merged = mergeGeometries(parts, false);
+      for (const g of parts) g.dispose();
+      if (!merged) { for (const m of group) m.castShadow = true; continue; }
+      const proxy = new THREE.Mesh(merged, SHADOW_PROXY_MATERIAL);
+      proxy.name = "rig:shadow";
+      proxy.castShadow = true;
+      proxy.receiveShadow = false;
+      proxy.frustumCulled = false;
+      bone.add(proxy);
+    }
+  }
 
   // Reach is measured, not tabled: the spear is twice the seax and the blade
   // trail has to leave the tip of whichever one this warrior is holding. Off
