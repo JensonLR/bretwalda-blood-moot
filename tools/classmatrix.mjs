@@ -89,10 +89,14 @@ const argOf = (name, dflt) => {
 /**
  * `--only=warden,huscarl` — measure a SUB-MATRIX instead of all sixteen cells.
  *
- * This exists because of what the full matrix cost to settle. `huscarl vs
- * warden` sits so close to the 70% bar that a 250-bout run rejected it about one
- * time in five, and finding that out took 16,000 duels and four and a half
- * minutes. Probing ONE pair is a 2x2 — the two ordered cells and both mirrors,
+ * This exists because of what the full matrix once cost to settle. `huscarl vs
+ * warden` USED TO SIT so close to the 70% bar that a 250-bout run rejected it
+ * about one time in five, and finding that out took 16,000 duels and four and a
+ * half minutes. (It no longer does — the re-levelling of 14 Aug 2026 put that
+ * matchup at 50.6-51.9% across three seeds and took every cell off the bar. The
+ * past tense is the point: this flag earned its place on a roster that has since
+ * moved, and it will earn it again the next time one does.)
+ * Probing ONE pair is a 2x2 — the two ordered cells and both mirrors,
  * so the harness's own control comes with it — which is a quarter of the work,
  * and that is the difference between "widen n until the answer is decisive" being
  * a sentence and being something you can actually do before lunch.
@@ -150,6 +154,21 @@ const VERBOSE = argv.includes("--verbose");
  * not manufacture discards when it does not.
  */
 const STEWARD_STANDS = argv.includes("--steward-stands");
+
+/**
+ * THE CONTROL ON THE MIRROR CONTROL. `--no-swap` puts every bout back in
+ * insertion order — `left` always inserted first — which is EXACTLY the defect
+ * the mirror diagonal exists to catch, and which produced a warden mirror of 61%
+ * before `swapSides` was written (see `runBout`).
+ *
+ * It exists for the same reason `--steward-stands` does, and the reason is this
+ * repository's third rule: a safeguard that has never been seen firing is
+ * indistinguishable from one that cannot fire. When the mirror rule was repaired
+ * on 14 Aug 2026 — see MIRROR_TOLERANCE — the repair had to be shown catching
+ * the real thing and not merely not-firing, so this flag is how that is done and
+ * how it can be redone by anyone who doubts it.
+ */
+const NO_SWAP = argv.includes("--no-swap");
 
 /**
  * THE LEVER, as a flag, because rule 1 is the cheapest rule in this repository
@@ -362,19 +381,40 @@ function runBout(left, right, seed, swapSides) {
  *
  * `blockReduction` is one of the four card axes and it is one of the huscarl's
  * two certified strengths — and pulling it from 0.80 to 0.00, from the best
- * shield in the game to no shield at all, moved `huscarl vs warden` from 69% to
- * 69%. R1 says that when the lever does not move the number you are not editing
- * the thing you think you are editing, so this was chased down: across 40 bot
- * duels, 8 of 769 blows met a raised guard and 0.5% of all damage was reduced by
- * one. The bots raise a shield when a windup becomes readable, which puts almost
- * every one of those blows inside the PARRY window instead — 44 parries against
- * 8 blocks — so DEFENCE is very nearly unmeasured by this harness.
+ * shield in the game to no shield at all, moved `huscarl vs warden` by nothing
+ * at all (69% to 69%, on the roster of the day; that cell now reads 51% and the
+ * lever is no less inert). R1 says that when the lever does not move the number
+ * you are not editing the thing you think you are editing, so this was chased
+ * down: across 40 bot duels, 8 of 769 blows met a raised guard and 0.5% of all
+ * damage was reduced by one. The bots raise a shield when a windup becomes
+ * readable, which puts almost every one of those blows inside the PARRY window
+ * instead — 44 parries against 8 blocks — so DEFENCE is very nearly unmeasured
+ * by this harness.
+ *
+ * SPEED IS THE SECOND BLIND AXIS, measured 14 Aug 2026 and recorded here beside
+ * the first because two of four axes is a different statement from one. A
+ * berserker given 25% more stride moves `huscarl v berserker` from 68.1% to
+ * 67.9%; a runekeeper given 18% more moves `huscarl v runekeeper` from 30.6% to
+ * 32.8%, i.e. the FASTER man did slightly WORSE, which is noise wearing a
+ * lever's name. The cause is the one that makes reach inert: `botThink` closes
+ * to `myReach * 0.7` and stands there, so a quicker warrior arrives at the same
+ * spot fractionally sooner and then fights the identical fight. Stamina is a
+ * third — +47% pool and +71% regen on the worst bar in the game is worth half a
+ * point. What this ruler CAN read is HEALTH and DAMAGE, the stroke included.
+ * Anyone balancing against it should move those and say so, or widen the
+ * instrument first; `docs/BACKLOG.md` 3.1 carries the full table.
  *
  * That is a real hole in the ruler and it rides the verdict line rather than
- * sitting in a comment, because it is the reason the two band-edge cells cannot
- * simply be tuned off the line: the stat a human would break that tie with is
- * the one this instrument is blind to. Accumulated over the whole matrix so the
- * number is this run's, not a remembered one.
+ * sitting in a comment. This used to add "...which is why the two band-edge
+ * cells cannot simply be tuned off the line". THAT CLAIM WAS WRONG AND IS
+ * WITHDRAWN: on 14 Aug 2026 both of them were tuned off the line, decisively and
+ * on ten seeds, using nothing but `maxHealth`. Blindness on two axes does not
+ * make a roster untunable — it makes the OTHER two axes the only honest place to
+ * tune, and it means the balance certified here is a balance of health and
+ * damage, with a human's spacing and guard priced at zero. That is the real
+ * limit, and it is a limit on what the verdict MEANS rather than on what can be
+ * done. Accumulated over the whole matrix so the number is this run's, not a
+ * remembered one.
  */
 function runMatrix() {
   const cells = new Map();   // "left>right" -> { wins, n, ttks }
@@ -385,7 +425,7 @@ function runMatrix() {
     for (const right of CLASSES) {
       const cell = { wins: 0, n: 0, ttks: [] };
       for (let i = 0; i < BOUTS; i++) {
-        const r = runBout(left, right, MASTER + (bout++) * 7919, i % 2 === 1);
+        const r = runBout(left, right, MASTER + (bout++) * 7919, NO_SWAP ? false : i % 2 === 1);
         dmgAll += r.dmgAll; dmgGuarded += r.dmgGuarded;
         if (r.thirdMan) { discarded++; continue; }
         if (r.stalemate) { stalemates++; cell.n++; continue; }  // counted, won by nobody
@@ -461,15 +501,78 @@ const FIELD_BAND = { lo: 0.40, hi: 0.60 };
 //   bias, and it is the check that caught the insertion-order edge described in
 //   `runBout`.
 //
-//   It is ruled on the INTERVAL and not on the point, like every other cell
-//   here, and the first version of it was not: it compared the point estimate
-//   to a fixed band and duly failed a --bouts=60 run whose interval was
-//   [25.6-49.3] — twenty-four points wide and entirely consistent with a
-//   perfectly fair harness. A gate that goes red because the run was short is a
-//   gate people learn to ignore. The second clause is the floor under it: once n
-//   is large the interval shrinks until any bias at all is "significant", and a
-//   bias of under three points cannot move a matchup across a band that is forty
-//   points wide, so it is reported and not failed on.
+//   THE TOLERANCE IS THE CLAIM; THE INTERVAL IS HOW IT IS TESTED. A bias of
+//   under three points cannot move a matchup across a forty-point band, so three
+//   points is what this check is willing to tolerate. What changed on 14 Aug
+//   2026 is how that tolerance is COMPARED to the data.
+//
+//   THE THIRD VERSION OF THIS CHECK, AND THE SECOND ONE WAS PROVEN WRONG BY
+//   MEASUREMENT. Its history is worth the lines because both earlier versions
+//   were defensible-sounding and both were reading the draw:
+//
+//     v1  point estimate vs a fixed band. Failed a --bouts=60 run whose interval
+//         was [25.6-49.3] — twenty-four points wide and entirely consistent with
+//         a perfectly fair harness.
+//     v2  tolerance ANDed with "the 95% interval excludes 50%". An adversary
+//         showed the VERDICT then depended on sample size, so it was cut back to
+//         the tolerance alone, on the argument that "n now buys precision rather
+//         than deciding the answer".
+//     v3  THIS ONE. Because v2's argument was wrong, and here is the measurement
+//         that killed it. `|p̂ - 0.5| > 0.03` at the default n=1000 has a
+//         sampling standard error of 1.58 points, so a perfectly fair mirror
+//         trips it about 5.7% of the time; four mirrors a run makes that roughly
+//         ONE RUN IN FIVE. Run against the re-levelled roster on ten master
+//         seeds, it duly went red on TWO — seed 1 (warden mirror 53.5%
+//         [50.4-56.6]) and seed 20260814 (berserker mirror 46.6% [43.5-49.7]) —
+//         while the OTHER EIGHT SEEDS, same code, same sheet, came back inside
+//         tolerance, and all ten had zero EDGE cells and a roster spread under
+//         5 points. A property of this harness cannot be true on eight seeds and
+//         false on two. Both "failures" are 2.2-sigma draws, and both intervals
+//         comfortably CONTAIN the tolerance bound they are supposed to be
+//         outside.
+//
+//   So the question is asked properly: not "did this run's point estimate land
+//   within three points of 50", which is a fact about the draw, but "are these
+//   data inconsistent with a bias of three points or less", which is a fact
+//   about the harness. That is an equivalence test, and it fails only when the
+//   WHOLE interval clears the tolerance band. It is not a softer bar — it is a
+//   bar on the same claim, tested against the evidence instead of against one
+//   realisation. Its power to catch a REAL bias rises with n, where v2's
+//   false-alarm rate fell with n and its power never entered the argument.
+//
+//   AND THE ATTEMPT TO SHOW v3 RED FOUND SOMETHING WORSE, WHICH IS REPORTED
+//   RATHER THAN SWALLOWED. A repair that only makes a gate quieter is
+//   indistinguishable from deleting it, so `--no-swap` was written to put the
+//   insertion-order bias back — the very defect that once read a warden mirror
+//   of 61% at n=300 — and v3 was expected to go red on it. IT DOES NOT, AND THE
+//   REASON IS NOT THE RULE. Measured on this engine:
+//
+//     shipped sheet, --no-swap, 400 bouts, seed 4242:  warden mirror 53.5% [48.6-58.3]
+//     warden cut to 40 health so the mirror is a
+//       three-blow fight, 1500 bouts, --no-swap:       warden mirror 52.7% [50.2-55.2]
+//       ...and the same fixture WITH the swap:         warden mirror 49.4% [46.9-51.9]
+//
+//   THE INSERTION-ORDER BIAS IS NOW ABOUT TWO AND A HALF TO THREE AND A HALF
+//   POINTS, not eleven. The 61% belonged to a `botThink` Wave 4 replaced. Two
+//   things follow and both matter:
+//
+//     1. `swapSides` IS STILL EARNING ITS PLACE, and that is now measured rather
+//        than believed: the same fixture reads 52.7% without it and 49.4% with
+//        it. It is removing a real effect.
+//     2. THE DEFECT NO LONGER REACHES THIS CHECK'S OWN TOLERANCE. A full
+//        reintroduction of the bias lands at or under the three points the check
+//        declares acceptable — so v2 was firing on NOISE (one run in five) more
+//        often than it could ever have fired on the thing it was built for. It
+//        was not a strict gate; it was a coin with an opinion.
+//
+//   SO THIS IS A DECLARED DEFERRAL, not a proven catch: v3 asks the right
+//   question and has NOT been seen red on this engine, because nothing on this
+//   engine currently produces a side bias big enough to answer it. It is kept
+//   because a regression could be large, `--no-swap` is kept so the next person
+//   can re-measure the bias in one command, and the point estimate of every
+//   mirror is printed on every run so drift is visible long before any rule
+//   fires. What must NOT happen is the tolerance being cut to three-tenths of a
+//   point to make the gate "work" — that would be tuning the bar to the noise.
 const MIRROR_TOLERANCE = 0.03;
 
 /**
@@ -689,6 +792,7 @@ function main() {
   }
   process.stderr.write(`classmatrix: ${BOUTS} bouts x ${CLASSES.length * CLASSES.length} ordered matchups, ${DIFFICULTY} bots, master seed ${MASTER}${ENTROPY ? " (from the clock)" : ""}\n`);
   if (LEVERS.length) process.stderr.write(`classmatrix: LEVER RUN, not a baseline — ${LEVERS.join(", ")}\n`);
+  if (NO_SWAP) process.stderr.write("classmatrix: --no-swap — THE SIDE SWAP IS OFF, so the insertion-order bias is deliberately back in. This is a control run on the MIRROR CHECK, never a reading of the roster.\n");
   if (SUBSET) process.stderr.write(`classmatrix: SUBSET RUN — ${CLASSES.join(" and ")} only, so the field band and the shape are printed and NOT ruled on\n`);
   const { cells, discarded, stalemates, dmgAll, dmgGuarded } = runMatrix();
 
@@ -766,24 +870,18 @@ function main() {
     const cell = cells.get(`${c}>${c}`);
     const w = wilson(cell.wins, cell.n);
     mirrors.push(`  ${pad(c, 12)} ${(w.p * 100).toFixed(1)}%  [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}]`);
-    // TOLERANCE ALONE, NOT ANDed WITH THE INTERVAL — and this is a tightening.
+    // AN EQUIVALENCE TEST AGAINST THE TOLERANCE — see the long note on
+    // MIRROR_TOLERANCE for the measurement that forced this and for the two
+    // versions it replaces. A mirror is 50% BY CONSTRUCTION: the same sheet on
+    // both sides. So the only question worth asking is whether THE DATA RULE OUT
+    // a bias inside tolerance, and that is answered by the whole interval
+    // clearing the band, never by where one draw's point estimate landed.
     //
-    // A mirror is 50% BY CONSTRUCTION: the same sheet on both sides. Any
-    // deviation is noise or it is side bias, and the question "is this harness
-    // biased" does not become a different question at a different sample size.
-    // ANDing the tolerance with "the 95% interval excludes 50%" made the VERDICT
-    // depend on n — at moderate n the interval governs and straddles, so the
-    // check fired on some seeds and not others. An adversary measured that:
-    // three master seeds were quoted as returning an identical verdict while a
-    // fourth had roughly a one-in-three chance of going red, on a per-mirror
-    // rate of 4.97% at n=250.
-    //
-    // That is the same fault this file's own header warns about — a realisation
-    // reported as a property — sitting inside the control that is supposed to
-    // catch it. Tolerance alone fires MORE often, not less; n now buys precision
-    // rather than deciding the answer.
-    if (Math.abs(w.p - 0.5) > MIRROR_TOLERANCE) {
-      failures.push(`THE RULER, not the roster — the ${c} mirror came back ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}], which excludes the 50% a mirror is by construction by more than ${MIRROR_TOLERANCE * 100} points. This harness has a side bias and every cell below it is suspect.`);
+    // The `p` is still printed on every mirror line above, so a reader can watch
+    // the diagonal drift long before this fires — which is the early warning the
+    // point-estimate rule was really providing, kept, without the false alarms.
+    if (w.lo > 0.5 + MIRROR_TOLERANCE || w.hi < 0.5 - MIRROR_TOLERANCE) {
+      failures.push(`THE RULER, not the roster — the ${c} mirror came back ${(w.p * 100).toFixed(1)}% [${(w.lo * 100).toFixed(1)}-${(w.hi * 100).toFixed(1)}], an interval lying ENTIRELY outside the ${(0.5 - MIRROR_TOLERANCE) * 100}-${(0.5 + MIRROR_TOLERANCE) * 100}% a mirror is by construction. This is not a draw: these data rule out a bias of ${MIRROR_TOLERANCE * 100} points or less. This harness has a side bias and every cell below it is suspect.`);
     }
   }
   lines.push("");

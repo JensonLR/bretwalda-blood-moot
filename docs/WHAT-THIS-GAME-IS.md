@@ -65,6 +65,10 @@ an assembly convened to settle a dispute. A *Bretwalda* is the overlord all the
 other kings of Britain acknowledge. The name of this game is literally **"the
 bloody assembly that decides who rules Britain."** The game should be that, and
 at present it is not that at all — the kingdom map is a menu decoration.
+(**Superseded 14 Aug 2026.** The map is no longer a decoration: it is a
+persisted, shared object that every match writes to. §3.1 is the honest
+inventory of what that does and does not yet include. This sentence is left
+standing because the diagnosis it belongs to is the reason the rest exists.)
 
 This gives the answer to "why would people come back", and it is one sentence:
 
@@ -83,13 +87,58 @@ obligation is the strongest retention mechanic that exists.
 |---|---|---|---|
 | **The fight** | seconds | swing, parry, riposte, shove, sever | built, but weightless — see §5 |
 | **The match** | minutes | rounds, a victor, coins, rank | built |
-| **The war** | weeks | territory shifts, a kingdom rises, a Bretwalda is crowned | **entirely missing** |
+| **The war** | weeks | territory shifts, a people rises, a Bretwalda is crowned | **the spine stands — see §3.1** |
 
-Layer 3 is the missing spine. Every item the owner listed — clans picking a base
+Layer 3 was the missing spine. Every item the owner listed — clans picking a base
 kingdom, making the map matter, factions differing, ranked with historical
 titles, a campaign worth playing, flags and colours — is a *rib* of that spine.
 They read as a scattered wish-list only because the spine is absent. Add the
 spine and they become one coherent feature.
+
+### 3.1 What of the war is actually built, as of 14 Aug 2026
+
+Written the day it landed, and deliberately specific, because a document that
+says "the war layer is done" is worth less than no document at all.
+
+**Built and gated.**
+
+* **Sixteen named territories**, four to each people, in `src/game/war.mjs` —
+  one table, shared by the server and the map screen. The heptarchy's names
+  live here, which is the composition `FACTIONS.md` §5 settled on. Boundaries
+  are authored in degrees and clipped to the real Natural Earth coastline.
+* **The oath.** `players.allegiance`, sworn over `POST /api/war/swear`, durable
+  for the season once a man has banked his first point.
+* **The attribution write**, in `endMatch` — the one place the fight touches
+  the war. Idempotent under retry, never blocks the round ending, never throws
+  into the engine, and refuses to bank a match fought by fewer than two humans.
+* **Contest and flips.** A territory changes hands when a challenger's lead
+  over its holder reaches its threshold. Points are conserved and the whole map
+  reconciles in one SQL query.
+* **The map screen** at `/factions`: who holds what, what moved and when, where
+  the season stands, and which four borders are closest to falling.
+* **The rulers.** `tools/wartest.mjs` (79 checks, plus a `--prove` arm that
+  injects the two defects the neutrality gates exist to catch and requires them
+  to go red) and `tools/warflow.mjs` (22 checks, end to end, real Postgres).
+
+**NOT built, and none of it is hidden in a corner.**
+
+* **No season has ever ended in production.** `endSeason` and `settleSeason`
+  are written and gated by fixture — a Bretwalda is crowned, exactly one, and
+  the mark is written to a column no other code path touches — but the first
+  real crowning is 35 days after the first real season opens, and until that
+  day the reset path has been exercised only by a harness.
+* **No clans.** A clan is sworn within a people (§3, and the owner's own
+  instinct). Nothing here builds one.
+* **No per-faction kit.** A man's people decides nothing about how he looks
+  yet; `appearance` is still whatever the armoury sold him. That is the
+  largest single gap between what this screen promises and what a match
+  delivers.
+* **No adjacency.** Any people may contest any territory, whether or not it
+  holds a neighbour. The territory table carries no adjacency graph.
+* **No flags or heraldry.** `FACTIONS.md` §6 still stands untouched.
+* **The map is not live.** `/factions` reads the war when it opens and does not
+  poll. "The map moved while you were asleep" is true; "the map is moving while
+  you watch" is not.
 
 ### How the war works — the concrete proposal
 
@@ -114,6 +163,18 @@ spine and they become one coherent feature.
   season, with a permanent, unbuyable mark on their profile. Then the map
   resets, with the previous Bretwalda's kingdom starting at a small advantage
   and a large target on it.
+
+  **This last sentence was true in `war.mjs` and false in production, and that
+  is worth recording here rather than only in a commit message.** Under
+  concurrent callers the 35-day rollover raced: three seasons opened at once,
+  and every one of them opened DEAD EVEN — so the advantage and the target,
+  the entire reward for winning a season, silently did not happen and no number
+  in the repository said so. `openingHoldings` was never wrong; the persistence
+  around it could not be trusted to ask it the question. It is now enforced by
+  a partial unique index in Postgres and gated by `npm run warrace`, which
+  fires the boundary at ten callers at once and was shown red first. A design
+  document that states a mechanic owes the reader a note when the mechanic was
+  found not to be running.
 * **Clans** are sworn *within* a kingdom (this is exactly the owner's instinct,
   and it is right). A clan is 2–4 players who queue together and whose wins are
   attributed to both the clan and the kingdom.
@@ -123,6 +184,12 @@ is a persisted territory table, an attribution write at match end, and a map
 screen that renders it. The campaign, the ranked ladder, the faction kits and the
 flags all become *content for a frame that already exists*, rather than four
 unrelated features each needing their own justification.
+
+> **Those three are now built** — `territories`, `endMatch`'s war report, and
+> `/factions`. §3.1 says exactly how much of the rest is, and how much is not.
+> One estimate in this paragraph was right and is worth recording as such: it
+> did cost far less than it sounds. The spine is about 700 lines of rules and
+> persistence, on top of a fight that already worked.
 
 ## 4. What this means for Steam
 

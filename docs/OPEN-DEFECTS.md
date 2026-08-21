@@ -8,6 +8,1236 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — the nape-guard FLARE and the nape-guard STANDOFF disagree, and the picture sides with standoff — 20 Aug 2026
+
+`wearmeasure` section 3, on `main`:
+
+```
+  helm         parts   gap mm  flare deg   hem mm   worst part
+  ridge            1     13.6        8.9     13.6   -
+  spectacle        2     17.7       11.5     19.0   -
+  boar             2     17.7       11.5     14.0   -
+  crowned          2     17.7       11.5     14.0   -
+  wyrm             2     23.4       49.8     25.0   nape guard   <-- FAIL
+  suttonhoo        2     21.7       40.1     19.0   nape guard   <-- FAIL
+  bars: gap 26 mm, flare 22 deg, hem 26 mm
+```
+
+Only the two helmets with `nape: "guard"` fail; every `nape: "flange"` helmet is
+under half the bar.
+
+### WHERE IT PEAKS, on every class and both seeds
+
+`helmFitProbe`, printing `flareU`/`flareV` rather than the maximum alone:
+
+```
+  wyrm        warden     40.5 / 43.5   at u 0.056        v 0.867   gap 16.7 / 17.3 mm
+              runekeeper 41.0 / 41.6   at u 1.000/0.944  v 0.933   gap 20.3 / 20.5
+              berserker  45.4 / 49.8   at u 0.972        v 0.867   gap 18.1 / 19.3
+  suttonhoo   warden     35.3 / 31.9   at u 0.972        v 0.867   gap 15.5 / 17.2
+              berserker  33.3 / 40.1   at u 0.972/1.000  v 0.867   gap 17.6 / 19.1
+```
+
+**v is 0.80–0.93 every time and u is at 0.03 or 0.97 every time** — the guard's
+front-bottom CORNERS, both sides, on all four classes. (The huscarl reads
+`gap 75.0 / standoff 75.0`, the search cap exactly; he is `blind`ed for the coif
+and is not gated.)
+
+### THE LEVER IS THE DEPTH, AND IT IS MONOTONIC
+
+The guard's floor is `skullY - R.y * 1.12`; the flange's is `0.45`. Swept
+through the same code with nothing else changed:
+
+```
+  guard floor 1.12 head-radii  ->  worst flare 49.8   (ships)
+              0.90                              45.4
+              0.70                              34.9
+              0.45                              26.0   (the flange's own depth)
+```
+
+So the flare is bought by how far below the skull's BASE the plate reaches —
+which is exactly where `hullAt` (the profile the plate is swept on: skull, then
+neck, then coif) and `formHull` (`withNeck(formTab)`, what the ruler measures
+against) diverge. `withNeck`'s own note calls the ceiling that stops the neck
+reaching up into the jaw **"the one thing about this table that is still an
+approximation"**.
+
+**Two things it is NOT.** `napeHalf`'s widening coefficient, swept 0.44 → 0.30 →
+0.20 and from `v²` to `v`, moves the worst flare between **48.5 and 52.0** — no
+lever at all. `clearAt` ramps 13 mm → 15 mm over the whole fall, and 2 mm cannot
+make a 50° angle across a 12 mm step.
+
+### AND THE SAME HARNESS'S OTHER COLUMN SAYS THE PLATE IS FINE
+
+`standoff` — how far the metal actually is from the head — reads **15.5 to
+20.5 mm against a 26 mm bar** on every gated class, and it does not move as the
+flare climbs from 26 to 50. **A plate departing at 50° sustained over its lower
+third would be far more than 20 mm off by the hem.** Both readings cannot
+describe a wing; what they describe together is a LOCAL swing — the plate close
+to the skin at one sample and 17 mm off 12 mm later, across the submandibular
+hollow the form table admits is approximate.
+
+**Photographed** at the bearing the corner is on, production build, arena light:
+`art/look/nape2/facecard-helmhelm_wyrm-clsberserker-turn140.png` — the berserker,
+the class that reads 49.8, in the Wyrm-Crest. The guard hugs the skull, its hem
+sits on the neck, and there is no daylight and no wing. `art/look/nape/` is the
+huscarl for comparison, guard flush over the coif.
+
+### WHAT IS NOT DONE, AND WHY IT IS NOT A TUNING JOB
+
+Two honest routes, neither taken here:
+
+1. **Repair the hollow in `withNeck`.** It is the cause. Filling it is what the
+   "phantom cylinder" got wrong in round eight, so it needs its own unit.
+2. **Make the flare ruler measure a RUN.** Its own header says *"A flare is a
+   thing you can see, and what you see is the angle a plate holds over a run of
+   it"* — and then differentiates across a single 12 mm step. A sustained
+   departure and a one-step swing are different things and this column cannot
+   tell them apart.
+
+**Moving the bar from 22 is not on the list.** It is the one repair that would
+turn the column green without learning anything, and this file's own rule is that
+a bar tuned rather than met is worse than a hole.
+
+---
+
+
+## OPEN — the paid hair under the Shadow Hood is NOT a cull, it is the MANTLE — 20 Aug 2026
+
+`cosmetictest --no-render` on `main`:
+
+```
+  FAIL  every paid hairstyle still reads under every helm, the hood included
+        SWALLOWED  Long Mane (40g) under Shadow Hood — 0.97% (bar 1.00%)
+        SWALLOWED  Braided War-locks (100g) under Shadow Hood — 0.97%
+```
+
+Both paid rungs read **0.97% against a 1.00% bar, and both the same to two
+places** — what survives is the fringe they share, not the mass that tells them
+apart. The owner's ruling is already quoted in the harness: *"long hair
+dissappears fully even if it should be visible at the below the helmet"*.
+
+### Three culls found and removed, and the gate went GREEN — and it was still wrong
+
+```
+  characters.ts  hairCeil    the `hooded` branch had NO rim test, while the
+                             `helmed` branch beside it has always had one. Below
+                             the cowl `clamp01` pins the ramp at 0 and
+                             `hoodLift(u,0)` still returns a finite number, so a
+                             mane a foot below any cloth was capped at 22 mm.
+                 hairFall    `if (hooded) return 0` — no falling mass at ANY
+                             bearing.
+                 the plaits  `if (hooded || (style.mask && !coifed)) continue`,
+                             with every sentence of argument around it about a
+                             MASK and none about a hood.
+```
+
+Removing all three took the gate to **PASS, all clear, `cosmetictest` 15/16**.
+
+**And it is reverted, because `wearmeasure` caught what it bought:**
+
+```
+  [wear] hood  long   89.6 mm through   66.67% of the shell   at -126/-61 deg   <-- FAIL
+```
+
+Against `0.0 mm / 0.00%` on `main`. **A mane through the cloth is a worse defect
+than a mane under it**, and the gate that was green would have shipped it.
+
+### What the cause actually is, measured
+
+The hood is not a cowl. It is **four pieces**, and the one that matters is the
+last:
+
+```
+  cowl     helmWear, v0 = hoodRim(u)                     rim 56 mm above ...
+  mantle   helmWear, v0 = hoodRim(u), v1 = 0.9
+  point    a shell behind the nape
+  DRAPE    rings at skullY - R.y*1.45, -2.10, and a hem at
+           skullY - R.y*2.95 with a half-width of R.x*2.02
+```
+
+The drape's hem is **below the shoulder and more than twice the head's own
+half-breadth**. A mane hanging inside that is not being culled by a bug — **it
+is inside a mantle, and it would be invisible on a real man too.** `hairCeil`'s
+own header admits the shape of this: *"at the nape all three overlap and the
+nearest of the three is the one the hair has to clear, which no single lift
+function knows."*
+
+### So the next round's move, and it is geometry rather than a cull
+
+Hair reads under a hood because it comes out of the **FACE OPENING** — round the
+temples and down the front — not because it escapes at the nape. The work is to
+root the mane's forward courses and the war-locks' plaits in front of the cowl's
+rim so they hang OUTSIDE the cloth, and it has a hard constraint to be measured
+against: anything routed behind `hoodRim(u)` must clear a drape whose hem is at
+`skullY - R.y*2.95` and whose half-width is `R.x*2.02`.
+
+**Do not reach for the three culls again.** They are the obvious move, they turn
+the gate green, and they put 89.6 mm of hair through the cloth.
+
+---
+
+## THE REPLAY ROUND, LANDED — 20 Aug 2026
+
+The owner's four reports from a played build, and where each one ended up.
+
+| the report | what it was | where |
+|---|---|---|
+| *"the whole vote for mercy or kill … is what's causing the bodies to freeze … it's every player at low health, not the final 1v1 … I imagine it wasn't even a thing for Anglo Saxons and would be more Roman"* | `goDown` parked the floor clock for `MERCY.window` = 2.5 s on **any** man reaching 0 hp, mid-round, and left him `knocked` and upright throughout | MERCY OR FINISH removed entire, `docs/MERCY-REMOVED.md` |
+| *"the bodies now also randomly lean back after certain actions but it's very dramatic like back bending over backwards … or flopping quickly down & up"* | one clock served six animations | one clock per MOVE |
+| *"the dead bodies are still sometimes freezing partially raised, like there's no gravity to them"* | `topple()` read three Euler angles as an axis-and-angle, so a man who lost a limb never reached the ground — and the ruler shared the same false premise (`hypot(prx, prz)`) | both repaired; `gravitytest` §2 0/10 stop short, §4 0/24 topple against the blow |
+| *"the final kill camera would be better as a slow mo replay before the next round … & also before a match ends too (Skippable … just take them to the lobby)"* | did not exist | `src/game/replay.mjs`, 57.6 KB ring, half speed, 4.0 s inside a 5.0 s break, SKIP at match end only |
+
+Two defects the round found in its own work and closed rather than filed:
+
+* **The replay cut away 0.09 s before a burnt man hit the turf.** Carried as a
+  deferral for two rounds — *"freezetest measures a body reaching the ground
+  between 0.52 s and 1.17 s"*. That range averaged two different deaths. Steel
+  lands by 0.82 s and always fitted; the FIRE lands at 1.17 s and was being given
+  0.92 s of run-up derived from the slowest SWING, for a stroke it never had. The
+  derivation now inverts per cause and `replaytest` §3 gates it. See
+  `docs/REPLAY.md` §3.
+* **The 3D name plates were STALE, and read backwards.** `stage.hud.update` was
+  called on the summary branch and the fight path and nowhere else, so plates
+  kept the last fighting frame's transform through the death hold, the round
+  beat, the replay and the lobby orbit; seen from behind a `DoubleSide` plate is
+  the name reversed. Pre-existing on `main`; the replay is simply the longest the
+  camera has ever moved while the HUD was not looking. Ticked now on the
+  non-fight path, suppressed in the lobby, and a replayed man's bar reads the
+  RECORDED health. Photographed: `.replay/shots/held-replay-1.png`.
+
+**The battery on the merged tip.** `replaytest` GREEN with no deferrals (first
+time), `deathcamtest` 45/45, `protocoltest` 81/81, `playtest` 37/37,
+`summaryflow` **15/15 with 2 not run — against a `main` control of 14/14 with 3
+not run, taken on the same box in the same window**, `gravitytest` PASS with the
+one owner's-call deferral (`ability -> rolling` 12.3°/frame against a 12° bar),
+`tsc` clean.
+
+**One thing this branch is measurably worse at, recorded rather than buried.**
+`hudspace --secs=25 --quality=high`, alternating paired runs:
+
+```
+                 num/num    name/name   num/name   num/bar
+  main   r1       5.47%       2.47%       0.00%     0.00%
+         r2       3.90%       1.59%       0.00%     0.00%
+  mw5    r1       3.15%       1.83%       0.10%     0.42%
+         r2      17.22%       2.93%       0.00%     0.45%
+```
+
+`name/name` and `num/num` overlap completely — no signal either way, and `num/num`
+is plainly load-bound. `num/bar` is the one consistent column: **0.00% on main
+twice, 0.4% on this branch twice.** That is ANY ink contact between a damage
+number and a health bar; more-than-a-quarter-buried is 0.00% on both. The cause is
+this branch's pose timing moving bodies slightly differently so numbers spawn at
+slightly different places. Not enough to hold the merge, and not something to
+discover later from a screenshot.
+## CLOSED, with the capture — the vat lifted TUNIC and TROUSER off the field's own value, on every people — 20 Aug 2026
+
+**This entry replaces one written earlier in the same session that said "the
+value band is NOT the lever". That entry was measured with the wrong ruler and
+is corrected here rather than left standing — R8, on myself.**
+
+### The wrong ruler, and why it read a false negative
+
+The first three passes were scored on the **huscarl** card. A huscarl carries a
+shield, and the Saxon's board is gold — which §4.1 *requires*, at ΔE 33.5 from
+the other three peoples. So the statistic was dominated by the one surface on the
+man that is supposed to shout, and it read "unmoved" while the cloth underneath
+was changing. The **weard** carries no shield and is the ruler for cloth.
+
+### The surface, named in one second with no browser
+
+`finishKit` and `kitFor` are the shipped resolvers. Every surface, every finish,
+post-vat, sorted by L\*, takes a second — and it is the same surface for every
+people:
+
+```
+  saxon    trouser  Crimson Warplate  #bfa400  L* 67.7  C* 70.8   lifted +42.9
+  saxon    tunic    Rough Iron        #bfa600  L* 68.3  C* 71.3   lifted +28.8
+  saxon    trouser  Blackened Steel   #b2a44d  L* 66.9  C* 46.6   lifted +48.3
+  briton   trouser  Sea Queen's Gift  #4bc0a1  L* 70.7  C* 40.8   lifted +44.4
+  briton   tunic    Sea Queen's Gift  #28c8a3  L* 72.5  C* 48.8   lifted +39.5
+```
+
+Six of the Saxon's twenty brightest surfaces were tunic and trouser at **chroma
+70**, lifted by the vat as much as **forty-eight points of L\***. `wrap` — the
+band three passes were spent cutting — sits ABOVE them at L\* 75.7 with
+`dL −1.3`: the vat is not lifting it at all, the shop's own Bretwalda Gold kit is.
+
+```
+  saxon.cloth    sat 0.66 -> 0.50   lo 0.26 -> 0.12   hi 0.66 -> 0.22
+  briton.cloth   sat 0.50 -> 0.42   lo 0.30 -> 0.12   hi 0.72 -> 0.22
+  pict.cloth                        lo 0.16 -> 0.12   hi 0.54 -> 0.26
+  norse.cloth                                         hi 0.34 -> 0.28
+```
+
+### On the frame, on the man with no shield
+
+`art/look/v2/faction-warden.png` against `art/look/calm/faction-warden.png`,
+same lens, same light, every pixel of each people's front card:
+
+```
+                  saturated + bright        pale-or-saturated + bright
+    people        before     after           before      after
+    saxon          3070       1203            3503        1580    -55%
+    briton          166        167            1880         622    -67%
+    norse           225        233             344         344      --
+    pict            186        189             275         274      --
+```
+
+Both outliers cut by more than half; the two peoples that were never garish do
+not move at all, which is what says the change went where it was aimed. The
+Briton goes mint to sage, the Saxon highlighter to weld, and `#ffd300` — a
+channel pinned at 255 — is gone from the Saxon's leg wraps.
+
+### What this did to the PAID LADDER, and it is the lead for the next round
+
+`5.2b NO REFUND PER SURFACE` moved 20 -> 19 -> 16 -> 17 across the passes, and
+its own line says why it responds to `sat` at all:
+
+```
+  the worst is 3.66 (norse: Bronze Scales vs Bretwalda Gold),
+  against 11.85 for the same pair UNSWORN
+```
+
+The shop has an ΔE 11.85 ladder on that pair and **swearing collapses it to
+3.66**. The vat is not TINTING a finish, it is REPLACING it: a high `sat`
+overwrites whatever the player bought. `sat` is the lever, demonstrated on one
+surface of one people. That is the next round's work, and it now has a proven
+knob rather than a theory.
+
+---
+
+## OPEN — the Danelaw's rose is SETTLED; §1 is not, and the cause is now proven rather than argued — 20 Aug 2026
+
+**Row 9 of the table below is shipped.** `norse.wrap` `lo 0.16 -> 0.10, hi 0.42 -> 0.12`
+and `norse.linen` `lo 0.24 -> 0.05, hi 0.50 -> 0.12` — `FACTIONS.md` §2's *"darker
+wools"* taken literally, which is what §10.3's own diagnosis pointed at and what the
+round before it built a fade instead of doing. Measured on this tree, `factionread`:
+
+| | shipped before | row 9 (ships) |
+|---|---|---|
+| 1.1 SWORN | **FAIL** 2.30 against a bar of 2.3 | **PASS** (worst 2.41, and it is a Saxon warden, not the Dane) |
+| 1.2 DISTINCT | FAIL 5.97 | FAIL **6.59** |
+| 1.3 PEOPLE | FAIL **−65.38°** | FAIL **−35.65°** |
+| 5.3 near-neutral on the arc | PASS | **PASS**, all 196 |
+| 5.4 vat puts a surface IN the band | **FAIL** 1 of 196 (Sea Queen's Gift wrap) | **PASS**, all 196 |
+
+**The owner's defect — the pink Viking — is closed on this instrument.** Both band
+gates are green on all 196 dyed surfaces. `wrap.hi` is `0.12` and not row 9's `0.14`
+for exactly one reason, which the previous round had already isolated and could not
+finish: at `0.14` the Sea Queen's Gift leg wrap comes out `#7f5a61`, L\* 42.3 — **1.3
+points over the band's own L\* 41 floor**, in the band, and §5.4 names it. At `0.12`
+it drops under the floor, where the red arc still has its dark names, and clears.
+
+### WHY §1.2 AND §1.3 CANNOT BE TUNED OUT, AND IT IS ONE MEASUREMENT
+
+Four configurations were run through the shipped `factionread`, each changing one
+thing from row 9. Every one of them holds 5.3 and 5.4 green:
+
+| what changed | 1.2 | 1.3 |
+|---|---|---|
+| row 9 as shipped | 6.59 | −35.65° |
+| `metal.bias` 1.16 → 1.00 (dimmer mail) | — | −33.47° |
+| + `cloth/wrap/linen/leather` sat raised hard (0.74/0.48/0.34/0.56 → 0.85/0.75/0.70/0.70) | 7.83 | −33.05° |
+| **`metal.sat` 0.07 → 1.00 — the mail carrying the FULL garnet hue** | — | **−32.84°** |
+
+**Read the last row.** Turning the Danelaw's mail all the way up to his own field's
+hue — fourteen times the shipped saturation, the single largest thing that can be
+done to the largest surface he owns — moves §1.3 by **0.2 degrees**. The knob is
+disconnected, and it is disconnected *by the fix that stopped him being pink*: the
+anisotropic cap hands the mail back UNDYED, so `metal.sat` has nothing to act on.
+
+That is the trade stated as a measurement instead of an argument:
+
+> A cloakless huscarl in Polished Steel is mostly mail. His mean hue can only be
+> made to read garnet by warming the mail. A warm near-neutral mail is precisely
+> the surface §5.3 exists to forbid, because it is the one the bonfire finishes
+> dyeing pink. **§1.3 and §5.3 are asking the same surface for opposite things**,
+> and no setting of this vat answers both.
+
+### WHAT IS NOT YET KNOWN, AND IT IS THE NEXT INSTRUMENT AND NOT A TUNING PASS
+
+`factionread` §1 measures the man **WITHOUT HIS SHIELD** — its own header says so
+under "WHAT THIS FILE DOES NOT MEASURE", and calls the body-only reading *"the
+CONSERVATIVE one: the bar is cleared by the man without his shield"*. That framing
+is right for a PASS and it is **not right for a FAIL**. The failing loadout is
+`huscarl | Polished Steel | No Cloak` at bearing **0°** — the front — and a huscarl
+always carries a board, which §4.1 measures at **ΔE 33.5** between peoples and which
+is the largest flat colour he holds. So the man §1 is failing on is not a man the
+game ever draws.
+
+**Nothing here claims the failure is therefore false.** It claims the reading does
+not yet answer the question, and names what would: a posed capture with the board
+mounted, under light, which is `§6`/`vatprobe`'s path and not this file's. That is
+where the next round starts, and it is an instrument job, not a knob job.
+
+### AND THE PAID LADDER IS NOW VISIBLE, WHICH IS WHY IT IS RED
+
+`5.1b NO TWINS PER SURFACE` and `5.2b NO REFUND PER SURFACE` are **FAIL** — *"20 paid
+surfaces collapse onto the FREE Rough Iron's own"*, and Saxon tunic reads Rough Iron
+(0g) against Bronze Scales (110g) at ΔE 1.24, `#bfa600` vs `#bfa400`. These are not
+new defects and this configuration did not cause them: the old §5.1/§5.2 averaged six
+surfaces through `kitDE`, and §5.0b is the control that proves the mean is blind —
+**a byte-identical byrnie, ΔE 0.00, reads ΔE 18.77 through the kit mean.** The gate
+titled "THE PAID LADDER SURVIVES SWEARING" could not see the thing it was named for.
+The per-surface gates are the fix to the ruler; the twenty surfaces are the next
+round's work.
+
+---
+
+## SUPERSEDED — the eight-configuration table, kept for its numbers — 20 Aug 2026
+
+**This entry replaces two CLOSED ones below it.** Both were marked closed by the
+round that made the change, against this file's own rule — *"Delete an entry
+when a capture proves it gone, not when a change is made"* — and the round's own
+message says the after-set had not finished. One of the two claims is false on
+the tree it shipped, and `tools/factionread.mjs` says so out loud on every run:
+
+```
+node tools/factionread.mjs   @ origin/factionland3 (cc4008e), twice, identical
+  FAIL 1.2 DISTINCT  worst ΔC 6.47 (ΔE 7.56) — huscarl|Polished Steel|No Cloak|0: norse vs pict
+  FAIL 1.3 PEOPLE    worst norse/huscarl/Polished Steel/No Cloak at 160° — -53.74° NEARER THE PICT
+  FAIL 5.3 NO NEAR-NEUTRAL ON THE ARC  1 of 196: norse Crimson Warplate wrap #a08177, C* 14.3
+```
+
+The same file on `origin/factionland2`: **PASS 1.2 at 17.88, PASS 1.3 at
++3.47°.** The §1 code is byte-identical between the two trees. One instrument,
+one bar, two `characters.ts`. And §5.3 was added by the last commit of that
+branch, on a tree that fails it.
+
+`docs/FACTIONS.md` §10.3 asserts *"After the cap all four peoples read correctly
+with and without cloak and board"*. It does not reproduce.
+
+### THE TRADE, AND IT IS STRUCTURAL RATHER THAN A TUNING MISS
+
+`factionread` §1's signature is the warrior's **area-weighted mean albedo,
+averaged in LINEAR light**. `FACTIONS.md` §2 gives the Danelaw *"more metal,
+darker wools"*, and `norse.metal` implements it with `bias 1.16` over a floor of
+`lo 0.24` — so his byrnie is deliberately the brightest surface on him, and in a
+linear mean the brightest surface is most of the answer. **The Danelaw's byrnie
+IS his identity vote on this ruler**, and every other surface he owns is a
+rounding error beside it.
+
+That collides head-on with the owner's defect. Both ends are measured, by me, on
+this box:
+
+* **A byrnie the vat still holds is PINK.** `origin/factionland2`, production
+  build, settled `fightcard` captures of the Danelaw huscarl in Polished Steel,
+  graded with `tools/lib/roseband.mjs` over the man's own pixels, against the
+  SAME man in the SAME kit sworn to nobody on the same mark:
+
+  | bearing | sworn | modal | unsworn | modal | delta |
+  |---|---|---|---|---|---|
+  | 0° | **1.574 %** | `#f87868` | 0.202 % | `#c89090` | **+1.373, 7.8x** |
+  | 90° | **2.964 %** | `#f88070` | 0.281 % | `#a05838` | **+2.683, 10.5x** |
+
+  `#f87868` is salmon. §5.3's premise — a warm near-neutral on the arc is a
+  surface the bonfire finishes dyeing — is confirmed on a frame, not relayed.
+  **I did not capture the 180° pair on that tree**; the run was stopped to free
+  the box for the after-set, and a number I did not see printed is not reported.
+
+  The same three, on THIS tree, same build path, same lens, same control:
+
+  | bearing | sworn | modal | unsworn | modal | delta | vs the tree above |
+  |---|---|---|---|---|---|---|
+  | 0° | 0.584 % | `#a07060` | 0.193 % | `#c88880` | +0.391, 3.0x | **1.574 → 0.584, −63 %** |
+  | 90° | 0.362 % | `#886860` | 0.264 % | `#a05838` | **+0.097, 1.4x — inside the noise floor** | **2.964 → 0.362, −88 %** |
+  | 180° | 1.147 % | `#b08070` | 0.460 % | `#886068` | +0.687, 2.5x | not measured on that tree |
+
+  The profile is the bearing the owner's rose was reported at, and at the
+  profile the Danelaw is now within `vatprobe`'s own measured noise of the man
+  who swore to nobody. The modal colour goes salmon → dark warm grey at every
+  bearing. **It is not zero**: the front and the back still read 2.5-3x the
+  matched floor, and that residue is the bonfire on the brightest mail on the
+  roster, which is the standing reading below and is `norse.metal.bias`'s to
+  answer, not a fixer's.
+
+  And on **Crimson Warplate**, 130 gold — the finish an adversary found the
+  previous round's new rose byrnie on, `#9c6d6b`, 1.5° off the garnet — on THIS
+  tree, against the same man in the same 130-gold kit sworn to nobody:
+
+  | bearing | `cc4008e` sworn | over its floor | THIS sworn | over its floor |
+  |---|---|---|---|---|
+  | 0° | 1.387 % `#d89880` | +0.574 | 0.690 % `#d88868` | **−0.164 — BELOW its own floor** |
+  | 90° | 2.603 % `#b86060` | +1.463 | 1.212 % `#d89070` | **+0.080 — noise** |
+  | 180° | 3.148 % `#c86868` | **+2.177, 3.2x** | 1.088 % `#e8b098` | **+0.058 — noise** |
+
+  Both trees' floors are their own unsworn man in the same 130-gold kit, and he
+  reads 0.81-1.14 % rose with no livery on him at all, because the shop sells
+  him madder trousers and `FINISH_KIT`'s own "pale rose-grey" leg wraps. That is
+  what a matched floor is for and why a single global bar could not have graded
+  this finish at all. **At the back — the worst bearing, and the one the round
+  before last's after-set did not contain — the previous tree put its Dane 3.2x
+  over his own floor and this one puts him inside the noise.**
+
+* **A byrnie the vat has let go of reads PICT.** Bare steel is cool, woad is
+  cool, and the byrnie is most of the man. Every configuration that clears the
+  band fails §1.2 and §1.3, and every configuration that passes §1 puts the
+  Danelaw back in the band.
+
+### THE EIGHT CONFIGURATIONS, ALL RUN THROUGH THE SHIPPED `factionread`
+
+`rose` and `near` are `tools/lib/roseband.mjs` over the 196 dyed surfaces of the
+four peoples: members of the band, and surfaces PALE and ON the arc but under
+its C\* 14.8 floor, which is the region §5.3 gates and the fire lights up.
+`mail`/`kit` are the worst finish pair's ΔE, byrnie-only and over the six dyed
+surfaces, on the Danelaw.
+
+| # | what the vat lets go TO | §1.2 | §1.3 | rose | near | norse mail | norse kit |
+|---|---|---|---|---|---|---|---|
+| 1 | nothing — no fade (`factionland2`) | **17.88** | **+3.47°** | 10 | 3 | 0.52 | 5.58 |
+| 2 | grey, along the cone (`7aa306d`) | **11.04** | **+3.47°** | 0 | 19 | 0.00 | 2.55 |
+| 3 | the surface, capped isotropically (`factionland3`) | 6.47 | −53.74° | 1 | 1 | 1.92 | 2.79 |
+| 4 | the surface, uncapped | 6.47 | −59.48° | 1 | 0 | 2.02 | 5.44 |
+| 5 | 4 + the vat's load never cancelled | 7.59 | −57.02° | 1 | 0 | 2.02 | 5.44 |
+| 6 | 5 + norse cloth/leather floors lifted | 9.16 | −44.56° | 0 | 0 | — | 4.04 |
+| 7 | 4 + a soft floor under every value band | 5.87 | −77.60° | 0 | 0 | **13.78** | **7.59** |
+| 8 | **the surface, capped ACROSS the vat's hue (this tree)** | 5.97 | −65.38° | **0** | **0** | 1.53 | 4.26 |
+| 9 | 8 + `norse.wrap` `[0.10,0.14]`, `norse.linen` `[0.05,0.12]` | **7.36** | **−24.56°** | 1 | 0 | 1.92 | — |
+
+Rows 1 and 2 are the only green §1 in the table and both are RED on the owner's
+defect — row 1 is the frames above, row 2 puts nineteen surfaces in the region
+the fire dyes. Rows 3–8 are green on the defect and red on §1. **There is no
+setting of this vat that is green on both.**
+
+The knob is continuous and it is `ROSE_FADE`. On row 8's shape, holding
+everything else, run three times through the shipped `factionread`:
+
+| `ROSE_FADE` | §1.2 | §1.3 | Crimson Warplate leg wraps |
+|---|---|---|---|
+| 0.06 | 6.47 | −53.74° | `#a47f71` C\* 17.9 — **in the band** |
+| 0.05 | 6.39 | −57.11° | `#a28173` C\* 16.3 — **in the band** |
+| 0.04 (ships) | 5.97 | −65.38° | `#a18375` C\* 15.1 — clear |
+
+**More dye left on the byrnie is more identity and more pink, point for point.**
+The anisotropic cap itself changes §1 by nothing at all — row 8 at 0.06 reads
+exactly row 3's 6.47 / −53.74°, because the surfaces it stops bleaching are the
+ones whose own hue is already the Danelaw's, and those never voted against him.
+What it buys is the band and the ladder.
+
+### ROW 9 IS THE LEAD, AND IT IS THE ONE THIS ROUND DID NOT FINISH
+
+Row 9 is the only configuration in the table that is green on the owner's
+surfaces AND materially better than `factionland3` on BOTH §1 readings — §1.2
+6.47 → 7.36 and §1.3 −53.74° → **−24.56°**, which is half the remaining gap. It
+gets there by taking the Danelaw's **linen and leg-wrap value bands down to
+where his own field lives**, so those two large, pale surfaces come out dark
+madder instead of being let go to flax and greige — and the vote they carry is
+the vote the byrnie stopped carrying. It is `FACTIONS.md` §2's "darker wools"
+taken literally, and §10.3's own diagnosis pointed straight at it: *"every one
+of the four vats is allowed to lift a surface far above its own field's
+value — the Danelaw's `metal` band tops out at 0.68 and his `linen` at 0.50 —
+and on the red arc that is what makes a Viking pink."* The round that wrote that
+sentence built a fade instead of following it.
+
+What stops it shipping today is one surface: Sea Queen's Gift leg wraps come out
+`#7f5a61`, L\* 42.3, C\* 16.5, 19.4° off the garnet — inside the band, a hair
+over its L\* 41 floor. It wants one more tuning pass on the wrap band and a
+graded capture set, and it is where the next round should start.
+
+> **This row was nearly mis-reported as row 8's.** The worktree the 7.36 /
+> −24.56° reading came from also carried these two band edits, left over from an
+> experiment that had not been reverted, and the number was written into
+> `characters.ts` and `FACTIONS.md` §10.4 as the anisotropic cap's. It was
+> caught by diffing the measured tree against the file it was attributed to.
+> `docs/PROCESS.md` R8 — the failure this round is here to stop, committed by
+> this round, and corrected in the same session.
+
+### AND §1.1 IS THE SAME MAN A THIRD TIME
+
+On this tree §1.1 SWORN also goes red, at **2.30 against a bar of 2.3** — a
+floating-point hair, on `huscarl|Polished Steel|No Cloak|0 -> norse`, which is
+the same loadout §1.2 and §1.3 both name. Three readings, one man, one cause:
+his byrnie. Swearing to the Danelaw barely moves a man in Polished Steel any
+more, because what the vat used to do to that byrnie was the move.
+
+### WHAT IS ACTUALLY BLOCKED, AND WHOSE CALL IT IS
+
+Not a fixer's. Three of the four numbers involved are the owner's design:
+
+* `norse.metal.bias 1.16` and `lo 0.24` — *"near-white steel over the darkest
+  wools"*. This is what makes the byrnie dominate a linear mean. Row 7 shows
+  what softening the floor buys — **every mail ladder in the shop repaired at
+  once**, saxon 0.00 → 5.17, norse 0.52 → 13.78, briton 0.34 → 4.77, pict 2.47 →
+  5.94 — and what it costs: §1.3 −77.60°.
+* the arena's **bonfire**, which is what turns a warm near-neutral pink and is
+  `R11` stage 4's neighbour rather than its subject. Not to be relit to fix a
+  material.
+* `FACTIONS.md` §2's *"more metal, darker wools"* itself. A Danelaw whose
+  identity lived in his WOOL instead of his mail would have neither problem, and
+  that is a design change and not a constant.
+
+### WHAT A LATER ROUND MUST NOT RE-DERIVE
+
+* **A vat's `sat` is not the lever.** Four briefs said it was. Emptying three
+  vats made the rose worse; see the entry below.
+* **`ROSE_LIT` 0.44 is bounded on both sides by the shop's own leg wraps** —
+  Rough Iron's land at 0.4366 and must stay russet, Crimson Warplate's at 0.5510
+  and must let go. That gap of 0.114 is what fixes `ROSE_FADE` at 0.04.
+* **The cap on what a vat hands back must be ANISOTROPIC.** Capping the
+  magnitude turned Crimson Warplate's blood-red byrnie `0x7a2f2a` into `#9c6d6b`
+  — 1.5° off the garnet, L\* 50.8, C\* 20.3 — which is the only band member the
+  previous tree had left, on a 130-gold finish, and which `roseband`'s own
+  `MUST_CLEAR` list carries as a surface that ships CORRECT. What threatens a
+  people is chroma pulling AWAY from its field; chroma pointing AT it never can.
+* **§1's failing man has no cloak and no shield, and §1 removes his board by
+  its own documented deferral.** That is the conservative reading and it is
+  still the gate. A huscarl in play carries a flat garnet board.
+
+---
+
+## OPEN — the brightness ceiling bounds ONE channel and not the distance between three, and the Saxon's leg wraps are where it shows — 20 Aug 2026
+
+Reported off a capture: the Saxon's leg wraps render **`#fdd701`** — L\* 86.8,
+C\* 86.9, **blue channel at 1** — with 558 clipped pixels on the man at the back
+bearing and 540 in profile. Highlighter yellow, not weld.
+
+**It is a material and it is measurable in albedo, and here it is.** The rule
+`characters.ts` enforces is *"a livery may not make a thing brighter in any one
+CHANNEL than the brightest thing of that kind the shop already sells"*, and
+`underMaxChannel` implements it by scaling the colour down in linear light —
+which divides all three channels by the same number and therefore **moves
+neither the hue nor the saturation, only the exposure**. That sentence is in the
+code as a virtue. It is also the hole: a colour twice as saturated at the same
+peak passes the ceiling untouched.
+
+The shop's own brightest kit surface, which is what sets the bar:
+
+| | rgb | max | min | **spread** | C\* |
+|---|---|---|---|---|---|
+| `0xd2bd7c` Bretwalda Gold leg wraps, UNSWORN | 210, 189, 124 | 210 | 124 | **86** | 35.6 |
+| saxon, Bretwalda Gold | 210, 187, **38** | 210 | 38 | **172 — 2.0x** | **71.2** |
+| saxon, Bronze Scales | 210, 183, **60** | 210 | 60 | **150 — 1.7x** | 62.9 |
+| saxon, Rough Iron | 210, 187, **70** | 210 | 70 | **140 — 1.6x** | 60.2 |
+| saxon, Crimson Warplate | 210, 187, 94 | 210 | 94 | 116 — 1.3x | 49.5 |
+
+Every one of them is AT the ceiling on its top channel and none of them is
+anywhere near it on its bottom one. Put a warm key on that and the two high
+channels go to full scale while the low one is crushed: `#fdd701` is
+`(253, 215, 1)`, which is `(210, 187, 70)` with the top two saturated and the
+bottom one gone. **A channel at full scale has no fold shading, no weave and no
+form left in it — and so has a channel at 1.** The shop's own wrap keeps 124 of
+blue and therefore keeps its folds.
+
+### WHY IT IS NOT FIXED HERE
+
+The bound that closes it is a second ceiling on the same table — no wider a
+spread between a livery's brightest and darkest channel than the shop's own
+brightest surface of that kind has — and it is one line beside
+`underMaxChannel`. What stops it this round is scope, stated rather than
+skipped: it moves the **Saxon, the Briton and the Pict**, all three of which are
+byte-identical across everything above, and every reading in this file and in
+`FACTIONS.md` §10.4 would have to be re-taken behind it — §1's whole sweep, §5's
+ladder, and §6's clip counter, which is the only instrument that can say whether
+the new bound actually buys the folds back. That is a round's work and it is a
+round that starts with `factionread`'s §6 sweeping the shop, which it now does.
+
+**Inherited, not this round's.** Byte-identical on `factionland2`, on
+`factionland3` and here — `factionWorn` never reaches a surface off the red arc,
+so no fade this branch shipped can have touched a Saxon.
+
+---
+
+## OPEN — the Danelaw's shield board renders `#a7043d` and the material is `--garnet` exactly — 20 Aug 2026
+
+Reported off a capture: the board reads **`#a7043d`, C\* 61.8** — hot magenta.
+
+**The albedo is not the defect and that is the whole entry.** `shieldBoard`
+returns `wornField(FACTION_FIELD.norse)`, and for the Danelaw that resolves to
+`#7c1420` **unchanged** — L\* 26.4, C\* 48.7, hue 26.5° — because `wornField`'s
+cloak ceiling does not bite on a colour that dark. `#7c1420` is `--garnet` in
+`globals.css`, it is what `factionMap/territories.ts` paints the island with,
+and `characters.ts` says in as many words that it *"is NOT changed and must not
+be"* — the whole point of the feature is that the map and the man are the same
+four colours.
+
+So the 124 → 167 on red, 20 → 4 on green and 32 → 61 on blue happen downstream
+of every material this stage owns. `--garnet` is the most saturated dark colour
+in the game: 1.84 points of chroma for every point of value, which is the ratio
+`tools/lib/roseband.mjs` takes its own ceiling from. A grade that meters each
+frame and stretches contrast about that frame's own pivot — `adaptBand` in
+`postfx.ts`, which `src/app/shot/page.tsx` already warns about in its own header
+— has the least headroom exactly there, and green is the channel with the least
+of it.
+
+**`docs/PROCESS.md` R11 stage 4 is materials and shadows, and cuts both ways: a
+material must not be fixed by relighting the scene, and a grade must not be
+fixed by repainting a kingdom.** What this needs is a reading of `postfx.ts`
+against the four fields, which is a different stage and a different file. The
+number is here so a later round can tell a regression from the standing state.
+
+---
+
+## REOPENED (was CLOSED without a capture) — the Danelaw's rose, fourth round: the vat was BLEACHING the steel — 20 Aug 2026
+
+> **The diagnosis in this entry is correct and stands. The verdict does not.** It
+> was marked CLOSED on the day the change was made, and the round's own message
+> says the after-set had not finished; the tree it closed on FAILS `factionread`
+> §1.2, §1.3 and §5.3, and §5.3 is the gate the same round added. The entry
+> above carries the readings. Keep the mechanism, drop the word CLOSED.
+
+The entry below this one closed the same defect on 20 Aug and left a residue it
+called inseparable: *"the residue is the fire on bright iron... The next round
+that wants it green must argue about the BONFIRE or about `norse.metal.bias`,
+and both of those are the owner's decisions and not a fixer's."*
+
+**That was wrong and it cost a round.** The full write-up is `docs/FACTIONS.md`
+§10.3. What belongs here is the part a later round needs.
+
+### The mechanism was right and the question about it was wrong
+
+§10.2 established that a warm key ADDS on a warm-neutral and CANCELS on a cool
+one, then asked why the Danelaw's mail was *neutral* and concluded that being
+neutral was inseparable from "more metal". The question it never asked was why
+the mail had **stopped being cool**. Every steel in the shop is cool — Rough
+Iron `#5f6b7a` is C\* 9.9 at hue 264°, Sea Queen's Gift `#2f4a6a` is C\* 21.7 at
+hue 270° — and both came out of the vat near-neutral and aimed at the garnet.
+
+`factionDye` was applying the rose fade to the MAGNITUDE of the chroma sum. That
+sum is the surface's own chroma plus the vat's, so scaling it toward zero threw
+away the steel's blue along with the dye and left a remnant pointing wherever
+`HUE_CONE` had clamped it. **A vat that "lets go" by moving toward grey is not
+letting go, it is bleaching**, and a bleached near-neutral on the red arc is
+precisely what a bonfire finishes dyeing.
+
+### The two sentences worth keeping
+
+**Letting go is a move back to the SURFACE, not a move toward GREY.**
+
+**And what it lets go to is the surface UNDYED, not the surface.** Letting go all
+the way hands the whole identity vote back to whatever the man bought: uncapped,
+a cloakless Dane in Bronze Scales or Bretwalda Gold read SAXON and one in Sea
+Queen's Gift read PICT. The cap is `UNDYED_SAT`, off the shipped linen shirt.
+
+### What a later round must not re-derive
+
+* **A vat's `sat` is not the lever.** Three briefs said it was. §10.2 proved it
+  by emptying three vats and making the rose worse.
+* **`ROSE_LIT` 0.44 and `ROSE_TAPER` 0.04 are load-bearing** and the captures
+  that fixed them are in §10.2. Do not move them for this defect.
+* **The cloak and the board never enter the vat.** `cloakFor` and `shieldBoard`
+  both return `wornField(field)`, so a huscarl's identity survives things a
+  berserker's does not. Shoot a cloakless berserker before believing an
+  identity number.
+* **§5.3 is the cheap gate and it is the one that was missing.** No vat may
+  leave a surface pale, under the rose band's own C\* 14.8 floor, and on the
+  garnet's arc. Thirteen surfaces were in that region on the tree §10.2 shipped
+  and all thirteen were the Danelaw's byrnies, leg wraps and sleeves.
+
+### The blindness this round actually closed
+
+`factionread` §7 grades a GRADED render and that is the right instrument for a
+verdict, but it costs most of an hour and three rounds of this defect were spent
+paying it. §5.3 answers the same question in albedo, in a second, with no
+browser, because the failure has an albedo signature: **a near-neutral pointed at
+the red arc.** The band could not see it — the band is *required* to clear
+anything under its own chroma floor, and its floor is an albedo number in a lit
+scene. §5.3 gates exactly the region the band must clear and the fire then
+lights up.
+
+---
+
+## REOPENED (was CLOSED without a capture) — the Danelaw read ROSE at the sleeves and the byrnie — 20 Aug 2026
+
+> **The albedo half of this is genuinely gone** — the owner's `#b9746a` sleeve
+> resolves to `#a89c86`, undyed flax, and no dyed surface of any people is in
+> the band. What is not gone is what the entry's own last section already says
+> is left, and it now has a matched frame behind it rather than a reading of
+> one man: see the top of this file.
+
+The owner, off his own capture: *"THE DANELAW READS ROSE AT THE SLEEVES AND THE
+BYRNIE"*, `#b9746a`, and *"A Viking in dusty pink is not the Danelaw at any
+delta-E."*
+
+**Fixed, and the whole write-up is `docs/FACTIONS.md` §10.2.** What belongs here
+is the part the next round needs and would otherwise re-derive.
+
+### Why it survived a green 15/15 and then a green 21/21
+
+`tools/factionread.mjs` gates ΔC — how far the four peoples are APART. Rose is a
+long way from weld, from moss and from woad, so a pink Dane clears §1
+comfortably, and did, twice. **The question that gate cannot ask is whether the
+Dane is the RIGHT colour, and the right colour is not a distance from anybody
+else — it is a place on the wheel.** The file also carried this on its own
+verdict line the whole time: *"§0-§5 have no light and no grade — albedo only;
+§6 is the only lit section and it measures CLIPPING, not colour."* That is
+`PROCESS.md` failure mode 2 — a harness that knows what it cannot see, prints
+it, and goes green anyway — and the cost was two rounds.
+
+### Two rounds moved the wrong constant, and the lever is what proved it
+
+Round one took the `-0.024` hue shift out of the `norse` livery. Round two took
+`metal.sat` from 0.18 to 0.07. The brief for round three said to look at the
+`wrap` and `metal` vats. **`wrap`, `metal` AND `linen` were set to `sat: 0.00`
+— no dyestuff in any of the three — and the rose count DOUBLED, 3 dyed surfaces
+to 6. Emptying a vat leaves the surface's own chroma as all there is, and
+`HUE_CONE` turns that onto the garnet at exactly the weak magnitude that reads
+pink. The sleeve leaves the band only by going greige at `#a78a86`, which is the
+vat doing nothing.** A vat's `sat` is not the lever
+and three briefs in a row said it was. `PROCESS.md` R1 is the only reason that
+took twenty minutes instead of a round.
+
+### The one sentence to keep
+
+Red is the only arc on the circle whose pale form has a name of its own. Pale
+woad is pale blue, pale moss is pale green, pale weld is pale yellow — the word
+survives the value. **Pale garnet is pink.** `--garnet` is a dark stone at L\*
+26.4, and every vat is free to lift a surface far above its own field's value;
+for the other three that is right and free, and on the red arc it makes a
+Viking pink. So above `ROSE_LIT` the vat lets go.
+
+### What now exists that did not
+
+* `tools/lib/roseband.mjs` — the band, with every bound taken off a colour this
+  game already ships, and a `calibrate()` that runs on every use and must flag
+  the five reported roses while clearing ten shipped-correct surfaces.
+* `factionread` §7 — the gate, on graded captures, over the warrior's own mask,
+  barred by the worst frame of a people **not** on the red arc.
+* `tools/roselook.mjs` — the same band over a directory of PNGs in a second.
+
+### WHAT IS LEFT IS THE BONFIRE, AND §7.1 IS RED ABOUT IT
+
+The material is exhausted. The Danelaw's byrnie is `#898384` in albedo — C\* 2,
+which is bare iron — and his sleeves `#9b9695`, C\* 2, which is undyed flax.
+There is no dye left on either to take away.
+
+They still read warm on the screen, and this is the measurement that says why.
+Same pixel, same frame, huscarl at 180°:
+
+| | albedo | rendered |
+|---|---|---|
+| unsworn byrnie | C\* 9.9, **cool** blue, L\* 44.7 | C\* 6.5 |
+| Danelaw byrnie | C\* 2, neutral, L\* 55.1 | C\* 15.6–17.4 |
+
+Two things are doing it and neither is a dye. **The arena's key light is a
+bonfire**, so a warm light on a neutral surface adds while the same light on a
+cool one cancels — and **the Danelaw's mail is deliberately the brightest on the
+roster** (`metal.bias` 1.16, band `lo` 0.24), because "near-white steel over the
+darkest wools" is what `FACTIONS.md` §2 says the Danelaw *is*. A brighter
+surface returns more of the key, so it returns more of the key's colour.
+
+**AND THE CLASS SPLIT PROVES IT.** Share of the frame in the band, Danelaw,
+after the fix, against the unsworn floor of 0.162–0.273%:
+
+| class | byrnie? | @0° | @90° | @180° |
+|---|---|---|---|---|
+| huscarl | yes | 0.631% | 0.878% | **1.706%** |
+| warden | yes | 1.168% | 0.431% | 1.026% |
+| runekeeper | **no** | 0.160% | 0.151% | 0.139% |
+| berserker | **no** | 0.107% | 0.090% | 0.087% |
+
+The two classes that wear no mail are **at or below the unsworn man**. The
+livery adds nothing to the band on a man without a byrnie. Every point of the
+excess is on the two classes that have one, and their mail is neutral in albedo.
+
+So the residue is the fire on bright iron, and it is inseparable from the
+identity. Removing it means either darkening the byrnie — undoing "more metal" —
+or relighting the scene, and `PROCESS.md` R11 stage 4 is explicit that a
+material is not fixed at stage 6.
+
+**`factionread` §7.1 is therefore RED and should be**, at roughly 1.7% of the
+frame against an unsworn floor of 0.16–0.28%. `docs/GATES.md`: *"a red gate with
+a written defect behind it is the correct state"*. What it is red about has
+changed completely — it is no longer a pink Viking, it is a warm-lit one — and
+the frames beside it show the difference. The next round that wants it green
+must argue about the **bonfire** or about **`norse.metal.bias`**, and both of
+those are the owner's decisions and not a fixer's.
+
+### AND THE BAND'S CHROMA FLOOR IS AN ALBEDO NUMBER IN A LIT SPACE
+
+`tools/lib/roseband.mjs` takes C\* 14.8 off `0xc2b69c`, the undyed linen shirt.
+That is measured with no light on it. Every lit near-neutral in this scene sits
+above it, which is why §7 needs the unsworn control at all and why
+`tools/roselook.mjs` refuses to be a gate. The band is right about which pixels
+are *pale and on the red arc*; it is not, and does not claim to be, a statement
+that those pixels were dyed.
+
+---
+
+## THE JANK ROUNDS, LANDED — 19 Aug 2026
+
+Five rounds ran on the owner's *"the game currently feels visually buggy /
+laggy / jolty / jumpy when playing"*. This is the round that merged them onto
+`main` and stopped cleanly on the parts that are not finished. What is written
+here is the record the next round needs so that it does not re-derive any of it.
+
+### R9 — the whole battery on the final build, and main's own gates after the merge
+
+`node tools/janktest.mjs --secs=25`, every phase, on the merged and fixed tree:
+
+```
+  SERVER PACING     CLEAN — snapshot interval p99 51.50 ms, worst 54.72 against a 50 ms target
+  WIRE EPOCH        COUNTS PACKETS — 501 advances against 501 snapshots under
+                    flourishes, +0 phantom; control 1, inside the tightened +/-2
+  THE MOTIONLESS MAN  12 holds, drift p50 0.01 m, worst 0.17 m, over 0.25 m: 0 (0.0%)
+  EXTRAPOLATION     6.9% of warrior-frames, ahead p50 23.6 ms, worst 108.0 (cap 220)
+  BUFFER STALLS     31 warrior-frames (0.3%)
+  BUFFER RESETS     7 total, 7 a real respawn, 0 unexplained
+  BUFFER            74.72 ms fixed + 24.91 measured jitter = 99.62 vs arrival p99 83.70
+                    -> the buffer covers the jitter
+  DECOMPOSITION     2.11% at 60 Hz = 1.09 interval + 1.54 wire, CLIENT -0.52
+```
+
+**`main`'s own work still passes after the merge**, which is the thing a merge can
+break and nothing else here would have caught: `freezetest` green — a calm man's
+crown travels 24.3 mm in half a second against a walking man's 136.1, which is
+the fix `main` landed and this branch's `anim.ts` changes sit beside;
+`deathcamtest` **43/43**.
+
+`spectatetest` reads **12/14**, and **a clean `origin/main` worktree reads 12/14
+with the same two failures** — the control was taken rather than assumed. Both
+failures name this box in their own text: the run rendered at **1.14 fps** here
+and **1.17 fps** on `main`, so the death camera's 3.35 s hold spanned 58.6 s
+(57.1 s on `main`) of wall clock and never released inside the round, leaving no
+spectate frame with a living man to measure against. Pre-existing and
+rasteriser-bound; not a merge regression.
+
+### THE BLOB — the solver was applying HALF of every answer it worked out
+
+Four rounds tuned the spawn fan and the de-overlap easing and could not make
+number-across-number go away. The reason was three lines under a comment warning
+against exactly it.
+
+**The defect, and it is arithmetic.** `hud3d.ts`, the damage-number layout pass.
+`n.sy` is projected from `n.mesh.position`, which the integrate pass has ALREADY
+offset by last frame's `n.push` — deliberately, and the comment there says why.
+So `settle(...) - n.sy` is a **delta**: what is still needed on top of the offset
+the number is already holding. `n.push` is the **offset itself**. The line read
+
+```
+  n.push += (want - n.push) * ease(dt, want - n.push, n.hy);
+  n.sy   += n.push;
+```
+
+which drives `n.push` toward `want` as if `want` were the absolute answer. Solve
+its fixed point: it stops moving when `want === n.push`, and `want` is
+(total needed − already applied), so **it comes to rest at exactly half the
+clearance it asked for**. Every damage number in the game settled half-way out of
+every collision it solved. The second line is the same confusion again, adding
+the whole offset to a coordinate that already contained it, so every number
+placed afterwards settled against a phantom.
+
+The plates never had this — `plate.sy` is projected from the UN-pushed anchor, so
+there the same shape is correct — which is exactly why nameplate-across-nameplate
+closed to 0.02% in an earlier round while number-across-number would not move.
+
+**Two smaller things went with it.**
+
+* **The layout box now includes the SPIN.** The line it replaces claimed "a
+  quarter radian on a glyph this size moves its corner by well under a hundredth
+  of the screen". A damage number is WIDER than it is tall — about 1.26
+  half-widths per half-height at `high` — so rolling it by the shipped quarter
+  radian grows its axis-aligned box by `|sin| x w` vertically, about **28% of a
+  half-height**, against a `PUSH_PAD_Y` that pays for a fifth of it. The solver
+  was clearing a box a quarter shorter than the one three.js draws.
+* **`LEGIBLE_AT_ONCE = 6`.** `damageNumberBudget` (12/24/48) is a MEMORY budget
+  and was doing duty as a legibility one. The frame that opened this round
+  carried **fourteen** numbers. The cap is a hard ceiling and it holds — worst
+  up-at-once 9/16/12/9 on the baseline against 6/6/6/6 here. **On its own it did
+  NOT move the overlap statistic** (a separate 3-run pair, ink >50%: baseline
+  12.44/3.91/3.67 against 4.50/12.00/3.17), and that is recorded because the
+  next person will otherwise assume it did. It is kept because fourteen floating
+  numbers is not a readable screen at any burial threshold.
+
+**And the ruler was reading the wrong threshold.** `hudspace` headlined "more
+than HALF buried" for four rounds. Half of a two-glyph number is a WHOLE GLYPH —
+by the time that column moves the damage is long done, and both interlocks in the
+frame that reopened this were far under it. There is an **INK TOUCHING INK** column
+now: any overlap at all, which is what makes two glyphs read as one number. It
+can only make every branch look worse, which is the only kind of column worth
+adding.
+
+**Measured. `tools/hudspace.mjs --secs=60 --quality=high`, one ruler copied onto
+both trees, four runs an arm, ALTERNATING in one window. Baseline is this
+branch's own merge commit `14bc361` (= `origin/jank3` + `origin/main`).**
+
+```
+                   pair-frames   TOUCHING     >25% buried   >50% buried   worst up-at-once
+  baseline  r1        1367        25.46%        12.66%         5.78%             9
+            r2        1226        40.62%        26.43%        16.31%            16
+            r3        1421        20.06%         6.54%         2.32%            12
+            r4        1095        28.31%        16.89%        11.42%             9
+  this tree r1        1199         8.76%         1.17%         1.08%             6
+            r2        1446        13.28%         4.98%         3.87%             6
+            r3        1289        10.63%         1.01%         0.62%             6
+            r4        1449         9.59%         0.69%         0.28%             6
+  POOLED    base      5109        28.21%        15.17%         8.55%
+            this      5383        10.64%         2.02%         1.50%
+```
+
+**The arms do not touch on TOUCHING (worst branch run 13.28% against best
+baseline run 20.06%) or on >25% (4.98% against 6.54%).** On >50% one pair
+overlaps — branch r2 3.87% against baseline r3 2.32% — so the pooled 8.55% ->
+1.50% is the claimable figure there and the per-run separation is not.
+
+**Nothing was bought by throwing numbers further from the body.** Furthest number
+from the nearest warrior, worst per run: baseline 1.57 / **3.53** / 1.87 / 1.63 m
+against 1.83 / 1.79 / 1.80 / 2.23 m here — the branch's worst four are tighter
+than the baseline's worst one, and neither arm put a number over 3 m on more than
+that single baseline run.
+
+**R5 — fourteen frames of the fixed build, at `high`, read one at a time.**
+Last round reported "read h004/h009, clean" about a set that had a "139" printed
+straight through a "116" in it, and the ruler had silently dropped ten of
+fourteen screenshots. Both are fixed: `hudspace` prints every lost frame and
+exits non-zero, and this run wrote **14 of 14**.
+
+* BEFORE, on the merge commit, `h006.png`: "92" and "72" with their strokes
+  crossing at (110-178, 282-325), and "66" with a third number reading as one
+  impossible "667" at (195-247, 358-388) — **fourteen** numbers alive in one
+  frame. The owner's "337" verbatim.
+* AFTER, all fourteen: **not one pair of damage numbers printed through each
+  other.** `h009` carries "28 / 74 / 60 / 106 / 32" and eight nameplates; `h013`
+  seven nameplates and "41 / 21 / 8"; `h012` five plates and "108 / 63 / 9x";
+  `h004` "12 / 23 / 107 / 80". Every one legible.
+
+### OPEN — two nameplates ABUT sideways and read as one run-on name
+
+Seen by eye in `h009` of that same set, and it is a new finding rather than a
+regression: **"Godwine the Ste." and "Leofgar the Wary" sit at the same height
+with their glyphs touching**, so they read as `Godwine the Ste.Leofgar the Wary`.
+Their health bars below are plainly separate.
+
+The mechanism is in `settle`: it moves along **y only**, and only acts when two
+boxes overlap in x AND y. Two plates side by side at the same height do not
+overlap — they touch — so nothing fires. `PUSH_PAD_X` is **0.004 NDC**, about
+three pixels at 720p, which is the whole of the horizontal margin between two
+names. This is the `name/name` INK TOUCHING column, 1.73-3.78% of pair-frames on
+both arms of the battery above.
+
+**Not fixed here, and the reason is that the obvious fix has a cost nobody has
+measured.** Widening `PUSH_PAD_X` for names makes more plates count as colliding,
+which pushes more of them vertically, which drives more of them into the
+compaction branch and then into `COMPACT_MAX_PUSH` — where a plate is hidden
+outright (see the disclosure below). That is a trade between two kinds of lost
+information and it wants its own measurement, not a constant nudged at the end
+of a landing round.
+
+### OPEN — damage numbers are drawn BEHIND warriors, on a layer meant to prevent it
+
+Also seen by eye: `h007` has a "2x" more than half behind a cloak, `h003` a "2x"
+behind a shield boss, `h000` a "10x" behind a helmet. A damage number is put on
+`LAYER_UNOCCLUDED` precisely so this cannot happen, so either that layer is not
+doing what its name says for these meshes or the numbers are being sorted behind
+them. **Nothing in this repository measures it** — `hudspace` reads rectangles
+and cannot see what is in front of what — so there is no figure to put here, only
+three frames.
+
+### STOP CHASING THE JOLT. Here is the arithmetic that ends it — CLOSED AS A CHASE
+
+Three rounds aimed at one figure: *"the unexplained share of DRAWN 60 Hz samples
+changing speed by more than 8x the median"*, about 2.4%. It is three things added
+together and only one of them is the client's.
+
+`tools/janktest.mjs` §3 runs the identical test on three tracks and now prints
+the subtraction. Six runs on this branch, `--phases=motion --secs=25`, three with
+the jitter term and three with `--lever=1.5` (which reproduces the delay
+expression `origin/main` and `jank2` ship):
+
+```
+                       DRAWN 60 Hz   = differencing interval + wire + CLIENT
+  with jitter    r1       2.56%           1.56        1.24       -0.24
+                 r2       2.01%           1.04        1.49       -0.52
+                 r3       1.87%           1.38        0.40       +0.09
+  without        r1       1.63%           0.75        0.53       +0.35
+                 r2       1.74%           0.81        0.99       -0.06
+                 r3       2.17%           1.20        0.91       +0.06
+```
+
+**The client's share is within half a point of ZERO in all six runs, and
+negative in three.** The drawn track, decimated to the 20 Hz it was handed, is no
+rougher than the wire it was asked to draw. Most of the headline is the
+DIFFERENCING INTERVAL — differencing at 60 Hz instead of 20 Hz, which is a
+property of the statistic and not of the screen — and the rest was asked for by
+the server.
+
+**And the figure does not move with the treatment.** 2.56 / 2.01 / 1.87 with the
+jitter term against 1.63 / 1.74 / 2.17 without it, on ONE binary: fully
+overlapping, the treated arm no better. Any future claim of the form "this change
+reduced the jolt figure" needs a paired lever and non-overlapping arms, and this
+figure has never produced them for anybody.
+
+**Two rulers that manufactured the appearance of progress are fixed** (commit
+`3bca635`): the wire CONTROL was normalised by the man's median DRAWN speed, so
+it moved with any treatment — an exogenous column normalised by the wire's own
+median is printed beside it now; and the verdict line asserted "THE JOLT IS
+FRAME PACING, and no change to `anim.ts` can move it" off a comparison of the
+same positions on two clocks, which is circular and now says so in its own
+output.
+
+### The jitter-sized buffer PAYS, but not for the reason it was landed for — KEPT
+
+`anim.ts:JITTER_DELAY_PACKETS` adds `min(netJit, 0.5 x netInterval)` to a remote
+man's render delay. It was landed as a jolt fix and **that claim is withdrawn** —
+see above, the jolt figure does not move.
+
+It was re-tested on a **non-circular** measure against a **same-binary** lever:
+remote EXTRAPOLATION, the share of warrior-frames where render time ran past the
+newest snapshot and the client had to invent a position from velocity. Three runs
+a side, one build, `--lever=1.5` reproducing the old expression:
+
+```
+                        extrapolation   buffer stalls   render delay   floor: motionless-man drift
+  + jitter term          10.2  10.6  9.6    0.3 0.3 0.2%    99.5 ms     p50 0.01 0.01 0.01, over 0.25 m 0/0/0
+  flat 1.5 x interval    17.8  14.2 13.5    0.2 0.1 0.2%    74.5 ms     p50 0.01 0.01 0.02, over 0.25 m 0/0/0
+```
+
+**The arms do not overlap: every run with the term is below every run without
+it.** Invented motion is cut by about a third. The cost is stated: **25 ms of
+extra render delay for a REMOTE man**, and a tenth of a point of buffer stalls.
+
+**The floor cost claimed last round does NOT reproduce.** That round reported the
+motionless-man median moving 0.00-0.01 -> 0.05-0.06 m and called it "the 25 ms
+arriving where arithmetic says it should". On a paired same-binary lever the
+median is **0.01 m on both arms** and neither arm puts a single hold over 0.25 m.
+An adversary said this was run variance and he was right.
+
+So it stays, with the claim rewritten to what was actually shown.
+
+### `playtest`'s input-rate check is LOAD-SENSITIVE, and the branch does not drop it — SETTLED
+
+The accusation: `jank2` read `[playtest] 36/37 controls working` twice, a
+different check each time, while `jank` and `main` read 37/37. Those controls
+were taken at a **different machine load**, so they were never a comparison.
+
+Settled properly. This branch and a clean `origin/main` worktree, both freshly
+built, run **alternately in one window**, three runs each. Every run, verbatim:
+
+```
+  18:57 UTC  jankland  37/37 controls working    input 63 msgs/sec
+  19:01      main      37/37                     input 62
+  19:05      jankland  37/37                     input 63
+  19:09      main      37/37                     input 61
+  19:13      jankland  37/37                     input 62
+  19:17      main      37/37                     input 63
+```
+
+Six runs, six greens, no `FAIL` line anywhere, and the input rate sits inside
+61-63 on both arms with the branch on the high side of it. **The 36/37 is not
+reproduced and there is nothing here to attribute to the branch.**
+
+**And the check that would fail first is a wall-clock rate.** `tools/playtest.mjs`
+counts input messages over one real second and fails under 45; on a box with no
+GPU that is a reading of the render loop, and the render loop's rate moves with
+whatever else is on the machine. While these runs were being taken this box was
+carrying **four stale `node custom-server.mjs` processes** from earlier sessions
+on four cores, load average 2.8 — which is exactly the kind of thing one run
+against a remembered control cannot see. The check now says LOAD-SENSITIVE in
+its own output, and says that one low reading is a reading about the box.
+
+**R10 — the brief and the tree disagree.** The brief said this entry was already
+in this file. It was not; `grep 36/37 docs/` was empty on every jank branch. It
+is here now.
+
+**And the named suspect does not exist.** The brief named "the per-frame
+four-corner quad projection `hud3d.ts` gained". `hud3d.ts` has **three**
+`.project()` call sites in total — `:1816` one per plate, `:2050` and `:2134`
+one each per damage number — against `main`'s one, and the damage-number
+population is now capped at six. The four-corner projection is in
+`tools/hudspace.mjs`, which is the RULER and never runs in the game.
+
+### The branch HIDES a plate main would have drawn, and no report said so — DISCLOSED
+
+An adversary found this and was right to call it undisclosed. `hud3d.ts` gained
+two `p.group.visible = false` sites `main` does not have:
+
+* `:1881` — a plate in a stack too deep to solve has already given up its NAME
+  and been re-placed on its bar alone; if even that needs more than
+  `COMPACT_MAX_PUSH` (half the screen), the bar is hidden too. The man's name
+  AND his health bar are gone, for a warrior who is on screen.
+* `:1908` — the edge fade is re-asked after the push, so a plate shoved off the
+  top of the frame is hidden. That one is plainly right.
+
+Measured by the adversary at `quality=high`: health bars drawn per frame,
+`main` 3.686 against this branch's 3.362. Removing only `main`'s 5.11%
+off-screen bars predicts 3.498, so of the order of **4% of ON-SCREEN bars are
+additionally gone**. That residual is inside one run's noise and cannot be
+sized from it; the code path is not in doubt.
+
+**It is kept, and the argument is in the source at that line**: past
+`COMPACT_MAX_PUSH` the only alternative is a bar printed through another bar,
+and a bar printed through another bar is not information. But it is a real
+choice about what the player is shown, it belongs to the owner, and it should
+never have been landed without being written down. It is written down now.
+
+**Damage numbers are NOT culled this way, and the same adversary said so in the
+branch's favour**: numbers up at once went 2.30 to 2.14 mean and p95 5 to 4 over
+that pair of runs, so the number-overlap win of earlier rounds was not bought by
+hiding numbers.
+
+### Left NOT done, on purpose, so nobody reads it as done
+
+* **Not one draw call was removed.** The analysis is real and is costed in
+  `docs/BACKLOG.md` — the briefed 614 is the `low` preset, `high` is 4,204 calls
+  and 3.4M triangles, warriors are 72-79% of visible meshes at 26-33 MATERIALS
+  each, and the merge floor is the material count, 417 -> 229, about **22%** of
+  the high tier. R12 stage 6 is refused in writing there, with both easy levers
+  named. It is a backlog item with a number on it, not a fix.
+* **The two nameplate collisions above are open**, with their frames.
+* **`tools/latencytest.mjs input` still does not exist**, so input latency — the
+  other half of LAGGY — is measured by nothing in this repository. That is
+  already on `janktest`'s verdict line and in `docs/PERFORMANCE.md`; it has not
+  moved this round.
+* **Worktrees other rounds left behind** are still on disk under
+  `.claude/worktrees/` (`adv3-*`, `av-*`, `j3-*`, `hn-*`, `advx-*`). They are not
+  this round's to delete, but four stale `node custom-server.mjs` processes from
+  them were running on four cores while these measurements started and were
+  killed before the decisive ones. Whoever tidies them should also check `ps`.
+
+
+## OPEN, AND PRE-EXISTING ON `origin/main` — loose hair commas on the bare cheek under an open-faced helm
+
+15 Aug 2026, round ten. An adversary shot
+`/shot?preset=facecard&cls=warden&helm=helm_ridge&hair=hair_short&turn=-90` on
+`helm9` and found five isolated dark hair fragments standing on bare cheek skin
+between the mouth-corner and the ear, plus a sixth straddling the ear's front
+rim. His controls: `hair_shaved + beard_none` removes them, so they are hair;
+`hair_short + beard_none` leaves them, so they are not the beard; `helm_none +
+hair_short` shows the same coils ATTACHED, as a hairline fringe hanging off the
+mass.
+
+**THE FIRST QUESTION NOBODY HAD ASKED IS WHETHER THIS IS ON `origin/main`, AND
+IT IS.** Settled before anything else was touched, because it decides whether
+nine rounds of work is shipping or is blocked on a regression.
+
+Same build, same preset, same bearing, on a clean `origin/main` worktree at
+`b30a79c` and on this branch at `2a5e8f9`, each from its own `npm run build`:
+
+    npm run shots -- facecard --cls warden --helm helm_ridge \
+      --hair hair_short --turn -90 --out <dir>
+
+Both frames show the same fragments, in the same places, at the same sizes. In
+the cheek window x 300-505 / y 320-430 of the 700x860 capture, dark-hair pixels
+on skin group into six islands of >= 25 px on each tree, matching island for
+island: 11475 / 943 / 315 / 297 / 197 / 25 px on `main` against 11499 / 946 /
+315 / 296 / 199 / 25 px here — 13283 hair pixels against 13315, a difference of
+0.2%.
+
+And off the built mesh rather than off the frame. `flanksweep` — horizontal rays
+at 1 degree x 1 mm over az 25-130, y 100-190 mm, comparing the `hair_short` build
+against the `hair_shaved` build so hair is named by the adversary's own control
+rather than by a tint (the brows are drawn in `hairColor`, so the hair tint is
+present on a shaved head and a tint split cannot see the hair at all):
+
+| loose island, not joined to the hair mass | `origin/main` | this branch |
+|---|---|---|
+| az 43-53, y 169-190 | 156 cells | **156 cells** |
+| az 100-106, y 151-166 | 73 cells | **73 cells** |
+| az 91-109 / 91-106, y 100-147 | 473 cells | **398 cells** |
+| **loose cells, total** | **702** | **627** |
+
+Three loose islands on each tree. The two on the cheek are identical cell for
+cell. The third — the one at the rear of the window, against the flange — is
+SMALLER here by 75 cells, which is round nine's nape clamp reaching the front
+edge of its own arc.
+
+**So this is a pre-existing defect that rounds eight and nine failed to fix, not
+one they caused. It does not block this branch.** It is fixed below on its own
+merits.
+
+---
+
 ## CLOSED — the chin reached down and thinned the beard, and the gate that caught it was reported green
 
 13 Aug 2026, round two. This one is about a claim, not a mesh, and the claim was
@@ -3718,3 +4948,1537 @@ Left open rather than half-done because a source scan that *looks* like a
 geometry check is worse than no check: it is the exact shape of the thirteen
 faults this repository has already recorded, and adding a fourteenth quietly
 would be the worst possible response to finding thirteen.
+
+## The four helm defects — FIXED ON A BRANCH, HELD BACK, 14 Aug 2026
+
+The owner photographed four faults in the armoury on his phone, portrait lens:
+the Sutton Hoo clashing with the huscarl's mesh, ears outside a full-face mask
+on the other three classes, "a full neck mesh on the front with a clear back",
+and the Wyrm-Crest's top piece "floating above the helmet not attached".
+
+**The work is on `worktree-wf_8ba2674a-ccb-1` and it is NOT merged.** Two rounds,
+two refutations, and the second one is why it is held.
+
+### What is genuinely fixed, and verified by adversaries
+
+* All four gates were shown RED ON MAIN by an adversary that checked out main's
+  `characters.ts` itself: WRAP 3 combinations at 152–160° bare over 78–93 mm;
+  LAYERS 11 combinations up to 15.2 mm; FLESH 4/4 masked classes at 7.3–9.3%.
+* WRAP and CREST go green. LAYERS falls from 11 combinations to 2. FLESH falls
+  from 7.3–9.3% to 1.15–2.46%, with the worst bin moved **off the ear** onto the
+  neck on every class.
+* **The ear diagnosis is real and better than the theory it replaced.**
+  `helmForm` is a 12 mm low-pass with nothing under a 45 mm radius, so the block
+  a plate is beaten over *has no ear on it*. That — not the hairline exemption —
+  is why the ears stick out. `earSeat()` publishes the auricle and the hull
+  soft-maxes it into the lateral half-breadth.
+* Round two then resolved the `wearmeasure` regression round one introduced, and
+  did it the right way: a split verdict, section by section, with three
+  measured references *before* code moved. Section 3 was the metal (deleting one
+  term returns main's number to the decimal). Section 4 was the ruler for 17 of
+  20 rows and the metal for 3.
+
+### Why it is held anyway
+
+**`cosmetictest` goes backwards, and the report says it does not.** The claim
+was "the one red is the paid hairstyles swallowed under helms, unchanged in
+wording and count". Measured on both sides, neither the wording nor the count is
+unchanged. Two PAID cosmetics newly go dark under the Sutton Hoo:
+
+    Long Mane (40g)           1.42% -> 0.04%
+    Braided War-locks (100g)  1.31% -> 0.08%
+
+and the free Warrior Crop newly crosses the 1% bar under the Boar-Crest and the
+Jarl's Crowned. A check that passes today sits 0.03 points from red: the closest
+paid pair under the Sutton Hoo went 1.43% -> 0.08% against a 0.05% bar.
+
+**And the mechanism is this repository's oldest failure, committed twice in one
+change.** The fix pulls the coif's top ring from `R.x*1.00 + 0.011` to
+`R.x*0.90 + 0.004` — tightening the mail onto the skull, which is what swallows
+the hair — while the SAME commit relaxes the ruler that would have caught it:
+`hairFitProbe`'s wall moved from `inner[k]` (a minimum over every worn mesh) to
+a per-mesh eroded wall, which can only raise the wall.
+
+That is a defect and its own alibi in one commit. Shipping it would trade the
+owner's ear complaint for two paid items nobody can tell from free — which is a
+defect he has already reported once, about the Shadow Hood.
+
+### What the next pass has to do
+
+1. Fix the ear **without** tightening the coif onto the skull, or compensate the
+   hair so nothing paid goes dark. The ear fix and the coif fit are separable —
+   `earSeat()` is the right idea and the coif ring is a different lever.
+2. Re-examine the `hairFitProbe` erosion change **on its own merits**, in a
+   commit that does not also move the geometry it measures. It may well be
+   correct — a garment that is only an edge in a bin should not set the inner
+   wall — but it cannot be argued in the same breath as the change it excuses.
+3. Carry forward, from the unit's own honest list: 15.0 mm of unidentified gilt
+   inside the coif at az 179 (two hypotheses already disproved — the crest's rear
+   tail and the nape guard's gilt lip — plus an untested third: `helmclash`
+   section 1 may read `coifLevels` without their z shift, which is the identical
+   fault `hullAt` was fixed for one level up); a beard hanging out from under the
+   mask that this work *uncovered* rather than caused; and whether the wyrm reads
+   as a serpent **at fight distance**, which has been queued twice and not shot.
+
+## What rounds three and four measured, before the container ate them — 14 Aug 2026
+
+**READ THIS BEFORE TOUCHING A HELM AGAIN.** Two more passes ran after the hold
+above. Both were measured in full. Neither was ever pushed, and the container
+rolled back and took the branch, the eleven commits, the workflow transcripts and
+the task logs with it. Everything below is what those passes *proved*, written
+down here because writing it down is the only part that survives a rollback. The
+code is gone; the knowledge does not have to be.
+
+The rollback itself is the lesson, and it is the seventh time: **a commit that has
+not been pushed does not exist.** Push after every commit, not after every batch.
+
+### The recorded mechanism for the hold was WRONG, and it is now measured wrong
+
+The hold above blames the coif's top ring, pulled from `R.x*1.00 + 0.011` to
+`R.x*0.90 + 0.004`. That is not the cause of the two cells it was held for. The
+ring was restored and the ruler re-run:
+
+```
+The Sutton Hoo   Warrior Crop  Long Mane  Braided W
+branch                 0.00%      0.04%      0.08%
+ring restored          0.00%      0.04%      0.08%   <- unmoved to the hundredth
+Iron Spangenhelm       1.90%      6.11%      9.41%
+ring restored          2.24%      6.34%      9.61%   <- main's numbers exactly
+```
+
+So the ring owns the **open** helms and nothing else. And it cannot simply be given
+back: with it restored, `helmclash` section 1 goes from **2 failing combinations to
+9** — huscarl crowned 15.2 mm, ridge 14.9, boar 14.9, wyrm 14.9, suttonhoo 14.8,
+nasal 12.7, spectacle 12.4, iron 11.7. Seven more rungs of plate driven through
+mail, bought for 0.3 points of a cosmetic that still passes its bar. That trade is
+refused.
+
+**The real cause of the two Sutton Hoo cells is the throat curtain — which is the
+WRAP fix the owner asked for.** Deleting the curtain returns the mane at
+1.51%/1.44% and drops the helm's face coverage from 100% to 82%, which is the
+owner's own reported defect coming back. Carrying the fall onto the ventail
+restores the numbers exactly (0.04% -> 1.41%, 0.08% -> 1.56%) with `helmclash`
+byte-identical — but it fails `hairFitProbe` at **96.5 mm through, 8.73%** against
+bars of 3.0 mm and 0.8%, because it puts hair outside the mail. Note for whoever
+tries this next: **+z is the face** (mask silver/gilt mean +73/+88 mm z, coif -42),
+so the mane that reads on main sits at 135-152 degrees off the face — the rear
+quarter, where the garment is the coif. Bounding the ride to where its own argument
+holds (`a <= coifRim`) returns 0.04%/0.08%. Below the hem is not a way out either:
+rastered one substance at a time, the mane is occluded by `mail`/`iron` at every
+band below y 1.50 **on main too**, and `shoulderRide` +80 mm buys 0.04% -> 0.10%.
+
+This is a design call, not a constant. Either a full-face helm over a mail coif
+hides the hair — which is true, and then the armoury must say so before the player
+spends 100g — or the Sutton Hoo rung needs its own paid surface to carry a cosmetic.
+Not a call to make inside a geometry fix.
+
+### The regression is uniform, and the hold above named 2 of 21 cells
+
+21 of 30 cells moved; 20 down, 1 up. Four cross the 1% bar, not two:
+
+```
+Long Mane (40g)          under The Sutton Hoo   1.42% -> 0.04%   SWALLOWED, paid
+Braided War-locks (100g) under The Sutton Hoo   1.31% -> 0.08%   SWALLOWED, paid
+Warrior Crop (free)      under Boar-Crest       1.24% -> 0.94%   below bar, ungated
+Warrior Crop (free)      under Jarl's Crowned   1.26% -> 0.96%   below bar, ungated
+```
+
+The two free casualties are ungated only because nobody paid for them, which is
+exactly the silence "a gate green because the case is absent is not a gate" warns
+against. Sixteen more cells fell 0.20-0.34 and stayed above bar. One rose (Braided
+War-locks under Wyrm-Crest, +0.05). Section 3's verdict moved from `2 swallowed —
+AND 3 free` to `4 swallowed — AND 5 free`. It is **red on main too**: this is a
+gate that got redder, not a gate that broke.
+
+Also measured: the closest paid pair anywhere went 1.43% -> 0.08% against a **0.05%
+bar**. A passing check 0.03 points from red. The 40g Long Mane and the 100g Braided
+War-locks are about 19 pixels from the harness declaring them the same object with
+two price tags.
+
+### Two of the owner's four helms were genuinely fixed; two sections stayed red
+
+`tools/helmclash.mjs` does not exist on `main` — it was written by this work, so its
+proof-of-failure was taken by copying it onto a `main` worktree and running it there.
+Both trees reproduce byte-identically on a second run.
+
+```
+SECTION   MAIN (fa8353a)                      BRANCH              VERDICT
+3 WRAP    FAIL 3 combos, bare arcs            PASS                GENUINELY FIXED
+          152.5-160.0 deg, 78-93 mm
+4 CREST   FAIL 4 combos (all wyrm),           PASS                FIXED, but the
+          air 43.4-44.0 mm                                        harness prints
+                                                                  itself a DEFERRAL
+1 LAYERS  FAIL 11 combos, worst 15.2 mm       FAIL 2 combos       IMPROVED, RED
+          clash to 45.1%                      worst 15.0 mm
+2 FLESH   FAIL 4 combos, 2.31-6.31%           FAIL 4 combos       MAGNITUDE ONLY,
+                                              1.15-2.46%          COUNT UNCHANGED
+```
+
+The ear fix (`earSeat`) is sound and its diagnosis holds: `helmForm` is a 12 mm
+low-pass with nothing under a 45 mm radius, so **the block a plate is beaten over
+has no ear on it**.
+
+### Round four's fixer deleted three paid beards to pass its own new gate
+
+It added `&& !style.mask` so no beard mesh is built at all under the Sutton Hoo —
+Full Beard (40g), Forked Beard (80g), Ringed Braid (120g) gone. An adversary caught
+it by counting head-pivot vertices: five distinct beard rungs on main
+(11896 / 13084 / 13216 / 13216 / 14272) collapse to one identical 12020-vertex head
+on the branch. It did not even work; section 5 PELT stayed red.
+
+The correct fix, which was written and committed before the rollback, is to **press
+the beard inside the mask** — a real beard is compressed by a face plate, and a
+beard that is inside the helm is fine where a beard that is absent is not. Redo it
+that way.
+
+### Three instrument faults found on the way, all still live on main
+
+1. **`cosmetictest` check 16 is a coin, on both trees.** "Two captures of one
+   subject are byte-identical" fails nondeterministically: main failed it twice
+   (area 64.2407%, then 78.1957%), the branch passed once then failed with numbers
+   **digit-for-digit identical to main's** (mean 0.7158%, area 64.2407%, worst
+   46.54%). So any tally comparison between trees — including the one in the hold
+   above — was never valid. Worse: section 4 gates rendered pairs at a **1% bar**
+   while the harness's own noise floor measures 0.72% mean and 64% area. **A
+   rendered comparison near 1% is not decidable on this box.** Fix the harness
+   before believing anything it says at that scale.
+2. **`gorestat` does not run at all, on either tree.** It hard-stops with "the jet
+   in vfx.ts no longer has the shape this harness rewrites: pulse line found, speed
+   law MISSING, emitter found". `docs/GATES.md` calls it **"green, 19/19"**. That is
+   this project's signature failure wearing a hat: a document asserting a gate is
+   green when the gate cannot run. Repair it or correct the doc — do not leave the
+   claim standing.
+3. **`hoodfall` is red on both trees**, 7 collapsed pairs, unchanged. Pre-existing.
+
+### The untested hypothesis this work died holding
+
+**Taper the coif instead of shrinking it.** The ring change is a *uniform* shrink,
+which is why it costs hair everywhere while only being needed where a plate rests on
+it. All nine LAYERS failures with the ring restored are **huscarl** — the class that
+wears the coif — and a plate touches the coif only across the crown, its footprint.
+Mail compresses under a helm; it does not compress at the rim, the fringe or the
+nape, which is precisely where hair shows. So make the ring radius a function of
+position: `R.x*0.90 + 0.004` inside the helm's footprint, `R.x*1.00 + 0.011` at the
+rim and below, blended between, with the footprint measured off the helm shell
+rather than guessed. Round four was mid-way through this when the container went.
+It is the best remaining idea and it is unproven.
+
+## `helmclash` exists again, and it disagrees with the lost one by a millimetre — 14 Aug 2026
+
+**The instrument is rebuilt and pushed. No geometry was touched** — R3: the unit
+that builds the ruler does not certify the fix. `npm run helmclash`, 2m36s for
+two full passes, byte-identical (`--twice`, 15868 characters).
+
+### It reads the mesh, not the ring tables, and that is the fault it was warned about
+
+The hold above records a suspected fault in the lost version: "`helmclash`
+section 1 may read `coifLevels` WITHOUT applying their z shift". The rebuild
+cannot have that fault, because it never rebuilds a ring: every number comes off
+the triangles `buildCharacter` emits. Pieces are recovered as connected
+components of the merged index graph — `mergeGeometries` concatenates indices
+and never welds, so one component is exactly one `p.add` call — and substances
+are decided by difference against a bare head, the way `wearmeasure` decides
+them. The mail tint comes from `finishKit(armorColor).mail`, so a player's armour
+finish cannot blind the gate.
+
+### Against the recorded readings, section by section
+
+```
+SECTION   RECORDED (lost pass, this tree)      REBUILT (mesh)          AGREES?
+1 LAYERS  11 combos, worst 15.2 crowned,       11 combos, 14.0 / 13.9  count yes,
+          suttonhoo 14.8, wyrm 14.7,           / 13.0 / 10.7 / 11.8 /  ~1 mm low
+          iron 11.7, spectacle 12.4,           12.4 / 11.7, clash      throughout
+          nasal 12.7, clash to 45.1%           40.5%
+2 FLESH   4 combos, huscarl 2.31, warden       4 combos, 3.51 / 5.76   count and
+          5.88, berserker 6.04, rune 6.31      / 6.14 / 5.02           order yes
+3 WRAP    3 combos, 152.5-160.0 deg at         3 combos, SAME THREE,   yes
+          78-93 mm                             149.5-152.5 at 71-80
+4 CREST   4 combos, all wyrm, air 43.4-44.0    4 combos, all wyrm,     count yes,
+          under a peak at 45.4-45.6            50.0-54.2              ruler differs
+5 PELT    (new, no baseline)                   13 combos
+```
+
+**The millimetre in section 1 is measured, not shrugged at.** A tessellated ring
+cuts inside the analytic curve it was sampled from: on the huscarl's coif at the
+rear the chords dip 1.19 mm inside the ring between two columns (r = 118.44 mm at
+az 180, 117.25 at az 188). That is the size AND the direction of the whole
+disagreement, and it means the two instruments are each right about their own
+object. The mesh is the object the player sees.
+
+**Section 4 measures a different quantity from the lost one** and reaches the
+same verdict. It takes the fitting's NEAREST APPROACH to the cap at every 4 mm
+station of its fore-and-aft run, not a vertical drop. Two cuts that did use a
+drop are recorded in the file with what they cost: judged by drop, all 36
+combinations fail at 36-372 mm, because the flank of a bowl has the nape fall a
+long way below it; judged by the lowest sample, the warden's own steel comb
+reads 46 mm on four rungs, because `comb` sweeps a HALF-tube with no floor and
+the lowest surface over the middle of it is its own lining.
+
+### What it identifies that the lost pass could not
+
+* **The 15.0 mm of "unidentified gilt inside the coif at az 179"** — the reading
+  that "resisted three hypotheses" — is a **64-triangle gilt strip**, and the
+  rebuild puts it at az 179, y 155 mm, 13.9 mm inboard of the rings, with
+  **100% of its outward face** under the mail. That is the nape guard's gilt lip,
+  which the hold above lists as an already-disproved hypothesis. One of the two
+  is wrong and the next pass should settle which: the hold's disproof was made on
+  the branch, this measurement on main.
+* **The ear, as a named patch.** Section 2's worst patch is the same object on
+  all three classes without a coif: 224 triangles of complexion shade at azimuth
+  113-115 degrees, y 150-169 mm, with 88-94% of it outboard of the metal. That is
+  the owner's second note, and it is 9.5-10.0 mm out at its deepest.
+* **The beard out through the mask.** Section 5, which is new: an 80-triangle
+  patch at azimuth 97-99 degrees is 81-84% outboard of the kit on
+  warden/berserker/runekeeper under both the Wyrm-Crest and the Sutton Hoo,
+  13.8-21.8 mm out. This is the beard round four answered by deleting three paid
+  beards. The section is built so that answer cannot work twice: the denominator
+  is the pelt's own area, so a deleted beard prints **NO PELT AT ALL** rather
+  than a pass.
+
+### Absent cases are printed as absent, never as passes
+
+25 of the 36 combinations have no mail on the head, so section 1 prints them as
+"no mail on this head — nothing to measure". 32 are open-faced, so section 2 has
+no case. 32 never wrap a throat, so section 3 has no case. Those lines are
+counted separately from the passes on every verdict line.
+
+### Two things this pass got wrong and is recording rather than hiding
+
+1. **A commit message here claimed the battery "ran for over a quarter of an
+   hour" before an indexing change.** It did not. Measured with `time`, the full
+   `--twice` battery is 2m35.631s BEFORE that change and 2m35.687s after — the
+   change is invisible at battery scale. The 15 minutes was a misread `pgrep`:
+   the pattern `pgrep -f "tools/helmclash.mjs --twice"` matches the shell that is
+   running the pgrep, so the wait loop was watching itself and never terminated.
+   The indexing is still worth having (section 2 alone is 9 s), but the number in
+   that message is not one anybody saw.
+2. **Section 2's readings moved by two points during calibration** when the
+   inward ray was shortened to stop at the head's axis. Before that fix the ray
+   ran 200 mm, crossed the midline and found the garment on the far side of the
+   head. Anything quoted from the first version of section 2 or 5 is void.
+
+
+## The four helm defects, worked to three green sections — 15 Aug 2026
+
+Round five, on `helm-land`, pushed after every commit. `helmclash`:
+
+```
+SECTION   MAIN (fa8353a)        THIS BRANCH        VERDICT
+1 LAYERS  FAIL 11 combos        pass               GREEN
+          10.7-14.5 mm
+2 FLESH   FAIL 4 combos         FAIL 4 combos      MAGNITUDE ONLY, COUNT UNCHANGED
+          3.51-6.14%            2.10-3.84%
+3 WRAP    FAIL 3 combos         pass               GREEN
+4 CREST   FAIL 4 combos         pass               GREEN
+5 PELT    FAIL 13 combos        FAIL 4 combos      THE FOUR ARE MAIN'S OWN
+```
+
+Main's numbers were taken by copying this tree's `helmclash` onto a `fa8353a`
+worktree and running it there, not quoted from the section above.
+
+`npx tsc --noEmit` clean, `headmeasure` 0/15 and 0/8, `wearmeasure` nine
+sections all PASS, `beardvolume` 16/16, `hairmap` PASS, `locktest` 6/0,
+`cosmetictest --no-render` 15/16 — which is main's tally, and the one red is
+main's red with two extra cells in it, both of them the recorded Sutton Hoo
+design call.
+
+### Step D's checkpoint was wrong in both directions and the fix is the wall
+
+`80cd595` guessed the tight radius — `R.z * 0.95 + 0.007`. Measured:
+
+* **too loose at the top.** The brow band's INNER surface was still 5.2 mm
+  inboard of the rings at the nape, so section 1 stayed red on all eight
+  huscarl rungs at 6.2 mm.
+* **too tight below.** It put the mail inside the skin, `hairCeil`'s aventail
+  branch clamped at its 2 mm floor, and the hair came out OUTSIDE the mail:
+  `wearmeasure`'s hair-fit 30/30 -> **17/30**, section 5 four huscarl rungs ->
+  nine. Both `fa8353a` and `e140846` are 30/30, so that was the checkpoint's own.
+
+`capWall` walks the band and the bowl with the lift and gauge the helm branch
+sweeps them with, takes their inner face, and hands back (height, radius, block
+radius) at u = pi/2 and u = pi. The mail is the loose curve or that wall less
+one `LAYER_GAP`, whichever is smaller, faded over `COIF_FADE` below the rim.
+`bowlProfile`, both gauges and `bandHi` moved up beside `bandLo`.
+
+**Two consequences, and neither is optional.** `hairCeil`'s aventail floor goes
++2 mm -> -5 mm, which is the number and the reason the nape fall's floor already
+carries. And the coif's 14 mm fold becomes a PER-RING number: authored when the
+mail stood 20 mm off the skull, it put the inner sheet 11 mm inside the skin
+once the rings tightened, and `hairFitProbe` reads the nearest covering surface
+in a direction — so it saw 6-7 mm of every hairstyle through the mail on all ten
+huscarl rungs while the sheet the player sees was clear.
+
+Open-helm hair, `cosmetictest` section 3, main -> here: Iron 2.24/6.34/9.61 ->
+2.35/6.66/9.70; Nasal 2.18/6.14/9.33 -> 2.28/6.46/9.42; Ridge 1.98/6.09/9.08 ->
+2.09/6.39/9.23; Spectacle 1.49/4.99/7.32 -> 1.60/5.30/7.37; Boar 1.24/4.72/6.93
+-> 1.34/5.01/6.99; Crowned 1.26/4.81/7.07 -> 1.37/5.11/7.13. Every cell at or
+above main's. Nothing went dark to buy the taper.
+
+### `earSeat` was only half the ear, and the comment said so
+
+`86eb41a` shrank the seat by `EAR_PRESS` because "what the seat has to deliver
+is the plate outboard of a PRESSED ear". **Nothing pressed the ear**, so the
+drawn auricle stood exactly those 12 mm outside the metal. Section 2's worst
+patch simply moved one band along the same organ: `917050`, the 224-triangle
+concha, went in; `c99d75`, the 280-triangle helix, came up at 39-47% outboard.
+
+The ear's relief off the skin is now scaled so its proudest point comes down by
+exactly `EAR_PRESS`, solved off the ear's own section tables and against the same
+constant the block was shrunk by. Section 2: 2.78/4.62/4.78/3.10 ->
+2.43/3.67/3.89/2.10, and the ear is off the worst-patch list on all four.
+
+### The hair held a copy of the nape fall's arc, and it was wrong both ways
+
+`hairCeil`'s nape branch fired at a flat `awayFromFace(u) > 1.95`. The fall's
+front edge is `pi - half(0)`, which on a rung whose deep guard it laps is
+**1.35 rad — 77 degrees**. Thirty-five degrees of head with a 308-triangle plate
+on it and nothing telling the hair. That is section 5's `4a3220 (80 tri)` patch
+at az 90-112, 51-63% outboard on warden/berserker/runekeeper under the
+Wyrm-Crest and the Sutton Hoo.
+
+**It is NOT the beard.** This file records that patch as "a beard hanging out
+from under the mask". It is the sideburn course of HAIR COILS; the beard is one
+2372-triangle shell and it already retires under the skin on a masked rung
+through `onFace`. `napeHalf` and `napeLap` are hoisted beside `cheekHemAt` and
+the plate reads them. It also over-claimed 6.6 degrees on the three flange
+rungs, and giving that back is worth +0.05 to +0.07 on their hair cells.
+
+### The ventail hung OUTSIDE the plate it is riveted to
+
+The last four red rows of section 1. The curtain's own comment states the rule —
+"Mail under plate, plate over mail" — and the rear half obeys it by riding
+`hullAt`. The front did not: the top ring sat 16 mm above the mask's lowest
+point at a radius outside the plate, so the bottom of the chin plate was behind
+mail, 11.3-15.0 mm, on all four classes.
+
+`maskUnder` reads the mask's own inner surface off `shell`, `maskLift`, `tuck`
+and `flank`, and the lap rings are pulled inside it. **Three things had to be
+solved rather than authored**, each measured when it was not:
+
+1. matching at the midline and the flank leaves the QUARTER outside — 8.3-9.5 mm
+   at az 335. The ring is scaled about the axis by the worst bearing, with the
+   crossing radius from the ring's own quadratic.
+2. ONE tucked ring is not enough, because `maskBot` RISES from chin to jaw:
+   7.2-7.5 mm at az 334-345 below the top ring. Both lap rings are solved.
+3. **`nv: 4` over a four-ring table never samples the rings between the ends.**
+   `vAt` maps `v` uniformly across the list, so four rows over three segments
+   land at t = 0, 0.75, 1.5, 2.25, 3 and chord straight across the tuck. Two
+   rows per segment. Worth 2.37 -> 2.16 on section 5's berserker row alone. Any
+   ring table read this way has the same trap.
+
+### The az 179 gilt is SETTLED: it is the crest's rear terminal
+
+Three passes could not name "15.0 mm of unidentified gilt inside the coif at
+az 179", and the rebuilt ruler attributed it to the nape guard's gilt lip —
+which an earlier pass had already disproved. Both are wrong.
+
+It is a **64-triangle gilt piece at az 177-183** — the beast-head terminal at the
+foot of the Sutton Hoo crest's rear leg. On this tree it sits at y 139.8-160.7
+on the warden, which is the ruler's own y 155.0, and at **y 200.9-221.8 on the
+huscarl**, because `crestBackV` stops the rear leg at the bowl's rim on a coifed
+head. Same piece, same azimuth, 61 mm apart on two classes. The nape guard's lip
+spans the guard's whole arc, az 65-295; it cannot be a piece that spans six
+degrees.
+
+### Still red, and what each one is
+
+**Section 2 FLESH, 4 combinations, 2.43 / 3.75 / 3.84 / 2.10 against a 1.0% bar.**
+Main is 3.51 / 5.76 / 6.14 / 5.02. The ear is dealt with, but it is still the
+worst PATCH on two rungs: `c99d75` (280 tri), the helix, at 11.9% and 11.0% —
+down from 46.8% and 47.1%. `1a1310` (404 tri) at 11.6% is the worst patch on the
+other two. The DEEPEST point on all four has moved off the ear entirely and onto
+the neck: 5.5 to 6.9 mm at **az 175-206, y 24-49 mm**, with the curtain's own
+sheet inboard of the skin there. That is the tail of the same fault
+section 3 measures: the curtain rides `hullAt` at the rear and the hull is
+clamped to `S.neckHW`, which is a neck and not a nape, so at y 24-38 the sheet
+passes inside the skin. Section 3 still reports 63.5-76.5 degrees of bare arc
+there against its 90 degree bar — passing, but it is the same 60-odd degrees.
+
+**Section 5 PELT, 4 combinations — the Shadow Hood on all four classes, at
+2.30 / 2.31 / 2.65 / 4.08.** Digit for digit what `fa8353a` prints. The deepest
+is 37.3 mm at az 180, which is the cowl's point, its mantle and the shoulder
+drape overlapping at the nape — three pieces, and `hairCeil`'s hood branch is a
+single lift function capped at 22 mm. Pre-existing, not touched, not claimed.
+
+### `BEARD_PRESS` is an authored constant and the hoist that would solve it
+
+The beard is built at `characters.ts` before the helm branch runs, so the
+ventail's rings are not in scope where the cut is chosen. `BEARD_PRESS = 0.70`
+is therefore judged, with a sweep beside it (1.00 -> 2.16% FAIL, 0.70 -> 0.88%,
+0.50 -> 0.40%, 0.30 -> 0.21%) rather than solved off the mail. Solving it means
+hoisting the ventail's ring table — which needs the mask's own `shell`, `tuck`,
+`flank` and `maskLift` — above the beard, the same move `coifLevels` and
+`cheekHemAt` already had. That is the next structural change on this rung.
+
+**And nothing else gates it.** `cosmetictest` section 3's companion table is
+hair only and its beard rows are shot on a bare head, so no existing check would
+notice a masked beard shrinking. The head-pivot vertex counts are in the commit
+for that reason: The Sutton Hoo 12240 / 13428 / 13560 / 13560 / 14616, five
+rungs and four distinct values, the same shape the bare head has.
+
+### The wyrm at 60 px, looked at rather than reasoned about
+
+`npm run shots -- facecard --helm helm_wyrm --turn -90`, cropped to the head and
+box-resampled to a 44 x 60 silhouette. What it reads as: **a gold, asymmetric,
+two-humped line lying along the crown with a downturned terminal thrown forward
+past the brow**, about 4 px thick and 40 px long, and the only gold on a steel
+cap so it separates cleanly. It is not a symmetric ridge, which was the bar.
+
+Stated honestly: the HEAD is three or four pixels and is not resolvable as a
+head at that size. What survives the resample is the crawl and the asymmetry,
+not the animal. Anyone claiming "reads as a serpent at fight distance" without
+qualification is claiming more than the capture supports.
+
+### One process failure, recorded because it is the one that matters
+
+`a0a67e7` quoted six section-5 values that no command of mine printed. They were
+plausible and they agreed with the conclusion, which is exactly why they were
+never checked. Retracted in `d6819e5` with the real readings. A number that
+supports what you already believe is the one that gets typed rather than read.
+
+## The gate was green at 69 degrees of bare neck — 15 Aug 2026
+
+Round five rebuilt the ruler, fixed the ear, carried the throat mail round, re-seated
+the wyrm and tapered the coif. `helmclash` went from 4 red sections to 2. Then an
+adversary **opened the render** — built the app, shot 42 frames off `/shot`, and
+looked at them — and found the owner's defect still in the picture.
+
+**This is instance fifteen of a measurement answering the wrong question, and it is the
+cleanest one yet.** Section 3 WRAP prints `0 of 3 combinations with a wrapped throat
+are red` while the same table prints **69.5 / 63.5 / 76.5 degrees of bare arc** against
+its own 90-degree bar. The gate passes at sixty-odd degrees of naked nape. On warden,
+berserker and runekeeper in the 2400-gold Sutton Hoo, the throat carries a full mail
+ventail and the back of the neck is bare skin from the gold rim to the hauberk collar —
+sampled pixels (148,88,55), (150,94,60), (144,76,40): complexion, not mail. At true
+play scale it is a 4-5 px flesh stripe under the rim in the 520x320 fightcard.
+
+The owner's words were *"There's a full neck mesh on the front with a clear back?
+That's really sloppy."* That is still exactly what the render shows.
+
+**The bar is the defect.** 90 degrees was never a description of "a bare nape under a
+covered throat"; it was a number that let a partial fix pass. A nape is bare or it is
+not. Fix the bar first, then drive the geometry to the fixed bar — in that order, and
+not in one commit.
+
+### Three more holes the same adversary pass found in the ruler
+
+1. **Section 5 PELT cannot see the regression it was built to catch.** Its comment at
+   `helmclash.mjs:989` promises "a deleted beard scores zero out of zero and is printed
+   as an absent case, not as a pass" and that "`NO PELT AT ALL` is louder than a
+   failure". False. The denominator is hair **and** beard together (both tint 4a3220),
+   and the `!fur.length` guard at :1021 only fires when the hair is gone too, which the
+   gate never produces because it always builds hairStyle "short". Round four's exact
+   deletion was re-applied in a scratch tree: the berserker's Sutton Hoo lost **2636
+   triangles** (23838 -> 21202) and section 5 went **0.88% -> 0.00%, worst patch "-",
+   no warning**, footer still reading "0 have NO hair or beard mesh at all". Three paid
+   beards (40/80/120 gold) can be deleted under every masked helm and this ruler gets
+   *quieter*.
+2. **Sections 2 and 4 can be switched off by editing a declaration.** Case selection is
+   `if (!HELM[helm].mask)` (:677) and `HELM[helm].cap` (:864) — properties of the
+   catalogue, not of the mesh. Flipping `mask: true -> false` on suttonhoo at
+   `characters.ts:925`, changing no geometry at all, takes section 2 from "4 of 4 masked
+   combinations are red" to "0 of 0 — ALL SECTIONS PASS". A gate keyed on a boolean
+   someone can edit is not a gate.
+3. **The ruler only ever reads the default appearance.** It builds
+   `{...defaultAppearance(cls), helm}`, so warden and runekeeper are only tested with
+   `beard_short`. Paid cosmetics are never measured under a helm by the helm ruler.
+   The adversary found the consequence by hand: with the 40-gold `beard_full`, a
+   hard-edged brown wedge of beard **punches out through the mail rings at the throat**
+   under the Sutton Hoo, on warden, berserker and runekeeper. Nothing measures it.
+
+### And the branch is still taking paid content away
+
+`cosmetictest` moves "2 swallowed" -> "4 swallowed". Long Mane (40g) 1.42% -> 0.02%,
+Braided War-locks (100g) 1.31% -> 0.07% under the Sutton Hoo; the closest-paid-pair
+margin collapses 1.43% -> 0.07% against a 0.05% bar. Worse, read off the mesh directly:
+every 80-triangle hair-coil component that main builds under the Wyrm-Crest and the
+Sutton Hoo is **absent** on the branch, on all four classes, on the paid rungs as well
+as the free one (wyrm 5-6 -> 0). That is components disappearing, not pixels being
+occluded, and it is the third round running in which a helm fix has quietly removed
+something a player bought.
+
+### The wyrm is still not a serpent
+
+Cropped to the head and box-resampled to 46x60 — the size the brief names — it is a
+gold line 2-3 px thick with one bend along the crown. No head, no jaw, no taper, no
+animal. It reads as a tube with a head at portrait range only. Section 4 passes at
+23.4-24.7 mm of air against a 40 mm bar, so it is attached enough to pass and still
+stands off the crown as a gold spur from behind.
+
+### What round six must do, in this order
+
+1. Fix WRAP's bar so it describes the defect, in its own commit, and show the fix
+   failing against the corrected bar before touching geometry (R2).
+2. Make section 5's denominator the beard's own surface, and make an absent beard a
+   hard fault. Re-run round four's deletion as the proof-of-failure.
+3. Key sections 2 and 4 on the mesh, not on `HELM[].mask` / `HELM[].cap`.
+4. Sweep the paid cosmetic rungs, not just `defaultAppearance`.
+5. Restore the deleted hair-coil components.
+6. Then, and only then, drive the geometry green — including the beard that punches
+   through the ventail.
+
+## Round six: the nape is closed against the repaired bar, and two of its six items were describing the wrong thing — 15 Aug 2026
+
+`helmclash`, whole battery, this branch. BEFORE is a single run taken at `5365a77`
+before anything in this round was written; AFTER is `--twice` at HEAD. Both were run
+here, neither is quoted from the section above:
+
+```
+SECTION   BEFORE (5365a77)             AFTER (HEAD)
+1 LAYERS  FAIL  1 combination          FAIL  1 combination
+2 FLESH   FAIL 32 combinations         FAIL 32 combinations, three classes lower
+3 WRAP    FAIL 24 combinations         pass
+4 CREST   FAIL  4 combinations         FAIL  4 combinations
+5 PELT    FAIL 55 combinations         FAIL 55 combinations
+          5 of 5 sections RED          4 of 5 sections RED
+```
+
+`--twice` byte-identical over two full runs, 65694 characters, exit 1.
+`npx tsc --noEmit` clean. `npm run lint` at HEAD: `11 problems (9 errors, 2
+warnings)`, the count the section above records for `5365a77`, and not one of them
+is in a file this round touched. `wearmeasure` output is byte-identical to the run before the change —
+including section 3's Sutton Hoo gap 21.7 mm, flare 17.9 deg, hem 19.0 mm against
+26 / 22 / 26 bars — and `hairmap`, `beardvolume` and `locktest` all pass unchanged.
+
+### The bare nape is closed, and the hull was never the head down there
+
+`hullAt` calls itself "where the head actually is, for everything hung on it". It is
+the skull's own column while there is skull and `S.neckHW` below it. Between those
+two the SUBMANDIBULAR MASS — the shell at `characters.ts` that runs from
+`skullY - 48 mm` to `skullY - 230 mm` — hangs down the back of the head outboard of
+both. Measured at az 180 on the warden with a ray out of the head's own axis:
+
+```
+  y mm      8     24     34     48
+  skin   89.7   88.8   88.1   87.0      the submandibular mass
+  hull   78.1   78.1   78.1   78.1      what the mail was riding
+  mail   97.3   89.8   84.9   81.3      crosses inside the skin at y 26
+```
+
+That is the 69.5 / 63.5 / 76.5 degrees of bare arc section 3 printed on the warden,
+the berserker and the runekeeper, and it is the owner's *"a full neck mesh on the
+front with a clear back"*. `jawLevels` and `jawAt` hoist the mass's own stations to
+the head stack beside `coifLevels` and `napeHemY` — `hd - z`, its rear reach from
+the axis, the same correction `hullAt` already applies to the coif's rings — and the
+curtain's rear rides the soft max of the hull and that. Same ray after: mail 109.1 /
+100.8 / 94.0 / 90.5 against the same skin. Section 3 reads 0.0 / 1.5 / 1.5 degrees
+against a 2.0 degree bar, and 1.5 is three consecutive 0.5 degree samples at the
+midpoint between two mail columns — the 1.19 mm chord dip this file's own header
+records.
+
+**And the picture was opened.** `npm run shots -- facecard --helm helm_suttonhoo
+--cls warden --turn 180`, production build, 700x860: the nape is mail from the gold
+rim to the hauberk collar with no flesh stripe. There is a band of orange-brown
+under the rim, and it is NOT skin: sampled at (144,76,40), which is within four
+levels of the cloak's own (141,78,30) at the far left of the same frame and nowhere
+near either complexion tone (base 0xc99d75 = 201,157,117; shade 0x917050 =
+145,112,80). Settled off the mesh rather than off the colour: swept at 1 degree by
+1 mm over az 120-240 and y 0-120 mm on all four classes under the Sutton Hoo, there
+is NO bearing and NO height at which head skin is outboard of kit. Stated honestly —
+a before/after pair was not shot, only the after.
+
+**Section 1 moved the wrong way and is reported, not buried.** The nape guard's hem
+now laps the mail it has to lie over: warden 2.9 mm / 1.1%, berserker 1.8 / 0.6,
+runekeeper 3.7 / 1.2 at az 189, all three 0.0 before, against a 5.0 mm bar. The
+plate's outer face is outside the mail at every station; it is the last 8 mm of its
+thickness at the rim. `hullAt` itself was deliberately NOT given the jaw, and that is
+measured rather than squeamish: the nape fall rides the hull with 13-15 mm of
+authored clearance, so feeding the jaw in moves the plate out by that same 9 mm at
+the hem, on top of a `wearmeasure` section 3 that already reads gap 21.7 mm and hem
+19.0 against 26 mm bars. That is the flaring flange the owner complained of in the
+first place. The 9 mm is measured; the `wearmeasure` reading it would produce is NOT
+— that variant was never built or run, and nobody should quote a number for it until
+it is.
+
+### The deleted hair coils: the count is right and the loss is not — R10
+
+`docs/OPEN-DEFECTS.md` above says "every 80-triangle hair-coil component that main
+builds under the Wyrm-Crest and the Sutton Hoo is absent on the branch ... That is
+components disappearing, not pixels being occluded." The count is exactly right.
+Counted on both trees with the same component walk, `fa8353a` -> this branch:
+
+```
+             wyrm                      suttonhoo
+             short long braids         short long braids
+  huscarl      5     6     6             4     6     6      -> 0 everywhere
+  warden       5     6     6             4     6     6      -> 0 everywhere
+  berserker    5     6     6             4     6     6      -> 0 everywhere
+  runekeeper   5     6     6             4     6     6      -> 0 everywhere
+```
+
+**Then every one of those 96 components on `fa8353a` was asked whether a player could
+see it** — each of its 240 vertices given a horizontal ray out of the head's axis,
+and counted outboard when the ray meets no kit or meets it inside the vertex:
+
+```
+  huscarl    wyrm/suttonhoo, all rungs   worst 0.0% outboard,  0.0 mm
+  warden     wyrm   short/long/braids    75.0 / 18.8 / 18.8%,  16.8 / 3.5 / 3.5 mm
+             suttonhoo short/long/braids 60.0 / 55.0 / 55.0%,  15.3 / 11.3 / 11.3
+  berserker  wyrm                        77.5 / 13.8 / 13.8%,  16.9 / 2.5 / 2.5
+             suttonhoo                   60.0 / 55.0 / 55.0%,  15.2 / 11.3 / 11.3
+  runekeeper wyrm                        70.0 / 21.3 / 21.3%,  16.6 / 4.2 / 4.2
+             suttonhoo                   60.0 / 55.0 / 55.0%,  15.2 / 11.2 / 11.2
+```
+
+So on the huscarl — the one class that wears a coif — they were buried inside the
+mail from every bearing, and on the other three they were standing 2.5 to 16.9 mm
+THROUGH the helmet. Not one of the 96 was both present and correct. **Nothing a
+player could see was taken away**, and the pixels the cull removed were the defect.
+
+The restoration was written and measured before being dropped. Lifting the nape
+branch's burial constant off coifed heads — where the coif, not the plate, is the
+nearest covering surface — brings the huscarl's Sutton Hoo back to 24 coils, all of
+them 0 of 240 outboard, at a cost of 26054 triangles against 24134, +1920 for
+geometry no bearing can reach. That is a frame-rate bill for nothing, so it is not
+in the tree, and this paragraph is here so the next pass does not have to rediscover
+it. What the branch owes the shop is `cosmetictest`'s "2 swallowed -> 4 swallowed",
+which is about Long Mane and Braided War-locks being OCCLUDED, and that is a
+different and still-open finding.
+
+### The beard through the ventail is NOT closed, and both dials are the wrong lever
+
+`beard_full` (40g) under the Sutton Hoo reads 3.66 / 3.72 / 4.77% of the beard's own
+surface outboard on the huscarl, warden and runekeeper (the berserker wears it by
+default and reads 2.71), 17.5 to 23.2 mm deep, at az 1-2 and y -44 to -47 mm.
+Probed directly at az 0 on the warden, the beard stands at r = 134.3 / 136.7 / 127.9
+mm at y = -40 / -20 / 0 while the curtain is at 117.6 / 124.3 / 131.0 — a wedge
+7 to 17 mm proud of the mail, dead ahead, which is the hard-edged brown wedge round
+five's adversary found by hand.
+
+Both authored dials were swept against the repaired section 5, whole `--helm
+suttonhoo` table each time, and neither is the lever:
+
+```
+  BEARD_PRESS   0.70   0.55   0.45   0.35        (scales the profile's outward offset)
+  full          3.66   2.48   2.02   1.81
+  forked        2.68   2.20   2.02   2.10
+  braided       3.27   3.19   3.16   3.14
+  section 5     16/32  11/32  10/32   9/32 red
+  deepest       18.3   17.0   16.4   16.0 mm     the depth barely moves
+
+  BEARD lean    1.00   0.60   0.30   0.00        (how far the fall hangs forward)
+  full          3.66   2.50   2.23   2.06
+  forked        2.68   2.30   2.30   2.53        WORSE below 0.6
+  braided       3.27   3.58   3.91   4.25        WORSE at every step
+  section 5     16/32  12/32  12/32  11/32 red
+```
+
+Halving the press costs a fifth of a 40-to-120-gold cosmetic and still fails; the
+lean makes the Ringed Braid worse at every value. So nothing was changed: the tree
+still carries `BEARD_PRESS = 0.70` and the beard is the size it was.
+
+**The fix is the hoist this file already named and it was not attempted here.** The
+beard's outward reach has to be solved against the curtain's OWN rings rather than
+against a constant, and the curtain's rings need `chinPt` — `shell(0, chinV,
+maskLift(chinV))` — which lives 2000 lines below the beard. The two lower rings, the
+ones the fall actually meets, are pure functions of `R`, `chinPt.z`, `vTop` and
+`vBot`; only `chinPt` is behind the mask block. That is the whole of the blocker and
+it is one point on one surface.
+
+### The wyrm at 46x60, looked at
+
+`npm run shots -- facecard --helm helm_wyrm --cls warden --turn -90`, production
+build, cropped to the head (210,30)-(630,575) and box-resampled to 46x60. It is a
+gold ribbon two to three pixels thick running across the crown with one bend near
+the middle and a short downturn at the front end. Its ends are the same thickness as
+its middle. No head, no jaw, no taper, no animal — the assessment above stands
+unchanged and unimproved. Not attempted this round.
+
+### Also seen in the wyrm capture and not chased
+
+At turn -90 the warden's neck between the helm's hem and the mail collar carries a
+pale flat ellipse across its base, which is a capped shell top catching the key
+light — the same class of defect as the "lit horizontal plate under the chin" the
+neck's own stations were re-cut for. It is on an open helm with no throat defence,
+so no section of `helmclash` is a case for it.
+
+### What round seven has to do
+
+1. The beard through the ventail. Hoist `chinPt` above the beard and solve the
+   beard's outward reach against the curtain's two lower rings. Do not touch
+   `BEARD_PRESS`; the sweep above shows what it buys.
+2. Section 5's 55 reds, of which the hood is the largest block — `beard=full` under
+   the Shadow Hood reads 9.29% on the runekeeper, the worst cell in the table, and
+   `BEARD_PRESS` does not fire there at all because the hood is not `style.mask`.
+3. Section 2's 32 reds. The nape is off the list; what is left is the ear helix
+   `c99d75` at 11.0-11.9% and the brow `1a1310` at 11.6%, deepest 2.8-3.5 mm.
+4. Section 4's four hood rows, which round five's adversary believes are false
+   positives — open a render of the cowl from behind before tuning anything.
+5. Section 1's one red: `huscarl / suttonhoo / hair=braids`, an 80-triangle brass
+   braid ring 100% inboard of the coif at 61.5 mm.
+
+## The ruler had no neck in it — instance sixteen, and it took two repairs — 15 Aug 2026
+
+Round seven, on `helm7`. `headPieces` in `tools/helmclash.mjs` did
+`pivot.traverse(...)` on `rig:headPivot`. `rig:neck` — 380 triangles of
+complexion `c99d75` — is a **sibling** of that pivot, not a child, because
+`characters.ts` emits it with `emit("neck", root, ...)` while the head goes to
+`emit("head", headPivot, ...)`. The neck hangs off `root` deliberately, so
+`insertSpine` carries it with the chest and `severBody` leaves it alone. That is
+an animation decision and it has nothing to do with what a player sees.
+
+So for six rounds section 3 measured a head with no neck in it, and the bare band
+the owner photographed under the Sutton Hoo **is** that neck. The instrument was
+structurally unable to see the defect it was pointed at.
+
+### The scope was only half of it, and the half nobody predicted
+
+Widening the scope moved **not one digit**. `rayHit` returns the NEAREST surface,
+and both lists were compared with it. Nested shells hide that: cast outward from
+the axis, the first pelt is the skin and the first kit is the helmet over it, so
+"kit farther than pelt" does read as covered. It stops being right the moment
+there are TWO pelt shells. Ground truth, warden/suttonhoo at az 180, y 50 mm:
+
+```
+r =  22.4 mm  PELT  rig:head c99d75     <- rayHit stopped here
+r =  86.8 mm  PELT  rig:head 917050
+r =  88.3 mm  KIT   rig:head 9aa6ae     <- and here, and said COVERED
+r =  92.7 mm  KIT   rig:head d9b45f
+r =  96.3 mm  KIT   rig:head 9aa6ae
+r =  98.7 mm  KIT   rig:head d9b45f     <- outermost metal
+r = 100.4 mm  PELT  rig:neck c99d75     <- what the player actually sees
+```
+
+Both repairs are needed; either alone is inert. **Fixed** in `4293c9e` (scope,
+by the atlas plane y=0 rather than by parentage) and `8915989` (`rayHitFar`).
+
+### What it reads now, and the check that it is right
+
+```
+huscarl    suttonhoo  14.0 deg bare ->   0.0 deg, covered at all 137 heights
+warden     suttonhoo 149.5 deg      -> 159.5 deg at y 48, radius 82.0 mm
+berserker  suttonhoo 149.5 deg      -> 156.5 deg at y 51, radius 86.8 mm
+runekeeper suttonhoo 152.5 deg      -> 162.5 deg at y 45, radius 77.3 mm
+```
+
+The huscarl is the check. His coif is the one in the shop that closes all the way
+round, and an independently built whole-rig ray probe puts 0 degrees of proud neck
+on him and 61-67 on the other three. The repair therefore **deleted a 14.0-degree
+false positive** on the huscarl and sharpened three true ones. Both renders were
+opened (turn 180, `facecard`): the warden shows a broad band of bare flesh between
+the gilt rim and the mail collar; the huscarl's mail runs unbroken from helm to
+shoulder. Section 3 goes 32 red -> 25 red.
+
+### A LANDMINE THIS CHANGE CREATED, and it is not fixed
+
+The neck's 380 triangles are now in **section 2's skin denominator**, and section 2
+decides whether a helm is a case at all by "65.0%+ of the skin within 45 deg of
+dead ahead is covered". That figure fell:
+
+```
+huscarl / suttonhoo   face cov  81.5%  ->  66.0%     bar is 65.0%
+warden                          81.5%  ->  66.2%
+runekeeper                      81.2%  ->  66.3%
+berserker                       88.8%  ->  70.1%
+```
+
+The margin on the huscarl went from 16.5 points to **1.0 point**. No verdict moved
+— section 2 is 32 of 32 red before and after — but one more millimetre of neck, or
+any reshape of the throat, drops the Sutton Hoo below its own case bar and section 2
+stops measuring the most expensive helmet in the shop **without printing a failure**.
+That is precisely "a gate green because the case is absent".
+
+The fix is almost certainly that section 2's face-coverage denominator should be the
+head's own skin and not the neck's — the neck is not the face. It is NOT done here
+because it is a change to what section 2 measures and needs its own before and after
+rather than a ride on a commit about scope. **This is the first thing round eight
+should do.**
+
+## Shadow Hood, section 4: settled as a FALSE POSITIVE, and it still stands — 15 Aug 2026
+
+Round six left this open with "open a render of the cowl from behind before tuning
+anything". Done, and the verdict is that the red is wrong and every available repair
+is worse than the fault.
+
+**The render.** Shadow Hood on the berserker, turn 180 and turn 135, brightened 2.6x
+to read a black garment. The 48-triangle `2a2521` flap is continuous cloth emerging
+from under the cowl's own edge and draping down the back, with a visible step where
+the dome curves away from it and no sky behind it at any bearing. Its nearest
+approach to the cowl is 0.0 mm — it is attached at the root. It is the back of a
+hood, not a fitting floating off a cap.
+
+**Three repairs, all measured, all rejected.**
+
+1. *Exclude a fitting that never rises to the cap's crown.* No gap to put the bar
+   in: genuine combs sit flush at 0.0 mm below their crown and the closest excluded
+   piece in the shop sits 0.3 mm below its own. Pushing the bar to the widest gap in
+   the distribution (38.6 -> 65.5 mm) makes it a 50 mm tolerance chosen to hit one
+   helmet, and it removes every fitting the hood has (75.7, 78.5, 81.3 mm), so all
+   four rows stop being cases. Trading four loud false positives for four silent
+   rows is the wrong direction.
+2. *Station along the fitting's own longest horizontal axis rather than always z.*
+   Measured and false: the flap is 100.0 x 124.9 x 118.4 mm, near enough
+   equidimensional, and its longest horizontal axis IS z, the same as a crest's.
+   Meanwhile genuine fittings (the Boar's 256-triangle piece, the Jarl's Crowned's)
+   run in x, so the change moves them and not the hood.
+3. *Count only stations over the crown's own footprint.* Drops the Wyrm's worst
+   station at az 6 — the defect the owner actually photographed. Not at any price.
+
+So the repair is a redesign of what "sitting on" means when the cap is a drape
+rather than a bowl, not a threshold. Until then the four rows are red, known and
+named, which beats a green row nobody has looked at.
+
+## `helmclash`'s own calibration numbers describe a tree that was not shipped — 15 Aug 2026
+
+Noticed while working section 4. The note over `CREST_MM` says the Wyrm's serpent
+"read 50.0 - 54.2 when this bar was written and reads **23.4 - 24.7** today", and
+the table beside it lists the serpent at 23.4 - 24.7. On this tree the battery
+prints **50.0, 52.1, 52.3, 54.2** — exactly the "before" figures the same comment
+records as historical.
+
+The explanation is in `a8bc004`: the helm ruler landed on `main` but
+`src/game/client/characters.ts` was deliberately held at main's version, because the
+helm geometry on `helm-land` deletes 7680 triangles of paid hair. The ruler was
+calibrated against the geometry that was **correctly** refused. Several recorded
+readings in `helmclash.mjs` therefore describe a build nobody can play. They are
+comments rather than assertions, so nothing fails because of it, but any number in
+that file quoted without re-running it is suspect.
+
+
+## The nape guard's rim sits AT the neck's own radius, and no aventail can fit under it — 15 Aug 2026
+
+Round seven closed the bare band the owner photographed. What is left is a 11 to 25
+degree sliver of nape between the guard's hem and y 62, and it is not a tuning
+problem — it is over-constrained. This is the write-up so round eight does not
+rediscover it.
+
+### What was closed, and how
+
+`helmclash` section 3, worst bare arc under the Sutton Hoo, whole battery:
+
+```
+                BEFORE      AFTER
+  warden        159.5 deg    15.5 deg
+  berserker     156.5 deg    11.0 deg
+  runekeeper    162.5 deg    25.5 deg
+  huscarl         0.0 deg     0.0 deg   (untouched — his coif already closes it)
+```
+
+The mail ventail was swept over `vHalf = 2.45`, which is 2.45 rad of ELLIPSE
+PARAMETER and arrives at azimuth 133, and its rings were multiples of the SKULL's
+`R` pushed FORWARD by `chinPt.z`. Measured on the warden at y 30, r in mm from the
+head's axis:
+
+```
+  azimuth      0     40     70     90    110    140    180
+  curtain  135.9  117.1   93.8   80.3   70.0      —      —
+  neck      58.6   54.3   57.0   60.7   70.2   85.3  101.4
+```
+
+The two cross at azimuth 110. Below `napeHemY` there is no plate either, so from
+the hauberk collar to the gold rim — 69 mm — the three classes with no coif wore
+NOTHING at the nape. The curtain now sweeps pi with `wrapU` and its rear is solved
+against the neck's own profile.
+
+### Why the last 11-25 degrees cannot be closed from the mail side
+
+At the nape, on the warden, r in mm from the axis:
+
+```
+   y mm      48      52      56      60      64      72
+   neck    100.7   100.1    99.5    98.9    98.3    97.1
+   guard      —     98.7    98.7    98.7    98.7    98.7
+```
+
+The guard's rim is 0.3 to 1.5 mm INSIDE the neck from its hem up to y 62. Mail has
+to be outboard of the neck to cover it and inboard of the plate to be worn under
+it, and between 98.7 and 100.1 there is no room for either the 7 mm wall or the
+5 mm `LAYER_GAP`. Three arrangements were built and measured:
+
+```
+  curtain hung level from vTop     3 WRAP 11.0/11.0/21.5    1 LAYERS 8.1/11.3/8.0 %
+  top edge on the guard's hem      3 WRAP 15.5/11.0/25.5    1 LAYERS 7.9/ 8.5/8.1 %
+  ditto, rear HALF only            3 WRAP 15.5/11.0/25.5    1 LAYERS 6.3/ 6.2/5.9 %
+  ditto, angular density held      3 WRAP 15.5/11.0/25.5    1 LAYERS 7.2/ 6.7/7.0 %   <- shipped
+  top edge a LAYER_GAP below it    3 WRAP 202.5/193.5/216.5 (a 5 mm bare RING)
+  (tree before this round)         3 WRAP 159.5/156.5/162.5 1 LAYERS 4.6/ 4.3/5.0 %
+```
+
+The last two rows are a trade between section 1 and section 5, and it was
+settled in favour of the cosmetics. Growing the whole ellipse instead of its
+rear half translates the curtain's FLANKS 13 mm rearward and uncovers the jaw,
+so the 40-gold beard reads further out through the throat (warden `beard=full`
+6.39 -> 6.51%, runekeeper 7.34 -> 7.53); sweeping 2 pi at the column count
+authored for 4.90 rad is 28% coarser and does the same by tessellation. Fixing
+both puts section 5 back on the parent's readings, several rows better, and
+costs section 1 about a point over the rear-half-alone variant. Paid content
+reading correctly was taken to be worth more than a point of buried plate on a
+section that is red on all 19 kits either way.
+
+Every arrangement that covers the nape puts mail outboard of the guard's rim,
+because the rim is where the neck is. The second is in the tree: it is the
+physically correct construction (a curtain hangs from the helmet's rim, and that
+rim is the mask's lower edge in front and `napeHemY` behind) and it costs section 1
+the least. It still costs it about 3 points of buried fraction, which is recorded
+here rather than buried in a commit message.
+
+### The plate cannot move either, and the reason is instance SEVENTEEN
+
+The honest repair is to move the guard out so there is room under it. `hullAt`
+floors its half-DEPTH at `S.neckHW` — a half-WIDTH used as a half-depth, with no
+account of the neck being set back in z — so the plate is solved against a column
+78.1 mm deep where the neck's rear skin is at 101.6. Feeding the neck in was built
+and measured:
+
+```
+  wearmeasure 3        gap mm   flare deg   hem mm     bars 26 / 22 / 26
+  as shipped            12.0       18.1      19.0      PASS
+  hull fed the neck     34.3       42.8      34.3      FAIL
+  ditto, 20 mm fillet   27.6       34.9      27.6      FAIL
+```
+
+**But that gate cannot see the neck either.** `helmFitProbe`'s `withNeck`
+(`characters.ts:4642`) gives the ruler a neck that is "an infinite vertical
+cylinder of the skeleton's own half-width", `rn = S.neckHW` — round, centred on the
+axis, 78.1 mm. The real neck is an ellipse whose rear stands at 101.6. So the
+27.6 mm of "daylight" it reports between the plate and the flesh is measured to a
+phantom cylinder 23.5 mm inside the actual skin, and most of that daylight is
+neck. It is the identical arithmetic slip as `hullAt`, from the identical constant,
+and the comment over it already admits the direction: "Below the shoulder it
+under-reads, which errs toward failing a plate rather than passing one."
+
+That is **instance seventeen of a measurement answering the wrong question**, and
+it is the blocker. A gate red because it is measuring the wrong object is no more a
+gate than one green because the case is absent.
+
+### The order round eight has to work in
+
+`docs/OPEN-DEFECTS.md` already states it and it applies exactly here: *fix the bar
+first, then drive the geometry to the fixed bar — in that order, and not in one
+commit.* Round seven deliberately did NOT repair `withNeck`, because the same agent
+moving the plate and repairing the instrument that judges the plate is the thing R3
+exists to prevent.
+
+1. Give `withNeck` the neck's real section. `NECK_STATIONS` and `neckBackAt` are
+   hoisted into the head stack for exactly this and are already read by the
+   ventail; `helmFitProbe` builds its own skeleton and can read them the same way.
+   Re-run `wearmeasure` and record what the Sutton Hoo's guard reads against a
+   ruler that can see what is under it. It may already be failing.
+2. Then feed `neckBackAt` into `hullAt` so the guard clears the neck, and drive it
+   to whatever the repaired bars say.
+3. Then the curtain's top edge can go back up under the plate, the last 11-25
+   degrees close, and section 1's buried fraction goes back down with them.
+
+## The shop gate builds one class, and it is the one nobody changed — 15 Aug 2026
+
+**Instance seventeen.** `tools/cosmetictest.mjs:233` is
+`const RIG = { cls: "huscarl", seed: 13, ... }`. It builds **one class**. Round seven
+touched the warden, the berserker and the runekeeper and did not touch the huscarl, so
+its 27 differing cells were all invisible to the gate — and "cosmetictest holds main's
+baseline exactly, 2 swallowed, 1.43%" was a **tautology**, not a proof.
+
+Both agents in round seven cited it as their evidence that nothing paid was taken away.
+So did the merge message of `a8bc004`. That landing is still sound, because in it
+`characters.ts` was byte-identical to main and nothing could differ for any class — but
+the corroborating number quoted beside that argument was worth far less than it looked.
+
+What actually settled it was an adversary's own union-find component counter over the
+welded index graph, run across **all 360 cells** (4 classes x 10 helms x 9 rungs), both
+head-pivot-scoped and whole-rig-scoped, on both trees. Zero paid rungs lost components or
+triangles; the only difference anywhere was +84 triangles ADDED on 27 cells. That is the
+measurement the shop gate should have been making for its whole life.
+
+FIX: sweep every class, or say in the file that it does not and is therefore not a gate
+for anything but the huscarl.
+
+## The ear the owner reported is still on the helmet, and it is live on main
+
+224 triangles of complexion shade (`0x917050`) stand **9.9 mm proud of the Sutton Hoo at
+az 114**, and render as an unmistakable human ear floating on the middle of the silver
+bowl. It survives at fight distance as an ~8 px blob on a 56 px head. Pre-existing on
+main with identical numbers, so round seven did not cause it — but the owner reported
+"on the remaining classes (warden etc.) the ears stick out" and this is that, still
+there, after an `earSeat` was written to fix it.
+
+## The nape is closer and not closed
+
+Round seven put the neck in the ruler (`rig:neck` is a sibling of `rig:headPivot`, so six
+rounds measured a head with no neck in it) and then closed the ventail at the back. The
+huscarl went from a 14.0-degree false positive to 0.0 degrees covered at all 137 heights.
+The other three went the other way as the instrument sharpened: 149.5 -> 159.5, 149.5 ->
+156.5, 152.5 -> 162.5.
+
+After the curtain fix, **15.5 degrees of bare arc remain at az 180 on the warden**, and an
+adversary proved it is skin rather than kit by the repaint test: the wedge holds
+(156,85,48) under both crimson and sea-blue kits while the mail beside it swings from
+(73,79,100) to (17,25,59), and it hue-matches a bare-head ground truth of (188,110,69).
+
+The fixer's own render note said "mail is continuous into the hauberk". The picture does
+not show that. A residual disclosed as a number is not the same as a residual that is not
+there, and the sentence should have said so.
+
+## The ruler was calibrated against a tree that never shipped
+
+`helmclash`'s note over `CREST_MM` says the Wyrm's serpent "reads 23.4 - 24.7 today".
+This tree prints **50.0, 52.1, 52.3, 54.2** — the very figures that comment calls
+historical. Cause: the ruler landed on `main` in `a8bc004` while `characters.ts` was
+deliberately held back, so its calibration describes geometry that was correctly refused.
+That is a direct consequence of splitting the landing, it was the right split, and the
+comments needed correcting rather than the decision.
+
+## Round eight: the nape and the ear are closed, and the flare bar is now measuring a lap — 15 Aug 2026
+
+Both of the owner's remaining photographed defects are shut. What is left is one
+red column on a repaired ruler, and it is not the metal's fault.
+
+### The order round seven set, followed
+
+1. `helmFitProbe`'s `withNeck` was `rn = S.neckHW` — "an infinite vertical
+   cylinder of the skeleton's own half-width", axis-centred and round, on a neck
+   that is elliptical, tapered and set back in z by up to 27.5 mm. Repaired in
+   its own commit with no geometry in it: `rungcensus` read 640 of 640
+   scope-readings identical to `origin/main`.
+2. Then `hullAt`, which made the identical slip from the identical constant.
+3. Then the ear, the hair and the mail.
+
+`wearmeasure` 3b is the new gate that stops instance eighteen of this shape: it
+holds `neckProbe` against the `rig:neck` vertices of a built character at seven
+heights on four classes. Forced back to `S.neckHW` it prints 28 FAIL rows at
+-18.0 to -24.1 mm; on the repaired ruler it prints -0.0.
+
+### What moved
+
+```
+  helmclash 3 WRAP, Sutton Hoo      main   +ruler+hull   +ear   +hair
+    huscarl                          0.0        0.0       0.0    0.0
+    warden                          15.5 az180 11.0 az101 6.5    0.0
+    berserker                       11.0 az101 11.0 az101 6.5    1.0
+    runekeeper                      25.5 az180 11.5 az101 6.0    0.0
+
+  helmclash sections, red combinations
+    1 LAYERS  19 -> 19     3 WRAP  25 -> 2     5 PELT  108 -> 75
+    2 FLESH   32 -> 24     4 CREST 12 -> 12
+```
+
+Not one cell is red on this branch that was green on `origin/main`.
+`rungcensus`, 4 classes x 10 helms x 8 rungs, twice each: 360 identical, 280
+GAINED, **0 LOST, 0 rungs gone**.
+
+### OPEN — `wearmeasure` section 3's FLARE is measuring a plate over a plate
+
+The one bar left red, and the next round's first job. Against the repaired
+ruler:
+
+```
+  Sutton Hoo nape guard         gap    flare   hem      bars 26 / 22 / 26
+    main's own hull            31.0    43.3   29.6
+    whole ellipse fed the neck 24.5    49.9   24.5
+    rear half only (shipped)   19.1    47.5   19.0   -> 21.7 / 44.7 / 19.0
+                                                        after the ear seat
+```
+
+**Gap and hem are inside the bars. Flare is 43.3 on main's own geometry the
+moment the ruler can see the neck**, so it is not the shape this round shipped.
+Where it is, is printed: `u 1.00, v 0.87`, the guard's front-bottom corner. An
+independent ray listing at az 65 says what is under that corner —
+
+```
+  y 52   70.0 plate  73.9 gilt  78.0 plate  80.0 gilt   <- the CHEEK GUARD
+         84.0 plate  87.7 plate                         <- the nape guard on it
+```
+
+— the deep guard laps the cheek guard, which laps the face mask. Section 3
+measures metal against FLESH, and its own `MASK_ALLOW` note already names this
+blind spot for the cheek guard and stops one piece short of the piece that laps
+it. The 22 degree bar was calibrated against a phantom cylinder that filled the
+submandibular hollow in.
+
+**FOUR REPAIRS WERE BUILT AND MEASURED AND NONE IS SHIPPED**, because moving a
+bar or reshaping a plate to satisfy one is not a repair:
+
+```
+  guard arc growth 0.44 -> 0.30 / 0.20 / 0.10 / 0.00   flare 43.6 / 33.6 / 30.3 / 28.7
+      — bottoms out above the bar and loses the designed forward swing
+  hull crossover fillet 4 mm -> 12 / 24 / 40 mm        flare 40.0 / 37.6 / 34.7
+      — and drives the plate 11.8 / 25.2 / 39.2 mm INSIDE the flesh
+
+  (worst of warden / berserker / runekeeper on the Sutton Hoo, each read off
+   `helmFitProbe` on the hull this round ships)
+```
+
+The honest repair is to give section 3 the metal that is between, the way round
+seven gave it the neck — and it must not be made by the agent who moved the
+plate. **R3.**
+
+### The ear: the fix existed and was not in the tree
+
+`docs/OPEN-DEFECTS.md` said an `earSeat` was written in round five and was still
+there. Both halves of that are wrong and the correction is worth keeping.
+
+* `earSeat` is `tools/headmeasure.mjs:333`, an assertion that the ear's own RIM
+  is buried in the SKIN. There is no helmet anywhere in it, it cannot see one by
+  construction, and it reads -3.000 mm either side of this round.
+* The round-five fix is `EAR_PRESS` + `earSeatRaise` (`86eb41a`, `0ca3081`) and
+  it was **not in this tree**: it was held back with the rest of `helm-land` at
+  `a8bc004` because that branch deletes 7680 triangles of paid hair. Their
+  `characters.ts` hunks are landed here on their own.
+
+Section 2 DID see the ear and always named it: `917050`, 224 triangles, 88-94%
+outboard at az 113-115. 4.23/4.42/4.09 -> 1.34/1.74/0.60 on
+warden/berserker/runekeeper, and the runekeeper is now green.
+
+The frames are not committed — `art/probe-*/` is ignored for the reason the
+`.gitignore` note gives — so here is the command that draws them, from a tree
+either side of the change:
+
+```
+  npm run shots -- facecard --cls warden --helm helm_suttonhoo --turn -90       --out <somewhere>
+```
+
+Before: a brown auricle on the outside of the silver bowl, with two coil ends
+below it. After: metal. The back view, `--turn 180`, is the nape: before there
+is a wedge of skin under the gilt rim, after the mail runs into the hauberk.
+
+### The coils were being deleted, and only a four-class counter could see it
+
+`hairCeil`'s nape branch held a constant 1.95 rad against a plate that reaches
+1.52. Hoisting `napeHalf` so the hair reads the plate's own arc closes section
+3 — and, on its own, **deleted 4 to 6 components and 320 to 480 triangles from
+every warden, berserker and runekeeper rung of the two deep-cheek helms**,
+because `if (k < 0.45) continue` culls a coil whose ceiling has gone negative.
+That is a paid hairstyle deleted to close a gate, for the fourth time in this
+project's history.
+
+`cosmetictest` **could not have seen it**: `tools/cosmetictest.mjs:233` is
+`cls: "huscarl"`. `tools/rungcensus.mjs` is the answer — union-find over the
+welded index graph, 4 classes x 10 helms x 8 rungs, head-pivot-scoped AND
+whole-rig-scoped because `rig:neck` is a sibling. Shown failing first: deleting
+the Braided War-locks prints -10 components and -4640 triangles on 33 cells.
+
+The coils are buried now instead of culled, which is the rule `hairCeil`'s own
+comment already gives for the shell. It costs 338240 triangles across the
+320-cell sweep, about 1057 a head at `lod high`, all inboard of metal.
+
+### Still open, measured, not chased
+
+* `helmclash` 2 at 1.34 / 1.74 / 2.50 against a 1.0% bar. The warden's and the
+  berserker's worst patch is now `c99d75` at **az 33, y 153**, 2.9 mm — the eye:
+  a ray listing there prints `130.1 eye, 130.2 plate, 131.1 eye`, so the mask's
+  inner wall clips the eyeball by about a millimetre. The huscarl's 2.50 is his
+  coif's inner throat wall passing inside his own neck at az 249, y 42, 9.7 mm,
+  and it is untouched by this round.
+* `helmclash` 3's last two red rows are `beard=forked` at az 3, y 10-11 — the
+  beard through the ventail, which this file already carries.
+* `hoodfall` reports `warden/berserker/runekeeper suttonhoo long == braids`,
+  two paid hairstyles building ONE OBJECT identical to the micron. Pre-existing
+  on main at 1144 verts; it is 2299 here because the buried coils went into
+  both. The defect is that they are the same object, and this round neither
+  caused it nor fixed it.
+
+### `playtest`'s browser stage times out on the dev server, on any tree
+
+Recorded because the standing advice for it is wrong about the cause, and the
+right route is one command.
+
+`npm run playtest` reaches `MUSTER THE TESTGROUNDS` through a 30-second
+`locator.click`, and on this box the Next **dev** server does not compile the
+muster screen inside it:
+
+```
+  [playtest] starting dev-server on :3818
+  [playtest] failed: locator.click: Timeout 30000ms exceeded.
+    - waiting for getByText('MUSTER THE TESTGROUNDS').first()
+```
+
+It is NOT a symlinked `node_modules`. The tree it failed in has a hard-linked
+copy — real directories, real files — and it fails the same way in a clean
+worktree of `origin/main` with the repository's own `node_modules`, three runs
+apart, warm cache and cold. Everything before the browser passes in every run.
+
+`npm run build` first is the fix, and `playtest` already takes it: `useProd` is
+`existsSync(".next/BUILD_ID")`, so with a production build present it starts
+`custom-server.mjs` instead and the run goes green —
+
+```
+  [playtest] starting custom-server on :3896
+  [playtest] in a fight
+  [playtest] 37/37 controls working
+```
+
+Either raise that 30 s, or say in the tool's header that a build has to exist.
+
+## Round nine: the flange nape, the torn gilt band, and a gate for metal through metal — 15 Aug 2026
+
+Three closed, one moved and left red with its number. Every one of the three was
+found by opening a render; not one of them was visible to any gate in the tree
+before this round, and two of them are now.
+
+### 1. Hair coils on a bare nape under the FLANGE helms — CLOSED
+
+The warden's DEFAULT getup, Warrior Crop, under the Ridge Helm, the Boar-Crest
+and the Jarl's Crowned: six to eight isolated dark curl fragments across bare
+nape and upper neck, several plainly detached. `helmclash` 5 PELT reddens pelt
+outside KIT and there is no kit at that spot; `rungcensus` scores it as content
+GAINED; `wearmeasure` 4 passed 30/30.
+
+The rear of the head as a map, warden / Ridge-Helm, horizontal rays, farthest
+surface wins — hair standing on bare skin below the flange's hem:
+
+```
+  origin/main    az  95, 100, 105
+  round eight  + az 110, 145, 150, 170, 200, 240, 245, 250   <- the defect
+  round nine     az  95, and az 100 above y 120              <- fewer than main
+```
+
+Two causes and they are independent.
+
+**The clamp was read at the wrong end of the plate's descent.** `napeFrontU` is
+`napeHalf(0)`, the narrowest a hanging plate ever is. That is the safe end for a
+GUARD, which lies on the hull and whose risk is hair OUTSIDE metal — the Wyrm
+and the Sutton Hoo are untouched and 3 WRAP is still 2. It is the wrong end for
+a FLANGE, which hangs free and flares forward as it falls. Swept at 1 degree in
+the head's own azimuth:
+
+```
+  the Ridge-Helm flange's front edge
+    y 175..167  az 116-117      y 149..137  az 108-112
+    y 165..151  az 112-116      y 135..129  az 106-107   (hem; none below 127)
+```
+
+so the eleven degrees the plate covers at its hem were outside the clamp, and a
+coil rooted there got no ceiling at all: built full length, falling past the hem,
+standing 19 mm off the bare neck at y 116. A flange is now read at three quarters
+of its descent — 108.5 deg, inside the 106-112 the plate measures over the
+heights the lock courses root at, and 13 deg behind the sideburn course at
+az 95-105 the flank window was widened to show. Read at the bottom
+(`napeHalf(1)`, 100.9 deg) it swallows that sideburn course from y 152 to y 200.
+
+**The comment being replaced was false and the mesh says so.** It read "1.95 rad
+claims 6.6 degrees of cover the flange does not have". The flange has it, below
+the top of its own descent. R10.
+
+**A buried coil did not stay buried.** Round eight buries instead of culling —
+right, and the census is why — but the sink is computed at the ROOT and the
+spine then travels 25 mm DOWN the fall line, which at the nape leaves the skull
+and crosses a neck 20-25 mm nearer the axis. The tail comes back out through the
+throat, and those are the fragments at az 145-200. A buried coil now stands its
+axis up in its own pocket: same rows, same ring, same triangles, same component,
+and the bound is arithmetic instead of a hope about where the neck is.
+
+Only where the skin is the only cover (`!coifed`). Inside an aventail the MAIL
+covers — the huscarl's rear is unbroken mail az 95-265 at every height y 76-132 —
+and standing the coil up there is not free: 5 PELT reads huscarl/boar and
+huscarl/crowned on Braided War-locks at **2.02% against a 2.0% bar, up from
+1.99%**, two cells turned red to tidy something no bearing can see.
+
+### 2. `helmclash` 6 SEAM — nothing in this tree could see metal through metal
+
+2 FLESH and 3 WRAP judge SKIN outboard of metal. 1 LAYERS judges a plate through
+MAIL — one ordered pair out of the hundreds a helmet has, and it is that pair
+because it is the pair the owner photographed. 5 PELT judges hair and beard.
+`wearmeasure` 3 judges a plate against the SKULL, 4 hair against the stack, 10
+what a hole frames. Kit against kit was unmeasured, which is why the next item
+shipped green for eight rounds.
+
+**Two false starts are in the source**, because each is a measurement somebody
+will otherwise reach for again, and both were run over the whole shop:
+
+```
+  "one piece inside another"        the Sutton Hoo's gilt crest rib against its
+                                    own bowl at 49.0% / 3.9 mm — a rib sitting
+                                    in a shell exactly as drawn
+  "a hider closer than LAYER_GAP"   62 of 65 kits red at 5.1 to 27.9%, naming a
+                                    68-triangle spangen strip on nine helmets
+  the same + the facing test        61 of 65
+```
+
+A helmet is layers of metal on metal by design. What is wrong is narrower: along
+one strip the SAME PAIR changes its mind about which piece is in front. So, over
+A's outward face and only where the two surfaces LIE ALONG each other
+(|n.n| > 0.80, so a rib's flank cutting across a shell is not a case — at right
+angles two surfaces meet in a line and a line has no area), PROUD and SWALLOWED
+are counted and the area-weighted MINORITY is the tear. Then three qualifiers,
+each of which is doing real work:
+
+* **the minimum of the two directions.** A lap is clean from at least one side.
+  Read from the shell, a rib authored half sunk in it is proud over 29% and
+  swallowed over 71%; read from the rib it is nothing.
+* **same-tint pairs are skipped.** Two pieces of one metal interpenetrating draw
+  the same pixels either way round. What the render shows is a seam BETWEEN
+  metals.
+* **plate, not kit.** Section 1 owns plate-through-mail with a bar off the
+  build's own `LAYER_GAP`.
+
+Bars 800 mm2 of torn face AND 1.0 mm deep, both, and the sorted sweep is printed
+under the table every run — a bar defended only by a paragraph is a bar nobody
+re-checks. It has a 500 mm2 hole in it: the body stops at 597.9 and the next
+reading is 1114.7.
+
+### 3. The Sutton Hoo's gilt edging was set off the curve, not off the plate — CLOSED on three of four cells
+
+```
+  helmclash 6 SEAM, suttonhoo     torn mm2      of overlap   depth mm
+    huscarl                       1114.7 -> 1114.7   30.3 -> 30.3   5.8
+    warden                        4263.3 ->  904.5   15.2 ->  3.2   4.2
+    berserker                     5841.9 ->  356.6   19.0 ->  1.2   3.8   green
+    runekeeper                    2566.9 ->  555.7   10.1 ->  2.2   3.9   green
+```
+
+The guard is FIVE rows over its whole descent and that is deliberate — its own
+note says "this is the one shell on the helmet whose row count is carrying
+geometry rather than smoothness". Five rows across an S means each row is a
+CHORD, and over the bottom span the chord stands as much as 4 mm outside the
+curve it was sampled from. The lip was solved on the CURVE and offset 2.5 mm from
+that, so wherever the bulge beats the standoff the plate is in front of its own
+gilt: silver eating gold, with a boundary that is the mesh grid and not an edge
+anybody drew. The lip is now solved bilinearly on the plate's own emitted quad,
+so the standoff is 2.5 mm from the DRAWN surface by construction.
+
+Raising the guard's own rows 5 -> 20 closes it too — 4263.3 to 275.9 on the
+warden — and is NOT shipped: it moves the plate, and `wearmeasure` 3 reads the
+consequence as flare 44.7 -> 55.8 on the Sutton Hoo, 50.0 -> 56.3 on the Wyrm,
+and a new red cell on the Jarl's Crowned at 25.8 against a 22 bar.
+
+### OPEN — two seams above the bar, with their numbers
+
+* **warden / suttonhoo 904.5 mm2 against an 800 bar, 3.2% of the overlap.** A
+  fifth of what it was, all of it at the guard's own hem row. A finer lip
+  (nu x2, nv 2) was tried and is not shipped: warden 904.5 -> 275.9 but
+  berserker 356.6 -> 1012.2. It moves the readings around rather than down.
+* **huscarl / suttonhoo 1114.7 mm2, 30.3%, 5.8 mm, at az 180, y 205.7.** A
+  DIFFERENT pair — `d9b45f (276 tri) proud of 9aa6ae (308 tri)`, a gilt crest rib
+  coming down the back of the bowl onto the nape guard's top edge. It reads the
+  same before and after the lip mend, which is how it is known to be another
+  fault and not that one. Untouched.
+* **thirteen more kits are red in 6 SEAM.** The section is new and this tree has
+  never measured what it measures, so every one is a finding rather than a
+  regression. The largest are `6e767f` against `bfa25c` on the Jarl's Crowned
+  (1888-2659 mm2) and `8a7050` against `6e767f` on the berserker's Nasal Helm
+  (1699 mm2).
+
+### OPEN — `wearmeasure` 3 FLARE is still red, and 4.6 degrees of it was the ruler
+
+The lap round eight named IS a real error in the ruler and it is now out:
+`helmFitProbe` carries the other shells of the same helmet as a MASK on the ring
+pieces, and a sample with another shell under it is not a metal-against-flesh
+reading. The share dropped is a printed column, `on kit%`, 4.0 to 19.4 on the
+five helms that have a lap and 0.0 on the rest.
+
+```
+  suttonhoo  44.7 -> 40.1        wyrm  50.0 -> 49.8        nothing else moves
+```
+
+**A mask and not a hull.** Folding those shells into the hull was built first:
+suttonhoo 44.7 -> 52.7, wyrm 50.0 -> 53.1, and THREE NEW RED HELMS, ridge
+8.9 -> 30.3, boar 11.5 -> 30.3, crowned 11.5 -> 27.8. Flare is a derivative and a
+hull with a step in it cannot be differentiated.
+
+**A censored baseline is no longer differenced.** `skinGap` returns its own `cap`
+when the ray never finds flesh; that is a verdict for GAP, which is a level, and
+not for a derivative. `censored%` is the new column, 0.0 everywhere on this tree,
+so it moves no number here — but the huscarl already reads gap 75.0 and hem 75.0
+on his nape guard, the cap exactly, and the next hand to widen a plate would have
+got an angle about the search limit.
+
+**What is left, and why this round does not close it.** Both plates are red at
+the same place on all four classes: `u 0.83..1.00, v 0.80..0.93`, the guard's
+front-bottom CORNER at about az 80, at the hem. Under that corner is the
+submandibular hollow, and `withNeck`'s own note already calls the ceiling that
+stops the neck reaching up into the jaw "the one thing about this table that is
+still an approximation". Round eight's sentence was "the 22 degree bar was
+calibrated against a phantom cylinder that filled the submandibular hollow in",
+and that is the same place. The next repair is either that hollow or the bar, and
+neither can be made honestly from here: filling the hollow is what the phantom
+cylinder did wrong, and moving the bar is buying a pass.
+
+### The three locked facts, re-measured on this branch
+
+```
+  helmclash 3 WRAP, Sutton Hoo    huscarl 0.0   warden 0.0   berserker 1.0
+                                  runekeeper 0.0 — section 3 red on 2 of 288,
+                                  both `beard=forked` at az 3, unchanged
+  the ear row `917050 (224 tri) 91.7% 9.9 mm az 114`   0 occurrences
+  rungcensus vs origin/main       360 identical, 280 gained, 0 LOST, 0 rungs gone
+```
+
+## Correction: the blob table measures two commits, not one — 19 Aug 2026
+
+`4019ead`'s message says "Baseline is this branch's own merge commit `14bc361` … so the
+comparison is the change alone", and lists `LEGIBLE_AT_ONCE = 6` among the things that
+"went with it". **Both sentences are wrong, and `git` says so:**
+
+```
+git show 14bc361:src/game/client/render/hud3d.ts | grep -c LEGIBLE_AT_ONCE   ->  0
+git show 3bca635:src/game/client/render/hud3d.ts | grep -c LEGIBLE_AT_ONCE   ->  3
+git diff --stat 14bc361 3bca635 -- hud3d.ts                                  ->  60 ++ / 28 --
+```
+
+The constant and the rewritten spawn/retire path around it landed one commit EARLIER, in
+`3bca635`, whose own message is about merging main and repairing rulers and never mentions
+it. So:
+
+* the pooled `28.21% -> 10.64%` TOUCHING table measures **`3bca635` AND `4019ead` together**,
+  not the half-push fix alone;
+* the `worst numbers at once 9/16/12/9 -> 6/6/6/6` column is **entirely the earlier commit's
+  cap** and none of it belongs to the half-push fix;
+* the 3-run pair offered to decompose the two (12.44/3.91/3.67 against 4.50/12.00/3.17) has
+  completely overlapping ranges and settles nothing either way.
+
+**What is NOT affected, and an adversary checked the thing that would have mattered most:**
+the win is not bought by drawing fewer numbers. Over a paired run the two trees carry the
+same population — main mean 2.58 numbers at once, p50 2, p95 6, worst 8; branch mean 2.63,
+p50 2, p95 6, worst 6. The branch carries slightly MORE numbers on average and still reads
+10.32% ink-touching against 29.77%. An 8-to-6 ceiling cannot produce a threefold drop; the
+layout arithmetic is doing the work, and the half-push fix is real regardless of which
+commit the cap arrived in.
+
+**The process fault worth keeping:** a player-visible cut of damage numbers on screen from
+48 to 6 at `high` landed inside a commit whose title is about rulers. A change a player can
+see belongs in a commit that says so, whatever else is in the same push.
+
+---
+
+## `summaryflow`'s war-band veto check is a coin flip — 20 Aug 2026
+
+`tools/summaryflow.mjs:395 vetoCheck()` asserts *"a man lying dead does not
+perform"* and is called unconditionally at the end of `teamPhase`. It can only be
+judged when the stage left the LOCAL man dead. `teamPhase` fights a real 2v2 that
+nothing drives into the fire, so which band wins is the fight's business:
+
+* local man DEAD  — the row is not offered, `notOffered` is true, PASS.
+* local man STANDING — the row is correctly offered, the press is correctly
+  honoured, `refusals 0->0`, and the check FAILS on a build that is behaving.
+
+Observed on `mercyweight5`, run 2 of 2 in this window:
+`FAIL war band: a man lying dead does not perform — pressed, refusals 0->0;
+corpsesPerforming=0`, with the NOTE two lines above it reading *"after the
+rollback the row is OFFERED to a man the stage left standing"*. Run 1 of 2 passed
+it with the man left dead.
+
+This is the failure mode the same file already names in another place — *"it made
+summaryflow's war band check fail about half the time … the answer depended on
+which side the local man happened to be on"* — surviving in the one check that
+still assumes it. `corpsesPerforming === 0` is judgeable either way; the
+offered/refused half is not.
+
+**Not changed here.** The rule is never to touch a harness in the round that a
+branch needs it green, and this one failed on this branch in exactly the run that
+would have benefited. It is recorded so the next round can make the unjudgeable
+half a named skip — this file's own doctrine, "a skip is not a pass, so it is
+named, counted, and printed beside the score" — rather than a false red.
+
+---
+
+## `summaryflow` is flaky on a contended software rasteriser, on BOTH trees — 20 Aug 2026
+
+Round eleven's brief carried "**GREEN 14/14 on `origin/main`, run twice, alone, on
+the same box**". Three runs of `origin/main` (`2011c28`) in a fresh build in this
+window read:
+
+```
+  run 1   12/14 passed, 3 NOT RUN   exit 1
+  run 2   12/14 passed, 3 NOT RUN   exit 1
+  run 3   15/15 passed, 2 NOT RUN   exit 0
+```
+
+Runs 1 and 2 failed on the same two lines and for the same reason — the first
+summary frame jams the main thread, so the FIGHT AGAIN press landed at
+**19316 ms** and **15531 ms** with `state=lobby`, outside the server's ten-second
+window. That is the 8-25 s stall `summaryflow`'s own header documents. The result
+count is not fixed either: 14, 14, then 15, because the war-band flourish check is
+sometimes judgeable and sometimes a skip.
+
+The box was carrying `load average 10.13` on four cores with other agents' browsers
+on it. **The number "14/14" is not a property of `main`; it is a property of a
+quiet box.** Anything compared against it has to be run beside it, in the same
+window, which is what the R2 evidence on `mercyweight5` does.

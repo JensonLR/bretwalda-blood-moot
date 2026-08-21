@@ -37,9 +37,28 @@
     "weightprobe": "node tools/weightprobe.mjs",
     "weightshot": "node tools/weightshot.mjs",
     "deathcamtest": "node tools/deathcamtest.mjs",
+    "spectatetest": "node tools/spectatetest.mjs",
     "tuitiontest": "node tools/tuitiontest.mjs",
     "hudshot": "node tools/hudshot.mjs",
-    "roundbeatshot": "node tools/roundbeatshot.mjs"
+    "roundbeatshot": "node tools/roundbeatshot.mjs",
+    "wartest": "node tools/wartest.mjs",
+    "warflow": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/warflow.mjs",
+    "warshot": "node tools/warshot.mjs",
+    "warseed": "node tools/warseed.mjs",
+    "warseen": "node tools/warseen.mjs",
+    "warrace": "node tools/warrace.mjs",
+    "bottest": "node tools/bottest.mjs",
+    "readytest": "node tools/readytest.mjs",
+    "mustershot": "node tools/mustershot.mjs",
+    "helmclash": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/helmclash.mjs",
+    "factionread": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/factionread.mjs",
+    "nametest": "node tools/nametest.mjs",
+    "janktest": "node tools/janktest.mjs",
+    "freezetest": "node tools/freezetest.mjs",
+    "gravitytest": "node tools/gravitytest.mjs",
+    "replaytest": "node tools/replaytest.mjs",
+    "replayseen": "node tools/replayseen.mjs",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
@@ -67,6 +86,7 @@
     "eslint-config-next": "16.2.6",
     "playwright": "^1.62.0",
     "postcss": "8.5.8",
+    "react-doctor": "^0.9.12",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3"
   }

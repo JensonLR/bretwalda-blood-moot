@@ -5,8 +5,10 @@ import {
   Shield, Wind, Sparkles, Check, Lock, Coins, User, Skull,
   Ghost, Flame, Eye, Shirt, ChevronRight, Trophy, Medal, Heart,
   Hammer, Users, DoorOpen, Crosshair, Bot, BotMessageSquare, RadioTower, Minus, Plus,
-  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX
+  Flag, Hourglass, KeyRound, CloudOff, Volume2, VolumeX, Map, Dices
 } from "lucide-react";
+import { forgeName } from "@/game/names.mjs";
+import { REPLAY } from "@/game/replay.mjs";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
   EmoteId,
@@ -17,8 +19,8 @@ import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, D
 // `statshape.mjs` for the two warriors this screen used to draw identically.
 import { cardBars, type StatAxis } from "@/game/statshape.mjs";
 import {
-  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance,
-  type Appearance, type ArmouryOption,
+  ARMOURY, freeCosmeticIds, defaultAppearance, migrateAppearance, isPeople, peopleOf,
+  type Allegiance, type Appearance, type ArmouryOption,
 } from "../game/client/characters";
 // The registry only — a Map, a queue and a set of watchers, with every import
 // inside it erased at compile time. The renderer that fills it lives in
@@ -37,7 +39,7 @@ import {
 import type { ForgeProgress, WireHitMessage } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchAllegiance, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 // Statically imported, unlike the canvas: this module builds no AudioContext
 // until a gesture and pulls in nothing else, so the landing screen pays a
@@ -70,6 +72,16 @@ interface RoomState {
   bestOf: number; roundIndex: number; roundTarget: number;
   roundWins: Record<string, number>; roundScoreBy: RoundScoreBy;
   lastRound: RoundResult | null; nextRoundAt: number;
+  /**
+   * HOW MANY AUTHORITATIVE SNAPSHOTS HAVE LANDED, stamped by this client and
+   * never by the server. Read by `GameCanvas` as `ctx.wireEpoch` and by nothing
+   * else; see `stampSnapshot` below for why it is counted here and what went
+   * wrong when it was counted anywhere else.
+   *
+   * Optional because it is absent for exactly one value — the `null` this holds
+   * before the first packet — and because the wire itself never carries it.
+   */
+  wireSeq?: number;
 }
 
 interface ProfileData {
@@ -89,10 +101,33 @@ type Link = "reaching" | "server" | "local";
 // say so on the screen the player pressed the button on.
 interface Notice { text: string; tone: "bad" | "good" }
 
+/**
+ * THE FOUR MEN, AND THEY ARE NAMED IN THE LANGUAGE THE GAME IS SET IN.
+ *
+ * `id` is the wire's and the engine's and never changes — `WARRIOR_STATS`,
+ * every save, every harness and the ledger are all keyed on it. What is written
+ * here is only what a player READS, which is why two of these could be
+ * corrected at no cost at all.
+ *
+ *   WEARD, not "warden". The same word, spelled as Old English spells it.
+ *   WRECCA, not "runekeeper". THERE ARE NO RUNES IN THIS CLASS AND THERE NEVER
+ *     WERE — 92 health, the fastest man on the roster, the largest dodge in the
+ *     game at 5.6 m, the weakest guard at 0.35, and SHADOW STEP. That is not a
+ *     mystic, it is a man with no shield wall to stand in. `wrecca` is the Old
+ *     English for exactly that man: the exile, the lordless fighter, the word
+ *     `The Wanderer` is built on. The old name was also a class in somebody
+ *     else's fantasy game, which is the one thing this project has a standing
+ *     rule against.
+ *
+ * And his weapons are named for what `characters.ts` actually builds: the class
+ * "fights with a seax in each hand", single-edged with the broken-back spine
+ * (`characters.ts:10250`). "Twin daggers" was describing real Anglo-Saxon kit
+ * in a word that could belong to anything.
+ */
 const WARRIOR_INFO: Array<{ id: WarriorClass; name: string; desc: string; Icon: typeof Swords }> = [
   { id: "huscarl", name: "HUSCARL", desc: "Shield & sword. Unbreakable.", Icon: Shield },
-  { id: "warden", name: "WARDEN", desc: "Balanced blade. Reliable.", Icon: Swords },
-  { id: "runekeeper", name: "RUNEKEEPER", desc: "Twin daggers. Pure speed.", Icon: Wind },
+  { id: "warden", name: "WEARD", desc: "Balanced blade. Reliable.", Icon: Swords },
+  { id: "runekeeper", name: "WRECCA", desc: "Twin seaxes. The exile's speed.", Icon: Wind },
   { id: "berserker", name: "BERSERKER", desc: "Danish axe. Pure rage.", Icon: Hammer },
 ];
 
@@ -132,7 +167,29 @@ export default function Page() {
   // How far the arena has got. Null until the canvas mounts and reports.
   const [forge, setForge] = useState<ForgeProgress | null>(null);
   const [forgeStalled, setForgeStalled] = useState(false);
+  /**
+   * THE MUSTER — who the server is still waiting for, and until when.
+   *
+   * The owner: "a lot of the time the game starts before fully loading in which
+   * is a poor experience, we shouldn't start until everyone is fully loaded
+   * in." The server holds the bell (engine `LOAD_HOLD_MS`); this is the half a
+   * player can see, because a wait nobody is told about looks exactly like a
+   * hang and would trade one bad experience for another.
+   */
+  const [muster, setMuster] = useState<{ waitingFor: string[]; until: number } | null>(null);
   const [playerName, setPlayerName] = useState("");
+  /**
+   * What the forged name MEANS, shown under the field. A generator that hands
+   * back "Wulfstan" and nothing else is a dice roll; one that says "wolf-stone"
+   * teaches the player how the language builds names, which is what makes the
+   * next one his own idea rather than another press of the button.
+   */
+  const [nameGloss, setNameGloss] = useState<string | null>(null);
+  const forgeWarriorName = useCallback(() => {
+    const forged = forgeName();
+    setPlayerName(forged.name);
+    setNameGloss(`${forged.name} — ${forged.gloss}`);
+  }, []);
   const [playerId, setPlayerId] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -144,6 +201,52 @@ export default function Page() {
   const [botDifficulty, setBotDifficulty] = useState<Difficulty>("warrior");
   const [bestOf, setBestOf] = useState<BestOf>(DEFAULT_BEST_OF);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
+  /**
+   * THE PACKET COUNT, AND IT COUNTS PACKETS.
+   *
+   * `GameCanvas` hands this to the interpolator as `ctx.wireEpoch`, which is
+   * what lets `ingestNet` tell a man the server says is STANDING STILL from a
+   * man the server has said nothing about (see the long note at
+   * `anim.ts:ingestNet`). The witness has to be "a snapshot landed".
+   *
+   * IT USED TO BE COUNTED OFF ROOM-RECORD IDENTITY — a `useEffect` on
+   * `[roomState]` that incremented once per committed value. That is a
+   * different quantity and the difference is not academic: `emote`,
+   * `last_stand` and a bare `countdown` tick all call `setRoomState` with a
+   * fresh object carrying NO player positions, so each one advanced the epoch
+   * with no packet behind it and told every still warrior that an authoritative
+   * "he is exactly here" had arrived when nothing had. Measured on a 30 s
+   * seven-bot fight by `tools/janktest.mjs --phases=epoch`: 596 advances
+   * against 598 snapshots with a quiet wire, and 602 against 597 — seven
+   * phantom advances, one per relayed flourish — with an emote pressed every
+   * 600 ms. The exposure is worst on the intermission path in
+   * `GameCanvas.tsx`, whose own comment says "the wire is static here", because
+   * that is precisely where the break card offers the emote buttons: there the
+   * packet count is ZERO and every advance is phantom.
+   *
+   * So the count is taken HERE, at the only place in the client that knows the
+   * difference — the message handler, which can see the message type. A ref
+   * rather than state: it is stamped onto the value being committed, so it
+   * rides the same render as the record it describes and cannot be read out of
+   * step with it. Incrementing in an effect keyed on the record cannot express
+   * "this particular commit was a packet" at all, which is the whole defect.
+   */
+  const wireSeqRef = useRef(0);
+  /**
+   * Stamp a whole-room snapshot with its packet number. Every caller is a
+   * message that came out of `serializeRoom` with every player's authoritative
+   * position on it, and no other caller is allowed.
+   *
+   * The messages that are NOT snapshots need no counterpart and deliberately
+   * have none: they all build their next record with `{ ...prev }`, which
+   * carries the previous `wireSeq` forward unchanged. Silence on the wire then
+   * reads as silence, which is the entire contract.
+   */
+  const stampSnapshot = useCallback(<T extends RoomState>(d: T): T => {
+    wireSeqRef.current += 1;
+    d.wireSeq = wireSeqRef.current;
+    return d;
+  }, []);
   const [matchResults, setMatchResults] = useState<MatchEndData | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -191,6 +294,13 @@ export default function Page() {
    * matching that function's own fallback.
    */
   const [canEmote, setCanEmote] = useState(true);
+  /**
+   * THE SLOW-MOTION REPLAY, as `GameCanvas` reports it. `null` when nothing is
+   * playing. Two things hang off it and both are the owner's words: the match
+   * summary waits ("before a match ends"), and the skip is offered ("skippable
+   * at end of match, just take them to the lobby").
+   */
+  const [replay, setReplay] = useState<{ playing: boolean; atEnd: boolean; skip: () => void } | null>(null);
   const [rematchWaiting, setRematchWaiting] = useState(false);
   // The sign-in, as a promise. Anything that must not guess where the gold
   // lives — a purchase, a payout — waits on this rather than reading a link
@@ -267,6 +377,38 @@ export default function Page() {
       unlocked: p.unlocked, appearance: migrateAppearance(p.appearance),
       recoveryCode: p.recoveryCode,
     });
+  }, [saveProfile]);
+
+  /**
+   * The people a man swore to, off the war rolls and onto his warrior.
+   *
+   * ONE DIRECTION ONLY, AND THAT IS THE POINT. This reads the server's
+   * `players.allegiance` — the record written over an authenticated route when
+   * he took the oath — and writes it into the local `Appearance` as the LIVERY
+   * he fights in. It never writes the other way: nothing a player can do on
+   * this screen can change which people banks his points, because the only
+   * route that can is `/api/war/swear` and it locks once he has fought.
+   *
+   * `null` back — no credentials, no database, an unreachable host, or a man
+   * who simply has not sworn — all land on `"none"`, which is the issued kit
+   * and is what `defaultAppearance` already ships. A no is never a hole.
+   *
+   * The live room is told too, but only if the value actually moved: a
+   * `set_appearance` on every boot would rebuild every rig in the lobby for
+   * nothing. See `createWarriorRig` — an appearance change disposes and rebuilds
+   * a man. In practice there is no room at boot — the oath is taken on
+   * `/factions`, which is a page navigation, so coming back remounts this
+   * screen with no socket — and the send is there for the day that stops being
+   * true rather than for today.
+   */
+  const adoptAllegiance = useCallback(async () => {
+    const sworn = await fetchAllegiance();
+    const people: Allegiance = isPeople(sworn) ? sworn : "none";
+    const current = peopleOf(profileRef.current.appearance);
+    if (current === people) return;
+    const ap = { ...profileRef.current.appearance, people };
+    saveProfile({ appearance: ap });
+    transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
   }, [saveProfile]);
 
   /**
@@ -368,6 +510,17 @@ export default function Page() {
         const roll = result.profile?.muted === true;
         if (audio.muted && !roll) { void syncMuted(true); noteMutedSynced(true); }
         else { noteMutedSynced(roll); audio.setMuted(roll); }
+        // THE OATH, FETCHED AND DRESSED. `BACKLOG.md` 4.3: "a man swears to a
+        // people and then looks exactly as he did before". This is where that
+        // stops being true — the war rolls are asked who he swore to and the
+        // answer is written into his appearance as a livery.
+        //
+        // Behind the screen like everything else in this block, and it fails
+        // into the unsworn, which is a deliberate look and not a hole. It also
+        // runs on EVERY boot rather than once: the oath is taken on `/factions`,
+        // which is a different page, so coming back from the map is exactly the
+        // moment a man's people can have changed under this screen's feet.
+        void adoptAllegiance();
       }
       if (result.carried && (result.carried.gold > 0 || result.carried.unlocks > 0)) {
         // The server counts every id it folded in, free starting kit included.
@@ -382,7 +535,7 @@ export default function Page() {
       if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
     }).catch(() => settleLink("local"));
     return () => { dropped = true; setBindingsPersister(null); };
-  }, [adoptServer, settleLink, adoptBindings, audio]);
+  }, [adoptServer, settleLink, adoptBindings, adoptAllegiance, audio]);
 
   // The three moments the game speaks without being pressed. Each is guarded by
   // what it last said, because a re-render is not an event — and each of the
@@ -480,7 +633,7 @@ export default function Page() {
         setPlayerId(d.playerId);
         playerIdRef.current = d.playerId;
         setRoomCode(d.code);
-        setRoomState(d);
+        setRoomState(stampSnapshot(d));
         setPayState("none");
         setMatchResults(null);
         // Reserve this fight's pay before there is any. An unreserved payout
@@ -505,7 +658,7 @@ export default function Page() {
         break;
       }
       case "lobby_update": {
-        setRoomState(msg.data as unknown as RoomState);
+        setRoomState(stampSnapshot(msg.data as unknown as RoomState));
         // The rematch loop: the room has rolled back to its lobby — ready
         // flags freshly cleared — and this player already said "again" from
         // the summary screen. Now the ready can actually stick.
@@ -520,7 +673,7 @@ export default function Page() {
       }
       case "countdown": {
         const d = msg.data as unknown as RoomState;
-        if (d.players) setRoomState(d);
+        if (d.players) setRoomState(stampSnapshot(d));
         else setRoomState((prev) => prev ? { ...prev, state: "countdown", countdown: (msg.data?.countdown as number) || 0 } : prev);
         setBusy(false);
         // A new match is starting: strike the last one's summary set, or the
@@ -533,8 +686,26 @@ export default function Page() {
       }
       case "game_state": {
         const d = msg.data as unknown as RoomState;
-        setRoomState(d);
-        if (screenRef.current !== "game" && (d.state === "fighting" || d.state === "last_stand")) setScreen("game");
+        setRoomState(stampSnapshot(d));
+        // `loading` IS THE REASON THE CANVAS EXISTS YET. The server holds the
+        // bell until this client reports its arena standing, and the arena is
+        // built by GameCanvas — which is only mounted on the game screen. Enter
+        // it here or the muster waits twelve seconds for a forge that was never
+        // started, every match. See `awaitLoad` above and LOAD_HOLD_MS in the
+        // engine.
+        if (screenRef.current !== "game" &&
+            (d.state === "loading" || d.state === "fighting" || d.state === "last_stand")) {
+          setMatchResults(null);
+          setScreen("game");
+        }
+        break;
+      }
+      // Who the room is still standing about for. Rendered rather than
+      // swallowed: a wait a player cannot see is indistinguishable from a hang,
+      // which is the defect this whole phase was added to remove.
+      case "match_loading": {
+        const d = msg.data as { waitingFor?: string[]; until?: number };
+        setMuster({ waitingFor: Array.isArray(d.waitingFor) ? d.waitingFor : [], until: Number(d.until) || 0 });
         break;
       }
       case "last_stand": {
@@ -546,7 +717,7 @@ export default function Page() {
       // card; the round result itself is read back out of `lastRound`.
       case "round_end": {
         const d = msg.data as unknown as RoomState;
-        if (d.players) setRoomState(d);
+        if (d.players) setRoomState(stampSnapshot(d));
         break;
       }
       case "match_end": {
@@ -622,7 +793,7 @@ export default function Page() {
         break;
       }
     }
-  }, [adoptServer, tallyLocally, showError, settled, sendMsg]);
+  }, [adoptServer, tallyLocally, showError, settled, sendMsg, stampSnapshot]);
 
   const ensureTransport = useCallback(async (): Promise<boolean> => {
     if (transportRef.current && transportRef.current.mode) return true;
@@ -702,7 +873,7 @@ export default function Page() {
     void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance });
+    sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance, awaitLoad: true });
   }, [playerName, selectedMode, bestOf, ensureTransport, sendMsg, showError]);
 
   const handleJoin = useCallback(async () => {
@@ -713,7 +884,7 @@ export default function Page() {
     void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("join", { name: playerName, code: joinCode.toUpperCase(), appearance: profileRef.current.appearance });
+    sendMsg("join", { name: playerName, code: joinCode.toUpperCase(), appearance: profileRef.current.appearance, awaitLoad: true });
   }, [playerName, joinCode, ensureTransport, sendMsg, showError]);
 
   // The whole trial is configured on the client and travels in one message, so
@@ -732,6 +903,7 @@ export default function Page() {
       warriorClass: soloClass,
       appearance: profileRef.current.appearance,
       autoStart: true,
+      awaitLoad: true,
     });
   }, [playerName, soloClass, soloDifficulty, soloBots, ensureTransport, sendMsg]);
 
@@ -970,8 +1142,37 @@ export default function Page() {
 
   // Leaving the fight tears the canvas down; the next one forges from nothing.
   useEffect(() => {
-    if (screen !== "game") { setForge(null); setForgeStalled(false); }
+    if (screen !== "game") { setForge(null); setForgeStalled(false); setMuster(null); }
   }, [screen]);
+
+  /**
+   * "MY ARENA IS STANDING." Sent once the forge has landed every stage, which
+   * is the only honest definition of loaded this client has — the same signal
+   * that takes the forge screen off. The server ignores a repeat, so there is
+   * nothing to remember, and it can only ever make the fight start SOONER.
+   *
+   * `forgeStalled` is in the condition on purpose: at twenty seconds the forge
+   * screen comes off regardless (see below), and a client that has given up
+   * waiting for its own arena must not go on holding seven other people. The
+   * server's own twelve-second cap would have released them first; this makes
+   * the two agree rather than leaving the client silently the slower of them.
+   */
+  useEffect(() => {
+    if (screen !== "game") return;
+    // `forge !== null && forge.done >= forge.total`, and the first half is the
+    // whole point. The first cut read `if (forge && forge.done < forge.total)
+    // return;` — which does NOT return when `forge` is null, and `forge` IS
+    // null for the beat between entering the game screen and the canvas
+    // reporting its first stage. So this client shouted "my arena is standing"
+    // before it had built a single thing, every match, and the muster it was
+    // supposed to join it never joined. Nothing measured it: `readytest` drives
+    // the server and cannot see what this client chooses to say, and the server
+    // is behaving perfectly correctly when it believes a lie. It took a
+    // screenshot (`tools/mustershot.mjs`) showing a fight where a wait should
+    // have been.
+    if (!forgeStalled && !(forge !== null && forge.done >= forge.total)) return;
+    sendMsg("loaded");
+  }, [screen, forge, forgeStalled, sendMsg]);
 
   // A loading screen that outlives the thing it is loading is the one failure
   // this feature has already had (docs/OPEN-DEFECTS.md). The build lands in
@@ -1001,7 +1202,7 @@ export default function Page() {
     return (
       <div className="fixed inset-0 bg-black">
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} matchEnd={matchResults} onForge={setForge}
-          onEmote={sendEmote} onCanEmote={setCanEmote} emoteFeed={emoteFeedRef} hitFeed={hitFeedRef} />
+          onEmote={sendEmote} onCanEmote={setCanEmote} onReplay={setReplay} emoteFeed={emoteFeedRef} hitFeed={hitFeedRef} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
@@ -1031,6 +1232,35 @@ export default function Page() {
             </div>
           </div>
         )}
+        {/* THE MUSTER, once this client's own arena is up and the room is still
+            standing about for somebody else's. It is a named list rather than a
+            spinner, because "waiting for Guthrum" is a fact a player can act on
+            and a spinner is not. `until` is the server's own deadline; nobody
+            waits past it.
+
+            THE CONDITION IS "THE FORGE HAS FINISHED", NOT "THE FORGE IS NOT
+            RUNNING", and `tools/mustershot.mjs` is why. The first cut read
+            `!(forge && forge.done < forge.total)` — which is TRUE in the gap
+            before the canvas has reported its first stage, because `forge` is
+            still null there. So the panel flashed "WAITING FOR GUTHRUM" over a
+            black screen for a beat, the forge bar then replaced it, and it came
+            back at the end: the room appeared to be waiting for somebody else
+            while this player had not started loading. Every assertion in
+            `readytest` passed throughout. It took one PNG. */}
+        {muster && muster.waitingFor.length > 0 && roomState?.state === "loading" &&
+         (forgeStalled || (forge !== null && forge.done >= forge.total)) && (
+          <div data-muster className="pointer-events-none absolute inset-x-0 top-1/2 z-40 -translate-y-1/2 px-8 text-center">
+            <div className="label-overline">THE MUSTER</div>
+            <div className="font-display mt-2 text-lg tracking-[0.18em] text-amber-100 sm:text-2xl"
+              style={{ textShadow: "0 0 30px rgba(255,180,60,0.35)" }}>
+              WAITING FOR {muster.waitingFor.join(", ").toUpperCase()}
+            </div>
+            <div className="knot-band mx-auto mt-3 w-full max-w-[18rem]" />
+            <div className="mt-2 text-[10px] font-bold tracking-[0.25em] text-stone-500">
+              THE FIGHT BEGINS WITHOUT THEM IF IT MUST
+            </div>
+          </div>
+        )}
         {/* The score of the match, over the fight. A best-of is worth nothing
             if a player cannot see where he stands in it, and the HUD proper
             only knows about this round. Sits below the health bar the HUD
@@ -1047,8 +1277,30 @@ export default function Page() {
             bottom, with the picture left alone in between. It outlives the
             server's rollback to "lobby" on purpose: the player leaves the
             tableau when he presses something, not when a timer does. */}
+        {/* THE LAST KILL OF THE MATCH, BEFORE THE SUMMARY.
+            The owner: "a slow motion replay of the last kill before the next
+            round and before a match ends, skippable at end of match, just take
+            them to the lobby." The canvas holds the victor's tableau back
+            while this runs; this is the skip, and it is offered ONLY at match
+            end — a round break is four seconds and deals itself, and a skip
+            there would just be a button that shortens a break nobody is
+            waiting on.
+
+            `replay.skip()` is `replay.mjs`'s own, so the beat ends in one
+            place. The route out is the same one `onLeave` takes below, because
+            "take them to the lobby" is a screen and not a camera. */}
+        {replay?.playing && replay.atEnd && (
+          <div className="pointer-events-none absolute inset-0 z-40 flex items-end justify-center p-6 pb-10">
+            <button
+              onClick={() => { replay.skip(); leaveRoom(); setMatchResults(null); setScreen("landing"); }}
+              className="pointer-events-auto rounded-full border border-amber-400/40 bg-black/60 px-6 py-2 text-xs font-bold tracking-[0.25em] text-amber-200 backdrop-blur transition hover:border-amber-300 hover:text-amber-100">
+              SKIP
+            </button>
+          </div>
+        )}
         {matchResults && roomState && roomState.mode !== "solo" &&
-          (roomState.state === "finished" || roomState.state === "lobby") && (
+          (roomState.state === "finished" || roomState.state === "lobby") &&
+          !replay?.playing && (
           <MatchSummary
             data={matchResults}
             playerId={playerId}
@@ -1532,10 +1784,26 @@ export default function Page() {
             <input
               type="text"
               value={playerName}
-              onChange={(e) => setPlayerName(e.target.value.substring(0, 20))}
+              onChange={(e) => { setPlayerName(e.target.value.substring(0, 20)); setNameGloss(null); }}
               placeholder="Enter warrior name..."
               className="input-frame text-center text-lg"
             />
+            {/* The forge. Sits under the field rather than inside it so the tap
+                target is its own — a 44px control crammed into the input's right
+                edge is the classic way to make a phone user miss and start
+                editing instead. */}
+            <button
+              type="button"
+              onClick={forgeWarriorName}
+              className="btn-ghost w-full !min-h-[var(--tap)] !text-xs"
+            >
+              <Dices size={16} /> FORGE ME A NAME
+            </button>
+            {nameGloss && (
+              <p className="-mt-1 text-center text-xs text-[rgba(238,226,204,0.6)]">
+                {nameGloss}
+              </p>
+            )}
             <button onClick={() => setScreen("create")} disabled={busy}
               className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
               <Swords size={20} /> CREATE BATTLE
@@ -1547,7 +1815,17 @@ export default function Page() {
           </div>
 
           <div className="mx-auto flex w-full max-w-[26rem] flex-col gap-3">
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+              {/* THE WAR. A real link and not a `setScreen`, because the map is
+                  its own route (`/factions`) — it has to be openable from a
+                  message, shareable, and readable by someone who has not
+                  fought yet. Losing the socket on the way there costs nothing:
+                  from the landing screen there is no room to lose. */}
+              <a href="/factions" className="mini-nav">
+                <Map size={19} className="text-amber-400" />
+                <span>The War</span>
+                <span className="text-[9px] font-normal text-amber-400/80">the map</span>
+              </a>
               <button onClick={() => setScreen("training")} className="mini-nav">
                 <Crosshair size={19} className="text-amber-400" />
                 <span>Training</span>
@@ -2279,8 +2557,11 @@ function ClassGrid({ selected, onSelect, compact }: {
   /**
    * Stay two-up at every width. The four-across row is right when this grid
    * owns the page; inside the lobby's 23rem rail it would give each warrior
-   * about 5rem, which is narrower than the word "RUNEKEEPER" and would set
-   * every stat bar to a stub. A card that cannot be read is not a chooser.
+   * about 5rem, which is narrower than the longest name on the roster and would
+   * set every stat bar to a stub. A card that cannot be read is not a chooser.
+   * (That name was "RUNEKEEPER" when this was written and is "BERSERKER" now —
+   * the measurement is the LONGEST label, not any one word, so it is written
+   * that way rather than left naming a string that has since changed.)
    */
   compact?: boolean;
 }) {
@@ -2444,8 +2725,44 @@ function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
  * is outlive the break. The `left > 2` guard below is what enforces that, so a
  * late joiner or a slow socket gets the card immediately rather than a hold that
  * runs past the bell.
+ *
+ * 2950 -> 4000, AND IT IS NO LONGER A NUMBER TYPED HERE. The round break now
+ * carries the slow-motion replay of the kill that ended the round
+ * (`src/game/replay.mjs`, wired in `GameCanvas`), and the arena has to be left
+ * alone for the whole of it or the break card comes down over the replay. So
+ * this is `REPLAY.wall * 1000` — 4000 ms — and `REPLAY.wall` is itself derived
+ * from the server's `ROUND_BREAK` of 5 s with one second held back so the
+ * countdown is still dealt on time.
+ *
+ * WHAT THE BREAK NOW COSTS, spelled out because the honest version of this is a
+ * budget and not a reassurance. The break is the same 5 s it always was; what
+ * changed is what is inside it:
+ *
+ *   before   2.95 s  round-beat camera over the corpse, at life speed
+ *            2.05 s  break card and countdown
+ *   after    4.00 s  the replay: 0.92 s of run-up + 1.08 s of collapse,
+ *                    2.00 s of fight shown over 4.00 s of wall clock
+ *            1.00 s  break card and countdown
+ *
+ * The card loses 1.05 s and never less than its countdown — see the `left > 1`
+ * guard below, which was `left > 2` and had to move with this or it would have
+ * capped the hold at 3.0 s and cut the replay off a second early. Nothing on
+ * the server waits on any of it.
+ *
+ * 2200 -> 2950 WITH `ROUND_HOLD.total` IN src/game/deathcam.mjs, which is the
+ * round camera's clock and plays inside exactly this window. The camera's beat
+ * opens with a still frame while the dying man falls, and the collapse got
+ * longer when it got its weight — over the seven kinds of death
+ * `node tools/freezetest.mjs --phases=collapse` drives, the worst of them
+ * outlasts the 0.45 s the still beat used to be by most of a second. THE
+ * FIGURE IS NOT WRITTEN DOWN HERE: that harness prints its own range and this
+ * file measures none of it. (This sentence carried "1.25 s" for a round, which
+ * is a number the named harness does not print.) The two numbers
+ * are not wired together — deathcam.mjs belongs to another unit — and
+ * tools/deathcamtest.mjs fails if they stop agreeing, so change one and the
+ * harness will tell you about the other.
  */
-const ROUND_HOLD_MS = 2200;
+const ROUND_HOLD_MS = REPLAY.wall * 1000;
 
 /**
  * The end of a round, in two beats.
@@ -2507,7 +2824,11 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
 
   // The card never gets less than its countdown: if the break is already nearly
   // spent when this mounts, there is no beat to hold and we go straight to it.
-  if (now - endedAt < ROUND_HOLD_MS && left > 2) {
+  // `left > 1` and not `> 2`: the hold is now the replay's 4.0 s and the guard
+  // is what stops it outliving the break, so it has to leave the card the one
+  // second `REPLAY.wall` held back rather than the two the old 2.95 s beat did.
+  // A late joiner or a slow socket still gets the card immediately.
+  if (now - endedAt < ROUND_HOLD_MS && left > 1) {
     return (
       /* `pt-[6.6rem]` clears the round tally the game screen keeps pinned at
          top-[4.6rem] — a `.round-hud` pill is about 1.4rem tall, so the verdict

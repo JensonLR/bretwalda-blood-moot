@@ -342,6 +342,33 @@ export function noteBindingsSynced(bindings: unknown): void {
   lastBindings = canonical(bindings);
 }
 
+/**
+ * THE OATH, FETCHED — the one thing the arena needs from the war rolls.
+ *
+ * `players.allegiance` is server-authoritative and unreachable from the game
+ * socket by design: `docs/WIRE-PROTOCOL.md` §11 says no message in that
+ * protocol carries a man's allegiance in either direction. So the client asks
+ * over HTTP, with its own bearer token, on the same route the map screen
+ * already uses — and then writes the answer into its own `Appearance` as a
+ * LIVERY, which is a cosmetic and travels with the helm and the cloak.
+ *
+ * The two are deliberately different objects and the difference is the whole
+ * safety argument: the OATH decides what `src/db/war.ts` banks and is only ever
+ * read out of the database; the LIVERY decides what a man looks like and is
+ * worth nothing to anybody. A client that skips this call and writes its own
+ * `people` dresses itself in the wrong colours and banks for whoever it
+ * actually swore to, which may be nobody.
+ *
+ * Returns `null` for every kind of no: no credentials, no database, an
+ * unreachable host, or a man who has not sworn. The caller treats all of those
+ * the same way, because they are the same thing to a warrior — unsworn.
+ */
+export async function fetchAllegiance(): Promise<string | null> {
+  const reply = await withCreds<{ self: { allegiance: string | null } | null }>("/api/war", {});
+  if (reply.kind !== "server") return null;
+  return reply.value.self?.allegiance ?? null;
+}
+
 let lastMuted: boolean | null = null;
 
 /**

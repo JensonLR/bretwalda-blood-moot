@@ -87,6 +87,27 @@ export interface Appearance {
   cloak: string;     // none | brown | red | blue | gold
   armorColor: number;
   warPaint: string;  // none | stripes | cross | half
+  /**
+   * THE LIVERY OF THE PEOPLE THIS MAN SWORE TO — `saxon | norse | briton |
+   * pict`, or `"none"` for the unsworn, which is most players most of the time
+   * and is a deliberate look rather than a missing one.
+   *
+   * OPTIONAL, AND IT STAYS OPTIONAL FOREVER. Every profile in localStorage
+   * predates this field and none of them has an expiry; `peopleOf` narrows
+   * anything unknown — `undefined`, a stale string, a people invented by a
+   * modified client — to `"none"`, so an old profile and a hostile one both
+   * build the man they always built.
+   *
+   * NOT THE OATH, AND THE DISTINCTION IS THE LOAD-BEARING ONE. The oath is
+   * `players.allegiance` in the database, written over an authenticated route
+   * and read only by `src/db/war.ts` when it banks a match. This is the KIT
+   * that oath dresses a man in: a cosmetic, client-declared, unverified and
+   * worth nothing. A client that writes `"norse"` here fights in Danish colours
+   * and banks for whoever he actually swore to, which may be nobody. See
+   * `docs/WIRE-PROTOCOL.md` §11 — the rule there was written before this field
+   * existed and is amended, not stretched, in the same commit.
+   */
+  people?: Allegiance;
 }
 
 export interface PlayerAppearanceHolder {
@@ -103,6 +124,15 @@ export function defaultAppearance(cls: WarriorClass): Appearance {
     cloak: cls === "berserker" ? "brown" : cls === "runekeeper" ? "blue" : "red",
     armorColor: 0x5f6b7a,
     warPaint: "none",
+    // UNSWORN, AND ON PURPOSE. Most players are unsworn on first load and a
+    // default that read as "the faction failed to load" would be worse than no
+    // feature at all. What an unsworn man wears is the ISSUED kit — undyed
+    // wool in the fleece's own colours, oiled harness leather, cast bronze,
+    // a plain limewood board with no mark on it — which is the finish
+    // `FINISH_KIT` already calls "what a man is issued" and which every
+    // screenshot in `art/` has been showing since the game existed. Swearing
+    // adds a livery; it does not repair a hole.
+    people: "none",
   };
 }
 
@@ -579,9 +609,981 @@ export function teamCloak(hex: number, team: TeamSide): number {
  * devices on them. Every other surface here is a legibility concession; this
  * one is what the object was for.
  */
-export function shieldBoard(ap: Appearance, team: TeamSide): number {
+export function shieldBoard(ap: Appearance, team: TeamSide, people: Allegiance = "none"): number {
   if (team !== "none") return TEAM_FIELDS[team].board;
+  // The board takes the same worn value as the cloak. A limewood board under
+  // this arena's fire key blows exactly the way a cloak does, and it is a
+  // painted object rather than a map token for the same reason: `--gilt` is
+  // chrome, and chrome is not a pigment a shield was ever painted with.
+  if (people !== "none") return wornField(FACTION[people].field);
   return ap.cloak !== "none" ? 0x5c2320 : 0x6b4226;
+}
+
+// ============================================================
+// THE FOUR PEOPLES — the rung below the team colour
+// ============================================================
+/**
+ * WHY THIS EXISTS. `docs/BACKLOG.md` 4.3, in the project's own words: *"a man
+ * swears to a people and then looks exactly as he did before. The map promises
+ * an identity the arena does not deliver."* This block is the arena half.
+ *
+ * AND THE FIRST THING TO SAY IS WHAT IT IS NOT. `docs/FACTIONS.md` §3:
+ *
+ *   "Factions decide look, kit, flag and names. NOT stats. And a faction never
+ *    gates a match — twelve players split four ways is four empty queues
+ *    instead of one working room."
+ *
+ * Nothing below is a number a fight reads. There is no damage, reach, health,
+ * speed, stamina or guard in this file at all, and there is no *shape* here
+ * either: a people re-dyes surfaces and paints a board, and every vertex on
+ * the man is where it was before he swore. `tools/factionread.mjs` §3 asserts
+ * that as a measurement — the four peoples cover exactly the same pixels, to
+ * the pixel, at every bearing — rather than as a promise, because a promise is
+ * what this repository has four recorded instances of losing.
+ *
+ * WHERE THE OATH LIVES, AND IT IS NOT HERE. `players.allegiance` in the
+ * database is the record a man wrote when he swore, over an authenticated
+ * route with his own bearer token, and `src/db/war.ts` is the only thing that
+ * reads it. What travels on the wire and arrives here is a LIVERY: the kit a
+ * man is dressed in. A client that lies about it dresses itself wrong and
+ * banks nothing for anybody — see `docs/WIRE-PROTOCOL.md` §11, which is
+ * corrected in the same commit as this block rather than quietly stretched.
+ */
+export type PeopleId = "saxon" | "norse" | "briton" | "pict";
+/** A man's people, or the unsworn — which is a state and not a failure. */
+export type Allegiance = PeopleId | "none";
+
+/**
+ * The four, in `war.mjs`'s own order.
+ *
+ * A COPY, AND IT IS GATED RATHER THAN EXCUSED. `PEOPLES` lives in
+ * `src/game/war.mjs`, which is the shared server file and the only authority;
+ * this file cannot import it because every headless harness in `tools/`
+ * compiles `characters.ts` on its own with `npx tsc` and no path alias, so an
+ * `@/game/war.mjs` specifier here breaks `rungcensus`, `teamread`,
+ * `cosmetictest` and six others at once. So the list is restated, and
+ * `tools/factionread.mjs` §0 imports BOTH and fails if they ever disagree.
+ * `docs/PROCESS.md` failure mode 3 is a mirrored definition edited in one
+ * place; a mirrored definition with a gate across it is not that.
+ */
+export const PEOPLE_IDS: readonly PeopleId[] = ["saxon", "norse", "briton", "pict"];
+
+/**
+ * THE FOUR FIELDS, AND THEY ARE `globals.css`'S.
+ *
+ * Not fresh colours and not the numbers `docs/FACTIONS.md` §2 used to print —
+ * that table was wrong for a day and says so at length. These four are
+ * `--gilt`, `--garnet`, `--moss` and `--woad` out of `src/app/globals.css`,
+ * which is where the palette comment "four peoples need four distinguishable
+ * fields" already lives, and which `factionMap/territories.ts` reads by
+ * variable name. The map on the island and the man in the arena are now the
+ * same four colours; that is the whole point of the feature.
+ *
+ * Exported because `tools/factionread.mjs` has to ask "which people does this
+ * man read as", and a harness holding its own idea of gilt would be grading
+ * the gilt it remembers. `tools/csscheck.mjs`'s ground is the CSS itself.
+ */
+export const FACTION_FIELD: Readonly<Record<PeopleId, number>> = {
+  saxon: 0xd9a441,   // --gilt    Alfred's Wessex, after Edington
+  norse: 0x7c1420,   // --garnet  the Danelaw, north-east of Watling Street
+  briton: 0x3f6353,  // --moss    the people who were already here
+  pict: 0x2b4f72,    // --woad    north of the Forth, symbol stones
+};
+
+/**
+ * The surfaces a people dyes, and they are named separately from the team's
+ * three because a people is not a side and does not want the same vat.
+ *
+ * `wrap` and `linen` are split out of `cloth`, and both splits are load-bearing
+ * for a *specific* people. The Picts are "least armour, bare limbs"
+ * (`FACTIONS.md` §2), so their leg wraps stay near-undyed while their wool goes
+ * deep woad — one surface pulling the other way is what stops a man being a
+ * single flat colour. The Britons are "lighter kit… checked weave", so their
+ * linen stays the brightest thing on them. A team has no such interest: it
+ * wants every large surface in one field as hard as it can get it, so
+ * `teamWorn` folds both back into `cloth` and the team build is unmoved.
+ */
+type DyeKind = "cloth" | "wrap" | "leather" | "metal" | "linen";
+
+/**
+ * One surface's vat for one people: how much chroma it takes, how its own
+ * lightness is scaled, and the band that lightness is held inside.
+ *
+ * `bias` is the field this has that `TeamField` does not, and it is where three
+ * of the four kit descriptions in `FACTIONS.md` §2 actually live — "darker
+ * wools" for the Norse, "lighter kit" for the Britons, "least armour" for the
+ * Picts. Those are statements about VALUE, not about hue, and a table with only
+ * a hue in it would have shipped four recolours of one man. The lightness band
+ * is per people for the same reason: the Norse ceiling is below the British
+ * floor on cloth, so a Dane cannot be as pale as a Briton whatever finish he
+ * bought.
+ */
+interface Dye {
+  /** Chroma the vat forces onto this surface. */
+  sat: number;
+  /** The source lightness is scaled by this before it is clamped. */
+  bias: number;
+  lo: number;
+  hi: number;
+}
+
+interface FactionLivery {
+  name: string;
+  /** What the people call themselves. Used by the armoury and the oath screen. */
+  native: string;
+  /** The field, from `FACTION_FIELD`. The cloak and the shield board, flat. */
+  field: number;
+  /** Hue of the field, 0..1 — DERIVED, so there is no second number to drift. */
+  hue: number;
+  /** The board's second colour: what the pattern is painted in. */
+  paint: number;
+  /** How the board is painted. See `BOARD_PATTERN`. */
+  pattern: "quarters" | "staves" | "check" | "rim";
+  /** The mark on the board. See `buildDevice` for the sourcing of each. */
+  device: PeopleId;
+  dye: Readonly<Record<DyeKind, Dye>>;
+}
+
+/**
+ * Hue of a colour, in the same space `teamDye` and `tunicDye` already work in,
+ * with an optional shift round the circle.
+ *
+ * THE SHIFT EXISTS BECAUSE TWO OF THE FOUR FIELDS ARE 32° APART AND TWO DYE
+ * VATS 32° APART ARE NOT TWO PEOPLES AT 230 PIXELS. Measured before it was
+ * added: gilt sits at hue 0.083 and garnet at 0.994, and a Saxon huscarl in the
+ * issued finish with no cloak read ΔC 8.75 from the same man sworn Norse — under
+ * the ΔC 10 a paid rung has to clear to be a different colour at a glance. That
+ * is not a bar to move; it is a build that had not earned it.
+ *
+ * The two shifts below are the fix and both of them make the dye MORE accurate
+ * rather than less, which is why they are shifts and not new hexes:
+ *
+ *   * `--gilt` is a METAL — the CSS comment beside it says so, it is the map's
+ *     chrome — and a Saxon did not wear gold. He wore WELD, which is a clear
+ *     yellow and sits further round the circle than gilt does. Shifting the
+ *     Saxon vat toward weld is naming the dyestuff instead of the metal.
+ *   * `--garnet` is a STONE, and a garnet is a deeper, bluer red than madder.
+ *     Shifting the Danelaw vat that way takes it off the orange it was
+ *     borrowing from gilt and lands it where the stone actually is.
+ *
+ * `TEAM_FIELDS` already does exactly this and says so — "Hue 0.015 rather than
+ * 0.0 — true primary red has no warmth in it". `docs/FACTIONS.md` §9.5 gives
+ * the honest label for the whole set: the four fields are INVENTION, on
+ * purpose, justified by legibility rather than by a find, "for a reason that
+ * outranks accuracy". This is that reason, applied twice, in the open.
+ */
+function hueOf(hex: number, shift = 0): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  return (hsl.h + shift + 1) % 1;
+}
+
+/**
+ * THE FOUR LIVERIES.
+ *
+ * Every hue is `hueOf(FACTION_FIELD[...])` and none of them is typed out, so
+ * the only faction colour in this file is the one the CSS already had. What IS
+ * typed out is chroma and value per surface, and each row is an entry in
+ * `FACTIONS.md` §2's Kit column rather than a preference:
+ *
+ *   Anglo-Saxons  "Mail byrnie, round shield, spear. Madder, woad and undyed
+ *                 wool" — the most metal-forward of the four and the brightest
+ *                 field. His mail keeps nearly all its own colour (metal sat
+ *                 0.14): a byrnie that went gold would stop being iron, and the
+ *                 byrnie is the thing that makes him a Saxon.
+ *   Norse         "more metal, darker wools" — the ceiling on his cloth is
+ *                 0.40, below every other people's, and his metal is lifted
+ *                 (bias 1.16) instead. Dark cloth against bright iron is the
+ *                 Danelaw silhouette and it is the one read here that is a
+ *                 CONTRAST rather than a colour.
+ *   Britons       "Lighter kit… slate and grey-green, checked weave" — the
+ *                 lowest chroma of the four (moss is a low-chroma field to
+ *                 begin with) and the highest lightness band. His linen is left
+ *                 nearly white, which with the pale wraps is the two-value
+ *                 check read at range.
+ *   Picts         "Least armour, long spear, bare limbs" — deep woad wool over
+ *                 near-undyed wraps, and his METAL is pushed DOWN (sat 0.09,
+ *                 bias 0.72). He is the only one of the four whose armour goes
+ *                 darker than the man in it, which is what "least armour"
+ *                 looks like when you are not allowed to take any away — and
+ *                 taking any away is forbidden, because some of it was bought.
+ */
+const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
+  saxon: {
+    name: "Anglo-Saxons", native: "Westseaxe",
+    // +0.058 — off the gilt METAL and onto the weld VAT. See `hueOf`. It
+    // carries the whole 52° gap to the Danelaw on its own now: the Norse shift
+    // that used to share the work was taken out for making a man PINK, and the
+    // reading that caught it is under `norse` below.
+    field: FACTION_FIELD.saxon, hue: hueOf(FACTION_FIELD.saxon, 0.058),
+    // Undyed limewood under weld yellow: the ground the paint sits on is the
+    // board's own wood, so the quarters read as painted rather than as inlaid.
+    paint: 0x3b2c17, pattern: "quarters", device: "saxon",
+    dye: {
+      cloth:   { sat: 0.50, bias: 1.00, lo: 0.12, hi: 0.22 },
+      wrap:    { sat: 0.42, bias: 0.96, lo: 0.18, hi: 0.34 },
+      leather: { sat: 0.44, bias: 0.98, lo: 0.15, hi: 0.38 },
+      // A byrnie stays IRON. 0.12 is a warm cast on steel; the 0.20 this was
+      // photographed at gave him a gold shirt, and mail that is not metal is
+      // the one thing §2's Kit column will not have from the Anglo-Saxons.
+      metal:   { sat: 0.12, bias: 1.06, lo: 0.18, hi: 0.60 },
+      linen:   { sat: 0.32, bias: 0.94, lo: 0.20, hi: 0.36 },
+    },
+  },
+  norse: {
+    name: "Norse", native: "Danelagu",
+    // NO SHIFT, AND IT USED TO BE -0.024. THE PICTURE KILLED IT.
+    //
+    // The argument for the shift was sound — a garnet is a deeper, BLUER red
+    // than madder — and the number it bought was real: it widened the gap to
+    // gilt and `factionread` went from ΔC 8.75 to 14.18. Then the frame was
+    // opened. `art/shots/faction/` at the fight lens: hue 0.9696 at cloth
+    // chroma is not a deeper red, it is MAGENTA, and a Dane in the arena's
+    // grade came out mauve with rose-coloured mail — sampled off the capture,
+    // his byrnie read #8a5359. A Viking in dusty pink is not the Danelaw at any
+    // ΔC, and no assertion in this repository can see it: `factionread` has no
+    // light and no grade and says so in its own header. `docs/PROCESS.md` R5.
+    //
+    // The whole 52° is carried by the Saxon shift instead, which is toward
+    // WELD and away from everything, and the Danelaw sits on the stone's own
+    // hue. Re-measured after the change rather than assumed.
+    field: FACTION_FIELD.norse, hue: hueOf(FACTION_FIELD.norse),
+    // The Gokstad ship's shields alternated BLACK and yellow along the gunwale,
+    // and that is the one period statement anybody has about how a board was
+    // painted. The staves are the black half of it.
+    paint: 0x14100e, pattern: "staves", device: "norse",
+    dye: {
+      cloth:   { sat: 0.74, bias: 0.66, lo: 0.08, hi: 0.28 },
+      wrap:    { sat: 0.48, bias: 0.70, lo: 0.10, hi: 0.12 },
+      leather: { sat: 0.56, bias: 0.68, lo: 0.06, hi: 0.26 },
+      // "More metal" is a statement about how MUCH iron he has and how bright
+      // it is, not about what colour it is. 0.07 and a lift: near-white steel
+      // over the darkest wools on the roster, which is the contrast the
+      // Danelaw silhouette is actually made of. At 0.18 it read #8a5359 in the
+      // capture — rose — and that is what took the hue shift out with it.
+      metal:   { sat: 0.07, bias: 1.16, lo: 0.24, hi: 0.68 },
+      linen:   { sat: 0.34, bias: 0.72, lo: 0.05, hi: 0.12 },
+    },
+  },
+  briton: {
+    name: "Britons", native: "Brythoniaid",
+    field: FACTION_FIELD.briton, hue: hueOf(FACTION_FIELD.briton),
+    // A pale second colour, because the check is a VALUE pattern: two tones of
+    // one cloth is what a checked weave is, and two hues would be a flag.
+    paint: 0xc4c0aa, pattern: "check", device: "briton",
+    dye: {
+      cloth:   { sat: 0.42, bias: 1.00, lo: 0.12, hi: 0.22 },
+      wrap:    { sat: 0.26, bias: 0.96, lo: 0.18, hi: 0.34 },
+      leather: { sat: 0.34, bias: 1.00, lo: 0.20, hi: 0.40 },
+      metal:   { sat: 0.16, bias: 1.12, lo: 0.22, hi: 0.64 },
+      linen:   { sat: 0.18, bias: 0.94, lo: 0.20, hi: 0.36 },
+    },
+  },
+  pict: {
+    name: "Picts", native: "Fortriu",
+    field: FACTION_FIELD.pict, hue: hueOf(FACTION_FIELD.pict),
+    // Bone white on woad: the symbol stones are incised into grey rock and read
+    // as pale line on dark ground, which is the contrast this device wants.
+    paint: 0xd8d2c2, pattern: "rim", device: "pict",
+    dye: {
+      cloth:   { sat: 0.72, bias: 0.96, lo: 0.12, hi: 0.26 },
+      // Bare limbs. The wraps come out of the vat almost as they went in, which
+      // at fight distance is the pale band up the shin nobody else has.
+      //
+      // `bias` WAS 1.28 AND THE BAND TOPPED OUT AT 0.86, and that is a vat
+      // BLEACHING wool. It put his wraps above anything in `FINISH_KIT` on
+      // every finish at once, and `tools/factionread.mjs` §6 caught what that
+      // costs under the arena's fire: 3.74% of the man at a fully clipped
+      // channel at the front and 8.39% at the three-quarter, against 2.55% for
+      // the 400 gold Gilded War Cloak. Both are bearings the round that built
+      // this feature never photographed.
+      //
+      // "Near-undyed" is `sat 0.12` — it is a statement about how little
+      // DYESTUFF his wraps take, not about how pale they are — and 0.12 is
+      // untouched. The pale shin band is still the palest thing on him and
+      // still the only one of the four with it, because the band's floor is
+      // 0.52 and his cloth's ceiling is 0.54.
+      wrap:    { sat: 0.12, bias: 1.02, lo: 0.52, hi: 0.74 },
+      leather: { sat: 0.46, bias: 0.90, lo: 0.11, hi: 0.36 },
+      // Least armour: his metal goes dark and nearly colourless.
+      metal:   { sat: 0.11, bias: 0.70, lo: 0.10, hi: 0.38 },
+      linen:   { sat: 0.30, bias: 1.12, lo: 0.46, hi: 0.80 },
+    },
+  },
+};
+
+/** The livery of a people, for the screens that name one. */
+export function factionLivery(people: PeopleId): { name: string; native: string; field: number } {
+  const f = FACTION[people];
+  return { name: f.name, native: f.native, field: f.field };
+}
+
+/** True for one of the four. Everything else — including `undefined` — is unsworn. */
+export function isPeople(v: unknown): v is PeopleId {
+  return typeof v === "string" && (PEOPLE_IDS as readonly string[]).includes(v);
+}
+
+/** A stored or wired appearance's people, narrowed. Anything unknown is unsworn. */
+export function peopleOf(ap: Pick<Appearance, "people">): Allegiance {
+  return isPeople(ap.people) ? ap.people : "none";
+}
+
+/**
+ * THE TRANSFER FUNCTION, BOTH WAYS.
+ *
+ * `THREE.Color.getHSL` and `setHSL` both work in the renderer's WORKING colour
+ * space, and `ColorManagement` is on, so that space is LINEAR. The `Dye` bands
+ * below are in that space too — they were tuned against captures, not typed out
+ * of a colour picker, and a first attempt at this fix that "corrected" them into
+ * perceptual lightness put the Danelaw and the Picts so dark that
+ * `factionread` §1.2 fell from ΔC 12.52 to 4.41 and §1.3 read a Pict as a Saxon
+ * at -173°. That reading is why the band arithmetic below is still linear: the
+ * table is right about the space it is in, and the defect was never the space.
+ *
+ * What these two are for is the BRIGHTNESS CEILING, which is a statement about
+ * how a surface will read on a screen and therefore belongs in the perceptual
+ * space, and the shop's own tables are measured in the same one so the
+ * comparison is like for like.
+ */
+const perceptual = (l: number): number => (l <= 0.0031308 ? l * 12.92 : 1.055 * Math.pow(l, 1 / 2.4) - 0.055);
+const linear = (l: number): number => (l <= 0.04045 ? l / 12.92 : Math.pow((l + 0.055) / 1.055, 2.4));
+
+/**
+ * THE VAT ADDS DYESTUFF; IT DOES NOT REPAINT.
+ *
+ * THE DEFECT. The first cut of `factionDye` ASSIGNED the chroma: `setHSL(f.hue,
+ * d.sat, l)` threw away whatever the surface already carried and wrote one
+ * number over it. Together with a hard clamp at both ends of the band, that
+ * mapped every rung of a PAID ladder onto one value. Measured through the
+ * shipped resolvers, kit-averaged CIELAB ΔE over the six dyed surfaces:
+ * **21 of 21 finish pairs under `LADDER_DE` on all four peoples, minimum
+ * 0.00** — Rough Iron at 0 gold and Blackened Steel at 110 returning the
+ * identical hex on every dyed surface under a Saxon or Briton livery.
+ *
+ * A DYE VAT DOES NOT REPAINT CLOTH. It adds dyestuff to what is already there,
+ * and what is already there shows: yellow cloth in a woad vat comes out green,
+ * not blue. So the chroma plane is a VECTOR SUM — the surface's own chroma plus
+ * the vat's, at the vat's hue — and the reason that is the right shape rather
+ * than merely the true one is that ADDITION PRESERVES DIFFERENCES. A ladder is
+ * a relative structure and a translation is the only operator that leaves a
+ * relative structure alone.
+ *
+ * THE CONE, AND IT IS A CONCESSION MEASURED RATHER THAN GUESSED. A pure sum
+ * lets a strongly dyed finish out-vote a weak vat, and two of the four vats are
+ * deliberately weak on their largest surfaces — the Pict's wraps are `sat 0.12`
+ * because his limbs are bare, and the Briton's linen 0.18 because his kit is
+ * light. Unbounded, a Pict in Bretwalda Gold came out reading SAXON: §1.3 at
+ * -173°, which is the identity read inverted. The result's hue is therefore
+ * held within `HUE_CONE` of the vat's. Every dyed surface is then inside one
+ * cone, and an area-weighted mean of vectors inside a cone stays inside it, so
+ * the people read cannot be out-voted by a purchase — which is the whole of
+ * §8's precedence one rung down.
+ *
+ * WHAT EACH PART BOUGHT, measured on the real §1 sweep and not on a proxy:
+ *
+ *     configuration                          §1.2 DISTINCT  §1.3 READS  §5 min ΔE
+ *     shipped (assign, hard clamp)              12.52 ΔC     +15.21°      0.00
+ *     bands moved to perceptual + full sum       4.41 ΔC     -173.24°     8.93
+ *     linear bands + full sum, no cone           5.75 ΔC     -173.24°     8.97
+ *     linear bands + sum, 22° cone              16.64 ΔC      -25.80°     7.16
+ *     linear bands + sum, 8° cone (THIS)        17.93 ΔC       +3.47°     3.23
+ *
+ * THAT TABLE IS A READING OF A TREE WITH NO ROSE FADE IN IT, and it has been
+ * left as it was because it is what settled the CONE. It is no longer what
+ * this file reads: the fade `roseFade` adds below takes the vat off the
+ * Danelaw's pale surfaces, and his byrnie is the largest surface on him and
+ * therefore most of the area-weighted mean §1 measures. On the shipped tree
+ * §1.2 reads 5.97 and §1.3 -65.38°, both RED. `docs/OPEN-DEFECTS.md` carries
+ * the whole curve — eight configurations, and the frame that proves the other
+ * end of it is not available either.
+ *
+ * The trade is real and it is stated rather than hidden: the ladder does not
+ * come all the way back. The configurations that recover it to ΔE 8-9 are the
+ * ones that let a finish out-vote a people, and a people that a purchase can
+ * out-vote is `FACTIONS.md` §8's ordering broken one rung lower down. What this
+ * buys is the collapse itself — no two rungs are one swatch any more, and no
+ * paid rung reads as the free one — with the four peoples further apart than
+ * they were before, not nearer. `tools/factionread.mjs` §5 gates that and
+ * prints the shortfall on every run.
+ */
+const TAU = Math.PI * 2;
+/**
+ * How far a dyed surface's hue may end up from its vat's, in turns. 0.022 is 8°.
+ *
+ * It is bounded by half the smallest gap between two of the four fields, which
+ * is the 52° between weld and garnet: at 8° two peoples' cones are 36° of clear
+ * air apart, and no surface of one can wander into the other's half of the
+ * circle. Measured at 22° the Norse in Bretwalda Gold read SAXON.
+ */
+const HUE_CONE = 0.022;
+
+/**
+ * THE BRIGHTNESS ENVELOPE — a livery may shift a surface, and may not take it
+ * out of the range the shop itself occupies.
+ *
+ * THE DEFECT THIS CLOSES. `--gilt` is 0xd9a441 and the CSS beside it calls it a
+ * METAL and "the brightest thing on the map". It is a MAP TOKEN, and `cloakFor`
+ * was putting it flat on a cloak. Measured through the real renderer at the
+ * play lens, at the FRONT and the three-quarter — the two bearings a fight is
+ * mostly conducted at, and two of the three nobody had photographed:
+ *
+ *     unsworn huscarl               0.12% of him at a fully clipped channel
+ *     Gilded War Cloak, 400 gold    0.11%
+ *     SAXON huscarl                 1.93%   — sixteen times the shop's dearest gold
+ *
+ * At full scale a channel has no fold shading, no weave and no form left in it.
+ * The Saxon read #ffc237: a flat traffic cone where the 400 gold cloak reads
+ * #e0a203, a rich gold with its folds intact. It sits about twenty points of
+ * lightness above every other flat field this game uses — team madder 34, team
+ * woad 32, garnet 28, moss 32, faction woad 31, and that 400 gold cloak at 41.
+ *
+ * THE RULE, AND IT IS TAKEN OFF THE GAME'S OWN TABLES RATHER THAN CHOSEN. A
+ * livery may not make a thing brighter than the brightest thing of THAT KIND
+ * the shop already sells, because that brightness is what the arena's fire key
+ * was exposed for:
+ *
+ *   * a CLOAK is measured against `CLOAK_COLORS` — the four cloaks a player can
+ *     buy, of which the 400 gold Gilded War Cloak is the brightest. That is the
+ *     control `tools/factionread.mjs` §6 uses, and it is the right comparison
+ *     because a cloak is one flat field over the largest single area on a man.
+ *   * a KIT surface is measured against `FINISH_KIT` — the seven rungs, whose
+ *     brightest surface is Bretwalda Gold's leg wraps. A vat that lifts a
+ *     surface past those has stopped dyeing wool and started emitting light.
+ *
+ * Both are computed from those tables at first use, so a new cloak or a new
+ * finish moves the ceiling with it and there is no second number to drift. The
+ * bend is asymptotic rather than a clamp, for the reason `softBand` gives: a
+ * clamp has zero slope, and zero slope is where paid rungs go to die.
+ */
+const SHOP_CEIL_KNEE = 0.06;
+const softCeil = (x: number, cap: number): number =>
+  (x <= cap - SHOP_CEIL_KNEE ? x : cap - SHOP_CEIL_KNEE * Math.exp((cap - SHOP_CEIL_KNEE - x) / SHOP_CEIL_KNEE));
+/** Perceptual lightness of a hex, in the space the `Dye` bands are written in. */
+function litOf(hex: number): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  return perceptual(hsl.l);
+}
+/**
+ * THE CHANNEL THAT ACTUALLY CLIPS.
+ *
+ * The first cut of this ceiling measured HSL LIGHTNESS, and lightness is not
+ * what goes to full scale — a single CHANNEL is. `0xe6cd2b`, the Saxon's gilt
+ * wraps on Bretwalda Gold, sits at lightness 0.535 against the shop's brightest
+ * wrap `0xd2bd7c` at 0.655, so a lightness ceiling waved it through; its red
+ * channel is 230 against that wrap's 210, and 230 is what the fire drove past
+ * 255. `factionread` §6 read the Saxon at 2.57% of the man against a 2.55% bar,
+ * and those twenty points of red are the whole of the difference.
+ *
+ * So the ceiling is on the brightest CHANNEL, and it is enforced by scaling the
+ * colour down in LINEAR light — which divides all three channels by the same
+ * number and therefore moves neither the hue nor the saturation, only the
+ * exposure. A livery may be any colour the vat gives it; it may not be brighter
+ * in any one channel than the brightest thing the shop already sells.
+ */
+function underMaxChannel(hex: number, cap: number): number {
+  const m = Math.max((hex >> 16) & 255, (hex >> 8) & 255, hex & 255);
+  if (m <= cap) return hex;
+  const k = linear(cap / 255) / linear(m / 255);
+  const c = new THREE.Color(hex);
+  return new THREE.Color(c.r * k, c.g * k, c.b * k).getHex();
+}
+const maxChannel = (hex: number) => Math.max((hex >> 16) & 255, (hex >> 8) & 255, hex & 255);
+let kitCeil = 0, cloakCeil = 0, kitChan = 0, cloakChan = 0;
+/** The brightest surface any finish in the shop dyes. Memoised; `FINISH_KIT` is above. */
+function kitCeiling(): number {
+  if (!kitCeil) {
+    for (const kit of Object.values(FINISH_KIT)) {
+      for (const k of ["mail", "tunic", "trouser", "wrap", "hide", "buff"] as const) {
+        kitCeil = Math.max(kitCeil, litOf(kit[k]));
+        kitChan = Math.max(kitChan, maxChannel(kit[k]));
+      }
+    }
+  }
+  return kitCeil;
+}
+/** The brightest single channel any finish in the shop reaches. */
+const kitChannel = (): number => { kitCeiling(); return kitChan; };
+/** The brightest cloak the shop sells. Memoised; `CLOAK_COLORS` is declared below this. */
+function cloakCeiling(): number {
+  if (!cloakCeil) for (const hex of Object.values(CLOAK_COLORS)) {
+    cloakCeil = Math.max(cloakCeil, litOf(hex));
+    cloakChan = Math.max(cloakChan, maxChannel(hex));
+  }
+  return cloakCeil;
+}
+/** The brightest single channel any cloak in the shop reaches. */
+const cloakChannel = (): number => { cloakCeiling(); return cloakChan; };
+/**
+ * A people's flat field AS SOMETHING WORN — the map token brought down into the
+ * brightness the shop's own cloaks live in, hue and chroma untouched.
+ *
+ * `FACTION_FIELD` itself is NOT changed and must not be: it is `globals.css`'s
+ * four variables, `factionMap/territories.ts` paints the island with them by
+ * name, and the whole point of the feature is that the map and the man are the
+ * same four colours. They still are — this is the same colour at a wearable
+ * value, which is exactly the move `TEAM_FIELDS` documents in the other
+ * direction ("LIFTED IN CHROMA from those two finishes rather than copied").
+ */
+function wornField(hex: number): number {
+  return underMaxChannel(underCeiling(hex, cloakCeiling()), cloakChannel());
+}
+
+/**
+ * THE DEVICE PAINT, UNDER THE SAME FIRE.
+ *
+ * `tools/factionread.mjs` §6 found this one and it took two runs to believe,
+ * because the reading did not move when the cloth did. The Pict blew 3.74% of
+ * the man at the front and 8.39% at the three-quarter against a 2.55% bar,
+ * and changing every dyed surface on him left both numbers byte-identical. The
+ * clipped pixels were never cloth: they are the shield, standing in front of
+ * his body, painted in `0xd8d2c2` — bone white, and the brightest flat area
+ * anywhere in this build. The huscarl is the only class that carries a shield,
+ * which is why he is the only one of the four the Pict blew on.
+ *
+ * A PIGMENT ON LIMEWOOD IS SUBJECT TO THE SAME KEY LIGHT AS A CLOAK, so it
+ * takes the same ceiling as the kit: no brighter than the brightest surface
+ * the shop already sells. The device is still "pale line on dark ground" —
+ * that is what the symbol stones are and it is why the colour was chosen —
+ * because the ground it sits on is the Pictish field at lightness 31 and the
+ * line is still up at the top of the shop's own range.
+ */
+function wornPaint(hex: number): number {
+  return underMaxChannel(underCeiling(hex, kitCeiling()), kitChannel());
+}
+
+/** One flat colour, hue and chroma kept, brought under a brightness ceiling. */
+function underCeiling(hex: number, cap: number): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  return new THREE.Color().setHSL(hsl.h, hsl.s, linear(softCeil(perceptual(hsl.l), cap))).getHex();
+}
+
+/**
+ * PALE RED IS PINK, AND PINK IS A DIFFERENT COLOUR WITH A DIFFERENT NAME.
+ *
+ * THE DEFECT, AND IT IS THE THIRD ROUND OF IT. The owner, on the capture:
+ * "THE DANELAW READS ROSE AT THE SLEEVES AND THE BYRNIE... A Viking in dusty
+ * pink is not the Danelaw at any ΔE." Measured off `art/look/faction-before/`
+ * — the four peoples through the real renderer under the arena's own fire —
+ * the share of each frame inside the rose band `tools/factionread.mjs` §7
+ * defines:
+ *
+ *     norse   huscarl @180   2.651%   modal #b87878
+ *     norse   warden  @180   1.653%   modal #b87878
+ *     norse   warden  @  0   1.639%   modal #b07070
+ *     norse   huscarl @ 90   1.638%   modal #b07070
+ *     saxon / briton / pict, every class and bearing shot:  0.020% - 0.160%
+ *
+ * Sixteen to a hundred and thirty times the other three peoples, whose reading
+ * is skin and firelight and is the floor nobody can get under. In albedo the
+ * sleeve is `#b9746a` — H8 S36 L57 — which is the hex the owner reported.
+ *
+ * TWO ROUNDS OF FIXES AIMED AT THE WRONG THING, and this is why the lever
+ * matters (docs/PROCESS.md R1). Round one took the -0.024 hue shift out of the
+ * `norse` livery. Round two took `metal.sat` from 0.18 to 0.07. Both are
+ * recorded above and both are real improvements; neither is the mechanism.
+ * The brief for THIS round said to look at the `wrap` and `metal` vats. So the
+ * lever was pulled all the way: `wrap`, `metal` AND `linen` set to `sat: 0.00`
+ * — no dyestuff in any of the three vats at all — and the rose got WORSE.
+ * Scored by `tools/lib/roseband.mjs` over all four peoples x seven finishes x
+ * six dyed surfaces:
+ *
+ *     configuration                          rose surfaces   the sleeve
+ *     shipped                                   3 of 168     #b9746a  ROSE
+ *     wrap + metal + linen all at sat 0.00      6 of 168     #a78a86  greige
+ *     THIS                                      0 of 168     #9e9392  greige
+ *
+ * Emptying the vats takes the SLEEVE out of the band and DOUBLES everything
+ * else, because with no dyestuff of its own the vat has nothing to add and the
+ * surface's own chroma is all that is left — which `HUE_CONE` then turns onto
+ * the garnet at exactly the weak magnitude that reads pink. The sleeve leaves
+ * the band by going greige, which is the vat doing NOTHING rather than the vat
+ * doing the right thing, and every byrnie is still rose afterwards. THE VAT'S
+ * `sat` IS NOT THE LEVER, and no amount of moving it ever was.
+ *
+ * (Two intermediate numbers for this experiment reached commit messages before
+ * the band was settled — 9 -> 12 and then 9 -> 6, both off looser boxes. The
+ * three rows above are the shipped band, imported rather than copied, and are
+ * what reproduces. docs/PROCESS.md R8, twice, and it is the third instrument in
+ * this feature's history to be read before it was finished.)
+ *
+ * WHAT IT ACTUALLY IS. Red is the only arc on the circle whose pale form has a
+ * name of its own. Pale woad is pale blue, pale moss is pale green, pale weld
+ * is pale yellow — the word survives the value. Pale garnet is PINK, and pink
+ * is not a lighter Danelaw, it is a different colour worn by different people.
+ * `FACTION_FIELD.norse` is `#7c1420`: L* 26.4, C* 48.7. It is a DARK stone, and
+ * every one of the four vats is allowed to lift a surface far above its own
+ * field's value — the Danelaw's `metal` band tops out at 0.68 and his `linen`
+ * at 0.50 — because for the other three that is exactly right and costs
+ * nothing. On the red arc it is what makes a Viking pink.
+ *
+ * SO THE VAT LETS GO. Above `ROSE_LIT` a surface on the red arc keeps its
+ * VALUE and loses the dyestuff: the linen comes out undyed flax and bright mail
+ * comes out as bare iron, which is what `FACTIONS.md` §2 says the Danelaw is —
+ * "more metal, darker wools", near-white steel over the darkest cloth on the
+ * roster. His identity was never in his shirt. It is in his tunic, his harness
+ * and his cloak, all of which sit below `ROSE_LIT` and are untouched.
+ *
+ * AND LETTING GO IS A MOVE BACK TO THE SURFACE, NOT A MOVE TOWARD GREY. That
+ * sentence is the fourth round of this defect and it is the whole of it. For
+ * one round the fade scaled the magnitude of the SUM, which bleaches away the
+ * chroma the surface brought with it and leaves the remnant pointing wherever
+ * `HUE_CONE` last put it — at the garnet. Rough Iron's byrnie is `#5f6b7a`,
+ * C* 9.9 at hue 264°, and it came out `#898384`, C* 2.5 at hue 6°; Sea Queen's
+ * Gift is `#2f4a6a`, C* 21.7 at hue 270°, and it came out `#8f7d80`, C* 7.5 at
+ * hue 7°. Both are COOL in the shop and both left the vat near-neutral and
+ * aimed at red. THE ARENA'S KEY LIGHT IS A BONFIRE: a warm light ADDS on a
+ * warm-neutral and CANCELS on a cool one, so those byrnies rendered C* 16-20 on
+ * the red arc — pink — while the unsworn man's cool iron rendered C* 6.5. The
+ * fade is therefore applied to the dyed vector AS A VECTOR, hue and chroma
+ * together, and a vat that has let go returns the steel its own blue-grey.
+ * `tools/factionread.mjs` §5.3 and §5.4 gate it in albedo, in a second, with no
+ * browser — which is what three rounds of this defect did not have.
+ *
+ * THE OTHER THREE PEOPLES ARE BYTE-IDENTICAL AND THAT IS MEASURED, NOT HOPED.
+ * The domain is stated because the last round's two numbers for this — 3360/796
+ * here and 3361/795 in `FACTIONS.md` §10.3 — disagreed with each other and
+ * neither reproduced, which is `docs/PROCESS.md` R8 on a claim about
+ * reproducibility. Seven finishes x seven surfaces, plus a 197-step sweep of
+ * the hex cube through all five dye kinds, plus every cloak and the shield
+ * board, for each of the four peoples — 4160 values:
+ *
+ *     against the tree before this change   3361 identical, 799 changed
+ *     against the tree before the fade      3357 identical, 803 changed
+ *     saxon, briton and pict                BYTE-IDENTICAL in both `keep` of 1
+ * reproduces the dyed vector exactly, so a surface the fade cannot reach is
+ * identical by construction and not by luck.
+ * The window is on the RESULT's hue and it is 36° wide either side of pure red;
+ * `HUE_CONE` holds every dyed surface within 8° of its own field, and weld sits
+ * at 60°, moss at 153° and woad at 210°. `red` is therefore exactly 0 for
+ * three of the four vats and `roseFade` returns 1 by the early exit — the same
+ * multiply by one an unsworn man gets. `tools/factionread.mjs` §7.2 gates it.
+ *
+ * THE THREE NUMBERS ARE TUNED AND SAY SO, like every other number in the
+ * `FACTION` table above them. What they were tuned AGAINST is the rose band in
+ * §7, which is built out of colours this game already ships and contains no
+ * number chosen by the person who moved these — see its header. Measured
+ * across all seven finishes and all six dyed surfaces of all four peoples:
+ *
+ *     arc shape / LIT / FADE   rose   byrnie C*   leg wraps          ladder
+ *     shipped, no fade           3     11 to 36   #94402c  russet     5.58
+ *     peak / 0.38 / 0.04         0      4         #7e615e  TAUPE      3.94
+ *     peak / 0.44 / 0.04         0      4         #94402c  russet     2.30
+ *     peak / 0.44 / 0.05         0      5         #94402c  russet     2.51
+ *     plateau / 0.44 / 0.08      2      4         #94402c  russet     2.81
+ *     THIS: plateau / 0.44/0.06  0      2         #94402c  russet     2.55
+ *
+ * THREE THINGS IN THAT TABLE WERE FOUND BY OPENING THE RENDER AND BY NOTHING
+ * ELSE, `docs/PROCESS.md` R5, and each one cost a capture session.
+ *
+ * ONE — THE LEG WRAPS, which is why `ROSE_LIT` is 0.44 and not 0.38. At 0.38
+ * the albedo census is just as clean and THE FRAME DID NOT MOVE: norse huscarl
+ * @180 went 2.654% to 2.626%. Sampling the same pixels found the byrnie fixed
+ * (#c07f80 -> #b28c85, C* 27.2 -> 16.2) and the LEG WRAPS RUINED: #c73135 ->
+ * #ac645f, C* 67.7 down to 32.4. At 67.7 a wrap is ABOVE the band's own chroma
+ * ceiling and reads as strong madder, which is correct and was never part of
+ * the complaint; at 32.4 it is INSIDE the band. The fade had turned a surface
+ * nobody reported into the very thing being fixed, and the two changes
+ * cancelled in the count. 0.44 sits between his wraps and his sleeves.
+ *
+ * TWO — THE ARC IS A PLATEAU AND NOT A PEAK. A triangular window centred on
+ * pure red gives garnet, which sits 6.9° off it, only 0.81 of the fade, so a
+ * fifth of the dye stays on the byrnie: albedo C* 5 rather than 2. That looked
+ * like nothing and was not. The arena's key is a BONFIRE, and a warm light on a
+ * warm-neutral surface ADDS while the same light on a cool-neutral CANCELS —
+ * measured on the same pixel of the same frame, the unsworn man's cool iron
+ * (albedo C* 9.9, blue) renders at C* 6.5, and the Danelaw's warm iron at
+ * albedo C* 5 renders at C* 18 to 20. Five points of albedo became twenty on
+ * the screen. The plateau takes the byrnie to C* 2, which is iron.
+ *
+ * THREE — the byrnie is the only surface that needed it. His tunic, trousers,
+ * harness and cloak sit below `ROSE_LIT` and come out byte-identical.
+ *
+ * The Danelaw's ladder is more than halved, 5.58 to 2.55, and that is the
+ * price. It is still clear of `cosmetictest`'s JND of 2.3, which is what §5.1
+ * gates, and `LADDER_DE` was already a REPORTED shortfall rather than a gate —
+ * §5's own note says which configurations recover it and what each one broke.
+ *
+ * AND THE FADE IS NOT A STEP. `softBand` gives the reason two blocks up — a
+ * clamp has zero slope and zero slope is where paid rungs go to die — so this
+ * is a short exponential rather than a cliff, and the ladder inside the
+ * Danelaw comes out of it at ΔE 3.94 against `cosmetictest`'s JND of 2.3.
+ */
+/** How far either side of pure red the arc runs, in turns. 0.10 is 36°. */
+const ROSE_ARC = 0.10;
+/**
+ * How the arc's edge is feathered, in turns, so nothing steps at the boundary.
+ *
+ * IT IS A PLATEAU AND NOT A PEAK, and the difference is a whole capture session.
+ * A triangular window centred on pure red gives `--garnet`, which sits 6.9° off
+ * it, only 0.81 of the fade — a fifth of the dye stays on the byrnie. 0.04 of
+ * taper puts the flat top at 21.6° either side, so every one of the Danelaw's
+ * surfaces gets the whole of it, and the edge still falls to nothing by 36°
+ * rather than stepping. Weld is at 60°, moss at 153°, woad at 210°.
+ */
+const ROSE_TAPER = 0.04;
+/**
+ * The value above which the red arc has no dark name left. Perceptual, and it
+ * is the surface's own value before the light touches it.
+ *
+ * 0.44 sits between the Danelaw's LEG WRAPS and his SLEEVES, which is the whole
+ * of why it is that and not lower. Rough Iron's wraps land at about 0.46 after
+ * the band, his linen at 0.59 and his mail at 0.53 to 0.64 — so the vat lets go
+ * of the two surfaces the owner named and keeps its grip on the russet.
+ */
+const ROSE_LIT = 0.44;
+/**
+ * THE DYE LOAD OF A CLOTH WITH NO DYE IN IT, and it is read off the shipped
+ * linen shirt rather than chosen — move `0xc2b69c` and this moves with it.
+ *
+ * It is the ceiling on what a vat that has LET GO may hand back. Letting go
+ * returns a surface its own hue, which is the whole of the fix above; letting
+ * it hand back a strongly-coloured purchase's full chroma as well is a
+ * different bug, because `factionread` §1.3 reads a people off the area-
+ * weighted mean of the man's surfaces and Bretwalda Gold at C* 46.7 out-votes
+ * a Danelaw. Measured: uncapped, three of the Danelaw's seven finishes misread
+ * on a man with no cloak and no shield — gold and bronze as SAXON, sea-blue as
+ * PICT. Capped here, all seven read Danelaw with or without them.
+ *
+ * "Undyed" is the right ceiling because it is what the vat is saying: a surface
+ * it has let go of carries no dyestuff, and the undyed shirt is this game's own
+ * statement of how much colour that is. `tools/lib/roseband.mjs` takes its
+ * chroma floor off the same hex for the same reason.
+ */
+const UNDYED_SAT = (() => {
+  const t = { h: 0, s: 0, l: 0 };
+  new THREE.Color(0xc2b69c).getHSL(t);
+  return t.s;
+})();
+/**
+ * How much value the vat takes to let go over. Short, but not a cliff.
+ *
+ * 0.04 AND NOT 0.06, AND THE SHOP'S OWN TWO WRAPS FIX IT. `ROSE_LIT` sits at
+ * 0.44 because Rough Iron's leg wraps land at 0.4366 and must stay RUSSET;
+ * Crimson Warplate's leg wraps are `0xbc9c8c`, which `FINISH_KIT` calls "a pale
+ * rose-grey" in the shop's own words, and they land at 0.5510 and must LET GO.
+ * That is a gap of 0.114 of value, and a fade long enough to leave a twentieth of
+ * the vat on the second one is a fade that leaves a fifth on it. Measured
+ * through the shipped resolvers with `tools/lib/roseband.mjs`, on the tree
+ * below this line:
+ *
+ *     ROSE_FADE   Crimson Warplate leg wraps   the band
+ *     0.06        #a47f71  L* 56.4  C* 17.9    IN — 20.4° off the garnet
+ *     0.05        #a28173  L* 56.7  C* 16.3    IN
+ *     0.045       #a28274  L* 57.0  C* 15.9    IN
+ *     0.04        #a18375  L* 57.2  C* 15.1    clear
+ *
+ * At 0.06 the surface keeps 16% of a `sat 0.48` vat, and 16% of the strongest
+ * cloth vat the Danelaw owns on a surface the shop already calls rose-grey is a
+ * dusty pink. Nothing else in the shop moves between 0.06 and 0.04:
+ * `factionread` §5.3 reads zero at both.
+ */
+const ROSE_FADE = 0.04;
+function roseFade(h: number, l: number): number {
+  const off = Math.abs(((h + 0.5) % 1) - 0.5);
+  const red = Math.max(0, Math.min(1, (ROSE_ARC - off) / ROSE_TAPER));
+  if (red <= 0 || l <= ROSE_LIT) return 1;
+  return 1 - red * (1 - Math.exp(-(l - ROSE_LIT) / ROSE_FADE));
+}
+
+const BAND_KNEE = 0.42;
+function softBand(x: number, lo: number, hi: number): number {
+  if (x < lo) return lo;
+  const k = (hi - lo) * BAND_KNEE;
+  if (x > hi) return hi + k * (1 - Math.exp((hi - x) / k));
+  return x;
+}
+
+/**
+ * One surface through a people's vat.
+ *
+ * The same three moves `teamDye` makes — the field's hue, the vat's chroma, the
+ * SOURCE'S OWN LIGHTNESS clamped into a band — with two corrections that are
+ * the subject of the two notes above: the lightness is converted into the space
+ * the band was written in before it is scaled and clamped, and the chroma is a
+ * CEILING the surface's own dye-load reaches rather than a value it is
+ * assigned.
+ *
+ * `bias` is applied BEFORE the clamp so a people's band is a floor and a
+ * ceiling on the result rather than on the input. That scale is the whole of
+ * "darker wools" and "lighter kit".
+ *
+ * Keeping the source lightness is why a finish survives being sworn in. The
+ * seven rows of `FINISH_KIT` are a coordinated set of VALUES — pale wraps over
+ * dark trousers, bright shirt over black harness — and that structure is the
+ * form a viewer reads at 6.8 m. Take the hue and a man has a people; take the
+ * value as well and he is a silhouette with nothing in it. Bretwalda Gold worn
+ * by a Dane is still the brightest kit in the Danelaw — and, since §5, still
+ * ΔE 10 clear of every other rung a Dane could have bought.
+ */
+function factionDye(hex: number, f: FactionLivery, d: Dye): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  const l = softCeil(perceptual(softBand(hsl.l * d.bias, d.lo, d.hi)), kitCeiling());
+  // WHAT THE SURFACE ALREADY CARRIED, as a vector in the chroma plane. Rough
+  // Iron's byrnie is `#5f6b7a` — C* 9.9 at hue 264°, which is COOL, because
+  // that is what steel is. Keep it named: it is one of the two ends the fade
+  // runs between, and the round that lost it is the subject of `roseFade`.
+  const sx = hsl.s * Math.cos(TAU * hsl.h);
+  const sy = hsl.s * Math.sin(TAU * hsl.h);
+  // THE CHROMA PLANE, AS A VECTOR SUM: what the cloth already carried, plus what
+  // the vat puts in, at the vat's hue.
+  const cx = sx + d.sat * Math.cos(TAU * f.hue);
+  const cy = sy + d.sat * Math.sin(TAU * f.hue);
+  // THE HUE STAYS INSIDE THE VAT'S CONE. See `HUE_CONE`.
+  const off = ((Math.atan2(cy, cx) / TAU - f.hue + 1.5) % 1) - 0.5;
+  const dh = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
+  const dc = Math.min(1, Math.hypot(cx, cy));
+  // AND ON THE RED ARC THE VAT LETS GO OF A PALE SURFACE. See `roseFade`.
+  //
+  // LETTING GO IS A MOVE BACK TO THE SURFACE, NOT A MOVE TOWARD GREY, and that
+  // distinction is this whole function's history. The fade is applied to the
+  // DYED VECTOR AS A VECTOR — hue and chroma together — so a vat that has let
+  // go returns the byrnie its own colour, which for every steel in the shop is
+  // a cool blue-grey. Scaling the SUM's magnitude instead, which is what this
+  // line did for one round, bleaches that cool away and leaves the remnant
+  // pointing wherever `HUE_CONE` last put it: the Danelaw's own vat took Rough
+  // Iron from C* 9.9 at hue 264° to C* 2.5 at hue 6°, and Sea Queen's Gift —
+  // a deliberately BLUE armour at C* 21.7, hue 270° — to C* 7.5 at hue 7°.
+  // Both come out near-neutral and aimed at the red arc, and the arena's key
+  // light is a bonfire: a warm light ADDS to a warm-neutral and CANCELS on a
+  // cool one. That is the whole of why the byrnie and the sleeves still read
+  // rose on a graded frame after the albedo census had gone clean.
+  const keep = roseFade(dh, l);
+  // AND WHAT IT LETS GO TO IS THE SURFACE UNDYED, which is not the same thing
+  // as the surface. `UNDYED_SAT` is the cap and the reason is `factionread`
+  // §1.3: a vat that lets go all the way hands the whole vote back to whatever
+  // the man bought, and measured without the cap a Dane in Bretwalda Gold or
+  // Bronze Scales read SAXON and one in Sea Queen's Gift read PICT — the same
+  // inversion `HUE_CONE` was introduced to stop, one rung further down. His
+  // cloak and his board are flat garnet and never enter the vat, so a huscarl
+  // survived it; a berserker with no cloak and no shield did not.
+  //
+  // THE CAP IS ANISOTROPIC, AND THAT IS THIS ROUND'S CORRECTION. Capping the
+  // MAGNITUDE — one number, applied whatever colour the cloth was — put a NEW
+  // rose byrnie on a PAID finish and `tools/lib/roseband.mjs`'s own MUST_CLEAR
+  // list is the proof: it carries `0xb23c34, "crimson-finish mail — blood"` as
+  // a surface that ships CORRECT, and the isotropic cap replaced that exact
+  // surface with `#9c6d6b` — L* 50.8, C* 20.3, 1.5° off the garnet, the only
+  // band member left in all 245 and dead centre of the thing the owner
+  // reported. Crimson Warplate's mail is `0x7a2f2a`: C* 38.0 at hue 31.6°,
+  // which IS the Danelaw's own colour. Cutting its chroma to an undyed shirt's
+  // did not stop a purchase out-voting a people; it turned blood into pink.
+  //
+  // WHAT THE CAP IS ACTUALLY FOR is the VOTE, and a vote is an ANGLE. §1.3
+  // reads a people off the hue of the man's area-weighted mean, so what
+  // threatens a people is chroma pulling AWAY from its field — a gold byrnie
+  // under a garnet vat — and what cannot possibly threaten it is chroma
+  // pointing AT it. So the ceiling is on the colour that ARGUES with the vat:
+  // a cloth may keep all of what it shares with the dyestuff and at most an
+  // undyed shirt's worth of what it does not. `align` is the cosine between
+  // the cloth's own hue and the vat's; at +1 the cap is the cloth's own load
+  // and the ceiling does nothing, at 0 and below it is `UNDYED_SAT` flat.
+  //
+  // Measured through the shipped resolvers, and it is the difference between a
+  // brick and a pink on a 130-gold finish:
+  //
+  //     Crimson Warplate mail  0x7a2f2a  ->  isotropic #9c6d6b  L* 50.8 C* 20.3  ROSE
+  //                                          this      #af463f  L* 44.4 C* 50.6  brick
+  //     Bretwalda Gold mail    0x9a7a2a  ->  this      #ae8143  L* 57.2 C* 41.2  still capped
+  //     Rough Iron mail        0x5f6b7a  ->  this      #7d808f  C* 8.7 hue 284°  cool steel
+  //
+  // On `factionread` §1, which is what the cap exists for, this changes nothing
+  // either way and that is stated rather than claimed the other way round: at
+  // the same `ROSE_FADE` the anisotropic form reads §1.2 6.47 and §1.3 -53.74°,
+  // byte-for-byte the isotropic form's readings, because the surfaces the cap
+  // moves are the ones whose own hue is already the Danelaw's and those never
+  // voted against him. §1 is RED on this tree and on the one below it, the
+  // reason is structural, and `docs/OPEN-DEFECTS.md` carries the eight
+  // configurations, the two graded frames that bound it and the three
+  // owner-level levers. It is not this line's to close.
+  const align = Math.cos(TAU * (hsl.h - f.hue));
+  const uMag = Math.min(hsl.s, UNDYED_SAT + Math.max(0, align) * Math.max(0, hsl.s - UNDYED_SAT));
+  const ux = uMag * Math.cos(TAU * hsl.h);
+  const uy = uMag * Math.sin(TAU * hsl.h);
+  const vx = ux + (dc * Math.cos(TAU * dh) - ux) * keep;
+  const vy = uy + (dc * Math.sin(TAU * dh) - uy) * keep;
+  // `keep` of 1 reproduces the dyed vector exactly, so every surface off the
+  // red arc — all of Wessex, the Britons and the Picts, and the Danelaw's own
+  // tunic, harness and cloak below `ROSE_LIT` — is byte-identical.
+  return underMaxChannel(
+    new THREE.Color().setHSL((Math.atan2(vy, vx) / TAU + 1) % 1,
+      Math.min(1, Math.hypot(vx, vy)), linear(l)).getHex(),
+    kitChannel());
+}
+
+/**
+ * One worn surface in a people's colours. `"none"` returns the hex untouched,
+ * by identity, so an unsworn man costs nothing and builds exactly what he built
+ * before this block was written.
+ */
+export function factionWorn(hex: number, people: Allegiance, kind: DyeKind): number {
+  if (people === "none") return hex;
+  const f = FACTION[people];
+  return factionDye(hex, f, f.dye[kind]);
+}
+
+/**
+ * The finish, in a people's colours. `fitting` is absent for the same reason it
+ * is absent from `teamKit`: the cast bronze is the smallest surface a warrior
+ * carries and the one that still says which finish he bought. A people takes
+ * the large surfaces because legibility is a fight-distance property; it leaves
+ * the small ones because at 6.8 m a 20 mm boss is a quarter of a pixel and at
+ * portrait range it is most of what a purchase IS.
+ */
+export function factionKit(kit: FinishKit, people: Allegiance): FinishKit {
+  if (people === "none") return kit;
+  return {
+    mail: factionWorn(kit.mail, people, "metal"),
+    tunic: factionWorn(kit.tunic, people, "cloth"),
+    trouser: factionWorn(kit.trouser, people, "cloth"),
+    wrap: factionWorn(kit.wrap, people, "wrap"),
+    hide: factionWorn(kit.hide, people, "leather"),
+    buff: factionWorn(kit.buff, people, "leather"),
+    fitting: kit.fitting,
+  };
+}
+
+// ------------------------------------------------------------
+// THE PRECEDENCE, IN THREE FUNCTIONS
+//
+// `docs/FACTIONS.md` §8: **team colour beats clan colour beats faction colour
+// beats bought cosmetic.** Clans do not exist yet; the other three do, and the
+// resolvers below are the only place in the build where the order is stated.
+// Every one of them tests the team FIRST and returns before a people is
+// consulted, so a war band is byte-for-byte what `tools/teamread.mjs` already
+// measures — the faction path is not reachable from a team mode at all.
+//
+// That is deliberate and it is the safer of the two shapes. The alternative —
+// dye for the people, then dye again for the team — would leave the team read
+// depending on what the first pass happened to leave behind, and the whole of
+// backlog 4.5 is that a man must never be unable to identify an enemy because
+// somebody else's colour got there first. `tools/factionread.mjs` §2 asserts
+// the collapse directly: four peoples on one side are one colour, and the two
+// sides are as far apart as they were before any of this existed.
+// ------------------------------------------------------------
+
+/** One worn surface, under the whole ladder. */
+export function wornBy(hex: number, team: TeamSide, people: Allegiance, kind: DyeKind): number {
+  if (team !== "none") return teamWorn(hex, team, kind === "wrap" || kind === "linen" ? "cloth" : kind);
+  return factionWorn(hex, people, kind);
+}
+
+/** The finish, under the whole ladder. */
+export function kitFor(kit: FinishKit, team: TeamSide, people: Allegiance): FinishKit {
+  return team !== "none" ? teamKit(kit, team) : factionKit(kit, people);
+}
+
+/**
+ * The cloak, under the whole ladder — flat in both cases, and for the reason
+ * `teamCloak` already gives: `CLOAK_CUTS` differ in length, hem, wrap, flare
+ * and fold, and those are the properties that survive at 7.9 mm to a pixel.
+ * The CUT is the purchase and the cut is untouched. The colour is the banner's.
+ */
+export function cloakFor(hex: number, team: TeamSide, people: Allegiance): number {
+  if (team !== "none") return TEAM_FIELDS[team].cloak;
+  return people !== "none" ? wornField(FACTION[people].field) : hex;
 }
 
 // ---------------- Armoury Catalog ----------------
@@ -3963,10 +4965,41 @@ const EAR_NS = 9;
  * Every band indexes the SAME positions, so the joins are exact by construction
  * rather than by matching two tables. That is the whole reason this is one grid.
  */
-function auricle(K: Skull, earRootX: number, side: number): {
+function auricle(K: Skull, earRootX: number, side: number, press: number): {
   skin: THREE.BufferGeometry; shade: THREE.BufferGeometry;
 } {
   const pos: number[] = [], uv: number[] = [];
+  // ---- THE PLATE PRESSES THE EAR, and until now only the BLOCK knew that ----
+  //
+  // `earSeatRaise` grows the form to cover the auricle less `EAR_PRESS`, on the
+  // stated grounds that "what the seat has to deliver is the plate outboard of a
+  // PRESSED ear, not clearance over an unpressed one". Nothing pressed the ear.
+  // So under a closed helm the drawn auricle stood exactly `EAR_PRESS` outside
+  // the metal hung on the block, and `helmclash` section 2 read it: the helix —
+  // 280 triangles of complexion at az 115 and 245 — with 39 to 47% of its area
+  // outboard of the Sutton Hoo's mask, 8.0 mm out.
+  //
+  // A pinna is cartilage. A hinged plate strapped closed against the jaw folds
+  // it flat, and that is what this does: the ear's own relief off the skin is
+  // scaled so that its PROUDEST point comes down by exactly `EAR_PRESS` and
+  // every other point in proportion, so nothing can invert through the skin and
+  // no part of the ear is deleted. The scale is solved off the ear's own section
+  // tables rather than authored, so an ear drawn taller tomorrow presses by the
+  // same twelve millimetres with nothing here edited — and it is solved against
+  // the same constant the block was shrunk by, so the two cannot drift apart.
+  let maxStand = 0;
+  if (press > 0) {
+    for (let j = 1; j <= EAR_NS; j++) {
+      for (let i = 0; i < EAR_NA; i++) {
+        const st = earPoint(K, earRootX, (i / EAR_NA) * Math.PI * 2, j / EAR_NS).stand;
+        if (st > maxStand) maxStand = st;
+      }
+    }
+  }
+  // A folded ear is not a flat one: a sixth of its relief survives however hard
+  // the strap is done up, which is what stops the helix crossing the concha
+  // floor and turning the shell inside out.
+  const flat = maxStand > 1e-6 ? Math.max(1 / 6, (maxStand - press) / maxStand) : 1;
   // Rings 1..NS, then ONE shared pole. Fanning EAR_NA coincident vertices at the
   // centre instead is what put a visible star in the middle of the concha on the
   // first capture: `computeVertexNormals` gives each copy the normal of its own
@@ -3981,14 +5014,17 @@ function auricle(K: Skull, earRootX: number, side: number): {
       // ears are mirror images, a rotation cannot make one out of the other, and a
       // negative scale turns the surface inside out. Flip the authored in-plane
       // axis, and flip the winding below to match.
-      pos.push(-side * p.ex, p.ey, p.ez);
+      // Only the RELIEF is scaled, never the seat: `ez` is the skin's own offset
+      // plus the ear's stand off it, and pressing a scalp into a skull is not
+      // what a helmet does.
+      pos.push(-side * p.ex, p.ey, p.ez - p.stand * (1 - flat));
       uv.push(i / EAR_NA, s);
     }
   }
   const POLE = EAR_NS * EAR_NA;
   {
     const p = earPoint(K, earRootX, 0, 0);
-    pos.push(0, 0, p.ez);
+    pos.push(0, 0, p.ez - p.stand * (1 - flat));
     uv.push(0.5, 0);
   }
   const at = (j: number, i: number) => (j === 0 ? POLE : (j - 1) * EAR_NA + i);
@@ -4067,6 +5103,169 @@ function earProbe(K: Skull, earRootX: number): EarProbe {
     seat: seat * 1000,
     bowl: (standoff - floor) * 1000,
   };
+}
+
+// ============================================================
+// THE EAR SEAT — the one feature the block a helm is beaten over has to keep
+// ============================================================
+//
+// "On the remaining classes (warden etc.) the ears stick out."
+//
+// The auricle is its own shell, placed beside the head; `faceSurface` has never
+// known about it. `helmForm` low-passes `faceSurface` into the block a plate is
+// beaten over, so THE BLOCK HAS NO EAR ON IT — and every shell swept on the
+// form (the bowl, the cheek guards, the nape fall) is drawn straight through
+// the organ. `helmclash` section 2 names the patch: 224 triangles of complexion
+// at azimuth 113-115 degrees, 88-94% of them outboard of the metal, 9.5-10.0 mm
+// out, and it is the same object on all three classes without a coif.
+//
+// Measured on this build with the ear's own tables against the form under it,
+// the helix crest stands 23.5 / 23.5 / 24.1 / 23.7 mm outboard of the block on
+// huscarl / warden / berserker / runekeeper at seed 13 — the ear's own 15 mm of
+// stand plus the 9 mm the low-pass shaves off the skin behind the mandible.
+//
+// TWO THINGS THIS DELIBERATELY IS NOT.
+//
+// It is not an ear-shaped hollow in the block. A smith does not planish one; he
+// leaves the cheek of the helm standing off far enough to go over an ear. So
+// the seat is a broad, low dome on the ear's own footprint, dilated by
+// `EAR_SEAT_SPREAD` — which is also what keeps its radius of curvature large
+// enough that a plate standing 30 mm off it cannot fold, the property the whole
+// form exists to have.
+//
+// And it is not the full 24 mm. A pinna is cartilage, and a hinged plate
+// strapped closed against the jaw presses it — `EAR_PRESS` is that, and it is
+// the difference between a helmet that goes over an ear and a helmet built
+// 48 mm wider than the head inside it. What the seat has to deliver is the
+// plate outboard of a PRESSED ear, not clearance over an unpressed one.
+//
+// IT IS A SEPARATE LEVER FROM THE COIF FIT, and the record says to keep it
+// that way: the lost pass's ear fix got entangled with the coif's ring taper
+// and neither could be read afterwards. Nothing here touches `coifLevels`.
+
+/**
+ * How much of the ear a strapped plate presses flat, in metres. Cartilage, not
+ * bone: 12 mm off a helix that stands 15 mm proud is a plate lying on a folded
+ * ear, which is what wearing a closed helm over one actually does.
+ *
+ * AND IT IS BOUNDED FROM BELOW BY A RULER, which is why it is 12 and not 9.
+ * Every millimetre pressed is a millimetre the block does not grow, and every
+ * millimetre the block grows is daylight under the plates hung on it.
+ * `wearmeasure` section 2 measured it directly: at 12 mm the Wyrm-Crest's deep
+ * cheek guard opens 23.4 mm against a 26 mm bar; at 9 mm it opens 26.1 and the
+ * gate goes red. `helmclash` section 2 buys 0.4 to 0.5 points of skin for those
+ * three millimetres, so this sits where the margin is rather than where the
+ * last tenth is.
+ */
+const EAR_PRESS = 0.012;
+
+/**
+ * How far past the auricle's own rim the seat spreads, in metres.
+ *
+ * It buys the curvature. The dome falls from its apex to nothing across
+ * `earRadius(phi) + EAR_SEAT_SPREAD`, so at 40 mm the footprint is 58-74 mm of
+ * radius and the sharpest thing on the seated block is about 70 mm — clear of
+ * the 45 mm the form's own note claims for it, and therefore clear of the
+ * 27-31 mm the deep cheek guard stands off.
+ */
+const EAR_SEAT_SPREAD = 0.040;
+
+/**
+ * How much further the seat runs BELOW the ear than around it.
+ *
+ * A hanging plate cannot follow a bulge back in. `wearmeasure` measures exactly
+ * that as flare — the rate the metal leaves the block along its own hang — and
+ * with the seat falling away symmetrically the deep nape guard went from 18.1
+ * to 23.5 degrees against a 22 degree bar on the Sutton Hoo, and 17.4 to 22.8
+ * on the Wyrm-Crest. That is not the ruler being fussy: it is the plate having
+ * to tuck back under the ear over 60 mm of descent, which is a crease in a
+ * sheet of iron.
+ *
+ * So the seat's lower half is drawn out. It is also what the object does — the
+ * cheek of a helm carries the swell of the ear down to the jaw and finishes
+ * there rather than pinching in under it.
+ */
+const EAR_SEAT_FALL = 2.0;
+
+/** Skull-local depth the auricle is placed at — `buildCharacter`'s own -0.024. */
+const EAR_SEAT_Z = -0.024;
+
+/**
+ * The dome's weight at a point of the ear's own footprint, 1 at the centre and
+ * 0 at the dilated boundary, C1 at both ends. `ey` is metres up from the ear's
+ * centre and `ez` metres toward the face from it, both in skull-local space.
+ */
+function earSeatWeight(ey: number, ez: number): number {
+  // Out of head space and into the ear's own raked frame — the inverse of the
+  // rotation `earPoint` applies, so the footprint this measures is the outline
+  // the auricle is actually built on and not an ellipse drawn near it.
+  const c = Math.cos(EAR_RAKE), sn = Math.sin(EAR_RAKE);
+  const ax = ez * c + ey * sn;
+  const ay = -ez * sn + ey * c;
+  // Stretched downward by `EAR_SEAT_FALL`. Scaling `ay` rather than switching
+  // on it keeps the boundary C1 across the ear's own waist: dr/day is zero at
+  // ay = 0 whichever branch is taken, so the two halves meet without a ridge.
+  const ayk = ay < 0 ? ay / EAR_SEAT_FALL : ay;
+  const r = Math.hypot(ax, ayk);
+  if (r < 1e-9) return 1;
+  const rim = earRadius(Math.atan2(ax, ayk)) + EAR_SEAT_SPREAD;
+  return 0.5 + 0.5 * Math.cos(Math.PI * clamp01(r / rim));
+}
+
+/**
+ * Raise the block over both ears, in place, on the smoothed table and before
+ * its normals are taken.
+ *
+ * The amplitude is MEASURED and never authored: every vertex of the auricle is
+ * taken at the position it is built at and compared with the block's own
+ * half-breadth at that height and depth, and the apex is then solved so that
+ * the dome covers the worst of them once `EAR_PRESS` has been taken off. Author
+ * a taller ear tomorrow and the block grows to meet it with nothing here edited.
+ */
+function earSeatRaise(K: Skull, nu: number, nv: number, pos: Float64Array): void {
+  const n = (nu + 1) * (nv + 1);
+  const earRootX = skullHalfWidth(K, EAR_Y) * EAR_ROOT;
+  const cy = EAR_Y * K.R.y - 0.004;
+  /** The block's own half-breadth beside a point, from the table itself. */
+  const blockAt = (y: number, z: number): number => {
+    let best = 0, bestD = Infinity;
+    for (let k = 0; k < n; k++) {
+      const x = pos[k * 3];
+      if (x <= 0) continue;
+      const dy = pos[k * 3 + 1] - y, dz = pos[k * 3 + 2] - z;
+      const d = dy * dy + dz * dz;
+      if (d < bestD) { bestD = d; best = x; }
+    }
+    return best;
+  };
+  let amp = 0;
+  for (let i = 0; i < EAR_NA; i++) {
+    const phi = (i / EAR_NA) * Math.PI * 2;
+    for (let j = 1; j <= EAR_NS; j++) {
+      const e = earPoint(K, earRootX, phi, j / EAR_NS);
+      // Where the vertex is BUILT: `place3` carries the ear's local z onto head
+      // |x| and its local x onto head z, on both sides. Reading it any other way
+      // seats the block against an ear nobody wears.
+      const proud = (earRootX + e.ez) - blockAt(cy + e.ey, EAR_SEAT_Z + e.ex) - EAR_PRESS;
+      if (proud <= 0) continue;
+      // Solved against the dome's own weight where this vertex lands, so the
+      // apex is whatever it has to be for the WORST point of the ear to be
+      // inside the seat — not whatever the worst point measures.
+      const w = earSeatWeight(e.ey, e.ex);
+      if (w > 0.05 && proud / w > amp) amp = proud / w;
+    }
+  }
+  if (amp <= 0) return;
+  for (let k = 0; k < n; k++) {
+    const x = pos[k * 3];
+    // Outward is ±x, and at the midline there is no outward. The two ears are
+    // 84 mm off it and the footprint never reaches back that far, so this gate
+    // costs the seat nothing — it is here so that a wider spread authored later
+    // cannot put a crease down the front of the block.
+    const side = Math.sign(x) * clamp01(Math.abs(x) / 0.020);
+    const w = earSeatWeight(pos[k * 3 + 1] - cy, pos[k * 3 + 2] - EAR_SEAT_Z);
+    if (w > 0) pos[k * 3] = x + amp * w * side;
+  }
 }
 
 /**
@@ -4546,6 +5745,26 @@ export interface ShellFit {
    * hem is not hanging, it is flaring.
    */
   hemMm: number;
+  /**
+   * The share of this piece's samples that had ANOTHER SHELL of the same helmet
+   * under them, and were therefore not read as metal-against-flesh at all —
+   * see `kitMaskFrom` in `helmFitProbe`.
+   *
+   * Reported rather than hidden. A ruler that silently drops samples is a ruler
+   * that can be made to pass by dropping more of them, and this number is the
+   * first thing an adversary should check: it is 0 on every piece that hangs
+   * over bare skin, and `wearmeasure` section 3 prints it in its own column.
+   */
+  onKitFrac?: number;
+  /**
+   * The share of this piece's samples whose FLARE baseline was thrown out
+   * because `skinGap` was censored at its cap on one end or both.
+   *
+   * Reported for the same reason `onKitFrac` is: this is the other way a ruler
+   * can be quietened, and a reader who wants to argue that the number is small
+   * because most of the plate stopped being measured can check it here.
+   */
+  censorFrac?: number;
 }
 
 export interface HelmFit {
@@ -4553,6 +5772,149 @@ export interface HelmFit {
   cls: string;
   seed: number;
   shells: ShellFit[];
+}
+
+// ============================================================
+// THE NECK, AT MODULE SCOPE — one table, every reader
+// ============================================================
+//
+// These three were `const`s inside `buildCharacter`, hoisted there in round six
+// so the deep nape guard and the ventail could stop keeping private copies of
+// where the neck is. They are up here now for the same reason one storey
+// higher: `helmFitProbe` builds its OWN skeleton, cannot see into
+// `buildCharacter`'s closure, and therefore carried a THIRD copy — an infinite
+// round column of `S.neckHW`, centred on the axis. That copy is what the ruler
+// judged the nape guard against.
+//
+// Measured on the warden, seed 13, at the height section 3 of `helmclash` puts
+// the bare arc at, in mm from the head's axis:
+//
+//     the neck's rearmost skin, off these stations   101.4
+//     `S.neckHW`, what the probe's own neck used      78.1
+//
+// So `wearmeasure` section 3 reported 12.0 mm of daylight under a plate whose
+// rim is 0.3 to 1.5 mm INSIDE the real skin. The 12 mm was mostly neck.
+//
+// Nothing about the shape moves in this hoist: `neckStations` returns the same
+// seven stations with the same arguments, and `buildCharacter` now calls it
+// instead of writing them out. The argument for each of them is in the block
+// that used to hold them.
+
+/**
+ * The neck's seven stations, in the BODY's frame.
+ *
+ * Elliptical rather than round, tapered rather than extruded, set back in z so
+ * the jaw hangs over it, and flared hard at the base into the trapezius. The
+ * two stations above the mandible's lower border tuck INSIDE the jaw mass they
+ * hand off to; the first station the viewer can actually see — below the menton
+ * — keeps the width it had. And the top stations reach 13 mm further BACK than
+ * the front does, because the occiput carries further back than the chin and a
+ * neck centred for the throat leaves a shelf across the nape.
+ */
+function neckStations(S: Skeleton): Station[] {
+  return [
+    { y: S.neckTop + 0.095, hw: S.neckHW * 0.70, hd: S.neckHD * 0.72 + 0.0065, z: -0.0275 },
+    { y: S.neckTop + 0.042, hw: S.neckHW * 0.82, hd: S.neckHD * 0.84 + 0.0065, z: -0.0255 },
+    { y: S.neckTop - 0.008, hw: S.neckHW * 0.93, hd: S.neckHD * 0.95 + 0.0045, z: -0.0175 },
+    { y: S.neckRoot - 0.048, hw: S.neckHW, hd: S.neckHD, z: -0.007 },
+    { y: S.neckBase + 0.070, hw: S.neckHW * 1.13, hd: S.neckHD * 1.04, z: 0 },
+    { y: S.neckBase + 0.010, hw: S.neckHW * 1.50, hd: S.neckHD * 1.16, z: 0 },
+    { y: S.neckBase - 0.055, hw: S.neckHW * 1.93, hd: S.neckHD * 1.23, z: 0 },
+  ];
+}
+
+/**
+ * The neck's own section at a height, in the BODY's frame.
+ *
+ * The strap sampler used to carry a SECOND, hand-written copy of the top of
+ * this profile as a two-point lerp, and the two disagreed the moment the
+ * stations moved: a muscle sited on 0.82 of the section where the shell is
+ * actually at 0.70 stands 3 mm outside the throat it is supposed to be inside,
+ * and what that draws is a hard tab of skin floating under the ear. One
+ * profile, read by everything that rides on it.
+ */
+function neckSectionAt(ST: Station[], y: number): Station {
+  if (y >= ST[0]!.y) return ST[0]!;
+  for (let i = 0; i < ST.length - 1; i++) {
+    const a = ST[i]!, b = ST[i + 1]!;
+    if (y > b.y) {
+      const f = (a.y - y) / (a.y - b.y);
+      return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z ?? 0, b.z ?? 0, f) };
+    }
+  }
+  return ST[ST.length - 1]!;
+}
+
+/**
+ * The neck's REARMOST skin, from the head's axis, in the HEAD PIVOT's frame.
+ *
+ * `hd` is a half-depth about a centre that is itself pushed back by `z`, so the
+ * rear surface is the SUM of the two. Reading `hd` alone — or, worse, reading
+ * `neckHW` — is the specific arithmetic slip that left both `hullAt` and
+ * `helmFitProbe`'s own neck 23 mm short at the nape.
+ */
+function neckBackFrom(S: Skeleton, ST: Station[], y: number): number {
+  const st = neckSectionAt(ST, y + S.neckTop);
+  return st.hd - (st.z ?? 0);
+}
+
+/**
+ * How far it is from the head's centre, along one direction, to the outside of
+ * the neck — or 0 if that direction never leaves through it.
+ *
+ * In the SKULL CENTRE's frame, which is the frame `skinRadii` and every ruler
+ * built on it work in: `y = 0` is the middle of the head, and the neck's own
+ * stations are `S.headY` below in the body's.
+ *
+ * The section tapers with height and the height depends on how far along the
+ * ray you have gone, so this is a fixed point rather than a closed form: guess a
+ * distance, read the section at the height that distance lands at, solve the
+ * ellipse for a new distance, repeat. Four passes, and it settles to under a
+ * tenth of a millimetre on every bearing this is asked about — checked by
+ * running it at 24 and comparing.
+ */
+/**
+ * What the RULERS think the neck is, in the head pivot's frame, so a harness can
+ * hold that against the neck the player is actually looking at.
+ *
+ * This exists because of instance seventeen and it is meant to make instance
+ * eighteen of the same shape impossible: three separate pieces of this file
+ * carried three separate opinions about where the back of the neck is, two of
+ * them were the same wrong constant, and nothing anywhere compared any of them
+ * with the mesh. `tools/wearmeasure.mjs` §3b does that comparison now.
+ *
+ *   `back[i]`  the rear skin at `ys[i]`, from the head's axis — what `hullAt`
+ *              and `helmFitProbe` both read now.
+ *   `neckHW`   the half-WIDTH both of them USED to read instead. Reported so the
+ *              harness can print the size of the old error rather than take this
+ *              file's word for it.
+ */
+export function neckProbe(cls: WarriorClass, seed: number, ys: number[]):
+  { neckHW: number; back: number[] } {
+  const step = Math.round(hash(seed, 31) * 2) - 1;
+  const B = BUILD[cls] ?? BUILD.warden;
+  const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
+  const ST = neckStations(S);
+  return { neckHW: S.neckHW, back: ys.map((y) => neckBackFrom(S, ST, y)) };
+}
+
+function neckReach(S: Skeleton, ST: Station[], dx: number, dy: number, dz: number): number {
+  // A ray with no horizontal component never leaves through the side of a
+  // column, and one climbing out of the top is not looking at a neck.
+  const h2 = dx * dx + dz * dz;
+  if (h2 < 1e-9) return 0;
+  let t = S.neckHW / Math.sqrt(h2);
+  for (let k = 0; k < 4; k++) {
+    const st = neckSectionAt(ST, t * dy + S.headY);
+    const z0 = st.z ?? 0;
+    const A = (dx * dx) / (st.hw * st.hw) + (dz * dz) / (st.hd * st.hd);
+    const B = (-2 * dz * z0) / (st.hd * st.hd);
+    const C = (z0 * z0) / (st.hd * st.hd) - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc <= 0 || A < 1e-12) return 0;
+    t = (-B + Math.sqrt(disc)) / (2 * A);
+  }
+  return t;
 }
 
 /**
@@ -4634,25 +5996,63 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
    * the wrong object; it is cheaper to give the ruler a neck than to tune metal
    * to a number that is not measuring it.
    *
-   * The neck is an infinite vertical cylinder of the skeleton's own half-width,
-   * taken only where it lies below the skull's lower third so it cannot reach up
-   * and fill in the jaw. Below the shoulder it under-reads, which errs toward
-   * failing a plate rather than passing one.
+   * AND IT USED TO BE THE WRONG NECK, which is instance seventeen of a bar
+   * aimed at the wrong object and it is the whole reason this comment is long.
+   *
+   * What was here read:
+   *
+   *     const rn = S.neckHW;   //  "an infinite vertical cylinder of the
+   *     const t = rn / cy;     //   skeleton's own half-width"
+   *
+   * `S.neckHW` is a half-WIDTH — 78.1 mm on the warden — used as a radius in
+   * every direction, on a neck that is elliptical, tapered, and set BACK in z by
+   * up to 27.5 mm. Its real rearmost skin is at 101.4 mm from the head's axis.
+   * So the ruler put the flesh 23 mm inside where it is, at the one bearing the
+   * nape guard is judged on, and reported the difference as daylight: the
+   * guard's 12.0 mm `gap` was mostly neck. The comment under it even named the
+   * direction of the error — "below the shoulder it under-reads, which errs
+   * toward failing a plate rather than passing one" — and it is the opposite
+   * that bit, because at the nape it under-reads the RADIUS, which passes a
+   * plate the flesh is standing through.
+   *
+   * It is the identical arithmetic slip as `hullAt`'s, from the identical
+   * constant, one level up: the thing that solves the plate and the thing that
+   * judges the plate were wrong in the same direction, so they agreed.
+   *
+   * The neck is now the neck: `neckStations`, the same seven the mesh is swept
+   * on, read through `neckReach`. Still taken only where it lies below the
+   * skull's lower third, so it cannot reach up and fill in the jaw — that
+   * ceiling is unchanged, and it is the one thing about this table that is still
+   * an approximation.
+   *
+   * The augmentation is computed ONCE and applied to both tables: it is a
+   * property of the skeleton, not of the head surface being augmented, so
+   * building it twice would only be slower.
    */
+  const NST = neckStations(S);
+  let neckR: Float64Array | null = null;
   const withNeck = (src: SkinRadii): SkinRadii => {
     const out: SkinRadii = { na: src.na, ne: src.ne, r: Float64Array.from(src.r) };
-    const rn = S.neckHW;
-    for (let ei = 0; ei < src.ne; ei++) {
-      const el = -Math.PI / 2 + ((ei + 0.5) / src.ne) * Math.PI;
-      const cy = Math.cos(el);
-      if (cy < 1e-3) continue;
-      const t = rn / cy;
-      if (t * Math.sin(el) > -K.R.y * 0.35) continue;
-      for (let ai = 0; ai < src.na; ai++) {
-        const k = ei * src.na + ai;
-        if (t > out.r[k]) out.r[k] = t;
+    if (!neckR || neckR.length !== src.na * src.ne) {
+      const nr = new Float64Array(src.na * src.ne);
+      const ceil = -K.R.y * 0.35;
+      for (let ei = 0; ei < src.ne; ei++) {
+        const el = -Math.PI / 2 + ((ei + 0.5) / src.ne) * Math.PI;
+        const cy = Math.cos(el), sy = Math.sin(el);
+        if (cy < 1e-3) continue;
+        for (let ai = 0; ai < src.na; ai++) {
+          const az = -Math.PI + ((ai + 0.5) / src.na) * Math.PI * 2;
+          const t = neckReach(S, NST, Math.sin(az) * cy, sy, Math.cos(az) * cy);
+          // The height the ray leaves the neck at, and the same ceiling the
+          // cylinder was held to: a bearing whose exit is up inside the mandible
+          // is describing the jaw, not the throat.
+          if (t <= 0 || t * sy > ceil) continue;
+          nr[ei * src.na + ai] = t;
+        }
       }
+      neckR = nr;
     }
+    for (let k = 0; k < out.r.length; k++) if (neckR[k] > out.r[k]) out.r[k] = neckR[k];
     return out;
   };
   const at = (o: WornShellSpec, t: number, s: number, drop: number, out: THREE.Vector3) => {
@@ -4830,8 +6230,118 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
   const rHere = new THREE.Vector3();
   const rNrm = new THREE.Vector3();
   const drop = new THREE.Vector3(0, 0, 0);
+  /**
+   * THE METAL THAT IS BETWEEN — and it is the same repair `withNeck` is, one
+   * layer out.
+   *
+   * `wearmeasure` section 3 measures a hanging plate against FLESH, and on the
+   * two deep-cheek helms the plate it measures is not lying on flesh. Round
+   * eight printed the ray listing that says so, at az 65 under the Sutton Hoo
+   * guard's front-bottom corner, `u 1.00, v 0.87`, the exact corner section 3
+   * names as its worst:
+   *
+   *     y 52   70.0 plate  73.9 gilt  78.0 plate  80.0 gilt   <- the CHEEK GUARD
+   *            84.0 plate  87.7 plate                         <- the nape guard
+   *
+   * The deep guard laps the cheek guard, which laps the face mask. Against the
+   * skull's own form there is 20-odd millimetres of "daylight" under that
+   * corner and it changes fast as the corner swings forward, so the ruler reads
+   * 44.7 degrees of flare on a plate that is following the metal underneath it
+   * exactly as a plate should. The section's own `MASK_ALLOW` note already
+   * names this blind spot for the CHEEK guard — a flat 12 mm — and stops one
+   * piece short of the piece that laps it.
+   *
+   * So the hull the ring pieces are judged against carries the other shells of
+   * the same helmet, exactly as it already carries the neck: for every TAGGED
+   * shell — untagged ones are hair, beard and war paint, a different owner's
+   * problem — its INNER wall is sampled and each bearing takes the larger of
+   * the flesh and the metal. A plate lying on a cheek guard then reads as a
+   * plate lying on something, which is what it is.
+   *
+   * SAMPLED FOUR TIMES THE TABLE'S OWN PITCH, and that is not caution, it is
+   * the whole of the objection this answers. The note above `MASK_ALLOW`
+   * records the last attempt: "a 30x9 ring rasterised into a 192x96 table
+   * leaves empty bins, the gap function goes discontinuous across them, and the
+   * flare it reports is 84 deg of pure aliasing". An empty bin inside a piece's
+   * own footprint is the fault, and it is a sampling rate, not a fact about
+   * radial tables. At 4x pitch a shell that covers a bin lands at least four
+   * samples in it.
+   *
+   * AND ONLY THE RING PIECES READ THIS HULL. The `headWear` shells above keep
+   * the hull they had and `MASK_ALLOW` keeps its 12 mm, because folding a
+   * helmet's own shells into the hull those shells are judged against would let
+   * a cheek guard be certified by the mask it is drawn 6 mm outboard of.
+   */
+  const withShells = (src: SkinRadii): SkinRadii => {
+    const out: SkinRadii = { na: src.na, ne: src.ne, r: Float64Array.from(src.r) };
+    const p = new THREE.Vector3();
+    for (const o of spy) {
+      if (!o.tag) continue;
+      const NU = Math.max(4 * src.na / 8, o.nu * 4);
+      const NV = Math.max(4 * src.ne / 12, o.nv * 4);
+      for (let i = 0; i <= NU; i++) {
+        const t = i / NU;
+        const u = mix(o.u0, o.u1, t);
+        for (let j = 0; j <= NV; j++) {
+          const s = j / NV;
+          at(o, t, s, o.lift(u, s) - o.thick, p);
+          const len = p.length();
+          if (len < 1e-6) continue;
+          const az = Math.atan2(p.x, p.z);
+          const el = Math.asin(Math.min(1, Math.max(-1, p.y / len)));
+          const ai = Math.min(src.na - 1, Math.max(0, Math.floor(((az + Math.PI) / (Math.PI * 2)) * src.na)));
+          const ei = Math.min(src.ne - 1, Math.max(0, Math.floor(((el + Math.PI / 2) / Math.PI) * src.ne)));
+          const k = ei * src.na + ai;
+          if (len > out.r[k]) out.r[k] = len;
+        }
+      }
+    }
+    return out;
+  };
   const skinHull = rspy.length ? withNeck(tab) : tab;
   const formHull = rspy.length ? withNeck(formTab) : formTab;
+  /**
+   * AND IT IS A MASK, NOT A HULL, because a hull with a step in it cannot be
+   * differentiated and FLARE is a derivative.
+   *
+   * Folding the shells into the hull was built and measured first and it is
+   * wrong in the direction that matters. At a cheek guard's own EDGE the hull
+   * jumps by the guard's whole standoff, so the clearance under the ring piece
+   * steps by 15 mm across one sample and the angle it reports is the cliff:
+   * suttonhoo 44.7 -> 52.7, wyrm 50.0 -> 53.1, and THREE NEW RED HELMS —
+   * ridge 8.9 -> 30.3, boar 11.5 -> 30.3, crowned 11.5 -> 27.8. That is the
+   * same fault the note over `MASK_ALLOW` records ("the flare it reports is
+   * 84 deg of pure aliasing"), arriving at the piece's boundary instead of at
+   * its empty bins.
+   *
+   * So the shells decide WHETHER A SAMPLE IS A FLESH READING AT ALL, and
+   * nothing else. Where another shell of the same helmet stands proud of the
+   * flesh under this point, this point is not measuring a plate against a head:
+   * it is measuring a plate against a plate, which this section does not claim
+   * to judge and section 6 SEAM now does. A boolean off a radial table is
+   * robust where a derivative off one is not — a bin that is a millimetre out
+   * changes no answer here, and changes 30 degrees there.
+   */
+  const kitMaskFrom = (base: SkinRadii): Uint8Array => {
+    const aug = withShells(base);
+    const m = new Uint8Array(base.na * base.ne);
+    // 2 mm, which is under any liner in the shop and over the table's own bin
+    // noise. A shell that stands less than that off the flesh IS the flesh as
+    // far as a plate hanging over it is concerned.
+    for (let k = 0; k < m.length; k++) m[k] = aug.r[k] > base.r[k] + 0.002 ? 1 : 0;
+    return m;
+  };
+  const kitMask = rspy.length ? kitMaskFrom(formHull) : null;
+  const overKit = (p: THREE.Vector3): boolean => {
+    if (!kitMask) return false;
+    const len = p.length();
+    if (len < 1e-6) return false;
+    const az = Math.atan2(p.x, p.z);
+    const el = Math.asin(Math.min(1, Math.max(-1, p.y / len)));
+    const ai = Math.min(formHull.na - 1, Math.max(0, Math.floor(((az + Math.PI) / (Math.PI * 2)) * formHull.na)));
+    const ei = Math.min(formHull.ne - 1, Math.max(0, Math.floor(((el + Math.PI / 2) / Math.PI) * formHull.ne)));
+    return kitMask[ei * formHull.na + ai] === 1;
+  };
   for (const o of rspy) {
     const sHull = skinHull, fHull = formHull;
     const NU = Math.max(12, o.nu * 3);
@@ -4839,6 +6349,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     let gap = 0, gu = NaN, gv = NaN, flare = 0, flu = NaN, flv = NaN;
     let standoff = 0, minC = Infinity, punch = 0;
     let e0 = 0, e1 = 0, e0y = Infinity, e1y = Infinity;
+    let overKitN = 0, sampleN = 0, censorN = 0;
     drop.set(0, o.originY, 0);
     for (let i = 0; i <= NU; i++) {
       // This column's own length, for the fixed-baseline flare step below.
@@ -4861,16 +6372,45 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         const fHere = skinGap(fHull, rIn, rNrm);
         if (gHere > standoff) standoff = gHere;
         if (gHere < minC) minC = gHere;
-        if (gHere > gap) { gap = gHere; gu = t; gv = s; }
-        if (s === 0) { if (rOut.y < e0y) e0y = rOut.y; if (gHere > e0) e0 = gHere; }
-        if (s === 1) { if (rOut.y < e1y) e1y = rOut.y; if (gHere > e1) e1 = gHere; }
+        // A sample with another shell of this helmet under it is a plate on a
+        // plate — see `kitMaskFrom`. It is not a reading this section makes.
+        const onKit = overKit(rIn);
+        if (onKit) overKitN++;
+        sampleN++;
+        if (!onKit) {
+          if (gHere > gap) { gap = gHere; gu = t; gv = s; }
+          if (s === 0) { if (rOut.y < e0y) e0y = rOut.y; if (gHere > e0) e0 = gHere; }
+          if (s === 1) { if (rOut.y < e1y) e1y = rOut.y; if (gHere > e1) e1 = gHere; }
+        }
         const s3 = Math.min(1, s + fstep);
         o.inner(t, s3, rNext); rNext.sub(drop);
         rHere.copy(rIn);
         const arc = rNext.distanceTo(rHere);
-        if (arc > 1e-4) {
-          const ang = Math.atan(Math.abs(skinGap(fHull, rNext, rNrm) - fHere) / arc) * 180 / Math.PI;
-          if (ang > flare) { flare = ang; flu = t; flv = s; }
+        // BOTH ENDS OF THE BASELINE, because a difference taken across the
+        // boundary is the cliff this mask exists to keep out of the answer.
+        if (arc > 1e-4 && !onKit && !overKit(rNext)) {
+          const fNext = skinGap(fHull, rNext, rNrm);
+          // AND NEITHER END MAY BE CENSORED. `skinGap` marches inward for
+          // `cap` and RETURNS `cap` when it never finds flesh — its own note
+          // says so, and says that is the verdict, which it is for GAP: a bar
+          // of 26 mm is tripped by a reading of 75 and the plate is called
+          // unworn. It is not a verdict for FLARE. Flare is a DERIVATIVE, and
+          // differencing a censored value against a measured one reports the
+          // censoring: at the guard's front-bottom corner the ray leaves the
+          // head altogether, `skinGap` hands back 75.0 both times it is asked
+          // near there, and the angle printed is atan(|75 - something| / 12 mm)
+          // — a number about the search limit and not about the plate.
+          //
+          // That is the same fault as the one the note over `MASK_ALLOW`
+          // records in its own words: "a hole in the ruler is worse than a gap
+          // in its coverage, because the hole reports a number". A censored
+          // baseline is a hole. GAP and HEM still read it — they are levels and
+          // the censoring is their answer — and only the derivative refuses it.
+          const CENSOR = 0.075 - 1e-4;
+          if (fHere < CENSOR && fNext < CENSOR) {
+            const ang = Math.atan(Math.abs(fNext - fHere) / arc) * 180 / Math.PI;
+            if (ang > flare) { flare = ang; flu = t; flv = s; }
+          } else censorN++;
         }
       }
     }
@@ -4892,6 +6432,8 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       flareU: flu,
       flareV: flv,
       hemMm: (e0y <= e1y ? e0 : e1) * 1000,
+      onKitFrac: sampleN ? overKitN / sampleN : 0,
+      censorFrac: sampleN ? censorN / sampleN : 0,
     });
   }
   return { helm, cls, seed, shells };
@@ -5196,6 +6738,14 @@ function helmForm(K: Skull): HelmForm {
         }
       }
     }
+  }
+  // THE EAR, PUT BACK ON THE BLOCK. It has to happen here — after the low-pass,
+  // because the filter is what removed it, and before the normals, because a
+  // block whose normals were taken before it grew an ear stands every plate off
+  // in the wrong direction over one. See `earSeatRaise`.
+  earSeatRaise(K, nu, nv, pos);
+  for (let j = 0; j < h; j++) {
+    for (let c = 0; c < 3; c++) pos[(j * w + nu) * 3 + c] = pos[(j * w) * 3 + c];
   }
   // Normals off the smoothed table, central in u and one-sided at the poles.
   const nrm = new Float64Array(pos.length);
@@ -9082,6 +10632,92 @@ export function buildSpear(materials?: CharacterMaterials): THREE.Group {
  * exactly the grip bar below. The fist that closes on that bar is sized to it —
  * see `HAND_GRIP.huscarl.off`.
  */
+/**
+ * THE FOUR DEVICES, AND WHAT EACH ONE IS SOURCED TO.
+ *
+ * `docs/FACTIONS.md` §9 is the sourcing pass and it opens with the distinction
+ * everything here turns on: **the sources tell us banners existed and what they
+ * were called; with one partial exception they do not tell us what they looked
+ * like.** So every mark below is one of two things and the file says which,
+ * because §9.0's tiers are worth nothing if the code quietly forgets them.
+ *
+ *   saxon   THE SEAX — FIND. The single-edged blade that names the people,
+ *           abundant in English graves right across the period. Drawn
+ *           broken-backed, which is the form the 9th-century finds take; the
+ *           famous inscribed one, the Seax of Beagnoth in the British Museum,
+ *           is 10th century and is a source for the SHAPE of the object and not
+ *           for what a man at Edington carried.
+ *   norse   THE MJÖLNIR — FIND. Thor's-hammer pendants are among the commonest
+ *           Norse finds of the 9th-10th centuries and York has produced them:
+ *           a real object, in the right place, in the right decade. Drawn as
+ *           those pendants are — a broad wedge head, a short shaft, a
+ *           suspension loop at the top. §9.2's AVOID list is respected in full:
+ *           no Vegvísir, no Ægishjálmur, no valknut, and none of the genuine
+ *           period marks modern extremist movements have taken over.
+ *   briton  THE TRISKELE — FIND for the mark, OUR COMPOSITION as a device. La
+ *           Tène in origin and continuous through insular metalwork and the
+ *           penannular brooches of this period. The Britons have no attested
+ *           battle standard at all, so a field with a triskele on it is two
+ *           real things put together by us, exactly as §9.3 says.
+ *   pict    THE CRESCENT-AND-V-ROD — FIND, and the best-evidenced device in the
+ *           game. It is carved on symbol stones standing in Scotland today,
+ *           dated across the 6th-9th centuries. What is NOT known is what it
+ *           MEANT, and there is no evidence any of them was ever carried as a
+ *           banner — so the mark is real and its use as a device is ours. §2
+ *           calls the Picts the prize for exactly this reason.
+ *
+ * Drawn as flat slabs in the board's own plane rather than as carving or
+ * inlay, because that is what a painted shield is. `y` is the roundel's centre
+ * and `z` the plane the paint lies in; everything below is relative to those
+ * two, so moving the roundel moves the mark with it.
+ */
+function deviceOn(part: Part, mat: THREE.Material, people: PeopleId, y: number, z: number): void {
+  const T = 0.004;
+  if (people === "saxon") {
+    // Laid on the diagonal, point up. A blade drawn upright reads as a bar at
+    // 29 px; on the diagonal it reads as a blade, because the eye takes the
+    // slope before it takes the taper.
+    const tilt = -0.42;
+    const put = (x: number, yy: number, w: number, h: number, r = 0) => {
+      const c = Math.cos(tilt), s2 = Math.sin(tilt);
+      part.add(box(w, h, T), mat, xf(x * c - yy * s2, y + x * s2 + yy * c, z, 0, 0, tilt + r));
+    };
+    put(0, 0.030, 0.026, 0.112);            // the blade's straight back
+    put(0.004, 0.098, 0.030, 0.048, 0.62);  // the broken back, angling to the point
+    put(0, -0.036, 0.048, 0.011);           // the guard
+    put(0, -0.070, 0.017, 0.058);           // the grip
+  } else if (people === "norse") {
+    part.add(box(0.112, 0.042, T), mat, xf(0, y + 0.052, z));        // the head
+    part.add(box(0.030, 0.096, T), mat, xf(0, y - 0.016, z));        // the shaft
+    part.add(box(0.050, 0.014, T), mat, xf(0, y - 0.062, z));        // the foot
+    part.add(ring(0.017, 0.006, 5, 12), mat, xf(0, y + 0.086, z));   // the suspension loop
+  } else if (people === "briton") {
+    // Three arms at 120°, each a third of a turn of tube with a swelling at its
+    // end — the comma the insular version of this mark always has. A hub, so
+    // the three read as one figure rather than as three strokes.
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const arm = new THREE.TorusGeometry(0.046, 0.0095, 5, 10, Math.PI * 0.72);
+      part.add(arm, mat, xf(Math.cos(a) * 0.030, y + Math.sin(a) * 0.030, z, 0, 0, a + 1.2));
+      part.add(ball(0.014, 6), mat,
+        xf(Math.cos(a + 1.05) * 0.070, y + Math.sin(a + 1.05) * 0.070, z));
+    }
+    part.add(ball(0.014, 6), mat, xf(0, y, z));
+  } else {
+    // The crescent, horns down, with the V-rod through it. Two thirds of a turn
+    // of tube for the arc; two straight rods meeting below the centre for the
+    // V, crossing the crescent's own line the way the stones cut it.
+    part.add(new THREE.TorusGeometry(0.074, 0.011, 5, 16, Math.PI * 1.02), mat,
+      xf(0, y - 0.012, z, 0, 0, -0.03));
+    for (const s2 of [-1, 1]) {
+      part.add(box(0.013, 0.104, T), mat, xf(s2 * 0.030, y + 0.010, z, 0, 0, s2 * 0.52));
+      // The rod's terminals: the stones finish both arms of the V with a
+      // spray, and a plain stick would read as a scratch.
+      part.add(box(0.030, 0.010, T), mat, xf(s2 * 0.060, y + 0.058, z, 0, 0, s2 * 0.52));
+    }
+  }
+}
+
 export function buildShield(
   color = 0x6b4226,
   materials?: CharacterMaterials,
@@ -9093,6 +10729,22 @@ export function buildShield(
    * on the finish the man bought, which is a grey disc bolted to a red board.
    */
   team: TeamSide = "none",
+  /**
+   * The people, in a non-team mode. Same contract as `team` and one rung below
+   * it: the board's FIELD is already the people's because the caller chose it
+   * through `shieldBoard`, and what arrives here is the PAINT — how the field
+   * is broken up, and the mark on it.
+   *
+   * This is the one place in the build where a people gets a SHAPE rather than
+   * a colour, and it is a shape on an object rather than on a man: nothing
+   * below moves a vertex of the warrior, changes his hitboxes, or is reachable
+   * from any class but the huscarl, who is the only man `render/anim.ts` hands
+   * a shield. It is also the best pixels in the game to spend on this — the
+   * board is 760 mm across on a 1.8 m man, so at the 6.8 m fight lens it is
+   * about 97 px of flat field held out in front of the chest, which is more
+   * than the head and the helm put together.
+   */
+  people: Allegiance = "none",
 ): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
@@ -9129,7 +10781,14 @@ export function buildShield(
   // as wickerwork while the boards *behind* them, on the same geometry, read as
   // wood. Same substance as the board now, so the grain runs through the paint
   // the way it does on a real limewood shield.
-  const paint = M.timber(0xb8a276);
+  // The board's second colour. Unsworn and in a war band it is the pale
+  // limewood this function has always used; sworn, it is the people's own —
+  // near-black for the Danelaw because the Gokstad ship's boards alternated
+  // BLACK and yellow, bone for the Picts because the symbol stones read as pale
+  // line on dark rock, pale grey-green for the Britons because a check is a
+  // VALUE pattern and two hues would be a flag.
+  const livery = team === "none" && people !== "none" ? FACTION[people] : null;
+  const paint = M.timber(livery ? wornPaint(livery.paint) : 0xb8a276);
   // The rim clamps: forged strap off the same bar as the mail, so `kit.mail`
   // with nothing done to it. On the issued finish this is 0x5f6b7a against the
   // 0x5f666f literal it replaces — five points of green and eleven of blue, i.e.
@@ -9223,17 +10882,52 @@ export function buildShield(
     const du = (i * 0.37) % 1;
     const dv = (i * 0.61 + 0.13) % 1;
     part.add(retile(box(halfW * 2, edge * 2, 0.019), du, dv, (edge * 2) / PLANK_V), board, xf(cx, 0, zf + dome));
-    // The painted quarter, cut per plank: boards right of centre carry it on their
-    // upper half, boards left of centre on their lower half, which is the same
-    // two-colour quartering the disc wedges were drawing — except this one is
-    // lying on the wood.
+    // THE PAINT, CUT PER PLANK — and there are four cuts now, one per people,
+    // with the unsworn and the war band keeping the quartering this function
+    // has always drawn.
     //
-    // Half the board's height and its own 0..1 v, so at `M.timber`'s repeat 3 the
-    // paint's grain used to be exactly twice as fine as the board 2 mm under it.
-    // Same normalisation, same phase as the board it lies on, so the grain runs
-    // through the paint the way it does on a limewood shield.
-    part.add(retile(box(halfW * 1.94, edge, 0.004), du, dv, edge / PLANK_V), paint,
-      xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115));
+    // Every patch below is the same object as the one it replaces: a thin slab
+    // lying on the board, at half the board's height or less, retiled onto the
+    // plank's own 0..1 v with the plank's own phase so the grain runs THROUGH
+    // the paint the way it does on a limewood shield. What varies is where the
+    // slabs sit, and that is the whole of the difference — a pattern is where
+    // the paint is, not what it is made of.
+    //
+    //   quarters  the shipped board and the Anglo-Saxon one. Boards right of
+    //             centre painted on their upper half, boards left on their
+    //             lower: two solid quarters meeting at the boss.
+    //   staves    the Danelaw. Alternate boards painted end to end, which is
+    //             the Gokstad gunwale — thirty-two shields alternating black
+    //             and yellow — read across one disc instead of along a ship.
+    //   check     the Britons. Two short patches a board, phase flipped every
+    //             other board, so the disc carries a coarse chequer. Their kit
+    //             entry in `FACTIONS.md` §2 is "checked weave" and this is that
+    //             claim made on the one surface big enough to carry it.
+    //   rim       the Picts. Paint at both ends of every board and nothing in
+    //             the middle, which closes into an unbroken ring inside the
+    //             binding: least kit, one band, and the widest clear field of
+    //             the four for the mark to sit in.
+    const pat = livery ? livery.pattern : "quarters";
+    if (pat === "staves") {
+      if (i % 2 === 0) {
+        part.add(retile(box(halfW * 1.94, edge * 1.94, 0.004), du, dv, (edge * 1.94) / PLANK_V), paint,
+          xf(cx, 0, zf + dome + 0.0115));
+      }
+    } else if (pat === "check") {
+      for (const k of [0, 1]) {
+        const flip = (i + k) % 2 === 0 ? 1 : -1;
+        part.add(retile(box(halfW * 1.94, edge * 0.62, 0.004), du, dv, (edge * 0.62) / PLANK_V), paint,
+          xf(cx, flip * edge * 0.5, zf + dome + 0.0115));
+      }
+    } else if (pat === "rim") {
+      for (const s2 of [-1, 1]) {
+        part.add(retile(box(halfW * 1.94, edge * 0.42, 0.004), du, dv, (edge * 0.42) / PLANK_V), paint,
+          xf(cx, s2 * edge * 0.79, zf + dome + 0.0115));
+      }
+    } else {
+      part.add(retile(box(halfW * 1.94, edge, 0.004), du, dv, edge / PLANK_V), paint,
+        xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115));
+    }
   }
 
   // Rawhide binding folded over the board edge, then iron clamps over it.
@@ -9257,6 +10951,25 @@ export function buildShield(
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
     part.add(ball(0.008, 6), steel, xf(Math.cos(a) * 0.079, Math.sin(a) * 0.079, bossZ + 0.004));
+  }
+
+  // ---- THE MARK ----------------------------------------------------------
+  //
+  // A roundel of the board's own field with the people's device painted on it,
+  // set in the upper field clear of the boss. The roundel is not decoration: it
+  // puts every device on the SAME ground whatever pattern is under it, so a
+  // black hammer never lands on a black stave and vanish. A flat field with a
+  // device on it is also what the Bayeux Tapestry paints, which is the closest
+  // thing to a period statement about shield decoration anybody has.
+  //
+  // ~230 mm across on a board that is 760 mm across, which at the 6.8 m fight
+  // lens is about 29 px — a glyph, not a texture, and the smallest thing in
+  // this feature that is meant to be read rather than merely seen.
+  if (livery) {
+    const DY = 0.205, DZ = zf + crest + 0.016, RD = 0.108;
+    part.add(new THREE.CylinderGeometry(RD, RD, 0.004, 20), board,
+      xf(0, DY, DZ, Math.PI / 2, 0, 0));
+    deviceOn(part, paint, livery.device, DY, DZ + 0.003);
   }
 
   // Back: the grip bar the fist closes on, and two board battens.
@@ -10550,6 +12263,20 @@ export function buildCharacter(
    */
   team: TeamSide = "none",
 ): BuiltCharacter {
+  // WHICH PEOPLE THIS MAN IS DRESSED AS. Off `ap`, and not a seventh argument,
+  // because it is a COSMETIC: it is stored in a profile, edited when a man
+  // swears, and replicated in the same opaque blob the helm and the cloak ride
+  // in. That is the opposite of `team`, which is sim state a client may not
+  // write, and the two are opposite for the same reason — a team colour a
+  // player could set for himself would not be a team colour, and a livery a
+  // player could NOT set for himself would have to travel as allegiance, which
+  // `docs/WIRE-PROTOCOL.md` §11 forbids the wire to carry.
+  //
+  // Narrowed rather than cast. Anything that is not one of the four — a profile
+  // written before this field existed, a string off a modified client — is the
+  // unsworn, and the unsworn builds exactly the warrior this function built
+  // before the livery was written.
+  const people = peopleOf(ap);
   const M = materials ?? RAW;
   const lod = LOD[detail];
   const B = BUILD[cls] ?? BUILD.warden;
@@ -10581,8 +12308,14 @@ export function buildCharacter(
   // AND IN A TEAM MODE THE SIDE OWNS IT. `teamKit` is a no-op on `"none"`, so
   // this line is the whole of the override for six of the seven surfaces and
   // free-for-all is untouched. See the precedence note over `TeamField`.
-  const teamed = team !== "none";
-  const kit = teamKit(finishKit(ap.armorColor), team);
+  //
+  // AND ONE RUNG BELOW IT THE PEOPLE OWNS IT. `kitFor` tests the team first and
+  // returns before a people is consulted, so a war band is byte-for-byte what
+  // it was and `tools/teamread.mjs` cannot move. `dyed` is the two cases
+  // together: whenever a band or a people owns the hue, the class accent lets
+  // go of it — see the tunic below.
+  const dyed = team !== "none" || people !== "none";
+  const kit = kitFor(finishKit(ap.armorColor), team, people);
   const mail = M.armour(kit.mail);
   // Kit colours that no armoury option controls, and therefore mine. They were
   // authored two passes ago against a brighter grade and they are now the reason a
@@ -10613,7 +12346,7 @@ export function buildCharacter(
   // stature, hem length, layer count and silhouette, which is what `BUILD` and
   // the kit are for — but hue is the side's channel and the class does not get
   // to borrow it. This is the precedence rule at its narrowest point.
-  const wool = cloth(teamed ? kit.tunic : tunicDye(kit.tunic, accents), bodyGirth);
+  const wool = cloth(dyed ? kit.tunic : tunicDye(kit.tunic, accents), bodyGirth);
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
   // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
@@ -10631,7 +12364,7 @@ export function buildCharacter(
   // sleeve — one garment, two fabrics — and the coarse end is the finest cloth
   // in the set, where a visible tile costs most.
   const flax = (girth: number) =>
-    thrifty ? wool : M.tinted("linen", teamWorn(0xc2b69c, team, "cloth"), { repeat: clothRepeat(girth) });
+    thrifty ? wool : M.tinted("linen", wornBy(0xc2b69c, team, people, "linen"), { repeat: clothRepeat(girth) });
   const linen = flax(bodyGirth);
   const sleeveLinen = flax(2 * Math.PI * S.armR[0] * 1.12);
   const iron = M.tinted("iron", 0x6e767f, { roughness: 0.5 });
@@ -11028,7 +12761,7 @@ export function buildCharacter(
   // a seam, which on a 90 mm lock would be most of the lock.
   const PELT_TILE = 0.25;
   const pelt = (girth: number) =>
-    M.tinted("wool", teamWorn(0x8a7050, team, "leather"), { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
+    M.tinted("wool", wornBy(0x8a7050, team, people, "leather"), { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
   const ruffX = S.chestHW + 0.062;
   const ruffZ = S.chestHD + 0.062;
   const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
@@ -11036,7 +12769,7 @@ export function buildCharacter(
   const furPelt = pelt(0.3);
   const dark = M.standard(0x1a1310, 0.42);
   const rune = M.get("runeGlow");
-  const cloakMat = cloth(teamCloak(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team), bodyGirth * 1.4);
+  const cloakMat = cloth(cloakFor(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team, people), bodyGirth * 1.4);
   // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
   //
   // The hood, its mantle, its point and its shoulder drape were all raised on
@@ -11059,7 +12792,7 @@ export function buildCharacter(
   // at a tighter pitch than a cloak because a hood is a smaller garment and the
   // weave has to scale with the thing it is woven into. `hide` stops being the
   // unrobed fallback for the same reason — a hood is cloth on everybody.
-  const hoodCloth = cloth(teamWorn(0x2a2521, team, "cloth"), bodyGirth * 0.62);
+  const hoodCloth = cloth(wornBy(0x2a2521, team, people, "cloth"), bodyGirth * 0.62);
 
   // --- merged-geometry cache. Only for callers that brought a shared library;
   // the armoury preview allocates and disposes its own materials, so caching its
@@ -12770,6 +14503,108 @@ export function buildCharacter(
     skullY - R.y * (style.nape === "guard" ? 1.12 : 0.45),
   );
 
+  // ---- where the neck is ----
+  //
+  // THE FOURTH THING HOISTED INTO THIS BLOCK, AND THE ONLY ONE UNDERNEATH THE
+  // OTHER THREE. `coifLevels`, `cheekHem` and `napeHemY` are all up here because
+  // two pieces have to agree about them, and the note over each says the same
+  // sentence: a piece that keeps its own copy of where another piece is will
+  // drift away from it. The neck is that arrangement one layer down. It is what
+  // the deep nape guard and the ventail are BOTH hung on, and until this line
+  // neither of them could read it — the stations lived inside `emit("neck")`,
+  // three thousand lines below every piece that has to clear them.
+  //
+  // WHAT THE DRIFT COST, measured on the warden at az 180 off the built mesh
+  // rather than argued from the source:
+  //
+  //     the neck's rearmost skin      101.6 mm from the head's axis
+  //     `S.neckHW`, what `hullAt` floors its DEPTH at        78.1 mm
+  //     the deep guard's outer rim, which rides that hull     98.7 mm
+  //
+  // `hullAt` floors its half-DEPTH at a half-WIDTH, and takes no account of the
+  // neck shell being set BACK in z at all — its top stations carry `z` to
+  // -27.5 mm, and a rear surface is the half-depth PLUS that offset, not either
+  // one of them. So the plate that is supposed to lie over the neck was solved
+  // against a column 23 mm too narrow at the back, and the neck stood through
+  // it: 0.3 to 1.5 mm of bare skin outboard of the Sutton Hoo's own rim from
+  // y 50 to y 64, which is 11 degrees of nape at the worst height.
+  //
+  // The stations stay in the BODY's frame, which is where they were authored and
+  // where `emit("neck")` still wants them; `neckBackAt` converts for the head.
+  //
+  // Elliptical rather than round, tapered rather than extruded, set back in z
+  // so the jaw hangs over it, and flared hard at the base into the trapezius.
+  //
+  // THE TOP IS THE OTHER HALF OF THE WEDGE. The top ring was 0.95 x 0.94 of the
+  // full section — 77 x 81 mm — at a height where the head's own submandibular
+  // mass measures 62 x 69. So the neck stood 15 mm proud of the throat above it
+  // on every side and 19 mm proud at the nape, capped, at a height that is
+  // INSIDE the head: a lit disc on a post, wider than the thing it is supposed
+  // to be disappearing into. An older comment claimed those stations "climb into
+  // the mandible and are covered there by the head's own throat mass". They
+  // climb into it and come straight back out the other side.
+  //
+  // The two stations above the mandible's lower border now tuck INSIDE the jaw
+  // mass they hand off to, and the first station the viewer can actually see —
+  // below the menton — keeps the width it had, so the visible throat is the same
+  // throat `headmeasure` signed off on.
+  //
+  // AND THE TOP STATIONS REACH FURTHER BACK THAN THEY DID, which is the nape
+  // half of the same defect. The skull's occiput carries further back than its
+  // chin does, so a neck centred for the throat leaves the back of the head
+  // standing over it on a shelf — a ragged horizontal lip across the nape with
+  // daylight under it, which is the "large pale shape covers the back of the
+  // neck and skull junction" seen from behind. The back of each top station
+  // moves back 13 mm and the front does not move at all: `z` down by half of it
+  // and `hd` up by half, which is the only way to grow one side of an ellipse.
+  // AND THE TABLE ITSELF NOW LIVES AT MODULE SCOPE — `neckStations` — for the
+  // reason the hoist into this block was made in the first place, one storey
+  // further up. `helmFitProbe` builds its OWN skeleton and could not reach into
+  // `buildCharacter`'s closure, so the ruler that judges the nape guard carried
+  // a hand-written neck of its own: `rn = S.neckHW`, an infinite round column of
+  // the skeleton's half-WIDTH, axis-centred. Same constant and same slip as
+  // `hullAt` had, one level up, and it is why the guard measured 12.0 mm of
+  // "daylight" over flesh that is 23 mm nearer than the ruler thought.
+  const NECK_STATIONS: Station[] = neckStations(S);
+  const neckSection = (y: number): Station => neckSectionAt(NECK_STATIONS, y);
+  /**
+   * The neck's REARMOST skin, from the head's axis, in the HEAD PIVOT's frame.
+   *
+   * `hd` is a half-depth about a centre that is itself pushed back by `z`, so
+   * the rear surface is the SUM of the two. Reading `hd` alone is the specific
+   * arithmetic slip that left `hullAt` 23 mm short at the nape.
+   */
+  const neckBackAt = (y: number): number => neckBackFrom(S, NECK_STATIONS, y);
+  /**
+   * The neck's skin along ONE BEARING at a height, from the head's axis, in the
+   * head pivot's frame.
+   *
+   * `neckBackAt` is this at azimuth 180 and at no other azimuth, and a piece
+   * solved against it alone clears the neck dead behind and nowhere else. That
+   * is measurable: with the ventail's rear solved on `neckBackAt` only, the
+   * neck's skin at azimuth 221 and y 42 stands at 84.4 mm between the curtain's
+   * two walls — inner at 80.0, outer at 87.0 — so the mail is threaded through
+   * the throat over the rear quarters. `helmclash` section 2 reads it as its
+   * worst patch, `c99d75` at 4.4 mm.
+   *
+   * Same ellipse and same solve as `neckReach` at module scope; that one has to
+   * iterate because its ray climbs through the taper, and this one does not
+   * because the height is given.
+   */
+  const neckOutAt = (y: number, dx: number, dz: number): number => {
+    const h = Math.hypot(dx, dz);
+    if (h < 1e-9) return 0;
+    const st = neckSection(y + S.neckTop);
+    const ux = dx / h, uz = dz / h;
+    const z0 = st.z ?? 0;
+    const A = (ux * ux) / (st.hw * st.hw) + (uz * uz) / (st.hd * st.hd);
+    const B = (-2 * uz * z0) / (st.hd * st.hd);
+    const C = (z0 * z0) / (st.hd * st.hd) - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc <= 0 || A < 1e-12) return 0;
+    return (-B + Math.sqrt(disc)) / (2 * A);
+  };
+
   // ---- where the plates are ----
   // The cheek guards' span and their FREE LOWER EDGE, hoisted here for exactly
   // the reason `coifLevels` was: two pieces have to agree about them. The plate
@@ -12850,6 +14685,75 @@ export function buildCharacter(
     const a = awayFromFace(u);
     return a < cheekIn || a > cheekOut ? -Infinity : cheekHemAt(a);
   };
+  /**
+   * THE NAPE FALL'S OWN HALF-ARC AT A DESCENT — the azimuth its front edge
+   * reaches, and it is the plate's own `half(v)` rather than a copy of it.
+   *
+   * Hoisted for the same reason `cheekHemAt`, `napeHemY` and `NECK_STATIONS`
+   * were, and the sentence is the same one every time: a piece that keeps its
+   * own copy of where another piece is will drift away from it. `hairCeil`'s
+   * nape branch held a CONSTANT 1.95 rad — 112 degrees off dead ahead — while a
+   * deep guard that laps a deep cheek plate reaches `cheekOut - 0.10`, which is
+   * 87. So on the Wyrm-Crest and the Sutton Hoo there are 25 degrees of head
+   * with a 308-triangle plate over it and nothing telling the hair, and that is
+   * what `helmclash` section 3 has been reading since the nape and the ear came
+   * off its list: 6.0 to 6.5 degrees of `4a3220` — the sideburn course of hair
+   * coils — outermost at az 102-103, on all three classes without a coif.
+   *
+   * AND IT IS READ AT A DIFFERENT END OF THE DESCENT FOR THE TWO KINDS OF
+   * PLATE, because the two kinds fail in opposite directions.
+   *
+   * This paragraph used to say the flange rungs were the case where 1.95 "claims
+   * 6.6 degrees of cover the flange does not have". That is not what the built
+   * mesh says. Swept on the head's own azimuth rather than on the plate's sweep
+   * parameter — 1 degree steps, horizontal rays, warden / Ridge-Helm — the
+   * flange's front edge is at
+   *
+   *     y 175 .. 167   az 116-117      (the top of the fall, at the band)
+   *     y 165 .. 151   az 112-116
+   *     y 149 .. 137   az 108-112
+   *     y 135 .. 129   az 106-107      (the hem; below 127 there is no metal)
+   *
+   * A hanging plate FLARES FORWARD AS IT FALLS — that is what `+ 0.30 v²` is —
+   * so `napeHalf(0)` is the narrowest it ever is, and the hair that lives under
+   * it lives at the BOTTOM. Reading the top therefore leaves the eleven degrees
+   * the plate covers at its hem outside the clamp, and a coil rooted in that
+   * band gets no ceiling at all: it is built at full length on skin that has a
+   * flange over it, falls past the hem, and stands 19 mm off the bare neck at
+   * y 116 with nothing over it from any bearing. Six to eight of those are what
+   * the render shows on the warden's default Warrior Crop.
+   *
+   * So: a GUARD is read at the top of the descent. It lies on the hull, the
+   * risk under it is hair standing OUTSIDE metal, and under-stating its arc is
+   * the safe direction — that is round eight's reading and section 3 WRAP is
+   * built on it, so nothing about the Wyrm-Crest or the Sutton Hoo moves here.
+   * A FLANGE is read at THREE QUARTERS of its descent, which is not a taste: it
+   * is where the hair under a flange actually is. The helmed lock courses run
+   * 0.03 to 0.17 rad below a hairline that is itself dropped 0.30 rad, so their
+   * roots sit at y 129-149 against a plate whose hem is y 127 — and the plate's
+   * measured front edge over exactly those heights is az 106-112. `napeHalf`
+   * at 0.75 is 1.249, so the clamp lands at 1.893 rad — 108.5 degrees — inside
+   * that measured band and still 13 degrees behind the sideburn course at
+   * az 95-105 that the flank window was widened to show.
+   *
+   * Read at the bottom instead (`napeHalf(1)`, 100.9 deg) the clamp swallows
+   * that sideburn course: the rear map loses the hair at az 100-110 from y 152
+   * to y 200 that both `origin/main` and round eight draw, which is the hair the
+   * 0.30 rad hairline drop was bought for. Read at the top (round eight's
+   * `napeHalf(0)`, 118 deg) it leaves the loose curls. 0.75 is the reading that
+   * holds both, and the rear map below the hem comes out with FEWER stray
+   * fragments than `origin/main` has, not more.
+   *
+   * Neither reading deletes anything: hair inside this arc is BURIED, not
+   * culled — see the sink in the lock course — so `tools/rungcensus.mjs` counts
+   * every triangle of it either way.
+   */
+  const napeLap = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
+  const napeHalf = (v: number) =>
+    Math.max(style.nape === "guard" ? 1.30 : 1.08, napeLap)
+    + (style.nape === "guard" ? 0.44 : 0.30) * v * v;
+  /** That arc as an angle off dead ahead: hair further round than this is under it. */
+  const napeFrontU = Math.PI - napeHalf(style.nape === "guard" ? 0 : 0.75);
 
   // ---- where the cloth is ----
   // The hood's rim and its lift, authored here and read twice: once by the hood
@@ -12979,7 +14883,7 @@ export function buildCharacter(
     // deliberately put inside the skin there rather than being deleted: the
     // sweep stays continuous with the hair either side of it, and a continuous
     // sweep is the whole reason this file authors one surface instead of two.
-    if (helmed && style.nape !== "none" && awayFromFace(u) > 1.95 && v < bandLo + 0.28
+    if (helmed && style.nape !== "none" && awayFromFace(u) > napeFrontU && v < bandLo + 0.28
       && (atY === undefined || atY > napeHemY)) {
       c = Math.min(c, -0.005);
     }
@@ -13335,7 +15239,12 @@ export function buildCharacter(
       const place3 = new THREE.Matrix4()
         .makeTranslation(s * earRootX, earY, -0.024)
         .multiply(new THREE.Matrix4().makeRotationY(s * Math.PI / 2));
-      const A = auricle(K, earRootX, s);
+      // PRESSED under a plate that closes over the ear, and not otherwise. The
+      // deep guards and the mask are the two that strap shut across the jaw with
+      // the auricle inside them; a short guard stops in front of the ear and a
+      // cowl is cloth. See `auricle` and `EAR_PRESS`.
+      const A = auricle(K, earRootX, s,
+        style.mask || style.cheek === "deep" ? EAR_PRESS : 0);
       p.add(A.skin, headSkin, place3);
       // The bowl in the form-shadow tone. It shares its vertices with the helix,
       // so it is not a separate object with a rim of its own to catch the light.
@@ -13771,14 +15680,90 @@ export function buildCharacter(
             // Compress, then cull. Squeezed past 45% a coil is not a smaller
             // curl, it is a bristle — the barbs the note above spent a paragraph
             // getting rid of — so below that it does not exist.
+            //
+            // EXCEPT UNDER A PLATE, WHERE NOTHING IS CULLED — and the reason is
+            // the one `hairCeil`'s nape branch gives for the SHELL, twelve
+            // hundred lines up: "hair under a nape fall cannot be seen from any
+            // bearing, so the shell is deliberately put inside the skin there
+            // rather than being deleted". A negative ceiling is that branch
+            // firing. The shell obeys it by sinking; the coils obeyed it by
+            // vanishing, and the two answers were not the same answer.
+            //
+            // IT IS NOT A TIDINESS ARGUMENT. Widening the nape clamp from the
+            // constant 1.95 rad to the plate's own `napeFrontU` puts 25 more
+            // degrees of head under a negative ceiling on the two deep-cheek
+            // helms, and with the cull in place `tools/rungcensus.mjs` reads
+            // **112 scope-readings LOST — 4 to 6 components and 320 to 480
+            // triangles a cell, across every warden, berserker and runekeeper
+            // rung of the Wyrm-Crest and the Sutton Hoo**. That is a paid
+            // hairstyle being deleted to close a gate, which is the thing three
+            // separate rounds of this project have been caught doing. Buried
+            // instead, the same census reads zero lost.
+            const crest = 0.38 * len + rad;
+            let buried = false;
             if (Number.isFinite(room)) {
-              // 0.82 of the room, not all of it. The crest estimate is exact on
-              // the analytic curve and the coil is a swept tube on a 6-row
-              // spine; the difference is a couple of millimetres and it was
-              // measurable — 4.6 mm through the Shadow Hood at the nape.
-              const k = Math.min(1, (room * 0.82) / (0.38 * len + rad));
-              if (k < 0.45) continue;
-              len *= k; rad *= k;
+              if (room <= 0) {
+                // Under the metal. Sink the whole coil until its crest is at the
+                // ceiling — full length, full radius, invisible, and still there
+                // to be counted.
+                const sink = (room - crest) - mane(u, v) * 0.45;
+                if (sink < 0) lockRoot.addScaledVector(lockNrm, sink);
+                // AND A SUNK COIL DOES NOT FALL, because a fall takes it back
+                // out through the neck.
+                //
+                // The sink is computed at the ROOT and along the ROOT's normal.
+                // The spine then travels `0.82 len` — about 25 mm — down the
+                // fall line, and at the nape the fall line leaves the skull and
+                // crosses the neck, which is 20 to 25 mm nearer the axis. So a
+                // coil buried 5 mm under the scalp at its root re-emerges
+                // through the throat below it, and the render is unambiguous
+                // about what that looks like: on warden / Ridge-Helm / Warrior
+                // Crop the rear map has hair standing on bare skin at
+                // az 145, 150, 170 and 200 from y 84 to y 128, in ones and twos,
+                // with no mass around them — the "isolated dark curl fragments,
+                // several plainly detached" of the round-nine brief. Every one
+                // of them is the tail of a coil whose root is buried under the
+                // flange 40 mm higher up.
+                //
+                // With the fall dropped the coil is a curl in place: the spine
+                // is the `outward` term alone, a straight 11 mm run along the
+                // root normal, and the whole swept tube therefore lies between
+                // the ceiling and `crest + rad` inside it. That bound is
+                // arithmetic rather than a hope about where the neck is, which
+                // is the property the sink did not have.
+                //
+                // IT COSTS NOTHING THAT CAN BE SEEN AND NOTHING THAT WAS PAID
+                // FOR. `braid` emits `rows x ring` triangles whatever the spine
+                // does, so the count and the component are identical — the
+                // census reads the same cell either way — and the object is
+                // inside the skin under a plate in both cases. The only thing
+                // that changes is whether the invisible half of it stays
+                // invisible.
+                //
+                // AND ONLY WHERE THE SKIN IS THE ONLY COVER — `!coifed`, and
+                // that qualifier is measured rather than tidy. On a head inside
+                // an aventail the mail is what covers the nape, not the burial:
+                // swept at 1 degree steps the huscarl's rear is unbroken mail
+                // from az 95 to az 265 at every height from y 76 to y 132, so a
+                // tail that leaves the pocket leaves it INSIDE a bag it cannot
+                // get out of, and nothing can be seen either way. Standing it up
+                // instead is not free there: the coil stops at its own height
+                // rather than falling to where `coifAt` has flared to R.x * 1.82,
+                // and `helmclash` 5 PELT reads huscarl / Boar-Crest and
+                // huscarl / Jarl's Crowned on Braided War-locks at **2.02%
+                // against a 2.0% bar, from 1.99%** — two cells turned red to
+                // tidy something no bearing can see. With the qualifier they
+                // read 1.99% again and the flange nape is still clean.
+                buried = !coifed;
+              } else {
+                // 0.82 of the room, not all of it. The crest estimate is exact on
+                // the analytic curve and the coil is a swept tube on a 6-row
+                // spine; the difference is a couple of millimetres and it was
+                // measurable — 4.6 mm through the Shadow Hood at the nape.
+                const k = Math.min(1, (room * 0.82) / crest);
+                if (k < 0.45) continue;
+                len *= k; rad *= k;
+              }
             }
             p.add(braid((t, out) => {
               // Out a little, along a lot. The normal term rises and turns over
@@ -13790,7 +15775,9 @@ export function buildCharacter(
               // worth being fussy about: the crest of the curl has to clear the
               // mass by about its own strand radius, and no more.
               const outward = len * (0.58 * t - 0.20 * t * t);
-              const along = len * 0.82 * t;
+              // `buried` drops the fall — see the sink above. Not a smaller
+              // coil, the same coil with its axis stood up in its own pocket.
+              const along = buried ? 0 : len * 0.82 * t;
               out.set(
                 lockRoot.x + nx * outward + tx * along,
                 lockRoot.y + ny * outward + ty * along,
@@ -15364,11 +17351,66 @@ export function buildCharacter(
         // corner would do.
         const sm = (a: number, b: number, k = 0.004) =>
           0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k)) - k * 0.5;
+        // AND THE NECK IN IT IS THE NECK NOW. This was:
+        //
+        //     let hw = sm(readP(sideP, y), S.neckHW);
+        //     let hd = sm(readP(backP, y), S.neckHW);
+        //
+        // — one constant used for both. `S.neckHW` is a half-WIDTH, and the two
+        // sides of this pair are not the same quantity: `hw` is a half-width
+        // about the axis and `hd` is how far the hull reaches BEHIND it, which on
+        // a neck whose stations are set back to -27.5 mm is the half-depth PLUS
+        // that offset. Measured on the warden at az 180, in mm from the axis:
+        //
+        //     the neck's rearmost skin      101.3
+        //     what this floored `hd` at      78.1
+        //     the guard's rim, riding it     98.7
+        //
+        // So the plate was solved against a column 23 mm too narrow at the back,
+        // the rim landed 0.2 to 1.9 mm INSIDE the skin, and the neck stood
+        // through the helmet from y 49 to y 62 — the residual bare band, which no
+        // amount of mail could close because mail has to be outboard of the neck
+        // to cover it and inboard of the plate to be worn under it.
+        //
+        // IT WAS ALSO 16 mm TOO WIDE AT THE FLANKS, which is the same error with
+        // its sign reversed and the reason this is not simply "make the plate
+        // bigger". At the guard's hem the neck's own half-width is about 62 mm,
+        // not 78, so a hull floored at 78 held the plate out from the throat on
+        // both sides — and with the ruler repaired, `wearmeasure` section 3 read
+        // that as 31.0 mm of gap and 43.3 deg of flare. An ellipse where there
+        // was a circle takes the metal off the head at the back and onto it at
+        // the sides.
+        //
+        // AND THE REAR HALF GROWS, NOT THE WHOLE ELLIPSE — the same construction
+        // the ventail's `vBackHalf` is written with, three hundred lines up, and
+        // adopted here after the whole-ellipse version was built and measured.
+        //
+        // Deepening the ring everywhere pushes its FRONT EDGE forward as well:
+        // the edge sits at u = pi - half(v), where `cos(u)` is about 0.17, so
+        // 23 mm of extra depth carries it 4 mm further round the jaw — from
+        // azimuth 63 to 59 at the hem. There it is over the submandibular
+        // hollow, and `wearmeasure` section 3's flare, which is a derivative,
+        // went the wrong way: 43.3 -> 49.9 deg on the Sutton Hoo while its gap
+        // and hem improved. Blending on `cos(u)` leaves the flanks exactly where
+        // they were (at `cos(u) = 0` the point sits on the authored centre
+        // whatever the depth is) and the front edge on its authored depth, and
+        // spends the growth only where the neck is.
+        //
+        // `neckSection` and `neckBackAt` are the head stack's own, which are
+        // `neckStations` at module scope, which is what `helmFitProbe` reads too.
+        // One table, three readers, no private copies left.
         const hullAt = (y: number) => {
-          let hw = sm(readP(sideP, y), S.neckHW);
-          let hd = sm(readP(backP, y), S.neckHW);
-          if (heavy) { hw = sm(hw, coifAt(y, "hw")); hd = sm(hd, coifAt(y, "hd")); }
-          return { hw, hd };
+          const nk = neckSection(y + S.neckTop);
+          let hw = sm(readP(sideP, y), nk.hw);
+          const back = readP(backP, y);
+          let hdF = sm(back, S.neckHW);
+          let hdB = sm(back, neckBackAt(y));
+          if (heavy) {
+            hw = sm(hw, coifAt(y, "hw"));
+            hdF = sm(hdF, coifAt(y, "hd"));
+            hdB = sm(hdB, coifAt(y, "hd"));
+          }
+          return { hw, hdF, hdB };
         };
         // AND THE PLATE IS DRIVEN OFF THAT HULL AT EVERY HEIGHT, not off three
         // sampled rings with straight lines between them. Three rings is a plate
@@ -15403,12 +17445,12 @@ export function buildCharacter(
         // chosen. The other half of the owner's first fault: the fall was swept
         // to a fixed arc and the guard was cut to a fixed azimuth, and nothing
         // in the file made the two meet — so between them was the window §10
-        // measures. `lapU` is the azimuth the fall has to reach to overlap the
-        // guard's rear edge by 0.10 rad, read off the SAME `cheekOut` the guard
-        // is cut to, so the two cannot drift apart again. Where there is no
-        // guard — the Ridge Helm's flange over an open face — there is nothing
-        // to lap and the fall keeps its own arc.
-        const lapU = style.cheek === "deep" ? Math.PI - (cheekOut - 0.10) : 0;
+        // measures. `napeLap` is the azimuth the fall has to reach to overlap
+        // the guard's rear edge by 0.10 rad, read off the SAME `cheekOut` the
+        // guard is cut to, so the two cannot drift apart again. Where there is
+        // no guard — the Ridge Helm's flange over an open face — there is
+        // nothing to lap and the fall keeps its own arc. It lives in the head
+        // stack beside `napeHalf` now, because the HAIR has to read it too.
         // AND THE DECISION IS PER HELM, which is what the owner asked for.
         //
         // The Wyrm-Crest and the Sutton Hoo are CLOSED helmets: their guards are
@@ -15427,16 +17469,23 @@ export function buildCharacter(
         // opening is over the ear and §10 reports how far off it still is —
         // reported, because a bar this unit cannot hold is a bar that gets
         // tuned rather than met.
-        const half = (v: number) =>
-          Math.max(deep ? 1.30 : 1.08, lapU) + (deep ? 0.44 : 0.30) * v * v;
+        // ONE DEFINITION, TWO READERS — `napeHalf` up in the head stack IS this
+        // function, and the hair reads it to know how far round the plate comes.
+        // It was written out twice and the copies disagreed by 25 degrees.
+        const half = napeHalf;
         const fall = (u: number, v: number, inset: number, out: THREE.Vector3) => {
           const y = mix(topY, floorY, v);
           const h = hullAt(y);
           const c = clearAt(v) - inset;
+          const cu = Math.cos(u);
+          // The rear half only — see the note over `hullAt`. `smooth(-1, 1, cos u)`
+          // is 0 dead behind and 1 dead ahead, and it keeps dz/du continuous
+          // through the flanks so there is no crease down the side of the plate.
+          const hd = mix(h.hdB, h.hdF, smooth(-1, 1, cu));
           out.set(
             Math.sin(u) * (h.hw + c),
             y,
-            zAt(v) + Math.cos(u) * (h.hd + c),
+            zAt(v) + cu * (hd + c),
           );
         };
         // u runs from the near edge round to the far one, the same direction the
@@ -15452,10 +17501,11 @@ export function buildCharacter(
         // down the flank, round the base of the skull, then straight beside the
         // neck — and three spans cannot hold an S. This is the one shell on the
         // helmet whose row count is carrying geometry rather than smoothness.
+        const fallNV = deep ? 5 : 4;
         p.add(wornRing({
           tag: deep ? "nape guard" : "nape flange",
           originY: skullY,
-          nu: Math.max(8, lod.shellU - 2), nv: deep ? 5 : 4,
+          nu: Math.max(8, lod.shellU - 2), nv: fallNV,
           outer: sweep(0), inner: sweep(0.008),
         }), capMetal);
         if (style.noble) {
@@ -15465,12 +17515,78 @@ export function buildCharacter(
           // A negative inset is 2.5 mm *outside* the guard, so the strip straddles
           // the plate's own surface instead of sitting on it: no coplanar pair to
           // fight for depth, and its two long rims are buried in silver.
+          //
+          // AND IT IS SET OFF THE PLATE THE PLAYER SEES, NOT OFF THE CURVE THAT
+          // PLATE WAS SAMPLED FROM. This is the whole of the torn band, and it
+          // is arithmetic rather than a judgement.
+          //
+          // The guard is FIVE rows over its whole descent — a deliberate number,
+          // see the note above: "this is the one shell on the helmet whose row
+          // count is carrying geometry rather than smoothness". Five rows across
+          // an S means each row is a CHORD, and over the bottom span the chord
+          // stands as much as 4 mm outside the curve it was sampled from. The
+          // lip was solved on the curve and offset 2.5 mm from THAT, so over the
+          // same span the plate is in front of its own gilt by up to 1.5 mm, in
+          // bites, wherever the chord's bulge beats the standoff — silver eating
+          // gold, with a boundary that is the mesh grid rather than an edge
+          // anybody drew. `helmclash` 6 SEAM reads it at 1114.7 to 5841.9 mm2
+          // of torn face, 10 to 30% of the overlap, up to 5.8 mm, on all four
+          // classes, naming exactly `d9b45f` against `9aa6ae`.
+          //
+          // So the lip is evaluated ON THE GUARD'S OWN CHORD: bracket the
+          // descent by the two tessellation rows the guard actually emits and
+          // interpolate between them, which is what the rasteriser does. The
+          // standoff is then 2.5 mm from the drawn surface everywhere, by
+          // construction, and it cannot be beaten by a bulge that is no longer
+          // in the difference between the two.
+          //
+          // MEASURED ALTERNATIVE, REJECTED. Raising the guard's own row count
+          // 5 -> 20 closes the seam just as well — 4263.3 mm2 to 275.9 on the
+          // warden, 5841.9 to 237.5 on the berserker, both green — because it
+          // makes the chord hug the curve instead. It is not shipped: it moves
+          // the PLATE, and `wearmeasure` 3 reads the consequence as flare
+          // 44.7 -> 55.8 deg on the Sutton Hoo, 50.0 -> 56.3 on the Wyrm, and a
+          // NEW red cell on the Jarl's Crowned at 25.8 against a 22 bar. The
+          // seam is the lip's to fix; the plate's shape is section 3's argument
+          // and it does not get settled sideways.
+          // IN BOTH DIRECTIONS, because the plate is a quad grid and not a stack
+          // of curves. The rows are the big term — they are what the note above
+          // measures at 4 mm — but the COLUMNS are on their own arc too: the lip
+          // runs 0.03 rad past `half` at each end so its rims wrap the plate's
+          // edge, and with the same column count over a wider arc every one of
+          // its columns is phase-shifted off the plate's. Solved on the rows
+          // alone the seam drops from 15.2% to 2.9% of the overlap and stops at
+          // 806.6 mm2 on the warden and 981.9 on the berserker — still over the
+          // bar, and all of it at the ENDS, at az 83 and az 167. Bilinear on the
+          // plate's own quad is what the rasteriser does between four vertices,
+          // so that is what the strip is solved against.
+          const _lipB = new THREE.Vector3();
+          const _lipC = new THREE.Vector3();
+          const fallNU = Math.max(8, lod.shellU - 2);
+          /** The plate's own emitted surface along one of its rows, at any u. */
+          const fallRow = (k: number, u: number, inset: number, out: THREE.Vector3) => {
+            const vr = k / fallNV;
+            const h = half(vr);
+            const t = (Math.PI + h - u) / (2 * h);
+            const j = Math.min(fallNU - 1, Math.max(0, Math.floor(t * fallNU)));
+            fall(mix(Math.PI + h, Math.PI - h, j / fallNU), vr, inset, out);
+            fall(mix(Math.PI + h, Math.PI - h, (j + 1) / fallNU), vr, inset, _lipC);
+            // Past the plate's own last column the chord is continued rather
+            // than clamped — the lip's rim is 0.03 rad outside it and a clamp
+            // would fold the strip back on itself there.
+            out.lerp(_lipC, t * fallNU - j);
+          };
           const lip = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => {
               const vv = mix(0.86, 1, v);
-              fall(mix(Math.PI + half(vv) - 0.03, Math.PI - half(vv) + 0.03, t), vv, inset, out);
+              const u = mix(Math.PI + half(vv) - 0.03, Math.PI - half(vv) + 0.03, t);
+              const s = clamp01(vv) * fallNV;
+              const k = Math.min(fallNV - 1, Math.floor(s));
+              fallRow(k, u, inset, out);
+              fallRow(k + 1, u, inset, _lipB);
+              out.lerp(_lipB, s - k);
             };
-          p.add(patch({ nu: Math.max(8, lod.shellU - 2), nv: 1, outer: lip(-0.0025), inner: lip(0.0035) }), gilt);
+          p.add(patch({ nu: fallNU, nv: 1, outer: lip(-0.0025), inner: lip(0.0035) }), gilt);
         }
       }
       if (style.crown === "circlet") {
@@ -16597,41 +18713,275 @@ export function buildCharacter(
           // neck as it drops, so the curtain lies against the throat rather than
           // standing off it as a bib. Wider at the bottom because it lands on the
           // collar, which is where a coif's skirt goes.
-          const vRings = [
-            { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
-            { y: mix(vTop, vBot, 0.5), hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
-            { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
-          ];
+          //
+          // AND ITS REAR IS SOLVED AGAINST THE NECK, NOT AGAINST THE SKULL'S
+          // ELLIPSE. This is the owner's third note — "there's a full neck mesh
+          // on the front with a clear back? That's really sloppy" — and it is
+          // this ring table, read at the nape.
+          //
+          // Every radius here is a multiple of the SKULL's `R`, and the rings
+          // are pushed FORWARD by `chinPt.z` on top of that, because the curtain
+          // was authored hanging off the mask to close the throat. The neck goes
+          // the other way: its own stations are set BACK, to -27.5 mm at the top,
+          // and its rearmost skin stands 101.6 mm from the head's axis. So the
+          // curtain's back collapsed inside the neck it is supposed to be
+          // hanging over. Measured on the warden at y 30, r in mm from the axis:
+          //
+          //     azimuth      0     40     70     90    110    140    180
+          //     curtain  135.9  117.1   93.8   80.3   70.0      —      —
+          //     neck      58.6   54.3   57.0   60.7   70.2   85.3  101.4
+          //
+          // The two cross at azimuth 110 and the sheet has run out by 133, so
+          // from there to the far side there is no mail at any height — and
+          // below the nape guard's hem there is no plate either. That is the
+          // bare band, and on the huscarl it does not exist for one reason
+          // only: his coif is a bag of mail the head goes into and it stands at
+          // 143-148 mm all the way round.
+          //
+          // THE FRONT DOES NOT MOVE. `front` is read back off each ring exactly
+          // as authored and handed straight out again, so the throat under the
+          // mask — the reading two passes were spent on and the one place a
+          // ventail and a beard are negotiating millimetres — is untouched to
+          // the last decimal. Only the back is solved, and it is solved against
+          // `neckBackAt`, the neck's own profile, so a stature or a bulk that
+          // moves the neck moves the mail with it.
+          //
+          // Growing one side of an ellipse is `hd` up by half and `z` back by
+          // half, which is the identical arithmetic the neck's own top stations
+          // are written with, three thousand lines down.
+          // THE SHEET HAS TWO WALLS AND IT IS THE INNER ONE THAT HAS TO CLEAR
+          // THE NECK. `patch` builds this curtain as an outer surface and an
+          // inner surface `V_WALL` behind it, and solving the OUTER wall against
+          // the neck puts the inner wall 7 mm inside the skin — the mail then
+          // hangs correctly from every bearing a player can stand at and is
+          // threaded through the throat from every one he cannot. Nothing in the
+          // battery would have said so: the curtain is a bare `patch` with no
+          // tag, so `wearmeasure`'s spy never sees a vertex of it, and section 3
+          // reads the FARTHEST surface and would have called it covered. Solved
+          // on the inner wall, with the layer gap on top of the wall thickness.
+          const V_WALL = 0.007;
+          // AND ONLY ON A HEAD WITH NO COIF ON IT, which is not a special case
+          // but the whole point of the piece.
+          //
+          // A coif is a bag of mail the head goes into and it closes the neck by
+          // itself: measured at the nape on the huscarl it stands at 143-148 mm
+          // from the axis, 41-46 mm outside his own neck, at every height from
+          // the collar to the crown. He has never had a bare nape and does not
+          // read one now — he is the one combination in the shop that section 3
+          // has always passed. The curtain's rear exists for the three classes
+          // that wear no coif, and on the coifed head it keeps the shape it was
+          // authored with.
+          //
+          // THAT IS MEASURED, NOT TIDINESS. Solved on the huscarl as well, the
+          // closure puts a covering wall across the one route his gathered mane
+          // is allowed to leave by — `coifHemY`, the aventail's own free lower
+          // hem, "the one route that costs no millimetre of hair through metal".
+          // `wearmeasure` section 4 caught it at once: Long Mane 56.4 mm and
+          // 8.14% outside the helm at 144/-56 deg, Braided War-locks 50.6 mm and
+          // 13.79%, both clean before. A 40-gold and a 100-gold cosmetic hanging
+          // through the mail is not a repair of a bare nape, and compressing
+          // them inside the new wall instead would have buried them, which is
+          // the fault this branch has been held off main for twice.
+          //
+          // THE REAR HALF GROWS, NOT THE WHOLE ELLIPSE, and the difference is
+          // measurable on a beard.
+          //
+          // The obvious way to reach further back is to keep `front = hd + z`
+          // and solve `back`, which gives a new `hd` and `z` for the whole ring.
+          // But an ellipse has only a centre and a half-depth, and holding the
+          // FRONT while growing the BACK walks the centre backward — so the
+          // curtain's SIDES, at u = +-pi/2, translate rearward by half the
+          // growth, about 13 mm. That uncovers the jaw line, and section 5 said
+          // so at once: beard=full went 6.39 -> 6.51% on the warden and
+          // 7.34 -> 7.53% on the runekeeper, forked 4.30 -> 4.58 and
+          // 5.93 -> 6.34, with the berserker's whole column following. Small,
+          // but it is the 40-gold beard reading further OUT through the throat,
+          // which is the defect three rounds have been trying to close.
+          //
+          // So the depth is a function of bearing instead: the authored
+          // half-depth at the front, whatever the neck needs at the back, blended
+          // on `cos(u)`. At the sides `cos(u)` is 0, so the point sits on the
+          // authored centre WHATEVER the half-depth is there — the sides cannot
+          // move, by construction, and the front is the authored surface exactly.
+          // Blending on `cos(u)` rather than switching at the sides also keeps
+          // dz/du continuous through them, so there is no crease down the flank.
+          /** The rear half-depth this height needs, about the authored centre. */
+          const vBackHalf = (y: number, hd: number, z: number) => {
+            const authored = hd - z;
+            const want = coifed ? authored
+              : Math.max(authored, neckBackAt(y) + V_WALL + LAYER_GAP);
+            return z + want;
+          };
+          const vMidY = mix(vTop, vBot, 0.5);
+          /**
+           * The ring table as authored, read at any height rather than at three.
+           *
+           * The three stations are evenly spaced in y, so reading them by height
+           * is identical to reading them by index — which is what the sweep did
+           * before — and the coifed head therefore builds the same vertices to
+           * the last bit. It is written this way because the top edge stops
+           * being level below, and once y varies with azimuth an index is no
+           * longer a height.
+           */
+          const vAuthored = (y: number) => {
+            const A = [
+              { y: vTop, hw: R.x * 0.86, hd: R.z * 0.78, z: chinPt.z * 0.42 },
+              { y: vMidY, hw: R.x * 1.06, hd: R.z * 0.96, z: chinPt.z * 0.20 },
+              { y: vBot, hw: R.x * 1.24, hd: R.z * 1.12, z: -0.010 },
+            ];
+            if (y >= A[0]!.y) return A[0]!;
+            for (let i = 0; i < A.length - 1; i++) {
+              const a = A[i]!, b = A[i + 1]!;
+              if (y >= b.y) {
+                const f = (a.y - y) / (a.y - b.y);
+                return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z, b.z, f) };
+              }
+            }
+            return A[A.length - 1]!;
+          };
+          /**
+           * THE RIM THE CURTAIN HANGS FROM IS NOT LEVEL, and this is what keeps
+           * the repair of the owner's third fault from causing his first.
+           *
+           * In front the curtain is riveted under the mask's lower edge, which
+           * is what `vTop` is. Behind, the thing above it is the nape guard, and
+           * the guard's own free lower edge is `napeHemY` — 1 to 4 mm lower on
+           * these three classes. Hanging the whole curtain from the front rim
+           * runs it up THROUGH the band the guard occupies, and because the
+           * guard's rim sits at the neck's own radius the mail can only get
+           * outboard of the neck by getting outboard of the plate as well.
+           *
+           * MEASURED, with the curtain hung level from `vTop`: section 1's
+           * worst-buried piece on all three became the guard's own lower rim —
+           * warden 15.0 mm and 8.1% of its outward face inboard of the rings,
+           * berserker 11.0 mm and 8.5%, runekeeper 16.0 mm and 8.1%, against
+           * 4.6 / 4.3 / 5.0% on the tree before this commit. That is the owner's
+           * "the Sutton Hoo helmet clashes with the mesh" being made worse to
+           * pay for his "clear back", which is not a repair, it is a swap.
+           *
+           * So the curtain's top edge falls to the guard's hem behind the ears
+           * and the two pieces meet edge to edge instead of overlapping. Section
+           * 1 returns to its own baseline, to the digit, on all three.
+           *
+           * `awayFromFace` is the head stack's own azimuth measure and 1.40 rad
+           * is the bearing the note above already names as the fall's — read
+           * from one place so the curtain and the plate cannot drift apart.
+           */
+          const vTopAt = (u: number) => {
+            if (coifed) return vTop;
+            const rear = clamp01((awayFromFace(u) - 1.40) / 0.30);
+            // EXACTLY ON THE PLATE'S HEM, AND NOT A MILLIMETRE BELOW IT. Both
+            // directions were measured. Dropping the curtain's top edge by
+            // `LAYER_GAP` to keep it off the guard's lowest row opens a 5 mm
+            // bare ring right round the back — the guard's hem is level at every
+            // azimuth, so the ring is too — and section 3 went to 202.5 / 193.5
+            // / 216.5 degrees, WORSE than the 159.5 / 156.5 / 162.5 this commit
+            // started from. Section 3 sweeps at every millimetre of height, so
+            // any gap at all between the two pieces is a bare height, and a bare
+            // height at the nape is the whole defect. They meet edge to edge.
+            return mix(vTop, Math.min(vTop, napeHemY), smooth(0, 1, rear));
+          };
           const vAt = (u: number, v: number, inset: number, out: THREE.Vector3) => {
-            const t = v * (vRings.length - 1);
-            const i = Math.min(vRings.length - 2, Math.floor(t));
-            const f = t - i;
-            const a = vRings[i];
-            const b = vRings[i + 1];
+            const y = mix(vTopAt(u), vBot, v);
+            const a = vAuthored(y);
+            const c = Math.cos(u);
+            const hd = mix(vBackHalf(y, a.hd, a.z), a.hd, smooth(-1, 1, c));
             out.set(
-              Math.sin(u) * (mix(a.hw, b.hw, f) - inset),
-              mix(a.y, b.y, f),
-              mix(a.z, b.z, f) + Math.cos(u) * (mix(a.hd, b.hd, f) - inset),
+              Math.sin(u) * (a.hw - inset),
+              y,
+              a.z + c * (hd - inset),
             );
+            // AND THE REAR QUARTERS, WHICH `vBackHalf` ALONE DOES NOT REACH.
+            //
+            // `vBackHalf` solves a HALF-DEPTH, which is the ellipse's reach at
+            // azimuth 180 and at no other azimuth. Between there and the flanks
+            // the curtain is back on its authored radii, and the neck is not:
+            // measured at az 221 and y 42 on the warden, the neck's skin stands
+            // at 84.4 mm with the curtain's inner wall at 80.0 and its outer at
+            // 87.0 — the throat threaded through the mail, and section 2's worst
+            // patch at 4.4 mm once the ear came off the list.
+            //
+            // So the point is pushed out radially to clear the neck's section
+            // ALONG ITS OWN BEARING, weighted `smooth(0, 1, -cos u)`. That
+            // weight is zero for the whole front half AND at the flanks — not
+            // 0.5 at the flanks, which is what `smooth(-1, 1, c)` gives and what
+            // the half-depth blend can afford because `cos(u)` kills its term
+            // there anyway. A radial scale has no such immunity, so it gets a
+            // weight that is genuinely zero where the sides are, and the front
+            // and the flanks are untouched to the last bit.
+            //
+            // At u = +-pi the push is inert by construction — `vBackHalf` has
+            // already put the wall outside `neckBackAt + V_WALL + LAYER_GAP`
+            // there — so the two ends `wrapU` welds still land on the same
+            // point. On a coifed head nothing happens at all.
+            if (!coifed) {
+              const w = smooth(0, 1, -c);
+              if (w > 0) {
+                const r = Math.hypot(out.x, out.z);
+                const need = neckOutAt(y, out.x, out.z) + V_WALL + LAYER_GAP - inset;
+                if (r > 1e-6 && need > r) {
+                  const k = 1 + (need / r - 1) * w;
+                  out.x *= k;
+                  out.z *= k;
+                }
+              }
+            }
           };
           // u descends so ∂u × ∂v faces out — the same trap the coif and the nape
           // fall are both written around, and a curtain swept the other way
           // renders as a hole in the throat.
           //
-          // 2.45 rad, not 1.55: the arc now runs well past the ear on both sides
-          // and finishes under the nape fall, which owns everything behind
-          // 1.40 rad. Two prior passes widened this by tenths and the profile card
-          // kept showing a hole, because the gap was never in the arc — it was in
-          // the radius. Both are settled together here: past the ear the curtain
-          // is inside the fall's own plate, so the extra sweep costs a few
-          // triangles nobody will see and removes the last bearing at which the
-          // three pieces can disagree.
-          const vHalf = 2.45;
+          // AND IT CLOSES, which 2.45 rad did not.
+          //
+          // The note this replaces said the arc "finishes under the nape fall,
+          // which owns everything behind 1.40 rad", and that is true of every
+          // height the nape fall reaches. The fall's own free lower edge is
+          // `napeHemY`, and it lands at y 50 mm; the curtain runs to y -48 to
+          // meet the hauberk's collar. For the 98 mm between those two lines
+          // nothing owns the back at all, so "under the nape fall" was an
+          // argument about the top third of the piece being used to license the
+          // bottom two thirds.
+          //
+          // It is also not 2.45 rad of AZIMUTH. `u` is an ellipse parameter, not
+          // a bearing: with the section this ring table carries, u = 2.45
+          // arrives at azimuth 133, and at the top ring — pushed furthest
+          // forward by `chinPt.z` — it arrives sooner still. That is why two
+          // prior passes widened it by tenths and the profile card kept showing
+          // a hole. A collar is closed or it is not; there is no arc that is
+          // nearly closed.
+          //
+          // pi with `wrapU`, so the two ends of the sheet land on the same
+          // points at the nape and no rim strip is generated between them. The
+          // seam is at azimuth 180, which is where the coif's is and where the
+          // nape fall's is, and for the same reason: it is the one bearing on a
+          // head that a garment is allowed to be joined at.
+          // On a coifed head it keeps 2.45 and stays open, for the reason given
+          // over `vRear`: the coif is already the neck defence there, and a
+          // closed curtain behind it only puts a covering wall across the route
+          // the gathered mane leaves by. Closing the ARC alone was tried and
+          // measured — with the radius left authored, `wearmeasure` section 4
+          // still read 15.0 mm and 0.26% of Braided War-locks outside the helm
+          // at 166/-64 deg — so the whole piece is held, not half of it. The
+          // huscarl's curtain is byte-identical to the tree before this commit,
+          // and that is checked by hashing every vertex rather than asserted.
+          const vHalf = coifed ? 2.45 : Math.PI;
           const vSweep = (inset: number) =>
             (t: number, v: number, out: THREE.Vector3) => vAt(mix(vHalf, -vHalf, t), v, inset, out);
+          // AND THE COLUMN COUNT HOLDS THE ANGULAR DENSITY, NOT THE NUMBER.
+          //
+          // The same `nu` over 2 pi instead of over 4.90 rad is a 28% coarser
+          // sweep everywhere, the throat included, and a coarser sweep cuts its
+          // chords deeper inside the curve it was sampled from. Nothing about
+          // the curtain's shape moved at the front — the rear-half blend leaves
+          // u = 0 exactly as authored — but section 5 still read the 40-gold
+          // beard further out through it: berserker 5.47 -> 5.78%, warden's
+          // forked 4.30 -> 4.41. That is tessellation, not fit, and the fix for
+          // tessellation is columns.
+          const vNu = Math.max(12, lod.shellU + 2);
           p.add(patch({
-            nu: Math.max(12, lod.shellU + 2), nv: 4,
-            outer: vSweep(0), inner: vSweep(0.007),
+            nu: coifed ? vNu : Math.round(vNu * (Math.PI / 2.45)),
+            nv: 4, wrapU: !coifed,
+            outer: vSweep(0), inner: vSweep(V_WALL),
           }), mail);
         }
 
@@ -17107,66 +19457,13 @@ export function buildCharacter(
   // carries it with the chest and `severBody` leaves it alone, both unchanged.
   emit("neck", root, () => {
     const p = new Part();
-    const nHW = S.neckHW;
-    const nHD = S.neckHD;
-    // Elliptical rather than round, tapered rather than extruded, set back in z
-    // so the jaw hangs over it, and flared hard at the base into the trapezius.
-    // All of that was right and none of it has moved.
-    //
-    // WHAT HAS MOVED IS THE TOP, AND IT IS THE OTHER HALF OF THE WEDGE. The top
-    // ring was 0.95 x 0.94 of the full section — 77 x 81 mm — at a height where
-    // the head's own submandibular mass measures 62 x 69. So the neck stood
-    // 15 mm proud of the throat above it on every side and 19 mm proud at the
-    // nape, capped, at a height that is INSIDE the head: a lit disc on a post,
-    // wider than the thing it is supposed to be disappearing into. The comment
-    // claimed those stations "climb into the mandible and are covered there by
-    // the head's own throat mass". They climb into it and come straight back
-    // out the other side.
-    //
-    // The two stations above the mandible's lower border now tuck INSIDE the
-    // jaw mass they hand off to, and the first station the viewer can actually
-    // see — below the menton — keeps the width it had, so the visible throat is
-    // the same throat `headmeasure` signed off on.
-    // AND THE TOP STATIONS REACH FURTHER BACK THAN THEY DID, which is the
-    // nape half of the same defect. The skull's occiput carries further back
-    // than its chin does, so a neck centred for the throat leaves the back of
-    // the head standing over it on a shelf — a ragged horizontal lip across
-    // the nape with daylight under it, which is the "large pale shape covers
-    // the back of the neck and skull junction" seen from behind. The back of
-    // each top station moves back 13 mm and the front does not move at all:
-    // `z` down by half of it and `hd` up by half, which is the only way to
-    // grow one side of an ellipse.
-    const NECK: Station[] = [
-      { y: S.neckTop + 0.095, hw: nHW * 0.70, hd: nHD * 0.72 + 0.0065, z: -0.0275 },
-      { y: S.neckTop + 0.042, hw: nHW * 0.82, hd: nHD * 0.84 + 0.0065, z: -0.0255 },
-      { y: S.neckTop - 0.008, hw: nHW * 0.93, hd: nHD * 0.95 + 0.0045, z: -0.0175 },
-      { y: S.neckRoot - 0.048, hw: nHW, hd: nHD, z: -0.007 },
-      { y: S.neckBase + 0.070, hw: nHW * 1.13, hd: nHD * 1.04, z: 0 },
-      { y: S.neckBase + 0.010, hw: nHW * 1.50, hd: nHD * 1.16, z: 0 },
-      { y: S.neckBase - 0.055, hw: nHW * 1.93, hd: nHD * 1.23, z: 0 },
-    ];
-    p.add(shell(NECK, lod.limb, { capTop: true }), headSkin);
-    /**
-     * The neck's own section at a height, read off the stations above.
-     *
-     * The strap sampler used to carry a SECOND, hand-written copy of the top of
-     * this profile as a two-point lerp, and the two disagreed the moment the
-     * stations moved: a muscle sited on 0.82 of the section where the shell is
-     * actually at 0.70 stands 3 mm outside the throat it is supposed to be
-     * inside, and what that draws is a hard tab of skin floating under the ear.
-     * One profile, read by everything that rides on it.
-     */
-    const neckAt = (y: number): Station => {
-      if (y >= NECK[0]!.y) return NECK[0]!;
-      for (let i = 0; i < NECK.length - 1; i++) {
-        const a = NECK[i]!, b = NECK[i + 1]!;
-        if (y > b.y) {
-          const f = (a.y - y) / (a.y - b.y);
-          return { y, hw: mix(a.hw, b.hw, f), hd: mix(a.hd, b.hd, f), z: mix(a.z ?? 0, b.z ?? 0, f) };
-        }
-      }
-      return NECK[NECK.length - 1]!;
-    };
+    // THE STATIONS AND THE SAMPLER BOTH LIVE IN THE HEAD STACK NOW — see
+    // `NECK_STATIONS`, hoisted beside `coifLevels`, `cheekHem` and `napeHemY`
+    // for the reason all three of those were: the nape guard and the ventail are
+    // hung on this neck and have to be able to read it. Nothing about the shape
+    // moved in the hoist; the argument for each station moved with it.
+    p.add(shell(NECK_STATIONS, lod.limb, { capTop: true }), headSkin);
+    const neckAt = neckSection;
 
     // Sternocleidomastoid. Two straps from the mastoid to the sternal notch, and
     // the cheapest 300 triangles in the file: they are what stops the throat being

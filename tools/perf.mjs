@@ -128,9 +128,13 @@ async function main() {
       const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown";
       let frames = 0;
       const t0 = performance.now();
+      // Every frame's arrival, not just the count, so the line below can print a
+      // spread instead of a mean. See the note on `frameMsMean`.
+      const at = [];
       await new Promise((done) => {
         const tick = () => {
           frames++;
+          at.push(performance.now());
           if (performance.now() - t0 >= 6000) return done();
           requestAnimationFrame(tick);
         };
@@ -138,19 +142,62 @@ async function main() {
       });
       const ms = performance.now() - t0;
       const g = window.__gpu || { frameCalls: 0, frameTris: 0, frames: 0 };
+      const iv = [];
+      for (let i = 1; i < at.length; i++) iv.push(at[i] - at[i - 1]);
+      iv.sort((a, b) => a - b);
+      const q = (p) => iv.length ? iv[Math.min(iv.length - 1, Math.max(0, Math.ceil((p / 100) * iv.length) - 1))] : NaN;
       return {
-        fps: (frames / ms) * 1000, frameMs: ms / frames, frames, renderer,
+        fps: (frames / ms) * 1000, frameMsMean: ms / frames, frames, renderer,
+        p50: q(50), p95: q(95), p99: q(99), worst: iv.length ? iv[iv.length - 1] : NaN,
         calls: g.frameCalls, tris: g.frameTris, counted: g.frames,
       };
     });
 
+    /**
+     * IT USED TO PRINT ONE NUMBER AND CALL IT THE FRAME COST.
+     *
+     * `frameMs: ms / frames` is a MEAN, and `docs/PROCESS.md` failure mode 1 is
+     * this repository's signature defect: a harness that measures the wrong
+     * quantity, passes, and certifies a defect it was never able to see. A mean
+     * frame time cannot see a stutter — a client that alternates 8 ms and 25 ms
+     * and one that holds 16.5 ms have the same mean and only one of them is
+     * watchable — and three of the owner's four words ("laggy / jolty / jumpy")
+     * live entirely in the spread. `tools/janktest.mjs` was written because of
+     * this line.
+     *
+     * So the mean is still printed, because a mean beside percentiles is how a
+     * reader sees a skew, and it is now printed as what it is, with the spread
+     * beside it and the word AVERAGE on it. THIS FILE GATES NOTHING and says so
+     * below (R4).
+     */
     console.log(
-      `  ${tier.padEnd(7)} ${r.fps.toFixed(2)} fps  ${r.frameMs.toFixed(0)} ms/frame  ` +
-      `(${r.frames} frames in 6s)  ·  ${r.calls} draw calls  ${Math.round(r.tris).toLocaleString("en-GB")} triangles`
+      `  ${tier.padEnd(7)} ${r.fps.toFixed(2)} fps  ·  frame interval ms:  ` +
+      `p50 ${r.p50.toFixed(1)}  p95 ${r.p95.toFixed(1)}  p99 ${r.p99.toFixed(1)}  worst ${r.worst.toFixed(1)}  ` +
+      `(AVERAGE ${r.frameMsMean.toFixed(1)}, which gates nothing)`
+    );
+    console.log(
+      `          ${r.frames} frames in 6 s  ·  ${r.calls} draw calls  ${Math.round(r.tris).toLocaleString("en-GB")} triangles`
+    );
+    // AND IT IS AN INTERVAL, NOT A WORKLOAD. A client doing 1 ms of work and
+    // waiting for the next vsync reports a 16.7 ms frame; reading that as the
+    // cost of the frame turns an idle thread into an over-budget one, which is
+    // a mistake this repository has already made once with this very number.
+    // `tools/framecost.mjs` measures the WORK.
+    console.log(
+      `          (that is the INTERVAL between frames, not the work inside one — see tools/framecost.mjs)`
     );
     if (TARGETS.indexOf(tier) === 0) console.log(`  GPU: ${r.renderer}\n`);
     await page.close();
   }
+
+  // R4 — the deferral goes on the verdict line, in the words a person reads.
+  console.log("");
+  console.log("  THIS HARNESS GATES NOTHING.");
+  console.log("  Every number above is this box's, and the AVERAGE frame time in particular");
+  console.log("  fails no build and passes none: a mean cannot see a stutter, and three of the");
+  console.log("  owner's four words live in the spread. For pacing use tools/janktest.mjs; for");
+  console.log("  what a frame COSTS use tools/framecost.mjs. Draw calls and triangles are the");
+  console.log("  two figures here that mean the same thing on any device.");
 
   await browser.close();
 }
