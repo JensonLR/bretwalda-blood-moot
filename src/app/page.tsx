@@ -73,6 +73,8 @@ interface RoomState {
   bestOf: number; roundIndex: number; roundTarget: number;
   roundWins: Record<string, number>; roundScoreBy: RoundScoreBy;
   lastRound: RoundResult | null; nextRoundAt: number;
+  /** The stake, decided at creation: a friendly moot the war is not watching. */
+  friendly?: boolean;
   /**
    * THE NAMED GROUND THIS MATCH IS FOUGHT OVER, and it has been on the wire all
    * along with nothing rendering it. `engine.mjs`'s `territoryBlock` puts it on
@@ -113,7 +115,7 @@ interface Notice { text: string; tone: "bad" | "good" }
 /** One man's share of what a match did to the war. Mirrors `src/db/war.ts`. */
 interface WarOutcomeMsg {
   playerId: string;
-  kind: "banked" | "unsworn" | "guest" | "no_points" | "already" | "unavailable";
+  kind: "banked" | "unsworn" | "guest" | "no_points" | "already" | "unavailable" | "friendly" | "practice";
   people?: string;
   points?: number;
   territoryId?: string;
@@ -214,6 +216,19 @@ export default function Page() {
   const [roomCode, setRoomCode] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [selectedMode, setSelectedMode] = useState<GameMode>("blood_moot");
+  /**
+   * THE STAKE. Decided here because it is the host's call and it cannot change
+   * once men have joined — see `handleCreate` in the engine. Default is the
+   * war: a fight that counts is the game's normal case, and the moot is the
+   * thing you choose.
+   */
+  const [friendlyMoot, setFriendlyMoot] = useState(false);
+  /**
+   * The ground this room was raised FOR, when the player came from the map's
+   * "fight for this ground". Null is the ordinary case: the engine deals from
+   * the contested front.
+   */
+  const [warTerritory, setWarTerritory] = useState<string | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team>("none");
   const [soloClass, setSoloClass] = useState<WarriorClass>("warden");
   const [soloDifficulty, setSoloDifficulty] = useState<Difficulty>("warrior");
@@ -548,6 +563,18 @@ export default function Page() {
     // Deep link: ?code=WESSEX82 puts you one tap from battle
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code")?.toUpperCase().substring(0, 15);
+    // "FIGHT FOR THIS GROUND", arriving from the map. The map is its own route
+    // (/factions), so the handoff is a query param the same way an invite is;
+    // it opens CREATE with the ground pinned, and the engine re-validates the
+    // id — a stale link is a normal deal, never an error.
+    const war = params.get("war");
+    if (war) {
+      setWarTerritory(war);
+      setScreen("create");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("war");
+      window.history.replaceState({}, "", url);
+    }
     if (code) {
       setInviteCode(code);
       setJoinCode(code);
@@ -972,7 +999,15 @@ export default function Page() {
     void syncName(playerName);
     const ok = await ensureTransport();
     if (!ok) { setBusy(false); return; }
-    sendMsg("create", { name: playerName, mode: selectedMode, bestOf, appearance: profileRef.current.appearance, awaitLoad: true });
+    sendMsg("create", {
+      name: playerName, mode: selectedMode, bestOf,
+      appearance: profileRef.current.appearance, awaitLoad: true,
+      // The stake and, when the player came from the map, the ground. The
+      // engine validates the territory id and decides everything downstream —
+      // the client only ever ASKS.
+      friendly: friendlyMoot,
+      territoryId: warTerritory ?? undefined,
+    });
   }, [playerName, selectedMode, bestOf, ensureTransport, sendMsg, showError]);
 
   const handleJoin = useCallback(async () => {
@@ -1508,7 +1543,8 @@ export default function Page() {
                   results screen and the fight before it was placeless. A man
                   who knows he is about to take Deira off the Norse is fighting
                   for something; the same man told nothing is queueing. */}
-              <GroundLine territory={roomState.territory} />
+              <GroundLine territory={roomState.territory} friendly={roomState.friendly}
+                humans={Object.keys(roomState.players).filter((id) => !id.startsWith("bot_")).length} />
             </div>
 
             <div className="flex flex-col gap-2.5">
@@ -2007,10 +2043,24 @@ export default function Page() {
           />
 
           <div className="flex flex-col gap-3">
+            {/* EACH SHAPE SAYS WHAT IT MEANS FOR THE WAR, in its own line.
+                The owner: "how does an 8 player FFA score against the war" —
+                and if he has to ask, the screen was not saying it. The stakes
+                are the engine's real arithmetic (turnout 2 · kill 1 · victory
+                12), phrased as what a player DOES: a duel is a challenge whose
+                winner carries the day, a moot is a raid where every sworn man
+                banks his own deeds, a war band is the shield-walls meeting —
+                every man on the winning side banks the victory. */}
             {([
-              { id: "honour_duel" as GameMode, name: "HONOUR DUEL", desc: "1v1 single combat. Prove your worth.", players: "2 players", Icon: Swords, tint: "text-amber-400" },
-              { id: "blood_moot" as GameMode, name: "BLOOD MOOT", desc: "Free for all. Last warrior standing.", players: "2-8 players", Icon: Skull, tint: "text-red-400" },
-              { id: "war_band" as GameMode, name: "WAR BAND", desc: "Team battles. Shield-friends together.", players: "2v2 · 3v3 · 4v4", Icon: Users, tint: "text-sky-400" },
+              { id: "honour_duel" as GameMode, name: "HONOUR DUEL", desc: "1v1 single combat. Prove your worth.",
+                stake: "A challenge over the border — the victor carries the day for his people.",
+                players: "2 players", Icon: Swords, tint: "text-amber-400" },
+              { id: "blood_moot" as GameMode, name: "BLOOD MOOT", desc: "Free for all. Last warrior standing.",
+                stake: "A raid — every sworn man banks his own deeds; the last one standing banks the victory.",
+                players: "2-8 players", Icon: Skull, tint: "text-red-400" },
+              { id: "war_band" as GameMode, name: "WAR BAND", desc: "Team battles. Shield-friends together.",
+                stake: "Shield-walls meet — every man on the winning side banks the victory. The war's heaviest blows.",
+                players: "2v2 · 3v3 · 4v4", Icon: Users, tint: "text-sky-400" },
             ]).map((mode) => (
               <button key={mode.id}
                 onClick={() => setSelectedMode(mode.id)}
@@ -2020,6 +2070,9 @@ export default function Page() {
                   <div className="min-w-0 flex-1">
                     <div className="font-display tracking-wider text-amber-100">{mode.name}</div>
                     <div className="mt-1 text-[13px] leading-snug text-stone-300/90">{mode.desc}</div>
+                    {!friendlyMoot && (
+                      <div className="mt-1 text-[11px] leading-snug text-amber-400/70">{mode.stake}</div>
+                    )}
                     <div className="mt-1 text-[11px] tracking-wide text-stone-500">{mode.players}</div>
                   </div>
                   <ChevronRight size={18} className={`shrink-0 ${selectedMode === mode.id ? "text-amber-400" : "text-stone-500"}`} />
@@ -2027,6 +2080,39 @@ export default function Page() {
               </button>
             ))}
           </div>
+
+          {/* THE STAKE — the one choice that decides whether the war watches.
+              Two cards and not a toggle row, because this is the biggest choice
+              on the screen and it reads as two different evenings: fight for
+              your people, or fight your friends with nothing on it. Locked at
+              creation — the engine refuses to change it once men have joined,
+              so nobody discovers mid-lobby that the fight stopped counting. */}
+          <section className="flex flex-col gap-3">
+            <h2 className="section-title"><Flag size={12} className="shrink-0" /> WHAT IS AT STAKE</h2>
+            {warTerritory && !friendlyMoot && (
+              <div className="badge-garnet self-start !text-[10px]" data-pinned={warTerritory}>
+                RAISED FOR {(territory(warTerritory)?.name ?? warTerritory).toUpperCase()} — THIS ROOM FIGHTS THERE
+              </div>
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button onClick={() => setFriendlyMoot(false)}
+                className={`card card-interactive p-4 text-left ${!friendlyMoot ? "card-selected" : ""}`}>
+                <div className="font-display text-sm tracking-wider text-amber-100">FOR THE WAR</div>
+                <div className="mt-1 text-[12px] leading-snug text-stone-300/90">
+                  The fight is dealt a contested ground. Sworn men bank their deeds to their
+                  people&rsquo;s claim on it — win it, and the map remembers.
+                </div>
+              </button>
+              <button onClick={() => { setFriendlyMoot(true); setWarTerritory(null); }}
+                className={`card card-interactive p-4 text-left ${friendlyMoot ? "card-selected" : ""}`}>
+                <div className="font-display text-sm tracking-wider text-amber-100">A FRIENDLY MOOT</div>
+                <div className="mt-1 text-[12px] leading-snug text-stone-300/90">
+                  No ground at stake, nothing banked, no liveries — every man in the kit he
+                  bought. For settling things among friends.
+                </div>
+              </button>
+            </div>
+          </section>
 
           {/* One life was the whole match before this control existed. It is
               set here rather than only in the lobby because the host decides
@@ -3048,18 +3134,43 @@ type LedgerRow = MatchEndData["results"][number] & { place: number; roundsWon: n
  * claim on somebody rather than as a place name, which is the whole difference
  * between a map and a backdrop.
  */
-function GroundLine({ territory }: { territory?: { name: string; native: string; holder: string } | null }) {
+function GroundLine({ territory, friendly, humans }: {
+  territory?: { name: string; native: string; holder: string } | null;
+  /** A friendly moot: the war agreed not to watch, and the line says so. */
+  friendly?: boolean;
+  /** Free men in the room. Below two, the anti-farm gate will refuse to bank. */
+  humans?: number;
+}) {
+  // THE PROMISE MUST BE ONE THE ROOM CAN KEEP. This used to name the ground
+  // unconditionally — including in a room of one man and his bots, where the
+  // two-human anti-farm gate means nothing will ever bank. A lobby that says
+  // "FOUGHT OVER DEIRA" over a fight the war will not watch is the exact
+  // silence the war_result work exists to end, arriving one screen earlier.
+  if (friendly) {
+    return (
+      <div className="mt-2 flex flex-col items-center gap-0.5" data-ground="friendly">
+        <div className="label-overline !text-[9px] text-stone-400">A FRIENDLY MOOT</div>
+        <div className="text-[10px] text-stone-500">nothing at stake but pride — kits worn as bought</div>
+      </div>
+    );
+  }
   if (!territory) return null;
   const PEOPLE: Record<string, string> = {
     saxon: "the Anglo-Saxons", norse: "the Norse",
     briton: "the Britons", pict: "the Picts",
   };
   const held = PEOPLE[territory.holder];
+  const practice = (humans ?? 2) < 2;
   return (
     <div className="mt-2 flex flex-col items-center gap-0.5" data-ground={territory.name}>
       <div className="label-overline !text-[9px] text-amber-400/70">FOUGHT OVER</div>
       <div className="font-display text-sm tracking-[0.18em] text-amber-200">{territory.name.toUpperCase()}</div>
       {held && <div className="text-[10px] text-stone-400">{held} hold it</div>}
+      {practice && (
+        <div className="text-[10px] text-stone-500">
+          the war watches men, not bots — invite a second warrior to make it count
+        </div>
+      )}
     </div>
   );
 }
@@ -3120,6 +3231,16 @@ function WarLine({ war, onSwear }: { war: WarOutcomeMsg | null; onSwear?: () => 
   }
   if (war.kind === "guest") {
     return <div className="badge-stone !text-[10px]" data-war="guest">FOUGHT AS A STRANGER — NO NAME IN THE LEDGER</div>;
+  }
+  // The two reasons the SIM itself sends, with no database behind them.
+  if (war.kind === "friendly") {
+    return <div className="badge-stone !text-[10px]" data-war="friendly">A FRIENDLY MOOT — NOTHING AT STAKE BUT PRIDE</div>;
+  }
+  if (war.kind === "practice") {
+    // The anti-farm gate, said out loud: the war watches men, not bots. This is
+    // the line the owner's own sessions were owed — he fought rooms of recruits
+    // he added himself, won, and watched nothing move with no explanation.
+    return <div className="badge-stone !text-[10px]" data-war="practice">THE WAR WATCHES MEN, NOT BOTS — A SECOND WARRIOR MAKES IT COUNT</div>;
   }
   // `no_points`, `already` and `unavailable` are not the player's doing and
   // there is nothing for him to press, so they say the true thing quietly.

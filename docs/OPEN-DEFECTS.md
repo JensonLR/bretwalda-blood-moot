@@ -8,6 +8,73 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE MATCHMAKING NOW SAYS WHAT THE WAR MEANS BY IT — 21 Aug 2026
+
+The owner: *"how does an 8 player FFA score against the war ... we need everything
+to feel & clearly have a purpose. We want players to want to fight for their
+kingdom & also fight with or against their friends."* And earlier: a war-specific
+queue versus a casual one *"where the cosmetics revert to their original style"*.
+
+**The design settled on, and why it is not two queues.** The game's own factions
+page already states the constraint: *"twelve players split four ways is four
+empty queues."* Splitting the population again by war/casual would be worse. So
+the shape is: ONE population, and the **stake is a property of the room**,
+chosen by the host at creation and immutable after — men join a friendly moot or
+a war fight knowingly.
+
+**How each shape scores, which was always true and never said** (`POINTS`:
+turnout 2 · kill 1 · victory 12, cap 40; in a band, every member of the winning
+side is `isWinner`):
+
+```
+  HONOUR DUEL   a challenge over the border — the victor carries the day
+  BLOOD MOOT    a raid — every sworn man banks his own deeds; the last one
+                standing banks the victory
+  WAR BAND      shield-walls meet — every man on the winning side banks the
+                victory; the war's heaviest blows
+```
+
+The mode cards on CREATE now carry those lines. The FFA answer is the raid
+model, and it is the right one for a bot-heavy population: individual renown for
+your king, victory weighted 6× a kill.
+
+**The friendly moot** is the second card under WHAT IS AT STAKE: no ground
+dealt, nothing banked, and `dressFor` strips the livery at every door an
+appearance comes through — kits worn as bought, the owner's own words. The sim
+itself answers the room at match end with `war_result kind:"friendly"`, no
+database anywhere.
+
+**"Fight for this ground"** closes the loop from the map: /factions' new front
+panel lists the territories nearest to falling, each with FIGHT HERE →
+`/?war=<id>` → CREATE opens with the ground pinned → the engine validates the id
+and the room fights THERE, never re-dealt, arena following the ground's people —
+a Pictish pin musters on the moor. A forged or stale id degrades to the normal
+deal.
+
+**And the anti-farm gate now speaks.** `warReport` refuses rooms with fewer than
+two humans — deliberately, and the argument stands: *"Britain would belong to
+whoever left a laptop on overnight."* But the refusal was SILENT: a man who
+fought bots he added himself saw FOUGHT OVER DEIRA in the lobby, won, and
+watched nothing move — the owner's exact sessions. Now the lobby's ground line
+adds *"the war watches men, not bots — invite a second warrior to make it
+count"* when one free man stands in a war room, and the sim sends
+`war_result kind:"practice"` at the end. The gate is right; the silence was the
+defect.
+
+**Gated end to end** in `tools/warsay.mjs` — 30/30 — by driving real matches on
+the real engine with no handlers attached: a friendly duel fought to the death
+arrives as two `friendly` outcomes; one man and his recruit arrives as
+`practice`; a pinned Pictish room musters on `pict_moor`; a forged id gets the
+normal deal.
+
+**Not built, said plainly:** a public quick-match queue (nothing to queue into
+yet — every room is code-joined), and a personal ranked ladder. The seasonal
+per-people standing ("2nd of 5 Anglo-Saxons") is the ranking that exists; a
+ladder wants a queue population first.
+
+---
+
+
 ## OPEN — `summaryflow`'s duel press fails about one run in three, and the assertion argues with the design — 21 Aug 2026
 
 Six runs on the merged tip, same box, same window:

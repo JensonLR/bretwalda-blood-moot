@@ -1964,6 +1964,9 @@ export function makeEngine(options = {}) {
     });
     return {
       code: room.code, mode: room.mode, state: room.state, arena: room.arena,
+      // The stake, on every snapshot: a joiner, the lobby and the summary all
+      // have to know whether the war is watching this room.
+      friendly: !!room.friendly,
       players, hostId: room.hostId, countdown: room.countdown, matchTimer: room.matchTimer,
       maxPlayers: room.maxPlayers, killFeed: room.killFeed.slice(-10), lastStandTriggered: room.lastStandTriggered,
       // Room setup, so a lobby screen can render what it is about to start.
@@ -2010,9 +2013,34 @@ export function makeEngine(options = {}) {
    * Solo takes no ground — training is not a match, pays no gold and moves no
    * border — so it is left null and the lobby simply shows nothing.
    */
+  /**
+   * WHAT A MAN WEARS IN THIS ROOM. In a friendly moot the faction vat is off:
+   * "the cosmetics revert to their original style" is the owner's own words,
+   * and it is right — liveries are the WAR's paint, and a moot the war is not
+   * watching should show every man the kit he actually bought. Stripping
+   * `people` server-side, at every door an appearance comes through, means
+   * every client in the room agrees without any of them having to know why.
+   */
+  function dressFor(room, appearance) {
+    const ap = appearance || null;
+    if (!ap || !room || !room.friendly) return ap;
+    if (!ap.people || ap.people === "none") return ap;
+    return { ...ap, people: "none" };
+  }
+
   function dealGroundFor(room) {
     if (!room || room.mode === "solo" || room.solo) { if (room) room.territoryId = null; return; }
-    room.territoryId = dealTerritory(`${++matchOrdinal}:${simMs}`, warFront);
+    // A FRIENDLY MOOT HAS NO GROUND AT STAKE. That is what "friendly" means:
+    // the war is not watching, so no territory is dealt, nothing will bank,
+    // and the lobby has nothing to name. The arena falls back to the default
+    // rather than to a people's own ground for the same reason.
+    if (room.friendly) { room.territoryId = null; room.arena = DEFAULT_GROUND_ID; return; }
+    // A ROOM RAISED FROM THE MAP FIGHTS WHERE THE MAP SAID. `pinnedTerritory`
+    // is set at creation from a validated id — the whole point of the "fight
+    // for this ground" button is that the promise survives from the map to the
+    // lobby to the bell, so a pinned room never re-deals, not even between
+    // matches: the players came here to fight for THAT ground.
+    room.territoryId = room.pinnedTerritory || dealTerritory(`${++matchOrdinal}:${simMs}`, warFront);
     // AND THE ARENA FOLLOWS THE GROUND. `arena` was the string "saxon_village"
     // typed at both room-creation sites, so a territory could never have
     // brought its own place with it. It resolves through one table now
@@ -2162,7 +2190,7 @@ export function makeEngine(options = {}) {
         }
         startMatch(room);
       });
-      case "set_appearance": return withRoom(sid, (room, player) => { player.appearance = data.appearance || null; sendLobbyUpdate(room); });
+      case "set_appearance": return withRoom(sid, (room, player) => { player.appearance = dressFor(room, data.appearance); sendLobbyUpdate(room); });
       case "input": return withRoom(sid, (room, player) => {
         if (room.state !== "fighting" && room.state !== "last_stand") return;
         if (player.state === "dead") return;
@@ -2231,8 +2259,21 @@ export function makeEngine(options = {}) {
     let code = generateCode();
     while (rooms.has(code)) code = generateCode();
 
+    // THE STAKE IS THE HOST'S CALL, MADE ONCE, AT CREATION. `friendly` cannot
+    // be toggled after the room exists: men joined a friendly moot or a war
+    // fight knowingly, and a host who could flip it in the lobby would be
+    // changing what everyone agreed to fight for.
+    //
+    // `territoryId` is the map's "fight for this ground". Validated against
+    // the real territory table and dropped silently if unknown — an invalid id
+    // means a stale client or a forged message, and either way the answer is
+    // the normal deal, not a crash and not a fake ground.
+    const friendly = data.friendly === true;
+    const pinned = !friendly && territory(data.territoryId) ? String(data.territoryId) : null;
+
     const room = {
       code, mode, state: "lobby", arena: "saxon_village",
+      friendly, pinnedTerritory: pinned,
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
       bestOf: normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
@@ -2242,7 +2283,7 @@ export function makeEngine(options = {}) {
       phaseAt: 0,
     };
     const pid = randomUUID();
-    const player = createPlayer(pid, name, "warden", data.appearance || null);
+    const player = createPlayer(pid, name, "warden", dressFor(room, data.appearance));
     declareLoadWait(player, data.awaitLoad);
     room.players.set(pid, player);
     room.hostId = pid;
@@ -2268,7 +2309,7 @@ export function makeEngine(options = {}) {
     if (humanCount(room) >= room.maxPlayers) return sendSession(sid, { type: "error", data: { message: "Room is full." } });
 
     const pid = randomUUID();
-    const player = createPlayer(pid, String(data.name || "Warrior").substring(0, 20), "warden", data.appearance || null);
+    const player = createPlayer(pid, String(data.name || "Warrior").substring(0, 20), "warden", dressFor(room, data.appearance));
     declareLoadWait(player, data.awaitLoad);
     room.players.set(pid, player);
     s.roomCode = code; s.playerId = pid;
@@ -3468,6 +3509,28 @@ export function makeEngine(options = {}) {
           if (r && typeof r.catch === "function") r.catch(() => {});
         } catch { /* a fight is never lost to a ledger */ }
       }
+    } else if (room.mode !== "solo" && !room.solo) {
+      // NO REPORT IS STILL AN ANSWER, AND THE ROOM IS OWED IT.
+      //
+      // `warReport` returning null used to mean the war simply never heard —
+      // and neither did the players, because `war_result` was only ever sent
+      // from the database handler that no report reaches. A man who fought a
+      // room full of recruits he added himself saw "FOUGHT OVER DEIRA" in the
+      // lobby, won, and watched nothing move — which is precisely the owner's
+      // report, and the two-human anti-farm gate above is WHY nothing moved.
+      // The gate is right; the silence was the defect.
+      //
+      // These two reasons are the SIM'S own knowledge — no database is needed
+      // to know a moot was friendly or a room was one free man and his bots —
+      // so the engine says them itself, on the same message the ledger uses.
+      const humans = [];
+      room.players.forEach((p, id) => { if (!id.startsWith("bot_")) humans.push(id); });
+      const kind = room.friendly ? "friendly" : "practice";
+      broadcast(room, { type: "war_result", data: {
+        matchKey: room.matchId ? `${room.code}:${room.matchId}` : null,
+        territoryId: room.friendly ? null : room.territoryId || null,
+        outcomes: humans.map((id) => ({ playerId: id, kind })),
+      } });
     }
   }
 
@@ -3496,6 +3559,9 @@ export function makeEngine(options = {}) {
    */
   function warReport(room, results) {
     if (room.mode === "solo" || room.solo) return null;
+    // A friendly moot is a fight the war agreed not to watch. No report, ever —
+    // the emit site above answers the room with kind "friendly" instead.
+    if (room.friendly) return null;
     if (!room.matchId || !territory(room.territoryId)) return null;
     const humans = results.filter((r) => r && typeof r.id === "string" && !r.id.startsWith("bot_"));
     if (humans.length < 2) return null;

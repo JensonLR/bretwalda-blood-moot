@@ -361,6 +361,49 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
           </ul>
         </section>
 
+        {/* ---- THE FRONT — where the war is hottest, and the way IN. ----
+            The map used to be a report; this is the door. Each contested
+            territory carries the one action the whole page exists for: raise a
+            room that will fight for exactly this ground. The link is a query
+            param on the landing route, the same shape an invite code is, and
+            the engine re-validates the id — a stale link is a normal deal. */}
+        <section className="wm-panel">
+          <div className="section-title">The front — fight for this ground</div>
+          {(() => {
+            const front = data.territories
+              .filter((t) => t.challenger && t.remaining !== null)
+              .sort((a, b) => (a.remaining ?? 1e9) - (b.remaining ?? 1e9))
+              .slice(0, 4);
+            if (front.length === 0) {
+              return (
+                <p className="wm-empty">
+                  No ground is close to falling. Any fight still counts — the
+                  engine deals its ground from wherever the war is warmest.
+                </p>
+              );
+            }
+            return (
+              <ul className="wm-flips">
+                {front.map((t) => (
+                  <li key={t.id}>
+                    <span className="cabochon" />
+                    <span>
+                      <strong>{DRAWN_BY_ID[t.id]?.name ?? t.id}</strong>
+                      {" — the "}{PEOPLE_NAME(t.holder)}{" hold it; the "}
+                      <b style={{ color: FIELD[t.challenger!]?.lit }}>{PEOPLE_NAME(t.challenger!)}</b>
+                      {` need ${t.remaining} more`}
+                    </span>
+                    <a href={`/?war=${t.id}`} className="badge-garnet !text-[10px]"
+                      style={{ marginLeft: "auto", whiteSpace: "nowrap" }}>
+                      FIGHT HERE
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
+        </section>
+
         {/* ---- what moved ---- */}
         <section className="wm-panel">
           <div className="section-title">What moved</div>
