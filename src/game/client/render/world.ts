@@ -81,6 +81,22 @@ export interface WorldOptions {
    */
   rng?: () => number;
   /**
+   * WHOSE COUNTRY THIS IS, by people id, or absent for nobody's.
+   *
+   * Sixteen territories share one arena, so Deira looks exactly like Dyfed and
+   * taking ground reads as a number changing rather than as a campaign. A
+   * second ground is the real answer and it is a large one
+   * (`docs/OPEN-DEFECTS.md` costs it); this is the cheap half of the same idea
+   * and it lands today: the moot flies the HOLDER'S COLOURS. Fight over a
+   * Danelaw territory and the banners over the palisade are garnet; take it,
+   * and next time they are your own.
+   *
+   * Unknown or absent falls back to the old alternating red and blue, which is
+   * what a ground with no war behind it — the shot harness, a training bout —
+   * should look like.
+   */
+  holder?: string;
+  /**
    * Which ground to build, by the id that travels on the wire. Unknown ids
    * fall back to the village rather than throwing: an id reaching here that
    * this build does not know means a client and a server disagree about what
@@ -165,6 +181,12 @@ export interface TerrainSpec {
  */
 export interface GroundBuildContext {
   readonly spec: GroundSpec;
+  /**
+   * Whose country this ground is, by people id, or undefined for nobody's.
+   * A ground that dresses itself in a holder's colours reads it; one that does
+   * not may ignore it. See `WorldOptions.holder`.
+   */
+  readonly holder?: string;
   readonly root: THREE.Group;
   /** The terrain mesh, already built and added. */
   readonly ground: THREE.Mesh;
@@ -2630,6 +2652,29 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
   // =========================================================================
   const banners: Array<{ mesh: THREE.Mesh; base: Float32Array; phase: number }> = [];
   {
+    // The four peoples' own fields, read from the one place that defines them
+    // rather than copied: `characters.ts` dyes a man's cloak out of the same
+    // table, and a banner that disagreed with the cloak under it would be worse
+    // than no banner at all.
+    const FIELDS: Record<string, number> = {
+      saxon: 0xb8860b, norse: 0x7c1420, briton: 0x1e5f43, pict: 0x2b4f72,
+    };
+    const held = ctx.holder && FIELDS[ctx.holder] !== undefined ? FIELDS[ctx.holder] : null;
+    const clones: THREE.Material[] = [];
+    const bannerMaterial = (i: number): THREE.Material => {
+      const base = materials.get(i % 2 === 0 ? "bannerRed" : "bannerBlue");
+      if (held === null) return base;
+      if (clones[i % 2]) return clones[i % 2];
+      const m = (base as THREE.MeshStandardMaterial).clone();
+      // Both banners take the field, but not identically: a moot's cloth is not
+      // a paint chart, and four poles in one exact hue reads as a UI element
+      // rather than as linen somebody dyed. The second is a shade deeper.
+      m.color.setHex(held);
+      if (i % 2 === 1) m.color.multiplyScalar(0.78);
+      restore.push(() => m.dispose());
+      clones[i % 2] = m;
+      return m;
+    };
     const poleMat = materials.get("poleWood");
     const poleGeo = own(mergeInto([
       (() => { const g = new THREE.CylinderGeometry(0.06, 0.085, 5.6, 6); g.translate(0, 2.8, 0); return g; })(),
@@ -2655,7 +2700,13 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
       }
       p.needsUpdate = true;
       geo.computeVertexNormals();
-      const mat = materials.get(i % 2 === 0 ? "bannerRed" : "bannerBlue");
+      // THE HOLDER'S COLOURS, and the alternating pair only when nobody holds it.
+      //
+      // Cloned, never tinted in place: `bannerRed` and `bannerBlue` are shared
+      // across the whole library, and dyeing one here would repaint every other
+      // thing wearing it for the life of the process. The clone is owned by the
+      // dispose ledger like everything else a ground makes.
+      const mat = bannerMaterial(i);
       // Cloth has two sides. These two materials are only ever worn by banners.
       if (mat instanceof THREE.MeshStandardMaterial && mat.side !== THREE.DoubleSide) {
         const prevSide = mat.side;
@@ -3336,6 +3387,8 @@ export function createWorld(
   const terrain = def.terrain;
 
   const rng = opts.rng ?? seeded(0x5b7ea41d);
+  /** Whose country this is, for anything a ground dresses in a people's colours. */
+  const ctxHolder = opts.holder;
   const root = new THREE.Group();
   root.name = "world";
 
@@ -3519,7 +3572,8 @@ export function createWorld(
   })();
 
   def.build({
-    spec, root, ground, groundMaterial: groundMat, materials, settings, tier,
+    spec, holder: ctxHolder,
+    root, ground, groundMaterial: groundMat, materials, settings, tier,
     rng, scatter, heightAt: spec.heightAt, footing, own, place, field,
     pointLights, ownedMats, restore, frameHooks, E, Q, V,
   });
