@@ -1050,11 +1050,28 @@ export default function ShotPage() {
  * pass it.
  */
 function Guides({ card }: { card: CardSpec }) {
-  // Read once, at first render rather than from an effect. This component is
-  // only ever mounted below the query-string state, which is itself set in an
-  // effect, so it never renders on the server and the viewport is always there.
-  const [size] = useState(() =>
+  // Read at FIRST RENDER, not from an effect, and the reason is the capture: a
+  // guides overlay that needs a second commit to appear is a guides overlay a
+  // screenshot taken on the first frame does not have. This component is only
+  // ever mounted below the query-string state, which is itself set in an
+  // effect, so in practice it never renders on the server and the lazy read
+  // always finds a viewport.
+  //
+  // "In practice" is the whole of the hazard, and it is closed rather than
+  // argued with. If this ever DID render on the server the lazy read hands back
+  // `null`, the client hands back a size, and the two trees disagree —
+  // `react-doctor/no-hydration-branch-on-browser-global`, and it is an error
+  // rather than a warning because a hydration mismatch is silent. The effect
+  // below fills the size in on the ONE path where the lazy read came back
+  // empty, which is the server path and only the server path: on the
+  // client-only mount the initialiser has already answered and this never runs
+  // a second render. So the capture keeps its first-frame guides and the
+  // mismatch has nowhere left to happen.
+  const [size, setSize] = useState<{ w: number; h: number } | null>(() =>
     typeof window === "undefined" ? null : { w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => {
+    if (!size) setSize({ w: window.innerWidth, h: window.innerHeight });
+  }, [size]);
   if (!size) return null;
   const span = 2 * card.dist * Math.tan((card.fov * Math.PI) / 360);
   const pxPerM = size.h / span;

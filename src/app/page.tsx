@@ -265,10 +265,36 @@ export default function Page() {
   const [carried, setCarried] = useState<{ gold: number; unlocks: number } | null>(null);
 
   const transportRef = useRef<Transport | null>(null);
-  const screenRef = useRef(screen); screenRef.current = screen;
-  const playerIdRef = useRef(playerId); playerIdRef.current = playerId;
-  const profileRef = useRef(profile); profileRef.current = profile;
-  const busyRef = useRef(busy); busyRef.current = busy;
+  /**
+   * THE LATEST-VALUE MIRRORS, AND THEY ARE WRITTEN AFTER THE COMMIT.
+   *
+   * These four read `screen`, `playerId`, `profile` and `busy` out of closures
+   * that were made long before — the transport's message handler holds ONE copy
+   * for the life of a session, and it has to see the current answer rather than
+   * the one that was true when it was built.
+   *
+   * They used to be assigned on the same line they were declared, which is a
+   * write DURING RENDER. React is explicit that a render may be discarded — a
+   * transition that loses a race, a Suspense retry, an offscreen pass — and a
+   * ref written by a render that never commits holds a value the UI never
+   * adopted. `react-doctor/no-ref-current-in-render` flags all four.
+   *
+   * The mirror runs in an effect with no dependency array instead, so it fires
+   * after EVERY commit and only after a commit. Nothing here is read during
+   * render — every reader is a callback or a wire handler, which run after the
+   * commit and after this effect — so the value they see is unchanged. The one
+   * thing that would break is a reader in the render body, and there is none.
+   */
+  const screenRef = useRef(screen);
+  const playerIdRef = useRef(playerId);
+  const profileRef = useRef(profile);
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    screenRef.current = screen;
+    playerIdRef.current = playerId;
+    profileRef.current = profile;
+    busyRef.current = busy;
+  });
   // Written by settleLink rather than mirrored on every render: the transport
   // holds one copy of the message handler for the life of a session, so where
   // the gold is kept has to be readable from a closure that was made before the
@@ -354,18 +380,30 @@ export default function Page() {
     return () => window.removeEventListener("pointerdown", onDown, { capture: true });
   }, [audio]);
 
+  /**
+   * THE UPDATER IS PURE, AND THE WRITING-DOWN FOLLOWS THE COMMIT.
+   *
+   * This used to put `localStorage.setItem` and a ref write INSIDE the
+   * `setProfile` updater. A state updater must be a pure function of the
+   * previous state: React calls it whenever it needs to, more than once under
+   * StrictMode, and on renders it may then throw away. So the disk could be
+   * written — and `profileRef` moved — for a profile the player never got.
+   * `react-doctor/no-impure-state-updater` flags it as an error rather than a
+   * warning, and it is right to.
+   *
+   * The updater does one thing now. The mirror to disk happens in the effect
+   * below, keyed on the profile that actually committed.
+   */
   const saveProfile = useCallback((updates: Partial<ProfileData>) => {
-    setProfile((prev) => {
-      const next = { ...prev, ...updates };
-      // Still written in server mode, as a mirror rather than as the store: on
-      // the day the free-tier database lapses the game degrades to device-local
-      // gold, and it should degrade to the player's real total rather than to
-      // whatever he had the week the server came up.
-      localStorage.setItem(LEGACY_KEY, JSON.stringify(next));
-      profileRef.current = next;
-      return next;
-    });
+    setProfile((prev) => ({ ...prev, ...updates }));
   }, []);
+  // Still written in server mode, as a mirror rather than as the store: on the
+  // day the free-tier database lapses the game degrades to device-local gold,
+  // and it should degrade to the player's real total rather than to whatever he
+  // had the week the server came up.
+  useEffect(() => {
+    try { localStorage.setItem(LEGACY_KEY, JSON.stringify(profile)); } catch { /* private mode */ }
+  }, [profile]);
 
   // The server's answer, drawn. Nothing here is added up on the client — a
   // response replaces the totals outright, so a lost reply is a stale screen
@@ -810,6 +848,26 @@ export default function Page() {
       return false;
     }
   }, [handleMessage, showError]);
+
+  /**
+   * AND THE LINK IS CLOSED WHEN THIS COMPONENT GOES.
+   *
+   * `ensureTransport` opens a socket and subscribes `handleMessage` to it, and
+   * nothing tore either down on unmount — `leaveRoom` is the only close and it
+   * is a BUTTON. A player who navigates away mid-fight, or a StrictMode
+   * remount in development, left a live WebSocket delivering snapshots into a
+   * handler whose component no longer exists. `react-doctor/effect-needs-cleanup`
+   * flags the subscription as an error.
+   *
+   * Unmount only — the empty dependency array is deliberate. Re-running this on
+   * every change of `handleMessage` would close the link mid-match, which is
+   * the opposite of the bug being fixed. The ref is read at cleanup time, so it
+   * sees whatever transport is live then rather than whatever was live at mount.
+   */
+  useEffect(() => () => {
+    transportRef.current?.close();
+    transportRef.current = null;
+  }, []);
 
   const sendInputNow = useCallback((sample: Record<string, unknown>) => {
     lastInputSentRef.current = performance.now();
