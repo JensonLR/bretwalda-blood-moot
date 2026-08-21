@@ -49,6 +49,33 @@ per-channel contrast crushes the channel a saturated colour has least of; the
 fix is a luma-preserving power law plus a madder-wrap albedo retune, taken
 together.
 
+### The confirmation probe, and the residual it found — a NEW open question
+
+The fully reverted tree (no knees, old grade — nominally the 20-Aug
+configuration) reads **better than `main` on every row** but not back to the
+20-Aug settlement of at-or-below-floor everywhere:
+
+```
+  buff @ 0°    +28.5      wrap @ 90°   +10.9
+  wrap @ 180°  +15.2      buff @ 90°    +9.6
+```
+
+**Nothing on this branch can be the cause — it only reverts.** What separates
+this tree from the 20-Aug baseline is everything merged since, and exactly one
+of those changes touches rendered pixels: **the per-bone shadow proxy**
+(`shadowcut`, 664 → 539 draw calls). Its "visually lossless" verdict was a
+MEAN-LUMA claim over regions, and rose share is a THRESHOLD metric — the
+Danelaw's wraps sit at L\* 40–41, exactly on the band's L\* 41 floor, where a
+fraction of a point of changed micro-shadowing flips whole pixel populations in
+or out. Run-to-run capture variance is the other candidate; the 20-Aug numbers
+were single runs too.
+
+**Next instrument step, for whoever takes it:** the same paired probe with the
+shadow proxy toggled (`castShadow` back to per-mesh on one arm of the pair), on
+one build, same session. If the proxy owns the residual, the draw-call win and
+the rose settlement have to be reconciled — most likely by keeping the proxy
+and re-floors on the wrap band, not by giving back a third of the frame.
+
 ---
 
 
