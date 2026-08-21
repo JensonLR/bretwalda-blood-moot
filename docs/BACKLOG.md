@@ -1162,6 +1162,17 @@ evidence which cannot support the question is worse than none.
 
 Fix the instrument (one wave), then spend the wave the instrument earns.
 
+> **DONE, 21 Aug 2026 — the instrument is fixed and `ablationRows` is no longer
+> empty.** Three faults, none of them in the game: an uncaught `route.fulfill`
+> rejection that killed the process mid-run, a missing `bretwalda_name` so no
+> scene could ever raise a room, and a `hits` check read before the renderer's
+> lazy chunk had even been fetched — measured at thirteen `.js` responses and
+> 1,033,173 bytes with the flag in none of them. Eleven rows now, no misses.
+> **The wave this earns has a target: shadows are 240 of 624 draw calls, and
+> `framecost` agrees independently — "352 of 410 visible meshes drawn twice for
+> one shadow-casting light".** The milliseconds are still not quotable from this
+> box; see `docs/OPEN-DEFECTS.md` for why the ms column reads −423 for bloom.
+
 **Argued against the second map (wave E):** map two is the more exciting piece
 of work and it just got much cheaper — the seam everyone believed was lost is
 in the tree. It is genuinely the strongest fourth item. But it *adds* to the
