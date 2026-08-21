@@ -1370,6 +1370,10 @@ export function createLighting(
     keyFar.target.position.set(0, 0, 0);
     root.add(keyFar.target);
     frame(keyFar, farHalf, FAR_KEY_DISTANCE, SETTLEMENT_BIAS_METRES, SETTLEMENT_NORMAL_BIAS_CAP);
+    // Scheduled rather than per-frame — trackShadow owns the schedule. The
+    // first rendered frame still gets a map, hence needsUpdate here.
+    keyFar.shadow.autoUpdate = false;
+    keyFar.shadow.needsUpdate = true;
     root.add(keyFar);
   }
 
@@ -1560,6 +1564,10 @@ export function createLighting(
   /** The key's aimed direction, kept apart from key.position because the shadow
    *  tracking moves the light off the origin and the axis must survive that. */
   const keyAxis = new THREE.Vector3(12, 26, 9).normalize();
+  /** Settlement-cascade schedule — see the block in `trackShadow`. */
+  const farCadence = Math.max(1, Math.round(settings.settlementShadowCadence || 1));
+  let farTick = 0;
+  const lastFarAxis = keyAxis.clone();
   const aoAxis = new THREE.Vector3(0, 1, 0);
   const lightRight = new THREE.Vector3();
   const lightUp = new THREE.Vector3();
@@ -1687,7 +1695,23 @@ export function createLighting(
     // The settlement cascade only ever re-hangs because the moon moved. Its
     // target is the arena origin and stays there; all that changes is the axis
     // it is viewed down.
-    if (keyFar) keyFar.position.copy(keyAxis).multiplyScalar(FAR_KEY_DISTANCE);
+    if (keyFar) {
+      keyFar.position.copy(keyAxis).multiplyScalar(FAR_KEY_DISTANCE);
+      // The pinned cascade re-rasterises on its cadence rather than every
+      // frame — it is the widest pass in the rig and nothing in its box but
+      // the warriors and the banners moves, so most of its frames were spent
+      // re-drawing a still settlement. Two overrides put a map under every
+      // frame that genuinely needs a fresh one: any frame the moon's axis
+      // itself moved (a stale map under a fresh axis swims, and a mood blend
+      // is exactly when nobody counts frames), and the first frame after the
+      // rig is built (needsUpdate starts true in the setup above).
+      farTick += 1;
+      if (farTick >= farCadence || lastFarAxis.distanceToSquared(keyAxis) > 1e-10) {
+        keyFar.shadow.needsUpdate = true;
+        lastFarAxis.copy(keyAxis);
+        farTick = 0;
+      }
+    }
   }
 
   /**
