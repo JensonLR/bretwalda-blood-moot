@@ -247,5 +247,121 @@ check("...nor on a message with no type",
   engine.tellRoom("NOSUCH", {}) === false, "returned false");
 engine.stop?.();
 
+// ============================================================
+// THE STAKE, DRIVEN THROUGH THE REAL ENGINE
+//
+// Everything below runs real matches on `makeEngine({ autoTick: false })` —
+// real create/join messages, real inputs walking a man into the real fire,
+// real `match_end` — and asserts what the ROOM was told. No database and no
+// handlers are attached, which is the point: "friendly" and "practice" are the
+// sim's own answers and must arrive with nothing else installed.
+// ============================================================
+{
+  const { makeEngine: mk } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+
+  /** One connected seat: a session and everything it has been sent. */
+  const seat = (engine) => {
+    const got = [];
+    const sid = engine.connect((str) => { try { got.push(JSON.parse(str)); } catch { /* raw */ } });
+    return {
+      sid, got,
+      last: (type) => [...got].reverse().find((m) => m.type === type) ?? null,
+      send: (type, data) => engine.message(sid, { type, data }),
+    };
+  };
+  /** Step the sim until a predicate holds or the budget runs out. */
+  const stepUntil = (engine, fn, secs = 90) => {
+    for (let i = 0; i < secs * 20; i++) { engine.step(0.05); if (fn()) return true; }
+    return false;
+  };
+  /** Walk one seat's man into the bonfire until he burns to death. */
+  const burn = (engine, w) => stepUntil(engine, () => {
+    const s = w.last("game_state"); if (!s) return false;
+    const me = s.data.players[w.last("join").data.playerId];
+    if (!me || me.state === "dead") return me?.state === "dead";
+    const d = Math.hypot(me.position.x, me.position.z) || 1;
+    w.send("input", { moveX: -me.position.x / d, moveZ: -me.position.z / d, rotationY: 0,
+      attack: false, heavyAttack: false, block: false, dodge: false, shove: false, attackDir: "right" });
+    return false;
+  }, 120);
+
+  // ---- A FRIENDLY MOOT: livery stripped, no ground, and the room is told ----
+  {
+    const engine = mk({ autoTick: false });
+    const host = seat(engine);
+    host.send("create", { name: "Hosta", mode: "honour_duel", bestOf: 1, awaitLoad: false,
+      friendly: true, appearance: { people: "norse" } });
+    const join1 = host.last("join");
+    check("a friendly moot deals NO ground — the lobby has nothing to promise",
+      join1 && join1.data.friendly === true && !join1.data.territory,
+      `friendly=${join1?.data.friendly} territory=${JSON.stringify(join1?.data.territory ?? null)}`);
+    const hostAp = join1?.data.players?.[join1.data.playerId]?.appearance;
+    check("...and the livery comes OFF at the door — kits worn as bought",
+      hostAp?.people === "none" || hostAp?.people === undefined,
+      `people=${JSON.stringify(hostAp?.people ?? null)}`);
+
+    const guest = seat(engine);
+    guest.send("join", { name: "Gest", code: join1.data.code, awaitLoad: false,
+      appearance: { people: "pict" } });
+    host.send("ready"); guest.send("ready");
+    host.send("start");
+    const started = stepUntil(engine, () => host.last("game_state")?.data.state === "fighting", 30);
+    check("the friendly moot still fights", started, started ? "fighting" : "never left the lobby");
+    burn(engine, guest);
+    const ended = stepUntil(engine, () => host.last("war_result") !== null, 30);
+    const wr = host.last("war_result");
+    check("...and at the end the SIM ITSELF says FRIENDLY, with no database anywhere",
+      ended && wr && Array.isArray(wr.data.outcomes) && wr.data.outcomes.length === 2
+        && wr.data.outcomes.every((o) => o.kind === "friendly"),
+      wr ? JSON.stringify(wr.data.outcomes) : "no war_result ever arrived");
+    engine.stop?.();
+  }
+
+  // ---- ONE FREE MAN AND HIS BOTS: the anti-farm gate says PRACTICE out loud ----
+  {
+    const engine = mk({ autoTick: false });
+    const host = seat(engine);
+    host.send("create", { name: "Lone", mode: "blood_moot", bestOf: 1, awaitLoad: false,
+      appearance: { people: "saxon" } });
+    const join1 = host.last("join");
+    check("a war room DOES name its ground in the lobby",
+      !!join1?.data.territory?.id, JSON.stringify(join1?.data.territory ?? null));
+    host.send("add_bot", { difficulty: "recruit" });
+    host.send("ready");
+    host.send("start");
+    stepUntil(engine, () => host.last("game_state")?.data.state === "fighting", 30);
+    burn(engine, host);
+    const ended = stepUntil(engine, () => host.last("war_result") !== null, 60);
+    const wr = host.last("war_result");
+    check("one man and his bots is PRACTICE, and the room hears the word",
+      ended && wr && wr.data.outcomes.length === 1 && wr.data.outcomes[0].kind === "practice",
+      wr ? JSON.stringify(wr.data.outcomes) : "no war_result — the silent path the owner hit");
+    engine.stop?.();
+  }
+
+  // ---- FIGHT FOR THIS GROUND: the pin survives from message to lobby ----
+  {
+    const engine = mk({ autoTick: false });
+    const host = seat(engine);
+    const pict = TERRITORIES.find((t) => t.people === "pict");
+    host.send("create", { name: "Pinner", mode: "war_band", bestOf: 1, awaitLoad: false,
+      territoryId: pict.id });
+    const j = host.last("join");
+    check("a room raised from the map fights WHERE THE MAP SAID",
+      j?.data.territory?.id === pict.id, `asked ${pict.id}, got ${j?.data.territory?.id}`);
+    check("...and the arena follows that ground's people — a Pictish pin musters on the moor",
+      j?.data.arena === "pict_moor", `arena=${j?.data.arena}`);
+
+    const forged = seat(engine);
+    forged.send("create", { name: "Forger", mode: "war_band", bestOf: 1, awaitLoad: false,
+      territoryId: "not_a_place" });
+    const fj = forged.last("join");
+    check("a forged territory id gets the NORMAL deal, not a crash and not a fake ground",
+      !!fj?.data.territory?.id && TERRITORIES.some((t) => t.id === fj.data.territory.id),
+      `dealt ${fj?.data.territory?.id}`);
+    engine.stop?.();
+  }
+}
+
 console.log(`\n${fail ? "FAIL" : "PASS"}: the war says what it did — ${pass}/${pass + fail}\n`);
 process.exit(fail ? 1 : 0);
