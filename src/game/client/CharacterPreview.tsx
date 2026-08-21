@@ -164,7 +164,7 @@ export default function CharacterPreview({
   if (failed) {
     return (
       <div
-        className={`flex items-center justify-center rounded-xl border border-stone-100/10 bg-stone-950 px-4 text-center text-xs text-stone-500 ${className}`}
+        className={`flex items-center justify-center rounded-xl border border-stone-100/10 bg-stone-950 px-4 text-center text-xs text-[#7d7057] ${className}`}
         style={{ height }}
       >
         This device could not start 3D graphics, so the armoury cannot show you
@@ -230,7 +230,7 @@ export default function CharacterPreview({
               className={`min-h-[2.75rem] flex-1 rounded-md border px-1 text-[8.5px] font-bold leading-tight tracking-[0.1em] transition ${
                 lens === l
                   ? "border-amber-500/70 bg-amber-500/15 text-amber-200"
-                  : "border-stone-100/10 bg-black/40 text-stone-400 hover:text-stone-200"
+                  : "border-stone-100/10 bg-black/40 text-[#a89a7c] hover:text-[#e7dfc9]"
               }`}
             >
               {LENS_LABEL[l]}

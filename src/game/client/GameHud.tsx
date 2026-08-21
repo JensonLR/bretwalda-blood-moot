@@ -283,12 +283,12 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
             <div className="font-display text-xl tracking-wider text-amber-100 sm:text-2xl">KEY BINDINGS</div>
           </div>
           <button onClick={() => { stopCapture(); onClose(); }} aria-label="Close key bindings"
-            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-stone-300 transition hover:border-amber-600/70 hover:text-amber-200">
+            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-[#d9cdb2] transition hover:border-amber-600/70 hover:text-amber-200">
             <X size={16} />
           </button>
         </div>
         <div className="knot-band w-full" />
-        <p className="text-[11px] leading-relaxed text-stone-400">
+        <p className="text-[11px] leading-relaxed text-[#a89a7c]">
           Click a key to change it. Bindings are by physical position, so the cap shown is what is
           printed on <em>your</em> keyboard.
         </p>
@@ -331,9 +331,9 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-[13px] font-bold text-amber-200">
                     {a.label}
-                    {a.desktopOnly && <span className="rounded border border-stone-600/70 px-1 py-px text-[8px] font-bold tracking-[0.12em] text-stone-400">DESKTOP</span>}
+                    {a.desktopOnly && <span className="rounded border border-stone-600/70 px-1 py-px text-[8px] font-bold tracking-[0.12em] text-[#a89a7c]">DESKTOP</span>}
                   </div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-stone-400">
+                  <div className="mt-0.5 text-[11px] leading-snug text-[#a89a7c]">
                     {a.hint}{a.alsoAims ? " — also aims the cut" : ""}
                   </div>
                 </div>
@@ -349,19 +349,19 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
                         {labelForCode(code)}
                       </button>
                       <button onClick={() => unbind(a.id, code)} aria-label={`Unbind ${labelForCode(code)} from ${a.label}`}
-                        className="kbd !min-w-0 !rounded-l-none !border-l-0 !px-1.5 text-stone-400 transition hover:!text-red-300">
+                        className="kbd !min-w-0 !rounded-l-none !border-l-0 !px-1.5 text-[#a89a7c] transition hover:!text-red-300">
                         <X size={10} />
                       </button>
                     </span>
                   ))}
                   {codes.length < MAX_BINDINGS_PER_ACTION && (
                     <button onClick={() => begin(a.id)} aria-label={`Add another key for ${a.label}`}
-                      className="kbd !min-w-0 !px-2 text-stone-400 transition hover:!border-amber-400/80 hover:!text-amber-200">
+                      className="kbd !min-w-0 !px-2 text-[#a89a7c] transition hover:!border-amber-400/80 hover:!text-amber-200">
                       <Plus size={11} />
                     </button>
                   )}
                   <button onClick={() => resetAction(a.id)} aria-label={`Reset ${a.label} to default`}
-                    className="rounded-md p-1.5 text-stone-500 transition hover:text-amber-300">
+                    className="rounded-md p-1.5 text-[#7d7057] transition hover:text-amber-300">
                     <RotateCcw size={12} />
                   </button>
                 </div>
@@ -491,7 +491,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
             <div className="font-display text-xl tracking-wider text-amber-100 sm:text-2xl">GRAPHICS</div>
           </div>
           <button onClick={onClose} aria-label="Close graphics settings"
-            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-stone-300 transition hover:border-amber-600/70 hover:text-amber-200">
+            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-[#d9cdb2] transition hover:border-amber-600/70 hover:text-amber-200">
             <X size={16} />
           </button>
         </div>
@@ -500,11 +500,11 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
         {/* What is happening RIGHT NOW, and why. A player looking at a soft
             picture he never asked for is owed the reason in a sentence. */}
         <div className="rounded-lg border border-stone-700/70 bg-black/40 px-3 py-2">
-          <div className="text-[10px] font-bold tracking-[0.18em] text-stone-400">NOW RENDERING</div>
+          <div className="text-[10px] font-bold tracking-[0.18em] text-[#a89a7c]">NOW RENDERING</div>
           <div className="font-display text-lg tracking-wider text-amber-100">
             {status ? TIER_WORD[status.active] : "…"}
           </div>
-          <div className="mt-0.5 text-[11px] leading-relaxed text-stone-400">
+          <div className="mt-0.5 text-[11px] leading-relaxed text-[#a89a7c]">
             {!status ? "Reading this device…"
               : status.pinned ? `Pinned by ?quality=${status.pinned} on the address bar — that beats this control, and clearing it needs the address bar too.`
               : status.choice !== "auto" ? "Your choice, kept for this browser."
@@ -543,7 +543,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
                   <span className="block text-[13px] font-bold tracking-wider text-amber-200">
                     {labels?.[c] ?? c.toUpperCase()}
                   </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-stone-400">{QUALITY_BLURB[c]}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-[#a89a7c]">{QUALITY_BLURB[c]}</span>
                 </span>
               </button>
             );
@@ -562,7 +562,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
                 picking Automatic only throws the stored verdict away, and the
                 measuring starts again on the next load. One sentence covering
                 both would have to be false for one of them. */}
-            <div className="text-[11px] leading-relaxed text-stone-300">
+            <div className="text-[11px] leading-relaxed text-[#d9cdb2]">
               <span className="font-bold text-amber-200">Kept. </span>
               {status?.choice === "auto"
                 ? "This device gets measured again from the next load; what is on the screen right now is still the tier it was forged at."
@@ -756,7 +756,7 @@ export default function GameHud({
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-950/95 p-6">
           <div className="max-w-xs text-center">
             <div className="font-display text-amber-400 text-xl mb-2 tracking-wider">GRAPHICS INTERRUPTED</div>
-            <p className="text-stone-300 text-sm leading-relaxed">{glError}</p>
+            <p className="text-[#d9cdb2] text-sm leading-relaxed">{glError}</p>
             <button onClick={() => window.location.reload()} className="mt-4 px-5 py-2.5 bg-amber-800 hover:bg-amber-700 rounded-lg font-bold text-sm tracking-wider">
               RELOAD BATTLE
             </button>
@@ -929,7 +929,7 @@ export default function GameHud({
             {roomState.killFeed.slice(-5).map((k, i) => (
               <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
                 <span className="text-amber-300 font-bold">{k.killerName}</span>
-                <span className="text-stone-400"> slew </span>
+                <span className="text-[#a89a7c]"> slew </span>
                 <span className="text-red-300 font-bold">{k.victimName}</span>
               </div>
             ))}
@@ -975,7 +975,7 @@ export default function GameHud({
             <div className="absolute inset-0 bg-gradient-to-t from-red-950/50 via-transparent to-transparent flex items-end justify-center pb-24 pointer-events-none z-10">
               <div className="text-center">
                 <div className="font-display text-4xl font-bold text-red-400 mb-1 tracking-[0.2em]" style={{ textShadow: "0 0 25px black" }}>FALLEN</div>
-                <div className="text-sm text-stone-300">Spectating the survivors...</div>
+                <div className="text-sm text-[#d9cdb2]">Spectating the survivors...</div>
               </div>
             </div>
           )}
@@ -1205,9 +1205,9 @@ export default function GameHud({
       <div
         role="note"
         aria-label="Key bindings: press Escape to free the cursor, then click KEYS"
-        className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-stone-700/70 bg-stone-950/70 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-stone-500 backdrop-blur">
+        className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-stone-700/70 bg-stone-950/70 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-[#7d7057] backdrop-blur">
         <KeyRound size={13} />
-        <span className="rounded border border-stone-600 px-1 py-px text-[9px] leading-none text-stone-300">ESC</span>
+        <span className="rounded border border-stone-600 px-1 py-px text-[9px] leading-none text-[#d9cdb2]">ESC</span>
         <span>FOR KEYS</span>
       </div>
     ) : (
