@@ -8,6 +8,94 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE SETTLEMENT CASCADE RENDERS ON A CADENCE, NOT A METRONOME — one shadow pass off the average frame, every tier — 21 Aug 2026
+
+The lever the shadow-proxy entry left on the table: "dropping the
+shadow-casting light count from 4 to 3 on `high` removes a quarter of every
+caster's cost at once. That is a look decision about cascades rather than a
+geometry one, and it wants its own frame." This is that frame, and the answer
+it found is that the fourth light does not have to die — it has to stop
+re-drawing a still village at 60 Hz.
+
+**The reading of "4→3" that costs no look.** All four shadow passes on `high`
+have merges defending them by name (near cascade: contact edges; settlement
+cascade: walls and distant men; sky occlusion: everything meeting everything;
+beam: the only fire shadow in the game). Deleting any one of them un-earns a
+defended look. But the settlement cascade is PINNED — its frustum never
+re-hangs with the camera, so its rasterisation only changes when a caster
+inside it moves. It now re-renders every 2nd frame (`shadow.autoUpdate =
+false`, `needsUpdate` on a schedule in `trackShadow`), which is 4 maps → 3.5
+maps per average frame, with the savings landing on the most expensive map.
+Two overrides put a fresh map under every frame that genuinely needs one: any
+frame the moon's axis itself moved (a stale map under a fresh axis swims, and
+a mood blend is exactly when nobody counts frames), and the first frame after
+the rig is built.
+
+**Measured, `tools/framecost.mjs --quality=high --params=farcadence=N`, the
+tool's own GL counter, draw ON:**
+
+```
+  farcadence=1   calls/frame  p50 1932   p95 1988   (4 GL frames sampled)
+  farcadence=2   calls/frame  p50 1808   max 1936   (3 GL frames sampled)
+```
+
+The cadence-2 series is BIMODAL — light frames at ~1808, full frames at
+~1936 — which is the mechanism photographing itself: the skipped frames are
+real, the axis-guard is not silently defeating the schedule. Per skipped
+frame that is ~128 draw calls (~6.6%) plus the entire 2048² depth
+rasterisation of the 102 m settlement box, which draw-call counts
+under-represent (the box holds the ground plane, the huts and the treeline —
+the triangle-heavy statics). Same schedule ships on `medium` and `low`,
+where the map is 1024²/512² but the device is a phone.
+
+**The risk, and what each instrument can honestly say about it.** A warrior
+inside the near box casts into BOTH cascades; his far-map component updates
+at half rate while his near-map component updates at full rate, so the
+summed penumbra at his own feet could in principle double-edge on alternate
+frames at sprint.
+
+- *What this box CAN photograph:* static identity. Solo testgrounds, warrior
+  held still, four consecutive rendered frames per cadence — with nothing
+  moving, cadence 2 must change no shadow anywhere in the frame.
+  PASSED: across consecutive
+  cadence-2 rendered frames (0:52 / 1:28 / 2:02 on the session clock — this
+  box renders one frame per ~36 sim-seconds, so even the STALE frames carry
+  amplified staleness of the idle man's sway) the feet shadow, hut shadows,
+  palisade lines and tree shadows are identical frame to frame, and the
+  cadence-1 strip shows the same shadow geography. The visible hut and fence
+  shadows are substantially the settlement cascade's own product, so the pass
+  exercised the lever's actual output. `art/look/cadence/`.
+- *What this box CANNOT photograph, said plainly rather than faked:* the
+  motion case. SwiftShader renders one frame per ~40 sim-seconds while the
+  server sim runs in real time, so a one-rendered-frame-stale map displays
+  sim-minutes of caster movement here — hundreds of times the lag any real
+  device shows. A "motion look pass" on this box would be a measurement
+  answering the wrong question (the signature failure, again). The honest
+  claim is the constructive bound: staleness is ≤1 rendered frame by
+  construction, which at 60/30/20 fps is 17/33/50 ms — at a 6 m/s sprint,
+  10–30 cm of lag on a 5 cm-texel PCF-soft component carrying 42% of the
+  key's weight, underneath a full-rate crisp near-map edge. The first real
+  device pass should still LOOK at feet during a sprint; if it double-edges,
+  the cadence is one `?farcadence=1` away from off.
+
+**Residual worth naming:** cadence alternates the frame's shadow load
+(heavy/light) instead of holding it constant. On a GPU pinned exactly at a
+vsync boundary an alternating load can flap the interval where a constant
+one would not. The delta is ~6% of calls plus one depth pass, small against
+typical frame variance, and the average headroom is the point — but if a
+real device reports NEW micro-jitter after this merge, suspect the sawtooth
+first and test with `?farcadence=1`.
+
+**Sample-size honesty (R4):** the GL figures are a handful of frames each —
+SwiftShader manages under one drawn frame a second at `high` — and are
+stable because scene content is, not because the sample is large. The
+bimodality claim rests on the gap between the modes (128 calls) being far
+larger than the run-to-run noise of the full mode (1932 vs 1936), not on
+the sample count. Frame-interval claims are deliberately absent: this box's
+frame times are SwiftShader and mean nothing (the janktest lesson).
+
+---
+
 ## THE LADDER KNEES ARE REVERTED — AND THE GRADE FIX IS HELD BACK TOO; the full attribution — 22 Aug 2026
 
 Three lit probe runs, one paired variable at a time, on the Danelaw huscarl in
