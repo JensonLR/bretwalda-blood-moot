@@ -2042,6 +2042,13 @@ export default function Page() {
             Plays on phones, tablets &amp; desktops.<br />
             {moveKeys} + mouse on desktop · touch controls on mobile.
           </p>
+          {/* The build stamp — which commit this device is actually running.
+              Exists because a defect was once argued blind against a device on
+              a stale deploy; see next.config.ts. Dim on purpose: a serial
+              number, not a feature. */}
+          <p className="text-center text-[9px] tracking-[0.18em] text-[#7d7057]/70" style={{ textShadow: "0 1px 3px black" }}>
+            BUILD {process.env.NEXT_PUBLIC_BUILD_SHA ?? "unstamped"}
+          </p>
         </div>
       )}
 
