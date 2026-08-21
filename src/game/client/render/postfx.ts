@@ -1770,27 +1770,24 @@ void main() {
   // where a power is a clean exposure-slope change. Doing it after the curve
   // instead — an S-curve on display values — pivots at 0.5, and almost nothing
   // in a dusk frame is anywhere near 0.5, so it only ever crushed the shadows.
-  // ON LUMA, NOT PER CHANNEL — and this is the Danelaw's magenta board.
+  // Contrast in scene-linear about a lit mid-tone, before the display transform,
+  // where a power is a clean exposure-slope change. Doing it after the curve
+  // instead — an S-curve on display values — pivots at 0.5, and almost nothing
+  // in a dusk frame is anywhere near 0.5, so it only ever crushed the shadows.
   //
+  // PER CHANNEL, AND THAT IS NOW A DECISION WITH A LEDGER, NOT AN ACCIDENT.
   // The per-channel form crushes whichever channel a saturated colour has the
-  // least of: a lit garnet arrives around (124, 20, 32), the power law drives
-  // 20 toward 4 while 124 barely moves, and chroma EXPLODES — the board that is
-  // #7c1420 in every material table drew #9b0439, hot magenta, C* 61.8. Green
-  // is the channel with the least headroom on the game's own reddest field, so
-  // the reddest thing in the frame is exactly where a per-channel curve fails.
-  //
-  // The slope is applied to the pixel's LUMINANCE and the colour is scaled by
-  // the ratio, so the brightness response is IDENTICAL — same curve, same
-  // pivot, same fixed points — and the hue and chroma ratios a material was
-  // authored with survive the grade. What is deliberately given up is the
-  // per-channel form's "colour contrast" (saturation swelling in the shadows);
-  // the saturation stage below owns that job, and one owner per job is the
-  // whole shape of this file.
-  {
-    float cL = dot( hdr, ${LUMA_VEC} );
-    float cLn = uPivot * pow( max( cL, 1e-5 ) / uPivot, uContrast );
-    hdr *= cLn / max( cL, 1e-5 );
-  }
+  // least of, which is why the Danelaw's #7c1420 shield board draws #9b0439 —
+  // hot magenta — and that defect stays OPEN. A luminance-preserving form was
+  // built and measured: it repairs the board (green 4 -> 11, frame luma +0.02)
+  // and it also lifts the Danelaw's dyed madder wraps back above the rose
+  // band's floor that this crush has been hiding them under — wrap@180 went to
+  // 46% rose share, +39 points over the unsworn floor, against a settlement of
+  // at-or-below everywhere. Three rounds of vat work were tuned UNDER this
+  // grade; changing it re-litigates all of them. The repair therefore ships as
+  // ONE UNIT with the wrap retune, gated by the lit probe on all bearings —
+  // docs/OPEN-DEFECTS.md carries the mechanism, the numbers and the plan.
+  hdr = uPivot * pow( max( hdr, vec3( 1e-5 ) ) / uPivot, vec3( uContrast ) );
 
   // Highlight crosstalk: past the knee, colour is walked toward its own
   // strongest channel, so a flame core goes white-hot and the sky's ember band
