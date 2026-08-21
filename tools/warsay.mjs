@@ -198,6 +198,46 @@ check("the outcome shape has room for a flip, and it is optional",
   }
 }
 
+// ---- THE SUBSCRIPTION ACTUALLY REACHES THE ENGINE ----
+//
+// This is the one that would have caught the owner's report. Every check above
+// can pass while NOTHING is subscribed to `onMatchEnd`, in which case a match
+// ends, the room is told, and the war never hears about it — silently, forever.
+// `installWarLedger` is called from `src/instrumentation.ts`, whose guard used
+// to be `NEXT_RUNTIME !== "nodejs"`, a positive match on a variable Next sets
+// for its OWN runtimes; this game runs under `custom-server.mjs`.
+//
+// So: install, then end a match on the shared engine and see whether anything
+// listened. It is asked of the REAL `installWarLedger` rather than of a copy.
+{
+  const war = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
+  const eng = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+  const before = globalThis.__bretwaldaWarInstalled;
+  globalThis.__bretwaldaWarInstalled = false;
+  let heard = 0;
+  const unsub = eng.getEngine().onMatchEnd(() => { heard++; });
+  war.installWarLedger();
+  check("installWarLedger subscribes to the engine the server actually runs",
+    globalThis.__bretwaldaWarInstalled === true,
+    globalThis.__bretwaldaWarInstalled ? "subscribed" : "the install threw and reset its own flag");
+  unsub();
+  globalThis.__bretwaldaWarInstalled = before;
+
+  // Asserted POSITIVELY, on the guard that ships, and not as the absence of the
+  // old one — the first cut tested `!/NEXT_RUNTIME !== "nodejs"/` and failed,
+  // because the comment above the fix QUOTES the line it replaced. A ruler that
+  // reads prose is a ruler that can be fooled by prose.
+  const src = readFileSync(resolve(ROOT, "src/instrumentation.ts"), "utf8");
+  const guard = (src.split("\n").find((l) => /if\s*\(.*NEXT_RUNTIME/.test(l) && !/^\s*(\/\/|\*)/.test(l)) ?? "").trim();
+  check("...and instrumentation excludes only the EDGE, not everything that is not `nodejs`",
+    /NEXT_RUNTIME\s*===\s*"edge"/.test(guard),
+    guard || "no runtime guard at all");
+
+  const route = readFileSync(resolve(ROOT, "src/app/api/war/route.ts"), "utf8");
+  check("...and the map's own route installs it too, so looking at the war switches it on",
+    /installWarLedger\s*\(/.test(route), "belt and braces on the warm path");
+}
+
 // ---- the engine can reach a room from outside, which is how any of this is said ----
 const { makeEngine } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 const engine = makeEngine({ autoTick: false });
