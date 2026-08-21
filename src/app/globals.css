@@ -81,7 +81,7 @@
     overscroll-behavior: none;
     user-select: none;
     -webkit-user-select: none;
-    font-family: "Alegreya Sans", system-ui, sans-serif;
+    font-family: var(--font-body), "Alegreya Sans", system-ui, sans-serif;
     background: #14100b;
     color: #f0e9da;
     -webkit-font-smoothing: antialiased;
@@ -404,7 +404,7 @@
   /* ------------------------------------------------------------ typography */
 
   .font-display {
-    font-family: "Cinzel", "Times New Roman", serif;
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
     font-weight: 700;
   }
 
@@ -439,7 +439,7 @@
   }
 
   .label-overline {
-    font-family: "Cinzel", serif;
+    font-family: var(--font-display), "Cinzel", serif;
     font-size: 10px;
     letter-spacing: 0.42em;
     /* The tracking pushes the last glyph past the box; without this the text
@@ -462,7 +462,7 @@
      shadow behind a transparent fill shows THROUGH the glyph and fills the
      letter with its own blur — the same trap title-hero documents. */
   .screen-head h1 {
-    font-family: "Cinzel", serif;
+    font-family: var(--font-display), "Cinzel", serif;
     font-weight: 700;
     font-size: clamp(1.75rem, 7.5vw, 2.5rem);
     line-height: 1.08;
@@ -491,7 +491,7 @@
   /* The rule running off to the right is what makes a heading read as owning
      the block beneath it instead of floating above it. */
   .section-title {
-    font-family: "Cinzel", serif;
+    font-family: var(--font-display), "Cinzel", serif;
     font-size: 11px;
     letter-spacing: 0.28em;
     color: #d6cbb2;
@@ -1169,7 +1169,7 @@
     gap: 0.4rem;
     padding: 0.5rem 0.5rem;
     border-radius: 0.55rem;
-    font-family: "Cinzel", serif;
+    font-family: var(--font-display), "Cinzel", serif;
     font-size: 0.9rem;
     font-weight: 800;
     letter-spacing: 0.08em;
@@ -1225,7 +1225,7 @@
     border: 1px solid rgba(217, 164, 65, 0.3);
     backdrop-filter: blur(4px);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-    font-family: "Cinzel", serif;
+    font-family: var(--font-display), "Cinzel", serif;
     font-size: 9.5px;
     font-weight: 800;
     letter-spacing: 0.16em;
@@ -1394,7 +1394,7 @@
   .fm-seat-name,
   .fm-label,
   .fm-label-small {
-    font-family: "Cinzel", serif;
+    font-family: var(--font-display), "Cinzel", serif;
     font-weight: 700;
     paint-order: stroke fill;
     stroke: rgba(6, 4, 3, 0.85);
@@ -1486,7 +1486,7 @@
     min-width: 0;
   }
   .fm-row-name {
-    font-family: "Cinzel", serif;
+    font-family: var(--font-display), "Cinzel", serif;
     font-weight: 700;
     font-size: 0.95rem;
     color: #fbeecd;

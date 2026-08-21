@@ -1838,8 +1838,9 @@ export default function Page() {
           {/* The controls sit on a panel. On a black field they read as three
               loose buttons; framed, they read as the front of a game. */}
           <div className="card card-noble card-glow mx-auto flex w-full max-w-[26rem] flex-col gap-3.5 p-5 sm:p-6">
-            <label className="label-overline block text-center">YOUR WARRIOR NAME</label>
+            <label htmlFor="warrior-name-landing" className="label-overline block text-center">YOUR WARRIOR NAME</label>
             <input
+              id="warrior-name-landing"
               type="text"
               value={playerName}
               onChange={(e) => { setPlayerName(e.target.value.substring(0, 20)); setNameGloss(null); }}
@@ -2014,8 +2015,9 @@ export default function Page() {
 
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <label className="label-overline">WARRIOR NAME</label>
+              <label htmlFor="warrior-name-join" className="label-overline">WARRIOR NAME</label>
               <input
+                id="warrior-name-join"
                 type="text"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value.substring(0, 20))}
@@ -2024,8 +2026,9 @@ export default function Page() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="label-overline">WAR CODE</label>
+              <label htmlFor="war-code" className="label-overline">WAR CODE</label>
               <input
+                id="war-code"
                 type="text"
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase().substring(0, 15))}
@@ -2287,7 +2290,7 @@ export default function Page() {
                   object. It was a flat grey line with a Tailwind gradient. */}
               <div className="mt-1 flex w-full flex-col gap-1.5">
                 <div className="h-3 w-full overflow-hidden rounded-full border border-[rgba(217,164,65,0.28)] bg-black/55 shadow-[inset_0_2px_5px_rgba(0,0,0,0.6)]">
-                  <div className="h-full rounded-full bg-[linear-gradient(180deg,rgba(255,236,190,0.45),rgba(255,236,190,0)_46%),linear-gradient(180deg,#c9761d,#8a4408)] shadow-[inset_0_1px_0_rgba(255,240,200,0.45)] transition-all"
+                  <div className="h-full rounded-full bg-[linear-gradient(180deg,rgba(255,236,190,0.45),rgba(255,236,190,0)_46%),linear-gradient(180deg,#c9761d,#8a4408)] shadow-[inset_0_1px_0_rgba(255,240,200,0.45)] transition-[width]"
                     style={{ width: `${Math.min(100, (profile.xp / xpForLevel(profile.level + 1)) * 100)}%` }} />
                 </div>
                 <div className="flex justify-between text-[11px] text-stone-500">
@@ -2563,8 +2566,9 @@ function TheKeep({ link, code, onRestore, onSay }: {
       {link === "server" && (
         entering ? (
           <div className="card animate-fadeIn flex flex-col gap-3 p-4 sm:p-5">
-            <label className="label-overline">THE FOUR WORDS</label>
+            <label htmlFor="recovery-words" className="label-overline">THE FOUR WORDS</label>
             <input
+              id="recovery-words"
               type="text"
               value={typed}
               onChange={(e) => { setTyped(e.target.value.substring(0, 80)); setRefusal(""); }}
@@ -2754,12 +2758,21 @@ function RoundTally({ roomState, playerId, noRound }: { roomState: RoomState; pl
  * to be and where nobody could see a thing.
  * The server validates and throttles every press, so these can be plain.
  */
+/**
+ * Three flourishes, and the list never changes — so it is built ONCE at module
+ * scope rather than rebuilt on every render of a row that sits on the
+ * round-break card and the summary. Three objects is not a cost worth a note on
+ * its own; what it is worth is not handing a new array identity to a `map` on a
+ * component that re-renders behind a live fight.
+ */
+const EMOTE_ITEMS: Array<{ id: EmoteId; label: string; Icon: typeof Swords }> = [
+  { id: "raise", label: "RAISE", Icon: Swords },
+  { id: "boss", label: "BOSS", Icon: Shield },
+  { id: "taunt", label: "TAUNT", Icon: Flag },
+];
+
 function EmoteRow({ onEmote }: { onEmote: (emote: EmoteId) => void }) {
-  const items: Array<{ id: EmoteId; label: string; Icon: typeof Swords }> = [
-    { id: "raise", label: "RAISE", Icon: Swords },
-    { id: "boss", label: "BOSS", Icon: Shield },
-    { id: "taunt", label: "TAUNT", Icon: Flag },
-  ];
+  const items = EMOTE_ITEMS;
   return (
     <div className="pointer-events-auto flex items-center justify-center gap-2">
       {items.map(({ id, label, Icon }) => (

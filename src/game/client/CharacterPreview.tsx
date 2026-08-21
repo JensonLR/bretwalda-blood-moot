@@ -35,6 +35,9 @@ const LENS_LABEL: Record<PreviewLens, string> = {
  */
 const FIGHT_NOTE = "SEVEN METRES — the range you fight at, at this screen's own scale";
 
+/** The four lenses, in order. Fixed, so it is not rebuilt every render. */
+const LENS_ORDER: PreviewLens[] = ["face", "bust", "figure", "fight"];
+
 export default function CharacterPreview({
   warriorClass,
   appearance,
@@ -170,7 +173,7 @@ export default function CharacterPreview({
     );
   }
 
-  const lensOrder: PreviewLens[] = ["face", "bust", "figure", "fight"];
+  const lensOrder = LENS_ORDER;
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>

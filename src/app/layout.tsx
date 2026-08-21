@@ -3,6 +3,42 @@ import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import "./globals.css";
 
+import { Cinzel, Alegreya_Sans } from "next/font/google";
+
+/**
+ * THE TWO FACES, SELF-HOSTED, and it is not a style change.
+ *
+ * These came off `fonts.googleapis.com` through a stylesheet `<link>` in the
+ * document head — which is a render-blocking request to a third party before
+ * the landing screen can paint, plus two `preconnect`s to warm it up, plus the
+ * flash of fallback text while it lands. `react-doctor/nextjs-no-font-link`.
+ *
+ * `next/font` fetches both families at BUILD time, serves them from this
+ * origin, and emits the `@font-face` rules itself with `size-adjust` metrics
+ * computed against the fallback — so the swap no longer moves the layout. The
+ * weights are exactly the ones the old query string asked for and no more:
+ * unlisted weights would be synthesised by the browser, which is what made
+ * `Cinzel` look thin on Android.
+ *
+ * They are exposed as CSS VARIABLES rather than as class names because
+ * `globals.css` names the families in five places, and a variable is one
+ * definition those five can read. The literal family names stay in the stacks
+ * as the fallback they always were.
+ */
+const cinzel = Cinzel({
+  subsets: ["latin"],
+  weight: ["600", "700", "800", "900"],
+  variable: "--font-display",
+  display: "swap",
+});
+const alegreyaSans = Alegreya_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+
 // metadataBase is resolved per-request from the real Host header so
 // Open Graph links/images are ALWAYS absolute to wherever this is served —
 // group-chat unfurls work on any deployment automatically.
@@ -52,15 +88,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Alegreya+Sans:wght@400;500;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="en" className={`${cinzel.variable} ${alegreyaSans.variable}`}>
       {/* NO COLOUR UTILITIES ON THIS ELEMENT.
           `bg-stone-950 text-white` used to sit here, and it beat the palette:
           Tailwind emits utilities into @layer utilities, which outranks the

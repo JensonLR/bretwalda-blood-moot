@@ -896,7 +896,13 @@ export default function GameHud({
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-[52vw] max-w-72">
             <div className="text-amber-100/95 text-[11px] font-bold tracking-[0.2em] font-display" style={{ textShadow: "0 1px 5px black" }}>{localPlayer.name}</div>
             <div className="w-full h-3.5 bg-black/70 rounded-md border border-amber-900/70 overflow-hidden shadow-lg">
-              <div className="h-full transition-all duration-200"
+              {/* `transition-[width]`, not `transition-all`. This bar's width is
+                  driven off the wire at 20 Hz, and `all` tells the browser to
+                  watch every animatable property on it for a change — on the one
+                  element in the frame that is guaranteed to change, every frame,
+                  for the whole of a fight. The only property that actually
+                  animates here is the width. */}
+              <div className="h-full transition-[width] duration-200"
                 style={{
                   width: `${hpPct * 100}%`,
                   background: hpPct > 0.5 ? "linear-gradient(90deg,#2fa245,#5ee06b)" :
@@ -904,7 +910,7 @@ export default function GameHud({
                 }} />
             </div>
             <div className="w-full h-1.5 bg-black/70 rounded-md border border-sky-950/70 overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-cyan-400 to-sky-300 transition-all duration-200"
+              <div className="h-full bg-gradient-to-r from-cyan-400 to-sky-300 transition-[width] duration-200"
                 style={{ width: `${Math.max(0, (localPlayer.stamina / localPlayer.maxStamina) * 100)}%` }} />
             </div>
           </div>
