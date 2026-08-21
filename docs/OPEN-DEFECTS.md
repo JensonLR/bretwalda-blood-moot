@@ -8,7 +8,7 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## THE SHADOW DRAW CALLS — the prize is measured, two mechanisms are dead, and the lossy cull is refused — 21 Aug 2026
+## THE SHADOW DRAW CALLS — 664 to 539, losslessly; two mechanisms dead and the lossy cull refused — 21 Aug 2026
 
 The instrument said shadows are the largest single item on the sheet. This is the
 attempt to spend it, and what ships from it is the measurement rather than a
@@ -93,7 +93,48 @@ mesh that swallowed it.
 **Twelve percent of the frame is not worth flattening the warrior**, and the
 change is reverted. Nothing from it ships.
 
-### What DOES work, costed, for the next round
+### AND IT WAS BUILT — the merged per-bone caster ships
+
+```
+                              casters   picture   total draws
+  as it shipped                 352       403         664
+  merged per-bone proxy         129       462         539      -19%
+```
+
+63% fewer casters. The proxies cost 59 draws in the picture pass — they are real
+drawn objects because both cheaper tricks above are dead — and the net is **125
+draw calls off an eight-man frame at ONE shadow light**. On `high`, where the
+count is four, every one of the ~34 casters removed per warrior would have been
+drawn four more times.
+
+**And it is visually lossless, which took two measurements to establish.**
+
+The first cut carried POSITION ONLY, on the reasoning that a depth pass has no
+use for normals. `light.shadow.normalBias` does — it pushes each sample along its
+own surface normal to keep a curved surface off its own shadow — and stripped of
+them the ground under a man measured **8.57 luma darker** than before: a shadow
+that had grown, not one that had gone. With normals carried:
+
+```
+  region              before -> after     same-build control
+  the man (kit)        77.32 -> 77.34            +/- 0.03
+  ground under him     72.54 -> 72.23
+  the shield          100.98 -> 101.49
+  background fence     53.86 -> 53.88            +/- 0.05
+```
+
+The pixel-difference count is **7.91%**, and the control for the same build
+captured twice is **7.75%** — the two are indistinguishable, so that figure is
+this harness's own pose jitter between runs and not the change. (An earlier
+control read 0.258%; that was two runs landing on the same animation phase, and
+quoting it as the harness's repeatability would have been wrong.)
+
+Rig-traversing gates unmoved: `cosmetictest` 14/16, `wearmeasure` the same three
+nape-guard lines, and `factionread` §0.3 — *a livery moves NO geometry* — still
+112 builds with zero coverage difference, which is the gate that would catch a
+proxy leaking into the picture.
+
+### What is left, costed, for the next round
 
 **One merged shadow-only caster per BONE.** Siblings share a parent, so their
 relative transform is fixed for the life of the rig and merging them is exact —
