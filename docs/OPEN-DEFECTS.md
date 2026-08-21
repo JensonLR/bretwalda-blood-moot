@@ -8,6 +8,52 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE PAIRED PROXY PROBE RAN — and convicted the INSTRUMENT, not the proxy — 21 Aug 2026
+
+The residual entry's prescribed step — "the same paired probe with the shadow
+proxy toggled (`castShadow` back to per-mesh on one arm of the pair), on one
+build, same session" — has been run: `anim.ts` grew a `?shadowproxy=off`
+capture hatch and `vatprobe` a `--noproxy` arm, and both arms ran back to back
+on one build (`c8a5b4d`), Danelaw huscarl in Polished Steel.
+
+```
+                ARM A (proxy ON)   ARM B (proxy OFF)   prior runs (proxy ON)
+  buff @ 0°         +2.0               +32.2            +34.6, +28.5
+  buff @ 180°       -2.0               +24.3
+  wrap @ 90°       +11.5                +4.2            -3.2, +10.9, +22.2
+  wrap @ 180°      +20.9                +9.4            +23.4, +15.2, +39.4
+  mail @ 0°         +4.7                +5.3            (stable, all runs)
+  mail @ 90°        +1.2                +1.5            (stable, all runs)
+```
+
+**The finding is the first column.** Arm A is the SAME shipped configuration
+the residual was read on — and buff@0, previously +34.6 and +28.5, now reads
++2.0. A 32-point swing between two runs of ONE configuration cannot be the
+proxy, the knees or the grade: it is the instrument. `vatprobe` is unclocked
+by design (its own header: the fire is at a different phase in every capture)
+and its stated noise model — "treat a point of a per-surface reading as
+noise" — is an order of magnitude too kind to the SMALL surfaces: buff is 295
+eroded pixels at L* within a point of the band floor, and the fire's phase
+alone swings it by ±30 points of rose share. The wraps (781–1492 px) swing by
+±10–15 the same way. The mail rows (2976–5195 px) are stable across every run
+and agree between arms within ~1.5 points — at the scales this instrument CAN
+read, the proxy changes nothing, which is consistent with `shadowcut`'s
+union-of-the-same-triangles argument and is the only attribution this probe
+is entitled to.
+
+**Standing corrections this leaves:**
+- The residual table in the boardgrade entry above is NOT a stable reading —
+  its buff/wrap rows are fire-phase samples, not settlements. The mail rows
+  stand.
+- Per-surface vatprobe rows under ~1500 px carry ±10–30 points of run noise.
+  The probe prints numbers; only repetition or a clock makes them readings.
+- A verdict on the rose settlement belongs to `factionread` §7.1/§7.1b, the
+  clocked walk with asserted repeatability — as every vatprobe header already
+  says. Nothing here retires that gate; this entry retires the idea that the
+  residual was ever attributed to a mechanism.
+
+---
+
 ## THE SETTLEMENT CASCADE RENDERS ON A CADENCE, NOT A METRONOME — one shadow pass off the average frame, every tier — 21 Aug 2026
 
 The lever the shadow-proxy entry left on the table: "dropping the

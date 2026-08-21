@@ -67,6 +67,9 @@ import { surfaceMasks, patchLab, MIN_PIXELS } from "./lib/surfacemask.mjs";
 import { loadClient } from "./lib/clientmodule.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// `--noproxy` — the paired arm the shadow-proxy residual entry prescribes:
+// same build, same session, per-mesh casting via `?shadowproxy=off`.
+const NOPROXY = process.argv.includes("--noproxy");
 const FINISHES = (process.argv[2] || "armor_iron,armor_steel").split(",");
 const PEOPLE = process.argv[3] || "norse";
 const CLS = process.argv[4] || "huscarl";
@@ -128,7 +131,7 @@ const band = makeBand(FACTION_FIELD.norse);
 
 const cap = async (q) => {
   const t = Date.now();
-  await page.goto(`${origin}/shot?${q}`, { waitUntil: "domcontentloaded", timeout: 300000 });
+  await page.goto(`${origin}/shot?${q}${NOPROXY ? "&shadowproxy=off" : ""}`, { waitUntil: "domcontentloaded", timeout: 300000 });
   await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string", null, { timeout: 300000 });
   const st = await page.evaluate(() => ({ s: window.__shotSubject ?? null, e: window.__shotError ?? null }));
   if (st.e) { console.error("refused:", st.e, q); process.exit(2); }
