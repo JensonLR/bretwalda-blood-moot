@@ -23,6 +23,20 @@ export interface QualitySettings {
   softShadows: boolean;
   /** Half-extent of the key light's orthographic shadow frustum, in metres. */
   shadowDistance: number;
+  /**
+   * Re-render the settlement cascade every Nth frame. 1 is every frame.
+   *
+   * The settlement cascade is the widest shadow pass in the rig and the only
+   * one that is PINNED — its frustum never re-hangs with the camera (see
+   * lighting.ts), so its rasterisation only actually changes when a caster
+   * inside it moves. At N=2 the frame drops a whole shadow pass every other
+   * frame; what a player could in principle notice is a distant warrior's
+   * soft 5 cm-texel shadow updating at half rate, and the look pass for the
+   * merge that set this found nothing at fight distance. Force-refreshed by
+   * lighting.ts on the frames where the moon's axis itself moves, so a mood
+   * change never shows a stale angle. `?farcadence=` pins it for captures.
+   */
+  settlementShadowCadence: number;
 
   // ---- textures ----
   /** Edge length of generated PBR maps. Generation cost is O(n²) — see VISUAL-BAR §4. */
@@ -70,6 +84,7 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     shadowMapSize: 2048,
     softShadows: true,
     shadowDistance: 24,
+    settlementShadowCadence: 2,
     // 512, not 1024: `createTextureLibrary` clamps to it regardless of what this
     // says, so a preset claiming 1024 would be a number nothing can honour.
     //
@@ -164,6 +179,7 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     shadowMapSize: 1024,
     softShadows: true,
     shadowDistance: 24,
+    settlementShadowCadence: 2,
     textureSize: 512,
     spriteSize: 128,
     anisotropy: 8,
@@ -196,6 +212,7 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     shadowMapSize: 512,
     softShadows: false,
     shadowDistance: 18,
+    settlementShadowCadence: 2,
     textureSize: 256,
     // The same fill/sampling split the `medium` block sets out, applied to the
     // tier that needs it most. Nothing here that costs per-fragment moved —
@@ -565,7 +582,19 @@ export function resolveQuality(override?: QualityTier | null): QualitySettings {
   // the whole point is that the tier stays put — a capture harness that got
   // silently demoted mid-run would be measuring a build nobody ships.
   if (!pin && pref === "auto") QUALITY_GOVERNOR.arm(tier);
-  return { ...QUALITY_PRESETS[tier] };
+  const settings = { ...QUALITY_PRESETS[tier] };
+  // `?farcadence=` pins the settlement cascade's re-render cadence the same
+  // way `?quality=` pins the tier, and exists for the same reason: a capture
+  // comparing cadences has to hold everything else still. 1 is every frame.
+  if (typeof window !== "undefined") {
+    try {
+      const c = Number(new URLSearchParams(window.location.search).get("farcadence"));
+      if (Number.isInteger(c) && c >= 1 && c <= 4) settings.settlementShadowCadence = c;
+    } catch {
+      /* malformed query string is not worth a crash */
+    }
+  }
+  return settings;
 }
 
 /**

@@ -87,6 +87,16 @@ const QUALITY = (() => {
   return q;
 })();
 const PORT = parseInt(process.env.PORT || String(4260 + (process.pid % 30)), 10);
+/**
+ * Extra query params carried onto the fight URL, e.g. `--params=farcadence=1`.
+ * Exists so a run can pin a render experiment the same way `?quality=` pins
+ * the tier — comparisons are only comparisons when the URL differs by the one
+ * knob under test.
+ */
+const PARAMS = (() => {
+  const p = argOf("params", "");
+  return p ? `&${p}` : "";
+})();
 
 const pct = (v, p) => v.length ? v[Math.min(v.length - 1, Math.max(0, Math.ceil((p / 100) * v.length) - 1))] : NaN;
 function stats(values) {
@@ -396,7 +406,7 @@ async function main() {
     await ctx.addInitScript(() => { window.__fcNoDraw = true; });
     const page = await ctx.newPage();
     page.on("pageerror", (e) => say(`  [page-error] ${String(e).slice(0, 200)}`));
-    await reachFight(page, `http://127.0.0.1:${PORT}/?quality=${QUALITY}`);
+    await reachFight(page, `http://127.0.0.1:${PORT}/?quality=${QUALITY}${PARAMS}`);
     const canvas = page.locator("canvas").first();
     await canvas.click({ position: { x: 640, y: 360 } }).catch(() => {});
     let stop = false;
@@ -438,7 +448,7 @@ async function main() {
     await ctx2.addInitScript(COLLECTOR);
     const page2 = await ctx2.newPage();
     page2.on("pageerror", () => {});
-    await reachFight(page2, `http://127.0.0.1:${PORT}/?quality=${QUALITY}`);
+    await reachFight(page2, `http://127.0.0.1:${PORT}/?quality=${QUALITY}${PARAMS}`);
     await page2.evaluate(() => { window.__fc.glFrames.length = 0; window.__fc.on = true; });
     await new Promise((r) => setTimeout(r, 40000));
     drawn = await page2.evaluate(() => {
