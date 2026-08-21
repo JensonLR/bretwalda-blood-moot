@@ -13306,7 +13306,25 @@ export function buildCharacter(
   // one for them would be `shoulderOut` describing a garment that is not on the
   // man — the same "a number that was true somewhere and got carried
   // everywhere" fault that produced the floating boss.
-  const trunkStack: Station[] | null = (bare || wallman) ? null
+  // THE WARDEN IS IN THE TABLE NOW, and it is the same table his byrnie is
+  // SWEPT from — hoisted here so `shoulderOut` and the shell read one list.
+  // The exclusion used to be justified as "reporting this one for them would be
+  // `shoulderOut` describing a garment that is not on the man", which was true
+  // of the OLD trunk profile and became the defect the moment hair learned to
+  // ride: with no stack under him, a bare-headed warden's mane fell straight
+  // through his byrnie — `tools/hairmail.mjs` read 84.1% of its hanging
+  // vertices INSIDE the mail. The berserker stays null: he genuinely wears
+  // nothing on his trunk that hair could lie on.
+  const byrnieHem = S.hipY - 0.055;
+  const wardenByrnieStations: Station[] | null = wallman
+    ? layer(
+      [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, byrnieHem + 0.04, byrnieHem],
+      0.034,
+      [-0.004, 0, 0, 0, 0.004, 0.012, 0.026, 0.036],
+    )
+    : null;
+  const trunkStack: Station[] | null = bare ? null
+    : wallman ? wardenByrnieStations
     : layer(
       [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY,
         (heavy ? S.hemY - 0.03 : S.hemY + 0.26) + 0.05, heavy ? S.hemY - 0.03 : S.hemY + 0.26],
@@ -13592,13 +13610,10 @@ export function buildCharacter(
     if (wallman) {
       // The byrnie. Short — it ends at the hip, which is the cut a man wants when
       // he is braced shoulder to shoulder and needs his legs.
-      const byrnieHem = S.hipY - 0.055;
+      // The station list is `wardenByrnieStations`, hoisted beside `trunkStack`
+      // so the hair's ride and this shell cannot drift — see the note there.
       p.add(shell(
-        wear(layer(
-          [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY, byrnieHem + 0.04, byrnieHem],
-          0.034,
-          [-0.004, 0, 0, 0, 0.004, 0.012, 0.026, 0.036],
-        ), 2.3),
+        wear(wardenByrnieStations!, 2.3),
         seg, { power: 2.3, wall: 0.016 },
       ), mail);
       // Leather edging on the byrnie's hem. Mail is knitted iron and it unravels
@@ -15090,11 +15105,43 @@ export function buildCharacter(
    * clamping it to the stack would be the "a constant standing where the metal
    * is a curve" fault this file has now recorded four times.
    */
+  /**
+   * AND IT RIDES WHENEVER THERE IS ARMOUR TO RIDE, NOT ONLY UNDER A COIF.
+   *
+   * The bail here was `!coifed`, which reads as "no mail, nothing to lie on" —
+   * and is false for the case the armoury opens on: a BARE-HEADED huscarl in a
+   * hauberk. His `trunkStack` exists, his mane asks for the ride
+   * (`fit: gatherFit`), and the coif gate refused it — so `tools/hairmail.mjs`
+   * measured **100% of the Long Mane's hanging vertices inside the torso's own
+   * mail**, which is the owner's screenshot: brown hanks half-buried in the
+   * gold rings at the shoulder blades.
+   *
+   * The boundary moves with the reason. Coifed, the ride begins below the
+   * aventail's hem exactly as before — above it `coifSquash` owns the shape.
+   * Uncoifed, it begins below the trunk garment's own collar, which is where
+   * `trunkStack` starts and therefore where there is first anything to lie on.
+   * A class with no stacks at all (`shoulderOut` returns null) is untouched:
+   * the berserker's hair still lies on skin.
+   */
+  const rideTopY = coifed ? coifHemY : collar - S.neckTop;
   const shoulderRide = (out: THREE.Vector3): void => {
-    if (!coifed || out.y >= coifHemY) return;
+    if (out.y >= rideTopY) return;
     const under = shoulderOut(out.y + S.neckTop);
     if (!under) return;
-    const hw = under.hw + LAYER_GAP, hd = under.hd + LAYER_GAP;
+    // THE CLEARANCE DEPENDS ON WHAT THE STACK DESCRIBES. The aventail path
+    // rides a table that IS the mail's outer rings, so `LAYER_GAP` is the whole
+    // of the gap. The trunk tables describe the SWEPT STATIONS of a shell that
+    // is then built with a 16 mm wall — and what rides is a strand's SPINE,
+    // with half its own tube still to clear. `hairmail` read a uniform 11-34%
+    // residual with the bare gap: the ride was working and delivering hair to
+    // the INSIDE of the drawn wall. Wall plus half a mane strand plus the layer
+    // gap is what "on the mail" actually costs from a station table.
+    // 0.030, not the arithmetic 0.029: the runekeeper's robe stations carry a
+    // 0.052 hem flare the mid-heights only approximate, and seven of his mane's
+    // vertices sat just inside at the tighter figure. One extra millimetre is
+    // under anything a lens can see and it clears the approximation error.
+    const clear = coifed ? LAYER_GAP : 0.030;
+    const hw = under.hw + clear, hd = under.hd + clear;
     // The garment's own curve, not an ellipse standing in for it. See the note
     // on `shoulderOut`: `power` IS the superellipse exponent, because
     // `shell`'s section satisfies |x/hw|^p + |z/hd|^p = 1.
@@ -15108,7 +15155,7 @@ export function buildCharacter(
     // the first row below the hem is a step in the surface however small it is.
     // At the hem itself it does nothing, so the fall leaves the rings at
     // exactly the radius the rings left it.
-    const k = 1 + (1 / e - 1) * smooth(coifHemY, coifHemY - 0.035, out.y);
+    const k = 1 + (1 / e - 1) * smooth(rideTopY, rideTopY - 0.035, out.y);
     out.x *= k; out.z *= k;
   };
   const _ffA = new THREE.Vector3();
@@ -16353,7 +16400,14 @@ export function buildCharacter(
             // A rope swings as it falls and a mail bag flares as it descends,
             // so a plait that starts clear of the aventail can still reach it
             // 200 mm down. Held inside it by the same table the shell is.
-            fallFit(out);
+            // Coifed, the rope hangs inside the aventail's fall — that is the
+            // design and the whole "a rope is not a curtain" argument. With NO
+            // coif there is no aventail to hang inside, only a hauberk to hang
+            // THROUGH: `hairmail` read 46% of the war-locks' hanging vertices
+            // inside the huscarl's torso mail. So the bare-headed man's ropes
+            // take the ride; it pushes out and never pulls in, so a rope
+            // already swinging wide of the shoulder is left exactly as it was.
+            (coifed ? fallFit : gatherFit)(out);
             // AND A ROPE IS NOT A POINT, WHICH IS WHY THE SECOND SEED CAUGHT
             // THIS AND THE FIRST DID NOT. `fallFit` holds the SPINE inside the
             // rings; `braid` then sweeps a 17.6 mm tube around that spine, so a
