@@ -74,6 +74,14 @@ interface RoomState {
   roundWins: Record<string, number>; roundScoreBy: RoundScoreBy;
   lastRound: RoundResult | null; nextRoundAt: number;
   /**
+   * THE NAMED GROUND THIS MATCH IS FOUGHT OVER, and it has been on the wire all
+   * along with nothing rendering it. `engine.mjs`'s `territoryBlock` puts it on
+   * every snapshot; until now a player could fight a whole season without ever
+   * learning where. `holder` is who holds it as the war front last said, which
+   * is what makes "you are taking this off somebody" a sentence.
+   */
+  territory?: { id: string; name: string; native: string; holder: string } | null;
+  /**
    * HOW MANY AUTHORITATIVE SNAPSHOTS HAVE LANDED, stamped by this client and
    * never by the server. Read by `GameCanvas` as `ctx.wireEpoch` and by nothing
    * else; see `stampSnapshot` below for why it is counted here and what went
@@ -109,6 +117,8 @@ interface WarOutcomeMsg {
   people?: string;
   points?: number;
   territoryId?: string;
+  /** Set when THIS man's points took the ground off somebody. */
+  flip?: { territoryId: string; from: string; to: string };
 }
 
 /**
@@ -1491,6 +1501,14 @@ export default function Page() {
               <div className="label-overline">WAR CODE</div>
               <div className="warcode mt-2">{roomCode}</div>
               <div className="knot-band mt-1 w-full max-w-[15rem]" />
+              {/* THE GROUND, NAMED BEFORE A BLOW IS STRUCK.
+                  Every match is already fought over a real territory — the
+                  engine deals one per match and puts it on every snapshot — and
+                  nothing has ever shown it, so the war layer began at the
+                  results screen and the fight before it was placeless. A man
+                  who knows he is about to take Deira off the Norse is fighting
+                  for something; the same man told nothing is queueing. */}
+              <GroundLine territory={roomState.territory} />
             </div>
 
             <div className="flex flex-col gap-2.5">
@@ -3023,6 +3041,30 @@ type LedgerRow = MatchEndData["results"][number] & { place: number; roundsWon: n
  * #1s instead of inventing a loser.
  */
 /**
+ * WHERE THIS FIGHT IS. One line, and it is the front half of the loop the
+ * `WarLine` below closes: named ground before the blow, banked points after it.
+ *
+ * `holder` is who holds it as the war front last said — so the line reads as a
+ * claim on somebody rather than as a place name, which is the whole difference
+ * between a map and a backdrop.
+ */
+function GroundLine({ territory }: { territory?: { name: string; native: string; holder: string } | null }) {
+  if (!territory) return null;
+  const PEOPLE: Record<string, string> = {
+    saxon: "the Anglo-Saxons", norse: "the Norse",
+    briton: "the Britons", pict: "the Picts",
+  };
+  const held = PEOPLE[territory.holder];
+  return (
+    <div className="mt-2 flex flex-col items-center gap-0.5" data-ground={territory.name}>
+      <div className="label-overline !text-[9px] text-amber-400/70">FOUGHT OVER</div>
+      <div className="font-display text-sm tracking-[0.18em] text-amber-200">{territory.name.toUpperCase()}</div>
+      {held && <div className="text-[10px] text-stone-400">{held} hold it</div>}
+    </div>
+  );
+}
+
+/**
  * One line under the verdict, and it is the only place the war layer touches a
  * player who is not looking at the map.
  *
@@ -3040,6 +3082,24 @@ function WarLine({ war, onSwear }: { war: WarOutcomeMsg | null; onSwear?: () => 
   // second table here: sixteen names in two places is fifteen chances to drift.
   const ground = war.territoryId ? (territory(war.territoryId)?.name ?? war.territoryId) : null;
   if (war.kind === "banked" && war.people) {
+    // THE GROUND CHANGED HANDS ON HIS POINTS. A territory flips on somebody's
+    // last point and until now that man heard nothing — `war_flips` was
+    // written, the map's dispatch list read it days later, and the moment
+    // itself belonged to no one. This is the loudest thing this screen says,
+    // and it should be: it is the whole promise of the map, arriving.
+    if (war.flip) {
+      const took = PEOPLE[war.flip.to] ?? war.flip.to.toUpperCase();
+      const lost = PEOPLE[war.flip.from] ?? war.flip.from.toUpperCase();
+      return (
+        <div className="flex flex-col items-center gap-1" data-war="flip">
+          <div className="font-display animate-pulse text-[13px] tracking-[0.3em] text-amber-300"
+            style={{ textShadow: "0 2px 14px rgba(0,0,0,0.9)" }}>
+            {`${(ground ?? "THE GROUND").toUpperCase()} HAS FALLEN`}
+          </div>
+          <div className="badge-garnet !text-[10px]">{`${took} TAKE IT FROM ${lost} — YOUR +${war.points} CARRIED IT`}</div>
+        </div>
+      );
+    }
     return (
       <div className="badge-garnet !text-[10px]" data-war="banked">
         {`+${war.points} TO ${PEOPLE[war.people] ?? war.people.toUpperCase()}`}

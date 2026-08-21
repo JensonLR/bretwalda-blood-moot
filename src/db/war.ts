@@ -353,7 +353,11 @@ async function settleSeason(db: Db, season: SeasonRow): Promise<SeasonVerdict | 
 async function bankOne(db: Db, season: SeasonRow, entry: {
   matchKey: string; playerId: string; profileId: number;
   people: PeopleId; territoryId: string; points: number;
-}): Promise<boolean> {
+  // THE FLIP, HANDED BACK RATHER THAN ONLY FILED. `war_flips` has always
+  // recorded a territory changing hands, and the only reader was the map's own
+  // dispatch list — so the man whose points DID it heard nothing at the moment
+  // it happened. This carries it out to the summary.
+}): Promise<{ ok: boolean; flip?: { territoryId: string; from: string; to: string } }> {
   return db.transaction(async (tx) => {
     const inserted = await tx.insert(warLedger).values({
       seasonId: season.id,
@@ -365,14 +369,14 @@ async function bankOne(db: Db, season: SeasonRow, entry: {
       points: entry.points,
     }).onConflictDoNothing().returning({ id: warLedger.id });
     // ALREADY BANKED. The retry ends here, having moved nothing.
-    if (!inserted.length) return false;
+    if (!inserted.length) return { ok: false };
 
     const found = await tx.select().from(territories).where(and(
       eq(territories.seasonId, season.id),
       eq(territories.territoryId, entry.territoryId),
     )).limit(1).for("update");
     const row = found[0];
-    if (!row) return false;
+    if (!row) return { ok: false };
 
     const ground = {
       holder: row.holder, threshold: row.threshold, epoch: row.epoch,
@@ -396,7 +400,7 @@ async function bankOne(db: Db, season: SeasonRow, entry: {
         fromPeople: flip.from, toPeople: flip.to,
       });
     }
-    return true;
+    return { ok: true, flip: flip ? { territoryId: flip.territoryId, from: flip.from, to: flip.to } : undefined };
   });
 }
 
@@ -444,6 +448,8 @@ export interface WarOutcome {
   people?: PeopleId;
   points?: number;
   territoryId?: string;
+  /** Set when THIS man's points took the ground off somebody. */
+  flip?: { territoryId: string; from: string; to: string };
 }
 
 export interface BankResult { banked: number; outcomes: WarOutcome[] }
@@ -496,11 +502,15 @@ export async function bankMatchDetailed(report: MatchEndReport): Promise<BankRes
         profileId: claim.profileId, people: side,
         territoryId: report.territoryId, points,
       });
-      if (landed) banked++;
+      if (landed.ok) banked++;
       outcomes.push({
         playerId: claim.entry.playerId,
-        kind: landed ? "banked" : "already",
+        kind: landed.ok ? "banked" : "already",
         people: side, points, territoryId: report.territoryId,
+        // Set on the ONE man whose points carried it over. A territory changes
+        // hands on somebody's last point, and that man should be the one who
+        // hears about it.
+        ...(landed.flip ? { flip: landed.flip } : {}),
       });
     }
     if (banked) frontCache = null;   // the map moved; the engine wants to know
