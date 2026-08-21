@@ -48,19 +48,20 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ["games"],
     icons: [
       {
-        // `/icon` is the route `app/icon.tsx` serves — drawn per request, so
-        // there is no PNG in the tree. `purpose: "any"` and a separate
-        // "maskable" entry point at the same art on purpose: the icon already
-        // keeps its helm well inside the frame, so a mask crop takes nothing
-        // off it, and declaring both stops Android drawing a white rounded
-        // square behind it.
-        src: "/icon",
+        // `/icon.png` is `app/icon.png` — the owner's winged-helm mark on the
+        // game's near-black, the one deliberate binary asset in the tree (the
+        // note in WHAT-THIS-GAME-IS.md records why). `purpose: "any"` and a
+        // separate "maskable" entry point at the same art on purpose: the helm
+        // sits well inside the frame, so a mask crop takes nothing off it, and
+        // declaring both stops Android drawing a white rounded square behind
+        // it.
+        src: "/icon.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icon",
+        src: "/icon.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
