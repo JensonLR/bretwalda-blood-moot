@@ -49,6 +49,16 @@ per-channel contrast crushes the channel a saturated colour has least of; the
 fix is a luma-preserving power law plus a madder-wrap albedo retune, taken
 together.
 
+### Correction to the merge commit's own claim — R8
+
+The merge message for this branch says the knee revert took buff@0 "+34.6 →
++3.7". **That is wrong for the shipped tree.** The +3.7 reading came from the
+`no knees + LUMA grade` run, and the luma grade is exactly what was held back.
+The full buff@0 column is: knees+old +34.6 · knees+luma +28.5 · no-knees+luma
++3.7 · **no-knees+old (SHIPS) +28.5** — so buff goes clean only when BOTH the
+knee revert and the luma grade are in, which is one more datum for shipping the
+grade+retune unit together, and one more reason the residual below matters.
+
 ### The confirmation probe, and the residual it found — a NEW open question
 
 The fully reverted tree (no knees, old grade — nominally the 20-Aug
