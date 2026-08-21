@@ -8,6 +8,64 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## NEGATIVE RESULT — widening the vat's bands does NOT buy the paid ladder — 21 Aug 2026
+
+The clamps are fixed (see below) and **eleven paid surfaces still collapse onto
+the free Rough Iron's own**. The obvious next knob is the band WIDTH: inside
+`[lo, hi]` `softBand` is the identity, so two finishes 0.30 of lightness apart
+that both land in a band 0.10 wide come out at most 0.10 apart. Some of these
+bands are very narrow:
+
+```
+  band widths (hi - lo)      cloth   wrap   leather   linen
+    saxon                     0.10   0.16     0.23     0.16
+    norse                     0.20   0.02     0.20     0.07
+    briton                    0.10   0.16     0.20     0.16
+    pict                      0.14   0.22     0.25     0.34
+```
+
+`norse.wrap` is **0.02 wide** — every finish's leg wrap on a Danelaw comes out
+the same lightness, which is a twin factory by construction.
+
+**Widened DOWNWARD only** — `lo` lowered, every `hi` left exactly where the
+fluorescence work put it, so nothing can get brighter. Measured, and then
+attributed by reverting one half at a time:
+
+| what moved | 5.2b | 1.3 | 5.4 rose band |
+|---|---|---|---|
+| nothing (ships) | 11 | −40.57° | **green, 0 of 196** |
+| all five bands | 10 | −105.87° | **RED — 8 of 196** |
+| the three non-Danelaw only | 10 | −105.87° | green |
+
+**Both halves are bad trades and neither is taken.**
+
+* The eight rose-band offenders are **entirely the Danelaw's** `wrap` and
+  `linen`. Reverting those two alone puts §5.4 back to green — so widening his
+  bands is the owner's pink Viking coming back, which is not a thing to trade
+  for anything.
+* The other three peoples' `cloth` buys **one** surface for **sixty-five
+  degrees** of §1.3. The floor-knee change earlier took four surfaces for five
+  degrees and that was worth it; this is thirteen times worse per surface.
+
+### So the band is not the lever, and the remaining eleven need a design answer
+
+Three tuning routes are now measured and closed: the three hard clamps (two
+taken, one refused), and the band width (refused, both halves). What is left is
+`sat` itself, and it is not a number that can be tuned out of the tension — **a
+vat strong enough to say "Danelaw" on a tunic is strong enough to say it louder
+than the 110 gold that bought the tunic.**
+
+The answer that does not fight itself is to put the paid ladder somewhere the
+vat does not reach. `fitting` already demonstrates the shape: it is the §6
+control, `dL +0.0` under every livery, and it carries a clean spread across all
+seven finishes — `#c3c9d0`, `#dcc164`, `#aab8c0`, `#bfa25c`, `#c79a4a` — because
+nothing dyes it. A finish whose identity lives on buckles, rivets, boss and rim
+is a finish a livery cannot flatten. That is a shop change with a picture
+attached, not a knob, and it is where the next round should start.
+
+---
+
+
 ## THE PAID LADDER, ROUND TWO — three hard clamps in one function, two taken and one refused — 20 Aug 2026
 
 `5.2b`'s own line is the diagnosis and it has been there all along: the worst
