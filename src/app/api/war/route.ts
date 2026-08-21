@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { clientKey, localMode, rateLimit, readBody, serverOk, tooMany } from "@/db/api";
-import { refreshFront, warSelf, warView } from "@/db/war";
+import { refreshFront, warSelf, warView, installWarLedger } from "@/db/war";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +21,16 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   if (!rateLimit(`war:${clientKey(req)}`, 240, 60_000)) return tooMany();
   const body = await readBody(req) ?? {};
+
+  // BELT AND BRACES ON THE SUBSCRIPTION, and it is idempotent.
+  //
+  // `installWarLedger` is meant to run once from `src/instrumentation.ts`. If
+  // that hook does not fire — and under a custom server it is not this file's
+  // place to assume it did — then nothing is subscribed to `onMatchEnd` and
+  // every match banks nothing, silently, forever. Calling it here costs a
+  // boolean check on the warm path and means the war layer switches itself on
+  // the first time anybody so much as looks at the map.
+  installWarLedger();
 
   const view = await warView();
   if (!view) return localMode();

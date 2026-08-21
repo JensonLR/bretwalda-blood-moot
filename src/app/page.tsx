@@ -3147,10 +3147,25 @@ function MatchSummary({ data, playerId, payState, waiting, war, onEmote, onFight
   const mine = rows.find((r) => r.id === playerId);
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-7 sm:p-6">
-      <div className="animate-fadeIn flex flex-col items-center gap-1.5 text-center">
+      {/* A SCRIM, BECAUSE A TEXT SHADOW IS NOT CONTRAST.
+          The owner: "the text on end screen the yellow is sometimes hard to
+          read & blended into the background of the arena". It is amber type on
+          an arena lit by a low sun — the two are the same hue, and a shadow
+          only darkens the pixels immediately under a glyph, which does nothing
+          when the glyph and the ground behind it are both bright.
+          What fixes text over ARBITRARY imagery is a ground of its own. This is
+          a gradient rather than a panel so it has no edge to notice, it is
+          behind the words and in front of the fight, and it is tall enough to
+          cover the whole top cluster including the war line. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-black/75 via-black/45 to-transparent sm:h-60" />
+      <div className="animate-fadeIn relative flex flex-col items-center gap-1.5 text-center">
         <div className="label-overline">BATTLE COMPLETE</div>
-        <h1 className="font-display text-2xl leading-tight text-amber-100 sm:text-4xl"
-          style={{ textShadow: "0 2px 24px rgba(0,0,0,0.85), 0 0 30px rgba(255,180,60,0.4)" }}>
+        {/* Near-white rather than amber-100. Over a warm arena an amber
+            headline is the same hue as its background; the glow stays because
+            it is what makes it feel lit, but the type itself has to be the one
+            thing in the frame that is NOT the fire's colour. */}
+        <h1 className="font-display text-2xl leading-tight text-[#f6f1e6] sm:text-4xl"
+          style={{ textShadow: "0 2px 24px rgba(0,0,0,0.95), 0 0 30px rgba(255,180,60,0.35)" }}>
           {data.winnerKind === "none" || data.winnerName === "Draw"
             ? "BLOOD SPILT — A DRAW"
             : `${data.winnerName.toUpperCase()} PREVAILS`}
@@ -3176,8 +3191,8 @@ function MatchSummary({ data, playerId, payState, waiting, war, onEmote, onFight
         {/* `isWinner` and not an id match: a war band is won by a side, and
             every man on it won it. */}
         {mine?.isWinner && (
-          <div className="font-display animate-pulse text-sm tracking-[0.35em] text-yellow-400"
-            style={{ textShadow: "0 2px 14px rgba(0,0,0,0.9)" }}>VICTORY IS YOURS</div>
+          <div className="font-display animate-pulse text-sm tracking-[0.35em] text-[#ffd45e]"
+            style={{ textShadow: "0 1px 3px rgba(0,0,0,0.95), 0 2px 14px rgba(0,0,0,0.9)" }}>VICTORY IS YOURS</div>
         )}
         <MatchTally data={data} playerId={playerId} />
       </div>

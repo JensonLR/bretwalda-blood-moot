@@ -563,6 +563,14 @@ const globalForWar = globalThis as typeof globalThis & { __bretwaldaWarInstalled
 export function installWarLedger(): void {
   if (globalForWar.__bretwaldaWarInstalled) return;
   globalForWar.__bretwaldaWarInstalled = true;
+  // IT SAYS WHETHER IT INSTALLED, and that is not noise.
+  //
+  // Every match in production banked nothing and there was no way to tell
+  // whether the subscription existed. One line at boot is the difference
+  // between "the war layer is broken" and "the war layer was never switched
+  // on", and those are not the same bug.
+  const say = (ok: boolean, why?: string) =>
+    console.log(`[war] match-end subscription ${ok ? "INSTALLED" : `NOT installed — ${why}`}`);
   try {
     getEngine().onMatchEnd((report) => {
       // Returned, not awaited: `endMatch` does not wait for Postgres, and the
@@ -582,6 +590,14 @@ export function installWarLedger(): void {
         })
         .catch(() => ({ banked: 0, outcomes: report.entries.map((e) => ({ playerId: e.playerId, kind: "unavailable" as const })) }))
         .then((res) => {
+          // ONE LINE PER MATCH, and it is the only way anybody outside a
+          // debugger finds out why a fight counted for nobody. Counts by
+          // reason rather than a row per man: eight men is eight lines and
+          // nobody reads eight lines.
+          const tally: Record<string, number> = {};
+          for (const o of res.outcomes) tally[o.kind] = (tally[o.kind] ?? 0) + 1;
+          console.log(`[war] ${report.matchKey} on ${report.territoryId}: banked ${res.banked}`
+            + ` — ${Object.entries(tally).map(([k, n]) => `${n} ${k}`).join(", ") || "nobody"}`);
           try {
             getEngine().tellRoom(report.roomCode, {
               type: "war_result",
@@ -591,8 +607,10 @@ export function installWarLedger(): void {
         })
         .catch(() => {});
     });
-  } catch {
+    say(true);
+  } catch (e) {
     globalForWar.__bretwaldaWarInstalled = false;
+    say(false, String((e as Error)?.message ?? e).slice(0, 120));
   }
 }
 
