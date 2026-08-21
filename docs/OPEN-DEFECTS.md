@@ -8,6 +8,100 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — the nape-guard FLARE and the nape-guard STANDOFF disagree, and the picture sides with standoff — 20 Aug 2026
+
+`wearmeasure` section 3, on `main`:
+
+```
+  helm         parts   gap mm  flare deg   hem mm   worst part
+  ridge            1     13.6        8.9     13.6   -
+  spectacle        2     17.7       11.5     19.0   -
+  boar             2     17.7       11.5     14.0   -
+  crowned          2     17.7       11.5     14.0   -
+  wyrm             2     23.4       49.8     25.0   nape guard   <-- FAIL
+  suttonhoo        2     21.7       40.1     19.0   nape guard   <-- FAIL
+  bars: gap 26 mm, flare 22 deg, hem 26 mm
+```
+
+Only the two helmets with `nape: "guard"` fail; every `nape: "flange"` helmet is
+under half the bar.
+
+### WHERE IT PEAKS, on every class and both seeds
+
+`helmFitProbe`, printing `flareU`/`flareV` rather than the maximum alone:
+
+```
+  wyrm        warden     40.5 / 43.5   at u 0.056        v 0.867   gap 16.7 / 17.3 mm
+              runekeeper 41.0 / 41.6   at u 1.000/0.944  v 0.933   gap 20.3 / 20.5
+              berserker  45.4 / 49.8   at u 0.972        v 0.867   gap 18.1 / 19.3
+  suttonhoo   warden     35.3 / 31.9   at u 0.972        v 0.867   gap 15.5 / 17.2
+              berserker  33.3 / 40.1   at u 0.972/1.000  v 0.867   gap 17.6 / 19.1
+```
+
+**v is 0.80–0.93 every time and u is at 0.03 or 0.97 every time** — the guard's
+front-bottom CORNERS, both sides, on all four classes. (The huscarl reads
+`gap 75.0 / standoff 75.0`, the search cap exactly; he is `blind`ed for the coif
+and is not gated.)
+
+### THE LEVER IS THE DEPTH, AND IT IS MONOTONIC
+
+The guard's floor is `skullY - R.y * 1.12`; the flange's is `0.45`. Swept
+through the same code with nothing else changed:
+
+```
+  guard floor 1.12 head-radii  ->  worst flare 49.8   (ships)
+              0.90                              45.4
+              0.70                              34.9
+              0.45                              26.0   (the flange's own depth)
+```
+
+So the flare is bought by how far below the skull's BASE the plate reaches —
+which is exactly where `hullAt` (the profile the plate is swept on: skull, then
+neck, then coif) and `formHull` (`withNeck(formTab)`, what the ruler measures
+against) diverge. `withNeck`'s own note calls the ceiling that stops the neck
+reaching up into the jaw **"the one thing about this table that is still an
+approximation"**.
+
+**Two things it is NOT.** `napeHalf`'s widening coefficient, swept 0.44 → 0.30 →
+0.20 and from `v²` to `v`, moves the worst flare between **48.5 and 52.0** — no
+lever at all. `clearAt` ramps 13 mm → 15 mm over the whole fall, and 2 mm cannot
+make a 50° angle across a 12 mm step.
+
+### AND THE SAME HARNESS'S OTHER COLUMN SAYS THE PLATE IS FINE
+
+`standoff` — how far the metal actually is from the head — reads **15.5 to
+20.5 mm against a 26 mm bar** on every gated class, and it does not move as the
+flare climbs from 26 to 50. **A plate departing at 50° sustained over its lower
+third would be far more than 20 mm off by the hem.** Both readings cannot
+describe a wing; what they describe together is a LOCAL swing — the plate close
+to the skin at one sample and 17 mm off 12 mm later, across the submandibular
+hollow the form table admits is approximate.
+
+**Photographed** at the bearing the corner is on, production build, arena light:
+`art/look/nape2/facecard-helmhelm_wyrm-clsberserker-turn140.png` — the berserker,
+the class that reads 49.8, in the Wyrm-Crest. The guard hugs the skull, its hem
+sits on the neck, and there is no daylight and no wing. `art/look/nape/` is the
+huscarl for comparison, guard flush over the coif.
+
+### WHAT IS NOT DONE, AND WHY IT IS NOT A TUNING JOB
+
+Two honest routes, neither taken here:
+
+1. **Repair the hollow in `withNeck`.** It is the cause. Filling it is what the
+   "phantom cylinder" got wrong in round eight, so it needs its own unit.
+2. **Make the flare ruler measure a RUN.** Its own header says *"A flare is a
+   thing you can see, and what you see is the angle a plate holds over a run of
+   it"* — and then differentiates across a single 12 mm step. A sustained
+   departure and a one-step swing are different things and this column cannot
+   tell them apart.
+
+**Moving the bar from 22 is not on the list.** It is the one repair that would
+turn the column green without learning anything, and this file's own rule is that
+a bar tuned rather than met is worse than a hole.
+
+---
+
+
 ## OPEN — the paid hair under the Shadow Hood is NOT a cull, it is the MANTLE — 20 Aug 2026
 
 `cosmetictest --no-render` on `main`:
