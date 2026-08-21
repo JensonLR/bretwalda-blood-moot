@@ -72,10 +72,10 @@
 // already generating and not overwrite it.
 
 import * as THREE from "three";
-import type { GamePlayer, WarriorClass } from "../../types";
+import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
-  buildCharacter, buildWeaponForClass, buildShield, shieldBoard,
+  buildCharacter, buildWeaponForClass, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
   type TeamSide,
@@ -359,6 +359,13 @@ export interface WarriorMotion {
   /** How late arrivals have been running lately. Widens the phase window. */
   netJit: number;
   /**
+   * The room snapshot count this motion last ingested, from `ctx.wireEpoch`.
+   * -1 until the first frame. It is what lets `ingestNet` tell a man the server
+   * says is STANDING STILL from a man the server has said nothing about; see
+   * the note there.
+   */
+  netEpoch: number;
+  /**
    * Error smoothing. The zero-delay local rig extrapolates, and an
    * extrapolation is a guess: when the next packet disagrees with it the
    * difference has to go somewhere. Applied on the frame it appears it is a
@@ -407,8 +414,23 @@ export interface WarriorMotion {
   /** Direction of the last blow in body space: +Z forward, +X weapon side. */
   hitFwd: number;
   hitSide: number;
-  /** Seconds spent in the current one-shot state (dodge, stagger, shout, death). */
+  /**
+   * Seconds spent in the current one-shot MOVE (dodge, stagger, shout, death).
+   *
+   * Per MOVE, and that word is load-bearing — it used to be per "any one-shot
+   * at all", and one clock shared by six different animations is how a man
+   * killed out of a stagger started his collapse 0.65 s into it. See the note
+   * at the assignment in `poseWarrior`.
+   */
   actT: number;
+  /**
+   * `player.state` on the previous frame, RAW — not folded through
+   * `POSE_GROUP`. The only thing that reads it is the one exception to
+   * "restart the clock when the move changes": a man who dies while he is
+   * ALREADY ON THE GROUND is still going down, and `knocked` and `rising` are
+   * the same pose group, so the group alone cannot tell those two apart.
+   */
+  lastRaw: string;
   /**
    * The emote being performed, or null. Client-side only — the server relays
    * the press and keeps the chosen id; the performance itself is this clock.
@@ -496,7 +518,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     rx: p.position.x, rz: p.position.z, yaw: p.rotation,
     net: Array.from({ length: SNAP_KEEP }, () => ({ t: 0, x: 0, z: 0, yaw: 0, yawRaw: 0 })),
     netHead: 0, netCount: 0, netClock: 0,
-    netInterval: NET_INTERVAL_GUESS, netArrive: 0, netJit: 0,
+    netInterval: NET_INTERVAL_GUESS, netArrive: 0, netJit: 0, netEpoch: -1,
     errX: 0, errZ: 0, errYaw: 0,
     rawX: p.position.x, rawZ: p.position.z, rawYaw: p.rotation,
     rawVx: 0, rawVz: 0, rawVyaw: 0, rawPrimed: false,
@@ -504,7 +526,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     stride: hash01(p.id) * Math.PI * 2, land: 0, seed: hash01(p.id + "s") * 6.28,
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
     swingPrev: 0, swingHold: 0, heavy: 0,
-    flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", fall: -1,
+    flinch: 0, hitFwd: -1, hitSide: 0, actT: 0, blend: 0, lastState: "", lastRaw: "", fall: -1,
     emote: null, emoteT: 0,
     struckDead: false,
     wMove: 0, wBlock: 0, wAction: 0,
@@ -641,7 +663,18 @@ export function createWarriorRig(
     // band it is the side's field, because a painted limewood board is the one
     // surface on this warrior where a flat team colour is what the object was
     // actually for.
-    shield = buildShield(shieldBoard(ap, team), materials, ap.armorColor, team);
+    // AND THE PEOPLE, ONE RUNG BELOW THE SIDE. The fifth argument is the
+    // board's PAINT and its mark; the field it lies on is already the people's
+    // because `shieldBoard` chose it. Both are `"none"`-safe and both test the
+    // team first, so a war band's board is byte-for-byte the red or blue field
+    // `tools/teamread.mjs` measures — a device is a within-side read and must
+    // never be able to break a between-side one.
+    //
+    // `ap` and not a seventh rig argument: a livery is a cosmetic, it rides in
+    // the appearance blob with the helm and the cloak, and it is the only thing
+    // here a client is allowed to write for itself. See `Appearance.people`.
+    const people = peopleOf(ap);
+    shield = buildShield(shieldBoard(ap, team, people), materials, ap.armorColor, team, people);
     joints.elbowL.add(shield);
   }
 
@@ -1571,8 +1604,55 @@ const STANCE: Record<WarriorClass, Stance> = {
 // continuously rather than snapping, because the correction rides in through
 // the newest snapshot, which is what the extrapolation is anchored on.
 
-/** How many authoritative states are kept per warrior. */
-const SNAP_KEEP = 4;
+/**
+ * How many authoritative states are kept per warrior.
+ *
+ * EIGHT, NOT FOUR, AND THE REASON IS THE OTHER END OF THE BUFFER. Four slots
+ * span three packet gaps — 150 ms — and a remote body is drawn 74.7 ms behind
+ * the newest of them, so there were only ~75 ms of history in front of the
+ * render point. A burst of two queued packets advances the grid 100 ms in one
+ * frame, pushes the OLDEST sample past the render time, and `sampleNet` clamps
+ * to it: the man is pinned where he was and does not move at all.
+ *
+ * That was invisible while a still man emitted nothing, because his ring stayed
+ * stale and the render point sat comfortably inside it. Confirming still men
+ * (see `ingestNet`) fills the ring with genuinely recent history, and the
+ * stall it exposed went 1.7% -> 5.0% of warrior-frames.
+ *
+ * Eight slots span 350 ms, which puts 275 ms in front of the render point —
+ * past the 220 ms extrapolation cap and past any burst this wire produces.
+ * Measured, three runs: stalls 5.0% -> 0.2 / 0.1 / 0.1% of warrior-frames.
+ *
+ * Extrapolation is untouched by this constant and the runs say so rather than
+ * assuming it: 7.9% at four slots against 19.2 / 7.8 / 8.0% at eight. The
+ * first of those three is an outlier and is reported because it was seen —
+ * nothing here reaches the head of the grid, which is what decides whether a
+ * frame extrapolates, so run-to-run wire quality is the only thing that moved.
+ *
+ * It is NOT a licence to render further back. `REMOTE_DELAY_PACKETS` is
+ * unchanged at 1.5; deeper history is only insurance against the buffer being
+ * overrun from the old end.
+ *
+ * AND EIGHT WAS NOT ENOUGH ONCE THE JITTER TERM WENT ON THE DELAY. Eight slots
+ * span 350 ms. The render point moved from 74 ms behind the newest to about 99
+ * (see JITTER_DELAY_PACKETS), leaving 250 ms of margin at the old end — and the
+ * arrival grid a few hundred lines down tolerates the client clock and the wire
+ * parting company by up to 500 ms before it snaps them together. So the margin
+ * was HALF the divergence the code already allows, and one run in three fell
+ * off the old end and pinned: measured, three paired runs, buffer stalls
+ * 0.2 / 0.2 / 0.3% at eight slots against 18.4 / 0.3 / 0.3% at eight slots WITH
+ * the jitter term. Fourteen slots span 700 ms, which is past that 500 ms
+ * tolerance with room: three runs at fourteen read 0.4 / 0.3 / 0.3%, which is
+ * the eight-slot baseline back again with the jitter term kept. Cost is
+ * fourteen small records per warrior instead of eight.
+ *
+ * SO THE STALL WAS A MARGIN AND NOT A TRADE, which is the opposite of what the
+ * paragraph above used to say — it said raising the delay trades extrapolation
+ * for stalls "the way it always did", and that sentence had been true of every
+ * attempt before this one. It is not true when the ring is deep enough to hold
+ * the clock tolerance the grid already allows.
+ */
+const SNAP_KEEP = 14;
 /** Assumed wire period until the real one has been measured. 20 Hz. */
 const NET_INTERVAL_GUESS = 0.05;
 const NET_INTERVAL_MIN = 0.02;
@@ -1585,6 +1665,74 @@ const NET_INTERVAL_MAX = 0.3;
  * the interval in which a packet went missing entirely.
  */
 const REMOTE_DELAY_PACKETS = 1.5;
+/**
+ * HOW MUCH OF THE MEASURED ARRIVAL LATENESS THE BUFFER IS ALLOWED TO ABSORB,
+ * as a share of one packet interval. It exists because a FIXED buffer cannot be
+ * right on a wire whose jitter is not fixed. It was landed as "the last piece of
+ * the owner's JOLTY"; it is not, and the paragraph beginning THE FIRST CLAIM
+ * says what happened to that claim and what is left standing.
+ *
+ * `REMOTE_DELAY_PACKETS * netInterval` is 75 ms. `tools/janktest.mjs` §3 prints
+ * that budget against the wire it just measured and, on this box, says outright:
+ *
+ *     AGAINST THE WIRE: buffer 74.44 ms vs arrival p99 95.90 ms
+ *     -> THE JITTER EXCEEDS THE BUFFER by 21.46 ms. It must run dry.
+ *
+ * And it does: 10.7-19.6% of every remote man's frames were EXTRAPOLATED, which
+ * is position invented from a stale velocity and taken back when the next packet
+ * lands. That take-back is a step, and the step is what is left of JOLTY.
+ *
+ * PROVEN WITH THE LEVER BEFORE IT WAS FIXED (R1). `--lever=4` raises the delay
+ * to four packets in the served bundle. Remote extrapolation goes to 0.0% on
+ * every bot, and the drawn track's >8x speed changes AT THE WIRE'S OWN CADENCE
+ * fall from 2.66x the wire's own rate to 1.15x. So the client's share of the
+ * residual jolt is this and nothing else. A fixed 4 packets is not the fix — it
+ * is 199 ms of render delay, and LAGGY is the same owner's word as JOLTY.
+ *
+ * `netJit` is already computed a few lines up, for the arrival grid: it is how
+ * late arrivals have been running lately, and it DECAYS TO ZERO ON A CLEAN
+ * WIRE. So adding it to the delay is exactly zero change on a wire that does
+ * not need it, and buys buffer precisely when the wire is late. Capped at half
+ * a packet — 25 ms — because it must cover the 21 ms deficit measured above and
+ * must not become a licence to render arbitrarily far back.
+ *
+ * THE FIRST CLAIM MADE FOR THIS LINE IS WITHDRAWN, AND THE REPLACEMENT IS
+ * NARROWER. It was landed on a "ratio" column — the drawn track's >8x speed
+ * changes at the wire's cadence divided by the wire's own rate — reading
+ * 1.28 / 1.03 / 1.30 before against 0.57 / 0.64 / 0.50 after. Two adversaries
+ * refuted it. The denominator of that ratio was itself normalised by the man's
+ * median DRAWN speed, so the control moved with the treatment; `origin/main`,
+ * the build everyone agrees is broken, scored BETTER on it than the branch did;
+ * and on a paired same-binary lever the arms did not separate. It was circular.
+ * Do not resurrect it.
+ *
+ * WHAT DOES HOLD, on a measure nothing in the client can flatter: EXTRAPOLATION
+ * itself — the share of warrior-frames where render time ran past the newest
+ * snapshot and a position had to be invented. Three runs a side on ONE binary,
+ * `--lever=1.5` reproducing the old expression exactly:
+ *
+ *     REMOTE_DELAY_PACKETS alone   extrapolation 17.8  14.2  13.5 %   delay 74.5 ms
+ *     + this term, ring at 14                     10.2  10.6   9.6 %   delay 99.5 ms
+ *
+ * Every run with the term is below every run without it — invented motion cut by
+ * about a third, and invented motion is taken back when the next packet lands,
+ * which is a step on the screen. Buffer stalls 0.3 / 0.3 / 0.2% against
+ * 0.2 / 0.1 / 0.2%, a tenth of a point paid. THE FLOOR IS UNMOVED: the
+ * motionless-man drift reads p50 0.01 m on BOTH arms with zero holds over 0.25 m
+ * on either, so the "median moved 0.00-0.01 -> 0.05-0.06 m" this comment used to
+ * carry was run variance and is deleted rather than defended.
+ *
+ * THE JOLT FIGURE ITSELF DOES NOT MOVE, and that is not a failure of this line.
+ * The same six runs decompose it: of about 2% at 60 Hz, roughly a point is the
+ * DIFFERENCING INTERVAL and the rest is in the wire, leaving the client within
+ * half a point of zero on every run. See docs/OPEN-DEFECTS.md.
+ *
+ * THE COST IS 25 ms OF REMOTE RENDER DELAY ON A WIRE THAT IS LATE, and LAGGY is
+ * the same owner's word as JOLTY. It is bounded, it is paid only when earned,
+ * and this box's wire is worse than a real one — `netJit` decays at 0.985 a
+ * packet, so on a clean wire this line is arithmetically the one it replaced.
+ */
+const JITTER_DELAY_PACKETS = 0.5;
 /**
  * The furthest the interpolator will carry a body past its newest snapshot when
  * the buffer runs dry. A lost packet then STRETCHES the motion for a fifth of a
@@ -1619,12 +1767,51 @@ function snapAt(m: WarriorMotion, k: number): NetSnapshot {
  * period after the one before it, and the arrival is only allowed to correct
  * that grid, never to set it. The result is exactly-even segments.
  */
-function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number): boolean {
+function ingestNet(m: WarriorMotion, p: GamePlayer, dtFrame: number, epoch: number | undefined): boolean {
   const x = p.position.x;
   const z = p.position.z;
   const rawYaw = p.rotation;
   const newest = m.netCount ? snapAt(m, m.netCount - 1) : null;
-  if (newest && newest.x === x && newest.z === z && newest.yawRaw === rawYaw) return false;
+  // A STILL MAN IS NOT A SILENT WIRE, AND THEY USED TO BE THE SAME BYTES HERE.
+  //
+  // Comparing the record with the one held is the only way to notice a new
+  // packet from a wire that stamps nothing per player — but it answers "did
+  // this man move", and the question is "did a packet land". They part company
+  // exactly when a man holds position, and that is not a rare case: measured on
+  // a 40 s seven-bot fight, a record is byte-identical to the tick before it on
+  // 7.9%-69.5% of ticks per man — 99-100% for a corpse, 26-35% for a staggered
+  // man, 6-13% for a man mid-swing — with freeze runs reaching 7400 ms.
+  //
+  // Read as silence, every one of those ticks left the newest stamp where it
+  // was while `netClock` ran on, so `sampleNet` fell into its extrapolation
+  // branch and carried the body down the last segment velocity it had — up to
+  // 3.19 m/s measured on the tick before a freeze — for the full
+  // NET_MAX_EXTRAPOLATE. Two thirds of a metre of motion the simulation never
+  // had, on a man the server was reporting as motionless, ending in a snap back
+  // when the silence finally tripped the buffer reset below. That is the
+  // owner's JOLTY and his JUMPY, and they were one defect.
+  //
+  // `ctx.wireEpoch` is the witness the record cannot be: a snapshot is a
+  // whole-room broadcast, so its arrival confirms EVERY man in it, the still
+  // ones included. When it has advanced, an unchanged record is an
+  // authoritative "he is exactly here" and is ingested as one — placed on the
+  // grid like any other packet, with a segment velocity of zero, so the
+  // extrapolator has nothing to invent. When it has NOT advanced the wire is
+  // genuinely silent and this returns false exactly as it always did, leaving
+  // the extrapolator to cover a real hole. That is the distinction, and it is
+  // the whole fix.
+  //
+  // It does NOT replace the slot count below. Epoch delta counts PACKETS; the
+  // grid is spaced in sim STEPS, and one wake can ship two steps in one packet
+  // (engine.mjs:2203). Different quantities — the long argument below still
+  // stands and is untouched.
+  //
+  // undefined = a caller with no wire at all. `summary.ts` and `armouryStage`
+  // pose frozen records, where a still man IS the whole intent, so they keep
+  // the original behaviour.
+  const confirmed = epoch !== undefined && epoch !== m.netEpoch;
+  if (epoch !== undefined) m.netEpoch = epoch;
+  if (newest && newest.x === x && newest.z === z && newest.yawRaw === rawYaw && !confirmed) return false;
 
   const now = m.netClock;
   // A seed, not an observation. All that is known of an arrival is that it fell
@@ -1931,11 +2118,17 @@ export function stepWarriorTransform(
   // off frame counts, which is what makes the motion identical at 30, 60 and
   // 120 fps instead of converging twice as fast on the better phone.
   motion.netClock += Math.max(0, dt);
-  const teleported = ingestNet(motion, player, dt > 1e-4 ? dt : 1 / 60);
+  const teleported = ingestNet(motion, player, dt > 1e-4 ? dt : 1 / 60, ctx.wireEpoch);
   // Local: zero delay, carried forward to the present instant. Remote: rendered
-  // 1.5 packet intervals back so there is always a snapshot on each side. See
-  // the section header for why the two are not the same problem.
-  const delay = player.id === ctx.localId ? 0 : REMOTE_DELAY_PACKETS * motion.netInterval;
+  // 1.5 packet intervals back so there is always a snapshot on each side, PLUS
+  // however late this wire has actually been running, bounded. See
+  // JITTER_DELAY_PACKETS — on a clean wire `netJit` is zero and this line is the
+  // one it replaces, exactly. See the section header for why local and remote
+  // are not the same problem.
+  const delay = player.id === ctx.localId
+    ? 0
+    : REMOTE_DELAY_PACKETS * motion.netInterval +
+      Math.min(motion.netJit, JITTER_DELAY_PACKETS * motion.netInterval);
   sampleNet(motion, motion.netClock - delay, player);
   smoothNetError(motion, dt, teleported);
 
@@ -2330,7 +2523,21 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
   P.prx += -0.03 * w;
   P.cry += (0.14 + ready * 0.09) * carry * w;
   P.crx += (0.05 + ready * 0.06) * w;
-  P.arx += (0.16 - ready * 0.32) * w;
+  // THE REST POSE IS A LOW READY, NOT A MAN WITH HIS ARMS DOWN.
+  //
+  // The owner: "they go static, arms by their side". Measured on the committed
+  // pose of a calm warden, `arx` sat at 0.163 rad — nine degrees off hanging —
+  // with the elbow at 0.26. The same man on his guard carries 0.766 and 1.614.
+  // That gap IS the complaint: `ready` is zero whenever nothing is moving, and
+  // this layer read zero-ready as "standing in a field" when the man is standing
+  // in a shield wall between exchanges. He does not let his axe hang; he carries
+  // it low and in front, and the weight of it is the reason.
+  //
+  // Rebalanced so the BRACED end is bit-identical and only the rest end moves:
+  // 0.34 - 0.50·ready is 0.34 at ease and -0.16 on the guard, which is exactly
+  // what 0.16 - 0.32·ready gave at ready = 1. Every attack, block, stagger and
+  // walk pose in the game is reached at ready ≈ 1 and is therefore untouched.
+  P.arx += (0.34 - ready * 0.50) * w;
   const abduct = (st.spread + 0.10) * w;
   P.arz += abduct;
   // ...and the wrist gives it straight back to anything carried butt-down, so
@@ -2350,9 +2557,13 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
   P.hry += -0.09 * w;
   // Elbows. The off arm is always the more folded of the two — it is not
   // carrying anything long — and the weapon arm closes as the guard comes up.
-  const fold = 0.26 + ready * 0.40;
+  // Same rebalance, same invariant: 0.42 + 0.24·ready is 0.66 on the guard,
+  // which is what 0.26 + 0.40·ready gave there. `P.wx` below gives the fold
+  // straight back to the wrist, so a heavier resting elbow does not swing the
+  // weapon's carry angle by a degree — the axe comes up, its aim does not move.
+  const fold = 0.42 + ready * 0.24;
   P.arb += -fold * w;
-  P.olb += -(0.46 + ready * 0.46) * w;
+  P.olb += -(0.56 + ready * 0.36) * w;
   // The wrist gives back exactly what the elbow took. `rest` and `live` say
   // where the weapon *points*, and they were measured against an arm that was
   // one rigid stick from shoulder to fist; folding an elbow under them without
@@ -2371,16 +2582,68 @@ function stanceLayer(st: Stance, ready: number, act: number, w: number): void {
  * is what the closeup has been photographing.
  */
 function idleLayer(t: number, seed: number, wounded: number, w: number): void {
-  const shift = Math.sin(t * 0.42 + seed);
+  // THE CLOCKS, and they are most of why this layer was not being seen.
+  //
+  // An amplitude is only half of whether motion reads; the other half is how
+  // much of the cycle a glance contains. This layer shipped on periods of 15.0 s
+  // (weight shift), 20.3 s (head drift) and 27.3 s (head nod). A man who is calm
+  // for one second in a fight — which is a long time to be calm in a fight — was
+  // being shown a FIFTEENTH of one swing of the slowest term, and a fifteenth of
+  // a sine near its own turning point is nothing at all. Measured: his crown
+  // travelled 9.3 mm in half a second where a walking man's travels 136 mm.
+  //
+  // So the periods come down to the length of the thing they portray. A man at
+  // ease changes his standing leg every few seconds, not every quarter minute;
+  // he breathes; and in a fight he looks about him rather than drifting his gaze
+  // across half a minute. The amplitudes come up with them, but the clocks are
+  // the larger half of the fix and were the part that was actually wrong.
+  //
+  // THE SHIFT'S AMPLITUDE IS DELIBERATELY BARELY RAISED, and the first cut of
+  // this got it wrong in the other direction. Scaling the weight-shift terms up
+  // with the clock put 320 mm of lateral travel through the crown between one
+  // standing leg and the other — a third of a metre, which is not a man changing
+  // feet, it is a man swaying. What a half-second glance actually contains is
+  // the BREATH, the SCAN and the sway below; the shift is a six-to-eight second
+  // event and its job is the read over seconds, not the read over a glance. So
+  // the clock came down and these four stayed near where they were.
+  const shift = Math.sin(t * 0.82 + seed);
+  // `dwell` still squares the shift off into a hold-and-transfer rather than a
+  // sway: he stands on one leg, then changes. Faster now, so the transfer is a
+  // thing you can catch, but it is the same shape.
   const dwell = Math.sign(shift) * smooth(Math.min(1, Math.abs(shift) * 1.7));
-  const br = Math.sin(t * (1.7 + wounded * 1.9) + seed);
+  const br = Math.sin(t * (2.3 + wounded * 1.9) + seed);
+  // A man between exchanges scans his flanks. This is the only fast term in the
+  // layer and it is small, because a head that whips is a head that twitches —
+  // but it is the term that carries a HALF-SECOND glance, which is the window
+  // the owner is looking through, and the layer had nothing in that band at all.
+  const scan = Math.sin(t * 1.35 + seed * 3.7);
+  // POSTURAL SWAY, and this is the term the layer never had.
+  //
+  // `dwell` is a hold-transfer-hold by construction — it saturates at |shift| >
+  // 0.59, which is 60% of every half cycle — so while a man is standing on a leg
+  // the whole weight-shift half of this layer contributes a CONSTANT. Measured
+  // on the committed pose after the clocks came down: `lrb` and `llb` moved
+  // 0.000 rad in the median half-second window. The knees were still rigid; they
+  // were merely rigid at a better angle.
+  //
+  // A standing body is an inverted pendulum and it never stops correcting. The
+  // two frequencies are deliberately incommensurate (0.9 and 1.63 are not a
+  // ratio of small integers), so the sum never repeats and the correction never
+  // reads as a loop — which a single sine at this amplitude very quickly does.
+  // Small: 12 mm at the hip. It is not meant to be seen as sway. It is meant to
+  // mean the man has not been switched off.
+  const sway = Math.sin(t * 0.90 + seed * 1.7) * 0.62 + Math.sin(t * 1.63 + seed * 4.3) * 0.38;
 
-  P.px += dwell * 0.035 * w;
-  P.prz += -dwell * 0.055 * w;
-  P.py += (-0.004 - Math.abs(dwell) * 0.006 + br * 0.005) * w;
-  P.crz += dwell * 0.075 * w;
-  P.cry += dwell * 0.05 * w;
-  P.crx += (br * 0.022 - 0.01) * w;
+  P.px += (dwell * 0.040 + sway * 0.012) * w;
+  P.prz += (-dwell * 0.062 - sway * 0.020) * w;
+  // The knees take the sway too, and out of phase with each other — that is what
+  // makes it a balance correction rather than the whole man rocking as one board.
+  P.lrb += sway * 0.030 * w;
+  P.llb += -sway * 0.030 * w;
+  P.py += (-0.004 - Math.abs(dwell) * 0.010 + br * 0.009) * w;
+  P.crz += dwell * 0.082 * w;
+  P.cry += dwell * 0.056 * w;
+  P.crx += (br * 0.038 - 0.01) * w;
   // The free leg unlocks and turns out; the loaded one carries straight. The
   // knee is where "unlocked" actually lives — a hip that turns out over a
   // locked knee is a mannequin turned out at the hip.
@@ -2390,13 +2653,16 @@ function idleLayer(t: number, seed: number, wounded: number, w: number): void {
   P.llx += load * 0.10 * w;
   P.lrb += (free * 0.24 - load * 0.10) * w;
   P.llb += (load * 0.24 - free * 0.10) * w;
-  P.hry += (Math.sin(t * 0.31 + seed * 2.1) * 0.16 - dwell * 0.06) * w;
-  P.hrx += (br * 0.02 + Math.sin(t * 0.23 + seed) * 0.03) * w;
-  P.arx += br * 0.024 * w;
-  P.olx += -br * 0.02 * w;
-  P.arb += -br * 0.022 * w;
-  P.olb += br * 0.028 * w;
-  P.wx += br * 0.03 * w;
+  P.hry += (Math.sin(t * 0.85 + seed * 2.1) * 0.17 + scan * 0.075 - dwell * 0.09) * w;
+  P.hrx += (br * 0.03 + Math.sin(t * 0.66 + seed) * 0.045) * w;
+  // The weapon is heavy and the breath is under it. A carried axe rising and
+  // falling on the chest that carries it is the single clearest tell that a man
+  // is alive and not a prop, and it is nearly free — the arm is already posed.
+  P.arx += br * 0.045 * w;
+  P.olx += -br * 0.034 * w;
+  P.arb += -br * 0.038 * w;
+  P.olb += br * 0.046 * w;
+  P.wx += br * 0.055 * w;
 
   // Blood loss shows in the stance before it shows anywhere else. It shows in
   // the knees first of all: a man who has lost blood is not standing at his own
@@ -3061,7 +3327,7 @@ function abilityLayer(d: number, w: number): void {
  * drop is taken in full, and the leg that actually reaches furthest is the one
  * the body stands on.
  */
-function settleOnFeet(legLen: number, plant: number): void {
+function settleOnFeet(legLen: number, plant: number, slack = 0): void {
   const hip = Math.hypot(P.prx, P.prz);
   // Past about a right angle at the hips the man is going over, not standing,
   // and his height is the height of a body on the ground. Faded rather than
@@ -3072,8 +3338,21 @@ function settleOnFeet(legLen: number, plant: number): void {
   const bx = clamp(P.lrx + P.prx, -1.5, 1.5);
   const latL = Math.cos(Math.min(1.4, Math.abs(P.llz + P.prz)));
   const latR = Math.cos(Math.min(1.4, Math.abs(P.lrz + P.prz)));
-  const reachL = legDrop(ax, P.llb) * latL;
-  const reachR = legDrop(bx, P.lrb) * latR;
+  // A BODY RESTS ON THE LOWEST THING IT HAS, AND ON A FOLDED LEG THAT IS THE
+  // KNEE. `legDrop` is the SOLE's drop below the hip, and once the shin has
+  // folded past the vertical its `cos(t + f)` term goes negative — the sole is
+  // now higher than the knee. Solving the body down onto the sole then drives
+  // the knee through the turf, and that is not a corner case: the collapse folds
+  // both knees to 1.58 rad in its first quarter second, which is precisely a man
+  // going down onto them.
+  //
+  // Measured on the real rig before this line existed, a warden dying of a plain
+  // blow put his knee 330 mm UNDER the ground at t+0.20 s, and his crown fell
+  // 790 mm in one tenth of a second, rose 240 mm, and fell again — a body whose
+  // height is not monotonic is not falling under gravity, it is being pushed
+  // about by two solves disagreeing. That is the deckchair.
+  const reachL = Math.max(legDrop(ax, P.llb), KNEE_ALONG * Math.cos(ax)) * latL;
+  const reachR = Math.max(legDrop(bx, P.lrb), KNEE_ALONG * Math.cos(bx)) * latR;
   const lead = Math.max(reachL, reachR);
   P.py += legLen * (lead - Math.cos(Math.min(1.4, hip))) * standing;
 
@@ -3090,10 +3369,28 @@ function settleOnFeet(legLen: number, plant: number): void {
   // Off during locomotion, and it has to be: a foot in mid-stride is supposed
   // to be off the ground, and a solve that plants it would straighten the swing
   // leg into a goose step.
+  //
+  // AND THE TRAILING SOLE DOES NOT HAVE TO BE FLAT. `slack` is how far above
+  // the leading foot's ground the other one is allowed to hang, as a fraction
+  // of the leg, before any of it is charged to the knee.
+  //
+  // It is zero for a stride and for a guard, where both boots really are on the
+  // turf. It is NOT zero for a man standing at ease, and that is the whole of
+  // the owner's "stand straight up": at ease `idleLayer` bends the free knee
+  // 0.24 rad and turns it out, which is the one thing in the idle that reads as
+  // a man resting rather than a mannequin — and this solve took every radian of
+  // it straight back out again, because the free leg is by construction the
+  // SHORTER-reaching one and this is the leg it straightens. Measured on the
+  // committed pose, `lrb` sat at 0.015 rad with a peak-to-peak wiggle over half
+  // a second of 0.000: not small, not slow, RIGID. A man rests on one leg and
+  // lets the other heel come off the ground; a few centimetres of slack is what
+  // that heel is, and it costs the leading foot nothing because the body's
+  // height is solved off `lead`, which is the loaded leg.
   const k = plant * standing;
   if (k <= 0.001) return;
-  if (reachL < reachR) P.llb = mix(P.llb, kneeFor(ax, P.llb, lead / (latL || 1)), k);
-  else P.lrb = mix(P.lrb, kneeFor(bx, P.lrb, lead / (latR || 1)), k);
+  const want = Math.max(0, lead - slack * standing);
+  if (reachL < reachR) P.llb = mix(P.llb, kneeFor(ax, P.llb, want / (latL || 1)), k);
+  else P.lrb = mix(P.lrb, kneeFor(bx, P.lrb, want / (latR || 1)), k);
 }
 
 /**
@@ -3772,14 +4069,162 @@ function reassemble(rig: WarriorRig): void {
  * it: the same three beats, about an axis that has swung round toward the leg
  * that is missing, or with no topple in it at all because the head has gone.
  */
-function deathLayer(d: number, fall: number, shape: FallShape): void {
-  const buckle = smooth(clamp01(d / 0.24));
-  const over = easeInCubic(clamp01((d - 0.16) / 0.44));
-  const rest = clamp01((d - 0.6) / 0.5);
-  const bounce = Math.exp(-9 * Math.max(0, d - 0.58)) * Math.sin((d - 0.58) * 22) * (d > 0.58 ? 1 : 0);
+/**
+ * What the MANNER of death does to the collapse — which is a different question
+ * from what came off the body, and the two are read separately on purpose.
+ *
+ * `FallShape` is what he is missing. This is how he was killed. A man cut down
+ * on his feet, a man burned, and a man already on the ground whose killer chose
+ * to end it do not go down alike, and until this existed they went down
+ * identically: `tools/freezetest.mjs` measured seven kinds of death and printed
+ * three rows — plain blow, torso hit, and BURNING — with the same landing time
+ * to the frame and the same shape columns. That is the "one canned clip played
+ * on everyone" the brief exists to escape, and it was measurable.
+ */
+interface FallCause {
+  /** Time scale on the whole collapse. Above 1 is a slower going-down. */
+  pace: number;
+  /** How far he folds up over himself instead of toppling out. */
+  curl: number;
+  /** How hard the ground is met — the size of every arrival jolt. */
+  drive: number;
+  /** How far the slack limbs spread once they are down. */
+  splay: number;
+}
+
+/**
+ * A cause, and the weight behind the blow that made it.
+ *
+ * FIRE is not a topple. Nobody pushed him; he stops being able to stand, and a
+ * man who is burning is already folded over the thing that is hurting him. He
+ * sags — slower than a felled man, because nothing is driving him — and he goes
+ * down small, arms in rather than flung out.
+ *
+ * A FINISH used to be the third shape here — a man on the ground, not
+ * resisting, swung at with intent. It came in with MERCY OR FINISH and it went
+ * out with it (`docs/MERCY-REMOVED.md`), because the server can no longer
+ * produce that cause: a lethal blow is a death on the tick it lands. The branch
+ * is removed rather than left unreachable, so the switch and the wire agree.
+ */
+function causeOf(cause: DeathCause | null | undefined, heavy: boolean): FallCause {
+  const h = heavy ? 1.3 : 1;
+  switch (cause) {
+    case "fire": return { pace: 1.16, curl: 0.85, drive: 0.55 * h, splay: 0.45 };
+    default:     return { pace: 1.00, curl: 0.00, drive: 1.00 * h, splay: 1.00 };
+  }
+}
+
+/**
+ * THE TOPPLE, COMMITTED AS THE ROTATION IT HAS ALWAYS BEEN DESCRIBED AS.
+ *
+ * `deathLayer` has said this in its own comment for as long as it has existed:
+ *
+ *   "The topple is one angle about one axis, and `lean` says where that axis
+ *    lies ... Resolving it as an axis rather than adding a roll term is what
+ *    keeps the total a right angle however far round it goes — pitch and roll
+ *    authored independently and both at 90° is a body lying on its face and its
+ *    side at the same time, which is a body screwed into the turf."
+ *
+ * The sentence is right and the code was not doing it. It wrote the pitch into
+ * `P.prx` and the roll into `P.prz`, and `applyPose` commits those with
+ * `body.rotation.set(P.prx, P.pry, P.prz)` — a three.js Euler in XYZ order,
+ * Rx·Ry·Rz. Three Euler angles are not an axis and an angle. Composed that way
+ * the body's own up-vector does NOT end up `hypot(pitch, roll)` from vertical,
+ * and the error is worst exactly where `P.pry` is largest — which is a man who
+ * has lost an arm or a leg, because `shape.spin` drives the yaw.
+ *
+ * MEASURED on the build before this function existed, a warden killed with his
+ * left arm off, four seconds after the blow:
+ *
+ *     prx -77.9°   prz -47.0°   ->  hypot 90.2°, which reads as flat on the turf
+ *     head y 1.190 m, hip socket y 0.819 m
+ *     standing, the same two joints are 1.648 m and 1.001 m
+ *
+ * He is at 72% of his standing height with his guard down and his arm off, and
+ * he stays there for ever. That is the owner's fourth report, verbatim: "the
+ * dead bodies are still sometimes freezing PARTIALLY RAISED, like there's no
+ * gravity to them" — and "sometimes" is the tell, because it needs a severed
+ * limb to show up at all.
+ *
+ * So: build the rotation. One angle about one horizontal axis, `mag` from
+ * vertical whatever `lean` does with the axis, and the yaw laid on afterwards
+ * about WORLD up — which cannot change how far from vertical he is, only which
+ * way his head points once he is there. Then decompose it back into the same
+ * three channels, so everything downstream that reads `P.prx`/`P.prz` —
+ * `settleOnFeet`, `stops()`, the pose the harness measures — is reading one
+ * orientation and not two.
+ *
+ * For small angles this is exactly what the old lines did; the two only come
+ * apart as a body actually goes over, which is when it matters.
+ *
+ * No allocation: four module scratch objects, reused. This is per corpse per
+ * frame and R12 is the performance ladder.
+ */
+const _tq = new THREE.Quaternion();
+const _tyaw = new THREE.Quaternion();
+const _tax = new THREE.Vector3();
+const _teu = new THREE.Euler();
+const _TUP = new THREE.Vector3(0, 1, 0);
+function setTopple(pitch: number, roll: number, yaw: number): void {
+  const mag = Math.hypot(pitch, roll);
+  if (mag < 1e-6) { P.prx = pitch; P.pry = yaw; P.prz = roll; return; }
+  _tq.setFromAxisAngle(_tax.set(pitch / mag, 0, roll / mag), mag);
+  _tyaw.setFromAxisAngle(_TUP, yaw).multiply(_tq);
+  _teu.setFromQuaternion(_tyaw, "XYZ");
+  P.prx = _teu.x; P.pry = _teu.y; P.prz = _teu.z;
+}
+
+function deathLayer(d: number, fall: number, shape: FallShape, seed: number,
+                    cause: DeathCause | null | undefined, heavy: boolean,
+                    halfWidth: number): void {
+  const c = causeOf(cause, heavy);
+  // NO TWO MEN GO DOWN AT THE SAME SPEED. `seed` is the per-warrior constant the
+  // idle already rides on; one sine of it is a decorrelated number in [-1, 1]
+  // and costs nothing. +/-8% on the clock is not a thing anyone can name in a
+  // single death and is the whole difference between eight men dropping in a
+  // round and eight instances of one recording.
+  const pace = c.pace * (1 + Math.sin(seed * 12.9898) * 0.08);
+  const D = d / pace;
+
+  const buckle = smooth(clamp01(D / 0.24));
+  const over = easeInCubic(clamp01((D - 0.16) / 0.44));
+  const rest = clamp01((D - 0.6) / 0.5);
+
+  /**
+   * THE GROUND STOPS A BODY UNEVENLY, and this is what replaces the single
+   * `bounce` term the collapse used to share out across every joint it had.
+   *
+   * That term was one damped sine, evaluated once, added to the pelvis, both
+   * shoulders, both elbows, both knees and the spine at THE SAME PHASE. A body
+   * whose every joint rings together on one clock is a body that hit the ground
+   * all at once, which is the one thing a falling man never does: he lands on
+   * the knees he folded, then the hip and the shoulder he is going over onto,
+   * and the head last. Three arrivals, three clocks, and the ringing of each is
+   * its own — a knee against turf is a shorter, harder note than a head is.
+   *
+   * Scaled by `drive`, so a man driven down by a finishing blow meets the
+   * ground harder than a man who sagged out of a fire.
+   */
+  const jolt = (at: number, ring: number, damp: number) =>
+    D > at ? Math.exp(-damp * (D - at)) * Math.sin((D - at) * ring) * c.drive : 0;
+  //
+  // THE DAMPING IS WHAT MAKES THESE ARRIVALS AND NOT WOBBLES. The first cut ran
+  // the head at 7.5, which rings for better than half a second — a skull still
+  // moving on the turf 0.6 s after it got there, which is not a corpse, it is a
+  // bobblehead. Measured through the whole pose path it also dragged the death
+  // out to 1.55 s at 1e-2... at 1e-3, where nothing is visible anyway, and it
+  // was the tail that no camera could cover rather than anything anyone sees.
+  // Turf takes almost everything on the first contact; what is left is one
+  // shallow settle. Meat damps hard.
+  const hitKnee = jolt(0.30, 27, 14);
+  const hitBody = jolt(0.58, 21, 12);
+  const hitHead = jolt(0.76, 17, 11);
+  // Kept under the old name for `halfLayer`, whose clock is its own and whose
+  // legs are the only thing left to meet anything.
+  const bounce = hitBody;
 
   if (shape.halved) {
-    halfLayer(buckle, bounce, fall, d);
+    halfLayer(buckle, bounce, fall, D);
     return;
   }
 
@@ -3800,50 +4245,155 @@ function deathLayer(d: number, fall: number, shape: FallShape): void {
   // crumple's job is to change *how* he gets there, not whether: the knees go
   // first and `settleOnFeet` drops him onto them, and only then does what is
   // left of him go over. He still lands in his own footprint.
-  const flat = (Math.PI / 2) * (1 - shape.crumple * 0.18);
+  // `curl` takes the same fraction off the topple that `crumple` does, and for
+  // the same reason: a man who folds up over himself ends nearer his own feet
+  // than a man who is pushed over. He still gets all the way down — the knees
+  // fold and `settleOnFeet` reads the fold as reach — he just does not travel.
+  const flat = (Math.PI / 2) * (1 - shape.crumple * 0.18 - c.curl * 0.16);
   const pitch = fall * flat * Math.cos(sway);
   const roll = flat * Math.sin(sway);
+  // And he does not land square. A tenth of a radian of settling roll off the
+  // seed is the difference between a body lying where it fell and a body laid
+  // out, and it is the cheapest variation in the whole layer.
+  const tilt = Math.sin(seed * 3.71) * 0.11;
 
-  P.prx = mix(fall * 0.34 * buckle, pitch * 1.03, over) + bounce * 0.06;
-  P.prx = mix(P.prx, pitch, rest);
+  // The three channels are worked out exactly as they always were, and then
+  // COMMITTED AS ONE ROTATION rather than as three independent Euler angles.
+  // See `setTopple` above for the measurement that made this necessary.
+  const wantX = mix(mix(fall * 0.34 * buckle, pitch * 1.03, over), pitch, rest) + hitBody * 0.06;
   // The old 0.2 of settling roll survives untouched on a whole body and gives
   // way to the real one as the lean takes over.
-  P.prz = (roll + fall * 0.2 * (1 - Math.abs(shape.lean))) * over;
+  const wantZ = (roll + fall * 0.2 * (1 - Math.abs(shape.lean))) * over + tilt * over + hitBody * 0.03;
   // Losing an arm is a torque and not a push: the shoulder that was balancing
   // the other one is gone, so the body keeps turning about the weight it has
   // left all the way to the ground. It builds over the whole fall rather than
   // with the topple, or the twist is over before the body has gone anywhere.
-  P.pry = -fall * 0.16 * over + shape.spin * 0.95 * smooth(clamp01(d / 0.6));
+  const wantY = -fall * 0.16 * over + shape.spin * 0.95 * smooth(clamp01(d / 0.6));
+  setTopple(wantX, wantZ, wantY);
+  // How far from vertical he now is, and it is the hypotenuse HERE — at the one
+  // place that is entitled to it, because this is the number handed to
+  // `setTopple` as the angle and not a quantity read back off three Euler
+  // channels. Everything below that used to ask `Math.abs(Math.sin(P.prx))`
+  // asks this instead: after the decomposition `P.prx` is one component of an
+  // orientation and no longer the topple, so a man who went over sideways read
+  // as a man barely tilted and was dropped into the turf.
+  const tmag = Math.hypot(wantX, wantZ);
+  const lay = Math.abs(Math.sin(tmag));
+  // Which body-local direction is pointing at the sky now he is over. Declared
+  // here because the height solve below uses it too; the paragraph that derives
+  // it sits with the limb spread, which is the other thing it decides.
+  const spreadZ = tmag > 1e-6 ? -wantX / tmag : 1;
+  const spreadX = tmag > 1e-6 ? wantZ / tmag : 0;
 
   // Rise as the body goes flat, or half of it ends up under the turf. The drop
   // of the collapse itself is not authored here: both knees fold below and
   // `settleOnFeet` takes the body down onto them — which is the difference
   // between a man whose legs went and a felled tree, and it is a difference
   // this rig could not express at all before there were knees to fold.
-  P.py = 0.12 * Math.abs(Math.sin(P.prx)) + bounce * 0.03;
+  //
+  // AND HOW FAR IT RISES DEPENDS ON WHICH WAY HE WENT OVER, because a man is
+  // not as thick as he is wide. 0.12 is the trunk's half-depth, chest to back,
+  // and it was the whole of this term for as long as every corpse in the game
+  // landed on its face — `settleOnFeet` is switched off above 1.1 rad of hip,
+  // so once he is down this lift is the only thing holding him off the turf.
+  // A man lying on his SIDE has to clear his own shoulder instead, and that is
+  // twice as far: measured on a berserker who had lost a leg and therefore went
+  // over sideways, his left shoulder pivot finished 0.082 m UNDER the turf,
+  // which is exactly the 0.203 m the rig hangs that shoulder out at, less the
+  // 0.12 m this line gave him.
+  //
+  // `halfWidth` is that shoulder offset read off the rig the frame is posing,
+  // not a number typed in here, so a broader class of warrior clears his own
+  // shoulder and not a warden's. `spreadX`/`spreadZ` say how much of each the
+  // topple has turned toward the ground; they are the same two numbers the
+  // limb spread below is resolved on, and they are a unit vector, so this is
+  // the body's own half-extent along the direction that is now pointing down.
+  P.py = (0.12 * Math.abs(spreadZ) + halfWidth * Math.abs(spreadX)) * lay
+    + hitKnee * 0.022 + hitBody * 0.030;
   P.pz = fall * 0.06 * buckle;
 
   // A body going down rather than over folds at the spine on the way: it is the
   // only thing left saying which way he was facing once the topple is gone.
-  P.crx = mix(fall * 0.42 * buckle, 0.05, over) + shape.crumple * 0.5 * over;
+  P.crx = mix(fall * 0.42 * buckle, 0.05, over) + (shape.crumple * 0.5 + c.curl * 0.62) * over
+    + hitBody * 0.05;
   P.crz = -fall * 0.16 * over;
-  P.hrx = mix(fall * 0.5 * buckle, 0.08, over);
-  P.hry = 0.55 * over;
-  P.hrz = -0.25 * over;
+
+  // THE HEAD IS LAST AND IT IS THE HEAVIEST THING ON HIM.
+  //
+  // It used to run on `over` — the torso's own clock — so the skull arrived at
+  // the turf on the same frame as the ribs, which is a head bolted to a spine.
+  // A head is a fifth of a body's mass on the end of the most slack joint in it:
+  // the neck goes first, the head trails the shoulders all the way down, and
+  // when the shoulders stop the head is still travelling and has to be stopped
+  // separately by the ground.
+  //
+  // Two terms, and they are the two halves of that sentence. `lag` is the neck
+  // giving out and the head arriving 0.15 s behind the body over a longer ramp;
+  // `hitHead` is the ground taking the rest of it, on the latest and softest of
+  // the three arrival clocks, because a head does not ring like a knee.
+  //
+  // And where it ENDS is the cause's too. A man who curled up round a fire has
+  // his chin on his own chest; a man flung down by an axe has his head thrown
+  // back off the shoulder he landed on. Without this the skull came to rest at
+  // 0.08 rad whatever had killed him, which is three different collapses
+  // arriving at one corpse — and the corpse is what stays on screen.
+  const lag = easeInCubic(clamp01((D - 0.31) / 0.52));
+  P.hrx = mix(fall * 0.5 * buckle, 0.08 + c.curl * 0.42, lag) + hitHead * 0.30 + hitBody * 0.16;
+  P.hry = (0.55 - c.curl * 0.30) * lag + hitHead * 0.20 + tilt * 0.6;
+  P.hrz = -0.25 * lag + hitHead * 0.16 - tilt * 0.5;
 
   // Limbs go slack and arrive after the body does. Once the body is flat its
   // local Z is world up, so a limb splayed on the pitch axis stands out of the
   // ground or buries itself in it — the settled pose spreads on roll instead,
   // which is the axis that still lies in the turf.
-  const limp = clamp01((d - 0.1) / 0.5);
-  P.arx = mix(0.2, 0.04, limp) + bounce * 0.2;
-  P.arz = mix(0.1, 0.92, limp);
-  P.olx = mix(0.1, -0.06, limp) + bounce * 0.16;
-  P.olz = mix(-0.1, -0.98, limp);
-  P.arb = mix(-0.52, -0.20, limp) + bounce * 0.16;
-  P.olb = mix(-0.60, -0.16, limp) + bounce * 0.14;
-  P.llx = mix(fall * 0.62 * buckle, -0.04, over) + bounce * 0.08;
-  P.lrx = mix(fall * 0.48 * buckle, 0.05, over) + bounce * 0.1;
+  //
+  // THAT SENTENCE IS ONLY TRUE FOR A MAN WHO WENT OVER FORWARDS, and until the
+  // topple was committed as a real rotation (see `setTopple`) no man ever went
+  // over any other way, so it was never wrong on anything that happened. It is
+  // wrong now. "Local Z is world up" holds when the topple axis is X; when
+  // `lean` swings that axis round toward Z it is local X that ends up pointing
+  // at the sky, and a limb spread on local Z is then spread straight down into
+  // the turf. Measured the first time a warden with his left arm off actually
+  // reached the ground: his right knee finished 0.10 m under it, and a
+  // berserker who had lost a leg finished 0.37 m under.
+  //
+  // So resolve the spread the same way the topple is resolved, and resolve it
+  // off the topple ITSELF rather than off `sway` — the first cut of these two
+  // lines was written from `sway` and had the sign of the X term backwards,
+  // which made the one-armed man WORSE (0.10 m under the turf to 0.18 m). The
+  // topple is a rotation of `mag` about u = (wantX, 0, wantZ)/mag, so by
+  // Rodrigues the body-local direction that ends up pointing at the sky is
+  //
+  //     v = R⁻¹·(0,1,0) = (wantZ, 0, -wantX)/mag   at a right angle of topple
+  //
+  // and THAT is the axis a limb has to spread about to stay in the turf. For a
+  // man going straight over forwards it is local +Z and these lines are exactly
+  // what they were. There is no free sign left in it.
+  // The two arms do not go slack together and they do not land together. The
+  // one he goes over onto is trapped under him early; the other is still being
+  // carried when the body stops and drops afterwards. A tenth of a second
+  // between them, off the same seed the rest of the collapse rides on.
+  const skew = 0.06 + Math.sin(seed * 7.13) * 0.04;
+  const limpA = clamp01((D - 0.10) / 0.5);
+  const limpB = clamp01((D - 0.10 - skew) / 0.5);
+  // `splay` is how far they end up FROM him. A man flung down by an axe lands
+  // spread; a man who curled up round a fire lands with his arms against him,
+  // and the difference is most of what tells the two apart on the ground.
+  const spread = c.splay;
+  const armSpreadR = mix(0.1, 0.92 * spread, limpA);
+  const armSpreadL = mix(-0.1, -0.98 * spread, limpB);
+  P.arx = mix(0.2, 0.04, limpA) + hitBody * 0.20 + hitHead * 0.10 + armSpreadR * spreadX;
+  P.arz = armSpreadR * spreadZ;
+  P.olx = mix(0.1, -0.06, limpB) + hitBody * 0.16 + hitHead * 0.08 + armSpreadL * spreadX;
+  P.olz = armSpreadL * spreadZ;
+  // Elbows fold IN as he curls and open out as he sprawls — the same one number
+  // read the other way, so a burned man ends up holding himself.
+  P.arb = mix(-0.52, mix(-0.20, -1.05, c.curl), limpA) + hitBody * 0.16;
+  P.olb = mix(-0.60, mix(-0.16, -1.15, c.curl), limpB) + hitBody * 0.14;
+  const legSpreadL = -0.3 * over * spread;
+  const legSpreadR = 0.36 * over * spread;
+  P.llx = mix(fall * 0.62 * buckle, -0.04, over) + hitKnee * 0.14 + hitBody * 0.08 + legSpreadL * spreadX;
+  P.lrx = mix(fall * 0.48 * buckle, 0.05, over) + hitKnee * 0.17 + hitBody * 0.10 + legSpreadR * spreadX;
   // The knees are the first beat of the collapse and they go before anything
   // else moves — he drops onto them, and only then does the body carry over.
   // They straighten out again as he goes flat, which is both what a body on the
@@ -3855,31 +4405,79 @@ function deathLayer(d: number, fall: number, shape: FallShape): void {
   // takes the body down onto it, so a knee held at 1.2 rad is a man in a heap
   // rather than a man laid out, and that is the whole of "he went down where he
   // stood" — it is measured against his own leg rather than authored as a drop.
-  P.lrb = mix(1.58 * buckle, mix(0.12, 1.24, shape.crumple), over);
-  P.llb = mix(1.34 * buckle, mix(0.09, 1.10, shape.crumple), over);
-  P.llz = -0.3 * over;
-  P.lrz = 0.36 * over;
-  P.wx = mix(0.4, -1.0, limp);
+  // `curl` holds the knees the same way `crumple` does and for the same reason —
+  // a man folding up does not straighten out on the ground, he stays gathered.
+  const held = Math.max(shape.crumple, c.curl);
+  // AND THEY STRAIGHTEN AFTER THE CHEST HAS LANDED, NOT WHILE IT IS FALLING.
+  //
+  // These ran on `over`, the topple's own clock, so the legs extended at exactly
+  // the rate the trunk was going down — and a leg extending under a body that is
+  // pitching forward LIFTS the knee off the ground it just knelt on. Measured on
+  // the real rig: the knee rose from 0.07 m to 0.47 m between t+0.30 s and
+  // t+0.45 s while the head was still falling. A man does not push himself up
+  // with his legs on the way down.
+  //
+  // What actually happens is the other order: he drops onto his knees, his shins
+  // stay where they are while the trunk carries over them, and the legs only
+  // come out once his chest is on the turf and there is nothing left to hold up.
+  // Hence a clock of its own, starting where `over` is already two thirds spent.
+  const legOut = easeInCubic(clamp01((D - 0.46) / 0.44));
+  P.lrb = mix(1.58 * buckle, mix(0.12, 1.24, held), legOut) + hitKnee * 0.20;
+  P.llb = mix(1.34 * buckle, mix(0.09, 1.10, held), legOut) + hitKnee * 0.17;
+  P.llz = legSpreadL * spreadZ;
+  P.lrz = legSpreadR * spreadZ;
+  P.wx = mix(0.4, -1.0, limpA);
   P.cloak = 0.55 * over;
 }
 
 /**
  * The bottom half of a bisection.
  *
- * There is no topple in this because there is nothing above the belt to topple:
- * the pelvis and both legs are all that is left on the rig, and what they do is
- * give. The knees fold past anything a living man's would and stay folded, and
- * `settleOnFeet` — which measures reach off the fold — takes the pelvis down the
- * two thirds of a leg that buys, so the half that stayed sits down roughly where
- * it was standing while the other half is still in the air.
+ * THIS USED TO SAY "there is no topple in this because there is nothing above
+ * the belt to topple", and it authored none. That sentence has the physics
+ * backwards, and the harness that should have caught it was told not to look.
+ *
+ * What is left on the rig after `sever("waist")` is a pelvis and two legs. It
+ * is not a tripod and there is no longer anything above it holding a line: what
+ * kept a standing man's pelvis over his feet was a trunk being balanced there.
+ * Take the trunk off and the half that stays has no reason to end upright and
+ * every reason to go over. Measured on the build before this comment, it did
+ * not: the pelvis stopped 24.7° from vertical with the hip socket 0.477 m up —
+ * 0.50 of its own leg, HIGHER OFF THE TURF THAN A MAN ON HIS KNEES — and held
+ * there for the rest of the round. That is the owner's fourth report on the one
+ * body `tools/gravitytest.mjs` had a `!r.halved` filter over.
+ *
+ * So it goes down in the two beats a body with legs goes down in, and the
+ * second one is the beat that was missing:
+ *
+ *   `sink`    the knees give and the pelvis drops onto them. `settleOnFeet`
+ *             reads the fold as reach and takes it down; unchanged.
+ *   `over`    and then it keeps going, because nothing is holding it up. One
+ *             angle about one axis through `setTopple`, the same call the whole
+ *             body uses, so the pelvis really does arrive flat rather than
+ *             arriving at a hypotenuse that claims it did.
+ *   `legOut`  the shins come out from under it as it goes, or the thing lands
+ *             kneeling on top of its own folded calves. It is the same order as
+ *             a whole body's collapse — knees first, legs out only once there is
+ *             nothing left to hold up — and it is what lets `settleOnFeet`'s
+ *             own drop fade out under the topple instead of dropping away.
+ *
+ * `flat` is short of a right angle by the same crumple fraction `deathLayer`
+ * gives a man who folds rather than topples, because that is what this is.
  */
 function halfLayer(buckle: number, bounce: number, fall: number, d: number): void {
   const sink = smooth(clamp01(d / 0.5));
-  P.prx = fall * 0.42 * sink + bounce * 0.05;
-  P.prz = fall * 0.1 * sink;
-  P.py = -0.05 * sink + bounce * 0.03;
-  P.lrb = mix(1.7 * buckle, 1.95, sink);
-  P.llb = mix(1.5 * buckle, 1.85, sink);
+  const over = easeInCubic(clamp01((d - 0.24) / 0.52));
+  const legOut = easeInCubic(clamp01((d - 0.42) / 0.5));
+  const flat = (Math.PI / 2) * (1 - 0.06);
+  const wantX = mix(fall * 0.42 * sink, fall * flat, over) + bounce * 0.05;
+  const wantZ = fall * 0.1 * sink + 0.26 * over;
+  setTopple(wantX, wantZ, 0);
+  // Same law as the whole body's: rise as it goes flat, or half of what is left
+  // ends up under the turf once `settleOnFeet` has faded out from under it.
+  P.py = -0.05 * sink + 0.12 * Math.abs(Math.sin(Math.hypot(wantX, wantZ))) + bounce * 0.03;
+  P.lrb = mix(mix(1.7 * buckle, 1.95, sink), 0.62, legOut);
+  P.llb = mix(mix(1.5 * buckle, 1.85, sink), 0.54, legOut);
   P.lrx = -0.25 * sink;
   P.llx = -0.18 * sink;
   // Splayed, because a pair of legs folding under nothing has no reason to keep
@@ -3950,10 +4548,58 @@ export function poseWarrior(
   const floored = player.state === "knocked" || player.state === "rising";
   // One clock for whatever one-shot the warrior is in the middle of. Elapsed
   // time is the client's to keep; the server owns when the state ends.
-  motion.actT = dead || rolling || staggered || casting || shoving || floored ? motion.actT + dt : 0;
+  //
+  // ONE CLOCK PER MOVE. NOT ONE CLOCK FOR ALL OF THEM.
+  //
+  // This line read `dead || rolling || staggered || casting || shoving ||
+  // floored ? motion.actT + dt : 0`, so the clock was only ever zeroed by a
+  // frame in which NONE of the six was true. A move entered straight out of
+  // another therefore STARTED LATE — and it is the owner's third report, in
+  // two halves, both of them measured:
+  //
+  //   "the bodies now also randomly lean back after certain actions but it's
+  //    very dramatic — back bending over backwards dramatic, or flopping
+  //    quickly down and up"
+  //
+  //   FLOPPING QUICKLY DOWN. A man killed out of a stagger handed `deathLayer`
+  //   a clock already 0.65 s old, which is past `over`'s whole ramp, so the
+  //   entire collapse — 6.5° to 91° — was crossed in the 0.1 s the crossfade
+  //   takes. Measured at 60 fps on the real `poseWarrior`: worst ONE-FRAME
+  //   move of the pelvis 33.2° out of a stagger and 22.5° out of a shove,
+  //   against 2.1° from a standing start. gravitytest §2 gates it at 12°.
+  //
+  //   RANDOMLY LEAN BACK AFTER CERTAIN ACTIONS. The `motion.fall` edge below
+  //   fires on `motion.actT <= dt`, and a carried clock is never <= dt, so the
+  //   direction of the topple was NOT re-taken on a death out of one of those
+  //   states: the corpse fell whichever way an EARLIER, unrelated event had
+  //   set it. Driven end to end — a man knocked over backwards earlier in the
+  //   round, back on his feet, then staggered, then killed by a blow from
+  //   BEHIND — the current build lands him on his back at prx -90.0° out of a
+  //   stagger, a roll and a shove, and on his face at +90.0° from idle. Same
+  //   blow, same bearing, four different answers. "Randomly", and "after
+  //   certain actions", exactly as reported.
+  //
+  // THE ONE EXCEPTION, and it is not a carve-out to buy a number. A man who
+  // dies while he is ALREADY ON THE GROUND is not starting a new descent; he
+  // is finishing the one he is in. Restarting his clock would evaluate
+  // `deathLayer` at 0, which is a standing man — so the fix would stand a
+  // corpse back up in order to drop him again. `knocked` carries the clock
+  // into `dead` and measures 7.9°/frame, which is the last 17° of a body
+  // settling and is what it should look like. `rising` does NOT carry: he is
+  // on his way back up and nearly vertical, and carrying cost 9.7°/frame
+  // where restarting costs 1.9°. `POSE_GROUP` folds both into "down", which
+  // is right for the crossfade and cannot tell these two apart — hence
+  // `lastRaw`.
+  const group = POSE_GROUP[player.state] ?? player.state;
+  const oneShot = dead || rolling || staggered || casting || shoving || floored;
+  const sameMove = group === motion.lastState || (dead && motion.lastRaw === "knocked");
+  motion.actT = oneShot ? (sameMove ? motion.actT + dt : dt) : 0;
+  motion.lastRaw = player.state;
   // Which way he goes over, taken once on the edge and held for the whole fall
   // — reading `hitFwd` every frame would spin a man on the ground the moment a
-  // second blow landed on him from a different bearing.
+  // second blow landed on him from a different bearing. `stepWarriorTransform`
+  // has already latched the killing blow's bearing this frame (`struckDead`),
+  // so the edge above firing is what makes that latch reach the corpse.
   if ((dead || floored) && motion.actT <= dt) motion.fall = motion.hitFwd >= 0 ? 1 : -1;
   // Every road back to standing goes through here: the server clears the death
   // mark on a respawn, on a countdown and on the lobby reset, and a warrior who
@@ -3966,7 +4612,6 @@ export function poseWarrior(
   // has his shield arm 60° from where the stagger wants it. This is the only
   // thing that smooths across states, and it lasts a twentieth of a second
   // going into a swing, where the windup is doing the work anyway.
-  const group = POSE_GROUP[player.state] ?? player.state;
   if (group !== motion.lastState) {
     // Not on the very first frame: `rig.last` is all zeroes then, so a warrior
     // who arrives mid-swing would spend his opening frame blended into a T-pose
@@ -3984,7 +4629,8 @@ export function poseWarrior(
     // The cut goes in before the pose is built, so the collapse's first frame is
     // already the collapse of a body that is missing something.
     beginGore(rig, motion, player, hooks);
-    deathLayer(motion.actT, motion.fall, rig.gore.shape);
+    deathLayer(motion.actT, motion.fall, rig.gore.shape, motion.seed,
+      player.deathCause, !!player.deathHeavy, Math.abs(piv.rightArm.position.x));
     stops();
     settleOnFeet(legLen, 0);
     motion.leanX *= 0.9;
@@ -4139,7 +4785,13 @@ export function poseWarrior(
   stops();
   // The plant is off while he is walking and back on the moment he is not, so a
   // stride keeps its foot clearance and a guard keeps both boots on the ground.
-  settleOnFeet(legLen, 1 - motion.wMove);
+  //
+  // The SLACK rides on `calm`, not on the plant. A man on his guard has both
+  // boots flat and gets none; a man standing at ease is resting on one leg with
+  // the other heel off the turf, and 50 mm of leg is what that heel is worth.
+  // Without it the plant straightens the very knee `idleLayer` just bent — see
+  // `settleOnFeet` — and the free leg is the one it straightens, every time.
+  settleOnFeet(legLen, 1 - motion.wMove, calm * 0.05);
   commit(rig, piv, st, motion.blend, ready);
   drapeCloak(rig, motion, dt, t, P.cloak);
   fadeBlob(rig, 0);

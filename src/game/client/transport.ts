@@ -144,5 +144,20 @@ export class Transport {
     }
     if (this.es) { try { this.es.close(); } catch { /* ok */ } this.es = null; }
     this.mode = null;
+    // AND IT LETS GO OF ITS SUBSCRIBERS.
+    //
+    // `on()` is called once per session by `page.tsx` and there was no matching
+    // release anywhere: a closed transport kept its handler array, so anything
+    // still holding a reference to the object kept a live path into a component
+    // that may be gone. `react-doctor/effect-needs-cleanup` flagged the
+    // subscription, and the right place to answer it is here rather than at the
+    // call site — a socket that has been closed has no business delivering, and
+    // making every caller remember to `off()` is how one of them forgets.
+    //
+    // `pingTimer` is nulled with them for the same reason: `clearInterval` on a
+    // stale id is harmless, but a field that still holds one reads as a timer
+    // that is still running.
+    this.pingTimer = null;
+    this.handlers.length = 0;
   }
 }

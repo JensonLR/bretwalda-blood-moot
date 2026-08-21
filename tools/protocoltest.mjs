@@ -188,12 +188,26 @@ const NEUTRAL = {
   block: false, dodge: false, crouch: false, ability: false, shove: false, attackDir: "right",
 };
 
-// The 53 fields serializeRoom publishes for a human warrior. Held exactly, in
+// The 54 fields serializeRoom publishes for a human warrior. Held exactly, in
 // both directions: a leak of server scratch fails here, and so does a field
 // quietly removed from under a client. See WIRE-PROTOCOL.md §9.5 — this is a
 // denylist upstream, so this assertion is the only thing standing under it.
+//
+// THIS COMMENT SAID 53 AND THE LIST HELD 54, and WIRE-PROTOCOL.md said 59 while
+// the list held 60: MERCY OR FINISH added six fields and nobody recounted at
+// either end. Both prose figures were wrong in the same direction and neither
+// could ever have failed, because the assertion below counts the array. Fixed
+// at the removal (docs/MERCY-REMOVED.md) — R7, a comment that asserts a value
+// the code does not have is worse than no comment because it is trusted.
 const PUBLISHED = [
   "id", "name", "warriorClass", "team", "ready", "appearance",
+  // THE MUSTER. `loaded` is whether this man's arena is standing; the room is
+  // held in state `loading` until every declared client says so or the server's
+  // twelve seconds run out. Public because "who are we waiting for" has to be
+  // readable off one snapshot — see WIRE-PROTOCOL.md §2 and §9.13. The
+  // declaration behind it, `awaitsLoad`, is deliberately NOT published and is
+  // on the denylist below.
+  "loaded",
   "position", "rotation", "velocity",
   "health", "maxHealth", "stamina", "maxStamina",
   "state", "attackDir", "blockDir", "attackTimer", "blockTimer", "dodgeTimer", "staggerTimer",
@@ -203,11 +217,6 @@ const PUBLISHED = [
   // how close he is to being floored, which half of the fall he is in, and the
   // window he earned on the man he read. See WIRE-PROTOCOL.md §2.
   "balance", "maxBalance", "downTimer", "vulnerableTimer", "vulnerableTo",
-  // MERCY OR FINISH. Public for the same reason the weight wave's five are: the
-  // window has to be SEEN, by the man making the choice, by the man on the
-  // ground, and by the seven watching. `mercyTimer` is seconds remaining and a
-  // client draws a drain off it — see WIRE-PROTOCOL.md §2.
-  "mortal", "mercyTimer", "mercyTo", "spared", "menSpared", "menFinished",
   "emote", "abilityCooldown", "abilityActive", "abilityTimer",
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",
@@ -216,7 +225,7 @@ const PUBLISHED = [
 ];
 const PRIVATE = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt", "aiSkill",
   "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName",
-  "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil"];
+  "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil", "awaitsLoad"];
 
 // ============================================================
 // SCENARIO A — a whole match, two humans, best of one
@@ -447,12 +456,12 @@ async function scenarioMelee() {
   // against a fixture that lands a parry on purpose every run.
   check("the hit zone is always one the client can draw",
     hits.every((h) => h.hitZone === undefined || HIT_ZONES.includes(h.hitZone)));
-  // TWO WEAPON DEATHS NOW, NOT ONE. `MERCY` (engine.mjs) makes a man's first
-  // fall a downing rather than a death, so the blow that ends him is a `finish`
-  // and this fixture — a man stood still in a pit of seven bots — reliably dies
-  // that way rather than by `blow`. Both cases were checked before the
-  // assertion moved: with mercy in, `cause` is "finish" here, and the old line
-  // failed for that reason alone.
+  // ONE WEAPON DEATH AGAIN. This briefly read `blow || finish`, because `MERCY`
+  // made a man's first fall a downing and the blow that ended him a `finish`.
+  // MERCY OR FINISH was removed on the owner's report — see
+  // `docs/MERCY-REMOVED.md` — so the server has one steel cause once more and
+  // widening the filter to accept `finish` would now be accepting a value
+  // nothing can send. The union in `types.ts` was narrowed with it.
   //
   // It is asserted over EVERY weapon death rather than over one found death,
   // which is deliberately a stronger claim than the line it replaces: the old
@@ -469,7 +478,7 @@ async function scenarioMelee() {
   // fail is not an assertion. Both halves were re-run before this line: strict,
   // protocoltest is 76/76; the empty-string case the `fire` check above relies
   // on is a different cause and is unaffected.
-  const steel = c.got("kill").filter((k) => k.cause === "blow" || k.cause === "finish");
+  const steel = c.got("kill").filter((k) => k.cause === "blow");
   check("a killing blow says which limb and which stroke took him",
     steel.length > 0 && steel.every((k) => HIT_ZONES.includes(k.hitZone) &&
       typeof k.direction === "string" && typeof k.heavy === "boolean" &&
@@ -477,7 +486,7 @@ async function scenarioMelee() {
     `${steel.length} weapon death(s), causes: ${[...new Set(steel.map((k) => k.cause))].join("/")}`);
   check("the corpse carries its own death on every later snapshot",
     c.got("game_state").some((d) => d.players[me] && d.players[me].state === "dead" &&
-      (d.players[me].deathCause === "blow" || d.players[me].deathCause === "finish") &&
+      d.players[me].deathCause === "blow" &&
       HIT_ZONES.includes(d.players[me].deathZone)),
     "a spectator arriving late rebuilds the same body");
   check("the kill feed is on the snapshot and is capped at ten",
@@ -903,9 +912,60 @@ console.log("\n-- the sim never reached for the browser --");
 check("no browser global was touched during a whole match", touched.length === 0,
   touched.length ? [...new Set(touched)].join(", ") : "window, document, navigator, self, location, HTMLElement, rAF");
 
+// ============================================================
+// SCENARIO G — THE MUSTER, because a `live` claim has to be earned
+//
+// Every scenario above joins WITHOUT `awaitLoad`, which is the correct
+// behaviour for a harness and is exactly why none of them ever sees
+// `match_loading`. The document calls that message `live`, and a `live` message
+// no scenario exercises is a documented shape nothing has ever produced — the
+// same defect as a gate green because the case is absent, one level up. So one
+// room here declares a load and is driven through the whole phase.
+//
+// `readytest.mjs` holds the RULES of the muster — the deadline, the cheat
+// surface, once-per-match. This holds only its SHAPE on the wire.
+// ============================================================
+console.log("\n-- the muster --");
+const muster = (() => {
+  const eng = makeEngine({ autoTick: false });
+  const open = (label) => {
+    const c = { label, byType: new Map() };
+    c.sid = eng.connect((str) => {
+      const m = JSON.parse(str);
+      if (!c.byType.has(m.type)) c.byType.set(m.type, []);
+      c.byType.get(m.type).push(m.data);
+    });
+    c.send = (type, data) => eng.message(c.sid, { type, data: data || {} });
+    c.last = (t) => { const arr = c.byType.get(t) || []; return arr[arr.length - 1]; };
+    return c;
+  };
+  const host = open("host"), guest = open("guest");
+  host.send("create", { name: "Alpha", bestOf: 1, awaitLoad: true });
+  const code = host.last("join").code;
+  guest.send("join", { code, name: "Bravo", awaitLoad: true });
+  host.send("start");
+  const first = host.last("match_loading");
+  check("`start` with declared clients announces a muster, with NAMES and a deadline",
+    !!first && Array.isArray(first.waitingFor) && first.waitingFor.length === 2 &&
+    typeof first.until === "number" && first.until > Date.now(),
+    JSON.stringify(first));
+  check("...and the room's published state is `loading`",
+    eng._rooms.get(code).state === "loading", eng._rooms.get(code).state);
+  host.send("loaded");
+  check("...the list shortens as men report",
+    (host.last("match_loading").waitingFor || []).length === 1,
+    JSON.stringify(host.last("match_loading").waitingFor));
+  guest.send("loaded");
+  check("...and the last report rings the bell",
+    eng._rooms.get(code).state === "countdown" && (host.byType.get("countdown") || []).length === 1);
+  check("`awaitsLoad` is server scratch and never reaches a client, but `loaded` does",
+    Object.values(host.last("countdown").players).every((p) => !("awaitsLoad" in p) && "loaded" in p));
+  return host;
+})();
+
 console.log("\n-- the document held --");
 {
-  const seen = new Set([...a.host.byType.keys(), ...a.guest.byType.keys()]);
+  const seen = new Set([...a.host.byType.keys(), ...a.guest.byType.keys(), ...muster.byType.keys()]);
   // Scenario B's types too — it is the only place hit/kill-by-blow/ability live.
   for (const t of ["hit", "kill", "ability_used", "emote"]) seen.add(t);
   const undocumented = [...seen].filter((t) => !docS2C.has(t));

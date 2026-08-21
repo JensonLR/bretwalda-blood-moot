@@ -62,7 +62,7 @@ ninety seconds, and it is the foundation the war layer sits on.
 | 2.3 | **Parry upgrade: animation you feel, plus a real riposte window** to capitalise with extra damage | NEW — the mastery ceiling |
 | 2.4 | **Satisfying combat sound** that complements the fighting | [ALREADY RAISED] `docs/SOUND.md`, still unbuilt |
 | 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | DONE — `src/game/deathcam.mjs`, `tools/deathcamtest.mjs` |
-| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | MOSTLY DONE, 13 Aug — see below |
+| 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | **DONE, 20 Aug 2026** — the beat landed 13 Aug, the match-end hole closed and the slow-motion replay wired 20 Aug. See below |
 | 2.7 | **More blood, over the top** — spray and splatter | [ALREADY RAISED] `docs/GORE-DESIGN.md` |
 | 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | **DONE and WIRED.** `solidground.mjs` + `grounds.mjs` declarations, called twice a tick by `engine.mjs`; `tools/solidtest.mjs` 12/12. See the note below |
 
@@ -128,7 +128,7 @@ clean through. With `steps = 1` it goes red.
 | # | Item | Note |
 |---|---|---|
 | 2b.1 | **"Flick screen to change foe" never goes away** — the hint is permanent and must fade | **DONE** — `tools/tuitiontest.mjs` 18/18. Root cause was not the timer: the counter incremented on the SWITCH that lands, not on the FLICK, so in an honour duel (one enemy, nothing to switch to) it was nailed at zero and the caption was permanent |
-| 2b.2 | **The match starts before everyone has loaded** — "a lot of the time the game starts before fully loading in which is a poor experience, we shouldn't start until everyone is fully loaded in" | NEW, and it needs `engine.mjs`: the server must hold the countdown until every client reports ready, with an honest timeout so one bad connection cannot hang seven people |
+| 2b.2 | **The match starts before everyone has loaded** — "a lot of the time the game starts before fully loading in which is a poor experience, we shouldn't start until everyone is fully loaded in" | **BUILT.** THE MUSTER: a `loading` phase in front of the countdown (`LOAD_HOLD_MS`, engine.mjs). A client declares `awaitLoad` on join and sends `loaded` when its forge lands; the bell waits for all of them, or twelve seconds. **At the timeout the match STARTS** — one bad connection must not hold seven people — and the room is told who it is waiting for while it waits. Gated by `npm run readytest`, 26 checks, shown red first (12 of 26 red on the code before it), and photographed by `npm run mustershot` — which caught **two client defects no server assertion could see**: the panel flashed before this client's own forge had started, and the client shouted `loaded` the instant it entered the game screen, because `forge` is null there. The second one defeated the whole feature while every server check stayed green. Withholding the report buys nothing: §5 fights a silent client and compares his spawn grace to the honest man's, to the tick. See WIRE-PROTOCOL §2.1 |
 | 2b.3 | **The death camera only fires for the last man to die** — "everyone should see death camera for final death winner & all losers" | **MOSTLY DONE** — two cameras off one shared geometry, `deathcamtest` 20/20 → 42/42. Your own death outranks the round's and the round's is never queued, enforced in the module rather than by call order. STILL OPEN: the death that ends a MATCH goes straight to the victor's portrait — `endRound` calls `endMatch` on the same tick, so there is no break to play the beat in |
 | 2b.4 | **The quality control is in the way** — "i like that feature but its a bit in the way where it currently is on screen". The feature is wanted; the placement is not | **DONE** — moved from (16, 212) to the top of the movement side under the sound toggle, 624 px clear of the foot. `touchtest` gained an assertion named after the report and it was shown RED in both handednesses against the shipped position |
 
@@ -182,23 +182,58 @@ you the lobby orbit. The beat is the length of that window on purpose. The two
 constants are **not wired together** — `page.tsx` belongs to another unit — so
 `deathcamtest` reads that file and fails if they stop agreeing.
 
-**STILL OPEN, and it rides the harness's verdict line rather than hiding here:
-the death that ends the LAST round of a match.** `endRound` sets
-`state = "finished"` and calls `endMatch` in the same tick — there is no break —
-and `render/summary.ts` takes the lens for the victor's portrait, with
-`page.tsx` laying the results panel over it. Holding that back for two seconds
-is a change to the match-summary flow (`page.tsx`, `summaryflow`), not to the
-camera, and it belongs to whoever owns those files. Until then the last round
-ends on the portrait, which is *a* beat and not *the* beat.
+**THAT HOLE IS NOW CLOSED — 20 Aug 2026, see below.** It read: *"STILL OPEN, and
+it rides the harness's verdict line rather than hiding here: the death that ends
+the LAST round of a match. `endRound` sets `state = "finished"` and calls
+`endMatch` in the same tick — there is no break — and `render/summary.ts` takes
+the lens for the victor's portrait, with `page.tsx` laying the results panel over
+it. Holding that back for two seconds is a change to the match-summary flow
+(`page.tsx`, `summaryflow`), not to the camera, and it belongs to whoever owns
+those files."* The summary flow is exactly where it was fixed: `GameCanvas`
+withholds the tableau while a match-ending replay is running and `page.tsx`
+withholds the results panel with it.
+
+**20 Aug 2026 — and the owner asked for something better than a beat.** *"The
+final kill camera would be better as a slow-mo replay before the next round
+starts, and before a match ends too — skippable at end of match, just take them
+to the lobby."* `src/game/replay.mjs` and `tools/replaytest.mjs` are the answer
+and `docs/REPLAY.md` is the record: a ring of the fields `anim.ts` actually
+reads, 57,600 bytes allocated once with no per-frame garbage, played back at
+half speed from 0.92 s BEFORE the killing swing — which is the one thing the
+live camera cannot do, because it arms a frame after the blow has landed.
+Measured on the shipping build, the live round beat holds **0 frames** at match
+end and the replay holds **240**, which is this row's hole.
+
+**THE RENDER WIRING IS NOW LANDED, AND THE REASON GIVEN FOR NOT LANDING IT WAS
+FALSE.** This paragraph used to say *"There is no browser on the machine it was
+built on"*, and `docs/REPLAY.md` §5 said the same. There is one:
+`/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`,
+which launches and reports Chromium 141.0.7390.37. What is true is narrower and
+was never the claim: the Playwright package resolves a browser directory by
+version and asks for `chromium_headless_shell-1234`, so `chromium.launch()` with
+no arguments fails and every harness in this repository that calls it that way
+fails with it. An `executablePath` opens it. A refusal is only worth what its
+reason is worth, and this one's reason did not survive being checked.
+
+Wired 20 Aug 2026: the ring records one frame per snapshot off `wireEpoch`, the
+clock is asked every frame above the summary branch so the match-end edge is
+seen, playback replaces the posed bodies in the break, the animator alone takes
+the slowed `dt`, `onSever` is withheld so the arena is not sprayed twice, and
+the round camera now takes the lens at match end as well. `ROUND_HOLD_MS` is
+`REPLAY.wall * 1000` and `deathcamtest` gates the derivation, the containment,
+**and that `GameCanvas` imports the module at all** — that last check exists
+because its absence is the whole of the previous round's failure.
 
 ### WAVE 3 — balance and the enemy
 
 | # | Item | Note |
 |---|---|---|
 | 3.1 | **Four-class stat rework — two high stats each.** Runekeeper: skill is weak and sometimes does not move you, low damage, low health, hard to win with. Berserker: slow, high damage, very low defence, lowish health. Warden: balanced, possibly best after huscarl. Owner will take a recommendation after review | **DONE**, and the review is the matrix — `tools/classmatrix.mjs`. See the note below |
-| 3.2 | **AI fighting quality and difficulty scaling** | [ALREADY RAISED], still unbuilt |
+| 3.2 | **AI fighting quality and difficulty scaling** | **MEASURED, THEN MOVED — and the measurement came first.** `npm run bottest` is the ruler: the ladder as a win rate with a Wilson interval on every rung, plus what a difficulty is ALLOWED to touch (the brain; never the sheet) and whether a bot reads as a person. It found two live defects on the first run — the middle rung's guard rate was BELOW the bottom's (a phantom guard: `botThink` believed a block the server had refused mid-stroke, then stood there refusing to attack), and jarl-over-warrior was 55.8% [46.9-64.4], an interval straddling a coin toss. Fixed by believing the server, grading the recovery punish instead of switching it at a threshold, and giving each bot a temperament rolled once. Now 79.6% / 65.0% on the two upper rungs, guard monotone 0.4/2.3/5.1% *as §3 then measured it — see the repair to that measurement below*. **THE LAST UNPLACED RUNG IS NOW PLACED — 14 Aug 2026.** recruit→warrior was 54.6% [48.3-60.8], an interval straddling even. `BOT_REACTION_SKILL` — the only constant in the reaction window that carries a *difference* between two difficulties, and therefore the only one that can be a ladder — went 0.18 → 0.60, with `BOT_REACTION` set to 0.634 so that `0.634 - 0.7*0.60` is the **same IEEE double** as the old `0.34 - 0.7*0.18`. That anchors the `warrior` exactly, which is the difficulty `classmatrix` fights at, and the anchoring is **verified rather than asserted**: `classmatrix --bouts=60 --seed=4242` before and after the edit is **byte-identical output**, impossible if one `Math.random()` draw had landed differently. Result at 240 bouts a rung, seed 20260813: **jarl→recruit 89.6% [85.1-92.8], warrior→recruit 61.7% [55.4-67.6], jarl→warrior 68.3% [62.2-73.9]** — all three intervals clear even, ladder ordered, **11/11 PASS and no deferral** |
+| 3.2b | **What the bot brain change did to the roster matrix** | `classmatrix --seed=4242`, 1000 bouts a cell, before and after. The verdict line is the SAME shape — 4 of 6 matchups decisively inside 30-70%, every class inside 40-60% of the field, 2 on the band edge — but the composition changed and the spread nearly doubled. Matchups: huscarl v warden **68.3% → 44.3%**, huscarl v berserker 65.5% → **70.7%**, huscarl v runekeeper 28.3% → 30.4%, warden v runekeeper 64.8% → 58.5%, warden v berserker 44.5% → 54.1%, runekeeper v berserker 52.8% → 47.7%. Against the field: huscarl 53.9 → 48.2, warden 46.6 → **55.7**, runekeeper 52.9 → 52.6, berserker 46.3 → **42.6**; SPREAD 7.5 pts [4.0-11.1] → **13.1 pts [9.6-16.7]**. **NOT ONE NUMBER ON THE SHEET MOVED.** The damage was real and it reproduces: re-measured 14 Aug on the committed sheet across three master seeds, spread **13.1 / 12.5 / 12.7**, with `huscarl v berserker` 70.7/70.3/69.0 and `huscarl v runekeeper` 30.4/31.3/31.3 — two matchups on the bar, one each side. **THE MECHANISM THIS ENTRY ASSERTED IS WRONG, AND IT IS RETRACTED HERE RATHER THAN QUIETLY EDITED.** It said bots "now punish recovery in proportion to skill" and that the long-stroke class pays for it. `classmatrix` fights at **`warrior`**, and a warrior's recovery punish went from **certain** (`aiSkill > 0.6`) to **0.32** — the opposite direction. Pulled, 400 bouts a cell, seed 4242, berserker against the field: shipping brain **44.0%**; graded punish reverted to the old boolean **37.9%** (he gets *worse*); temperament removed **42.3%**; phantom guard restored **43.2%**; all three reverted together **40.4%**. Not one of them raises him and all three together do not reach 46.3. **The cause is not among the three edits this entry names, and no replacement mechanism is asserted, because none was measured.** The useful half is the negative: do not tune against that story. Closed by 3.2c |
+| 3.2c | **Re-level the roster under the bot brain that now ships** | **DONE, 14 Aug 2026 — and the debt 3.2b declared is paid.** Wave 3 balanced the roster against a `botThink` that Wave 4 replaced, so the balance was certified against an instrument that no longer exists. Re-measured first on the committed sheet (spread 13.1/12.5/12.7, two matchups on the bar), then re-levelled. **FOUR NUMBERS MOVED, ALL IN ONE COLUMN:** huscarl `maxHealth` 158→**162**, berserker 126→**134**, warden 114→**108**, runekeeper 96→**92**. Nothing else — no stroke, no damage, no reach, no arc, no guard, no stamina, no stride — so every ratio the weight pass and the class rework are documented on survives untouched, and the four-shape gate is unmoved by construction. Health was chosen because it is one of only **two** axes this ruler can read (see the inert-lever table above); re-levelling on `blockReduction` or `moveSpeed` would have been a balance claim with no measurement under it. **RESULT: six of six matchups DECISIVELY inside 30-70% with no EDGE cell and no deferral**, against four-of-six-plus-two-on-the-bar before. Median TTK still runs 8.7 s (runekeeper mirror) to 23.0 s (huscarl mirror), so the spread that is a feature is intact. **The one move to argue with is the runekeeper's four health**, which goes against the owner's own words about that class — it is called out in `engine.mjs` rather than buried, he keeps the best damage rate in the game untouched, and giving it back costs `huscarl v runekeeper` about three points, which the cell can now afford. **VERIFIED ON TEN MASTER SEEDS DECLARED BEFORE THE RUN** (20260813, 424242, 90210, 4242, 1, 7, 31337, 555555, 987654321, 20260814 — 160,000 duels), **and the WORST is quoted, not the best: every seed PASS, zero EDGE cells on all ten, lowest interval bound 35.7 against a 30 bar, highest 69.0 against a 70 bar, largest field spread 4.8 points, every class between 47.2% and 52.9% on every seed.** The hot cell is `huscarl v berserker` — 65.2-67.0 across the ten, worst upper bound 69.0, so inside on every seed but by one point on the worst draw. Costed next move if the band is ever tightened: berserker `maxHealth` 134 → 137, buying ~2 points at the top for ~2 at the bottom where `runekeeper v berserker` has 5 to give. Not taken: it trades a measured margin for a predicted one |
 | 3.3 | **Weapon styles and looks as armoury purchases** | NEW |
-| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | **DONE on the server**, gated by `tools/mercytest.mjs`. The UI is not built — see the note below |
+| 3.4 | **Mercy or Finish** — a downed-but-not-dead state and a decision window, with the pressure stated socially (seven men are watching) rather than as a meter, a window that DRAINS rather than counting down, and letting it run out counting as choosing mercy | **BUILT, PLAYED, REMOVED 20 Aug 2026.** It froze men upright mid-round and it is Roman arena procedure, not Anglo-Saxon. Full record and the two reasons: `docs/MERCY-REMOVED.md`. **Do not re-open this row without reading it** |
 
 ### 3.1 and 3.4, as built
 
@@ -227,11 +262,15 @@ shares one strength with each neighbour and none with its opposite, and the two
 damage classes do different KINDS of damage (a rate against a blow). The
 berserker's second high stat is health, which is the direct answer to the
 owner's own description of a class that was slow, low-defence AND low-health —
-that is one strength, and one strength is why he could not win. Measured after,
-1,000 bouts an ordered matchup — 16,000 duels, seed 20260813:
-huscarl 53.8% [52.0-55.6], runekeeper 51.6% [49.8-53.4], berserker 46.8%
-[45.0-48.6], warden 45.2% [43.4-47.0]. The spread is **8.6 points, range
-5.0–12.2**.
+that is one strength, and one strength is why he could not win.
+
+**Those shapes still stand and nothing in this section's later re-levelling
+touched them.** What DID have to be retracted is the measurement that used to
+close this paragraph — "huscarl 53.8%, runekeeper 51.6%, berserker 46.8%, warden
+45.2%, spread 8.6 points" — because it was read off a `botThink` that Wave 4
+then rewrote. A win rate is a statement about *a sheet fought by a brain*, and
+when the brain is replaced the number is not stale, it is **void**. The live
+figures are in 3.2c.
 
 ### The band claim this document used to make was a coin toss
 
@@ -271,10 +310,17 @@ and **sits on the bar**. Both orderings pooled, 2,000 duels a matchup:
 | runekeeper v berserker | 48.2% [46.0-50.4] | — | 51.6% [49.4-53.8] | inside |
 
 **Those three columns are the point.** 424242 and 90210 are the two seeds the
-adversary used to break the old claim. All three now return the *identical*
+adversary used to break the old claim. All three returned the *identical*
 verdict — PASS, four matchups decisively inside, the same two on the edge —
-because the answer is being read off the roster instead of off the draw. So
-`classmatrix` was rebuilt to say that rather than to survive it:
+because the answer was being read off the roster instead of off the draw.
+
+> **That table is the OLD BRAIN and the OLD SHEET, and it is kept only because
+> the rebuild of `classmatrix` below is the thing it justifies.** Both of those
+> EDGE cells are gone as of 14 Aug 2026 — see 3.2c, where the same three seeds
+> read `huscarl v warden` 50.6-51.9 and `huscarl v runekeeper` 38.0-39.3, six of
+> six decisively inside, no deferral.
+
+So `classmatrix` was rebuilt to say that rather than to survive it:
 
 - It **rules three ways** — INSIDE (the whole interval is in the band), EDGE (it
   straddles a bar, so the run cannot say), OUTSIDE (FAIL) — and an EDGE matchup
@@ -291,6 +337,57 @@ because the answer is being read off the roster instead of off the draw. So
 - `--only=huscarl,runekeeper` measures one pair and its mirrors, a quarter of the
   work, which is what makes "widen n until it is decisive" affordable.
 
+**THE MIRROR CONTROL WAS FIRING ON NOISE, AND THE TEN-SEED RUN IS WHAT CAUGHT
+IT — 14 Aug 2026.** The mirror diagonal is this harness's check on *itself*: a
+class fought against itself is 50% by construction, so a deviation is either
+noise or side bias. The rule was `|p̂ − 0.5| > 0.03`, tolerance alone. At the
+default n=1000 the sampling standard error is 1.58 points, so **a perfectly fair
+mirror trips that about 5.7% of the time, and four mirrors a run makes it roughly
+one run in five.** Measured exactly that way: of the ten seeds behind 3.2c, **two
+came back FAIL and neither failure was the roster** — seed 1 (warden mirror 53.5%
+[50.4-56.6]) and seed 20260814 (berserker mirror 46.6% [43.5-49.7]) — while all
+ten had **zero EDGE cells** and a spread under 5 points. Both "failures" are
+2.2-sigma draws whose intervals comfortably *contain* the tolerance bound they
+were supposedly outside. A property of a harness cannot be true on eight seeds
+and false on two.
+
+Repaired as an **equivalence test**: the same 3-point tolerance, but it fails only
+when the *whole* 95% interval clears the band, which asks "do these data rule out
+a bias of 3 points or less" instead of "where did this draw land". Both seeds
+re-run and both now PASS, **10/10**. This is `docs/PROCESS.md` rule 2's one
+permitted exception — a harness proven to measure the wrong quantity — so it is
+recorded loudly rather than quietly edited.
+
+**And the attempt to prove the repair still catches the real thing found
+something worse.** `--no-swap` was added to put the insertion-order bias back —
+the defect that once read a warden mirror of **61%** at n=300. On this engine it
+no longer does: shipped sheet at 400 bouts it reads **53.5%**, and in a
+deliberately short mirror (warden cut to 40 health, 1500 bouts) **52.7%
+[50.2-55.2]**, against **49.4% [46.9-51.9]** for the same fixture with the swap
+on. So (a) `swapSides` is measurably still earning its place, and (b) **a full
+reintroduction of the defect now lands at or inside the 3-point tolerance the
+check declares acceptable** — meaning the old rule was firing on noise *more
+often than it could ever have fired on its own defect*. The repaired rule is
+therefore a **declared deferral**: it asks the right question and has not been
+seen red on this engine, because nothing here currently produces a bias big
+enough to answer it. It is kept against a future regression, `--no-swap` is kept
+so the bias can be re-measured in one command, and the tolerance must **not** be
+cut to make the gate "work" — that would be tuning the bar to the noise.
+
+**A DECLARED DEBT IN THIS HARNESS, found on 14 Aug and NOT fixed, so it is named
+rather than left to be rediscovered.** The band gate pools both orderings of a
+matchup — the whole argument above is that `A>B` and `B>A` are one matchup
+measured twice — but **`AGAINST THE FIELD` does not**. It sums only the row
+cells (`A>B`, `A>C`, `A>D`), so the field rate, and therefore **the SPREAD, which
+is the single number this rework is quoted on**, is computed from half the
+available sample: n=3,000 where n=6,000 exists. Fixing it would narrow the spread
+interval by about √2 and can only make the 40–60% field gate *stricter*, never
+looser, so it is a tightening and not a bar move. It was left alone this pass
+only because changing it would have invalidated a ten-seed measurement already
+in flight, and quoting a re-measured number would have cost another twenty
+minutes of duels. **Whoever picks this up: fix it, then re-quote 3.2c's spreads,
+and expect the point estimates to move by noise and the intervals to shrink.**
+
 **Two levers that moved nothing, and they are the finding.** Taking the huscarl's
 `blockReduction` from 0.80 to **0.00** — the best shield in the game to no shield
 — moves `huscarl vs warden` from 69% to 69%. Doubling his stamina regen and
@@ -303,13 +400,15 @@ DEFENCE — one of the four card axes — is very nearly unmeasured by this
 instrument, and that now rides every verdict line, computed per run rather than
 quoted from this page.
 
-**The fix that exists, costed, and NOT taken.** Health and damage move the
-huscarl's two edge matchups in different ratios (1.85 and 0.76), so the pair can
-push one down and the other up. Solved: `maxHealth 158 → 135, attackDamage
-17 → 21`. That is not a tuning tweak — it makes the wall a bruiser, nine health
-over the berserker instead of thirty-two — to satisfy a bar drawn by an
-instrument that cannot see his shield. **It is a decision about what the huscarl
-is, so it is the owner's**, and it is item one of the next wave.
+**The fix that was costed and NOT taken — and was not needed in the end.** Under
+the old brain the two huscarl edge cells could only be separated by moving health
+and damage together (`maxHealth 158 → 135, attackDamage 17 → 21`), which made the
+wall a bruiser to satisfy a bar drawn by an instrument that cannot see his
+shield. **That trade is off the table**: under the brain that now ships the two
+cells moved apart on health alone (3.2c), the huscarl kept his damage and gained
+four health rather than losing twenty-three, and `attackDamage` was never
+touched. Recorded because a costed option that later stops being necessary
+should say so, not sit on the page looking live.
 
 **Two things that were found by pulling the lever and are worth keeping.**
 Reach is nearly inert in this measurement — cutting the warden's spear by 65%
@@ -319,6 +418,28 @@ is the balance lever is therefore backwards *for bots*, and reach was left
 untouched rather than tuned to a number a bot fight preferred. And `types.ts`
 carried a second copy of the sheet disagreeing on eight of twelve columns; the
 two are now identical and `classmatrix` refuses to run if they drift again.
+
+**HALF THE SHEET IS INVISIBLE TO THIS RULER, and the 14 Aug pass measured how
+much of it.** Same 400-bout probes, seed 4242, quoted on the pooled matchup each
+lever was aimed at:
+
+| lever | pulled | matchup moves |
+|---|---|---|
+| berserker `moveSpeed` | 4.0 → 5.0 (+25%) | `hus v ber` 68.1% → 67.9% — **INERT** |
+| runekeeper `moveSpeed` | 5.6 → 6.6 (+18%) | `hus v run` 30.6% → 32.8% — **INERT, and backwards** |
+| berserker stamina | 95/14 → 140/24 | `hus v ber` 68.1% → 68.6% — **INERT** |
+| huscarl `blockReduction` | 0.80 → 0.00 | unchanged — **INERT** (recorded earlier) |
+| berserker `maxHealth` | 126 → 160 | `hus v ber` 68.1% → 45.5% |
+| berserker `attackDamage` | 28 → 40 | `hus v ber` 68.1% → 37.6% |
+| warden `attackSpeed` | 0.85 → 1.10 | `war v run` 55.4% → 12.1% |
+
+So **SPEED joins DEFENCE and reach in the blind half**, for the same reason: a
+bot closes to `myReach * 0.7` and stands there, so a faster man arrives at the
+identical spot marginally sooner and fights the identical fight. This ruler can
+read **HEALTH** and **DAMAGE** (including the stroke, which is damage-per-second
+wearing a clock) and very little else — which is why the re-levelling in 3.2c
+moved health and nothing but health, and why a fix that leaned on `blockReduction`
+would have been a balance claim with no measurement under it.
 
 **And the shape was illegible on the one screen that shows it.** The whole point
 of the rework is "two high stats each", and the only place a player meets that
@@ -363,34 +484,41 @@ scroller, 16 of 16 bars are fully clear of it — so it is a scroll position, no
 covered screen, and it is recorded here so the next person to shoot this screen
 scrolls before they judge it.
 
-**Mercy or Finish is on the server and has no UI.** A killing blow puts a man
-down instead of killing him; `mortal`, `mercyTimer` and `mercyTo` ride the wire;
-`downed` carries a witness count taken from the room (0 in a duel, 6 in a full
-moot — never a decorative seven); the window drains for 2.5 s; letting it run
-out sends `spared` and he rises on a quarter bar. A man is spared **once per
-round**, which is both the design statement and what guarantees a round of
-merciful men still ends. The outcome is a **reputation** — `menSpared` /
-`menFinished` on the results table — chosen over a remembering AI (evaporates at
-the bell), a war-layer hook (Wave 4 does not exist yet) and a private profile
-mark (seen by nobody, and §8's whole thesis is that the pressure is social).
+**Mercy or Finish was removed on 20 Aug 2026 and the reasoning is in
+`docs/MERCY-REMOVED.md`.** It was on the server, it had no UI, and the owner
+found it by playing: it fired on every player at 0 health rather than on a last
+man standing, in the middle of live rounds, and it parked the floor clock so the
+body was drawn standing upright for 2.5 s with no vote to make. It is also
+Roman — *missio*, the editor and the crowd — where the Anglo-Saxon thing,
+`grið` / `feorhgrið`, is quarter granted by a lord or asked by a man who yields.
 
-**NOT built, and these are the next items:** the HUD for the window (it must be
-a drain and never a digit — the protocol deliberately ships no countdown), a
-kill-feed line for a sparing, profile persistence for the two counters, any
-war-layer consequence, and any bot policy that *chooses* — bots finish because
-they keep swinging, not because they decided to.
+The mechanic is gone. Three of its ideas are not, and they are worth keeping in
+view when this row is next read: the pressure stated **socially** rather than as
+a meter, a window that **drains** rather than counting down (the riposte already
+does this), and **the absence of an act being an act the game names**. If a
+yielding mechanic is ever wanted, build `grið`: the beaten man asks and a lord
+grants. That is player-initiated, it needs no timer, and it freezes nobody.
 
 ### WAVE 4 — THE WAR (the spine)
 
 This is the project from `WHAT-THIS-GAME-IS.md` §3. It is what makes people come
 back and it is where the owner's scattered items become one feature.
 
+**THE SPINE LANDED 14 AUG 2026.** `src/game/war.mjs` (the rules),
+`src/db/war.ts` (the persistence), `endMatch`'s war report (the one place the
+fight touches the war), and `/factions` (the map). Gated by
+`tools/wartest.mjs` — 79 checks, plus a `--prove` arm that injects the two
+defects the neutrality gates exist to catch and requires them to go RED — and
+by `tools/warflow.mjs`, 22 checks end to end against a real Postgres.
+`WHAT-THIS-GAME-IS.md` §3.1 is the honest inventory of what is and is not in
+it. The ribs below are re-marked against that.
+
 | # | Item | Note |
 |---|---|---|
-| 4.1 | **Persistent territory: the map moves and is shared by everyone** | NEW as a system; the map screen exists |
-| 4.2 | **Make picking a starting kingdom a big decision** | NEW |
-| 4.3 | **Faction scope and plan** — how characters, weapons and colours differ per kingdom | [PARTLY RAISED] `docs/PROFILES-AND-FLAGS.md` |
-| 4.4 | **Clans pick a base kingdom** and inherit its variant characters | NEW, and it is the right instinct |
+| 4.1 | **Persistent territory: the map moves and is shared by everyone** | **DONE.** 16 territories, contest, flips, conservation. Not live-polling — the map is read on open, not streamed. |
+| 4.2 | **Make picking a starting kingdom a big decision** | **DONE, as far as a screen can make it one.** The oath is durable, locks once a man has fought, and is taken on the map itself. It is not yet weighty in a MATCH, because 4.3 is not built. |
+| 4.3 | **Faction scope and plan** — how characters, weapons and colours differ per kingdom | **KIT HALF DONE 16 Aug 2026** — `characters.ts` IS in the diff this time. See the entry below. The history is kept: this was *"the biggest gap in Wave 4"*, it was **wrongly reported as shipped on 15 Aug** when that date's work was entirely MAP-side — your ground cut into the island, your rank, your last match, what moved while you were away — and `characters.ts` was not in its diff. 5.7b, the PLACE half, is still open. |
+| 4.4 | **Clans pick a base kingdom** and inherit its variant characters | NEW, and it is the right instinct. Unblocked by 4.1 — a clan is a second attribution key on a write that already exists. |
 | 4.5 | **Team colours override cosmetics in team modes** — red and blue across armour finish and cloaks; clan colours later | NEW |
 | 4.6 | **Ranked: win/loss, a top-50 leaderboard, historically accurate titles by rating** | [PARTLY RAISED] as ranked; titles and leaderboard are new |
 | 4.7 | **Matchmaking; clans queueing as 2–4** (4 is the right clan size — it matches the warband) | [PARTLY RAISED] |
@@ -410,10 +538,11 @@ back and it is where the owner's scattered items become one feature.
 | 5.10 | **The thumb-zone law as a GATE** — 44 px floor on every control including desktop, 56 px for anything pressed mid-fight, a 132 px reach band that combat controls sit inside and confirmations deliberately do not. `tools/touchtest.mjs` currently gates layout and dead zones but has NO size floor at all | NEW, and the cheapest real win in Wave 5 |
 | 5.11 | **Body face: Alegreya Sans → Alegreya** (the serif sibling). One word in `layout.tsx:60`; both faces already load from Google Fonts, so nothing is imported | NEW |
 | 5.12 | **Wire `WarStandings` to the coastline we already own** — `factionMap/britain.ts`, 1,655 baked points. The review shipped an honest empty map well not knowing the geometry exists | NEW |
-| 5.13 | **The "while you slept" dispatch strip on the title screen** — promote from decoration to requirement. It is the only visible surface of the game's whole retention thesis | NEW |
+| 5.13 | **The "while you slept" dispatch strip on the title screen** — **PARTLY DONE 15 Aug 2026, and NOT struck.** The dispatch is built and gated (`factionMap/Dispatch.tsx`, `tools/warseen.mjs` 15/15) but it is on `/factions`, not on the title screen. The item says title screen and it means it: the whole point is that a man who has not opened the map still learns the map moved. A build report claimed this shipped; an adversary checked `src/app/page.tsx` against the diff and it is not in it — promote from decoration to requirement. It is the only visible surface of the game's whole retention thesis | NEW |
 | 5.5 | **Unlockable profile symbols** earned by achievement or bought | NEW |
 | 5.6 | **Taglines and grey helper text** updated to the current plan | NEW |
-| 5.7 | **Creative, distinctive map locations** built to the standard | [PARTLY RAISED] `docs/MAPS.md` |
+| 5.7 | **Creative, distinctive map locations** built to the standard | [PARTLY RAISED] `docs/MAPS.md`. **Superseded in scope by 5.7b, which is the same work with a reason attached.** |
+| 5.7b | **A ground for the territory you were dealt** — the owner, 15 Aug 2026: *"wouldn't having a map for each territory also be cool?"* | NEW, and it is the arena half of 4.3. See below. |
 | 5.8 | **Steam, then mobile, then console** — one account, two doors, from the first Steam build | NEW; supersedes `docs/DISTRIBUTION.md` ordering |
 
 ### WAVE 6 — engineering hygiene and tooling
@@ -528,6 +657,62 @@ And two the record has *optimistic*:
   / 311 worst / 256 k tris**. The phone problem is real but it is a *tier
   assignment* problem as much as a draw-call problem, and the numbers below
   should be argued at the tier a phone lands on, not at `high`.
+
+### The draw-call cut, costed and NOT DONE — 19 Aug 2026
+
+Recorded here rather than built, because the round that measured it delivered
+tools and documents and **not one removed draw call**, and that is the honest
+label for it. Everything in this box is a reading off `tools/framecost.mjs` at
+the WebGL context in a seven-bot fight; nothing here is an estimate except the
+line that says it is.
+
+**The briefed "614 draw calls" is the `low` preset.** What the tiers actually
+cost, and the spread is 7x on calls and 9x on triangles:
+
+```
+                draw calls p50   triangles p50   meshes   lights (casting)
+    low              595            391.5k         400        11  (1)
+    medium         3,079          2,155.7k         526        16  (3)
+    high           4,204          3,399.2k         530        22  (4)
+```
+
+An adversary reproduced this on his own worktree and read 649 / 4,050 p50 with
+4,204 at p95, and made a fair caveat that belongs with the numbers: at `high`
+the distribution is over **two frames** on a SwiftShader box, so the `high` p50
+is a sample and not a distribution. Read the tier ordering, not the third digit.
+
+**Warriors are the cost, and the unit is MATERIALS.** Every warrior counted,
+not the first one — an earlier reading kept one body and threw the rest away:
+
+```
+    low              32-40 meshes   13.0k-16.6k tris   18-24 materials
+    medium / high    44-57 meshes   22.5k-32.9k tris   26-33 materials
+```
+
+Warriors are **72-79% of visible meshes**. The arena is already instanced (up to
+301 repeats in one call), so there is nothing left to win there.
+
+**The merge floor is the material count: 417 -> 229 at `high`, about 940 calls
+of 4,204 — 22%.** That is the whole of what merging can buy, because two parts
+cannot share a call unless they share a material, and it is the number to hold
+any proposal against.
+
+**What is already built, and what actually blocks it.** This is R12 stage 5 and
+it is NOT "add skinning": `anim.ts`'s `articulate` already builds one 17-bone
+`THREE.Skeleton` per warrior and rebinds limbs as `SkinnedMesh`. What blocks the
+merge is that the eight kit parts are posed by **pivot transforms**, not bones,
+so merging them into one buffer loses the pose. The cheaper lever is the 26-33
+materials themselves, and the mechanism for that is also already in the tree:
+`VERTEX_TINTED` and `Part.paint` exist in `characters.ts` and are used for the
+FACE and not for the kit. Painting kit colour into vertices instead of into a
+material is the same trick applied one level out.
+
+**Refused, in writing: R12 stage 6.** The two easy levers are named so nobody
+has to rediscover them and so nobody reaches for them quietly — render scale,
+and the shadow-caster count (`530 for the picture + 477 casters x 4 shadow
+lights = 2,438` of the high tier's calls). Both change what the game looks like,
+which is the owner's decision and not a fixer's, and both are the quickest way
+to move this number without making anything cheaper.
 
 Measured matrix, from `art/perf/fpstest.json` (`when: 2026-08-05T15:31:44Z`,
 `prod: true`, SwiftShader, 4 cores, dpr 1 — **no GPU on the capture box**):
@@ -1011,3 +1196,188 @@ E  map three         (BLOCKED on the sim being flat: no jump, x/z only,
 F  matchmaking       (REJECTED until concurrent strangers exist)
 F  flags             (needs profiles — profiles are DONE)
 ```
+
+## 4.3 — THE FACTION KIT, AS BUILT (16 Aug 2026)
+
+The owner: *"it doesn't feel like much of an impact currently when you do swear
+to a kingdom & win a game."* The map half of that shipped 15 Aug. This is the
+arena half, and it is `characters.ts`.
+
+### What a people takes, and what it leaves
+
+`docs/FACTIONS.md` §8's table already scoped this rung and left it unbuilt. It
+is built exactly as scoped, one rung below the team colour:
+
+| | takes | leaves |
+|---|---|---|
+| **a people, in a non-team mode** | the cloak and the shield board, flat, in the people's field; the board's PAINT and the mark on it; the worn cloth — tunic, trousers, wraps, harness and strap leather, linen, pelt, hood cloth and the mail — through a per-people vat | the cast fittings, the helm's own metal, skin, hair, beard, war paint, and **every shape on the man** |
+
+**The four hues are DERIVED, not typed.** `FACTION_FIELD` is `--gilt`,
+`--garnet`, `--moss` and `--woad` out of `globals.css` — the only place those
+four colours exist and what `factionMap` paints the island in — and every hue in
+the livery table is `hueOf()` of one of them. What IS typed is chroma and VALUE
+per surface, and every row is an entry in `FACTIONS.md` §2's Kit column: the
+Norse ceiling on cloth sits below the British floor because his wools are darker
+and their kit is lighter; the Pict's wraps come out of the vat almost as they
+went in because his limbs are bare; his metal goes dark and colourless because
+he has the least armour and none of it may be taken away, since some of it was
+bought.
+
+**Two hue shifts, both making the dye more accurate rather than less.** `--gilt`
+is a METAL — the CSS comment says so, it is the map's chrome — and a Saxon wore
+WELD, a clear yellow further round the circle. `--garnet` is a STONE, and a
+garnet is a deeper, bluer red than the orange it was borrowing from gilt. They
+were 32° apart and 32° is not two peoples at 230 pixels: `factionread` read
+ΔC 8.75 before the shifts and 14.18 after. `TEAM_FIELDS` already does the same
+thing and says so.
+
+**The mark is on the SHIELD, which is the only geometry a people adds.** A
+roundel of the board's own field with the device painted on it, set clear of the
+boss: ~230 mm on a 760 mm board, which is ~29 px at the fight lens. The board's
+paint pattern is per people too — quarters for Wessex, the Gokstad ship's
+alternating staves for the Danelaw, a chequer for the Britons' "checked weave",
+a rim band for the Picts. `FACTIONS.md` §9's tiers are carried into the code:
+the seax, the York Mjölnir and the Pictish crescent-and-V-rod are FINDs, the
+triskele is a find used as a device we composed, and §9.2's AVOID list is
+respected in full.
+
+### The unsworn is a look
+
+`people: "none"` returns by identity at every resolver, so an unsworn man is the
+issued kit — undyed wool, oiled harness leather, cast bronze, a plain limewood
+board with no mark on it — which is what every shot in `art/` has shown since
+the game existed. Most players are unsworn on first load and a default that read
+as "the faction failed to load" would be worse than no feature.
+
+### The gate, and it went red on the build it was written for
+
+`node tools/factionread.mjs`. `--off` is the permanent control and must fail: it
+reads ΔC 0.00 and its sheet is five copies of one man. First run against the
+real build was 12/15, and the three failures split into two build defects and
+one ruler defect, written up in `GATES.md` and in the file itself.
+
+### AND THEN IT PASSED 15/15 WITH THREE DEFECTS LIVE IN IT — 16 Aug 2026
+
+Worth its own heading, because the lesson is the one this project keeps paying
+for. Every assertion the file had asked whether the four peoples were far enough
+APART. None asked whether the shop was still a ladder INSIDE one of them, and
+none of them had any light in it at all. The whole "after" set was five front-on
+turn-0 huscarl cards: one bearing, one class, one pose, and all three defects
+lived outside that frame.
+
+1. **SWEARING FLATTENED THE PAID ARMOUR FINISH LADDER.** Measured through the
+   shipped resolvers, kit-averaged CIELAB ΔE over the six dyed surfaces: **21 of
+   21 finish pairs under `LADDER_DE` on every one of the four peoples, minimum
+   0.00**, against 0 of 21 and minimum 11.85 unsworn. Rough Iron at 0 gold and
+   Blackened Steel at 110 returned the identical hex on every dyed surface under
+   a Saxon or Briton livery — `mail #7c7a6f vs #7c7a6f | tunic #b0a554 vs
+   #b0a554`. A man who paid 110 gold watched it become the free one the moment
+   he swore.
+
+   `rungcensus` could not see it — it counts components and triangles and
+   **nothing was deleted**, the colour was flattened. `cosmetictest` §2 gates
+   this exact ladder on this exact constant, against the RAW STORED HEX, which
+   is the same seven numbers whatever a man swore to. Three instruments green,
+   all answering the question next to the one that mattered.
+
+2. **THE SAXON BLEW OUT.** `--gilt` is a map token — the CSS calls it a metal
+   and "the brightest thing on the map" — and `cloakFor` put it flat on a cloak.
+   Through the real renderer: **1.93% of the man at a fully clipped channel at
+   the front, against 0.11% for the 400 gold Gilded War Cloak.**
+
+3. **THE DANELAW WAS STILL PINK** at the two bearings nobody photographed. The
+   round that "fixed" it removed the Norse hue shift and shot the front; the
+   pink was never in the hue shift, it was in the same clamp — every pale
+   surface, which is the linen sleeves and the leg wraps, onto one light rose.
+
+**Closed 16 Aug 2026, all three by one correction, and both new gates were
+written first and went red before the fix.** `factionread` §5 gates the paid
+ladder through `kitFor(finishKit(value), team, people)`, and §6 boots the app
+and counts clipped pixels under the fire against the shop's own dearest gold.
+The full write-up is `FACTIONS.md` §10.1; what it could not buy, and the number,
+is there too and is printed on every run.
+
+### What is still open here
+
+* **Per-faction class variants** (`FACTIONS.md` §6). Same four classes, same
+  numbers, different KIT — a Pictish runekeeper's shape, not his colour. This
+  pass is colour plus one device; shape is untouched by design and is the next
+  item.
+* **The other three classes have no shield**, so their read is colour only.
+  `render/anim.ts` gives a shield to the huscarl alone.
+* **The oath screen does not show you the kit.** `/factions` still asks a man to
+  swear without showing him what he will look like.
+* **5.7b, the PLACE half**, below.
+
+## 5.7b — A ground for the territory you were dealt
+
+The owner, 15 Aug 2026, having just reported that swearing to a kingdom has no
+visible consequence: *"I assume we have map building on the list but wouldn't
+having a map for each territory also be cool?"*
+
+**It is on the list as 5.7, and the owner has made it a better item than the one
+that was there.** 5.7 asked for "creative, distinctive map locations", which is a
+content wish with no reason attached. This is the same work with the reason
+supplied, and the reason is the strongest one in the backlog.
+
+### The measurement that makes this urgent
+
+```
+src/game/grounds.mjs:622   export const GROUNDS = { saxon_village: SAXON_VILLAGE };
+src/game/grounds.mjs:626   export const DEFAULT_GROUND_ID = "saxon_village";
+```
+
+**There is one ground.** The war deals a match over one of SIXTEEN named
+territories — `dealTerritory` in `war.mjs`, drawn from the four most contested —
+and then every one of those matches is fought in the same Saxon village.
+
+That is the owner's other complaint one layer down. He said the map shows no
+identity after you swear; this is the arena showing no identity after the map
+names your ground. **4.3 is the kit half of that gap and 5.7b is the place half**,
+and the place half is arguably larger: a man notices where he is standing before
+he notices the colour of his neighbour's cloak.
+
+### Why it is cheaper than sixteen levels
+
+The architecture is already built for many grounds and has never had more than
+one: `getGround(id)` resolves by id and falls back rather than throwing, with a
+comment explaining that a client/server disagreement should drop everyone in the
+village rather than crash. Nothing needs designing to make a second ground exist.
+
+And every ground is CODE, not an asset — the project has zero binary assets by
+rule — so sixteen hand-built levels is the wrong shape anyway. The right shape is
+a small set of landscape archetypes, each carrying the character the territory
+actually has, since the territories are real places with real ground:
+
+| archetype | territories | what it is |
+|---|---|---|
+| fen and causeway | East Anglia, Lindsey | flat water, reed, a raised timber road that funnels a fight |
+| downland | Wessex, Kent | chalk, sheep-cropped turf, a long open sightline |
+| dyke and march | Mercia, Gwynedd, Dyfed | Offa's earthwork — a bank and ditch is a shield wall in landscape form |
+| moor and dale | Deira, Bernicia, the Five Boroughs | heather, gritstone, a beck cutting the floor |
+| sea-cliff | Kernow, Cait, Ystrad Clud | turf to a drop, standing crosses, wind |
+| firth and broch | Fib, Circinn, Fortriu | drystone tower, birch scrub, a tidal edge |
+| isles | Sudreyjar, Mann | machair, a beached keel, salt grass |
+
+Six archetypes cover sixteen territories. Each territory then earns ONE authored
+feature that is only its own — Offa's Dyke, a Pictish symbol stone, a fen
+causeway, a beached ship — so no two grounds read the same even where the
+landscape does.
+
+### The gate this needs, because it is the obvious place to cheat
+
+A ground that is the village with a different tint would pass any harness written
+carelessly, so the ruler must measure **what the fight actually does**, not what
+the mesh looks like. At minimum: every ground's walkable area, cover count and
+sightline distribution must differ measurably from every other's, and no ground
+may be strictly better to hold than another for any class — the war already
+decides who wins ground, and a map that decides it instead would quietly undo it.
+`tools/solidtest.mjs` and `tools/stepprobe.mjs` already exist and gate collision
+and traversal; they must run per ground rather than once.
+
+### Order
+
+**After 4.3 (per-faction kit), not before.** Both close the same gap and kit is
+cheaper, already scoped in `docs/FACTIONS.md`, and touches one file the helm work
+is already in. Doing kit first also means the first new ground is walked by
+warriors who look like they belong on it.

@@ -13,8 +13,14 @@ Only one of them is the renderer:
 | symptom | actual cause | measured by |
 | --- | --- | --- |
 | the picture is slow | the renderer | `tools/perf.mjs`, `tools/fpstest.mjs` |
-| you press, the man moves late | input latency | `latencytest input` |
+| you press, the man moves late | input latency | **nothing. See below.** |
 | the man moves in steps | **judder** | `latencytest judder` |
+
+`latencytest input` was written in that cell for a year and **there is no such
+phase**. The dispatcher handles `tick`, `judder` and `all`; anything else fell
+through and exited 0 in silence, which reads as "ran, clean". It exits 2 with a
+message now. End-to-end input latency is measured by nothing in this repository
+and that is a gap, not a phase.
 
 **Judder is the one that was wrong.** The server ships state at 20 Hz. A phone
 draws at 60 or 120. Twenty discrete positions a second shown on a 120 Hz display
@@ -166,14 +172,16 @@ it.
   which was a guess that was sometimes wrong; it is now exactly one frame's worth
   of honest lag. Real client-side prediction needs an input-sequence ack that
   `input.ts` and `engine.mjs` do not carry.
-- **Remote bodies render ~83 ms behind**, which is the 1.5-period buffer and is
-  the price of never extrapolating a man you do not control.
+- **Remote bodies render 75-100 ms behind**: the 1.5-period buffer plus, since
+  `JITTER_DELAY_PACKETS`, up to half a period of the arrival lateness the client
+  has actually measured. On a clean wire the second term decays to zero and the
+  delay is the 75 ms it always was.
 - **Ripple is not the only number.** Read `|accel| p95` beside it.
 
 ## How to re-derive all of this
 
 ```
-node tools/latencytest.mjs            # everything: tick, judder, input
+node tools/latencytest.mjs            # everything: tick and judder
 node tools/latencytest.mjs judder     # the interpolation trace alone
 ```
 
@@ -183,3 +191,100 @@ and it is a poor regression gate on a busy box.** If it reports a MEASURED-jitte
 failure, do not reach for "the box was loaded" — sweep constant wake periods from
 49 to 55 ms first. A real fault shows up at 50.5 ms on a silent box; box noise
 does not.
+
+
+---
+
+# The GPU ask, and the number that had been quoted was the cheapest tier
+
+Everything above is about the CPU and the wire. This section is about what a
+frame **submits**, which is the question a Steam build actually turns on, and it
+is separate because the two have nothing to do with each other.
+
+`tools/framecost.mjs` counts draw calls and triangles **at the WebGL context**.
+That figure is portable: this box has no GPU and rasterises through SwiftShader,
+so not one millisecond of a drawn run here means anything — but what a frame asks
+for is the same on any device.
+
+## Measured, one run a tier, seven bots and a player at 1280x720
+
+| | draw calls p50 | triangles p50 | visible meshes | lights (casting) |
+| --- | --- | --- | --- | --- |
+| `low` | **595** | 391.5k | 400 | 11 (1) |
+| `medium` | **3,079** | 2,155.7k | 526 | 16 (3) |
+| `high` | **4,204** | 3,399.2k | 530 | 22 (4) |
+
+**Every draw-call figure this repository had quoted — "614 draw calls, 395.5k
+triangles" — is the `low` row.** `framecost` fetched `?quality=low` on a
+hardcoded URL and never printed the tier. A desktop build asks for **seven times
+the draw calls and nearly nine times the triangles** of the number that was being
+reasoned about. Both harnesses take `--quality=` now and both print the tier on
+their header.
+
+## Where the calls are
+
+The eight warriors are **72% of the visible meshes on `low` and 79% on `medium`
+and `high`**. The arena itself is already instanced — rocks, tufts, debris,
+palisade stakes and coals come through `world.ts`'s `field()` as `InstancedMesh`
+at every tier, up to 301 in one call — so there is nothing left to win there.
+
+A warrior is not one number. Counted one man at a time (which `framecost` now
+does; it used to keep only the first body handed to it, and that single sample
+read 29, 32 and 49 meshes on three runs of three tiers and was quoted as a
+property of the build):
+
+| tier | meshes per man | triangles per man | **distinct materials per man** |
+| --- | --- | --- | --- |
+| `low` | 32-40 | 13.0k-16.6k | 18-24 |
+| `medium` / `high` | 44-57 | 22.5k-32.9k | 26-33 |
+
+`medium` and `high` build the identical warrior; only `low` differs, because
+`characters.ts` collapses near-neighbour substances there (`thrifty`).
+
+## What a stage-5 fix can and cannot buy (R12)
+
+`Part.merge()` already merges by material **within** one emitted part, and there
+are eight parts (two legs, two arms, torso, neck, head, cloak). Merging **across**
+parts is the stage-5 move, and its floor is the man's distinct material count,
+because two meshes can only become one draw call if they share a material.
+
+    low               289 warrior meshes  ->  158     131 fewer
+    medium / high     417 warrior meshes  ->  229     188 fewer
+
+Multiply by one plus the shadow-casting light count — every caster is drawn again
+per casting light — and at `high` that is about **940 draw calls of 4,204, or
+22%**. Real, and it is not the order of magnitude the framing implied.
+
+**It is also more work than it sounds, and less than the last round assumed.**
+The rig already carries `THREE.Skeleton` — `anim.ts:articulate` builds one
+skeleton of seventeen bones per warrior and rebinds every limb and cloak mesh as
+a `SkinnedMesh` — so this is not "add skinning to `characters.ts`". What blocks
+the merge is that each of the eight parts is posed by its **pivot's** transform
+rather than by a bone, so meshes on different pivots cannot share one geometry.
+Landing it means moving the pivot transforms into bones, baking the pivot offsets
+into the vertices, and merging by material. That is a rewrite of `anim.ts`'s
+posing, which two other branches also hold.
+
+**The larger lever is the material count itself.** 26-33 distinct materials on
+one man is what caps the merge at 45%. They exist because kit colour is expressed
+as a new `MeshStandardMaterial` per colour (`M.armour(c)`, `M.tunic(c)`,
+`M.tinted(...)`). The machinery to express colour as a **vertex attribute on a
+shared material** is already in `characters.ts` — `VERTEX_TINTED`, `Part.paint`,
+and the invariant that keeps `mergeGeometries` working — and it is used for the
+face and not for the kit. Collapse the kit onto shared materials and the merge
+floor drops toward single digits per man, which is a different order of saving
+and would also let identical loadouts share one material across warriors.
+
+## What was NOT done, and it is the point (R12)
+
+The two cheapest ways to move every number above are **fewer shadow casters per
+warrior** and **fewer of the 22 lights**. `framecost` prints the arithmetic that
+makes them tempting:
+
+```
+  530 for the picture + 477 casters x 4 shadow light(s) = 2438 before anything else
+```
+
+Both are **stage 6**. They change what the player sees, they belong to the owner,
+and they are named in the harness's own output so that they are not reached for
+by accident. Neither was made. The stage-5 answer is costed above instead.

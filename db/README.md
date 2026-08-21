@@ -7,8 +7,20 @@ missing `DATABASE_URL` degrades the game; it does not break it.
 ## Standing one up
 
 1. Create an empty Postgres database (Neon, Supabase, a container — anything).
-2. Paste `db/schema.sql` into its SQL editor and run it. Three tables,
-   four indexes, no extensions, no seed data.
+2. Paste `db/schema.sql` into its SQL editor and run it. Seven tables,
+   nine indexes, no extensions, no seed data.
+
+   Three of them are the war (`seasons`, `territories`, `war_ledger`,
+   `war_flips` — four, with `players` carrying the oath). `src/db/index.ts`
+   also brings every one of them up in place on the first request after a boot,
+   so an existing database does not need this file re-run; it is here for a
+   database being stood up from nothing.
+
+   **`war_ledger_match_player_idx` is not optional.** It is the unique index the
+   attribution write's idempotency rests on: without it, a retried or
+   double-delivered match banks its points twice, and two server instances bank
+   every match twice. `tools/warflow.mjs` asserts Postgres itself refuses the
+   duplicate.
 3. Set `DATABASE_URL` in the deployment's environment to the connection string.
    Nothing else changes — no code, no build flag.
 
@@ -26,11 +38,44 @@ Both suites take a connection string and drive the real routes:
 
 ```
 DATABASE_URL=... PROFILE_TEST_DB=... npm run profiletest   # 68/68 with a DB, 22/22 without
-DATABASE_URL=... npm run cheattest                          # needs a FRESH database
+CHEAT_DB=... npm run cheattest                              # needs a FRESH database
 ```
+
+**`cheattest` reads `CHEAT_DB`, not `DATABASE_URL`**, and this line used to say
+`DATABASE_URL=... npm run cheattest`. That is not a typo with no consequence:
+`cheattest` *silently skips its entire database half* when `CHEAT_DB` and
+`PROFILE_TEST_DB` are both unset — it prints one line saying so and exits 0 —
+so an evidence note reading "`DATABASE_URL=... npm run cheattest` 10/10 on a
+fresh database" is a green verdict about a suite that never opened a
+connection. It ran the no-database path and passed it. Corrected here rather
+than quietly, because the wrong version has already been pasted into at least
+one report as proof.
 
 `cheattest` is **not idempotent** — it asserts on once-per-save migration paths,
 so it fails against a database it has already run on. Drop and recreate first.
+
+The war has its own three, and the split between them is the point:
+
+```
+npm run wartest              # the RULES: 79 checks, no database, four seconds
+npm run wartest -- --prove   # the same file with the defects INJECTED: every
+                             # neutrality gate must go RED, or it is blind
+WAR_TEST_DB=... npm run warflow   # the WIRING: 28 checks, end to end
+WAR_TEST_DB=... npm run warrace   # the ROLLOVER, under concurrent callers
+```
+
+`warrace` is the 35-day boundary hit by ten callers at once, and it exists
+because that boundary raced: three seasons opened at indexes 2, 3 and 4, and
+every one of them opened DEAD EVEN, silently deleting the champion's fifth
+territory and his 0.75 target discount. It goes red on the code that shipped
+before it — 6/13 — which is the only reason to believe it green now.
+
+`wartest` would pass in full on a build where `src/db/war.ts` wrote nothing at
+all — it holds the arithmetic, not the plumbing. `warflow` boots the game,
+swears profiles to different peoples, fights real matches over a real socket
+and then asks Postgres what it believes. It **drops and recreates the war
+tables on every run**, so point it at a scratch database and never at anything
+you want to keep.
 
 ## A note on connection strings
 

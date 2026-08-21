@@ -258,33 +258,31 @@ it belongs in the backlog rather than in a UI import:
 Filed to `BACKLOG.md` Wave 3, next to the class rework, because it changes how a
 fight ends and therefore how a fight is fought.
 
-**BUILT, on the server, 13 Aug 2026 — and it is not a fifth state.** It reuses
-the knockdown wholesale: a downed man IS `knocked`, so `isDown` already refuses
-him his swing, his guard, his turn and his stride, `knockDown` already strips his
-i-frames and slides him off the blow, and the client already animates the fall.
-What was added is three fields and one rule — `mortal` (this fall does not end in
-getting up), `mercyTimer` (the draining window), `mercyTo` (whose choice it is,
-the same shape the riposte's `vulnerableTo` already uses). All three are on the
-wire, because the whole point is that the room can see it.
+**BUILT on the server 13 Aug 2026, PLAYED, AND REMOVED 20 Aug 2026.** The full
+record is `docs/MERCY-REMOVED.md` and it must be read before anyone acts on the
+paragraphs above, which are a review of a screen and not of a fight.
 
-All three of the properties above are gated by `tools/mercytest.mjs`, and the
-social one is gated adversarially: the window is opened in rooms of two, four and
-eight men and the witness count must come back 0, 2 and 6. A hard-coded seven
-passes any single-room test and was tried against this gate on purpose — it
-fails, which is the point of writing it that way.
+Two reasons, and the owner found both by playing:
 
-The outcome is a **reputation**: two counters, `menSpared` and `menFinished`, on
-the results table the whole room reads. That was chosen over the three
-alternatives in the bullet above and the reasoning is in `engine.mjs` at
-`buildLedger` — the short version is that a spared man remembering evaporates at
-the bell, a war-layer consequence cannot be built because Wave 4 does not exist,
-and a private profile mark is those seven watching men leaving the room.
+1. **It froze men in the middle of live rounds.** `goDown` fired on ANY player
+   reaching 0 health — not the last man standing, not the end of a round — and
+   parked the floor clock for 2.5 s so the client drew him standing bolt
+   upright while seven other men fought around him. `gravitytest` §1 measured
+   159 of 159 frames under 37° from upright, 2.65 s unbroken, then 73.8° of
+   trunk in ONE frame at 60 fps when the window shut.
+2. **It is Roman, not Anglo-Saxon.** Spare-or-kill over a downed fighter on a
+   crowd's signal is *missio* and *pollice verso* — arena procedure. The nearest
+   English thing, `grið` / `feorhgrið`, is quarter **granted by a lord** or
+   **asked by a man who yields**, settled afterwards in law and *wergild*. It is
+   not a timed choice mid-melee, and this game is a moot, not an amphitheatre.
 
-**The screen is still not built, and this section's own argument says how it
-must be.** The window is published as seconds remaining plus its full length, so
-a client forms a ratio and draws a shrinking mark; the protocol deliberately
-ships nothing that reads as a countdown, because a number invites the player to
-watch the number instead of the man.
+**What survives, because none of it depended on mercy:** state the pressure
+socially rather than as a meter; a window DRAINS rather than counting down (the
+riposte's `vulnerableTimer` already does, see `docs/WEIGHT.md`); and the absence
+of an act can itself be an act the game names out loud. That last one is the
+idea worth rescuing, and `grið` — a beaten man **asks**, a lord **grants** — is
+the honest shape for it, because it is player-initiated and parks nobody's
+body.
 
 ## 9. What it correctly left open
 
