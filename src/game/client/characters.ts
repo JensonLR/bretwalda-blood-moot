@@ -1476,8 +1476,30 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   const cy = sy + d.sat * Math.sin(TAU * f.hue);
   // THE HUE STAYS INSIDE THE VAT'S CONE. See `HUE_CONE`.
   const off = ((Math.atan2(cy, cx) / TAU - f.hue + 1.5) % 1) - 0.5;
+  // THE HUE CONE STAYS A HARD CLAMP, and that is a decision with a number on it.
+  //
+  // Softening it the same way as the chroma ceiling and the lightness floor was
+  // built and measured: `5.2b` improves 11 -> 10 collapsed surfaces, and `1.1
+  // SWORN` — the gate that says swearing has to move a man past a just-noticeable
+  // difference — drops from 2.46 to **2.32 against a bar of 2.3**. Two
+  // hundredths of margin on a passing gate, bought for one surface. The other
+  // two knees cost nothing and this one costs the wrong thing, so it is not
+  // taken. See `docs/OPEN-DEFECTS.md`.
   const dh = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
-  const dc = Math.min(1, Math.hypot(cx, cy));
+  // THE CHROMA CEILING IS THE SAME KNEE THE LIGHTNESS CEILING ALREADY USES.
+  //
+  // This was `Math.min(1, ...)` — a hard clamp, zero slope — and it is the last
+  // one left in the vat after `softBand`'s floor. The chroma handed out here is
+  // the surface's own vector PLUS the vat's, so anything already saturated goes
+  // over 1 the moment a strong dye is added, and every surface that does lands
+  // on EXACTLY 1. Two paid finishes that differ only in how saturated they were
+  // come out of a clamp as one swatch, which is what `5.1b NO TWINS PER SURFACE`
+  // counts.
+  //
+  // `softCeil` is the shape the lightness ceiling has used all along, so it is
+  // reused rather than reimplemented: one definition of "approach a cap and
+  // never reach it", two callers. Ordering is preserved right up to the cap.
+  const dc = softCeil(Math.hypot(cx, cy), 1);
   // AND ON THE RED ARC THE VAT LETS GO OF A PALE SURFACE. See `roseFade`.
   //
   // LETTING GO IS A MOVE BACK TO THE SURFACE, NOT A MOVE TOWARD GREY, and that
