@@ -8,6 +8,122 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE SHADOW DRAW CALLS — the prize is measured, two mechanisms are dead, and the lossy cull is refused — 21 Aug 2026
+
+The instrument said shadows are the largest single item on the sheet. This is the
+attempt to spend it, and what ships from it is the measurement rather than a
+change — because the obvious cut is not free and the free cut needs building.
+
+### The prize, exactly
+
+`tools/framecost.mjs`, eight-man brawl, one shadow-casting light:
+
+```
+                              casters   draw calls
+  as it ships                   352        664
+  warriors casting nothing       60        437
+```
+
+**Warriors alone are 292 of the 352 casters and 227 of the 664 draw calls — a
+third of the frame spent drawing men a second time.** And it multiplies: the
+harness prints *"THE SHADOW LIGHT COUNT IS THE LARGEST SINGLE MULTIPLIER IN THIS
+FILE, and it is 1 on low, 3 on medium and 4 on high"*, so on `high` each caster is
+drawn four extra times.
+
+### Three things that do NOT work, each measured before it was abandoned
+
+**1. Culling small casters.** The shadow map is sized for a 1.5 cm texel
+(`SHADOW_TARGET_TEXEL`), so anything a few texels across casts nothing
+resolvable. There is nothing to cull: **not one of a warrior's 43 meshes is
+under 8 cm**, the smallest being a head piece at 8.3. The geometry is already
+consolidated — there are no rivets as separate meshes.
+
+**2. Hiding a shadow proxy on another layer.** The plan was to park a cheap
+proxy on layer 1, keep it out of the main camera, and let the shadow camera see
+it. `three.module.js:9559` in the shadow pass reads
+
+```js
+const visible = object.layers.test( camera.layers );
+```
+
+— `camera`, the MAIN camera, not `shadowCamera`. An object the camera does not
+render is not shadowed either. **Dead.**
+
+**3. Hiding it with `material.visible = false`.** The next idea: keep the proxy
+on the default layer but give it an invisible material, on the theory that
+`material.visible` gates only the colour list. It gates both — the colour pass at
+`:17921` and the shadow pass at `:9594`. **Dead.**
+
+A proxy therefore has to be a real drawn object with `colorWrite:false` and
+`depthWrite:false`: one draw call that changes no pixel.
+
+### The lossy cull was BUILT, measured, and refused
+
+Meshes are layered per bone — nine on `rig:torso`, seven per arm, six on the head.
+Dropping any whose bounding sphere sits inside a larger SIBLING's (siblings only,
+because two meshes on different bones separate when the man moves and a
+containment measured in bind pose would be a lie by the first stride) gives
+**43 → 28 casters on all four classes**, and measured end to end:
+
+```
+                casters   draw calls
+  before          352        664
+  after           226        583        -12%
+```
+
+**It is not free, and the same frame says so.** Same card, same lens, `fightcard`
+huscarl turn 40, against a control of the same build captured twice:
+
+```
+  region                 before    after     control drift
+  the man (torso+kit)     77.32    81.52     +/- 0.03      -> +4.20 BRIGHTER
+  ground under him        72.54    74.12     +/- 0.01      -> +1.58
+  the shield             100.98   102.80     +/- 0.04      -> +1.82
+  background fence        53.86    53.70     +/- 0.05      -> -0.16
+```
+
+9.02% of pixels move by more than 8/255 against a control of 0.258% — thirty-five
+times the noise. The man goes **four luma points brighter** because his own kit
+stops shadowing itself, which is precisely what the line above the traverse
+defends: *"a pauldron has to darken the sleeve under it, or layered kit reads as
+one painted shape."* Bounding-sphere containment does not imply geometric
+containment, so a plate whose sphere is swallowed can still stand proud of the
+mesh that swallowed it.
+
+**Twelve percent of the frame is not worth flattening the warrior**, and the
+change is reverted. Nothing from it ships.
+
+### What DOES work, costed, for the next round
+
+**One merged shadow-only caster per BONE.** Siblings share a parent, so their
+relative transform is fixed for the life of the rig and merging them is exact —
+the union of the same triangles, so the shadow is unchanged pixel for pixel,
+including the self-shadowing the cull above lost.
+
+```
+  per warrior, 1 shadow light    43 colour + 43 shadow            = 86
+                                 43 colour + 8 proxy + 8 shadow   = 59      -27
+  per warrior, 4 lights (high)   43 + 172                         = 215
+                                 43 + 8 + 32                      = 83     -132
+```
+
+At eight men and one light that is **664 → ~448, a third of the frame, for no
+visual change at all.**
+
+The cost is memory: the merge duplicates vertex data. A shadow proxy needs
+POSITION only — no normals, no UVs — so at ~28,700 triangles a warrior it is
+about **1 MB per man, 8 MB for a full moot**, not the 25 MB a full-attribute
+merge would take. That is the number to weigh, and it is the whole of the
+decision.
+
+**And the cheaper lever the harness itself recommends is untried:** dropping the
+shadow-casting light count from 4 to 3 on `high` removes a quarter of every
+caster's cost at once. That is a look decision about cascades rather than a
+geometry one, and it wants its own frame.
+
+---
+
+
 ## FIXED — `ablationRows` was empty for three reasons, and none of them was the game — 21 Aug 2026
 
 `docs/BACKLOG.md`'s third priority reads: *"`ablationRows` is **empty**. Not
