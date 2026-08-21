@@ -8,6 +8,64 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE PAID LADDER, ROUND TWO — three hard clamps in one function, two taken and one refused — 20 Aug 2026
+
+`5.2b`'s own line is the diagnosis and it has been there all along: the worst
+paid pair reads **ΔE 3.66 sworn against 11.85 UNSWORN**. The shop has a ladder;
+the vat flattens it. `factionDye` had **three** clamps with zero slope, and every
+one of them turns a range of inputs into a single output — which is what a twin
+is.
+
+| clamp | what piles up on it | taken? |
+|---|---|---|
+| `softBand`'s floor, `if (x < lo) return lo` | every finish darker than the band | **yes** — 17 → 13 |
+| `Math.min(1, hypot(cx, cy))` on chroma | every surface the vat pushes past full chroma | **yes** — 13 → 11 |
+| `max(-HUE_CONE, min(HUE_CONE, off))` on hue | every surface whose own hue is outside the cone | **no** — see below |
+
+The ceiling on lightness has used an asymptotic knee — `softCeil` — since it was
+written, and the file argues for it twice. The other three ends never got one.
+
+### The chroma ceiling cost NOTHING, which is why it is in
+
+```
+                    5.2b   1.1     1.2    1.3
+  before             13    2.46   5.97  -40.57
+  chroma softened    11    2.46   5.97  -40.57
+```
+
+Two paid surfaces off the collapse and **not one other number moves** — because
+the surfaces piling up at full chroma are ones whose ORDER was destroyed, not
+whose hue was. `softCeil` is reused rather than reimplemented: one definition of
+"approach a cap and never reach it", now with two callers.
+
+### The hue cone was built, measured, and REFUSED
+
+```
+                    5.2b   1.1                  1.3
+  before             11    2.46                -40.57
+  cone softened      10    2.32  (bar 2.30)    -49.42
+```
+
+One surface, for **two hundredths of margin** on `1.1 SWORN` — the gate that says
+swearing has to move a man past a just-noticeable difference. A passing gate left
+that close to its bar is a gate that flips on the next seed. Not taken, and the
+reason is written into `characters.ts` at the line itself so the next hand does
+not spend the afternoon rediscovering it.
+
+### Where the ladder stands
+
+**11 paid surfaces still collapse onto the free Rough Iron's own**, down from 20
+when the per-surface gates were first made honest. What is left is not a clamp:
+it is `sat` itself — a vat strong enough to say "Danelaw" on a tunic is a vat
+strong enough to say it louder than the 110 gold that bought the tunic. That is
+the same trade `1.2`/`1.3` are stuck in and it wants a design answer, not another
+knee: most likely **the paid ladder living on surfaces the vat does not touch**,
+which is what `fitting` already demonstrates — it is the control, it moves for
+nobody, and it carries a clean ΔE spread across all seven finishes.
+
+---
+
+
 ## OPEN — the nape-guard FLARE and the nape-guard STANDOFF disagree, and the picture sides with standoff — 20 Aug 2026
 
 `wearmeasure` section 3, on `main`:
