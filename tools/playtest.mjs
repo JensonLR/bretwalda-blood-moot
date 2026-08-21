@@ -803,19 +803,52 @@ async function main() {
   // The mechanics are proven on the engine above; this is only that the default
   // desktop binding reaches the wire and the sim answers it. Wind first: the
   // shove costs 25 and the tests above it have been spending.
-  await page.waitForFunction(() => {
+  // THE SHOVE PRESS WAITS ON THE ENGINE'S OWN GATE, AND IT RETRIES.
+  //
+  // This waited for `stamina > 60 && state !== "attacking"` and pressed once.
+  // That is a PROXY for the gate, not the gate, and the run failed about one
+  // time in three on `stamina 115.0 -> 115.0, state=idle` — a press the sim
+  // dropped on the floor. `processInput` refuses a shove on any of:
+  //
+  //   hitstop > 0            a blow landed on him this tick, input swallowed
+  //   isDown / staggered     returns before the shove branch is read
+  //   attackTimer > 0        still recovering, and `state` has ALREADY left
+  //                          "attacking" by then — which is why the old wait
+  //                          could not see it
+  //   shoveCooldown > 0      1.5 s press-to-press, and PRIVATE_FIELDS keeps it
+  //                          off the wire, so no harness can ever wait on it
+  //
+  // Three of those four are visible in a snapshot and are waited on now. The
+  // fourth is not, and a bot's fist landing on the same tick is a race no
+  // amount of waiting closes — so the press is RETRIED up to three times, each
+  // behind a fresh wait, and the number of attempts is reported. A shove that
+  // needs a second press because a blow arrived first is not a defect; a shove
+  // that is refused three times from a clean stance is.
+  const quiet = () => page.waitForFunction(() => {
     const s = window.__probe.lastState;
     if (!s) return false;
     const m = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
-    return !!m && m.stamina > 60 && m.state !== "attacking";
+    if (!m) return false;
+    return m.stamina > 60 && (m.attackTimer ?? 0) <= 0
+      && m.state !== "attacking" && m.state !== "staggered"
+      && m.state !== "dodging" && m.state !== "knocked" && m.state !== "rising";
   }, null, { timeout: 20000 });
-  const b6b = await me();
-  const s3b = await seq();
-  await page.keyboard.press("KeyF");
-  const a6b = await me(s3b + 2);
+  let b6b = null, a6b = null, tries = 0;
+  for (; tries < 3; tries++) {
+    await quiet();
+    b6b = await me();
+    const s3b = await seq();
+    await page.keyboard.press("KeyF");
+    a6b = await me(s3b + 2);
+    if (a6b.state === "shoving" || a6b.stam < b6b.stam - 15) { tries++; break; }
+    // The only refusal a clean stance can still hit is the 1.5 s cooldown, so
+    // wait past it before asking again rather than pressing into it.
+    await page.waitForTimeout(1700);
+  }
   const sawShove = await page.evaluate(() => window.__probe.sent.some((s) => s.d.shove === true));
   check("F sends a shove and the sim answers it", sawShove && (a6b.state === "shoving" || a6b.stam < b6b.stam - 15),
-    `shove:true ${sawShove ? "reached the wire" : "never sent"}; stamina ${b6b.stam.toFixed(1)} -> ${a6b.stam.toFixed(1)}, state=${a6b.state}`);
+    `shove:true ${sawShove ? "reached the wire" : "never sent"}; stamina ${b6b.stam.toFixed(1)} -> ${a6b.stam.toFixed(1)}, `
+    + `state=${a6b.state}; ${tries} press(es)`);
   await page.waitForTimeout(800);
 
   // ---- 7. mouse look ----
