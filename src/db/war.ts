@@ -408,42 +408,108 @@ async function bankOne(db: Db, season: SeasonRow, entry: {
  * are not errors, they are the ordinary state of a stranger who opened a link
  * and fought once.
  */
-export async function bankMatch(report: MatchEndReport): Promise<number> {
-  if (!report || !report.matchKey || !territory(report.territoryId)) return 0;
-  if (!Array.isArray(report.entries) || report.entries.length === 0) return 0;
+/**
+ * WHY A MAN'S FIGHT DID OR DID NOT MOVE THE MAP.
+ *
+ * `bankMatch` answered one question — how many rows went in — and there are SIX
+ * ways for the answer to be none: no season, no bound profile, unsworn, no
+ * points, a territory this build does not know, and a database that did not
+ * answer. The player was told about none of them, and `installWarLedger` ends
+ * `.catch(() => {})`, so a fight that counted for nobody looked exactly like a
+ * fight that counted. That is the whole of "I've played games and seen no
+ * update": the loop works — `tools/warflow.mjs` proves it 28/28 against a real
+ * database — and nothing in the game ever says so.
+ *
+ * So the reason comes back with the count, per man.
+ */
+export type WarOutcomeKind =
+  /** It landed. `people`, `points` and `territoryId` are set. */
+  | "banked"
+  /** He fought for himself. The one refusal that is a CHOICE, and the only one
+   *  the surface can offer a way out of — which is why it is named separately
+   *  from every other kind of nothing. */
+  | "unsworn"
+  /** No profile bound to this seat: a guest. His gold is his; the war is not. */
+  | "guest"
+  /** He earned nothing this match. Not a fault and not worth a banner. */
+  | "no_points"
+  /** This match is already in the ledger. A replay, and the guard held. */
+  | "already"
+  /** No season, no database, or a territory this build does not know. */
+  | "unavailable";
+
+export interface WarOutcome {
+  playerId: string;
+  kind: WarOutcomeKind;
+  people?: PeopleId;
+  points?: number;
+  territoryId?: string;
+}
+
+export interface BankResult { banked: number; outcomes: WarOutcome[] }
+
+/**
+ * The whole of the banking, with a reason for every man in the report.
+ * `bankMatch` below is this with the reasons dropped — kept, because
+ * `tools/warflow.mjs` counts rows and should go on counting rows.
+ */
+export async function bankMatchDetailed(report: MatchEndReport): Promise<BankResult> {
+  const all = (kind: WarOutcomeKind): BankResult => ({
+    banked: 0,
+    outcomes: (report?.entries ?? []).map((e) => ({ playerId: e.playerId, kind })),
+  });
+  if (!report || !report.matchKey || !territory(report.territoryId)) return all("unavailable");
+  if (!Array.isArray(report.entries) || report.entries.length === 0) return { banked: 0, outcomes: [] };
 
   return withDb(async (db) => {
     const season = await currentSeason(db);
-    if (!season) return 0;
+    if (!season) return all("unavailable");
 
-    const claims = report.entries
-      .map((e) => ({ entry: e, profileId: boundProfile(e.playerId) }))
-      .filter((c): c is { entry: typeof c.entry; profileId: number } => c.profileId !== null);
-    if (!claims.length) return 0;
+    const outcomes: WarOutcome[] = [];
+    const claims = report.entries.map((e) => ({ entry: e, profileId: boundProfile(e.playerId) }));
+    const bound = claims.filter((c): c is { entry: typeof c.entry; profileId: number } => c.profileId !== null);
+    for (const c of claims) if (c.profileId === null) outcomes.push({ playerId: c.entry.playerId, kind: "guest" });
+    if (!bound.length) return { banked: 0, outcomes };
 
     const sworn = await db.select({ id: players.id, allegiance: players.allegiance })
-      .from(players).where(inArray(players.id, claims.map((c) => c.profileId)));
+      .from(players).where(inArray(players.id, bound.map((c) => c.profileId)));
     const people = new Map<number, PeopleId>();
     for (const row of sworn) if (isPeople(row.allegiance)) people.set(row.id, row.allegiance);
 
     let banked = 0;
-    for (const claim of claims) {
+    for (const claim of bound) {
       const side = people.get(claim.profileId);
-      if (!side) continue;   // unsworn: he fought for himself, and that is allowed
+      if (!side) {   // unsworn: he fought for himself, and that is allowed
+        outcomes.push({ playerId: claim.entry.playerId, kind: "unsworn" });
+        continue;
+      }
       // Re-clamped against the same constant the engine priced him with. Not a
       // second opinion — the same number — but this process may one day not be
       // the one that ran the match.
       const points = Math.min(POINTS.cap, Math.max(0, Math.floor(claim.entry.points)));
-      if (points <= 0) continue;
-      if (await bankOne(db, season, {
+      if (points <= 0) {
+        outcomes.push({ playerId: claim.entry.playerId, kind: "no_points", people: side });
+        continue;
+      }
+      const landed = await bankOne(db, season, {
         matchKey: report.matchKey, playerId: claim.entry.playerId,
         profileId: claim.profileId, people: side,
         territoryId: report.territoryId, points,
-      })) banked++;
+      });
+      if (landed) banked++;
+      outcomes.push({
+        playerId: claim.entry.playerId,
+        kind: landed ? "banked" : "already",
+        people: side, points, territoryId: report.territoryId,
+      });
     }
     if (banked) frontCache = null;   // the map moved; the engine wants to know
-    return banked;
-  }, 0);
+    return { banked, outcomes };
+  }, all("unavailable"));
+}
+
+export async function bankMatch(report: MatchEndReport): Promise<number> {
+  return (await bankMatchDetailed(report)).banked;
 }
 
 /* ==========================================================================
@@ -491,7 +557,29 @@ export function installWarLedger(): void {
     getEngine().onMatchEnd((report) => {
       // Returned, not awaited: `endMatch` does not wait for Postgres, and the
       // rejection is swallowed here as well as there.
-      return bankMatch(report).then(() => refreshFront()).catch(() => {});
+      //
+      // AND THE ROOM IS TOLD WHAT ITS FIGHT DID. This used to end
+      // `.catch(() => {})` over a call whose only product was a count nobody
+      // read — so every one of the six ways to bank nothing was silent, and a
+      // player who had never sworn could fight all evening and never learn that
+      // none of it counted. `war_result` carries the reason per man, and it is
+      // sent on the failure path too: "this counted for nobody" is the message
+      // that was missing, not "this counted".
+      return bankMatchDetailed(report)
+        .then(async (res) => {
+          if (res.banked) await refreshFront();
+          return res;
+        })
+        .catch(() => ({ banked: 0, outcomes: report.entries.map((e) => ({ playerId: e.playerId, kind: "unavailable" as const })) }))
+        .then((res) => {
+          try {
+            getEngine().tellRoom(report.roomCode, {
+              type: "war_result",
+              data: { matchKey: report.matchKey, territoryId: report.territoryId, outcomes: res.outcomes },
+            });
+          } catch { /* the room went home */ }
+        })
+        .catch(() => {});
     });
   } catch {
     globalForWar.__bretwaldaWarInstalled = false;

@@ -49,6 +49,7 @@ import {
 } from "../game/client/render/audio";
 import dynamic from "next/dynamic";
 import HeroBackdrop from "@/game/client/HeroBackdrop";
+import { territory } from "@/game/war.mjs";
 
 const GameCanvas = dynamic(() => import("../game/client/GameCanvas"), { ssr: false });
 const KeyBindingsPanel = dynamic(
@@ -100,6 +101,15 @@ type Link = "reaching" | "server" | "local";
 // One banner, two tones. A purchase that failed has to say so, and it has to
 // say so on the screen the player pressed the button on.
 interface Notice { text: string; tone: "bad" | "good" }
+
+/** One man's share of what a match did to the war. Mirrors `src/db/war.ts`. */
+interface WarOutcomeMsg {
+  playerId: string;
+  kind: "banked" | "unsworn" | "guest" | "no_points" | "already" | "unavailable";
+  people?: string;
+  points?: number;
+  territoryId?: string;
+}
 
 /**
  * THE FOUR MEN, AND THEY ARE NAMED IN THE LANGUAGE THE GAME IS SET IN.
@@ -262,6 +272,13 @@ export default function Page() {
   // because a player whose gold did not land deserves to hear it from us
   // rather than notice it on the landing screen an hour later.
   const [payState, setPayState] = useState<"none" | "asking" | "paid" | "unpaid">("none");
+  /**
+   * The war's answer to the fight just finished, for THIS warrior. `null` until
+   * the server has banked (or refused to bank) — a database round trip that the
+   * match end does not wait for, so the summary shows the tableau first and the
+   * war line lands a moment later rather than holding the screen for it.
+   */
+  const [warResult, setWarResult] = useState<WarOutcomeMsg | null>(null);
   const [carried, setCarried] = useState<{ gold: number; unlocks: number } | null>(null);
 
   const transportRef = useRef<Transport | null>(null);
@@ -757,6 +774,20 @@ export default function Page() {
         const d = msg.data as unknown as RoomState;
         if (d.players) setRoomState(stampSnapshot(d));
         break;
+      }
+      // WHAT THE FIGHT DID TO THE WAR, which arrives AFTER the match end.
+      //
+      // The banking is a database round trip the match does not wait for, so
+      // this cannot ride on `match_end`. It is a second message, and it is sent
+      // on the failure paths too — "this counted for nobody" is the line that
+      // was missing. Only the local warrior's own outcome is kept: the others
+      // are on the wire because the room shares one broadcast, and reading
+      // another man's allegiance off it is not something this screen does.
+      case "war_result": {
+        const d = msg.data as unknown as { territoryId?: string; outcomes?: WarOutcomeMsg[] };
+        const mine = (d?.outcomes ?? []).find((o) => o.playerId === playerIdRef.current) ?? null;
+        setWarResult(mine);
+        return;
       }
       case "match_end": {
         const d = msg.data as unknown as MatchEndData;
@@ -1364,6 +1395,13 @@ export default function Page() {
             playerId={playerId}
             payState={payState}
             waiting={rematchWaiting}
+            war={warResult}
+            // The one refusal a player can undo from here. The oath is taken on
+            // the map and the map is its own route, so this goes there rather
+            // than growing a second swearing UI — one place decides who you
+            // fight for. The socket is dropped first, deliberately: the match is
+            // over and `The War` on the landing screen leaves the same way.
+            onSwear={() => { leaveRoom(); setMatchResults(null); window.location.href = "/factions"; }}
             // BOTH, and the second is the fix. The wire's `state` alone was not
             // enough: this panel stays mounted through the rollback into the
             // lobby, and the rollback resets every man to idle — so a corpse the
@@ -2984,11 +3022,62 @@ type LedgerRow = MatchEndData["results"][number] & { place: number; roundsWon: n
  * the match winner, and `place` rides on the row so a genuine tie can print two
  * #1s instead of inventing a loser.
  */
-function MatchSummary({ data, playerId, payState, waiting, onEmote, onFightAgain, onLeave }: {
+/**
+ * One line under the verdict, and it is the only place the war layer touches a
+ * player who is not looking at the map.
+ *
+ * It renders NOTHING until the server has spoken, because the banking is a
+ * database round trip the match does not wait for — a placeholder would flash
+ * and be replaced, and a war line that flickers is worse than one that arrives.
+ */
+function WarLine({ war, onSwear }: { war: WarOutcomeMsg | null; onSwear?: () => void }) {
+  if (!war) return null;
+  const PEOPLE: Record<string, string> = {
+    saxon: "THE WEST SAXONS", norse: "THE DANELAW",
+    briton: "THE BRITONS", pict: "THE PICTS",
+  };
+  // The territory's real name, read out of `war.mjs` rather than kept as a
+  // second table here: sixteen names in two places is fifteen chances to drift.
+  const ground = war.territoryId ? (territory(war.territoryId)?.name ?? war.territoryId) : null;
+  if (war.kind === "banked" && war.people) {
+    return (
+      <div className="badge-garnet !text-[10px]" data-war="banked">
+        {`+${war.points} TO ${PEOPLE[war.people] ?? war.people.toUpperCase()}`}
+        {ground ? ` · ${ground.toUpperCase()}` : ""}
+      </div>
+    );
+  }
+  // THE ONE REFUSAL WITH A WAY OUT gets a button; the rest get a sentence.
+  // Swearing is a choice the player can make from here, and making him go and
+  // find the map to discover that is how a war layer stays unplayed.
+  if (war.kind === "unsworn") {
+    return (
+      <button onClick={onSwear} data-war="unsworn"
+        className="badge-stone pointer-events-auto !text-[10px] transition hover:!text-amber-200">
+        THIS COUNTED FOR NOBODY — SWEAR TO A PEOPLE
+      </button>
+    );
+  }
+  if (war.kind === "guest") {
+    return <div className="badge-stone !text-[10px]" data-war="guest">FOUGHT AS A STRANGER — NO NAME IN THE LEDGER</div>;
+  }
+  // `no_points`, `already` and `unavailable` are not the player's doing and
+  // there is nothing for him to press, so they say the true thing quietly.
+  if (war.kind === "no_points") {
+    return <div className="badge-stone !text-[10px]" data-war="no_points">NO DEEDS TO CARRY TO THE WAR</div>;
+  }
+  return <div className="badge-stone !text-[10px]" data-war={war.kind}>THE LEDGER IS SHUT — THIS FIGHT WILL NOT COUNT</div>;
+}
+
+function MatchSummary({ data, playerId, payState, waiting, war, onEmote, onFightAgain, onLeave, onSwear }: {
   data: MatchEndData;
   playerId: string;
   payState: "none" | "asking" | "paid" | "unpaid";
   waiting: boolean;
+  /** What the fight did to the war, for this man. `null` until the server says. */
+  war: WarOutcomeMsg | null;
+  /** Offered only when the reason he counted for nobody is that he never swore. */
+  onSwear?: () => void;
   /** Absent when this player is a corpse on the stage — the dead don't jeer. */
   onEmote?: (emote: EmoteId) => void;
   onFightAgain: () => void;
@@ -3006,6 +3095,13 @@ function MatchSummary({ data, playerId, payState, waiting, onEmote, onFightAgain
             ? "BLOOD SPILT — A DRAW"
             : `${data.winnerName.toUpperCase()} PREVAILS`}
         </h1>
+        {/* WHAT THIS FIGHT DID TO THE WAR.
+            The loop has always worked — `tools/warflow.mjs` proves it 28/28
+            against a real database — and the game never said so, which is
+            indistinguishable from it being broken. This is the line that was
+            missing, and it is shown for the REFUSALS as loudly as for the win:
+            the whole point is that a man who counted for nobody finds out. */}
+        <WarLine war={war} onSwear={onSwear} />
         {/* WON ON KILLS, SAID OUT LOUD. Two men level on rounds is the common
             shape of an eight-man free-for-all, and the man who lost it that way
             is owed the reason — otherwise the summary reads as arbitrary. Only

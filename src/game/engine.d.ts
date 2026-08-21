@@ -33,6 +33,8 @@ declare module "@/game/engine.mjs" {
      */
     setWarFront(front: WarFront | null): void;
     /** Subscribe to the end of every match. Returns the unsubscribe. */
+    /** Say something to every seat in a room from outside the sim. Never throws. */
+    tellRoom(roomCode: string, msg: { type: string; data?: unknown }): boolean;
     onMatchEnd(handler: (report: MatchEndReport) => unknown): () => void;
   }
   /** The map, as far as the simulation is allowed to know it. */

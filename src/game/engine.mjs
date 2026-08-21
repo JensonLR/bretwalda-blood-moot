@@ -4506,6 +4506,29 @@ export function makeEngine(options = {}) {
      * at }` — the war report and nothing private. It is called after the room
      * has been told, it may be async, and it may throw: see `endMatch`.
      */
+    /**
+     * Say something to every seat in a room, from outside the simulation.
+     *
+     * `onMatchEnd` fires AFTER the room has been told the match is over, and
+     * the war banking that hangs off it is asynchronous — a database round trip
+     * the match does not wait for. So whatever the war learns, it learns too
+     * late to ride on `match_end`, and there was no way at all to tell the room
+     * afterwards. That is why a fight that counted for nobody looked exactly
+     * like a fight that counted.
+     *
+     * Deliberately narrow: it takes a room CODE, not a room, so nothing outside
+     * this file gets a handle on the mutable state; it refuses a room that has
+     * gone; and it never throws, because the thing calling it is a `.then` on a
+     * database promise nobody awaits.
+     */
+    tellRoom(roomCode, msg) {
+      try {
+        const room = rooms.get(String(roomCode || ""));
+        if (!room || !msg || typeof msg.type !== "string") return false;
+        broadcast(room, msg);
+        return true;
+      } catch { return false; }
+    },
     onMatchEnd(handler) {
       if (typeof handler !== "function") return () => {};
       matchEndHandlers.add(handler);
