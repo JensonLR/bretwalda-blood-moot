@@ -1700,7 +1700,11 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     {
       const w = await capture(stageQ(SHOP_CLASS, 0, "none", ISSUED));
       STAGED_SUBJECT = w.subject;
-      note(`the page staged: ${Object.entries(stagedDress(STAGED_SUBJECT)).map(([k, v]) => `${k}=${v}`).join("  ")}`);
+      // `stagedDress` went with the one-mask-per-run design when masks became
+      // per-dress; this note survived it and crashed the whole of §6 on the
+      // first warm capture. `dressKey` is that refactor's own reading of the
+      // same fact.
+      note(`the page staged: ${dressKey(STAGED_SUBJECT)}`);
       note("EVERY MASK IN §6 AND §7 IS BUILT FROM THAT LINE. It used to be built from defaultAppearance —");
       note("a nasal helm and a red cloak the page does not stage — and was 20-33% too big at these bearings.");
     }
@@ -1710,9 +1714,15 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // path, must give the same count. Without it a clip reading could be
     // re-rolled until it passed, and nobody would be able to tell.
     {
-      const m = maskFor("huscarl", 0);
+      // Capture FIRST, mask from that frame's own subject — the refactor that
+      // made masks per-dress left this and four other call sites asking for a
+      // mask with no subject at all, and §6 died on the first of them. The
+      // second capture reuses the first's mask, which is the point of 6.2:
+      // same subject, same mask, same count.
       const q = stageQ(SHOP_CLASS, 0, "saxon", ISSUED);
-      const a = clipShare(Uint8ClampedArray.from((await capture(q)).px.data), m, LENS.w);
+      const c1 = await capture(q);
+      const m = maskFor("huscarl", 0, c1.subject);
+      const a = clipShare(Uint8ClampedArray.from(c1.px.data), m, LENS.w);
       const b = clipShare(Uint8ClampedArray.from((await capture(q)).px.data), m, LENS.w);
       check("6.2 REPEATABLE — one subject captured twice reads the same clip count",
         a.clipped === b.clipped,
@@ -1723,8 +1733,8 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     console.log("");
     let bar = 0, barAt = "";
     for (const turn of CLIP_BEARINGS) {
-      const mask = maskFor("huscarl", turn);
       const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=huscarl&people=none&cloak=cloak_gold&armor=armor_gold`);
+      const mask = maskFor("huscarl", turn, subject);
       if (String(subject?.cloak) !== "gold" || String(subject?.people) !== "none") die(`the control staged wrong: cloak=${subject?.cloak} people=${subject?.people}`);
       const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);
       console.log(`  CONTROL  Gilded War Cloak 400g + Bretwalda Gold 160g, UNSWORN, @${String(turn).padStart(4)}°   ${r.pct.toFixed(2).padStart(6)}% of ${r.n} px on the man   hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
@@ -1740,8 +1750,8 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       const row = [];
       for (const people of PEOPLES) {
         for (const turn of CLIP_BEARINGS) {
-          const mask = maskFor(st.cls, turn);
           const { px, subject } = await capture(`${stageQ(st.cls, turn, OFF ? "none" : people, st.finish)}`);
+          const mask = maskFor(st.cls, turn, subject);
           if (String(subject?.people) !== (OFF ? "none" : people)) die(`asked for people=${people}, got ${subject?.people}`);
           if (String(subject?.armor) !== hexOf(st.finish.value)) die(`asked for armor=${st.finish.id} (${hexOf(st.finish.value)}), got ${subject?.armor}`);
           const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);
@@ -1753,7 +1763,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
           // out-of-memory two hours into a capture run is a gate nobody will
           // run twice. `Uint8ClampedArray` is 1 byte per channel and every
           // consumer below already indexes it the same way.
-          litFrames.push({ people, cls: st.cls, turn, finish: st.finish, pct: r.pct,
+          litFrames.push({ people, cls: st.cls, turn, finish: st.finish, pct: r.pct, subject,
             px: { w: px.w, h: px.h, data: Uint8ClampedArray.from(px.data) } });
           if (r.pct > worst) { worst = r.pct; worstAt = `${people}/${st.cls}/${st.finish.label}@${turn}°`; }
           if (r.pct > bar) over.push(`${people}/${st.cls}/${st.finish.label} ${st.finish.cost}g at ${turn}° clips ${r.pct.toFixed(2)}% of the man — ${(r.pct / (bar || 1e-9)).toFixed(1)}x the 400g gold cloak's ${bar.toFixed(2)}%, hottest ${hottest(Uint8ClampedArray.from(px.data), mask)}`);
@@ -1880,7 +1890,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
 
       const lit = [];
       for (const fr of litFrames) {
-        const r = roseShare(band, fr.px.data, maskFor(fr.cls, fr.turn));
+        const r = roseShare(band, fr.px.data, maskFor(fr.cls, fr.turn, fr.subject));
         lit.push({ ...r, people: fr.people, cls: fr.cls, turn: fr.turn });
       }
 
@@ -1940,8 +1950,8 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       for (const st of PLAN) {
         const row = [];
         for (const turn of CLIP_BEARINGS) {
-          const mask = maskFor(st.cls, turn);
           const { px, subject } = await capture(stageQ(st.cls, turn, "none", st.finish));
+          const mask = maskFor(st.cls, turn, subject);
           if (String(subject?.people) !== "none") die(`the floor staged wrong: people=${subject?.people}`);
           if (String(subject?.armor) !== hexOf(st.finish.value)) die(`the floor staged wrong: armor=${subject?.armor}, asked ${st.finish.id}`);
           const r = { cls: st.cls, finish: st.finish, turn, ...roseShare(band, Uint8ClampedArray.from(px.data), mask) };

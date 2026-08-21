@@ -8,6 +8,77 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE LADDER KNEES ARE REVERTED — AND THE GRADE FIX IS HELD BACK TOO; the full attribution — 22 Aug 2026
+
+Three lit probe runs, one paired variable at a time, on the Danelaw huscarl in
+Polished Steel (rose share, sworn minus his own unsworn floor):
+
+```
+                     knees + old grade    knees + luma grade    NO knees + luma
+  buff  @ 0°              +34.6                +28.5                 +3.7
+  wrap  @ 90°              -3.2                +18.8                +22.2
+  wrap  @ 180°            +23.4                +30.5                +39.4
+  mail  @ 180°             +2.0                 +3.9                +16.7
+  (merged baseline — no knees, old grade: at or below floor on EVERY surface)
+```
+
+**Two independent causes, both real:**
+
+**1. The knees owned `buff`** (and part of the wraps): reverting them takes
+buff@0 from +34.6 to +3.7. The two soft knees bought the paid ladder 17 → 11
+collapsed surfaces and merged green on gates that read ALBEDO — the rose entry's
+own standing lesson, catching its author. C\* and L\* are the two axes of the
+rose band; a knee that widens the vat's output range widens it into the band.
+**Both knees are reverted** and the ladder honestly returns to ~17 collapsed
+(`factionread` 1.1/5.3/5.4 PASS, 5.2b 17, matching the pre-knee state exactly).
+The sweep tables stay in `characters.ts`; the knobs are gone.
+
+**2. The luma-preserving grade owns the wraps and the mail sheen.** It repairs
+the magenta shield board (`#9b0439` → `#850b36`, green 4 → 11, frame luma
++0.02) and CLEANS the unsworn floors — the per-channel crush had been pushing
+undyed browns into the band too. But the same crush has been silently holding
+the Danelaw's dyed madder wraps UNDER the band's L\* floor, and every round of
+vat work was tuned beneath it: with the crush removed, wrap@180 reads **46%
+rose share, +39 over floor**. A board fix that re-litigates three rounds of
+rose settlement does not ship on its own. **The grade change is reverted, with
+its ledger written at the shader line**: the repair exists, is measured, and
+ships as ONE UNIT with a wrap retune, gated by the lit probe on all bearings.
+
+**The board entry therefore stays OPEN**, now with its mechanism fully known:
+per-channel contrast crushes the channel a saturated colour has least of; the
+fix is a luma-preserving power law plus a madder-wrap albedo retune, taken
+together.
+
+### The confirmation probe, and the residual it found — a NEW open question
+
+The fully reverted tree (no knees, old grade — nominally the 20-Aug
+configuration) reads **better than `main` on every row** but not back to the
+20-Aug settlement of at-or-below-floor everywhere:
+
+```
+  buff @ 0°    +28.5      wrap @ 90°   +10.9
+  wrap @ 180°  +15.2      buff @ 90°    +9.6
+```
+
+**Nothing on this branch can be the cause — it only reverts.** What separates
+this tree from the 20-Aug baseline is everything merged since, and exactly one
+of those changes touches rendered pixels: **the per-bone shadow proxy**
+(`shadowcut`, 664 → 539 draw calls). Its "visually lossless" verdict was a
+MEAN-LUMA claim over regions, and rose share is a THRESHOLD metric — the
+Danelaw's wraps sit at L\* 40–41, exactly on the band's L\* 41 floor, where a
+fraction of a point of changed micro-shadowing flips whole pixel populations in
+or out. Run-to-run capture variance is the other candidate; the 20-Aug numbers
+were single runs too.
+
+**Next instrument step, for whoever takes it:** the same paired probe with the
+shadow proxy toggled (`castShadow` back to per-mesh on one arm of the pair), on
+one build, same session. If the proxy owns the residual, the draw-call win and
+the rose settlement have to be reconciled — most likely by keeping the proxy
+and re-floors on the wrap band, not by giving back a third of the frame.
+
+---
+
+
 ## THE CLASS-CARD GATE WAS BLIND THREE WAYS, and all three were copies — 21 Aug 2026
 
 `tools/cardgate.mjs` — the pixel gate on the one screen a player reads before

@@ -1770,6 +1770,23 @@ void main() {
   // where a power is a clean exposure-slope change. Doing it after the curve
   // instead — an S-curve on display values — pivots at 0.5, and almost nothing
   // in a dusk frame is anywhere near 0.5, so it only ever crushed the shadows.
+  // Contrast in scene-linear about a lit mid-tone, before the display transform,
+  // where a power is a clean exposure-slope change. Doing it after the curve
+  // instead — an S-curve on display values — pivots at 0.5, and almost nothing
+  // in a dusk frame is anywhere near 0.5, so it only ever crushed the shadows.
+  //
+  // PER CHANNEL, AND THAT IS NOW A DECISION WITH A LEDGER, NOT AN ACCIDENT.
+  // The per-channel form crushes whichever channel a saturated colour has the
+  // least of, which is why the Danelaw's #7c1420 shield board draws #9b0439 —
+  // hot magenta — and that defect stays OPEN. A luminance-preserving form was
+  // built and measured: it repairs the board (green 4 -> 11, frame luma +0.02)
+  // and it also lifts the Danelaw's dyed madder wraps back above the rose
+  // band's floor that this crush has been hiding them under — wrap@180 went to
+  // 46% rose share, +39 points over the unsworn floor, against a settlement of
+  // at-or-below everywhere. Three rounds of vat work were tuned UNDER this
+  // grade; changing it re-litigates all of them. The repair therefore ships as
+  // ONE UNIT with the wrap retune, gated by the lit probe on all bearings —
+  // docs/OPEN-DEFECTS.md carries the mechanism, the numbers and the plan.
   hdr = uPivot * pow( max( hdr, vec3( 1e-5 ) ) / uPivot, vec3( uContrast ) );
 
   // Highlight crosstalk: past the knee, colour is walked toward its own

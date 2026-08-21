@@ -1389,27 +1389,24 @@ function roseFade(h: number, l: number): number {
 
 const BAND_KNEE = 0.42;
 /**
- * How much of the ceiling's knee the FLOOR gets, and it is a QUARTER because the
- * two ends are not paying for the same thing.
- *
- * The ceiling's knee exists to stop a blow-out and needs the whole of `k` to do
- * it. The floor's only job is to keep ORDERING — a darker source must come out
- * darker — and that needs slope, not room. Swept through the shipped
- * `factionread`, everything else held:
+ * THE FLOOR KNEE IS REVERTED — see the verdict at the chroma clamp in
+ * `factionDye`. Its sweep table is kept because the numbers are real and the
+ * next hand will want them:
  *
  *   FLOOR_KNEE   5.2b collapsed surfaces   1.3 PEOPLE    1.1 SWORN
- *     0 (was)              17                -35.65        2.44
+ *     0 (ships)            17                -35.65        2.44
  *     0.25                 13                -40.57        2.46
  *     0.50                 12                -63.25        2.48
  *     1.00                 10                -88.89        2.36
  *
- * 0.25 buys FOUR paid surfaces off the collapse for five degrees of §1.3, and
- * §1.3 is already failing by thirty-five and is structurally unable to reach its
- * bar — `metal.sat` 0.07 -> 1.00 moves it by 0.2 degrees, which is measured in
- * `docs/OPEN-DEFECTS.md`. 0.50 buys one more surface for another twenty-three
- * degrees, which is not a trade worth making.
+ * What the table could not see is what reverted it: those four bought surfaces
+ * came with the sworn Danelaw reading up to +34.6 points of ROSE over his
+ * unsworn floor under the arena's own fire — `tools/vatprobe.mjs`, lit, where
+ * every gate in this table is albedo. The ladder has to be won on surfaces the
+ * vat does not touch, not by widening what the vat may hand back. The knob
+ * itself is gone — a constant the clamp no longer reads would only imply a
+ * dial that exists.
  */
-const FLOOR_KNEE = 0.25;
 function softBand(x: number, lo: number, hi: number): number {
   const k = (hi - lo) * BAND_KNEE;
   // THE FLOOR GETS THE SAME KNEE THE CEILING HAS, and it is the paid ladder
@@ -1432,8 +1429,7 @@ function softBand(x: number, lo: number, hi: number): number {
   // ceiling does at `hi + k`. Ordering is preserved all the way down — a darker
   // source still comes out darker — and the excursion is bounded by the band's
   // own width rather than by a second constant.
-  const kf = k * FLOOR_KNEE;
-  if (x < lo) return lo - kf * (1 - Math.exp((x - lo) / kf));
+  if (x < lo) return lo;   // hard again — reverted with the chroma knee, same lit evidence
   if (x > hi) return hi + k * (1 - Math.exp((hi - x) / k));
   return x;
 }
@@ -1486,20 +1482,28 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   // two knees cost nothing and this one costs the wrong thing, so it is not
   // taken. See `docs/OPEN-DEFECTS.md`.
   const dh = (f.hue + Math.max(-HUE_CONE, Math.min(HUE_CONE, off)) + 1) % 1;
-  // THE CHROMA CEILING IS THE SAME KNEE THE LIGHTNESS CEILING ALREADY USES.
+  // THE CHROMA KNEE IS REVERTED, AND THE EVIDENCE IS LIT, NOT ALBEDO.
   //
-  // This was `Math.min(1, ...)` — a hard clamp, zero slope — and it is the last
-  // one left in the vat after `softBand`'s floor. The chroma handed out here is
-  // the surface's own vector PLUS the vat's, so anything already saturated goes
-  // over 1 the moment a strong dye is added, and every surface that does lands
-  // on EXACTLY 1. Two paid finishes that differ only in how saturated they were
-  // come out of a clamp as one swatch, which is what `5.1b NO TWINS PER SURFACE`
-  // counts.
+  // The soft ceiling here (and the floor knee below softBand) bought the paid
+  // ladder 17 -> 11 collapsed surfaces, and both merged green — on gates that
+  // read ALBEDO. `tools/vatprobe.mjs`, which reads the RENDER under the
+  // arena's own fire, then measured the sworn Danelaw ABOVE his unsworn rose
+  // floor again: buff +34.6 points of rose share at the front, wrap +23.4 at
+  // the back, against a merged baseline of at-or-below floor on every surface.
+  // That is the owner's pink Viking returning, and the two knees are the only
+  // albedo change between the clean baseline and the regression — the grade
+  // was ruled out with a paired control run, same tree, grade reverted.
   //
-  // `softCeil` is the shape the lightness ceiling has used all along, so it is
-  // reused rather than reimplemented: one definition of "approach a cap and
-  // never reach it", two callers. Ordering is preserved right up to the cap.
-  const dc = softCeil(Math.hypot(cx, cy), 1);
+  // The mechanism is exactly what the knees were FOR: more chroma kept near
+  // the cap, more lightness kept under the floor — and C* and L* are the two
+  // axes of the rose band. A knee that widens the vat's output range widens it
+  // into the band.
+  //
+  // So the ladder goes back to being red at ~17 collapsed surfaces, and that
+  // is the honest state: the ladder cannot be bought by widening the vat's
+  // output — it has to live on surfaces the vat does not touch (`fitting`
+  // demonstrates the shape). `docs/OPEN-DEFECTS.md` carries the full numbers.
+  const dc = Math.min(1, Math.hypot(cx, cy));
   // AND ON THE RED ARC THE VAT LETS GO OF A PALE SURFACE. See `roseFade`.
   //
   // LETTING GO IS A MOVE BACK TO THE SURFACE, NOT A MOVE TOWARD GREY, and that
