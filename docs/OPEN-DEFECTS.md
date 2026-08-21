@@ -593,7 +593,41 @@ nobody, and it carries a clean ΔE spread across all seven finishes.
 ---
 
 
-## OPEN — the nape-guard FLARE and the nape-guard STANDOFF disagree, and the picture sides with standoff — 20 Aug 2026
+## OPEN — the nape-guard flare, round two: the ruler now reads a RUN, and what is left is the skull-to-neck corner — 21 Aug 2026
+
+**The ruler is repaired; the defect is narrowed, not closed.** The flare column
+differentiated the plate's standoff across a single 12 mm step, while its own
+header says a flare is *"the angle a plate holds over a RUN of it."* It reads a
+40 mm run now, in both the shell path and the ring path — one baseline, two
+readers — and the widening is arithmetic, not taste: a plate departing at 50°
+sustained over even 40 mm would stand tan(50°)×40 = 48 mm off a head it never
+leaves by more than 20, so the old reading was self-contradictory on its face.
+
+```
+                      12 mm step     40 mm run
+  wyrm nape guard        49.8           40.5      still red (bar 22)
+  suttonhoo              40.1           23.0      red by ONE degree
+```
+
+So ~17° of the Sutton Hoo's reading was the one-step artifact. **What remains is
+the corner where the skull becomes the neck**: a hanging plate genuinely stands
+off a neck that is ~40 mm narrower than the skull above it — that is what an
+aventail IS — and the flare column reads the form receding at that corner as the
+plate "leaving". The gap column (23.4 mm against a 26 bar) and the picture
+(photographed, no daylight, no wing) both say the plate is fine.
+
+**The lever, pulled:** `clearAt` opened into a real 60 mm wing and the run-based
+ruler still catches it — **flare 30.5°, gap 72 mm, hem 72 mm, three red columns
+naming it** — where the corner case trips flare alone. A genuine wing cannot
+hide from the widened instrument.
+
+**The remaining repair is `withNeck`'s corner**, the place its own note calls
+"the one thing about this table that is still an approximation": the ruler's
+form table needs the neck's real radius to blend up into the skull base at the
+rate the anatomy does, so a plate hanging beside the corner is measured against
+the corner and not against a cliff. The bar stays at 22 and is not moved.
+
+### The original investigation — 20 Aug 2026, kept for its numbers
 
 `wearmeasure` section 3, on `main`:
 

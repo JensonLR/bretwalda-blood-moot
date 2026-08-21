@@ -612,15 +612,28 @@ async function duelPhase(browser) {
   // every assertion put ahead of the press spends the window on the way. So
   // the press goes first and the picture is examined afterwards — the tableau
   // stays up until the player leaves it, which is the whole design.
+  // THE PRESS IS IMMEDIATE; THE READS ARE NOT. This pair failed about one run
+  // in three on lines like "pressed at 12ms ... button shows FIGHT AGAIN" and
+  // "verdict=false" — and `tapNow` returns true only when the button EXISTED,
+  // so the overlay was mounted and the press landed. What failed was the
+  // SAMPLING: both reads were taken in the same breath as the click, and on a
+  // main thread that draws a frame a second React had not committed the
+  // `waiting` state or finished layout when they looked. A press has a
+  // deadline; a read of a tableau that persists past the rollback BY DESIGN
+  // has none, so the press stays instant and each read now waits for the thing
+  // it reads.
   const pressed = await tapNow(page, "FIGHT AGAIN");
   const stateNow = await page.evaluate(() => window.__probe?.latest?.state);
-  const waitingShown = await page.evaluate(() =>
-    !!document.body.textContent && document.body.textContent.includes("MUSTERING"));
+  const pressedAt = since();
+  const waitingShown = await until(() => page.evaluate(() =>
+    !!document.body.textContent && document.body.textContent.includes("MUSTERING")), "MUSTERING to render", 20000)
+    .then(() => true).catch(() => false);
   check("pressed before the rollback, the intent parks",
     pressed && stateNow === "finished" && waitingShown,
-    `pressed at ${since()} with state=${stateNow}, button shows ${waitingShown ? "MUSTERING" : "FIGHT AGAIN"}`);
+    `pressed at ${pressedAt} with state=${stateNow}, button shows ${waitingShown ? "MUSTERING" : "FIGHT AGAIN"}`);
 
-  const overlayUp = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
+  const overlayUp = await until(() => page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false),
+    "the verdict header to render", 30000).then(() => true).catch(() => false);
   const canvasUp = await page.evaluate(() => !!document.querySelector("canvas"));
   check("the summary overlay stands over a live canvas", overlayUp && canvasUp,
     `verdict=${overlayUp}, canvas=${canvasUp}`);
@@ -642,7 +655,7 @@ async function duelPhase(browser) {
   await until(() => page.evaluate(() => {
     const p = window.__probe;
     return p?.latest?.players?.[p.playerId]?.ready === true;
-  }), "the parked ready to stick", 30000)   // a full round trip through that stall; see `until`;
+  }), "the parked ready to stick", 60000)   // a full round trip through that stall — and it timed out once at 30s on this box; see `until`;
   const onLobby = await page.getByText("READY — SKAL!", { exact: false }).first().isVisible().catch(() => false);
   check("the rollback lands him in the lobby with his ready lit", onLobby, "READY — SKAL! on screen; wire says ready=true");
   await page.screenshot({ path: `${OUT}/summary-real-lobby.png` });
