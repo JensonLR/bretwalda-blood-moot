@@ -587,7 +587,7 @@ const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak",
 // A misspelled preset used to fall through to "no presets named" and quietly
 // shoot the whole default set — twenty minutes of the wrong pictures. Name
 // which words are flag values so anything left over can be called out.
-const VALUE_FLAGS = new Set(["out", "w", "h", "port", "settle", "quality", ...SLOT_FLAGS]);
+const VALUE_FLAGS = new Set(["out", "w", "h", "port", "settle", "quality", "ground", ...SLOT_FLAGS]);
 const eaten = new Set();
 argv.forEach((a, i) => {
   if (!a.startsWith("--")) return;
@@ -817,6 +817,11 @@ async function main() {
     const url = `${ORIGIN}/shot?${query}&clean=${CLEAN}`
       + (settle ? `&settle=${settle}` : "")
       + (quality ? `&quality=${quality}` : "")
+      // `--ground pict_moor`. Every preset can be shot on any ground now that
+      // there is more than one; without it the only place anybody can
+      // photograph is the village, and a ground nobody can photograph is a
+      // ground nobody can judge.
+      + (flag("ground", null) ? `&ground=${flag("ground", null)}` : "")
       + (has("revive") ? "&revive=1" : "");
     console.log(`[shoot] ${key} -> ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 300000 });

@@ -69,6 +69,7 @@ import {
 } from "@/game/grounds.mjs";
 import type { FrameContext, Mood, QualitySettings, QualityTier } from "./quality";
 import type { MaterialLibrary } from "./materials";
+import type { RaisedStone } from "@/game/solidground.mjs";
 
 export type { GroundSpec };
 
@@ -271,7 +272,7 @@ export function groundIds(): string[] {
  * A box, already placed. Z then Y, so `rz` is the lean a brace or a rafter has
  * and `ry` decides which wall that lean belongs to.
  */
-function bx(
+export function bx(
   w: number, h: number, d: number,
   x: number, y: number, z: number,
   rz = 0, ry = 0,
@@ -315,7 +316,7 @@ function projectUv(g: THREE.BufferGeometry, scale: number): void {
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
 }
 
-function mergeInto(parts: THREE.BufferGeometry[], uvScale?: number): THREE.BufferGeometry {
+export function mergeInto(parts: THREE.BufferGeometry[], uvScale?: number): THREE.BufferGeometry {
   if (uvScale !== undefined) for (const p of parts) projectUv(p, uvScale);
   // mergeGeometries refuses a mixed batch, and ExtrudeGeometry — the gable
   // infill, the runestone's outline — is the one primitive three hands back
@@ -479,7 +480,7 @@ function tube(path: Pt[], radii: number[], sides: number, vScale: number): THREE
  * fire is drawn in vfx's own instanced layer. What stays here is the fuel, the
  * coal bed and the point light.
  */
-function fireMarker(
+export function fireMarker(
   x: number, y: number, z: number,
   radius: number, height: number,
   kind: "bonfire" | "torch",
@@ -757,7 +758,7 @@ function buildTree(spec: TreeSpec, seed: number): { wood: THREE.BufferGeometry; 
  * the middle distance has one more layer in it. Five clumps, one draw, ~60
  * triangles — the cheapest depth cue in the frame.
  */
-function buildBush(seed: number): THREE.BufferGeometry {
+export function buildBush(seed: number): THREE.BufferGeometry {
   const rand = seeded(seed);
   const parts: THREE.BufferGeometry[] = [];
   const n = 4 + Math.floor(rand() * 3);
@@ -2954,37 +2955,17 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
     // through the pinch and the lean — IS the collision footprint. Two copies
     // of a fourteen-point polygon is two answers to "how wide is the stone",
     // and the one the server believes would be the one nobody looked at.
-    const shape = new THREE.Shape();
-    // Kept, because the carved band laid on the face has to know how wide the
-    // stone is at each height — see halfWidthAt below.
+    // THE SLAB ITSELF IS SHARED NOW — `raisedStoneMesh`, below. It was thirty
+    // lines here and nothing else could reach them, which is what made a second
+    // ground "extract the builders, then write the ground" rather than just
+    // write it. What stays here is the CARVING, because a Pictish stone is not
+    // a Saxon one and the moor's are plain granite.
+    //
+    // The outline is still read here as well as inside the helper: the carved
+    // band laid on the face has to know how wide the stone is at each height —
+    // see `halfWidthAt` below.
     const outline = VILLAGE_RUNESTONE.outline.map((p) => new THREE.Vector2(p.x, p.y));
-    outline.forEach((p, i) => { if (i === 0) shape.moveTo(p.x, p.y); else shape.lineTo(p.x, p.y); });
-    const slab = new THREE.ExtrudeGeometry(shape, {
-      depth: stonePlan.depth, bevelEnabled: true,
-      bevelSize: stonePlan.bevel, bevelThickness: stonePlan.bevel,
-      bevelSegments: 1, curveSegments: 1,
-    });
-    slab.translate(0, 0, -stonePlan.depth / 2);
-    {
-      const p = slab.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < p.count; i++) {
-        const t = clamp01((p.getY(i) + stonePlan.base) / stonePlan.span);
-        const pinch = 1 - t * stonePlan.taper;
-        p.setX(i, p.getX(i) * pinch + noise2(p.getY(i) * 4, p.getZ(i) * 4) * stonePlan.surfaceWobble);
-        p.setZ(i, p.getZ(i) * pinch);
-      }
-      p.needsUpdate = true;
-      slab.computeVertexNormals();
-    }
-    projectUv(slab, 1 / 1);
-    const body = new THREE.Mesh(own(slab), materials.get("runestone"));
-    body.position.y = stonePlan.lift;
-    // The lean. It is 0.05 rad and it is load-bearing twice over: it is what
-    // stops the stone reading as a set piece, and it is 10 cm of overhang at
-    // the top which — in a 2-D sim, where a man occupies every height at once —
-    // is 10 cm of obstacle. `raisedStone` carries it through the footprint.
-    body.rotation.z = stonePlan.lean;
-    body.castShadow = true;
+    const body = raisedStoneMesh(VILLAGE_RUNESTONE, materials.get("runestone"), own);
     stone.add(body);
 
     // Carved band and runes, cut into the *front* face.
@@ -3358,6 +3339,53 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
  * over its own `GroundSpec` from `grounds.mjs`, and is imported once by
  * whoever chooses grounds. Nothing in this file changes for it.
  */
+/**
+ * A RAISED STONE, AS A MESH. Shared, because a second ground wanted one.
+ *
+ * An irregular slab, not a box: a noisy outline extruded and then PINCHED
+ * toward the top, which is what a raised stone actually is. The pinch is the
+ * whole reason this cannot be a plain `ExtrudeGeometry` — it has to take `z`
+ * with it or the slab keeps a rectangular section a real stone does not have.
+ *
+ * THE OUTLINE COMES FROM `grounds.mjs` AND IS NOT REBUILT HERE. It has to: the
+ * stone is solid, and the widest that outline ever gets — carried through the
+ * pinch and the lean — IS the collision footprint. Two copies of a fourteen
+ * point polygon is two answers to "how wide is the stone", and the one the
+ * server believes would be the one nobody looked at.
+ */
+export function raisedStoneMesh(
+  solid: RaisedStone,
+  material: THREE.Material,
+  own: <T extends THREE.BufferGeometry>(g: T) => T,
+): THREE.Mesh {
+  const plan = solid.plan;
+  const shape = new THREE.Shape();
+  solid.outline.forEach((pt, i) => { if (i === 0) shape.moveTo(pt.x, pt.y); else shape.lineTo(pt.x, pt.y); });
+  const slab = new THREE.ExtrudeGeometry(shape, {
+    depth: plan.depth, bevelEnabled: true,
+    bevelSize: plan.bevel, bevelThickness: plan.bevel,
+    bevelSegments: 1, curveSegments: 1,
+  });
+  slab.translate(0, 0, -plan.depth / 2);
+  {
+    const p = slab.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const t = clamp01((p.getY(i) + plan.base) / plan.span);
+      const pinch = 1 - t * plan.taper;
+      p.setX(i, p.getX(i) * pinch + noise2(p.getY(i) * 4, p.getZ(i) * 4) * plan.surfaceWobble);
+      p.setZ(i, p.getZ(i) * pinch);
+    }
+    p.needsUpdate = true;
+    slab.computeVertexNormals();
+  }
+  projectUv(slab, 1 / 1);
+  const body = new THREE.Mesh(own(slab), material);
+  body.position.y = plan.lift;
+  body.rotation.z = plan.lean;
+  body.castShadow = true;
+  return body;
+}
+
 export const SAXON_VILLAGE_GROUND = registerGround({
   spec: SAXON_VILLAGE,
   terrain: VILLAGE_TERRAIN,

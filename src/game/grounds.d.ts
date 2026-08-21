@@ -104,4 +104,16 @@ declare module "@/game/grounds.mjs" {
   export const GROUNDS: Record<string, GroundSpec>;
   export const DEFAULT_GROUND_ID: string;
   export function getGround(id: string): GroundSpec;
+
+  /** The moor's own analytic fields, shared with whoever draws it. */
+  export interface PictMoorField {
+    reliefRadius: number;
+    hollows: ReadonlyArray<{ x: number; z: number; depth: number; reach: number; reach2: number }>;
+    stones: ReadonlyArray<import("@/game/solidground.mjs").RaisedStone>;
+    wet(x: number, z: number): number;
+    peat(x: number, z: number): number;
+  }
+  export const PICT_MOOR: GroundSpec & { field: PictMoorField };
+  export const GROUND_BY_PEOPLE: Readonly<Record<string, string>>;
+  export function groundForPeople(people: string): string;
 }
