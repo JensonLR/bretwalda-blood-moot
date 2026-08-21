@@ -11965,6 +11965,18 @@ export interface BuiltCharacter {
    * disposes a dead warrior's meshes would free buffers the pool still owns.
    */
   reassemble(): void;
+  /**
+   * The trunk's WORN REGISTRY — every garment the torso registered while it
+   * was built, as swept station lists with their superellipse powers, plus
+   * the cloak's collar-roll ring when a cloak is worn. This is the CONTRACT
+   * surface the hair and beard fittings clear against (`shoulderOut` reads
+   * exactly this list), exposed so a gate can test the contract itself
+   * rather than raycast the built meshes — mesh parity convicts a mane for
+   * mingling with the fur locks, which is decor doing what fur does, while
+   * a vertex inside a registered STATION surface is a fitting that broke
+   * its promise. `tools/wearsweep.mjs` is the reader.
+   */
+  wornTrunk: ReadonlyArray<{ sts: readonly Station[]; power: number }>;
 }
 
 function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail: CharacterDetail, lib: string, team: TeamSide): string {
@@ -13313,8 +13325,11 @@ export function buildCharacter(
   // of the OLD trunk profile and became the defect the moment hair learned to
   // ride: with no stack under him, a bare-headed warden's mane fell straight
   // through his byrnie — `tools/hairmail.mjs` read 84.1% of its hanging
-  // vertices INSIDE the mail. The berserker stays null: he genuinely wears
-  // nothing on his trunk that hair could lie on.
+  // vertices INSIDE the mail. The berserker's trunkStack stays null — he has
+  // no MAIL — but the old claim here that he "genuinely wears nothing on his
+  // trunk that hair could lie on" was false and photographed false: his fur
+  // ruff and jerkin register in the `worn` list like every other garment, and
+  // `shoulderOut` now reads that registry, so his mane rides the ruff.
   const byrnieHem = S.hipY - 0.055;
   const wardenByrnieStations: Station[] | null = wallman
     ? layer(
@@ -13341,6 +13356,19 @@ export function buildCharacter(
    * not what a thing 200 mm below it is lying on. That is the same rule
    * `outer()` applies to a seated fitting, for the same reason.
    */
+  /**
+   * THE WORN REGISTRY, hoisted out of the torso emit so the fittings that run
+   * AFTER the torso is built — the hair's ride, the beard's seat — read the
+   * same list the garments registered themselves in. Ordering contract: the
+   * torso emit below runs synchronously before any head/hair emit, so by the
+   * time `shoulderOut` is CALLED the registry is full. It is empty at
+   * definition time, which is fine — nothing calls it that early.
+   */
+  const worn: Array<{ sts: Station[]; power: number }> = [];
+  const wear = (sts: Station[], power: number): Station[] => {
+    worn.push({ sts, power });
+    return sts;
+  };
   const shoulderOut = (y: number): { hw: number; hd: number; power: number } | null => {
     let out: { hw: number; hd: number; power: number } | null = null;
     // THE POWER TRAVELS WITH THE HALF-BREADTHS. `shell` sweeps a SUPERELLIPSE —
@@ -13354,8 +13382,15 @@ export function buildCharacter(
     // (`art/look/hairfall-diag2.png` is the same failure as `-diag.png`). What
     // fixed it was moving the travel into the section — see `MASK_SWING`. The
     // curve matters for the last few millimetres and for nothing else.
-    for (const [sts, power] of [[shoulderStack, 2.2], [trunkStack, 2.3]] as const) {
-      if (!sts) continue;
+    // OVER THE WHOLE REGISTRY, not two hand-hoisted stacks. The two-stack
+    // loop this replaces knew the huscarl's mantle and the class's trunk mail
+    // and nothing else, and carried a comment claiming the berserker "wears
+    // nothing on his trunk that hair could lie on" — refuted by his own
+    // capture: he wears a fur ruff (registered 55 mm off the spine at line
+    // ~13809) and his mane terminated dead at its top edge, 79.4% of hanging
+    // vertices INSIDE (tools/wearsweep.mjs, art/look/wearsweep/). Reading the
+    // registry means a garment cannot be worn and unseen at the same time.
+    for (const { sts, power } of worn) {
       // A layer only competes where it actually reaches — the same rule
       // `outer()` applies to a seated fitting, and for the same reason.
       if (y > sts[0]!.y + 1e-6 || y < sts[sts.length - 1]!.y - 1e-6) continue;
@@ -13364,6 +13399,28 @@ export function buildCharacter(
     }
     return out;
   };
+
+  // THE CLOAK'S COLLAR ROLL JOINS THE REGISTRY EARLY. The cloak itself is
+  // built after the head — it drapes over everything — so a fitting that runs
+  // during the head emit would never see it; but the roll's ring is decided by
+  // the cut and the skeleton alone, so it is computable here. Without it the
+  // runekeeper's plaits dived into the Gilded cloak's rolled band — 6.4% of
+  // hanging vertices inside the trunk under that cloak and the tips visibly
+  // swallowed by the roll (tools/wearsweep.mjs; art/look/wearsweep/). The
+  // radii are the cloak's own `topX/topZ` plus the roll's stand-off.
+  if (ap.cloak !== "none") {
+    const rollY = S.shoulderY + 0.030;
+    const rx = S.chestHW + 0.055 + 0.014;
+    const rz = S.chestHD + 0.05 + 0.014;
+    worn.push({
+      sts: [
+        { y: rollY + 0.048, hw: rx * 0.90, hd: rz * 0.90 },
+        { y: rollY + 0.012, hw: rx, hd: rz },
+        { y: rollY - 0.018, hw: rx, hd: rz },
+      ],
+      power: 2.0,
+    });
+  }
 
   const torsoMeshes = emit("torso", root, () => {
     const p = new Part();
@@ -13381,11 +13438,8 @@ export function buildCharacter(
     // Registered as the STATION LIST the garment was swept on, not as its pad:
     // the fur ruff's pad is 55 mm and its flare puts it 80 mm out at exactly the
     // height the brooch lands, and a pad on its own does not know that.
-    const worn: Array<{ sts: Station[]; power: number }> = [];
-    const wear = (sts: Station[], power: number): Station[] => {
-      worn.push({ sts, power });
-      return sts;
-    };
+    // `worn`/`wear` are hoisted above `shoulderOut` — one registry for the
+    // brooch seats here and the hair/beard fittings that run after this emit.
     /**
      * The outermost garment at a height, as a carrier `seatXf` can seat on.
      *
@@ -15149,13 +15203,23 @@ export function buildCharacter(
     const e = Math.pow(Math.pow(Math.abs(out.x) / hw, p)
       + Math.pow(Math.abs(out.z) / hd, p), 1 / p);
     if (e >= 1 || e < 1e-6) return;
-    // FADED IN OVER THE 60 mm BELOW THE HEM, and never switched on at it. The
-    // section already carries the travel (see `MASK_SWING`); this is the last
-    // few millimetres of it, and a correction that arrives at full strength on
-    // the first row below the hem is a step in the surface however small it is.
-    // At the hem itself it does nothing, so the fall leaves the rings at
-    // exactly the radius the rings left it.
-    const k = 1 + (1 / e - 1) * smooth(rideTopY, rideTopY - 0.035, out.y);
+    // THE STANDOFF FADES IN; CONTAINMENT DOES NOT. The old line blended the
+    // WHOLE push over the 60 mm below the hem — right at a coif's hem, where
+    // hair leaves the rings at the table's own radius and a full-strength step
+    // would kink the surface, and wrong everywhere a coifless fall arrives
+    // already inside the garment: a partial blend preserves a fraction of the
+    // violation, and on the berserker's fast-growing ruff that fraction was
+    // 15–18 mm of mane inside the fur near the crest (tools/wearsweep.mjs).
+    // Split the two jobs: a vertex inside the BARE garment goes to its
+    // surface unconditionally; only the extra clearance rides the fade. At a
+    // hem, where the arriving radius equals the garment table, eBare is 1 and
+    // this is byte-for-byte the old formula — the settled classes keep their
+    // look; see the hairmail gate holding 6/6 across the change.
+    const eBare = Math.pow(Math.pow(Math.abs(out.x) / under.hw, p)
+      + Math.pow(Math.abs(out.z) / under.hd, p), 1 / p);
+    const t = smooth(rideTopY, rideTopY - 0.035, out.y);
+    const kBare = eBare < 1 && eBare > 1e-6 ? 1 / eBare : 1;
+    const k = Math.max(1, kBare + t * (1 / e - kBare));
     out.x *= k; out.z *= k;
   };
   const _ffA = new THREE.Vector3();
@@ -16483,13 +16547,29 @@ export function buildCharacter(
       // MEASURED by `wearmeasure` section 5 against the real garment, so this
       // pair cannot drift out of true without the gate saying so.
       const seatY = S.neckRoot - 0.014 - S.neckTop;
-      const seatR = Math.max(S.neckHW * 0.86, S.neckHD * 0.80) + 0.048;
-      // And how fast it opens out under that. The torso's next two stations are
-      // 16 and 36 mm down and carry the yoke rather than the neck, so the stack
-      // gains about 0.8 mm of radius per millimetre of drop over the first
-      // 60 mm. A beard long enough to reach that is lying on a shoulder, not
-      // hanging beside a throat.
-      const seatFlare = 0.80;
+      // PER CLASS NOW, off the same `worn` registry the garments register in.
+      // The old pair was "the thickest stack in the shop" — huscarl mail —
+      // and the berserker paid for it: his fur ruff stands 80 mm off the
+      // spine where mail stands ~54, and his braided beard's rope dived
+      // through the jerkin at the sternum — 28.6% of hanging vertices inside
+      // (tools/wearsweep.mjs; the capture shows the braid entering the
+      // chest). The shop constant survives as a FLOOR so the armoured
+      // classes keep the exact seat wearmeasure §5 settled; a class whose
+      // registered garments stand wider gets the seat those garments demand.
+      const bodySeat = seatY + S.neckTop;
+      const seatWorn = shoulderOut(bodySeat - 0.004);
+      const seatWorn60 = shoulderOut(bodySeat - 0.064);
+      const seatR = Math.max(
+        Math.max(S.neckHW * 0.86, S.neckHD * 0.80) + 0.048,
+        (seatWorn?.hd ?? 0) + 0.006,
+      );
+      // How fast it opens out under that: measured over the first 60 mm of
+      // the registry's own profile, floored at the 0.80 the armoured yoke
+      // gains — see above for why the floor.
+      const seatFlare = Math.max(
+        0.80,
+        seatWorn && seatWorn60 ? (seatWorn60.hd - seatWorn.hd) / 0.06 : 0,
+      );
       // AND THE THROAT ABOVE THE COLLAR, which is 60 mm of neck the fall passes
       // and which nothing used to stand it off. Same two numbers again, one
       // layer in: the neck shell's widest section is `max(neckHW, neckHD)`, it
@@ -19896,6 +19976,7 @@ export function buildCharacter(
     torso: torsoMeshes[0],
     seams,
     sever: (zone, opts) => severBody(cutting, zone, opts),
+    wornTrunk: worn,
     reassemble: () => {
       for (const s of [...cutting.live.values()]) s.release();
     },
