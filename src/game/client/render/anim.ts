@@ -727,13 +727,20 @@ export function createWarriorRig(
   //
   // POSITION AND NORMAL, NO UVS — see the note at the merge for why the normal
   // has to be there. About 2 MB of duplicated data a warrior.
+  // `?shadowproxy=off` — a capture-only escape hatch, and the paired-probe arm
+  // the shadow-proxy residual entry prescribes (OPEN-DEFECTS: "the same paired
+  // probe with the shadow proxy toggled … on one build, same session"):
+  // per-mesh casting, exactly the pre-proxy frame, so a lit probe can ask
+  // whether the proxy owns a rose residual without checking out an old tree.
+  const noProxy =
+    typeof window !== "undefined" && /[?&]shadowproxy=off(?:&|$)/.test(window.location.search);
   body.traverse((o) => {
     if (o instanceof THREE.Mesh) {
       o.receiveShadow = settings.shadows;
-      o.castShadow = false;
+      o.castShadow = noProxy ? settings.shadows : false;
     }
   });
-  if (settings.shadows) {
+  if (settings.shadows && !noProxy) {
     const byBone = new Map<THREE.Object3D, THREE.Mesh[]>();
     body.traverse((o) => {
       if (!(o instanceof THREE.Mesh) || !o.parent) return;
