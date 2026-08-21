@@ -123,6 +123,33 @@ check("the outcome shape has room for a flip, and it is optional",
     && typeof o.flip.from === "string" && typeof o.flip.to === "string")),
   "every flip present is whole");
 
+// ---- EVERY TERRITORY RESOLVES TO A GROUND THIS BUILD CAN DRAW ----
+//
+// Sixteen territories share one arena today, and `groundForPeople` is the table
+// that will stop them. It falls back to the village on anything it does not
+// know — which is the right behaviour at runtime and exactly the behaviour that
+// would let a ground be added here, forgotten in the renderer, and shipped as a
+// silent fallback nobody noticed. So the fallback is not what is tested: the
+// LOOKUP is.
+{
+  const { GROUNDS, GROUND_BY_PEOPLE, groundForPeople } =
+    await import(pathToFileURL(resolve(ROOT, "src/game/grounds.mjs")).href);
+  const peoples = [...new Set(TERRITORIES.map((t) => t.people))];
+  const missing = peoples.filter((pp) => !GROUND_BY_PEOPLE[pp]);
+  check("every people that holds ground has an entry in the table",
+    missing.length === 0, missing.length ? `no ground for ${missing.join(", ")}` : peoples.join(", "));
+
+  const unbuilt = Object.entries(GROUND_BY_PEOPLE).filter(([, id]) => !GROUNDS[id]);
+  check("...and every id in the table is a ground this build actually has",
+    unbuilt.length === 0,
+    unbuilt.length ? `${unbuilt.map(([pp, id]) => `${pp}->${id}`).join(", ")} would silently fall back to the village`
+      : `${Object.keys(GROUNDS).length} ground(s): ${Object.keys(GROUNDS).join(", ")}`);
+
+  const unresolved = TERRITORIES.filter((t) => !GROUNDS[groundForPeople(t.people)]);
+  check("...so all sixteen territories resolve to something drawable",
+    unresolved.length === 0, `${TERRITORIES.length - unresolved.length}/${TERRITORIES.length}`);
+}
+
 // ---- the engine can reach a room from outside, which is how any of this is said ----
 const { makeEngine } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 const engine = makeEngine({ autoTick: false });

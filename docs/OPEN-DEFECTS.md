@@ -8,6 +8,68 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE WAR LOOP, CLOSED — and the two pieces of 5.7b that are SPECIFIED, not built — 21 Aug 2026
+
+The owner: *"I'm still not sure how the war map links to the actual gameplay &
+results etc. as I've played games and seen no update."*
+
+**The loop was never broken.** A Postgres stood up locally and `tools/warflow.mjs`
+runs **28/28** end to end: matches bank, territories flip, standings move, the
+replay guard holds, the oath locks. What was missing is that nothing in the game
+ever said so — `bankMatch` had six ways to bank nothing behind a
+`.catch(() => {})`, and the likeliest of the six (never having sworn) is the one
+a player can undo and was never told about.
+
+Closed this round, both ends:
+
+```
+  before the fight   the lobby names the ground — FOUGHT OVER / DEIRA / the
+                     Norse hold it. It had been on every snapshot since the war
+                     landed with nothing rendering it.
+  after the fight    war_result carries a reason per man, and the summary shows
+                     it — "+14 TO THE DANELAW · CAIT", or a BUTTON reading
+                     "THIS COUNTED FOR NOBODY — SWEAR TO A PEOPLE".
+  the payoff         when the ground changes hands on a man's own points:
+                     "DEIRA HAS FALLEN — the Anglo-Saxons take it from the
+                     Norse — your +14 carried it".
+```
+
+### What is NOT built, with the seam already found
+
+**1. A second ground.** Sixteen territories share one arena, so Deira looks
+exactly like Dyfed and taking ground reads as a number changing rather than as a
+campaign. **The seam exists and does not need building**: `world.ts`'s own header
+says *"A new ground is a new `GroundDef` in its own module, `registerGround`d,
+and a new `GroundSpec` beside the village's. It does not touch this file."*
+`GroundBuildContext` already hands a ground instancing, footing, prop scatter,
+fire markers and a dispose ledger.
+
+What it costs, honestly: the village's build is 2,600 lines and the pieces a
+second ground would want — the runestone at `world.ts:2893`, the banners at
+`:2629` — are written INLINE in it rather than as shared builders. So the unit is
+"extract three builders, then write a moor", not "write a moor". The natural
+first one is Pictish: standing stones instead of a palisade, peat fire instead of
+a bonfire, no huts — maximally unlike a Saxon village, so the difference reads at
+a glance.
+
+**2. The arena dressed by whoever holds it.** `world.ts:2658` alternates
+`bannerRed`/`bannerBlue` on the banner poles. Flying the HOLDER's colours
+instead — garnet over a Danelaw territory, green over a British one — is the
+cheapest thing on this list that would make one ground feel like sixteen. It
+needs the holder plumbed into `GroundBuildContext`, which is now possible
+because the territory is known at LOBBY time rather than at match start.
+
+**The plumbing for both is in and gated.** `GROUND_BY_PEOPLE` resolves every
+territory to a ground id — all four peoples answer "the village" today, so
+nothing a player sees changes — and `warsay` asserts that every people has an
+entry, that every id is a ground `GROUNDS` actually has, and that all sixteen
+territories resolve to something drawable. Without that last one a ground could
+be added to the table, forgotten in the renderer, and ship as a silent fallback
+into the village.
+
+---
+
+
 ## THE SHADOW DRAW CALLS — 664 to 539, losslessly; two mechanisms dead and the lossy cull refused — 21 Aug 2026
 
 The instrument said shadows are the largest single item on the sheet. This is the
