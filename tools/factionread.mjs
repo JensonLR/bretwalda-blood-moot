@@ -338,7 +338,11 @@ const deg = (r) => (r * 180) / Math.PI;
 const COSMETICTEST = resolve(ROOT, "tools/cosmetictest.mjs");
 function barFrom(name) {
   const src = readFileSync(COSMETICTEST, "utf8");
-  const m = src.match(new RegExp(`^const ${name} = (\\d+(?:\\.\\d+)?);`, "m"));
+  // `export const` too. The identical pattern in `tools/solidtest.mjs` silently
+  // stopped matching on 20 Aug when `BODY_MIN_SEP` gained an `export`, and that
+  // harness refused to run for a day. Widened here BEFORE the same thing
+  // happens to a bar, because a gate that cannot read its bar is a gate.
+  const m = src.match(new RegExp(`^(?:export )?const ${name} = (\\d+(?:\\.\\d+)?);`, "m"));
   if (!m) die(`cannot read ${name} out of tools/cosmetictest.mjs — this file must not choose its own bar`);
   return Number(m[1]);
 }

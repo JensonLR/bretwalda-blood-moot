@@ -98,7 +98,14 @@ const DEFERRALS = [];
 const ENGINE_SRC = readFileSync(resolve(ROOT, "src/game/engine.mjs"), "utf8");
 
 function engineConst(name) {
-  const m = ENGINE_SRC.match(new RegExp(`^const ${name} = ([0-9.]+)`, "m"));
+  // `export const` as well as `const`. `BODY_MIN_SEP` was exported on 20 Aug so
+  // `src/game/spectate.mjs` could read "how far apart can two men be and still
+  // be fighting" from the one place that defines it — a good change that made
+  // this pattern stop matching, and this harness refused to run from that
+  // moment. It refuses LOUDLY (exit 2), which is the only reason it was found;
+  // a softer failure would have left twelve assertions dark behind a battery
+  // that looked green.
+  const m = ENGINE_SRC.match(new RegExp(`^(?:export )?const ${name} = ([0-9.]+)`, "m"));
   if (!m) {
     console.error(`[solid] engine.mjs no longer declares ${name}. This harness models`);
     console.error(`        engine.mjs's movement step; if its constants have moved, the`);
