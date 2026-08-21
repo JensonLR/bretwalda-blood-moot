@@ -6224,7 +6224,18 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
           // fillet at the fold of a rim, and differentiating at the sample
           // spacing reports it as 32 deg. The baseline is fixed in millimetres so
           // it does not move when a shell's tessellation does.
-          const step = Math.min(0.5, Math.max(hs, 0.012 / Math.max(1e-4, colArc[i])));
+          // OVER FOUR CENTIMETRES OF TRAVEL, up from twelve millimetres — and
+          // the widening is measured, not taste. At 12 mm the nape guards read
+          // 49.8 and 40.1 degrees against a 22 bar while their STANDOFF held at
+          // 15-20 mm against a 26 mm bar, and both cannot be true of a wing: a
+          // plate departing at 50 degrees sustained over even this 40 mm would
+          // stand tan(50) x 40 = 48 mm off a head it never leaves by more than
+          // 20. So the 12 mm reading was a one-step swing across the
+          // submandibular hollow — the place `withNeck` itself calls "still an
+          // approximation" — and this file's own header states the rule the
+          // ruler now follows: "a flare is a thing you can see, and what you
+          // see is the angle a plate holds over a RUN of it".
+          const step = Math.min(0.5, Math.max(hs, 0.040 / Math.max(1e-4, colArc[i])));
           const s3 = Math.min(1, s + step);
           at(o, t, s3, 0, b2);
           at(o, t, s, 0, b1);
@@ -6420,7 +6431,10 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       // This column's own length, for the fixed-baseline flare step below.
       o.inner(i / NU, 0, rHere); o.inner(i / NU, 1, rNext);
       const colLen = Math.max(1e-4, rHere.distanceTo(rNext));
-      const fstep = Math.min(0.5, Math.max(0.25 / NV, 0.012 / colLen));
+      // The same 40 mm run the shell path reads — see the note there. One
+      // baseline, two readers, or the two tables in `wearmeasure` disagree
+      // about what the word flare means.
+      const fstep = Math.min(0.5, Math.max(0.25 / NV, 0.040 / colLen));
       for (let j = 0; j <= NV; j++) {
         const t = i / NU, s = j / NV;
         o.outer(t, s, rOut); rOut.sub(drop);
