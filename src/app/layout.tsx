@@ -58,10 +58,10 @@ export async function generateMetadata(): Promise<Metadata> {
     description: "Multiplayer sword fighting in Dark Age Britain. Send your friends a link, choose a warrior, fight. No downloads.",
     // NO `images` ON EITHER OF THESE, DELIBERATELY.
     //
-    // They used to name `/images/hero-bg.jpg`, which has never existed — this
-    // repository has no `public/` directory at all — so every unfurl of this
-    // link resolved a 404 and collapsed to a bare grey card. `opengraph-image.tsx`
-    // now DRAWS the card per request, and Next wires it into both tag sets
+    // They used to name `/images/hero-bg.jpg`, which never existed, so every
+    // unfurl of this link resolved a 404 and collapsed to a bare grey card.
+    // `opengraph-image.tsx` now DRAWS the card per request (with the owner's
+    // helm mark set into it), and Next wires it into both tag sets
     // automatically at the correct absolute URL. Naming an image here would
     // override that with the same broken path again.
     openGraph: {

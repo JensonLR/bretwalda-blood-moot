@@ -1907,6 +1907,19 @@ export default function Page() {
         // title and the controls stay one composition from 390px to 1440px.
         <div className="wrap flex min-h-[calc(100dvh-6rem)] max-w-[34rem] flex-col justify-center gap-8 py-6 sm:gap-10">
           <div className="text-center">
+            {/* The owner's winged-helm mark — the game's one binary asset, by
+                their explicit instruction. Served from public/brand/, already
+                centred on the helm's own symmetry axis. */}
+            <img
+              src="/brand/helm-mark.png"
+              alt=""
+              draggable={false}
+              className="mx-auto mb-4 h-24 w-auto select-none sm:h-32"
+              style={{
+                filter:
+                  "drop-shadow(0 0 26px rgba(255,190,80,0.30)) drop-shadow(0 2px 6px rgba(0,0,0,0.85))",
+              }}
+            />
             <div className="flex items-center justify-center gap-2.5 text-amber-300/90 sm:gap-3">
               <span className="ornament-line" />
               <Swords size={13} className="shrink-0" />

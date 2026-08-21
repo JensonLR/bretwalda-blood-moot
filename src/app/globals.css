@@ -288,9 +288,10 @@
     pointer-events: none;
   }
 
-  /* Both backdrops are pure CSS. There is no /public directory in this
-     repo, so the .jpg backgrounds these screens used to reference were
-     404s and every menu was rendering on flat black. */
+  /* Both backdrops are pure CSS. The .jpg backgrounds these screens used to
+     reference never existed, so every menu was rendering on flat black.
+     (/public exists now, but holds exactly one thing — the owner's helm mark
+     in /public/brand — and no screen backdrop should ever join it.) */
   /* COLD AT THE TOP, AND THAT IS THE WHOLE FIX.
      Every stop here used to be a brown, so there was nothing for the fire to be
      warmer THAN and the glow flattened into a beige wash. A night sky is blue-

@@ -1,25 +1,27 @@
 import { ImageResponse } from "next/og";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * THE LINK CARD, AND WHY IT IS DRAWN RATHER THAN STORED.
  *
  * `layout.tsx` pointed both `openGraph.images` and `twitter.images` at
- * `/images/hero-bg.jpg`. There is no `public/` directory in this repository —
- * `globals.css` says so in its own comments, because the same missing file once
- * made every menu render on flat black. So the OG image was a 404, and had been
- * for as long as the tags existed: every unfurl of this game's link, on every
- * timeline and in every chat, resolved to nothing and the post collapsed to a
- * bare grey rectangle with a URL in it. Nobody reads a 404 in a link preview —
- * they see a link that looks broken, and scroll past.
- *
- * The fix cannot be "add a JPEG". This game opens from a link because it ships
- * no binary assets at all, and a hero photograph in the repository is the first
- * stone in exactly the avalanche that rule exists to prevent.
+ * `/images/hero-bg.jpg`, which never existed, so the OG image was a 404 for as
+ * long as the tags existed: every unfurl of this game's link, on every timeline
+ * and in every chat, resolved to nothing and the post collapsed to a bare grey
+ * rectangle with a URL in it. Nobody reads a 404 in a link preview — they see a
+ * link that looks broken, and scroll past.
  *
  * So the card is DRAWN by the same renderer Next uses for `ImageResponse` —
- * flexbox in, PNG out. It costs one route, no bytes in git, and it cannot drift
- * from the game's palette because it is built from the values `globals.css`
- * defines.
+ * flexbox in, PNG out. It costs one route and it cannot drift from the game's
+ * palette because it is built from the values `globals.css` defines.
+ *
+ * The one stored picture on it is the owner's winged-helm mark, read from
+ * `public/brand/helm-mark.png` — the single deliberate binary asset in this
+ * tree, added at the owner's explicit instruction (the note in
+ * WHAT-THIS-GAME-IS.md records the exception). It is embedded as a data URI
+ * because Satori fetches nothing relative: a bare `/brand/...` src would be
+ * another silent 404 on the very card this file exists to un-404.
  *
  * The size is 1200x630 and not the 1200x675 the old tags claimed. 675 is 16:9;
  * every consumer of this tag — X, Facebook, iMessage, WhatsApp, Slack, Discord
@@ -137,8 +139,23 @@ const KNOT =
       `</svg>`,
   );
 
+/** The owner's mark, held for the life of the process like the face is. */
+let helm: string | null | undefined;
+function loadHelm(): string | null {
+  if (helm !== undefined) return helm;
+  try {
+    const png = readFileSync(join(process.cwd(), "public", "brand", "helm-mark.png"));
+    helm = `data:image/png;base64,${png.toString("base64")}`;
+  } catch {
+    // A card without the mark beats a build that fails.
+    helm = null;
+  }
+  return helm;
+}
+
 export default async function OpengraphImage() {
   const face = await loadCinzel();
+  const mark = loadHelm();
   // One family name either way, so the styles below never have to know which
   // face they got.
   const display = face ? "Cinzel" : "Geist";
@@ -170,6 +187,11 @@ export default async function OpengraphImage() {
           fontFamily: display,
         }}
       >
+        {/* The mark leads; everything under it tightens to keep 630px. A card
+            with the sigil cropped off would be worse than a card without it. */}
+        {mark ? (
+          <img src={mark} height={172} alt="" style={{ marginBottom: 16 }} />
+        ) : null}
         <div
           style={{
             fontSize: 21,
@@ -179,7 +201,7 @@ export default async function OpengraphImage() {
             // `.label-overline`.
             textIndent: 14,
             color: GILT,
-            marginBottom: 30,
+            marginBottom: 22,
           }}
         >
           ANGLO-SAXON ARENA
@@ -192,7 +214,7 @@ export default async function OpengraphImage() {
             transparent, and therefore as nothing at all. */}
         <div
           style={{
-            fontSize: 122,
+            fontSize: 104,
             lineHeight: 1,
             color: GILT_LIT,
             letterSpacing: 7,
@@ -205,12 +227,12 @@ export default async function OpengraphImage() {
 
         <div
           style={{
-            fontSize: 52,
+            fontSize: 44,
             lineHeight: 1,
-            marginTop: 20,
+            marginTop: 16,
             color: "#d4453c",
-            letterSpacing: 22,
-            textIndent: 22,
+            letterSpacing: 20,
+            textIndent: 20,
             textShadow: "0 0 34px rgba(160,20,24,0.75), 0 2px 5px rgba(0,0,0,0.9)",
           }}
         >
@@ -220,12 +242,12 @@ export default async function OpengraphImage() {
         {/* A real <img>, not next/image: this tree is never mounted in a
             browser — Satori reads it and rasterises it — so a component that
             emits a srcset and a lazy loader has nothing to optimise here. */}
-        <img src={KNOT} width={BAND_W} height={H} alt="" style={{ marginTop: 34 }} />
+        <img src={KNOT} width={BAND_W} height={H} alt="" style={{ marginTop: 24 }} />
 
-        <div style={{ fontSize: 26, marginTop: 30, color: "#c3baa8", letterSpacing: 1 }}>
+        <div style={{ fontSize: 25, marginTop: 22, color: "#c3baa8", letterSpacing: 1 }}>
           Multiplayer sword fighting in Dark Age Britain
         </div>
-        <div style={{ fontSize: 19, marginTop: 16, color: "#8b8172", letterSpacing: 6, textIndent: 6 }}>
+        <div style={{ fontSize: 18, marginTop: 12, color: "#8b8172", letterSpacing: 6, textIndent: 6 }}>
           PLAYS IN THE BROWSER · NO DOWNLOAD
         </div>
       </div>

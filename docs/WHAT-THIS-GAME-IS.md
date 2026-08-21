@@ -46,6 +46,13 @@ This is the distribution superpower and it is the reason the "no binary assets"
 rule has been worth its enormous cost. It means the game can be *shared into a
 group chat and played by everyone in it ninety seconds later*.
 
+(The rule has exactly one standing exception, made on the owner's explicit
+instruction: `public/brand/helm-mark.png`, the owner's own winged-helm sigil
+from an earlier Anglo-Saxon project of theirs, which is the site's logo, the
+app icon and the link-card mark. One ~390 KB brand mark does not threaten the
+four-second load; a habit of adding textures and photographs would, and this
+paragraph is the fence. Everything the game itself renders stays procedural.)
+
 **Anglo-Saxon specificity.** Not generic medieval fantasy. Sutton Hoo, the
 Bretwalda, the blood moot, the heptarchy, garnet cloisonné, plaitwork. Nobody
 owns this ground — everyone else is either high fantasy or French-and-English
