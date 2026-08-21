@@ -2773,10 +2773,14 @@ function ClassGrid({ selected, onSelect, compact }: {
     <div className={`grid grid-cols-2 gap-3 ${compact ? "" : "lg:grid-cols-4"}`}>
       {WARRIOR_INFO.map((w) => {
         const stats = WARRIOR_STATS[w.id];
+        // `data-cls` rides on the card for the harnesses. `tools/cardgate.mjs`
+        // used to find these buttons by their DISPLAY text and died the day
+        // "RUNEKEEPER" became "WRECCA" — a name a player reads is allowed to
+        // change, an id on the wire is not, so the id is what a ruler holds.
         const isSel = selected === w.id;
         const WIcon = w.Icon;
         return (
-          <button key={w.id} onClick={() => onSelect(w.id)}
+          <button key={w.id} data-cls={w.id} onClick={() => onSelect(w.id)}
             className={`card card-interactive flex flex-col p-3.5 text-left sm:p-4 ${isSel ? "card-selected" : ""}`}>
             <div className={`medallion mb-3 ${isSel ? "!border-amber-500 !text-amber-300" : ""}`}><WIcon size={17} /></div>
             <div className="font-display text-sm tracking-wider text-amber-100">{w.name}</div>

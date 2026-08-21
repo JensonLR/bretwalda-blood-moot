@@ -59,9 +59,14 @@ import { chromium } from "playwright";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+// The two authorities, imported FIRST: everything below — the bar table, the
+// mirror gate, the mutation levers — derives from these two modules.
+const SHAPE = await import(pathToFileURL(resolve(ROOT, "src/game/statshape.mjs")).href);
+const { WARRIOR_STATS: ENGINE_STATS } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 const OUT = resolve(ROOT, "art/ui/classmatrix");
 const argv = process.argv.slice(2);
 const has = (n) => argv.includes(`--${n}`);
@@ -84,14 +89,59 @@ const check = (name, pass, detail) => {
 // of knowledge the harness cannot photograph, so it is stated once, here, and
 // claim 3 re-checks it from the other end: if a bar were wired to a different
 // stat, the drawn order would stop matching the authority's order for it.
-const BARS = [
-  { label: "HP", stat: "maxHealth" },
-  { label: "SPD", stat: "moveSpeed" },
-  { label: "ATK", stat: "attackDamage" },
-  { label: "DEF", stat: "blockReduction" },
-];
+// The four bars, FROM THE MODULE THAT DEFINES THE CARD. This table used to be
+// this file's own — label "ATK" against a card that draws "DMG", value
+// `attackDamage` against a card that draws `damageRate` — and with the label
+// wrong every card fell out of the pixel pass silently. `statshape.mjs` is the
+// authority the card itself draws from, so the ruler reads the same file.
+const BARS = SHAPE.AXES.map((axis) => ({ axis, label: SHAPE.AXIS_LABEL[axis] }));
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
-const CARD_NAME = { huscarl: "HUSCARL", warden: "WARDEN", runekeeper: "RUNEKEEPER", berserker: "BERSERKER" };
+// THE CARDS ARE FOUND BY ID, NEVER BY DISPLAY NAME.
+//
+// This table used to hold the four display names and every locator below
+// matched on them — and the whole harness died with a timeout the day the
+// owner renamed RUNEKEEPER to WRECCA and WARDEN to WEARD. A name a player
+// reads is allowed to change; the id on the wire is not; so the buttons now
+// carry `data-cls` and this file reads the DRAWN name off the card instead of
+// asserting its own copy of it.
+const CARD_IDS = ["huscarl", "warden", "runekeeper", "berserker"];
+// The bar labels come from `statshape.mjs`, THE place the card's axes are
+// defined — this file held its own list, the list said ATK where the card says
+// DMG, and every card fell out of the pixel pass at `rows.length === 4` for as
+// long as nobody looked. The same lesson as the display names, one line down.
+const BAR_LABELS = SHAPE.AXES.map((a) => SHAPE.AXIS_LABEL[a]);
+
+// ---------------------------------------------------------------------------
+// THE MIRROR GATE. `src/game/types.ts` carries a copy of `WARRIOR_STATS` for
+// the client, and it has drifted from the engine's before — moveSpeed was off
+// by half a stride on every class, ON THE SCREEN A PLAYER READS BEFORE
+// CHOOSING. It was resynced by hand during the re-levelling; a hand-sync with
+// no gate is a drift with a delay on it. So the card gate — the harness that
+// owns this screen — diffs every numeric field of every class before it opens
+// a browser at all, and a mismatch is a failure with both numbers in it.
+// ---------------------------------------------------------------------------
+async function mirrorGate() {
+  const ENGINE = ENGINE_STATS;
+  const src = readFileSync(resolve(ROOT, "src/game/types.ts"), "utf8");
+  const bad = [];
+  for (const cls of CARD_IDS) {
+    const block = src.split(new RegExp(`${cls}:\\s*{`))[1]?.split("}")[0] ?? "";
+    for (const [k, v] of Object.entries(ENGINE[cls])) {
+      if (typeof v !== "number") continue;
+      const m = block.match(new RegExp(`${k}:\\s*([0-9.]+)`));
+      if (!m) bad.push(`${cls}.${k} missing from types.ts`);
+      else if (Number(m[1]) !== v) bad.push(`${cls}.${k} card ${m[1]} vs engine ${v}`);
+    }
+  }
+  if (bad.length) {
+    console.log("  FAIL  the card's stats table has drifted from the engine's:");
+    for (const b of bad) console.log(`        ${b}`);
+    process.exitCode = 1;
+  } else {
+    console.log("  PASS  types.ts WARRIOR_STATS is field-identical to the engine's — the mirror holds");
+  }
+}
+await mirrorGate();
 
 /**
  * The two stat tables, read as TEXT out of the two files that hold them.
@@ -108,10 +158,12 @@ function statTable(file) {
     if (!m) throw new Error(`${file}: no ${c} block`);
     const body = m[1];
     out[c] = {};
-    for (const b of BARS) {
-      const v = body.match(new RegExp(`${b.stat}\\s*:\\s*(-?[\\d.]+)`));
-      if (!v) throw new Error(`${file}: ${c} has no ${b.stat}`);
-      out[c][b.stat] = parseFloat(v[1]);
+    // Every numeric field an axis reads — `cardValue` needs attackSpeed as
+    // well as attackDamage for the DMG rate, so the scan takes the union.
+    for (const f of ["maxHealth", "moveSpeed", "attackDamage", "attackSpeed", "blockReduction"]) {
+      const v = body.match(new RegExp(`${f}\\s*:\\s*(-?[\\d.]+)`));
+      if (!v) throw new Error(`${file}: ${c} has no ${f}`);
+      out[c][f] = parseFloat(v[1]);
     }
   }
   return out;
@@ -170,11 +222,30 @@ async function openChooser(page) {
     }
     return rules > 20;
   }, null, { timeout: 180000 });
-  await page.getByRole("button", { name: /Training/ }).first().click();
-  await page.waitForTimeout(600);
-  const muster = page.getByRole("button", { name: /MUSTER THE TESTGROUNDS/ });
-  if (await muster.count()) await muster.click();
-  await page.waitForSelector("text=RUNEKEEPER", { timeout: 60000 });
+  // A CLICK IS NOT A NAVIGATION UNTIL REACT IS AWAKE. The stylesheet heuristic
+  // above fires long before hydration finishes on a software-rasterised box, so
+  // a single click on "Training" could land on a button with no handler yet —
+  // nothing navigates, the muster button is then "absent", the skip skips, and
+  // the card wait times out on the training-info screen. That is exactly the
+  // failure this harness showed, and it predates the rename that exposed it.
+  // Each step now clicks UNTIL ITS OWN EFFECT is on screen.
+  const clickUntil = async (locator, appeared, what) => {
+    for (let i = 0; i < 30; i++) {
+      try { await locator.first().click({ timeout: 2000 }); } catch { /* not ready yet */ }
+      try { if (await appeared()) return; } catch { /* keep trying */ }
+      await page.waitForTimeout(1000);
+    }
+    throw new Error(`clicking ${what} never took`);
+  };
+  await clickUntil(
+    page.getByRole("button", { name: /Training/ }),
+    () => page.getByText("TESTGROUNDS", { exact: false }).count(),
+    "Training");
+  await clickUntil(
+    page.getByRole("button", { name: /MUSTER THE TESTGROUNDS/ }),
+    async () => (await page.locator('[data-cls="runekeeper"]').count()) > 0,
+    "MUSTER THE TESTGROUNDS");
+  await page.waitForSelector('[data-cls="runekeeper"]', { timeout: 60000 });
   // A PHONE SCROLLS AND A DESKTOP DOES NOT, and the first cut of this file did
   // not know that: at 390 px the four cards sit two-up BELOW the fold, inside
   // the shell's own scroller rather than the window's, so the clip fell outside
@@ -184,7 +255,7 @@ async function openChooser(page) {
   // sixteen identical bars. The grid is scrolled into the middle of the glass
   // before anything is measured.
   await page.evaluate(() => {
-    const card = [...document.querySelectorAll("button")].find((b) => b.textContent.includes("RUNEKEEPER"));
+    const card = document.querySelector('[data-cls="runekeeper"]');
     if (card && card.parentElement) card.parentElement.scrollIntoView({ block: "center", inline: "center" });
   });
   await page.waitForTimeout(500);
@@ -192,18 +263,24 @@ async function openChooser(page) {
 
 /** Where every bar is, in CSS pixels, as the browser laid it out. */
 const domRects = () => ({
-  find: () => {
-    const NAMES = ["HUSCARL", "WARDEN", "RUNEKEEPER", "BERSERKER"];
+  // `find` is SERIALISED and evaluated in the page, so it closes over nothing:
+  // the label list is a PARAMETER, injected by the caller from `statshape.mjs`.
+  // The first repair of this file left `LABELS` as a free variable inside a
+  // stringified function — undefined in the page, every card dropped, and the
+  // failure indistinguishable from the one being fixed.
+  find: (LABELS) => {
+    // By `data-cls`, so a display rename cannot blind this ruler again. The
+    // drawn name is READ off the card for the report rather than asserted.
     const cards = [];
-    for (const btn of document.querySelectorAll("button")) {
+    for (const btn of document.querySelectorAll("button[data-cls]")) {
+      const cls = btn.getAttribute("data-cls");
       const nameEl = btn.querySelector(".font-display");
-      if (!nameEl) continue;
+      if (!cls || !nameEl) continue;
       const name = nameEl.textContent.trim();
-      if (!NAMES.includes(name)) continue;
       const rows = [];
       for (const span of btn.querySelectorAll("span")) {
         const label = span.textContent.trim();
-        if (!["HP", "SPD", "ATK", "DEF"].includes(label)) continue;
+        if (!LABELS.includes(label)) continue;
         const track = span.nextElementSibling;
         const fill = track && track.firstElementChild;
         if (!fill) continue;
@@ -216,7 +293,7 @@ const domRects = () => ({
           inline: fill.getAttribute("style") || "",
         });
       }
-      if (rows.length === 4) cards.push({ name, rows, box: btn.getBoundingClientRect().toJSON() });
+      if (rows.length === 4) cards.push({ cls, name, rows, box: btn.getBoundingClientRect().toJSON() });
     }
     return cards;
   },
@@ -235,7 +312,7 @@ const domRects = () => ({
  * rounded cap cannot decide a claim.
  */
 async function measure(page, tag) {
-  const cards = await page.evaluate(`(${domRects().find.toString()})()`);
+  const cards = await page.evaluate(`(${domRects().find.toString()})(${JSON.stringify(BAR_LABELS)})`);
   if (!cards.length) return { cards: [], bars: [] };
   const clip = cards.reduce((a, c) => ({
     x: Math.min(a.x, c.box.x), y: Math.min(a.y, c.box.y),
@@ -293,7 +370,7 @@ async function measure(page, tag) {
         }
         runs.sort((a, b) => a - b);
         out.push({
-          card: card.name, label: row.label,
+          card: card.cls, cardName: card.name, label: row.label,
           runPx: runs[1],
           trackPx: x1 - x0,
           domPx: row.fill.w * dsf,
@@ -308,7 +385,7 @@ async function measure(page, tag) {
 }
 
 const pct = (b) => (b.runPx / b.trackPx) * 100;
-const get = (bars, cls, label) => bars.find((b) => b.card === CARD_NAME[cls] && b.label === label);
+const get = (bars, cls, label) => bars.find((b) => b.card === cls && b.label === label);
 
 function printMatrix(tag, bars) {
   console.log(`\n  ${tag} — DRAWN width as a percentage of the track, read out of the PNG`);
@@ -318,7 +395,8 @@ function printMatrix(tag, bars) {
       const x = get(bars, cls, b.label);
       return (x ? `${pct(x).toFixed(1)}%` : "—").padStart(9);
     }).join("");
-    console.log(`    ${CARD_NAME[cls].padEnd(12)}${row}`);
+    const drawn = bars.find((b) => b.card === cls)?.cardName ?? cls;
+    console.log(`    ${drawn.padEnd(12)}${row}`);
   }
 }
 
@@ -328,12 +406,19 @@ function printMatrix(tag, bars) {
 // disk changes, which is the point: this is a mutation of what the page DRAWS
 // FROM, and a scan of `src/` is blind to it in exactly the way an adversary's
 // mutation of what the page draws was blind to the old gate.
+// DERIVED FROM THE ROSTER THAT SHIPS, never typed. The from-values here were
+// once `runekeeper 5 -> 5.6, warden 4 -> 5` — and then the re-levelling made
+// those the REAL numbers, so both regexes missed, `0 module(s) rewritten`, and
+// claims 5a/5b failed with question marks. A lever whose search string is a
+// copy of the roster is a lever that dies every time the roster moves; these
+// read the engine's own table and push each man a fixed stride faster.
+const BUMP = 1.0;
 const MUTATIONS = [
-  { cls: "runekeeper", from: 5, to: 5.6 },
-  { cls: "warden", from: 4, to: 5 },
+  { cls: "runekeeper", from: ENGINE_STATS.runekeeper.moveSpeed, to: ENGINE_STATS.runekeeper.moveSpeed + BUMP },
+  { cls: "warden", from: ENGINE_STATS.warden.moveSpeed, to: ENGINE_STATS.warden.moveSpeed + BUMP },
 ];
 let mutationHits = 0;
-async function installStatMutation(page) {
+async function installStatMutation(page, muts) {
   mutationHits = 0;
   await page.route(/\.(js|mjs|ts|tsx)(\?|$)/, async (route) => {
     const res = await route.fetch();
@@ -341,9 +426,19 @@ async function installStatMutation(page) {
     try { body = await res.text(); } catch { return route.fulfill({ response: res }); }
     if (!/WARRIOR_STATS|runekeeper/.test(body)) return route.fulfill({ response: res, body });
     let hit = false;
-    for (const m of MUTATIONS) {
-      const re = new RegExp(`(${m.cls}\\s*:\\s*\\{[^}]*?moveSpeed\\s*:\\s*)${m.from}(\\b(?!\\.))`, "s");
-      if (re.test(body)) { body = body.replace(re, `$1${m.to}`); hit = true; }
+    for (const m of muts) {
+      // MATCHED BY VALUE, NOT BY SPELLING. The engine's number is `5`; the
+      // source spells it `5.0`; a regex built from String(5) with a
+      // no-more-digits lookahead rejects its own target. So the pattern
+      // captures ANY number literal in the moveSpeed slot and a callback
+      // compares it numerically — the one comparison that cannot be defeated
+      // by a trailing ".0".
+      const re = new RegExp(`(${m.cls}\\s*:\\s*\\{[^}]*?moveSpeed\\s*:\\s*)([\\d.]+)`, "s");
+      const mm = body.match(re);
+      if (mm && Math.abs(parseFloat(mm[2]) - m.from) < 1e-9) {
+        body = body.replace(re, `$1${m.to}`);
+        hit = true;
+      }
     }
     if (hit) mutationHits++;
     return route.fulfill({ response: res, body });
@@ -404,15 +499,30 @@ for (const vp of VIEWPORTS) {
   // FRESH PAGE, because the rewrite has to be in place before the module is
   // fetched — routing the page that is already showing the cards would change
   // nothing and would look exactly like a clamp.
+  // TWO SEPARATE MUTATIONS, ONE CLASS EACH — and that is the design talking,
+  // not caution. `statshape` derives every axis maximum from the roster being
+  // drawn, so bumping BOTH speed leaders rescales the axis and the change
+  // mostly disappears (measured: warden +4px of 219); and the class already AT
+  // the maximum can never grow its own bar, only shrink everyone else's. So
+  // the control bumps the warden alone and reads HIS growth, and the lever
+  // bumps the runekeeper alone and reads the WARDEN's shrink — each the
+  // sharpest observable consequence its mutation has under derived maxima.
   const page2 = await ctx.newPage();
-  await installStatMutation(page2);
+  await installStatMutation(page2, [MUTATIONS[1]]);
   await openChooser(page2);
-  const bumped = await measure(page2, `${vp.tag}-mutation-b`);
-  const hits = mutationHits;
+  const bumped = await measure(page2, `${vp.tag}-mutation-b-warden`);
+  const hitsWarden = mutationHits;
   await page2.close();
+
+  const page3 = await ctx.newPage();
+  await installStatMutation(page3, [MUTATIONS[0]]);
+  await openChooser(page3);
+  const bumpedRune = await measure(page3, `${vp.tag}-mutation-b-rune`);
+  const hitsRune = mutationHits;
+  await page3.close();
   await page.close();
   await ctx.close();
-  seen[vp.tag] = { plain, pinned, bumped, hits };
+  seen[vp.tag] = { plain, pinned, bumped, bumpedRune, hits: hitsWarden, hitsRune };
   printMatrix(vp.tag, plain.bars);
 }
 await browser.close();
@@ -463,7 +573,7 @@ for (const vp of VIEWPORTS) {
 function discriminates(bars, table) {
   const faults = [];
   for (const bar of BARS) {
-    const seenBars = CLASSES.map((cls) => ({ cls, v: table[cls][bar.stat], px: get(bars, cls, bar.label) }))
+    const seenBars = CLASSES.map((cls) => ({ cls, v: SHAPE.cardValue(table[cls], bar.axis), px: get(bars, cls, bar.label) }))
       .filter((x) => x.px);
     for (let i = 0; i < seenBars.length; i++) {
       for (let j = i + 1; j < seenBars.length; j++) {
@@ -503,7 +613,7 @@ for (const vp of VIEWPORTS) {
 for (const vp of VIEWPORTS) {
   const faults = [];
   for (const bar of BARS) {
-    const row = CLASSES.map((cls) => ({ cls, v: DISPLAY[cls][bar.stat], px: get(seen[vp.tag].plain.bars, cls, bar.label) })).filter((x) => x.px);
+    const row = CLASSES.map((cls) => ({ cls, v: SHAPE.cardValue(DISPLAY[cls], bar.axis), px: get(seen[vp.tag].plain.bars, cls, bar.label) })).filter((x) => x.px);
     const k = row.map((x) => (x.px.runPx / x.px.trackPx) / x.v);
     const lo = Math.min(...k);
     const hi = Math.max(...k);
@@ -534,30 +644,33 @@ for (const vp of VIEWPORTS) {
   const s = seen[vp.tag];
   const wardenBefore = get(s.plain.bars, "warden", "SPD");
   const wardenAfter = get(s.bumped.bars, "warden", "SPD");
-  const runeBefore = get(s.plain.bars, "runekeeper", "SPD");
-  const runeAfter = get(s.bumped.bars, "runekeeper", "SPD");
   const ok = s.hits > 0 && wardenAfter && wardenBefore && wardenAfter.runPx - wardenBefore.runPx > 10;
-  check(`${vp.tag}: 5a CONTROL — the injected 4.0 -> 5.0 reached the glass (the warden's bar grew)`,
+  check(`${vp.tag}: 5a CONTROL — the warden alone pushed ${MUTATIONS[1].from} -> ${MUTATIONS[1].to} takes the top of the bar`,
     ok,
     `${s.hits} module(s) rewritten; warden SPD ${wardenBefore ? wardenBefore.runPx : "?"}px -> ${wardenAfter ? wardenAfter.runPx : "?"}px `
     + `of ${wardenBefore ? wardenBefore.trackPx : "?"}`);
 
-  // Predicted from the control, not from the source: the warden's growth per
-  // unit of moveSpeed is measured on this very capture, and the runekeeper is
-  // asked for the same growth for the same +0.6. Half of it will do.
-  const perUnit = wardenAfter && wardenBefore ? (wardenAfter.runPx - wardenBefore.runPx) / (5 - 4) : 0;
-  const want = perUnit * (5.6 - 5) * 0.5;
-  const got = runeAfter && runeBefore ? runeAfter.runPx - runeBefore.runPx : 0;
-  check(`${vp.tag}: 5b THE LEVER — a runekeeper made 12% faster draws a longer speed bar`,
-    got >= want && want > 0,
-    `runekeeper SPD ${runeBefore ? runeBefore.runPx : "?"}px -> ${runeAfter ? runeAfter.runPx : "?"}px `
-    + `(moved ${got.toFixed(0)}px, needed ${want.toFixed(0)}px at the warden's own rate of ${perUnit.toFixed(0)}px per m/s)`);
+  // The lever's observable is RELATIVE: the runekeeper is already the maximum,
+  // so making him faster cannot lengthen his own bar — it must visibly shorten
+  // everyone else's. The expected shrink is predicted from the roster itself
+  // and half of it will do.
+  const wardenLever = get(s.bumpedRune.bars, "warden", "SPD");
+  const track = wardenBefore ? wardenBefore.trackPx : 0;
+  const vW = ENGINE_STATS.warden.moveSpeed;
+  const vR = ENGINE_STATS.runekeeper.moveSpeed;
+  const wantShrink = track * (vW / vR - vW / (vR + BUMP)) * 0.5;
+  const gotShrink = wardenBefore && wardenLever ? wardenBefore.runPx - wardenLever.runPx : 0;
+  check(`${vp.tag}: 5b THE LEVER — a runekeeper made faster visibly shortens every other speed bar`,
+    s.hitsRune > 0 && gotShrink >= wantShrink && wantShrink > 0,
+    `${s.hitsRune} module(s) rewritten; warden SPD ${wardenBefore ? wardenBefore.runPx : "?"}px -> ${wardenLever ? wardenLever.runPx : "?"}px `
+    + `(shrank ${gotShrink.toFixed(0)}px, needed ${wantShrink.toFixed(0)}px)`);
 
+  const runeAfter = get(s.bumped.bars, "runekeeper", "SPD");
   const collide = runeAfter && wardenAfter && Math.abs(runeAfter.runPx - wardenAfter.runPx) < 3;
-  check(`${vp.tag}: 5c a 5.6 and a 5.0 do not draw the same bar`,
+  check(`${vp.tag}: 5c the bumped warden and the runekeeper still draw two different bars`,
     !collide,
     collide ? `both draw ${runeAfter.runPx}px of ${runeAfter.trackPx} — the identical full bar this gate exists to catch`
-      : `5.6 draws ${runeAfter ? runeAfter.runPx : "?"}px, 5.0 draws ${wardenAfter ? wardenAfter.runPx : "?"}px`);
+      : `runekeeper ${runeAfter ? runeAfter.runPx : "?"}px, warden ${wardenAfter ? wardenAfter.runPx : "?"}px`);
 }
 
 // ============================================================
@@ -589,8 +702,8 @@ for (const vp of VIEWPORTS) {
 const drift = [];
 for (const cls of CLASSES) {
   for (const bar of BARS) {
-    const a = AUTHORITY[cls][bar.stat];
-    const d = DISPLAY[cls][bar.stat];
+    const a = SHAPE.cardValue(AUTHORITY[cls], bar.axis);
+    const d = SHAPE.cardValue(DISPLAY[cls], bar.axis);
     if (a !== d) drift.push(`${cls}.${bar.stat} card ${d} vs engine ${a}`);
   }
 }
