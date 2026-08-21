@@ -152,6 +152,12 @@ interface RoomState {
   mode: string;
   state: string;
   arena: string;
+  /**
+   * The named ground this match is fought over. Read here for one thing only —
+   * whose colours the moot flies — so it is optional and everything downstream
+   * falls back when it is absent, which is what a training bout looks like.
+   */
+  territory?: { id: string; name: string; native: string; holder: string } | null;
   players: Record<string, GamePlayer>;
   hostId: string;
   countdown: number;
@@ -625,7 +631,19 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       },
       {
         label: "RAISING THE MOOT", weight: 55, run: () => {
-          world = createWorld(scene, materials, quality);
+          // THE ROOM'S OWN GROUND, AND WHOSE COUNTRY IT IS.
+          //
+          // `opts` was never passed at all, so `room.arena` — a field the
+          // server has always sent — was ignored, and a second ground could
+          // have been registered, dealt and served without this line ever
+          // drawing it. The holder rides along so the moot flies the colours of
+          // whoever holds the territory being fought over; both fall back
+          // safely, which is what a training bout and the shot harness get.
+          const room = roomStateRef.current;
+          world = createWorld(scene, materials, quality, {
+            ground: room?.arena,
+            holder: room?.territory?.holder,
+          });
           disposers.push(() => world.dispose());
         },
       },
