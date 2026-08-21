@@ -55,7 +55,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: origin ? new URL(origin) : undefined,
     title: "BRETWALDA: BLOOD MOOT — Anglo-Saxon Arena Combat",
-    description: "Multiplayer sword fighting in Dark Age Britain. Send your friends a link, choose a warrior, fight. No downloads.",
+    description: "Multiplayer sword fighting in Dark Age Britain. Raise a blood moot, call your friends to the field, and fight for your kingdom.",
     // NO `images` ON EITHER OF THESE, DELIBERATELY.
     //
     // They used to name `/images/hero-bg.jpg`, which never existed, so every
@@ -67,13 +67,13 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "BRETWALDA: BLOOD MOOT",
       siteName: "Bretwalda",
-      description: "Real-time multiplayer sword fighting in Dark Age Britain. Open the link, choose a warrior, fight — no downloads.",
+      description: "Real-time multiplayer sword fighting in Dark Age Britain. Open the link, choose your warrior, and fight for your kingdom.",
       type: "website",
     },
     twitter: {
       card: "summary_large_image",
       title: "BRETWALDA: BLOOD MOOT",
-      description: "Real-time multiplayer sword fighting in your browser. Open the link and fight — works on any phone.",
+      description: "Real-time multiplayer sword fighting in Dark Age Britain. Open the link and take the field for your kingdom.",
     },
   };
 }

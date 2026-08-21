@@ -30,7 +30,7 @@ import { join } from "node:path";
  */
 
 export const runtime = "nodejs";
-export const alt = "BRETWALDA: BLOOD MOOT — multiplayer Anglo-Saxon sword fighting in the browser";
+export const alt = "BRETWALDA: BLOOD MOOT — multiplayer Anglo-Saxon sword fighting for the crown of Britain";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -244,11 +244,11 @@ export default async function OpengraphImage() {
             emits a srcset and a lazy loader has nothing to optimise here. */}
         <img src={KNOT} width={BAND_W} height={H} alt="" style={{ marginTop: 24 }} />
 
-        <div style={{ fontSize: 25, marginTop: 22, color: "#c3baa8", letterSpacing: 1 }}>
+        <div style={{ fontSize: 25, marginTop: 22, color: "#dbcfb2", letterSpacing: 1 }}>
           Multiplayer sword fighting in Dark Age Britain
         </div>
-        <div style={{ fontSize: 18, marginTop: 12, color: "#8b8172", letterSpacing: 6, textIndent: 6 }}>
-          PLAYS IN THE BROWSER · NO DOWNLOAD
+        <div style={{ fontSize: 18, marginTop: 12, color: "#a3905e", letterSpacing: 6, textIndent: 6 }}>
+          FOUR PEOPLES · ONE BRETWALDA
         </div>
       </div>
     ),
