@@ -97,7 +97,10 @@ const PHASES = arg("phases", "matrix,ablation,profile,server,live").split(",").f
 const SECS = parseFloat(arg("secs", "14"));
 
 // Small on purpose — see the header. 640x360 at dpr 1.
-const VIEW = { width: 640, height: 360 };
+const VIEW = {
+  width: Number(arg("w", 640)) || 640,
+  height: Number(arg("h", 360)) || 360,
+};
 
 const say = (s = "") => console.log(s);
 const note = (s) => console.log(`        ${s}`);
@@ -432,11 +435,30 @@ async function until(fn, what, timeoutMs = 60000) {
 async function installPatches(page, patches) {
   const hits = Object.fromEntries(patches.map((p) => [p.name, 0]));
   if (!patches.length) return hits;
+  // EVERY EXIT FROM THIS HANDLER IS AWAITED AND GUARDED, and that is not
+  // defensiveness — it is the difference between this file producing a table
+  // and producing nothing at all.
+  //
+  // The last `route.fulfill` was fire-and-forget. When the page navigates away
+  // while a request is still in flight, Playwright disposes the response and
+  // the fulfill rejects with "Fetch response has been disposed" — from inside a
+  // handler nobody is awaiting, so it surfaces as an UNCAUGHT PROMISE REJECTION
+  // and takes the whole process down mid-run:
+  //
+  //   route.fulfill: Fetch response has been disposed
+  //       at tools/fpstest.mjs:439
+  //   Node.js v22.22.2
+  //
+  // Every ablation after the one that crashed simply never ran, which is one of
+  // the two reasons `ablationRows` has been empty. A route that cannot be
+  // fulfilled is a request the page has already abandoned; dropping it is
+  // correct and it must not be fatal.
+  const settle = async (fn) => { try { await fn(); } catch { /* the page moved on */ } };
   await page.route("**/*.js*", async (route) => {
     let res;
-    try { res = await route.fetch(); } catch { return route.abort(); }
+    try { res = await route.fetch(); } catch { return settle(() => route.abort()); }
     let body;
-    try { body = await res.text(); } catch { return route.fulfill({ response: res }); }
+    try { body = await res.text(); } catch { return settle(() => route.fulfill({ response: res })); }
     let touched = false;
     for (const p of patches) {
       for (const [from, to] of p.subs) {
@@ -444,8 +466,8 @@ async function installPatches(page, patches) {
         if (parts.length > 1) { hits[p.name] += parts.length - 1; body = parts.join(to); touched = true; }
       }
     }
-    if (!touched) return route.fulfill({ response: res });
-    route.fulfill({ response: res, body });
+    if (!touched) return settle(() => route.fulfill({ response: res }));
+    await settle(() => route.fulfill({ response: res, body }));
   });
   return hits;
 }
@@ -522,6 +544,24 @@ async function openPage(browser, tier, { patches = [], mute = false } = {}) {
   const ctx = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   await page.addInitScript(PROBE);
+  // A WARRIOR WITH NO NAME NEVER RAISES A ROOM, and that is the whole of why
+  // `ablationRows` has been empty.
+  //
+  // `raiseMoot` presses CREATE BATTLE -> mode -> 1 ROUND -> CREATE ROOM and then
+  // waits sixty seconds for the server's `join` to carry a war code back. The
+  // landing screen asks for a warrior name first, and this file never gave one,
+  // so every single scene in this harness died on
+  //
+  //   baseline: run failed — Error: timed out waiting for the war code
+  //
+  // and with no `baseline` row the ranked table below cannot be built at all —
+  // `out.ablation` sits behind `if (base)`. `tools/summaryflow.mjs` has seeded
+  // this key since it was written; this file simply never did. It is seeded
+  // rather than typed because the name has to exist before the page's first
+  // render reads it (`page.tsx:506`), and a keystroke after load is a race.
+  await page.addInitScript(() => {
+    try { window.localStorage.setItem("bretwalda_name", "Prober"); } catch { /* private mode */ }
+  });
   if (mute) await page.addInitScript(MUTE_AUDIO);
   const hits = await installPatches(page, patches);
   page.on("pageerror", (e) => note(`page error: ${String(e).slice(0, 160)}`));
@@ -665,15 +705,31 @@ async function ablation(browser, out) {
       ({ page, ctx, hits } = await openPage(browser, tier, { patches: job.subs.length ? [job] : [], mute: job.mute }));
     } catch (e) { note(`${job.name}: could not open — ${String(e).slice(0, 100)}`); continue; }
 
-    const landed = job.subs.length ? (hits[job.name] || 0) : 1;
-    if (job.subs.length && landed === 0) {
-      note(`${job.name}: PATCH MISSED — nothing in the served bundle matched, result discarded`);
-      await ctx.close();
-      continue;
-    }
+    // THE PATCH IS COUNTED AFTER THE SCENE IS UP, NOT AFTER THE PAGE LOADS.
+    //
+    // This read `hits` here — immediately after `openPage` — and discarded any
+    // job whose count was zero. At that moment the browser has fetched the
+    // LANDING screen and nothing else: measured, thirteen `.js` responses and
+    // just over a megabyte, and **not one of them contains `postProcessing:!0`**.
+    // The renderer's chunk is lazy and does not arrive until the canvas mounts,
+    // which is after `raiseMoot`. So every one of the ten code ablations was
+    // thrown away before it had any chance to land, every run, and that is the
+    // second reason `ablationRows` has been empty.
+    //
+    // The route is installed for the life of the page, so the patch DOES apply
+    // when the chunk finally comes; only the accounting was early. The check
+    // moves below the moot, where the number it reads is the number that
+    // matters. `hits` is mutated in place by the handler, so it is simply read
+    // later — nothing else has to change.
     try {
       await raiseMoot(page, "ffa", { port: PORT, until, sleep });
       await sleep(2500);
+      const landed = job.subs.length ? (hits[job.name] || 0) : 1;
+      if (job.subs.length && landed === 0) {
+        note(`${job.name}: PATCH MISSED — nothing in the served bundle matched once the scene was up, result discarded`);
+        await ctx.close();
+        continue;
+      }
       const { r } = await record(page, SECS);
       rows.push({ name: job.name, landed, ...r });
       printRow(job.name, r);

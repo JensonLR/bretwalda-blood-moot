@@ -8,6 +8,88 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## FIXED — `ablationRows` was empty for three reasons, and none of them was the game — 21 Aug 2026
+
+`docs/BACKLOG.md`'s third priority reads: *"`ablationRows` is **empty**. Not
+partial: empty. Nothing in this repo can say which effect costs what, so a
+performance wave started today is eleven guesses dressed as engineering."* That
+has blocked Wave D since it was written. Three separate faults, all in the
+harness:
+
+**1. An uncaught rejection killed the run.** `installPatches`'s last
+`route.fulfill` was fire-and-forget. When the page navigates while a request is
+in flight, Playwright disposes the response and the fulfill rejects — from inside
+a handler nobody awaits, so it surfaces as an uncaught promise rejection and
+takes the process down:
+
+```
+  route.fulfill: Fetch response has been disposed
+      at tools/fpstest.mjs:439
+  Node.js v22.22.2
+```
+
+Every scene after the one that crashed simply never ran. Every exit from the
+handler is awaited and guarded now; a route that cannot be fulfilled is a request
+the page has already abandoned.
+
+**2. A warrior with no name never raises a room.** `raiseMoot` presses CREATE
+BATTLE → mode → 1 ROUND → CREATE ROOM and waits sixty seconds for the server's
+`join` to carry a war code back. The landing screen asks for a name first and
+this file never gave one, so **every scene** died on
+`timed out waiting for the war code` — and with no `baseline` row the ranked
+table cannot be built at all, because `out.ablation` sits behind `if (base)`.
+`summaryflow` has seeded `bretwalda_name` since it was written; `fpstest` never
+did. Seeded in an init script, because `page.tsx:506` reads it on first render
+and a keystroke after load is a race.
+
+**3. Every patch was discarded before it could land.** `hits` was read
+immediately after `openPage` and any job counting zero was thrown away. At that
+moment the browser has fetched the LANDING screen and nothing else — measured,
+**thirteen `.js` responses, 1,033,173 bytes, and not one of them contains
+`postProcessing:!0`**. The renderer's chunk is lazy and does not arrive until the
+canvas mounts, which is after `raiseMoot`. The route is installed for the life of
+the page so the patch always *would* have applied; only the accounting was early.
+The check moved below the moot.
+
+### What the instrument says, now that it runs
+
+Eleven rows, no misses, tier `low`, eight-man brawl, 6 s a scene. Baseline
+**624 draw calls**, 392k triangles, 3514 kB/frame.
+
+```
+  what was removed              ms@p50   ms@p99   draws    fbo   kB/frame
+  no 3D HUD damage nums           4.20  -212.70       3      0    1428.35
+  no grade+vignette               3.80  -680.10      72      0     183.30
+  no DoF                          3.30   175.90     -11      0     968.19
+  no postfx (whole chain)         2.60  -262.80       4     13    1235.92
+  no particles                    2.00  -237.50       1      0    1289.21
+  no dynamic torch lights         0.80   183.90      67      0     815.35
+  no shadows                      0.70  -396.40     240      2    1375.86
+  no props (density 0)           -0.00    43.00      43      0     210.64
+  no AO (GTAO alone)             -6.70    61.30      17      0    1340.72
+  no audio engine              -414.50   101.90      10      0    1081.01
+  no bloom                     -423.60   209.10      52      0    1297.24
+```
+
+**READ THE `draws` COLUMN AND NOT THE MILLISECONDS.** The file's own header says
+the shares and the draw-call counts are portable and the absolute times are not,
+and a six-second sample on a software rasteriser makes that concrete: `no bloom`
+at **−423 ms** and `no audio engine` at −414 are noise, not findings — removing a
+thing cannot cost four hundred milliseconds. The ms column needs a long run on a
+machine with a GPU before any of it is quoted.
+
+**The draws column is a finding, and it agrees with `framecost` independently.**
+Shadows are **240 of 624 draw calls** — and `framecost` reaches the same place by
+another road: *"352 of 410 visible meshes drawn twice for one shadow-casting
+light."* Two instruments, one number, and it is the largest single item on the
+sheet by a factor of three.
+
+That is the wave the instrument earns, and it can now be started on evidence
+rather than on eleven guesses.
+
+---
+
+
 ## NEGATIVE RESULT — widening the vat's bands does NOT buy the paid ladder — 21 Aug 2026
 
 The clamps are fixed (see below) and **eleven paid surfaces still collapse onto
