@@ -1770,7 +1770,27 @@ void main() {
   // where a power is a clean exposure-slope change. Doing it after the curve
   // instead — an S-curve on display values — pivots at 0.5, and almost nothing
   // in a dusk frame is anywhere near 0.5, so it only ever crushed the shadows.
-  hdr = uPivot * pow( max( hdr, vec3( 1e-5 ) ) / uPivot, vec3( uContrast ) );
+  // ON LUMA, NOT PER CHANNEL — and this is the Danelaw's magenta board.
+  //
+  // The per-channel form crushes whichever channel a saturated colour has the
+  // least of: a lit garnet arrives around (124, 20, 32), the power law drives
+  // 20 toward 4 while 124 barely moves, and chroma EXPLODES — the board that is
+  // #7c1420 in every material table drew #9b0439, hot magenta, C* 61.8. Green
+  // is the channel with the least headroom on the game's own reddest field, so
+  // the reddest thing in the frame is exactly where a per-channel curve fails.
+  //
+  // The slope is applied to the pixel's LUMINANCE and the colour is scaled by
+  // the ratio, so the brightness response is IDENTICAL — same curve, same
+  // pivot, same fixed points — and the hue and chroma ratios a material was
+  // authored with survive the grade. What is deliberately given up is the
+  // per-channel form's "colour contrast" (saturation swelling in the shadows);
+  // the saturation stage below owns that job, and one owner per job is the
+  // whole shape of this file.
+  {
+    float cL = dot( hdr, ${LUMA_VEC} );
+    float cLn = uPivot * pow( max( cL, 1e-5 ) / uPivot, uContrast );
+    hdr *= cLn / max( cL, 1e-5 );
+  }
 
   // Highlight crosstalk: past the knee, colour is walked toward its own
   // strongest channel, so a flame core goes white-hot and the sky's ember band

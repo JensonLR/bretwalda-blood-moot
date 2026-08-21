@@ -8,6 +8,50 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE LADDER KNEES ARE REVERTED, AND THE LESSON IS THE INSTRUMENT — 22 Aug 2026
+
+The two soft knees that bought the paid ladder 17 → 11 collapsed surfaces
+(`softBand`'s floor, `factionDye`'s chroma ceiling) merged green — **on gates
+that read albedo.** The rose entry's own standing lesson is that the albedo
+instruments cannot see the owner's defect, and it caught the author of the
+lesson: `tools/vatprobe.mjs`, which reads the RENDER under the arena's fire,
+measured the sworn Danelaw ABOVE his unsworn rose floor again.
+
+**Attributed with a paired control, not assumed.** Same tree, same albedos,
+grade change reverted — so the columns differ only in the tone-map:
+
+```
+                      with the luma grade      per-channel grade (control)
+  buff  @ 0°             +28.5                     +34.6
+  wrap  @ 180°           +30.5                     +23.4
+  wrap  @ 90°            +18.8                      -3.2
+  tunic @ 90°            +12.8                      +5.3
+```
+
+The regression is IN THE CONTROL — the knees own it (the merged baseline, same
+grade as the control, read at-or-below floor on every surface). The mechanism is
+exactly what the knees were for: more chroma kept near the cap, more lightness
+kept above the floor — and **C\* and L\* are the two axes of the rose band.**
+A knee that widens the vat's output range widens it into the band.
+
+**Both knees are reverted.** The ladder goes back to ~17 collapsed surfaces and
+that is the honest state: the ladder cannot be bought by widening what the vat
+hands back — it has to live on surfaces the vat does not touch (`fitting`
+demonstrates the shape). The sweep tables stay in `characters.ts` because the
+numbers are real; the knobs are gone.
+
+**And the grade fix carries its own exposure, named rather than hidden.** The
+luma-preserving contrast — which repairs the Danelaw's magenta shield board
+(`#9b0439` → `#850b36`, green 4 → 11, frame luma +0.02) — also CLEANS the
+unsworn floors (wrap floor 8.2% → 0.6%; the per-channel crush had been pushing
+undyed browns into the band too) and LIFTS dyed madder wraps back above the
+band's L\* floor the crush was hiding them under (wrap@90 sworn 2.7% → 22.5%
+absolute). Whether the wrap albedo needs to come down is a question for the lit
+probe AFTER the knee revert lands — it is re-run below.
+
+---
+
+
 ## THE CLASS-CARD GATE WAS BLIND THREE WAYS, and all three were copies — 21 Aug 2026
 
 `tools/cardgate.mjs` — the pixel gate on the one screen a player reads before
