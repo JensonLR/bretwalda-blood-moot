@@ -1993,6 +1993,28 @@ export function makeEngine(options = {}) {
     };
   }
 
+  /**
+   * DEAL THE GROUND THE MOMENT THERE IS A LOBBY TO SHOW IT IN.
+   *
+   * It used to be dealt at match START, which meant the lobby had nothing to
+   * name and a player learned where he had been fighting only from the results
+   * screen. Naming it in the lobby off a SECOND deal would have been a lie —
+   * two deals, two territories — so the lobby's deal IS the match's: `startMatch`
+   * adopts whatever is here rather than dealing again.
+   *
+   * A room sitting in a lobby for an hour therefore holds a ground chosen
+   * against an older front. That is the cost and it is small: the front moves
+   * over days, and a room that has told eight men what they are fighting for
+   * should not change its mind while they are readying up.
+   *
+   * Solo takes no ground — training is not a match, pays no gold and moves no
+   * border — so it is left null and the lobby simply shows nothing.
+   */
+  function dealGroundFor(room) {
+    if (!room || room.mode === "solo" || room.solo) { if (room) room.territoryId = null; return; }
+    room.territoryId = dealTerritory(`${++matchOrdinal}:${simMs}`, warFront);
+  }
+
   /** The named ground on a snapshot, or null. Nothing here is a number. */
   function territoryBlock(room) {
     const t = territory(room.territoryId);
@@ -2217,6 +2239,8 @@ export function makeEngine(options = {}) {
     room.players.set(pid, player);
     room.hostId = pid;
     rooms.set(code, room);
+    // The ground, named before anybody has readied up. See `dealGroundFor`.
+    dealGroundFor(room);
     s.roomCode = code; s.playerId = pid;
     sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
   }
@@ -2278,6 +2302,8 @@ export function makeEngine(options = {}) {
     room.players.set(pid, player);
     room.hostId = pid;
     rooms.set(code, room);
+    // The ground, named before anybody has readied up. See `dealGroundFor`.
+    dealGroundFor(room);
     s.roomCode = code; s.playerId = pid;
 
     for (let i = 0; i < botCount; i++) addBot(room, i, difficulty);
@@ -2414,7 +2440,10 @@ export function makeEngine(options = {}) {
       // are two different jobs and the first cut of this used one value for
       // both, which cost the replay.
       room.matchId = randomUUID();
-      room.territoryId = dealTerritory(`${++matchOrdinal}:${simMs}`, warFront);
+      // ADOPTED, not re-dealt. The lobby has already named this ground to every
+      // man in the room; dealing again here would fight over somewhere else and
+      // make that promise a lie. `dealGroundFor` is the only place that draws.
+      if (!territory(room.territoryId)) dealGroundFor(room);
     }
     if (isTeamMode(room)) { room.roundWins.red = 0; room.roundWins.blue = 0; }
     room.players.forEach((p) => {
@@ -3480,10 +3509,14 @@ export function makeEngine(options = {}) {
   function resetToLobby(room) {
     room.state = "lobby"; room.matchTimer = 0; room.countdown = 0; room.killFeed = []; room.lastStandTriggered = false;
     room.roundIndex = 0; room.roundWins = {}; room.lastRound = null; room.nextRoundAt = 0;
-    // The ground goes back with everything else. A lobby that still named the
-    // last match's territory would be promising a fight over Mercia that the
-    // next deal has not agreed to.
-    room.matchId = null; room.territoryId = null;
+    // The ground does NOT go back to nothing — it goes to the NEXT one. A lobby
+    // that named the last match's territory would be promising a fight over
+    // Mercia the next deal has not agreed to, which is what this line used to
+    // guard against by clearing it; but clearing it also left the lobby with
+    // nothing to say, which is the defect. Dealing here does both: the old
+    // ground is gone and the next one is already named.
+    room.matchId = null;
+    dealGroundFor(room);
     room.players.forEach((p) => {
       const stats = WARRIOR_STATS[p.warriorClass];
       p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;

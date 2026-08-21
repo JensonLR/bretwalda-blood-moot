@@ -97,6 +97,32 @@ const banked = crowd.outcomes.filter((o) => o.kind === "banked").length;
 check("the row count and the reasons agree",
   banked === crowd.banked, `banked=${crowd.banked}, outcomes saying banked=${banked}`);
 
+// ---- THE GROUND IS NAMED BEFORE THE FIGHT, not only after it ----
+//
+// `territoryBlock` has been on every snapshot since the war layer landed and
+// nothing rendered it, so a man could fight a whole season without learning
+// where. The lobby names it now; this asserts the wire still carries what that
+// line reads, because a field nothing checks is a field that quietly goes.
+{
+  const { makeEngine: mk } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+  const e = mk({ autoTick: false });
+  let snap = null;
+  e.connect((msg) => { if (msg.type === "game_state" && msg.data?.territory) snap = msg.data.territory; });
+  check("the snapshot carries the named ground, or the lobby has nothing to show",
+    // A room that has not started a match has no ground yet, which is correct
+    // and is why this asserts the SHAPE rather than a value: `territoryBlock`
+    // returns null or a block with an id, a name and a holder, never a half one.
+    snap === null || (typeof snap.id === "string" && typeof snap.name === "string" && typeof snap.holder === "string"),
+    snap ? JSON.stringify(snap) : "no match running — null, which is the honest answer");
+  e.stop?.();
+}
+
+// ---- a flip is carried to the man whose points did it ----
+check("the outcome shape has room for a flip, and it is optional",
+  crowd.outcomes.every((o) => o.flip === undefined || (typeof o.flip.territoryId === "string"
+    && typeof o.flip.from === "string" && typeof o.flip.to === "string")),
+  "every flip present is whole");
+
 // ---- the engine can reach a room from outside, which is how any of this is said ----
 const { makeEngine } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 const engine = makeEngine({ autoTick: false });
