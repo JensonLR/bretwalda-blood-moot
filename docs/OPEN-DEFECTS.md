@@ -8,6 +8,55 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN — `summaryflow`'s duel press fails about one run in three, and the assertion argues with the design — 21 Aug 2026
+
+Six runs on the merged tip, same box, same window:
+
+```
+  17/17    16/16, 1 not run    16/16, 1 not run    15/15, 2 not run
+  15/16, 1 FAILED              16/16, 1 not run
+```
+
+The failure, both lines from the same run:
+
+```
+  FAIL  pressed before the rollback, the intent parks
+        — pressed at 12ms with state=finished, button shows FIGHT AGAIN
+  FAIL  the summary overlay stands over a live canvas — verdict=false, canvas=true
+```
+
+`verdict=false` is the summary overlay not being MOUNTED. The harness waits for
+`match_end` **on the wire** before it presses — that part is right — and then
+presses immediately, deliberately: its own note says *"the park branch only
+exists inside the server's ten-second window, and on a software rasteriser the
+first summary frame alone costs this box most of it... So the press goes first
+and the picture is examined afterwards."*
+
+**So the two assertions want opposite things.** One requires the press to land
+before the summary can render; the other requires the summary to be rendered.
+On a box that takes 8–25 s to draw its first summary frame, which of them wins is
+decided by the load at that instant. That is not a defect in the game and no
+amount of waiting fixes it, because waiting is the thing the first assertion
+forbids.
+
+**Not attributed to this round's work, and not cleared of it either.** The same
+harness read 16/17 with a failure earlier the same day, before any war change
+went in, so it is not new. What IS new is that `war_result` adds one React state
+update at match end when a database is configured, and on a client drawing under
+a frame a second that is not free. Neither was measured against the other, and
+saying which would need a paired run on a machine that can draw.
+
+**The repair is the harness's, and it is the same shape as the shove's:** the
+press must be timed off a state the client publishes — "the summary is mounted"
+— rather than off `Date.now()`, and the window assertion must be allowed to
+report NOT RUN when the box cannot draw in time, the way the flourish rows
+already do. `docs/BACKLOG.md`'s first priority is exactly this: *"both harnesses
+sample after a wall-clock delay; both must instead wait on the client having
+received..."*
+
+---
+
+
 ## THE WAR LOOP, CLOSED — and the two pieces of 5.7b that are SPECIFIED, not built — 21 Aug 2026
 
 The owner: *"I'm still not sure how the war map links to the actual gameplay &
