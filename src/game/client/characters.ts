@@ -1388,9 +1388,52 @@ function roseFade(h: number, l: number): number {
 }
 
 const BAND_KNEE = 0.42;
+/**
+ * How much of the ceiling's knee the FLOOR gets, and it is a QUARTER because the
+ * two ends are not paying for the same thing.
+ *
+ * The ceiling's knee exists to stop a blow-out and needs the whole of `k` to do
+ * it. The floor's only job is to keep ORDERING — a darker source must come out
+ * darker — and that needs slope, not room. Swept through the shipped
+ * `factionread`, everything else held:
+ *
+ *   FLOOR_KNEE   5.2b collapsed surfaces   1.3 PEOPLE    1.1 SWORN
+ *     0 (was)              17                -35.65        2.44
+ *     0.25                 13                -40.57        2.46
+ *     0.50                 12                -63.25        2.48
+ *     1.00                 10                -88.89        2.36
+ *
+ * 0.25 buys FOUR paid surfaces off the collapse for five degrees of §1.3, and
+ * §1.3 is already failing by thirty-five and is structurally unable to reach its
+ * bar — `metal.sat` 0.07 -> 1.00 moves it by 0.2 degrees, which is measured in
+ * `docs/OPEN-DEFECTS.md`. 0.50 buys one more surface for another twenty-three
+ * degrees, which is not a trade worth making.
+ */
+const FLOOR_KNEE = 0.25;
 function softBand(x: number, lo: number, hi: number): number {
-  if (x < lo) return lo;
   const k = (hi - lo) * BAND_KNEE;
+  // THE FLOOR GETS THE SAME KNEE THE CEILING HAS, and it is the paid ladder
+  // this buys.
+  //
+  // This read `if (x < lo) return lo` — a HARD clamp, zero slope — while the
+  // line below it bends the ceiling asymptotically for a reason the file states
+  // twice: "the bend is asymptotic rather than a clamp, for the reason
+  // `softBand` gives". The ceiling obeyed that rule and the floor never did.
+  //
+  // Zero slope is where paid rungs go to die. Every finish whose lightness
+  // lands under `lo` comes out at EXACTLY `lo` — so Rough Iron at 0 gold and
+  // Bronze Scales at 110 leave the vat as one number, and `5.2b NO REFUND PER
+  // SURFACE` counts them as one swatch. `5.2b`'s own line measures the size of
+  // it: the worst pair reads ΔE 3.66 sworn against **11.85 unsworn**. The shop
+  // has a ladder; the clamp is what flattens it.
+  //
+  // Bent the same way and by the same `k`, so the two ends are one rule: the
+  // result approaches `lo - k` and never reaches it, which is exactly what the
+  // ceiling does at `hi + k`. Ordering is preserved all the way down — a darker
+  // source still comes out darker — and the excursion is bounded by the band's
+  // own width rather than by a second constant.
+  const kf = k * FLOOR_KNEE;
+  if (x < lo) return lo - kf * (1 - Math.exp((x - lo) / kf));
   if (x > hi) return hi + k * (1 - Math.exp((hi - x) / k));
   return x;
 }
