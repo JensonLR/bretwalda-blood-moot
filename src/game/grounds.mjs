@@ -618,9 +618,155 @@ export const SAXON_VILLAGE = {
   },
 };
 
+// ============================================================
+// THE MOOR — the second ground, and the first that is not a village
+// ============================================================
+//
+// Sixteen territories shared one arena, so Deira looked exactly like Dyfed and
+// taking ground read as a number changing. This is the other place.
+//
+// WHAT IS DELIBERATELY THE SAME, and it is most of the file. The play disc is
+// 18 m, the spawn ring is the village's, and there is one fire of radius 2.0 at
+// the origin. Every one of those is load-bearing somewhere else: `spawnRing`
+// solves against the disc, `tools/solidtest.mjs` models the bound, `firetest`
+// and `goretest` and the whole burn path in `engine.mjs` are written against a
+// hazard at the middle. A second ground that moved them would be a second
+// ground AND a rebalance, and only one of those was asked for.
+//
+// WHAT IS DIFFERENT IS EVERYTHING A PLAYER SEES. No palisade, so no bank ring
+// and no gate cuts in the height field — the ground simply keeps going. No
+// huts. Four standing stones instead, and the relief starts closer in and runs
+// harder, because upland is the whole idea.
+
+/**
+ * Peat hollows. Shallower and wider than the village's cart puddles, and dark
+ * rather than muddy: peat holds water without churning, so what a moor has is
+ * black pools with a firm edge, not a slurry.
+ */
+const MOOR_HOLLOWS = Object.freeze([
+  { x: 6.9, z: -4.2, depth: 0.052, reach: 3.4 },
+  { x: -8.1, z: 5.6, depth: 0.044, reach: 2.9 },
+  { x: 1.4, z: 9.8, depth: 0.038, reach: 2.4 },
+  { x: -5.2, z: -9.4, depth: 0.030, reach: 2.1 },
+].map((h) => ({ ...h, reach2: h.reach * h.reach })));
+
+/** Where the relief is allowed to start. Closer in than the village's 21.5. */
+const MOOR_RELIEF_RADIUS = 19.5;
+
+/** How wet the ground is at a point: the hollows, and the drainage between. */
+function moorWet(x, z) {
+  let w = 0;
+  for (const h of MOOR_HOLLOWS) {
+    const dx = x - h.x, dz = z - h.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > h.reach2) continue;
+    const t = 1 - smoothstep(0.25, 1, Math.sqrt(d2) / h.reach);
+    if (t > w) w = t;
+  }
+  return w;
+}
+
+/** Peat: dark, fibrous, and it is what the whole surface is made of. */
+function moorPeat(x, z) {
+  return clamp01(fbm(x * 0.052 - 27.4, z * 0.052 + 41.9, 3) * 1.5 - 0.34);
+}
+
+/**
+ * THE MOOR'S HEIGHT. No bank and no gates — that pair is a palisade's mound and
+ * its openings, and there is no palisade here.
+ *
+ * The fighting floor still has to be a floor: `play.radius` is 18 and a man
+ * fighting on a slope he cannot see is a bug, not terrain. So the relief is
+ * held off until `MOOR_RELIEF_RADIUS` exactly as the village holds it off, and
+ * what changes is what happens after — it starts two metres closer, climbs
+ * harder, and there is no ring of spoil in the way of it.
+ */
+function moorHeightAt(x, z) {
+  const r = Math.hypot(x, z);
+
+  // Tussock. Coarser than the village's turf and twice the amplitude: heather
+  // grows in clumps and the ground between them is not flat.
+  let h = (fbm(x * 0.115 - 41.2, z * 0.115 + 63.8, 3) - 0.5) * 0.085;
+
+  // The hollows, and they cut rather than dish: a peat bank has an edge.
+  for (const p of MOOR_HOLLOWS) {
+    const dx = x - p.x, dz = z - p.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > p.reach2) continue;
+    const d = Math.sqrt(d2) / p.reach;
+    h -= p.depth * (1 - smoothstep(0.55, 1, d));
+  }
+
+  const out = smoothstep(MOOR_RELIEF_RADIUS - 2, MOOR_RELIEF_RADIUS + 5, r);
+
+  // Rolling upland, harder and sooner than the village's.
+  const rolling = (fbm(x * 0.021 + 12.9, z * 0.021 - 7.3, 4) - 0.5) * 2;
+  h += rolling * (0.7 + 6.2 * smoothstep(24, 78, r)) * out;
+
+  // And hills behind it. The village reads 19 m of ridged noise from 52 m out;
+  // this reads 26 from 46, so the horizon is higher and nearer — which is the
+  // difference between a settlement in a valley and a fight on high ground.
+  h += (ridged(x * 0.0058 - 8.4, z * 0.0058 + 30.1, 3) - 0.26) * 26 * smoothstep(46, 150, r);
+
+  return h;
+}
+
+/**
+ * FOUR STANDING STONES, and they are solid.
+ *
+ * At 15.2 m they are inside the 18 m play disc, so a man can be driven into one
+ * — which is the point of declaring them at all, and the same argument the
+ * village's runestone was declared on. Set at the quarters rather than scattered
+ * because a stone row is a thing people put up on purpose, and four of them read
+ * as a circle the moment you turn.
+ */
+const MOOR_STONES = Object.freeze([0, 1, 2, 3].map((i) => {
+  const a = (i / 4) * Math.PI * 2 + 0.38;
+  return raisedStone({
+    id: `moorstone${i}`,
+    x: Math.cos(a) * 15.2, z: Math.sin(a) * 15.2,
+    rot: a + Math.PI / 2 + (i % 2 ? 0.14 : -0.11),
+    // Shorter and squatter than the village's carved slab: this is field
+    // granite somebody stood on end, not a monument somebody dressed.
+    span: 3.1, base: 1.55, lift: 1.6, radiusX: 0.54, radiusY: 1.5,
+    taper: 0.3, lean: i % 2 ? 0.075 : -0.06,
+    noise: noise2,
+    why: "A standing stone. The Picts left thousands and the moor is where they stand; four at the quarters read as a circle from any bearing, and a man shoved into one stops.",
+  });
+}));
+
+export const PICT_MOOR = {
+  id: "pict_moor",
+  name: "The Moor",
+
+  // The village's, exactly. See the header.
+  play: { shape: "disc", radius: 18 },
+  spawn: { gap: 7.5, minRadius: 6, maxRadius: 12 },
+
+  // A peat fire, not a bonfire: same geometry, because the sim and three
+  // harnesses are written against a hazard of this radius at the middle, and
+  // different in what the renderer makes of it.
+  hazards: [
+    { id: "peatfire", kind: "fire", x: 0, z: 0, radius: 2.0 },
+  ],
+
+  obstacles: MOOR_STONES,
+
+  heightAt: moorHeightAt,
+
+  field: {
+    reliefRadius: MOOR_RELIEF_RADIUS,
+    hollows: MOOR_HOLLOWS,
+    stones: MOOR_STONES,
+    wet: moorWet,
+    peat: moorPeat,
+  },
+};
+
 /** Every ground the game knows, by the id that travels on the wire. */
 export const GROUNDS = {
   saxon_village: SAXON_VILLAGE,
+  pict_moor: PICT_MOOR,
 };
 
 /** The ground a room gets when nobody has chosen one. */
@@ -650,9 +796,14 @@ export const DEFAULT_GROUND_ID = "saxon_village";
  */
 export const GROUND_BY_PEOPLE = Object.freeze({
   saxon: "saxon_village",
+  // The Danelaw and the Britons still muster in a village. Both of them HAVE
+  // villages — this is not a claim that they do not, it is that nobody has
+  // built theirs yet, and pointing them at a Pictish moor to avoid saying so
+  // would be worse than the sameness it hid.
   norse: "saxon_village",
   briton: "saxon_village",
-  pict: "saxon_village",
+  // North of the Forth there is no village to muster in. See `PICT_MOOR`.
+  pict: "pict_moor",
 });
 
 /**

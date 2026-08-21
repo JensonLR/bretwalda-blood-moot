@@ -34,6 +34,13 @@ import {
 } from "./render/anim";
 import { getBindings } from "./bindings";
 import { createSummary, type SummaryHandle } from "./render/summary";
+// THE GROUNDS THIS BUILD CAN DRAW. Imported for their side effect: a ground
+// module calls `registerGround` at import time, and nothing else in the tree
+// references `PICT_MOOR_GROUND`, so without this line the moor is dealt by the
+// engine, sent over the wire and then silently replaced by the village at
+// `createWorld`'s fallback. `tools/warsay.mjs` cannot catch that — it checks
+// the server's table — so the import is named here rather than left implicit.
+import "@/game/client/render/moor";
 
 /**
  * How far the build has got. `done` is the weight of the stages that have

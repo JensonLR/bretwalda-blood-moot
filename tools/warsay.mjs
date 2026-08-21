@@ -22,6 +22,7 @@
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { register } from "module";
+import { readFileSync } from "fs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // The server's own TypeScript, unchanged, through the hook `warflow` uses — so
@@ -148,6 +149,53 @@ check("the outcome shape has room for a flip, and it is optional",
   const unresolved = TERRITORIES.filter((t) => !GROUNDS[groundForPeople(t.people)]);
   check("...so all sixteen territories resolve to something drawable",
     unresolved.length === 0, `${TERRITORIES.length - unresolved.length}/${TERRITORIES.length}`);
+
+  // AND THE CLIENT MUST ACTUALLY IMPORT EVERY ONE OF THEM.
+  //
+  // A ground module calls `registerGround` at IMPORT time and nothing else in
+  // the tree references it, so a ground can be declared here, dealt by the
+  // engine, sent over the wire — and then silently replaced by the village at
+  // `createWorld`'s fallback, because the module was never imported. Every
+  // check above passes in that world. This is the one that does not: it reads
+  // the client's own import graph rather than the server's table.
+  const canvas = readFileSync(resolve(ROOT, "src/game/client/GameCanvas.tsx"), "utf8");
+  const unimported = Object.keys(GROUNDS)
+    .filter((id) => id !== "saxon_village")
+    .filter((id) => {
+      // `saxon_village` is built into `world.ts` itself; every other ground is
+      // its own module and the file name is its id with the people stripped.
+      const stem = id.replace(/^[a-z]+_/, "");
+      return !new RegExp(`render/(${id}|${stem})`).test(canvas);
+    });
+  check("...and the client imports every ground module, or the fallback eats it",
+    unimported.length === 0,
+    unimported.length
+      ? `${unimported.join(", ")} would be dealt by the server and drawn as the village`
+      : `${Object.keys(GROUNDS).length} ground(s) registered`);
+
+  const stones = GROUNDS.pict_moor?.obstacles?.length ?? 0;
+  check("the moor's standing stones are declared solid, so a man can be shoved into one",
+    stones === 4, `${stones} stone(s)`);
+
+  // A ground whose fighting floor is not flat is a ground where a man fights on
+  // a slope he cannot see. Both grounds hold their relief off the play disc, and
+  // this reads it off the height field rather than trusting the comment.
+  const worst = (spec) => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < 720; i++) {
+      const a = (i / 720) * Math.PI * 2;
+      for (const rr of [0, 4, 8, 12, 16]) {
+        const y = spec.heightAt(Math.cos(a) * rr, Math.sin(a) * rr);
+        if (y < lo) lo = y; if (y > hi) hi = y;
+      }
+    }
+    return hi - lo;
+  };
+  for (const [id, spec] of Object.entries(GROUNDS)) {
+    const spread = worst(spec);
+    check(`${id}: the fighting floor is flat enough to fight on`,
+      spread < 0.5, `${spread.toFixed(3)} m between the highest and lowest point inside the play disc`);
+  }
 }
 
 // ---- the engine can reach a room from outside, which is how any of this is said ----

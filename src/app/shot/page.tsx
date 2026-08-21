@@ -852,6 +852,10 @@ export default function ShotPage() {
     const search = new URLSearchParams(window.location.search);
     const chosen = PRESETS[search.get("preset") ?? "duel"] ?? PRESETS.duel;
     const camOverride = search.get("cam");
+    // `?ground=pict_moor`. Unknown ids fall through to the village exactly as
+    // `getGround` does, so a typo photographs the village rather than a blank.
+    // `?ground=pict_moor`. Unknown ids fall through to the village exactly as
+    // `getGround` does, so a typo photographs the village rather than a blank.
     const globals = window as unknown as Record<string, unknown>;
     globals.__photoCam = camOverride !== null ? parseFloat(camOverride) : chosen.cam;
     // Deleted rather than left stale: these globals outlive a client-side
@@ -939,7 +943,11 @@ export default function ShotPage() {
       code: "PHOTO01",
       mode: "blood_moot",
       state: preset.state ?? "fighting",
-      arena: "saxon_village",
+      // THE GROUND, FROM THE QUERY. Hard-coded to the village until there was a
+      // second one, at which point a harness that can only photograph the
+      // village is a harness that cannot show you the new ground — and a ground
+      // nobody can photograph is a ground nobody can judge.
+      arena: params?.get("ground") ?? "saxon_village",
       players,
       hostId: "me",
       countdown: 0,

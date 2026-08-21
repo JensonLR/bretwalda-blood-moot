@@ -59,7 +59,7 @@
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { SAXON_VILLAGE, seeded, noise2 } from "../src/game/grounds.mjs";
+import { SAXON_VILLAGE, PICT_MOOR, seeded, noise2 } from "../src/game/grounds.mjs";
 // Claim 12 runs the real thing. Every other claim drives a model of the movement
 // step; this one is here because a model of a tick ORDER cannot contain the pass
 // it does not know about. See the note on claim 12.
@@ -264,7 +264,17 @@ const PROVING_GROUND = {
   ],
 };
 
-const GROUNDS = [SAXON_VILLAGE, PROVING_GROUND];
+// THE MOOR IS IN THE LIST, and it was not when it was built.
+//
+// This file read 12/12 with `PICT_MOOR` in the tree and four new solids on it,
+// because it only ever walked the village and the proving ground — a gate green
+// because the case is absent. The moor's standing stones are declared solid so
+// that a man can be shoved into one, and "declared solid" is worth nothing
+// until something has tried to walk through them.
+//
+// Appended rather than inserted: the lever below reaches for `GROUNDS[0]` by
+// index and swaps the village's rick for a broken one.
+const GROUNDS = [SAXON_VILLAGE, PROVING_GROUND, PICT_MOOR];
 
 /**
  * Nothing on it and no bound. Used to MEASURE the driver's own largest
