@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 // — "obstacle decoration" blocks, "decoration decoration" does not. This module
 // contributes the tick order and nothing else; see the wiring note in
 // `gameTick`, and `tools/solidtest.mjs` for the gate on it.
-import { getGround } from "./grounds.mjs";
+import { getGround, groundForPeople, DEFAULT_GROUND_ID } from "./grounds.mjs";
 import { resolveSolids } from "./solidground.mjs";
 // THE WAR, and this is the whole of the engine's knowledge of it.
 //
@@ -2013,6 +2013,14 @@ export function makeEngine(options = {}) {
   function dealGroundFor(room) {
     if (!room || room.mode === "solo" || room.solo) { if (room) room.territoryId = null; return; }
     room.territoryId = dealTerritory(`${++matchOrdinal}:${simMs}`, warFront);
+    // AND THE ARENA FOLLOWS THE GROUND. `arena` was the string "saxon_village"
+    // typed at both room-creation sites, so a territory could never have
+    // brought its own place with it. It resolves through one table now
+    // (`groundForPeople`), which today answers "the village" for all four —
+    // nothing a player sees changes — and makes the second ground a one-line
+    // edit instead of a hunt through this file. See `GROUND_BY_PEOPLE`.
+    const t = territory(room.territoryId);
+    room.arena = t ? groundForPeople(t.people) : DEFAULT_GROUND_ID;
   }
 
   /** The named ground on a snapshot, or null. Nothing here is a number. */

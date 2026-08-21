@@ -627,6 +627,45 @@ export const GROUNDS = {
 export const DEFAULT_GROUND_ID = "saxon_village";
 
 /**
+ * WHICH GROUND A TERRITORY IS FOUGHT ON.
+ *
+ * Sixteen territories currently share one arena, so Deira looks exactly like
+ * Dyfed and taking ground reads as a number changing rather than as a campaign.
+ * `docs/BACKLOG.md` 5.7b is the fix and it is a big one — a ground is a
+ * `GroundSpec` here plus a `GroundDef` in the renderer, and the seam for that
+ * already exists (`registerGround`; `world.ts`'s header states a new ground
+ * "does not touch this file").
+ *
+ * THIS IS THE PLUMBING, AND IT IS DELIBERATELY BORING. Every territory resolves
+ * through one table to a ground id, and today every entry resolves to the
+ * village — which changes nothing a player sees and makes the next ground a
+ * one-line edit rather than a hunt through `engine.mjs` for two hard-coded
+ * strings. `tools/warsay.mjs` asserts that every territory `war.mjs` knows
+ * resolves to a ground `GROUNDS` has, so a ground added here and forgotten in
+ * the renderer cannot ship as a fallback nobody noticed.
+ *
+ * Keyed by PEOPLE rather than by territory id: the thing that should make one
+ * ground differ from another is whose country it is, and sixteen entries that
+ * all had to be edited together would be sixteen chances to miss one.
+ */
+export const GROUND_BY_PEOPLE = Object.freeze({
+  saxon: "saxon_village",
+  norse: "saxon_village",
+  briton: "saxon_village",
+  pict: "saxon_village",
+});
+
+/**
+ * The ground for a territory's people, falling back rather than throwing —
+ * same argument as `getGround`: a disagreement about what exists should drop
+ * everyone into the village, not into a crash.
+ */
+export function groundForPeople(people) {
+  const id = GROUND_BY_PEOPLE[people];
+  return id && GROUNDS[id] ? id : DEFAULT_GROUND_ID;
+}
+
+/**
  * A ground by id, falling back rather than throwing. An unknown id reaching
  * here means a client and a server disagree about what exists, and dropping
  * everyone into the village is a better answer to that than a crash.
