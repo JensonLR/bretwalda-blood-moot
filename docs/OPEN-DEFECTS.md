@@ -8,6 +8,58 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE CLASS-CARD GATE WAS BLIND THREE WAYS, and all three were copies — 21 Aug 2026
+
+`tools/cardgate.mjs` — the pixel gate on the one screen a player reads before
+choosing a class — had been failing or vacuous for some time, and nobody knew,
+because it is outside the everyday battery. Three separate copies of facts it
+did not own:
+
+```
+  1. the DISPLAY NAMES.  It located cards by "RUNEKEEPER"/"WARDEN" text and
+     died with a timeout the day the owner renamed them WRECCA and WEARD.
+     The cards carry `data-cls` now and every locator keys on the id; the
+     drawn name is READ for the report, never asserted.
+
+  2. the BAR LABELS.     Its list said ATK where the card draws DMG — stale
+     since `statshape.mjs` landed — so every card fell out of the pixel pass
+     at `rows.length === 4`, silently. The labels now come from
+     `statshape.AXIS_LABEL`, the module the card itself draws from. (And the
+     first repair left `LABELS` as a free variable inside a function that is
+     STRINGIFIED and evaluated in the page — undefined there, same symptom.
+     It is a parameter now, injected by the caller.)
+
+  3. the LEVER NUMBERS.  Mutation B searched the served module for
+     `runekeeper 5 -> 5.6, warden 4 -> 5` — and the re-levelling made those
+     the REAL values, so both regexes missed and the discrimination claims
+     failed with question marks. The from-values are read from the engine's
+     table and matched NUMERICALLY (the source spells the engine's `5` as
+     `5.0`, which a string-built lookahead rejects).
+
+  4. and a HYDRATION RACE under all of it: the harness clicked "Training"
+     600 ms after stylesheets landed, before React attached handlers, so the
+     click hit nothing and the card wait timed out on the wrong screen. Each
+     step now clicks until its own effect is on screen.
+```
+
+**And one finding about the design, measured while repairing the lever.**
+`statshape` derives every axis maximum from the roster being drawn — so bumping
+BOTH speed leaders rescales the axis and the change nearly vanishes (warden
++4px of 219), and the class already at the maximum can never grow its own bar.
+The claims now assert each mutation's sharpest observable: the warden alone
+bumped takes the top of the bar; the runekeeper alone bumped visibly shortens
+every OTHER speed bar — and the measured shrink lands on the prediction to the
+pixel (phone: shrank 30px, predicted 30; desktop: 46 against 46).
+
+**17/17 on both viewports**, with the drawn matrix now printing WEARD and
+WRECCA. The mirror in `types.ts` is confirmed field-identical to the engine and
+GATED — `cardgate` diffs every numeric field of every class before it opens a
+browser, so the drift that put a wrong speed on the chooser cannot recur
+silently. Three stale OPEN entries closed with this run's evidence.
+
+---
+
+
 ## THE MATCHMAKING NOW SAYS WHAT THE WAR MEANS BY IT — 21 Aug 2026
 
 The owner: *"how does an 8 player FFA score against the war ... we need everything
@@ -1957,7 +2009,7 @@ fixing hair geometry when the wrong property was being measured.
 
 ---
 
-## OPEN — the death that ends a MATCH is still played to the summary, not to the room
+## CLOSED — the death that ends a MATCH is now a slow-motion replay everyone watches (`src/game/replay.mjs`, 20 Aug 2026; `replaytest` §4 holds 240 frames at match end, photographed in `art/defects/nameplate-live-during-replay.png`)
 
 13 Aug 2026. The owner: *"death camera only shows when you die last, everyone
 should see death camera for final death winner & all losers."*
@@ -2410,7 +2462,7 @@ dark patch used to be. Capped at 3.5 on the largest channel (scaled, not clamped
 per channel, which would rotate the hue). Every brown, blond, red, grey and white
 in the shop is under the cap and converges exactly. **Raven Black gets 3.5 of its
 11 and is the one rung where a residual step is expected.**
-## OPEN — every class card draws its best stat AT THE RAIL, so a buff to a leader is invisible
+## CLOSED — every class card drew its best stat at the rail (fixed by `statshape.mjs`; verified 21 Aug 2026, `cardgate` 17/17)
 
 Found 2026-08-13 by `tools/classmatrix.mjs`, which reads the drawn width of every
 stat bar out of a browser capture rather than out of the source. Red on both
@@ -2457,7 +2509,7 @@ lands, claims 5b and 5c go green with no change to the harness.
 
 ---
 
-## OPEN — the class card draws a second copy of the stats, and it disagrees with the engine
+## CLOSED — the card's stats mirror disagreed with the engine (resynced during the re-levelling; now GATED — `cardgate` diffs every field and fails on drift, 21 Aug 2026)
 
 Same run, claim 7. `src/game/types.ts` holds a `WARRIOR_STATS` table that
 `page.tsx` draws from; `src/game/engine.mjs` holds the table that decides fights.
