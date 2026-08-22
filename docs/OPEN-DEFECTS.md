@@ -8,6 +8,54 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE SHADOW HOOD ROUTES HAIR OUT UNDER THE DRAPE — and the helm ruler holds byte-parity — 22 Aug 2026
+
+The standing backlog item ("Shadow Hood mantle geometry — route hair out")
+and hoodfall's twin findings: every hooded mane ended ~300 mm above the
+hood's hem, and both paid hairstyles collapsed into ONE identical object
+under the hood (7 pairs). Three lines owned it, each carrying the same
+wrong conclusion the Sutton Hoo mask note had already recorded un-learning
+("the helm swallows hair like the hood does"):
+
+- `hairFall` returned 0 under a hood. The drape ENDS — `hoodHemY`, its own
+  bottom station — and below it there is nothing but back.
+- `hairCeil`'s hood branch clamped the fall at EVERY height; it now
+  releases below `hoodHemY`, the same `atY` hem convention as the aventail.
+- Plait rods were deleted under the hood; they take the masked nape route —
+  inside the cloth to shoulder level, out under the drape.
+
+The mane takes the bagged route (squash inside, swing out at the hem,
+registry ride below): the hood and the aventail are one mechanism now.
+Captures: art/look/wearsweep/hood-*.png — the mane falls from under the
+drape over the huscarl's mail from the side, the plaits emerge distinct,
+the face is framed within the cowl.
+
+**And the price was driven to zero.** The registry fittings (wearsweep
+merge) had moved helmclash §5 from 75 to 85 red combinations — the
+runekeeper's beards through the Sutton Hoo's curtain (a pre-existing 21-27 mm
+spill tripled to 76), plaits nudged over the bar under the Wyrm-Crest — and
+the hood route initially added the hood's own beard rows. Three scopings
+return the ruler to EXACTLY main's 75 of 288, with rows improved along the
+way (wyrm long 3.61% -> 2.70%):
+
+- the beard's registry seat serves BARE heads only — under any helm, mask
+  or hood, the curtain/drape is the outermost thing at the throat and the
+  settled constant is the seat it was cut for;
+- the ride's unconditional containment serves bare heads and the hood —
+  hard helms keep the faded blend their stacks were tuned against;
+- under a hard helm `shoulderOut` reads the legacy two-stack list
+  byte-for-byte.
+
+**Still open, same file:** hoodfall §1 counts 3 collapsed pairs — the
+UNCOIFED Sutton Hoo trio (warden/runekeeper/berserker). Their free edge is
+found: on an uncoifed head the ventail curtain closes fully (vHalf = pi)
+and runs to its own hem to meet the collar; the route out is below that
+hem, the same construction as the hood's. It is the next unit. Also noted
+for its own entry: the huscarl's hood BEARD rows (80-102 mm through the
+drape front) are pre-existing on main and untouched by any of this.
+
+---
+
 ## THE ARMOURY-WIDE HANG SWEEP — every falling cosmetic against what the class actually wears — 21 Aug 2026
 
 The owner, with the huscarl fix fresh: *"I hope a check through the full

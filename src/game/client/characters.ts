@@ -13390,7 +13390,22 @@ export function buildCharacter(
     // ~13809) and his mane terminated dead at its top edge, 79.4% of hanging
     // vertices INSIDE (tools/wearsweep.mjs, art/look/wearsweep/). Reading the
     // registry means a garment cannot be worn and unseen at the same time.
-    for (const { sts, power } of worn) {
+    //
+    // EXCEPT UNDER A HARD HELM, where the OLD pair is read on purpose. Every
+    // helm stack in the shop was settled against the two-stack ride, and the
+    // registry's extra garments nudged plaits millimetres outboard under the
+    // Wyrm-Crest — enough to cross helmclash §5's 2% bar on rows that were
+    // green (75 -> 79 red). The registry serves the lenses it was built for:
+    // the bare head (the armoury, where the berserker's ruff was unseen) and
+    // the hood (whose whole route rides it). A hard helm's rows stay
+    // byte-for-byte the stack they were tuned on.
+    let readable = worn;
+    if (helmed && !hooded) {
+      readable = [];
+      if (shoulderStack) readable.push({ sts: shoulderStack, power: 2.2 });
+      if (trunkStack) readable.push({ sts: trunkStack, power: 2.3 });
+    }
+    for (const { sts, power } of readable) {
       // A layer only competes where it actually reaches — the same rule
       // `outer()` applies to a seated fitting, and for the same reason.
       if (y > sts[0]!.y + 1e-6 || y < sts[sts.length - 1]!.y - 1e-6) continue;
@@ -15229,7 +15244,15 @@ export function buildCharacter(
     const eBare = Math.pow(Math.pow(Math.abs(out.x) / under.hw, p)
       + Math.pow(Math.abs(out.z) / under.hd, p), 1 / p);
     const t = smooth(rideTopY, rideTopY - 0.035, out.y);
-    const kBare = eBare < 1 && eBare > 1e-6 ? 1 / eBare : 1;
+    // Unconditional containment ONLY where no helm stack claims the same
+    // vertex. The helm gates were settled against the old faded blend, and
+    // pushing hair fully out of the trunk garment under an open helm nudged
+    // the runekeeper's plaits through the Wyrm-Crest's envelope (helmclash
+    // §5: braids 1.24% -> 2.45%, over the bar). Bare-headed — the armoury
+    // lens, where the berserker's ruff crest carried 15-18 mm of buried
+    // mane — and under the hood, whose route was built on this containment,
+    // it stays unconditional.
+    const kBare = (!helmed || hooded) && eBare < 1 && eBare > 1e-6 ? 1 / eBare : 1;
     const k = Math.max(1, kBare + t * (1 / e - kBare));
     out.x *= k; out.z *= k;
   };
@@ -16586,8 +16609,22 @@ export function buildCharacter(
       // classes keep the exact seat wearmeasure §5 settled; a class whose
       // registered garments stand wider gets the seat those garments demand.
       const bodySeat = seatY + S.neckTop;
-      const seatWorn = shoulderOut(bodySeat - 0.004);
-      const seatWorn60 = shoulderOut(bodySeat - 0.064);
+      // NOT UNDER A MASK. A masked helm closes the throat with its own
+      // ventail curtain, and the beard is INSIDE that curtain — the registry
+      // seat describes the garments UNDER the man's chin, and growing the
+      // seat to them pushed the runekeeper's beard through the Sutton Hoo's
+      // closed curtain (helmclash §5: the pre-existing 21-27 mm spill at the
+      // curtain's hem tripled to 75-76, and the short-beard rungs went red
+      // at 30.8 mm). Under a mask the curtain is the outermost thing at the
+      // throat and the settled constant is the seat the curtain was cut for.
+      // …and the hood counts as a helm HERE even though the mane's ride
+      // treats it separately: the drape closes over the throat exactly as a
+      // ventail does, and the registry seat pushed even the short beard
+      // 62 mm through its front (helmclash §5, hood hair=shaved rows). The
+      // registry seat serves the BARE head — the armoury lens the berserker
+      // fix was made at — and nothing else.
+      const seatWorn = style.mask || helmed || hooded ? null : shoulderOut(bodySeat - 0.004);
+      const seatWorn60 = style.mask || helmed || hooded ? null : shoulderOut(bodySeat - 0.064);
       const seatR = Math.max(
         Math.max(S.neckHW * 0.86, S.neckHD * 0.80) + 0.048,
         (seatWorn?.hd ?? 0) + 0.006,
