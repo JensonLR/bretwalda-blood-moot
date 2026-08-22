@@ -1908,7 +1908,11 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       const lit = [];
       for (const fr of litFrames) {
         const r = roseShare(band, fr.px.data, maskFor(fr.cls, fr.turn, fr.subject));
-        lit.push({ ...r, people: fr.people, cls: fr.cls, turn: fr.turn });
+        // `finish` travels too — the projection that stood here dropped it,
+        // and every consumer below (worst-per-people line, worst-per-finish
+        // table, the §7.1 floor match) reads it. Third latent crash of the
+        // first full clocked run since the §6 refactor; found at hour three.
+        lit.push({ ...r, people: fr.people, cls: fr.cls, turn: fr.turn, finish: fr.finish });
       }
 
       // ---- THE BAR IS THE UNSWORN MAN, AND THAT TOOK A WRONG ONE FIRST -----
