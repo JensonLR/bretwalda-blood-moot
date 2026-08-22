@@ -8,6 +8,60 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE CLOCKED ROSE BASELINE — the first full §7 walk that ever finished, and what it actually found — 22 Aug 2026
+
+Four attempts and three latent tool crashes deep (the §6 refactor's ghosts:
+`dressDrift` deleted under its check, `finish` dropped from the lit rows,
+the sixth `masksFor` site left at the old arity — each found hours into a
+run, each merged as its own fix), `tools/factionread.mjs` completed its
+first end-to-end clocked walk on this tree: 8704 s, 126 captures, verdict
+**25/33 with 6 standing deferrals**. These numbers supersede every
+vatprobe-era rose figure in this file — vatprobe's small-surface rows carry
+±10-30 points of unclocked fire noise (its own entry above); THESE are
+readings.
+
+**The rose is real, it is bigger than the ledger believed, and it has a
+shape:**
+
+- **7.1 whole man: FAIL — 32 of 120 frames over their matched unsworn
+  floor**, worst +12.956 points (norse/huscarl/Sea Queen's Gift@160°:
+  14.2% vs 1.2%). The Danelaw at the 160° bearing dominates the top of the
+  table across FOUR finishes (Sea Queen's 11.4x, Polished 2.8x, Blackened
+  8.0x, Rough Iron 5.7x) — and a NEW name appears: **pict/Blackened Steel
+  at 9.2x** (5.46% vs 0.59% @0°), the first time a people off the madder
+  arc has led a rose row.
+- **7.1b per surface: FAIL — 170 surface-readings over floor**, worst
+  **+29.83 points on the BUFF** (norse/Polished Steel@0°: 31.19% vs 1.36%)
+  — a frame §7.1 scored +2.65 whole-man, the dilution §7.1b exists to
+  catch. The buff leads the per-surface table on multiple finishes
+  (+29.33 at Sea Queen's@160°).
+- **7.1c value: FAIL — 163 surface-readings lifted on the arc**, worst
+  +30.0 L* (briton/Blackened Steel buff@160°).
+- Controls all PASS (7.0/7.0b, 6.0, 6.2 repeatability 0.08% == 0.08%);
+  6.1 clip PASS; 7.2 off-arc peoples PASS (all 126 surfaces clear).
+- **6.0c STAGED: FAIL — 3 of 126 captures wore a different dress** — the
+  rebuilt accumulator's first catch is REAL drift in /shot's staging, not
+  instrument noise. (Tool note: the check prints the count but not the
+  three rows; the accumulator holds them — surface the list next run.)
+- Pre-existing albedo standings unchanged: 1.2 DISTINCT (norse vs pict
+  ΔC 6.05), 5.1b twins per surface (37 pairs), LADDER_DE reported 22/84.
+
+**What this means for the magenta-board unit:** the story "the old grade
+holds the wraps under the band, at or below floor everywhere" was
+single-run vatprobe noise. The CURRENT tree fails the lit gates broadly,
+led by the Danelaw's buff and rear bearing, before any grade change. The
+unit is therefore bigger than grade+wrap: it is the first true rose
+settlement, iterated against §7.1b.
+
+**And the iteration instrument comes first.** A 2.5-hour verdict per
+attempt is not a loop anybody can tune in. §6.2 proves the clock+seed
+staging makes captures repeatable to 0.08%; vatprobe's noise is exactly
+the absence of that staging. Port the clocked staging to vatprobe (or a
+`--clock` on /shot that both share), verify its buff@0 row reads +29.8
+against this baseline, and only then start moving colours.
+
+---
+
 ## THE SUTTON HOO TRIO — hair routes out under the closed curtain, and hoodfall PASSES whole — 22 Aug 2026
 
 The last three collapsed pairs (`hoodfall` §1): warden, runekeeper and
