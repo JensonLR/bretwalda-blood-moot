@@ -14914,6 +14914,17 @@ export function buildCharacter(
   // — and it was not one to the hair, which is the whole of the third fault.
   const hoodRim = (u: number) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2);
   const hoodCrown = Math.PI / 2 - 0.02;
+  /**
+   * The hood's LOWEST cloth — the shoulder drape's bottom station, the same
+   * `skullY - R.y * 2.95` the drape itself is swept to. Below this there is
+   * no cloth at all, so it is the height the hair's ceiling releases at:
+   * before it existed the hooded branch of `hairCeil` clamped a fall at
+   * EVERY height — the exact "a fall gets a garment's ceiling long after it
+   * has passed below that garment" the `atY` machinery was built to end —
+   * and `tools/hoodfall.mjs` §2 read the whole roster's manes ending ~300 mm
+   * ABOVE the hem they were supposed to emerge from.
+   */
+  const hoodHemY = skullY - R.y * 2.95;
   const hoodLift = (u: number, s: number) => 0.016 + 0.016 * s
     + 0.048 * (1 - s) * clamp01(-Math.cos(u))
     + 0.022 * Math.pow(1 - s, 1.5) * clamp01(Math.cos(u));
@@ -14971,7 +14982,7 @@ export function buildCharacter(
    */
   const hairCeil = (u: number, v: number, atY?: number): number => {
     let c = Infinity;
-    if (hooded) {
+    if (hooded && (atY === undefined || atY > hoodHemY)) {
       const a = hoodRim(u);
       // Capped at 22 mm however much room the cowl's point leaves. The hood is
       // three pieces — the cloth, the point behind the nape and the shoulder
@@ -15267,7 +15278,16 @@ export function buildCharacter(
    * cutoff is made of.
    */
   const hairFall = (u: number): number => {
-    if (hooded) return 0;
+    // A HOOD DOES NOT SWALLOW HAIR EITHER. `return 0` stood here on the same
+    // wrong conclusion the mask note below records un-learning: "the helm
+    // swallows hair like the hood does". The hood's drape ENDS — `hoodHemY` —
+    // and below it there is nothing but back. The route is the mask's route:
+    // full mass in the nape sector (the bagged window is the binding
+    // constraint), held inside the cloth by `hairCeil`'s hood clamp the whole
+    // way down, and out into open air under the drape's hem where the paid
+    // rung is. tools/hoodfall.mjs §2 read every hooded mane ending ~300 mm
+    // above the hem before this line changed.
+    if (hooded) return 1;
     // A MASK IS NOT A HOOD, AND THE DIFFERENCE IS A HEM.
     //
     // The Sutton Hoo closes the head on every bearing above the collar — a
@@ -16130,7 +16150,10 @@ export function buildCharacter(
         // see the long note there. One flag, one route, and the pair below is
         // opened wide enough that `hairFall` is the binding constraint rather
         // than the two of them tapering the same mass twice.
-        const baggedFall = coifed;
+        // A hood is a bag the head goes into, same as an aventail: the fall is
+        // held inside the cloth the whole way down and emerges at the HEM,
+        // swinging out onto the back below it. One route for both bags.
+        const baggedFall = coifed || hooded;
         const maneFrontDead = baggedFall ? 2.06 : Math.PI - 1.99;
         const maneFrontFull = baggedFall ? 2.40 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
@@ -16196,7 +16219,7 @@ export function buildCharacter(
           dirOf(u, maneRoot(u), _mrA);
           faceSurface(K, _mrA, _mrA);
           return Math.max(0.6, Math.min(2.4,
-            (_mrA.y + skullY - coifHemY + MASK_SHOW) / MANE_DEEP));
+            (_mrA.y + skullY - (hooded ? hoodHemY : coifHemY) + MASK_SHOW) / MANE_DEEP));
         };
         let live = 0;
         for (let i = 0; i <= 48; i++) live = Math.max(live, maneMass(mix(Math.PI - maneArc, Math.PI + maneArc, i / 48)));
@@ -16323,7 +16346,13 @@ export function buildCharacter(
           // `coifSquash` holds it there the whole way down. At 2.10 the rope
           // passed between the two curtains and the probe read 32 mm of plait
           // outside the ventail; at 2.52 it reads nothing.
-          const masked = style.mask && coifed;
+          // A hood takes the SAME nape route a masked coif does: the rope is
+          // inside cloth until it is level with the shoulder and comes out
+          // under the drape's hem, outboard and a little rearward. `continue`
+          // was here before — under the hood both paid hairstyles collapsed
+          // to one identical object (hoodfall §1, 7 pairs) because the rods
+          // were deleted and the mane was clamped to the skull.
+          const masked = (style.mask && coifed) || hooded;
           const rootU = s2 * (masked ? 2.60
             : style.cheek === "deep" && !style.mask ? cheekIn + 0.06 : 1.34);
           // A HOOD AND AN AVENTAIL ARE BAGS THE HEAD GOES INTO, AND A PLAIT
@@ -16347,7 +16376,7 @@ export function buildCharacter(
           // rope to come out. The huscarl's aventail is what creates the hem
           // this rung's hair uses, and he is the class the shop's portrait and
           // this gate are both shot on.
-          if (hooded || (style.mask && !coifed)) continue;
+          if (style.mask && !coifed) continue;
           if (coifed && !masked && awayFromFace(rootU) > coifRim(0) - 0.10) continue;
           // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN — SO THE PLAIT IS
           // TAKEN FROM UNDER THE GUARD, NOT DELETED BY IT.
