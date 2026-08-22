@@ -8,6 +8,54 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE ROSE UNIT SHIPS — grade + wrap settled against clocked readings, and the residue has named owners — 22 Aug 2026
+
+The unit the boardgrade ledger demanded, closed in four probe iterations and
+verdicted by the full clocked gate (5969 s):
+
+```
+                    baseline            unit             the movement
+  7.1 whole man     32/120  +12.956     30/120  +8.501   worst nearly halved
+  7.1b per surface  170     +29.83      153     +22.37   -17 rows, worst -7.5
+  7.1c value        163     +30.0       159     +30.3    flat (release/metal)
+```
+
+**What moved and why:**
+- The contrast pow is LUMA-PRESERVING (channels in ratio about a Y pivot).
+  It alone took the buff from +29.8 to +16.6 and improved the mail.
+- The Danelaw's WRAP is settled: +42.5 -> +0.14 at the fire-facing rear,
+  at-or-below floor at 0° and 90°. The route was learned the hard way and
+  the vat comment carries it: the rose band is a CORRIDOR (C* between 14.8
+  and 0.92 L*), so desaturating made it WORSE by dropping honest madder
+  into the pink; the escape is deeper dyestuff AND a darker vat AND a lower
+  albedo ceiling for the fire-lit crest tail. Iterations: 42.5 -> 48.6
+  (wrong way, learned) -> 23.1 -> 0.14.
+- The HIDE followed the leather row only weakly (+9.4 -> +9.2): it straddles
+  roseFade's release threshold, so most of its sworn colour is the release
+  path's, like the buff.
+
+**What did NOT move, measured so nobody re-litigates it blind:**
+- THE BOARD. Two grade stages were made luma-preserving IN TURN and the
+  stripes sampled each time: #900030/#a00040 at hue 336-340, to the bucket,
+  before and after both. The magenta is not made by the tonemap — it is the
+  COOL MOON KEY on a blue-over-green red: FACTION_FIELD.norse 0x7c1420 is
+  the Danelaw's identity colour across map, banners and UI, and authoring a
+  lit-variant pigment for it is the owner's call. The shader's own comment
+  at the filmic carries this ledger.
+- The BUFF (+15.9 remains): released from the vat by roseFade (proven: the
+  sworn buff was bit-identical across a halving of the leather row's sat),
+  its rose is the anisotropic UNDYED cap plus the fire.
+- The Danelaw's REAR-BEARING METAL family (Sea Queen's/Blackened/Rough at
+  160°): norse.metal.bias plus the bonfire, per the gate's own note.
+- 6.0c's 3-of-126 dress drift: unchanged, still unattributed rows (the
+  check does not print them — tool note stands).
+
+Captures: art/look/roseunit/. The Danelaw now reads as deep madder under
+bright mail from behind; his trousers measured 0.00% at the rear — the
+"lower half looks rose" instinct was overcalling legitimate dye.
+
+---
+
 ## THE TEN-MINUTE PROBE AGREES WITH THE TWO-HOUR GATE, TO THE SECOND DECIMAL — 22 Aug 2026
 
 `vatprobe` now stages the same fixed world as `factionread` §6

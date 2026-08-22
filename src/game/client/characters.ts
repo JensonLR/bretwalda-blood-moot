@@ -854,8 +854,35 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     paint: 0x14100e, pattern: "staves", device: "norse",
     dye: {
       cloth:   { sat: 0.74, bias: 0.66, lo: 0.08, hi: 0.28 },
-      wrap:    { sat: 0.48, bias: 0.70, lo: 0.10, hi: 0.12 },
-      leather: { sat: 0.56, bias: 0.68, lo: 0.06, hi: 0.26 },
+      // THE WRAP IS RETUNED AGAINST CLOCKED READINGS, and the first attempt
+      // taught the band's shape the hard way. The rose corridor is C* BETWEEN
+      // the undyed shirt's 14.8 and 0.92 x L*: a DEEP madder is above the
+      // ceiling and legitimate, a washed one is inside and pink. Desaturating
+      // (0.48 -> 0.30) therefore made the wrap WORSE — +42.5 -> +48.6 at the
+      // back — by dropping honest red pixels down into the corridor. The
+      // escape is the other way on both axes: more dyestuff and a darker
+      // vat, so a pixel is either above the chroma ceiling (true madder) or
+      // under the L* 41 floor (dark wool), and the corridor between them
+      // goes hungry. "More metal, darker wools" says the same thing.
+      //
+      // The LEATHER row is deliberately untouched and the reading that
+      // proves it must be: the sworn buff was BIT-IDENTICAL across a halving
+      // of this row's sat, because the buff is pale and `roseFade` releases
+      // pale surfaces from the vat entirely — its rose (+16.6 clocked, from
+      // +29.8 before the luma grade) is the RELEASE path's anisotropic
+      // UNDYED cap, the mechanism the vat's own comments assign to
+      // owner-level levers, and no dye row can reach it.
+      // Iteration 3's lever is the CLAMP, not the vat: with the mean already
+      // under the floor (L* 38.3), the +23 residue at the back was the
+      // fire-lit CRESTS of the wrap ridges crossing L* 41 — a tail, and a
+      // tail is cut by the albedo ceiling (hi), not by the mean.
+      wrap:    { sat: 0.64, bias: 0.55, lo: 0.085, hi: 0.10 },
+      // The HIDE follows the wrap's cure — it is dark, so roseFade keeps it
+      // in the vat (unlike the pale buff, which the vat releases), and its
+      // +9.4 at the fire-lit back was the same crest tail: deeper dyestuff,
+      // darker vat, lower ceiling. The buff's bit-identical reading across a
+      // halved sat proved this row never reaches it.
+      leather: { sat: 0.62, bias: 0.58, lo: 0.06, hi: 0.20 },
       // "More metal" is a statement about how MUCH iron he has and how bright
       // it is, not about what colour it is. 0.07 and a lift: near-white steel
       // over the darkest wools on the roster, which is the contrast the
