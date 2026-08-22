@@ -872,7 +872,11 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
       // +29.8 before the luma grade) is the RELEASE path's anisotropic
       // UNDYED cap, the mechanism the vat's own comments assign to
       // owner-level levers, and no dye row can reach it.
-      wrap:    { sat: 0.58, bias: 0.62, lo: 0.10, hi: 0.12 },
+      // Iteration 3's lever is the CLAMP, not the vat: with the mean already
+      // under the floor (L* 38.3), the +23 residue at the back was the
+      // fire-lit CRESTS of the wrap ridges crossing L* 41 — a tail, and a
+      // tail is cut by the albedo ceiling (hi), not by the mean.
+      wrap:    { sat: 0.64, bias: 0.55, lo: 0.085, hi: 0.10 },
       leather: { sat: 0.56, bias: 0.68, lo: 0.06, hi: 0.26 },
       // "More metal" is a statement about how MUCH iron he has and how bright
       // it is, not about what colour it is. 0.07 and a lift: near-white steel
